@@ -2,7 +2,7 @@
 ; (copy_files) cannot reach it.  We use a shell rule instead: %{project_root}
 ; expands to _build/default/ and ../../ steps back to the source root, giving
 ; a path to the real file on disk.  There is no dune dep-tracking for the
-; source; rebuild manually if schema.yaml changes.
+; source; rebuild manually if the source YAML changes.
 
 (rule
  (target schema.yaml)
@@ -12,3 +12,12 @@
    (run
     cat
     %{project_root}/../../modules/pytorch/torch/_export/serde/schema.yaml))))
+
+(rule
+ (target native_functions.yaml)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/pytorch/aten/src/ATen/native/native_functions.yaml))))

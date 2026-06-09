@@ -1,0 +1,40 @@
+; Build the ATen "core" subset of PyTorch C++ (no OCaml bindings yet).
+;
+; modules/pytorch is a git submodule excluded from dune's scan, so we reach it
+; with %{project_root}/../../modules/pytorch (same idiom as data/dune). The
+; submodule sources are NOT dep-tracked by dune; `touch` a rule input or run
+; `dune clean` to force a rebuild when the PyTorch checkout changes.
+;
+; Prerequisite (one-time): the fmt + cpuinfo third-party submodules must be
+; checked out:
+;   git submodule update --init third_party/fmt third_party/cpuinfo
+; (run inside modules/pytorch)
+
+; 1. Generated config header  ->  inc/c10/macros/cmake_macros.h
+
+(rule
+ (targets
+  (dir inc))
+ (deps gen_macros.sh)
+ (action
+  (run bash gen_macros.sh %{project_root}/../../modules/pytorch)))
+
+; 2. torchgen codegen  ->  gen/ATen/{core/TensorBody.h, core/ATenOpList.cpp, ...}
+
+(rule
+ (targets
+  (dir gen))
+ (deps run_codegen.sh)
+ (action
+  (run bash run_codegen.sh %{project_root}/../../modules/pytorch)))
+
+; 3. Compile c10 core+util + ATen/core + generated core srcs  ->  libaten_core.a
+
+(rule
+ (target libaten_core.a)
+ (deps
+  build_archive.sh
+  (glob_files_rec inc/*)
+  (glob_files_rec gen/*))
+ (action
+  (run bash build_archive.sh %{project_root}/../../modules/pytorch)))

@@ -130,3 +130,50 @@ same directory. The name must match without the `.t` extension.
   path in the build tree
 
 Both can appear in the same `(run ...)` action.
+
+## Directory Targets for Dynamic Codegen
+
+When a rule emits a *large or dynamically-sized* file set (e.g. `torchgen` produces
+dozens of headers whose exact names you don't want to enumerate), declare a **directory
+target** instead of listing files:
+
+```dune
+(rule
+ (targets (dir gen))
+ (deps run_codegen.sh)
+ (action (run bash run_codegen.sh %{project_root}/../../modules/pytorch)))
+```
+
+This requires opting in once, in `dune-project`:
+
+```dune
+(using directory-targets 0.1)
+```
+
+A consuming rule depends on the produced directory with a recursive glob — **not**
+`(source_tree ...)`, which targets *source* dirs and does not create the build-ordering
+edge against another rule's output:
+
+```dune
+(deps build_archive.sh (glob_files_rec gen/*) (glob_files_rec inc/*))
+```
+
+## `%{project_root}` Resolves Differently in Actions vs Deps
+
+`%{project_root}/../../modules/pytorch` reaches the submodule **only inside an
+`(action ...)`**, where the working directory is the rule's build dir
+(`_build/default/<rule-dir>`), so the `../../` climbs out of `_build/default` to the
+real workspace root — and this holds at any rule-directory depth.
+
+In `(deps ...)` the same string is resolved relative to the dune file's **source**
+directory, so the climb lands in the wrong place. Therefore submodule inputs are passed
+as **action arguments**, never as tracked deps. As with the `schema.yaml` rule above,
+this means **no dune dep-tracking** on those sources: `touch` the rule or `dune clean`
+to force a rebuild when the submodule checkout changes.
+
+## Keeping bash out of the sexp
+
+For multi-step shell actions (configure a header, run a generator, compile + archive
+many files), put the bash in a committed `*.sh` script listed in `(deps ...)` and invoke
+it with `(run bash script.sh <args>)`. The script stays independently runnable/testable
+and the dune file stays readable. See [aten_core_build.md](aten_core_build.md).

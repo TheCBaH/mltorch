@@ -431,6 +431,41 @@
  (modules parse_weights_config)
  (libraries pytorch_types jsont jsont.bytesrw schema_runtime))
 
+; aten_schema stage 1: raw YAML parse
+
+(rule
+ (target native_functions.yaml)
+ (action
+  (copy ../data/native_functions.yaml %{target})))
+
+(executable
+ (name aten_schema_raw_test)
+ (modules aten_schema_raw_test)
+ (libraries aten_schema))
+
+(cram
+ (applies_to aten_schema_raw_cram)
+ (deps %{exe:aten_schema_raw_test.exe} native_functions.yaml))
+
+; aten_schema stage 2: func string parser
+
+(library
+ (name func_parser_test)
+ (modules func_parser_test)
+ (libraries aten_schema)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+(executable
+ (name aten_schema_func_test)
+ (modules aten_schema_func_test)
+ (libraries aten_schema))
+
+(cram
+ (applies_to aten_schema_func_cram)
+ (deps %{exe:aten_schema_func_test.exe} native_functions.yaml))
+
 (cram
  (applies_to weights_config_cram)
  (deps

@@ -66,3 +66,10 @@ Done: schema parsing → code generation → single-file OCaml → parse any mod
 
 Not yet: a proper library API, a viewer UI, TFLite support (the `.tflite` files in
 `models/` are from an earlier phase and are currently unused).
+
+## Side track: ATen "core" C++ build
+
+Separate from the schema/JSON pipeline, [`modules/aten_core/`](../modules/aten_core/)
+builds a minimal slice of PyTorch's C++ (the dispatcher / IValue / type-system layer,
+122 sources) into `libaten_core.a` via dune — no OCaml bindings yet. See
+[aten_core_build.md](aten_core_build.md).

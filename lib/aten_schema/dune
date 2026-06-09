@@ -1,0 +1,10 @@
+(library
+ (name aten_schema)
+ (wrapped false)
+ (libraries jsont yamlt))
+
+(ocamllex
+ (modules func_lexer))
+
+(menhir
+ (modules func_parser))
