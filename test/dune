@@ -22,6 +22,35 @@
  (preprocess
   (pps ppx_expect)))
 
+(library
+ (name aten_gen_test)
+ (modules aten_gen_test)
+ (libraries aten_schema aten_gen)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+; Per-operation expect tests over the real ATen bindings + static-dispatch
+; archive (replaces the former lib/aten/demo executable + cram).
+
+(library
+ (name aten_ops_test)
+ (modules aten_ops_test)
+ (libraries aten)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+; Tensor RAII / live-count round-trip tests.
+
+(library
+ (name aten_tensor_test)
+ (modules aten_tensor_test)
+ (libraries aten)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
 ; Generate OCaml types from the PyTorch export schema.
 
 (rule
@@ -461,6 +490,15 @@
  (name aten_schema_func_test)
  (modules aten_schema_func_test)
  (libraries aten_schema))
+
+(executable
+ (name aten_gen_coverage)
+ (modules aten_gen_coverage)
+ (libraries aten_schema aten_gen))
+
+(cram
+ (applies_to aten_gen_coverage_cram)
+ (deps %{exe:aten_gen_coverage.exe} native_functions.yaml))
 
 (cram
  (applies_to aten_schema_func_cram)

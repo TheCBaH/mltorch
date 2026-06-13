@@ -13,7 +13,7 @@
             "upgradePackages": "false"
         },
         "./features/ocaml": {
-            "packages": "bytesrw jsont ppx_expect utop yaml"        },
+            "packages": "bytesrw ctypes ctypes-foreign jsont ppx_expect utop yaml"        },
     },
     "customizations": {
         "vscode": {

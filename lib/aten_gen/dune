@@ -1,0 +1,5 @@
+; Binding generator: ATen schema (via aten_schema) -> extern "C" shim + ctypes.
+
+(library
+ (name aten_gen)
+ (libraries aten_schema))

@@ -19,12 +19,44 @@ jobs:
     - name: setup
       run: |
         echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    - name: cache keys
+      id: cache_keys
+      run: |
+        echo "pytorch=$(git rev-parse HEAD:modules/pytorch)" >> $GITHUB_OUTPUT
+        echo "month=$(date +'%Y-%m')" >> $GITHUB_OUTPUT
+    # .ccache is at the repo root, which the devcontainer bind-mounts, so the
+    # host dir actions/cache manages and the container's CCACHE_DIR are the same
+    # files. Keyed by month + pinned PyTorch commit + hash of the build scripts
+    # (they decide which C++ sources compile and how); restore-keys warm-start
+    # from the closest prior cache.
+    - name: ccache cache
+      uses: actions/cache@v5
+      with:
+        path: .ccache
+        key: ccache-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-${{ hashFiles('lib/aten/build_archive.sh', 'lib/aten/gen_macros.sh', 'lib/aten/run_codegen.sh') }}
+        restore-keys: |
+          ccache-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-
+          ccache-${{ steps.cache_keys.outputs.month }}-
     - name: build
       run: |
-        ${{ env.EXEC }} make build
+        mkdir -p .ccache
+        ${{ env.EXEC }} sh -ceu 'CCACHE_DIR="$(pwd)/.ccache" CCACHE_MAXSIZE=1G make build BUILD_OPTIONS="--display short"'
+    - name: ccache stats
+      run: |
+        ${{ env.EXEC }} sh -ceu 'CCACHE_DIR="$(pwd)/.ccache" ccache -s'
     - name: test
       run: |
         ${{ env.EXEC }} make runtest
     - name: format
       run: |
         ${{ env.EXEC }} make format
+    - name: verify pristine
+      run: |
+        ${{ env.EXEC }} bash -c '
+          git_status=$(git status --porcelain)
+          if [ -n "$git_status" ]; then
+            echo "Git directory is not pristine. Modified or created files:"
+            echo "$git_status"
+            exit 1
+          fi
+        '

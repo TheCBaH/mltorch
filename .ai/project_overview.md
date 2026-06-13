@@ -69,7 +69,7 @@ Not yet: a proper library API, a viewer UI, TFLite support (the `.tflite` files 
 
 ## Side track: ATen "core" C++ build
 
-Separate from the schema/JSON pipeline, [`modules/aten_core/`](../modules/aten_core/)
-builds a minimal slice of PyTorch's C++ (the dispatcher / IValue / type-system layer,
-122 sources) into `libaten_core.a` via dune — no OCaml bindings yet. See
-[aten_core_build.md](aten_core_build.md).
+Separate from the schema/JSON pipeline, [`lib/aten/`](../lib/aten/) builds a minimal
+slice of PyTorch's C++ (the dispatcher / IValue / type-system layer) into
+`libaten_core.a` via dune and binds it with ctypes (the C++ sources sit next to the
+OCaml bindings). See [aten_core_build.md](aten_core_build.md).

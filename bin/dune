@@ -1,3 +1,12 @@
 (executable
  (name schema_gen)
+ (modules schema_gen)
  (libraries pytorch_schema))
+
+; Driver for the ATen operation-binding generator (emits atg_ops.h / atg_ops.cpp /
+; operation_description.ml; see lib/aten/dune for the rules that invoke it).
+
+(executable
+ (name aten_ops_gen)
+ (modules aten_ops_gen)
+ (libraries aten_schema aten_gen))

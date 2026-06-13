@@ -1,0 +1,128 @@
+; OCaml ctypes bindings over the ATen "core" C++ subset, built together with the
+; C++ artifacts they bind. The shim/ops sources and the libaten_core.a /
+; dllaten_core.so they compile to all live in THIS directory, so the library
+; picks them up directly — no cross-directory copy rules.
+;
+; modules/pytorch is a git submodule excluded from dune's scan, so we reach it
+; with %{project_root}/../../modules/pytorch (same idiom as data/dune; the path
+; is depth-independent). The submodule sources are NOT dep-tracked by dune;
+; `touch` a rule input or run `dune clean` to force a rebuild when the PyTorch
+; checkout changes.
+;
+; Prerequisite (one-time): the fmt + cpuinfo third-party submodules must be
+; checked out (run inside modules/pytorch):
+;   git submodule update --init third_party/fmt third_party/cpuinfo
+
+; 1. Generated config header  ->  inc/c10/macros/cmake_macros.h
+
+(rule
+ (targets
+  (dir inc))
+ (deps gen_macros.sh)
+ (action
+  (run bash gen_macros.sh %{project_root}/../../modules/pytorch)))
+
+; 2. torchgen codegen  ->  gen/ATen/{core/TensorBody.h, core/ATenOpList.cpp, ...}
+
+(rule
+ (targets
+  (dir gen))
+ (deps run_codegen.sh)
+ (action
+  (run bash run_codegen.sh %{project_root}/../../modules/pytorch)))
+
+; 2b. Operation bindings: generate the extern "C" wrappers (atg_ops.cpp/.h) and
+;     the ctypes functor (operation_description.ml) from native_functions.yaml
+;     via bin/aten_ops_gen. The curated op selection lives in that driver. The
+;     yaml is the build artifact produced by data/dune's shell rule (it lives
+;     in a submodule excluded from dune's scan); depend on it directly.
+
+(rule
+ (target atg_ops.h)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../../bin/aten_ops_gen.exe}
+    %{dep:../../data/native_functions.yaml}
+    atg_ops.h))))
+
+(rule
+ (target atg_ops.cpp)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../../bin/aten_ops_gen.exe}
+    %{dep:../../data/native_functions.yaml}
+    atg_ops.cpp))))
+
+(rule
+ (target operation_description.ml)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../../bin/aten_ops_gen.exe}
+    %{dep:../../data/native_functions.yaml}
+    operation_description.ml))))
+
+; 3. Compile c10 core+util + ATen/core + generated core srcs + the extern "C"
+;    shim (atg_shim.cpp = Tensor API, atg_ops.cpp = operations)  ->
+;    libaten_core.a / dllaten_core.so (atc_* symbols ship in the archive).
+
+(rule
+ (targets libaten_core.a dllaten_core.so)
+ (deps
+  build_archive.sh
+  atg_shim.cpp
+  atg_shim.h
+  atg_ops.cpp
+  atg_ops.h
+  atg_stubs.cpp
+  (glob_files_rec inc/*)
+  (glob_files_rec gen/*))
+ (action
+  (run bash build_archive.sh %{project_root}/../../modules/pytorch)))
+
+(library
+ (name aten)
+ (libraries ctypes-foreign bigarray)
+ (foreign_archives aten_core)
+ (ctypes
+  (external_library_name libaten_core)
+  (build_flags_resolver
+   (vendored
+    (c_flags :standard)
+    ; Link the static-dispatch archive with lld + --gc-sections: the generated
+    ; glue is built with -ffunction-sections so GC trims the ~2600 unreached
+    ; at::cpu:: op wrappers down to the add/mul closure. lld is essential — GNU
+    ; ld takes minutes (often hangs) doing this GC over the giant objects.
+    ; --no-export-dynamic undoes ocamlopt's default -E: otherwise every global
+    ; symbol is a GC root and --gc-sections keeps the whole archive.
+    (c_library_flags
+     :standard
+     -fuse-ld=lld
+     -Wl,--gc-sections
+     -Wl,--no-export-dynamic
+     -lstdc++
+     -lpthread)))
+  (headers
+   (preamble "#include \"atg_shim.h\"\n#include \"atg_ops.h\""))
+  (type_description
+   (instance Types)
+   (functor Type_description))
+  ; Tensor API (function_description.ml) and operations (operation_description.ml)
+  ; bind separately; both land under the single C entry point as C.Functions
+  ; and C.Operations. The operations half (operation_description.ml, with its
+  ; atg_ops.cpp/.h) is generated above by bin/aten_ops_gen from the schema.
+  (function_description
+   (concurrency unlocked)
+   (instance Functions)
+   (functor Function_description))
+  (function_description
+   (concurrency unlocked)
+   (instance Operations)
+   (functor Operation_description))
+  (generated_types Types_generated)
+  (generated_entry_point C)))

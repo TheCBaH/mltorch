@@ -4,11 +4,16 @@ RUN set -eux;\
     apt-get update;\
     env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends\
   ca-certificates\
+  ccache\
+  clang\
   cmake\
   curl\
   g++\
   git\
+  libffi-dev\
+  lld\
   make\
+  pkg-config\
   python3\
   python3-typing-extensions\
   python3-yaml\
