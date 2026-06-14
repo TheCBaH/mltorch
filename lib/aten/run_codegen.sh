@@ -15,10 +15,14 @@
 #
 #   $1 = path to the pytorch source root (the git submodule)
 # Output: ./gen/ATen/...  (so <ATen/core/TensorBody.h> resolves with -Igen)
+#         ./gen/torch/headeronly/core/  (so <torch/headeronly/core/enum_tag.h>
+#         resolves with -Igen; the PT source tree now has a redirect stub that
+#         points there instead of emitting the content directly).
 set -euo pipefail
 PT=$(cd "$1" && pwd)
 A="$(pwd)/gen/ATen"
-mkdir -p "$A"
+H="$(pwd)/gen/torch/headeronly/core"
+mkdir -p "$A" "$H"
 # torchgen unconditionally emits the AOTInductor C-shim sources during
 # `--generate sources`; --aoti-install-dir defaults to a CWD-RELATIVE
 # `torch/csrc/inductor/aoti_torch/generated`, which would leak into the source
@@ -29,6 +33,7 @@ for what in headers sources; do
     --source-path "$PT/aten/src/ATen" \
     --install_dir "$A" \
     --aoti-install-dir "$A/aoti_unused" \
+    --headeronly-install-dir "$H" \
     --static-dispatch-backend CPU \
     --skip-dispatcher-op-registration \
     --generate "$what"
