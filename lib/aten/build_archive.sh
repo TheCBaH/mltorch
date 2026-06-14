@@ -48,7 +48,7 @@ done
 
 INC=(-I"$PT" -I"$PT/aten/src" -Igen -Iinc
      -I"$PT/third_party/fmt/include" -I"$PT/third_party/cpuinfo/include")
-FLAGS=(-std=c++17 -Os -fPIC -DFMT_HEADER_ONLY=1)
+FLAGS=(-std=c++20 -Os -fPIC -DFMT_HEADER_ONLY=1)
 # Per-function/data sections so the FINAL link can --gc-sections away the unused
 # op wrappers. Applied ONLY to the generated glue + native closure: the c10 /
 # ATen-core objects are monolithic and always fully reached, so splitting them
@@ -65,7 +65,6 @@ mapfile -t SRCS_CORE < <(
   find "$PT/c10/core" "$PT/c10/util" "$PT/c10/mobile" -name '*.cpp' ! -name '*test*'
   find "$PT/aten/src/ATen/core" -name '*.cpp' ! -name '*test*'
   echo gen/ATen/core/ATenOpList.cpp
-  echo "$PT/aten/src/ATen/TensorNames.cpp"
   echo "$PT/aten/src/ATen/AccumulateType.cpp"
 )
 
@@ -83,7 +82,7 @@ mapfile -t SRCS_GLUE < <(
            UfuncCPU_add; do
     echo "gen/ATen/$f.cpp"
   done
-  for f in Context EmptyTensor ExpandUtils MemoryOverlap NamedTensorUtils \
+  for f in Context EmptyTensor ExpandUtils MemoryOverlap \
            ParallelCommon ParallelNative ParallelThreadPoolNative \
            SequenceNumber record_function ScalarOps TensorUtils \
            TensorIterator DeviceAccelerator; do
