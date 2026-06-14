@@ -30,8 +30,34 @@ module Functions (F : Ctypes.FOREIGN) = struct
   let dim = foreign "atc_dim" (atc_tensor @-> returning size_t)
   let sizes = foreign "atc_sizes" (atc_tensor @-> ptr int64_t @-> returning void)
 
+  let strides =
+    foreign "atc_strides" (atc_tensor @-> ptr int64_t @-> returning void)
+
+  let scalar_type = foreign "atc_dtype" (atc_tensor @-> returning int8_t)
+
+  let element_size =
+    foreign "atc_element_size" (atc_tensor @-> returning int64_t)
+
+  let is_contiguous = foreign "atc_is_contiguous" (atc_tensor @-> returning int)
+  let defined = foreign "atc_defined" (atc_tensor @-> returning int)
+  let is_cpu = foreign "atc_is_cpu" (atc_tensor @-> returning int)
+
   let data_ptr =
     foreign "atc_data_ptr" (atc_tensor @-> int8_t @-> returning (ptr void))
 
+  let item_double =
+    foreign "atc_item_double" (atc_tensor @-> ptr double @-> returning int)
+
+  let item_int64 =
+    foreign "atc_item_int64" (atc_tensor @-> ptr int64_t @-> returning int)
+
   let live_count = foreign "atc_live_count" (void @-> returning int64_t)
+  let last_error = foreign "atc_last_error" (void @-> returning string_opt)
+  let to_string = foreign "atc_to_string" (atc_tensor @-> returning string_opt)
+
+  let allclose =
+    foreign "atc_allclose"
+      (atc_tensor @-> atc_tensor @-> double @-> double @-> int @-> returning int)
+
+  let equal = foreign "atc_equal" (atc_tensor @-> atc_tensor @-> returning int)
 end

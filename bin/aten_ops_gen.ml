@@ -19,13 +19,15 @@
 
 type selection =
   | Allow of { base : string; overload : string option }
-  | Override of string
+  | Override of { signature : string; style : [ `Function | `Method ] }
 
 (* [op "name"] / [op "name" ~overload:"X"] selects an op from the yaml by base
    name (+ optional overload); [custom sig] overrides with a hand-written
-   signature for ops the generator cannot emit unmodified. *)
+   signature for ops the generator cannot emit unmodified. [~style:`Method] emits
+   a [self->op(...)] call, for method-only ops with no at:: free function (or no
+   schema dispatcher entry at all, e.g. contiguous/cpu). *)
 let op ?overload base = Allow { base; overload }
-let custom signature = Override signature
+let custom ?(style = `Function) signature = Override { signature; style }
 
 let selection =
   [
@@ -47,6 +49,13 @@ let selection =
     op "dropout";
     op "dropout_";
     custom "avg_pool2d(Tensor self, int[2] kernel_size) -> Tensor";
+    (* conversions: trimmed to the frontend overloads (drop MemoryFormat args). *)
+    custom "clone(Tensor self) -> Tensor";
+    custom ~style:`Method "contiguous(Tensor self) -> Tensor";
+    custom ~style:`Method "cpu(Tensor self) -> Tensor";
+    custom ~style:`Method
+      "to.dtype(Tensor self, ScalarType dtype, bool non_blocking, bool copy) \
+       -> Tensor";
   ]
 
 let die fmt =
@@ -97,7 +106,8 @@ let resolve entries =
       | Allow { base; overload } ->
           let e = find_entry entries ~base ~overload in
           generate_sig ~origin:"schema" ~style:(style_of e) e.func
-      | Override sg -> generate_sig ~origin:"override" ~style:`Function sg)
+      | Override { signature; style } ->
+          generate_sig ~origin:"override" ~style signature)
     selection
 
 let () =
