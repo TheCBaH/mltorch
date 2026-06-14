@@ -125,6 +125,7 @@ mapfile -t SRCS_GLUE < <(
   echo "$PT/aten/src/ATen/native/Normalization.cpp"
   # conv2d -> convolution -> _convolution -> slow_conv2d (ConvolutionMM2d.cpp),
   # which im2col's (Unfold2d.cpp) then gemm's. cpu/Unfold2d kernel is in CAP.
+  echo "$PT/aten/src/ATen/native/IndexingUtils.cpp"
   echo "$PT/aten/src/ATen/native/Convolution.cpp"
   echo "$PT/aten/src/ATen/native/ConvolutionMM2d.cpp"
   echo "$PT/aten/src/ATen/native/Unfold2d.cpp"

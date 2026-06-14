@@ -26,9 +26,11 @@ module Backend = struct
     | MkldnnCPU
     | SparseCPU
     | SparseCUDA
+    | SparseMPS
     | SparseMeta
     | SparseCsrCPU
     | SparseCsrCUDA
+    | SparseCsrMPS
     | SparseCsrMeta
     | NestedTensorCPU
     | NestedTensorCUDA
@@ -55,9 +57,11 @@ module Backend = struct
     | "MkldnnCPU" -> Some MkldnnCPU
     | "SparseCPU" -> Some SparseCPU
     | "SparseCUDA" -> Some SparseCUDA
+    | "SparseMPS" -> Some SparseMPS
     | "SparseMeta" -> Some SparseMeta
     | "SparseCsrCPU" -> Some SparseCsrCPU
     | "SparseCsrCUDA" -> Some SparseCsrCUDA
+    | "SparseCsrMPS" -> Some SparseCsrMPS
     | "SparseCsrMeta" -> Some SparseCsrMeta
     | "NestedTensorCPU" -> Some NestedTensorCPU
     | "NestedTensorCUDA" -> Some NestedTensorCUDA
@@ -87,9 +91,11 @@ module Backend = struct
     | MkldnnCPU -> "MkldnnCPU"
     | SparseCPU -> "SparseCPU"
     | SparseCUDA -> "SparseCUDA"
+    | SparseMPS -> "SparseMPS"
     | SparseMeta -> "SparseMeta"
     | SparseCsrCPU -> "SparseCsrCPU"
     | SparseCsrCUDA -> "SparseCsrCUDA"
+    | SparseCsrMPS -> "SparseCsrMPS"
     | SparseCsrMeta -> "SparseCsrMeta"
     | NestedTensorCPU -> "NestedTensorCPU"
     | NestedTensorCUDA -> "NestedTensorCUDA"

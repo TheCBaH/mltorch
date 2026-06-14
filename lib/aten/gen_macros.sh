@@ -10,9 +10,9 @@
 # Output: ./inc/c10/macros/cmake_macros.h, ./inc/ATen/Config.h
 set -euo pipefail
 PT=$(cd "$1" && pwd)
-mkdir -p inc/c10/macros inc/ATen
+mkdir -p inc/torch/headeronly/macros inc/ATen
 sed -E 's@#cmakedefine ([A-Za-z0-9_]+)@/* #undef \1 */@' \
-  "$PT/c10/macros/cmake_macros.h.in" > inc/c10/macros/cmake_macros.h
+  "$PT/torch/headeronly/macros/cmake_macros.h.in" > inc/torch/headeronly/macros/cmake_macros.h
 
 # @VAR@ -> 0 for every feature flag, except AT_PARALLEL_NATIVE -> 1 (native
 # threading; AT_PARALLEL_OPENMP stays 0). Test these with #if, not #ifdef.
