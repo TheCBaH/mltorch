@@ -150,6 +150,7 @@ module Tag = struct
     | Maybe_aliasing_or_mutating
     | Pt2_compliant_tag
     | Cudagraph_unsafe
+    | Reduction
 
   let of_string = function
     | "core" -> Some Core
@@ -168,6 +169,7 @@ module Tag = struct
     | "maybe_aliasing_or_mutating" -> Some Maybe_aliasing_or_mutating
     | "pt2_compliant_tag" -> Some Pt2_compliant_tag
     | "cudagraph_unsafe" -> Some Cudagraph_unsafe
+    | "reduction" -> Some Reduction
     | _ -> None
 
   let to_string = function
@@ -187,6 +189,7 @@ module Tag = struct
     | Maybe_aliasing_or_mutating -> "maybe_aliasing_or_mutating"
     | Pt2_compliant_tag -> "pt2_compliant_tag"
     | Cudagraph_unsafe -> "cudagraph_unsafe"
+    | Reduction -> "reduction"
 
   let pp fmt t = Format.pp_print_string fmt (to_string t)
 end

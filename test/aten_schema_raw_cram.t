@@ -1,10 +1,10 @@
 Parse native_functions.yaml into raw records and verify summary statistics.
 
   $ ./aten_schema_raw_test.exe native_functions.yaml
-  total entries: 2658
-  with dispatch:  1632
+  total entries: 2666
+  with dispatch:  1638
   structured:     273
-  with tags:      831
+  with tags:      923
   conv2d               dispatch=1 structured=false tags=[]
   relu_                dispatch=9 structured=false tags=[pointwise]
   abs.out              dispatch=3 structured=false tags=[pointwise]

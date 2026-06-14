@@ -4,19 +4,19 @@ emit and why the rest are skipped (the skip buckets are the roadmap for which
 types/return-shapes to support next).
 
   $ ./aten_gen_coverage.exe native_functions.yaml
-  total: 2658
+  total: 2666
   generated: 1079
-  skipped: 1579
+  skipped: 1587
   top skip reasons:
-     658  out= variant
+     659  out= variant
      481  unsupported return shape
      115  unsupported arg type: ScalarType?
+      38  unsupported arg type: Generator?
       35  unsupported arg type: float?
       35  unsupported arg type: int?
       33  unsupported arg type: Dimname
-      33  unsupported arg type: Generator?
       29  unsupported arg type: str
-      25  unsupported arg type: Tensor[]
+      27  unsupported arg type: Tensor[]
       17  unsupported arg type: SymInt?
       15  unsupported arg type: SymInt[]?
       14  unsupported arg type: Scalar?
