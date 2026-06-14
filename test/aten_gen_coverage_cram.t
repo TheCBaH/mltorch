@@ -4,12 +4,12 @@ emit and why the rest are skipped (the skip buckets are the roadmap for which
 types/return-shapes to support next).
 
   $ ./aten_gen_coverage.exe native_functions.yaml
-  total: 2666
+  total: 2674
   generated: 1079
-  skipped: 1587
+  skipped: 1595
   top skip reasons:
      659  out= variant
-     481  unsupported return shape
+     488  unsupported return shape
      115  unsupported arg type: ScalarType?
       38  unsupported arg type: Generator?
       35  unsupported arg type: float?
