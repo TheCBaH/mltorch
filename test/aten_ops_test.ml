@@ -19,7 +19,7 @@ let make shape vals =
   let t =
     F.new_ (CArray.start sizes)
       (Unsigned.Size_t.of_int (List.length shape))
-      (Stype.to_int Stype.Float)
+      Stype.Float
   in
   let ba = T.as_float32 t |> Option.get in
   List.iteri (fun i v -> ba.{i} <- v) vals;
@@ -45,7 +45,7 @@ let show t =
 
 let%expect_test "tensor runtime defaults" =
   let dt = F.default_dtype () in
-  Format.printf "default dtype = %d, elem size = %d bytes@." dt
+  Format.printf "default dtype = %d, elem size = %d bytes@." (Stype.to_int dt)
     (Unsigned.Size_t.to_int (F.dtype_elem_size dt));
   [%expect "default dtype = 6, elem size = 4 bytes"]
 

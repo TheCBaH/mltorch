@@ -13,17 +13,29 @@ type tensor_opaque
 let tensor_opaque : tensor_opaque structure typ = structure "atc_tensor_opaque"
 let atc_tensor = ptr tensor_opaque
 
+(* c10::ScalarType crosses the boundary as its int8 code; [scalar_type] is a
+   ctypes view giving the OCaml side the typed [Scalar_type.t] enum instead of a
+   bare int (mirrors the enum views in operation_description.ml). *)
+let scalar_type =
+  view int8_t
+    ~read:(fun c ->
+      match Scalar_type.of_int c with
+      | Some s -> s
+      | None -> Printf.ksprintf failwith "unknown ScalarType code %d" c)
+    ~write:Scalar_type.to_int
+
 module Functions (F : Ctypes.FOREIGN) = struct
   open F
 
-  let default_dtype = foreign "atc_default_dtype" (void @-> returning int8_t)
+  let default_dtype =
+    foreign "atc_default_dtype" (void @-> returning scalar_type)
 
   let dtype_elem_size =
-    foreign "atc_dtype_elem_size" (int8_t @-> returning size_t)
+    foreign "atc_dtype_elem_size" (scalar_type @-> returning size_t)
 
   let new_ =
     foreign "atc_new"
-      (ptr int64_t @-> size_t @-> int8_t @-> returning atc_tensor)
+      (ptr int64_t @-> size_t @-> scalar_type @-> returning atc_tensor)
 
   let free = foreign "atc_free" (atc_tensor @-> returning void)
   let numel = foreign "atc_numel" (atc_tensor @-> returning int64_t)
@@ -33,7 +45,8 @@ module Functions (F : Ctypes.FOREIGN) = struct
   let strides =
     foreign "atc_strides" (atc_tensor @-> ptr int64_t @-> returning void)
 
-  let scalar_type = foreign "atc_dtype" (atc_tensor @-> returning int8_t)
+  (* named [dtype] (not [scalar_type]) to avoid shadowing the view above. *)
+  let dtype = foreign "atc_dtype" (atc_tensor @-> returning scalar_type)
 
   let element_size =
     foreign "atc_element_size" (atc_tensor @-> returning int64_t)
@@ -43,7 +56,7 @@ module Functions (F : Ctypes.FOREIGN) = struct
   let is_cpu = foreign "atc_is_cpu" (atc_tensor @-> returning int)
 
   let data_ptr =
-    foreign "atc_data_ptr" (atc_tensor @-> int8_t @-> returning (ptr void))
+    foreign "atc_data_ptr" (atc_tensor @-> scalar_type @-> returning (ptr void))
 
   let item_double =
     foreign "atc_item_double" (atc_tensor @-> ptr double @-> returning int)

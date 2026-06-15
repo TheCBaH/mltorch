@@ -79,12 +79,13 @@ let%expect_test "metadata accessors" =
     dim=2 numel=6 esize=4 dtype=6 contig=true cpu=true defined=true
     shape=[2;3] strides=[3;1] |}]
 
-let%expect_test "error boundary: bad dtype raises Tensor.Error" =
-  (* atc_new with an unknown dtype code throws a c10::Error in C++; the boundary
-     catches it, returns the null sentinel, and Tensor.check raises. *)
+let%expect_test "error boundary: bad shape raises Tensor.Error" =
+  (* atc_new with a negative dimension throws a c10::Error in C++; the boundary
+     catches it, returns the null sentinel, and Tensor.check raises. (A bad dtype
+     is now ruled out statically by the [scalar_type] enum view.) *)
   let bad =
-    let sizes = CArray.of_list int64_t [ 2L; 3L ] in
-    F.new_ (CArray.start sizes) (Unsigned.Size_t.of_int 2) 99
+    let sizes = CArray.of_list int64_t [ -1L; 3L ] in
+    F.new_ (CArray.start sizes) (Unsigned.Size_t.of_int 2) Stype.Float
   in
   (match T.check bad with
   | exception T.Error _ -> print_string "raised Tensor.Error"

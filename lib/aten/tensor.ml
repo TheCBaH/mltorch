@@ -29,9 +29,7 @@ let check t =
    [manage]). Raises [Error] on a bad shape/dtype. *)
 let create ?(dtype = Scalar_type.Float) shape =
   let sizes = CArray.of_list int64_t (List.map Int64.of_int shape) in
-  F.new_ (CArray.start sizes)
-    (Unsigned.Size_t.of_int (List.length shape))
-    (Scalar_type.to_int dtype)
+  F.new_ (CArray.start sizes) (Unsigned.Size_t.of_int (List.length shape)) dtype
   |> check |> manage
 
 let numel t = Int64.to_int (F.numel t)
@@ -41,13 +39,9 @@ let is_contiguous t = F.is_contiguous t <> 0
 let defined t = F.defined t <> 0
 let is_cpu t = F.is_cpu t <> 0
 
-(* The tensor's dtype. Total over the supported (CPU) dtype set. *)
-let scalar_type t =
-  let code = F.scalar_type t in
-  match Scalar_type.of_int code with
-  | Some s -> s
-  | None ->
-      raise (Error (Printf.sprintf "unsupported scalar type code %d" code))
+(* The tensor's dtype. The [scalar_type] ctypes view converts the c10 code to
+   [Scalar_type.t] at the boundary (raising on an unsupported code). *)
+let scalar_type t = F.dtype t
 
 (* Read the [atc_dim] int64 entries written by [fill] (sizes or strides). *)
 let read_dims fill t =
@@ -67,7 +61,7 @@ let strides t = read_dims F.strides t
    ties the element/kind, so the returned array's type is checked at compile time. *)
 let data : type a b. (a, b) Dtype.t -> _ -> (a, b, c_layout) Array1.t option =
  fun dt t ->
-  let vp = F.data_ptr t (Dtype.to_int dt) in
+  let vp = F.data_ptr t (Dtype.scalar_type dt) in
   if is_null vp then None
   else
     let p = from_voidp (Dtype.typ dt) vp in
