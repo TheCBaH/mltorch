@@ -89,6 +89,22 @@ open Ctypes
    [C.Functions.new_] can be passed straight into these ops. *)
 let atc_tensor = Function_description.atc_tensor
 
+(* c10 enum args cross the C ABI as their integer code; these ctypes views give
+   the OCaml side the typed [Scalar_type.t] enum instead of a bare int. An
+   optional enum uses a negative sentinel for None (nullopt in C++). *)
+let scalar_type =
+  view int
+    ~read:(fun i ->
+      match Scalar_type.of_int i with
+      | Some s -> s
+      | None -> Printf.ksprintf failwith "unknown ScalarType code %%d" i)
+    ~write:Scalar_type.to_int
+
+let scalar_type_opt =
+  view int
+    ~read:(fun i -> if i < 0 then None else Scalar_type.of_int i)
+    ~write:(function None -> -1 | Some s -> Scalar_type.to_int s)
+
 (* dune's ctypes requires the functor module to be named [Functions]; the
    [(instance Operations)] stanza aliases it to [C.Operations]. *)
 module Functions (F : Ctypes.FOREIGN) = struct

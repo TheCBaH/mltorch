@@ -178,7 +178,7 @@ let%expect_test "contiguous / cpu preserve values" =
 
 let%expect_test "to.dtype casts float -> int64 (truncating)" =
   let a = float_tensor [ 3 ] [ 1.5; 2.7; 3.9 ] in
-  let i = T.manage (O.to_dtype a (Stype.to_int Stype.Long) false false) in
+  let i = T.manage (O.to_dtype a Stype.Long false false) in
   let v = T.data Dtype.int64 i |> Option.get in
   Printf.printf "dtype=%d vals=%Ld,%Ld,%Ld\n"
     (Stype.to_int (T.scalar_type i))

@@ -5,18 +5,18 @@ types/return-shapes to support next).
 
   $ ./aten_gen_coverage.exe native_functions.yaml
   total: 2584
-  generated: 1120
-  skipped: 1464
+  generated: 1165
+  skipped: 1419
   top skip reasons:
      631  out= variant
      478  unsupported return shape
-     115  unsupported arg type: ScalarType?
+      91  unsupported arg type: Layout?
       38  unsupported arg type: float?
       37  unsupported arg type: Generator?
       34  unsupported arg type: str
+      31  unsupported arg type: str?
       24  unsupported arg type: Tensor[]
-      19  unsupported arg type: str?
-      16  unsupported arg type: SymInt[]?
-      13  unsupported arg type: int[1]?
-      12  unsupported arg type: Scalar?
-      12  unsupported arg type: SymInt[1]?
+      15  unsupported arg type: float[]?
+      14  unsupported arg type: Scalar?
+       8  unsupported arg type: Tensor?[]
+       6  unsupported arg type: MemoryFormat?

@@ -65,9 +65,27 @@ let%expect_test "avg_pool2d (int? divisor_override)" =
     ---
     let avg_pool2d = foreign "atg_avg_pool2d" (atc_tensor @-> ptr int64_t @-> int @-> ptr int64_t @-> int @-> ptr int64_t @-> int @-> bool @-> bool @-> ptr int64_t @-> returning atc_tensor) |}]
 
-let%expect_test "softmax (int + ScalarType?)" =
+let%expect_test "mean.dim (int[1]? + ScalarType?)" =
+  gen
+    "mean.dim(Tensor self, int[1]? dim, bool keepdim=False, *, ScalarType? \
+     dtype=None) -> Tensor";
+  [%expect
+    {|
+    atc_tensor atg_mean_dim(atc_tensor self, int64_t* dim_data, int dim_len, int keepdim, int dtype) {
+      return atc_wrap(at::mean(*atc_to_ptr(self), dim_data ? at::OptionalIntArrayRef(at::IntArrayRef(dim_data, dim_len)) : at::OptionalIntArrayRef(std::nullopt), (bool)keepdim, dtype < 0 ? std::nullopt : std::make_optional(static_cast<at::ScalarType>(dtype))));
+    }
+    ---
+    let mean_dim = foreign "atg_mean_dim" (atc_tensor @-> ptr int64_t @-> int @-> bool @-> scalar_type_opt @-> returning atc_tensor) |}]
+
+let%expect_test "softmax.int (ScalarType? dtype)" =
   gen "softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor";
-  [%expect {| SKIPPED: unsupported arg type: ScalarType? |}]
+  [%expect
+    {|
+    atc_tensor atg_softmax_int(atc_tensor self, int64_t dim, int dtype) {
+      return atc_wrap(at::softmax(*atc_to_ptr(self), dim, dtype < 0 ? std::nullopt : std::make_optional(static_cast<at::ScalarType>(dtype))));
+    }
+    ---
+    let softmax_int = foreign "atg_softmax_int" (atc_tensor @-> int64_t @-> scalar_type_opt @-> returning atc_tensor) |}]
 
 let%expect_test "skipped: out= variant" =
   gen

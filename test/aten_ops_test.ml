@@ -200,9 +200,11 @@ let%expect_test "convolution" =
   [%expect "[1x1x2x2] = [6; 8; 12; 14]"]
 
 let%expect_test "mean.dim" =
-  (* mean over dim 0, no keepdim: [2x3] → [3] *)
+  (* self, dim, keepdim, dtype (None): mean over dim 0, no keepdim: [2x3] → [3] *)
   show
-    (O.mean_dim (make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ]) (arr [ 0 ]) 1 false);
+    (O.mean_dim
+       (make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ])
+       (arr [ 0 ]) 1 false None);
   [%expect "[3] = [2.5; 3.5; 4.5]"]
 
 let%expect_test "_native_batch_norm_legit_no_training" =

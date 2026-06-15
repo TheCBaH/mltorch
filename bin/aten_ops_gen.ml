@@ -12,8 +12,8 @@
      - [Allow]: ops pulled verbatim from native_functions.yaml by name. The
        generator (Aten_gen.Gen) must be able to emit them as-is.
      - [Override]: a hand-written schema signature used INSTEAD of the yaml
-       entry, for ops the generator cannot yet emit unmodified. e.g. mean.dim
-       carries an optional dtype kwarg (unsupported); the override drops it. *)
+       entry, for ops the generator cannot yet emit unmodified. e.g. the
+       conversions (clone/contiguous/cpu/to.dtype) drop MemoryFormat args. *)
 
 type selection =
   | Allow of { base : string; overload : string option }
@@ -52,8 +52,7 @@ let selection =
     op "dropout_";
     op "avg_pool2d";
     op "view";
-    (* mean.dim: drop the optional dtype kwarg; simplify int[1]? to int[]. *)
-    custom "mean.dim(Tensor self, int[] dim, bool keepdim) -> Tensor";
+    op "mean" ~overload:"dim";
     (* conversions: trimmed to the frontend overloads (drop MemoryFormat args). *)
     custom "clone(Tensor self) -> Tensor";
     custom ~style:`Method "contiguous(Tensor self) -> Tensor";
