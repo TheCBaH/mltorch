@@ -5,8 +5,8 @@ types/return-shapes to support next).
 
   $ ./aten_gen_coverage.exe native_functions.yaml
   total: 2584
-  generated: 1174
-  skipped: 1410
+  generated: 1175
+  skipped: 1409
   top skip reasons:
      631  out= variant
      478  unsupported return shape

@@ -73,6 +73,15 @@ let map_type ~name (ty : Func_ast.Type.t) =
           call_expr = Printf.sprintf "static_cast<at::ScalarType>(%s)" name;
           ctypes = [ "scalar_type" ];
         }
+  | Base MemoryFormat ->
+      (* c10 enum int code; [memory_format] is the ctypes view over
+         [Memory_format.t] (e.g. contiguous's memory_format arg). *)
+      Some
+        {
+          c_params = [ Printf.sprintf "int %s" name ];
+          call_expr = Printf.sprintf "static_cast<at::MemoryFormat>(%s)" name;
+          ctypes = [ "memory_format" ];
+        }
   | Optional (Base Tensor) ->
       (* null handle (0) -> nullopt *)
       Some

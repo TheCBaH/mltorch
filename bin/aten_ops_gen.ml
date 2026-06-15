@@ -23,7 +23,7 @@ type selection =
    name (+ optional overload); [custom sig] overrides with a hand-written
    signature for ops the generator cannot emit unmodified. [~style:`Method] emits
    a [self->op(...)] call, for method-only ops with no at:: free function (or no
-   schema dispatcher entry at all, e.g. contiguous/cpu). *)
+   schema entry at all, e.g. cpu, which torchgen synthesizes from to(kCPU)). *)
 let op ?overload base = Allow { base; overload }
 let custom ?(style = `Function) signature = Override { signature; style }
 
@@ -54,9 +54,11 @@ let selection =
     op "view";
     op "mean" ~overload:"dim";
     op "clone";
-    (* conversions: trimmed to the frontend overloads (drop MemoryFormat args). *)
-    custom ~style:`Method "contiguous(Tensor self) -> Tensor";
+    op "contiguous";
+    (* cpu: no native_functions.yaml entry (synthesized from to(kCPU)); the
+       Tensor::cpu() method is nullary, so this signature is exact, not trimmed. *)
     custom ~style:`Method "cpu(Tensor self) -> Tensor";
+    (* to.dtype: trimmed to drop the trailing MemoryFormat? memory_format kwarg. *)
     custom ~style:`Method
       "to.dtype(Tensor self, ScalarType dtype, bool non_blocking, bool copy) \
        -> Tensor";

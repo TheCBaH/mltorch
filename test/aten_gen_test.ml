@@ -1,11 +1,11 @@
 (* Generator output snapshots. Parse a schema string and emit the extern "C"
    shim + ctypes binding (or the skip reason). *)
 
-let gen s =
+let gen ?(style = `Function) s =
   match Func_schema.parse s with
   | Error e -> Printf.printf "PARSE ERROR: %s\n" e
   | Ok op -> (
-      match Aten_gen.Gen.generate op with
+      match Aten_gen.Gen.generate ~style op with
       | Skipped r -> Printf.printf "SKIPPED: %s\n" r
       | Generated g ->
           Printf.printf "%s\n---\n%s\n" g.Aten_gen.Gen.c_source
@@ -88,6 +88,18 @@ let%expect_test "to.dtype_layout (Layout? + ScalarType?)" =
     }
     ---
     let to_dtype_layout = foreign "atg_to_dtype_layout" (atc_tensor @-> scalar_type_opt @-> layout_opt @-> returning atc_tensor) |}]
+
+let%expect_test "contiguous (method-style, MemoryFormat arg)" =
+  gen ~style:`Method
+    "contiguous(Tensor(a) self, *, MemoryFormat \
+     memory_format=contiguous_format) -> Tensor(a)";
+  [%expect
+    {|
+    atc_tensor atg_contiguous(atc_tensor self, int memory_format) {
+      return atc_wrap(atc_to_ptr(self)->contiguous(static_cast<at::MemoryFormat>(memory_format)));
+    }
+    ---
+    let contiguous = foreign "atg_contiguous" (atc_tensor @-> memory_format @-> returning atc_tensor) |}]
 
 let%expect_test "clone (MemoryFormat? memory_format)" =
   gen "clone(Tensor self, *, MemoryFormat? memory_format=None) -> Tensor";

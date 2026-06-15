@@ -12,6 +12,7 @@ open Ctypes
 module F = Aten.C.Functions
 module O = Aten.C.Operations
 module Stype = Aten.Scalar_type
+module Mformat = Aten.Memory_format
 module Dtype = Aten.Dtype
 module T = Aten.Tensor
 
@@ -173,7 +174,7 @@ let%expect_test "clone makes an independent copy" =
 let%expect_test "contiguous / cpu preserve values" =
   let a = float_tensor [ 2; 2 ] [ 1.; 2.; 3.; 4. ] in
   Printf.printf "contiguous=%s cpu=%s\n"
-    (floats (T.manage (O.contiguous a)))
+    (floats (T.manage (O.contiguous a Mformat.Contiguous)))
     (floats (T.manage (O.cpu a)));
   [%expect "contiguous=1,2,3,4 cpu=1,2,3,4"]
 
