@@ -37,10 +37,14 @@ let selection =
     op "relu";
     op "relu_";
     op "sigmoid";
+    op "hardtanh";
     op "hardtanh_";
     op "silu_";
     op "reshape";
     op "flatten" ~overload:"using_ints";
+    op "permute";
+    op "convolution";
+    op "addmm";
     op "max_pool2d";
     op "adaptive_avg_pool2d";
     op "linear";
@@ -49,6 +53,9 @@ let selection =
     op "dropout";
     op "dropout_";
     custom "avg_pool2d(Tensor self, int[2] kernel_size) -> Tensor";
+    op "view";
+    (* mean.dim: drop the optional dtype kwarg; simplify int[1]? to int[]. *)
+    custom "mean.dim(Tensor self, int[] dim, bool keepdim) -> Tensor";
     (* conversions: trimmed to the frontend overloads (drop MemoryFormat args). *)
     custom "clone(Tensor self) -> Tensor";
     custom ~style:`Method "contiguous(Tensor self) -> Tensor";

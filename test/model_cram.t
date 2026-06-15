@@ -13,12 +13,13 @@ Parse the full exported resnet18 model (model.json) and print summary stats.
   >     (Jsont_bytesrw.decode_string ExportedProgram.jsont json)
   > EOF
   $ ocaml schema_runtime.cma parse_model.ml 2>/dev/null
-  schema=8.14 nodes=69
-    torch.ops.aten.conv2d.default: 20
-    torch.ops.aten.batch_norm.default: 20
-    torch.ops.aten.relu_.default: 17
-    torch.ops.aten.add_.Tensor: 8
-    torch.ops.aten.adaptive_avg_pool2d.default: 1
-    torch.ops.aten.max_pool2d.default: 1
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
+  schema=8.14 nodes=70
+    torch.ops.aten.convolution.default: 20
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 20
+    torch.ops.aten.relu.default: 17
+    torch.ops.aten.add.Tensor: 8
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.mean.dim: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.addmm.default: 1
+    torch.ops.aten.max_pool2d_with_indices.default: 1

@@ -102,6 +102,26 @@ int atc_equal(atc_tensor a, atc_tensor b);
    leak / GC round-trip tests. */
 int64_t atc_live_count(void);
 
+/* Tuple-returning ops: we expose only the primary output tensor (element 0).
+   The secondary outputs (mean/rstd for batch norm, indices for max pool) are
+   discarded; the updated models never use them in the forward pass. */
+
+/* _native_batch_norm_legit_no_training: inference-only batch norm (no running
+   stat update). Returns the normalised output; discards the saved mean/rstd. */
+atc_tensor atg__native_batch_norm_legit_no_training(
+    atc_tensor input, atc_tensor weight, atc_tensor bias,
+    atc_tensor running_mean, atc_tensor running_var,
+    double momentum, double eps);
+
+/* max_pool2d_with_indices: returns the pooled output; discards the index map. */
+atc_tensor atg_max_pool2d_with_indices(
+    atc_tensor self,
+    int64_t* kernel_size_data, int kernel_size_len,
+    int64_t* stride_data,      int stride_len,
+    int64_t* padding_data,     int padding_len,
+    int64_t* dilation_data,    int dilation_len,
+    int ceil_mode);
+
 #ifdef __cplusplus
 }
 

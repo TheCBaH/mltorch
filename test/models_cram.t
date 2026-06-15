@@ -35,178 +35,184 @@ op-type histogram sorted by frequency (high to low).
   >   ) models
   > EOF
   $ ocaml schema_runtime.cma parse_models.ml 2>/dev/null
-  efficientnet_b0: schema=8.14 nodes=240
-    torch.ops.aten.conv2d.default: 81
-    torch.ops.aten.silu_.default: 49
-    torch.ops.aten.batch_norm.default: 49
-    torch.ops.aten.adaptive_avg_pool2d.default: 17
-    torch.ops.aten.sigmoid.default: 16
-    torch.ops.aten.mul.Tensor: 16
-    torch.ops.aten.add_.Tensor: 9
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_b1: schema=8.14 nodes=342
-    torch.ops.aten.conv2d.default: 115
-    torch.ops.aten.silu_.default: 69
-    torch.ops.aten.batch_norm.default: 69
-    torch.ops.aten.adaptive_avg_pool2d.default: 24
-    torch.ops.aten.sigmoid.default: 23
-    torch.ops.aten.mul.Tensor: 23
-    torch.ops.aten.add_.Tensor: 16
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_b2: schema=8.14 nodes=342
-    torch.ops.aten.conv2d.default: 115
-    torch.ops.aten.silu_.default: 69
-    torch.ops.aten.batch_norm.default: 69
-    torch.ops.aten.adaptive_avg_pool2d.default: 24
-    torch.ops.aten.sigmoid.default: 23
-    torch.ops.aten.mul.Tensor: 23
-    torch.ops.aten.add_.Tensor: 16
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_b3: schema=8.14 nodes=387
-    torch.ops.aten.conv2d.default: 130
-    torch.ops.aten.silu_.default: 78
-    torch.ops.aten.batch_norm.default: 78
-    torch.ops.aten.adaptive_avg_pool2d.default: 27
-    torch.ops.aten.sigmoid.default: 26
-    torch.ops.aten.mul.Tensor: 26
-    torch.ops.aten.add_.Tensor: 19
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_b4: schema=8.14 nodes=477
-    torch.ops.aten.conv2d.default: 160
-    torch.ops.aten.silu_.default: 96
-    torch.ops.aten.batch_norm.default: 96
-    torch.ops.aten.adaptive_avg_pool2d.default: 33
-    torch.ops.aten.sigmoid.default: 32
-    torch.ops.aten.mul.Tensor: 32
-    torch.ops.aten.add_.Tensor: 25
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_b5: schema=8.14 nodes=579
-    torch.ops.aten.conv2d.default: 194
-    torch.ops.aten.silu_.default: 116
-    torch.ops.aten.batch_norm.default: 116
-    torch.ops.aten.adaptive_avg_pool2d.default: 40
-    torch.ops.aten.sigmoid.default: 39
-    torch.ops.aten.mul.Tensor: 39
-    torch.ops.aten.add_.Tensor: 32
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_b6: schema=8.14 nodes=669
-    torch.ops.aten.conv2d.default: 224
-    torch.ops.aten.silu_.default: 134
-    torch.ops.aten.batch_norm.default: 134
-    torch.ops.aten.adaptive_avg_pool2d.default: 46
-    torch.ops.aten.sigmoid.default: 45
-    torch.ops.aten.mul.Tensor: 45
-    torch.ops.aten.add_.Tensor: 38
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_b7: schema=8.14 nodes=816
-    torch.ops.aten.conv2d.default: 273
-    torch.ops.aten.silu_.default: 163
-    torch.ops.aten.batch_norm.default: 163
-    torch.ops.aten.adaptive_avg_pool2d.default: 56
-    torch.ops.aten.sigmoid.default: 55
-    torch.ops.aten.mul.Tensor: 55
-    torch.ops.aten.add_.Tensor: 48
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_v2_l: schema=8.14 nodes=1019
-    torch.ops.aten.conv2d.default: 339
-    torch.ops.aten.batch_norm.default: 217
-    torch.ops.aten.silu_.default: 203
-    torch.ops.aten.add_.Tensor: 73
-    torch.ops.aten.adaptive_avg_pool2d.default: 62
-    torch.ops.aten.sigmoid.default: 61
-    torch.ops.aten.mul.Tensor: 61
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_v2_m: schema=8.14 nodes=736
-    torch.ops.aten.conv2d.default: 245
-    torch.ops.aten.batch_norm.default: 157
-    torch.ops.aten.silu_.default: 147
-    torch.ops.aten.add_.Tensor: 51
-    torch.ops.aten.adaptive_avg_pool2d.default: 45
-    torch.ops.aten.sigmoid.default: 44
-    torch.ops.aten.mul.Tensor: 44
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  efficientnet_v2_s: schema=8.14 nodes=511
-    torch.ops.aten.conv2d.default: 170
-    torch.ops.aten.batch_norm.default: 110
-    torch.ops.aten.silu_.default: 102
-    torch.ops.aten.add_.Tensor: 35
-    torch.ops.aten.adaptive_avg_pool2d.default: 31
-    torch.ops.aten.sigmoid.default: 30
-    torch.ops.aten.mul.Tensor: 30
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout_.default: 1
-  mobilenet_v2: schema=8.14 nodes=153
-    torch.ops.aten.conv2d.default: 52
-    torch.ops.aten.batch_norm.default: 52
-    torch.ops.aten.hardtanh_.default: 35
+  efficientnet_b0: schema=8.14 nodes=290
+    torch.ops.aten.convolution.default: 81
+    torch.ops.aten.sigmoid.default: 65
+    torch.ops.aten.mul.Tensor: 65
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 49
+    torch.ops.aten.mean.dim: 17
+    torch.ops.aten.add.Tensor: 9
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_b1: schema=8.14 nodes=412
+    torch.ops.aten.convolution.default: 115
+    torch.ops.aten.sigmoid.default: 92
+    torch.ops.aten.mul.Tensor: 92
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 69
+    torch.ops.aten.mean.dim: 24
+    torch.ops.aten.add.Tensor: 16
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_b2: schema=8.14 nodes=412
+    torch.ops.aten.convolution.default: 115
+    torch.ops.aten.sigmoid.default: 92
+    torch.ops.aten.mul.Tensor: 92
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 69
+    torch.ops.aten.mean.dim: 24
+    torch.ops.aten.add.Tensor: 16
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_b3: schema=8.14 nodes=466
+    torch.ops.aten.convolution.default: 130
+    torch.ops.aten.sigmoid.default: 104
+    torch.ops.aten.mul.Tensor: 104
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 78
+    torch.ops.aten.mean.dim: 27
+    torch.ops.aten.add.Tensor: 19
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_b4: schema=8.14 nodes=574
+    torch.ops.aten.convolution.default: 160
+    torch.ops.aten.sigmoid.default: 128
+    torch.ops.aten.mul.Tensor: 128
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 96
+    torch.ops.aten.mean.dim: 33
+    torch.ops.aten.add.Tensor: 25
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_b5: schema=8.14 nodes=696
+    torch.ops.aten.convolution.default: 194
+    torch.ops.aten.sigmoid.default: 155
+    torch.ops.aten.mul.Tensor: 155
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 116
+    torch.ops.aten.mean.dim: 40
+    torch.ops.aten.add.Tensor: 32
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_b6: schema=8.14 nodes=804
+    torch.ops.aten.convolution.default: 224
+    torch.ops.aten.sigmoid.default: 179
+    torch.ops.aten.mul.Tensor: 179
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 134
+    torch.ops.aten.mean.dim: 46
+    torch.ops.aten.add.Tensor: 38
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_b7: schema=8.14 nodes=980
+    torch.ops.aten.convolution.default: 273
+    torch.ops.aten.sigmoid.default: 218
+    torch.ops.aten.mul.Tensor: 218
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 163
+    torch.ops.aten.mean.dim: 56
+    torch.ops.aten.add.Tensor: 48
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_v2_l: schema=8.14 nodes=1223
+    torch.ops.aten.convolution.default: 339
+    torch.ops.aten.sigmoid.default: 264
+    torch.ops.aten.mul.Tensor: 264
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 217
+    torch.ops.aten.add.Tensor: 73
+    torch.ops.aten.mean.dim: 62
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_v2_m: schema=8.14 nodes=884
+    torch.ops.aten.convolution.default: 245
+    torch.ops.aten.sigmoid.default: 191
+    torch.ops.aten.mul.Tensor: 191
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 157
+    torch.ops.aten.add.Tensor: 51
+    torch.ops.aten.mean.dim: 45
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  efficientnet_v2_s: schema=8.14 nodes=614
+    torch.ops.aten.convolution.default: 170
+    torch.ops.aten.sigmoid.default: 132
+    torch.ops.aten.mul.Tensor: 132
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 110
+    torch.ops.aten.add.Tensor: 35
+    torch.ops.aten.mean.dim: 31
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  mobilenet_v2: schema=8.14 nodes=154
+    torch.ops.aten.convolution.default: 52
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 52
+    torch.ops.aten.hardtanh.default: 35
     torch.ops.aten.add.Tensor: 10
-    torch.ops.aten.adaptive_avg_pool2d.default: 1
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-    torch.ops.aten.dropout.default: 1
-  resnet18: schema=8.14 nodes=69
-    torch.ops.aten.conv2d.default: 20
-    torch.ops.aten.batch_norm.default: 20
-    torch.ops.aten.relu_.default: 17
-    torch.ops.aten.add_.Tensor: 8
-    torch.ops.aten.adaptive_avg_pool2d.default: 1
-    torch.ops.aten.max_pool2d.default: 1
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-  resnet34: schema=8.14 nodes=125
-    torch.ops.aten.conv2d.default: 36
-    torch.ops.aten.batch_norm.default: 36
-    torch.ops.aten.relu_.default: 33
-    torch.ops.aten.add_.Tensor: 16
-    torch.ops.aten.adaptive_avg_pool2d.default: 1
-    torch.ops.aten.max_pool2d.default: 1
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-  resnet50: schema=8.14 nodes=175
-    torch.ops.aten.conv2d.default: 53
-    torch.ops.aten.batch_norm.default: 53
-    torch.ops.aten.relu_.default: 49
-    torch.ops.aten.add_.Tensor: 16
-    torch.ops.aten.adaptive_avg_pool2d.default: 1
-    torch.ops.aten.max_pool2d.default: 1
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-  resnet101: schema=8.14 nodes=345
-    torch.ops.aten.conv2d.default: 104
-    torch.ops.aten.batch_norm.default: 104
-    torch.ops.aten.relu_.default: 100
-    torch.ops.aten.add_.Tensor: 33
-    torch.ops.aten.adaptive_avg_pool2d.default: 1
-    torch.ops.aten.max_pool2d.default: 1
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
-  resnet152: schema=8.14 nodes=515
-    torch.ops.aten.conv2d.default: 155
-    torch.ops.aten.batch_norm.default: 155
-    torch.ops.aten.relu_.default: 151
-    torch.ops.aten.add_.Tensor: 50
-    torch.ops.aten.adaptive_avg_pool2d.default: 1
-    torch.ops.aten.max_pool2d.default: 1
-    torch.ops.aten.linear.default: 1
-    torch.ops.aten.flatten.using_ints: 1
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.mean.dim: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.clone.default: 1
+    torch.ops.aten.addmm.default: 1
+  resnet18: schema=8.14 nodes=70
+    torch.ops.aten.convolution.default: 20
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 20
+    torch.ops.aten.relu.default: 17
+    torch.ops.aten.add.Tensor: 8
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.mean.dim: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.addmm.default: 1
+    torch.ops.aten.max_pool2d_with_indices.default: 1
+  resnet34: schema=8.14 nodes=126
+    torch.ops.aten.convolution.default: 36
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 36
+    torch.ops.aten.relu.default: 33
+    torch.ops.aten.add.Tensor: 16
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.mean.dim: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.addmm.default: 1
+    torch.ops.aten.max_pool2d_with_indices.default: 1
+  resnet50: schema=8.14 nodes=176
+    torch.ops.aten.convolution.default: 53
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 53
+    torch.ops.aten.relu.default: 49
+    torch.ops.aten.add.Tensor: 16
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.mean.dim: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.addmm.default: 1
+    torch.ops.aten.max_pool2d_with_indices.default: 1
+  resnet101: schema=8.14 nodes=346
+    torch.ops.aten.convolution.default: 104
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 104
+    torch.ops.aten.relu.default: 100
+    torch.ops.aten.add.Tensor: 33
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.mean.dim: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.addmm.default: 1
+    torch.ops.aten.max_pool2d_with_indices.default: 1
+  resnet152: schema=8.14 nodes=516
+    torch.ops.aten.convolution.default: 155
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 155
+    torch.ops.aten.relu.default: 151
+    torch.ops.aten.add.Tensor: 50
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.mean.dim: 1
+    torch.ops.aten.permute.default: 1
+    torch.ops.aten.addmm.default: 1
+    torch.ops.aten.max_pool2d_with_indices.default: 1

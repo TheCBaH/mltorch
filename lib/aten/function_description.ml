@@ -53,6 +53,21 @@ module Functions (F : Ctypes.FOREIGN) = struct
 
   let live_count = foreign "atc_live_count" (void @-> returning int64_t)
   let last_error = foreign "atc_last_error" (void @-> returning string_opt)
+
+  (* Tuple-returning ops: hand-written shims that expose only the primary output
+     tensor.  Named to match the ATen overload key so C.Operations and C.Functions
+     share the same naming convention. *)
+  let _native_batch_norm_legit_no_training_default =
+    foreign "atg__native_batch_norm_legit_no_training"
+      (atc_tensor @-> atc_tensor @-> atc_tensor @-> atc_tensor @-> atc_tensor
+     @-> double @-> double @-> returning atc_tensor)
+
+  let max_pool2d_with_indices_default =
+    foreign "atg_max_pool2d_with_indices"
+      (atc_tensor @-> ptr int64_t @-> int @-> ptr int64_t @-> int
+     @-> ptr int64_t @-> int @-> ptr int64_t @-> int @-> int
+     @-> returning atc_tensor)
+
   let to_string = foreign "atc_to_string" (atc_tensor @-> returning string_opt)
 
   let allclose =

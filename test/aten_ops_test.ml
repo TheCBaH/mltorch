@@ -148,3 +148,69 @@ let%expect_test "hardtanh_" =
 let%expect_test "silu_" =
   show (O.silu_ (make [ 3 ] [ 0.; 2.; -2. ]));
   [%expect "[3] = [0; 1.76159; -0.238406]"]
+
+let%expect_test "hardtanh (functional)" =
+  show (O.hardtanh (make [ 3 ] [ -2.; 0.5; 2. ]) 0.0 1.0);
+  [%expect "[3] = [0; 0.5; 1]"]
+
+let%expect_test "permute" =
+  (* permute returns a non-contiguous view; pp_float32 reads raw physical memory,
+     so values appear in original storage order even though shape is transposed. *)
+  show (O.permute (make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ]) (arr [ 1; 0 ]) 2);
+  [%expect "[3x2] = [1; 2; 3; 4; 5; 6]"]
+
+let%expect_test "view" =
+  show (O.view (make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ]) (arr [ 3; 2 ]) 2);
+  [%expect "[3x2] = [1; 2; 3; 4; 5; 6]"]
+
+let%expect_test "addmm" =
+  (* out = beta * C + alpha * (A @ B): [1x3] = [10; 20; 30] + [1x2] @ [2x3] *)
+  let c = make [ 1; 3 ] [ 10.; 20.; 30. ] in
+  let a = make [ 1; 2 ] [ 1.; 2. ] in
+  let b = make [ 2; 3 ] [ 1.; 0.; 0.; 0.; 1.; 0. ] in
+  show (O.addmm c a b 1.0 1.0);
+  [%expect "[1x3] = [11; 22; 30]"]
+
+let%expect_test "convolution" =
+  let x = make [ 1; 1; 3; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6.; 7.; 8.; 9. ] in
+  let w = make [ 1; 1; 2; 2 ] [ 1.; 0.; 0.; 1. ] in
+  let b = make [ 1 ] [ 0. ] in
+  show
+    (O.convolution x w b
+       (arr [ 1; 1 ])
+       2
+       (arr [ 0; 0 ])
+       2
+       (arr [ 1; 1 ])
+       2 false
+       (arr [ 0; 0 ])
+       2 1L);
+  [%expect "[1x1x2x2] = [6; 8; 12; 14]"]
+
+let%expect_test "mean.dim" =
+  (* mean over dim 0, no keepdim: [2x3] → [3] *)
+  show
+    (O.mean_dim (make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ]) (arr [ 0 ]) 1 false);
+  [%expect "[3] = [2.5; 3.5; 4.5]"]
+
+let%expect_test "_native_batch_norm_legit_no_training" =
+  let x = make [ 1; 2; 1; 2 ] [ 1.; 2.; 3.; 4. ] in
+  let w = make [ 2 ] [ 2.; 2. ] in
+  let b = make [ 2 ] [ 1.; 1. ] in
+  let mean = make [ 2 ] [ 0.; 0. ] in
+  let var = make [ 2 ] [ 1.; 1. ] in
+  show (F._native_batch_norm_legit_no_training_default x w b mean var 0.1 0.0);
+  [%expect "[1x2x1x2] = [3; 5; 7; 9]"]
+
+let%expect_test "max_pool2d_with_indices" =
+  show
+    (F.max_pool2d_with_indices_default (img ())
+       (arr [ 2; 2 ])
+       2
+       (arr [ 2; 2 ])
+       2
+       (arr [ 0; 0 ])
+       2
+       (arr [ 1; 1 ])
+       2 0);
+  [%expect "[1x1x2x2] = [6; 8; 14; 16]"]
