@@ -77,6 +77,16 @@ let%expect_test "mean.dim (int[1]? + ScalarType?)" =
     ---
     let mean_dim = foreign "atg_mean_dim" (atc_tensor @-> ptr int64_t @-> int @-> bool @-> scalar_type_opt @-> returning atc_tensor) |}]
 
+let%expect_test "clone (MemoryFormat? memory_format)" =
+  gen "clone(Tensor self, *, MemoryFormat? memory_format=None) -> Tensor";
+  [%expect
+    {|
+    atc_tensor atg_clone(atc_tensor self, int memory_format) {
+      return atc_wrap(at::clone(*atc_to_ptr(self), memory_format < 0 ? std::nullopt : std::make_optional(static_cast<at::MemoryFormat>(memory_format))));
+    }
+    ---
+    let clone = foreign "atg_clone" (atc_tensor @-> memory_format_opt @-> returning atc_tensor) |}]
+
 let%expect_test "softmax.int (ScalarType? dtype)" =
   gen "softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor";
   [%expect

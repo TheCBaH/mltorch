@@ -53,8 +53,8 @@ let selection =
     op "avg_pool2d";
     op "view";
     op "mean" ~overload:"dim";
+    op "clone";
     (* conversions: trimmed to the frontend overloads (drop MemoryFormat args). *)
-    custom "clone(Tensor self) -> Tensor";
     custom ~style:`Method "contiguous(Tensor self) -> Tensor";
     custom ~style:`Method "cpu(Tensor self) -> Tensor";
     custom ~style:`Method

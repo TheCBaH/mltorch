@@ -164,7 +164,7 @@ let floats t =
 
 let%expect_test "clone makes an independent copy" =
   let a = float_tensor [ 3 ] [ 1.; 2.; 3. ] in
-  let b = T.manage (O.clone a) in
+  let b = T.manage (O.clone a None) in
   (T.data Dtype.float32 a |> Option.get).{0} <- 99.;
   Printf.printf "a=%s clone=%s\n" (floats a) (floats b);
   [%expect "a=99,2,3 clone=1,2,3"]

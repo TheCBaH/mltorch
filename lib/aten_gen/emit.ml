@@ -105,6 +105,11 @@ let scalar_type_opt =
     ~read:(fun i -> if i < 0 then None else Scalar_type.of_int i)
     ~write:(function None -> -1 | Some s -> Scalar_type.to_int s)
 
+let memory_format_opt =
+  view int
+    ~read:(fun i -> if i < 0 then None else Memory_format.of_int i)
+    ~write:(function None -> -1 | Some m -> Memory_format.to_int m)
+
 (* dune's ctypes requires the functor module to be named [Functions]; the
    [(instance Operations)] stanza aliases it to [C.Operations]. *)
 module Functions (F : Ctypes.FOREIGN) = struct

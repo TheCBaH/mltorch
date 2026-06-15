@@ -110,6 +110,20 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name name;
           ctypes = [ "scalar_type_opt" ];
         }
+  (* MemoryFormat?: like ScalarType?, the enum int code with a negative sentinel
+     for None (e.g. clone's memory_format kwarg). [memory_format_opt] is the
+     matching ctypes view over [Memory_format.t option]. *)
+  | Optional (Base MemoryFormat) ->
+      Some
+        {
+          c_params = [ Printf.sprintf "int %s" name ];
+          call_expr =
+            Printf.sprintf
+              "%s < 0 ? std::nullopt : \
+               std::make_optional(static_cast<at::MemoryFormat>(%s))"
+              name name;
+          ctypes = [ "memory_format_opt" ];
+        }
   (* Int[] and SymInt[] both bind to the non-_symint [at::<op>] overload, which
      takes an at::IntArrayRef; pass it as a (data, length) pair. *)
   | List (Base Int, _) | List (Base SymInt, _) ->
