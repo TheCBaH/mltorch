@@ -77,6 +77,18 @@ let%expect_test "mean.dim (int[1]? + ScalarType?)" =
     ---
     let mean_dim = foreign "atg_mean_dim" (atc_tensor @-> ptr int64_t @-> int @-> bool @-> scalar_type_opt @-> returning atc_tensor) |}]
 
+let%expect_test "to.dtype_layout (Layout? + ScalarType?)" =
+  gen
+    "to.dtype_layout(Tensor(a) self, *, ScalarType? dtype=None, Layout? \
+     layout=None) -> Tensor(a)";
+  [%expect
+    {|
+    atc_tensor atg_to_dtype_layout(atc_tensor self, int dtype, int layout) {
+      return atc_wrap(at::to(*atc_to_ptr(self), dtype < 0 ? std::nullopt : std::make_optional(static_cast<at::ScalarType>(dtype)), layout < 0 ? std::nullopt : std::make_optional(static_cast<at::Layout>(layout))));
+    }
+    ---
+    let to_dtype_layout = foreign "atg_to_dtype_layout" (atc_tensor @-> scalar_type_opt @-> layout_opt @-> returning atc_tensor) |}]
+
 let%expect_test "clone (MemoryFormat? memory_format)" =
   gen "clone(Tensor self, *, MemoryFormat? memory_format=None) -> Tensor";
   [%expect

@@ -5,12 +5,12 @@ types/return-shapes to support next).
 
   $ ./aten_gen_coverage.exe native_functions.yaml
   total: 2584
-  generated: 1171
-  skipped: 1413
+  generated: 1174
+  skipped: 1410
   top skip reasons:
      631  out= variant
      478  unsupported return shape
-      91  unsupported arg type: Layout?
+      90  unsupported arg type: Device?
       38  unsupported arg type: float?
       37  unsupported arg type: Generator?
       34  unsupported arg type: str

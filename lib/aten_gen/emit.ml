@@ -110,6 +110,11 @@ let memory_format_opt =
     ~read:(fun i -> if i < 0 then None else Memory_format.of_int i)
     ~write:(function None -> -1 | Some m -> Memory_format.to_int m)
 
+let layout_opt =
+  view int
+    ~read:(fun i -> if i < 0 then None else Layout.of_int i)
+    ~write:(function None -> -1 | Some l -> Layout.to_int l)
+
 (* dune's ctypes requires the functor module to be named [Functions]; the
    [(instance Operations)] stanza aliases it to [C.Operations]. *)
 module Functions (F : Ctypes.FOREIGN) = struct

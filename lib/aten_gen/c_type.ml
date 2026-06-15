@@ -110,6 +110,19 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name name;
           ctypes = [ "scalar_type_opt" ];
         }
+  (* Layout?: like ScalarType?, the enum int code with a negative sentinel for
+     None. [layout_opt] is the matching ctypes view over [Layout.t option]. *)
+  | Optional (Base Layout) ->
+      Some
+        {
+          c_params = [ Printf.sprintf "int %s" name ];
+          call_expr =
+            Printf.sprintf
+              "%s < 0 ? std::nullopt : \
+               std::make_optional(static_cast<at::Layout>(%s))"
+              name name;
+          ctypes = [ "layout_opt" ];
+        }
   (* MemoryFormat?: like ScalarType?, the enum int code with a negative sentinel
      for None (e.g. clone's memory_format kwarg). [memory_format_opt] is the
      matching ctypes view over [Memory_format.t option]. *)
@@ -156,6 +169,10 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name name name;
           ctypes = [ "ptr int64_t"; "int" ];
         }
+  (* NB: any c10 enum added here (e.g. QScheme, or DeviceType inside Device)
+     must cross as a ctypes [view] over its OCaml enum, like ScalarType / Layout
+     / MemoryFormat above — never a bare int, which would leak an untyped code to
+     callers. QScheme is omitted on purpose: it never appears as a schema arg. *)
   | Base _ | Optional _ | List _ -> unsupported
 
 (* The supported return shapes. Initially: exactly one Tensor. *)
