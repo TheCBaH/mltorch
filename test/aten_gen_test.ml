@@ -89,6 +89,18 @@ let%expect_test "to.dtype_layout (Layout? + ScalarType?)" =
     ---
     let to_dtype_layout = foreign "atg_to_dtype_layout" (atc_tensor @-> scalar_type_opt @-> layout_opt @-> returning atc_tensor) |}]
 
+let%expect_test "to.dtype (method-style, ScalarType + MemoryFormat?)" =
+  gen ~style:`Method
+    "to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, bool \
+     copy=False, MemoryFormat? memory_format=None) -> Tensor(a)";
+  [%expect
+    {|
+    atc_tensor atg_to_dtype(atc_tensor self, int dtype, int non_blocking, int copy, int memory_format) {
+      return atc_wrap(atc_to_ptr(self)->to(static_cast<at::ScalarType>(dtype), (bool)non_blocking, (bool)copy, memory_format < 0 ? std::nullopt : std::make_optional(static_cast<at::MemoryFormat>(memory_format))));
+    }
+    ---
+    let to_dtype = foreign "atg_to_dtype" (atc_tensor @-> scalar_type @-> bool @-> bool @-> memory_format_opt @-> returning atc_tensor) |}]
+
 let%expect_test "contiguous (method-style, MemoryFormat arg)" =
   gen ~style:`Method
     "contiguous(Tensor(a) self, *, MemoryFormat \

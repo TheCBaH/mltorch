@@ -55,13 +55,10 @@ let selection =
     op "mean" ~overload:"dim";
     op "clone";
     op "contiguous";
+    op "to" ~overload:"dtype";
     (* cpu: no native_functions.yaml entry (synthesized from to(kCPU)); the
        Tensor::cpu() method is nullary, so this signature is exact, not trimmed. *)
     custom ~style:`Method "cpu(Tensor self) -> Tensor";
-    (* to.dtype: trimmed to drop the trailing MemoryFormat? memory_format kwarg. *)
-    custom ~style:`Method
-      "to.dtype(Tensor self, ScalarType dtype, bool non_blocking, bool copy) \
-       -> Tensor";
   ]
 
 let die fmt =
