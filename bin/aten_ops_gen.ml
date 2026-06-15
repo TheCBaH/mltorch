@@ -12,10 +12,8 @@
      - [Allow]: ops pulled verbatim from native_functions.yaml by name. The
        generator (Aten_gen.Gen) must be able to emit them as-is.
      - [Override]: a hand-written schema signature used INSTEAD of the yaml
-       entry, for ops the generator cannot yet emit unmodified. e.g. avg_pool2d
-       carries an [int? divisor_override] (unsupported) plus several defaulted
-       args; the override drops them to the (self, kernel_size) frontend
-       overload that at::avg_pool2d still accepts via C++ defaults. *)
+       entry, for ops the generator cannot yet emit unmodified. e.g. mean.dim
+       carries an optional dtype kwarg (unsupported); the override drops it. *)
 
 type selection =
   | Allow of { base : string; overload : string option }
@@ -52,7 +50,7 @@ let selection =
     op "conv2d";
     op "dropout";
     op "dropout_";
-    custom "avg_pool2d(Tensor self, int[2] kernel_size) -> Tensor";
+    op "avg_pool2d";
     op "view";
     (* mean.dim: drop the optional dtype kwarg; simplify int[1]? to int[]. *)
     custom "mean.dim(Tensor self, int[] dim, bool keepdim) -> Tensor";

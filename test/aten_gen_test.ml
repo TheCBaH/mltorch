@@ -52,6 +52,19 @@ let%expect_test "narrow (SymInt scalar)" =
     ---
     let narrow = foreign "atg_narrow" (atc_tensor @-> int64_t @-> int64_t @-> int64_t @-> returning atc_tensor) |}]
 
+let%expect_test "avg_pool2d (int? divisor_override)" =
+  gen
+    "avg_pool2d(Tensor self, int[2] kernel_size, int[2] stride=[], int[2] \
+     padding=0, bool ceil_mode=False, bool count_include_pad=True, int? \
+     divisor_override=None) -> Tensor";
+  [%expect
+    {|
+    atc_tensor atg_avg_pool2d(atc_tensor self, int64_t* kernel_size_data, int kernel_size_len, int64_t* stride_data, int stride_len, int64_t* padding_data, int padding_len, int ceil_mode, int count_include_pad, int64_t* divisor_override) {
+      return atc_wrap(at::avg_pool2d(*atc_to_ptr(self), at::IntArrayRef(kernel_size_data, kernel_size_len), at::IntArrayRef(stride_data, stride_len), at::IntArrayRef(padding_data, padding_len), (bool)ceil_mode, (bool)count_include_pad, divisor_override ? std::make_optional(*divisor_override) : std::nullopt));
+    }
+    ---
+    let avg_pool2d = foreign "atg_avg_pool2d" (atc_tensor @-> ptr int64_t @-> int @-> ptr int64_t @-> int @-> ptr int64_t @-> int @-> bool @-> bool @-> ptr int64_t @-> returning atc_tensor) |}]
+
 let%expect_test "softmax (int + ScalarType?)" =
   gen "softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor";
   [%expect {| SKIPPED: unsupported arg type: ScalarType? |}]

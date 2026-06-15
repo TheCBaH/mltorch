@@ -28,6 +28,9 @@ let make shape vals =
 (* An int64 array argument (e.g. a kernel/stride/shape list) as a C pointer. *)
 let arr xs = CArray.start (CArray.of_list int64_t (List.map Int64.of_int xs))
 
+(* A null int64 pointer: an absent [int?] optional argument (-> nullopt). *)
+let none_int = from_voidp int64_t null
+
 let pp_shape fmt s =
   Format.fprintf fmt "[%a]"
     (Format.pp_print_list
@@ -88,7 +91,16 @@ let%expect_test "flatten.using_ints" =
 let img () = make [ 1; 1; 4; 4 ] (List.init 16 (fun i -> float_of_int (i + 1)))
 
 let%expect_test "avg_pool2d" =
-  show (O.avg_pool2d (img ()) (arr [ 2; 2 ]) 2);
+  (* self, kernel_size, stride, padding, ceil_mode, count_include_pad,
+     divisor_override (None). *)
+  show
+    (O.avg_pool2d (img ())
+       (arr [ 2; 2 ])
+       2
+       (arr [ 2; 2 ])
+       2
+       (arr [ 0; 0 ])
+       2 false true none_int);
   [%expect "[1x1x2x2] = [3.5; 5.5; 11.5; 13.5]"]
 
 let%expect_test "max_pool2d" =

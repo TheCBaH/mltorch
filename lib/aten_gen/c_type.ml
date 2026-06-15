@@ -82,6 +82,18 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name;
           ctypes = [ "atc_tensor" ];
         }
+  (* int? / SymInt?: pass a pointer; null -> nullopt, else the pointee. The
+     non-_symint [at::<op>] overload takes std::optional<int64_t>, so SymInt?
+     binds identically to int? (mirrors the Int/SymInt scalar case). *)
+  | Optional (Base Int) | Optional (Base SymInt) ->
+      Some
+        {
+          c_params = [ Printf.sprintf "int64_t* %s" name ];
+          call_expr =
+            Printf.sprintf "%s ? std::make_optional(*%s) : std::nullopt" name
+              name;
+          ctypes = [ "ptr int64_t" ];
+        }
   (* Int[] and SymInt[] both bind to the non-_symint [at::<op>] overload, which
      takes an at::IntArrayRef; pass it as a (data, length) pair. *)
   | List (Base Int, _) | List (Base SymInt, _) ->
