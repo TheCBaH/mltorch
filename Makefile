@@ -10,7 +10,7 @@ test:
 	opam exec -- dune test
 
 runtest:
-	opam exec -- dune runtest
+	opam exec -- dune runtest --auto-promote
 
 clean:
 	opam exec -- dune clean

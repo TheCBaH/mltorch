@@ -35,7 +35,7 @@ op-type histogram sorted by frequency (high to low).
   >   ) models
   > EOF
   $ ocaml schema_runtime.cma parse_models.ml 2>/dev/null
-  efficientnet_b0: schema=8.14 nodes=290
+  efficientnet_b0: schema=8.20 nodes=290
     torch.ops.aten.convolution.default: 81
     torch.ops.aten.sigmoid.default: 65
     torch.ops.aten.mul.Tensor: 65
@@ -46,7 +46,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_b1: schema=8.14 nodes=412
+  efficientnet_b1: schema=8.20 nodes=412
     torch.ops.aten.convolution.default: 115
     torch.ops.aten.sigmoid.default: 92
     torch.ops.aten.mul.Tensor: 92
@@ -57,7 +57,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_b2: schema=8.14 nodes=412
+  efficientnet_b2: schema=8.20 nodes=412
     torch.ops.aten.convolution.default: 115
     torch.ops.aten.sigmoid.default: 92
     torch.ops.aten.mul.Tensor: 92
@@ -68,7 +68,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_b3: schema=8.14 nodes=466
+  efficientnet_b3: schema=8.20 nodes=466
     torch.ops.aten.convolution.default: 130
     torch.ops.aten.sigmoid.default: 104
     torch.ops.aten.mul.Tensor: 104
@@ -79,7 +79,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_b4: schema=8.14 nodes=574
+  efficientnet_b4: schema=8.20 nodes=574
     torch.ops.aten.convolution.default: 160
     torch.ops.aten.sigmoid.default: 128
     torch.ops.aten.mul.Tensor: 128
@@ -90,7 +90,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_b5: schema=8.14 nodes=696
+  efficientnet_b5: schema=8.20 nodes=696
     torch.ops.aten.convolution.default: 194
     torch.ops.aten.sigmoid.default: 155
     torch.ops.aten.mul.Tensor: 155
@@ -101,7 +101,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_b6: schema=8.14 nodes=804
+  efficientnet_b6: schema=8.20 nodes=804
     torch.ops.aten.convolution.default: 224
     torch.ops.aten.sigmoid.default: 179
     torch.ops.aten.mul.Tensor: 179
@@ -112,7 +112,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_b7: schema=8.14 nodes=980
+  efficientnet_b7: schema=8.20 nodes=980
     torch.ops.aten.convolution.default: 273
     torch.ops.aten.sigmoid.default: 218
     torch.ops.aten.mul.Tensor: 218
@@ -123,7 +123,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_v2_l: schema=8.14 nodes=1223
+  efficientnet_v2_l: schema=8.20 nodes=1223
     torch.ops.aten.convolution.default: 339
     torch.ops.aten.sigmoid.default: 264
     torch.ops.aten.mul.Tensor: 264
@@ -134,7 +134,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_v2_m: schema=8.14 nodes=884
+  efficientnet_v2_m: schema=8.20 nodes=884
     torch.ops.aten.convolution.default: 245
     torch.ops.aten.sigmoid.default: 191
     torch.ops.aten.mul.Tensor: 191
@@ -145,7 +145,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  efficientnet_v2_s: schema=8.14 nodes=614
+  efficientnet_v2_s: schema=8.20 nodes=614
     torch.ops.aten.convolution.default: 170
     torch.ops.aten.sigmoid.default: 132
     torch.ops.aten.mul.Tensor: 132
@@ -156,7 +156,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  mobilenet_v2: schema=8.14 nodes=154
+  mobilenet_v2: schema=8.20 nodes=154
     torch.ops.aten.convolution.default: 52
     torch.ops.aten._native_batch_norm_legit_no_training.default: 52
     torch.ops.aten.hardtanh.default: 35
@@ -166,7 +166,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
-  resnet18: schema=8.14 nodes=70
+  resnet18: schema=8.20 nodes=70
     torch.ops.aten.convolution.default: 20
     torch.ops.aten._native_batch_norm_legit_no_training.default: 20
     torch.ops.aten.relu.default: 17
@@ -176,7 +176,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.addmm.default: 1
     torch.ops.aten.max_pool2d_with_indices.default: 1
-  resnet34: schema=8.14 nodes=126
+  resnet34: schema=8.20 nodes=126
     torch.ops.aten.convolution.default: 36
     torch.ops.aten._native_batch_norm_legit_no_training.default: 36
     torch.ops.aten.relu.default: 33
@@ -186,7 +186,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.addmm.default: 1
     torch.ops.aten.max_pool2d_with_indices.default: 1
-  resnet50: schema=8.14 nodes=176
+  resnet50: schema=8.20 nodes=176
     torch.ops.aten.convolution.default: 53
     torch.ops.aten._native_batch_norm_legit_no_training.default: 53
     torch.ops.aten.relu.default: 49
@@ -196,7 +196,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.addmm.default: 1
     torch.ops.aten.max_pool2d_with_indices.default: 1
-  resnet101: schema=8.14 nodes=346
+  resnet101: schema=8.20 nodes=346
     torch.ops.aten.convolution.default: 104
     torch.ops.aten._native_batch_norm_legit_no_training.default: 104
     torch.ops.aten.relu.default: 100
@@ -206,7 +206,7 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.addmm.default: 1
     torch.ops.aten.max_pool2d_with_indices.default: 1
-  resnet152: schema=8.14 nodes=516
+  resnet152: schema=8.20 nodes=516
     torch.ops.aten.convolution.default: 155
     torch.ops.aten._native_batch_norm_legit_no_training.default: 155
     torch.ops.aten.relu.default: 151
