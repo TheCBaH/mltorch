@@ -31,6 +31,11 @@ let arr xs = CArray.start (CArray.of_list int64_t (List.map Int64.of_int xs))
 (* A null int64 pointer: an absent [int?] optional argument (-> nullopt). *)
 let none_int = from_voidp int64_t null
 
+(* A present [Scalar?] argument (a double pointer); [none_scalar] is the absent
+   one (null -> nullopt). *)
+let some_scalar v = allocate double v
+let none_scalar = from_voidp double null
+
 let pp_shape fmt s =
   Format.fprintf fmt "[%a]"
     (Format.pp_print_list
@@ -60,6 +65,21 @@ let%expect_test "mul.Tensor" =
   let b = make [ 2; 3 ] [ 3.; 3.; 3.; 3.; 3.; 3. ] in
   show (O.mul_Tensor a b);
   [%expect "[2x3] = [3; 6; 9; 12; 15; 18]"]
+
+let%expect_test "div.Tensor" =
+  let a = make [ 2; 3 ] [ 2.; 4.; 6.; 8.; 10.; 12. ] in
+  let b = make [ 2; 3 ] [ 2.; 2.; 2.; 4.; 5.; 6. ] in
+  show (O.div_Tensor a b);
+  [%expect "[2x3] = [1; 2; 3; 2; 2; 2]"]
+
+let%expect_test "clamp (Scalar? min/max)" =
+  let a = make [ 2; 3 ] [ -2.; -1.; 0.; 1.; 2.; 3. ] in
+  (* both bounds *)
+  show (O.clamp a (some_scalar 0.) (some_scalar 2.));
+  [%expect "[2x3] = [0; 0; 0; 1; 2; 2]"];
+  (* min only (max = None) *)
+  show (O.clamp a (some_scalar 0.) none_scalar);
+  [%expect "[2x3] = [0; 0; 0; 1; 2; 3]"]
 
 let%expect_test "add_.Tensor (in-place)" =
   let e = make [ 2; 3 ] [ 10.; 11.; 12.; 13.; 14.; 15. ] in

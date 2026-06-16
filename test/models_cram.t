@@ -20,6 +20,8 @@ op-type histogram sorted by frequency (high to low).
   >   "efficientnet_v2_m","efficientnet_v2_m_model.json";
   >   "efficientnet_v2_s","efficientnet_v2_s_model.json";
   >   "mobilenet_v2",     "mobilenet_v2_model.json";
+  >   "mobilenet_v3_large","mobilenet_v3_large_model.json";
+  >   "mobilenet_v3_small","mobilenet_v3_small_model.json";
   >   "resnet18",         "resnet18_model.json";
   >   "resnet34",         "resnet34_model.json";
   >   "resnet50",         "resnet50_model.json";
@@ -166,6 +168,32 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.clone.default: 1
     torch.ops.aten.addmm.default: 1
+  mobilenet_v3_large: schema=8.20 nodes=297
+    torch.ops.aten.convolution.default: 62
+    torch.ops.aten.clamp.default: 58
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 46
+    torch.ops.aten.add.Tensor: 39
+    torch.ops.aten.div.Tensor: 29
+    torch.ops.aten.mul.Tensor: 29
+    torch.ops.aten.relu.default: 19
+    torch.ops.aten.mean.dim: 9
+    torch.ops.aten.permute.default: 2
+    torch.ops.aten.addmm.default: 2
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.clone.default: 1
+  mobilenet_v3_small: schema=8.20 nodes=262
+    torch.ops.aten.clamp.default: 56
+    torch.ops.aten.convolution.default: 52
+    torch.ops.aten._native_batch_norm_legit_no_training.default: 34
+    torch.ops.aten.add.Tensor: 34
+    torch.ops.aten.div.Tensor: 28
+    torch.ops.aten.mul.Tensor: 28
+    torch.ops.aten.relu.default: 14
+    torch.ops.aten.mean.dim: 10
+    torch.ops.aten.permute.default: 2
+    torch.ops.aten.addmm.default: 2
+    torch.ops.aten.view.default: 1
+    torch.ops.aten.clone.default: 1
   resnet18: schema=8.20 nodes=70
     torch.ops.aten.convolution.default: 20
     torch.ops.aten._native_batch_norm_legit_no_training.default: 20

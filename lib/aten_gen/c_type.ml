@@ -93,6 +93,19 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name;
           ctypes = [ "atc_tensor" ];
         }
+  (* Scalar?: pass a pointer (mirrors int? below); null -> nullopt, else
+     c10::Scalar of the pointee double. Like [Base Scalar] this is float-valued
+     only — sufficient for clamp's min/max bounds. *)
+  | Optional (Base Scalar) ->
+      Some
+        {
+          c_params = [ Printf.sprintf "double* %s" name ];
+          call_expr =
+            Printf.sprintf
+              "%s ? std::make_optional(c10::Scalar(*%s)) : std::nullopt" name
+              name;
+          ctypes = [ "ptr double" ];
+        }
   (* int? / SymInt?: pass a pointer; null -> nullopt, else the pointee. The
      non-_symint [at::<op>] overload takes std::optional<int64_t>, so SymInt?
      binds identically to int? (mirrors the Int/SymInt scalar case). *)

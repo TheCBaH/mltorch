@@ -32,6 +32,8 @@ let selection =
     op "add" ~overload:"Tensor";
     op "add_" ~overload:"Tensor";
     op "mul" ~overload:"Tensor";
+    op "div" ~overload:"Tensor";
+    op "clamp";
     op "relu";
     op "relu_";
     op "sigmoid";

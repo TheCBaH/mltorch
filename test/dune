@@ -231,6 +231,24 @@
     %{project_root}/../../modules/pytorch.models.pt2/models/mobilenet_v2/models/model.json))))
 
 (rule
+ (target mobilenet_v3_large_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/pytorch.models.pt2/models/mobilenet_v3_large/models/model.json))))
+
+(rule
+ (target mobilenet_v3_small_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/pytorch.models.pt2/models/mobilenet_v3_small/models/model.json))))
+
+(rule
  (target resnet18_model.json)
  (action
   (with-stdout-to
@@ -294,6 +312,8 @@
   efficientnet_v2_m_model.json
   efficientnet_v2_s_model.json
   mobilenet_v2_model.json
+  mobilenet_v3_large_model.json
+  mobilenet_v3_small_model.json
   resnet18_model.json
   resnet34_model.json
   resnet50_model.json
