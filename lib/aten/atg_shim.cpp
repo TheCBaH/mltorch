@@ -145,33 +145,4 @@ int atc_item_int64(atc_tensor t, int64_t* out) {
   })
 }
 
-atc_tensor atg__native_batch_norm_legit_no_training(
-    atc_tensor input, atc_tensor weight, atc_tensor bias,
-    atc_tensor running_mean, atc_tensor running_var,
-    double momentum, double eps) {
-  return atc_wrap(std::get<0>(at::_native_batch_norm_legit_no_training(
-      *atc_to_ptr(input),
-      weight ? std::make_optional(*atc_to_ptr(weight)) : std::nullopt,
-      bias   ? std::make_optional(*atc_to_ptr(bias))   : std::nullopt,
-      *atc_to_ptr(running_mean),
-      *atc_to_ptr(running_var),
-      momentum, eps)));
-}
-
-atc_tensor atg_max_pool2d_with_indices(
-    atc_tensor self,
-    int64_t* kernel_size_data, int kernel_size_len,
-    int64_t* stride_data,      int stride_len,
-    int64_t* padding_data,     int padding_len,
-    int64_t* dilation_data,    int dilation_len,
-    int ceil_mode) {
-  return atc_wrap(std::get<0>(at::max_pool2d_with_indices(
-      *atc_to_ptr(self),
-      at::IntArrayRef(kernel_size_data, kernel_size_len),
-      at::IntArrayRef(stride_data,      stride_len),
-      at::IntArrayRef(padding_data,     padding_len),
-      at::IntArrayRef(dilation_data,    dilation_len),
-      static_cast<bool>(ceil_mode))));
-}
-
 }  // extern "C"

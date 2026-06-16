@@ -8,6 +8,12 @@
 module Types (S : Ctypes.TYPE) = struct
   open S
 
+  (* The opaque tensor handle ([struct atc_tensor_opaque*]). Declared here (never
+     sealed — only ever used through a pointer) so [atc_tensor] in
+     function_description.ml and the struct fields below share one type. *)
+  let tensor_opaque : [ `atc_tensor_opaque ] Ctypes.structure typ =
+    structure "atc_tensor_opaque"
+
   (* The shared int/float payload (union atc_scalar_value). *)
   let scalar_value : [ `atc_scalar_value ] Ctypes.union typ =
     union "atc_scalar_value"
@@ -24,4 +30,22 @@ module Types (S : Ctypes.TYPE) = struct
   let scalar_tag = field scalar_struct "tag" int
   let scalar_v = field scalar_struct "v" scalar_value
   let () = seal scalar_struct
+
+  (* Multi-output op result structs (atc_tensors2 / atc_tensors3), filled
+     through an out-param. Fields are properly typed [ptr tensor_opaque] (=
+     atc_tensor), so reading one yields a handle directly. *)
+  let tensors2_struct : [ `atc_tensors2 ] Ctypes.structure typ =
+    structure "atc_tensors2"
+
+  let tensors2_v0 = field tensors2_struct "v0" (ptr tensor_opaque)
+  let tensors2_v1 = field tensors2_struct "v1" (ptr tensor_opaque)
+  let () = seal tensors2_struct
+
+  let tensors3_struct : [ `atc_tensors3 ] Ctypes.structure typ =
+    structure "atc_tensors3"
+
+  let tensors3_v0 = field tensors3_struct "v0" (ptr tensor_opaque)
+  let tensors3_v1 = field tensors3_struct "v1" (ptr tensor_opaque)
+  let tensors3_v2 = field tensors3_struct "v2" (ptr tensor_opaque)
+  let () = seal tensors3_struct
 end

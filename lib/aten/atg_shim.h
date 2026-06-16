@@ -55,6 +55,19 @@ struct atc_scalar {
   union atc_scalar_value v;
 };
 
+/* Results of a multi-output op: a tuple of N tensor handles, filled through an
+   out-param while the op itself returns a 0 (ok) / -1 (error) status. Passed by
+   pointer (cstubs cannot pass/return a struct by value). */
+struct atc_tensors2 {
+  atc_tensor v0;
+  atc_tensor v1;
+};
+struct atc_tensors3 {
+  atc_tensor v0;
+  atc_tensor v1;
+  atc_tensor v2;
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -126,26 +139,6 @@ int atc_equal(atc_tensor a, atc_tensor b);
    through it), so this is an exact live count — used by the OCaml RAII layer's
    leak / GC round-trip tests. */
 int64_t atc_live_count(void);
-
-/* Tuple-returning ops: we expose only the primary output tensor (element 0).
-   The secondary outputs (mean/rstd for batch norm, indices for max pool) are
-   discarded; the updated models never use them in the forward pass. */
-
-/* _native_batch_norm_legit_no_training: inference-only batch norm (no running
-   stat update). Returns the normalised output; discards the saved mean/rstd. */
-atc_tensor atg__native_batch_norm_legit_no_training(
-    atc_tensor input, atc_tensor weight, atc_tensor bias,
-    atc_tensor running_mean, atc_tensor running_var,
-    double momentum, double eps);
-
-/* max_pool2d_with_indices: returns the pooled output; discards the index map. */
-atc_tensor atg_max_pool2d_with_indices(
-    atc_tensor self,
-    int64_t* kernel_size_data, int kernel_size_len,
-    int64_t* stride_data,      int stride_len,
-    int64_t* padding_data,     int padding_len,
-    int64_t* dilation_data,    int dilation_len,
-    int ceil_mode);
 
 #ifdef __cplusplus
 }

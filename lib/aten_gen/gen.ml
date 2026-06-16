@@ -33,7 +33,9 @@ let generate ?(style = `Function) (op : Func_ast.t) =
   else
     match C_type.map_returns op.returns with
     | None -> Skipped "unsupported return shape"
-    | Some C_type.Tensor_ret -> (
+    | Some (C_type.Tensors_ret nret) when nret > 3 ->
+        Skipped (Printf.sprintf "unsupported return shape: %d-tuple" nret)
+    | Some (C_type.Tensors_ret nret) -> (
         let mapped =
           List.map
             (fun (a : Func_ast.Argument.t) ->
@@ -56,11 +58,6 @@ let generate ?(style = `Function) (op : Func_ast.t) =
               List.concat_map (fun (_, (m : C_type.arg)) -> m.ctypes) margs
             in
             let c_name, ocaml_name = names op in
-            let proto =
-              Printf.sprintf "atc_tensor %s(%s)" c_name
-                (String.concat ", " c_params)
-            in
-            let c_decl = proto ^ ";" in
             let call =
               match (style, margs) with
               | `Method, (recv, _) :: _ ->
@@ -71,15 +68,60 @@ let generate ?(style = `Function) (op : Func_ast.t) =
                   Printf.sprintf "at::%s(%s)" op.name.base
                     (String.concat ", " call_args)
             in
-            let c_source =
-              Printf.sprintf "%s {\n  return atc_wrap(%s);\n}" proto call
+            (* A single Tensor is returned as the owning handle. A tuple of N
+               Tensors is filled into a [struct atc_tensorsN*] out-param while
+               the op returns a 0 (ok) / -1 (error) status (errors caught by
+               ATC_TRY, like the hand-written shims). *)
+            let proto, c_source, ret_ctypes, out_ctypes =
+              if nret = 1 then
+                let proto =
+                  Printf.sprintf "atc_tensor %s(%s)" c_name
+                    (String.concat ", " c_params)
+                in
+                ( proto,
+                  Printf.sprintf {|%s {
+  return atc_wrap(%s);
+}|} proto call,
+                  "atc_tensor",
+                  [] )
+              else
+                let proto =
+                  Printf.sprintf "int %s(%s)" c_name
+                    (String.concat ", "
+                       (c_params
+                       @ [ Printf.sprintf "struct atc_tensors%d* out" nret ]))
+                in
+                let writes =
+                  List.init nret (fun i ->
+                      Printf.sprintf
+                        "    out->v%d = atc_wrap(std::get<%d>(__r));" i i)
+                  |> String.concat "\n"
+                in
+                let body =
+                  Printf.sprintf
+                    {|%s {
+  ATC_TRY(-1, {
+    auto __r = %s;
+%s
+    return 0;
+  })
+}|}
+                    proto call writes
+                in
+                ( proto,
+                  body,
+                  "int",
+                  [ Printf.sprintf "ptr tensors%d_struct" nret ] )
             in
-            let ctypes_in = match ctypes_in with [] -> [ "void" ] | l -> l in
+            let c_decl = proto ^ ";" in
+            let ctypes_in =
+              match ctypes_in @ out_ctypes with [] -> [ "void" ] | l -> l
+            in
             let ctypes_line =
-              Printf.sprintf
-                {|let %s = foreign "%s" (%s @-> returning atc_tensor)|}
+              Printf.sprintf {|let %s = foreign "%s" (%s @-> returning %s)|}
                 ocaml_name c_name
                 (String.concat " @-> " ctypes_in)
+                ret_ctypes
             in
             let signature = Format.asprintf "%a" Func_ast.pp op in
             Generated

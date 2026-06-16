@@ -133,6 +133,27 @@ let%expect_test "softmax.int (ScalarType? dtype)" =
     ---
     let softmax_int = foreign "atg_softmax_int" (atc_tensor @-> int64_t @-> scalar_type_opt @-> returning atc_tensor) |}]
 
+let%expect_test "tuple return (outputs 1.. via out-params)" =
+  gen
+    "max_pool2d_with_indices(Tensor self, int[2] kernel_size) -> (Tensor, \
+     Tensor)";
+  [%expect
+    {|
+    int atg_max_pool2d_with_indices(atc_tensor self, int64_t* kernel_size_data, int kernel_size_len, struct atc_tensors2* out) {
+      ATC_TRY(-1, {
+        auto __r = at::max_pool2d_with_indices(*atc_to_ptr(self), at::IntArrayRef(kernel_size_data, kernel_size_len));
+        out->v0 = atc_wrap(std::get<0>(__r));
+        out->v1 = atc_wrap(std::get<1>(__r));
+        return 0;
+      })
+    }
+    ---
+    let max_pool2d_with_indices = foreign "atg_max_pool2d_with_indices" (atc_tensor @-> ptr int64_t @-> int @-> ptr tensors2_struct @-> returning int) |}]
+
+let%expect_test "skipped: non-Tensor tuple element" =
+  gen "frexp.Tensor(Tensor self) -> (Tensor mantissa, Scalar exponent)";
+  [%expect {| SKIPPED: unsupported return shape |}]
+
 let%expect_test "skipped: out= variant" =
   gen
     "add.out(Tensor self, Tensor other, *, Scalar alpha=1, Tensor(a!) out) -> \

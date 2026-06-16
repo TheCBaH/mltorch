@@ -89,6 +89,13 @@ open Ctypes
    [C.Functions.new_] can be passed straight into these ops. *)
 let atc_tensor = Function_description.atc_tensor
 
+(* Multi-output op result structs, declared in Type_description.Types and filled
+   through an out-param by a status-returning op (see Gen). Read output [field]
+   with [tensors_get] (an owning handle the caller must free). *)
+let tensors2_struct = Types_generated.tensors2_struct
+let tensors3_struct = Types_generated.tensors3_struct
+let tensors_get s field = getf s field
+
 (* c10 enum args cross the C ABI as their integer code; these ctypes views give
    the OCaml side the typed [Scalar_type.t] enum instead of a bare int. An
    optional enum uses a negative sentinel for None (nullopt in C++). *)

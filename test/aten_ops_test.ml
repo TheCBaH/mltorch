@@ -43,6 +43,17 @@ let show t =
   Format.printf "%a = %a@." pp_shape (T.shape t) T.pp_float32
     (T.as_float32 t |> Option.get)
 
+(* Print an int64 tensor (e.g. max-pool indices) as "shape = values". *)
+let show_i64 t =
+  let ba = T.data Aten.Dtype.int64 t |> Option.get in
+  let vals =
+    List.init (Bigarray.Array1.dim ba) (fun i -> Int64.to_string ba.{i})
+  in
+  Format.printf "%a = [%s]@." pp_shape (T.shape t) (String.concat "; " vals)
+
+(* Read output handle [field] from a filled multi-output result struct. *)
+let tget = Aten.Operation_description.tensors_get
+
 let%expect_test "tensor runtime defaults" =
   let dt = F.default_dtype () in
   Format.printf "default dtype = %d, elem size = %d bytes@." (Stype.to_int dt)
@@ -228,24 +239,52 @@ let%expect_test "mean.dim" =
        (arr [ 0 ]) 1 false None);
   [%expect "[3] = [2.5; 3.5; 4.5]"]
 
-let%expect_test "_native_batch_norm_legit_no_training" =
+let%expect_test "_native_batch_norm_legit_no_training (3-tuple out-struct)" =
   let x = make [ 1; 2; 1; 2 ] [ 1.; 2.; 3.; 4. ] in
   let w = make [ 2 ] [ 2.; 2. ] in
   let b = make [ 2 ] [ 1.; 1. ] in
   let mean = make [ 2 ] [ 0.; 0. ] in
   let var = make [ 2 ] [ 1.; 1. ] in
-  show (F._native_batch_norm_legit_no_training_default x w b mean var 0.1 0.0);
-  [%expect "[1x2x1x2] = [3; 5; 7; 9]"]
+  let describe name t =
+    if F.defined t = 0 then Format.printf "%s: undefined@." name
+    else Format.printf "%s: %a@." name pp_shape (T.shape t)
+  in
+  (* op returns a 0/-1 status and fills the 3 outputs into the struct; the saved
+     mean / invstd are empty in the no_training path (backward never runs). *)
+  let out = Ctypes.make Aten.Types_generated.tensors3_struct in
+  let status =
+    O._native_batch_norm_legit_no_training x w b mean var 0.1 0.0 (addr out)
+  in
+  Printf.printf "status=%d\n" status;
+  show (tget out Aten.Types_generated.tensors3_v0);
+  describe "save_mean" (tget out Aten.Types_generated.tensors3_v1);
+  describe "save_invstd" (tget out Aten.Types_generated.tensors3_v2);
+  [%expect
+    {|
+    status=0
+    [1x2x1x2] = [3; 5; 7; 9]
+    save_mean: [0]
+    save_invstd: [0] |}]
 
-let%expect_test "max_pool2d_with_indices" =
-  show
-    (F.max_pool2d_with_indices_default (img ())
-       (arr [ 2; 2 ])
-       2
-       (arr [ 2; 2 ])
-       2
-       (arr [ 0; 0 ])
-       2
-       (arr [ 1; 1 ])
-       2 0);
-  [%expect "[1x1x2x2] = [6; 8; 14; 16]"]
+let%expect_test "max_pool2d_with_indices (2-tuple out-struct)" =
+  (* output and the int64 index map, both filled into the out-struct. *)
+  let out = Ctypes.make Aten.Types_generated.tensors2_struct in
+  let status =
+    O.max_pool2d_with_indices (img ())
+      (arr [ 2; 2 ])
+      2
+      (arr [ 2; 2 ])
+      2
+      (arr [ 0; 0 ])
+      2
+      (arr [ 1; 1 ])
+      2 false (addr out)
+  in
+  Printf.printf "status=%d\n" status;
+  show (tget out Aten.Types_generated.tensors2_v0);
+  show_i64 (tget out Aten.Types_generated.tensors2_v1);
+  [%expect
+    {|
+    status=0
+    [1x1x2x2] = [6; 8; 14; 16]
+    [1x1x2x2] = [5; 7; 13; 15] |}]

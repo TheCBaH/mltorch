@@ -15,8 +15,11 @@ type arg = {
   ctypes : string list; (* ctypes type fragments, one per c_param *)
 }
 
-(* The C representation of the return. *)
-type ret = Tensor_ret (* single Tensor -> owning void* handle *)
+(* The C representation of the return: [n] Tensor outputs ([n] >= 1). A single
+   Tensor is returned as the owning handle; a tuple of [n] returns output 0 as
+   the handle and writes outputs 1..n-1 through trailing [atc_tensor*] out-params
+   (see Gen). *)
+type ret = Tensors_ret of int
 
 let unsupported = None
 
@@ -197,8 +200,12 @@ let map_type ~name (ty : Func_ast.Type.t) =
      callers. QScheme is omitted on purpose: it never appears as a schema arg. *)
   | Base _ | Optional _ | List _ -> unsupported
 
-(* The supported return shapes. Initially: exactly one Tensor. *)
+(* Supported return shapes: one Tensor, or a tuple of all-Tensor outputs. Any
+   non-Tensor return (Scalar, Tensor[], etc.) is unsupported. *)
 let map_returns (returns : Func_ast.Return.t list) =
+  let is_tensor (r : Func_ast.Return.t) = r.ty = Base Tensor in
   match returns with
-  | [ { ty = Base Tensor; _ } ] -> Some Tensor_ret
+  | [] -> unsupported
+  | _ when List.for_all is_tensor returns ->
+      Some (Tensors_ret (List.length returns))
   | _ -> unsupported
