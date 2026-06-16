@@ -10,6 +10,7 @@
 #ifndef ATG_SHIM_H_
 #define ATG_SHIM_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -29,6 +30,30 @@ typedef int8_t atc_scalar_type;
 #define ATC_DTYPE_FLOAT  ((atc_scalar_type)6)
 #define ATC_DTYPE_DOUBLE ((atc_scalar_type)7)
 #define ATC_DTYPE_BOOL   ((atc_scalar_type)11)
+
+/* Which arm of the c10::Scalar union is live. NONE encodes an absent optional
+   Scalar arg. Codes mirror Aten.Scalar.Tag. */
+enum atc_scalar_tag {
+  ATC_SCALAR_INT   = 0,
+  ATC_SCALAR_FLOAT = 1,
+  ATC_SCALAR_BOOL  = 2,
+  ATC_SCALAR_NONE  = 3,
+};
+
+/* c10::Scalar's payload: the arms share storage since a scalar is exactly one
+   of them. Only the arm named by the tag is valid. */
+union atc_scalar_value {
+  int64_t i;
+  double  d;
+  bool    b;
+};
+
+/* c10::Scalar marshalled as a tagged POD (mirrors Aten.Scalar). Passed across
+   the ctypes boundary by pointer. */
+struct atc_scalar {
+  enum atc_scalar_tag    tag;
+  union atc_scalar_value v;
+};
 
 #ifdef __cplusplus
 extern "C" {
@@ -127,8 +152,26 @@ atc_tensor atg_max_pool2d_with_indices(
 
 /* C++ conversion helpers for use inside atg_shim.cpp and generated wrappers. */
 #include <atomic>
+#include <optional>
 
 #include <ATen/core/Tensor.h>
+#include <c10/core/Scalar.h>
+
+/* Build a c10::Scalar from the tagged POD, picking the constructor that
+   preserves the integral / floating / bool category (so ATen type promotion
+   stays correct). Used by the generated atg_ops.cpp wrappers. */
+inline c10::Scalar atc_to_c10_scalar(const struct atc_scalar* s) {
+  switch (s->tag) {
+    case ATC_SCALAR_INT:   return c10::Scalar(s->v.i);
+    case ATC_SCALAR_FLOAT: return c10::Scalar(s->v.d);
+    case ATC_SCALAR_BOOL:  return c10::Scalar(s->v.b);
+    default:               return c10::Scalar(s->v.d);  /* unreachable when present */
+  }
+}
+inline std::optional<c10::Scalar> atc_to_c10_scalar_opt(const struct atc_scalar* s) {
+  if (s->tag == ATC_SCALAR_NONE) return std::nullopt;
+  return atc_to_c10_scalar(s);
+}
 
 namespace atc_detail {
 /* Live atc_tensor handles; bumped in atc_wrap, dropped in atc_free. Defined in

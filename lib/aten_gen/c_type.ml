@@ -56,13 +56,16 @@ let map_type ~name (ty : Func_ast.Type.t) =
           ctypes = [ "bool" ];
         }
   | Base Scalar ->
-      (* Simplification: float-valued scalar passed as a double. Sufficient for
-         the initial gated op set (e.g. add's alpha); revisit for int scalars. *)
+      (* c10::Scalar is a tagged union; it crosses as a pointer to a
+         [struct atc_scalar] (see atg_shim.h) so the int/float category — which
+         drives ATen type promotion — survives. (By pointer, not by value: the
+         ctypes stub generator re-emits a conflicting definition for a by-value
+         struct arg.) [scalar] is the ctypes view over the typed [Scalar.t]. *)
       Some
         {
-          c_params = [ Printf.sprintf "double %s" name ];
-          call_expr = Printf.sprintf "c10::Scalar(%s)" name;
-          ctypes = [ "double" ];
+          c_params = [ Printf.sprintf "const struct atc_scalar* %s" name ];
+          call_expr = Printf.sprintf "atc_to_c10_scalar(%s)" name;
+          ctypes = [ "scalar" ];
         }
   | Base ScalarType ->
       (* the c10 enum crosses as its int code; [scalar_type] is a ctypes view
@@ -93,18 +96,15 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name;
           ctypes = [ "atc_tensor" ];
         }
-  (* Scalar?: pass a pointer (mirrors int? below); null -> nullopt, else
-     c10::Scalar of the pointee double. Like [Base Scalar] this is float-valued
-     only — sufficient for clamp's min/max bounds. *)
+  (* Scalar?: same [struct atc_scalar] pointer as [Base Scalar], with the NONE
+     tag encoding None (-> nullopt). [scalar_opt] is the ctypes view over
+     [Scalar.t option]. *)
   | Optional (Base Scalar) ->
       Some
         {
-          c_params = [ Printf.sprintf "double* %s" name ];
-          call_expr =
-            Printf.sprintf
-              "%s ? std::make_optional(c10::Scalar(*%s)) : std::nullopt" name
-              name;
-          ctypes = [ "ptr double" ];
+          c_params = [ Printf.sprintf "const struct atc_scalar* %s" name ];
+          call_expr = Printf.sprintf "atc_to_c10_scalar_opt(%s)" name;
+          ctypes = [ "scalar_opt" ];
         }
   (* int? / SymInt?: pass a pointer; null -> nullopt, else the pointee. The
      non-_symint [at::<op>] overload takes std::optional<int64_t>, so SymInt?

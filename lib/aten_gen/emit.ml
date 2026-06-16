@@ -123,6 +123,58 @@ let layout_opt =
     ~read:(fun i -> if i < 0 then None else Layout.of_int i)
     ~write:(function None -> -1 | Some l -> Layout.to_int l)
 
+(* c10::Scalar crosses as [struct atc_scalar] (declared in Type_description.Types
+   so the stub generator binds it to atg_shim.h), passed by pointer — a by-value
+   struct arg makes the generator re-emit a conflicting definition. [scalar] /
+   [scalar_opt] views marshal the typed [Scalar.t] union (and its option). *)
+let scalar_value_of = function
+  | Scalar.Int i ->
+      let v = make Types_generated.scalar_value in
+      setf v Types_generated.value_i i;
+      v
+  | Scalar.Float d ->
+      let v = make Types_generated.scalar_value in
+      setf v Types_generated.value_d d;
+      v
+  | Scalar.Bool b ->
+      let v = make Types_generated.scalar_value in
+      setf v Types_generated.value_b b;
+      v
+
+(* Allocate a [struct atc_scalar] with the given tag and (optional) payload, and
+   return a pointer to it (kept alive by the GC for the duration of the call). *)
+let scalar_ptr (tag : Scalar.Tag.t) value =
+  let s = make Types_generated.scalar_struct in
+  setf s Types_generated.scalar_tag (Scalar.Tag.to_int tag);
+  Option.iter (fun v -> setf s Types_generated.scalar_v v) value;
+  allocate Types_generated.scalar_struct s
+
+let scalar_read p =
+  let s = !@p in
+  let v = getf s Types_generated.scalar_v in
+  match Scalar.Tag.of_int (getf s Types_generated.scalar_tag) with
+  | Scalar.Tag.Int -> Scalar.Int (getf v Types_generated.value_i)
+  | Scalar.Tag.Float -> Scalar.Float (getf v Types_generated.value_d)
+  | Scalar.Tag.Bool -> Scalar.Bool (getf v Types_generated.value_b)
+  | Scalar.Tag.None_ -> failwith "scalar view: NONE tag for a present scalar"
+
+let scalar =
+  view
+    (ptr Types_generated.scalar_struct)
+    ~read:scalar_read
+    ~write:(fun sc -> scalar_ptr (Scalar.tag sc) (Some (scalar_value_of sc)))
+
+let scalar_opt =
+  view
+    (ptr Types_generated.scalar_struct)
+    ~read:(fun p ->
+      if Scalar.Tag.of_int (getf !@p Types_generated.scalar_tag) = Scalar.Tag.None_
+      then None
+      else Some (scalar_read p))
+    ~write:(function
+      | None -> scalar_ptr Scalar.Tag.None_ None
+      | Some sc -> scalar_ptr (Scalar.tag sc) (Some (scalar_value_of sc)))
+
 (* dune's ctypes requires the functor module to be named [Functions]; the
    [(instance Operations)] stanza aliases it to [C.Operations]. *)
 module Functions (F : Ctypes.FOREIGN) = struct

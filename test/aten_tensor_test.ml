@@ -57,7 +57,7 @@ let%expect_test "long op sequence leaves no live tensors" =
      that every atc_wrap'd handle (inputs and results) is freed. *)
   for _ = 1 to 100 do
     let a = alloc [ 2; 3 ] and b = alloc [ 2; 3 ] in
-    let c = T.manage (O.add_Tensor a b 1.0) in
+    let c = T.manage (O.add_Tensor a b (Aten.Scalar.Int 1L)) in
     let d = T.manage (O.mul_Tensor a b) in
     let _ = T.manage (O.relu c) in
     let _ = T.manage (O.relu_ d) in

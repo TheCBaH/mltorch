@@ -15,11 +15,11 @@ let%expect_test "add.Tensor" =
   gen "add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor";
   [%expect
     {|
-    atc_tensor atg_add_Tensor(atc_tensor self, atc_tensor other, double alpha) {
-      return atc_wrap(at::add(*atc_to_ptr(self), *atc_to_ptr(other), c10::Scalar(alpha)));
+    atc_tensor atg_add_Tensor(atc_tensor self, atc_tensor other, const struct atc_scalar* alpha) {
+      return atc_wrap(at::add(*atc_to_ptr(self), *atc_to_ptr(other), atc_to_c10_scalar(alpha)));
     }
     ---
-    let add_Tensor = foreign "atg_add_Tensor" (atc_tensor @-> atc_tensor @-> double @-> returning atc_tensor) |}]
+    let add_Tensor = foreign "atg_add_Tensor" (atc_tensor @-> atc_tensor @-> scalar @-> returning atc_tensor) |}]
 
 let%expect_test "mul.Tensor" =
   gen "mul.Tensor(Tensor self, Tensor other) -> Tensor";

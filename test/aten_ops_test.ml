@@ -31,11 +31,6 @@ let arr xs = CArray.start (CArray.of_list int64_t (List.map Int64.of_int xs))
 (* A null int64 pointer: an absent [int?] optional argument (-> nullopt). *)
 let none_int = from_voidp int64_t null
 
-(* A present [Scalar?] argument (a double pointer); [none_scalar] is the absent
-   one (null -> nullopt). *)
-let some_scalar v = allocate double v
-let none_scalar = from_voidp double null
-
 let pp_shape fmt s =
   Format.fprintf fmt "[%a]"
     (Format.pp_print_list
@@ -57,7 +52,7 @@ let%expect_test "tensor runtime defaults" =
 let%expect_test "add.Tensor" =
   let a = make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
   let b = make [ 2; 3 ] [ 3.; 3.; 3.; 3.; 3.; 3. ] in
-  show (O.add_Tensor a b 1.0);
+  show (O.add_Tensor a b (Aten.Scalar.Int 1L));
   [%expect "[2x3] = [4; 5; 6; 7; 8; 9]"]
 
 let%expect_test "mul.Tensor" =
@@ -75,16 +70,16 @@ let%expect_test "div.Tensor" =
 let%expect_test "clamp (Scalar? min/max)" =
   let a = make [ 2; 3 ] [ -2.; -1.; 0.; 1.; 2.; 3. ] in
   (* both bounds *)
-  show (O.clamp a (some_scalar 0.) (some_scalar 2.));
+  show (O.clamp a (Some (Aten.Scalar.Float 0.)) (Some (Aten.Scalar.Float 2.)));
   [%expect "[2x3] = [0; 0; 0; 1; 2; 2]"];
   (* min only (max = None) *)
-  show (O.clamp a (some_scalar 0.) none_scalar);
+  show (O.clamp a (Some (Aten.Scalar.Float 0.)) None);
   [%expect "[2x3] = [0; 0; 0; 1; 2; 3]"]
 
 let%expect_test "add_.Tensor (in-place)" =
   let e = make [ 2; 3 ] [ 10.; 11.; 12.; 13.; 14.; 15. ] in
   let b = make [ 2; 3 ] [ 3.; 3.; 3.; 3.; 3.; 3. ] in
-  show (O.add__Tensor e b 1.0);
+  show (O.add__Tensor e b (Aten.Scalar.Int 1L));
   [%expect "[2x3] = [13; 14; 15; 16; 17; 18]"]
 
 let%expect_test "relu" =
@@ -174,7 +169,10 @@ let%expect_test "sigmoid" =
   [%expect "[3] = [0.5; 0.5; 0.5]"]
 
 let%expect_test "hardtanh_" =
-  show (O.hardtanh_ (make [ 3 ] [ -1.; 3.; 8. ]) 0.0 6.0);
+  show
+    (O.hardtanh_
+       (make [ 3 ] [ -1.; 3.; 8. ])
+       (Aten.Scalar.Float 0.0) (Aten.Scalar.Float 6.0));
   [%expect "[3] = [0; 3; 6]"]
 
 let%expect_test "silu_" =
@@ -182,7 +180,10 @@ let%expect_test "silu_" =
   [%expect "[3] = [0; 1.76159; -0.238406]"]
 
 let%expect_test "hardtanh (functional)" =
-  show (O.hardtanh (make [ 3 ] [ -2.; 0.5; 2. ]) 0.0 1.0);
+  show
+    (O.hardtanh
+       (make [ 3 ] [ -2.; 0.5; 2. ])
+       (Aten.Scalar.Float 0.0) (Aten.Scalar.Float 1.0));
   [%expect "[3] = [0; 0.5; 1]"]
 
 let%expect_test "permute" =
@@ -200,7 +201,7 @@ let%expect_test "addmm" =
   let c = make [ 1; 3 ] [ 10.; 20.; 30. ] in
   let a = make [ 1; 2 ] [ 1.; 2. ] in
   let b = make [ 2; 3 ] [ 1.; 0.; 0.; 0.; 1.; 0. ] in
-  show (O.addmm c a b 1.0 1.0);
+  show (O.addmm c a b (Aten.Scalar.Int 1L) (Aten.Scalar.Int 1L));
   [%expect "[1x3] = [11; 22; 30]"]
 
 let%expect_test "convolution" =
