@@ -207,6 +207,32 @@ let%expect_test "view" =
   show (O.view (make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ]) (arr [ 3; 2 ]) 2);
   [%expect "[3x2] = [1; 2; 3; 4; 5; 6]"]
 
+let%expect_test "expand" =
+  (* broadcast a single row to two; clone to materialise the stride-0 view so
+     pp_float32 reads real values rather than past the end of storage. *)
+  show
+    (O.clone
+       (O.expand (make [ 1; 3 ] [ 1.; 2.; 3. ]) (arr [ 2; 3 ]) 2 false)
+       None);
+  [%expect "[2x3] = [1; 2; 3; 1; 2; 3]"]
+
+let%expect_test "select.int" =
+  (* row 1 of a 2x3 matrix; clone to materialise the offset view (pp_float32
+     reads from the storage base, ignoring the view's storage offset). *)
+  show
+    (O.clone
+       (O.select_int (make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ]) 0L 1L)
+       None);
+  [%expect "[3] = [4; 5; 6]"]
+
+let%expect_test "squeeze.dims" =
+  show (O.squeeze_dims (make [ 1; 3; 1 ] [ 1.; 2.; 3. ]) (arr [ 0; 2 ]) 2);
+  [%expect "[3] = [1; 2; 3]"]
+
+let%expect_test "unsqueeze" =
+  show (O.unsqueeze (make [ 3 ] [ 1.; 2.; 3. ]) 0L);
+  [%expect "[1x3] = [1; 2; 3]"]
+
 let%expect_test "addmm" =
   (* out = beta * C + alpha * (A @ B): [1x3] = [10; 20; 30] + [1x2] @ [2x3] *)
   let c = make [ 1; 3 ] [ 10.; 20.; 30. ] in
