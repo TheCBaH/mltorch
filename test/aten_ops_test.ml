@@ -257,6 +257,18 @@ let%expect_test "convolution" =
        2 1L);
   [%expect "[1x1x2x2] = [6; 8; 12; 14]"]
 
+let%expect_test "bmm" =
+  (* batched [1x2x2] @ [1x2x2]: [[1,2],[3,4]] @ [[5,6],[7,8]] = [[19,22],[43,50]] *)
+  let a = make [ 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  let b = make [ 1; 2; 2 ] [ 5.; 6.; 7.; 8. ] in
+  show (O.bmm a b);
+  [%expect "[1x2x2] = [19; 22; 43; 50]"]
+
+let%expect_test "_softmax" =
+  (* softmax over a 2-vector of equal logits is uniform; half_to_float=false. *)
+  show (O._softmax (make [ 2 ] [ 0.; 0. ]) 0L false);
+  [%expect "[2] = [0.5; 0.5]"]
+
 let%expect_test "mean.dim" =
   (* self, dim, keepdim, dtype (None): mean over dim 0, no keepdim: [2x3] → [3] *)
   show

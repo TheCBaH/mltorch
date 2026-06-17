@@ -45,6 +45,8 @@ let selection =
     op "permute";
     op "convolution";
     op "addmm";
+    op "bmm";
+    op "_softmax";
     (* tuple returns: output 0 is the return, extra outputs via out-params *)
     op "_native_batch_norm_legit_no_training";
     op "max_pool2d_with_indices";

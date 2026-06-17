@@ -128,6 +128,9 @@ mapfile -t SRCS_GLUE < <(
   echo "$PT/aten/src/ATen/native/Convolution.cpp"
   echo "$PT/aten/src/ATen/native/ConvolutionMM2d.cpp"
   echo "$PT/aten/src/ATen/native/Unfold2d.cpp"
+  # _softmax: structured meta+impl (SoftMax.cpp, no vec.h); the lastdim/dim
+  # softmax kernels are cpu/SoftMaxKernel.cpp in the CAP list.
+  echo "$PT/aten/src/ATen/native/SoftMax.cpp"
   # dropout/dropout_ (composite; identity at inference, train=false).
   echo "$PT/aten/src/ATen/native/Dropout.cpp"
   echo "$PT/aten/src/ATen/native/ReduceOps.cpp"
@@ -182,6 +185,8 @@ mapfile -t SRCS_CAP < <(
   echo "$PT/aten/src/ATen/native/cpu/DepthwiseConvKernel.cpp"
   # REGISTER_DISPATCH(avg_pool2d_kernel, ...) — the vectorized pooling kernel.
   echo "$PT/aten/src/ATen/native/cpu/AvgPoolKernel.cpp"
+  # softmax_lastdim/softmax kernels behind _softmax (SoftMax.cpp's stubs).
+  echo "$PT/aten/src/ATen/native/cpu/SoftMaxKernel.cpp"
 )
 
 # --- compile ----------------------------------------------------------------
