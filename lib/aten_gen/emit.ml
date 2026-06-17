@@ -130,6 +130,13 @@ let layout_opt =
     ~read:(fun i -> if i < 0 then None else Layout.of_int i)
     ~write:(function None -> -1 | Some l -> Layout.to_int l)
 
+(* bool? : the 0/1 value with a negative sentinel for None (mirrors the enum
+   optionals). [bool_opt] is the ctypes view over [bool option]. *)
+let bool_opt =
+  view int
+    ~read:(fun i -> if i < 0 then None else Some (i <> 0))
+    ~write:(function None -> -1 | Some b -> if b then 1 else 0)
+
 (* c10::Scalar crosses as [struct atc_scalar] (declared in Type_description.Types
    so the stub generator binds it to atg_shim.h), passed by pointer — a by-value
    struct arg makes the generator re-emit a conflicting definition. [scalar] /

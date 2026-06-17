@@ -133,6 +133,16 @@ let%expect_test "softmax.int (ScalarType? dtype)" =
     ---
     let softmax_int = foreign "atg_softmax_int" (atc_tensor @-> int64_t @-> scalar_type_opt @-> returning atc_tensor) |}]
 
+let%expect_test "bool? (negative-sentinel view)" =
+  gen "f(Tensor self, bool? flag=None) -> Tensor";
+  [%expect
+    {|
+    atc_tensor atg_f(atc_tensor self, int flag) {
+      return atc_wrap(at::f(*atc_to_ptr(self), flag < 0 ? std::nullopt : std::make_optional((bool)flag)));
+    }
+    ---
+    let f = foreign "atg_f" (atc_tensor @-> bool_opt @-> returning atc_tensor) |}]
+
 let%expect_test "tuple return (outputs 1.. via out-params)" =
   gen
     "max_pool2d_with_indices(Tensor self, int[2] kernel_size) -> (Tensor, \

@@ -130,6 +130,17 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name;
           ctypes = [ "ptr int64_t" ];
         }
+  (* bool?: the 0/1 value with a negative sentinel for None (mirrors the enum
+     optionals); [bool_opt] is the ctypes view over [bool option]. *)
+  | Optional (Base Bool) ->
+      Some
+        {
+          c_params = [ Printf.sprintf "int %s" name ];
+          call_expr =
+            Printf.sprintf
+              "%s < 0 ? std::nullopt : std::make_optional((bool)%s)" name name;
+          ctypes = [ "bool_opt" ];
+        }
   (* ScalarType?: the enum int code with a negative sentinel for None (-> the
      [at::<op>] std::optional<ScalarType> param, e.g. mean.dim's dtype kwarg).
      [scalar_type_opt] is the matching ctypes view over [Scalar_type.t option]. *)
