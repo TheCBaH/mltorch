@@ -201,7 +201,7 @@ let device_ptr type_code index =
 let device_read p =
   let s = !@p in
   let code = getf s Types_generated.device_type_code in
-  match Device_type.of_int code with
+  match Device.Type.of_int code with
   | Some t -> { Device.type_ = t; index = getf s Types_generated.device_index }
   | None -> Printf.ksprintf failwith "device view: unknown DeviceType code %%d" code
 
@@ -210,7 +210,7 @@ let device =
     (ptr Types_generated.device_struct)
     ~read:device_read
     ~write:(fun (d : Device.t) ->
-      device_ptr (Device_type.to_int d.type_) d.index)
+      device_ptr (Device.Type.to_int d.type_) d.index)
 
 let device_opt =
   view
@@ -220,7 +220,7 @@ let device_opt =
       else Some (device_read p))
     ~write:(function
       | None -> device_ptr (-1) 0
-      | Some (d : Device.t) -> device_ptr (Device_type.to_int d.type_) d.index)
+      | Some (d : Device.t) -> device_ptr (Device.Type.to_int d.type_) d.index)
 
 (* dune's ctypes requires the functor module to be named [Functions]; the
    [(instance Operations)] stanza aliases it to [C.Operations]. *)

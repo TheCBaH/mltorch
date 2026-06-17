@@ -121,8 +121,14 @@ let%expect_test "where.self (select by mask)" =
        (make [ 3 ] [ 1.; 2.; 3. ]));
   [%expect "[3] = [10; 2; 30]"]
 
-let%expect_test "full_like (trimmed to self, fill_value)" =
-  show (O.full_like (make [ 2; 2 ] [ 1.; 2.; 3.; 4. ]) (Aten.Scalar.Float 0.));
+let%expect_test
+    "full_like (full sig: dtype/layout/device/pin_memory/memory_format)" =
+  (* self, fill_value, dtype, layout, device, pin_memory, memory_format. All the
+     optionals None except device = Some CPU, exercising the Device view. *)
+  show
+    (O.full_like
+       (make [ 2; 2 ] [ 1.; 2.; 3.; 4. ])
+       (Aten.Scalar.Float 0.) None None (Some Aten.Device.cpu) None None);
   [%expect "[2x2] = [0; 0; 0; 0]"]
 
 let%expect_test "add_.Tensor (in-place)" =

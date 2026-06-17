@@ -40,10 +40,7 @@ let selection =
     op "logical_not";
     op "any" ~overload:"dim";
     op "where" ~overload:"self";
-    (* full_like: trimmed to (self, fill_value); the trailing dtype/layout/
-       device/pin_memory/memory_format optionals C++-default to nullopt, which
-       for a contiguous CPU tensor matches the ViT mask's full_like.default. *)
-    custom "full_like(Tensor self, Scalar fill_value) -> Tensor";
+    op "full_like";
     op "relu";
     op "relu_";
     op "sigmoid";
