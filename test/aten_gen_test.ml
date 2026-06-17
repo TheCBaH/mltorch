@@ -143,6 +143,16 @@ let%expect_test "bool? (negative-sentinel view)" =
     ---
     let f = foreign "atg_f" (atc_tensor @-> bool_opt @-> returning atc_tensor) |}]
 
+let%expect_test "Device? (struct pointer + view)" =
+  gen "f(Tensor self, Device? device=None) -> Tensor";
+  [%expect
+    {|
+    atc_tensor atg_f(atc_tensor self, const struct atc_device* device) {
+      return atc_wrap(at::f(*atc_to_ptr(self), atc_to_device_opt(device)));
+    }
+    ---
+    let f = foreign "atg_f" (atc_tensor @-> device_opt @-> returning atc_tensor) |}]
+
 let%expect_test "tuple return (outputs 1.. via out-params)" =
   gen
     "max_pool2d_with_indices(Tensor self, int[2] kernel_size) -> (Tensor, \

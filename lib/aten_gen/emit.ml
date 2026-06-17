@@ -189,6 +189,39 @@ let scalar_opt =
       | None -> scalar_ptr Scalar.Tag.None_ None
       | Some sc -> scalar_ptr (Scalar.tag sc) (Some (scalar_value_of sc)))
 
+(* c10::Device crosses as [struct atc_device] (declared in Type_description.Types)
+   by pointer, like Scalar. [device] / [device_opt] views marshal the typed
+   [Device.t] (and its option); a negative type code encodes an absent Device?. *)
+let device_ptr type_code index =
+  let s = make Types_generated.device_struct in
+  setf s Types_generated.device_type_code type_code;
+  setf s Types_generated.device_index index;
+  allocate Types_generated.device_struct s
+
+let device_read p =
+  let s = !@p in
+  let code = getf s Types_generated.device_type_code in
+  match Device_type.of_int code with
+  | Some t -> { Device.type_ = t; index = getf s Types_generated.device_index }
+  | None -> Printf.ksprintf failwith "device view: unknown DeviceType code %%d" code
+
+let device =
+  view
+    (ptr Types_generated.device_struct)
+    ~read:device_read
+    ~write:(fun (d : Device.t) ->
+      device_ptr (Device_type.to_int d.type_) d.index)
+
+let device_opt =
+  view
+    (ptr Types_generated.device_struct)
+    ~read:(fun p ->
+      if getf !@p Types_generated.device_type_code < 0 then None
+      else Some (device_read p))
+    ~write:(function
+      | None -> device_ptr (-1) 0
+      | Some (d : Device.t) -> device_ptr (Device_type.to_int d.type_) d.index)
+
 (* dune's ctypes requires the functor module to be named [Functions]; the
    [(instance Operations)] stanza aliases it to [C.Operations]. *)
 module Functions (F : Ctypes.FOREIGN) = struct

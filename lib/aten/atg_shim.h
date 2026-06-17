@@ -55,6 +55,14 @@ struct atc_scalar {
   union atc_scalar_value v;
 };
 
+/* c10::Device marshalled as a POD, passed across the ctypes boundary by pointer
+   (mirrors Aten.Device). [type] is a c10::DeviceType code, or negative for an
+   absent Device?; [index] is the c10::DeviceIndex (-1 = unspecified). */
+struct atc_device {
+  int8_t type;
+  int8_t index;
+};
+
 /* Results of a multi-output op: a tuple of N tensor handles, filled through an
    out-param while the op itself returns a 0 (ok) / -1 (error) status. Passed by
    pointer (cstubs cannot pass/return a struct by value). */
@@ -149,6 +157,7 @@ int64_t atc_live_count(void);
 #include <vector>
 
 #include <ATen/core/Tensor.h>
+#include <c10/core/Device.h>
 #include <c10/core/Scalar.h>
 
 /* Build a c10::Scalar from the tagged POD, picking the constructor that
@@ -165,6 +174,17 @@ inline c10::Scalar atc_to_c10_scalar(const struct atc_scalar* s) {
 inline std::optional<c10::Scalar> atc_to_c10_scalar_opt(const struct atc_scalar* s) {
   if (s->tag == ATC_SCALAR_NONE) return std::nullopt;
   return atc_to_c10_scalar(s);
+}
+
+/* Build a c10::Device from the POD (type/index). Used by the generated wrappers
+   for a Device arg; the optional form returns nullopt when type is negative. */
+inline c10::Device atc_to_device(const struct atc_device* d) {
+  return c10::Device(static_cast<c10::DeviceType>(d->type),
+                     static_cast<c10::DeviceIndex>(d->index));
+}
+inline std::optional<c10::Device> atc_to_device_opt(const struct atc_device* d) {
+  if (d->type < 0) return std::nullopt;
+  return atc_to_device(d);
 }
 
 namespace atc_detail {

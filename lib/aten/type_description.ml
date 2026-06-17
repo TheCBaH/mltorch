@@ -31,6 +31,16 @@ module Types (S : Ctypes.TYPE) = struct
   let scalar_v = field scalar_struct "v" scalar_value
   let () = seal scalar_struct
 
+  (* c10::Device as a POD (atg_shim.h): [type] is the DeviceType code (negative
+     = absent Device?), [index] the DeviceIndex. Declared here so the stub
+     generator binds it to the header struct rather than re-emitting it. *)
+  let device_struct : [ `atc_device ] Ctypes.structure typ =
+    structure "atc_device"
+
+  let device_type_code = field device_struct "type" int8_t
+  let device_index = field device_struct "index" int8_t
+  let () = seal device_struct
+
   (* Multi-output op result structs (atc_tensors2 / atc_tensors3), filled
      through an out-param. Fields are properly typed [ptr tensor_opaque] (=
      atc_tensor), so reading one yields a handle directly. *)

@@ -97,6 +97,15 @@ let map_type ~name (ty : Func_ast.Type.t) =
           call_expr = Printf.sprintf "static_cast<at::MemoryFormat>(%s)" name;
           ctypes = [ "memory_format" ];
         }
+  | Base Device ->
+      (* c10::Device crosses as a [struct atc_device] pointer (DeviceType +
+         index), like Scalar; [device] is the ctypes view over [Device.t]. *)
+      Some
+        {
+          c_params = [ Printf.sprintf "const struct atc_device* %s" name ];
+          call_expr = Printf.sprintf "atc_to_device(%s)" name;
+          ctypes = [ "device" ];
+        }
   | Optional (Base Tensor) ->
       (* null handle (0) -> nullopt *)
       Some
@@ -182,6 +191,16 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name name;
           ctypes = [ "memory_format_opt" ];
         }
+  (* Device?: same [struct atc_device] pointer as [Base Device], with a negative
+     type code encoding None (-> nullopt). [device_opt] is the ctypes view over
+     [Device.t option]. *)
+  | Optional (Base Device) ->
+      Some
+        {
+          c_params = [ Printf.sprintf "const struct atc_device* %s" name ];
+          call_expr = Printf.sprintf "atc_to_device_opt(%s)" name;
+          ctypes = [ "device_opt" ];
+        }
   (* Tensor[] (at::TensorList): an array of handles + length, rebuilt into a
      std::vector<at::Tensor> by the shim helper (the ArrayRef borrows it). *)
   | List (Base Tensor, _) ->
@@ -228,10 +247,10 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name name name;
           ctypes = [ "ptr int64_t"; "int" ];
         }
-  (* NB: any c10 enum added here (e.g. QScheme, or DeviceType inside Device)
-     must cross as a ctypes [view] over its OCaml enum, like ScalarType / Layout
-     / MemoryFormat above — never a bare int, which would leak an untyped code to
-     callers. QScheme is omitted on purpose: it never appears as a schema arg. *)
+  (* NB: any c10 enum added here (e.g. QScheme) must cross as a ctypes [view]
+     over its OCaml enum, like ScalarType / Layout / MemoryFormat / DeviceType
+     above — never a bare int, which would leak an untyped code to callers.
+     QScheme is omitted on purpose: it never appears as a schema arg. *)
   | Base _ | Optional _ | List _ -> unsupported
 
 (* Supported return shapes: one Tensor, or a tuple of all-Tensor outputs. Any
