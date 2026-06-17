@@ -314,7 +314,7 @@ let%expect_test "union with heterogeneous cases" =
                 | Ok v -> Bool v
                 | Error s -> Jsont.Error.msg Jsont.Meta.none s)
               | "as_float" ->
-                (match Jsont.Json.decode Jsont.number value with
+                (match Jsont.Json.decode float_jsont value with
                 | Ok v -> Float v
                 | Error s -> Jsont.Error.msg Jsont.Meta.none s)
               | k -> Jsont.Error.msgf Jsont.Meta.none "Unknown SymExprHint case: %s" k)

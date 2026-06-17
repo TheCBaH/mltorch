@@ -6,6 +6,7 @@ the JSON value.
   > #use "topfind";;
   > #require "jsont";;
   > #require "jsont.bytesrw";;
+  > #load "schema_runtime.cma";;
   > #use "schema_pytorch.ml";;
   > let () =
   >   let json = {|{"inputs":[],"outputs":[],"nodes":[],"tensor_values":{},"sym_int_values":{},"sym_bool_values":{},"is_single_tensor_return":false,"custom_obj_values":{},"sym_float_values":{}}|} in
@@ -15,5 +16,5 @@ the JSON value.
   >        ~error:Format.pp_print_string)
   >     (Jsont_bytesrw.decode_string Graph.jsont json)
   > EOF
-  $ ocaml schema_runtime.cma default_test.ml 2>/dev/null
+  $ ocaml default_test.ml 2>/dev/null
   nodes=0

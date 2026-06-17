@@ -5,6 +5,7 @@ op-type histogram sorted by frequency (high to low).
   > #use "topfind";;
   > #require "jsont";;
   > #require "jsont.bytesrw";;
+  > #load "schema_runtime.cma";;
   > #use "schema_pytorch.ml";;
   > #use "model_test_utils.ml";;
   > let models = [
@@ -36,7 +37,7 @@ op-type histogram sorted by frequency (high to low).
   >       (Jsont_bytesrw.decode_string ExportedProgram.jsont json)
   >   ) models
   > EOF
-  $ ocaml schema_runtime.cma parse_models.ml 2>/dev/null
+  $ ocaml parse_models.ml 2>/dev/null
   efficientnet_b0: schema=8.20 nodes=290
     torch.ops.aten.convolution.default: 81
     torch.ops.aten.sigmoid.default: 65

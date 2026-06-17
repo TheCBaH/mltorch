@@ -4,6 +4,7 @@ Parse the full exported resnet18 model (model.json) and print summary stats.
   > #use "topfind";;
   > #require "jsont";;
   > #require "jsont.bytesrw";;
+  > #load "schema_runtime.cma";;
   > #use "schema_pytorch.ml";;
   > #use "model_test_utils.ml";;
   > let () =
@@ -12,7 +13,7 @@ Parse the full exported resnet18 model (model.json) and print summary stats.
   >     (Format.pp_print_result ~ok:pp_model ~error:Format.pp_print_string)
   >     (Jsont_bytesrw.decode_string ExportedProgram.jsont json)
   > EOF
-  $ ocaml schema_runtime.cma parse_model.ml 2>/dev/null
+  $ ocaml parse_model.ml 2>/dev/null
   schema=8.20 nodes=70
     torch.ops.aten.convolution.default: 20
     torch.ops.aten._native_batch_norm_legit_no_training.default: 20

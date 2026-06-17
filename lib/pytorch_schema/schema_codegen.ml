@@ -26,7 +26,7 @@ let rec pp_ocaml_type fmt = function
 let rec pp_jsont_expr fmt = function
   | Type_expr.Str -> Format.pp_print_string fmt "Jsont.string"
   | Type_expr.Int -> Format.pp_print_string fmt "Jsont.int"
-  | Type_expr.Float -> Format.pp_print_string fmt "Jsont.number"
+  | Type_expr.Float -> Format.pp_print_string fmt "float_jsont"
   | Type_expr.Bool -> Format.pp_print_string fmt "Jsont.bool"
   | Type_expr.List t -> Format.fprintf fmt "(Jsont.list %a)" pp_jsont_expr t
   | Type_expr.Optional t -> pp_jsont_expr fmt t
@@ -73,7 +73,7 @@ let rec pp_ocaml_type_rec group fmt = function
 let rec pp_jsont_expr_rec group fmt = function
   | Type_expr.Str -> Format.pp_print_string fmt "Jsont.string"
   | Type_expr.Int -> Format.pp_print_string fmt "Jsont.int"
-  | Type_expr.Float -> Format.pp_print_string fmt "Jsont.number"
+  | Type_expr.Float -> Format.pp_print_string fmt "float_jsont"
   | Type_expr.Bool -> Format.pp_print_string fmt "Jsont.bool"
   | Type_expr.List t ->
       Format.fprintf fmt "(Jsont.list %a)" (pp_jsont_expr_rec group) t
@@ -716,6 +716,8 @@ let generate (types : Type_def.t String_map.t) : string =
   let buf = Buffer.create 4096 in
   let fmt = Format.formatter_of_buffer buf in
   let sccs = compute_sccs types in
+  (* [float_jsont] (PyTorch's string-encoded non-finite floats) comes from the
+     opened Schema_runtime; every Float field's decoder refers to it. *)
   Format.fprintf fmt "@[<v 0>open Schema_runtime";
   List.iter
     (fun scc ->

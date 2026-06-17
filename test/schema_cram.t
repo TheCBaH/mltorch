@@ -9,8 +9,9 @@ interface is found without an explicit -I flag.
   $ cat > load_schema.ml << 'EOF'
   > #use "topfind";;
   > #require "jsont";;
+  > #load "schema_runtime.cma";;
   > #use "schema_pytorch.ml";;
   > let () = print_endline "schema_pytorch loaded ok"
   > EOF
-  $ ocaml schema_runtime.cma load_schema.ml 2>/dev/null
+  $ ocaml load_schema.ml 2>/dev/null
   schema_pytorch loaded ok
