@@ -43,6 +43,10 @@ let show t =
   Format.printf "%a = %a@." pp_shape (T.shape t) T.pp_float32
     (T.as_float32 t |> Option.get)
 
+(* Show a non-float result (e.g. a bool mask) by casting to float32 first, so
+   the float32 view applies; bool true/false render as 1/0. *)
+let show_as_float t = show (O.to_dtype t Stype.Float false false None)
+
 (* Print an int64 tensor (e.g. max-pool indices) as "shape = values". *)
 let show_i64 t =
   let ba = T.data Aten.Dtype.int64 t |> Option.get in
@@ -86,6 +90,32 @@ let%expect_test "clamp (Scalar? min/max)" =
   (* min only (max = None) *)
   show (O.clamp a (Some (Aten.Scalar.Float 0.)) None);
   [%expect "[2x3] = [0; 0; 0; 1; 2; 3]"]
+
+let%expect_test "mul.Scalar" =
+  show (O.mul_Scalar (make [ 3 ] [ 1.; 2.; 3. ]) (Aten.Scalar.Float 2.));
+  [%expect "[3] = [2; 4; 6]"]
+
+let%expect_test "eq.Scalar (bool mask)" =
+  show_as_float (O.eq_Scalar (make [ 3 ] [ 1.; 2.; 2. ]) (Aten.Scalar.Float 2.));
+  [%expect "[3] = [0; 1; 1]"]
+
+let%expect_test "logical_not (bool mask)" =
+  (* true where the element is zero *)
+  show_as_float (O.logical_not (make [ 3 ] [ 0.; 1.; 2. ]));
+  [%expect "[3] = [1; 0; 0]"]
+
+let%expect_test "any.dim (bool reduction)" =
+  (* any over dim 1: row [0,0] -> false, row [1,0] -> true *)
+  show_as_float (O.any_dim (make [ 2; 2 ] [ 0.; 0.; 1.; 0. ]) 1L false);
+  [%expect "[2] = [0; 1]"]
+
+let%expect_test "where.self (select by mask)" =
+  let cond = O.eq_Scalar (make [ 3 ] [ 1.; 0.; 1. ]) (Aten.Scalar.Float 1.) in
+  show
+    (O.where_self cond
+       (make [ 3 ] [ 10.; 20.; 30. ])
+       (make [ 3 ] [ 1.; 2.; 3. ]));
+  [%expect "[3] = [10; 2; 30]"]
 
 let%expect_test "add_.Tensor (in-place)" =
   let e = make [ 2; 3 ] [ 10.; 11.; 12.; 13.; 14.; 15. ] in

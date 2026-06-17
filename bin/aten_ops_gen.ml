@@ -32,8 +32,14 @@ let selection =
     op "add" ~overload:"Tensor";
     op "add_" ~overload:"Tensor";
     op "mul" ~overload:"Tensor";
+    op "mul" ~overload:"Scalar";
     op "div" ~overload:"Tensor";
     op "clamp";
+    (* masking ops used by the ViT models (attention-mask construction) *)
+    op "eq" ~overload:"Scalar";
+    op "logical_not";
+    op "any" ~overload:"dim";
+    op "where" ~overload:"self";
     op "relu";
     op "relu_";
     op "sigmoid";
