@@ -131,6 +131,9 @@ mapfile -t SRCS_GLUE < <(
   # _softmax: structured meta+impl (SoftMax.cpp, no vec.h); the lastdim/dim
   # softmax kernels are cpu/SoftMaxKernel.cpp in the CAP list.
   echo "$PT/aten/src/ATen/native/SoftMax.cpp"
+  # native_layer_norm -> layer_norm_cpu (layer_norm.cpp, no vec.h); the
+  # LayerNormKernel is cpu/layer_norm_kernel.cpp in the CAP list.
+  echo "$PT/aten/src/ATen/native/layer_norm.cpp"
   # dropout/dropout_ (composite; identity at inference, train=false).
   echo "$PT/aten/src/ATen/native/Dropout.cpp"
   echo "$PT/aten/src/ATen/native/ReduceOps.cpp"
@@ -187,6 +190,8 @@ mapfile -t SRCS_CAP < <(
   echo "$PT/aten/src/ATen/native/cpu/AvgPoolKernel.cpp"
   # softmax_lastdim/softmax kernels behind _softmax (SoftMax.cpp's stubs).
   echo "$PT/aten/src/ATen/native/cpu/SoftMaxKernel.cpp"
+  # LayerNormKernel (the vectorized layer-norm kernel) for native_layer_norm.
+  echo "$PT/aten/src/ATen/native/cpu/layer_norm_kernel.cpp"
 )
 
 # --- compile ----------------------------------------------------------------

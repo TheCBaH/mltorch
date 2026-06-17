@@ -334,6 +334,26 @@ let%expect_test "_native_batch_norm_legit_no_training (3-tuple out-struct)" =
     save_mean: [0]
     save_invstd: [0] |}]
 
+let%expect_test "native_layer_norm (3-tuple out-struct)" =
+  (* layer-norm over the last dim of [1x2] [0,2]: mean=1, var=1, eps=0 ->
+     normalized=[-1,1]; weight=1/bias=0 leave it unchanged. *)
+  let x = make [ 1; 2 ] [ 0.; 2. ] in
+  let w = make [ 2 ] [ 1.; 1. ] in
+  let b = make [ 2 ] [ 0.; 0. ] in
+  let describe name t = Format.printf "%s: %a@." name pp_shape (T.shape t) in
+  let out = Ctypes.make Aten.Types_generated.tensors3_struct in
+  let status = O.native_layer_norm x (arr [ 2 ]) 1 w b 0.0 (addr out) in
+  Printf.printf "status=%d\n" status;
+  show (tget out Aten.Types_generated.tensors3_v0);
+  describe "mean" (tget out Aten.Types_generated.tensors3_v1);
+  describe "rstd" (tget out Aten.Types_generated.tensors3_v2);
+  [%expect
+    {|
+    status=0
+    [1x2] = [-1; 1]
+    mean: [1x1]
+    rstd: [1x1] |}]
+
 let%expect_test "max_pool2d_with_indices (2-tuple out-struct)" =
   (* output and the int64 index map, both filled into the out-struct. *)
   let out = Ctypes.make Aten.Types_generated.tensors2_struct in
