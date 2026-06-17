@@ -299,6 +299,10 @@ let%expect_test "_softmax" =
   show (O._softmax (make [ 2 ] [ 0.; 0. ]) 0L false);
   [%expect "[2] = [0.5; 0.5]"]
 
+let%expect_test "gelu (exact, approximate=none)" =
+  show (O.gelu (make [ 3 ] [ 0.; 1.; 2. ]) "none");
+  [%expect "[3] = [0; 0.841345; 1.9545]"]
+
 let%expect_test "mean.dim" =
   (* self, dim, keepdim, dtype (None): mean over dim 0, no keepdim: [2x3] → [3] *)
   show

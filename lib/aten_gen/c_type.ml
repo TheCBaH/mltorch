@@ -58,6 +58,15 @@ let map_type ~name (ty : Func_ast.Type.t) =
           call_expr = Printf.sprintf "(bool)%s" name;
           ctypes = [ "bool" ];
         }
+  | Base Str ->
+      (* a C string; ATen string args are std::string / std::string_view, both
+         implicitly constructible from a const char* (e.g. gelu's approximate). *)
+      Some
+        {
+          c_params = [ Printf.sprintf "const char* %s" name ];
+          call_expr = name;
+          ctypes = [ "string" ];
+        }
   | Base Scalar ->
       (* c10::Scalar is a tagged union; it crosses as a pointer to a
          [struct atc_scalar] (see atg_shim.h) so the int/float category — which
