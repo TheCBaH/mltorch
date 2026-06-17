@@ -40,7 +40,7 @@ jobs:
       uses: actions/cache@v5
       with:
         path: .ccache
-        key: ccache-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-${{ hashFiles('lib/aten/build_archive.sh', 'lib/aten/gen_macros.sh', 'lib/aten/run_codegen.sh') }}
+        key: ccache-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-${{ hashFiles('lib/aten/**/*.cpp', 'lib/aten/**/*.h', 'lib/aten/build_archive.sh', 'lib/aten/gen_macros.sh', 'lib/aten/run_codegen.sh') }}
         restore-keys: |
           ccache-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-
           ccache-${{ steps.cache_keys.outputs.month }}-
