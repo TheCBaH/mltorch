@@ -54,6 +54,7 @@ let selection =
     op "bmm";
     op "_softmax";
     op "gelu";
+    op "cat";
     (* tuple returns: output 0 is the return, extra outputs via out-params *)
     op "_native_batch_norm_legit_no_training";
     op "native_layer_norm";

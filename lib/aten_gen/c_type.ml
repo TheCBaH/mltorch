@@ -171,6 +171,20 @@ let map_type ~name (ty : Func_ast.Type.t) =
               name name;
           ctypes = [ "memory_format_opt" ];
         }
+  (* Tensor[] (at::TensorList): an array of handles + length, rebuilt into a
+     std::vector<at::Tensor> by the shim helper (the ArrayRef borrows it). *)
+  | List (Base Tensor, _) ->
+      Some
+        {
+          c_params =
+            [
+              Printf.sprintf "atc_tensor* %s_data" name;
+              Printf.sprintf "int %s_len" name;
+            ];
+          call_expr =
+            Printf.sprintf "atc_to_tensor_vector(%s_data, %s_len)" name name;
+          ctypes = [ "ptr atc_tensor"; "int" ];
+        }
   (* Int[] and SymInt[] both bind to the non-_symint [at::<op>] overload, which
      takes an at::IntArrayRef; pass it as a (data, length) pair. *)
   | List (Base Int, _) | List (Base SymInt, _) ->

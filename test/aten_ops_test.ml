@@ -31,6 +31,10 @@ let arr xs = CArray.start (CArray.of_list int64_t (List.map Int64.of_int xs))
 (* A null int64 pointer: an absent [int?] optional argument (-> nullopt). *)
 let none_int = from_voidp int64_t null
 
+(* An array of tensor handles for a Tensor[] argument (e.g. cat). *)
+let tensor_arr ts =
+  CArray.start (CArray.of_list Aten.Function_description.atc_tensor ts)
+
 let pp_shape fmt s =
   Format.fprintf fmt "[%a]"
     (Format.pp_print_list
@@ -302,6 +306,13 @@ let%expect_test "_softmax" =
 let%expect_test "gelu (exact, approximate=none)" =
   show (O.gelu (make [ 3 ] [ 0.; 1.; 2. ]) "none");
   [%expect "[3] = [0; 0.841345; 1.9545]"]
+
+let%expect_test "cat (Tensor[])" =
+  (* concat two [1x2] rows along dim 0 -> [2x2] *)
+  let a = make [ 1; 2 ] [ 1.; 2. ] in
+  let b = make [ 1; 2 ] [ 3.; 4. ] in
+  show (O.cat (tensor_arr [ a; b ]) 2 0L);
+  [%expect "[2x2] = [1; 2; 3; 4]"]
 
 let%expect_test "mean.dim" =
   (* self, dim, keepdim, dtype (None): mean over dim 0, no keepdim: [2x3] → [3] *)

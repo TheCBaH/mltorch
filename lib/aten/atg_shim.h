@@ -146,6 +146,7 @@ int64_t atc_live_count(void);
 /* C++ conversion helpers for use inside atg_shim.cpp and generated wrappers. */
 #include <atomic>
 #include <optional>
+#include <vector>
 
 #include <ATen/core/Tensor.h>
 #include <c10/core/Scalar.h>
@@ -188,6 +189,17 @@ void set_error(const char* msg);
 
 inline at::Tensor* atc_to_ptr(atc_tensor t) {
   return reinterpret_cast<at::Tensor*>(t);
+}
+/* Build a std::vector<at::Tensor> from an array of handles, for ops taking a
+   Tensor[] (at::TensorList = ArrayRef<Tensor>). The vector is a temporary in
+   the generated wrapper's at::<op>(...) call; its lifetime extends to the end
+   of that full expression, and the ArrayRef borrows it without copying. */
+inline std::vector<at::Tensor> atc_to_tensor_vector(const atc_tensor* data,
+                                                    int len) {
+  std::vector<at::Tensor> v;
+  v.reserve(len);
+  for (int i = 0; i < len; ++i) v.push_back(*atc_to_ptr(data[i]));
+  return v;
 }
 inline atc_tensor atc_from_ptr(at::Tensor* t) {
   return reinterpret_cast<atc_tensor>(t);
