@@ -293,6 +293,42 @@
     cat
     %{project_root}/../../modules/pytorch.models.pt2/models/resnet152/models/model.json))))
 
+(rule
+ (target vit_b_16_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/pytorch.models.pt2/models/vit_b_16/models/model.json))))
+
+(rule
+ (target vit_b_32_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/pytorch.models.pt2/models/vit_b_32/models/model.json))))
+
+(rule
+ (target vit_l_16_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/pytorch.models.pt2/models/vit_l_16/models/model.json))))
+
+(rule
+ (target vit_l_32_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/pytorch.models.pt2/models/vit_l_32/models/model.json))))
+
 (cram
  (applies_to models_cram)
  (deps
@@ -318,7 +354,11 @@
   resnet34_model.json
   resnet50_model.json
   resnet101_model.json
-  resnet152_model.json))
+  resnet152_model.json
+  vit_b_16_model.json
+  vit_b_32_model.json
+  vit_l_16_model.json
+  vit_l_32_model.json))
 
 ; Per-model copies of model_weights_config.json for weights_config_cram.
 

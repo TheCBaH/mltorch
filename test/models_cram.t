@@ -28,6 +28,10 @@ op-type histogram sorted by frequency (high to low).
   >   "resnet50",         "resnet50_model.json";
   >   "resnet101",        "resnet101_model.json";
   >   "resnet152",        "resnet152_model.json";
+  >   "vit_b_16",         "vit_b_16_model.json";
+  >   "vit_b_32",         "vit_b_32_model.json";
+  >   "vit_l_16",         "vit_l_16_model.json";
+  >   "vit_l_32",         "vit_l_32_model.json";
   > ]
   > let () =
   >   List.iter (fun (name, file) ->
@@ -245,3 +249,91 @@ op-type histogram sorted by frequency (high to low).
     torch.ops.aten.permute.default: 1
     torch.ops.aten.addmm.default: 1
     torch.ops.aten.max_pool2d_with_indices.default: 1
+  vit_b_16: schema=8.20 nodes=839
+    torch.ops.aten.view.default: 253
+    torch.ops.aten.permute.default: 170
+    torch.ops.aten.clone.default: 61
+    torch.ops.aten.expand.default: 49
+    torch.ops.aten.addmm.default: 49
+    torch.ops.aten.select.int: 37
+    torch.ops.aten.native_layer_norm.default: 25
+    torch.ops.aten.add.Tensor: 25
+    torch.ops.aten.mul.Scalar: 24
+    torch.ops.aten.bmm.default: 24
+    torch.ops.aten.logical_not.default: 24
+    torch.ops.aten.any.dim: 12
+    torch.ops.aten.where.self: 12
+    torch.ops.aten.gelu.default: 12
+    torch.ops.aten.eq.Scalar: 12
+    torch.ops.aten.full_like.default: 12
+    torch.ops.aten._softmax.default: 12
+    torch.ops.aten.unsqueeze.default: 12
+    torch.ops.aten.squeeze.dims: 12
+    torch.ops.aten.convolution.default: 1
+    torch.ops.aten.cat.default: 1
+  vit_b_32: schema=8.20 nodes=839
+    torch.ops.aten.view.default: 253
+    torch.ops.aten.permute.default: 170
+    torch.ops.aten.clone.default: 61
+    torch.ops.aten.expand.default: 49
+    torch.ops.aten.addmm.default: 49
+    torch.ops.aten.select.int: 37
+    torch.ops.aten.native_layer_norm.default: 25
+    torch.ops.aten.add.Tensor: 25
+    torch.ops.aten.mul.Scalar: 24
+    torch.ops.aten.bmm.default: 24
+    torch.ops.aten.logical_not.default: 24
+    torch.ops.aten.any.dim: 12
+    torch.ops.aten.where.self: 12
+    torch.ops.aten.gelu.default: 12
+    torch.ops.aten.eq.Scalar: 12
+    torch.ops.aten.full_like.default: 12
+    torch.ops.aten._softmax.default: 12
+    torch.ops.aten.unsqueeze.default: 12
+    torch.ops.aten.squeeze.dims: 12
+    torch.ops.aten.convolution.default: 1
+    torch.ops.aten.cat.default: 1
+  vit_l_16: schema=8.20 nodes=1667
+    torch.ops.aten.view.default: 505
+    torch.ops.aten.permute.default: 338
+    torch.ops.aten.clone.default: 121
+    torch.ops.aten.expand.default: 97
+    torch.ops.aten.addmm.default: 97
+    torch.ops.aten.select.int: 73
+    torch.ops.aten.native_layer_norm.default: 49
+    torch.ops.aten.add.Tensor: 49
+    torch.ops.aten.mul.Scalar: 48
+    torch.ops.aten.bmm.default: 48
+    torch.ops.aten.logical_not.default: 48
+    torch.ops.aten.any.dim: 24
+    torch.ops.aten.where.self: 24
+    torch.ops.aten.gelu.default: 24
+    torch.ops.aten.eq.Scalar: 24
+    torch.ops.aten.full_like.default: 24
+    torch.ops.aten._softmax.default: 24
+    torch.ops.aten.unsqueeze.default: 24
+    torch.ops.aten.squeeze.dims: 24
+    torch.ops.aten.convolution.default: 1
+    torch.ops.aten.cat.default: 1
+  vit_l_32: schema=8.20 nodes=1667
+    torch.ops.aten.view.default: 505
+    torch.ops.aten.permute.default: 338
+    torch.ops.aten.clone.default: 121
+    torch.ops.aten.expand.default: 97
+    torch.ops.aten.addmm.default: 97
+    torch.ops.aten.select.int: 73
+    torch.ops.aten.native_layer_norm.default: 49
+    torch.ops.aten.add.Tensor: 49
+    torch.ops.aten.mul.Scalar: 48
+    torch.ops.aten.bmm.default: 48
+    torch.ops.aten.logical_not.default: 48
+    torch.ops.aten.any.dim: 24
+    torch.ops.aten.where.self: 24
+    torch.ops.aten.gelu.default: 24
+    torch.ops.aten.eq.Scalar: 24
+    torch.ops.aten.full_like.default: 24
+    torch.ops.aten._softmax.default: 24
+    torch.ops.aten.unsqueeze.default: 24
+    torch.ops.aten.squeeze.dims: 24
+    torch.ops.aten.convolution.default: 1
+    torch.ops.aten.cat.default: 1
