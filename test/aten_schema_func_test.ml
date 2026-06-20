@@ -4,7 +4,7 @@ let () =
     exit 1);
   let path = Sys.argv.(1) in
   let yaml = In_channel.with_open_bin path In_channel.input_all in
-  match Raw.of_yaml_string yaml with
+  match Aten_raw.of_yaml_string yaml with
   | Error (`Msg e) ->
       Printf.eprintf "YAML parse error: %s\n" e;
       exit 1
@@ -12,8 +12,8 @@ let () =
       let total = List.length entries in
       let errors = ref 0 in
       List.iter
-        (fun (e : Raw.t) ->
-          match Func_schema.parse e.func with
+        (fun (e : Aten_raw.t) ->
+          match Aten_func_schema.parse e.func with
           | Ok _ -> ()
           | Error msg ->
               incr errors;

@@ -1,6 +1,6 @@
 (* OCaml encoding of c10::Device — a (DeviceType, index) pair. It crosses the C
    ABI as [struct atc_device] (atg_shim.h); the [device] / [device_opt] ctypes
-   views in operation_description.ml marshal it, a negative type tag encoding an
+   views in aten_operation_description.ml marshal it, a negative type tag encoding an
    absent [Device?]. [index] is the c10::DeviceIndex; -1 means unspecified (the
    current/only device of that type, e.g. plain "cpu"). *)
 

@@ -9,12 +9,12 @@
    are unreachable and the GC has run their finalisers. *)
 
 open Ctypes
-module F = Aten.C.Functions
-module O = Aten.C.Operations
-module Stype = Aten.Scalar_type
-module Mformat = Aten.Memory_format
-module Dtype = Aten.Dtype
-module T = Aten.Tensor
+module F = Aten_c.Aten_functions
+module O = Aten_c.Aten_operations
+module Stype = Aten_scalar_type
+module Mformat = Aten_memory_format
+module Dtype = Aten_dtype
+module T = Aten_tensor
 
 (* A managed, uninitialised tensor of [shape]. No data view is taken, so the
    only finaliser is the free — no anchoring view to keep the handle alive
@@ -57,7 +57,7 @@ let%expect_test "long op sequence leaves no live tensors" =
      that every atc_wrap'd handle (inputs and results) is freed. *)
   for _ = 1 to 100 do
     let a = alloc [ 2; 3 ] and b = alloc [ 2; 3 ] in
-    let c = T.manage (O.add_Tensor a b (Aten.Scalar.Int 1L)) in
+    let c = T.manage (O.add_Tensor a b (Aten_scalar.Int 1L)) in
     let d = T.manage (O.mul_Tensor a b) in
     let _ = T.manage (O.relu c) in
     let _ = T.manage (O.relu_ d) in

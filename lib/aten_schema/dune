@@ -4,7 +4,7 @@
  (libraries jsont yamlt))
 
 (ocamllex
- (modules func_lexer))
+ (modules aten_func_lexer))
 
 (menhir
- (modules func_parser))
+ (modules aten_func_parser))

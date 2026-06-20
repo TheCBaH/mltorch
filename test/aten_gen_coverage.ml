@@ -7,7 +7,7 @@ let () =
     Printf.eprintf "Usage: aten_gen_coverage <native_functions.yaml>\n";
     exit 1);
   let yaml = In_channel.with_open_bin Sys.argv.(1) In_channel.input_all in
-  match Raw.of_yaml_string yaml with
+  match Aten_raw.of_yaml_string yaml with
   | Error (`Msg e) ->
       Printf.eprintf "YAML parse error: %s\n" e;
       exit 1
@@ -20,11 +20,11 @@ let () =
           (1 + try Hashtbl.find reasons k with Not_found -> 0)
       in
       List.iter
-        (fun (e : Raw.t) ->
-          match Func_schema.parse e.func with
+        (fun (e : Aten_raw.t) ->
+          match Aten_func_schema.parse e.func with
           | Error _ -> ()
           | Ok op -> (
-              match Aten_gen.Gen.generate op with
+              match Aten_gen.generate op with
               | Generated _ -> incr generated
               | Skipped r ->
                   incr skipped;

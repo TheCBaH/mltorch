@@ -7,25 +7,26 @@ let () =
     exit 1);
   let path = Sys.argv.(1) in
   let yaml = In_channel.with_open_bin path In_channel.input_all in
-  match Raw.of_yaml_string yaml with
+  match Aten_raw.of_yaml_string yaml with
   | Error (`Msg e) ->
       Printf.eprintf "YAML parse error: %s\n" e;
       exit 1
   | Ok entries ->
       Printf.printf "total entries: %d\n" (List.length entries);
       Printf.printf "with dispatch:  %d\n"
-        (List.length (List.filter (fun e -> e.Raw.dispatch <> []) entries));
+        (List.length (List.filter (fun e -> e.Aten_raw.dispatch <> []) entries));
       Printf.printf "structured:     %d\n"
-        (List.length (List.filter (fun e -> e.Raw.structured) entries));
+        (List.length (List.filter (fun e -> e.Aten_raw.structured) entries));
       Printf.printf "with tags:      %d\n"
-        (List.length (List.filter (fun e -> e.Raw.tags <> []) entries));
+        (List.length (List.filter (fun e -> e.Aten_raw.tags <> []) entries));
 
       (* Spot-check: look up entries by their func prefix *)
       let find prefix =
         List.find_opt
           (fun e ->
             let n = String.length prefix in
-            String.length e.Raw.func >= n && String.sub e.Raw.func 0 n = prefix)
+            String.length e.Aten_raw.func >= n
+            && String.sub e.Aten_raw.func 0 n = prefix)
           entries
       in
       let show label prefix =
@@ -33,9 +34,10 @@ let () =
         | None -> Printf.printf "%-20s NOT FOUND\n" label
         | Some e ->
             Printf.printf "%-20s dispatch=%d structured=%-5b tags=[%s]\n" label
-              (List.length e.Raw.dispatch)
-              e.Raw.structured
-              (String.concat "," (List.map Raw.Tag.to_string e.Raw.tags))
+              (List.length e.Aten_raw.dispatch)
+              e.Aten_raw.structured
+              (String.concat ","
+                 (List.map Aten_raw.Tag.to_string e.Aten_raw.tags))
       in
       show "conv2d" "conv2d(";
       show "relu_" "relu_(";

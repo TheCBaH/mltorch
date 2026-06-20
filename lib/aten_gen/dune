@@ -2,4 +2,5 @@
 
 (library
  (name aten_gen)
+ (wrapped false)
  (libraries aten_schema))

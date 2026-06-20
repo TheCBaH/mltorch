@@ -1,5 +1,5 @@
 %{
-open Func_ast
+open Aten_func_ast
 
 let is_out_arg (a : Argument.t) =
   match a.annotation with Some ann -> ann.is_write | None -> false
@@ -16,7 +16,7 @@ let is_out_arg (a : Argument.t) =
 %token LPAREN RPAREN LBRACKET RBRACKET COMMA DOT EQ BANG STAR QUESTION PIPE ARROW
 %token EOF
 
-%start <Func_ast.t> func_schema
+%start <Aten_func_ast.t> func_schema
 %%
 
 (* ---- top level ---- *)

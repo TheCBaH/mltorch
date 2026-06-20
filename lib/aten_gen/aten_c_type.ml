@@ -1,4 +1,4 @@
-(* Type mapping: ATen schema types (Func_ast) -> C-ABI representation.
+(* Type mapping: ATen schema types (Aten_func_ast) -> C-ABI representation.
 
    This is the gated core of the binding generator. Only a controlled set of
    types is supported; an unsupported type makes [map] return [None] and the
@@ -18,14 +18,14 @@ type arg = {
 (* The C representation of the return: [n] Tensor outputs ([n] >= 1). A single
    Tensor is returned as the owning handle; a tuple of [n] returns output 0 as
    the handle and writes outputs 1..n-1 through trailing [atc_tensor*] out-params
-   (see Gen). *)
+   (see Aten_gen). *)
 type ret = Tensors_ret of int
 
 let unsupported = None
 
 (* Map an argument [name] of schema type [ty] to its C representation, or
    [None] if any constituent type is outside the supported set. *)
-let map_type ~name (ty : Func_ast.Type.t) =
+let map_type ~name (ty : Aten_func_ast.Type.t) =
   match ty with
   | Base Tensor ->
       Some
@@ -72,7 +72,7 @@ let map_type ~name (ty : Func_ast.Type.t) =
          [struct atc_scalar] (see atg_shim.h) so the int/float category — which
          drives ATen type promotion — survives. (By pointer, not by value: the
          ctypes stub generator re-emits a conflicting definition for a by-value
-         struct arg.) [scalar] is the ctypes view over the typed [Scalar.t]. *)
+         struct arg.) [scalar] is the ctypes view over the typed [Aten_scalar.t]. *)
       Some
         {
           c_params = [ Printf.sprintf "const struct atc_scalar* %s" name ];
@@ -81,7 +81,7 @@ let map_type ~name (ty : Func_ast.Type.t) =
         }
   | Base ScalarType ->
       (* the c10 enum crosses as its int code; [scalar_type] is a ctypes view
-         that translates the OCaml [Scalar_type.t] enum (see emit.ml). *)
+         that translates the OCaml [Aten_scalar_type.t] enum (see aten_emit.ml). *)
       Some
         {
           c_params = [ Printf.sprintf "int %s" name ];
@@ -90,7 +90,7 @@ let map_type ~name (ty : Func_ast.Type.t) =
         }
   | Base MemoryFormat ->
       (* c10 enum int code; [memory_format] is the ctypes view over
-         [Memory_format.t] (e.g. contiguous's memory_format arg). *)
+         [Aten_memory_format.t] (e.g. contiguous's memory_format arg). *)
       Some
         {
           c_params = [ Printf.sprintf "int %s" name ];
@@ -99,7 +99,7 @@ let map_type ~name (ty : Func_ast.Type.t) =
         }
   | Base Device ->
       (* c10::Device crosses as a [struct atc_device] pointer (DeviceType +
-         index), like Scalar; [device] is the ctypes view over [Device.t]. *)
+         index), like Scalar; [device] is the ctypes view over [Aten_device.t]. *)
       Some
         {
           c_params = [ Printf.sprintf "const struct atc_device* %s" name ];
@@ -165,7 +165,7 @@ let map_type ~name (ty : Func_ast.Type.t) =
           ctypes = [ "scalar_type_opt" ];
         }
   (* Layout?: like ScalarType?, the enum int code with a negative sentinel for
-     None. [layout_opt] is the matching ctypes view over [Layout.t option]. *)
+     None. [layout_opt] is the matching ctypes view over [Aten_layout.t option]. *)
   | Optional (Base Layout) ->
       Some
         {
@@ -179,7 +179,7 @@ let map_type ~name (ty : Func_ast.Type.t) =
         }
   (* MemoryFormat?: like ScalarType?, the enum int code with a negative sentinel
      for None (e.g. clone's memory_format kwarg). [memory_format_opt] is the
-     matching ctypes view over [Memory_format.t option]. *)
+     matching ctypes view over [Aten_memory_format.t option]. *)
   | Optional (Base MemoryFormat) ->
       Some
         {
@@ -193,7 +193,7 @@ let map_type ~name (ty : Func_ast.Type.t) =
         }
   (* Device?: same [struct atc_device] pointer as [Base Device], with a negative
      type code encoding None (-> nullopt). [device_opt] is the ctypes view over
-     [Device.t option]. *)
+     [Aten_device.t option]. *)
   | Optional (Base Device) ->
       Some
         {
@@ -255,8 +255,8 @@ let map_type ~name (ty : Func_ast.Type.t) =
 
 (* Supported return shapes: one Tensor, or a tuple of all-Tensor outputs. Any
    non-Tensor return (Scalar, Tensor[], etc.) is unsupported. *)
-let map_returns (returns : Func_ast.Return.t list) =
-  let is_tensor (r : Func_ast.Return.t) = r.ty = Base Tensor in
+let map_returns (returns : Aten_func_ast.Return.t list) =
+  let is_tensor (r : Aten_func_ast.Return.t) = r.ty = Base Tensor in
   match returns with
   | [] -> unsupported
   | _ when List.for_all is_tensor returns ->

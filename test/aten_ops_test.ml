@@ -1,4 +1,4 @@
-(* Per-operation expect tests for the ATen bindings (Aten.C.Operations): each
+(* Per-operation expect tests for the ATen bindings (Aten_c.Aten_operations): each
    builds small float tensors, runs one op, and prints shape = values. These
    exercise the real CPU kernels end to end (the binding + the static-dispatch
    archive), so a value here is the op actually computing, not just linking.
@@ -8,10 +8,10 @@
    every case. *)
 
 open Ctypes
-module F = Aten.C.Functions
-module O = Aten.C.Operations
-module Stype = Aten.Scalar_type
-module T = Aten.Tensor
+module F = Aten_c.Aten_functions
+module O = Aten_c.Aten_operations
+module Stype = Aten_scalar_type
+module T = Aten_tensor
 
 (* A float32 tensor of [shape] filled row-major from [vals]. *)
 let make shape vals =
@@ -33,7 +33,7 @@ let none_int = from_voidp int64_t null
 
 (* An array of tensor handles for a Tensor[] argument (e.g. cat). *)
 let tensor_arr ts =
-  CArray.start (CArray.of_list Aten.Function_description.atc_tensor ts)
+  CArray.start (CArray.of_list Aten_function_description.atc_tensor ts)
 
 let pp_shape fmt s =
   Format.fprintf fmt "[%a]"
@@ -53,14 +53,14 @@ let show_as_float t = show (O.to_dtype t Stype.Float false false None)
 
 (* Print an int64 tensor (e.g. max-pool indices) as "shape = values". *)
 let show_i64 t =
-  let ba = T.data Aten.Dtype.int64 t |> Option.get in
+  let ba = T.data Aten_dtype.int64 t |> Option.get in
   let vals =
     List.init (Bigarray.Array1.dim ba) (fun i -> Int64.to_string ba.{i})
   in
   Format.printf "%a = [%s]@." pp_shape (T.shape t) (String.concat "; " vals)
 
 (* Read output handle [field] from a filled multi-output result struct. *)
-let tget = Aten.Operation_description.tensors_get
+let tget = Aten_operation_description.tensors_get
 
 let%expect_test "tensor runtime defaults" =
   let dt = F.default_dtype () in
@@ -71,7 +71,7 @@ let%expect_test "tensor runtime defaults" =
 let%expect_test "add.Tensor" =
   let a = make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
   let b = make [ 2; 3 ] [ 3.; 3.; 3.; 3.; 3.; 3. ] in
-  show (O.add_Tensor a b (Aten.Scalar.Int 1L));
+  show (O.add_Tensor a b (Aten_scalar.Int 1L));
   [%expect "[2x3] = [4; 5; 6; 7; 8; 9]"]
 
 let%expect_test "mul.Tensor" =
@@ -89,18 +89,18 @@ let%expect_test "div.Tensor" =
 let%expect_test "clamp (Scalar? min/max)" =
   let a = make [ 2; 3 ] [ -2.; -1.; 0.; 1.; 2.; 3. ] in
   (* both bounds *)
-  show (O.clamp a (Some (Aten.Scalar.Float 0.)) (Some (Aten.Scalar.Float 2.)));
+  show (O.clamp a (Some (Aten_scalar.Float 0.)) (Some (Aten_scalar.Float 2.)));
   [%expect "[2x3] = [0; 0; 0; 1; 2; 2]"];
   (* min only (max = None) *)
-  show (O.clamp a (Some (Aten.Scalar.Float 0.)) None);
+  show (O.clamp a (Some (Aten_scalar.Float 0.)) None);
   [%expect "[2x3] = [0; 0; 0; 1; 2; 3]"]
 
 let%expect_test "mul.Scalar" =
-  show (O.mul_Scalar (make [ 3 ] [ 1.; 2.; 3. ]) (Aten.Scalar.Float 2.));
+  show (O.mul_Scalar (make [ 3 ] [ 1.; 2.; 3. ]) (Aten_scalar.Float 2.));
   [%expect "[3] = [2; 4; 6]"]
 
 let%expect_test "eq.Scalar (bool mask)" =
-  show_as_float (O.eq_Scalar (make [ 3 ] [ 1.; 2.; 2. ]) (Aten.Scalar.Float 2.));
+  show_as_float (O.eq_Scalar (make [ 3 ] [ 1.; 2.; 2. ]) (Aten_scalar.Float 2.));
   [%expect "[3] = [0; 1; 1]"]
 
 let%expect_test "logical_not (bool mask)" =
@@ -114,7 +114,7 @@ let%expect_test "any.dim (bool reduction)" =
   [%expect "[2] = [0; 1]"]
 
 let%expect_test "where.self (select by mask)" =
-  let cond = O.eq_Scalar (make [ 3 ] [ 1.; 0.; 1. ]) (Aten.Scalar.Float 1.) in
+  let cond = O.eq_Scalar (make [ 3 ] [ 1.; 0.; 1. ]) (Aten_scalar.Float 1.) in
   show
     (O.where_self cond
        (make [ 3 ] [ 10.; 20.; 30. ])
@@ -128,13 +128,13 @@ let%expect_test
   show
     (O.full_like
        (make [ 2; 2 ] [ 1.; 2.; 3.; 4. ])
-       (Aten.Scalar.Float 0.) None None (Some Aten.Device.cpu) None None);
+       (Aten_scalar.Float 0.) None None (Some Aten_device.cpu) None None);
   [%expect "[2x2] = [0; 0; 0; 0]"]
 
 let%expect_test "add_.Tensor (in-place)" =
   let e = make [ 2; 3 ] [ 10.; 11.; 12.; 13.; 14.; 15. ] in
   let b = make [ 2; 3 ] [ 3.; 3.; 3.; 3.; 3.; 3. ] in
-  show (O.add__Tensor e b (Aten.Scalar.Int 1L));
+  show (O.add__Tensor e b (Aten_scalar.Int 1L));
   [%expect "[2x3] = [13; 14; 15; 16; 17; 18]"]
 
 let%expect_test "relu" =
@@ -227,7 +227,7 @@ let%expect_test "hardtanh_" =
   show
     (O.hardtanh_
        (make [ 3 ] [ -1.; 3.; 8. ])
-       (Aten.Scalar.Float 0.0) (Aten.Scalar.Float 6.0));
+       (Aten_scalar.Float 0.0) (Aten_scalar.Float 6.0));
   [%expect "[3] = [0; 3; 6]"]
 
 let%expect_test "silu_" =
@@ -238,7 +238,7 @@ let%expect_test "hardtanh (functional)" =
   show
     (O.hardtanh
        (make [ 3 ] [ -2.; 0.5; 2. ])
-       (Aten.Scalar.Float 0.0) (Aten.Scalar.Float 1.0));
+       (Aten_scalar.Float 0.0) (Aten_scalar.Float 1.0));
   [%expect "[3] = [0; 0.5; 1]"]
 
 let%expect_test "permute" =
@@ -282,7 +282,7 @@ let%expect_test "addmm" =
   let c = make [ 1; 3 ] [ 10.; 20.; 30. ] in
   let a = make [ 1; 2 ] [ 1.; 2. ] in
   let b = make [ 2; 3 ] [ 1.; 0.; 0.; 0.; 1.; 0. ] in
-  show (O.addmm c a b (Aten.Scalar.Int 1L) (Aten.Scalar.Int 1L));
+  show (O.addmm c a b (Aten_scalar.Int 1L) (Aten_scalar.Int 1L));
   [%expect "[1x3] = [11; 22; 30]"]
 
 let%expect_test "convolution" =
@@ -344,14 +344,14 @@ let%expect_test "_native_batch_norm_legit_no_training (3-tuple out-struct)" =
   in
   (* op returns a 0/-1 status and fills the 3 outputs into the struct; the saved
      mean / invstd are empty in the no_training path (backward never runs). *)
-  let out = Ctypes.make Aten.Types_generated.tensors3_struct in
+  let out = Ctypes.make Aten_types_generated.tensors3_struct in
   let status =
     O._native_batch_norm_legit_no_training x w b mean var 0.1 0.0 (addr out)
   in
   Printf.printf "status=%d\n" status;
-  show (tget out Aten.Types_generated.tensors3_v0);
-  describe "save_mean" (tget out Aten.Types_generated.tensors3_v1);
-  describe "save_invstd" (tget out Aten.Types_generated.tensors3_v2);
+  show (tget out Aten_types_generated.tensors3_v0);
+  describe "save_mean" (tget out Aten_types_generated.tensors3_v1);
+  describe "save_invstd" (tget out Aten_types_generated.tensors3_v2);
   [%expect
     {|
     status=0
@@ -366,12 +366,12 @@ let%expect_test "native_layer_norm (3-tuple out-struct)" =
   let w = make [ 2 ] [ 1.; 1. ] in
   let b = make [ 2 ] [ 0.; 0. ] in
   let describe name t = Format.printf "%s: %a@." name pp_shape (T.shape t) in
-  let out = Ctypes.make Aten.Types_generated.tensors3_struct in
+  let out = Ctypes.make Aten_types_generated.tensors3_struct in
   let status = O.native_layer_norm x (arr [ 2 ]) 1 w b 0.0 (addr out) in
   Printf.printf "status=%d\n" status;
-  show (tget out Aten.Types_generated.tensors3_v0);
-  describe "mean" (tget out Aten.Types_generated.tensors3_v1);
-  describe "rstd" (tget out Aten.Types_generated.tensors3_v2);
+  show (tget out Aten_types_generated.tensors3_v0);
+  describe "mean" (tget out Aten_types_generated.tensors3_v1);
+  describe "rstd" (tget out Aten_types_generated.tensors3_v2);
   [%expect
     {|
     status=0
@@ -381,7 +381,7 @@ let%expect_test "native_layer_norm (3-tuple out-struct)" =
 
 let%expect_test "max_pool2d_with_indices (2-tuple out-struct)" =
   (* output and the int64 index map, both filled into the out-struct. *)
-  let out = Ctypes.make Aten.Types_generated.tensors2_struct in
+  let out = Ctypes.make Aten_types_generated.tensors2_struct in
   let status =
     O.max_pool2d_with_indices (img ())
       (arr [ 2; 2 ])
@@ -394,8 +394,8 @@ let%expect_test "max_pool2d_with_indices (2-tuple out-struct)" =
       2 false (addr out)
   in
   Printf.printf "status=%d\n" status;
-  show (tget out Aten.Types_generated.tensors2_v0);
-  show_i64 (tget out Aten.Types_generated.tensors2_v1);
+  show (tget out Aten_types_generated.tensors2_v0);
+  show_i64 (tget out Aten_types_generated.tensors2_v1);
   [%expect
     {|
     status=0

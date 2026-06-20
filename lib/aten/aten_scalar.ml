@@ -6,7 +6,7 @@
 
    The value crosses the C ABI as [struct atc_scalar] (atg_shim.h): a [Tag.t]
    discriminant plus a union of an int64, a double, and a bool payload. The
-   [scalar] / [scalar_opt] ctypes views in operation_description.ml marshal it.
+   [scalar] / [scalar_opt] ctypes views in aten_operation_description.ml marshal it.
 
    Complex and symbolic scalars are out of scope (no CPU op in the bound set
    produces them). *)

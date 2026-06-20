@@ -14,7 +14,7 @@ type generated = {
 
 type result = Generated of generated | Skipped of string
 
-let names (op : Func_ast.t) =
+let names (op : Aten_func_ast.t) =
   match op.name.overload with
   | None | Some "" -> ("atg_" ^ op.name.base, op.name.base)
   | Some ov ->
@@ -22,40 +22,44 @@ let names (op : Func_ast.t) =
         Printf.sprintf "%s_%s" op.name.base ov )
 
 (* positional + kwarg-only args (out= handled separately) *)
-let in_args (args : Func_ast.Arguments.t) = args.positional @ args.kwarg_only
+let in_args (args : Aten_func_ast.Arguments.t) =
+  args.positional @ args.kwarg_only
 
 (* [style] picks the C++ call form. [`Function] (the default) emits the free
    function at::<op>(...); [`Method] emits <recv>-><op>(...) on the first
    (Tensor) argument, for ops the schema marks `variants: method` only (e.g.
    in-place ops like add_), which have no at:: free function. *)
-let generate ?(style = `Function) (op : Func_ast.t) =
+let generate ?(style = `Function) (op : Aten_func_ast.t) =
   if op.arguments.out <> [] then Skipped "out= variant"
   else
-    match C_type.map_returns op.returns with
+    match Aten_c_type.map_returns op.returns with
     | None -> Skipped "unsupported return shape"
-    | Some (C_type.Tensors_ret nret) when nret > 3 ->
+    | Some (Aten_c_type.Tensors_ret nret) when nret > 3 ->
         Skipped (Printf.sprintf "unsupported return shape: %d-tuple" nret)
-    | Some (C_type.Tensors_ret nret) -> (
+    | Some (Aten_c_type.Tensors_ret nret) -> (
         let mapped =
           List.map
-            (fun (a : Func_ast.Argument.t) ->
-              (a, C_type.map_type ~name:a.name a.ty))
+            (fun (a : Aten_func_ast.Argument.t) ->
+              (a, Aten_c_type.map_type ~name:a.name a.ty))
             (in_args op.arguments)
         in
         match List.find_opt (fun (_, m) -> Option.is_none m) mapped with
         | Some (a, _) ->
             Skipped
-              (Format.asprintf "unsupported arg type: %a" Func_ast.Type.pp a.ty)
+              (Format.asprintf "unsupported arg type: %a" Aten_func_ast.Type.pp
+                 a.ty)
         | None ->
             let margs = List.map (fun (a, m) -> (a, Option.get m)) mapped in
             let c_params =
-              List.concat_map (fun (_, (m : C_type.arg)) -> m.c_params) margs
+              List.concat_map
+                (fun (_, (m : Aten_c_type.arg)) -> m.c_params)
+                margs
             in
             let call_args =
-              List.map (fun (_, (m : C_type.arg)) -> m.call_expr) margs
+              List.map (fun (_, (m : Aten_c_type.arg)) -> m.call_expr) margs
             in
             let ctypes_in =
-              List.concat_map (fun (_, (m : C_type.arg)) -> m.ctypes) margs
+              List.concat_map (fun (_, (m : Aten_c_type.arg)) -> m.ctypes) margs
             in
             let c_name, ocaml_name = names op in
             let call =
@@ -123,6 +127,6 @@ let generate ?(style = `Function) (op : Func_ast.t) =
                 (String.concat " @-> " ctypes_in)
                 ret_ctypes
             in
-            let signature = Format.asprintf "%a" Func_ast.pp op in
+            let signature = Format.asprintf "%a" Aten_func_ast.pp op in
             Generated
               { c_name; ocaml_name; signature; c_decl; c_source; ctypes_line })

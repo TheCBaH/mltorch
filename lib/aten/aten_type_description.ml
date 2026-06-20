@@ -4,13 +4,13 @@
    It must be declared HERE (through the TYPE functor) rather than with a bare
    [Ctypes.structure]: the stub generator then binds it to the header struct and
    passes it by value, instead of re-emitting a conflicting local definition.
-   The [scalar] / [scalar_opt] views over it live in operation_description.ml. *)
+   The [scalar] / [scalar_opt] views over it live in aten_operation_description.ml. *)
 module Types (S : Ctypes.TYPE) = struct
   open S
 
   (* The opaque tensor handle ([struct atc_tensor_opaque*]). Declared here (never
      sealed — only ever used through a pointer) so [atc_tensor] in
-     function_description.ml and the struct fields below share one type. *)
+     aten_function_description.ml and the struct fields below share one type. *)
   let tensor_opaque : [ `atc_tensor_opaque ] Ctypes.structure typ =
     structure "atc_tensor_opaque"
 

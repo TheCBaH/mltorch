@@ -1,6 +1,7 @@
-open Func_ast
+open Aten_func_ast
 
-let parse s = match Func_schema.parse s with Ok v -> v | Error e -> failwith e
+let parse s =
+  match Aten_func_schema.parse s with Ok v -> v | Error e -> failwith e
 
 let%expect_test "simple positional args" =
   Format.printf "%a%!" pp (parse "relu(Tensor self) -> Tensor");

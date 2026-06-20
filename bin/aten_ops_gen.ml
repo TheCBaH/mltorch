@@ -1,16 +1,16 @@
 (* Driver for the ATen operation-binding generator. Emits ONE of the three
-   build artifacts (atg_ops.h, atg_ops.cpp, operation_description.ml) to stdout from a
+   build artifacts (atg_ops.h, atg_ops.cpp, aten_operation_description.ml) to stdout from a
    curated selection of ops, so lib/aten/dune can produce each with a
    [with-stdout-to] rule.
 
-   Usage: aten_ops_gen <native_functions.yaml> <atg_ops.h|atg_ops.cpp|operation_description.ml>
+   Usage: aten_ops_gen <native_functions.yaml> <atg_ops.h|atg_ops.cpp|aten_operation_description.ml>
 
    The op set is curated on purpose: the static-dispatch + --gc-sections build
    trims unreached at:: kernels, so binding every supported op would force-link
    ~1000 kernels and defeat that trimming. Two sources feed the selection:
 
      - [Allow]: ops pulled verbatim from native_functions.yaml by name. The
-       generator (Aten_gen.Gen) must be able to emit them as-is.
+       generator (Aten_gen) must be able to emit them as-is.
      - [Override]: a hand-written schema signature used INSTEAD of the yaml
        entry, for ops the generator cannot yet emit unmodified. e.g. the
        conversions (clone/contiguous/cpu/to.dtype) drop MemoryFormat args. *)
@@ -94,10 +94,10 @@ let die fmt =
    it cannot be parsed or the generator skips it (the selection is curated, so a
    skip is a configuration error, not an expected outcome). *)
 let generate_sig ~origin ~style sg =
-  match Func_schema.parse sg with
+  match Aten_func_schema.parse sg with
   | Error e -> die "%s: parse error: %s" origin e
   | Ok op -> (
-      match Aten_gen.Gen.generate ~style op with
+      match Aten_gen.generate ~style op with
       | Skipped r -> die "%s: generator skipped (%s): %s" origin r sg
       | Generated g -> g)
 
@@ -105,8 +105,8 @@ let generate_sig ~origin ~style sg =
    style follows the schema's [variants]: ops marked method-only have no at::
    free function, so they must be emitted as a Tensor method call. *)
 let find_entry entries ~base ~overload =
-  let matches (e : Raw.t) =
-    match Func_schema.parse e.func with
+  let matches (e : Aten_raw.t) =
+    match Aten_func_schema.parse e.func with
     | Error _ -> false
     | Ok op -> op.name.base = base && op.name.overload = overload
   in
@@ -119,10 +119,10 @@ let find_entry entries ~base ~overload =
 (* torchgen defaults an absent [variants] to "function", so emit a free-function
    call unless the op is explicitly method-only (a non-empty list without
    Function, e.g. in-place add_). *)
-let style_of (e : Raw.t) =
+let style_of (e : Aten_raw.t) =
   match e.variants with
   | [] -> `Function
-  | vs -> if List.mem Raw.Variant.Function vs then `Function else `Method
+  | vs -> if List.mem Aten_raw.Variant.Function vs then `Function else `Method
 
 let resolve entries =
   List.map
@@ -139,19 +139,19 @@ let () =
   if Array.length Sys.argv <> 3 then
     die
       "Usage: aten_ops_gen <native_functions.yaml> \
-       <atg_ops.h|atg_ops.cpp|operation_description.ml>";
+       <atg_ops.h|atg_ops.cpp|aten_operation_description.ml>";
   let yaml = In_channel.with_open_bin Sys.argv.(1) In_channel.input_all in
   let entries =
-    match Raw.of_yaml_string yaml with
+    match Aten_raw.of_yaml_string yaml with
     | Error (`Msg e) -> die "YAML parse error: %s" e
     | Ok entries -> entries
   in
   let ops = resolve entries in
   let out =
     match Sys.argv.(2) with
-    | "atg_ops.h" -> Aten_gen.Emit.header ops
-    | "atg_ops.cpp" -> Aten_gen.Emit.source ops
-    | "operation_description.ml" -> Aten_gen.Emit.ocaml ops
+    | "atg_ops.h" -> Aten_emit.header ops
+    | "atg_ops.cpp" -> Aten_emit.source ops
+    | "aten_operation_description.ml" -> Aten_emit.ocaml ops
     | other -> die "unknown output target: %s" other
   in
   print_string out

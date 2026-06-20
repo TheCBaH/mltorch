@@ -1,5 +1,5 @@
 {
-open Func_parser
+open Aten_func_parser
 
 let kw_or_ident s = match s with
   | "Generator"    -> GENERATOR

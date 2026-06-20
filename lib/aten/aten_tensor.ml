@@ -1,6 +1,6 @@
 open Ctypes
 open Bigarray
-module F = C.Functions
+module F = Aten_c.Aten_functions
 
 type float32_array = (float, float32_elt, c_layout) Array1.t
 
@@ -27,7 +27,7 @@ let check t =
 
 (* A new uninitialised contiguous CPU tensor, owned (freed by the GC via
    [manage]). Raises [Error] on a bad shape/dtype. *)
-let create ?(dtype = Scalar_type.Float) shape =
+let create ?(dtype = Aten_scalar_type.Float) shape =
   let sizes = CArray.of_list int64_t (List.map Int64.of_int shape) in
   F.new_ (CArray.start sizes) (Unsigned.Size_t.of_int (List.length shape)) dtype
   |> check |> manage
@@ -40,7 +40,7 @@ let defined t = F.defined t <> 0
 let is_cpu t = F.is_cpu t <> 0
 
 (* The tensor's dtype. The [scalar_type] ctypes view converts the c10 code to
-   [Scalar_type.t] at the boundary (raising on an unsupported code). *)
+   [Aten_scalar_type.t] at the boundary (raising on an unsupported code). *)
 let scalar_type t = F.dtype t
 
 (* Read the [atc_dim] int64 entries written by [fill] (sizes or strides). *)
@@ -57,27 +57,28 @@ let strides t = read_dims F.strides t
 (* A Bigarray view over the tensor's contiguous buffer at dtype [dt], or None if
    the tensor's dtype differs. The view shares memory with the tensor (writes go
    through), so the caller must not free the tensor while the view is live; a Gc
-   finaliser anchors the handle for as long as the view exists. The [Dtype.t] tag
+   finaliser anchors the handle for as long as the view exists. The [Aten_dtype.t] tag
    ties the element/kind, so the returned array's type is checked at compile time. *)
-let data : type a b. (a, b) Dtype.t -> _ -> (a, b, c_layout) Array1.t option =
+let data : type a b.
+    (a, b) Aten_dtype.t -> _ -> (a, b, c_layout) Array1.t option =
  fun dt t ->
-  let vp = F.data_ptr t (Dtype.scalar_type dt) in
+  let vp = F.data_ptr t (Aten_dtype.scalar_type dt) in
   if is_null vp then None
   else
-    let p = from_voidp (Dtype.typ dt) vp in
-    let ba = bigarray_of_ptr array1 (numel t) (Dtype.kind dt) p in
+    let p = from_voidp (Aten_dtype.typ dt) vp in
+    let ba = bigarray_of_ptr array1 (numel t) (Aten_dtype.kind dt) p in
     Gc.finalise (fun _ -> ignore t) ba;
     Some ba
 
-let as_float32 t : float32_array option = data Dtype.float32 t
+let as_float32 t : float32_array option = data Aten_dtype.float32 t
 
 (* A managed tensor of [shape] and dtype [dt], copied from the 1-D [src] (whose
    element count must equal the shape's). The tensor owns its own buffer, so
    later mutating [src] does not affect it. *)
 let of_bigarray : type a b.
-    (a, b) Dtype.t -> (a, b, c_layout) Array1.t -> int list -> _ =
+    (a, b) Aten_dtype.t -> (a, b, c_layout) Array1.t -> int list -> _ =
  fun dt src shape ->
-  let t = create ~dtype:(Dtype.scalar_type dt) shape in
+  let t = create ~dtype:(Aten_dtype.scalar_type dt) shape in
   (match data dt t with
   | Some dst ->
       if Array1.dim dst <> Array1.dim src then

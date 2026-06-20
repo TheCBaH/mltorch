@@ -18,14 +18,14 @@ let float64 = Float64
 let int32 = Int32
 let int64 = Int64
 
-let scalar_type : type a b. (a, b) t -> Scalar_type.t = function
-  | Float32 -> Scalar_type.Float
-  | Float64 -> Scalar_type.Double
-  | Int32 -> Scalar_type.Int
-  | Int64 -> Scalar_type.Long
+let scalar_type : type a b. (a, b) t -> Aten_scalar_type.t = function
+  | Float32 -> Aten_scalar_type.Float
+  | Float64 -> Aten_scalar_type.Double
+  | Int32 -> Aten_scalar_type.Int
+  | Int64 -> Aten_scalar_type.Long
 
 (* The c10::ScalarType integer code. *)
-let to_int d = Scalar_type.to_int (scalar_type d)
+let to_int d = Aten_scalar_type.to_int (scalar_type d)
 
 (* The matching Bigarray kind (its element type is ['a]). *)
 let kind : type a b. (a, b) t -> (a, b) Bigarray.kind = function

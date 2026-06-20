@@ -1,4 +1,4 @@
-(* File assembly: turn an ordered list of per-op [Gen.generated] records into
+(* File assembly: turn an ordered list of per-op [Aten_gen.generated] records into
    the three complete artifacts that lib/aten compiles and binds against:
 
      atg_ops.h                extern "C" declarations  (the C ABI surface)
@@ -6,7 +6,7 @@
      operation_description.ml the ctypes Functions functor (one [foreign] line)
 
    These mirror the previously hand-written files; the per-op bodies come
-   straight from [Gen], this module only supplies the surrounding boilerplate.
+   straight from [Aten_gen], this module only supplies the surrounding boilerplate.
    Every file carries a do-not-edit banner since they are build-tree artifacts.
    Each op is preceded by a comment with its source schema signature.
 
@@ -30,7 +30,7 @@ let blank_line ppf () = Format.fprintf ppf "\n"
 let paragraph ppf () = Format.fprintf ppf "\n\n"
 
 let header ops =
-  let pp_decl ppf (g : Gen.generated) =
+  let pp_decl ppf (g : Aten_gen.generated) =
     Format.fprintf ppf "/* %s */\n%s\n" g.signature g.c_decl
   in
   Format.asprintf
@@ -57,7 +57,7 @@ extern "C" {
     ops
 
 let source ops =
-  let pp_def ppf (g : Gen.generated) =
+  let pp_def ppf (g : Aten_gen.generated) =
     Format.fprintf ppf "/* %s */\n%s\n" g.signature g.c_source
   in
   Format.asprintf
@@ -77,7 +77,7 @@ extern "C" {
     ops
 
 let ocaml ops =
-  let pp_binding ppf (g : Gen.generated) =
+  let pp_binding ppf (g : Aten_gen.generated) =
     Format.fprintf ppf "  (* %s *)\n  %s" g.signature g.ctypes_line
   in
   Format.asprintf
@@ -86,49 +86,49 @@ let ocaml ops =
 open Ctypes
 
 (* The opaque tensor handle is shared with the Tensor API so a tensor from
-   [C.Functions.new_] can be passed straight into these ops. *)
-let atc_tensor = Function_description.atc_tensor
+   [Aten_c.Aten_functions.new_] can be passed straight into these ops. *)
+let atc_tensor = Aten_function_description.atc_tensor
 
-(* Multi-output op result structs, declared in Type_description.Types and filled
-   through an out-param by a status-returning op (see Gen). Read output [field]
+(* Multi-output op result structs, declared in Aten_type_description.Types and filled
+   through an out-param by a status-returning op (see Aten_gen). Read output [field]
    with [tensors_get] (an owning handle the caller must free). *)
-let tensors2_struct = Types_generated.tensors2_struct
-let tensors3_struct = Types_generated.tensors3_struct
+let tensors2_struct = Aten_types_generated.tensors2_struct
+let tensors3_struct = Aten_types_generated.tensors3_struct
 let tensors_get s field = getf s field
 
 (* c10 enum args cross the C ABI as their integer code; these ctypes views give
-   the OCaml side the typed [Scalar_type.t] enum instead of a bare int. An
+   the OCaml side the typed [Aten_scalar_type.t] enum instead of a bare int. An
    optional enum uses a negative sentinel for None (nullopt in C++). *)
 let scalar_type =
   view int
     ~read:(fun i ->
-      match Scalar_type.of_int i with
+      match Aten_scalar_type.of_int i with
       | Some s -> s
       | None -> Printf.ksprintf failwith "unknown ScalarType code %%d" i)
-    ~write:Scalar_type.to_int
+    ~write:Aten_scalar_type.to_int
 
 let scalar_type_opt =
   view int
-    ~read:(fun i -> if i < 0 then None else Scalar_type.of_int i)
-    ~write:(function None -> -1 | Some s -> Scalar_type.to_int s)
+    ~read:(fun i -> if i < 0 then None else Aten_scalar_type.of_int i)
+    ~write:(function None -> -1 | Some s -> Aten_scalar_type.to_int s)
 
 let memory_format =
   view int
     ~read:(fun i ->
-      match Memory_format.of_int i with
+      match Aten_memory_format.of_int i with
       | Some m -> m
       | None -> Printf.ksprintf failwith "unknown MemoryFormat code %%d" i)
-    ~write:Memory_format.to_int
+    ~write:Aten_memory_format.to_int
 
 let memory_format_opt =
   view int
-    ~read:(fun i -> if i < 0 then None else Memory_format.of_int i)
-    ~write:(function None -> -1 | Some m -> Memory_format.to_int m)
+    ~read:(fun i -> if i < 0 then None else Aten_memory_format.of_int i)
+    ~write:(function None -> -1 | Some m -> Aten_memory_format.to_int m)
 
 let layout_opt =
   view int
-    ~read:(fun i -> if i < 0 then None else Layout.of_int i)
-    ~write:(function None -> -1 | Some l -> Layout.to_int l)
+    ~read:(fun i -> if i < 0 then None else Aten_layout.of_int i)
+    ~write:(function None -> -1 | Some l -> Aten_layout.to_int l)
 
 (* bool? : the 0/1 value with a negative sentinel for None (mirrors the enum
    optionals). [bool_opt] is the ctypes view over [bool option]. *)
@@ -137,93 +137,93 @@ let bool_opt =
     ~read:(fun i -> if i < 0 then None else Some (i <> 0))
     ~write:(function None -> -1 | Some b -> if b then 1 else 0)
 
-(* c10::Scalar crosses as [struct atc_scalar] (declared in Type_description.Types
+(* c10::Aten_scalar crosses as [struct atc_scalar] (declared in Aten_type_description.Types
    so the stub generator binds it to atg_shim.h), passed by pointer — a by-value
    struct arg makes the generator re-emit a conflicting definition. [scalar] /
-   [scalar_opt] views marshal the typed [Scalar.t] union (and its option). *)
+   [scalar_opt] views marshal the typed [Aten_scalar.t] union (and its option). *)
 let scalar_value_of = function
-  | Scalar.Int i ->
-      let v = make Types_generated.scalar_value in
-      setf v Types_generated.value_i i;
+  | Aten_scalar.Int i ->
+      let v = make Aten_types_generated.scalar_value in
+      setf v Aten_types_generated.value_i i;
       v
-  | Scalar.Float d ->
-      let v = make Types_generated.scalar_value in
-      setf v Types_generated.value_d d;
+  | Aten_scalar.Float d ->
+      let v = make Aten_types_generated.scalar_value in
+      setf v Aten_types_generated.value_d d;
       v
-  | Scalar.Bool b ->
-      let v = make Types_generated.scalar_value in
-      setf v Types_generated.value_b b;
+  | Aten_scalar.Bool b ->
+      let v = make Aten_types_generated.scalar_value in
+      setf v Aten_types_generated.value_b b;
       v
 
 (* Allocate a [struct atc_scalar] with the given tag and (optional) payload, and
    return a pointer to it (kept alive by the GC for the duration of the call). *)
-let scalar_ptr (tag : Scalar.Tag.t) value =
-  let s = make Types_generated.scalar_struct in
-  setf s Types_generated.scalar_tag (Scalar.Tag.to_int tag);
-  Option.iter (fun v -> setf s Types_generated.scalar_v v) value;
-  allocate Types_generated.scalar_struct s
+let scalar_ptr (tag : Aten_scalar.Tag.t) value =
+  let s = make Aten_types_generated.scalar_struct in
+  setf s Aten_types_generated.scalar_tag (Aten_scalar.Tag.to_int tag);
+  Option.iter (fun v -> setf s Aten_types_generated.scalar_v v) value;
+  allocate Aten_types_generated.scalar_struct s
 
 let scalar_read p =
   let s = !@p in
-  let v = getf s Types_generated.scalar_v in
-  match Scalar.Tag.of_int (getf s Types_generated.scalar_tag) with
-  | Scalar.Tag.Int -> Scalar.Int (getf v Types_generated.value_i)
-  | Scalar.Tag.Float -> Scalar.Float (getf v Types_generated.value_d)
-  | Scalar.Tag.Bool -> Scalar.Bool (getf v Types_generated.value_b)
-  | Scalar.Tag.None_ -> failwith "scalar view: NONE tag for a present scalar"
+  let v = getf s Aten_types_generated.scalar_v in
+  match Aten_scalar.Tag.of_int (getf s Aten_types_generated.scalar_tag) with
+  | Aten_scalar.Tag.Int -> Aten_scalar.Int (getf v Aten_types_generated.value_i)
+  | Aten_scalar.Tag.Float -> Aten_scalar.Float (getf v Aten_types_generated.value_d)
+  | Aten_scalar.Tag.Bool -> Aten_scalar.Bool (getf v Aten_types_generated.value_b)
+  | Aten_scalar.Tag.None_ -> failwith "scalar view: NONE tag for a present scalar"
 
 let scalar =
   view
-    (ptr Types_generated.scalar_struct)
+    (ptr Aten_types_generated.scalar_struct)
     ~read:scalar_read
-    ~write:(fun sc -> scalar_ptr (Scalar.tag sc) (Some (scalar_value_of sc)))
+    ~write:(fun sc -> scalar_ptr (Aten_scalar.tag sc) (Some (scalar_value_of sc)))
 
 let scalar_opt =
   view
-    (ptr Types_generated.scalar_struct)
+    (ptr Aten_types_generated.scalar_struct)
     ~read:(fun p ->
-      if Scalar.Tag.of_int (getf !@p Types_generated.scalar_tag) = Scalar.Tag.None_
+      if Aten_scalar.Tag.of_int (getf !@p Aten_types_generated.scalar_tag) = Aten_scalar.Tag.None_
       then None
       else Some (scalar_read p))
     ~write:(function
-      | None -> scalar_ptr Scalar.Tag.None_ None
-      | Some sc -> scalar_ptr (Scalar.tag sc) (Some (scalar_value_of sc)))
+      | None -> scalar_ptr Aten_scalar.Tag.None_ None
+      | Some sc -> scalar_ptr (Aten_scalar.tag sc) (Some (scalar_value_of sc)))
 
-(* c10::Device crosses as [struct atc_device] (declared in Type_description.Types)
-   by pointer, like Scalar. [device] / [device_opt] views marshal the typed
-   [Device.t] (and its option); a negative type code encodes an absent Device?. *)
+(* c10::Aten_device crosses as [struct atc_device] (declared in Aten_type_description.Types)
+   by pointer, like Aten_scalar. [device] / [device_opt] views marshal the typed
+   [Aten_device.t] (and its option); a negative type code encodes an absent Aten_device?. *)
 let device_ptr type_code index =
-  let s = make Types_generated.device_struct in
-  setf s Types_generated.device_type_code type_code;
-  setf s Types_generated.device_index index;
-  allocate Types_generated.device_struct s
+  let s = make Aten_types_generated.device_struct in
+  setf s Aten_types_generated.device_type_code type_code;
+  setf s Aten_types_generated.device_index index;
+  allocate Aten_types_generated.device_struct s
 
 let device_read p =
   let s = !@p in
-  let code = getf s Types_generated.device_type_code in
-  match Device.Type.of_int code with
-  | Some t -> { Device.type_ = t; index = getf s Types_generated.device_index }
+  let code = getf s Aten_types_generated.device_type_code in
+  match Aten_device.Type.of_int code with
+  | Some t -> { Aten_device.type_ = t; index = getf s Aten_types_generated.device_index }
   | None -> Printf.ksprintf failwith "device view: unknown DeviceType code %%d" code
 
 let device =
   view
-    (ptr Types_generated.device_struct)
+    (ptr Aten_types_generated.device_struct)
     ~read:device_read
-    ~write:(fun (d : Device.t) ->
-      device_ptr (Device.Type.to_int d.type_) d.index)
+    ~write:(fun (d : Aten_device.t) ->
+      device_ptr (Aten_device.Type.to_int d.type_) d.index)
 
 let device_opt =
   view
-    (ptr Types_generated.device_struct)
+    (ptr Aten_types_generated.device_struct)
     ~read:(fun p ->
-      if getf !@p Types_generated.device_type_code < 0 then None
+      if getf !@p Aten_types_generated.device_type_code < 0 then None
       else Some (device_read p))
     ~write:(function
       | None -> device_ptr (-1) 0
-      | Some (d : Device.t) -> device_ptr (Device.Type.to_int d.type_) d.index)
+      | Some (d : Aten_device.t) -> device_ptr (Aten_device.Type.to_int d.type_) d.index)
 
 (* dune's ctypes requires the functor module to be named [Functions]; the
-   [(instance Operations)] stanza aliases it to [C.Operations]. *)
+   [(instance Aten_operations)] stanza aliases it to [Aten_c.Aten_operations]. *)
 module Functions (F : Ctypes.FOREIGN) = struct
   open F
 

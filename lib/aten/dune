@@ -32,7 +32,7 @@
   (run bash run_codegen.sh %{project_root}/../../modules/pytorch)))
 
 ; 2b. Operation bindings: generate the extern "C" wrappers (atg_ops.cpp/.h) and
-;     the ctypes functor (operation_description.ml) from native_functions.yaml
+;     the ctypes functor (aten_operation_description.ml) from native_functions.yaml
 ;     via bin/aten_ops_gen. The curated op selection lives in that driver. The
 ;     yaml is the build artifact produced by data/dune's shell rule (it lives
 ;     in a submodule excluded from dune's scan); depend on it directly.
@@ -58,14 +58,14 @@
     atg_ops.cpp))))
 
 (rule
- (target operation_description.ml)
+ (target aten_operation_description.ml)
  (action
   (with-stdout-to
    %{target}
    (run
     %{exe:../../bin/aten_ops_gen.exe}
     %{dep:../../data/native_functions.yaml}
-    operation_description.ml))))
+    aten_operation_description.ml))))
 
 ; 3. Compile c10 core+util + ATen/core + generated core srcs + the extern "C"
 ;    shim (atg_shim.cpp = Tensor API, atg_ops.cpp = operations)  ->
@@ -87,6 +87,7 @@
 
 (library
  (name aten)
+ (wrapped false)
  (libraries ctypes-foreign bigarray)
  (foreign_archives aten_core)
  (ctypes
@@ -110,19 +111,20 @@
   (headers
    (preamble "#include \"atg_shim.h\"\n#include \"atg_ops.h\""))
   (type_description
-   (instance Types)
-   (functor Type_description))
-  ; Tensor API (function_description.ml) and operations (operation_description.ml)
-  ; bind separately; both land under the single C entry point as C.Functions
-  ; and C.Operations. The operations half (operation_description.ml, with its
-  ; atg_ops.cpp/.h) is generated above by bin/aten_ops_gen from the schema.
+   (instance Aten_types)
+   (functor Aten_type_description))
+  ; Tensor API (aten_function_description.ml) and operations
+  ; (aten_operation_description.ml) bind separately; both land under the
+  ; single Aten_c entry point as Aten_c.Aten_functions and Aten_c.Aten_operations.
+  ; The operations half (aten_operation_description.ml, with its atg_ops.cpp/.h)
+  ; is generated above by bin/aten_ops_gen from the schema.
   (function_description
    (concurrency unlocked)
-   (instance Functions)
-   (functor Function_description))
+   (instance Aten_functions)
+   (functor Aten_function_description))
   (function_description
    (concurrency unlocked)
-   (instance Operations)
-   (functor Operation_description))
-  (generated_types Types_generated)
-  (generated_entry_point C)))
+   (instance Aten_operations)
+   (functor Aten_operation_description))
+  (generated_types Aten_types_generated)
+  (generated_entry_point Aten_c)))

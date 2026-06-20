@@ -2,14 +2,14 @@
    shim + ctypes binding (or the skip reason). *)
 
 let gen ?(style = `Function) s =
-  match Func_schema.parse s with
+  match Aten_func_schema.parse s with
   | Error e -> Printf.printf "PARSE ERROR: %s\n" e
   | Ok op -> (
-      match Aten_gen.Gen.generate ~style op with
+      match Aten_gen.generate ~style op with
       | Skipped r -> Printf.printf "SKIPPED: %s\n" r
       | Generated g ->
-          Printf.printf "%s\n---\n%s\n" g.Aten_gen.Gen.c_source
-            g.Aten_gen.Gen.ctypes_line)
+          Printf.printf "%s\n---\n%s\n" g.Aten_gen.c_source
+            g.Aten_gen.ctypes_line)
 
 let%expect_test "add.Tensor" =
   gen "add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor";
