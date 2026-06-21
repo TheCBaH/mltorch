@@ -1,6 +1,6 @@
 // For format details, see https://aka.ms/devcontainer.json.
 {
-    "name": "tfview",
+    "name": "mltorch",
     "build":  {
         "dockerfile": "Dockerfile"
     },
