@@ -7,3 +7,6 @@
 [submodule "vendored/ocaml-yamlt"]
 	path = vendored/ocaml-yamlt
 	url = https://github.com/TheCBaH/ocaml-yamlt.git
+[submodule "vendored/opickle"]
+	path = vendored/opickle
+	url = https://github.com/TheCBaH/opickle.git

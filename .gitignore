@@ -2,3 +2,4 @@ _build/
 .ccache/
 .claude/
 .devcontainer/devcontainer-lock.json
+data/pt2/

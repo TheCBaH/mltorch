@@ -1,0 +1,7 @@
+; Bridge from the pure-OCaml pt2 reader to runnable ATen tensors. Isolated in
+; its own library so lib/pt2 (and its tests) stay free of the libtorch C++ build.
+
+(library
+ (name pt2_aten)
+ (wrapped false)
+ (libraries pt2 aten))

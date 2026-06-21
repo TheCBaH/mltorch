@@ -1,0 +1,9 @@
+; Pure-OCaml reader for PyTorch `.pt2` archives (and the `.pt` tensor files in
+; the v0.0.3 release zips). No libtorch / ATen dependency, so it builds and
+; tests without the C++ archive. The bridge to runnable `Aten_tensor.t` lives
+; separately in lib/pt2_aten.
+
+(library
+ (name pt2)
+ (wrapped false)
+ (libraries jsont jsont.bytesrw opickle pytorch_types schema_runtime zipc))

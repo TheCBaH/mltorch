@@ -19,7 +19,14 @@ jobs:
     - name: checkout
       uses: actions/checkout@v6
       with:
-        submodules: recursive
+        # Top-level only: this checks out the vendored libraries' own source but
+        # NOT their nested submodules (opickle pulls in cpython purely as test
+        # data — we never run its tests). pytorch's third_party is needed by the
+        # aten build, so it is initialised recursively on its own below.
+        submodules: true
+    - name: pytorch submodules
+      run: |
+        git -C modules/pytorch submodule update --init --recursive --depth 1
     - name: devcontainer
       uses: ./.github/workflows/actions/devcontainer
       id: devcontainer
@@ -31,6 +38,7 @@ jobs:
       run: |
         echo "pytorch=$(git rev-parse HEAD:modules/pytorch)" >> $GITHUB_OUTPUT
         echo "month=$(date +'%Y-%m')" >> $GITHUB_OUTPUT
+        make -s pt2.vars >> $GITHUB_OUTPUT
     # .ccache is at the repo root, which the devcontainer bind-mounts, so the
     # host dir actions/cache manages and the container's CCACHE_DIR are the same
     # files. Keyed by month + pinned PyTorch commit + hash of the build scripts
@@ -54,6 +62,33 @@ jobs:
     - name: test
       run: |
         ${{ env.EXEC }} make runtest
+    # Model release .zips (12 MB-1.1 GB each; ~5.3 GB total across all 22
+    # models exercised by `make inference`) are fetched from the
+    # pytorch.models.pt2 GitHub release (a public asset, so curl needs no
+    # token) into data/pt2/<model>/. One cache entry covers every zip
+    # downloaded so far this release (glob path), keyed by release tag + a
+    # hash of the model list, so adding/removing a model creates a fresh
+    # cache entry instead of an immutable cache silently going stale; the
+    # restore-key drops the hash to still warm-start from the closest prior
+    # cache. The path/key come from `make pt2.vars` so they track the
+    # Makefile. data/pt2/ is gitignored; the host dir is bind-mounted into the
+    # devcontainer, so the gated load test and inference step see it.
+    - name: pt2 models cache
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.cache_keys.outputs.pt2_zip_glob }}
+        key: ${{ steps.cache_keys.outputs.pt2_cache_key }}
+        restore-keys: |
+          ${{ steps.cache_keys.outputs.pt2_cache_restore_key }}
+    - name: pt2 cram models download
+      run: |
+        make pt2.download-cram
+    - name: pt2 load test
+      run: |
+        ${{ env.EXEC }} make pt2.runtest
+    - name: inference
+      run: |
+        ${{ env.EXEC }} make inference
     - name: format
       run: |
         ${{ env.EXEC }} make format

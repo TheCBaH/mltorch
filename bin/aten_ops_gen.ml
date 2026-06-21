@@ -126,6 +126,24 @@ let style_of (e : Aten_raw.t) =
   | [] -> `Function
   | vs -> if List.mem Aten_raw.Variant.Function vs then `Function else `Method
 
+(* Parse every binding-selected op for the schema-driven interpreter dispatch
+   generator (Aten_decode_gen) -- the same curated [selection] that drives the
+   bindings, so the two never drift. Ops whose argument/return types the
+   generator cannot decode simply produce no arm (Aten_decode_gen.dispatch_arm
+   returns None) and fall through to the interpreter's failwith. *)
+let dispatch_ops entries =
+  List.filter_map
+    (fun sel ->
+      let sg =
+        match sel with
+        | Allow { base; overload } -> (find_entry entries ~base ~overload).func
+        | Override { signature; _ } -> signature
+      in
+      match Aten_func_schema.parse sg with
+      | Ok op -> Some op
+      | Error e -> die "dispatch: parse error: %s" e)
+    selection
+
 let resolve entries =
   List.map
     (fun sel ->
@@ -154,6 +172,7 @@ let () =
     | "atg_ops.h" -> Aten_emit.header ops
     | "atg_ops.cpp" -> Aten_emit.source ops
     | "aten_operation_description.ml" -> Aten_emit.ocaml ops
+    | "interp_dispatch.ml" -> Aten_decode_gen.file (dispatch_ops entries)
     | other -> die "unknown output target: %s" other
   in
   print_string out

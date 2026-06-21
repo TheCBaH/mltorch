@@ -1,0 +1,22 @@
+; A small graph interpreter that runs an exported `.pt2` model on real weights by
+; walking the ExportedProgram graph and dispatching each node to the bound ATen
+; ops. Currently covers the resnet18 op set.
+
+(library
+ (name interp)
+ (libraries ctypes pt2 pt2_aten aten pytorch_types schema_runtime))
+
+; The schema-driven per-node dispatch arms (Interp_dispatch.dispatch), generated
+; from native_functions.yaml by bin/aten_ops_gen (the [dispatch_selection] there
+; picks which ops). No dune dep-tracking on the submodule yaml; rebuild manually
+; when it changes (same caveat as lib/aten/dune).
+
+(rule
+ (target interp_dispatch.ml)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../../bin/aten_ops_gen.exe}
+    %{dep:../../data/native_functions.yaml}
+    interp_dispatch.ml))))

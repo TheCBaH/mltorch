@@ -51,6 +51,16 @@
  (preprocess
   (pps ppx_expect)))
 
+; Pure-OCaml pt2 reader: zip, strided tensor, pickle (no libtorch dependency).
+
+(library
+ (name pt2_test)
+ (modules pt2_test)
+ (libraries pt2 zipc)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
 ; Generate OCaml types from the PyTorch export schema.
 
 (rule
@@ -555,6 +565,51 @@
  (name aten_gen_coverage)
  (modules aten_gen_coverage)
  (libraries aten_schema aten_gen))
+
+; Real end-to-end pt2 load (weights + sample image -> ATen). Gated behind
+; PT2_DATA (set by `make pt2.runtest`) so the default suite needs no download.
+
+(executable
+ (name pt2_load)
+ (modules pt2_load)
+ (libraries pt2 pt2_aten))
+
+(cram
+ (applies_to pt2_load_cram)
+ (deps %{exe:pt2_load.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+; Run a model end-to-end through the graph interpreter on a sample image.
+
+(executable
+ (name interp_run)
+ (modules interp_run)
+ (libraries interp pt2 jsont jsont.bytesrw unix))
+
+(cram
+ (applies_to interp_resnet_cram)
+ (deps %{exe:interp_run.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+(cram
+ (applies_to interp_efficientnet_cram)
+ (deps %{exe:interp_run.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+(cram
+ (applies_to interp_mobilenet_cram)
+ (deps %{exe:interp_run.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+(cram
+ (applies_to interp_vit_cram)
+ (deps %{exe:interp_run.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
 
 (cram
  (applies_to aten_gen_coverage_cram)
