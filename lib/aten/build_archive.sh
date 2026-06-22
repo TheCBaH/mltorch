@@ -141,6 +141,8 @@ mapfile -t SRCS_GLUE < <(
   echo "$PT/aten/src/ATen/native/Dropout.cpp"
   echo "$PT/aten/src/ATen/native/ReduceOps.cpp"
   echo "$PT/aten/src/ATen/native/ReduceAllOps.cpp"
+  # topk structured meta+impl (+ topk_stub decl); kernel is cpu/SortingKernel.cpp.
+  echo "$PT/aten/src/ATen/native/Sorting.cpp"
   # TensorIteratorBase::parallel_reduce (separate from TensorIterator.cpp).
   echo "$PT/aten/src/ATen/native/TensorIteratorReduce.cpp"
   echo "$PT/aten/src/ATen/cpu/FlushDenormal.cpp"
@@ -174,6 +176,8 @@ mapfile -t SRCS_CAP < <(
   echo "$PT/aten/src/ATen/native/cpu/AdaptiveAvgPoolKernel.cpp"
   echo "$PT/aten/src/ATen/native/cpu/ReduceOpsKernel.cpp"
   echo "$PT/aten/src/ATen/native/cpu/SumKernel.cpp"
+  # topk_stub kernel (registered by Sorting.cpp's structured impl).
+  echo "$PT/aten/src/ATen/native/cpu/SortingKernel.cpp"
   echo "$PT/aten/src/ATen/native/cpu/CopyKernel.cpp"
   # conj_kernel / neg_kernel (CopyKernel uses them for conjugate/negative bits).
   echo "$PT/aten/src/ATen/native/cpu/UnaryOpsKernel.cpp"

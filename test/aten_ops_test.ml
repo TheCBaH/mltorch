@@ -412,3 +412,16 @@ let%expect_test "argmax" =
   [%expect {|
     flat=4
     [2] = [1; 1] |}]
+
+let%expect_test "topk" =
+  let t = make [ 1; 5 ] [ 0.1; 0.5; 0.2; 0.9; 0.3 ] in
+  (* top-3 over the last dim, largest first *)
+  let out = Ctypes.make Aten_types_generated.tensors2_struct in
+  let status = O.topk t 3L (-1L) true true (addr out) in
+  Printf.printf "status=%d\n" status;
+  show (tget out Aten_types_generated.tensors2_v0);
+  show_i64 (tget out Aten_types_generated.tensors2_v1);
+  [%expect {|
+    status=0
+    [1x3] = [0.9; 0.5; 0.3]
+    [1x3] = [3; 1; 4] |}]
