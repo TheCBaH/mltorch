@@ -401,3 +401,14 @@ let%expect_test "max_pool2d_with_indices (2-tuple out-struct)" =
     status=0
     [1x1x2x2] = [6; 8; 14; 16]
     [1x1x2x2] = [5; 7; 13; 15] |}]
+
+let%expect_test "argmax" =
+  let t = make [ 2; 3 ] [ 1.; 5.; 2.; 0.; 9.; 3. ] in
+  (* flatten (dim=None): global max 9 is at flat index 4 *)
+  Printf.printf "flat=%d\n" (T.item_int (O.argmax t none_int false));
+  (* along dim 1: per-row argmax = [1; 1] *)
+  let dim = allocate int64_t 1L in
+  show_i64 (O.argmax t dim false);
+  [%expect {|
+    flat=4
+    [2] = [1; 1] |}]

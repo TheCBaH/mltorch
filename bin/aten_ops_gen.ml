@@ -75,6 +75,7 @@ let selection =
     op "squeeze" ~overload:"dims";
     op "unsqueeze";
     op "mean" ~overload:"dim";
+    op "argmax";
     op "clone";
     op "contiguous";
     op "to" ~overload:"dtype";
