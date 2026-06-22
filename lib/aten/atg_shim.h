@@ -89,6 +89,15 @@ size_t atc_dtype_elem_size(int8_t scalar_type);
 /* New uninitialized contiguous CPU tensor of the given shape and dtype. */
 atc_tensor atc_new(const int64_t* sizes, size_t ndim, atc_scalar_type dtype);
 
+/* New CPU tensor that owns a copy of [data] laid out by [sizes]/[strides] (in
+   elements) starting at [storage_offset]. This is PyTorch's native (storage,
+   sizes, strides, offset) representation: the layout may be non-contiguous
+   (e.g. channels-last). [data] is copied (the result does not alias it), so the
+   caller may free [data] immediately after. */
+atc_tensor atc_from_blob(const void* data, const int64_t* sizes,
+                         const int64_t* strides, size_t ndim,
+                         int64_t storage_offset, atc_scalar_type dtype);
+
 /* Release a handle returned by atc_new / atc_add / atc_mul. */
 void atc_free(atc_tensor t);
 

@@ -59,6 +59,24 @@ atc_tensor atc_new(const int64_t* sizes, size_t ndim, atc_scalar_type dtype) {
   })
 }
 
+atc_tensor atc_from_blob(const void* data, const int64_t* sizes,
+                         const int64_t* strides, size_t ndim,
+                         int64_t storage_offset, atc_scalar_type dtype) {
+  ATC_TRY(nullptr, {
+    auto st = static_cast<c10::ScalarType>(dtype);
+    auto opts = at::TensorOptions().dtype(st).device(at::kCPU);
+    const char* base =
+        static_cast<const char*>(data) + storage_offset * c10::elementSize(st);
+    /* from_blob wraps [base] without copying; clone() then makes an owned copy
+       that preserves the (possibly non-contiguous) layout, so the caller's
+       buffer need not outlive this call. */
+    auto view =
+        at::from_blob(const_cast<char*>(base), c10::IntArrayRef(sizes, ndim),
+                      c10::IntArrayRef(strides, ndim), opts);
+    return atc_wrap(view.clone());
+  })
+}
+
 const char* atc_last_error(void) {
   return atc_detail::last_error.empty() ? nullptr
                                         : atc_detail::last_error.c_str();

@@ -87,6 +87,43 @@ let of_bigarray : type a b.
   | None -> raise (Error "of_bigarray: dtype mismatch"));
   t
 
+(* A managed tensor owning a copy of [src] interpreted with PyTorch's native
+   layout: [sizes] / [strides] (in elements) starting at [storage_offset]. The
+   layout may be non-contiguous (e.g. channels-last). [src] is copied (see
+   [atc_from_blob]); mutating it afterwards does not affect the tensor. *)
+let of_storage : type a b.
+    (a, b) Aten_dtype.t ->
+    (a, b, c_layout) Array1.t ->
+    sizes:int list ->
+    strides:int list ->
+    storage_offset:int ->
+    _ =
+ fun dt src ~sizes ~strides ~storage_offset ->
+  let ndim = List.length sizes in
+  if List.length strides <> ndim then
+    raise (Error "of_storage: sizes/strides rank mismatch");
+  let numel = List.fold_left ( * ) 1 sizes in
+  (* The highest element index the (sizes, strides, offset) view reaches; [src]
+     must cover it or the copy would read out of bounds. Assumes non-negative
+     strides (true for every layout PyTorch exports). *)
+  let span =
+    if numel = 0 then 0
+    else
+      storage_offset + 1
+      + List.fold_left2 (fun acc s st -> acc + ((s - 1) * st)) 0 sizes strides
+  in
+  if Array1.dim src < span then
+    raise (Error "of_storage: source smaller than the strided extent");
+  let sz = CArray.of_list int64_t (List.map Int64.of_int sizes) in
+  let st = CArray.of_list int64_t (List.map Int64.of_int strides) in
+  F.from_blob
+    (to_voidp (bigarray_start array1 src))
+    (CArray.start sz) (CArray.start st)
+    (Unsigned.Size_t.of_int ndim)
+    (Int64.of_int storage_offset)
+    (Aten_dtype.scalar_type dt)
+  |> check |> manage
+
 (* Extract the single element of a one-element tensor. Raises [Error] otherwise. *)
 let item_float t =
   let out = allocate double 0.0 in

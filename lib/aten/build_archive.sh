@@ -74,6 +74,9 @@ mapfile -t SRCS_CORE < <(
 # directly to at::native::X, so its ~2600 methods must be GC-trimmable.
 mapfile -t SRCS_GLUE < <(
   echo gen/ATen/core/TensorMethods.cpp
+  # at::from_blob / at::TensorMaker::make_tensor (used by atc_from_blob); the
+  # rest of Functions.cpp --gc-sections away.
+  echo gen/ATen/Functions.cpp
   for f in Operators_0 Operators_1 Operators_2 Operators_3 Operators_4 \
            RegisterCPU_0 RegisterCPU_1 RegisterCPU_2 RegisterCPU_3 \
            RegisterCompositeExplicitAutograd_0 \

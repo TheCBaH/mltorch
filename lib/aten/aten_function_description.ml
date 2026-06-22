@@ -34,6 +34,11 @@ module Functions (F : Ctypes.FOREIGN) = struct
     foreign "atc_new"
       (ptr int64_t @-> size_t @-> scalar_type @-> returning atc_tensor)
 
+  let from_blob =
+    foreign "atc_from_blob"
+      (ptr void @-> ptr int64_t @-> ptr int64_t @-> size_t @-> int64_t
+     @-> scalar_type @-> returning atc_tensor)
+
   let free = foreign "atc_free" (atc_tensor @-> returning void)
   let numel = foreign "atc_numel" (atc_tensor @-> returning int64_t)
   let dim = foreign "atc_dim" (atc_tensor @-> returning size_t)

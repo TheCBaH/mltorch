@@ -164,6 +164,60 @@ let floats t =
   String.concat ","
     (List.init (Bigarray.Array1.dim v) (fun i -> Printf.sprintf "%g" v.{i}))
 
+(* of_storage: build a tensor from PyTorch's native (storage, sizes, strides,
+   offset) triple. [at::equal] compares logical values regardless of layout, so
+   we check the strided view against the contiguous tensor with the same logical
+   contents. *)
+
+let ba_of_floats vals =
+  Bigarray.Array1.of_array Bigarray.float32 Bigarray.c_layout
+    (Array.of_list vals)
+
+let%expect_test "of_storage honours non-contiguous strides" =
+  (* storage [10;30;20;40] read column-major: strides [1;2] over shape [2;2]
+     is the logical [[10;20];[30;40]]. *)
+  let src = ba_of_floats [ 10.; 30.; 20.; 40. ] in
+  let t =
+    T.of_storage Dtype.float32 src ~sizes:[ 2; 2 ] ~strides:[ 1; 2 ]
+      ~storage_offset:0
+  in
+  let expected = float_tensor [ 2; 2 ] [ 10.; 20.; 30.; 40. ] in
+  Printf.printf "shape=%s contiguous=%b equal=%b\n"
+    (ints (T.shape t))
+    (T.is_contiguous t) (T.equal t expected);
+  [%expect {| shape=[2;2] contiguous=false equal=true |}]
+
+let%expect_test "of_storage honours storage_offset" =
+  (* a leading junk element, then a contiguous [2;2] starting at offset 1. *)
+  let src = ba_of_floats [ 99.; 1.; 2.; 3.; 4. ] in
+  let t =
+    T.of_storage Dtype.float32 src ~sizes:[ 2; 2 ] ~strides:[ 2; 1 ]
+      ~storage_offset:1
+  in
+  Printf.printf "contiguous=%b equal=%b\n" (T.is_contiguous t)
+    (T.equal t (float_tensor [ 2; 2 ] [ 1.; 2.; 3.; 4. ]));
+  [%expect {| contiguous=true equal=true |}]
+
+let%expect_test "of_storage copies the source" =
+  let src = ba_of_floats [ 1.; 2.; 3.; 4. ] in
+  let t =
+    T.of_storage Dtype.float32 src ~sizes:[ 4 ] ~strides:[ 1 ] ~storage_offset:0
+  in
+  src.{0} <- 99.;
+  (* owned copy: mutating the source afterwards does not change the tensor *)
+  Printf.printf "%s\n" (floats t);
+  [%expect {| 1,2,3,4 |}]
+
+let%expect_test "of_storage rejects a source too small for the extent" =
+  let src = ba_of_floats [ 1.; 2.; 3. ] in
+  (match
+     T.of_storage Dtype.float32 src ~sizes:[ 2; 2 ] ~strides:[ 2; 1 ]
+       ~storage_offset:0
+   with
+  | _ -> print_string "no error"
+  | exception T.Error msg -> print_string msg);
+  [%expect {| of_storage: source smaller than the strided extent |}]
+
 let%expect_test "clone makes an independent copy" =
   let a = float_tensor [ 3 ] [ 1.; 2.; 3. ] in
   let b = T.manage (O.clone a None) in
