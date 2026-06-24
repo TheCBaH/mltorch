@@ -1,0 +1,9 @@
+; Expect tests for lib/native, one module per native module under test. Pure
+; OCaml (no C++/ctypes), so this runs in isolation: `dune runtest test/native`.
+
+(library
+ (name native_test)
+ (libraries native)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

@@ -23,6 +23,18 @@ dune promote test/model_cram.t
 
 **Run `make format` before every commit.** Formatting is enforced; unformatted diffs are noise.
 
+### Working in a git worktree
+
+If you work in a `.claude/worktrees/<name>` checkout, **read `.ai/worktree_setup.md`
+first** — `make` from the repo root won't see worktree edits, dune needs `--root .`
+there, and submodules/base-ref have gotchas. Quick form:
+
+```sh
+git submodule update --init --recursive vendored/opickle   # once per worktree
+opam exec -- dune build   --root . lib/native
+opam exec -- dune runtest --root . test/native
+```
+
 ### .pt2 / interpreter (gated on real model data)
 
 ```sh

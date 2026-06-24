@@ -1,4 +1,5 @@
-.PHONY: build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-run
+.PHONY: build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa
+all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
 PT2_RELEASE := v0.0.4
