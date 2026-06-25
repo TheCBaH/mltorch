@@ -379,6 +379,17 @@ let%expect_test "native_layer_norm (3-tuple out-struct)" =
     mean: [1x1]
     rstd: [1x1] |}]
 
+let%expect_test "rms_norm (float? eps, SymInt[] normalized_shape)" =
+  (* RMS-norm over the last dim of [1x4] all-2s: mean(x^2)=4, +eps(12)=16,
+     rsqrt=0.25, so x*0.25 = 0.5 each; weight=[1,2,3,4] scales it to
+     [0.5,1,1.5,2]. eps is the float? optional (the new ptr-double binding),
+     passed by an [allocate]d pointer. *)
+  let x = make [ 1; 4 ] [ 2.; 2.; 2.; 2. ] in
+  let w = make [ 4 ] [ 1.; 2.; 3.; 4. ] in
+  let eps = allocate double 12.0 in
+  show (O.rms_norm x (arr [ 4 ]) 1 w eps);
+  [%expect "[1x4] = [0.5; 1; 1.5; 2]"]
+
 let%expect_test "max_pool2d_with_indices (2-tuple out-struct)" =
   (* output and the int64 index map, both filled into the out-struct. *)
   let out = Ctypes.make Aten_types_generated.tensors2_struct in

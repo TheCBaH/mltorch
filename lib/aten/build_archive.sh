@@ -137,6 +137,12 @@ mapfile -t SRCS_GLUE < <(
   # native_layer_norm -> layer_norm_cpu (layer_norm.cpp, no vec.h); the
   # LayerNormKernel is cpu/layer_norm_kernel.cpp in the CAP list.
   echo "$PT/aten/src/ATen/native/layer_norm.cpp"
+  # rms_norm: CPU path of rms_norm_symint (layer_norm.cpp) routes through
+  # _fused_rms_norm -> rms_norm_composite, which is at::pow(x,2).mean(...).rsqrt
+  # .mul(...). pow is structured (Pow.cpp meta+impl, no vec.h); rsqrt/mul/mean
+  # reuse UnaryOps/BinaryOps/ReduceOps already listed. The pow kernel
+  # (pow_tensor_scalar_stub) is cpu/PowKernel.cpp in the CAP list.
+  echo "$PT/aten/src/ATen/native/Pow.cpp"
   # dropout/dropout_ (composite; identity at inference, train=false).
   echo "$PT/aten/src/ATen/native/Dropout.cpp"
   echo "$PT/aten/src/ATen/native/ReduceOps.cpp"
@@ -199,6 +205,8 @@ mapfile -t SRCS_CAP < <(
   echo "$PT/aten/src/ATen/native/cpu/SoftMaxKernel.cpp"
   # LayerNormKernel (the vectorized layer-norm kernel) for native_layer_norm.
   echo "$PT/aten/src/ATen/native/cpu/layer_norm_kernel.cpp"
+  # pow_tensor_scalar_stub (the vectorized pow kernel) for rms_norm's at::pow.
+  echo "$PT/aten/src/ATen/native/cpu/PowKernel.cpp"
 )
 
 # --- compile ----------------------------------------------------------------

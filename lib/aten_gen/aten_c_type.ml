@@ -127,6 +127,17 @@ let map_type ~name (ty : Aten_func_ast.Type.t) =
           call_expr = Printf.sprintf "atc_to_c10_scalar_opt(%s)" name;
           ctypes = [ "scalar_opt" ];
         }
+  (* float?: pass a pointer; null -> nullopt, else the pointee. Mirrors the int?
+     case (e.g. rms_norm's eps kwarg, a std::optional<double>). *)
+  | Optional (Base Float) ->
+      Some
+        {
+          c_params = [ Printf.sprintf "double* %s" name ];
+          call_expr =
+            Printf.sprintf "%s ? std::make_optional(*%s) : std::nullopt" name
+              name;
+          ctypes = [ "ptr double" ];
+        }
   (* int? / SymInt?: pass a pointer; null -> nullopt, else the pointee. The
      non-_symint [at::<op>] overload takes std::optional<int64_t>, so SymInt?
      binds identically to int? (mirrors the Int/SymInt scalar case). *)

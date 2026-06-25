@@ -59,6 +59,7 @@ let selection =
     (* tuple returns: output 0 is the return, extra outputs via out-params *)
     op "_native_batch_norm_legit_no_training";
     op "native_layer_norm";
+    op "rms_norm";
     op "max_pool2d_with_indices";
     op "max_pool2d";
     op "adaptive_avg_pool2d";
