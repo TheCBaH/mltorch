@@ -14,16 +14,16 @@ let params t ~c =
   | Per_channel { scale; zero_point } -> (scale.(c), zero_point.(c))
 
 let dequantize t ~c ~q =
-  let scale, zp = params t ~c in
-  scale *. float_of_int (q - zp)
+  let scale, zero_point = params t ~c in
+  scale *. float_of_int (q - zero_point)
 
 let quantize t ~c ~qmin ~qmax x =
-  let scale, zp = params t ~c in
-  let v = int_of_float (Float.round (x /. scale)) + zp in
+  let scale, zero_point = params t ~c in
+  let v = int_of_float (Float.round (x /. scale)) + zero_point in
   if v < qmin then qmin else if v > qmax then qmax else v
 
 let pp fmt = function
   | Per_tensor { scale; zero_point } ->
-      Format.fprintf fmt "Per_tensor s=%g zp=%d" scale zero_point
+      Format.fprintf fmt "Per_tensor s=%g zero_point=%d" scale zero_point
   | Per_channel { scale; _ } ->
       Format.fprintf fmt "Per_channel(%d)" (Array.length scale)

@@ -7,11 +7,11 @@
    output coord's components as that index function. *)
 
 let for_each = Vec6.iter
-let coord_ix (c : Vec6.coord) (a : Axis.t) : int = Dim.to_int (Vec6.get c a)
+let coord_index (c : Vec6.coord) (a : Axis.t) : int = Dim.to_int (Vec6.get c a)
 
 let evaluate (shape : Vec6.shape) (pixel : (Axis.t -> int) -> float) :
     Tensor.packed =
-  Tensor.materialize shape (fun c -> pixel (coord_ix c))
+  Tensor.materialize shape (fun c -> pixel (coord_index c))
 
 (* The Symbolic counterpart: an op's [pixel] built once at [Symbolic] is an
    [Expr.t] with no data of its own — [ground] is what turns that expression
@@ -21,4 +21,5 @@ let evaluate (shape : Vec6.shape) (pixel : (Axis.t -> int) -> float) :
    without rebuilding it. *)
 let ground (shape : Vec6.shape) ~(binding : Tensor_sig.t -> Tensor.packed)
     (e : Expr.t) : Tensor.packed =
-  Tensor.materialize shape (fun c -> Expr.eval ~binding ~coord:(coord_ix c) e)
+  Tensor.materialize shape (fun c ->
+      Expr.eval ~binding ~coord:(coord_index c) e)

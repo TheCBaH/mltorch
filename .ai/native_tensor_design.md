@@ -160,7 +160,7 @@ to a functor":
 
 - **Slice / permute / reshape are index reindexings, not data with funny strides.**
   In a framework where computation *is* an index→value function, a layout op is a
-  remap of the consumer's read indices (expressed in the symbolic `ix`, see
+  remap of the consumer's read indices (expressed in symbolic `index_expr`, see
   `native_symbolic_language.md`), so it fuses away. When a concrete packed tensor
   is genuinely required at a boundary (e.g. a graph output), the reindex is
   materialized into a fresh dense buffer by the iterator. (A `reshape` that
@@ -322,8 +322,8 @@ type quant =
   | Per_channel of { scale : float array; zero_point : int array }   (* length = C *)
 ```
 
-- **Per-tensor** — one (scale, zp) for the whole tensor (typical for activations).
-- **Per-channel** — one (scale, zp) per channel along **C**, indexed by `Vec6.get c C`
+- **Per-tensor** — one (scale, zero_point) for the whole tensor (typical for activations).
+- **Per-channel** — one (scale, zero_point) per channel along **C**, indexed by `Vec6.get c C`
   (typical for conv/matmul *weights*, where it materially improves accuracy).
 
 `zero_point` is a plain **signed** `int`, not a `Dim` type — it is domain data in
@@ -334,7 +334,7 @@ offsets only.
 ```ocaml
 val dequantize : quant -> c:int -> q:int -> float      (* picks scale[c]/zp[c] if per-channel *)
 val quantize   : quant -> c:int -> qmin:int -> qmax:int -> float -> int
-(* quantize x = clamp (round (x /. scale) + zp) qmin qmax *)
+(* quantize x = clamp (round (x /. scale) + zero_point) qmin qmax *)
 ```
 
 Read/write rules used by the compute layer (storage cell → compute `float`):

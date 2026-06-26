@@ -39,7 +39,7 @@ let%expect_test
   in
   Format.printf "%a: %g %g@." pp p (get_float p ~c:0 ~i:0)
     (get_float p ~c:0 ~i:1);
-  [%expect {| i8[Per_tensor s=0.5 zp=0]: 1 -2 |}];
+  [%expect {| i8[Per_tensor s=0.5 zero_point=0]: 1 -2 |}];
   set_float p ~c:0 ~i:0 3.0;
   (* 3.0 / 0.5 = 6 stored, decodes back to 3.0 *)
   Format.printf "stored=%d deq=%g@." p.data.{0} (get_float p ~c:0 ~i:0);

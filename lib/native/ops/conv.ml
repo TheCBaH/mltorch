@@ -2,7 +2,7 @@
    kernel window; the input position is the affine index [out*stride + k - pad],
    built through the SEMANTICS index ops so it specialises to either concrete ints
    (Direct) or index expressions (Symbolic). The kh/kw reduction bounds are
-   clipped (via [imax]/[imin]) to exactly the kernel offsets whose source
+   clipped (via [Index_max]/[Index_min]) to exactly the kernel offsets whose source
    position lands inside the input — so that position is always a valid index,
    never a generate-then-guard read of the padding region (see
    .ai/native_compute_design.md §4 "Open issue"). Weight is laid out
@@ -44,7 +44,7 @@ module Conv2d = struct
     module Wa = Window_axis.Compute (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x ~weight ~bias
-        (out : Axis.t -> Semantics.index S.ix) : S.t =
+        (out : Axis.t -> Semantics.position S.index) : S.t =
       let oc = out Axis.C in
       let wh =
         Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad:p.pad.h
@@ -55,7 +55,7 @@ module Conv2d = struct
           ~in_extent:(Vec6.get x_shape Axis.W) (out Axis.W)
       in
       let acc =
-        S.sum ~lo:S.izero ~hi:(S.iext p.in_channels) (fun ic ->
+        S.sum ~lo:S.index_zero ~hi:(S.index_extent p.in_channels) (fun ic ->
             S.sum ~lo:wh.lo ~hi:wh.hi (fun kh ->
                 S.sum ~lo:ww.lo ~hi:ww.hi (fun kw ->
                     let x_idx a =
@@ -71,11 +71,11 @@ module Conv2d = struct
                       | Axis.H -> kh
                       | Axis.W -> kw
                       | Axis.C -> ic
-                      | _ -> S.izero
+                      | _ -> S.index_zero
                     in
                     S.mul (S.load x x_idx) (S.load weight w_idx))))
       in
       S.add acc
-        (S.load bias (fun a -> match a with Axis.C -> oc | _ -> S.izero))
+        (S.load bias (fun a -> match a with Axis.C -> oc | _ -> S.index_zero))
   end
 end

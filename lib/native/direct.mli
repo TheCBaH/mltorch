@@ -4,5 +4,5 @@
 include
   Semantics.SEMANTICS
     with type t = float
-     and type 'role ix = int
+     and type 'role index = int
      and type input = Tensor.packed

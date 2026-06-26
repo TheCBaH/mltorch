@@ -1,31 +1,31 @@
 module Make () = struct
   type t = Expr.t
-  type 'role ix = Expr.iexpr
+  type 'role index = Expr.index_expr
   type input = Tensor_sig.t
 
   let const x = Expr.Const x
-  let add a b = Expr.Bin (Add, a, b)
-  let sub a b = Expr.Bin (Sub, a, b)
-  let mul a b = Expr.Bin (Mul, a, b)
-  let div a b = Expr.Bin (Div, a, b)
-  let exp a = Expr.Un (Exp, a)
-  let sqrt a = Expr.Un (Sqrt, a)
+  let add a b = Expr.Binary (Add, a, b)
+  let sub a b = Expr.Binary (Sub, a, b)
+  let mul a b = Expr.Binary (Mul, a, b)
+  let div a b = Expr.Binary (Div, a, b)
+  let exp a = Expr.Unary (Exp, a)
+  let sqrt a = Expr.Unary (Sqrt, a)
 
-  type b = Expr.bexpr
+  type b = Expr.bool_expr
 
   let lt a b = Expr.Cmp (Lt, a, b)
   let select c a b = Expr.Select (c, a, b)
-  let izero = Expr.Iconst 0
-  let iext (e : Dim.extent Dim.t) = Expr.Iconst (e :> int)
-  let iconst n = Expr.Iconst n
+  let index_zero = Expr.Index_const 0
+  let index_extent (e : Dim.extent Dim.t) = Expr.Index_const (e :> int)
+  let index_const n = Expr.Index_const n
   let of_index i = i
-  let iadd a b = Expr.Iadd (a, b)
-  let iscale k a = Expr.Iscale (k, a)
-  let imin a b = Expr.Imin (a, b)
-  let clamp_low x = Expr.Imax (Expr.Iconst 0, x)
+  let index_add a b = Expr.Index_add (a, b)
+  let index_scale k a = Expr.Index_scale (k, a)
+  let index_min a b = Expr.Index_min (a, b)
+  let clamp_low x = Expr.Index_max (Expr.Index_const 0, x)
   let assume_index x = x
 
-  let load (s : input) (idx : Axis.t -> _ ix) : t =
+  let load (s : input) (idx : Axis.t -> _ index) : t =
     Expr.Load (s, [| idx N; idx T; idx D; idx H; idx W; idx C |])
 
   let c = ref 0
@@ -33,12 +33,13 @@ module Make () = struct
   let sum ~lo ~hi f =
     incr c;
     let v = !c in
-    Expr.Reduce { kind = Sum; var = v; lo; hi; body = f (Expr.Rvar v) }
+    Expr.Reduce { kind = Sum; var = v; lo; hi; body = f (Expr.Reduce_var v) }
 
-  let maxr ~lo ~hi f =
+  let max_reduce ~lo ~hi f =
     incr c;
     let v = !c in
-    Expr.Reduce { kind = Max_r; var = v; lo; hi; body = f (Expr.Rvar v) }
+    Expr.Reduce
+      { kind = Max_reduce; var = v; lo; hi; body = f (Expr.Reduce_var v) }
 end
 
-let out_coord a = Expr.Ivar a
+let out_coord a = Expr.Index_var a

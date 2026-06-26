@@ -21,7 +21,7 @@ each semantics decides *how* (run the loop now, or emit a `Reduce` node).
 ```ocaml
 module type SEMANTICS = sig
   type t                          (* a real scalar in this domain *)
-  type 'role ix                   (* an index expression; role = index | delta *)
+  type 'role index                (* an index expression; role = position | delta *)
 
   (* value domain — minimal primitive basis. [max]/[min]/[relu] are NOT here:
      they derive from [select]+[lt] at each call site, so adding any activation
@@ -40,34 +40,34 @@ module type SEMANTICS = sig
   val lt : t -> t -> b
   val select : b -> t -> t -> t
 
-  (* index domain. The phantom role splits: [index] is a position known ≥ 0
+  (* index domain. The phantom role splits: [position] is a known ≥ 0
      (the only thing [load] accepts); [delta] is a signed affine. The whole
-     window arithmetic is built in [delta]; a delta becomes an [index] only via
+     window arithmetic is built in [delta]; a delta becomes a [position] only via
      [clamp_low] (= max 0, provably ≥ 0) or [assume_index] (one unchecked
      claim, encapsulated in Window_axis.window where the clip invariant holds). *)
-  val izero      : index ix
-  val iext       : Dim.extent Dim.t -> delta ix
-  val iconst     : int -> delta ix
-  val of_index   : index ix -> delta ix
-  val iadd       : delta ix -> delta ix -> delta ix
-  val iscale     : int -> delta ix -> delta ix
-  val imin       : delta ix -> delta ix -> delta ix
-  val clamp_low  : delta ix -> index ix
-  val assume_index : delta ix -> index ix
+  val index_zero   : position index
+  val index_extent : Dim.extent Dim.t -> delta index
+  val index_const  : int -> delta index
+  val of_index     : position index -> delta index
+  val index_add    : delta index -> delta index -> delta index
+  val index_scale  : int -> delta index -> delta index
+  val index_min    : delta index -> delta index -> delta index
+  val clamp_low    : delta index -> position index
+  val assume_index : delta index -> position index
 
   type input
-  val load : input -> (Axis.t -> index ix) -> t
+  val load : input -> (Axis.t -> position index) -> t
 
-  (* bounds are [ix] (not [int]) so windowed reductions can express
-     position-dependent clipped bounds: lo = clamp_low(...), hi = imin kernel (...) *)
-  val sum  : lo:index ix -> hi:delta ix -> (index ix -> t) -> t
-  val maxr : lo:index ix -> hi:delta ix -> (index ix -> t) -> t
+  (* bounds are [index] (not [int]) so windowed reductions can express
+     position-dependent clipped bounds: lo = clamp_low(...), hi = index_min kernel (...) *)
+  val sum        : lo:position index -> hi:delta index -> (position index -> t) -> t
+  val max_reduce : lo:position index -> hi:delta index -> (position index -> t) -> t
 end
 ```
 
-Only *values* flow through `SEMANTICS.t`. The index sub-language (`ix`) is separate:
+Only *values* flow through `SEMANTICS.t`. The index sub-language (`index`) is separate:
 affine expressions built in the signed `delta` role, with `load` accepting only
-`index` — so a raw windowed offset (which may be negative in the pad region) can't
+`position` — so a raw windowed offset (which may be negative in the pad region) can't
 reach a read without going through `clamp_low` or the one `assume_index` inside
 `Window_axis.window`. See `semantics.ml` for the phantom-role types.
 
@@ -118,7 +118,7 @@ to update it) and nothing catches it; you just iterate the wrong region of the
 output, silently. The op that owns `kernel`/`stride`/`pad` is the only thing
 that can compute this correctly, so it has to be the one that exposes it.
 
-This is plain shape arithmetic — never touches `S.t`/`S.ix` — so, like
+This is plain shape arithmetic — never touches `S.t`/`S.index` — so, like
 `params`, it's hoisted **outside** the `(S : SEMANTICS)` functor: one
 `output_shape` serves `Direct` and `Symbolic` identically (and, per
 `native_symbolic_language.md` §2.2, is exactly the missing mechanism behind
@@ -132,7 +132,7 @@ does:
 module Relu = struct
   let output_shape (x_shape : Vec6.shape) : Vec6.shape = x_shape   (* identity *)
   module Compute (S : Semantics.SEMANTICS) = struct
-    let pixel x (out : Axis.t -> S.ix) = S.relu (S.load x out)
+    let pixel x (out : Axis.t -> Semantics.position S.index) = S.relu (S.load x out)
   end
 end
 
@@ -141,7 +141,8 @@ module Add = struct
     (* per axis: the non-broadcast (non-extent-1) operand's extent *)
     ...
   module Compute (S : Semantics.SEMANTICS) = struct
-    let pixel a b (out : Axis.t -> S.ix) = S.add (S.load a out) (S.load b out)
+    let pixel a b (out : Axis.t -> Semantics.position S.index) =
+      S.add (S.load a out) (S.load b out)
   end
 end
 
@@ -158,7 +159,8 @@ module Conv2d = struct
     in
     ...
   module Compute (S : Semantics.SEMANTICS) = struct
-    let pixel (p : params) ~x ~weight ~bias (out : Axis.t -> S.ix) : S.t = ...
+    let pixel (p : params) ~x ~weight ~bias
+        (out : Axis.t -> Semantics.position S.index) : S.t = ...
   end
 end
 ```
@@ -225,7 +227,7 @@ graph actually calls, `max_pool2d_with_indices`, also returns argmax
 indices for backprop — irrelevant for an inference-only engine, not
 modeled). Structurally simpler than conv: no `in_channels`/weight, no `cin`
 reduction — each output channel reduces only its own channel's kernel
-window via `maxr`, never mixing channels. `params` is `Conv2d.params` minus
+window via `max_reduce`, never mixing channels. `params` is `Conv2d.params` minus
 `in_channels`, exactly as `.ai/native_op_config.md` anticipated when it was
 written ("the same kernel/stride/pad shape is expected to carry over
 unchanged to maxpool/avgpool"). (Named `MaxPool2d`, not `Pool2d` — once
@@ -243,7 +245,7 @@ clipped-reduction direction, used by `Conv2d.Compute` and both pooling ops'
 `Compute`, each via `module Wa = Window_axis.Compute (S)`).
 
 For max-pooling, the clipped bounds aren't just architecturally cleaner than a
-guarded read — they're *required* for correctness. `maxr` over real,
+guarded read — they're *required* for correctness. `max_reduce` over real,
 possibly-negative activations cannot tolerate the padding region silently
 contributing `0`: `0` would beat every real value in a window of all-negative
 inputs, which is exactly what `test/native/compute_test.ml`'s "negative
@@ -256,7 +258,7 @@ because `0` is sum's identity; pooling would not have).
 `AvgPool2d` (`lib/native/ops/pool.ml`, alongside `MaxPool2d`) is `params`,
 `output_shape`, and the clipped `Window_axis.bounds` reduction range all
 unchanged from `MaxPool2d` — only the reduction itself differs: `S.sum`
-instead of `S.maxr`, then `S.div` by the kernel area (`p.kernel.h *
+instead of `S.max_reduce`, then `S.div` by the kernel area (`p.kernel.h *
 p.kernel.w`, a position-independent constant). That constant divisor is the
 ATen default (`count_include_pad=true`, `divisor_override=None`): every
 window divides by the FULL kernel area even where part of it falls in
@@ -284,25 +286,25 @@ reuse opportunity.
 ```ocaml
 module Direct : SEMANTICS with type t = float = struct
   type t = float
-  type 'role ix = int
+  type 'role index = int
   let const x = x
   let add = ( +. )  and sub = ( -. )  and mul = ( *. )  and div = ( /. )
   let exp = Stdlib.exp  and sqrt = Stdlib.sqrt
   type b = bool
   let lt a b = a < b
   let select c a b = if c then a else b
-  let izero = 0
-  let iext e = (e :> int)  and iconst n = n
+  let index_zero = 0
+  let index_extent e = (e :> int)  and index_const n = n
   let of_index i = i
-  let iadd = ( + )  and iscale k i = k * i  and imin = Stdlib.min
+  let index_add = ( + )  and index_scale k i = k * i  and index_min = Stdlib.min
   let clamp_low x = Stdlib.max 0 x
   let assume_index x = x
   type input = Tensor.packed
   let load inp idx = Tensor.read_guarded inp idx
-  let sum  ~lo ~hi f =
+  let sum ~lo ~hi f =
     let rec loop i acc = if i >= hi then acc else loop (i+1) (acc +. f i) in
     loop lo 0.
-  let maxr ~lo ~hi f =
+  let max_reduce ~lo ~hi f =
     let rec loop i acc = if i >= hi then acc else loop (i+1) (Float.max acc (f i)) in
     loop lo neg_infinity
 end
@@ -314,7 +316,7 @@ end
 codegen can emit a loop; `Load` carries a symbolic index expression (affine in
 the loop and reduction variables) so reads survive lowering and fusion.
 
-`sum` and `maxr` mint fresh reduction-variable IDs — they need mutable state. Rather
+`sum` and `max_reduce` mint fresh reduction-variable IDs — they need mutable state. Rather
 than a global counter with a `reset()` that callers must call before each use (fragile,
 non-reentrant, impossible to use correctly in two threads), `Symbolic` is a
 **generative functor**: each `Make()` application allocates its own independent counter.
@@ -323,7 +325,7 @@ No global state, no reset, no hidden ordering dependency between tests.
 ```ocaml
 module Make () = struct
   type t = Expr.t
-  type 'role ix = Expr.iexpr
+  type 'role index = Expr.index_expr
   type input = Tensor_sig.t
 
   (* … all pure SEMANTICS ops unchanged … *)
@@ -332,14 +334,14 @@ module Make () = struct
 
   let sum ~lo ~hi f =
     incr c; let v = !c in
-    Expr.Reduce { kind = Sum; var = v; lo; hi; body = f (Expr.Rvar v) }
+    Expr.Reduce { kind = Sum; var = v; lo; hi; body = f (Expr.Reduce_var v) }
 
-  let maxr ~lo ~hi f =
+  let max_reduce ~lo ~hi f =
     incr c; let v = !c in
-    Expr.Reduce { kind = Max_r; var = v; lo; hi; body = f (Expr.Rvar v) }
+    Expr.Reduce { kind = Max_reduce; var = v; lo; hi; body = f (Expr.Reduce_var v) }
 end
 
-let out_coord a = Expr.Ivar a   (* pure: not inside Make; bind to axes before pixel *)
+let out_coord a = Expr.Index_var a   (* pure: not inside Make; bind to axes before pixel *)
 ```
 
 Canonical usage at a call site (e.g. in a test):
@@ -366,13 +368,13 @@ Windowed ops clip the reduction bounds so the source position `out*stride + k �
 is always in `[0, in_extent)` by construction, never a generate-then-guard read:
 
 ```
-lo = clamp_low (pad − out*stride)       (* = max 0 (pad − out*stride) *)
-hi = imin kernel (in_extent + pad − out*stride)
+lo = clamp_low (pad − out*stride)              (* = max 0 (pad − out*stride) *)
+hi = index_min kernel (in_extent + pad − out*stride)
 ```
 
 For `MaxPool2d` this is required for correctness: a guarded-read-returns-0 fallback
-would be wrong for `maxr` over possibly-negative data. The bounds are `ix` (not `int`)
-so `Direct` (`ix = int`) and `Symbolic` (`ix = iexpr`) share the same formula.
+would be wrong for `max_reduce` over possibly-negative data. The bounds are `index` (not `int`)
+so `Direct` (`index = int`) and `Symbolic` (`index = index_expr`) share the same formula.
 `Window_axis.Compute(S).window` computes them once per pixel per axis, and returns
 `{lo; hi; src}` — `src k` being the source position for offset `k`, typed as `index`
 (using the one `assume_index` in the engine, justified by the clip above). See

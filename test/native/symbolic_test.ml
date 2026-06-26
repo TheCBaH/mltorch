@@ -56,8 +56,8 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
   in
   let outs = ref [] and ok = ref true in
   Vec6.iter out_shape (fun c ->
-      let d = Cd.pixel p ~x_shape ~x ~weight ~bias (Schedule.coord_ix c) in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_ix c) e in
+      let d = Cd.pixel p ~x_shape ~x ~weight ~bias (Schedule.coord_index c) in
+      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
       outs := s :: !outs;
       if not (Float.equal d s) then ok := false);
   Format.printf "eval=%s direct==symbolic=%b@."
@@ -92,8 +92,8 @@ let%expect_test
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else assert false in
   let outs = ref [] and ok = ref true in
   Vec6.iter out_shape (fun c ->
-      let d = Pd.pixel p ~x_shape ~x (Schedule.coord_ix c) in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_ix c) e in
+      let d = Pd.pixel p ~x_shape ~x (Schedule.coord_index c) in
+      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
       outs := s :: !outs;
       if not (Float.equal d s) then ok := false);
   Format.printf "eval=%s direct==symbolic=%b@."
@@ -126,8 +126,8 @@ let%expect_test
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else assert false in
   let outs = ref [] and ok = ref true in
   Vec6.iter out_shape (fun c ->
-      let d = Pd.pixel p ~x_shape ~x (Schedule.coord_ix c) in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_ix c) e in
+      let d = Pd.pixel p ~x_shape ~x (Schedule.coord_index c) in
+      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
       outs := s :: !outs;
       if not (Float.equal d s) then ok := false);
   Format.printf "eval=%s direct==symbolic=%b@."
@@ -165,8 +165,8 @@ let%expect_test "Symbolic linear: eval matches Direct" =
   in
   let outs = ref [] and ok = ref true in
   Vec6.iter out_shape (fun c ->
-      let d = Ld.pixel p ~x ~weight ~bias (Schedule.coord_ix c) in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_ix c) e in
+      let d = Ld.pixel p ~x ~weight ~bias (Schedule.coord_index c) in
+      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
       outs := s :: !outs;
       if not (Float.equal d s) then ok := false);
   Format.printf "eval=%s direct==symbolic=%b@."
@@ -485,8 +485,8 @@ let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else weight in
   let outs = ref [] and ok = ref true in
   Vec6.iter out_shape (fun c ->
-      let d = Rd.pixel p ~x_shape ~x ~weight (Schedule.coord_ix c) in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_ix c) e in
+      let d = Rd.pixel p ~x_shape ~x ~weight (Schedule.coord_index c) in
+      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
       outs := s :: !outs;
       if not (Float.equal d s) then ok := false);
   (* mean(1²,7²)=25, sqrt=5, x/5 -> {0.2, 1.4} *)

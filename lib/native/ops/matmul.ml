@@ -13,13 +13,16 @@ module Bmm = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel ~(input_shape : Vec6.shape) ~input ~mat2
-        (out : Axis.t -> Semantics.index S.ix) : S.t =
-      S.sum ~lo:S.izero
-        ~hi:(S.iext (Vec6.get input_shape Axis.C))
+        (out : Axis.t -> Semantics.position S.index) : S.t =
+      S.sum ~lo:S.index_zero
+        ~hi:(S.index_extent (Vec6.get input_shape Axis.C))
         (fun k ->
           let input_idx a = match a with Axis.C -> k | _ -> out a in
           let mat2_idx a =
-            match a with Axis.W -> k | Axis.H | Axis.C -> out a | _ -> S.izero
+            match a with
+            | Axis.W -> k
+            | Axis.H | Axis.C -> out a
+            | _ -> S.index_zero
           in
           S.mul (S.load input input_idx) (S.load mat2 mat2_idx))
   end

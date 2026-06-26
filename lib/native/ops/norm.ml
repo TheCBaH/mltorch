@@ -26,7 +26,7 @@ module RmsNorm = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x ~weight
-        (out : Axis.t -> Semantics.index S.ix) : S.t =
+        (out : Axis.t -> Semantics.position S.index) : S.t =
       (* Sum of x^2 over the normalised axes at the fixed non-normalised coords
          [out]: nest one [sum] per reduced axis (full extent), squaring the read
          at the leaf. Mirrors [Reduce.Mean]'s reduction nest. *)
@@ -41,8 +41,8 @@ module RmsNorm = struct
             in
             S.mul v v
         | d :: rest ->
-            S.sum ~lo:S.izero
-              ~hi:(S.iext (Vec6.get x_shape d))
+            S.sum ~lo:S.index_zero
+              ~hi:(S.index_extent (Vec6.get x_shape d))
               (fun i -> sum_sq rest ((d, i) :: override))
       in
       let count =
@@ -54,7 +54,8 @@ module RmsNorm = struct
       let inv = S.div (S.const 1.) (S.sqrt (S.add ms (S.const p.eps))) in
       (* weight is indexed by the normalised axes only (size 1 elsewhere). *)
       let w =
-        S.load weight (fun a -> if List.mem a p.dims then out a else S.izero)
+        S.load weight (fun a ->
+            if List.mem a p.dims then out a else S.index_zero)
       in
       S.mul (S.mul (S.load x out) inv) w
   end

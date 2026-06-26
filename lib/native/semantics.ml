@@ -1,17 +1,17 @@
-(* Abstract domain for ops: both [t] (value) and ['role ix] (index) are abstract,
-   so one op functor runs as [Direct] (ix=int, t=float), [Symbolic] (ix=iexpr,
-   t=expr), or a future [Footprint] (ix=interval). See .ai/native_compute_design.md §1.
+(* Abstract domain for ops: both [t] (value) and ['role index] (index) are abstract,
+   so one op functor runs as [Direct] (index=int, t=float), [Symbolic] (index=index_expr,
+   t=expr), or a future [Footprint] (index=interval). See .ai/native_compute_design.md §1.
 
-   Index phantom roles: [index] is a position known ≥ 0 (what [load] accepts);
+   Index phantom roles: [position] is a known ≥ 0 (what [load] accepts);
    [delta] is a signed affine. Windowed arithmetic is built in [delta] and
-   converted to [index] only via [clamp_low] (sound: ≥ 0) or [assume_index]
+   converted to [position] only via [clamp_low] (sound: ≥ 0) or [assume_index]
    (one encapsulated unchecked claim, in Window_axis.window). *)
-type index
+type position
 type delta
 
 module type SEMANTICS = sig
   type t
-  type 'role ix
+  type 'role index
 
   (* value domain — minimal basis. [max]/[min]/[relu] are NOT here: they derive
      from [select]+[lt] at each call site (relu = select (lt x 0) 0 x), so a
@@ -34,22 +34,24 @@ module type SEMANTICS = sig
   val lt : t -> t -> b
   val select : b -> t -> t -> t
 
-  (* index domain — affine expressions in [delta]; [load] needs [index].
-     [clamp_low] (max 0) converts delta→index soundly; [assume_index] is the
+  (* index domain — affine expressions in [delta]; [load] needs [position].
+     [clamp_low] (max 0) converts delta→position soundly; [assume_index] is the
      one unchecked cast, encapsulated in Window_axis.window (where clip holds). *)
-  val izero : index ix
-  val iext : Dim.extent Dim.t -> delta ix
-  val iconst : int -> delta ix
-  val of_index : index ix -> delta ix
-  val iadd : delta ix -> delta ix -> delta ix
-  val iscale : int -> delta ix -> delta ix
-  val imin : delta ix -> delta ix -> delta ix
-  val clamp_low : delta ix -> index ix
-  val assume_index : delta ix -> index ix
+  val index_zero : position index
+  val index_extent : Dim.extent Dim.t -> delta index
+  val index_const : int -> delta index
+  val of_index : position index -> delta index
+  val index_add : delta index -> delta index -> delta index
+  val index_scale : int -> delta index -> delta index
+  val index_min : delta index -> delta index -> delta index
+  val clamp_low : delta index -> position index
+  val assume_index : delta index -> position index
 
   type input
 
-  val load : input -> (Axis.t -> index ix) -> t
-  val sum : lo:index ix -> hi:delta ix -> (index ix -> t) -> t
-  val maxr : lo:index ix -> hi:delta ix -> (index ix -> t) -> t
+  val load : input -> (Axis.t -> position index) -> t
+  val sum : lo:position index -> hi:delta index -> (position index -> t) -> t
+
+  val max_reduce :
+    lo:position index -> hi:delta index -> (position index -> t) -> t
 end

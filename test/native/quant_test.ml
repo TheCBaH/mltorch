@@ -3,7 +3,7 @@ let%expect_test "per-tensor quant round-trip + pp" =
   Format.printf "%a deq(4)=%g req(2.0)=%d@." Quant.pp q
     (Quant.dequantize q ~c:0 ~q:4)
     (Quant.quantize q ~c:0 ~qmin:(-128) ~qmax:127 2.0);
-  [%expect {| Per_tensor s=0.5 zp=0 deq(4)=2 req(2.0)=4 |}]
+  [%expect {| Per_tensor s=0.5 zero_point=0 deq(4)=2 req(2.0)=4 |}]
 
 let%expect_test "per-tensor with zero_point + clamping" =
   let q = Quant.Per_tensor { scale = 0.1; zero_point = 128 } in

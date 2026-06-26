@@ -10,7 +10,7 @@
    input, so the position [load] reads is always valid by construction. For
    [MaxPool2d] this isn't just convenient — it's required for correctness: a
    guarded-read-returns-0 fallback for the padding region (as a naive [load]
-   would do) would be wrong for [maxr] over real, possibly-negative data,
+   would do) would be wrong for [max_reduce] over real, possibly-negative data,
    where 0 is not a safe stand-in for "no value here." See
    .ai/native_compute_design.md §4. *)
 
@@ -54,7 +54,7 @@ module MaxPool2d = struct
     module Wa = Window_axis.Compute (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
-        (out : Axis.t -> Semantics.index S.ix) : S.t =
+        (out : Axis.t -> Semantics.position S.index) : S.t =
       let wh =
         Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad:p.pad.h
           ~in_extent:(Vec6.get x_shape Axis.H) (out Axis.H)
@@ -63,8 +63,8 @@ module MaxPool2d = struct
         Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad:p.pad.w
           ~in_extent:(Vec6.get x_shape Axis.W) (out Axis.W)
       in
-      S.maxr ~lo:wh.lo ~hi:wh.hi (fun kh ->
-          S.maxr ~lo:ww.lo ~hi:ww.hi (fun kw ->
+      S.max_reduce ~lo:wh.lo ~hi:wh.hi (fun kh ->
+          S.max_reduce ~lo:ww.lo ~hi:ww.hi (fun kw ->
               S.load x (fun a ->
                   match a with
                   | Axis.H -> wh.src kh
@@ -97,7 +97,7 @@ module AvgPool2d = struct
     module Wa = Window_axis.Compute (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
-        (out : Axis.t -> Semantics.index S.ix) : S.t =
+        (out : Axis.t -> Semantics.position S.index) : S.t =
       let wh =
         Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad:p.pad.h
           ~in_extent:(Vec6.get x_shape Axis.H) (out Axis.H)

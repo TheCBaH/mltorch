@@ -49,7 +49,7 @@ test is green before the next starts. This sequences the design in
 | 10 | `direct.ml` | semantics, tensor | `Direct` | per-primitive values, `tap` pad→0 |
 | 11 | `schedule.ml` | vec6, tensor | `for_each`, `evaluate` | fills a tensor from a pixel fn; iter order |
 | 12 | `ops/*.ml` | semantics | `Relu`/`Add`/`Reduce`/`Conv2d`/… functors | Direct results vs hand-computed / ATen golden |
-| 13 | `expr.ml` + `symbolic.ml` | dim, payload, tensor | `Tensor_sig`, `iexpr`/`ix`, `expr`, `Symbolic` | `pp` golden of built exprs; `eval(Symbolic) = Direct` |
+| 13 | `expr.ml` + `symbolic.ml` | dim, payload, tensor | `Tensor_sig`, `index_expr`/`index`, `expr`, `Symbolic` | `pp` golden of built exprs; `eval(Symbolic) = Direct` |
 | 14 | `footprint.ml` | expr, symint | `region`, `verdict` | the 4 stressors (elementwise/conv/softmax/gather) |
 | 15 | `codegen.ml` | footprint, expr | loop-nest IR | fused == unfused; `pp` of emitted nest |
 | 16 | `native_interp.ml` | tensor, ops, pt2 | driver | resnet18 vs `Interp.run` |
@@ -171,7 +171,7 @@ type quant = Per_tensor of { scale:float; zero_point:int }
            | Per_channel of { scale:float array; zero_point:int array }
 val dequantize : quant -> c:int -> q:int -> float
 val quantize   : quant -> c:int -> qmin:int -> qmax:int -> float -> int
-val pp : Format.formatter -> quant -> unit   (* "Per_tensor s=0.5 zp=0" *)
+val pp : Format.formatter -> quant -> unit   (* "Per_tensor s=0.5 zero_point=0" *)
 ```
 
 ```ocaml
@@ -180,7 +180,7 @@ let%expect_test "quant round-trip + pp" =
   Format.printf "%a deq(4)=%g req=%d@."
     Quant.pp q (Quant.dequantize q ~c:0 ~q:4)
     (Quant.quantize q ~c:0 ~qmin:(-128) ~qmax:127 2.0);
-  [%expect {| Per_tensor s=0.5 zp=0 deq(4)=2 req=4 |}]
+  [%expect {| Per_tensor s=0.5 zero_point=0 deq(4)=2 req=4 |}]
 ```
 
 ## 6. `payload.ml`
@@ -194,7 +194,7 @@ type _ quantization = No_quant : [`Real] quantization | Quant : quant -> [`Quant
 type ('e,'b,'q) payload = { fmt : ('e,'b,'q) fmt; quant : 'q quantization; data : … Array1.t }
 type packed_fmt = Fmt : ('e,'b,'q) fmt -> packed_fmt
 val pp_fmt : Format.formatter -> ('e,'b,'q) fmt -> unit   (* "f32" "bf16" "i8" *)
-val pp : Format.formatter -> ('e,'b,'q) payload -> unit    (* "i8[Per_tensor s=0.5 zp=0]×N" *)
+val pp : Format.formatter -> ('e,'b,'q) payload -> unit    (* "i8[Per_tensor s=0.5 zero_point=0]×N" *)
 ```
 
 ```ocaml

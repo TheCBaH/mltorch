@@ -46,7 +46,7 @@ program.
 
 ## 2. Language additions
 
-### 2.1 First-class index expressions `ix`
+### 2.1 First-class index expressions
 
 This **revises** `native_compute_design.md` (where indices were concrete `int`).
 Indices become a small typed sub-language so they can be interpreted concretely
@@ -55,26 +55,26 @@ matters is **affine vs data-dependent**:
 
 ```ocaml
 module type INDEX = sig
-  type t                                   (* a value, from SEMANTICS *)
-  type ix
+  type t                                      (* a value, from SEMANTICS *)
+  type 'role index
 
-  val avar  : axis -> ix                   (* an output-coordinate component (n..c) *)
-  val rvar  : rdom -> ix                   (* a reduction-domain variable *)
-  val ic    : int -> ix
-  val ( +@ ) : ix -> ix -> ix
-  val scale : int -> ix -> ix              (* affine: k * ix *)
+  val avar  : axis -> position index          (* an output-coordinate component (n..c) *)
+  val rvar  : rdom -> position index          (* a reduction-domain variable *)
+  val ic    : int -> delta index
+  val ( +@ ) : delta index -> delta index -> delta index
+  val scale : int -> delta index -> delta index   (* affine: k * index *)
 
   (* the gather primitive: turn a *value* into an index. This is the ONE
      constructor that makes a footprint data-dependent. *)
-  val data  : t -> ix
-  val clamp : lo:int -> hi:int -> ix -> ix (* bounds a (possibly data) index *)
+  val data  : t -> delta index
+  val clamp : lo:int -> hi:int -> delta index -> position index
 end
 ```
 
 `avar`/`rvar`/`ic`/`+@`/`scale` build **affine** index forms — exactly
 analyzable. `data e` injects a loaded value as an index (gather); its footprint is
 the declared extent of the source (or `[lo,hi)` if `clamp`ed). A `Load` carries
-six `ix` (one per axis `N T D H W C`); **which `avar`s appear** in each `ix`
+six index expressions (one per axis `N T D H W C`); **which `avar`s appear** in each
 encodes reuse — softmax's `m[p]` is read with an index that *omits* `avar C`, so
 the same value serves every `c`.
 
@@ -115,10 +115,10 @@ what a stage's `domain`'s extents actually are. Not yet implemented.
 ```ocaml
 type expr =
   | Const  of float
-  | Bin    of binop * expr * expr            (* add sub mul div max min *)
-  | Un     of unop  * expr                   (* exp relu … *)
-  | Load   of source * ix array              (* read Input/Stage at a 6-axis index *)
-  | Reduce of { kind : [`Sum|`Max]; rdom : rdom; (* lo,hi *) body : expr }
+  | Binary of binary_op * expr * expr           (* add sub mul div max min *)
+  | Unary  of unary_op  * expr                  (* exp relu … *)
+  | Load   of source * index_expr array         (* read Input/Stage at a 6-axis index *)
+  | Reduce of { kind : [`Sum|`Max_reduce]; rdom : rdom; (* lo,hi *) body : expr }
 ```
 
 `Reduce.body` may itself `Load` other stages, so `s = Σ_c exp(x[..c] − m[p])`
@@ -157,8 +157,8 @@ like a function parameter's type. Each field earns its place by being needed to
   `Sym` shape, so the symbolic program is generic over dynamic sizes.
 - **`fmt`** decides what a `Load` *emits*: a plain read, a `Dequant`, or an
   `F16` decode — and tells codegen which load instruction to lower to.
-- **`quant`** is compile-time metadata baked from the model (small: a scale/zp or a
-  per-channel array), so it lives in the signature, *not* in the data. Per-channel
+- **`quant`** is compile-time metadata baked from the model (small: a scale/zero_point
+  or a per-channel array), so it lives in the signature, *not* in the data. Per-channel
   scale even enters the expression — it depends on the `C` index — so it must be
   known when building, not at run time.
 
@@ -205,7 +205,7 @@ implemented; the two current call sites are `test/native/symbolic_test.ml`
 The `INDEX`/`SEMANTICS` pair is instantiated three ways; the analysis we care
 about here is the third:
 
-| Instance | `t` (value) | `ix` (index) | yields |
+| Instance | `t` (value) | `index` (index) | yields |
 |---|---|---|---|
 | `Direct` | `float` | `int` (`data e` = clamp∘round) | the computed pixel |
 | `Symbolic` | `expr` | affine-or-`data` form | the stage DAG (codegen/fusion) |
@@ -221,10 +221,10 @@ output axis `a` is an interval `[Lo_a, Hi_a)` (symbolic). Index interpretation:
   endpoints affine in the tile bounds, so a constant **halo** stays visible).
 - `data e` → `⊤` (full source extent), narrowed to `[lo,hi)` by `clamp`.
 
-A `Load(src, ix)` contributes a 6-axis **region** of `src` (the box of the six
-interval indices). Values combine by **union** of their input regions (`Bin`/`Un`
-union operands; `Reduce` unions `body` over the reduction range — which is what
-makes the reduced axis full). Per-stage footprints compose along the DAG: the
+A `Load(src, index_expr array)` contributes a 6-axis **region** of `src` (the box of
+the six interval indices). Values combine by **union** of their input regions
+(`Binary`/`Unary` union operands; `Reduce` unions `body` over the reduction range —
+which is what makes the reduced axis full). Per-stage footprints compose along the DAG: the
 output tile's footprint into an `Input` is obtained by pushing the tile through
 each consuming stage and unioning.
 

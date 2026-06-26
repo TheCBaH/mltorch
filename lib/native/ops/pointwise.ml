@@ -9,7 +9,7 @@ module Relu = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* relu x = (x < 0 ? 0 : x) — derived from [select]+[lt], not a primitive *)
-    let pixel x (out : Axis.t -> Semantics.index S.ix) =
+    let pixel x (out : Axis.t -> Semantics.position S.index) =
       let v = S.load x out in
       S.select (S.lt v (S.const 0.)) (S.const 0.) v
   end
@@ -29,7 +29,7 @@ module Add = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* [b] may have extent-1 axes; [load] broadcasts them against b's own shape. *)
-    let pixel a b (out : Axis.t -> Semantics.index S.ix) =
+    let pixel a b (out : Axis.t -> Semantics.position S.index) =
       S.add (S.load a out) (S.load b out)
   end
 end

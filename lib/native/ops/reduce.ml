@@ -48,7 +48,7 @@ module Mean = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
-        (out : Axis.t -> Semantics.index S.ix) : S.t =
+        (out : Axis.t -> Semantics.position S.index) : S.t =
       let kmap = kept_map p in
       (* Nest one [sum] per reduced axis (full extent [0, extent)); the body
          reads [x], mapping each input axis: reduced → its reduction variable,
@@ -62,10 +62,10 @@ module Mean = struct
                 | None -> (
                     match List.assoc_opt a kmap with
                     | Some oax -> out oax
-                    | None -> S.izero))
+                    | None -> S.index_zero))
         | d :: rest ->
-            S.sum ~lo:S.izero
-              ~hi:(S.iext (Vec6.get x_shape d))
+            S.sum ~lo:S.index_zero
+              ~hi:(S.index_extent (Vec6.get x_shape d))
               (fun i -> reduce rest ((d, i) :: override))
       in
       let total = reduce p.dims [] in

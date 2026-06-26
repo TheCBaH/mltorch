@@ -18,17 +18,17 @@ module Linear = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~x ~weight ~bias
-        (out : Axis.t -> Semantics.index S.ix) : S.t =
+        (out : Axis.t -> Semantics.position S.index) : S.t =
       let oc = out Axis.C in
       let acc =
-        S.sum ~lo:S.izero ~hi:(S.iext p.in_features) (fun ic ->
+        S.sum ~lo:S.index_zero ~hi:(S.index_extent p.in_features) (fun ic ->
             let x_idx a = match a with Axis.C -> ic | _ -> out a in
             let w_idx a =
-              match a with Axis.N -> oc | Axis.C -> ic | _ -> S.izero
+              match a with Axis.N -> oc | Axis.C -> ic | _ -> S.index_zero
             in
             S.mul (S.load x x_idx) (S.load weight w_idx))
       in
       S.add acc
-        (S.load bias (fun a -> match a with Axis.C -> oc | _ -> S.izero))
+        (S.load bias (fun a -> match a with Axis.C -> oc | _ -> S.index_zero))
   end
 end
