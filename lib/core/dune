@@ -1,0 +1,7 @@
+; Project-wide error/result framework. Wrapped (default), so it is referenced as
+; Core.fail, Core.return, Core.Syntax.(let*), Core.Error.t, Core.Error.pp — a
+; shared library must not leak a global Error/List module into wrapped-false
+; consumers (e.g. lib/native). Stdlib only, no external deps.
+
+(library
+ (name core))

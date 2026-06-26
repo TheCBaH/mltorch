@@ -16,14 +16,31 @@ let used_axes ~rank =
   let drop = List.length Axis.all - rank in
   List.filteri (fun i _ -> i >= drop) Axis.all
 
-(* Right-align an ATen shape into the frame; outer axes default to extent 1. *)
-let of_aten (dims : int array) : Vec6.shape =
+(* Error set owned by this module: its own rank check unioned with [Dim.error]
+   (from validating each untrusted dim). The printer delegates to [Dim]. *)
+type rank_bound = { rank : int; lo : int; hi : int }
+type error = [ `Rank_out_of_range of rank_bound | Dim.error ]
+
+let pp_error ppf : error -> unit = function
+  | `Rank_out_of_range { rank; lo; hi } ->
+      Format.fprintf ppf "rank %d out of [%d, %d]" rank lo hi
+  | #Dim.error as e -> Dim.pp_error ppf e
+
+(* Right-align an ATen shape into the frame; outer axes default to extent 1.
+   Validates the untrusted rank and each dim, so it returns a [result]. *)
+let of_aten (dims : int array) =
+  let open Core.Syntax in
   let r = Array.length dims in
-  if r > 6 then invalid_arg "Aten_shape.of_aten: rank > 6";
-  let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
-  List.fold_left2
-    (fun s ax v -> Vec6.set s ax (Dim.extent v))
-    ones (used_axes ~rank:r) (Array.to_list dims)
+  let* () =
+    if r > 6 then Core.fail (`Rank_out_of_range { rank = r; lo = 0; hi = 6 })
+    else Core.return ()
+  in
+  Core.List.fold_left
+    (fun s (ax, v) ->
+      let+ e = Dim.extent_checked v in
+      Vec6.set s ax e)
+    (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
+    (List.combine (used_axes ~rank:r) (Array.to_list dims))
 
 (* Read back the innermost [rank] axes as an ATen shape. Inverse of [of_aten]
    given the original rank: [to_aten ~rank:(length a) (of_aten a) = a]. *)

@@ -27,20 +27,37 @@ let empty = { decls = []; binds = [] }
 let declare env name ~lo ~hi ?(divisor = 1) () =
   { env with decls = (name, { lo; hi; divisor }) :: env.decls }
 
+(* Error set owned by this module (the eval/binding phase): a guard violation
+   when binding a dynamic-shape variable. *)
+type range = { name : string; value : int; lo : int; hi : int }
+type div = { name : string; value : int; divisor : int }
+type error = [ `Out_of_range of range | `Not_divisible of div ]
+
+let pp_error ppf : error -> unit = function
+  | `Out_of_range { name; value; lo; hi } ->
+      Format.fprintf ppf "symint %s = %d out of [%d, %d)" name value lo hi
+  | `Not_divisible { name; value; divisor } ->
+      Format.fprintf ppf "symint %s = %d not divisible by %d" name value divisor
+
 (* Bind a variable to a concrete value, checking it against the declared
-   constraints (mirrors dynamo's guard check). Raises [Invalid_argument]. *)
+   constraints (mirrors dynamo's guard check). [Error] on a guard violation. *)
 let bind env name value =
-  (match List.assoc_opt name env.decls with
+  let open Core.Syntax in
+  let add () = Core.return { env with binds = (name, value) :: env.binds } in
+  match List.assoc_opt name env.decls with
+  | None -> add ()
   | Some { lo; hi; divisor } ->
-      if value < lo || value >= hi then
-        invalid_arg
-          (Printf.sprintf "Symint.bind: %s=%d out of [%d,%d)" name value lo hi);
-      if value mod divisor <> 0 then
-        invalid_arg
-          (Printf.sprintf "Symint.bind: %s=%d not divisible by %d" name value
-             divisor)
-  | None -> ());
-  { env with binds = (name, value) :: env.binds }
+      let* () =
+        if value < lo || value >= hi then
+          Core.fail (`Out_of_range { name; value; lo; hi })
+        else Core.return ()
+      in
+      let* () =
+        if value mod divisor <> 0 then
+          Core.fail (`Not_divisible { name; value; divisor })
+        else Core.return ()
+      in
+      add ()
 
 (* [Some n] once every variable in the expression is bound. *)
 let rec eval env = function

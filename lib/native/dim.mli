@@ -21,6 +21,18 @@ type delta
 val extent : int -> extent t (* raises [Invalid_argument] if < 0 *)
 val index : int -> index t (* raises [Invalid_argument] if < 0 *)
 
+(* Recoverable error set owned by this module, plus its printer — composes into
+   a caller's row via [#Dim.error]. [extent]/[index] above assert a trusted
+   precondition; [extent_checked] is the validated form for an untrusted size. *)
+type error = [ `Negative_extent of int ]
+
+val pp_error : Format.formatter -> error -> unit
+
+(* Open row ([>]) so it unifies upward into a caller's wider union (see
+   [Aten_shape.of_aten]); the closed [error] above is for [pp_error]/[#Dim.error]
+   and for a boundary that pins its final set. *)
+val extent_checked : int -> (extent t, [> `Negative_extent of int ]) Core.result
+
 (* the one signed role: index differences and stencil offsets, which may be
    negative before being guarded back into an [index] *)
 val delta : int -> delta t

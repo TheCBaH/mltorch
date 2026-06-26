@@ -6,4 +6,5 @@
 
 (library
  (name native)
+ (libraries core)
  (wrapped false))

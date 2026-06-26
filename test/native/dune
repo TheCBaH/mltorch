@@ -3,7 +3,7 @@
 
 (library
  (name native_test)
- (libraries native)
+ (libraries native core)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))

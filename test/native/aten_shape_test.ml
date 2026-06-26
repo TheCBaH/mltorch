@@ -4,17 +4,20 @@ let pp_ints fmt a =
   Format.fprintf fmt "[%s]"
     (String.concat ";" (Array.to_list (Array.map string_of_int a)))
 
+(* [of_aten] now returns a result; these cases use only valid shapes. *)
+let of_aten a = Result.get_ok (Aten_shape.of_aten a)
+
 let%expect_test "of_aten: right-aligned into innermost axes" =
-  Format.printf "%a@." Vec6.pp_shape (Aten_shape.of_aten [| 6; 7; 8 |]);
+  Format.printf "%a@." Vec6.pp_shape (of_aten [| 6; 7; 8 |]);
   [%expect {| [N=1 T=1 D=1 H=6 W=7 C=8] |}];
   (* rank 4 [n;h;w;c]: n lands on D, not N (positional, not semantic). *)
-  Format.printf "%a@." Vec6.pp_shape (Aten_shape.of_aten [| 2; 3; 4; 5 |]);
+  Format.printf "%a@." Vec6.pp_shape (of_aten [| 2; 3; 4; 5 |]);
   [%expect {| [N=1 T=1 D=2 H=3 W=4 C=5] |}];
-  Format.printf "%a@." Vec6.pp_shape (Aten_shape.of_aten [| 9 |]);
+  Format.printf "%a@." Vec6.pp_shape (of_aten [| 9 |]);
   [%expect {| [N=1 T=1 D=1 H=1 W=1 C=9] |}]
 
 let%expect_test "to_aten: reverse needs the rank, round-trips of_aten" =
-  let s = Aten_shape.of_aten [| 6; 7; 8 |] in
+  let s = of_aten [| 6; 7; 8 |] in
   Format.printf "%a@." pp_ints (Aten_shape.to_aten ~rank:3 s);
   [%expect {| [6;7;8] |}];
   (* same frame shape read at a different rank yields a different ATen shape. *)
@@ -22,8 +25,7 @@ let%expect_test "to_aten: reverse needs the rank, round-trips of_aten" =
   [%expect {| [7;8] |}];
   List.iter
     (fun a ->
-      assert (
-        Aten_shape.to_aten ~rank:(Array.length a) (Aten_shape.of_aten a) = a))
+      assert (Aten_shape.to_aten ~rank:(Array.length a) (of_aten a) = a))
     [ [||]; [| 5 |]; [| 6; 7; 8 |]; [| 2; 3; 4; 5; 6; 7 |] ]
 
 let%expect_test "axis_of_dim: positional, negative dims count from the end" =

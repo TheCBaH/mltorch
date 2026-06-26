@@ -13,6 +13,18 @@ let extent n : extent t =
   if n < 0 then invalid_arg "Dim.extent: negative" else n
 
 let index n : index t = if n < 0 then invalid_arg "Dim.index: negative" else n
+
+(* Recoverable error set owned by this module — for untrusted sizes (e.g. a raw
+   model dim). The plain [extent]/[index] above stay total: they assert a
+   trusted precondition (a negative there is a bug, not expected input). *)
+type error = [ `Negative_extent of int ]
+
+let pp_error ppf : error -> unit = function
+  | `Negative_extent n -> Format.fprintf ppf "extent must be >= 0, got %d" n
+
+let extent_checked n =
+  if n < 0 then Core.fail (`Negative_extent n) else Core.return (extent n)
+
 let delta n : delta t = n
 let one_count : count t = 1
 let zero_offset : offset t = 0
