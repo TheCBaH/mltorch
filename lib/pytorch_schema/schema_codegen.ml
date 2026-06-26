@@ -11,36 +11,11 @@ end)
 
 open Pytorch_schema
 
-(* ---- OCaml type and jsont expressions as Format printers ---- *)
-
-let rec pp_ocaml_type fmt = function
-  | Type_expr.Str -> Format.pp_print_string fmt "string"
-  | Type_expr.Int -> Format.pp_print_string fmt "int"
-  | Type_expr.Float -> Format.pp_print_string fmt "float"
-  | Type_expr.Bool -> Format.pp_print_string fmt "bool"
-  | Type_expr.List t -> Format.fprintf fmt "%a list" pp_ocaml_type t
-  | Type_expr.Optional t -> Format.fprintf fmt "%a option" pp_ocaml_type t
-  | Type_expr.Dict t -> Format.fprintf fmt "%a String_map.t" pp_ocaml_type t
-  | Type_expr.Ref name -> Format.fprintf fmt "%s.t" name
-
-let rec pp_jsont_expr fmt = function
-  | Type_expr.Str -> Format.pp_print_string fmt "Jsont.string"
-  | Type_expr.Int -> Format.pp_print_string fmt "Jsont.int"
-  | Type_expr.Float -> Format.pp_print_string fmt "float_jsont"
-  | Type_expr.Bool -> Format.pp_print_string fmt "Jsont.bool"
-  | Type_expr.List t -> Format.fprintf fmt "(Jsont.list %a)" pp_jsont_expr t
-  | Type_expr.Optional t -> pp_jsont_expr fmt t
-  | Type_expr.Dict t ->
-      Format.fprintf fmt "(Jsont.Object.as_string_map %a)" pp_jsont_expr t
-  | Type_expr.Ref name -> Format.fprintf fmt "%s.jsont" name
-
 let rec refs_of_type = function
   | Type_expr.Str | Type_expr.Int | Type_expr.Float | Type_expr.Bool ->
       String_set.empty
   | Type_expr.List t | Type_expr.Optional t | Type_expr.Dict t -> refs_of_type t
   | Type_expr.Ref name -> String_set.singleton name
-
-(* ---- Recursive-group variants (Name_Type.t / Lazy.force) ---- *)
 
 let type_module_name name = name ^ "_Type"
 
@@ -55,36 +30,45 @@ let camel_to_snake s =
 
 let jsont_lazy_name name = camel_to_snake name ^ "_jsont"
 
-let rec pp_ocaml_type_rec group fmt = function
+(* [group] is the set of names in the current recursive SCC; refs to those
+   names use the _Type module qualifier / Lazy.force instead of the bare name. *)
+let rec pp_ocaml_type_impl group fmt = function
   | Type_expr.Str -> Format.pp_print_string fmt "string"
   | Type_expr.Int -> Format.pp_print_string fmt "int"
   | Type_expr.Float -> Format.pp_print_string fmt "float"
   | Type_expr.Bool -> Format.pp_print_string fmt "bool"
-  | Type_expr.List t -> Format.fprintf fmt "%a list" (pp_ocaml_type_rec group) t
+  | Type_expr.List t ->
+      Format.fprintf fmt "%a list" (pp_ocaml_type_impl group) t
   | Type_expr.Optional t ->
-      Format.fprintf fmt "%a option" (pp_ocaml_type_rec group) t
+      Format.fprintf fmt "%a option" (pp_ocaml_type_impl group) t
   | Type_expr.Dict t ->
-      Format.fprintf fmt "%a String_map.t" (pp_ocaml_type_rec group) t
+      Format.fprintf fmt "%a String_map.t" (pp_ocaml_type_impl group) t
   | Type_expr.Ref name ->
       if String_set.mem name group then
         Format.fprintf fmt "%s.t" (type_module_name name)
       else Format.fprintf fmt "%s.t" name
 
-let rec pp_jsont_expr_rec group fmt = function
+let pp_ocaml_type = pp_ocaml_type_impl String_set.empty
+let pp_ocaml_type_rec = pp_ocaml_type_impl
+
+let rec pp_jsont_expr_impl group fmt = function
   | Type_expr.Str -> Format.pp_print_string fmt "Jsont.string"
   | Type_expr.Int -> Format.pp_print_string fmt "Jsont.int"
   | Type_expr.Float -> Format.pp_print_string fmt "float_jsont"
   | Type_expr.Bool -> Format.pp_print_string fmt "Jsont.bool"
   | Type_expr.List t ->
-      Format.fprintf fmt "(Jsont.list %a)" (pp_jsont_expr_rec group) t
-  | Type_expr.Optional t -> pp_jsont_expr_rec group fmt t
+      Format.fprintf fmt "(Jsont.list %a)" (pp_jsont_expr_impl group) t
+  | Type_expr.Optional t -> pp_jsont_expr_impl group fmt t
   | Type_expr.Dict t ->
       Format.fprintf fmt "(Jsont.Object.as_string_map %a)"
-        (pp_jsont_expr_rec group) t
+        (pp_jsont_expr_impl group) t
   | Type_expr.Ref name ->
       if String_set.mem name group then
         Format.fprintf fmt "(Lazy.force %s)" (jsont_lazy_name name)
       else Format.fprintf fmt "%s.jsont" name
+
+let pp_jsont_expr = pp_jsont_expr_impl String_set.empty
+let pp_jsont_expr_rec = pp_jsont_expr_impl
 
 (* ---- Naming ---- *)
 
@@ -202,20 +186,17 @@ let default_ocaml_expr type_expr default_str =
 
 (* ---- Dependency analysis ---- *)
 
+let fields_refs fields =
+  List.fold_left
+    (fun acc f ->
+      String_set.union acc
+        (refs_of_type (Type_expr_parse.of_string (Field.type_ f))))
+    String_set.empty fields
+
 let refs_of_typedef = function
   | Type_def.Enum _ -> String_set.empty
-  | Type_def.Struct s ->
-      List.fold_left
-        (fun acc f ->
-          String_set.union acc
-            (refs_of_type (Type_expr_parse.of_string (Field.type_ f))))
-        String_set.empty (Struct.fields s)
-  | Type_def.Union u ->
-      List.fold_left
-        (fun acc f ->
-          String_set.union acc
-            (refs_of_type (Type_expr_parse.of_string (Field.type_ f))))
-        String_set.empty (Union.fields u)
+  | Type_def.Struct s -> fields_refs (Struct.fields s)
+  | Type_def.Union u -> fields_refs (Union.fields u)
 
 let compute_sccs (types : Type_def.t String_map.t) : string list list =
   let nodes = List.map fst (String_map.bindings types) in
@@ -275,17 +256,14 @@ let union_field_info_of (f : Field.t) =
 let pp_sep_sp fmt () = Format.pp_print_char fmt ' '
 
 (* Struct field type: handles Optional unwrapping for the OCaml record type *)
-let pp_struct_field_type fmt fi =
+let pp_struct_field_type_impl group fmt fi =
   match fi.sf_type with
   | Type_expr.Optional inner ->
-      Format.fprintf fmt "%a option" pp_ocaml_type inner
-  | t -> pp_ocaml_type fmt t
+      Format.fprintf fmt "%a option" (pp_ocaml_type_impl group) inner
+  | t -> pp_ocaml_type_impl group fmt t
 
-let pp_struct_field_type_rec group fmt fi =
-  match fi.sf_type with
-  | Type_expr.Optional inner ->
-      Format.fprintf fmt "%a option" (pp_ocaml_type_rec group) inner
-  | t -> pp_ocaml_type_rec group fmt t
+let pp_struct_field_type = pp_struct_field_type_impl String_set.empty
+let pp_struct_field_type_rec = pp_struct_field_type_impl
 
 (* ---- Non-recursive module bodies ---- *)
 (* Callers wrap each body in "@[<v 0>module %s = struct@;<0 2>@[<v 0>...@]@ end@]".
@@ -323,24 +301,11 @@ let pp_enum_body fmt name fields =
        (fun fmt (ctor, v) -> Format.fprintf fmt "| %s -> %d" ctor v))
     ctors
 
-let pp_struct_type_decl fmt fis =
-  match fis with
-  | [ fi ] ->
-      Format.fprintf fmt "type t = { %s : %a }" fi.sf_ocaml pp_struct_field_type
-        fi
-  | _ ->
-      Format.fprintf fmt "@[<v 0>type t = {@;<0 2>@[<v 0>%a@]@ }@]"
-        (Format.pp_print_list
-           ~pp_sep:(fun fmt () -> Format.fprintf fmt "@ ")
-           (fun fmt fi ->
-             Format.fprintf fmt "%s : %a;" fi.sf_ocaml pp_struct_field_type fi))
-        fis
-
-let pp_struct_type_decl_rec group fmt fis =
+let pp_struct_type_decl_impl group fmt fis =
   match fis with
   | [ fi ] ->
       Format.fprintf fmt "type t = { %s : %a }" fi.sf_ocaml
-        (pp_struct_field_type_rec group)
+        (pp_struct_field_type_impl group)
         fi
   | _ ->
       Format.fprintf fmt "@[<v 0>type t = {@;<0 2>@[<v 0>%a@]@ }@]"
@@ -348,9 +313,12 @@ let pp_struct_type_decl_rec group fmt fis =
            ~pp_sep:(fun fmt () -> Format.fprintf fmt "@ ")
            (fun fmt fi ->
              Format.fprintf fmt "%s : %a;" fi.sf_ocaml
-               (pp_struct_field_type_rec group)
+               (pp_struct_field_type_impl group)
                fi))
         fis
+
+let pp_struct_type_decl = pp_struct_type_decl_impl String_set.empty
+let pp_struct_type_decl_rec = pp_struct_type_decl_impl
 
 let pp_struct_make fmt fis =
   Format.fprintf fmt "let make %a =@;<0 2>{ %a }"

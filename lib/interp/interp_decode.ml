@@ -72,13 +72,14 @@ let ints_arg ?(default = []) node name =
   | None -> default
   | _ -> failwith ("interp: expected int[] arg " ^ name)
 
+let require name = function
+  | Some d -> d
+  | None -> failwith ("interp: missing " ^ name)
+
 let int_arg ?default node name =
   match find_arg node name with
   | Some (Argument.Int i) -> i
-  | None -> (
-      match default with
-      | Some d -> d
-      | None -> failwith ("interp: missing int " ^ name))
+  | None -> require name default
   | _ -> failwith ("interp: expected int arg " ^ name)
 
 let bool_arg ?(default = false) node name =
@@ -90,10 +91,7 @@ let bool_arg ?(default = false) node name =
 let float_arg ?default node name =
   match find_arg node name with
   | Some (Argument.Float f) -> f
-  | None -> (
-      match default with
-      | Some d -> d
-      | None -> failwith ("interp: missing float " ^ name))
+  | None -> require name default
   | _ -> failwith ("interp: expected float arg " ^ name)
 
 (* A schema Scalar arg crosses as either an Int or a Float argument. *)
@@ -101,10 +99,7 @@ let scalar_arg ?default node name =
   match find_arg node name with
   | Some (Argument.Int i) -> Aten_scalar.Int (Int64.of_int i)
   | Some (Argument.Float f) -> Aten_scalar.Float f
-  | None -> (
-      match default with
-      | Some d -> d
-      | None -> failwith ("interp: missing scalar " ^ name))
+  | None -> require name default
   | _ -> failwith ("interp: expected scalar arg " ^ name)
 
 let scalar_opt_arg node name =
