@@ -1,0 +1,7 @@
+; Bridge between ATen (C++ ctypes) and Native (pure-OCaml 6D) tensor representations.
+; Provides tensor conversion (Tensor_bridge) and per-op native dispatch (Op_bridge).
+
+(library
+ (name native_aten_bridge)
+ (wrapped false)
+ (libraries aten native interp core))

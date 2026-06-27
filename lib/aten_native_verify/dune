@@ -1,0 +1,9 @@
+; Verification harness: runs both ATen and native paths on graph nodes and
+; compares outputs element-wise. Verify.node_result carries the comparison
+; outcome; Interp_verify.dispatch is a drop-in replacement for
+; Interp_dispatch.dispatch with an optional ~verify flag.
+
+(library
+ (name aten_native_verify)
+ (wrapped false)
+ (libraries native_aten_bridge aten interp schema_runtime pytorch_types core))

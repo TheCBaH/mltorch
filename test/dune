@@ -51,6 +51,22 @@
  (preprocess
   (pps ppx_expect)))
 
+; ATen<->Native conversion and verification tests.
+
+(library
+ (name native_bridge_test)
+ (modules native_bridge_test)
+ (libraries
+  aten
+  native
+  native_aten_bridge
+  aten_native_verify
+  aten_config
+  fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
 ; Pure-OCaml pt2 reader: zip, strided tensor, pickle (no libtorch dependency).
 
 (library
