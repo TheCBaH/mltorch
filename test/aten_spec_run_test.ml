@@ -109,3 +109,74 @@ let%expect_test "relu: sequence crossing zero" =
     [eval] torch.ops.aten.relu.default
       aten   out0 = [0; 0; 0; 1; 2]
       native out0 = [0; 0; 0; 1; 2] |}]
+
+(* --- bmm: rank-3 batched matmul, no relayout (B/rows/cols land on H/W/C) --- *)
+
+let%expect_test "bmm: 1x2x2 @ 1x2x2" =
+  eval
+    {|{ "target": "torch.ops.aten.bmm.default",
+        "args": {
+          "self": { "dtype": "f32", "shape": [1, 2, 2], "sequence": { "start": 1.0, "step": 1.0 } },
+          "mat2": { "dtype": "f32", "shape": [1, 2, 2], "sequence": { "start": 1.0, "step": 1.0 } } } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.bmm.default
+      aten   out0 = [7; 10; 15; 22]
+      native out0 = [7; 10; 15; 22] |}]
+
+(* --- mean.dim: reduced axes via axis_of_dim, both keepdim flags --- *)
+
+let%expect_test "mean.dim: dim=[1] keepdim=true" =
+  eval
+    {|{ "target": "torch.ops.aten.mean.dim",
+        "args": {
+          "self": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 0.0, "step": 1.0 } },
+          "dim": [1],
+          "keepdim": true } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.mean.dim
+      aten   out0 = [1; 4]
+      native out0 = [1; 4] |}]
+
+let%expect_test "mean.dim: dim=[1] keepdim=false" =
+  eval
+    {|{ "target": "torch.ops.aten.mean.dim",
+        "args": {
+          "self": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 0.0, "step": 1.0 } },
+          "dim": [1],
+          "keepdim": false } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.mean.dim
+      aten   out0 = [1; 4]
+      native out0 = [1; 4] |}]
+
+(* --- rms_norm: normalise over the trailing (innermost) axis, with weight --- *)
+
+let%expect_test "rms_norm: normalized_shape=[3] with weight" =
+  eval
+    {|{ "target": "torch.ops.aten.rms_norm.default",
+        "args": {
+          "input": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 1.0, "step": 1.0 } },
+          "normalized_shape": [3],
+          "weight": { "dtype": "f32", "shape": [3], "values": [{"float":"0x3f800000"}, {"float":"0x3f800000"}, {"float":"0x3f800000"}] },
+          "eps": "0x3727c5ac" } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.rms_norm.default
+      aten   out0 = [0.46291; 0.925819; 1.38873; 0.789542; 0.986927; 1.18431]
+      native out0 = [0.46291; 0.925819; 1.38873; 0.789542; 0.986927; 1.18431] |}]
+
+let%expect_test "rms_norm: normalized_shape=[3] no weight (identity scale)" =
+  eval
+    {|{ "target": "torch.ops.aten.rms_norm.default",
+        "args": {
+          "input": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 1.0, "step": 1.0 } },
+          "normalized_shape": [3],
+          "eps": "0x3727c5ac" } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.rms_norm.default
+      aten   out0 = [0.46291; 0.925819; 1.38873; 0.789542; 0.986927; 1.18431]
+      native out0 = [0.46291; 0.925819; 1.38873; 0.789542; 0.986927; 1.18431] |}]

@@ -62,6 +62,78 @@ let run_add (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
   let shape = Pointwise.Add.output_shape ra.shape rb.shape in
   Schedule.evaluate shape (C.pixel a b)
 
+let run_bmm (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
+  let module C = Matmul.Bmm.Compute (Direct) in
+  let (Tensor.Tensor ra) = a in
+  let (Tensor.Tensor rb) = b in
+  let shape =
+    Matmul.Bmm.output_shape ~input_shape:ra.shape ~mat2_shape:rb.shape
+  in
+  Schedule.evaluate shape (C.pixel ~input_shape:ra.shape ~input:a ~mat2:b)
+
+let run_mean (x : Tensor.packed) ~dims ~keepdim : Tensor.packed =
+  let module C = Reduce.Mean.Compute (Direct) in
+  let (Tensor.Tensor r) = x in
+  let p = { Reduce.Mean.dims; keepdim } in
+  let shape = Reduce.Mean.output_shape ~x_shape:r.shape p in
+  Schedule.evaluate shape (C.pixel p ~x_shape:r.shape ~x)
+
+let run_rms_norm (x : Tensor.packed) ~weight ~dims ~eps : Tensor.packed =
+  let module C = Norm.RmsNorm.Compute (Direct) in
+  let (Tensor.Tensor r) = x in
+  let p = { Norm.RmsNorm.dims; eps } in
+  let shape = Norm.RmsNorm.output_shape ~x_shape:r.shape in
+  Schedule.evaluate shape (C.pixel p ~x_shape:r.shape ~x ~weight)
+
+(* --- Argument decoding for the reductions/normalisation ---
+
+   [mean.dim] and [rms_norm] reference frame axes through [Aten_shape.axis_of_dim],
+   so the dims must be derived from the ATen input's RANK (not the right-aligned
+   6D shape, whose outer padding axes would shift the mapping).  This keeps the
+   reduced axes consistent with where [of_aten] positionally places the data, so
+   no relayout is needed — see .ai/native_aten_bridge_layout.md. *)
+
+let aten_rank t = Array.length (Aten_tensor.shape t)
+
+(* An ATen dim list arg -> frame axes for the tensor of the given rank.  A
+   missing/None dim (e.g. [mean.dim] with no [dim]) means "all axes". *)
+let dims_arg node ~rank name =
+  match D.find_arg node name with
+  | Some (Argument.Ints xs) -> List.map (Aten_shape.axis_of_dim ~rank) xs
+  | _ -> Aten_shape.used_axes ~rank
+
+(* The innermost [k] axes of a rank-[rank] tensor — the normalised axes of an
+   `rms_norm(normalized_shape)` (ATen normalises the trailing dims). *)
+let trailing_axes ~rank ~k =
+  let all = Aten_shape.used_axes ~rank in
+  List.filteri (fun i _ -> i >= rank - k) all
+
+(* `rms_norm`'s optional [eps]: when absent ATen uses finfo(dtype).eps; for
+   float32 that is 2^-23. *)
+let float32_eps = 1.1920929e-07
+
+let eps_arg node name =
+  match D.find_arg node name with
+  | Some (Argument.Float f) -> f
+  | _ -> float32_eps
+
+(* Is an optional-Tensor arg actually present (vs absent / explicit None)? *)
+let optional_tensor_present node name =
+  match D.find_arg node name with
+  | Some (Argument.Tensor _)
+  | Some (Argument.Optional_tensor (OptionalTensorArgument.Tensor _)) ->
+      true
+  | _ -> false
+
+(* `rms_norm`'s no-affine path: a weight of all ones, shaped to broadcast over
+   the normalised axes (extent = x's extent there, 1 elsewhere). *)
+let ones_weight (x_shape : Vec6.shape) dims =
+  let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
+  let wshape =
+    List.fold_left (fun s a -> Vec6.set s a (Vec6.get x_shape a)) ones dims
+  in
+  Tensor.materialize wshape (fun _ -> 1.0)
+
 (* --- Op dispatch --- *)
 
 (* Dispatch a graph node to the native path.  The [aten_env] contains the
@@ -77,4 +149,35 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       unary aten_env node ~f:run_relu "self"
   | "torch.ops.aten.add.Tensor" | "torch.ops.aten.add_.Tensor" ->
       binary aten_env node ~f:run_add "self" "other"
+  | "torch.ops.aten.bmm.default" ->
+      binary aten_env node ~f:run_bmm "self" "mat2"
+  | "torch.ops.aten.mean.dim" ->
+      let t = D.tensor_arg aten_env node "self" in
+      let rank = aten_rank t in
+      let dims = dims_arg node ~rank "dim" in
+      let keepdim = D.bool_arg node "keepdim" in
+      unary aten_env node ~f:(run_mean ~dims ~keepdim) "self"
+  | "torch.ops.aten.rms_norm.default" -> (
+      let t = D.tensor_arg aten_env node "input" in
+      let rank = aten_rank t in
+      let k = List.length (D.ints_arg node "normalized_shape") in
+      let dims = trailing_axes ~rank ~k in
+      let eps = eps_arg node "eps" in
+      match Tensor_bridge.of_aten t with
+      | Error e -> Some (Error (Printf.sprintf "input: %s" e))
+      | Ok x -> (
+          let weight =
+            if optional_tensor_present node "weight" then
+              native_tensor_arg aten_env node "weight"
+            else
+              let (Tensor.Tensor r) = x in
+              Ok (ones_weight r.shape dims)
+          in
+          match weight with
+          | Error e -> Some (Error (Printf.sprintf "weight: %s" e))
+          | Ok weight -> (
+              match run_rms_norm x ~weight ~dims ~eps with
+              | exception Failure msg ->
+                  Some (Error (Printf.sprintf "native op failed: %s" msg))
+              | result -> Some (Ok [ result ]))))
   | _ -> None

@@ -150,3 +150,85 @@ let%expect_test "pp: relu.default config" =
   | None -> print_string "not found"
   | Some c -> Format.printf "%a@." Aten_op_config.pp c);
   [%expect {| torch.ops.aten.relu.default (Tensor self) -> T |}]
+
+(* ---- Op_bridge.dispatch: native compute, evaluated directly ------------- *)
+
+(* These drive the native path of the bridge end to end — build an ATen input
+   env + a single-node graph, run [Op_bridge.dispatch], and print the native
+   output (shape + values).  Unlike the ATen-vs-native spec tests, the expected
+   values here are hand-derived, so they pin the native compute independently of
+   ATen as the oracle. *)
+
+module PT = Pytorch_types
+module Sm = Schema_runtime.String_map
+
+let targ name = PT.Argument.Tensor (PT.TensorArgument.make name)
+let in_tensor name = PT.NamedArgument.make name (targ name) None
+let in_ints name xs = PT.NamedArgument.make name (PT.Argument.Ints xs) None
+let in_bool name b = PT.NamedArgument.make name (PT.Argument.Bool b) None
+let in_float name f = PT.NamedArgument.make name (PT.Argument.Float f) None
+
+(* Bind each (name, ATen tensor) into an env and dispatch a one-node graph;
+   print each native output as "shape {values}".  The env key and the input's
+   TensorArgument name are the same [name], which is how the bridge resolves it. *)
+let dispatch_print ~target ~bindings ~inputs ~noutputs =
+  let env = List.fold_left (fun m (k, t) -> Sm.add k t m) Sm.empty bindings in
+  let outputs = List.init noutputs (fun i -> targ (Printf.sprintf "out%d" i)) in
+  let node = PT.Node.make target inputs outputs Sm.empty None (Some "test") in
+  match Op_bridge.dispatch ~aten_env:env node with
+  | None -> print_string "no native impl\n"
+  | Some (Error e) -> Printf.printf "error: %s\n" e
+  | Some (Ok outs) -> List.iter (fun o -> Format.printf "%a@." Tensor.pp o) outs
+
+let%expect_test "dispatch: bmm 1x2x2 @ 1x2x2" =
+  let a = float_tensor [ 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  let b = float_tensor [ 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print ~target:"torch.ops.aten.bmm.default"
+    ~bindings:[ ("self", a); ("mat2", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "mat2" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {7, 10, 15, 22} |}]
+
+let%expect_test "dispatch: mean.dim dim=[1] keepdim=true" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.mean.dim"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" true ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=1] {1, 4} |}]
+
+let%expect_test "dispatch: mean.dim dim=[1] keepdim=false" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.mean.dim"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" false ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=2] {1, 4} |}]
+
+let%expect_test "dispatch: rms_norm normalized_shape=[3] with weight" =
+  let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let w = float_tensor [ 3 ] [ 1.; 1.; 1. ] in
+  dispatch_print ~target:"torch.ops.aten.rms_norm.default"
+    ~bindings:[ ("input", x); ("weight", w) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_ints "normalized_shape" [ 3 ];
+        in_tensor "weight";
+        in_float "eps" 1e-5;
+      ]
+    ~noutputs:1;
+  [%expect
+    {| tensor f32 [W=2 C=3] {0.46291, 0.925819, 1.38873, 0.789542, 0.986927, 1.18431} |}]
+
+let%expect_test "dispatch: rms_norm no weight (ones) matches affine identity" =
+  let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.rms_norm.default"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input"; in_ints "normalized_shape" [ 3 ]; in_float "eps" 1e-5;
+      ]
+    ~noutputs:1;
+  [%expect
+    {| tensor f32 [W=2 C=3] {0.46291, 0.925819, 1.38873, 0.789542, 0.986927, 1.18431} |}]

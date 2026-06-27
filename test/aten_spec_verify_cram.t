@@ -26,3 +26,14 @@ verify mode (stdin via "-"), add.Tensor with a different generator per input:
   [eval] torch.ops.aten.add.Tensor
     aten   out0 = [1.5; 2.5]
     native out0 = [1.5; 2.5]
+
+verify mode, a no-relayout structured op (bmm) through the same plumbing:
+
+  $ ../bin/aten_spec_verify.exe - <<'JSON'
+  > { "target": "torch.ops.aten.bmm.default",
+  >   "args": {
+  >     "self": { "dtype": "f32", "shape": [1, 2, 2], "sequence": { "start": 1.0, "step": 1.0 } },
+  >     "mat2": { "dtype": "f32", "shape": [1, 2, 2], "sequence": { "start": 1.0, "step": 1.0 } }
+  >   } }
+  > JSON
+  [spec] torch.ops.aten.bmm.default: matched

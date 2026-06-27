@@ -110,6 +110,8 @@ let decode_arg ~anchor (a : A.Argument.t) =
       single (Printf.sprintf "(scalar_arg%s node %s)" d q)
   | A.Type.Optional (A.Type.Base A.Base.Scalar) ->
       single (Printf.sprintf "(scalar_opt_arg node %s)" q)
+  | A.Type.Optional (A.Type.Base A.Base.Float) ->
+      single (Printf.sprintf "(float_opt_ptr node %s)" q)
   | A.Type.Optional (A.Type.Base A.Base.Bool) ->
       single (Printf.sprintf "(bool_opt_arg node %s)" q)
   | A.Type.Optional (A.Type.Base A.Base.MemoryFormat) ->

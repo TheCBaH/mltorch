@@ -94,6 +94,17 @@ let float_arg ?default node name =
   | None -> require name default
   | _ -> failwith ("interp: expected float arg " ^ name)
 
+(* A float? argument crosses as a [double ptr] (map_type lowers float? to a
+   [double] pointer): a null pointer encodes None (the C shim maps null to
+   std::nullopt), a live cell encodes the present value. The pointer form mirrors
+   int?/SymInt?; it is the float counterpart the generator emits for e.g.
+   rms_norm's eps. *)
+let float_opt_ptr node name =
+  match find_arg node name with
+  | Some (Argument.Float f) -> allocate double f
+  | Some (Argument.None _) | None -> from_voidp double null
+  | _ -> failwith ("interp: expected float arg " ^ name)
+
 (* A schema Scalar arg crosses as either an Int or a Float argument. *)
 let scalar_arg ?default node name =
   match find_arg node name with

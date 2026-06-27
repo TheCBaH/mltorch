@@ -92,17 +92,25 @@ The `Direct` module (`lib/native/direct.ml`) has `type t = float` and `type
 'role index = int`, so `pixel` reduces to a plain `(Axis.t -> int) -> float`
 function that `Schedule.evaluate` applies at every output coordinate.
 
-### Op coverage (initial)
+### Op coverage
 
 | ATen target | Native op |
 |-------------|-----------|
-| `torch.ops.aten.relu.default` | `Pointwise.Relu.Compute(Direct)` |
-| `torch.ops.aten.relu_.default` | same (in-place variant, result is same) |
-| `torch.ops.aten.add.Tensor` | `Pointwise.Add.Compute(Direct)` |
-| `torch.ops.aten.add_.Tensor` | same (in-place variant) |
+| `torch.ops.aten.relu.default` / `relu_.default` | `Pointwise.Relu.Compute(Direct)` |
+| `torch.ops.aten.add.Tensor` / `add_.Tensor` | `Pointwise.Add.Compute(Direct)` |
+| `torch.ops.aten.bmm.default` | `Matmul.Bmm.Compute(Direct)` |
+| `torch.ops.aten.mean.dim` | `Reduce.Mean.Compute(Direct)` |
+| `torch.ops.aten.rms_norm.default` | `Norm.RmsNorm.Compute(Direct)` |
 
-All other ops return `None` (Skipped).  Coverage grows as native ops are
-validated; see `lib/native/ops/` for available implementations.
+These are exactly the native ops whose operand/output layouts already line up
+under `of_aten`'s positional right-alignment, so no relayout is needed (`bmm`,
+`mean.dim`, `rms_norm` resolve their reduced/normalised axes via
+`Aten_shape.axis_of_dim`, keeping them consistent with where the data landed).
+
+The remaining native ops — `Conv2d`, `Max/AvgPool2d`, `Linear` — need NCHW↔NHWC
+input/weight/output relayout and are **deferred**; see
+`native_aten_bridge_layout.md` for the two-class split and the planned
+transpose-op approach.  All other ATen ops return `None` (Skipped).
 
 ### Extending coverage
 

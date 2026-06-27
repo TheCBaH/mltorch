@@ -100,3 +100,48 @@ let%expect_test "op spec decode/encode round-trip" =
         target=torch.ops.aten.add.Tensor nargs=3
         alpha-defaulted=true
         stable target=true nargs=true |}]
+
+(* Decode -> encode -> decode and report target + arg count stability, so the
+   non-tensor arg shapes (int[] dims, bool keepdim, float-hex eps, optional
+   weight) of the newly-bridged ops are exercised end to end. *)
+let roundtrip json =
+  match Jsont_bytesrw.decode_string Aten_op_spec.jsont json with
+  | Error e -> pf "decode error: %s\n" e
+  | Ok spec -> (
+      match Jsont_bytesrw.encode_string Aten_op_spec.jsont spec with
+      | Error e -> pf "encode error: %s\n" e
+      | Ok s2 -> (
+          match Jsont_bytesrw.decode_string Aten_op_spec.jsont s2 with
+          | Error e -> pf "re-decode error: %s\n" e
+          | Ok spec2 ->
+              pf "target=%s nargs=%d stable=%b\n" spec.target
+                (List.length spec.args)
+                (spec.target = spec2.target
+                && List.length spec.args = List.length spec2.args)))
+
+let%expect_test "bmm round-trip" =
+  roundtrip
+    {|{ "target": "torch.ops.aten.bmm.default",
+        "args": {
+          "self": { "dtype": "f32", "shape": [1, 2, 2], "sequence": { "start": 1.0, "step": 1.0 } },
+          "mat2": { "dtype": "f32", "shape": [1, 2, 2], "sequence": { "start": 1.0, "step": 1.0 } } } }|};
+  [%expect {| target=torch.ops.aten.bmm.default nargs=2 stable=true |}]
+
+let%expect_test "mean.dim round-trip (dim + keepdim)" =
+  roundtrip
+    {|{ "target": "torch.ops.aten.mean.dim",
+        "args": {
+          "self": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 0.0, "step": 1.0 } },
+          "dim": [1],
+          "keepdim": true } }|};
+  [%expect {| target=torch.ops.aten.mean.dim nargs=3 stable=true |}]
+
+let%expect_test "rms_norm round-trip (normalized_shape + weight + eps)" =
+  roundtrip
+    {|{ "target": "torch.ops.aten.rms_norm.default",
+        "args": {
+          "input": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 1.0, "step": 1.0 } },
+          "normalized_shape": [3],
+          "weight": { "dtype": "f32", "shape": [3], "values": [{"float":"0x3f800000"}, {"float":"0x3f800000"}, {"float":"0x3f800000"}] },
+          "eps": "0x322bcc77" } }|};
+  [%expect {| target=torch.ops.aten.rms_norm.default nargs=4 stable=true |}]

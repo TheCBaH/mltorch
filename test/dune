@@ -62,6 +62,8 @@
   native_aten_bridge
   aten_native_verify
   aten_config
+  pytorch_types
+  schema_runtime
   fmt)
  (inline_tests)
  (preprocess
