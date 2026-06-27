@@ -9,6 +9,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. **Surgical changes** — modify only essential code; match existing style.
 4. **Goal-driven** — turn vague requests into verifiable criteria before starting.
 
+## Exploration & Planning — start in `.ai/`
+
+The `.ai/` directory is the canonical design record for this repo. **Before exploring
+unfamiliar code or planning any non-trivial change, list `.ai/` and read the docs
+relevant to the area you're touching** — they capture the intended design, rationale,
+and tradeoffs that the source alone doesn't show, and the place to look for an existing
+plan before writing a new one.
+
+The set of docs grows and changes over time, so discover them at the start of a task
+rather than relying on a fixed list. Filenames are descriptive (e.g. `*_design.md` for
+designs, `*_plan.md` for plans, area prefixes like `aten_*`, `native_*`, `schema_*`);
+grep `.ai/` by topic when you're unsure which file applies.
+
+When a design or plan changes materially, update the corresponding `.ai/*.md` doc — or
+add a new one — in the same change so this record stays the source of truth.
+
 ## Commands
 
 ```sh
