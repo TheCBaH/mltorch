@@ -21,7 +21,7 @@
 let window_output_shape ~(x_shape : Vec6.shape)
     ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
     ~(stride : Op_config.Pos.t Op_config.Hw.t)
-    ~(pad : Op_config.Nonneg.t Op_config.Hw.t) : Vec6.shape =
+    ~(pad : Op_config.Nonneg.t Op_config.Hw.t) =
   let out_extent axis ~kernel ~stride ~pad =
     Window_axis.output_extent ~in_extent:(Vec6.get x_shape axis) ~kernel ~stride
       ~pad
@@ -47,14 +47,14 @@ module MaxPool2d = struct
     pad : Op_config.Nonneg.t Op_config.Hw.t;
   }
 
-  let output_shape ~(x_shape : Vec6.shape) (p : params) : Vec6.shape =
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
     window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
 
   module Compute (S : Semantics.SEMANTICS) = struct
     module Wa = Window_axis.Compute (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
-        (out : Axis.t -> Semantics.position S.index) : S.t =
+        (out : Axis.t -> Semantics.position S.index) =
       let wh =
         Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad:p.pad.h
           ~in_extent:(Vec6.get x_shape Axis.H) (out Axis.H)
@@ -90,14 +90,14 @@ module AvgPool2d = struct
     pad : Op_config.Nonneg.t Op_config.Hw.t;
   }
 
-  let output_shape ~(x_shape : Vec6.shape) (p : params) : Vec6.shape =
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
     window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
 
   module Compute (S : Semantics.SEMANTICS) = struct
     module Wa = Window_axis.Compute (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
-        (out : Axis.t -> Semantics.position S.index) : S.t =
+        (out : Axis.t -> Semantics.position S.index) =
       let wh =
         Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad:p.pad.h
           ~in_extent:(Vec6.get x_shape Axis.H) (out Axis.H)

@@ -44,7 +44,7 @@ let of_aten (dims : int array) =
 
 (* Read back the innermost [rank] axes as an ATen shape. Inverse of [of_aten]
    given the original rank: [to_aten ~rank:(length a) (of_aten a) = a]. *)
-let to_aten ~rank (s : Vec6.shape) : int array =
+let to_aten ~rank (s : Vec6.shape) =
   Array.of_list (List.map (fun ax -> (Vec6.get s ax :> int)) (used_axes ~rank))
 
 (* The frame axis an ATen dim index refers to, for a tensor of the given rank.

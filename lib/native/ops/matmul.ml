@@ -7,13 +7,12 @@
 
 module Bmm = struct
   (* H/W from [input_shape] (batch/rows); C replaced by mat2_shape.C (columns). *)
-  let output_shape ~(input_shape : Vec6.shape) ~(mat2_shape : Vec6.shape) :
-      Vec6.shape =
+  let output_shape ~(input_shape : Vec6.shape) ~(mat2_shape : Vec6.shape) =
     Vec6.set input_shape Axis.C (Vec6.get mat2_shape Axis.C)
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel ~(input_shape : Vec6.shape) ~input ~mat2
-        (out : Axis.t -> Semantics.position S.index) : S.t =
+        (out : Axis.t -> Semantics.position S.index) =
       S.sum ~lo:S.index_zero
         ~hi:(S.index_extent (Vec6.get input_shape Axis.C))
         (fun k ->

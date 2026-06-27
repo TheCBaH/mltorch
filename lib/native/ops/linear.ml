@@ -12,13 +12,12 @@ module Linear = struct
   (* N/T/D/H/W pass through from [x_shape] (no spatial reduction); only C
      changes, to [weight_shape]'s [Out]. Extent-space, no [:> int] round-trips.
      See .ai/native_compute_design.md §2b. *)
-  let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape) :
-      Vec6.shape =
+  let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape) =
     Vec6.set x_shape Axis.C (Vec6.get weight_shape Axis.N)
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~x ~weight ~bias
-        (out : Axis.t -> Semantics.position S.index) : S.t =
+        (out : Axis.t -> Semantics.position S.index) =
       let oc = out Axis.C in
       let acc =
         S.sum ~lo:S.index_zero ~hi:(S.index_extent p.in_features) (fun ic ->

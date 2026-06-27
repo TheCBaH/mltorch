@@ -22,11 +22,11 @@ module RmsNorm = struct
   type params = { dims : Axis.t list; eps : float }
 
   (* Output keeps the input shape: rms-norm rescales, it does not reduce. *)
-  let output_shape ~(x_shape : Vec6.shape) : Vec6.shape = x_shape
+  let output_shape ~(x_shape : Vec6.shape) = x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x ~weight
-        (out : Axis.t -> Semantics.position S.index) : S.t =
+        (out : Axis.t -> Semantics.position S.index) =
       (* Sum of x^2 over the normalised axes at the fixed non-normalised coords
          [out]: nest one [sum] per reduced axis (full extent), squaring the read
          at the leaf. Mirrors [Reduce.Mean]'s reduction nest. *)

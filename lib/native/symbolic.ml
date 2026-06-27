@@ -25,8 +25,12 @@ module Make () = struct
   let clamp_low x = Expr.Index_max (Expr.Index_const 0, x)
   let assume_index x = x
 
-  let load (s : input) (idx : Axis.t -> _ index) : t =
-    Expr.Load (s, [| idx N; idx T; idx D; idx H; idx W; idx C |])
+  let load s idx =
+    Expr.Load
+      ( s,
+        [|
+          idx Axis.N; idx Axis.T; idx Axis.D; idx Axis.H; idx Axis.W; idx Axis.C;
+        |] )
 
   let c = ref 0
 

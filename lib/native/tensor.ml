@@ -13,7 +13,7 @@ type packed = Tensor : ('elt, 'ba, 'q) t -> packed
 let channel c = Dim.to_int (Vec6.get c Axis.C)
 
 (* Read one element as a float, broadcasting extent-1 axes of the source. *)
-let read (Tensor t) (coord : Vec6.coord) : float =
+let read (Tensor t) (coord : Vec6.coord) =
   let c = Vec6.read_coord t.shape coord in
   let i = (Vec6.offset t.shape c :> int) in
   Payload.get_float t.payload ~c:(channel c) ~i
@@ -21,7 +21,7 @@ let read (Tensor t) (coord : Vec6.coord) : float =
 (* Read at the coord given by [idx a] per axis, with broadcast (a source axis of
    extent 1 is read at index 0) and padding (an index outside the source makes the
    whole read 0). This is the one read primitive ops use, via the semantics. *)
-let read_guarded (Tensor t as packed) (idx : Axis.t -> int) : float =
+let read_guarded (Tensor t as packed) (idx : Axis.t -> int) =
   let extent a = Dim.to_int (Vec6.get t.shape a) in
   let in_range a = extent a = 1 || (idx a >= 0 && idx a < extent a) in
   if not (List.for_all in_range Axis.all) then 0.
@@ -34,7 +34,7 @@ let read_guarded (Tensor t as packed) (idx : Axis.t -> int) : float =
 (* tap helper: the source coord = [base] + per-axis signed deltas (0 where an axis
    is absent), guarded into the source extents. [None] is the pad region. *)
 let shift_in_bounds (Tensor t) (base : Vec6.coord)
-    (deltas : (Axis.t * Dim.delta Dim.t) list) : Vec6.coord option =
+    (deltas : (Axis.t * Dim.delta Dim.t) list) =
   let idx a =
     let d =
       match List.assoc_opt a deltas with Some d -> Dim.to_int d | None -> 0
@@ -49,7 +49,7 @@ let shift_in_bounds (Tensor t) (base : Vec6.coord)
   else None
 
 (* Build a fresh dense float32 tensor by running [f] over every output coord. *)
-let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) : packed =
+let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) =
   let n = (Vec6.numel shape :> int) in
   let data = Bigarray.(Array1.create float32 c_layout n) in
   let payload = { Payload.fmt = Payload.F32; quant = Payload.No_quant; data } in

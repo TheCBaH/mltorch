@@ -5,7 +5,7 @@
 
 module Relu = struct
   (* Identity: relu doesn't change shape. See .ai/native_compute_design.md §2b. *)
-  let output_shape (x_shape : Vec6.shape) : Vec6.shape = x_shape
+  let output_shape (x_shape : Vec6.shape) = x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* relu x = (x < 0 ? 0 : x) — derived from [select]+[lt], not a primitive *)
@@ -20,7 +20,7 @@ module Add = struct
      larger of the two. Computed in extent-space ([Dim.max], no [:> int]); start
      from [a_shape] and overwrite every axis. See
      .ai/native_compute_design.md §2b. *)
-  let output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) : Vec6.shape =
+  let output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
     List.fold_left
       (fun s axis ->
         Vec6.set s axis

@@ -31,7 +31,7 @@ module Mean = struct
      keepdim=true: identity (collapse in place). keepdim=false: the survivors
      (all axes minus the reduced ones, in canonical order) re-pack right-aligned
      into the innermost positions. Depends only on [p], not on extents. *)
-  let kept_map (p : params) : (Axis.t * Axis.t) list =
+  let kept_map (p : params) =
     let survivors = List.filter (fun a -> not (List.mem a p.dims)) Axis.all in
     if p.keepdim then List.map (fun a -> (a, a)) survivors
     else
@@ -40,7 +40,7 @@ module Mean = struct
 
   (* Output = surviving input extents packed onto their output axes (§1d);
      reduced axes (and, for keepdim=false, the vacated outer axes) are extent 1. *)
-  let output_shape ~(x_shape : Vec6.shape) (p : params) : Vec6.shape =
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
     let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
     List.fold_left
       (fun s (kin, oax) -> Vec6.set s oax (Vec6.get x_shape kin))
@@ -48,7 +48,7 @@ module Mean = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
-        (out : Axis.t -> Semantics.position S.index) : S.t =
+        (out : Axis.t -> Semantics.position S.index) =
       let kmap = kept_map p in
       (* Nest one [sum] per reduced axis (full extent [0, extent)); the body
          reads [x], mapping each input axis: reduced → its reduction variable,

@@ -23,7 +23,7 @@ module Conv2d = struct
   (* N/T/D pass through; H/W shrink via [Window_axis.output_extent]; C = Cout from
      weight_shape (weight is [Cout,1,1,Kh,Kw,Cin] — Cout isn't in params). *)
   let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
-      (p : params) : Vec6.shape =
+      (p : params) =
     let out_extent axis ~kernel ~stride ~pad =
       Window_axis.output_extent ~in_extent:(Vec6.get x_shape axis) ~kernel
         ~stride ~pad
@@ -44,7 +44,7 @@ module Conv2d = struct
     module Wa = Window_axis.Compute (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x ~weight ~bias
-        (out : Axis.t -> Semantics.position S.index) : S.t =
+        (out : Axis.t -> Semantics.position S.index) =
       let oc = out Axis.C in
       let wh =
         Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad:p.pad.h

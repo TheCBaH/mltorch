@@ -130,14 +130,14 @@ does:
 
 ```ocaml
 module Relu = struct
-  let output_shape (x_shape : Vec6.shape) : Vec6.shape = x_shape   (* identity *)
+  let output_shape (x_shape : Vec6.shape) = x_shape   (* identity *)
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel x (out : Axis.t -> Semantics.position S.index) = S.relu (S.load x out)
   end
 end
 
 module Add = struct
-  let output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) : Vec6.shape =
+  let output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
     (* per axis: the non-broadcast (non-extent-1) operand's extent *)
     ...
   module Compute (S : Semantics.SEMANTICS) = struct
@@ -149,7 +149,7 @@ end
 module Conv2d = struct
   type params = { kernel : ...; in_channels : ...; stride : ...; pad : ... }
   let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
-      (p : params) : Vec6.shape =
+      (p : params) =
     (* N/T/D pass through from x_shape; C comes from weight_shape's Cout
        (weight is [Cout,1,1,Kh,Kw,Cin] — params.in_channels is Cin, not Cout,
        so this needs weight_shape, not just x_shape + params); H/W: *)
@@ -160,7 +160,7 @@ module Conv2d = struct
     ...
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~x ~weight ~bias
-        (out : Axis.t -> Semantics.position S.index) : S.t = ...
+        (out : Axis.t -> Semantics.position S.index) = ...
   end
 end
 ```

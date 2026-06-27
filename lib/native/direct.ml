@@ -12,7 +12,7 @@ let sqrt = Stdlib.sqrt
 
 type b = bool
 
-let lt (a : float) (b : float) = a < b
+let lt a b = a < b
 let select c a b = if c then a else b
 let index_zero = 0
 let index_extent (e : Dim.extent Dim.t) = (e :> int)
@@ -23,7 +23,7 @@ let index_scale k i = k * i
 let index_min = Stdlib.min
 let clamp_low x = Stdlib.max 0 x
 let assume_index x = x
-let load inp (idx : Axis.t -> int) : float = Tensor.read_guarded inp idx
+let load inp idx = Tensor.read_guarded inp idx
 
 let sum ~lo ~hi f =
   let rec loop i acc = if i >= hi then acc else loop (i + 1) (acc +. f i) in
