@@ -175,6 +175,7 @@ let () =
     | "aten_operation_description.ml" -> Aten_emit.ocaml ops
     | "interp_dispatch.ml" -> Aten_decode_gen.file (dispatch_ops entries)
     | "aten_op_config.ml" -> Aten_config_gen.file (dispatch_ops entries)
+    | "aten_op_spec.ml" -> Aten_spec_gen.file (dispatch_ops entries)
     | other -> die "unknown output target: %s" other
   in
   print_string out

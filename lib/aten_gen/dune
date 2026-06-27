@@ -3,5 +3,11 @@
 (library
  (name aten_gen)
  (wrapped false)
- (modules aten_c_type aten_decode_gen aten_emit aten_gen aten_config_gen)
+ (modules
+  aten_c_type
+  aten_decode_gen
+  aten_emit
+  aten_gen
+  aten_config_gen
+  aten_spec_gen)
  (libraries aten_schema))

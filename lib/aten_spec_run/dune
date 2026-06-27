@@ -1,0 +1,18 @@
+; Executes a decoded verification spec: synthesizes its tensor inputs (Aten_spec
+; PCG), lowers the op to a single-node Pytorch_types.Node, and runs it through
+; the ATen-vs-native harness (Interp_dispatch + Op_bridge + Verify). Depends on
+; the C++ ATen build (via aten/interp), unlike the pure aten_spec libraries.
+
+(library
+ (name aten_spec_run)
+ (wrapped false)
+ (libraries
+  aten
+  interp
+  native_aten_bridge
+  aten_native_verify
+  aten_config
+  pytorch_types
+  schema_runtime
+  aten_spec
+  aten_op_spec))

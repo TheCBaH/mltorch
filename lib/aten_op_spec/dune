@@ -1,0 +1,20 @@
+; Per-operation JSON codecs for the verification format, auto-generated from
+; native_functions.yaml by bin/aten_ops_gen (same curated op list as the runtime
+; aten_op_config). Decodes a { target, seed, args } envelope into Aten_spec.Op_spec
+; and encodes it back; no C++/ATen dependency.
+
+(rule
+ (target aten_op_spec.ml)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../../bin/aten_ops_gen.exe}
+    %{dep:../../data/native_functions.yaml}
+    aten_op_spec.ml))))
+
+(library
+ (name aten_op_spec)
+ (wrapped false)
+ (modules aten_op_spec)
+ (libraries jsont aten_spec))

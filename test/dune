@@ -77,6 +77,28 @@
  (preprocess
   (pps ppx_expect)))
 
+; JSON verification format: PCG, Float32, op-spec codec round-trip (no C++).
+
+(library
+ (name aten_spec_test)
+ (modules aten_spec_test)
+ (libraries aten_spec aten_op_spec jsont jsont.bytesrw)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+; Spec runner: decode + verify/eval through the ATen-vs-native harness. Links the
+; C++ ATen build (via aten_spec_run); runs in-process so the add-generator
+; coverage is fast (the cram keeps a couple of end-to-end CLI cases).
+
+(library
+ (name aten_spec_run_test)
+ (modules aten_spec_run_test)
+ (libraries aten_spec_run aten_op_spec jsont jsont.bytesrw)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
 ; Generate OCaml types from the PyTorch export schema.
 
 (rule
@@ -561,6 +583,13 @@
 (cram
  (applies_to aten_schema_raw_cram)
  (deps %{exe:aten_schema_raw_test.exe} native_functions.yaml))
+
+; Verify JSON op-specs end-to-end (ATen vs native). Needs the C++ ATen build
+; (via the bin exe) but no downloaded model weights.
+
+(cram
+ (applies_to aten_spec_verify_cram)
+ (deps %{exe:../bin/aten_spec_verify.exe}))
 
 ; aten_schema stage 2: func string parser
 

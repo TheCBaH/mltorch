@@ -10,3 +10,10 @@
  (name aten_ops_gen)
  (modules aten_ops_gen)
  (libraries aten_schema aten_gen))
+
+; CLI to verify JSON op-specs against the ATen-vs-native harness.
+
+(executable
+ (name aten_spec_verify)
+ (modules aten_spec_verify)
+ (libraries jsont jsont.bytesrw aten_op_spec aten_spec_run))

@@ -1,0 +1,102 @@
+(* Hermetic tests for the JSON verification format: no C++/ATen build needed.
+   Covers PCG reproducibility + f32-canonical/finite draws, Float32 hex
+   round-trip, and decode/encode round-trip of an op spec through the generated
+   codec. *)
+
+let pf = Printf.printf
+
+(* --- Float32 bit-exact hex --- *)
+
+let%expect_test "float32 hex round-trip" =
+  List.iter
+    (fun f ->
+      let hex = Aten_spec.Float32.to_hex f in
+      let back = Aten_spec.Float32.of_hex hex in
+      (* round-trip recovers the f32-canonical value of f *)
+      pf "%-12g %s eq=%b\n" f hex (back = Aten_spec.Float32.to_f32 f))
+    [ 1.0; -0.5; 3.14159265; 0.0; 1e-20 ];
+  (* to_f32 is idempotent on an already-f32 value *)
+  let x = Aten_spec.Float32.to_f32 0.1 in
+  pf "idempotent=%b\n" (x = Aten_spec.Float32.to_f32 x);
+  [%expect
+    {|
+    1            0x3f800000 eq=true
+    -0.5         0xbf000000 eq=true
+    3.14159      0x40490fdb eq=true
+    0            0x00000000 eq=true
+    1e-20        0x1e3ce508 eq=true
+    idempotent=true |}]
+
+(* --- PCG: reproducible, f32-canonical, finite --- *)
+
+let draws_uniform seed n =
+  let rec go i pcg acc =
+    if i = 0 then List.rev acc
+    else
+      let v, pcg = Aten_spec.Pcg.uniform ~low:(-1.0) ~high:1.0 pcg in
+      go (i - 1) pcg (v :: acc)
+  in
+  go n (Aten_spec.Pcg.seed ~seed ~seq:1L) []
+
+let%expect_test "pcg uniform reproducible and bounded" =
+  let a = draws_uniform 42L 6 in
+  let b = draws_uniform 42L 6 in
+  pf "same seed equal=%b\n" (a = b);
+  pf "different seed differs=%b\n" (draws_uniform 7L 6 <> a);
+  let all_f32 = List.for_all (fun v -> v = Aten_spec.Float32.to_f32 v) a in
+  let in_range = List.for_all (fun v -> v >= -1.0 && v < 1.0) a in
+  pf "f32-canonical=%b in[-1,1)=%b\n" all_f32 in_range;
+  List.iter (fun v -> pf "%s\n" (Aten_spec.Float32.to_hex v)) a;
+  [%expect
+    {|
+    same seed equal=true
+    different seed differs=true
+    f32-canonical=true in[-1,1)=true
+    0xbec838d0
+    0x3f4b070e
+    0xbe9c4988
+    0x3f67c6f6
+    0x3f4ecc86
+    0xbe2810e0 |}]
+
+let%expect_test "pcg normal is finite and f32-canonical" =
+  let rec go i pcg ok =
+    if i = 0 then ok
+    else
+      let v, pcg = Aten_spec.Pcg.normal ~mean:0.0 ~std:1.0 pcg in
+      go (i - 1) pcg (ok && Float.is_finite v && v = Aten_spec.Float32.to_f32 v)
+  in
+  pf "finite+f32 over 1000 draws=%b\n"
+    (go 1000 (Aten_spec.Pcg.seed ~seed:1L ~seq:1L) true);
+  [%expect {| finite+f32 over 1000 draws=true |}]
+
+(* --- decode / encode round-trip through the generated codec --- *)
+
+let spec_json =
+  {|{ "target": "torch.ops.aten.add.Tensor",
+      "args": {
+        "self":  { "dtype": "f32", "shape": [2, 3], "random": { "uniform": { "low": -1.0, "high": 1.0 } } },
+        "other": { "dtype": "f32", "shape": [2, 3], "random": { "normal":  { "mean": 0.0, "variance": 1.0 } } }
+      } }|}
+
+let%expect_test "op spec decode/encode round-trip" =
+  match Jsont_bytesrw.decode_string Aten_op_spec.jsont spec_json with
+  | Error e -> pf "decode error: %s\n" e
+  | Ok spec ->
+      pf "target=%s nargs=%d\n" spec.target (List.length spec.args);
+      pf "alpha-defaulted=%b\n" (List.mem_assoc "alpha" spec.args);
+      (* encode, then decode again, and confirm stability *)
+      (match Jsont_bytesrw.encode_string Aten_op_spec.jsont spec with
+      | Error e -> pf "encode error: %s\n" e
+      | Ok s2 -> (
+          match Jsont_bytesrw.decode_string Aten_op_spec.jsont s2 with
+          | Error e -> pf "re-decode error: %s\n" e
+          | Ok spec2 ->
+              pf "stable target=%b nargs=%b\n"
+                (spec.target = spec2.target)
+                (List.length spec.args = List.length spec2.args)));
+      [%expect
+        {|
+        target=torch.ops.aten.add.Tensor nargs=3
+        alpha-defaulted=true
+        stable target=true nargs=true |}]

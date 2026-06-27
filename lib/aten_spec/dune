@@ -1,0 +1,8 @@
+; Pure (no C++/ATen dependency) data-type hierarchy for the JSON verification
+; format: a seedable functional RNG (Pcg), bit-exact float32 (Float32), the
+; tensor payload spec (Tensor_spec / Distribution / Scalar_value) and the
+; decoded op invocation (Op_spec / Arg_value), all with jsont codecs.
+
+(library
+ (name aten_spec)
+ (libraries jsont))
