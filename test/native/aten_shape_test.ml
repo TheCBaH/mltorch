@@ -9,12 +9,12 @@ let of_aten a = Result.get_ok (Aten_shape.of_aten a)
 
 let%expect_test "of_aten: right-aligned into innermost axes" =
   Format.printf "%a@." Vec6.pp_shape (of_aten [| 6; 7; 8 |]);
-  [%expect {| [N=1 T=1 D=1 H=6 W=7 C=8] |}];
+  [%expect {| [H=6 W=7 C=8] |}];
   (* rank 4 [n;h;w;c]: n lands on D, not N (positional, not semantic). *)
   Format.printf "%a@." Vec6.pp_shape (of_aten [| 2; 3; 4; 5 |]);
-  [%expect {| [N=1 T=1 D=2 H=3 W=4 C=5] |}];
+  [%expect {| [D=2 H=3 W=4 C=5] |}];
   Format.printf "%a@." Vec6.pp_shape (of_aten [| 9 |]);
-  [%expect {| [N=1 T=1 D=1 H=1 W=1 C=9] |}]
+  [%expect {| [C=9] |}]
 
 let%expect_test "to_aten: reverse needs the rank, round-trips of_aten" =
   let s = of_aten [| 6; 7; 8 |] in

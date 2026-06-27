@@ -64,11 +64,29 @@ let iter (s : shape) (f : coord -> unit) =
     done
   done
 
+let drop_leading pred axes =
+  let rec aux = function
+    | [] -> [ List.nth axes (List.length axes - 1) ]
+    | a :: rest -> if pred a then aux rest else a :: rest
+  in
+  aux axes
+
 let pp_shape fmt (s : shape) =
-  Format.fprintf fmt "[N=%a T=%a D=%a H=%a W=%a C=%a]" Dim.pp (get s N) Dim.pp
-    (get s T) Dim.pp (get s D) Dim.pp (get s H) Dim.pp (get s W) Dim.pp
-    (get s C)
+  let axes = drop_leading (fun a -> Dim.to_int (get s a) = 1) Axis.all in
+  Format.pp_print_char fmt '[';
+  List.iteri
+    (fun i a ->
+      if i > 0 then Format.pp_print_char fmt ' ';
+      Format.fprintf fmt "%a=%a" Axis.pp a Dim.pp (get s a))
+    axes;
+  Format.pp_print_char fmt ']'
 
 let pp_coord fmt (c : coord) =
-  Format.fprintf fmt "(%a,%a,%a,%a,%a,%a)" Dim.pp (get c N) Dim.pp (get c T)
-    Dim.pp (get c D) Dim.pp (get c H) Dim.pp (get c W) Dim.pp (get c C)
+  let axes = drop_leading (fun a -> Dim.to_int (get c a) = 0) Axis.all in
+  Format.pp_print_char fmt '(';
+  List.iteri
+    (fun i a ->
+      if i > 0 then Format.pp_print_char fmt ',';
+      Dim.pp fmt (get c a))
+    axes;
+  Format.pp_print_char fmt ')'

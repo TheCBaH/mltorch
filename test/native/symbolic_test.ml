@@ -204,9 +204,9 @@ let%expect_test "Symbolic ground: relu over several different inputs" =
     inputs;
   [%expect
     {|
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=4] {0, 0, 1, 3} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=4] {0, 0, 0, 0} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=4] {5, 0, 2, 0} match=true
+    grounded=tensor f32 [C=4] {0, 0, 1, 3} match=true
+    grounded=tensor f32 [C=4] {0, 0, 0, 0} match=true
+    grounded=tensor f32 [C=4] {5, 0, 2, 0} match=true
     |}]
 
 let%expect_test "Symbolic ground: add over several different input pairs" =
@@ -239,9 +239,9 @@ let%expect_test "Symbolic ground: add over several different input pairs" =
     cases;
   [%expect
     {|
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=3] {11, 12, 13} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=3] {-1, -2, -3} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=3] {0, 0, 0} match=true
+    grounded=tensor f32 [C=3] {11, 12, 13} match=true
+    grounded=tensor f32 [C=3] {-1, -2, -3} match=true
+    grounded=tensor f32 [C=3] {0, 0, 0} match=true
     |}]
 
 let%expect_test
@@ -293,9 +293,9 @@ let%expect_test
     cases;
   [%expect
     {|
-    grounded=tensor f32 [N=1 T=1 D=1 H=2 W=2 C=1] {8, 12, 20, 24} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=2 W=2 C=1] {-15, -23, -39, -47} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=2 W=2 C=1] {2, 2, 2, 2} match=true
+    grounded=tensor f32 [H=2 W=2 C=1] {8, 12, 20, 24} match=true
+    grounded=tensor f32 [H=2 W=2 C=1] {-15, -23, -39, -47} match=true
+    grounded=tensor f32 [H=2 W=2 C=1] {2, 2, 2, 2} match=true
     |}]
 
 let%expect_test "Symbolic ground: max_pool2d over several different inputs" =
@@ -337,9 +337,9 @@ let%expect_test "Symbolic ground: max_pool2d over several different inputs" =
     inputs;
   [%expect
     {|
-    grounded=tensor f32 [N=1 T=1 D=1 H=4 W=4 C=1] {0, 1, 2, 2, 3, 4, 5, 5, ...} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=4 W=4 C=1] {-1, -1, -2, -3, -1, -1, -2, -3, ...} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=4 W=4 C=1] {9, 9, 0, 0, 9, 9, 9, 0, ...} match=true
+    grounded=tensor f32 [H=4 W=4 C=1] {0, 1, 2, 2, 3, 4, 5, 5, ...} match=true
+    grounded=tensor f32 [H=4 W=4 C=1] {-1, -1, -2, -3, -1, -1, -2, -3, ...} match=true
+    grounded=tensor f32 [H=4 W=4 C=1] {9, 9, 0, 0, 9, 9, 9, 0, ...} match=true
     |}]
 
 let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
@@ -381,9 +381,9 @@ let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
     inputs;
   [%expect
     {|
-    grounded=tensor f32 [N=1 T=1 D=1 H=4 W=4 C=1] {0.25, 0.5, 0.5, 0.25, 0.5, 1, 1, 0.5, ...} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=4 W=4 C=1] {0, 0.25, 0.75, 0.5, 0.75, 2, 3, 1.75, ...} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=4 W=4 C=1] {2.25, 2.25, 0, 0, 2.25, 4.5, 2.25, 0, ...} match=true
+    grounded=tensor f32 [H=4 W=4 C=1] {0.25, 0.5, 0.5, 0.25, 0.5, 1, 1, 0.5, ...} match=true
+    grounded=tensor f32 [H=4 W=4 C=1] {0, 0.25, 0.75, 0.5, 0.75, 2, 3, 1.75, ...} match=true
+    grounded=tensor f32 [H=4 W=4 C=1] {2.25, 2.25, 0, 0, 2.25, 4.5, 2.25, 0, ...} match=true
     |}]
 
 let%expect_test
@@ -428,9 +428,9 @@ let%expect_test
     cases;
   [%expect
     {|
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=2] {11, 105} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=2] {-1, -5} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=2] {7, 5} match=true
+    grounded=tensor f32 [C=2] {11, 105} match=true
+    grounded=tensor f32 [C=2] {-1, -5} match=true
+    grounded=tensor f32 [C=2] {7, 5} match=true
     |}]
 
 let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
@@ -462,9 +462,9 @@ let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
     inputs;
   [%expect
     {|
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=1] {2.5} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=1] {5} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=1 W=1 C=1] {4} match=true |}]
+    grounded=tensor f32 [C=1] {2.5} match=true
+    grounded=tensor f32 [C=1] {5} match=true
+    grounded=tensor f32 [C=1] {4} match=true |}]
 
 let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
     =
@@ -542,7 +542,7 @@ let%expect_test
     cases;
   [%expect
     {|
-    grounded=tensor f32 [N=1 T=1 D=1 H=2 W=2 C=2] {1, 1, 2, 2, 11, 11, 12, 12} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=2 W=2 C=2] {0, 0, 0, 0, 0, 0, 0, 0} match=true
-    grounded=tensor f32 [N=1 T=1 D=1 H=2 W=2 C=2] {3, 3, 3, 3, 3, 3, 3, 3} match=true
+    grounded=tensor f32 [H=2 W=2 C=2] {1, 1, 2, 2, 11, 11, 12, 12} match=true
+    grounded=tensor f32 [H=2 W=2 C=2] {0, 0, 0, 0, 0, 0, 0, 0} match=true
+    grounded=tensor f32 [H=2 W=2 C=2] {3, 3, 3, 3, 3, 3, 3, 3} match=true
     |}]

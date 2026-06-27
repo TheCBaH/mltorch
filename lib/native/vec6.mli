@@ -26,5 +26,9 @@ val read_coord :
   shape -> coord -> coord (* broadcast: extent-1 axis -> index 0 *)
 
 val iter : shape -> (coord -> unit) -> unit (* C innermost *)
-val pp_shape : Format.formatter -> shape -> unit (* [N=1 T=1 D=1 H=2 W=2 C=3] *)
-val pp_coord : Format.formatter -> coord -> unit (* (0,0,0,1,0,2) *)
+
+val pp_shape :
+  Format.formatter -> shape -> unit (* [H=2 W=2 C=3] — leading 1s trimmed *)
+
+val pp_coord :
+  Format.formatter -> coord -> unit (* (1,0,2) — leading 0s trimmed *)

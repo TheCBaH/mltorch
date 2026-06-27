@@ -4,7 +4,7 @@ let%expect_test "tensor: materialize + pp" =
         float_of_int (Dim.to_int (Vec6.get c Axis.C)))
   in
   Format.printf "%a@." Tensor.pp t;
-  [%expect {| tensor f32 [N=1 T=1 D=1 H=1 W=1 C=3] {0, 1, 2} |}]
+  [%expect {| tensor f32 [C=3] {0, 1, 2} |}]
 
 let%expect_test "tensor: broadcast read of a [..,C] source" =
   let t =

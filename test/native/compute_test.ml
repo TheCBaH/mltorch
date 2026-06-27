@@ -11,7 +11,7 @@ let%expect_test "Direct: relu pointwise" =
   in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate (Pointwise.Relu.output_shape x_shape) (R.pixel x));
-  [%expect {| tensor f32 [N=1 T=1 D=1 H=1 W=1 C=4] {0, 0, 1, 3} |}]
+  [%expect {| tensor f32 [C=4] {0, 0, 1, 3} |}]
 
 let%expect_test "Direct: add" =
   let module A = Pointwise.Add.Compute (Direct) in
@@ -22,7 +22,7 @@ let%expect_test "Direct: add" =
     (Schedule.evaluate
        (Pointwise.Add.output_shape x_shape y_shape)
        (A.pixel x y));
-  [%expect {| tensor f32 [N=1 T=1 D=1 H=1 W=1 C=3] {10, 11, 12} |}]
+  [%expect {| tensor f32 [C=3] {10, 11, 12} |}]
 
 let%expect_test "Direct: conv2d 2x2 box filter (stride 1, no pad)" =
   let module Cv = Conv.Conv2d.Compute (Direct) in
@@ -50,7 +50,7 @@ let%expect_test "Direct: conv2d 2x2 box filter (stride 1, no pad)" =
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (Cv.pixel p ~x_shape ~x ~weight ~bias));
   (* windows: 0+1+3+4=8, 1+2+4+5=12, 3+4+6+7=20, 4+5+7+8=24 *)
-  [%expect {| tensor f32 [N=1 T=1 D=1 H=2 W=2 C=1] {8, 12, 20, 24} |}]
+  [%expect {| tensor f32 [H=2 W=2 C=1] {8, 12, 20, 24} |}]
 
 let%expect_test
     "Direct: conv2d 3x3 same padding (pad=1) — exercises bound clipping" =
@@ -81,8 +81,7 @@ let%expect_test
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (Cv.pixel p ~x_shape ~x ~weight ~bias));
   (* hand-computed 3x3 zero-padded box sums over [0..8] laid out row-major *)
-  [%expect
-    {| tensor f32 [N=1 T=1 D=1 H=3 W=3 C=1] {8, 15, 12, 21, 36, 27, 20, 33, ...} |}]
+  [%expect {| tensor f32 [H=3 W=3 C=1] {8, 15, 12, 21, 36, 27, 20, 33, ...} |}]
 
 let%expect_test
     "Direct: max_pool2d 2x2 (stride 1, pad 1) — negative inputs catch a \
@@ -113,8 +112,7 @@ let%expect_test
     (Schedule.evaluate out_shape (P.pixel p ~x_shape ~x));
   (* hand-computed: input(h,w) = -(h*3+w)-1, i.e. -1..-9 row-major; each
      output position's max over its real (non-padding) taps only *)
-  [%expect
-    {| tensor f32 [N=1 T=1 D=1 H=4 W=4 C=1] {-1, -1, -2, -3, -1, -1, -2, -3, ...} |}]
+  [%expect {| tensor f32 [H=4 W=4 C=1] {-1, -1, -2, -3, -1, -1, -2, -3, ...} |}]
 
 let%expect_test "Direct: avg_pool2d 2x2 (stride 1, pad 0) — box-filter average"
     =
@@ -140,7 +138,7 @@ let%expect_test "Direct: avg_pool2d 2x2 (stride 1, pad 0) — box-filter average
   let out_shape = Pool.AvgPool2d.output_shape ~x_shape p in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (P.pixel p ~x_shape ~x));
-  [%expect {| tensor f32 [N=1 T=1 D=1 H=2 W=2 C=1] {2, 3, 5, 6} |}]
+  [%expect {| tensor f32 [H=2 W=2 C=1] {2, 3, 5, 6} |}]
 
 let%expect_test
     "Direct: avg_pool2d 2x2 (stride 1, pad 1) — count_include_pad=true divides \
@@ -167,7 +165,7 @@ let%expect_test
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (P.pixel p ~x_shape ~x));
   [%expect
-    {| tensor f32 [N=1 T=1 D=1 H=3 W=3 C=1] {0.25, 0.5, 0.25, 0.5, 1, 0.5, 0.25, 0.5, ...} |}]
+    {| tensor f32 [H=3 W=3 C=1] {0.25, 0.5, 0.25, 0.5, 1, 0.5, 0.25, 0.5, ...} |}]
 
 let%expect_test "Direct: linear (addmm) — out_features mix in_features" =
   let module L = Linear.Linear.Compute (Direct) in
@@ -191,7 +189,7 @@ let%expect_test "Direct: linear (addmm) — out_features mix in_features" =
   let out_shape = Linear.Linear.output_shape ~x_shape ~weight_shape in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (L.pixel p ~x ~weight ~bias));
-  [%expect {| tensor f32 [N=1 T=1 D=1 H=1 W=1 C=2] {11, 105} |}]
+  [%expect {| tensor f32 [C=2] {11, 105} |}]
 
 let%expect_test
     "Direct: bmm — B=2 batch matrix multiply, exercises batch axis isolation" =
@@ -225,8 +223,7 @@ let%expect_test
     (Schedule.evaluate out_shape (B.pixel ~input_shape ~input ~mat2));
   (* batch 0: [1,2,3]·[[1,0],[0,1],[1,1]] = [4,5]; [4,5,6]·same = [10,11]
      batch 1: [1,0,0]·[[2,0],[0,2],[0,0]] = [2,0]; [0,1,0]·same = [0,2] *)
-  [%expect
-    {| tensor f32 [N=1 T=1 D=1 H=2 W=2 C=2] {4, 5, 10, 11, 2, 0, 0, 2} |}]
+  [%expect {| tensor f32 [H=2 W=2 C=2] {4, 5, 10, 11, 2, 0, 0, 2} |}]
 
 let%expect_test "windowed axis: output_extent and window agree" =
   let module Wa = Window_axis.Compute (Direct) in
@@ -288,7 +285,7 @@ let%expect_test "Direct: mean over spatial (H,W), per channel" =
   let out_shape = Reduce.Mean.output_shape ~x_shape p in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (M.pixel p ~x_shape ~x));
-  [%expect {| tensor f32 [N=1 T=1 D=1 H=1 W=1 C=2] {2.5, 25} |}]
+  [%expect {| tensor f32 [C=2] {2.5, 25} |}]
 
 let%expect_test
     "Mean output_shape: keepdim true collapses in place, false shifts" =
@@ -300,10 +297,9 @@ let%expect_test
   in
   Format.printf "keepdim=true:  %a@." Vec6.pp_shape (shape ~keepdim:true);
   Format.printf "keepdim=false: %a@." Vec6.pp_shape (shape ~keepdim:false);
-  [%expect
-    {|
-    keepdim=true:  [N=1 T=1 D=1 H=6 W=1 C=8]
-    keepdim=false: [N=1 T=1 D=1 H=1 W=6 C=8] |}]
+  [%expect {|
+    keepdim=true:  [H=6 W=1 C=8]
+    keepdim=false: [W=6 C=8] |}]
 
 let%expect_test "Direct: mean over W, keepdim=false shifts H's data onto W" =
   let module M = Reduce.Mean.Compute (Direct) in
@@ -325,8 +321,8 @@ let%expect_test "Direct: mean over W, keepdim=false shifts H's data onto W" =
   (* same means {2, 6}; keepdim=true keeps them on H, keepdim=false moves them to W. *)
   [%expect
     {|
-    tensor f32 [N=1 T=1 D=1 H=2 W=1 C=1] {2, 6}
-    tensor f32 [N=1 T=1 D=1 H=1 W=2 C=1] {2, 6} |}]
+    tensor f32 [H=2 W=1 C=1] {2, 6}
+    tensor f32 [W=2 C=1] {2, 6} |}]
 
 let%expect_test "Direct: rms_norm over C (channel-wise normalise)" =
   let module R = Norm.RmsNorm.Compute (Direct) in
@@ -351,5 +347,5 @@ let%expect_test "Direct: rms_norm over C (channel-wise normalise)" =
   run ~vals:[ 2.; -2.; 2.; -2. ] ~w:[ 1.; 2.; 3.; 4. ] ~eps:12.;
   [%expect
     {|
-    tensor f32 [N=1 T=1 D=1 H=1 W=1 C=2] {0.2, 1.4}
-    tensor f32 [N=1 T=1 D=1 H=1 W=1 C=4] {0.5, -1, 1.5, -2} |}]
+    tensor f32 [C=2] {0.2, 1.4}
+    tensor f32 [C=4] {0.5, -1, 1.5, -2} |}]
