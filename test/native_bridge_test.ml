@@ -232,3 +232,37 @@ let%expect_test "dispatch: rms_norm no weight (ones) matches affine identity" =
     ~noutputs:1;
   [%expect
     {| tensor f32 [W=2 C=3] {0.46291, 0.925819, 1.38873, 0.789542, 0.986927, 1.18431} |}]
+
+let%expect_test
+    "dispatch: permute.default rank-2 dims=[1,0] — transposes W and C" =
+  (* ATen [2,3] right-aligns to native [W=2 C=3]; permute([1,0]) swaps dims ->
+     output [W=3 C=2], i.e. the transpose [[0,3],[1,4],[2,5]] row-major. *)
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.permute.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dims" [ 1; 0 ] ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=3 C=2] {0, 3, 1, 4, 2, 5} |}]
+
+let%expect_test "dispatch: permute.default rank-3 dims=[2,0,1] — CHW cycle" =
+  (* ATen [2,3,4] -> native [H=2 W=3 C=4]; permute([2,0,1]) cycles dims:
+     output ATen dim 0 <- input dim 2, dim 1 <- dim 0, dim 2 <- dim 1.
+     Frame: output H <- input C, output W <- input H, output C <- input W.
+     Output shape: H=C_in=4, W=H_in=2, C=W_in=3. *)
+  let vals = List.init 24 float_of_int in
+  let x = float_tensor [ 2; 3; 4 ] vals in
+  dispatch_print ~target:"torch.ops.aten.permute.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dims" [ 2; 0; 1 ] ]
+    ~noutputs:1;
+  (* output[h,w,c] = input[w, c, h] (inverse of the cycle applied to indices):
+     (h=0,w=0,c=0): input[0,0,0]=0; (h=0,w=0,c=1): input[0,1,0]=4 *)
+  [%expect {| tensor f32 [H=4 W=2 C=3] {0, 4, 8, 12, 16, 20, 1, 5, ...} |}]
+
+let%expect_test "dispatch: permute.default identity — output equals input" =
+  let x = float_tensor [ 3; 4 ] (List.init 12 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.permute.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dims" [ 0; 1 ] ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=3 C=4] {0, 1, 2, 3, 4, 5, 6, 7, ...} |}]

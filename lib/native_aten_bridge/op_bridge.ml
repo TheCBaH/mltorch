@@ -85,6 +85,13 @@ let run_rms_norm (x : Tensor.packed) ~weight ~dims ~eps : Tensor.packed =
   let shape = Norm.RmsNorm.output_shape ~x_shape:r.shape in
   Schedule.evaluate shape (C.pixel p ~x_shape:r.shape ~x ~weight)
 
+let run_permute (x : Tensor.packed) (perm : Permute.Permute.perm) :
+    Tensor.packed =
+  let module C = Permute.Permute.Compute (Direct) in
+  let (Tensor.Tensor r) = x in
+  let shape = Permute.Permute.output_shape ~x_shape:r.shape perm in
+  Schedule.evaluate shape (C.pixel perm ~x)
+
 (* --- Argument decoding for the reductions/normalisation ---
 
    [mean.dim] and [rms_norm] reference frame axes through [Aten_shape.axis_of_dim],
@@ -94,6 +101,21 @@ let run_rms_norm (x : Tensor.packed) ~weight ~dims ~eps : Tensor.packed =
    no relayout is needed — see .ai/native_aten_bridge_layout.md. *)
 
 let aten_rank t = Array.length (Aten_tensor.shape t)
+
+(* Build a full 6D native permutation from an ATen [dims] list and the tensor
+   rank.  For the [rank] used axes, [dims.(i)] is the ATen input dim for output
+   position [i]; for the outer padding axes the permutation is the identity. *)
+let native_perm_of_aten ~rank dims =
+  let used = Aten_shape.used_axes ~rank in
+  let outer = List.filter (fun a -> not (List.mem a used)) Axis.all in
+  let outer_perm = List.map (fun a -> (a, a)) outer in
+  let inner_perm =
+    List.mapi
+      (fun i d ->
+        (Aten_shape.axis_of_dim ~rank i, Aten_shape.axis_of_dim ~rank d))
+      dims
+  in
+  outer_perm @ inner_perm
 
 (* An ATen dim list arg -> frame axes for the tensor of the given rank.  A
    missing/None dim (e.g. [mean.dim] with no [dim]) means "all axes". *)
@@ -157,6 +179,12 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       let dims = dims_arg node ~rank "dim" in
       let keepdim = D.bool_arg node "keepdim" in
       unary aten_env node ~f:(run_mean ~dims ~keepdim) "self"
+  | "torch.ops.aten.permute.default" ->
+      let t = D.tensor_arg aten_env node "self" in
+      let rank = aten_rank t in
+      let dims = D.ints_arg node "dims" in
+      let perm = native_perm_of_aten ~rank dims in
+      unary aten_env node ~f:(fun x -> run_permute x perm) "self"
   | "torch.ops.aten.rms_norm.default" -> (
       let t = D.tensor_arg aten_env node "input" in
       let rank = aten_rank t in
