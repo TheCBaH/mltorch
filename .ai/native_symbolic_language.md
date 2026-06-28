@@ -98,6 +98,17 @@ type 'e stage = {
 type 'e program = { stages : 'e stage list; output : stage_id }   (* topo-ordered DAG *)
 ```
 
+**Status (implemented).** This stage DAG is now *produced* by `Eval_symbolic.run`
+over a `Graph_ir.graph` (see `native_graph_design.md`), as `Stage_program.t`:
+each graph node becomes one stage whose `body` is its per-pixel `Expr.t`. The
+`source = Input | Stage` distinction is **not** an `Expr` variant — every `Load`
+already carries the producer's `Tensor_sig.t`, so a stage references an upstream
+stage purely through the signature it loads; Input-vs-Stage is recovered by
+membership in `graph.inputs`. The per-axis `domain`/`axis_set` and the
+reduction-collapses-an-axis bookkeeping below remain future work (footprint
+analysis); the current `stage` carries `{ id; sg; body }` and `output_shape` is
+supplied per-op via `Graph_shape` rather than inferred.
+
 A **reduction collapses an axis**: a `Reduce` over `rdom` produces a stage whose
 `domain` excludes the reduced axis. So `m` and `s` have domain `{N,T,D,H,W}` (no
 `C`); `y` has domain `{N,T,D,H,W,C}` and `Load`s `m`/`s` with `C` absent from

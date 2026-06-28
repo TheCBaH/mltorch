@@ -9,6 +9,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. **Surgical changes** — modify only essential code; match existing style.
 4. **Goal-driven** — turn vague requests into verifiable criteria before starting.
 
+## Conventions
+
+- **Record types get their own module, named `t`** (e.g. `Node.t`, `Graph.t`),
+  matching the existing `Module.t` style (`Tensor.t`, `Vec6.t`). This guarantees
+  field-label uniqueness by construction (`Node.outputs` vs `Graph.outputs`).
+  **Do not silence warning 30** (duplicate labels) — give the types distinct
+  namespaces instead. For mutually recursive records, use `module rec`; if a
+  variant only references the others, parametrise it so it can stay outside the
+  recursive group (see `lib/native/graph_ir.ml`: `'g gop`).
+
 ## Exploration & Planning — start in `.ai/`
 
 The `.ai/` directory is the canonical design record for this repo. **Before exploring

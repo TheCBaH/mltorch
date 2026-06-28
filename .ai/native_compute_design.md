@@ -10,6 +10,10 @@ A **pixel** is the **scalar** at one 6D `coord` (`N T D H W C`) — the unit the
 functor produces per call. C-vectorization is a *schedule* concern, not part of
 the algorithm.
 
+Ops are wired into a holdable, evaluable, transformable **graph** one layer up;
+see `native_graph_design.md` (`Graph_ir`, `Eval_op` = the single per-op dispatch
+applied at both `Direct` and `Symbolic`, `Eval_direct`, `Eval_symbolic`).
+
 ## 1. The `SEMANTICS` signature — the abstract numeric domain
 
 An op never names `float` or `expr` directly; it speaks `SEMANTICS`. `t` is "a
