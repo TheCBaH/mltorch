@@ -19,8 +19,8 @@ verify mode (stdin via "-"), add.Tensor with a different generator per input:
   $ ../bin/aten_spec_verify.exe --print <<'JSON'
   > { "target": "torch.ops.aten.add.Tensor",
   >   "args": {
-  >     "self":  { "dtype": "f32", "shape": [2], "values": [{"float":"0x3f800000"}, {"float":"0x40000000"}] },
-  >     "other": { "dtype": "f32", "shape": [2], "values": [{"float":"0x3f000000"}, {"float":"0x3f000000"}] }
+  >     "self":  { "dtype": "f32", "shape": [2], "values": [{"float":1}, {"float":2}] },
+  >     "other": { "dtype": "f32", "shape": [2], "values": [{"float":0.5}, {"float":0.5}] }
   >   } }
   > JSON
   [eval] torch.ops.aten.add.Tensor

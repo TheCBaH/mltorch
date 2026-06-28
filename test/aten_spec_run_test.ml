@@ -65,7 +65,7 @@ let%expect_test "add: sequence self + values other (exact)" =
     {|{ "target": "torch.ops.aten.add.Tensor",
         "args": {
           "self":  { "dtype": "f32", "shape": [4], "sequence": { "start": 0.0, "step": 1.0 } },
-          "other": { "dtype": "f32", "shape": [4], "values": [{"float":"0x3e800000"}, {"float":"0x3e800000"}, {"float":"0x3e800000"}, {"float":"0x3e800000"}] } } }|};
+          "other": { "dtype": "f32", "shape": [4], "values": [{"float":0.25}, {"float":0.25}, {"float":0.25}, {"float":0.25}] } } }|};
   [%expect
     {|
     [eval] torch.ops.aten.add.Tensor
@@ -78,8 +78,8 @@ let%expect_test "add: values + values" =
   eval
     {|{ "target": "torch.ops.aten.add.Tensor",
         "args": {
-          "self":  { "dtype": "f32", "shape": [2], "values": [{"float":"0x3f800000"}, {"float":"0x40000000"}] },
-          "other": { "dtype": "f32", "shape": [2], "values": [{"float":"0x3f000000"}, {"float":"0x3f000000"}] } } }|};
+          "self":  { "dtype": "f32", "shape": [2], "values": [{"float":1}, {"float":2}] },
+          "other": { "dtype": "f32", "shape": [2], "values": [{"float":0.5}, {"float":0.5}] } } }|};
   [%expect
     {|
     [eval] torch.ops.aten.add.Tensor
@@ -160,8 +160,8 @@ let%expect_test "rms_norm: normalized_shape=[3] with weight" =
         "args": {
           "input": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 1.0, "step": 1.0 } },
           "normalized_shape": [3],
-          "weight": { "dtype": "f32", "shape": [3], "values": [{"float":"0x3f800000"}, {"float":"0x3f800000"}, {"float":"0x3f800000"}] },
-          "eps": "0x3727c5ac" } }|};
+          "weight": { "dtype": "f32", "shape": [3], "values": [{"float":1}, {"float":1}, {"float":1}] },
+          "eps": 9.9999997473787516e-06 } }|};
   [%expect
     {|
     [eval] torch.ops.aten.rms_norm.default
@@ -174,7 +174,7 @@ let%expect_test "rms_norm: normalized_shape=[3] no weight (identity scale)" =
         "args": {
           "input": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 1.0, "step": 1.0 } },
           "normalized_shape": [3],
-          "eps": "0x3727c5ac" } }|};
+          "eps": 9.9999997473787516e-06 } }|};
   [%expect
     {|
     [eval] torch.ops.aten.rms_norm.default

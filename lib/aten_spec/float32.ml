@@ -1,7 +1,9 @@
 (* A reproducible float32 value.
 
-   JSON floats are decimal text and lose precision on round-trip, so a tensor
-   value is stored as the IEEE-754 *single* bit pattern in hex ("0x3f800000").
+   Most finite f32 values are readable as JSON numbers. Values with no portable
+   JSON number spelling, or whose bit identity is easy to lose (NaN, infinities,
+   and negative zero), are stored as the IEEE-754 *single* bit pattern in hex
+   ("0x3f800000").
    [Int32.bits_of_float] / [Int32.float_of_bits] move between an OCaml float and
    that 32-bit pattern (same primitive used by lib/native/half.ml).
 
@@ -15,8 +17,21 @@ let to_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
 let to_hex (f : t) = Printf.sprintf "0x%08lx" (Int32.bits_of_float f)
 let of_hex s = Int32.float_of_bits (Int32.of_string s)
 
+let number_round_trips bits f =
+  match float_of_string_opt (Printf.sprintf "%.17g" f) with
+  | Some back -> Int32.equal (Int32.bits_of_float (to_f32 back)) bits
+  | None -> false
+
+let enc_json f =
+  let f = to_f32 f in
+  let bits = Int32.bits_of_float f in
+  if Float.is_finite f && bits <> Int32.min_int && number_round_trips bits f
+  then Jsont.Number (f, Jsont.Meta.none)
+  else Jsont.String (to_hex f, Jsont.Meta.none)
+
 (* Decodes an int32 hex string (canonical, lossless) or a plain JSON number
-   (convenience, rounded to f32); encodes back to the canonical hex string. *)
+   (convenience, rounded to f32); encodes readable finite values as numbers and
+   falls back to the raw int32 hex string for exceptional bit patterns. *)
 let jsont : t Jsont.t =
   Jsont.map ~kind:"f32"
     ~dec:(function
@@ -29,5 +44,4 @@ let jsont : t Jsont.t =
       | _ ->
           Jsont.Error.msgf Jsont.Meta.none
             "float32: expected an int32 hex string or a number")
-    ~enc:(fun f -> Jsont.String (to_hex f, Jsont.Meta.none))
-    Jsont.json
+    ~enc:enc_json Jsont.json

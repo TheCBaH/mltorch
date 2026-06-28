@@ -27,6 +27,63 @@ let%expect_test "float32 hex round-trip" =
     1e-20        0x1e3ce508 eq=true
     idempotent=true |}]
 
+let encode_exn codec v =
+  match Jsont_bytesrw.encode_string codec v with
+  | Ok s -> s
+  | Error e -> failwith e
+
+let decode_exn codec s =
+  match Jsont_bytesrw.decode_string codec s with
+  | Ok v -> v
+  | Error e -> failwith e
+
+let%expect_test "float32 json encoding uses numbers except exceptional bits" =
+  List.iter
+    (fun (label, f) ->
+      pf "%-10s %s -> %s\n" label
+        (Aten_spec.Float32.to_hex f)
+        (encode_exn Aten_spec.Float32.jsont f))
+    [
+      ("one", 1.0);
+      ("point-one", Aten_spec.Float32.to_f32 0.1);
+      ("pi", Aten_spec.Float32.to_f32 Float.pi);
+      ("tiny", Aten_spec.Float32.of_hex "0x00000001");
+      ("neg-zero", Aten_spec.Float32.of_hex "0x80000000");
+      ("inf", Aten_spec.Float32.of_hex "0x7f800000");
+      ("nan", Aten_spec.Float32.of_hex "0x7fc00001");
+    ];
+  [%expect
+    {|
+    one        0x3f800000 -> 1
+    point-one  0x3dcccccd -> 0.10000000149011612
+    pi         0x40490fdb -> 3.1415927410125732
+    tiny       0x00000001 -> 1.4012984643248171e-45
+    neg-zero   0x80000000 -> "0x80000000"
+    inf        0x7f800000 -> "0x7f800000"
+    nan        0x7fc00001 -> "0x7fc00001" |}]
+
+let%expect_test "float32 json decoding accepts numbers and raw hex" =
+  List.iter
+    (fun json ->
+      let f = decode_exn Aten_spec.Float32.jsont json in
+      pf "%s -> %s\n" json (Aten_spec.Float32.to_hex f))
+    [ "1.0"; "\"0x3f800000\""; "0.1"; "\"0x3dcccccd\"" ];
+  [%expect
+    {|
+    1.0 -> 0x3f800000
+    "0x3f800000" -> 0x3f800000
+    0.1 -> 0x3dcccccd
+    "0x3dcccccd" -> 0x3dcccccd |}]
+
+let%expect_test "tensor values decode both float forms and encode compactly" =
+  let t =
+    decode_exn Aten_spec.Tensor_spec.jsont
+      {|{"dtype":"f32","shape":[5],"values":[1.0,{"float":0.5},{"float":"0x80000000"},{"float":"0x7f800000"},{"float":"0x7fc00001"}]}|}
+  in
+  pf "%s\n" (encode_exn Aten_spec.Tensor_spec.jsont t);
+  [%expect
+    {| {"dtype":"f32","shape":[5],"values":[{"float":1},{"float":0.5},{"float":"0x80000000"},{"float":"0x7f800000"},{"float":"0x7fc00001"}]} |}]
+
 (* --- PCG: reproducible, f32-canonical, finite --- *)
 
 let draws_uniform seed n =
@@ -102,7 +159,7 @@ let%expect_test "op spec decode/encode round-trip" =
         stable target=true nargs=true |}]
 
 (* Decode -> encode -> decode and report target + arg count stability, so the
-   non-tensor arg shapes (int[] dims, bool keepdim, float-hex eps, optional
+   non-tensor arg shapes (int[] dims, bool keepdim, float eps, optional
    weight) of the newly-bridged ops are exercised end to end. *)
 let roundtrip json =
   match Jsont_bytesrw.decode_string Aten_op_spec.jsont json with
@@ -142,6 +199,6 @@ let%expect_test "rms_norm round-trip (normalized_shape + weight + eps)" =
         "args": {
           "input": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 1.0, "step": 1.0 } },
           "normalized_shape": [3],
-          "weight": { "dtype": "f32", "shape": [3], "values": [{"float":"0x3f800000"}, {"float":"0x3f800000"}, {"float":"0x3f800000"}] },
-          "eps": "0x322bcc77" } }|};
+          "weight": { "dtype": "f32", "shape": [3], "values": [{"float":1}, {"float":1}, {"float":1}] },
+          "eps": 9.9999999392252903e-09 } }|};
   [%expect {| target=torch.ops.aten.rms_norm.default nargs=4 stable=true |}]

@@ -24,7 +24,8 @@ type t =
    form; this is the matching write side used by the Op_spec envelope. An absent
    optional encodes as JSON null. The shapes mirror each per-op field's codec
    exactly (a plain Int is a bare number, a Scalar is a tagged object, a Float is
-   an int32-hex string), so decode (encode v) = v. *)
+   a JSON number unless it needs an int32-hex fallback), so decode (encode v) =
+   v. *)
 let to_json : t -> Jsont.json = function
   | Tensor t -> Spec_util.enc Tensor_spec.jsont t
   | Tensor_opt None -> Spec_util.jnull
