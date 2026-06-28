@@ -36,3 +36,6 @@ val pp_shape :
 
 val pp_coord :
   Format.formatter -> coord -> unit (* (1,0,2) — leading 0s trimmed *)
+
+(* [n, t, d, h, w, c] — all 6 extents, no trimming. *)
+val shape_jsont : shape Jsont.t

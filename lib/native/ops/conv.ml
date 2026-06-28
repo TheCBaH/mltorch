@@ -20,6 +20,19 @@ module Conv2d = struct
     pad : Op_config.Nonneg.t Op_config.Hw.t;
   }
 
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"conv2d_params" (fun kernel in_channels pad stride ->
+        { kernel; in_channels; stride; pad })
+    |> Jsont.Object.mem "kernel" (Op_config.Hw.jsont Dim.extent_jsont)
+         ~enc:(fun p -> p.kernel)
+    |> Jsont.Object.mem "in_channels" Dim.extent_jsont ~enc:(fun p ->
+        p.in_channels)
+    |> Jsont.Object.mem "pad" (Op_config.Hw.jsont Op_config.Nonneg.jsont)
+         ~enc:(fun p -> p.pad)
+    |> Jsont.Object.mem "stride" (Op_config.Hw.jsont Op_config.Pos.jsont)
+         ~enc:(fun p -> p.stride)
+    |> Jsont.Object.finish
+
   (* N/T/D pass through; H/W shrink via [Window_axis.output_extent]; C = Cout from
      weight_shape (weight is [Cout,1,1,Kh,Kw,Cin] — Cout isn't in params). *)
   let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)

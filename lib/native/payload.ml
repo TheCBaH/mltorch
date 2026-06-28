@@ -88,3 +88,34 @@ let pp : type e b q. Format.formatter -> (e, b, q) payload -> unit =
   match p.quant with
   | No_quant -> pp_fmt fmt p.fmt
   | Quant qz -> Format.fprintf fmt "%a[%a]" pp_fmt p.fmt Quant.pp qz
+
+(* ---- JSON codecs ---------------------------------------------------------- *)
+
+let packed_fmt_jsont : packed_fmt Jsont.t =
+  Jsont.map ~kind:"fmt"
+    ~dec:(fun s ->
+      match s with
+      | "bf16" -> Fmt BF16
+      | "f16" -> Fmt F16
+      | "f32" -> Fmt F32
+      | "i16" -> Fmt I16
+      | "i32" -> Fmt I32
+      | "i64" -> Fmt I64
+      | "i8" -> Fmt I8
+      | _ -> Jsont.Error.msgf Jsont.Meta.none "fmt: unknown %S" s)
+    ~enc:(fun (Fmt f) -> fmt_name f)
+    Jsont.string
+
+(* Encodes the bulk data of a payload as the union {"Array":[...]} or
+   {"None":null}.  [numel] is the number of elements; [iter_floats] yields
+   them in storage order.  If [max_elts] is [Some n] and numel > n, the None
+   branch is taken. *)
+let enc_data_union ~(max_elts : int option) ~numel ~iter_floats : Jsont.json =
+  let omit = match max_elts with Some m -> numel > m | None -> false in
+  if omit then Json_util.single ~case:"None" Json_util.jnull
+  else
+    let buf = Array.make numel 0.0 in
+    iter_floats (fun i f -> buf.(i) <- f);
+    Json_util.single ~case:"Array"
+      (Json_util.jarr
+         (Array.to_list (Array.map (Json_util.enc Json_util.f32_jsont) buf)))

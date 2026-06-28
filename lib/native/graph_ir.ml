@@ -264,3 +264,271 @@ and pp_node g fmt node =
   | _ -> pp_node_header g fmt node
 
 let pp = pp_graph
+
+(* ---- JSON codecs ---------------------------------------------------------- *)
+(* op → node → graph is a mutually recursive type, so the encode/decode
+   functions are defined as a single [let rec] group and then wrapped in
+   Jsont codecs. *)
+
+let tensor_ref_jsont : tensor_ref Jsont.t =
+  Jsont.map ~kind:"tensor_ref" ~dec:Tensor_id.of_int ~enc:Tensor_id.to_int
+    Jsont.int
+
+let opt_ref ms key = Json_util.opt_field ms key tensor_ref_jsont
+
+let rec dec_op (json : Jsont.json) : op =
+  Json_util.union ~kind:"op"
+    [
+      ( "Add",
+        fun v ->
+          let ms = Json_util.req_obj v "Add" in
+          let get k c = Json_util.req_field ms k c "Add" in
+          Add { a = get "a" tensor_ref_jsont; b = get "b" tensor_ref_jsont } );
+      ( "Avg_pool2d",
+        fun v ->
+          let ms = Json_util.req_obj v "Avg_pool2d" in
+          let get k c = Json_util.req_field ms k c "Avg_pool2d" in
+          Avg_pool2d
+            {
+              params = get "params" Pool.AvgPool2d.params_jsont;
+              x = get "x" tensor_ref_jsont;
+            } );
+      ( "Bmm",
+        fun v ->
+          let ms = Json_util.req_obj v "Bmm" in
+          let get k c = Json_util.req_field ms k c "Bmm" in
+          Bmm
+            {
+              input = get "input" tensor_ref_jsont;
+              mat2 = get "mat2" tensor_ref_jsont;
+            } );
+      ( "Conv2d",
+        fun v ->
+          let ms = Json_util.req_obj v "Conv2d" in
+          let get k c = Json_util.req_field ms k c "Conv2d" in
+          Conv2d
+            {
+              params = get "params" Conv.Conv2d.params_jsont;
+              x = get "x" tensor_ref_jsont;
+              weight = get "weight" tensor_ref_jsont;
+              bias = opt_ref ms "bias";
+            } );
+      ( "Linear",
+        fun v ->
+          let ms = Json_util.req_obj v "Linear" in
+          let get k c = Json_util.req_field ms k c "Linear" in
+          Linear
+            {
+              params = get "params" Linear.Linear.params_jsont;
+              x = get "x" tensor_ref_jsont;
+              weight = get "weight" tensor_ref_jsont;
+              bias = opt_ref ms "bias";
+            } );
+      ( "Max_pool2d",
+        fun v ->
+          let ms = Json_util.req_obj v "Max_pool2d" in
+          let get k c = Json_util.req_field ms k c "Max_pool2d" in
+          Max_pool2d
+            {
+              params = get "params" Pool.MaxPool2d.params_jsont;
+              x = get "x" tensor_ref_jsont;
+            } );
+      ( "Mean",
+        fun v ->
+          let ms = Json_util.req_obj v "Mean" in
+          let get k c = Json_util.req_field ms k c "Mean" in
+          Mean
+            {
+              params = get "params" Reduce.Mean.params_jsont;
+              x = get "x" tensor_ref_jsont;
+            } );
+      ( "Mul",
+        fun v ->
+          let ms = Json_util.req_obj v "Mul" in
+          let get k c = Json_util.req_field ms k c "Mul" in
+          Mul { a = get "a" tensor_ref_jsont; b = get "b" tensor_ref_jsont } );
+      ( "Permute",
+        fun v ->
+          let ms = Json_util.req_obj v "Permute" in
+          let get k c = Json_util.req_field ms k c "Permute" in
+          Permute
+            {
+              perm = get "perm" Permute.Permute.perm_jsont;
+              x = get "x" tensor_ref_jsont;
+            } );
+      ( "Relu",
+        fun v ->
+          let ms = Json_util.req_obj v "Relu" in
+          let get k c = Json_util.req_field ms k c "Relu" in
+          Relu { x = get "x" tensor_ref_jsont } );
+      ( "Rms_norm",
+        fun v ->
+          let ms = Json_util.req_obj v "Rms_norm" in
+          let get k c = Json_util.req_field ms k c "Rms_norm" in
+          Rms_norm
+            {
+              params = get "params" Norm.RmsNorm.params_jsont;
+              x = get "x" tensor_ref_jsont;
+              weight = opt_ref ms "weight";
+            } );
+      ( "Subgraph",
+        fun v ->
+          let ms = Json_util.req_obj v "Subgraph" in
+          let get k c = Json_util.req_field ms k c "Subgraph" in
+          let graph_codec =
+            Jsont.map ~kind:"graph" ~dec:dec_graph ~enc:enc_graph Jsont.json
+          in
+          Subgraph
+            {
+              graph = get "graph" graph_codec;
+              args = get "args" (Jsont.list tensor_ref_jsont);
+            } );
+    ]
+    json
+
+and dec_node (json : Jsont.json) : node =
+  let ms = Json_util.req_obj json "node" in
+  let get k c = Json_util.req_field ms k c "node" in
+  let op_codec = Jsont.map ~kind:"op" ~dec:dec_op ~enc:enc_op Jsont.json in
+  Node.
+    {
+      id = Node_id.of_int (get "id" Jsont.int);
+      op = get "op" op_codec;
+      outputs = get "outputs" (Jsont.list tensor_ref_jsont);
+    }
+
+and dec_graph (json : Jsont.json) : graph =
+  let ms = Json_util.req_obj json "graph" in
+  let get k c = Json_util.req_field ms k c "graph" in
+  let node_codec =
+    Jsont.map ~kind:"node" ~dec:dec_node ~enc:enc_node Jsont.json
+  in
+  let tensors_list = get "tensors" (Jsont.list Tensor_sig.jsont) in
+  let tensors =
+    List.fold_left
+      (fun m (sg : Tensor_sig.t) ->
+        Tensor_id.Map.add (Tensor_id.of_int sg.id) sg m)
+      Tensor_id.Map.empty tensors_list
+  in
+  Graph.
+    {
+      name = get "name" Jsont.string;
+      inputs = get "inputs" (Jsont.list tensor_ref_jsont);
+      nodes = get "nodes" (Jsont.list node_codec);
+      outputs = get "outputs" (Jsont.list tensor_ref_jsont);
+      tensors;
+    }
+
+and enc_op (op : op) : Jsont.json =
+  let ref_ = Json_util.enc tensor_ref_jsont in
+  let opt_ref_ = function None -> [] | Some r -> [ ("bias", ref_ r) ] in
+  let opt_weight_ = function None -> [] | Some r -> [ ("weight", ref_ r) ] in
+  match op with
+  | Add { a; b } ->
+      Json_util.single ~case:"Add"
+        (Json_util.jobj [ ("a", ref_ a); ("b", ref_ b) ])
+  | Avg_pool2d { params; x } ->
+      Json_util.single ~case:"Avg_pool2d"
+        (Json_util.jobj
+           [
+             ("params", Json_util.enc Pool.AvgPool2d.params_jsont params);
+             ("x", ref_ x);
+           ])
+  | Bmm { input; mat2 } ->
+      Json_util.single ~case:"Bmm"
+        (Json_util.jobj [ ("input", ref_ input); ("mat2", ref_ mat2) ])
+  | Conv2d { params; x; weight; bias } ->
+      Json_util.single ~case:"Conv2d"
+        (Json_util.jobj
+           (opt_ref_ bias
+           @ [
+               ("params", Json_util.enc Conv.Conv2d.params_jsont params);
+               ("weight", ref_ weight);
+               ("x", ref_ x);
+             ]))
+  | Linear { params; x; weight; bias } ->
+      Json_util.single ~case:"Linear"
+        (Json_util.jobj
+           (opt_ref_ bias
+           @ [
+               ("params", Json_util.enc Linear.Linear.params_jsont params);
+               ("weight", ref_ weight);
+               ("x", ref_ x);
+             ]))
+  | Max_pool2d { params; x } ->
+      Json_util.single ~case:"Max_pool2d"
+        (Json_util.jobj
+           [
+             ("params", Json_util.enc Pool.MaxPool2d.params_jsont params);
+             ("x", ref_ x);
+           ])
+  | Mean { params; x } ->
+      Json_util.single ~case:"Mean"
+        (Json_util.jobj
+           [
+             ("params", Json_util.enc Reduce.Mean.params_jsont params);
+             ("x", ref_ x);
+           ])
+  | Mul { a; b } ->
+      Json_util.single ~case:"Mul"
+        (Json_util.jobj [ ("a", ref_ a); ("b", ref_ b) ])
+  | Permute { perm; x } ->
+      Json_util.single ~case:"Permute"
+        (Json_util.jobj
+           [
+             ("perm", Json_util.enc Permute.Permute.perm_jsont perm);
+             ("x", ref_ x);
+           ])
+  | Relu { x } ->
+      Json_util.single ~case:"Relu" (Json_util.jobj [ ("x", ref_ x) ])
+  | Rms_norm { params; x; weight } ->
+      Json_util.single ~case:"Rms_norm"
+        (Json_util.jobj
+           ([ ("params", Json_util.enc Norm.RmsNorm.params_jsont params) ]
+           @ opt_weight_ weight
+           @ [ ("x", ref_ x) ]))
+  | Subgraph { graph; args } ->
+      Json_util.single ~case:"Subgraph"
+        (Json_util.jobj
+           [
+             ("args", Json_util.jarr (List.map ref_ args));
+             ("graph", enc_graph graph);
+           ])
+
+and enc_node (node : node) : Jsont.json =
+  Json_util.jobj
+    [
+      ("id", Json_util.jint (Node_id.to_int node.Node.id));
+      ("op", enc_op node.Node.op);
+      ( "outputs",
+        Json_util.jarr
+          (List.map (Json_util.enc tensor_ref_jsont) node.Node.outputs) );
+    ]
+
+and enc_graph (g : graph) : Jsont.json =
+  let tensors_json =
+    Tensor_id.Map.bindings g.Graph.tensors
+    |> List.map (fun (tid, sg) ->
+        (* sg.id is from a global allocation counter; use the graph-local
+            Tensor_id as the JSON key so refs and tensor metadata agree. *)
+        let sg = { sg with Tensor_sig.id = Tensor_id.to_int tid } in
+        Json_util.enc Tensor_sig.jsont sg)
+  in
+  Json_util.jobj
+    [
+      ( "inputs",
+        Json_util.jarr
+          (List.map (Json_util.enc tensor_ref_jsont) g.Graph.inputs) );
+      ("name", Json_util.jstr g.Graph.name);
+      ("nodes", Json_util.jarr (List.map enc_node g.Graph.nodes));
+      ( "outputs",
+        Json_util.jarr
+          (List.map (Json_util.enc tensor_ref_jsont) g.Graph.outputs) );
+      ("tensors", Json_util.jarr tensors_json);
+    ]
+
+let op_jsont : op Jsont.t =
+  Jsont.map ~kind:"op" ~dec:dec_op ~enc:enc_op Jsont.json
+
+let graph_jsont : graph Jsont.t =
+  Jsont.map ~kind:"graph" ~dec:dec_graph ~enc:enc_graph Jsont.json

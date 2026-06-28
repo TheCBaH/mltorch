@@ -55,6 +55,70 @@ let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) =
       Payload.set_float payload ~c:(channel c) ~i (f c));
   Tensor { shape; payload }
 
+(* ---- JSON codec ----------------------------------------------------------- *)
+
+(* Encodes a packed tensor as
+     {"fmt":"f32","quant":...,"shape":[...],"data":{"Array":[...]} or {"None":null}}
+   [max_elts]: if Some n and the tensor has more than n elements, the data is
+   encoded as {"None":null} instead of {"Array":[...]}.  Decoders always accept
+   both forms; {"None":null} decodes to [None].  Currently only F32 tensors can
+   be decoded back (the format is recorded in JSON for future extension). *)
+let jsont ?(max_elts : int option) () : packed Jsont.t =
+  let enc_packed (Tensor t) =
+    let numel = (Vec6.numel t.shape :> int) in
+    let data_json =
+      Payload.enc_data_union ~max_elts ~numel ~iter_floats:(fun yield ->
+          Vec6.iter t.shape (fun c ->
+              let i = (Vec6.offset t.shape c :> int) in
+              yield i (Payload.get_float t.payload ~c:(channel c) ~i)))
+    in
+    let quant_json =
+      match t.payload.Payload.quant with
+      | Payload.No_quant -> Json_util.jnull
+      | Payload.Quant q -> Json_util.enc Quant.jsont q
+    in
+    Json_util.jobj
+      [
+        ("data", data_json);
+        ( "fmt",
+          Json_util.enc Payload.packed_fmt_jsont
+            (Payload.Fmt t.payload.Payload.fmt) );
+        ("quant", quant_json);
+        ("shape", Json_util.enc Vec6.shape_jsont t.shape);
+      ]
+  in
+  let dec_packed json =
+    let ms = Json_util.req_obj json "tensor" in
+    let get k c = Json_util.req_field ms k c "tensor" in
+    let shape = get "shape" Vec6.shape_jsont in
+    let data_json =
+      match Json_util.find_member ms "data" with
+      | Some v -> v
+      | None -> Jsont.Error.msgf Jsont.Meta.none "tensor: missing \"data\""
+    in
+    match data_json with
+    | Jsont.Object ([ (("None", _), _) ], _) ->
+        Jsont.Error.msgf Jsont.Meta.none
+          "tensor: cannot decode {\"None\":null} — data was elided"
+    | Jsont.Object ([ (("Array", _), Jsont.Array (vs, _)) ], _) ->
+        let floats = List.map (Json_util.dec Json_util.f32_jsont) vs in
+        let expected = (Vec6.numel shape :> int) in
+        let got = List.length floats in
+        if got <> expected then
+          Jsont.Error.msgf Jsont.Meta.none
+            "tensor: data has %d elements but shape needs %d" got expected;
+        let data = Bigarray.(Array1.create float32 c_layout expected) in
+        List.iteri (fun i f -> data.{i} <- f) floats;
+        let payload =
+          { Payload.fmt = Payload.F32; quant = Payload.No_quant; data }
+        in
+        Tensor { shape; payload }
+    | _ ->
+        Jsont.Error.msgf Jsont.Meta.none
+          "tensor: \"data\" must be {\"Array\":[...]} or {\"None\":null}"
+  in
+  Jsont.map ~kind:"tensor" ~dec:dec_packed ~enc:enc_packed Jsont.json
+
 let pp fmt (Tensor t) =
   Format.fprintf fmt "tensor %a %a {" Payload.pp t.payload Vec6.pp_shape t.shape;
   let n = (Vec6.numel t.shape :> int) in

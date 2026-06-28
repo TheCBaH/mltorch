@@ -6,5 +6,5 @@
 
 (library
  (name native)
- (libraries core fmt)
+ (libraries core fmt jsont jsont.bytesrw)
  (wrapped false))

@@ -62,3 +62,4 @@ val to_int :
   'role t -> int (* also available as the free coercion [(x :> int)] *)
 
 val pp : Format.formatter -> 'role t -> unit
+val extent_jsont : extent t Jsont.t

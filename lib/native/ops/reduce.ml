@@ -27,6 +27,12 @@ module Mean = struct
      output *rank* is a separate concern — [Aten_shape.to_aten], not the op's.) *)
   type params = { dims : Axis.t list; keepdim : bool }
 
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"mean_params" (fun dims keepdim -> { dims; keepdim })
+    |> Jsont.Object.mem "dims" (Jsont.list Axis.jsont) ~enc:(fun p -> p.dims)
+    |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
+    |> Jsont.Object.finish
+
   (* Maps each surviving INPUT axis to the OUTPUT axis that carries its data.
      keepdim=true: identity (collapse in place). keepdim=false: the survivors
      (all axes minus the reduced ones, in canonical order) re-pack right-aligned

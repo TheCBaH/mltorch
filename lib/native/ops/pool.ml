@@ -47,6 +47,17 @@ module MaxPool2d = struct
     pad : Op_config.Nonneg.t Op_config.Hw.t;
   }
 
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"max_pool2d_params" (fun kernel pad stride ->
+        { kernel; stride; pad })
+    |> Jsont.Object.mem "kernel" (Op_config.Hw.jsont Dim.extent_jsont)
+         ~enc:(fun p -> p.kernel)
+    |> Jsont.Object.mem "pad" (Op_config.Hw.jsont Op_config.Nonneg.jsont)
+         ~enc:(fun p -> p.pad)
+    |> Jsont.Object.mem "stride" (Op_config.Hw.jsont Op_config.Pos.jsont)
+         ~enc:(fun p -> p.stride)
+    |> Jsont.Object.finish
+
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
     window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
 
@@ -89,6 +100,17 @@ module AvgPool2d = struct
     stride : Op_config.Pos.t Op_config.Hw.t;
     pad : Op_config.Nonneg.t Op_config.Hw.t;
   }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"avg_pool2d_params" (fun kernel pad stride ->
+        { kernel; stride; pad })
+    |> Jsont.Object.mem "kernel" (Op_config.Hw.jsont Dim.extent_jsont)
+         ~enc:(fun p -> p.kernel)
+    |> Jsont.Object.mem "pad" (Op_config.Hw.jsont Op_config.Nonneg.jsont)
+         ~enc:(fun p -> p.pad)
+    |> Jsont.Object.mem "stride" (Op_config.Hw.jsont Op_config.Pos.jsont)
+         ~enc:(fun p -> p.stride)
+    |> Jsont.Object.finish
 
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
     window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad

@@ -24,7 +24,7 @@ let number_round_trips bits f =
 
 let enc_json f =
   let f = to_f32 f in
-  let bits = Int32.bits_of_float f in
+  let bits = if Float.is_nan f then 0x7fc00000l else Int32.bits_of_float f in
   if Float.is_finite f && bits <> Int32.min_int && number_round_trips bits f
   then Jsont.Number (f, Jsont.Meta.none)
   else Jsont.String (to_hex f, Jsont.Meta.none)

@@ -27,3 +27,52 @@ let pp fmt = function
       Format.fprintf fmt "Per_tensor s=%g zero_point=%d" scale zero_point
   | Per_channel { scale; _ } ->
       Format.fprintf fmt "Per_channel(%d)" (Array.length scale)
+
+let jsont : t Jsont.t =
+  Jsont.map ~kind:"quant"
+    ~dec:(fun json ->
+      Json_util.union ~kind:"quant"
+        [
+          ( "Per_channel",
+            fun v ->
+              let ms = Json_util.req_obj v "Per_channel" in
+              let get k c = Json_util.req_field ms k c "Per_channel" in
+              let scale =
+                Array.of_list (get "scale" (Jsont.list Json_util.f32_jsont))
+              in
+              let zero_point =
+                Array.of_list (get "zero_point" (Jsont.list Jsont.int))
+              in
+              Per_channel { scale; zero_point } );
+          ( "Per_tensor",
+            fun v ->
+              let ms = Json_util.req_obj v "Per_tensor" in
+              let get k c = Json_util.req_field ms k c "Per_tensor" in
+              let scale = get "scale" Json_util.f32_jsont in
+              let zero_point = get "zero_point" Jsont.int in
+              Per_tensor { scale; zero_point } );
+        ]
+        json)
+    ~enc:(fun q ->
+      match q with
+      | Per_channel { scale; zero_point } ->
+          Json_util.single ~case:"Per_channel"
+            (Json_util.jobj
+               [
+                 ( "scale",
+                   Json_util.jarr
+                     (List.map
+                        (Json_util.enc Json_util.f32_jsont)
+                        (Array.to_list scale)) );
+                 ( "zero_point",
+                   Json_util.jarr
+                     (List.map Json_util.jint (Array.to_list zero_point)) );
+               ])
+      | Per_tensor { scale; zero_point } ->
+          Json_util.single ~case:"Per_tensor"
+            (Json_util.jobj
+               [
+                 ("scale", Json_util.enc Json_util.f32_jsont scale);
+                 ("zero_point", Json_util.jint zero_point);
+               ]))
+    Jsont.json

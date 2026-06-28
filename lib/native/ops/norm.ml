@@ -21,6 +21,12 @@ module RmsNorm = struct
      `rms_norm(normalized_shape=[C])` and the multi-axis case alike. *)
   type params = { dims : Axis.t list; eps : float }
 
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"rms_norm_params" (fun dims eps -> { dims; eps })
+    |> Jsont.Object.mem "dims" (Jsont.list Axis.jsont) ~enc:(fun p -> p.dims)
+    |> Jsont.Object.mem "eps" Json_util.f32_jsont ~enc:(fun p -> p.eps)
+    |> Jsont.Object.finish
+
   (* Output keeps the input shape: rms-norm rescales, it does not reduce. *)
   let output_shape ~(x_shape : Vec6.shape) = x_shape
 

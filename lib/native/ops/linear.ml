@@ -9,6 +9,12 @@
 module Linear = struct
   type params = { in_features : Dim.extent Dim.t }
 
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"linear_params" (fun in_features -> { in_features })
+    |> Jsont.Object.mem "in_features" Dim.extent_jsont ~enc:(fun p ->
+        p.in_features)
+    |> Jsont.Object.finish
+
   (* N/T/D/H/W pass through from [x_shape] (no spatial reduction); only C
      changes, to [weight_shape]'s [Out]. Extent-space, no [:> int] round-trips.
      See .ai/native_compute_design.md §2b. *)

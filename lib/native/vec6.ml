@@ -80,6 +80,18 @@ let pp_shape fmt (s : shape) =
     axes;
   Format.pp_print_char fmt ']'
 
+(* Encoded as a 6-element array [n, t, d, h, w, c]. *)
+let shape_jsont : shape Jsont.t =
+  Jsont.map ~kind:"shape"
+    ~dec:(fun xs ->
+      match xs with
+      | [ n; t; d; h; w; c ] -> shape ~n ~t ~d ~h ~w ~c
+      | _ ->
+          Jsont.Error.msgf Jsont.Meta.none
+            "shape: expected 6-element array, got %d" (List.length xs))
+    ~enc:(fun s -> List.map (fun a -> (get s a :> int)) Axis.all)
+    (Jsont.list Jsont.int)
+
 let pp_coord fmt (c : coord) =
   let axes = drop_leading (fun a -> Dim.to_int (get c a) = 0) Axis.all in
   Format.pp_print_char fmt '(';

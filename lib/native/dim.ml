@@ -41,3 +41,12 @@ let equal (a : 'role t) (b : 'role t) : bool = Int.equal a b
 let one : 'role t = 1
 let to_int (x : 'role t) : int = x
 let pp fmt (x : 'role t) = Format.pp_print_int fmt x
+
+let extent_jsont : extent t Jsont.t =
+  Jsont.map ~kind:"extent"
+    ~dec:(fun n ->
+      if n < 1 then
+        Jsont.Error.msgf Jsont.Meta.none "extent: must be >= 1, got %d" n
+      else extent n)
+    ~enc:(fun x -> (x :> int))
+    Jsont.int

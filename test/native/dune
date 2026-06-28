@@ -3,7 +3,7 @@
 
 (library
  (name native_test)
- (libraries native core)
+ (libraries native core jsont jsont.bytesrw)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))

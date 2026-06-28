@@ -99,3 +99,5 @@ val map_operands : (tensor_ref -> tensor_ref) -> op -> op
    topo order, op operands/parameters, and outputs; subgraphs are printed
    recursively under their call site. *)
 val pp : Format.formatter -> graph -> unit
+val op_jsont : op Jsont.t
+val graph_jsont : graph Jsont.t

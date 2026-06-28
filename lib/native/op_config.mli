@@ -12,6 +12,8 @@ module Nonneg : sig
   val of_int : int -> t (* raises [Invalid_argument] if < 0 *)
   val to_int : t -> int
   (* also available as the free coercion [(x :> int)] *)
+
+  val jsont : t Jsont.t
 end
 
 module Pos : sig
@@ -23,6 +25,8 @@ module Pos : sig
   val of_int : int -> t (* raises [Invalid_argument] if < 1 *)
   val to_int : t -> int
   (* also available as the free coercion [(x :> int)] *)
+
+  val jsont : t Jsont.t
 end
 
 module Hw : sig
@@ -31,4 +35,6 @@ module Hw : sig
      [Vec6], a different role: tensor shapes/coords over all six axes, not a
      pair of op hyperparameters). *)
   type 'a t = { h : 'a; w : 'a }
+
+  val jsont : 'a Jsont.t -> 'a t Jsont.t
 end

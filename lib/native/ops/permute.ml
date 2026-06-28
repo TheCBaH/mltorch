@@ -11,6 +11,13 @@ module Permute = struct
   (* [(out_axis, in_axis)] — which input axis feeds each output axis. *)
   type perm = (Axis.t * Axis.t) list
 
+  let perm_jsont : perm Jsont.t =
+    Jsont.list
+      (Jsont.Object.map ~kind:"axis_pair" (fun in_ax out_ax -> (out_ax, in_ax))
+      |> Jsont.Object.mem "in" Axis.jsont ~enc:snd
+      |> Jsont.Object.mem "out" Axis.jsont ~enc:fst
+      |> Jsont.Object.finish)
+
   (* output_shape[out_ax] = x_shape[in_ax] for each (out_ax, in_ax) pair.
      Axes absent from [perm] default to extent 1 (never happens for a full perm). *)
   let output_shape ~(x_shape : Vec6.shape) (perm : perm) =

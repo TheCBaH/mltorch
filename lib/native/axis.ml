@@ -21,3 +21,20 @@ let to_string = function
   | C -> "C"
 
 let pp fmt a = Format.pp_print_string fmt (to_string a)
+
+let of_string = function
+  | "N" -> Some N
+  | "T" -> Some T
+  | "D" -> Some D
+  | "H" -> Some H
+  | "W" -> Some W
+  | "C" -> Some C
+  | _ -> None
+
+let jsont : t Jsont.t =
+  Jsont.map ~kind:"axis"
+    ~dec:(fun s ->
+      match of_string s with
+      | Some a -> a
+      | None -> Jsont.Error.msgf Jsont.Meta.none "axis: unknown %S" s)
+    ~enc:to_string Jsont.string
