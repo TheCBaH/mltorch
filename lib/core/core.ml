@@ -1,5 +1,7 @@
 (* See core.mli. *)
 
+module Monad = Monad
+
 module Error = struct
   type +'e t = { kind : 'e; backtrace : Printexc.raw_backtrace }
 

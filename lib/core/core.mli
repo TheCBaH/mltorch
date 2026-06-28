@@ -1,3 +1,11 @@
+(* Project-wide result plumbing and shared monad building blocks.
+
+   [Monad] contains generic monad implementations (currently only [State]).
+   All other values/types in this module concern the [result]-based error
+   framework. *)
+
+module Monad = Monad
+
 (* Project-wide Result plumbing. The error side of every [result] is an
    [Error.t] — a polymorphic-variant payload plus a detection backtrace. This
    module owns only the generic machinery: smart constructors that capture the

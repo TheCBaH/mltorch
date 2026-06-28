@@ -1,7 +1,7 @@
-(* See graph_builder.mli. The monad is [state -> 'a * state]; [state] carries the
-   tree-wide id counters, the default element type, and the accumulators (built up
-   reversed). Op-output edges are F32 (the compute domain); only [input] honours
-   the chosen element type. *)
+(* See graph_builder.mli. [state] carries the tree-wide id counters, the default
+   element type, and the accumulators (built up reversed). The monad itself is the
+   generic Core.Monad.State threaded over this concrete state. Op-output edges are
+   F32 (the compute domain); only [input] honours the chosen element type. *)
 
 open Graph_ir
 
@@ -14,22 +14,12 @@ type state = {
   rev_inputs : tensor_ref list;
 }
 
-type 'a t = state -> 'a * state
+type 'a t = (state, 'a) Core.Monad.State.t
 
-let return x s = (x, s)
-
-let bind m f s =
-  let x, s = m s in
-  f x s
-
-let ( let* ) = bind
-
-let map m f s =
-  let x, s = m s in
-  (f x, s)
-
-let ( let+ ) = map
-let get s = (s, s)
+let return = Core.Monad.State.return
+let ( let* ) = Core.Monad.State.( let* )
+let ( let+ ) = Core.Monad.State.( let+ )
+let get = Core.Monad.State.get
 let f32 = Payload.Fmt Payload.F32
 
 let input ~shape ?name ?fmt ?quant () s =
