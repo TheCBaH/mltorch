@@ -38,21 +38,17 @@ type tensor_ref = Tensor_id.t
    join the recursive module group; [op] below ties ['g] to [Graph.t]. (Named [gop]
    so the concrete [op = Graph.t gop] alias can keep the short name.) *)
 type 'g gop =
-  | Relu of { x : tensor_ref }
+  (* Constructors are kept in global alphabetical order so any op is easy to
+     locate; the same order is mirrored by every per-op match below and by
+     [Graph_shape]/[Eval_op]/[Graph_builder]. *)
   | Add of { a : tensor_ref; b : tensor_ref }
+  | Avg_pool2d of { params : Pool.AvgPool2d.params; x : tensor_ref }
   | Bmm of { input : tensor_ref; mat2 : tensor_ref }
   | Conv2d of {
       params : Conv.Conv2d.params;
       x : tensor_ref;
       weight : tensor_ref;
       bias : tensor_ref option;
-    }
-  | Permute of { perm : Permute.Permute.perm; x : tensor_ref }
-  | Mean of { params : Reduce.Mean.params; x : tensor_ref }
-  | Rms_norm of {
-      params : Norm.RmsNorm.params;
-      x : tensor_ref;
-      weight : tensor_ref option;
     }
   | Linear of {
       params : Linear.Linear.params;
@@ -61,7 +57,15 @@ type 'g gop =
       bias : tensor_ref option;
     }
   | Max_pool2d of { params : Pool.MaxPool2d.params; x : tensor_ref }
-  | Avg_pool2d of { params : Pool.AvgPool2d.params; x : tensor_ref }
+  | Mean of { params : Reduce.Mean.params; x : tensor_ref }
+  | Mul of { a : tensor_ref; b : tensor_ref }
+  | Permute of { perm : Permute.Permute.perm; x : tensor_ref }
+  | Relu of { x : tensor_ref }
+  | Rms_norm of {
+      params : Norm.RmsNorm.params;
+      x : tensor_ref;
+      weight : tensor_ref option;
+    }
   | Subgraph of { graph : 'g; args : tensor_ref list }
 (* [args] map positionally to [graph.inputs] *)
 

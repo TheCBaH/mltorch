@@ -26,14 +26,13 @@ val input :
    edge. [?name] defaults to "<op>_<output-id>". Omitting an optional operand
    ([?bias], [?weight]) records [None] in the IR; the evaluator fills the
    identity (zeros bias / ones weight). *)
-val relu : ?name:string -> tensor_ref -> Tensor_id.t t
+(* Op constructors in global alphabetical order (see graph_ir.mli). *)
 val add : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+
+val avg_pool2d :
+  ?name:string -> Pool.AvgPool2d.params -> tensor_ref -> Tensor_id.t t
+
 val bmm : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
-
-val permute :
-  ?name:string -> Permute.Permute.perm -> tensor_ref -> Tensor_id.t t
-
-val mean : ?name:string -> Reduce.Mean.params -> tensor_ref -> Tensor_id.t t
 
 val conv2d :
   ?name:string ->
@@ -41,14 +40,6 @@ val conv2d :
   x:tensor_ref ->
   weight:tensor_ref ->
   ?bias:tensor_ref ->
-  unit ->
-  Tensor_id.t t
-
-val rms_norm :
-  ?name:string ->
-  Norm.RmsNorm.params ->
-  x:tensor_ref ->
-  ?weight:tensor_ref ->
   unit ->
   Tensor_id.t t
 
@@ -64,8 +55,21 @@ val linear :
 val max_pool2d :
   ?name:string -> Pool.MaxPool2d.params -> tensor_ref -> Tensor_id.t t
 
-val avg_pool2d :
-  ?name:string -> Pool.AvgPool2d.params -> tensor_ref -> Tensor_id.t t
+val mean : ?name:string -> Reduce.Mean.params -> tensor_ref -> Tensor_id.t t
+val mul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+
+val permute :
+  ?name:string -> Permute.Permute.perm -> tensor_ref -> Tensor_id.t t
+
+val relu : ?name:string -> tensor_ref -> Tensor_id.t t
+
+val rms_norm :
+  ?name:string ->
+  Norm.RmsNorm.params ->
+  x:tensor_ref ->
+  ?weight:tensor_ref ->
+  unit ->
+  Tensor_id.t t
 
 (* Build a nested graph by value: [body] declares the sub's inputs (via [input])
    and returns its outputs, run in a child accumulation that shares the global id

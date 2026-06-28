@@ -63,6 +63,22 @@ let%expect_test "Direct graph: add of two inputs" =
     (Tensor_id.Map.find (id_of_name g "out") env);
   [%expect {| out = tensor f32 [C=3] {10, 11, 12} |}]
 
+let%expect_test "Direct graph: mul of two inputs" =
+  let g =
+    Graph_builder.(
+      build ~name:"mul" ~outputs:(fun r -> [ r ])
+      @@
+      let* a = input ~shape:(s1c 3) ~name:"a" () in
+      let* b = input ~shape:(s1c 3) ~name:"b" () in
+      mul ~name:"out" a b)
+  in
+  let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
+  let b = Tensor.materialize (s1c 3) (fun _ -> 10.) in
+  let env = Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]) in
+  Format.printf "out = %a@." Tensor.pp
+    (Tensor_id.Map.find (id_of_name g "out") env);
+  [%expect {| out = tensor f32 [C=3] {0, 10, 20} |}]
+
 (* Conv decomposition. The input is laid out NCHW: in the 6D frame its channel sits
    on H, spatial-H on W, spatial-W on C. Two permutes bracket a native (NHWC)
    conv: NCHW->NHWC moves the channel to C and the spatial axes to H/W; NHWC->NCHW

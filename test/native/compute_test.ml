@@ -24,6 +24,17 @@ let%expect_test "Direct: add" =
        (A.pixel x y));
   [%expect {| tensor f32 [C=3] {10, 11, 12} |}]
 
+let%expect_test "Direct: mul" =
+  let module M = Pointwise.Mul.Compute (Direct) in
+  let x_shape = s1c 3 and y_shape = s1c 3 in
+  let x = Tensor.materialize x_shape (fun c -> float_of_int (chan c)) in
+  let y = Tensor.materialize y_shape (fun _ -> 10.) in
+  Format.printf "%a@." Tensor.pp
+    (Schedule.evaluate
+       (Pointwise.Mul.output_shape x_shape y_shape)
+       (M.pixel x y));
+  [%expect {| tensor f32 [C=3] {0, 10, 20} |}]
+
 let%expect_test "Direct: conv2d 2x2 box filter (stride 1, no pad)" =
   let module Cv = Conv.Conv2d.Compute (Direct) in
   (* 3x3 single-channel input, value(h,w) = h*3 + w *)

@@ -180,6 +180,15 @@ let dispatch_print ~target ~bindings ~inputs ~noutputs =
   | Some (Error e) -> Printf.printf "error: %s\n" e
   | Some (Ok outs) -> List.iter (fun o -> Format.printf "%a@." Tensor.pp o) outs
 
+let%expect_test "dispatch: mul.Tensor elementwise" =
+  let a = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let b = float_tensor [ 2; 3 ] [ 0.; 10.; 100.; 1.; 2.; 3. ] in
+  dispatch_print ~target:"torch.ops.aten.mul.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=3] {0, 20, 300, 4, 10, 18} |}]
+
 let%expect_test "dispatch: bmm 1x2x2 @ 1x2x2" =
   let a = float_tensor [ 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
   let b = float_tensor [ 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in

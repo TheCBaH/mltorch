@@ -49,12 +49,7 @@ let binary aten_env node ~f name_a name_b =
 
 (* --- Direct scheduler helpers --- *)
 
-let run_relu (x : Tensor.packed) : Tensor.packed =
-  let module C = Pointwise.Relu.Compute (Direct) in
-  let (Tensor.Tensor r) = x in
-  let shape = Pointwise.Relu.output_shape r.shape in
-  Schedule.evaluate shape (C.pixel x)
-
+(* Direct-scheduler runners in global alphabetical order. *)
 let run_add (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
   let module C = Pointwise.Add.Compute (Direct) in
   let (Tensor.Tensor ra) = a in
@@ -78,12 +73,12 @@ let run_mean (x : Tensor.packed) ~dims ~keepdim : Tensor.packed =
   let shape = Reduce.Mean.output_shape ~x_shape:r.shape p in
   Schedule.evaluate shape (C.pixel p ~x_shape:r.shape ~x)
 
-let run_rms_norm (x : Tensor.packed) ~weight ~dims ~eps : Tensor.packed =
-  let module C = Norm.RmsNorm.Compute (Direct) in
-  let (Tensor.Tensor r) = x in
-  let p = { Norm.RmsNorm.dims; eps } in
-  let shape = Norm.RmsNorm.output_shape ~x_shape:r.shape in
-  Schedule.evaluate shape (C.pixel p ~x_shape:r.shape ~x ~weight)
+let run_mul (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
+  let module C = Pointwise.Mul.Compute (Direct) in
+  let (Tensor.Tensor ra) = a in
+  let (Tensor.Tensor rb) = b in
+  let shape = Pointwise.Mul.output_shape ra.shape rb.shape in
+  Schedule.evaluate shape (C.pixel a b)
 
 let run_permute (x : Tensor.packed) (perm : Permute.Permute.perm) :
     Tensor.packed =
@@ -91,6 +86,19 @@ let run_permute (x : Tensor.packed) (perm : Permute.Permute.perm) :
   let (Tensor.Tensor r) = x in
   let shape = Permute.Permute.output_shape ~x_shape:r.shape perm in
   Schedule.evaluate shape (C.pixel perm ~x)
+
+let run_relu (x : Tensor.packed) : Tensor.packed =
+  let module C = Pointwise.Relu.Compute (Direct) in
+  let (Tensor.Tensor r) = x in
+  let shape = Pointwise.Relu.output_shape r.shape in
+  Schedule.evaluate shape (C.pixel x)
+
+let run_rms_norm (x : Tensor.packed) ~weight ~dims ~eps : Tensor.packed =
+  let module C = Norm.RmsNorm.Compute (Direct) in
+  let (Tensor.Tensor r) = x in
+  let p = { Norm.RmsNorm.dims; eps } in
+  let shape = Norm.RmsNorm.output_shape ~x_shape:r.shape in
+  Schedule.evaluate shape (C.pixel p ~x_shape:r.shape ~x ~weight)
 
 (* --- Argument decoding for the reductions/normalisation ---
 
@@ -166,9 +174,8 @@ let ones_weight (x_shape : Vec6.shape) dims =
                          as the ATen op's outputs *)
 let dispatch ~(aten_env : aten_env) (node : Node.t) :
     (Tensor.packed list, string) result option =
+  (* Arms in global alphabetical order by the dispatched op name. *)
   match node.target with
-  | "torch.ops.aten.relu.default" | "torch.ops.aten.relu_.default" ->
-      unary aten_env node ~f:run_relu "self"
   | "torch.ops.aten.add.Tensor" | "torch.ops.aten.add_.Tensor" ->
       binary aten_env node ~f:run_add "self" "other"
   | "torch.ops.aten.bmm.default" ->
@@ -179,12 +186,16 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       let dims = dims_arg node ~rank "dim" in
       let keepdim = D.bool_arg node "keepdim" in
       unary aten_env node ~f:(run_mean ~dims ~keepdim) "self"
+  | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" ->
+      binary aten_env node ~f:run_mul "self" "other"
   | "torch.ops.aten.permute.default" ->
       let t = D.tensor_arg aten_env node "self" in
       let rank = aten_rank t in
       let dims = D.ints_arg node "dims" in
       let perm = native_perm_of_aten ~rank dims in
       unary aten_env node ~f:(fun x -> run_permute x perm) "self"
+  | "torch.ops.aten.relu.default" | "torch.ops.aten.relu_.default" ->
+      unary aten_env node ~f:run_relu "self"
   | "torch.ops.aten.rms_norm.default" -> (
       let t = D.tensor_arg aten_env node "input" in
       let rank = aten_rank t in

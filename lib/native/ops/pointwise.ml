@@ -3,6 +3,17 @@
    [out] gives the output coord as one index expression per axis.
    See .ai/native_compute_design.md §2. *)
 
+(* Output shape of a binary broadcasting op: per axis, the larger of the two
+   operands' extents — i.e. the non-broadcast (non-extent-1) operand wins, and an
+   extent-1 axis broadcasts to the other operand's extent. Computed in
+   extent-space ([Dim.max], no [:> int]); start from [a_shape] and overwrite every
+   axis. See .ai/native_compute_design.md §2b. *)
+let broadcast_output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
+  List.fold_left
+    (fun s axis ->
+      Vec6.set s axis (Dim.max (Vec6.get a_shape axis) (Vec6.get b_shape axis)))
+    a_shape Axis.all
+
 module Relu = struct
   (* Identity: relu doesn't change shape. See .ai/native_compute_design.md §2b. *)
   let output_shape (x_shape : Vec6.shape) = x_shape
@@ -16,20 +27,21 @@ module Relu = struct
 end
 
 module Add = struct
-  (* Per axis, the non-broadcast (non-extent-1) operand's extent — i.e. the
-     larger of the two. Computed in extent-space ([Dim.max], no [:> int]); start
-     from [a_shape] and overwrite every axis. See
-     .ai/native_compute_design.md §2b. *)
-  let output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
-    List.fold_left
-      (fun s axis ->
-        Vec6.set s axis
-          (Dim.max (Vec6.get a_shape axis) (Vec6.get b_shape axis)))
-      a_shape Axis.all
+  let output_shape = broadcast_output_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* [b] may have extent-1 axes; [load] broadcasts them against b's own shape. *)
     let pixel a b (out : Axis.t -> Semantics.position S.index) =
       S.add (S.load a out) (S.load b out)
+  end
+end
+
+module Mul = struct
+  let output_shape = broadcast_output_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* [b] may have extent-1 axes; [load] broadcasts them against b's own shape. *)
+    let pixel a b (out : Axis.t -> Semantics.position S.index) =
+      S.mul (S.load a out) (S.load b out)
   end
 end

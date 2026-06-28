@@ -50,6 +50,39 @@ let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
     ground = tensor f32 [C=3] {0, 0, 4}
     ground matches direct: true |}]
 
+let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
+  let g =
+    Graph_builder.(
+      build ~name:"prod" ~outputs:(fun r -> [ r ])
+      @@
+      let* a = input ~shape:(s1c 3) ~name:"a" () in
+      let* b = input ~shape:(s1c 3) ~name:"b" () in
+      mul ~name:"out" a b)
+  in
+  let prog = Eval_symbolic.run g in
+  Format.printf "%a@." Stage_program.pp prog;
+  [%expect
+    {|
+    inputs: a, b
+    out = (a[N,T,D,H,W,C] * b[N,T,D,H,W,C])
+    outputs: out |}];
+  let a = Tensor.materialize (s1c 3) (fun c -> [| 1.; -5.; 2. |].(chan c)) in
+  let b = Tensor.materialize (s1c 3) (fun c -> [| -3.; 1.; 2. |].(chan c)) in
+  let inputs = List.combine g.Graph.inputs [ a; b ] in
+  let bind id = List.assoc id inputs in
+  let grounded = Stage_program.ground prog ~bind in
+  let direct = Eval_direct.run g ~inputs in
+  let oid = List.hd g.Graph.outputs in
+  Format.printf "ground = %a@." Tensor.pp (Tensor_id.Map.find oid grounded);
+  Format.printf "ground matches direct: %b@."
+    (tensors_match (s1c 3)
+       (Tensor_id.Map.find oid grounded)
+       (Tensor_id.Map.find oid direct));
+  [%expect
+    {|
+    ground = tensor f32 [C=3] {-3, -5, 4}
+    ground matches direct: true |}]
+
 (* Conv decomposition symbolically: the conv stage loads the permute stage's
    signature, and the final permute loads the conv stage's — i.e. symbolic
    execution extends through the whole graph by tensor signature. *)

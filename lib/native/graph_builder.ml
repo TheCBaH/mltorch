@@ -88,17 +88,16 @@ let op1 ?name ~kind op : Tensor_id.t t =
   let* () = push_node op [ tid ] in
   return tid
 
-let relu ?name x = op1 ?name ~kind:"relu" (Relu { x })
+(* Op constructors in global alphabetical order (see graph_ir.mli). *)
 let add ?name a b = op1 ?name ~kind:"add" (Add { a; b })
+
+let avg_pool2d ?name params x =
+  op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { params; x })
+
 let bmm ?name input mat2 = op1 ?name ~kind:"bmm" (Bmm { input; mat2 })
-let permute ?name perm x = op1 ?name ~kind:"permute" (Permute { perm; x })
-let mean ?name params x = op1 ?name ~kind:"mean" (Mean { params; x })
 
 let conv2d ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"conv2d" (Conv2d { params; x; weight; bias })
-
-let rms_norm ?name params ~x ?weight () =
-  op1 ?name ~kind:"rms_norm" (Rms_norm { params; x; weight })
 
 let linear ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"linear" (Linear { params; x; weight; bias })
@@ -106,8 +105,13 @@ let linear ?name params ~x ~weight ?bias () =
 let max_pool2d ?name params x =
   op1 ?name ~kind:"max_pool2d" (Max_pool2d { params; x })
 
-let avg_pool2d ?name params x =
-  op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { params; x })
+let mean ?name params x = op1 ?name ~kind:"mean" (Mean { params; x })
+let mul ?name a b = op1 ?name ~kind:"mul" (Mul { a; b })
+let permute ?name perm x = op1 ?name ~kind:"permute" (Permute { perm; x })
+let relu ?name x = op1 ?name ~kind:"relu" (Relu { x })
+
+let rms_norm ?name params ~x ?weight () =
+  op1 ?name ~kind:"rms_norm" (Rms_norm { params; x; weight })
 
 let subgraph ~name (body : Tensor_id.t list t) : graph t =
  fun s ->

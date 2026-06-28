@@ -25,12 +25,12 @@ module Make (S : Semantics.SEMANTICS) = struct
       ~(fill : float -> Vec6.shape -> S.input)
       (out : Axis.t -> Semantics.position S.index) : S.t =
     match op with
-    | Relu { x } ->
-        let module C = Pointwise.Relu.Compute (S) in
-        C.pixel (operand x) out
     | Add { a; b } ->
         let module C = Pointwise.Add.Compute (S) in
         C.pixel (operand a) (operand b) out
+    | Avg_pool2d { params; x } ->
+        let module C = Pool.AvgPool2d.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Bmm { input; mat2 } ->
         let module C = Matmul.Bmm.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~input:(operand input)
@@ -44,19 +44,6 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x)
           ~weight:(operand weight) ~bias out
-    | Permute { perm; x } ->
-        let module C = Permute.Permute.Compute (S) in
-        C.pixel perm ~x:(operand x) out
-    | Mean { params; x } ->
-        let module C = Reduce.Mean.Compute (S) in
-        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
-    | Rms_norm { params; x; weight } ->
-        let module C = Norm.RmsNorm.Compute (S) in
-        let weight =
-          match weight with Some w -> operand w | None -> fill 1. (shape_of x)
-          (* absent weight = identity scale *)
-        in
-        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight out
     | Linear { params; x; weight; bias } ->
         let module C = Linear.Linear.Compute (S) in
         let bias =
@@ -68,9 +55,25 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Max_pool2d { params; x } ->
         let module C = Pool.MaxPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
-    | Avg_pool2d { params; x } ->
-        let module C = Pool.AvgPool2d.Compute (S) in
+    | Mean { params; x } ->
+        let module C = Reduce.Mean.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Mul { a; b } ->
+        let module C = Pointwise.Mul.Compute (S) in
+        C.pixel (operand a) (operand b) out
+    | Permute { perm; x } ->
+        let module C = Permute.Permute.Compute (S) in
+        C.pixel perm ~x:(operand x) out
+    | Relu { x } ->
+        let module C = Pointwise.Relu.Compute (S) in
+        C.pixel (operand x) out
+    | Rms_norm { params; x; weight } ->
+        let module C = Norm.RmsNorm.Compute (S) in
+        let weight =
+          match weight with Some w -> operand w | None -> fill 1. (shape_of x)
+          (* absent weight = identity scale *)
+        in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight out
     | Subgraph _ ->
         invalid_arg
           "Eval_op.pixel: Subgraph is handled by the graph traversal, not a \

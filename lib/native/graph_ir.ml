@@ -31,21 +31,15 @@ end
 type tensor_ref = Tensor_id.t
 
 type 'g gop =
-  | Relu of { x : tensor_ref }
+  (* Constructors kept in global alphabetical order (see graph_ir.mli). *)
   | Add of { a : tensor_ref; b : tensor_ref }
+  | Avg_pool2d of { params : Pool.AvgPool2d.params; x : tensor_ref }
   | Bmm of { input : tensor_ref; mat2 : tensor_ref }
   | Conv2d of {
       params : Conv.Conv2d.params;
       x : tensor_ref;
       weight : tensor_ref;
       bias : tensor_ref option;
-    }
-  | Permute of { perm : Permute.Permute.perm; x : tensor_ref }
-  | Mean of { params : Reduce.Mean.params; x : tensor_ref }
-  | Rms_norm of {
-      params : Norm.RmsNorm.params;
-      x : tensor_ref;
-      weight : tensor_ref option;
     }
   | Linear of {
       params : Linear.Linear.params;
@@ -54,7 +48,15 @@ type 'g gop =
       bias : tensor_ref option;
     }
   | Max_pool2d of { params : Pool.MaxPool2d.params; x : tensor_ref }
-  | Avg_pool2d of { params : Pool.AvgPool2d.params; x : tensor_ref }
+  | Mean of { params : Reduce.Mean.params; x : tensor_ref }
+  | Mul of { a : tensor_ref; b : tensor_ref }
+  | Permute of { perm : Permute.Permute.perm; x : tensor_ref }
+  | Relu of { x : tensor_ref }
+  | Rms_norm of {
+      params : Norm.RmsNorm.params;
+      x : tensor_ref;
+      weight : tensor_ref option;
+    }
   | Subgraph of { graph : 'g; args : tensor_ref list }
 
 module rec Node : sig
@@ -86,32 +88,34 @@ type node = Node.t
 type graph = Graph.t
 
 let operands : op -> tensor_ref list = function
-  | Relu { x } -> [ x ]
   | Add { a; b } -> [ a; b ]
+  | Avg_pool2d { x; _ } -> [ x ]
   | Bmm { input; mat2 } -> [ input; mat2 ]
   | Conv2d { x; weight; bias; _ } -> [ x; weight ] @ Option.to_list bias
-  | Permute { x; _ } -> [ x ]
-  | Mean { x; _ } -> [ x ]
-  | Rms_norm { x; weight; _ } -> x :: Option.to_list weight
   | Linear { x; weight; bias; _ } -> [ x; weight ] @ Option.to_list bias
   | Max_pool2d { x; _ } -> [ x ]
-  | Avg_pool2d { x; _ } -> [ x ]
+  | Mean { x; _ } -> [ x ]
+  | Mul { a; b } -> [ a; b ]
+  | Permute { x; _ } -> [ x ]
+  | Relu { x } -> [ x ]
+  | Rms_norm { x; weight; _ } -> x :: Option.to_list weight
   | Subgraph { args; _ } -> args
 
 (* Inline records (the [of { ... }] payloads) can't be captured as a value nor
    updated with [{ r with ... }], so each arm reconstructs explicitly. *)
 let map_operands (f : tensor_ref -> tensor_ref) : op -> op = function
-  | Relu { x } -> Relu { x = f x }
   | Add { a; b } -> Add { a = f a; b = f b }
+  | Avg_pool2d { params; x } -> Avg_pool2d { params; x = f x }
   | Bmm { input; mat2 } -> Bmm { input = f input; mat2 = f mat2 }
   | Conv2d { params; x; weight; bias } ->
       Conv2d { params; x = f x; weight = f weight; bias = Option.map f bias }
-  | Permute { perm; x } -> Permute { perm; x = f x }
-  | Mean { params; x } -> Mean { params; x = f x }
-  | Rms_norm { params; x; weight } ->
-      Rms_norm { params; x = f x; weight = Option.map f weight }
   | Linear { params; x; weight; bias } ->
       Linear { params; x = f x; weight = f weight; bias = Option.map f bias }
   | Max_pool2d { params; x } -> Max_pool2d { params; x = f x }
-  | Avg_pool2d { params; x } -> Avg_pool2d { params; x = f x }
+  | Mean { params; x } -> Mean { params; x = f x }
+  | Mul { a; b } -> Mul { a = f a; b = f b }
+  | Permute { perm; x } -> Permute { perm; x = f x }
+  | Relu { x } -> Relu { x = f x }
+  | Rms_norm { params; x; weight } ->
+      Rms_norm { params; x = f x; weight = Option.map f weight }
   | Subgraph { graph; args } -> Subgraph { graph; args = List.map f args }
