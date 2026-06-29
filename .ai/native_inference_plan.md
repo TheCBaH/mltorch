@@ -56,7 +56,7 @@ The bottom-up build order, tests, and printer discipline for these are in
 |---|---|
 | `axis.ml` | `axis = N\|T\|D\|H\|W\|C` and its order |
 | `dim.ml` | scalar dimensional types `extent/index/count/offset` (≥0) + signed `delta` |
-| `vec6.ml` | role-tagged 6-vector → `shape`/`coord`, `numel`, dense `offset`, `read_coord` |
+| `vec6.ml` | role-tagged 6-vector → `shape`/`coord`/`deltas`, `numel`, dense `offset`, `in_bounds` |
 | `quant.ml` | quant params (per-tensor / per-channel), `quantize` / `dequantize` |
 | `half.ml` | `Half`/`Bf16` software float codecs (no Bigarray half kind) |
 | `payload.ml` | format GADT (`F32\|F16\|BF16\|I64\|I32\|I16\|I8`) + quant-indexed `payload` |

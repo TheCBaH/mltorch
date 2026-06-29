@@ -75,6 +75,27 @@ affine expressions built in the signed `delta` role, with `load` accepting only
 reach a read without going through `clamp_low` or the one `assume_index` inside
 `Window_axis.window`. See `semantics.ml` for the phantom-role types.
 
+**`load` is strict.** It reads exactly the index it is given and raises if that
+index is outside the source extent — it does *not* broadcast an extent-1 axis nor
+pad an out-of-range one. Both are explicit, opt-in steps the op takes *before*
+`load`, so every read is in-bounds by construction at the call site:
+
+- **broadcast** — reduce the output coordinate against the operand's *own* shape
+  (`Pointwise.broadcast_coord ~index_zero`, mapping each extent-1 axis to index 0). A
+  per-channel term's value fans out across the broadcast axis without `load` ever
+  seeing an out-of-bounds index.
+- **padding** — take a guarded tap (`Tensor.shift_in_bounds`, returning the
+  in-bounds coord or `None` in the pad region) and supply the pad value yourself.
+- **fixed-layout size-1 axes** (conv/linear weight & bias, reduce/norm reads) pass
+  an explicit `index_zero` on the structurally-size-1 axes — a degenerate
+  broadcast the op knows statically, again always in-bounds.
+- **windowed reductions** clip their bounds (§4) so the source position is in
+  range by construction.
+
+This keeps the one capability that *was* baked into the read primitive
+(silently returning 0 out of bounds) out of it, where it had two failure modes:
+masking a real indexing bug, and being wrong for `max_reduce` (§2c).
+
 ## 2. An op is a functor `(S : SEMANTICS) -> { pixel }`
 
 Every op has the same shape: given its input handles and an output `coord`,
@@ -95,16 +116,21 @@ module Relu (S : SEMANTICS) = struct
 end
 
 module Add (S : SEMANTICS) = struct
-  let pixel a b (o : coord) = S.add (S.load a o) (S.load b o)
-  (* if b has an extent-1 axis (a per-channel term), `load` reduces the coord
-     against b's own shape — broadcast needs no strides, see native_tensor_design §1b *)
+  (* [load] is strict, so each operand is read at the output coord reduced against
+     its OWN shape ([Pointwise.broadcast_coord]): an extent-1 axis (a per-channel term) fans
+     out by reading index 0 there, never by handing [load] an out-of-bounds index.
+     Broadcast needs no strides, see native_tensor_design §1b. *)
+  let pixel ~a_shape ~b_shape a b (o : coord) =
+    let read sh t = S.load t (Pointwise.broadcast_coord ~index_zero:S.index_zero sh o) in
+    S.add (read a_shape a) (read b_shape b)
 end
 ```
 
 ### Example — conv2d (NHWC)
 
 Output `[n,t,d,h,w,oc]` reduces over input channels and the kernel window.
-Weight is `[Cout,1,1,Kh,Kw,Cin]`; bias is `[1,1,1,1,1,Cout]` (broadcast). The
+Weight is `[Cout,1,1,Kh,Kw,Cin]`; bias is `[1,1,1,1,1,Cout]`, read at an explicit
+`index_zero` on its structurally-size-1 axes (a degenerate broadcast, in-bounds). The
 kh/kw reduction bounds are clipped via `Window_axis.Compute(S).window` so the
 source position is always a valid index, never a generate-then-guard read of the
 padding region. See `ops/conv.ml` for the implementation.
@@ -142,7 +168,9 @@ end
 
 module Add = struct
   let output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
-    (* per axis: the non-broadcast (non-extent-1) operand's extent *)
+    (* per axis: extents must be equal or one must be 1 (its broadcast axis,
+       taking the other's extent); any other pairing is incompatible and raises —
+       NOT silently the larger of the two *)
     ...
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel a b (out : Axis.t -> Semantics.position S.index) =
@@ -304,7 +332,7 @@ module Direct : SEMANTICS with type t = float = struct
   let clamp_low x = Stdlib.max 0 x
   let assume_index x = x
   type input = Tensor.packed
-  let load inp idx = Tensor.read_guarded inp idx
+  let load inp idx = Tensor.read_at inp idx   (* strict: an OOB index raises *)
   let sum ~lo ~hi f =
     let rec loop i acc = if i >= hi then acc else loop (i+1) (acc +. f i) in
     loop lo 0.

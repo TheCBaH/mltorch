@@ -109,18 +109,21 @@ let%expect_test "dim: non-negative + guard + coercion" =
 
 ## 3. `vec6.ml`
 
-Shared 6-component storage, phantom-tagged role *and* component type
-(native_tensor_design §1b). `get` returns `extent` for a shape, `index` for a coord.
+Shared 6-component storage, parameterised by the single `Dim` role its components
+carry (native_tensor_design §1b). `get` returns `extent` for a shape, `index` for
+a coord; the three per-axis roles give three non-unifiable vector types.
 
 ```ocaml
-type ('role, 'comp) t
-type shape = (shape_role, Dim.extent Dim.t) t
-type coord = (coord_role, Dim.index  Dim.t) t
-val shape : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> shape
-val coord : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> coord
+type 'd t
+type shape  = Dim.extent Dim.t t
+type coord  = Dim.index  Dim.t t
+type deltas = Dim.delta  Dim.t t
+val shape  : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> shape
+val coord  : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> coord
+val deltas : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> deltas
 val numel  : shape -> Dim.count Dim.t
 val offset : shape -> coord -> Dim.offset Dim.t
-val read_coord : shape -> coord -> coord       (* broadcast: extent-1 axis → 0 *)
+val in_bounds : shape -> coord -> bool
 val iter   : shape -> (coord -> unit) -> unit
 val pp_shape : Format.formatter -> shape -> unit   (* [N=1 T=1 D=1 H=2 W=2 C=3] *)
 val pp_coord : Format.formatter -> coord -> unit   (* (0,0,0,1,0,2)             *)
@@ -128,18 +131,17 @@ val pp_coord : Format.formatter -> coord -> unit   (* (0,0,0,1,0,2)             
 
 Distinct delimiters (`[…]` vs `(…)`) are the visual proof that the two roles are
 different — and the printers are themselves type-checked against the role.
+(Broadcast is no longer a `Vec6` read trick: `load` is strict and the op reduces
+the coord against the source shape via `Pointwise.broadcast_coord` — see
+native_compute_design §1.)
 
 ```ocaml
-let%expect_test "vec6: offset, numel, broadcast, pp" =
+let%expect_test "vec6: offset, numel, pp" =
   let s = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:3 in
   let c = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:1 ~w:0 ~c:2 in
   Format.printf "%a @ %a -> off %a, numel %a@."
     Vec6.pp_shape s Vec6.pp_coord c Dim.pp (Vec6.offset s c) Dim.pp (Vec6.numel s);
-  [%expect {| [N=1 T=1 D=1 H=2 W=2 C=3] @ (0,0,0,1,0,2) -> off 8, numel 12 |}];
-  (* broadcast: a [..,C] source reads any N..W coord at axis 0 *)
-  let bias = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3 in
-  Format.printf "%a@." Vec6.pp_coord (Vec6.read_coord bias c);
-  [%expect {| (0,0,0,0,0,2) |}]
+  [%expect {| [N=1 T=1 D=1 H=2 W=2 C=3] @ (0,0,0,1,0,2) -> off 8, numel 12 |}]
 ```
 
 ## 4. `half.ml`  (`Half` + `Bf16`)
@@ -208,7 +210,7 @@ let%expect_test "fmt names + quant discipline" =
 ## 7. `tensor.ml`
 
 `{ shape; payload }` — dense, no strides (native_tensor_design §1c). Read =
-`read_coord` (broadcast) → `Vec6.offset` → decode. `pp` shows format + shape + a
+`Vec6.in_bounds` (strict) → `Vec6.offset` → decode. `pp` shows format + shape + a
 bounded element preview.
 
 ```ocaml

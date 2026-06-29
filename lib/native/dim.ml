@@ -10,20 +10,20 @@ type offset
 type delta
 
 let extent n : extent t =
-  if n < 0 then invalid_arg "Dim.extent: negative" else n
+  if n < 1 then invalid_arg "Dim.extent: must be >= 1" else n
 
 let index n : index t = if n < 0 then invalid_arg "Dim.index: negative" else n
 
 (* Recoverable error set owned by this module — for untrusted sizes (e.g. a raw
    model dim). The plain [extent]/[index] above stay total: they assert a
    trusted precondition (a negative there is a bug, not expected input). *)
-type error = [ `Negative_extent of int ]
+type error = [ `Non_positive_extent of int ]
 
 let pp_error ppf : error -> unit = function
-  | `Negative_extent n -> Format.fprintf ppf "extent must be >= 0, got %d" n
+  | `Non_positive_extent n -> Format.fprintf ppf "extent must be >= 1, got %d" n
 
 let extent_checked n =
-  if n < 0 then Core.fail (`Negative_extent n) else Core.return (extent n)
+  if n < 1 then Core.fail (`Non_positive_extent n) else Core.return (extent n)
 
 let delta n : delta t = n
 let one_count : count t = 1
@@ -35,9 +35,9 @@ let to_delta (i : index t) : delta t = i
 let index_of ~(extent : extent t) (d : delta t) : index t option =
   if d >= 0 && d < extent then Some d else None
 
-(* role-preserving: the larger/smaller of two same-role values is still that
-   role (e.g. a broadcast picks the larger of two extents) *)
-let max (a : 'role t) (b : 'role t) : 'role t = Stdlib.max a b
-let min (a : 'role t) (b : 'role t) : 'role t = Stdlib.min a b
+(* role-preserving: same-role operands keep the role. [equal] compares two sizes;
+   [one] is the unit extent a broadcast axis is tested against. *)
+let equal (a : 'role t) (b : 'role t) : bool = Int.equal a b
+let one : 'role t = 1
 let to_int (x : 'role t) : int = x
 let pp fmt (x : 'role t) = Format.pp_print_int fmt x

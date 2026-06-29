@@ -119,7 +119,7 @@ let rec eval ~binding ~coord ?(rvars = []) e =
   | Select (Cmp (op, ca, cb), a, b) ->
       if apply_compare_op op (recur ca) (recur cb) then recur a else recur b
   | Load (s, index) ->
-      Tensor.read_guarded (binding s) (fun a ->
+      Tensor.read_at (binding s) (fun a ->
           eval_index_expr ~coord ~rvars index.(Axis.to_int a))
   | Reduce { kind; var; lo; hi; body } ->
       let combine, init =

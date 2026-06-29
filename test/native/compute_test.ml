@@ -21,7 +21,7 @@ let%expect_test "Direct: add" =
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate
        (Pointwise.Add.output_shape x_shape y_shape)
-       (A.pixel x y));
+       (A.pixel ~a_shape:x_shape ~b_shape:y_shape x y));
   [%expect {| tensor f32 [C=3] {10, 11, 12} |}]
 
 let%expect_test "Direct: mul" =
@@ -32,8 +32,35 @@ let%expect_test "Direct: mul" =
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate
        (Pointwise.Mul.output_shape x_shape y_shape)
-       (M.pixel x y));
+       (M.pixel ~a_shape:x_shape ~b_shape:y_shape x y));
   [%expect {| tensor f32 [C=3] {0, 10, 20} |}]
+
+(* Broadcast: [b] has an extent-1 axis (W) where [a] does not;
+   [Pointwise.broadcast_coord] reads b at index 0 there, so its per-channel value
+   fans out across W — and [load] is only ever handed in-bounds indices. *)
+let%expect_test "Direct: add broadcasts an extent-1 axis" =
+  let module A = Pointwise.Add.Compute (Direct) in
+  let a_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3 in
+  let b_shape = s1c 3 in
+  let a =
+    Tensor.materialize a_shape (fun c -> float_of_int ((col c * 3) + chan c))
+  in
+  let b = Tensor.materialize b_shape (fun c -> [| 10.; 20.; 30. |].(chan c)) in
+  Format.printf "%a@." Tensor.pp
+    (Schedule.evaluate
+       (Pointwise.Add.output_shape a_shape b_shape)
+       (A.pixel ~a_shape ~b_shape a b));
+  [%expect {| tensor f32 [W=2 C=3] {10, 21, 32, 13, 24, 35} |}]
+
+(* Two extents that are neither equal nor 1 are incompatible — broadcasting is
+   an error there, not silently the larger of the two. *)
+let%expect_test "Direct: add of incompatible extents raises" =
+  let a_shape = s1c 3 and b_shape = s1c 5 in
+  (match Pointwise.Add.output_shape a_shape b_shape with
+  | _ -> print_string "no error"
+  | exception Invalid_argument msg -> Printf.printf "raised: %s\n" msg);
+  [%expect
+    {| raised: Pointwise.broadcast_output_shape: incompatible extents on axis C: 3 vs 5 |}]
 
 let%expect_test "Direct: conv2d 2x2 box filter (stride 1, no pad)" =
   let module Cv = Conv.Conv2d.Compute (Direct) in

@@ -27,8 +27,14 @@ alphabetical position at every site below; don't append.
    live in `pointwise.ml`; reductions in `reduce.ml`; etc. Reuse the value basis
    in `semantics.ml` — `mul`/`add`/`sub`/`div`/`select`/`lt`/… already exist, so a
    new pointwise op usually needs no new primitive.
-   - `Mul`: `output_shape = Add.output_shape` (same broadcast rule),
-     `pixel a b out = S.mul (S.load a out) (S.load b out)`.
+   - `Mul`: `output_shape = broadcast_output_shape` (the shared equal-or-1
+     broadcast rule in `pointwise.ml`), and `pixel ~a_shape ~b_shape a b out` reads each operand
+     through `Pointwise.broadcast_coord ~index_zero:S.index_zero <shape> out`. `load` is
+     **strict** (an out-of-bounds index raises), so a binary elementwise op must
+     reduce the output coord against each operand's own shape first — that is what
+     fans an extent-1 axis out without an OOB read. A unary op whose input already
+     has the output shape (relu) reads at `out` directly. When the op takes operand
+     shapes, thread them from `Eval_op` (`shape_of`) and the bridge runner.
 
 2. **Graph IR** — `lib/native/graph_ir.mli` and `graph_ir.ml`
    - Add the constructor to `type 'g gop` (alphabetical) in **both** files. Name

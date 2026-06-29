@@ -18,8 +18,10 @@ let%expect_test "Symbolic: pointwise expr pp" =
   let ys = Tensor_sig.create ~name:"y" ~shape:(s1c 3) ~fmt:f32 () in
   Format.printf "%a@." Expr.pp (R.pixel xs Symbolic.out_coord);
   [%expect {| select((x[N,T,D,H,W,C] < 0), 0, x[N,T,D,H,W,C]) |}];
-  Format.printf "%a@." Expr.pp (A.pixel xs ys Symbolic.out_coord);
-  [%expect {| (x[N,T,D,H,W,C] + y[N,T,D,H,W,C]) |}]
+  Format.printf "%a@." Expr.pp
+    (A.pixel ~a_shape:(s1c 3) ~b_shape:(s1c 3) xs ys Symbolic.out_coord);
+  (* the broadcast (extent-1) axes are read at index 0 — [load] is strict *)
+  [%expect {| (x[0,0,0,0,0,C] + y[0,0,0,0,0,C]) |}]
 
 let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
   let module S = Symbolic.Make () in
@@ -216,7 +218,7 @@ let%expect_test "Symbolic ground: add over several different input pairs" =
   let x_shape = s1c 3 and y_shape = s1c 3 in
   let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
   let ys = Tensor_sig.create ~name:"y" ~shape:y_shape ~fmt:f32 () in
-  let e = A.pixel xs ys Symbolic.out_coord in
+  let e = A.pixel ~a_shape:x_shape ~b_shape:y_shape xs ys Symbolic.out_coord in
   let out_shape = Pointwise.Add.output_shape x_shape y_shape in
   let cases =
     [
@@ -232,7 +234,10 @@ let%expect_test "Symbolic ground: add over several different input pairs" =
       let binding (s : Tensor_sig.t) =
         if s.id = xs.id then x else if s.id = ys.id then y else assert false
       in
-      let direct = Schedule.evaluate out_shape (Ad.pixel x y) in
+      let direct =
+        Schedule.evaluate out_shape
+          (Ad.pixel ~a_shape:x_shape ~b_shape:y_shape x y)
+      in
       let grounded = Schedule.ground out_shape ~binding e in
       Format.printf "grounded=%a match=%b@." Tensor.pp grounded
         (tensors_match out_shape direct grounded))

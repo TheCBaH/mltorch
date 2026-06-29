@@ -55,7 +55,7 @@ let run_add (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
   let (Tensor.Tensor ra) = a in
   let (Tensor.Tensor rb) = b in
   let shape = Pointwise.Add.output_shape ra.shape rb.shape in
-  Schedule.evaluate shape (C.pixel a b)
+  Schedule.evaluate shape (C.pixel ~a_shape:ra.shape ~b_shape:rb.shape a b)
 
 let run_bmm (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
   let module C = Matmul.Bmm.Compute (Direct) in
@@ -78,7 +78,7 @@ let run_mul (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
   let (Tensor.Tensor ra) = a in
   let (Tensor.Tensor rb) = b in
   let shape = Pointwise.Mul.output_shape ra.shape rb.shape in
-  Schedule.evaluate shape (C.pixel a b)
+  Schedule.evaluate shape (C.pixel ~a_shape:ra.shape ~b_shape:rb.shape a b)
 
 let run_permute (x : Tensor.packed) (perm : Permute.Permute.perm) :
     Tensor.packed =

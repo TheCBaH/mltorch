@@ -1,30 +1,34 @@
-(* A 6-component vector over the axes N T D H W C, tagged by a phantom [role] so
-   that a [shape] (extents) and a [coord] (indices) share one representation yet
-   never unify, and [get] hands back the right scalar dimensional type ([extent]
-   for a shape, [index] for a coord). The only operations bridging the two roles
-   ([numel], [offset], [in_bounds], [iter]) take both, so their arguments can't be
-   swapped. See .ai/native_tensor_design.md §1b. *)
+(* A 6-component vector over the axes N T D H W C. The single type parameter is
+   the per-axis [Dim] role it carries, which is the only discriminator — there is
+   no separate vector-role phantom: the role of the components IS the role of the
+   vector. So the three per-axis dimensional roles give three non-unifiable vector
+   types ([Dim.count]/[Dim.offset] are flattened whole-tensor scalars, not per-axis
+   vectors, so they have no [Vec6] form):
 
-type ('role, 'comp) t
-type shape_role
-type coord_role
-type shape = (shape_role, Dim.extent Dim.t) t (* extents, each >= 0 *)
-type coord = (coord_role, Dim.index Dim.t) t (* indices, 0 <= a_i < extent_i *)
+     - [shape]  — extents (sizes, each >= 1)
+     - [coord]  — indices (positions, 0 <= a_i < extent_i)
+     - [deltas] — signed per-axis displacements (a stencil / shift)
+
+   [get] hands back the right scalar dimensional type, and the operations bridging
+   shape and coord ([numel], [offset], [in_bounds], [iter]) take both so their
+   arguments can't be swapped. See .ai/native_tensor_design.md §1b. *)
+
+type 'd t
+type shape = Dim.extent Dim.t t
+type coord = Dim.index Dim.t t
+type deltas = Dim.delta Dim.t t
 
 val shape : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> shape
 val coord : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> coord
+val deltas : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> deltas
 val origin : coord (* all zero *)
-val get : ('role, 'comp) t -> Axis.t -> 'comp
-val set : ('role, 'comp) t -> Axis.t -> 'comp -> ('role, 'comp) t
+val get : 'd t -> Axis.t -> 'd
+val set : 'd t -> Axis.t -> 'd -> 'd t
 
 (* the role-bridging operations *)
 val numel : shape -> Dim.count Dim.t
 val offset : shape -> coord -> Dim.offset Dim.t (* dense NHWC linear index *)
 val in_bounds : shape -> coord -> bool
-
-val read_coord :
-  shape -> coord -> coord (* broadcast: extent-1 axis -> index 0 *)
-
 val iter : shape -> (coord -> unit) -> unit (* C innermost *)
 
 val pp_shape :

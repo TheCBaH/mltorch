@@ -27,7 +27,8 @@ module Make (S : Semantics.SEMANTICS) = struct
     match op with
     | Add { a; b } ->
         let module C = Pointwise.Add.Compute (S) in
-        C.pixel (operand a) (operand b) out
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Avg_pool2d { params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
@@ -60,7 +61,8 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Mul { a; b } ->
         let module C = Pointwise.Mul.Compute (S) in
-        C.pixel (operand a) (operand b) out
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Permute { perm; x } ->
         let module C = Permute.Permute.Compute (S) in
         C.pixel perm ~x:(operand x) out

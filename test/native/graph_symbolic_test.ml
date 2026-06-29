@@ -30,7 +30,7 @@ let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
   [%expect
     {|
     inputs: a, b
-    sum = (a[N,T,D,H,W,C] + b[N,T,D,H,W,C])
+    sum = (a[0,0,0,0,0,C] + b[0,0,0,0,0,C])
     out = select((sum[N,T,D,H,W,C] < 0), 0, sum[N,T,D,H,W,C])
     outputs: out |}];
   let a = Tensor.materialize (s1c 3) (fun c -> [| 1.; -5.; 2. |].(chan c)) in
@@ -64,7 +64,7 @@ let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
   [%expect
     {|
     inputs: a, b
-    out = (a[N,T,D,H,W,C] * b[N,T,D,H,W,C])
+    out = (a[0,0,0,0,0,C] * b[0,0,0,0,0,C])
     outputs: out |}];
   let a = Tensor.materialize (s1c 3) (fun c -> [| 1.; -5.; 2. |].(chan c)) in
   let b = Tensor.materialize (s1c 3) (fun c -> [| -3.; 1.; 2. |].(chan c)) in

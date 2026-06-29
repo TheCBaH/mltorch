@@ -163,8 +163,8 @@ So **a tensor is "specified" symbolically by declaring its interface**, exactly
 like a function parameter's type. Each field earns its place by being needed to
 *build* the expression without any data:
 
-- **`shape`** drives index bounds, broadcast (`read_coord` reads which axes have
-  extent 1), reduction extents, and the whole footprint analysis — and it may be a
+- **`shape`** drives index bounds, broadcast (`broadcast_coord` reads which axes
+  have extent 1), reduction extents, and the whole footprint analysis — and it may be a
   `Sym` shape, so the symbolic program is generic over dynamic sizes.
 - **`fmt`** decides what a `Load` *emits*: a plain read, a `Dequant`, or an
   `F16` decode — and tells codegen which load instruction to lower to.

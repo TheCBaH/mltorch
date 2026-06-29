@@ -34,13 +34,16 @@ contiguous, which is the natural unit for the C-vectorized schedule later.
 
 Plain `int` lets you write `numel t < 0` or pass a flat `offset` where a
 cardinality is wanted; both are nonsense the type system should reject. Four
-quantities are involved, all `≥ 0`, and they split into a *per-axis* pair and a
-*flattened* pair — the flattened pair being the 1-D analogue of `shape`/`coord`:
+quantities are involved and they split into a *per-axis* pair and a *flattened*
+pair — the flattened pair being the 1-D analogue of `shape`/`coord`. A **size**
+(`extent`/`count`) is valid from **1** — the engine has no empty tensors
+(lower-rank tensors embed with size-1 axes, never size-0) — while a **position**
+(`index`/`offset`) is valid from **0**:
 
 | | per-axis (one component) | flattened (whole tensor) |
 |---|---|---|
-| **size / cardinality** | `extent` (axis length) | `count` (numel = ∏ extents) |
-| **position** | `index` (`0 ≤ i < extent`) | `offset` (`0 ≤ o < count`) |
+| **size / cardinality** (`≥ 1`) | `extent` (axis length) | `count` (numel = ∏ extents) |
+| **position** (`≥ 0`) | `index` (`0 ≤ i < extent`) | `offset` (`0 ≤ o < count`) |
 
 So **`numel` returns a `count`, `offset` returns an `offset`, and the two do not
 unify** — exactly the distinction you flagged, mirroring shape≠coord one level
@@ -58,8 +61,8 @@ module Dim : sig
   type +'role t = private int          (* distinct per 'role; coercible to int via :> *)
   type extent and index and count and offset and delta   (* phantom role tags *)
 
-  val extent : int -> extent t         (* checked: raises / clamps if < 0 *)
-  val index  : int -> index  t         (* checked ≥ 0 *)
+  val extent : int -> extent t         (* checked: raises if < 1 (a size) *)
+  val index  : int -> index  t         (* checked: raises if < 0 (a position) *)
   (* `count`/`offset` are *derived*, never built from a raw int by callers:
      they come only out of the product / linearisation below, so they are ≥ 0
      by construction. *)
@@ -86,25 +89,31 @@ Adding two shapes, or using a shape as an index, is nonsense — the types shoul
 forbid it. (Two plain records with the same field labels do *not* achieve this in
 OCaml: the later-defined one shadows field access, so they'd silently unify.)
 
-Encode the shared 6-component storage once, tagging the role *and* the component
-type with phantoms so access is generic but the roles never unify — and `get`
-hands back the right scalar dimensional type (`extent` for a shape, `index` for a
-coord):
+Encode the shared 6-component storage once, parameterised by **the `Dim` role its
+components carry** — that single tag is the only discriminator, so the roles never
+unify and `get` hands back the right scalar dimensional type. There is no separate
+vector-role phantom (an earlier design carried both a `shape_role`/`coord_role`
+*and* the component type, but the component type alone already can't unify, so the
+extra tag earned nothing). The three *per-axis* `Dim` roles therefore give three
+non-unifiable vector types — `count`/`offset` are flattened whole-tensor scalars,
+not per-axis, so they have no `Vec6` form:
 
 ```ocaml
 type axis = N | T | D | H | W | C        (* fixed order; C is innermost *)
 
 module Vec6 : sig
-  type ('role, 'comp) t                  (* abstract: shared 6-component record *)
-  type shape = (shape_role, Dim.extent Dim.t) t   (* extents, each ≥ 0 *)
-  type coord = (coord_role, Dim.index  Dim.t) t   (* indices, 0 ≤ aᵢ < extentᵢ *)
+  type 'd t                              (* abstract: 6 components of Dim role 'd *)
+  type shape  = Dim.extent Dim.t t       (* extents, each ≥ 1 *)
+  type coord  = Dim.index  Dim.t t       (* indices, 0 ≤ aᵢ < extentᵢ *)
+  type deltas = Dim.delta  Dim.t t       (* signed per-axis displacements (a shift) *)
 
-  val shape : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> shape  (* checks ≥ 0 *)
-  val coord : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> coord
+  val shape  : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> shape  (* checks ≥ 1 *)
+  val coord  : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> coord
+  val deltas : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> deltas
   val origin : coord                                 (* all zero *)
 
-  val get : ('role, 'comp) t -> axis -> 'comp        (* extent for shape, index for coord *)
-  val set : ('role, 'comp) t -> axis -> 'comp -> ('role, 'comp) t
+  val get : 'd t -> axis -> 'd                       (* extent for shape, index for coord, … *)
+  val set : 'd t -> axis -> 'd -> 'd t
 
   (* the ONLY operations bridging the two roles — each needs *both*, so the
      arguments can't be swapped, and the *result types* are distinct too: *)
@@ -146,13 +155,17 @@ and no per-tensor `offset` field — every tensor is its own dense buffer starti
 are handled more naturally elsewhere, consistent with "access is a coordinate fed
 to a functor":
 
-- **Broadcast** is **coordinate reduction against the source shape at read time**,
-  not a stride-0 trick: reading a source of shape `[1,1,1,1,1,C]` (a per-channel
-  bias) with a full output coord maps every axis whose source extent is `1` to
-  index `0`. The load primitive does this:
+- **Broadcast** is **coordinate reduction against the source shape**, not a
+  stride-0 trick: an operand of shape `[1,1,1,1,1,C]` (a per-channel bias) read
+  over a full output coord maps every axis whose source extent is `1` to index
+  `0`. This is an explicit step the *op* takes before reading — the read
+  primitive itself (`Tensor.read`/`read_at`) is **strict**, raising on an
+  out-of-bounds index rather than broadcasting or padding. The reduction is over
+  the abstract index, so one helper serves Direct and Symbolic:
 
   ```ocaml
-  val read_coord : shape -> coord -> coord     (* axis a: if shape.a = 1 then 0 else coord.a *)
+  val Pointwise.broadcast_coord : index_zero:'i -> shape -> (Axis.t -> 'i) -> (Axis.t -> 'i)
+  (* axis a: if shape.a = 1 then index_zero else out a *)
   ```
 
   So broadcasting needs no storage metadata — only the source's own shape, which
@@ -167,9 +180,10 @@ to a functor":
   refactors axes incompatibly with NHWC packing is the one case that *must*
   materialize — flagged, not hidden behind a stride.)
 
-`tensor.ml` therefore provides just `numel`, `offset`, `read_coord`, `iter`, and a
-`materialize` that runs the iterator to produce a packed buffer — no stride
-algebra at all.
+`tensor.ml`/`vec6.ml` therefore provide just `numel`, `offset`, `in_bounds`,
+`iter`, and a `materialize` that runs the iterator to produce a packed buffer — no
+stride algebra at all. A strict `read`/`read_at` checks `in_bounds`; broadcast and
+padding live above it (`Pointwise.broadcast_coord`, `shift_in_bounds`), not in the read.
 
 ### 1d. Mapping ATen ranks to the 6-axis frame — **right-aligned, positional**
 
@@ -418,8 +432,10 @@ Invariants / boundaries:
   precision; `BF16` decode equals the high 16 bits of the `F32` bit pattern.
 - **Offset** math: `Vec6.offset shape coord` matches the closed form and round-trips
   with `iter` order (C fastest); `numel = ∏ extents`.
-- **Broadcast**: `read_coord` maps extent-1 axes to 0 and is the identity on
-  matching axes; reading a `[1,…,1,C]` source over a full output coord never OOBs.
+- **Broadcast / strict read**: `Pointwise.broadcast_coord` maps extent-1 axes to index 0 and
+  is the identity on matching axes, so an op reading a `[1,…,1,C]` source over a
+  full output coord stays in-bounds; a *strict* `Tensor.read` of an out-of-bounds
+  coord raises (the read primitive neither broadcasts nor pads).
 - **`Dim` non-negativity**: `Dim.extent (-1)` / `Dim.index (-1)` are rejected;
   `numel`/`offset` results are `≥ 0`; `(off :> int)` coercion is the only path to a
   raw int (no constructor takes a raw int for `count`/`offset`).
