@@ -11,11 +11,15 @@ test is green before the next starts. This sequences the design in
    (and a `to_string` derived from it). This is not cosmetic: the expect tests
    assert on printed output, so *the printer is the test's notion of the value* — a
    type with no `pp` cannot be expect-tested, and the symbolic IR is unreadable
-   without one. Plain ADTs/records may use `[@@deriving show]`; the **GADTs,
-   `private`/abstract types, and existentials** (`Dim`, `Vec6`, `fmt`, `payload`,
-   `expr`) need **hand-written** `pp` — derivers don't handle them. Distinct types
-   must print distinctly (e.g. a `shape` in `[…]`, a `coord` in `(…)`) so a test
-   reading the output can tell them apart.
+   without one. New hand-written printers should use `Fmt` as the composition
+   layer (`Fmt.pf`, `Fmt.list`, `Fmt.option`, boxes/separators) rather than
+   ad-hoc separator refs or manual indentation; this keeps nested printers
+   reusable and lets `Format` make normal line-breaking decisions. Plain
+   ADTs/records may use `[@@deriving show]`; the **GADTs, `private`/abstract
+   types, and existentials** (`Dim`, `Vec6`, `fmt`, `payload`, `expr`) need
+   **hand-written** `pp` — derivers don't handle them. Distinct types must print
+   distinctly (e.g. a `shape` in `[…]`, a `coord` in `(…)`) so a test reading the
+   output can tell them apart.
 
 2. **Every module lands with its expect test.** No module merges without a
    `test/native_<m>_test.ml`. Tests follow the repo convention exactly: a per-test
@@ -25,7 +29,7 @@ test is green before the next starts. This sequences the design in
 ```scheme
 ; lib/native/dune
 (library (name native) (wrapped false)
- (libraries))                 ; pure OCaml + Bigarray; no libtorch, no ctypes
+ (libraries core fmt))        ; pure OCaml + Bigarray; no libtorch, no ctypes
 
 ; test/dune — one stanza per module under test, e.g.
 (library (name native_dim_test) (modules native_dim_test)

@@ -9,6 +9,7 @@
  (libraries
   aten
   interp
+  native
   native_aten_bridge
   aten_native_verify
   aten_config

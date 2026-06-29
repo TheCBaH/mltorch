@@ -61,33 +61,47 @@ over `C`; the conv/linear *weight* is read at `N = out-channel`. But:
 | `max_pool2d*`, `avg_pool2d` | `Max/AvgPool2d` | input NCHW→NHWC, output NHWC→NCHW (no weight) |
 | `addmm`/`linear` | `Linear` | weight only (`[N,In]` input already lands `In` on `C`); `addmm` carries `[In,Out]`, `linear` carries `[Out,In]` — different permutations |
 
-## Deferred design: model relayout as explicit transpose ops
+## Implemented: relayout as explicit Permute nodes in a graph
 
-A transpose is a full 6-D axis permutation with a data copy — and, unlike
-`of_aten`, it *can* target the `N` axis, so it subsumes the hard weight case. The
-plan is to wrap each structured op's operands with transposes inside the bridge:
+`op_bridge` now returns a `Graph_ir.graph` (not eager tensors).  The graph for
+a relayout op is named `"<op>_relayout"` and contains explicit `Permute` nodes
+wrapping the core op — exactly the plan above, now landed.
 
 ```
-conv:  x' = transpose(of_aten x, NCHW→NHWC)
-       w' = transpose(of_aten weight, OIHW→[Cout,1,1,Kh,Kw,Cin])
-       y' = Conv2d(x', w', bias, params)     # native stays pure NHWC
-       return transpose(y', NHWC→NCHW)        # so Verify lines up
+conv2d_relayout graph:
+  x_in  = input (right-aligned NCHW)
+  w_in  = input (right-aligned OIHW)
+  [b_in = input (bias, optional)]
+  x'    = Permute(x_in, perm_nchw_to_nhwc)
+  w'    = Permute(w_in, perm_oihw_to_conv_weight)
+  y'    = Conv2d(x', w', [b_in], params)
+  y     = Permute(y', perm_nhwc_to_nchw)
+  outputs: [y]
 ```
 
-The transpose set is per-op (table above): conv = input+weight+output;
-pool = input+output; linear = weight only.
+The six permutations are defined as module-level constants in `op_bridge.ml`.
+All are full 6-axis bijections so `Permute.Compute` never hits `Not_found`.
 
-### What this needs before it can land
+| Permutation | From | To |
+|-------------|------|----|
+| `perm_nchw_to_nhwc` | NCHW right-aligned (D=N,H=C,W=H,C=W) | channel-last in the same outer frame (D=N,H=H,W=W,C=C) |
+| `perm_nhwc_to_nchw` | channel-last in the same outer frame | NCHW right-aligned (inverse) |
+| `perm_oihw_to_conv_weight` | OIHW right-aligned (D=Cout,H=Cin,W=Kh,C=Kw) | native weight (N=Cout,H=Kh,W=Kw,C=Cin) |
+| `perm_addmm_weight` | [In,Out] rank-2 (W=In,C=Out) | native weight (N=Out,C=In) |
+| `perm_linear_weight` | [Out,In] rank-2 (W=Out,C=In) | native weight (N=Out,C=In) |
 
-1. **A native transpose/permute op.** None exists today (no axis-permute in
-   `lib/native/`). Ideally add it as a reusable op in `lib/native/ops/` so the
-   *real* graph `aten.permute` / `view` / `flatten` nodes (currently unbridged)
-   can be bridged with the same primitive — not just used internally for layout.
-2. **A way to express a node as a sequence of native ops** (transpose → compute
-   → transpose) rather than the current one-op-per-node dispatch. `op_bridge`
-   today returns a single op's outputs; the structured arms need to thread a
-   small pipeline.
+Activation/pool relayouts leave the outer frame axes (`N/T/D`) intact and only
+move `CHW` to `HWC` (and back). `perm_oihw_to_conv_weight` is separate: it must
+move `Cout` from right-aligned axis `D` to native weight axis `N`, because
+`Conv2d.output_shape` reads output channels from weight `N`.
 
-Also needed for op-config params (kernel/stride/pad → `Op_config.Hw`/`Pos`/
-`Nonneg`): validate the ATen int-lists at the boundary and fail explicitly if
-out of range, per the extension note in `native_aten_bridge_design.md`.
+Graph pretty-printing elides identity axis mappings, so a stored full permutation
+like `[(N,N); (T,T); (D,D); (H,W); (W,C); (C,H)]` prints as
+`perm=[H<-W, W<-C, C<-H]`.
+
+Callers evaluate the returned graph via `Eval_direct.run graph ~inputs:bindings`
+and extract outputs from `graph.outputs`.
+
+Op-config params (`kernel`/`stride`/`pad` → `Op_config.Hw`/`Pos`/`Nonneg`) are
+validated at the boundary with `try … with Invalid_argument` so bad args become
+`Some (Error msg)` instead of an uncaught exception.

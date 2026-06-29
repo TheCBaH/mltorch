@@ -1,118 +1,124 @@
 (* Native-side dispatch: given a graph node and the ATen environment (inputs),
-   compute the equivalent result using the pure-OCaml Native ops.
+   build a native Graph_ir.graph encoding the equivalent computation.
 
-   Returns [None] if no native implementation exists for this op (the verify
-   harness skips the node).  Returns [Some (Error msg)] if the op is mapped but
-   tensor conversion or execution fails.  Returns [Some (Ok outputs)] on success.
+   Returns [None] if no native implementation exists for this op.  Returns
+   [Some (Error msg)] if the op is mapped but argument conversion or param
+   validation fails.  Returns [Some (Ok (g, bindings))] where [g] is the native
+   graph and [bindings] maps each graph input id to its converted native tensor.
 
-   Coverage grows incrementally: start with simple pointwise ops, expand per
-   .ai/native_aten_bridge_design.md.  The ATen env carries pre-dispatch inputs;
-   the bridge converts them to Native tensors on the fly (no persistent native
-   environment is maintained between nodes). *)
+   Ops requiring NCHW<->NHWC relayout (conv2d, max_pool2d, linear/addmm) produce
+   a graph named "<op>_relayout" that wraps the core op in permute nodes.  All
+   other ops produce a flat single-op graph.  Unmapped ops return None. *)
 
 open Pytorch_types
-
-(* Reuse interp_decode helpers for non-tensor arguments: the decoding logic
-   (find_arg, int_arg, ints_arg, bool_arg) is identical to the ATen path. *)
 module D = Interp_decode
 
 type aten_env = Interp_decode.env
 
-(* Decode a tensor argument from the ATen env, convert to Native.  Raises on
-   missing arg; returns Error on conversion failure. *)
-let native_tensor_arg aten_env node name =
-  let t = D.tensor_arg aten_env node name in
-  Tensor_bridge.of_aten t
+let packed_shape (Tensor.Tensor r) = r.shape
 
-(* Run a unary op that takes one tensor and returns one tensor. *)
-let unary aten_env node ~f name_self =
-  match native_tensor_arg aten_env node name_self with
-  | Error e -> Some (Error (Printf.sprintf "%s: %s" name_self e))
-  | Ok x -> (
-      match f x with
-      | exception Failure msg ->
-          Some (Error (Printf.sprintf "native op failed: %s" msg))
-      | result -> Some (Ok [ result ]))
+(* Monadically allocate one input edge per packed tensor, left to right.
+   The resulting ids match graph.inputs in insertion order. *)
+let rec alloc_inputs = function
+  | [] -> Graph_builder.return []
+  | t :: rest ->
+      let open Graph_builder in
+      let* id = input ~shape:(packed_shape t) () in
+      let+ ids = alloc_inputs rest in
+      id :: ids
 
-(* Run a binary op that takes two tensors and returns one tensor. *)
-let binary aten_env node ~f name_a name_b =
-  match
-    ( native_tensor_arg aten_env node name_a,
-      native_tensor_arg aten_env node name_b )
-  with
-  | Error e, _ | _, Error e -> Some (Error e)
-  | Ok a, Ok b -> (
-      match f a b with
-      | exception Failure msg ->
-          Some (Error (Printf.sprintf "native op failed: %s" msg))
-      | result -> Some (Ok [ result ]))
-
-(* --- Direct scheduler helpers --- *)
-
-(* Direct-scheduler runners in global alphabetical order. *)
-let run_add (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
-  let module C = Pointwise.Add.Compute (Direct) in
-  let (Tensor.Tensor ra) = a in
-  let (Tensor.Tensor rb) = b in
-  let shape = Pointwise.Add.output_shape ra.shape rb.shape in
-  Schedule.evaluate shape (C.pixel ~a_shape:ra.shape ~b_shape:rb.shape a b)
-
-let run_bmm (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
-  let module C = Matmul.Bmm.Compute (Direct) in
-  let (Tensor.Tensor ra) = a in
-  let (Tensor.Tensor rb) = b in
-  let shape =
-    Matmul.Bmm.output_shape ~input_shape:ra.shape ~mat2_shape:rb.shape
+(* Build a graph from [tensors] (native packed args) and [body] mapping input
+   ids to output ids.  Returns the graph and its input bindings [(id, packed)]. *)
+let build_g ~name tensors body =
+  let g =
+    Graph_builder.build ~name ~outputs:Fun.id
+      (let open Graph_builder in
+       let* ids = alloc_inputs tensors in
+       body ids)
   in
-  Schedule.evaluate shape (C.pixel ~input_shape:ra.shape ~input:a ~mat2:b)
+  (g, List.combine g.Graph_ir.Graph.inputs tensors)
 
-let run_mean (x : Tensor.packed) ~dims ~keepdim : Tensor.packed =
-  let module C = Reduce.Mean.Compute (Direct) in
-  let (Tensor.Tensor r) = x in
-  let p = { Reduce.Mean.dims; keepdim } in
-  let shape = Reduce.Mean.output_shape ~x_shape:r.shape p in
-  Schedule.evaluate shape (C.pixel p ~x_shape:r.shape ~x)
+(* Convert an ATen tensor to native, prefixing errors with [arg_name]. *)
+let native_of_aten arg_name t =
+  match Tensor_bridge.of_aten t with
+  | Ok x -> Ok x
+  | Error e -> Error (Printf.sprintf "%s: %s" arg_name e)
 
-let run_mul (a : Tensor.packed) (b : Tensor.packed) : Tensor.packed =
-  let module C = Pointwise.Mul.Compute (Direct) in
-  let (Tensor.Tensor ra) = a in
-  let (Tensor.Tensor rb) = b in
-  let shape = Pointwise.Mul.output_shape ra.shape rb.shape in
-  Schedule.evaluate shape (C.pixel ~a_shape:ra.shape ~b_shape:rb.shape a b)
+let native_tensor_arg aten_env node name =
+  native_of_aten name (D.tensor_arg aten_env node name)
 
-let run_permute (x : Tensor.packed) (perm : Permute.Permute.perm) :
-    Tensor.packed =
-  let module C = Permute.Permute.Compute (Direct) in
-  let (Tensor.Tensor r) = x in
-  let shape = Permute.Permute.output_shape ~x_shape:r.shape perm in
-  Schedule.evaluate shape (C.pixel perm ~x)
-
-let run_relu (x : Tensor.packed) : Tensor.packed =
-  let module C = Pointwise.Relu.Compute (Direct) in
-  let (Tensor.Tensor r) = x in
-  let shape = Pointwise.Relu.output_shape r.shape in
-  Schedule.evaluate shape (C.pixel x)
-
-let run_rms_norm (x : Tensor.packed) ~weight ~dims ~eps : Tensor.packed =
-  let module C = Norm.RmsNorm.Compute (Direct) in
-  let (Tensor.Tensor r) = x in
-  let p = { Norm.RmsNorm.dims; eps } in
-  let shape = Norm.RmsNorm.output_shape ~x_shape:r.shape in
-  Schedule.evaluate shape (C.pixel p ~x_shape:r.shape ~x ~weight)
-
-(* --- Argument decoding for the reductions/normalisation ---
-
-   [mean.dim] and [rms_norm] reference frame axes through [Aten_shape.axis_of_dim],
-   so the dims must be derived from the ATen input's RANK (not the right-aligned
-   6D shape, whose outer padding axes would shift the mapping).  This keeps the
-   reduced axes consistent with where [of_aten] positionally places the data, so
-   no relayout is needed — see .ai/native_aten_bridge_layout.md. *)
+let optional_tensor_present node name =
+  match D.find_arg node name with
+  | Some (Argument.Tensor _)
+  | Some (Argument.Optional_tensor (OptionalTensorArgument.Tensor _)) ->
+      true
+  | _ -> false
 
 let aten_rank t = Array.length (Aten_tensor.shape t)
 
+(* --- Permutations for NCHW/NHWC relayout ---
+   All are full 6-axis bijections; see .ai/native_aten_bridge_layout.md. *)
+
+(* Right-aligned rank-4 NCHW (D=Nbatch, H=Cch, W=Hsp, C=Wsp) ->
+   channel-last in the same outer frame (D=Nbatch, H=Hsp, W=Wsp, C=Cch). *)
+let perm_nchw_to_nhwc : Permute.Permute.perm =
+  let open Axis in
+  [ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ]
+
+(* Channel-last in the same outer frame -> right-aligned rank-4 NCHW.
+   Inverse of [perm_nchw_to_nhwc]. *)
+let perm_nhwc_to_nchw : Permute.Permute.perm =
+  let open Axis in
+  [ (N, N); (T, T); (D, D); (H, C); (W, H); (C, W) ]
+
+(* OIHW conv weight (D=Cout, H=Cin, W=Kh, C=Kw) ->
+   native [N=Cout, H=Kh, W=Kw, C=Cin].  Unlike activations, weights must move
+   Cout onto N because Conv2d.output_shape reads output channels from weight N. *)
+let perm_oihw_to_conv_weight : Permute.Permute.perm =
+  let open Axis in
+  [ (N, D); (T, T); (D, N); (H, W); (W, C); (C, H) ]
+
+(* Rank-2 addmm weight [In,Out] (W=In, C=Out) -> native [N=Out, C=In]. *)
+let perm_addmm_weight : Permute.Permute.perm =
+  let open Axis in
+  [ (N, C); (T, T); (D, D); (H, H); (W, N); (C, W) ]
+
+(* Rank-2 linear weight [Out,In] (W=Out, C=In) -> native [N=Out, C=In]. *)
+let perm_linear_weight : Permute.Permute.perm =
+  let open Axis in
+  [ (N, W); (T, T); (D, D); (H, H); (W, N); (C, C) ]
+
+(* --- Arg helpers shared by mean.dim, rms_norm, permute --- *)
+
+(* [mean.dim] and [rms_norm] reference frame axes through [Aten_shape.axis_of_dim],
+   so the dims must be derived from the ATen input's RANK (not the right-aligned
+   6D shape), keeping reduced axes consistent with where [of_aten] places the data. *)
+let dims_arg node ~rank name =
+  match D.find_arg node name with
+  | Some (Argument.Ints xs) -> List.map (Aten_shape.axis_of_dim ~rank) xs
+  | _ -> Aten_shape.used_axes ~rank
+
+let trailing_axes ~rank ~k =
+  let all = Aten_shape.used_axes ~rank in
+  List.filteri (fun i _ -> i >= rank - k) all
+
+let float32_eps = 1.1920929e-07
+
+let eps_arg node name =
+  match D.find_arg node name with
+  | Some (Argument.Float f) -> f
+  | _ -> float32_eps
+
+let ones_weight (x_shape : Vec6.shape) dims =
+  let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
+  let wshape =
+    List.fold_left (fun s a -> Vec6.set s a (Vec6.get x_shape a)) ones dims
+  in
+  Tensor.materialize wshape (fun _ -> 1.0)
+
 (* Build a full 6D native permutation from an ATen [dims] list and the tensor
    rank.  For the [rank] used axes, [dims.(i)] is the ATen input dim for output
-   position [i]; for the outer padding axes the permutation is the identity. *)
+   position [i]; outer padding axes are the identity. *)
 let native_perm_of_aten ~rank dims =
   let used = Aten_shape.used_axes ~rank in
   let outer = List.filter (fun a -> not (List.mem a used)) Axis.all in
@@ -125,98 +131,348 @@ let native_perm_of_aten ~rank dims =
   in
   outer_perm @ inner_perm
 
-(* An ATen dim list arg -> frame axes for the tensor of the given rank.  A
-   missing/None dim (e.g. [mean.dim] with no [dim]) means "all axes". *)
-let dims_arg node ~rank name =
-  match D.find_arg node name with
-  | Some (Argument.Ints xs) -> List.map (Aten_shape.axis_of_dim ~rank) xs
-  | _ -> Aten_shape.used_axes ~rank
+(* --- Param helpers for conv2d / pool2d --- *)
 
-(* The innermost [k] axes of a rank-[rank] tensor — the normalised axes of an
-   `rms_norm(normalized_shape)` (ATen normalises the trailing dims). *)
-let trailing_axes ~rank ~k =
-  let all = Aten_shape.used_axes ~rank in
-  List.filteri (fun i _ -> i >= rank - k) all
+(* Validate a 2-element int list as [h; w].  A single-element list is accepted
+   as [v; v] (symmetric). *)
+let hw2 name = function
+  | [ h; w ] -> Ok (h, w)
+  | [ v ] -> Ok (v, v)
+  | _ -> Error (Printf.sprintf "%s: expected [h; w] or [v]" name)
 
-(* `rms_norm`'s optional [eps]: when absent ATen uses finfo(dtype).eps; for
-   float32 that is 2^-23. *)
-let float32_eps = 1.1920929e-07
+(* Construct Conv2d.params from the ATen weight shape array (rank-4: [Cout,Cin,Kh,Kw])
+   and validated stride/padding ints.  Raises [Invalid_argument] on bad dims. *)
+let make_conv2d_params w_shape sh sw ph pw =
+  {
+    Conv.Conv2d.kernel =
+      { h = Dim.extent w_shape.(2); w = Dim.extent w_shape.(3) };
+    in_channels = Dim.extent w_shape.(1);
+    stride = { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
+    pad = { h = Op_config.Nonneg.of_int ph; w = Op_config.Nonneg.of_int pw };
+  }
 
-let eps_arg node name =
-  match D.find_arg node name with
-  | Some (Argument.Float f) -> f
-  | _ -> float32_eps
-
-(* Is an optional-Tensor arg actually present (vs absent / explicit None)? *)
-let optional_tensor_present node name =
-  match D.find_arg node name with
-  | Some (Argument.Tensor _)
-  | Some (Argument.Optional_tensor (OptionalTensorArgument.Tensor _)) ->
-      true
-  | _ -> false
-
-(* `rms_norm`'s no-affine path: a weight of all ones, shaped to broadcast over
-   the normalised axes (extent = x's extent there, 1 elsewhere). *)
-let ones_weight (x_shape : Vec6.shape) dims =
-  let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
-  let wshape =
-    List.fold_left (fun s a -> Vec6.set s a (Vec6.get x_shape a)) ones dims
-  in
-  Tensor.materialize wshape (fun _ -> 1.0)
+(* Pool stride defaults to kernel_size when absent (PyTorch convention). *)
+let pool_stride kernel_size node =
+  match D.ints_arg ~default:[] node "stride" with [] -> kernel_size | s -> s
 
 (* --- Op dispatch --- *)
 
-(* Dispatch a graph node to the native path.  The [aten_env] contains the
-   pre-dispatch ATen inputs (SSA name -> tensor handle).  Returns:
-   - None              : no native implementation; skip verification
-   - Some (Error msg)  : mapped but failed (conversion error or unsupported args)
-   - Some (Ok outputs) : native outputs as packed tensors, same length and order
-                         as the ATen op's outputs *)
 let dispatch ~(aten_env : aten_env) (node : Node.t) :
-    (Tensor.packed list, string) result option =
+    ( Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list,
+      string )
+    result
+    option =
   (* Arms in global alphabetical order by the dispatched op name. *)
   match node.target with
-  | "torch.ops.aten.add.Tensor" | "torch.ops.aten.add_.Tensor" ->
-      binary aten_env node ~f:run_add "self" "other"
-  | "torch.ops.aten.bmm.default" ->
-      binary aten_env node ~f:run_bmm "self" "mat2"
-  | "torch.ops.aten.mean.dim" ->
+  | "torch.ops.aten.add.Tensor" | "torch.ops.aten.add_.Tensor" -> (
+      match
+        ( native_tensor_arg aten_env node "self",
+          native_tensor_arg aten_env node "other" )
+      with
+      | Error e, _ | _, Error e -> Some (Error e)
+      | Ok a, Ok b ->
+          let g, bindings =
+            build_g ~name:"add" [ a; b ] (function
+              | [ a_id; b_id ] ->
+                  let open Graph_builder in
+                  let+ y = add a_id b_id in
+                  [ y ]
+              | _ -> assert false)
+          in
+          Some (Ok (g, bindings)))
+  | "torch.ops.aten.addmm.default" -> (
+      (* addmm(bias, mat1, mat2) = bias + mat1 @ mat2; alpha=beta=1 assumed. *)
+      let aten_bias = D.tensor_arg aten_env node "self" in
+      let aten_x = D.tensor_arg aten_env node "mat1" in
+      let aten_w = D.tensor_arg aten_env node "mat2" in
+      let w_shape = Aten_tensor.shape aten_w in
+      if Array.length w_shape <> 2 then
+        Some (Error "addmm: mat2 must be rank-2")
+      else
+        match
+          ( native_of_aten "self" aten_bias,
+            native_of_aten "mat1" aten_x,
+            native_of_aten "mat2" aten_w )
+        with
+        | Error e, _, _ | _, Error e, _ | _, _, Error e -> Some (Error e)
+        | Ok bias, Ok x, Ok w -> (
+            try
+              let params =
+                { Linear.Linear.in_features = Dim.extent w_shape.(0) }
+              in
+              let g, bindings =
+                build_g ~name:"addmm_relayout" [ bias; x; w ] (function
+                  | [ bias_id; x_id; w_id ] ->
+                      let open Graph_builder in
+                      let* w' = permute perm_addmm_weight w_id in
+                      let+ y =
+                        linear params ~x:x_id ~weight:w' ~bias:bias_id ()
+                      in
+                      [ y ]
+                  | _ -> assert false)
+              in
+              Some (Ok (g, bindings))
+            with Invalid_argument msg -> Some (Error msg)))
+  | "torch.ops.aten.bmm.default" -> (
+      match
+        ( native_tensor_arg aten_env node "self",
+          native_tensor_arg aten_env node "mat2" )
+      with
+      | Error e, _ | _, Error e -> Some (Error e)
+      | Ok a, Ok b ->
+          let g, bindings =
+            build_g ~name:"bmm" [ a; b ] (function
+              | [ a_id; b_id ] ->
+                  let open Graph_builder in
+                  let+ y = bmm a_id b_id in
+                  [ y ]
+              | _ -> assert false)
+          in
+          Some (Ok (g, bindings)))
+  | "torch.ops.aten.conv2d.default" | "torch.ops.aten.convolution.default" -> (
+      (* Skip transposed convolutions (convolution.default only) and grouped convs
+         (both targets), since native Conv2d doesn't model either. *)
+      let is_conv =
+        String.equal node.target "torch.ops.aten.convolution.default"
+      in
+      if is_conv && D.bool_arg node "transposed" then None
+      else if D.int_arg ~default:1 node "groups" <> 1 then None
+      else
+        let dilation = D.ints_arg ~default:[ 1; 1 ] node "dilation" in
+        if List.exists (fun d -> d <> 1) dilation then None
+        else
+          let aten_x = D.tensor_arg aten_env node "input" in
+          let aten_w = D.tensor_arg aten_env node "weight" in
+          let w_shape = Aten_tensor.shape aten_w in
+          if Array.length w_shape <> 4 then
+            Some (Error "conv2d: weight must be rank-4")
+          else
+            let stride = D.ints_arg ~default:[ 1; 1 ] node "stride" in
+            let padding = D.ints_arg ~default:[ 0; 0 ] node "padding" in
+            match (hw2 "stride" stride, hw2 "padding" padding) with
+            | Error e, _ | _, Error e -> Some (Error e)
+            | Ok (sh, sw), Ok (ph, pw) -> (
+                let has_bias = optional_tensor_present node "bias" in
+                let bias_res =
+                  if has_bias then
+                    match
+                      native_of_aten "bias" (D.tensor_arg aten_env node "bias")
+                    with
+                    | Ok b -> Ok (Some b)
+                    | Error e -> Error e
+                  else Ok None
+                in
+                match
+                  ( native_of_aten "input" aten_x,
+                    native_of_aten "weight" aten_w,
+                    bias_res )
+                with
+                | Error e, _, _ | _, Error e, _ | _, _, Error e ->
+                    Some (Error e)
+                | Ok x, Ok w, Ok bias_opt -> (
+                    try
+                      let params = make_conv2d_params w_shape sh sw ph pw in
+                      let tensors = [ x; w ] @ Option.to_list bias_opt in
+                      let g, bindings =
+                        build_g ~name:"conv2d_relayout" tensors (function
+                          | [ x_id; w_id ] ->
+                              let open Graph_builder in
+                              let* x' = permute perm_nchw_to_nhwc x_id in
+                              let* w' = permute perm_oihw_to_conv_weight w_id in
+                              let* y' = conv2d params ~x:x' ~weight:w' () in
+                              let+ y = permute perm_nhwc_to_nchw y' in
+                              [ y ]
+                          | [ x_id; w_id; b_id ] ->
+                              let open Graph_builder in
+                              let* x' = permute perm_nchw_to_nhwc x_id in
+                              let* w' = permute perm_oihw_to_conv_weight w_id in
+                              let* y' =
+                                conv2d params ~x:x' ~weight:w' ~bias:b_id ()
+                              in
+                              let+ y = permute perm_nhwc_to_nchw y' in
+                              [ y ]
+                          | _ -> assert false)
+                      in
+                      Some (Ok (g, bindings))
+                    with Invalid_argument msg -> Some (Error msg))))
+  | "torch.ops.aten.linear.default" -> (
+      let aten_x = D.tensor_arg aten_env node "input" in
+      let aten_w = D.tensor_arg aten_env node "weight" in
+      let w_shape = Aten_tensor.shape aten_w in
+      if Array.length w_shape <> 2 then
+        Some (Error "linear: weight must be rank-2")
+      else
+        let has_bias = optional_tensor_present node "bias" in
+        let bias_res =
+          if has_bias then
+            match native_of_aten "bias" (D.tensor_arg aten_env node "bias") with
+            | Ok b -> Ok (Some b)
+            | Error e -> Error e
+          else Ok None
+        in
+        match
+          ( native_of_aten "input" aten_x,
+            native_of_aten "weight" aten_w,
+            bias_res )
+        with
+        | Error e, _, _ | _, Error e, _ | _, _, Error e -> Some (Error e)
+        | Ok x, Ok w, Ok bias_opt -> (
+            try
+              let params =
+                { Linear.Linear.in_features = Dim.extent w_shape.(1) }
+              in
+              let tensors = [ x; w ] @ Option.to_list bias_opt in
+              let g, bindings =
+                build_g ~name:"linear_relayout" tensors (function
+                  | [ x_id; w_id ] ->
+                      let open Graph_builder in
+                      let* w' = permute perm_linear_weight w_id in
+                      let+ y = linear params ~x:x_id ~weight:w' () in
+                      [ y ]
+                  | [ x_id; w_id; b_id ] ->
+                      let open Graph_builder in
+                      let* w' = permute perm_linear_weight w_id in
+                      let+ y = linear params ~x:x_id ~weight:w' ~bias:b_id () in
+                      [ y ]
+                  | _ -> assert false)
+              in
+              Some (Ok (g, bindings))
+            with Invalid_argument msg -> Some (Error msg)))
+  | "torch.ops.aten.max_pool2d.default" -> (
+      let aten_x = D.tensor_arg aten_env node "self" in
+      let kernel_size = D.ints_arg node "kernel_size" in
+      let stride = pool_stride kernel_size node in
+      let padding = D.ints_arg ~default:[ 0; 0 ] node "padding" in
+      match
+        ( hw2 "kernel_size" kernel_size,
+          hw2 "stride" stride,
+          hw2 "padding" padding )
+      with
+      | Error e, _, _ | _, Error e, _ | _, _, Error e -> Some (Error e)
+      | Ok (kh, kw), Ok (sh, sw), Ok (ph, pw) -> (
+          match native_of_aten "self" aten_x with
+          | Error e -> Some (Error e)
+          | Ok x -> (
+              try
+                let params =
+                  {
+                    Pool.MaxPool2d.kernel =
+                      { h = Dim.extent kh; w = Dim.extent kw };
+                    stride =
+                      {
+                        h = Op_config.Pos.of_int sh;
+                        w = Op_config.Pos.of_int sw;
+                      };
+                    pad =
+                      {
+                        h = Op_config.Nonneg.of_int ph;
+                        w = Op_config.Nonneg.of_int pw;
+                      };
+                  }
+                in
+                let g, bindings =
+                  build_g ~name:"max_pool2d_relayout" [ x ] (function
+                    | [ x_id ] ->
+                        let open Graph_builder in
+                        let* x' = permute perm_nchw_to_nhwc x_id in
+                        let* y' = max_pool2d params x' in
+                        let+ y = permute perm_nhwc_to_nchw y' in
+                        [ y ]
+                    | _ -> assert false)
+                in
+                Some (Ok (g, bindings))
+              with Invalid_argument msg -> Some (Error msg))))
+  | "torch.ops.aten.mean.dim" -> (
       let t = D.tensor_arg aten_env node "self" in
       let rank = aten_rank t in
       let dims = dims_arg node ~rank "dim" in
       let keepdim = D.bool_arg node "keepdim" in
-      unary aten_env node ~f:(run_mean ~dims ~keepdim) "self"
-  | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" ->
-      binary aten_env node ~f:run_mul "self" "other"
-  | "torch.ops.aten.permute.default" ->
+      match native_of_aten "self" t with
+      | Error e -> Some (Error e)
+      | Ok x ->
+          let params = { Reduce.Mean.dims; keepdim } in
+          let g, bindings =
+            build_g ~name:"mean" [ x ] (function
+              | [ x_id ] ->
+                  let open Graph_builder in
+                  let+ y = mean params x_id in
+                  [ y ]
+              | _ -> assert false)
+          in
+          Some (Ok (g, bindings)))
+  | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" -> (
+      match
+        ( native_tensor_arg aten_env node "self",
+          native_tensor_arg aten_env node "other" )
+      with
+      | Error e, _ | _, Error e -> Some (Error e)
+      | Ok a, Ok b ->
+          let g, bindings =
+            build_g ~name:"mul" [ a; b ] (function
+              | [ a_id; b_id ] ->
+                  let open Graph_builder in
+                  let+ y = mul a_id b_id in
+                  [ y ]
+              | _ -> assert false)
+          in
+          Some (Ok (g, bindings)))
+  | "torch.ops.aten.permute.default" -> (
       let t = D.tensor_arg aten_env node "self" in
       let rank = aten_rank t in
       let dims = D.ints_arg node "dims" in
       let perm = native_perm_of_aten ~rank dims in
-      unary aten_env node ~f:(fun x -> run_permute x perm) "self"
-  | "torch.ops.aten.relu.default" | "torch.ops.aten.relu_.default" ->
-      unary aten_env node ~f:run_relu "self"
+      match native_of_aten "self" t with
+      | Error e -> Some (Error e)
+      | Ok x ->
+          let g, bindings =
+            build_g ~name:"permute" [ x ] (function
+              | [ x_id ] ->
+                  let open Graph_builder in
+                  let+ y = permute perm x_id in
+                  [ y ]
+              | _ -> assert false)
+          in
+          Some (Ok (g, bindings)))
+  | "torch.ops.aten.relu.default" | "torch.ops.aten.relu_.default" -> (
+      match native_tensor_arg aten_env node "self" with
+      | Error e -> Some (Error e)
+      | Ok x ->
+          let g, bindings =
+            build_g ~name:"relu" [ x ] (function
+              | [ x_id ] ->
+                  let open Graph_builder in
+                  let+ y = relu x_id in
+                  [ y ]
+              | _ -> assert false)
+          in
+          Some (Ok (g, bindings)))
   | "torch.ops.aten.rms_norm.default" -> (
       let t = D.tensor_arg aten_env node "input" in
       let rank = aten_rank t in
       let k = List.length (D.ints_arg node "normalized_shape") in
       let dims = trailing_axes ~rank ~k in
       let eps = eps_arg node "eps" in
-      match Tensor_bridge.of_aten t with
-      | Error e -> Some (Error (Printf.sprintf "input: %s" e))
+      let params = { Norm.RmsNorm.dims; eps } in
+      match native_of_aten "input" t with
+      | Error e -> Some (Error e)
       | Ok x -> (
-          let weight =
+          let weight_res =
             if optional_tensor_present node "weight" then
-              native_tensor_arg aten_env node "weight"
+              native_of_aten "weight" (D.tensor_arg aten_env node "weight")
             else
               let (Tensor.Tensor r) = x in
               Ok (ones_weight r.shape dims)
           in
-          match weight with
-          | Error e -> Some (Error (Printf.sprintf "weight: %s" e))
-          | Ok weight -> (
-              match run_rms_norm x ~weight ~dims ~eps with
-              | exception Failure msg ->
-                  Some (Error (Printf.sprintf "native op failed: %s" msg))
-              | result -> Some (Ok [ result ]))))
+          match weight_res with
+          | Error e -> Some (Error e)
+          | Ok weight ->
+              let g, bindings =
+                build_g ~name:"rms_norm" [ x; weight ] (function
+                  | [ x_id; w_id ] ->
+                      let open Graph_builder in
+                      let+ y = rms_norm params ~x:x_id ~weight:w_id () in
+                      [ y ]
+                  | _ -> assert false)
+              in
+              Some (Ok (g, bindings))))
   | _ -> None

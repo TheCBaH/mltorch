@@ -166,7 +166,20 @@ symbolic stage DAG, future footprint) stay valid while the output is built. The
 conv decomposition is the canonical `Replace_node (conv, decomposition_template)`.
 `operands`/`map_operands` are the generic hooks an id-remap needs.
 
-## 8. Tests
+## 8. Pretty-printing
+
+`Graph_ir.pp` is the canonical graph dump for expect tests and debugging. It uses
+`Fmt` as the pretty-printing composition layer: tensor lists are `Fmt.list`
+inside brackets, optional operands use `Fmt.option`, and graph/node/op structure is
+expressed with `Format` boxes through `Fmt.pf`. Avoid manual indentation counters
+or separator refs in graph printers; prefer adding one small `pp_*` function per
+record/variant payload and composing them.
+
+Permutation printing intentionally omits identity axis mappings. A full 6-axis
+`Permute.perm` is still stored in the IR so execution has a total bijection, but
+the dump shows only the semantic moves, e.g. `perm=[H<-W, W<-C, C<-H]`.
+
+## 9. Tests
 
 `test/native/graph_test.ml` (Direct): sequence (add→relu, intermediate shown),
 add, conv decomposition (NHWC intermediate + NCHW result + match vs reference

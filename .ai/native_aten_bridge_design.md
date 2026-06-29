@@ -64,28 +64,33 @@ is unambiguous.  Uses `Aten_tensor.of_bigarray` which copies the data.
 val dispatch :
   aten_env : Interp_decode.env ->
   node     : Pytorch_types.Node.t ->
-  (Tensor.packed list, string) result option
+  (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, string) result option
 ```
 
 - `None` — no native implementation; verification skips this node
-- `Some (Error msg)` — tensor conversion or execution failed
-- `Some (Ok outputs)` — native outputs, matched by position to ATen outputs
+- `Some (Error msg)` — tensor conversion or param validation failed
+- `Some (Ok (graph, bindings))` — a native graph encoding the op's computation
+  (including relayout permutes where needed), plus input bindings mapping each
+  graph input id to its pre-converted native tensor.  Callers evaluate the graph
+  via `Eval_direct.run graph ~inputs:bindings` and extract outputs from
+  `graph.outputs`.
+
+### Graph building
+
+Each dispatch arm builds a `Graph_ir.graph` using `Graph_builder`, rather than
+eagerly evaluating.  The helper `build_g ~name tensors body` allocates one input
+edge per native tensor, runs `body` with those ids to produce output ids, and
+returns the finished graph plus `[(input_id, packed)]` bindings.
+
+Ops requiring relayout produce a graph named `"<op>_relayout"` containing
+explicit `Permute` nodes before/after the core op (see `Op coverage` below and
+`.ai/native_aten_bridge_layout.md`).
 
 ### Argument decoding
 
 Tensor args are resolved from `aten_env` (ATen handles) and converted via
 `Tensor_bridge.of_aten`.  Non-tensor args (`int_arg`, `ints_arg`, `bool_arg`,
 `float_arg`, `scalar_arg`) reuse `Interp_decode`'s helpers directly.
-
-### Direct scheduler
-
-Each op instantiates its `Compute(Direct)` functor and runs via `Schedule.evaluate`:
-
-```ocaml
-let run_relu x =
-  let module C = Pointwise.Relu.Compute(Direct) in
-  let (Tensor.Tensor r) = x in
-  Schedule.evaluate (Pointwise.Relu.output_shape r.shape) (C.pixel x)
 ```
 
 The `Direct` module (`lib/native/direct.ml`) has `type t = float` and `type
@@ -94,30 +99,40 @@ function that `Schedule.evaluate` applies at every output coordinate.
 
 ### Op coverage
 
-| ATen target | Native op |
-|-------------|-----------|
-| `torch.ops.aten.relu.default` / `relu_.default` | `Pointwise.Relu.Compute(Direct)` |
-| `torch.ops.aten.add.Tensor` / `add_.Tensor` | `Pointwise.Add.Compute(Direct)` |
-| `torch.ops.aten.bmm.default` | `Matmul.Bmm.Compute(Direct)` |
-| `torch.ops.aten.mean.dim` | `Reduce.Mean.Compute(Direct)` |
-| `torch.ops.aten.rms_norm.default` | `Norm.RmsNorm.Compute(Direct)` |
+**No relayout needed** (op reads axes via `Aten_shape.axis_of_dim`, so they
+track where `of_aten` placed the data):
 
-These are exactly the native ops whose operand/output layouts already line up
-under `of_aten`'s positional right-alignment, so no relayout is needed (`bmm`,
-`mean.dim`, `rms_norm` resolve their reduced/normalised axes via
-`Aten_shape.axis_of_dim`, keeping them consistent with where the data landed).
+| ATen target | Native op | Graph name |
+|-------------|-----------|------------|
+| `torch.ops.aten.relu.default` / `relu_.default` | `Relu` | `"relu"` |
+| `torch.ops.aten.add.Tensor` / `add_.Tensor` | `Add` | `"add"` |
+| `torch.ops.aten.mul.Tensor` / `mul_.Tensor` | `Mul` | `"mul"` |
+| `torch.ops.aten.bmm.default` | `Bmm` | `"bmm"` |
+| `torch.ops.aten.mean.dim` | `Mean` | `"mean"` |
+| `torch.ops.aten.permute.default` | `Permute` | `"permute"` |
+| `torch.ops.aten.rms_norm.default` | `RmsNorm` | `"rms_norm"` |
 
-The remaining native ops — `Conv2d`, `Max/AvgPool2d`, `Linear` — need NCHW↔NHWC
-input/weight/output relayout and are **deferred**; see
-`native_aten_bridge_layout.md` for the two-class split and the planned
-transpose-op approach.  All other ATen ops return `None` (Skipped).
+**Relayout needed** (graph wraps the core op in `Permute` nodes; named
+`"<op>_relayout"`; see `.ai/native_aten_bridge_layout.md` for derivation of
+the six permutations):
+
+| ATen target | Native op | Relayout |
+|-------------|-----------|---------|
+| `convolution.default` / `conv2d.default` | `Conv2d` | input NCHW→NHWC, weight OIHW→native, output NHWC→NCHW |
+| `max_pool2d.default` | `MaxPool2d` | input NCHW→NHWC, output NHWC→NCHW |
+| `linear.default` | `Linear` | weight [Out,In]→[N=Out,C=In] |
+| `addmm.default` | `Linear` | weight (mat2) [In,Out]→[N=Out,C=In] |
+
+Skipped (return `None`): `max_pool2d_with_indices` (2-output mismatch),
+`adaptive_avg_pool2d` (output-size API, not kernel/stride/pad),
+transposed / grouped / dilated convolutions.
 
 ### Extending coverage
 
-To add an op, add a match arm in `Op_bridge.dispatch`.  The pattern is:
-1. Decode tensor args via `native_tensor_arg`
+To add an op without relayout, add a match arm in `Op_bridge.dispatch`:
+1. Decode tensor args via `native_tensor_arg` / `native_of_aten`
 2. Decode non-tensor args via `D.int_arg`, `D.ints_arg`, etc.
-3. Instantiate and run `Compute(Direct)` via `Schedule.evaluate`
+3. Call `build_g ~name tensors body` where `body` uses `Graph_builder` ops
 4. Return `Some (Ok [result])`
 
 For ops requiring `op_config` param types (`Op_config.Pos.t`, `Hw.t`), validate

@@ -4,6 +4,8 @@
 
 type t = N | T | D | H | W | C
 
+let equal = ( = )
+
 (* Canonical order; also the order [Vec6] lays components out (C last). *)
 let all = [ N; T; D; H; W; C ]
 

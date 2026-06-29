@@ -6,4 +6,11 @@
 (library
  (name aten_native_verify)
  (wrapped false)
- (libraries native_aten_bridge aten interp schema_runtime pytorch_types core))
+ (libraries
+  native_aten_bridge
+  native
+  aten
+  interp
+  schema_runtime
+  pytorch_types
+  core))

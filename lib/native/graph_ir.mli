@@ -94,3 +94,8 @@ type graph = Graph.t
    rewrites them (for transform/remap). Both are one exhaustiveness-checked match. *)
 val operands : op -> tensor_ref list
 val map_operands : (tensor_ref -> tensor_ref) -> op -> op
+
+(* Deterministic, test-oriented graph dump.  It prints graph inputs, every node in
+   topo order, op operands/parameters, and outputs; subgraphs are printed
+   recursively under their call site. *)
+val pp : Format.formatter -> graph -> unit
