@@ -1,8 +1,8 @@
-# Op config — no acronyms, no bare ints, shared H/W shape
+# Op config — no acronyms, no bare ints, shaped window config
 
 Conventions for the `params` record an op functor takes (`Conv2d.params` today,
-pool/dilated-conv params later). Applied to `lib/native/ops/conv.ml`; the same
-shape is expected for new ops.
+pool params too). Applied to `lib/native/ops/conv.ml`; the same guarded scalar
+types are expected for new ops.
 
 ## Problem
 
@@ -25,7 +25,7 @@ single-letter axis name (`h`, `w`, matching `Axis.H`/`Axis.W`) is not an
 acronym and stays short; a *compression of multiple words* (`kh`, `sw`, `cin`)
 is, and gets expanded.
 
-## Convention 2 — a shared H/W pair type
+## Convention 2 — shared H/W pair or per-axis windows
 
 Kernel size, stride, and padding are all "one value for H, one for W." Name
 that shape once instead of repeating two fields per concept:
@@ -41,6 +41,19 @@ a general N-axis vector (that's already `Vec6`, which is a different role:
 tensor shapes/coords over all six axes, not a pair of op hyperparameters).
 Revisit if a future op needs a third paired axis (e.g. conv3d's `D`).
 
+For Conv2d, H and W now each carry a full axis window because TensorFlow/PyTorch
+semantics need asymmetric padding and dilation per axis:
+
+```ocaml
+type axis_window = {
+  kernel : Dim.extent Dim.t;
+  stride : Op_config.Pos.t;
+  pad_before : Op_config.Nonneg.t;
+  pad_after : Op_config.Nonneg.t;
+  dilation : Op_config.Pos.t;
+}
+```
+
 ## Convention 3 — non-negative by type, not by convention
 
 `Dim` (`native_tensor_design.md` §1a) already guards tensor-shape quantities
@@ -51,17 +64,16 @@ Two of the seven `params` fields *are* extents and should just reuse it:
   tensor's extent along `H`/`W`.
 - `in_channels : Dim.extent Dim.t` — literally the input's extent along `C`.
 
-`stride` and `pad` are not tensor-axis sizes — they're op hyperparameters with
-their own constraints, and folding them into `Dim` would blur a module whose
-documented job is tensor indexing math. They get their own guarded types,
-following the same `private int` pattern as `Dim` — but they don't share
-*one* constraint:
+`stride`, `pad_before`/`pad_after`, `dilation`, and `groups` are not
+tensor-axis sizes — they're op hyperparameters with their own constraints, and
+folding them into `Dim` would blur a module whose documented job is tensor
+indexing math. They get their own guarded types, following the same `private
+int` pattern as `Dim` — but they don't share *one* constraint:
 
 - `pad` of 0 is a normal, common value (no padding) — `≥ 0` is the right
   guard.
-- `stride` of 0 is never valid (it would mean the output never advances) —
-  `0` must be rejected too, so `stride` needs the *stricter* of the two types,
-  not the same one as `pad`.
+- `stride`, `dilation`, and `groups` of 0 are never valid, so they need the
+  stricter `Pos` type, not the same one as `pad`.
 
 So two minimal types, not one — and, along with `Hw`, too trivial individually
 to each earn a dedicated file, so all three live as submodules of one
@@ -100,20 +112,17 @@ library's top-level modules; submodules of one file are naturally qualified.)
 
 ```ocaml
 type params = {
-  kernel : Dim.extent Dim.t Op_config.Hw.t;
+  h : axis_window;
+  w : axis_window;
   in_channels : Dim.extent Dim.t;
-  stride : Op_config.Pos.t Op_config.Hw.t;
-  pad : Op_config.Nonneg.t Op_config.Hw.t;
+  groups : Op_config.Pos.t;
 }
 ```
 
-Seven loose, acronym-named, unguarded `int`s become four named, typed fields,
-each guarded to the constraint it actually has. **Confirmed**:
-`MaxPool2d.params` AND `AvgPool2d.params` (`lib/native/ops/pool.ml`) are both
-exactly this minus `in_channels` (pooling never reduces over channels) —
-`kernel`/`stride`/`pad` carried over unchanged, as predicted, with the same
-`Pos`/`Nonneg` guards. `Linear.params` (`lib/native/ops/linear.ml`), by
-contrast, has none of `kernel`/`stride`/`pad` — it has no spatial kernel at
-all — and reduces to a single field, `in_features : Dim.extent Dim.t`,
-reusing the same "it's a tensor extent, not a bare int" reasoning as
-`Conv2d.in_channels` above.
+Seven loose, acronym-named, unguarded `int`s become named, typed fields, each
+guarded to the constraint it actually has. `MaxPool2d.params` and
+`AvgPool2d.params` (`lib/native/ops/pool.ml`) still use the simpler
+`kernel`/`stride`/`pad` H/W triples because pooling currently models symmetric,
+undilated windows. `Linear.params` (`lib/native/ops/linear.ml`) has no spatial
+kernel at all and reduces to `in_features : Dim.extent Dim.t`, reusing the same
+"it's a tensor extent, not a bare int" reasoning as `Conv2d.in_channels`.

@@ -24,7 +24,7 @@ let window_output_shape ~(x_shape : Vec6.shape)
     ~(pad : Op_config.Nonneg.t Op_config.Hw.t) =
   let out_extent axis ~kernel ~stride ~pad =
     Window_axis.output_extent ~in_extent:(Vec6.get x_shape axis) ~kernel ~stride
-      ~pad
+      ~pad_before:pad ~pad_after:pad ~dilation:(Op_config.Pos.of_int 1)
   in
   Vec6.set
     (Vec6.set x_shape Axis.H
@@ -100,11 +100,13 @@ module MaxPool2d = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Axis.t -> Semantics.position S.index) =
       let wh =
-        Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad:p.pad.h
+        Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad_before:p.pad.h
+          ~dilation:(Op_config.Pos.of_int 1)
           ~in_extent:(Vec6.get x_shape Axis.H) (out Axis.H)
       in
       let ww =
-        Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad:p.pad.w
+        Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad_before:p.pad.w
+          ~dilation:(Op_config.Pos.of_int 1)
           ~in_extent:(Vec6.get x_shape Axis.W) (out Axis.W)
       in
       S.max_reduce ~lo:wh.lo ~hi:wh.hi (fun kh ->
@@ -187,11 +189,13 @@ module AvgPool2d = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Axis.t -> Semantics.position S.index) =
       let wh =
-        Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad:p.pad.h
+        Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad_before:p.pad.h
+          ~dilation:(Op_config.Pos.of_int 1)
           ~in_extent:(Vec6.get x_shape Axis.H) (out Axis.H)
       in
       let ww =
-        Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad:p.pad.w
+        Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad_before:p.pad.w
+          ~dilation:(Op_config.Pos.of_int 1)
           ~in_extent:(Vec6.get x_shape Axis.W) (out Axis.W)
       in
       let total =

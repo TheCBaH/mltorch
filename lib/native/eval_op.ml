@@ -43,8 +43,8 @@ module Make (S : Semantics.SEMANTICS) = struct
           | Some b -> operand b
           | None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
         in
-        C.pixel params ~x_shape:(shape_of x) ~x:(operand x)
-          ~weight:(operand weight) ~bias out
+        C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
+          ~x:(operand x) ~weight:(operand weight) ~bias out
     | Linear { Linear.Linear.params; x; weight; bias } ->
         let module C = Linear.Linear.Compute (S) in
         let bias =

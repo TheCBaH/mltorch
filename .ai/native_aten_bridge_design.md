@@ -124,8 +124,8 @@ the six permutations):
 | `addmm.default` | `Linear` | weight (mat2) [In,Out]→[N=Out,C=In] |
 
 Skipped (return `None`): `max_pool2d_with_indices` (2-output mismatch),
-`adaptive_avg_pool2d` (output-size API, not kernel/stride/pad),
-transposed / grouped / dilated convolutions.
+`adaptive_avg_pool2d` (output-size API, not kernel/stride/pad), and transposed
+convolutions. Dense, grouped/depthwise, and dilated forward Conv2d are covered.
 
 ### Extending coverage
 

@@ -128,12 +128,13 @@ end
 
 ### Example — conv2d (NHWC)
 
-Output `[n,t,d,h,w,oc]` reduces over input channels and the kernel window.
-Weight is `[Cout,1,1,Kh,Kw,Cin]`; bias is `[1,1,1,1,1,Cout]`, read at an explicit
-`index_zero` on its structurally-size-1 axes (a degenerate broadcast, in-bounds). The
-kh/kw reduction bounds are clipped via `Window_axis.Compute(S).window` so the
-source position is always a valid index, never a generate-then-guard read of the
-padding region. See `ops/conv.ml` for the implementation.
+Output `[n,t,d,h,w,oc]` reduces over the kernel window and the input channels
+for `oc`'s group. Weight is `[Cout,1,1,Kh,Kw,Cin_per_group]`; bias is
+`[1,1,1,1,1,Cout]`, read at an explicit `index_zero` on its structurally-size-1
+axes (a degenerate broadcast, in-bounds). The kh/kw reduction bounds are
+clipped via `Window_axis.Compute(S).window` so the source position is always a
+valid index, never a generate-then-guard read of the padding region. See
+`ops/conv.ml` for the implementation.
 
 
 ### 2b. Output shape inference — an op must compute its own output shape
@@ -179,19 +180,28 @@ module Add = struct
 end
 
 module Conv2d = struct
-  type params = { kernel : ...; in_channels : ...; stride : ...; pad : ... }
+  type axis_window = {
+    kernel : ...;
+    stride : ...;
+    pad_before : ...;
+    pad_after : ...;
+    dilation : ...;
+  }
+
+  type params = { h : axis_window; w : axis_window; in_channels : ...; groups : ... }
   let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
       (p : params) =
     (* N/T/D pass through from x_shape; C comes from weight_shape's Cout
-       (weight is [Cout,1,1,Kh,Kw,Cin] — params.in_channels is Cin, not Cout,
+       (weight is [Cout,1,1,Kh,Kw,Cin_per_group] — params.in_channels is Cin,
        so this needs weight_shape, not just x_shape + params); H/W: *)
-    let out_hw axis ~kernel ~stride ~pad =
+    let out_hw axis window =
       let in_extent = (Vec6.get x_shape axis :> int) in
-      ((in_extent + (2 * (pad :> int)) - (kernel :> int)) / (stride :> int)) + 1
+      let effective_kernel = ((kernel - 1) * dilation) + 1 in
+      ((in_extent + pad_before + pad_after - effective_kernel) / stride) + 1
     in
     ...
   module Compute (S : Semantics.SEMANTICS) = struct
-    let pixel (p : params) ~x ~weight ~bias
+    let pixel (p : params) ~x_shape ~weight_shape ~x ~weight ~bias
         (out : Axis.t -> Semantics.position S.index) = ...
   end
 end
@@ -211,15 +221,15 @@ Two things fall out of writing the arithmetic down:
 
 - **`Conv2d.output_shape` needs `weight_shape`, not just `x_shape` and
   `params`.** `Cout` lives in the weight tensor's shape, and `params` today
-  only carries `in_channels` (`Cin`). There is no single uniform
+  carries `in_channels` (`Cin`) and `groups`, not `Cout`. There is no single uniform
   `output_shape : params -> Vec6.shape -> Vec6.shape` across ops — `pixel`
   already takes different inputs per op (`~x ~weight ~bias` vs. `a b`), and
   `output_shape` has to take whatever subset of those shapes it actually
   needs, op by op.
 - **The H/W formula here is the *forward* direction of the exact same
   windowed-axis relationship as the clipped reduction bounds used to read
-  the window** (`lo = max 0 (pad - out*stride)`, `hi = min kernel (...)`) —
-  given `in_extent`/`kernel`/`stride`/`pad`, one direction asks "how many
+  the window** —
+  given `in_extent`/`kernel`/`stride`/`pad_before`/`pad_after`/`dilation`, one direction asks "how many
   output positions are there," the other asks "for this output position,
   which kernel offsets are valid." **Partially unified, now shared across
   ops**: both directions live in `lib/native/ops/window_axis.ml`

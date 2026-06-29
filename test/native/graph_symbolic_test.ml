@@ -8,6 +8,15 @@ let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 
+let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
+  {
+    kernel = Dim.extent kernel;
+    stride = Op_config.Pos.of_int stride;
+    pad_before = Op_config.Nonneg.of_int pad;
+    pad_after = Op_config.Nonneg.of_int pad;
+    dilation = Op_config.Pos.of_int 1;
+  }
+
 let tensors_match shape a b =
   let ok = ref true in
   Vec6.iter shape (fun c ->
@@ -88,13 +97,10 @@ let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
    execution extends through the whole graph by tensor signature. *)
 let conv_params =
   {
-    Conv.Conv2d.kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+    Conv.Conv2d.h = conv_axis ~kernel:2 ~stride:1 ~pad:0;
+    w = conv_axis ~kernel:2 ~stride:1 ~pad:0;
     in_channels = Dim.extent 2;
-    stride =
-      Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
-    pad =
-      Op_config.Hw.
-        { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+    groups = Op_config.Pos.of_int 1;
   }
 
 let p_to_nhwc = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ]
@@ -120,7 +126,7 @@ let%expect_test
     {|
     inputs: x_nchw, w, b
     x_nhwc = x_nchw[N,T,D,C,H,W]
-    y_nhwc = (sum(r1=0..2: sum(r2=max(0,0+-1*H)..min(2,3+0+-1*H): sum(r3=max(0,0+-1*W)..min(2,3+0+-1*W): (x_nhwc[N,T,D,1*H+r2+0,1*W+r3+0,r1] * w[C,0,0,r2,r3,r1])))) + b[0,0,0,0,0,C])
+    y_nhwc = (sum(r1=0..2: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (x_nhwc[N,T,D,1*H+0+1*r2,1*W+0+1*r3,2*0+r1] * w[C,0,0,r2,r3,r1])))) + b[0,0,0,0,0,C])
     y_nchw = y_nhwc[N,T,D,W,C,H]
     outputs: y_nchw |}];
   let x =

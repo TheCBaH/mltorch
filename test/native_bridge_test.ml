@@ -270,10 +270,10 @@ let%expect_test "dispatch: conv2d.default relayouts NCHW/OIHW with bias" =
           x=t3(permute_3)
           weight=t4(permute_4)
           bias=t2(input_2)
-          params={kernel={h=2; w=2};
+          params={h={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=1;
-                 stride={h=1; w=1};
-                 pad={h=0; w=0}}
+                 groups=1}
       n3: [t6 permute_6:f32 [W=2 C=2]] =
         permute x=t5(conv2d_5) perm=[H<-C, W<-H, C<-W]
     outputs: [t6 permute_6:f32 [W=2 C=2]]
@@ -312,14 +312,76 @@ let%expect_test "dispatch: convolution.default uses conv2d relayout path" =
           x=t2(permute_2)
           weight=t3(permute_3)
           bias=none
-          params={kernel={h=2; w=2};
+          params={h={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=1;
-                 stride={h=1; w=1};
-                 pad={h=0; w=0}}
+                 groups=1}
       n3: [t5 permute_5:f32 [W=2 C=2]] =
         permute x=t4(conv2d_4) perm=[H<-C, W<-H, C<-W]
     outputs: [t5 permute_5:f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {8, 12, 20, 24} |}]
+
+let%expect_test "dispatch: convolution.default grouped conv2d" =
+  let x = float_tensor [ 1; 4; 1; 1 ] [ 1.; 2.; 10.; 20. ] in
+  let w = float_tensor [ 4; 2; 1; 1 ] [ 1.; 1.; 10.; 0.; 1.; 1.; 0.; 2. ] in
+  let bias = float_tensor [ 4 ] [ 0.; 100.; 1000.; 10000. ] in
+  dispatch_print ~target:"torch.ops.aten.convolution.default"
+    ~bindings:[ ("input", x); ("weight", w); ("bias", bias) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_tensor "bias";
+        in_ints "stride" [ 1; 1 ];
+        in_ints "padding" [ 0; 0 ];
+        in_ints "dilation" [ 1; 1 ];
+        in_bool "transposed" false;
+        in_ints "output_padding" [ 0; 0 ];
+        in_int "groups" 2;
+      ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [H=4 W=1 C=1] {3, 110, 1030, 10040} |}]
+
+let%expect_test "dispatch: conv2d.default dilated spatial window" =
+  let x = float_tensor [ 1; 1; 1; 5 ] [ 0.; 1.; 2.; 3.; 4. ] in
+  let w = float_tensor [ 1; 1; 1; 3 ] [ 1.; 1.; 1. ] in
+  dispatch_print ~target:"torch.ops.aten.conv2d.default"
+    ~bindings:[ ("input", x); ("weight", w) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_none "bias";
+        in_ints "stride" [ 1; 1 ];
+        in_ints "padding" [ 0; 1 ];
+        in_ints "dilation" [ 1; 2 ];
+      ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=3] {4, 6, 4} |}]
+
+let%expect_test
+    "dispatch: conv2d.default combines bias stride padding dilation and groups"
+    =
+  let x =
+    float_tensor [ 1; 2; 1; 7 ]
+      [ 0.; 1.; 2.; 3.; 4.; 5.; 6.; 10.; 11.; 12.; 13.; 14.; 15.; 16. ]
+  in
+  let w = float_tensor [ 2; 1; 1; 2 ] [ 1.; 1.; 2.; 3. ] in
+  let bias = float_tensor [ 2 ] [ 10.; 100. ] in
+  dispatch_print ~target:"torch.ops.aten.conv2d.default"
+    ~bindings:[ ("input", x); ("weight", w); ("bias", bias) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_tensor "bias";
+        in_ints "stride" [ 1; 2 ];
+        in_ints "padding" [ 0; 1 ];
+        in_ints "dilation" [ 1; 2 ];
+        in_int "groups" 2;
+      ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [H=2 W=1 C=4] {11, 14, 18, 15, 133, 161, 171, 130} |}]
 
 let%expect_test "dispatch: linear.default relayouts [Out,In] weight with bias" =
   let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in

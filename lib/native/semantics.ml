@@ -43,6 +43,8 @@ module type SEMANTICS = sig
   val of_index : position index -> delta index
   val index_add : delta index -> delta index -> delta index
   val index_scale : int -> delta index -> delta index
+  val index_floor_div_pos : delta index -> Op_config.Pos.t -> delta index
+  val index_ceil_div_pos : delta index -> Op_config.Pos.t -> delta index
   val index_min : delta index -> delta index -> delta index
   val clamp_low : delta index -> position index
   val assume_index : delta index -> position index

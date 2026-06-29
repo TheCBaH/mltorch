@@ -21,6 +21,15 @@ module Make () = struct
   let of_index i = i
   let index_add a b = Expr.Index_add (a, b)
   let index_scale k a = Expr.Index_scale (k, a)
+
+  let index_floor_div_pos a d =
+    if (d : Op_config.Pos.t :> int) = 1 then a
+    else Expr.Index_floor_div_pos (a, (d :> int))
+
+  let index_ceil_div_pos a d =
+    if (d : Op_config.Pos.t :> int) = 1 then a
+    else Expr.Index_ceil_div_pos (a, (d :> int))
+
   let index_min a b = Expr.Index_min (a, b)
   let clamp_low x = Expr.Index_max (Expr.Index_const 0, x)
   let assume_index x = x

@@ -4,6 +4,26 @@ let col c = Dim.to_int (Vec6.get c Axis.W)
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 let f32 = Payload.Fmt Payload.F32
 
+let conv_axis ?(pad_before = 0) ?pad_after ?(dilation = 1) ~kernel ~stride () :
+    Conv.Conv2d.axis_window =
+  {
+    kernel = Dim.extent kernel;
+    stride = Op_config.Pos.of_int stride;
+    pad_before = Op_config.Nonneg.of_int pad_before;
+    pad_after =
+      Op_config.Nonneg.of_int (Option.value pad_after ~default:pad_before);
+    dilation = Op_config.Pos.of_int dilation;
+  }
+
+let conv_params ?(groups = 1) ?(pad = (0, 0)) ~kernel ~stride ~in_channels () =
+  let kh, kw = kernel and sh, sw = stride and ph, pw = pad in
+  {
+    Conv.Conv2d.h = conv_axis ~pad_before:ph ~kernel:kh ~stride:sh ();
+    w = conv_axis ~pad_before:pw ~kernel:kw ~stride:sw ();
+    in_channels = Dim.extent in_channels;
+    groups = Op_config.Pos.of_int groups;
+  }
+
 let tensors_match shape a b =
   let ok = ref true in
   Vec6.iter shape (fun c ->
@@ -52,28 +72,24 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
     Tensor_sig.create ~id:(Tensor_id.of_int 2) ~name:"b" ~shape:(s1c 1) ~fmt:f32
       ()
   in
-  let p =
-    {
-      Conv.Conv2d.kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
-      in_channels = Dim.extent 1;
-      stride =
-        Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
-      pad =
-        Op_config.Hw.
-          { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
-    }
-  in
+  let p = conv_params ~kernel:(2, 2) ~stride:(1, 1) ~in_channels:1 () in
   let out_shape = Conv.Conv2d.output_shape ~x_shape ~weight_shape:w_shape p in
-  let e = Cs.pixel p ~x_shape ~x:xs ~weight:ws ~bias:bs Symbolic.out_coord in
+  let e =
+    Cs.pixel p ~x_shape ~weight_shape:w_shape ~x:xs ~weight:ws ~bias:bs
+      Symbolic.out_coord
+  in
   Format.printf "%a@." Expr.pp e;
   [%expect
-    {| (sum(r1=0..1: sum(r2=max(0,0+-1*H)..min(2,3+0+-1*H): sum(r3=max(0,0+-1*W)..min(2,3+0+-1*W): (x[N,T,D,1*H+r2+0,1*W+r3+0,r1] * w[C,0,0,r2,r3,r1])))) + b[0,0,0,0,0,C]) |}];
+    {| (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (x[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * w[C,0,0,r2,r3,r1])))) + b[0,0,0,0,0,C]) |}];
   let binding (s : Tensor_sig.t) =
     if s.id = xs.id then x else if s.id = ws.id then weight else bias
   in
   let outs = ref [] and ok = ref true in
   Vec6.iter out_shape (fun c ->
-      let d = Cd.pixel p ~x_shape ~x ~weight ~bias (Schedule.coord_index c) in
+      let d =
+        Cd.pixel p ~x_shape ~weight_shape:w_shape ~x ~weight ~bias
+          (Schedule.coord_index c)
+      in
       let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
       outs := s :: !outs;
       if not (Float.equal d s) then ok := false);
@@ -307,19 +323,12 @@ let%expect_test
     Tensor_sig.create ~id:(Tensor_id.of_int 2) ~name:"b" ~shape:(s1c 1) ~fmt:f32
       ()
   in
-  let p =
-    {
-      Conv.Conv2d.kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
-      in_channels = Dim.extent 1;
-      stride =
-        Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
-      pad =
-        Op_config.Hw.
-          { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
-    }
-  in
+  let p = conv_params ~kernel:(2, 2) ~stride:(1, 1) ~in_channels:1 () in
   let out_shape = Conv.Conv2d.output_shape ~x_shape ~weight_shape p in
-  let e = Cs.pixel p ~x_shape ~x:xs ~weight:ws ~bias:bs Symbolic.out_coord in
+  let e =
+    Cs.pixel p ~x_shape ~weight_shape ~x:xs ~weight:ws ~bias:bs
+      Symbolic.out_coord
+  in
   let cases =
     [
       ((fun c -> float_of_int ((row c * 3) + col c)), (fun _ -> 1.), fun _ -> 0.);
@@ -338,7 +347,8 @@ let%expect_test
         if s.id = xs.id then x else if s.id = ws.id then weight else bias
       in
       let direct =
-        Schedule.evaluate out_shape (Cd.pixel p ~x_shape ~x ~weight ~bias)
+        Schedule.evaluate out_shape
+          (Cd.pixel p ~x_shape ~weight_shape ~x ~weight ~bias)
       in
       let grounded = Schedule.ground out_shape ~binding e in
       Format.printf "grounded=%a match=%b@." Tensor.pp grounded

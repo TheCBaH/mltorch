@@ -17,6 +17,8 @@ type index_expr =
   | Index_const of int
   | Index_add of index_expr * index_expr
   | Index_scale of int * index_expr
+  | Index_floor_div_pos of index_expr * int
+  | Index_ceil_div_pos of index_expr * int
   | Index_max of
       index_expr * index_expr (* clamp a windowed reduction's bounds in-range *)
   | Index_min of index_expr * index_expr
@@ -53,6 +55,10 @@ let rec pp_index_expr fmt = function
   | Index_add (a, b) ->
       Format.fprintf fmt "%a+%a" pp_index_expr a pp_index_expr b
   | Index_scale (k, a) -> Format.fprintf fmt "%d*%a" k pp_index_expr a
+  | Index_floor_div_pos (a, d) ->
+      Format.fprintf fmt "floor_div(%a,%d)" pp_index_expr a d
+  | Index_ceil_div_pos (a, d) ->
+      Format.fprintf fmt "ceil_div(%a,%d)" pp_index_expr a d
   | Index_max (a, b) ->
       Format.fprintf fmt "max(%a,%a)" pp_index_expr a pp_index_expr b
   | Index_min (a, b) ->
@@ -99,6 +105,13 @@ let rec eval_index_expr ~coord ~rvars = function
   | Index_add (a, b) ->
       eval_index_expr ~coord ~rvars a + eval_index_expr ~coord ~rvars b
   | Index_scale (k, a) -> k * eval_index_expr ~coord ~rvars a
+  | Index_floor_div_pos (a, d) ->
+      let n = eval_index_expr ~coord ~rvars a in
+      if n >= 0 then n / d else -((-n + d - 1) / d)
+  | Index_ceil_div_pos (a, d) ->
+      let n = eval_index_expr ~coord ~rvars a in
+      let floor_neg = if -n >= 0 then -n / d else -((n + d - 1) / d) in
+      -floor_neg
   | Index_max (a, b) ->
       Stdlib.max
         (eval_index_expr ~coord ~rvars a)

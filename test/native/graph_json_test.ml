@@ -11,6 +11,15 @@ let s1c c = s 1 1 1 1 1 c
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 let pf fmt = Format.printf fmt
 
+let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
+  {
+    kernel = Dim.extent kernel;
+    stride = Op_config.Pos.of_int stride;
+    pad_before = Op_config.Nonneg.of_int pad;
+    pad_after = Op_config.Nonneg.of_int pad;
+    dilation = Op_config.Pos.of_int 1;
+  }
+
 let encode_graph_exn g =
   match Graph_json.encode_graph ~format:Jsont.Indent g with
   | Ok s -> s
@@ -126,14 +135,10 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
   let conv_params =
     Conv.Conv2d.
       {
-        kernel = Op_config.Hw.{ h = Dim.extent 3; w = Dim.extent 3 };
+        h = conv_axis ~kernel:3 ~stride:1 ~pad:1;
+        w = conv_axis ~kernel:3 ~stride:1 ~pad:1;
         in_channels = Dim.extent 8;
-        stride =
-          Op_config.Hw.
-            { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
-        pad =
-          Op_config.Hw.
-            { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
+        groups = Op_config.Pos.of_int 1;
       }
   in
   let g =
@@ -166,19 +171,22 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
             "Conv2d": {
               "bias": 2,
               "params": {
-                "kernel": {
-                  "h": 3,
-                  "w": 3
+                "h": {
+                  "kernel": 3,
+                  "stride": 1,
+                  "pad_before": 1,
+                  "pad_after": 1,
+                  "dilation": 1
+                },
+                "w": {
+                  "kernel": 3,
+                  "stride": 1,
+                  "pad_before": 1,
+                  "pad_after": 1,
+                  "dilation": 1
                 },
                 "in_channels": 8,
-                "pad": {
-                  "h": 1,
-                  "w": 1
-                },
-                "stride": {
-                  "h": 1,
-                  "w": 1
-                }
+                "groups": 1
               },
               "weight": 1,
               "x": 0
@@ -258,24 +266,20 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
           x=t0(x)
           weight=t1(w)
           bias=t2(b)
-          params={kernel={h=3; w=3};
+          params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+                 w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
                  in_channels=8;
-                 stride={h=1; w=1};
-                 pad={h=1; w=1}}
+                 groups=1}
     outputs: [t3 y:f32 [H=4 W=4 C=16]] |}]
 
 let%expect_test "op Conv2d no bias: optional field absent in JSON" =
   let conv_params =
     Conv.Conv2d.
       {
-        kernel = Op_config.Hw.{ h = Dim.extent 1; w = Dim.extent 1 };
+        h = conv_axis ~kernel:1 ~stride:1 ~pad:0;
+        w = conv_axis ~kernel:1 ~stride:1 ~pad:0;
         in_channels = Dim.extent 4;
-        stride =
-          Op_config.Hw.
-            { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
-        pad =
-          Op_config.Hw.
-            { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+        groups = Op_config.Pos.of_int 1;
       }
   in
   let g =
@@ -301,10 +305,10 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
           x=t0(x)
           weight=t1(w)
           bias=none
-          params={kernel={h=1; w=1};
+          params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=4;
-                 stride={h=1; w=1};
-                 pad={h=0; w=0}}
+                 groups=1}
     outputs: [t2 y:f32 [C=4]]
     decoded:
     graph conv_nb
@@ -315,10 +319,10 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
           x=t0(x)
           weight=t1(w)
           bias=none
-          params={kernel={h=1; w=1};
+          params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=4;
-                 stride={h=1; w=1};
-                 pad={h=0; w=0}}
+                 groups=1}
     outputs: [t2 y:f32 [C=4]] |}]
 
 let%expect_test "op Permute: encode → decode" =

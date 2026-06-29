@@ -8,6 +8,15 @@ let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 
+let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
+  {
+    kernel = Dim.extent kernel;
+    stride = Op_config.Pos.of_int stride;
+    pad_before = Op_config.Nonneg.of_int pad;
+    pad_after = Op_config.Nonneg.of_int pad;
+    dilation = Op_config.Pos.of_int 1;
+  }
+
 (* The edge id whose signature carries [name] (edges we look up are named). *)
 let id_of_name (g : graph) name =
   Tensor_id.Map.fold
@@ -85,13 +94,10 @@ let%expect_test "Direct graph: mul of two inputs" =
    is its inverse. *)
 let conv_params =
   {
-    Conv.Conv2d.kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+    Conv.Conv2d.h = conv_axis ~kernel:2 ~stride:1 ~pad:0;
+    w = conv_axis ~kernel:2 ~stride:1 ~pad:0;
     in_channels = Dim.extent 2;
-    stride =
-      Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
-    pad =
-      Op_config.Hw.
-        { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+    groups = Op_config.Pos.of_int 1;
   }
 
 let p_to_nhwc = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ]
@@ -138,7 +144,8 @@ let%expect_test
   in
   let ref_y =
     Schedule.evaluate ref_shape
-      (Cv.pixel conv_params ~x_shape:r.shape ~x:xh ~weight:w ~bias:b)
+      (Cv.pixel conv_params ~x_shape:r.shape ~weight_shape:(s 1 1 1 2 2 2) ~x:xh
+         ~weight:w ~bias:b)
   in
   Format.printf "y_nhwc matches single conv: %b@."
     (tensors_match ref_shape ref_y (get "y_nhwc"));

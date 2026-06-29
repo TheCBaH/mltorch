@@ -57,7 +57,7 @@ over `C`; the conv/linear *weight* is read at `N = out-channel`. But:
 
 | ATen target | Native op | Transposes required |
 |---|---|---|
-| `convolution`/`conv2d` | `Conv2d` | input NCHW→NHWC, weight OIHW→`[Cout,1,1,Kh,Kw,Cin]`, output NHWC→NCHW |
+| `convolution`/`conv2d` | `Conv2d` | input NCHW→NHWC, weight OIHW→`[Cout,1,1,Kh,Kw,Cin/groups]`, output NHWC→NCHW |
 | `max_pool2d*`, `avg_pool2d` | `Max/AvgPool2d` | input NCHW→NHWC, output NHWC→NCHW (no weight) |
 | `addmm`/`linear` | `Linear` | weight only (`[N,In]` input already lands `In` on `C`); `addmm` carries `[In,Out]`, `linear` carries `[Out,In]` — different permutations |
 
