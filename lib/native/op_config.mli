@@ -13,6 +13,7 @@ module Nonneg : sig
   val to_int : t -> int
   (* also available as the free coercion [(x :> int)] *)
 
+  val pp : Format.formatter -> t -> unit
   val jsont : t Jsont.t
 end
 
@@ -26,6 +27,7 @@ module Pos : sig
   val to_int : t -> int
   (* also available as the free coercion [(x :> int)] *)
 
+  val pp : Format.formatter -> t -> unit
   val jsont : t Jsont.t
 end
 
@@ -37,4 +39,5 @@ module Hw : sig
   type 'a t = { h : 'a; w : 'a }
 
   val jsont : 'a Jsont.t -> 'a t Jsont.t
+  val pp : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a t -> unit
 end

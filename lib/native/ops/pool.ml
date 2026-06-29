@@ -58,6 +58,39 @@ module MaxPool2d = struct
          ~enc:(fun p -> p.stride)
     |> Jsont.Object.finish
 
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{kernel=%a;@ stride=%a;@ pad=%a}@]"
+      (Op_config.Hw.pp Dim.pp) p.kernel
+      (Op_config.Hw.pp Op_config.Pos.pp)
+      p.stride
+      (Op_config.Hw.pp Op_config.Nonneg.pp)
+      p.pad
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Max_pool2d"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>max_pool2d@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
+
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
     window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
 
@@ -111,6 +144,39 @@ module AvgPool2d = struct
     |> Jsont.Object.mem "stride" (Op_config.Hw.jsont Op_config.Pos.jsont)
          ~enc:(fun p -> p.stride)
     |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{kernel=%a;@ stride=%a;@ pad=%a}@]"
+      (Op_config.Hw.pp Dim.pp) p.kernel
+      (Op_config.Hw.pp Op_config.Pos.pp)
+      p.stride
+      (Op_config.Hw.pp Op_config.Nonneg.pp)
+      p.pad
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Avg_pool2d"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>avg_pool2d@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
 
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
     window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad

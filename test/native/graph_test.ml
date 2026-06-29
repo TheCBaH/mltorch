@@ -238,3 +238,58 @@ let%expect_test "Direct graph: nested subgraph evaluation" =
     {|
     nested_out = tensor f32 [C=4] {0, 0, 4, 0}
     matches flat: true |}]
+
+(* Tensor_sig.id must equal the Tensor_id key in the graph's tensor map.
+   This verifies the state-monad id generator produces consistent ids. *)
+let%expect_test "Builder: Tensor_sig.id equals Tensor_id for all edges" =
+  let g =
+    Graph_builder.(
+      build ~name:"check" ~outputs:(fun r -> [ r ])
+      @@
+      let* a = input ~shape:(s1c 2) ~name:"a" () in
+      let* b = input ~shape:(s1c 2) ~name:"b" () in
+      add ~name:"out" a b)
+  in
+  Tensor_id.Map.iter
+    (fun tid sg ->
+      Format.printf "tid=%a sig_id=%a match=%b@." Tensor_id.pp tid Tensor_id.pp
+        sg.Tensor_sig.id
+        (Tensor_id.equal tid sg.Tensor_sig.id))
+    g.Graph.tensors;
+  [%expect
+    {|
+    tid=t0 sig_id=t0 match=true
+    tid=t1 sig_id=t1 match=true
+    tid=t2 sig_id=t2 match=true |}]
+
+(* Building the same graph twice must produce identical tensor ids: the id
+   generator is local to [build], not a global counter. *)
+let%expect_test "Builder: ids are deterministic across multiple build calls" =
+  let build_add () =
+    Graph_builder.(
+      build ~name:"add" ~outputs:(fun r -> [ r ])
+      @@
+      let* a = input ~shape:(s1c 3) ~name:"a" () in
+      let* b = input ~shape:(s1c 3) ~name:"b" () in
+      add ~name:"out" a b)
+  in
+  let g1 = build_add () in
+  let g2 = build_add () in
+  let ids_of g =
+    Tensor_id.Map.bindings g.Graph.tensors
+    |> List.map (fun (tid, sg) -> (tid, sg.Tensor_sig.id))
+  in
+  let pp_ids ids =
+    ids
+    |> List.map (fun (t, s) ->
+        Format.asprintf "(%a,%a)" Tensor_id.pp t Tensor_id.pp s)
+    |> String.concat " "
+  in
+  Format.printf "g1 ids: %s@." (pp_ids (ids_of g1));
+  Format.printf "g2 ids: %s@." (pp_ids (ids_of g2));
+  Format.printf "match: %b@." (ids_of g1 = ids_of g2);
+  [%expect
+    {|
+    g1 ids: (t0,t0) (t1,t1) (t2,t2)
+    g2 ids: (t0,t0) (t1,t1) (t2,t2)
+    match: true |}]

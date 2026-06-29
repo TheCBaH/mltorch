@@ -27,6 +27,46 @@ module RmsNorm = struct
     |> Jsont.Object.mem "eps" Json_util.f32_jsont ~enc:(fun p -> p.eps)
     |> Jsont.Object.finish
 
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{dims=%a;@ eps=%a}@]"
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis.pp))
+      p.dims Fmt.float p.eps
+
+  type t = { params : params; x : Tensor_ref.t; weight : Tensor_ref.t option }
+
+  let name = "Rms_norm"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          x = get "x" Tensor_ref.jsont;
+          weight = Json_util.opt_field ms "weight" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        let ref_ = Json_util.enc Tensor_ref.jsont in
+        let opt_weight =
+          match t.weight with None -> [] | Some r -> [ ("weight", ref_ r) ]
+        in
+        Json_util.jobj
+          ([ ("params", Json_util.enc params_jsont t.params) ]
+          @ opt_weight
+          @ [ ("x", ref_ t.x) ]))
+      Jsont.json
+
+  let operands (t : t) = t.x :: Option.to_list t.weight
+
+  let map_operands f (t : t) =
+    { t with x = f t.x; weight = Option.map f t.weight }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>rms_norm@ x=%a@ weight=%a@ params=%a@]" pp_ref t.x
+      (Fmt.option ~none:(Fmt.any "none") pp_ref)
+      t.weight pp_params t.params
+
   (* Output keeps the input shape: rms-norm rescales, it does not reduce. *)
   let output_shape ~(x_shape : Vec6.shape) = x_shape
 

@@ -10,17 +10,7 @@
    parametrised over the embedded-graph type so it can be defined once (not copied
    into the [module rec] group). See .ai/native_graph_design.md. *)
 
-module Tensor_id : sig
-  type t = private int
-
-  val of_int : int -> t (* builder-internal allocation *)
-  val to_int : t -> int
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val pp : Format.formatter -> t -> unit
-
-  module Map : Map.S with type key = t
-end
+module Tensor_id = Tensor_id
 
 module Node_id : sig
   type t = private int
@@ -39,33 +29,23 @@ type tensor_ref = Tensor_id.t
    so the concrete [op = Graph.t gop] alias can keep the short name.) *)
 type 'g gop =
   (* Constructors are kept in global alphabetical order so any op is easy to
-     locate; the same order is mirrored by every per-op match below and by
-     [Graph_shape]/[Eval_op]/[Graph_builder]. *)
-  | Add of { a : tensor_ref; b : tensor_ref }
-  | Avg_pool2d of { params : Pool.AvgPool2d.params; x : tensor_ref }
-  | Bmm of { input : tensor_ref; mat2 : tensor_ref }
-  | Conv2d of {
-      params : Conv.Conv2d.params;
-      x : tensor_ref;
-      weight : tensor_ref;
-      bias : tensor_ref option;
-    }
-  | Linear of {
-      params : Linear.Linear.params;
-      x : tensor_ref;
-      weight : tensor_ref;
-      bias : tensor_ref option;
-    }
-  | Max_pool2d of { params : Pool.MaxPool2d.params; x : tensor_ref }
-  | Mean of { params : Reduce.Mean.params; x : tensor_ref }
-  | Mul of { a : tensor_ref; b : tensor_ref }
-  | Permute of { perm : Permute.Permute.perm; x : tensor_ref }
-  | Relu of { x : tensor_ref }
-  | Rms_norm of {
-      params : Norm.RmsNorm.params;
-      x : tensor_ref;
-      weight : tensor_ref option;
-    }
+     locate. Each non-[Subgraph] op carries its own payload record (params +
+     operand refs), owned by that op's module; the shared serialise / dataflow /
+     pp logic iterates a registry of those modules rather than matching every
+     constructor (so adding an op no longer means editing parallel matches here).
+     [Eval_op]/[Graph_shape] still match per op, since they need shape/semantics
+     context the payload can't carry. *)
+  | Add of Pointwise.Add.t
+  | Avg_pool2d of Pool.AvgPool2d.t
+  | Bmm of Matmul.Bmm.t
+  | Conv2d of Conv.Conv2d.t
+  | Linear of Linear.Linear.t
+  | Max_pool2d of Pool.MaxPool2d.t
+  | Mean of Reduce.Mean.t
+  | Mul of Pointwise.Mul.t
+  | Permute of Permute.Permute.t
+  | Relu of Pointwise.Relu.t
+  | Rms_norm of Norm.RmsNorm.t
   | Subgraph of { graph : 'g; args : tensor_ref list }
 (* [args] map positionally to [graph.inputs] *)
 

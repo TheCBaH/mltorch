@@ -12,15 +12,36 @@ let identity_load (sg : Tensor_sig.t) : Expr.t =
 
 let f32 = Payload.Fmt Payload.F32
 
+let first_free_tid (g : graph) =
+  let rec walk acc gr =
+    let acc =
+      Tensor_id.Map.fold
+        (fun k _ a -> max a (Tensor_id.to_int k + 1))
+        gr.Graph.tensors acc
+    in
+    List.fold_left
+      (fun acc (node : node) ->
+        match node.Node.op with
+        | Subgraph { graph = sub; _ } -> walk acc sub
+        | _ -> acc)
+      acc gr.Graph.nodes
+  in
+  walk 0 g
+
 let run (g : graph) : Stage_program.t =
   (* a fresh Symbolic instance per graph: its reduction-var counter starts clean,
      so the produced expressions are deterministic. *)
   let module S = Symbolic.Make () in
   let module E = Eval_op.Make (S) in
   let consts = ref [] in
+  let next_const = ref (first_free_tid g) in
   let fill v shape =
+    let id = Tensor_id.of_int !next_const in
+    incr next_const;
     let sg =
-      Tensor_sig.create ~name:(Printf.sprintf "const%g" v) ~shape ~fmt:f32 ()
+      Tensor_sig.create ~id
+        ~name:(Printf.sprintf "const%g" v)
+        ~shape ~fmt:f32 ()
     in
     consts := (sg, v) :: !consts;
     sg

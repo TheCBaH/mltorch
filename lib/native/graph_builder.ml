@@ -29,7 +29,7 @@ let input ~shape ?name ?fmt ?quant () s =
   let name =
     match name with Some n -> n | None -> Printf.sprintf "input_%d" tid_int
   in
-  let sg = Tensor_sig.create ~name ~shape ~fmt ?quant () in
+  let sg = Tensor_sig.create ~id:tid ~name ~shape ~fmt ?quant () in
   ( tid,
     {
       s with
@@ -45,7 +45,7 @@ let new_edge ?name ~kind shape s =
   let name =
     match name with Some n -> n | None -> Printf.sprintf "%s_%d" kind tid_int
   in
-  let sg = Tensor_sig.create ~name ~shape ~fmt:f32 () in
+  let sg = Tensor_sig.create ~id:tid ~name ~shape ~fmt:f32 () in
   ( tid,
     {
       s with
@@ -78,30 +78,38 @@ let op1 ?name ~kind op : Tensor_id.t t =
   let* () = push_node op [ tid ] in
   return tid
 
-(* Op constructors in global alphabetical order (see graph_ir.mli). *)
-let add ?name a b = op1 ?name ~kind:"add" (Add { a; b })
+(* Op constructors in global alphabetical order (see graph_ir.mli). The record
+   payloads are built with their first label qualified, which disambiguates the
+   op module each belongs to (the [node.Node.outputs] convention). *)
+let add ?name a b = op1 ?name ~kind:"add" (Add { Pointwise.Bin.a; b })
 
 let avg_pool2d ?name params x =
-  op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { params; x })
+  op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { Pool.AvgPool2d.params; x })
 
-let bmm ?name input mat2 = op1 ?name ~kind:"bmm" (Bmm { input; mat2 })
+let bmm ?name input mat2 =
+  op1 ?name ~kind:"bmm" (Bmm { Matmul.Bmm.input; mat2 })
 
 let conv2d ?name params ~x ~weight ?bias () =
-  op1 ?name ~kind:"conv2d" (Conv2d { params; x; weight; bias })
+  op1 ?name ~kind:"conv2d" (Conv2d { Conv.Conv2d.params; x; weight; bias })
 
 let linear ?name params ~x ~weight ?bias () =
-  op1 ?name ~kind:"linear" (Linear { params; x; weight; bias })
+  op1 ?name ~kind:"linear" (Linear { Linear.Linear.params; x; weight; bias })
 
 let max_pool2d ?name params x =
-  op1 ?name ~kind:"max_pool2d" (Max_pool2d { params; x })
+  op1 ?name ~kind:"max_pool2d" (Max_pool2d { Pool.MaxPool2d.params; x })
 
-let mean ?name params x = op1 ?name ~kind:"mean" (Mean { params; x })
-let mul ?name a b = op1 ?name ~kind:"mul" (Mul { a; b })
-let permute ?name perm x = op1 ?name ~kind:"permute" (Permute { perm; x })
-let relu ?name x = op1 ?name ~kind:"relu" (Relu { x })
+let mean ?name params x =
+  op1 ?name ~kind:"mean" (Mean { Reduce.Mean.params; x })
+
+let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
+
+let permute ?name perm x =
+  op1 ?name ~kind:"permute" (Permute { Permute.Permute.perm; x })
+
+let relu ?name x = op1 ?name ~kind:"relu" (Relu { Pointwise.Relu.x })
 
 let rms_norm ?name params ~x ?weight () =
-  op1 ?name ~kind:"rms_norm" (Rms_norm { params; x; weight })
+  op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
 
 let subgraph ~name (body : Tensor_id.t list t) : graph t =
  fun s ->
@@ -138,7 +146,9 @@ let invoke ?names (g : graph) (args : tensor_ref list) : Tensor_id.t list t =
           if i < Array.length names_arr then names_arr.(i)
           else Printf.sprintf "%s_%d" g.Graph.name tid_int
         in
-        let sg = Tensor_sig.create ~name ~shape:sub_sig.shape ~fmt:f32 () in
+        let sg =
+          Tensor_sig.create ~id:tid ~name ~shape:sub_sig.shape ~fmt:f32 ()
+        in
         alloc (i + 1) rest (tid_int + 1)
           (Tensor_id.Map.add tid sg tensors)
           (tid :: acc)

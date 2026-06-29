@@ -18,6 +18,41 @@ module Permute = struct
       |> Jsont.Object.mem "out" Axis.jsont ~enc:fst
       |> Jsont.Object.finish)
 
+  let pp_perm fmt (perm : perm) =
+    let pp_axis_pair fmt (out_axis, in_axis) =
+      Fmt.pf fmt "@[<h>%a<-%a@]" Axis.pp out_axis Axis.pp in_axis
+    in
+    Fmt.brackets
+      (Fmt.list ~sep:Fmt.comma pp_axis_pair)
+      fmt
+      (List.filter
+         (fun (out_axis, in_axis) -> not (Axis.equal out_axis in_axis))
+         perm)
+
+  type t = { perm : perm; x : Tensor_ref.t }
+
+  let name = "Permute"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { perm = get "perm" perm_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("perm", Json_util.enc perm_jsont t.perm);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>permute@ x=%a@ perm=%a@]" pp_ref t.x pp_perm t.perm
+
   (* output_shape[out_ax] = x_shape[in_ax] for each (out_ax, in_ax) pair.
      Axes absent from [perm] default to extent 1 (never happens for a full perm). *)
   let output_shape ~(x_shape : Vec6.shape) (perm : perm) =

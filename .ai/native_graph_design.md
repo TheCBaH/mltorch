@@ -20,13 +20,13 @@ Tensor_id.t / Node_id.t = private int      (* builder-allocated, unique tree-wid
 tensor_ref = Tensor_id.t                    (* edges are single-assignment *)
 
 type 'g gop =                               (* parametrised over the subgraph type *)
-  | Relu of { x } | Add of { a; b } | Bmm of { input; mat2 }
-  | Conv2d of { params; x; weight; bias : tensor_ref option }
-  | Permute of { perm; x } | Mean of { params; x }
-  | Rms_norm of { params; x; weight : tensor_ref option }
-  | Linear of { params; x; weight; bias : tensor_ref option }
-  | Max_pool2d of { params; x } | Avg_pool2d of { params; x }
+  | Add of Pointwise.Add.t | Mul of Pointwise.Mul.t | Relu of Pointwise.Relu.t
+  | Bmm of Matmul.Bmm.t | Conv2d of Conv.Conv2d.t | Linear of Linear.Linear.t
+  | Permute of Permute.Permute.t | Mean of Reduce.Mean.t | Rms_norm of Norm.RmsNorm.t
+  | Max_pool2d of Pool.MaxPool2d.t | Avg_pool2d of Pool.AvgPool2d.t
   | Subgraph of { graph : 'g; args : tensor_ref list }
+  (* each non-Subgraph payload (params + typed operand refs) is a record `t` owned
+     by that op's module, e.g. Conv.Conv2d.t = { params; x; weight; bias : _ option } *)
 
 module Node  : sig type t = { id : Node_id.t; op : Graph.t gop; outputs : Tensor_id.t list } end
 module Graph : sig type t = { name; nodes; tensors; inputs; outputs } end
@@ -37,25 +37,37 @@ Design decisions:
 
 - **Typed operand fields, not a positional/string-keyed list.** An op names each
   input by a typed field (`Conv2d {weight; …}`). There is no position to track and
-  no string to mistype; a node is fully described by `op` + `outputs`. The only
-  generic dataflow accessors are `operands : op -> tensor_ref list` and
-  `map_operands : (tensor_ref -> tensor_ref) -> op -> op` (one match each), needed
-  by topo/transform passes.
+  no string to mistype; a node is fully described by `op` + `outputs`. The generic
+  dataflow accessors `operands : op -> tensor_ref list` and `map_operands :
+  (tensor_ref -> tensor_ref) -> op -> op` are not per-op matches — each op module
+  supplies its own `operands`/`map_operands` on its payload `t`, and `Graph_ir`
+  folds them over `op_registry` (see below).
+- **Per-op metadata lives in the op module; common code folds a registry.** Each
+  op module exposes its payload `type t`, a JSON `name`/`jsont`, `operands`,
+  `map_operands`, and `pp`. `Graph_ir` wraps each in an `OP` first-class module
+  (adding `inject`/`project`, the only parts that mention the variant) and lists
+  them in `op_registry`; JSON encode/decode, `operands`, `map_operands`, and
+  `pp_op` are then single registry folds rather than per-constructor matches. The
+  payloads now depend on `Tensor_ref` (= `Tensor_id.t`) — the accepted cost of
+  letting an op own its operand refs without depending on `Graph_ir`. `Subgraph`,
+  which carries the recursive `'g`, is the lone op handled inline in each fold.
 - **Optional tensors are `tensor_ref option`.** "Conv without bias" is just
   `bias = None`; there is no inputs-list length to reason about. The evaluator
   resolves a `None` to a constant-filled handle (`fill 0.` bias, `fill 1.`
   rms-norm weight) — so the IR stays total and no op is modified. See §4.
 - **Closed variant.** Transformation wants exhaustiveness, structural matching,
   and cheap structural equality — all defeated by an open/first-class-module op.
-  The cost is the four per-op match functions (`Eval_op`, `Graph_shape`,
-  `operands`, `map_operands`); adding an op is a compiler-guided edit of exactly
-  those.
-- **Each record type lives in its own module, type `t`** (`Node.t`, `Graph.t`),
-  per the project rule (CLAUDE.md). This guarantees field-label uniqueness by
-  construction (`Node.outputs` vs `Graph.outputs`) — no warning-30 suppression.
-  `op` is parametrised over the subgraph type (`'g gop`) so it can be defined once
-  rather than copied into the `module rec Node/Graph` group; `type op = Graph.t
-  gop` ties it down.
+  Only `Eval_op` and `Graph_shape` still match per op (they need shape/semantics
+  context the payload can't carry); serialise/dataflow/pp are registry folds.
+  Adding an op is its module + one `op_registry` line + the two shape/eval arms.
+- **Each payload record lives in its own module, type `t`** (`Conv.Conv2d.t`,
+  `Node.t`, `Graph.t`), per the project rule (CLAUDE.md). Field labels are reused
+  across op payloads (`x`, `params`, …) but stay unambiguous because each `t` is
+  in its own module; the few cross-module match/build sites (`Eval_op`,
+  `Graph_shape`, `Graph_builder`) qualify the first label (`{ Conv.Conv2d.params;
+  x; … }`), the same convention as `node.Node.outputs`. `op` is parametrised over
+  the subgraph type (`'g gop`) so it can be defined once rather than copied into
+  the `module rec Node/Graph` group; `type op = Graph.t gop` ties it down.
 - **Ids are graph-local and deterministic.** One builder owns a single tensor-id
   and a single node-id counter for the whole graph tree (subgraphs share them), so
   ids are unique across the tree (no collision when recursing/merging) and start

@@ -40,6 +40,25 @@ let broadcast_coord ~(index_zero : 'i) (shape : Vec6.shape) (out : Axis.t -> 'i)
  fun a -> if Dim.equal (Vec6.get shape a) Dim.one then index_zero else out a
 
 module Relu = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Relu"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>relu@ x=%a@]" pp_ref t.x
+
   (* Identity: relu doesn't change shape. See .ai/native_compute_design.md §2b. *)
   let output_shape (x_shape : Vec6.shape) = x_shape
 
@@ -64,7 +83,39 @@ module Binary (S : Semantics.SEMANTICS) = struct
     combine (read a_shape a) (read b_shape b)
 end
 
+(* Payload shared by the binary pointwise ops [Add]/[Mul]: two operand refs. Each
+   op aliases its [t] to this so the [a]/[b] labels are defined once (avoiding
+   cross-op label ambiguity) and the serialise/dataflow/pp boilerplate is written
+   once, parameterised only by the JSON case [name] and the printed [op] keyword. *)
+module Bin = struct
+  type t = { a : Tensor_ref.t; b : Tensor_ref.t }
+
+  let jsont ~name : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k = Json_util.req_field ms k Tensor_ref.jsont name in
+        { a = get "a"; b = get "b" })
+      ~enc:(fun t ->
+        let ref_ = Json_util.enc Tensor_ref.jsont in
+        Json_util.jobj [ ("a", ref_ t.a); ("b", ref_ t.b) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.a; t.b ]
+  let map_operands f (t : t) = { a = f t.a; b = f t.b }
+
+  let pp ~op (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>%s@ a=%a@ b=%a@]" op pp_ref t.a pp_ref t.b
+end
+
 module Add = struct
+  type t = Bin.t
+
+  let name = "Add"
+  let jsont = Bin.jsont ~name
+  let operands = Bin.operands
+  let map_operands = Bin.map_operands
+  let pp pp_ref fmt t = Bin.pp ~op:"add" pp_ref fmt t
   let output_shape = broadcast_output_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
@@ -76,6 +127,13 @@ module Add = struct
 end
 
 module Mul = struct
+  type t = Bin.t
+
+  let name = "Mul"
+  let jsont = Bin.jsont ~name
+  let operands = Bin.operands
+  let map_operands = Bin.map_operands
+  let pp pp_ref fmt t = Bin.pp ~op:"mul" pp_ref fmt t
   let output_shape = broadcast_output_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct

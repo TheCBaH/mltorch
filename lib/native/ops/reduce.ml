@@ -33,6 +33,35 @@ module Mean = struct
     |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
     |> Jsont.Object.finish
 
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{dims=%a;@ keepdim=%a}@]"
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis.pp))
+      p.dims Fmt.bool p.keepdim
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Mean"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>mean@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+
   (* Maps each surviving INPUT axis to the OUTPUT axis that carries its data.
      keepdim=true: identity (collapse in place). keepdim=false: the survivors
      (all axes minus the reduced ones, in canonical order) re-pack right-aligned

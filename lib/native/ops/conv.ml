@@ -33,6 +33,62 @@ module Conv2d = struct
          ~enc:(fun p -> p.stride)
     |> Jsont.Object.finish
 
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{kernel=%a;@ in_channels=%a;@ stride=%a;@ pad=%a}@]"
+      (Op_config.Hw.pp Dim.pp) p.kernel Dim.pp p.in_channels
+      (Op_config.Hw.pp Op_config.Pos.pp)
+      p.stride
+      (Op_config.Hw.pp Op_config.Nonneg.pp)
+      p.pad
+
+  (* The op payload: its params plus its operand edges. Carrying the operands here
+     (rather than in [Graph_ir]'s variant) lets the op own its own serialisation,
+     dataflow accessors and pretty-printer. *)
+  type t = {
+    params : params;
+    x : Tensor_ref.t;
+    weight : Tensor_ref.t;
+    bias : Tensor_ref.t option;
+  }
+
+  let name = "Conv2d"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          x = get "x" Tensor_ref.jsont;
+          weight = get "weight" Tensor_ref.jsont;
+          bias = Json_util.opt_field ms "bias" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        let ref_ = Json_util.enc Tensor_ref.jsont in
+        let opt_bias =
+          match t.bias with None -> [] | Some r -> [ ("bias", ref_ r) ]
+        in
+        Json_util.jobj
+          (opt_bias
+          @ [
+              ("params", Json_util.enc params_jsont t.params);
+              ("weight", ref_ t.weight);
+              ("x", ref_ t.x);
+            ]))
+      Jsont.json
+
+  let operands (t : t) = [ t.x; t.weight ] @ Option.to_list t.bias
+
+  let map_operands f (t : t) =
+    { t with x = f t.x; weight = f t.weight; bias = Option.map f t.bias }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>conv2d@ x=%a@ weight=%a@ bias=%a@ params=%a@]" pp_ref
+      t.x pp_ref t.weight
+      (Fmt.option ~none:(Fmt.any "none") pp_ref)
+      t.bias pp_params t.params
+
   (* N/T/D pass through; H/W shrink via [Window_axis.output_extent]; C = Cout from
      weight_shape (weight is [Cout,1,1,Kh,Kw,Cin] — Cout isn't in params). *)
   let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)

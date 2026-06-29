@@ -14,8 +14,14 @@ let%expect_test "Symbolic: pointwise expr pp" =
   let module S = Symbolic.Make () in
   let module R = Pointwise.Relu.Compute (S) in
   let module A = Pointwise.Add.Compute (S) in
-  let xs = Tensor_sig.create ~name:"x" ~shape:(s1c 3) ~fmt:f32 () in
-  let ys = Tensor_sig.create ~name:"y" ~shape:(s1c 3) ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:(s1c 3) ~fmt:f32
+      ()
+  in
+  let ys =
+    Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"y" ~shape:(s1c 3) ~fmt:f32
+      ()
+  in
   Format.printf "%a@." Expr.pp (R.pixel xs Symbolic.out_coord);
   [%expect {| select((x[N,T,D,H,W,C] < 0), 0, x[N,T,D,H,W,C]) |}];
   Format.printf "%a@." Expr.pp
@@ -34,9 +40,18 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
   in
   let weight = Tensor.materialize w_shape (fun _ -> 1.) in
   let bias = Tensor.materialize (s1c 1) (fun _ -> 0.) in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
-  let ws = Tensor_sig.create ~name:"w" ~shape:w_shape ~fmt:f32 () in
-  let bs = Tensor_sig.create ~name:"b" ~shape:(s1c 1) ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
+  let ws =
+    Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"w" ~shape:w_shape ~fmt:f32
+      ()
+  in
+  let bs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 2) ~name:"b" ~shape:(s1c 1) ~fmt:f32
+      ()
+  in
   let p =
     {
       Conv.Conv2d.kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
@@ -77,7 +92,10 @@ let%expect_test
     Tensor.materialize x_shape (fun c ->
         float_of_int (-((row c * 3) + col c) - 1))
   in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
   let p =
     {
       Pool.MaxPool2d.kernel =
@@ -111,7 +129,10 @@ let%expect_test
   let module Ps = Pool.AvgPool2d.Compute (S) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
   let x = Tensor.materialize x_shape (fun _ -> 1.) in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
   let p =
     {
       Pool.AvgPool2d.kernel =
@@ -156,9 +177,18 @@ let%expect_test "Symbolic linear: eval matches Direct" =
   let bias =
     Tensor.materialize bias_shape (fun c -> [| 10.; 100. |].(chan c))
   in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
-  let ws = Tensor_sig.create ~name:"w" ~shape:weight_shape ~fmt:f32 () in
-  let bs = Tensor_sig.create ~name:"b" ~shape:bias_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
+  let ws =
+    Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"w" ~shape:weight_shape
+      ~fmt:f32 ()
+  in
+  let bs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 2) ~name:"b" ~shape:bias_shape
+      ~fmt:f32 ()
+  in
   let p = { Linear.Linear.in_features = Dim.extent 3 } in
   let out_shape = Linear.Linear.output_shape ~x_shape ~weight_shape in
   let e = Ls.pixel p ~x:xs ~weight:ws ~bias:bs Symbolic.out_coord in
@@ -186,7 +216,10 @@ let%expect_test "Symbolic ground: relu over several different inputs" =
   let module R = Pointwise.Relu.Compute (S) in
   let module Rd = Pointwise.Relu.Compute (Direct) in
   let x_shape = s1c 4 in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
   let e = R.pixel xs Symbolic.out_coord in
   let inputs =
     [ [| -2.; -0.5; 1.; 3. |]; [| 0.; 0.; 0.; 0. |]; [| 5.; -5.; 2.; -2. |] ]
@@ -216,8 +249,14 @@ let%expect_test "Symbolic ground: add over several different input pairs" =
   let module A = Pointwise.Add.Compute (S) in
   let module Ad = Pointwise.Add.Compute (Direct) in
   let x_shape = s1c 3 and y_shape = s1c 3 in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
-  let ys = Tensor_sig.create ~name:"y" ~shape:y_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
+  let ys =
+    Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"y" ~shape:y_shape ~fmt:f32
+      ()
+  in
   let e = A.pixel ~a_shape:x_shape ~b_shape:y_shape xs ys Symbolic.out_coord in
   let out_shape = Pointwise.Add.output_shape x_shape y_shape in
   let cases =
@@ -256,9 +295,18 @@ let%expect_test
   let module Cd = Conv.Conv2d.Compute (Direct) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1 in
   let weight_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
-  let ws = Tensor_sig.create ~name:"w" ~shape:weight_shape ~fmt:f32 () in
-  let bs = Tensor_sig.create ~name:"b" ~shape:(s1c 1) ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
+  let ws =
+    Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"w" ~shape:weight_shape
+      ~fmt:f32 ()
+  in
+  let bs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 2) ~name:"b" ~shape:(s1c 1) ~fmt:f32
+      ()
+  in
   let p =
     {
       Conv.Conv2d.kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
@@ -308,7 +356,10 @@ let%expect_test "Symbolic ground: max_pool2d over several different inputs" =
   let module Ps = Pool.MaxPool2d.Compute (S) in
   let module Pd = Pool.MaxPool2d.Compute (Direct) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1 in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
   let p =
     {
       Pool.MaxPool2d.kernel =
@@ -352,7 +403,10 @@ let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
   let module Ps = Pool.AvgPool2d.Compute (S) in
   let module Pd = Pool.AvgPool2d.Compute (Direct) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1 in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
   let p =
     {
       Pool.AvgPool2d.kernel =
@@ -399,9 +453,18 @@ let%expect_test
   let x_shape = s1c 3 in
   let weight_shape = Vec6.shape ~n:2 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3 in
   let bias_shape = s1c 2 in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
-  let ws = Tensor_sig.create ~name:"w" ~shape:weight_shape ~fmt:f32 () in
-  let bs = Tensor_sig.create ~name:"b" ~shape:bias_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
+  let ws =
+    Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"w" ~shape:weight_shape
+      ~fmt:f32 ()
+  in
+  let bs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 2) ~name:"b" ~shape:bias_shape
+      ~fmt:f32 ()
+  in
   let p = { Linear.Linear.in_features = Dim.extent 3 } in
   let out_shape = Linear.Linear.output_shape ~x_shape ~weight_shape in
   let e = Ls.pixel p ~x:xs ~weight:ws ~bias:bs Symbolic.out_coord in
@@ -443,7 +506,10 @@ let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
   let module Ms = Reduce.Mean.Compute (S) in
   let module Md = Reduce.Mean.Compute (Direct) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
   let p = { Reduce.Mean.dims = [ Axis.H; Axis.W ]; keepdim = true } in
   let out_shape = Reduce.Mean.output_shape ~x_shape p in
   let e = Ms.pixel p ~x_shape ~x:xs Symbolic.out_coord in
@@ -479,8 +545,14 @@ let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
   let x_shape = s1c 2 in
   let x = Tensor.materialize x_shape (fun c -> [| 1.; 7. |].(chan c)) in
   let weight = Tensor.materialize x_shape (fun _ -> 1.) in
-  let xs = Tensor_sig.create ~name:"x" ~shape:x_shape ~fmt:f32 () in
-  let ws = Tensor_sig.create ~name:"w" ~shape:x_shape ~fmt:f32 () in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
+  let ws =
+    Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"w" ~shape:x_shape ~fmt:f32
+      ()
+  in
   let p = { Norm.RmsNorm.dims = [ Axis.C ]; eps = 0. } in
   let out_shape = Norm.RmsNorm.output_shape ~x_shape in
   let e = Rs.pixel p ~x_shape ~x:xs ~weight:ws Symbolic.out_coord in
@@ -508,8 +580,14 @@ let%expect_test
   (* B=2, 2×3 × 3×2 → 2×2 output per batch item *)
   let input_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:3 in
   let mat2_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:2 in
-  let ins = Tensor_sig.create ~name:"input" ~shape:input_shape ~fmt:f32 () in
-  let m2s = Tensor_sig.create ~name:"mat2" ~shape:mat2_shape ~fmt:f32 () in
+  let ins =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"input" ~shape:input_shape
+      ~fmt:f32 ()
+  in
+  let m2s =
+    Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"mat2" ~shape:mat2_shape
+      ~fmt:f32 ()
+  in
   let out_shape = Matmul.Bmm.output_shape ~input_shape ~mat2_shape in
   let e = Bs.pixel ~input_shape ~input:ins ~mat2:m2s Symbolic.out_coord in
   let batch h = Dim.to_int (Vec6.get h Axis.H) in

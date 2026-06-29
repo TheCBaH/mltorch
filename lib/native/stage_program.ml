@@ -34,20 +34,17 @@ let pp fmt (p : t) =
     p.stages;
   Format.fprintf fmt "outputs: %s@]" (comma (List.map name_of p.outputs))
 
-(* sig.id (global) -> packed; this is what Schedule.ground's binding resolves. *)
-module Sig_map = Map.Make (Int)
-
 let ground (p : t) ~(bind : Tensor_id.t -> Tensor.packed) :
     Tensor.packed Tensor_id.Map.t =
   let seed =
     List.fold_left
-      (fun m (id, (s : Tensor_sig.t)) -> Sig_map.add s.id (bind id) m)
-      Sig_map.empty p.inputs
+      (fun m (id, (s : Tensor_sig.t)) -> Tensor_id.Map.add s.id (bind id) m)
+      Tensor_id.Map.empty p.inputs
   in
   let seed =
     List.fold_left
       (fun m ((s : Tensor_sig.t), v) ->
-        Sig_map.add s.id (Tensor.materialize s.shape (fun _ -> v)) m)
+        Tensor_id.Map.add s.id (Tensor.materialize s.shape (fun _ -> v)) m)
       seed p.consts
   in
   (* Thread the sig->tensor binding through the stages in topo order, collecting
@@ -55,9 +52,9 @@ let ground (p : t) ~(bind : Tensor_id.t -> Tensor.packed) :
   let _, result =
     List.fold_left
       (fun (binds, result) (st : Stage.t) ->
-        let binding (s : Tensor_sig.t) = Sig_map.find s.id binds in
+        let binding (s : Tensor_sig.t) = Tensor_id.Map.find s.id binds in
         let t = Schedule.ground st.sg.shape ~binding st.body in
-        (Sig_map.add st.sg.id t binds, Tensor_id.Map.add st.id t result))
+        (Tensor_id.Map.add st.sg.id t binds, Tensor_id.Map.add st.id t result))
       (seed, Tensor_id.Map.empty)
       p.stages
   in

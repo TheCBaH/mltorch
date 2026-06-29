@@ -7,6 +7,7 @@ module Nonneg = struct
     if n < 0 then invalid_arg "Op_config.Nonneg.of_int: negative" else n
 
   let to_int (x : t) = x
+  let pp fmt (x : t) = Fmt.int fmt x
 
   let jsont : t Jsont.t =
     Jsont.map ~kind:"nonneg"
@@ -24,6 +25,7 @@ module Pos = struct
     if n < 1 then invalid_arg "Op_config.Pos.of_int: not positive" else n
 
   let to_int (x : t) = x
+  let pp fmt (x : t) = Fmt.int fmt x
 
   let jsont : t Jsont.t =
     Jsont.map ~kind:"pos"
@@ -42,4 +44,7 @@ module Hw = struct
     |> Jsont.Object.mem "h" elt ~enc:(fun hw -> hw.h)
     |> Jsont.Object.mem "w" elt ~enc:(fun hw -> hw.w)
     |> Jsont.Object.finish
+
+  let pp pp_elt fmt { h; w } =
+    Fmt.pf fmt "@[<hv>{h=%a;@ w=%a}@]" pp_elt h pp_elt w
 end

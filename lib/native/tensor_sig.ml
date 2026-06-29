@@ -8,7 +8,7 @@
    constant-folding. See .ai/native_symbolic_language.md §2.4. *)
 
 type t = {
-  id : int; (* binding key; the source a Load refers to *)
+  id : Tensor_id.t; (* binding key; the source a Load refers to *)
   name : string; (* the value name, for debug / pp *)
   shape : Vec6.shape; (* extents drive bounds & broadcast (static for now) *)
   fmt : Payload.packed_fmt;
@@ -16,12 +16,7 @@ type t = {
   quant : Quant.t option; (* Some iff fmt is quantized *)
 }
 
-let counter = ref 0
-
-let create ~name ~shape ~fmt ?quant () =
-  incr counter;
-  { id = !counter; name; shape; fmt; quant }
-
+let create ~id ~name ~shape ~fmt ?quant () = { id; name; shape; fmt; quant }
 let pp fmt s = Format.pp_print_string fmt s.name
 
 let jsont : t Jsont.t =
@@ -29,7 +24,7 @@ let jsont : t Jsont.t =
     ~dec:(fun json ->
       let ms = Json_util.req_obj json "tensor_sig" in
       let get k c = Json_util.req_field ms k c "tensor_sig" in
-      let id = get "id" Jsont.int in
+      let id = get "id" Tensor_id.jsont in
       let name = get "name" Jsont.string in
       let shape = get "shape" Vec6.shape_jsont in
       let fmt = get "fmt" Payload.packed_fmt_jsont in
@@ -39,7 +34,7 @@ let jsont : t Jsont.t =
       let base =
         [
           ("fmt", Json_util.enc Payload.packed_fmt_jsont sg.fmt);
-          ("id", Json_util.jint sg.id);
+          ("id", Json_util.enc Tensor_id.jsont sg.id);
           ("name", Json_util.jstr sg.name);
           ("shape", Json_util.enc Vec6.shape_jsont sg.shape);
         ]

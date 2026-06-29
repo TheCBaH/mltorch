@@ -21,14 +21,24 @@ alphabetical position at every site below; don't append.
 ## The sites to touch
 
 1. **Native op** — `lib/native/ops/<group>.ml`
-   Add a module exposing `output_shape` and a `Compute (S : Semantics.SEMANTICS)`
-   functor with a `pixel` function written against the abstract `S` value/index
-   domain (so it runs unchanged under `Direct` and `Symbolic`). Elementwise ops
-   live in `pointwise.ml`; reductions in `reduce.ml`; etc. Reuse the value basis
-   in `semantics.ml` — `mul`/`add`/`sub`/`div`/`select`/`lt`/… already exist, so a
-   new pointwise op usually needs no new primitive.
-   - `Mul`: `output_shape = broadcast_output_shape` (the shared equal-or-1
-     broadcast rule in `pointwise.ml`), and `pixel ~a_shape ~b_shape a b out` reads each operand
+   The op module is the single source of truth for everything about the op except
+   the shape/eval dispatch. Expose:
+   - a payload record `type t` — its `params` (if any) plus its operand refs as
+     `Tensor_ref.t` / `Tensor_ref.t option` fields;
+   - `name` (the JSON case tag, e.g. `"Mul"`), `jsont : t Jsont.t` (a payload codec
+     reusing `params_jsont` and `Tensor_ref.jsont`), `operands`, `map_operands`,
+     and `pp pp_ref fmt t` (operand refs printed via the passed `pp_ref`, params via
+     a local `pp_params`);
+   - `output_shape` and a `Compute (S : Semantics.SEMANTICS)` functor with a `pixel`
+     function written against the abstract `S` value/index domain (so it runs
+     unchanged under `Direct` and `Symbolic`).
+   Elementwise ops live in `pointwise.ml` (the two binary ops share the `Bin`
+   payload helper there); reductions in `reduce.ml`; etc. Reuse the value basis in
+   `semantics.ml` — `mul`/`add`/`sub`/`div`/`select`/`lt`/… already exist, so a new
+   pointwise op usually needs no new primitive.
+   - `Mul`: `type t = Bin.t`, `jsont = Bin.jsont ~name`, etc.;
+     `output_shape = broadcast_output_shape` (the shared equal-or-1 broadcast rule
+     in `pointwise.ml`), and `pixel ~a_shape ~b_shape a b out` reads each operand
      through `Pointwise.broadcast_coord ~index_zero:S.index_zero <shape> out`. `load` is
      **strict** (an out-of-bounds index raises), so a binary elementwise op must
      reduce the output coord against each operand's own shape first — that is what
@@ -37,9 +47,20 @@ alphabetical position at every site below; don't append.
      shapes, thread them from `Eval_op` (`shape_of`) and the bridge runner.
 
 2. **Graph IR** — `lib/native/graph_ir.mli` and `graph_ir.ml`
-   - Add the constructor to `type 'g gop` (alphabetical) in **both** files. Name
-     operand fields as typed fields; optional operands are `tensor_ref option`.
-   - Add the arm to `operands` and to `map_operands` in `graph_ir.ml`.
+   - Add the constructor `| <Op> of <Group>.<Op>.t` to `type 'g gop` (alphabetical)
+     in **both** files.
+   - Add one entry to `op_registry` in `graph_ir.ml` — a `(module struct include
+     <Group>.<Op>  let inject t = <Op> t  let project = function <Op> t -> Some t |
+     _ -> None end : OP)` in alphabetical position. That single line wires up JSON
+     encode/decode, `operands`, `map_operands`, and `pp`: those are folded over the
+     registry, so there are **no** per-op match arms to add for them. (`Subgraph` is
+     the lone exception, handled inline because it carries the recursive graph.)
+
+   These two — `Graph_shape` and `Eval_op` — are the only places that still match
+   per op, because they need shape / semantics context the payload can't carry.
+   Their record patterns qualify the first label so the payload's module is
+   unambiguous (the `node.Node.outputs` convention), e.g.
+   `| Mul { Pointwise.Bin.a; b } -> …`.
 
 3. **Shape dispatch** — `lib/native/graph_shape.ml`
    Add the arm calling your op's `output_shape` on the operand signatures.
@@ -51,9 +72,9 @@ alphabetical position at every site below; don't append.
 
 5. **Builder** — `lib/native/graph_builder.ml` and `graph_builder.mli`
    Add the constructor function (alphabetical) in both. It just appends a node via
-   `op1 ?name ~kind:"<op>" (<Op> { … })`; output shapes are computed by
-   `Graph_shape`, never passed in.
-   - `let mul ?name a b = op1 ?name ~kind:"mul" (Mul { a; b })`
+   `op1 ?name ~kind:"<op>" (<Op> { … })` (first label qualified); output shapes are
+   computed by `Graph_shape`, never passed in.
+   - `let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })`
 
 6. **ATen bridge** — `lib/native_aten_bridge/op_bridge.ml`
    - A `run_<op>` Direct-scheduler helper (alphabetical) that materialises the
