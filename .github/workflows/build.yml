@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: git cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: .git
         key: git-${{ runner.os }}-${{ github.ref_name }}
@@ -45,7 +45,7 @@ jobs:
     # (they decide which C++ sources compile and how); restore-keys warm-start
     # from the closest prior cache.
     - name: ccache cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: .ccache
         key: ccache-${{ steps.cache_keys.outputs.month }}-${{ steps.cache_keys.outputs.pytorch }}-${{ hashFiles('lib/aten/**/*.cpp', 'lib/aten/**/*.h', 'lib/aten/build_archive.sh', 'lib/aten/gen_macros.sh', 'lib/aten/run_codegen.sh') }}
@@ -74,7 +74,7 @@ jobs:
     # Makefile. data/pt2/ is gitignored; the host dir is bind-mounted into the
     # devcontainer, so the gated load test and inference step see it.
     - name: pt2 models cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ${{ steps.cache_keys.outputs.pt2_zip_glob }}
         key: ${{ steps.cache_keys.outputs.pt2_cache_key }}
