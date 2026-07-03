@@ -395,10 +395,11 @@ let%expect_test "windowed axis: output_extent and window agree" =
         Wa.window ~kernel ~stride ~pad_before:pad
           ~dilation:(Op_config.Pos.of_int 1) ~in_extent out
       in
-      w.lo < w.hi
+      (w.lo :> int) < (w.hi :> int)
     in
     let all_in_range =
-      List.for_all non_empty (List.init (out_extent :> int) (fun i -> i))
+      List.for_all non_empty
+        (List.init (out_extent :> int) (fun i -> Dim.index i))
     in
     Format.printf
       "in_extent=%d kernel=%d stride=%d pad=%d -> output_extent=%d, \

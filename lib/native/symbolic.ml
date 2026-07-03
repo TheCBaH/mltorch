@@ -42,6 +42,7 @@ module Make () = struct
           idx Axis.N; idx Axis.T; idx Axis.D; idx Axis.H; idx Axis.W; idx Axis.C;
         |] )
 
+  let load6 s ~n ~t ~d ~h ~w ~c = Expr.Load (s, [| n; t; d; h; w; c |])
   let c = ref 0
 
   let sum ~lo ~hi f =

@@ -5,9 +5,18 @@
    Index phantom roles: [position] is a known ≥ 0 (what [load] accepts);
    [delta] is a signed affine. Windowed arithmetic is built in [delta] and
    converted to [position] only via [clamp_low] (sound: ≥ 0) or [assume_index]
-   (one encapsulated unchecked claim, in Window_axis.window). *)
-type position
-type delta
+   (one encapsulated unchecked claim, in Window_axis.window).
+
+   Aliased to [Dim.index]/[Dim.delta] (see dim.mli), not fresh local marker
+   types: a semantics whose index representation IS a [Dim.t] (e.g. [Direct]
+   — see .ai/pt2_inference_perf.md) can then use [position index = Dim.index
+   Dim.t] directly, with zero coercion needed at [Tensor.read_at]/
+   [Vec6.offset_of], the innermost per-element call sites. A semantics that
+   doesn't use [Dim.t] at all (e.g. [Symbolic], whose index is an
+   [Expr.index_expr] AST node) is unaffected — [position]/[delta] stay purely
+   phantom there either way. *)
+type position = Dim.index
+type delta = Dim.delta
 
 module type SEMANTICS = sig
   type t
@@ -53,6 +62,23 @@ module type SEMANTICS = sig
   type input
 
   val load : input -> (Axis.t -> position index) -> t
+
+  (* Same as [load], 6 explicit indices instead of a closure — for hot call
+     sites where a closure built fresh per call (one per axis-lookup, so
+     effectively per element) would allocate every time. See
+     .ai/pt2_inference_perf.md. Not every op has migrated to this yet
+     (harmless — [load] stays the general form); [conv.ml]'s innermost
+     reduction has, since it's the highest-call-volume site in the engine. *)
+  val load6 :
+    input ->
+    n:position index ->
+    t:position index ->
+    d:position index ->
+    h:position index ->
+    w:position index ->
+    c:position index ->
+    t
+
   val sum : lo:position index -> hi:delta index -> (position index -> t) -> t
 
   val max_reduce :

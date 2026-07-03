@@ -34,7 +34,9 @@ let%expect_test "tensor: read_at raises on an out-of-bounds index" =
     Tensor.materialize (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3) (fun c ->
         float_of_int (Dim.to_int (Vec6.get c Axis.C)))
   in
-  let idx (a : Axis.t) = match a with Axis.C -> 5 | _ -> 0 in
+  let idx (a : Axis.t) =
+    match a with Axis.C -> Dim.index 5 | _ -> Dim.index 0
+  in
   (match Tensor.read_at t idx with
   | _ -> print_string "no error"
   | exception Invalid_argument msg -> Printf.printf "raised: %s\n" msg);

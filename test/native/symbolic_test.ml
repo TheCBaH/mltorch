@@ -117,7 +117,7 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
        ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1)
        ~eval_direct:(fun c ->
          Cd.pixel p ~x_shape ~weight_shape:w_shape ~x ~weight ~bias
-           (Schedule.coord_index c))
+           (Schedule.coord_index_dim c))
        ~eval_symbolic:(fun c ->
          Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
@@ -154,7 +154,8 @@ let%expect_test
     (compare_symbolic
        (Pool.MaxPool2d.output_shape ~x_shape p)
        ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:4 ~w:4 ~c:1)
-       ~eval_direct:(fun c -> Pd.pixel p ~x_shape ~x (Schedule.coord_index c))
+       ~eval_direct:(fun c ->
+         Pd.pixel p ~x_shape ~x (Schedule.coord_index_dim c))
        ~eval_symbolic:(fun c ->
          Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
@@ -189,7 +190,8 @@ let%expect_test
     (compare_symbolic
        (Pool.AvgPool2d.output_shape ~x_shape p)
        ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1)
-       ~eval_direct:(fun c -> Pd.pixel p ~x_shape ~x (Schedule.coord_index c))
+       ~eval_direct:(fun c ->
+         Pd.pixel p ~x_shape ~x (Schedule.coord_index_dim c))
        ~eval_symbolic:(fun c ->
          Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
@@ -236,7 +238,7 @@ let%expect_test "Symbolic linear: eval matches Direct" =
        (Linear.Linear.output_shape p ~x_shape ~weight_shape)
        ~iter_shape:(s1c 2)
        ~eval_direct:(fun c ->
-         Ld.pixel p ~x ~weight ~bias (Schedule.coord_index c))
+         Ld.pixel p ~x ~weight ~bias (Schedule.coord_index_dim c))
        ~eval_symbolic:(fun c ->
          Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
@@ -590,7 +592,7 @@ let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
        (Norm.RmsNorm.output_shape ~x_shape)
        ~iter_shape:(s1c 2)
        ~eval_direct:(fun c ->
-         Rd.pixel p ~x_shape ~x ~weight (Schedule.coord_index c))
+         Rd.pixel p ~x_shape ~x ~weight (Schedule.coord_index_dim c))
        ~eval_symbolic:(fun c ->
          Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));

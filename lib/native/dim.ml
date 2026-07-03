@@ -35,6 +35,13 @@ let to_delta (i : index t) : delta t = i
 let index_of ~(extent : extent t) (d : delta t) : index t option =
   if d >= 0 && d < extent then Some d else None
 
+(* Role-preserving increment, no validation: for a loop counter already known
+   to stay in range by construction (bounded above by a separate check, e.g.
+   [Direct.sum]'s accumulator — see .ai/pt2_inference_perf.md), re-deriving
+   the role via [index]/[extent]'s checked constructors on every step would
+   re-pay a check the loop's own structure already guarantees passes. *)
+let succ (x : 'role t) : 'role t = x + 1
+
 (* role-preserving: same-role operands keep the role. [equal] compares two sizes;
    [one] is the unit extent a broadcast axis is tested against. *)
 let equal (a : 'role t) (b : 'role t) : bool = Int.equal a b

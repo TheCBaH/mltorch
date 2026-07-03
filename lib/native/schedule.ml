@@ -3,14 +3,31 @@
    materialises a fresh dense float32 tensor; tiled/parallel/vectorised variants
    plug in here later. See .ai/native_compute_design.md §5.
 
-   A Direct op pixel is [(Axis.t -> int) -> float]; [evaluate] supplies each
-   output coord's components as that index function. *)
+   A Direct op pixel is [(Axis.t -> Dim.index Dim.t) -> float]; [evaluate]
+   supplies each output coord's components as that index function. *)
 
 let for_each = Vec6.iter
-let coord_index (c : Vec6.coord) (a : Axis.t) = Dim.to_int (Vec6.get c a)
 
-let evaluate (shape : Vec6.shape) (pixel : (Axis.t -> int) -> float) =
-  Tensor.materialize shape (fun c -> pixel (coord_index c))
+(* Direct field projection, not [Vec6.get]: called once per axis for every
+   output coord (802,816+ times per real conv), and profiling found
+   [Vec6.get]'s dispatch a real cost at this call volume — see
+   .ai/pt2_inference_perf.md. Returns the field as-is ([Vec6.coord]'s
+   components are already [Dim.index Dim.t], validated at construction), not
+   [Dim.to_int]: [evaluate] below feeds [Direct]'s [load], whose [idx] wants
+   [position index = Dim.index Dim.t] with no re-validation needed. *)
+let coord_index_dim (c : Vec6.coord) (a : Axis.t) : Dim.index Dim.t =
+  match a with N -> c.n | T -> c.t | D -> c.d | H -> c.h | W -> c.w | C -> c.c
+
+(* Raw-[int] counterpart, for [ground]/[Expr.eval] below: [Expr]'s own
+   arithmetic is plain-int, unrelated to [Dim.t] (it interprets a [Symbolic]
+   AST, not [Direct]'s index representation), so it needs the coercion
+   [coord_index_dim] deliberately skips. *)
+let coord_index (c : Vec6.coord) (a : Axis.t) : int =
+  (coord_index_dim c a :> int)
+
+let evaluate (shape : Vec6.shape) (pixel : (Axis.t -> Dim.index Dim.t) -> float)
+    =
+  Tensor.materialize shape (fun c -> pixel (coord_index_dim c))
 
 (* The Symbolic counterpart: an op's [pixel] built once at [Symbolic] is an
    [Expr.t] with no data of its own — [ground] is what turns that expression

@@ -258,26 +258,34 @@ it here rather than fixing it inline, since it's still a change to
 `lib/native/ops/conv.ml`'s hot path and this investigation was scoped to
 profiling, not patching.
 
-**Stopping here to ask rather than guessing further** on the big-ticket fix —
-there's no small, obvious change left in the "just flip a flag" category for
-*that*; the two real options are both real commitments, not flag flips:
+Two real options were on the table (neither a flag flip): switch the whole
+project to a flambda variant + `--profile release` (~27%, but an infra
+decision affecting everyone, not scoped to conv2d), or restructure the
+per-element hot path directly. Went with the latter, one contained step at a
+time, each validated against the existing native/aten_spec test suites and
+measured with `benchmark.native_conv2d` before committing.
 
-1. Switch the *whole project's* opam switch to a flambda variant
-   (`ocaml-variants.4.14.3+options` + `ocaml-option-flambda`) and build with
-   `--profile release` — gets the ~27% measured above for free everywhere,
-   but is an infra decision (slower/different compiler bootstrap in CI unless
-   cached, a real change other contributors need to know about), not scoped
-   to conv2d.
-2. Restructure the native engine's per-element hot path to stop allocating a
-   `Vec6.coord` array (and its bounds-check/offset closures) per `Tensor`
-   read — e.g. give `Tensor.read_at` a form that takes the 6 indices
-   directly rather than an `Axis.t -> int` closure + intermediate array, and
-   inline bounds-check/offset as straight-line arithmetic instead of a fold
-   over `Axis.all`. This is the change that would actually close the gap
-   flambda can't, but it touches `lib/native/tensor.ml`/`vec6.ml`'s core
-   read primitive and the `SEMANTICS` interface's `load` signature — a
-   deliberate, documented design (`.ai/native_tensor_design.md`), not a
-   drive-by fix.
+## Applied fix, step 1: unroll `Vec6.offset`/`Vec6.in_bounds`
+
+Rewrote both (`lib/native/vec6.ml`) from `List.fold_left`/`List.for_all` over
+`Axis.all` (a fresh closure per call, capturing the shape/coord) to
+hand-unrolled straight-line code over the 6 fixed array indices — no API
+change, no change to `Tensor`/`SEMANTICS`, scoped entirely to `vec6.ml`.
+Validated with `dune build @test/native/runtest` (all native-engine inline
+tests) plus `aten_spec_test`/`aten_spec_run_test`/`native_walk_test`/
+`native_bridge_test` — all clean, no diffs.
+
+Measured on the same fixture (`benchmark.native_conv2d`'s target):
+
+| | time |
+|---|---|
+| before (baseline, this session) | ~25.5s |
+| after step 1 | ~14.0s |
+
+**~45% faster** — bigger than the ~28.7% allocation share
+(`offset`+`in_bounds`'s closures) predicted, since removing the closures also
+removes indirect-call overhead and GC-scan pressure beyond just the
+allocation bookkeeping itself.
 
 ## Permanent profiling infrastructure: `make profile.memtrace` / `make profile.landmarks`
 
@@ -345,6 +353,291 @@ instrumentation by hand again.
     `Textual {threshold = 1.0}`) print a call-tree + aggregated table
     straight to stderr on exit — no temp file to manage or artifact to
     upload.
+
+## Applied fix, step 2: stop allocating `Vec6.coord` in `Tensor.read_at`
+
+Rewrote `Tensor.read_at` (`lib/native/tensor.ml`) to compute the bounds check
+and linear offset directly from `idx`'s 6 results, with no intermediate
+`Vec6.coord` array — the in-bounds case (the overwhelming majority) never
+allocates; the rare out-of-range case still falls back to building the coord
+and calling the original `read`, so its exact `Invalid_argument` message is
+unchanged (`test/native/tensor_test.ml`'s expect tests assert that literal
+string and passed unmodified). No `SEMANTICS`/`load` signature change.
+
+First attempt regressed instead of improving: calling `Vec6.get t.shape axis`
+once per axis for the bounds check *and again* for the offset sum (12 calls
+total) measured **slower** (~16.0s) than step 1 alone (~14.0s) — `Vec6.get`
+is a real cross-module function call here (no flambda to inline it away), so
+12 of them cost more than the single array allocation they were replacing.
+Fixed by reading each shape extent into a local exactly once (6 calls) and
+reusing it for both the check and the offset arithmetic (inlined directly,
+bypassing `Dim.lin`'s wrapper — the result only ever feeds
+`Payload.get_float`'s raw `~i:int` anyway). Recorded here because it's a
+real, measured lesson, not just a hypothesis: **"remove an allocation" isn't
+automatically faster in non-flambda OCaml if the replacement costs more
+cross-module calls than the allocation itself.**
+
+Validated the same way as step 1 (all native/aten_spec test suites, no
+diffs — including the exact-error-message expect test above).
+
+| | time |
+|---|---|
+| after step 1 | ~14.0s |
+| step 2, first attempt (12 `Vec6.get` calls) | ~16.0s (regression) |
+| step 2, fixed (6 `Vec6.get` calls) | ~11.7s |
+
+Cumulative: **~25.5s → ~11.7s, ~54% faster than the original baseline.**
+
+## Re-profiled after steps 1+2: what's left, and why step 3 needs care
+
+Re-ran the same memtrace procedure (temporary instrumentation, reverted
+after) on the post-step-2 build. Total sampled allocation roughly halved
+(47019 → 24152 words), and the remaining hotspots are now dominated by what
+was already flagged as the harder part:
+
+| share | site |
+|---|---|
+| 33.6% | `conv.ml:367` `pixel`'s `x_idx` closure |
+| 27.2% | `conv.ml:374` `pixel`'s `w_idx` closure |
+| 13.6% | `conv.ml:360` the innermost reduction-step closure |
+| 9.6% | `vec6.ml:27` `Vec6.coord` — now only from `Schedule.evaluate`'s per-*output-pixel* `Vec6.iter` (802,816 calls), not per-MAC; steps 1+2 already removed the ~236M per-MAC calls that used to share this same site |
+| ~16% | long tail (`Direct.sum`/`Direct.mul` float boxing, `Bigarray.Array1.create`, `Payload.get_float`, `validate_channels`) |
+
+`x_idx`+`w_idx`+the reduction closure are now ~74% of remaining allocation —
+the same three sites flagged before steps 1/2, just a larger share of a
+smaller total.
+
+The natural next step would be to stop reallocating `x_idx`/`w_idx` on every
+innermost iteration — e.g. hoist them out of the `kw` loop and thread
+`kh`/`kw`/`ic` through mutable refs instead of fresh closures each time.
+Checked whether this is actually safe before attempting it: `Conv2d.Compute`
+is a functor over `SEMANTICS`, shared by both `Direct` (`t = float`, eager)
+and `Symbolic` (`t = Expr.t`, confirmed by reading `symbolic.ml` — `sum`/`mul`/
+etc. build an AST node, they don't execute anything immediately). A
+ref-mutation trick is sound for `Direct`'s eager, single-threaded evaluation
+order, but would be **wrong** for `Symbolic`: building an expression tree
+doesn't happen in the same order refs would be mutated, so a shared
+mutation-based rewrite risks silently capturing stale index values in the
+symbolic case. Fixing this properly means either changing the `SEMANTICS`/
+`load` interface itself (bigger, cross-cutting — every op's `Compute` functor
+uses it), or writing `Direct`-only and `Symbolic`-only versions of the
+reduction (loses the "one op body, two interpretations" design the engine is
+built around). Neither is a same-risk-class change as steps 1/2, so stopping
+here to report back rather than guessing at a fix that could silently break
+`Symbolic`.
+
+## Applied fix, step 3: real CPU-time profiling found a bigger, safer target
+
+memtrace only sees allocation, and `Vec6.get`/`Axis.to_int`/`Dim.to_int`
+return plain `int`s — zero allocation, so entirely invisible to that profile
+even though they're called on every single element access. Neither `perf`
+nor `valgrind` are installed in this sandbox, so used `landmarks`/
+`landmarks-ppx` instead (`--auto` mode on `lib/native`'s `dune`, temporarily,
+gated the same way as the memtrace runs — reverted after): it reports actual
+CPU cycles and call counts per function, not just bytes allocated.
+
+That reprofile changed the picture completely. `Vec6.get` — called from
+`Tensor.read_at` (6×/call) and `Schedule.coord_index` (1×/call) — was called
+**1.83 billion times** for this one fixture and accounted for **~26% of
+total cycles on its own** (1.83G of 7.03G cycles), even though it never
+allocates: `Vec6.t`'s `Axis.t -> int -> array-index` dispatch (a real,
+non-flambda-inlined cross-module function call per access) was costing more
+raw time than any of the allocation sites steps 1/2 already fixed.
+
+Fix: `Vec6.t` changed from an abstract array (`'d array`, forcing every
+access through `get`'s `Axis.t` match + `Array.get`) to a **public record**
+(`{ n; t; d; h; w; c }`, see `vec6.mli`) — `get`/`set` still exist for the
+axis-generic API everywhere else, but `Tensor.read_at` and
+`Schedule.coord_index` (the two highest-call-count paths) now read
+`t.shape.n`/`.t`/`.d`/`.h`/`.w`/`.c` directly, a plain record-field
+projection instead of a function call. Unlike the `x_idx`/`w_idx` closure
+allocation above, this is a pure data-representation change — `Vec6.t` is
+used identically by `Direct` and `Symbolic`, so there's no eager-vs-symbolic
+safety concern the way there is for reduction-closure hoisting. Checked for
+any code relying on the old array representation (`grep` across
+`lib`/`test`/`bin` for non-public `Vec6` access) before changing it — none
+found; everything already went through `get`/`set`/the named constructors.
+
+Validated the same way as steps 1/2 (full native/`aten_spec_run` test suite,
+no diffs) both under the temporary landmarks instrumentation and after
+removing it.
+
+| | (uninstrumented) time |
+|---|---|
+| after step 2 | ~11.7s |
+| step 3 (`Vec6.t` record) | ~9.4s |
+
+Under landmarks instrumentation itself, total cycles dropped 7.03G → 4.20G
+(~40% fewer) and `Vec6.get` no longer appears at all in `Tensor.read_at`'s
+call tree.
+
+Cumulative: **~25.5s → ~9.4s, ~63% faster than the original baseline.**
+
+`x_idx`/`w_idx` (conv.ml's per-iteration index closures) are very likely the
+next-largest lever, per both profiles — but as established above, fixing
+those safely needs either a `SEMANTICS`/`load` interface change or
+`Direct`/`Symbolic`-specific reduction bodies, a different risk class than
+the three steps applied so far. Stopping here again to report back.
+
+## Applied fix, step 4: `Vec6.offset_of` — reuse a public function, not a copy
+
+Two follow-up cleanups to step 3, both in `lib/native/vec6.ml`/`.mli`:
+
+1. `Tensor.read_at` had hand-duplicated `Vec6.offset`'s linearization formula
+   inline (to avoid the `coord` allocation calling the real `Vec6.offset`
+   would need). Replaced that duplication with a new public function,
+   `Vec6.offset_of : shape -> n:int -> t:int -> d:int -> h:int -> w:int ->
+   c:int -> int` — `in_bounds`+`offset` fused, taking the 6 components
+   directly instead of a `coord`, so it's still allocation-free but is now a
+   single named, documented function `read_at` calls instead of a copy of
+   the arithmetic living in the wrong module. Returns `-1` (never a valid
+   offset) for out-of-range, avoiding an `option`'s `Some` allocation on the
+   (overwhelmingly common) success path.
+2. `Vec6.t` changed from a fully public record to a **private** one
+   (`type 'd t = private { ... }`, same idiom `Dim.t` already uses) — fields
+   stay readable from any module (the whole point of step 3), but
+   construction/`{ v with ... }` updates are only possible inside `vec6.ml`
+   itself, funneled through `shape`/`coord`/`deltas`/`set`. Checked before
+   making it private: `dune build` (whole tree) still succeeds, confirming
+   no code anywhere constructed or updated a `Vec6.t` via record syntax
+   outside `vec6.ml`.
+
+Validated the same way as the prior steps (full native/`aten_spec_run` test
+suite, no diffs). Measured: ~9.2-9.4s, statistically the same as step 3 (no
+regression from routing through the named function instead of inlining) —
+this step is a code-quality change with the same allocation profile, not a
+further speedup.
+
+## Applied fix, step 5: thread `Dim.index Dim.t` all the way through `Direct`
+
+Follow-up review asked: shouldn't `offset_of`'s `n`/`t`/`d`/`h`/`w`/`c` be
+typed `Dim.index Dim.t`, not raw `int`, matching the `Dim.t` discipline used
+everywhere else? First attempt did exactly that but only *locally*, at
+`Tensor.read_at`: converted the raw `int`s from `idx` via 6 fresh
+`Dim.index` calls right before calling `offset_of`. Correct, but **measured
+slower** (~9.3s → ~10.3-10.6s, ~10-13%) — each `Dim.index` call, however
+trivial its body, is a real un-inlined cross-module call (same lesson as
+step 2's `Vec6.get` regression), and this added six of them on top of an
+already-fast path.
+
+The actual bug wasn't "the check is missing," it's "the check is redundant":
+`idx`'s values (`x_idx`/`w_idx` in `conv.ml`) are already validated
+*upstream*, at whichever of `Direct`'s three `position`-producing functions
+built them (`index_zero`, `clamp_low`, `assume_index` — the *only* places a
+`position index` value is ever created). `Direct`'s `'role index` was just
+typed as plain `int`, so that guarantee was thrown away before it reached
+`read_at`, which then had no choice but to re-derive it. Fixing `read_at`
+alone can only ever re-pay a check that already happened once — the real fix
+is to stop throwing the guarantee away in the first place:
+
+1. **`dim.ml`/`.mli`**: added `Dim.succ : 'role t -> 'role t`, a
+   role-preserving, unchecked increment (`x + 1`). Needed because
+   `Direct.sum`'s reduction loop increments its position index on every one
+   of ~118M iterations for this fixture; that increment is provably still
+   valid (starts from a valid `lo`, the loop's own `>= hi` check stops it
+   before it's used out of range), so re-validating it every step via
+   `Dim.index` would just reintroduce the same class of regression at a
+   different call site.
+2. **`semantics.ml`**: `position`/`delta` (previously fresh local abstract
+   marker types) now alias `Dim.index`/`Dim.delta`. A semantics whose index
+   representation *is* a `Dim.t` (only `Direct`, so far) can then use
+   `position index = Dim.index Dim.t` directly; a semantics that isn't (e.g.
+   `Symbolic`, whose index is an `Expr.index_expr` AST node) is unaffected —
+   `position`/`delta` stay purely phantom there either way, since `Symbolic`
+   never inspects what they equal.
+3. **`direct.ml`/`.mli`**: `'role index = 'role Dim.t` (was `int`).
+   `index_zero`/`clamp_low`/`assume_index` (the three producers) now
+   genuinely call `Dim.index`, doing the validation exactly once, at the
+   true boundary. Every other operation (`index_add`, `index_scale`, the
+   `sum`/`max_reduce` loops, …) threads `Dim.t` values through via free
+   `:>` coercions to do its underlying int arithmetic, then re-wraps with
+   `Dim.delta`/`Dim.succ` (never `Dim.index` again) — no redundant checks
+   anywhere in the chain.
+4. **`Vec6.offset_of`**/**`Tensor.read_at`**: reverted to `Dim.index Dim.t`
+   parameters (the type-safe version), but this time `read_at`'s `idx`
+   parameter is *itself* `Axis.t -> Dim.index Dim.t` — the values it
+   receives are already-validated by construction, so there's no local
+   `Dim.index` call left to cause the earlier regression.
+5. **`Tensor.read_at_raw`** (new): `Tensor.read_at` is also called directly
+   by `Expr.eval`'s grounding of a `Load` node (`expr.ml`) — a second,
+   independent caller whose index function is naturally raw `int` (`Expr`'s
+   own arithmetic interprets a `Symbolic` AST, unrelated to `Dim.t`/
+   `Direct`'s representation). Rather than force one signature to serve two
+   callers with genuinely different natural types, added `read_at_raw` (the
+   original coord-building implementation) for `Expr.eval` to keep using,
+   and reserved the fast `read_at` for `Direct.load`. Also added
+   `Schedule.coord_index_dim` alongside the existing `coord_index`, for the
+   same reason (`Schedule.evaluate` feeds `Direct`; `Schedule.ground` feeds
+   `Expr.eval`).
+
+Validated against the full native/`aten_spec_run` test suite; three tests
+needed small, mechanical updates for the new types, not behavior changes
+(`test/native/tensor_test.ml`'s `idx` closure now returns `Dim.index Dim.t`;
+`test/native/compute_test.ml` coerces `Dim.t` values to `int` before `<`/
+`List.init`; `test/native/symbolic_test.ml`'s `eval_direct` closures use
+`coord_index_dim`). No diffs anywhere, including the exact-error-message
+expect test.
+
+Measured: **~9.4-9.7s — back to the fast baseline, with the type safety
+this whole step set out to add and none of the ~10-13% cost the first,
+narrower attempt paid.** Cumulative: still **~25.5s → ~9.5s, ~63% faster**
+than the original baseline — this step traded nothing for real type safety
+gained.
+
+## Applied fix, step 6: `load6` — 6 explicit indices, no closure at all
+
+Follow-up: since `x_idx`/`w_idx` (the `~61%`-of-remaining-allocation closures
+from the memtrace profile) exist purely to satisfy `SEMANTICS.load : input ->
+(Axis.t -> position index) -> t`'s closure-shaped interface, why not change
+`load` to take the 6 indices directly? Considered and rejected a `Vec6`-typed
+bundle as the alternative to a closure — passing a `position index Vec6.t`
+would still allocate a record (same cost class as a closure, no `[@@unboxed]`
+possible for 6 fields), just without a closure's environment-capture
+overhead. The only genuinely zero-allocation option is 6 separate scalar
+arguments, which OCaml passes without boxing at all.
+
+Rather than change `load`'s signature (touching every op that calls it —
+`conv.ml`, `pool.ml`, `linear.ml`, `matmul.ml`, `permute.ml`, `norm.ml`,
+`pointwise.ml`, `reduce.ml`), added a **second** method, `load6`, alongside
+the existing `load`:
+
+```
+val load6 :
+  input -> n:position index -> t:position index -> d:position index ->
+  h:position index -> w:position index -> c:position index -> t
+```
+
+- `semantics.ml`: added to the `SEMANTICS` module type.
+- `direct.ml`: `load6 inp ~n ~t ~d ~h ~w ~c = Tensor.read_at6 inp ~n ~t ~d ~h ~w ~c`.
+- `symbolic.ml`: `load6 s ~n ~t ~d ~h ~w ~c = Expr.Load (s, [| n; t; d; h; w; c |])`
+  — trivially simpler than `load`'s closure-calling version, no `idx` calls
+  needed at all.
+- `tensor.ml`: `read_at6` is now the actual primitive (6 explicit
+  `Dim.index Dim.t` args, same allocation-free bounds-check+offset logic as
+  before); `read_at` (closure-based) becomes a thin wrapper around it
+  (`read_at6 packed ~n:(idx N) ~t:(idx T) ...`), so there's one
+  implementation, not two.
+- `conv.ml`'s `Conv2d.Compute.pixel` (the hot innermost reduction): deleted
+  `x_idx`/`w_idx` entirely, calling `S.load6 x ~n:on ~t:ot ~d:od
+  ~h:(wh.src kh) ~w:(ww.src kw) ~c:ic` and `S.load6 weight ~n:oc
+  ~t:S.index_zero ~d:S.index_zero ~h:kh ~w:kw ~c:local_ic` directly (`on`/
+  `ot`/`od` — the N/T/D output-coord components, constant across the whole
+  reduction — hoisted out of the loop once, same values `x_idx`'s `_ -> out a`
+  fallback used to (re-)compute every call).
+
+Scope deliberately narrow: only `conv.ml`'s two hottest `load` call sites
+migrated to `load6`; the other 7 op files, and `conv.ml`'s bias load and
+`Convolution.Compute.transposed_pixel`, still use the original closure-based
+`load` — `load` isn't going away, `load6` is an additional fast path for
+where it earns its keep. `Symbolic` implements both uniformly, so this
+doesn't create any Direct-only capability gap.
+
+Validated against the full native/`aten_spec_run` test suite (no diffs).
+
+Measured: **~9.5s → ~6.1s, ~35% faster.** Cumulative: **~25.5s → ~6.1s, ~76%
+faster than the original baseline.** This was the single largest individual
+step in the whole investigation, confirming the closure-allocation hypothesis
+from the very first memtrace profile.
 
 ## Explicitly not done
 

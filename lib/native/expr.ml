@@ -133,7 +133,7 @@ and eval ~binding ~coord ?(rvars = []) e =
   | Select (c, a, b) ->
       if eval_bool_expr ~binding ~coord ~rvars c then recur a else recur b
   | Load (s, index) ->
-      Tensor.read_at (binding s) (fun a ->
+      Tensor.read_at_raw (binding s) (fun a ->
           eval_index_expr ~coord ~rvars index.(Axis.to_int a))
   | Reduce { kind; var; lo; hi; body } ->
       let combine, init =

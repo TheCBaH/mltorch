@@ -352,6 +352,12 @@ module Conv2d = struct
           ~pad_before:p.w.pad_before ~dilation:p.w.dilation
           ~in_extent:(Vec6.get x_shape Axis.W) (out Axis.W)
       in
+      (* [load6] (6 explicit indices), not [load]+a closure: this is the
+         highest-call-volume site in the engine (one call per input-channel x
+         kernel-h x kernel-w x output-pixel), and a closure built fresh per
+         call — as [x_idx]/[w_idx] used to be here — allocates every time.
+         See .ai/pt2_inference_perf.md. *)
+      let on = out Axis.N and ot = out Axis.T and od = out Axis.D in
       let acc =
         S.sum ~lo:S.index_zero
           ~hi:(S.index_extent (Dim.extent in_per_group))
@@ -364,22 +370,11 @@ module Conv2d = struct
                            (S.index_scale in_per_group group)
                            (S.of_index local_ic))
                     in
-                    let x_idx a =
-                      match a with
-                      | Axis.H -> wh.src kh
-                      | Axis.W -> ww.src kw
-                      | Axis.C -> ic
-                      | _ -> out a
-                    in
-                    let w_idx a =
-                      match a with
-                      | Axis.N -> oc
-                      | Axis.H -> kh
-                      | Axis.W -> kw
-                      | Axis.C -> local_ic
-                      | _ -> S.index_zero
-                    in
-                    S.mul (S.load x x_idx) (S.load weight w_idx))))
+                    S.mul
+                      (S.load6 x ~n:on ~t:ot ~d:od ~h:(wh.src kh) ~w:(ww.src kw)
+                         ~c:ic)
+                      (S.load6 weight ~n:oc ~t:S.index_zero ~d:S.index_zero
+                         ~h:kh ~w:kw ~c:local_ic))))
       in
       S.add acc
         (S.load bias (fun a -> match a with Axis.C -> oc | _ -> S.index_zero))

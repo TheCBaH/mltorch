@@ -26,10 +26,48 @@ let read (Tensor t) (coord : Vec6.coord) =
   let i = (Vec6.offset t.shape coord :> int) in
   Payload.get_float t.payload ~c:(channel coord) ~i
 
-(* Strict read at an [idx a] index per axis — the primitive ops reach through the
-   semantics' [load]. Builds the coord and reads via [read]; an out-of-range index
-   raises rather than silently broadcasting or padding. *)
-let read_at packed (idx : Axis.t -> int) =
+(* Strict read at 6 explicit indices, one per axis — the primitive ops reach
+   through the semantics' [load6], which makes this the innermost
+   per-element path for every real op (millions of calls per real
+   conv/pool/etc). Explicit args, not a closure: a closure built fresh per
+   call (as [conv.ml]'s [x_idx]/[w_idx] used to be) allocates, and profiling
+   found that dominated remaining allocation even after the [Vec6.coord]
+   fixes below — see .ai/pt2_inference_perf.md. Args are already-validated
+   [Dim.index Dim.t] (every producer of a [position index] in [Direct] goes
+   through [Dim.index]/[Dim.succ] — see direct.ml), so [Vec6.offset_of] (the
+   allocation-free, no-[coord]-needed fused check+offset built for exactly
+   this call site) needs no re-validation, only the upper bound; the rare
+   out-of-range case falls back to building the coord and calling [read], so
+   its [Invalid_argument] behavior (message included) is unchanged. *)
+let read_at6 (Tensor tr as packed) ~(n : Dim.index Dim.t) ~(t : Dim.index Dim.t)
+    ~(d : Dim.index Dim.t) ~(h : Dim.index Dim.t) ~(w : Dim.index Dim.t)
+    ~(c : Dim.index Dim.t) =
+  let i = Vec6.offset_of tr.shape ~n ~t ~d ~h ~w ~c in
+  if i >= 0 then Payload.get_float tr.payload ~c:(c :> int) ~i
+  else
+    read packed
+      (Vec6.coord
+         ~n:(n :> int)
+         ~t:(t :> int)
+         ~d:(d :> int)
+         ~h:(h :> int)
+         ~w:(w :> int)
+         ~c:(c :> int))
+
+(* Closure-based counterpart, for callers that don't (yet) go through
+   [load6]'s 6 explicit args — see .ai/pt2_inference_perf.md for which ops
+   still use this. *)
+let read_at packed (idx : Axis.t -> Dim.index Dim.t) =
+  read_at6 packed ~n:(idx N) ~t:(idx T) ~d:(idx D) ~h:(idx H) ~w:(idx W)
+    ~c:(idx C)
+
+(* Same as [read_at], for a caller whose index function is naturally raw
+   [int] instead of [Dim.index Dim.t] — [Expr.eval]'s grounding of a [Load]
+   node (Symbolic-expression interpretation, not [Direct]): [Expr]'s own
+   arithmetic is untyped int, unrelated to [Dim.t]/[Direct]'s representation,
+   so there's no pre-validated [Dim.index Dim.t] to hand [read_at] here. Not
+   the hot path [read_at] is optimized for. *)
+let read_at_raw packed (idx : Axis.t -> int) =
   read packed
     (Vec6.coord ~n:(idx N) ~t:(idx T) ~d:(idx D) ~h:(idx H) ~w:(idx W)
        ~c:(idx C))

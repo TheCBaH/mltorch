@@ -53,6 +53,10 @@ val lin :
 val to_delta : index t -> delta t
 val index_of : extent:extent t -> delta t -> index t option
 
+(* Role-preserving increment, no validation — see the .ml for why this
+   exists alongside the checked constructors. *)
+val succ : 'role t -> 'role t
+
 (* role-preserving: same-role operands keep the role. [equal] compares two sizes;
    [one] is the unit extent a broadcast axis is tested against. *)
 val equal : 'role t -> 'role t -> bool
