@@ -81,21 +81,23 @@ module Linear = struct
         (`Linear
            (Shape_error.Linear.Weight_channels_mismatch
               Shape_error.Linear.{ actual = weight_channels; expected }))
-    else Core.return (Vec6.set x_shape Axis.C (Vec6.get weight_shape Axis.N))
+    else Core.return (Vec6.copy weight_shape ~src:Axis.N ~dst:Axis.C x_shape)
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~x ~weight ~bias
-        (out : Axis.t -> Semantics.position S.index) =
-      let oc = out Axis.C in
+        (out : Semantics.position S.index Vec6.t) =
+      let oc = Vec6.get out Axis.C in
       let acc =
         S.sum ~lo:S.index_zero ~hi:(S.index_extent p.in_features) (fun ic ->
-            let x_idx a = match a with Axis.C -> ic | _ -> out a in
-            let w_idx a =
-              match a with Axis.N -> oc | Axis.C -> ic | _ -> S.index_zero
-            in
-            S.mul (S.load x x_idx) (S.load weight w_idx))
+            S.mul
+              (S.load x (out |> Vec6.set_c ic))
+              (S.load weight
+                 (Vec6.make ~n:oc ~t:S.index_zero ~d:S.index_zero
+                    ~h:S.index_zero ~w:S.index_zero ~c:ic)))
       in
       S.add acc
-        (S.load bias (fun a -> match a with Axis.C -> oc | _ -> S.index_zero))
+        (S.load bias
+           (Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+              ~h:S.index_zero ~w:S.index_zero ~c:oc))
   end
 end

@@ -34,7 +34,7 @@ and t =
   | Binary of binary_op * t * t
   | Unary of unary_op * t
   | Select of bool_expr * t * t (* [select c a b]: a when c holds, else b *)
-  | Load of Tensor_sig.t * index_expr array (* 6 indices, Axis order *)
+  | Load of Tensor_sig.t * index_expr Vec6.t (* one sub-expression per axis *)
   | Reduce of {
       kind : reduction_kind;
       var : int;
@@ -62,14 +62,17 @@ let rec pp_index_expr fmt = function
   | Index_max (a, b) -> Fmt.pf fmt "max(%a,%a)" pp_index_expr a pp_index_expr b
   | Index_min (a, b) -> Fmt.pf fmt "min(%a,%a)" pp_index_expr a pp_index_expr b
 
-let pp_index_array = Fmt.array ~sep:(Fmt.any ",") pp_index_expr
+(* Same rendering as the old array form (comma-separated, N/T/D/H/W/C order),
+   via [Vec6.get] since [pp_index_expr] needs no [Dim.t]-specific handling. *)
+let pp_index_vec fmt (v : index_expr Vec6.t) =
+  Fmt.list ~sep:(Fmt.any ",") pp_index_expr fmt (List.map (Vec6.get v) Axis.all)
 
 let rec pp fmt = function
   | Const x -> Fmt.float fmt x
   | Binary (op, a, b) -> Fmt.pf fmt "(%a %s %a)" pp a (binary_op_sym op) pp b
   | Unary (op, a) -> Fmt.pf fmt "%s(%a)" (unary_op_name op) pp a
   | Select (c, a, b) -> Fmt.pf fmt "select(%a, %a, %a)" pp_bool_expr c pp a pp b
-  | Load (s, index) -> Fmt.pf fmt "%a[%a]" Tensor_sig.pp s pp_index_array index
+  | Load (s, index) -> Fmt.pf fmt "%a[%a]" Tensor_sig.pp s pp_index_vec index
   | Reduce { kind; var; lo; hi; body } ->
       Fmt.pf fmt "%s(r%d=%a..%a: %a)" (reduction_kind_name kind) var
         pp_index_expr lo pp_index_expr hi pp body
@@ -134,7 +137,7 @@ and eval ~binding ~coord ?(rvars = []) e =
       if eval_bool_expr ~binding ~coord ~rvars c then recur a else recur b
   | Load (s, index) ->
       Tensor.read_at_raw (binding s) (fun a ->
-          eval_index_expr ~coord ~rvars index.(Axis.to_int a))
+          eval_index_expr ~coord ~rvars (Vec6.get index a))
   | Reduce { kind; var; lo; hi; body } ->
       let combine, init =
         match kind with

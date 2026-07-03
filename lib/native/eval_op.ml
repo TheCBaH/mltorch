@@ -23,7 +23,7 @@ module Make (S : Semantics.SEMANTICS) = struct
   let pixel (op : op) ~(operand : tensor_ref -> S.input)
       ~(shape_of : tensor_ref -> Vec6.shape)
       ~(fill : float -> Vec6.shape -> S.input)
-      (out : Axis.t -> Semantics.position S.index) : S.t =
+      (out : Semantics.position S.index Vec6.t) : S.t =
     match op with
     | Add { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Add.Compute (S) in

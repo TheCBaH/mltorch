@@ -60,7 +60,7 @@ module type SEMANTICS = sig
   val assume_index : delta index -> position index
 
   type input
-  val load : input -> (Axis.t -> position index) -> t
+  val load : input -> position index Vec6.t -> t
 
   (* bounds are [index] (not [int]) so windowed reductions can express
      position-dependent clipped bounds: lo = clamp_low(...), hi = index_min kernel (...) *)
@@ -163,7 +163,7 @@ does:
 module Relu = struct
   let output_shape (x_shape : Vec6.shape) = x_shape   (* identity *)
   module Compute (S : Semantics.SEMANTICS) = struct
-    let pixel x (out : Axis.t -> Semantics.position S.index) = S.relu (S.load x out)
+    let pixel x (out : Semantics.position S.index Vec6.t) = S.relu (S.load x out)
   end
 end
 
@@ -174,7 +174,7 @@ module Add = struct
        NOT silently the larger of the two *)
     ...
   module Compute (S : Semantics.SEMANTICS) = struct
-    let pixel a b (out : Axis.t -> Semantics.position S.index) =
+    let pixel a b (out : Semantics.position S.index Vec6.t) =
       S.add (S.load a out) (S.load b out)
   end
 end
@@ -202,7 +202,7 @@ module Conv2d = struct
     ...
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~x_shape ~weight_shape ~x ~weight ~bias
-        (out : Axis.t -> Semantics.position S.index) = ...
+        (out : Semantics.position S.index Vec6.t) = ...
   end
 end
 ```
@@ -383,7 +383,13 @@ module Make () = struct
     Expr.Reduce { kind = Max_reduce; var = v; lo; hi; body = f (Expr.Reduce_var v) }
 end
 
-let out_coord a = Expr.Index_var a   (* pure: not inside Make; bind to axes before pixel *)
+(* pure: not inside Make; the same constant regardless of which node is being
+   built — every axis is just a placeholder [Index_var], not a real per-pixel
+   position (unlike [Direct]'s [out], which really is one), so this is built
+   once, not per pixel or even per [pixel] call. *)
+let out_vec : Expr.index_expr Vec6.t =
+  Vec6.make ~n:(Expr.Index_var N) ~t:(Expr.Index_var T) ~d:(Expr.Index_var D)
+    ~h:(Expr.Index_var H) ~w:(Expr.Index_var W) ~c:(Expr.Index_var C)
 ```
 
 Canonical usage at a call site (e.g. in a test):
@@ -391,7 +397,7 @@ Canonical usage at a call site (e.g. in a test):
 ```ocaml
 let module S = Symbolic.Make () in
 let module Cs = Conv.Conv2d.Compute (S) in
-let e = Cs.pixel p ~x_shape ~x:xs ~weight:ws ~bias:bs Symbolic.out_coord in
+let e = Cs.pixel p ~x_shape ~x:xs ~weight:ws ~bias:bs Symbolic.out_vec in
 ```
 
 The state monad alternative (threading a counter through every `SEMANTICS` value
@@ -454,9 +460,9 @@ val evaluate : out:('e,'b,'q) Tensor.t -> (coord -> float) -> unit
 (* for each output coord: store_at out coord (pixel coord), requantizing if `Quant` *)
 ```
 
-`evaluate` drives a `Direct` pixel (a closure that already reads real data); the
-`Symbolic` side needs the same loop but over an `Expr.t` that has no data of its
-own — that's `ground`:
+`evaluate` drives a `Direct` pixel (a partially-applied function that already
+reads real data, taking just the output coord); the `Symbolic` side needs the
+same loop but over an `Expr.t` that has no data of its own — that's `ground`:
 
 ```ocaml
 val ground : Vec6.shape -> binding:(Tensor_sig.t -> Tensor.packed) -> Expr.t -> Tensor.packed

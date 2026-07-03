@@ -331,11 +331,11 @@ module Conv2d = struct
     module Wa = Window_axis.Compute (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
-        ~x ~weight ~bias (out : Axis.t -> Semantics.position S.index) =
+        ~x ~weight ~bias (out : Semantics.position S.index Vec6.t) =
       let in_per_group, out_per_group =
         or_invalid_arg (validate_channels ~weight_shape p)
       in
-      let oc = out Axis.C in
+      let oc = Vec6.get out Axis.C in
       let group =
         if (p.groups :> int) = 1 then S.index_const 0
         else
@@ -345,19 +345,21 @@ module Conv2d = struct
       let wh =
         Wa.window ~kernel:p.h.kernel ~stride:p.h.stride
           ~pad_before:p.h.pad_before ~dilation:p.h.dilation
-          ~in_extent:(Vec6.get x_shape Axis.H) (out Axis.H)
+          ~in_extent:(Vec6.get x_shape Axis.H) (Vec6.get out Axis.H)
       in
       let ww =
         Wa.window ~kernel:p.w.kernel ~stride:p.w.stride
           ~pad_before:p.w.pad_before ~dilation:p.w.dilation
-          ~in_extent:(Vec6.get x_shape Axis.W) (out Axis.W)
+          ~in_extent:(Vec6.get x_shape Axis.W) (Vec6.get out Axis.W)
       in
       (* [load6] (6 explicit indices), not [load]+a closure: this is the
          highest-call-volume site in the engine (one call per input-channel x
          kernel-h x kernel-w x output-pixel), and a closure built fresh per
          call — as [x_idx]/[w_idx] used to be here — allocates every time.
          See .ai/pt2_inference_perf.md. *)
-      let on = out Axis.N and ot = out Axis.T and od = out Axis.D in
+      let on = Vec6.get out Axis.N
+      and ot = Vec6.get out Axis.T
+      and od = Vec6.get out Axis.D in
       let acc =
         S.sum ~lo:S.index_zero
           ~hi:(S.index_extent (Dim.extent in_per_group))
@@ -377,7 +379,9 @@ module Conv2d = struct
                          ~h:kh ~w:kw ~c:local_ic))))
       in
       S.add acc
-        (S.load bias (fun a -> match a with Axis.C -> oc | _ -> S.index_zero))
+        (S.load bias
+           (Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+              ~h:S.index_zero ~w:S.index_zero ~c:oc))
   end
 end
 
@@ -924,7 +928,7 @@ module Convolution = struct
       let in_per_group, out_per_group =
         or_invalid_arg (validate_transposed_channels ~x_shape ~weight_shape p)
       in
-      let oc = out Axis.C in
+      let oc = Vec6.get out Axis.C in
       let group =
         if (p.groups :> int) = 1 then S.index_const 0
         else
@@ -959,38 +963,33 @@ module Convolution = struct
                             in
                             let h_matches =
                               S.index_eq
-                                (S.of_index (out Axis.H))
+                                (S.of_index (Vec6.get out Axis.H))
                                 (projected_pos ~stride:p.stride.h
                                    ~pad:p.padding.h ~dilation:p.dilation.h ih kh)
                             in
                             let w_matches =
                               S.index_eq
-                                (S.of_index (out Axis.W))
+                                (S.of_index (Vec6.get out Axis.W))
                                 (projected_pos ~stride:p.stride.w
                                    ~pad:p.padding.w ~dilation:p.dilation.w iw kw)
                             in
                             let product =
                               S.mul
-                                (S.load x (fun a ->
-                                     match a with
-                                     | Axis.H -> ih
-                                     | Axis.W -> iw
-                                     | Axis.C -> ic
-                                     | _ -> out a))
-                                (S.load weight (fun a ->
-                                     match a with
-                                     | Axis.N -> ic
-                                     | Axis.H -> kh
-                                     | Axis.W -> kw
-                                     | Axis.C -> local_oc
-                                     | _ -> S.index_zero))
+                                (S.load x
+                                   (out |> Vec6.set_h ih |> Vec6.set_w iw
+                                  |> Vec6.set_c ic))
+                                (S.load weight
+                                   (Vec6.make ~n:ic ~t:S.index_zero
+                                      ~d:S.index_zero ~h:kh ~w:kw ~c:local_oc))
                             in
                             S.select h_matches
                               (S.select w_matches product (S.const 0.))
                               (S.const 0.))))))
       in
       S.add acc
-        (S.load bias (fun a -> match a with Axis.C -> oc | _ -> S.index_zero))
+        (S.load bias
+           (Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+              ~h:S.index_zero ~w:S.index_zero ~c:oc))
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
         ~x ~weight ~bias out =

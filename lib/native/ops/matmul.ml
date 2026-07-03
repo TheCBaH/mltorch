@@ -43,21 +43,19 @@ module Bmm = struct
         (`Bmm
            (Shape_error.Bmm.Contract_mismatch
               Shape_error.Bmm.{ lhs = input_contract; rhs = mat2_contract }))
-    else Core.return (Vec6.set input_shape Axis.C (Vec6.get mat2_shape Axis.C))
+    else Core.return (Vec6.copy_axis mat2_shape Axis.C input_shape)
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel ~(input_shape : Vec6.shape) ~input ~mat2
-        (out : Axis.t -> Semantics.position S.index) =
+        (out : Semantics.position S.index Vec6.t) =
+      let oh = Vec6.get out Axis.H and oc = Vec6.get out Axis.C in
       S.sum ~lo:S.index_zero
         ~hi:(S.index_extent (Vec6.get input_shape Axis.C))
         (fun k ->
-          let input_idx a = match a with Axis.C -> k | _ -> out a in
-          let mat2_idx a =
-            match a with
-            | Axis.W -> k
-            | Axis.H | Axis.C -> out a
-            | _ -> S.index_zero
-          in
-          S.mul (S.load input input_idx) (S.load mat2 mat2_idx))
+          S.mul
+            (S.load input (out |> Vec6.set_c k))
+            (S.load mat2
+               (Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero ~h:oh
+                  ~w:k ~c:oc)))
   end
 end

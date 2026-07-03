@@ -34,15 +34,8 @@ module Make () = struct
   let index_eq a b = Expr.Index_eq (a, b)
   let clamp_low x = Expr.Index_max (Expr.Index_const 0, x)
   let assume_index x = x
-
-  let load s idx =
-    Expr.Load
-      ( s,
-        [|
-          idx Axis.N; idx Axis.T; idx Axis.D; idx Axis.H; idx Axis.W; idx Axis.C;
-        |] )
-
-  let load6 s ~n ~t ~d ~h ~w ~c = Expr.Load (s, [| n; t; d; h; w; c |])
+  let load s (v : Expr.index_expr Vec6.t) = Expr.Load (s, v)
+  let load6 s ~n ~t ~d ~h ~w ~c = Expr.Load (s, Vec6.make ~n ~t ~d ~h ~w ~c)
   let c = ref 0
 
   let sum ~lo ~hi f =
@@ -57,4 +50,7 @@ module Make () = struct
       { kind = Max_reduce; var = v; lo; hi; body = f (Expr.Reduce_var v) }
 end
 
-let out_coord a = Expr.Index_var a
+let out_vec : Expr.index_expr Vec6.t =
+  Vec6.make ~n:(Expr.Index_var Axis.N) ~t:(Expr.Index_var Axis.T)
+    ~d:(Expr.Index_var Axis.D) ~h:(Expr.Index_var Axis.H)
+    ~w:(Expr.Index_var Axis.W) ~c:(Expr.Index_var Axis.C)

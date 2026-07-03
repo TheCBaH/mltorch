@@ -63,7 +63,10 @@ let clamp_low (x : Semantics.delta index) : Semantics.position index =
 let assume_index (x : Semantics.delta index) : Semantics.position index =
   Dim.index (x :> int)
 
-let load inp (idx : Axis.t -> Semantics.position index) = Tensor.read_at inp idx
+let load inp (v : Semantics.position index Vec6.t) =
+  Tensor.read_at6 inp ~n:v.Vec6.n ~t:v.Vec6.t ~d:v.Vec6.d ~h:v.Vec6.h
+    ~w:v.Vec6.w ~c:v.Vec6.c
+
 let load6 inp ~n ~t ~d ~h ~w ~c = Tensor.read_at6 inp ~n ~t ~d ~h ~w ~c
 
 let sum ~(lo : Semantics.position index) ~(hi : Semantics.delta index)

@@ -33,8 +33,56 @@ val shape : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> shape
 val coord : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> coord
 val deltas : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> deltas
 val origin : coord (* all zero *)
+
+(* Unchecked general-purpose constructor, for a payload that isn't a [Dim.t]
+   role at all (so there's nothing for [shape]/[coord]/[deltas]'s checked
+   constructors to check) — e.g. [Expr.Load]'s 6 per-axis sub-expressions.
+   [shape]/[coord]/[deltas] are themselves built on this. *)
+val make : n:'d -> t:'d -> d:'d -> h:'d -> w:'d -> c:'d -> 'd t
+
+(* Elementwise transform / fold, in [Axis.all]'s N/T/D/H/W/C order. The [i]
+   forms hand the axis to [f] as well — for logic that treats an axis
+   specially (e.g. looking it up in another [Vec6.t] or an association
+   list), avoiding a [get]-by-axis inside a [match]/closure. *)
+val map : ('a -> 'b) -> 'a t -> 'b t
+val mapi : (Axis.t -> 'a -> 'b) -> 'a t -> 'b t
+val fold : ('acc -> 'a -> 'acc) -> 'acc -> 'a t -> 'acc
+val foldi : ('acc -> Axis.t -> 'a -> 'acc) -> 'acc -> 'a t -> 'acc
+
+(* Materializes an [Axis.t -> 'd] function into a ['d t] by calling it once
+   per axis — for a caller holding a per-axis function (e.g. a [SEMANTICS]
+   op's base output coordinate) that needs a [Vec6.t] to pipe through
+   [set_h] etc. or pass to [SEMANTICS.load]. *)
+val of_fn : (Axis.t -> 'd) -> 'd t
 val get : 'd t -> Axis.t -> 'd
 val set : 'd t -> Axis.t -> 'd -> 'd t
+
+(* Per-axis setters, new value first / vec last, so [base |> set_h h' |>
+   set_w w'] pipes: each partially applies to a ['d t -> 'd t] transformer.
+   For op code overriding one or two axes of an existing coordinate. *)
+val set_n : 'd -> 'd t -> 'd t
+val set_t : 'd -> 'd t -> 'd t
+val set_d : 'd -> 'd t -> 'd t
+val set_h : 'd -> 'd t -> 'd t
+val set_w : 'd -> 'd t -> 'd t
+val set_c : 'd -> 'd t -> 'd t
+
+(* Copies the source vec's value at [axis] into the same [axis] of the piped
+   vec — one call and one axis dispatch, not [set v axis (get src axis)]'s
+   two. The source vec is positional (not [~src]-labeled): with only one
+   axis role there's nothing to disambiguate, and it keeps [copy_axis src
+   axis] a "pre-filled args first, piped vec last" transformer like [set_h]
+   etc. For op code overriding some of an existing vec's axes from another
+   vec at the same axis (e.g. an all-zero base with a few axes copied over
+   from a materialized output coordinate). *)
+val copy_axis : 'd t -> Axis.t -> 'd t -> 'd t
+
+(* General form: the source vec's value at axis [~src] into axis [~dst] of
+   the piped vec — for the rarer case where the source and destination axes
+   differ. The source vec stays positional (see [copy_axis]); [~src]/[~dst]
+   label the two axis roles, which are what actually need disambiguating at
+   a call site. *)
+val copy : 'd t -> src:Axis.t -> dst:Axis.t -> 'd t -> 'd t
 
 (* the role-bridging operations *)
 val numel : shape -> Dim.count Dim.t

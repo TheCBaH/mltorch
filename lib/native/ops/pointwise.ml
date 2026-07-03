@@ -1,6 +1,6 @@
 (* Pointwise ops: each output pixel reads the input(s) at the same coord. The
    functor is over SEMANTICS, so the same definition serves Direct and Symbolic.
-   [out] gives the output coord as one index expression per axis.
+   [out] is the output coord itself, one index expression per axis.
    See .ai/native_compute_design.md §2. *)
 
 (* Output shape of a binary broadcasting op. Per axis the two extents must be
@@ -27,15 +27,19 @@ let broadcast_output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
 (* Broadcasting for a binary op. [load] is strict — an out-of-bounds index is an
    error, never a silent fan-out — so an operand with an extent-1 (broadcast) axis
    must have the output coord reduced to a valid read of it FIRST: [broadcast_coord
-   shape out] maps every axis whose source extent is 1 to [index_zero] and keeps
-   [out a] elsewhere, so a single stored value is read at index 0 on a broadcast
-   axis regardless of where the output iterates. The decision is a static per-axis
-   shape test, independent of the index value, so the same helper serves [Direct]
-   (int indices) and [Symbolic] (index expressions) — it only needs [index_zero].
-   See .ai/native_tensor_design.md §1b. *)
-let broadcast_coord ~(index_zero : 'i) (shape : Vec6.shape) (out : Axis.t -> 'i)
-    : Axis.t -> 'i =
- fun a -> if Dim.equal (Vec6.get shape a) Dim.one then index_zero else out a
+   shape out_vec] maps every axis whose source extent is 1 to [index_zero] and
+   keeps [out_vec]'s value elsewhere, so a single stored value is read at index 0
+   on a broadcast axis regardless of where the output iterates. The decision is a
+   static per-axis shape test, independent of the index value, so the same helper
+   serves [Direct] (int indices) and [Symbolic] (index expressions) — it only
+   needs [index_zero]. [Vec6.mapi], not a closure: the caller already has (or can
+   share) a materialized [Vec6.t], and this returns one directly, ready for
+   [SEMANTICS.load]. See .ai/native_tensor_design.md §1b. *)
+let broadcast_coord ~(index_zero : 'i) (shape : Vec6.shape)
+    (out_vec : 'i Vec6.t) : 'i Vec6.t =
+  Vec6.mapi
+    (fun a i -> if Dim.equal (Vec6.get shape a) Dim.one then index_zero else i)
+    out_vec
 
 module Relu = struct
   type t = { x : Tensor_ref.t }
@@ -62,7 +66,7 @@ module Relu = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* relu x = (x < 0 ? 0 : x) — derived from [select]+[lt], not a primitive *)
-    let pixel x (out : Axis.t -> Semantics.position S.index) =
+    let pixel x (out : Semantics.position S.index Vec6.t) =
       let v = S.load x out in
       S.select (S.lt v (S.const 0.)) (S.const 0.) v
   end
@@ -98,7 +102,7 @@ end
    (S.add, S.mul, …). *)
 module Binary (S : Semantics.SEMANTICS) = struct
   let pixel ~combine ~a_shape ~b_shape a b
-      (out : Axis.t -> Semantics.position S.index) =
+      (out : Semantics.position S.index Vec6.t) =
     let read shape t =
       S.load t (broadcast_coord ~index_zero:S.index_zero shape out)
     in

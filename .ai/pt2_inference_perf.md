@@ -287,73 +287,6 @@ Measured on the same fixture (`benchmark.native_conv2d`'s target):
 removes indirect-call overhead and GC-scan pressure beyond just the
 allocation bookkeeping itself.
 
-## Permanent profiling infrastructure: `make profile.memtrace` / `make profile.landmarks`
-
-Every profiling step in this investigation (memtrace for allocation, then
-landmarks for real CPU cycles — see steps 3+ above) was done via ad hoc
-instrumentation: add it, measure, revert. Made both permanently available
-instead — `make profile.memtrace` and `make profile.landmarks` — targeting
-the same fixture `benchmark.native_conv2d` measures, so a profile run's
-hotspots map directly onto that number (`PROFILE_FIXTURE` overrides which
-JSON op-spec either runs against). Both are wired into CI (`.github/
-workflows/build.yml`, after "verify pristine") so a regression's *shape*, not
-just its magnitude, is visible on every push without re-deriving
-instrumentation by hand again.
-
-- **memtrace**: `bin/aten_spec_verify.ml` unconditionally calls
-  `Memtrace.trace_if_requested ()` at the top — self-gated on `MEMTRACE`
-  being set, a no-op otherwise, so this is always compiled in and never
-  affects the uninstrumented path (confirmed: benchmark timing unchanged
-  after adding the call). `make profile.memtrace` sets `MEMTRACE=$(PROFILE_DIR)
-  /native_conv2d.ctf` and runs the same binary `benchmark.native_conv2d`
-  does — no separate build.
-
-- **landmarks**: not safe to leave always-on the same way. First measured
-  `landmarks-ppx --auto` compiled into `lib/native` (instrumenting every
-  function) at ~2.3x slower on the conv2d benchmark (6.1s -> 14.4s)
-  **even with profiling never started** — the ppx's per-function enter/exit
-  calls have real cost on this codebase's hot loops even when idle, unlike
-  memtrace's genuinely-free-when-disabled env check. So `lib/native/dune`
-  now has two `enabled_if`-gated library stanzas (both `(name native)`,
-  mutually exclusive on `%{profile}`): the plain one (identical to before),
-  and one only enabled under `dune build --profile landmarks` that adds
-  `(preprocess (pps landmarks-ppx --auto))` + the `landmarks` library.
-  `bin/dune`'s `aten_spec_verify` executable stays a single stanza (no split
-  needed there): it unconditionally links `landmarks` and calls
-  `Landmark.start_profiling ()` when `LANDMARKS` is set, but with nothing
-  instrumented under the plain profile, that's a harmless no-op (confirmed:
-  a trivial one-node ROOT callgraph, no per-function breakdown, and
-  benchmark timing unchanged). Only `dune build --profile landmarks`
-  produces a binary with anything to actually record.
-  - Dune-internals lesson hit while building this: an executable with a
-    module whose only content is a side-effecting `let () = ...`, never
-    referenced by name from another module, needs that module reachable
-    from the stanza's own root module or the compiler treats it as dead
-    code and silently omits it (no error — the binary just does nothing).
-    First attempt split `aten_spec_verify.ml`'s logic from a separate
-    profile-specific entry-point file; both `-linkall` and an `.mli` failed
-    to fix it, tracing to dune's demand-driven compilation only reaching
-    modules transitively required by the stanza's `(name ...)`-matching
-    root module. Simplified instead to the single-stanza design above
-    (no separate entry file at all) — the actual expensive part
-    (`--auto`'s per-function instrumentation) lives entirely in
-    `lib/native`, where the enabled_if split works cleanly since both
-    stanzas already claim the *same* files, not a mutually-exclusive subset.
-  - Active landmarks tracking (`LANDMARKS=1`, not just idle instrumentation)
-    times every single instrumented call/exit — unlike memtrace's sampling,
-    cost scales with call count, not just allocation volume. On
-    `benchmark.native_conv2d`'s fixture (802,816 output pixels, ~1.83B inner
-    calls) that's minutes, not seconds — killed a local run after 2.5+
-    minutes still climbing. `make profile.landmarks` still defaults
-    `PROFILE_FIXTURE` to that fixture for real local analysis, but CI
-    overrides it to `test/data/profile/conv2d_small.json` (a tiny synthetic
-    `1x4x8x8` conv, same code path, ~0.05s active) — same op, proportional
-    hotspot shape, but small enough for every-push CI.
-  - Output: `Landmark.start_profiling ()`'s defaults (`Channel stderr`,
-    `Textual {threshold = 1.0}`) print a call-tree + aggregated table
-    straight to stderr on exit — no temp file to manage or artifact to
-    upload.
-
 ## Applied fix, step 2: stop allocating `Vec6.coord` in `Tensor.read_at`
 
 Rewrote `Tensor.read_at` (`lib/native/tensor.ml`) to compute the bounds check
@@ -638,6 +571,260 @@ Measured: **~9.5s → ~6.1s, ~35% faster.** Cumulative: **~25.5s → ~6.1s, ~76%
 faster than the original baseline.** This was the single largest individual
 step in the whole investigation, confirming the closure-allocation hypothesis
 from the very first memtrace profile.
+
+## Applied fix, step 7: `Vec6.t` throughout — `load` itself, not just `load6`
+
+Follow-up: `SEMANTICS.load`'s general (non-`load6`) form still took a
+closure (`Axis.t -> position index`), used by ~16 call sites across the
+other 7 op files plus `conv.ml`'s bias loads and `Convolution.Compute.
+transposed_pixel`. Most of those only override one or two axes of an
+existing coordinate (e.g. `linear.ml`'s bias load: all axes zero except
+`C`), which a closure expresses awkwardly (a fresh `match` per call) — a
+`Vec6.t` argument expresses it directly.
+
+- `semantics.ml`: `load`'s signature changed from `input -> (Axis.t ->
+  position index) -> t` to `input -> position index Vec6.t -> t`. `load6`
+  is untouched (still the separate, zero-allocation, 6-explicit-scalars
+  form for the actual hot path).
+- `vec6.ml`/`.mli`: added `set_n`/`set_t`/`set_d`/`set_h`/`set_w`/`set_c`
+  (**new value first, vec last** — `set_h h' base`, not `set base h'` — so
+  `base |> set_h h' |> set_w w'` actually pipes: each partially applies to
+  a `'d t -> 'd t` transformer ready for the next piped vec; `Vec6.set`'s
+  existing vec-first order doesn't chain this way). Also added `of_fn :
+  (Axis.t -> 'd) -> 'd t`, materializing a per-axis function into a `Vec6.t`
+  once — for op code with genuinely dynamic per-axis logic (e.g. `norm.ml`'s
+  runtime-length `dims` list), which still writes a closure but only pays
+  for turning it into a `Vec6.t` once, not once per `load` call downstream.
+- `direct.ml`: `load` now reads the `Vec6.t`'s fields directly (`v.Vec6.n`
+  etc.) and calls `Tensor.read_at6` — no closure calling at all, same
+  allocation profile as before (one `Vec6.t` per call) but simpler code and
+  one fewer indirection.
+- `symbolic.ml`: `load s v = Expr.Load (s, v)` — since `Expr.Load` already
+  holds an `index_expr Vec6.t` (step 6's Vec6 cleanup), this is now a direct
+  pass-through.
+- Updated every call site: `linear.ml`, `matmul.ml`, `norm.ml`,
+  `permute.ml`, `pointwise.ml`, `pool.ml`, `reduce.ml`, and `conv.ml`'s bias
+  loads + `transposed_pixel`. Three patterns emerged:
+  - **override 1-2 axes of the base `out` coordinate** (most common, e.g.
+    `pool.ml`'s window read, `linear.ml`'s `x` read): `Vec6.of_fn out |>
+    set_h ... |> set_w ...`, with the `of_fn` conversion hoisted out of any
+    reduction loop (once per pixel, not once per iteration).
+  - **build from scratch** (e.g. weight/bias reads, whose coordinate space
+    is unrelated to `out`): `Vec6.make ~n:... ~t:... ...` directly — no
+    pipe, since there's no meaningful "base" to override.
+  - **genuinely dynamic per-axis logic** (`norm.ml`, `reduce.ml`'s
+    runtime-length reduced-axis lists): kept the closure, wrapped in
+    `Vec6.of_fn` at the `load` call site — correct and simple, just not
+    the pipe style, since the axis set being overridden isn't known
+    statically.
+
+Validated against the full native/`aten_spec_run` test suite (no diffs —
+every op's Direct-vs-Symbolic agreement is unchanged) and the conv2d
+benchmark (unaffected, as expected: `load6`, not `load`, is on that path) —
+still ~6.1-6.2s, ~76% cumulative.
+
+This step didn't chase a number — it's a code-quality change enabled by
+steps 3/6 (`Vec6.t` being cheap to construct/read and reusable for
+non-`Dim.t` payloads). No allocation regression versus the closures it
+replaced (a `Vec6.t` record and a closure are the same cost class), and
+`load6`'s zero-allocation hot path is untouched.
+
+## Applied fix, step 8: `Vec6.map`/`mapi`/`fold`/`foldi`/`copy`/`copy_axis` — revisit `of_fn` call sites
+
+Follow-up to step 7's "kept the closure, wrapped in `Vec6.of_fn`" pattern:
+revisited each of those sites to check whether direct `Vec6.t` manipulation
+(now that `Vec6.t` carries `set_h`/`set_c`/etc.) would be simpler and avoid
+per-pixel closure allocation, rather than materializing a closure into a
+`Vec6.t` via `of_fn` every call.
+
+- `vec6.ml`/`.mli`: added `map`/`mapi` (elementwise transform, optionally
+  axis-aware) and `fold`/`foldi` (elementwise fold, same), all unrolled over
+  the 6 fixed fields (no `Axis.all` traversal/closure-per-element). Also
+  added two copy helpers for the "override some axes of one vec from
+  another vec" pattern that shows up repeatedly in `output_shape`/`pixel`
+  code:
+  - `copy_axis : 'd t -> Axis.t -> 'd t -> 'd t` — same-axis copy (`src`'s
+    value at `axis` into the piped vec's same `axis`), one dispatch. `src`
+    is positional (not `~src`-labeled) so `copy_axis src axis` reads as a
+    "pre-filled args first, piped vec last" transformer, matching
+    `set_h`/`set_c`'s pipe shape — there's only one axis role here, so
+    nothing needs disambiguating with a label.
+  - `copy : 'd t -> src:Axis.t -> dst:Axis.t -> 'd t -> 'd t` — cross-axis
+    copy (source vec's value at `~src` into the piped vec's `~dst`), two
+    dispatches. The source vec stays positional for the same reason as
+    `copy_axis`; `~src`/`~dst` label the two axis *roles*, which are what
+    actually need disambiguating at a call site (e.g.
+    `Vec6.copy weight_shape ~src:Axis.N ~dst:Axis.C x_shape`).
+- `pointwise.ml`: `broadcast_coord` rewritten to take/return `Vec6.t`
+  directly via `mapi`, instead of building an `Axis.t -> position index`
+  closure per call.
+- `norm.ml`, `reduce.ml` (`output_shape` and `Compute.pixel`), `linear.ml`,
+  `matmul.ml`, `permute.ml` (`output_shape`): rewritten to precompute a base
+  `Vec6.t` once (via `fold`/`copy_axis`/`copy`) instead of building a fresh
+  per-axis closure inside a reduction loop or `List.fold_left` over
+  `Axis.t * Axis.t` pairs.
+- `permute.ml`'s `Compute.pixel` and `pointwise.ml`'s `Relu.Compute.pixel`
+  were reviewed and left unchanged — both already call `of_fn` exactly once
+  per pixel with a closure that's genuinely dynamic (an inverse-permutation
+  lookup; a no-op pass-through), so there was nothing to hoist.
+
+Validated against the full native/`aten_spec_run` test suite (no diffs) and
+the conv2d benchmark (unaffected, as expected: none of these sites are on
+`load6`'s hot path) — still ~6.1-6.2s, ~76% cumulative.
+
+Like step 7, this didn't chase a number — `Vec6.t` records and closures are
+the same allocation cost class, so this is a code-clarity change (fewer
+per-axis `match` dispatches written out longhand, precomputed bases instead
+of re-deriving a lookup inside a loop), not a further speedup.
+
+## Permanent profiling infrastructure: `make profile.memtrace` / `make profile.landmarks`
+
+Every profiling step in this investigation (memtrace for allocation, then
+landmarks for real CPU cycles — see steps 3+ above) was done via ad hoc
+instrumentation: add it, measure, revert. Made both permanently available
+instead — `make profile.memtrace` and `make profile.landmarks` — targeting
+the same fixture `benchmark.native_conv2d` measures, so a profile run's
+hotspots map directly onto that number (`PROFILE_FIXTURE` overrides which
+JSON op-spec either runs against). Both are wired into CI (`.github/
+workflows/build.yml`, after "verify pristine") so a regression's *shape*, not
+just its magnitude, is visible on every push without re-deriving
+instrumentation by hand again.
+
+- **memtrace**: `bin/aten_spec_verify.ml` unconditionally calls
+  `Memtrace.trace_if_requested ()` at the top — self-gated on `MEMTRACE`
+  being set, a no-op otherwise, so this is always compiled in and never
+  affects the uninstrumented path (confirmed: benchmark timing unchanged
+  after adding the call). `make profile.memtrace` sets `MEMTRACE=$(PROFILE_DIR)
+  /native_conv2d.ctf` and runs the same binary `benchmark.native_conv2d`
+  does — no separate build.
+
+- **landmarks**: not safe to leave always-on the same way. First measured
+  `landmarks-ppx --auto` compiled into `lib/native` (instrumenting every
+  function) at ~2.3x slower on the conv2d benchmark (6.1s -> 14.4s)
+  **even with profiling never started** — the ppx's per-function enter/exit
+  calls have real cost on this codebase's hot loops even when idle, unlike
+  memtrace's genuinely-free-when-disabled env check. So `lib/native/dune`
+  now has two `enabled_if`-gated library stanzas (both `(name native)`,
+  mutually exclusive on `%{profile}`): the plain one (identical to before),
+  and one only enabled under `dune build --profile landmarks` that adds
+  `(preprocess (pps landmarks-ppx --auto))` + the `landmarks` library.
+  `bin/dune`'s `aten_spec_verify` executable stays a single stanza (no split
+  needed there): it unconditionally links `landmarks` and calls
+  `Landmark.start_profiling ()` when `LANDMARKS` is set, but with nothing
+  instrumented under the plain profile, that's a harmless no-op (confirmed:
+  a trivial one-node ROOT callgraph, no per-function breakdown, and
+  benchmark timing unchanged). Only `dune build --profile landmarks`
+  produces a binary with anything to actually record.
+  - Dune-internals lesson hit while building this: an executable with a
+    module whose only content is a side-effecting `let () = ...`, never
+    referenced by name from another module, needs that module reachable
+    from the stanza's own root module or the compiler treats it as dead
+    code and silently omits it (no error — the binary just does nothing).
+    First attempt split `aten_spec_verify.ml`'s logic from a separate
+    profile-specific entry-point file; both `-linkall` and an `.mli` failed
+    to fix it, tracing to dune's demand-driven compilation only reaching
+    modules transitively required by the stanza's `(name ...)`-matching
+    root module. Simplified instead to the single-stanza design above
+    (no separate entry file at all) — the actual expensive part
+    (`--auto`'s per-function instrumentation) lives entirely in
+    `lib/native`, where the enabled_if split works cleanly since both
+    stanzas already claim the *same* files, not a mutually-exclusive subset.
+  - Active landmarks tracking (`LANDMARKS=1`, not just idle instrumentation)
+    times every single instrumented call/exit — unlike memtrace's sampling,
+    cost scales with call count, not just allocation volume. On
+    `benchmark.native_conv2d`'s fixture (802,816 output pixels, ~1.83B inner
+    calls) that's minutes, not seconds — killed a local run after 2.5+
+    minutes still climbing. `make profile.landmarks` still defaults
+    `PROFILE_FIXTURE` to that fixture for real local analysis, but CI
+    overrides it to `test/data/profile/conv2d_small.json` (a tiny synthetic
+    `1x4x8x8` conv, same code path, ~0.05s active) — same op, proportional
+    hotspot shape, but small enough for every-push CI.
+  - Output: `Landmark.start_profiling ()`'s defaults (`Channel stderr`,
+    `Textual {threshold = 1.0}`) print a call-tree + aggregated table
+    straight to stderr on exit — no temp file to manage or artifact to
+    upload.
+
+## Applied fix, step 9: `pixel`'s `out` becomes a `Vec6.t`, closing the loop step 7 left open
+
+Follow-up to step 7 (`SEMANTICS.load` migrated from a closure to a `Vec6.t`)
+and step 8 (revisiting `of_fn` call sites): `SEMANTICS.load` took `Vec6.t`
+since step 7, but every op's `Compute.pixel` — and `Eval_op.Make.pixel`,
+which dispatches to all of them — still took `out` as the *old* closure
+(`Axis.t -> position index`). That closure was never anything but a wrapper
+around a `Vec6.t` that already existed one level up:
+`Schedule.evaluate`/`Tensor.materialize`'s per-pixel loop iterates
+`Vec6.coord` values directly (`Vec6.iter`), and manually wrapped each one
+into a closure (`coord_index_dim c`) just so `pixel` could unwrap it again —
+almost always via `Vec6.of_fn out` at the top of the function, once per
+pixel (802,816+ times on resnet18's smallest conv). `Symbolic`'s side had
+the same shape for a different reason: `Symbolic.out_coord : Axis.t ->
+Expr.index_expr` was a closure returning the same `Index_var` placeholder
+regardless of which pixel or even which node was being built, so calling
+`Vec6.of_fn out_coord` inside every op rebuilt an identical `Vec6.t` from
+scratch on every single `pixel` call instead of it being a plain constant.
+
+Changed `Eval_op.Make.pixel`'s (and by extension every op's `Compute.pixel`)
+`out` parameter from `Axis.t -> Semantics.position S.index` to
+`Semantics.position S.index Vec6.t` directly — this is exactly the
+`load`-was-a-closure problem step 7 already fixed, one layer further out.
+Verified type-compatible before touching anything: for `Direct`,
+`position index = Dim.index Dim.t`, and `Vec6.coord` is already `Dim.index
+Dim.t Vec6.t` — an exact match, no coercion. For `Symbolic`, `position index
+= Expr.index_expr`, matching `Expr.Load`'s second argument already.
+
+- `schedule.ml`: `evaluate`'s `pixel` parameter is now `Vec6.coord -> float`
+  — exactly `Tensor.materialize`'s own parameter type, so `evaluate` is now
+  a thin named seam over it (kept, not inlined away, since the module's
+  whole purpose — per its header comment — is being the one place a future
+  tiled/parallel/vectorised schedule plugs in). `coord_index_dim` loses this
+  one call site but stays alive (and necessary) via `coord_index`, used by
+  `ground`'s `Expr.eval` grounding — a genuinely different, still-closure
+  consuming API (`Expr`'s own arithmetic is untyped `int`, unrelated to
+  `Direct`'s `Dim.t`-typed indices).
+- `symbolic.ml`/`.mli`: `out_coord : Axis.t -> Expr.index_expr` (a closure)
+  replaced by `out_vec : Expr.index_expr Vec6.t` (a plain constant, built
+  once at module load, not per call).
+- `eval_symbolic.ml`: `identity_load` used to hand-build the exact same
+  6-field `Vec6.make ~n:(Index_var N) ...` that `Symbolic.out_vec` now *is*
+  — simplified to just use it directly instead of duplicating the
+  construction.
+- Every op file (`conv.ml` x3 `pixel` sites, `linear.ml`, `matmul.ml`,
+  `norm.ml`, `pointwise.ml` x2, `pool.ml` x2, `reduce.ml`): dropped
+  `Vec6.of_fn out` (now `out` is already the right type) and replaced
+  `out Axis.X` reads with `Vec6.get out Axis.X`. Net: 8 of the 9 `of_fn`
+  call sites the codebase had disappeared entirely.
+- `permute.ml` is the one op that genuinely still needs `of_fn`: its
+  `pixel` builds the *input* coordinate by looking up each input axis's
+  value at a *different* (permuted) output axis
+  (`Vec6.of_fn (fun in_ax -> Vec6.get out (List.assoc in_ax inv))`) — a
+  real per-axis dynamic remap, not a pass-through, so there's no way to
+  hand `load` `out` directly. This was already identified as the
+  genuinely-dynamic case in step 8; only the inner closure body changed
+  (`Vec6.get out ...` instead of calling the old closure form of `out`).
+- `test/native/symbolic_test.ml`: ~20 call sites updated —
+  `Symbolic.out_coord` → `Symbolic.out_vec` everywhere, and the 5 sites that
+  wrapped a `Direct`-side pixel in `fun c -> ... (Schedule.coord_index_dim
+  c)` (to adapt a real `Vec6.coord` into the old closure shape for
+  comparison against `Symbolic`) simplified to a direct partial application
+  (`~eval_direct:(Pd.pixel p ~x_shape ~x)` etc.) — the coord no longer needs
+  adapting, since `pixel`'s type already matches what `compare_symbolic`
+  wants. `test/native/compute_test.ml` and `graph_test.ml` needed zero
+  changes: both already called `pixel` through `Schedule.evaluate` (or
+  built inputs via `Tensor.materialize`, unrelated to `out`), so they
+  transparently picked up the new type.
+
+Validated against the full native/`aten_spec_run`/`native_walk`/
+`native_bridge` test suites (no diffs) and the conv2d benchmark (unaffected,
+as expected — `Conv2d.Compute.pixel`, the hot path this benchmark measures,
+never used `of_fn`; it already read `out Axis.X` directly) — still
+~6.1-6.2s.
+
+Like steps 7/8, this wasn't chasing a number (a `Vec6.t` and a closure are
+the same allocation cost class) — it's a correctness-preserving
+simplification that also happens to remove real work: the old path built a
+closure over `c` (`coord_index_dim c`) *and* a fresh `Vec6.t` via `of_fn`
+for every pixel; the new path passes the *same* `Vec6.t` `Tensor.materialize`
+already built straight through, with nothing rebuilt in between.
 
 ## Explicitly not done
 

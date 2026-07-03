@@ -3,8 +3,9 @@
    materialises a fresh dense float32 tensor; tiled/parallel/vectorised variants
    plug in here later. See .ai/native_compute_design.md §5.
 
-   A Direct op pixel is [(Axis.t -> Dim.index Dim.t) -> float]; [evaluate]
-   supplies each output coord's components as that index function. *)
+   A Direct op pixel is [Vec6.coord -> float]; [evaluate] is a thin, named
+   seam over [Tensor.materialize] (which already takes exactly that) so this
+   module stays the one place a future schedule variant plugs in. *)
 
 let for_each = Vec6.iter
 
@@ -25,9 +26,8 @@ let coord_index_dim (c : Vec6.coord) (a : Axis.t) : Dim.index Dim.t =
 let coord_index (c : Vec6.coord) (a : Axis.t) : int =
   (coord_index_dim c a :> int)
 
-let evaluate (shape : Vec6.shape) (pixel : (Axis.t -> Dim.index Dim.t) -> float)
-    =
-  Tensor.materialize shape (fun c -> pixel (coord_index_dim c))
+let evaluate (shape : Vec6.shape) (pixel : Vec6.coord -> float) =
+  Tensor.materialize shape pixel
 
 (* The Symbolic counterpart: an op's [pixel] built once at [Symbolic] is an
    [Expr.t] with no data of its own — [ground] is what turns that expression

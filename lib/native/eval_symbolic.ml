@@ -7,9 +7,7 @@
 open Graph_ir
 
 (* An identity copy expression: read [sg] at the output coordinate, per axis. *)
-let identity_load (sg : Tensor_sig.t) : Expr.t =
-  Expr.Load (sg, Array.of_list (List.map (fun a -> Expr.Index_var a) Axis.all))
-
+let identity_load (sg : Tensor_sig.t) : Expr.t = Expr.Load (sg, Symbolic.out_vec)
 let f32 = Payload.Fmt Payload.F32
 
 let first_free_tid (g : graph) =
@@ -81,7 +79,7 @@ let run (g : graph) : Stage_program.t =
     | op ->
         let operand r = Tensor_id.Map.find r env in
         let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
-        let body = E.pixel op ~operand ~shape_of ~fill Symbolic.out_coord in
+        let body = E.pixel op ~operand ~shape_of ~fill Symbolic.out_vec in
         let oid =
           match node.Node.outputs with
           | [ oid ] -> oid

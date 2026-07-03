@@ -76,7 +76,7 @@ module Permute = struct
     in
     Core.return
       (List.fold_left
-         (fun s (out_ax, in_ax) -> Vec6.set s out_ax (Vec6.get x_shape in_ax))
+         (fun s (out_ax, in_ax) -> Vec6.copy x_shape ~src:in_ax ~dst:out_ax s)
          (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
          perm)
 
@@ -85,8 +85,8 @@ module Permute = struct
        the inverse permutation: for each input axis [in_ax], use the output
        coordinate of the output axis that maps to it.
        Raises [Not_found] if [perm] is not a bijection over all 6 axes. *)
-    let pixel perm ~x (out : Axis.t -> Semantics.position S.index) =
+    let pixel perm ~x (out : Semantics.position S.index Vec6.t) =
       let inv = List.map (fun (oax, iax) -> (iax, oax)) perm in
-      S.load x (fun in_ax -> out (List.assoc in_ax inv))
+      S.load x (Vec6.of_fn (fun in_ax -> Vec6.get out (List.assoc in_ax inv)))
   end
 end

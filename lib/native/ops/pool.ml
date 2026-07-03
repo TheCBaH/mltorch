@@ -185,24 +185,20 @@ module MaxPool2d = struct
     module Wa = Window_axis.Compute (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
-        (out : Axis.t -> Semantics.position S.index) =
+        (out : Semantics.position S.index Vec6.t) =
       let wh =
         Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad_before:p.pad.h
           ~dilation:(Op_config.Pos.of_int 1)
-          ~in_extent:(Vec6.get x_shape Axis.H) (out Axis.H)
+          ~in_extent:(Vec6.get x_shape Axis.H) (Vec6.get out Axis.H)
       in
       let ww =
         Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad_before:p.pad.w
           ~dilation:(Op_config.Pos.of_int 1)
-          ~in_extent:(Vec6.get x_shape Axis.W) (out Axis.W)
+          ~in_extent:(Vec6.get x_shape Axis.W) (Vec6.get out Axis.W)
       in
       S.max_reduce ~lo:wh.lo ~hi:wh.hi (fun kh ->
           S.max_reduce ~lo:ww.lo ~hi:ww.hi (fun kw ->
-              S.load x (fun a ->
-                  match a with
-                  | Axis.H -> wh.src kh
-                  | Axis.W -> ww.src kw
-                  | _ -> out a)))
+              S.load x (out |> Vec6.set_h (wh.src kh) |> Vec6.set_w (ww.src kw))))
   end
 end
 
@@ -282,25 +278,22 @@ module AvgPool2d = struct
     module Wa = Window_axis.Compute (S)
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
-        (out : Axis.t -> Semantics.position S.index) =
+        (out : Semantics.position S.index Vec6.t) =
       let wh =
         Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad_before:p.pad.h
           ~dilation:(Op_config.Pos.of_int 1)
-          ~in_extent:(Vec6.get x_shape Axis.H) (out Axis.H)
+          ~in_extent:(Vec6.get x_shape Axis.H) (Vec6.get out Axis.H)
       in
       let ww =
         Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad_before:p.pad.w
           ~dilation:(Op_config.Pos.of_int 1)
-          ~in_extent:(Vec6.get x_shape Axis.W) (out Axis.W)
+          ~in_extent:(Vec6.get x_shape Axis.W) (Vec6.get out Axis.W)
       in
       let total =
         S.sum ~lo:wh.lo ~hi:wh.hi (fun kh ->
             S.sum ~lo:ww.lo ~hi:ww.hi (fun kw ->
-                S.load x (fun a ->
-                    match a with
-                    | Axis.H -> wh.src kh
-                    | Axis.W -> ww.src kw
-                    | _ -> out a)))
+                S.load x
+                  (out |> Vec6.set_h (wh.src kh) |> Vec6.set_w (ww.src kw))))
       in
       let area = (p.kernel.h :> int) * (p.kernel.w :> int) in
       S.div total (S.const (float_of_int area))

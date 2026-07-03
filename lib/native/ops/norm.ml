@@ -72,19 +72,21 @@ module RmsNorm = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x ~weight
-        (out : Axis.t -> Semantics.position S.index) =
+        (out : Semantics.position S.index Vec6.t) =
+      let zero = Vec6.map (fun _ -> S.index_zero) out in
       (* Sum of x^2 over the normalised axes at the fixed non-normalised coords
          [out]: nest one [sum] per reduced axis (full extent), squaring the read
-         at the leaf. Mirrors [Reduce.Mean]'s reduction nest. *)
+         at the leaf. Mirrors [Reduce.Mean]'s reduction nest. [override]
+         (which reduced axis is at which reduction-variable index, so far)
+         folds directly onto [out] via [Vec6.set] at the leaf, rather than an
+         assoc-list lookup per axis at every leaf visited. *)
       let rec sum_sq dims override =
         match dims with
         | [] ->
-            let v =
-              S.load x (fun a ->
-                  match List.assoc_opt a override with
-                  | Some i -> i
-                  | None -> out a)
+            let idx =
+              List.fold_left (fun v (a, i) -> Vec6.set v a i) out override
             in
+            let v = S.load x idx in
             S.mul v v
         | d :: rest ->
             S.sum ~lo:S.index_zero
@@ -98,10 +100,12 @@ module RmsNorm = struct
       (* 1 / sqrt(mean(x^2) + eps) — ATen's rsqrt, expressed with the sqrt
          primitive. *)
       let inv = S.div (S.const 1.) (S.sqrt (S.add ms (S.const p.eps))) in
-      (* weight is indexed by the normalised axes only (size 1 elsewhere). *)
+      (* weight is indexed by the normalised axes only (size 1 elsewhere):
+         fold [p.dims] onto an all-zero base, copying each kept axis's value
+         from [out]. *)
       let w =
-        S.load weight (fun a ->
-            if List.mem a p.dims then out a else S.index_zero)
+        S.load weight
+          (List.fold_left (fun v a -> Vec6.copy_axis out a v) zero p.dims)
       in
       S.mul (S.mul (S.load x out) inv) w
   end

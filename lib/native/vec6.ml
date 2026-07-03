@@ -21,35 +21,91 @@ let set (v : 'd t) (a : Axis.t) (x : 'd) : 'd t =
   | W -> { v with w = x }
   | C -> { v with c = x }
 
-let shape ~n ~t ~d ~h ~w ~c =
+(* Per-axis setters, new value first / vec last (not [set]'s vec-first order):
+   that's what makes [base |> set_h h' |> set_w w' |> set_c c'] actually
+   pipe — [set_h h'] partially applies to a ['d t -> 'd t] transformer ready
+   to receive the piped vec, whereas [set]'s order would need an explicit
+   [fun v -> set v Axis.H h'] at each step. For op code that only overrides
+   one or two axes of an existing coordinate (e.g. a base tensor's axes with
+   a couple of axes replaced), this reads as a straight-line pipeline instead
+   of a closure or listing all 6 fields via [make]. *)
+let set_n x (v : 'd t) : 'd t = { v with n = x }
+let set_t x (v : 'd t) : 'd t = { v with t = x }
+let set_d x (v : 'd t) : 'd t = { v with d = x }
+let set_h x (v : 'd t) : 'd t = { v with h = x }
+let set_w x (v : 'd t) : 'd t = { v with w = x }
+let set_c x (v : 'd t) : 'd t = { v with c = x }
+
+(* Copies [src]'s value at [axis] into the same [axis] of the piped vec — one
+   call and one axis dispatch (each branch both reads [src] and writes [v]),
+   not the two dispatches [set v axis (get src axis)] would do. [src] is
+   positional, not [~src]-labeled: with only one axis role there's nothing
+   to disambiguate, and it keeps [src |> copy_axis ...] symmetric with
+   [set_h]/[set_c]'s "pre-filled args first, piped vec last" pipe shape. For
+   op code overriding some of [v]'s axes from another vec at the same axis
+   (the common case — see [copy] below for the rarer cross-axis one). *)
+let copy_axis (src : 'd t) (axis : Axis.t) (v : 'd t) : 'd t =
+  match axis with
+  | N -> { v with n = src.n }
+  | T -> { v with t = src.t }
+  | D -> { v with d = src.d }
+  | H -> { v with h = src.h }
+  | W -> { v with w = src.w }
+  | C -> { v with c = src.c }
+
+(* General form: the source vec's value at axis [~src] into axis [~dst] of
+   the piped vec — two axis dispatches, since the axes can differ. The
+   source vec is positional (see [copy_axis]); [~src]/[~dst] the labels
+   belong to the two axis roles, which are what actually need disambiguating
+   at a call site. *)
+let copy (source : 'd t) ~(src : Axis.t) ~(dst : Axis.t) (v : 'd t) : 'd t =
+  set v dst (get source src)
+
+let map (f : 'a -> 'b) (v : 'a t) : 'b t =
+  { n = f v.n; t = f v.t; d = f v.d; h = f v.h; w = f v.w; c = f v.c }
+
+let mapi (f : Axis.t -> 'a -> 'b) (v : 'a t) : 'b t =
   {
-    n = Dim.extent n;
-    t = Dim.extent t;
-    d = Dim.extent d;
-    h = Dim.extent h;
-    w = Dim.extent w;
-    c = Dim.extent c;
+    n = f N v.n;
+    t = f T v.t;
+    d = f D v.d;
+    h = f H v.h;
+    w = f W v.w;
+    c = f C v.c;
   }
+
+(* Fold order matches [Axis.all]/[get]'s N/T/D/H/W/C convention. *)
+let fold (f : 'acc -> 'a -> 'acc) (acc : 'acc) (v : 'a t) : 'acc =
+  f (f (f (f (f (f acc v.n) v.t) v.d) v.h) v.w) v.c
+
+let foldi (f : 'acc -> Axis.t -> 'a -> 'acc) (acc : 'acc) (v : 'a t) : 'acc =
+  f (f (f (f (f (f acc N v.n) T v.t) D v.d) H v.h) W v.w) C v.c
+
+(* Materializes an [Axis.t -> 'd] function into a ['d t] by calling it once
+   per axis — for callers holding a per-axis function (e.g. a [SEMANTICS]
+   op's base output coordinate) that now need a [Vec6.t] to pipe through
+   [set_h] etc. or pass to [SEMANTICS.load]. *)
+let of_fn (f : Axis.t -> 'd) : 'd t =
+  { n = f N; t = f T; d = f D; h = f H; w = f W; c = f C }
+
+(* Unchecked, for any payload type — the general-purpose "6 named slots"
+   constructor. [shape]/[coord]/[deltas] below are the checked, [Dim.t]-role
+   form (going through [Dim.extent]/[Dim.index]/[Dim.delta]); a caller with a
+   payload that isn't a [Dim.t] role at all (e.g. a symbolic sub-expression —
+   see [Expr.Load]) has nothing to check, so uses this directly. *)
+let make ~n ~t ~d ~h ~w ~c = { n; t; d; h; w; c }
+
+let shape ~n ~t ~d ~h ~w ~c =
+  make ~n:(Dim.extent n) ~t:(Dim.extent t) ~d:(Dim.extent d) ~h:(Dim.extent h)
+    ~w:(Dim.extent w) ~c:(Dim.extent c)
 
 let coord ~n ~t ~d ~h ~w ~c =
-  {
-    n = Dim.index n;
-    t = Dim.index t;
-    d = Dim.index d;
-    h = Dim.index h;
-    w = Dim.index w;
-    c = Dim.index c;
-  }
+  make ~n:(Dim.index n) ~t:(Dim.index t) ~d:(Dim.index d) ~h:(Dim.index h)
+    ~w:(Dim.index w) ~c:(Dim.index c)
 
 let deltas ~n ~t ~d ~h ~w ~c =
-  {
-    n = Dim.delta n;
-    t = Dim.delta t;
-    d = Dim.delta d;
-    h = Dim.delta h;
-    w = Dim.delta w;
-    c = Dim.delta c;
-  }
+  make ~n:(Dim.delta n) ~t:(Dim.delta t) ~d:(Dim.delta d) ~h:(Dim.delta h)
+    ~w:(Dim.delta w) ~c:(Dim.delta c)
 
 let origin = coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0
 

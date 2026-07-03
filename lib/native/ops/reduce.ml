@@ -79,7 +79,7 @@ module Mean = struct
     let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
     Core.return
       (List.fold_left
-         (fun s (kin, oax) -> Vec6.set s oax (Vec6.get x_shape kin))
+         (fun s (kin, oax) -> Vec6.copy x_shape ~src:kin ~dst:oax s)
          ones (kept_map p))
 
   (* This op's random-walk config space: a 4D NHWC tensor reduced over a curated
@@ -124,21 +124,30 @@ module Mean = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
-        (out : Axis.t -> Semantics.position S.index) =
-      let kmap = kept_map p in
+        (out : Semantics.position S.index Vec6.t) =
+      let zero =
+        Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+          ~h:S.index_zero ~w:S.index_zero ~c:S.index_zero
+      in
+      (* [kept_map]'s (input axis, output axis) pairs, folded once: [base]'s
+         surviving axes already hold [out oax]; a reduced axis (not in
+         [kept_map]) stays [index_zero] until [reduce]'s leaf overrides it.
+         Folding here — not a [List.assoc_opt] lookup inside the leaf —
+         means the lookup happens once per pixel, not once per (potentially
+         many) leaf visited by the reduction below. *)
+      let base =
+        List.fold_left
+          (fun v (kin, oax) -> Vec6.copy out ~src:oax ~dst:kin v)
+          zero (kept_map p)
+      in
       (* Nest one [sum] per reduced axis (full extent [0, extent)); the body
-         reads [x], mapping each input axis: reduced → its reduction variable,
-         surviving → the output coord at the axis it re-packed onto. *)
+         reads [x] at [base] with the current reduction indices folded on
+         top for the axes being summed over. *)
       let rec reduce dims override =
         match dims with
         | [] ->
-            S.load x (fun a ->
-                match List.assoc_opt a override with
-                | Some i -> i
-                | None -> (
-                    match List.assoc_opt a kmap with
-                    | Some oax -> out oax
-                    | None -> S.index_zero))
+            S.load x
+              (List.fold_left (fun v (a, i) -> Vec6.set v a i) base override)
         | d :: rest ->
             S.sum ~lo:S.index_zero
               ~hi:(S.index_extent (Vec6.get x_shape d))

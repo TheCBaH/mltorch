@@ -61,14 +61,21 @@ module type SEMANTICS = sig
 
   type input
 
-  val load : input -> (Axis.t -> position index) -> t
+  (* [Vec6.t], not a closure: most call sites only override one or two axes
+     of an existing coordinate (see [Vec6.set_h] etc.), which pipes cleanly
+     into a [Vec6.t]-typed argument but needs a fresh closure allocation
+     every call if [load] instead took [Axis.t -> position index] (the
+     original design — see .ai/pt2_inference_perf.md for why that mattered).
+     Building the full 6-field [Vec6.t] is still allocation-free for
+     [Direct] on the hot path via [load6] below. *)
+  val load : input -> position index Vec6.t -> t
 
-  (* Same as [load], 6 explicit indices instead of a closure — for hot call
-     sites where a closure built fresh per call (one per axis-lookup, so
-     effectively per element) would allocate every time. See
-     .ai/pt2_inference_perf.md. Not every op has migrated to this yet
-     (harmless — [load] stays the general form); [conv.ml]'s innermost
-     reduction has, since it's the highest-call-volume site in the engine. *)
+  (* Same as [load], 6 explicit indices instead of a [Vec6.t] — for the
+     hottest call sites, where even the (functional-update, so allocating)
+     [Vec6.set_*] pipeline used to build [load]'s argument costs more than
+     passing scalars directly. See .ai/pt2_inference_perf.md.
+     [conv.ml]'s innermost reduction uses this, since it's the
+     highest-call-volume site in the engine. *)
   val load6 :
     input ->
     n:position index ->
