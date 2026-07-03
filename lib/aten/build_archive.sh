@@ -48,13 +48,22 @@ done
 
 INC=(-I"$PT" -I"$PT/aten/src" -Igen -Iinc
      -I"$PT/third_party/fmt/include" -I"$PT/third_party/cpuinfo/include")
-FLAGS=(-std=c++20 -Os -fPIC -DFMT_HEADER_ONLY=1)
+FLAGS=(-std=c++20 -O3 -fPIC -DFMT_HEADER_ONLY=1)
 # Per-function/data sections so the FINAL link can --gc-sections away the unused
 # op wrappers. Applied ONLY to the generated glue + native closure: the c10 /
 # ATen-core objects are monolithic and always fully reached, so splitting them
 # gains nothing and makes section-GC over the whole archive pathologically slow.
 SECT=(-ffunction-sections -fdata-sections)
 # Extra flags for the SIMD-capable kernels: scalar (DEFAULT) capability only.
+# AVX2 was tried (a build-time capability probe, no PyTorch-style dual-compile
+# needed since build machine == run machine here) but reverted: ATen's AVX2
+# vec256 headers (aten/src/ATen/cpu/vec/vec256/vec256_float.h) unconditionally
+# #include <sleef.h> for vectorized transcendentals, and SLEEF isn't vendored
+# here (it's a real PyTorch third_party submodule, github.com/shibatch/sleef,
+# needing its own CMake build - a genuine new dependency, not just a flag).
+# `-mavx2`/`-DCPU_CAPABILITY=AVX2` alone fails at the `#include` with
+# "sleef.h file not found" on any AVX2-capable (i.e. most real) x86 machine.
+# See .ai/pt2_inference_perf.md.
 CAP=(-DCPU_CAPABILITY=DEFAULT -DCPU_CAPABILITY_DEFAULT)
 
 # --- source lists -----------------------------------------------------------

@@ -13,7 +13,7 @@
             "upgradePackages": "false"
         },
         "./features/ocaml": {
-            "packages": "bytesrw ctypes ctypes-foreign fmt jsont ppx_expect utop yaml zipc"        },
+            "packages": "bytesrw ctypes ctypes-foreign fmt jsont landmarks landmarks-ppx memtrace ppx_expect utop yaml zipc"        },
     },
     "customizations": {
         "vscode": {

@@ -48,7 +48,18 @@ let handle ~mode ~walk path =
           true
       | None, Verify -> Aten_spec_run.compare_report spec)
 
+(* Both self-gate on an env var and are safe to leave linked in unconditionally:
+   [Memtrace.trace_if_requested] is a no-op unless MEMTRACE is set, and
+   [Landmark.start_profiling] only matters if something was actually
+   instrumented — which only happens under `dune build --profile landmarks`
+   (see lib/native/dune and .ai/pt2_inference_perf.md's landmarks section);
+   under the plain profile this is a harmless no-op (nothing to report; the
+   ~2.3x instrumentation cost measured there lives entirely in the ppx, not
+   in linking the landmarks runtime or calling start_profiling on
+   uninstrumented code). *)
 let () =
+  Memtrace.trace_if_requested ();
+  if Sys.getenv_opt "LANDMARKS" <> None then Landmark.start_profiling ();
   let mode = ref Verify and walk = ref None and paths = ref [] in
   let argv = Sys.argv in
   let rec parse i =

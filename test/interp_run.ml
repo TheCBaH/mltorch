@@ -3,9 +3,9 @@
    Driven by interp_cram (see `make pt2.runtest`) and `make inference`.
    argv: <model.pt2> <images_dir> <synsets.txt> <metadata.txt> <results.json> [--cram]
 
-   Per-image inference time is printed to stderr (not stdout), since it is
-   non-deterministic and would otherwise break the cram tests' exact-match
-   comparison.
+   Archive-open time, and each image's load/inference time, are printed to
+   stderr (not stdout), since they are non-deterministic and would otherwise
+   break the cram tests' exact-match comparison.
 
    --cram selects cram mode: probabilities differ in their low-order digits
    across systems, so no fixed rounding is exact-match safe. When the local
@@ -87,6 +87,13 @@ let pp_match mode oc (local, refp) =
   | Cram -> ()
   | Natural -> Printf.fprintf oc " (%g, ref %g)" local refp
 
+(* Runs [f], then prints its wall-clock time under [label] to stderr. *)
+let timed label f =
+  let t0 = Unix.gettimeofday () in
+  let result = f () in
+  Printf.eprintf "%s: %.1f ms\n%!" label ((Unix.gettimeofday () -. t0) *. 1000.);
+  result
+
 let main () =
   let open Core.Syntax in
   let pt2 = Sys.argv.(1) and images_dir = Sys.argv.(2) in
@@ -97,7 +104,8 @@ let main () =
     else Natural
   in
   let* archive =
-    Pt2_archive.open_pt2 pt2 |> Core.map_error (fun e -> (e :> error))
+    timed "pt2 open" (fun () -> Pt2_archive.open_pt2 pt2)
+    |> Core.map_error (fun e -> (e :> error))
   in
   let synsets = Array.of_list (read_lines synsets_path) in
   let names = names_of_metadata metadata_path in
@@ -116,15 +124,14 @@ let main () =
       (fun () f ->
         let key = "images/" ^ f in
         let* image =
-          Pt2_archive.load_pt (Filename.concat images_dir f)
+          timed (key ^ " load") (fun () ->
+              Pt2_archive.load_pt (Filename.concat images_dir f))
           |> Core.map_error (fun e -> (e :> error))
         in
-        let t0 = Unix.gettimeofday () in
         let* logits =
-          Interp.run archive image |> Core.map_error (fun e -> (e :> error))
+          timed (key ^ " infer") (fun () -> Interp.run archive image)
+          |> Core.map_error (fun e -> (e :> error))
         in
-        let dt_ms = (Unix.gettimeofday () -. t0) *. 1000. in
-        Printf.eprintf "%s: %.1f ms\n%!" key dt_ms;
         let* local =
           Interp.top_predictions logits 5
           |> Core.map_error (fun e -> (e :> error))

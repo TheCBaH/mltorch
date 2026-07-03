@@ -79,7 +79,7 @@ small shell script so the bash stays out of the sexp and is independently runnab
 |---|---|---|
 | 1 | `inc/` (dir target) | `gen_macros.sh` — sed the `.in` |
 | 2 | `gen/` (dir target) | `run_codegen.sh` — torchgen |
-| 3 | `libaten_core.a` + `dllaten_core.so` | `build_archive.sh` — `clang++ -Os` + `ar` |
+| 3 | `libaten_core.a` + `dllaten_core.so` | `build_archive.sh` — `clang++ -O3` (+ `-mavx2 -mfma` if the build machine supports it, see [pt2_inference_perf.md](pt2_inference_perf.md)) + `ar` |
 
 These rules emit the archive into `lib/aten/`'s build dir, exactly where the
 `(library (name aten) ...)` stanza's `(foreign_archives aten_core)` looks for it.

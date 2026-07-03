@@ -86,9 +86,22 @@ jobs:
     - name: pt2 load test
       run: |
         ${{ env.EXEC }} make pt2.runtest
+    # Fast per-push latency signal for the smallest model (resnet18), so
+    # regressions show up without waiting on the full 22-model "inference"
+    # sweep below (20+ minutes). Reuses the resnet18 data already fetched by
+    # "pt2 cram models download" and the binary just built by "pt2 load test".
+    - name: bench inference (smallest model)
+      run: |
+        ${{ env.EXEC }} make benchmark.inference
+    # Every inference.<model> is independent, so this is safe to parallelize
+    # across the runner's actual core count (queried inside the devcontainer,
+    # in case it ever differs from the host's). Note: at the high end this is
+    # memory-, not CPU-, bound (efficientnet_b7 alone peaks ~5.6 GB RSS) - if
+    # a future runner's core count ever outscales its RAM (GH's standard
+    # tiers scale both together, ~4 GB/core), revisit with an explicit cap.
     - name: inference
       run: |
-        ${{ env.EXEC }} make inference
+        ${{ env.EXEC }} sh -ceu 'make -j"$(nproc)" inference'
     - name: format
       run: |
         ${{ env.EXEC }} make format
@@ -102,3 +115,20 @@ jobs:
             exit 1
           fi
         '
+    # Last two steps: both build under a different dune profile/env than
+    # everything above (memtrace is the same build, landmarks rebuilds
+    # lib/native under --profile landmarks — see lib/native/dune), so they
+    # run after "verify pristine" to keep that extra rebuild churn from
+    # affecting any earlier step's timing/artifacts. See Makefile's
+    # profile.* targets and .ai/pt2_inference_perf.md's landmarks section.
+    - name: profile native conv2d (memtrace)
+      run: |
+        ${{ env.EXEC }} make profile.memtrace
+    # landmarks needs PROFILE_FIXTURE overridden to a tiny synthetic conv:
+    # *active* tracking (not just idle instrumentation) times every single
+    # instrumented call, and the full resnet18 fixture (~1.83B inner calls)
+    # takes minutes, not seconds, under that (measured while developing this
+    # step). The callgraph prints to stderr.
+    - name: profile native conv2d (landmarks)
+      run: |
+        ${{ env.EXEC }} make profile.landmarks PROFILE_FIXTURE=test/data/profile/conv2d_small.json

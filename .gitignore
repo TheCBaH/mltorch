@@ -3,3 +3,4 @@ _build/
 .claude/
 .devcontainer/devcontainer-lock.json
 data/pt2/
+.profile/

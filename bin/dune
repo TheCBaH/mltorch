@@ -12,11 +12,26 @@
  (libraries aten_schema aten_gen))
 
 ; CLI to verify JSON op-specs against the ATen-vs-native harness.
+;
+; Unconditionally links memtrace + landmarks (both self-gate on an env var at
+; the top of aten_spec_verify.ml, see the comment there) — cheap either way,
+; since neither library imposes real cost just by being linked and idle. The
+; actual instrumentation cost (measured ~2.3x on the conv2d benchmark) is
+; entirely in lib/native's `landmarks-ppx --auto` pass, which only happens
+; under `dune build --profile landmarks` (see lib/native/dune and
+; .ai/pt2_inference_perf.md's landmarks section) — this executable doesn't
+; need its own profile split.
 
 (executable
  (name aten_spec_verify)
  (modules aten_spec_verify)
- (libraries jsont jsont.bytesrw aten_op_spec aten_spec_run))
+ (libraries
+  memtrace
+  landmarks
+  jsont
+  jsont.bytesrw
+  aten_op_spec
+  aten_spec_run))
 
 ; CLI to derive per-node ATen op-spec JSON fixtures from a real .pt2 model
 ; graph. Pure OCaml, no ATen/libtorch build needed.

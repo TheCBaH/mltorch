@@ -4,7 +4,33 @@
 
 (include_subdirs unqualified)
 
+; Two profile-gated stanzas, not one library with an always-on ppx: measured
+; `landmarks-ppx --auto`-instrumented lib/native at ~2.3x slower
+; (6.1s -> 14.4s on the conv2d benchmark) than uninstrumented, even with
+; profiling never started — the ppx's per-function instrumentation has real
+; cost on this codebase even when idle, unlike e.g. memtrace's env-gated
+; `trace_if_requested`. So the instrumented build has to be a separate
+; artifact, never the one `benchmark.native_conv2d`/tests/every other
+; consumer links against. `dune build --profile landmarks` selects the
+; instrumented stanza; plain `dune build` (any other profile) gets the
+; uninstrumented one, identical to before this split. bin/dune's
+; `aten_spec_verify` executable needs no matching split itself — it
+; unconditionally links `landmarks` and self-gates *starting* profiling on
+; an env var, same idiom as memtrace; see the comment there. See
+; .ai/pt2_inference_perf.md's landmarks section.
+
 (library
  (name native)
+ (enabled_if
+  (<> %{profile} landmarks))
  (libraries core fmt jsont jsont.bytesrw walk_core)
+ (wrapped false))
+
+(library
+ (name native)
+ (enabled_if
+  (= %{profile} landmarks))
+ (libraries core fmt jsont jsont.bytesrw walk_core landmarks)
+ (preprocess
+  (pps landmarks-ppx --auto))
  (wrapped false))

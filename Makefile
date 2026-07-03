@@ -9,10 +9,14 @@ PT2_DIR := data/pt2
 # Each model gets its own subdir, so several models' weights/images/results
 # can sit on disk at once (the interpreter cram tests are split by
 # architecture, one model family per file).
-PT2_MODEL_DIR := $(PT2_DIR)/$(PT2_MODEL)
-PT2_ZIP := $(PT2_MODEL_DIR)/$(PT2_MODEL).release.zip
+# `=` (lazily expanded), not `:=`: `make -j inference` overrides PT2_MODEL
+# per inference.<model> target via a pattern-specific variable (below), and
+# these three need to re-expand against that override at recipe time rather
+# than freeze the top-of-file default at parse time.
+PT2_MODEL_DIR = $(PT2_DIR)/$(PT2_MODEL)
+PT2_ZIP = $(PT2_MODEL_DIR)/$(PT2_MODEL).release.zip
 # Public release asset; the direct URL needs no auth (curl follows the redirect).
-PT2_URL := https://github.com/$(PT2_REPO)/releases/download/$(PT2_RELEASE)/$(PT2_MODEL).release.zip
+PT2_URL = https://github.com/$(PT2_REPO)/releases/download/$(PT2_RELEASE)/$(PT2_MODEL).release.zip
 
 # Models exercised by the graph interpreter, grouped by architecture.
 PT2_MODELS_RESNET := resnet18 resnet34 resnet50 resnet101 resnet152
@@ -66,23 +70,108 @@ pt2.runtest:
 		test/interp_efficientnet_cram.t test/interp_mobilenet_cram.t \
 		test/interp_vit_cram.t
 
+# Shared argument list for every interp_run.exe invocation below, so
+# inference-run and benchmark.inference can't drift apart.
+PT2_INFER_ARGS = $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/images \
+	$(PT2_MODEL_DIR)/imagenet_lsvrc_2015_synsets.txt \
+	$(PT2_MODEL_DIR)/imagenet_metadata.txt $(PT2_MODEL_DIR)/results.json
+
 # Run the interpreter once on $(PT2_MODEL) (downloading it first if needed)
 # and print per-image inference timing to stderr. No correctness assertion -
 # the cram tests already check that for the smallest model per architecture;
-# this is a smoke test + benchmark for every other model.
+# this is a smoke test + benchmark for every other model. Convenience target
+# for ad hoc single-model runs (e.g. `make inference-run PT2_MODEL=vit_b_16`);
+# `dune exec` builds the binary as needed.
 inference-run: pt2.download
-	opam exec -- dune exec test/interp_run.exe -- \
-		$(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/images \
-		$(PT2_MODEL_DIR)/imagenet_lsvrc_2015_synsets.txt \
-		$(PT2_MODEL_DIR)/imagenet_metadata.txt $(PT2_MODEL_DIR)/results.json
+	opam exec -- dune exec test/interp_run.exe -- $(PT2_INFER_ARGS)
 
-# inference.<model>: run inference-run for one specific model.
-inference.%:
-	$(MAKE) inference-run PT2_MODEL=$*
+# The raw interpreter binary, built once via plain `dune build` (never `dune
+# exec`). inference.% below runs this directly instead, so `make -j` can fan
+# the per-model runs out across cores: concurrent `dune exec`/`dune build`
+# invocations contend on _build locks (see .ai/worktree_setup.md), but
+# concurrent runs of an already-built plain binary don't.
+PT2_RUN := _build/default/test/interp_run.exe
+$(PT2_RUN):
+	opam exec -- dune build test/interp_run.exe
+
+# inference.<model>: run the smoke test for one specific model. PT2_MODEL is
+# a pattern-specific variable, so $(PT2_INFER_ARGS) below resolves against
+# the right model; the download itself still goes through a recursive
+# $(MAKE) with an explicit override (pattern-specific variables don't
+# propagate into a same-named shared prerequisite's own recipe the way they
+# do into this target's), which is fine to run concurrently under `make -j`
+# since it's plain curl/unzip, no dune involved.
+inference.%: PT2_MODEL = $*
+inference.%: $(PT2_RUN)
+	$(MAKE) pt2.download PT2_MODEL=$*
+	$(PT2_RUN) $(PT2_INFER_ARGS)
 
 # Run inference for every supported model (all of PT2_MODELS_ALL), not just
-# the ones exercised by the cram tests.
+# the ones exercised by the cram tests. Every inference.<model> is
+# independent (own dir, own download, own process), so this is safe to run
+# with `-j` (e.g. `make -j$(nproc) inference`) to cut wall time.
 inference: $(addprefix inference., $(PT2_MODELS_ALL))
+
+# --- benchmark.*: permanent latency benchmarks, each isolating one component ---
+
+# Wall/user/sys time + max RSS for one run of the smallest model (PT2_MODEL
+# defaults to resnet18), via GNU time. Gives a fast latency signal on every
+# push without waiting on the full `make inference` sweep across all 22
+# models (20+ minutes).
+benchmark.inference: pt2.download
+	/usr/bin/time -v opam exec -- dune exec test/interp_run.exe -- \
+		$(PT2_INFER_ARGS) --cram >/dev/null
+
+# The pure-OCaml native engine's conv2d, on resnet18's first (smallest) real
+# conv node - currently ~27s, which is why conv2d is excluded from the full
+# ATen-vs-native comparison sweep (test/pt2_node_bridge_cram.t) and from
+# pt2_op_native_walk_cram.t's real-scale walk. See .ai/pt2_inference_perf.md
+# for the investigation this tracks regressions/improvements against.
+# aten_spec_verify's default mode runs both ATen and native and compares
+# them; ATen's share of the time is negligible here (ms, not s).
+benchmark.native_conv2d:
+	/usr/bin/time -v opam exec -- dune exec bin/aten_spec_verify.exe -- \
+		test/data/resnet18/000_convolution_default.json >/dev/null
+
+# --- profile.*: on-demand profiling of the native conv2d benchmark ---
+#
+# By default both instrument the same fixture benchmark.native_conv2d
+# measures, so a profile run's hotspots map directly onto that number.
+# Neither is part of `make build`/`runtest`/`benchmark.*` themselves: see
+# bin/aten_spec_verify.ml and lib/native/dune for why each is safe to leave
+# permanently available without costing the uninstrumented path anything
+# (memtrace/landmarks linked in but idle) or, for landmarks, why it needs a
+# separate build profile at all (measured ~2.3x slower even idle once
+# `--auto`-instrumented — see .ai/pt2_inference_perf.md's landmarks
+# section).
+PROFILE_DIR := .profile
+PROFILE_FIXTURE := test/data/resnet18/000_convolution_default.json
+
+# Allocation profile: MEMTRACE self-gates at runtime (Memtrace.
+# trace_if_requested), so this runs the same binary as benchmark.
+# native_conv2d, no separate build. View with memtrace-viewer/
+# memtrace-hotspot (see the memtrace skill).
+profile.memtrace:
+	mkdir -p $(PROFILE_DIR)
+	MEMTRACE=$(PROFILE_DIR)/native_conv2d.ctf opam exec -- dune exec bin/aten_spec_verify.exe -- \
+		$(PROFILE_FIXTURE) >/dev/null
+	@echo "memtrace: wrote $(PROFILE_DIR)/native_conv2d.ctf"
+
+# CPU-time/call-count profile: needs lib/native rebuilt under --profile
+# landmarks (landmarks-ppx --auto); LANDMARKS=1 then starts profiling at
+# aten_spec_verify's entry. Landmark's own at_exit hook prints the callgraph
+# (a text table, by call count and cycles) to stderr once the run finishes —
+# nothing to redirect here beyond the >/dev/null on stdout below. Unlike
+# memtrace (which only samples allocations, so cost is independent of
+# call count), *active* landmarks tracking times every single instrumented
+# call/exit — on PROFILE_FIXTURE's default (802,816 output pixels, ~1.83B
+# inner calls) that's minutes, not seconds (measured: killed after 2.5+ min
+# still climbing). CI overrides PROFILE_FIXTURE to a tiny synthetic conv
+# (test/data/profile/conv2d_small.json, same code path, ~0.05s) instead;
+# override PROFILE_FIXTURE=... locally for anything in between.
+profile.landmarks:
+	LANDMARKS=1 opam exec -- dune exec --profile landmarks bin/aten_spec_verify.exe -- \
+		$(PROFILE_FIXTURE) >/dev/null
 
 build:
 	opam exec -- dune build $(BUILD_OPTIONS)
