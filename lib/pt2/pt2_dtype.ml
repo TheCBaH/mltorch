@@ -43,9 +43,8 @@ let scalar_type_name = function
 
 let pp_error ppf : error -> unit = function
   | `Unsupported_scalar_type st ->
-      Format.fprintf ppf "unsupported ScalarType %s" (scalar_type_name st)
-  | `Unknown_storage_class name ->
-      Format.fprintf ppf "unknown storage class %S" name
+      Fmt.pf ppf "unsupported ScalarType %s" (scalar_type_name st)
+  | `Unknown_storage_class name -> Fmt.pf ppf "unknown storage class %S" name
 
 let of_scalar_type (st : Pytorch_types.ScalarType.t) =
   match st with

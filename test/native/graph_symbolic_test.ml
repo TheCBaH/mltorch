@@ -21,8 +21,7 @@ let pp_error ppf : [< error ] -> unit = function
   | `Missing_output_tensor id ->
       Format.fprintf ppf "missing output tensor t%d" (Tensor_id.to_int id)
 
-let pp_result pp_ok =
-  Fmt.result ~ok:pp_ok ~error:(fun ppf e -> pp_error ppf e.Core.Error.kind)
+let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
 
 let lift_build (r : ('a, Graph_builder.error) Core.result) :
     ('a, error) Core.result =

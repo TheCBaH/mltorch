@@ -55,6 +55,21 @@ module Syntax : sig
   val ( >>| ) : ('a, 'e) result -> ('a -> 'b) -> ('b, 'e) result
 end
 
+(* Shared pretty-printing glue. Handwritten printers should use Fmt directly
+   for their structure; this module only factors out repo-wide conventions that
+   would otherwise repeat verbatim (stringifying printers, [none], and
+   unwrapping [Core.Error.kind] in results). *)
+module Pretty : sig
+  val to_string : 'a Fmt.t -> 'a -> string
+  val option_or : none:string -> 'a Fmt.t -> 'a option Fmt.t
+  val result : ok:'a Fmt.t -> error:'e Fmt.t -> ('a, 'e) Stdlib.result Fmt.t
+  val error_kind : 'e Fmt.t -> 'e Error.t Fmt.t
+  val core_result : ok:'a Fmt.t -> error:'e Fmt.t -> ('a, 'e) result Fmt.t
+
+  val capture_to_string :
+    ?like:Format.formatter -> (Format.formatter -> unit) -> string
+end
+
 (* Result-aware list combinators: short-circuit on the first [Error] and thread
    the error row automatically, so migrated callers stay concise. *)
 module List : sig

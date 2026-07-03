@@ -3,10 +3,7 @@ let row c = Dim.to_int (Vec6.get c Axis.H)
 let col c = Dim.to_int (Vec6.get c Axis.W)
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 let f32 = Payload.Fmt Payload.F32
-
-let pp_result pp_ok =
-  Fmt.result ~ok:pp_ok ~error:(fun ppf e ->
-      Shape_error.pp ppf e.Core.Error.kind)
+let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:Shape_error.pp
 
 let pp_eval_result ppf (vals, ok) =
   Format.fprintf ppf "eval=%s direct==symbolic=%b" vals ok

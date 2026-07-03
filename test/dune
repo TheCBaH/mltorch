@@ -79,6 +79,16 @@
  (preprocess
   (pps ppx_expect)))
 
+; Shared pretty-printing helpers from lib/core.
+
+(library
+ (name pretty_test)
+ (modules pretty_test)
+ (libraries core fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
 ; JSON verification format: PCG, Float32, op-spec codec round-trip (no C++).
 
 (library

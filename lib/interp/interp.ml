@@ -35,12 +35,12 @@ let pp_error ppf : [< error ] -> unit = function
   | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
   | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
   | `Aten_runtime_failure (op, st) ->
-      Format.fprintf ppf "ATen op %s failed with status %d" op st
-  | `Unhandled_op target -> Format.fprintf ppf "unhandled op %S" target
+      Fmt.pf ppf "ATen op %s failed with status %d" op st
+  | `Unhandled_op target -> Fmt.pf ppf "unhandled op %S" target
   | `Unexpected_graph_output summary ->
-      Format.fprintf ppf "expected a single tensor graph output, got %s" summary
+      Fmt.pf ppf "expected a single tensor graph output, got %s" summary
   | `Topk_read_failed ->
-      Format.pp_print_string ppf "failed to read topk outputs back from ATen"
+      Fmt.string ppf "failed to read topk outputs back from ATen"
 
 (* --- driver --- *)
 

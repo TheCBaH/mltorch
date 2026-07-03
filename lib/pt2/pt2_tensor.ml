@@ -34,7 +34,7 @@ let is_contiguous t =
 let pp_error ppf : error -> unit = function
   | #Pt2_dtype.error as e -> Pt2_dtype.pp_error ppf e
   | `Symbolic_value field ->
-      Format.fprintf ppf "symbolic tensor metadata is unsupported for %s" field
+      Fmt.pf ppf "symbolic tensor metadata is unsupported for %s" field
 
 let int_of_symint ?(field = "tensor metadata") = function
   | Pytorch_types.SymInt.Int i -> Core.return i
@@ -52,12 +52,5 @@ let of_meta (m : Pytorch_types.TensorMeta.t) ~data =
   in
   Core.return { dtype; sizes; strides; storage_offset; data }
 
-let pp_shape ppf t =
-  Format.fprintf ppf "[%a]"
-    (Format.pp_print_list
-       ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ")
-       Format.pp_print_int)
-    t.sizes
-
-let pp ppf t =
-  Format.fprintf ppf "%s%a" (Pt2_dtype.to_string t.dtype) pp_shape t
+let pp_shape ppf t = Fmt.brackets (Fmt.list ~sep:Fmt.semi Fmt.int) ppf t.sizes
+let pp ppf t = Fmt.pf ppf "%s%a" (Pt2_dtype.to_string t.dtype) pp_shape t

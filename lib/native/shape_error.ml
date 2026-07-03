@@ -1,15 +1,15 @@
 type perm_side = [ `Input | `Output ]
 
 let pp_perm_side ppf = function
-  | `Input -> Format.pp_print_string ppf "input"
-  | `Output -> Format.pp_print_string ppf "output"
+  | `Input -> Fmt.string ppf "input"
+  | `Output -> Fmt.string ppf "output"
 
 module Broadcast = struct
   type t = { axis : Axis.t; lhs : Dim.extent Dim.t; rhs : Dim.extent Dim.t }
 
   let pp ppf { axis; lhs; rhs } =
-    Format.fprintf ppf "incompatible broadcast extents on axis %a: %a vs %a"
-      Axis.pp axis Dim.pp lhs Dim.pp rhs
+    Fmt.pf ppf "incompatible broadcast extents on axis %a: %a vs %a" Axis.pp
+      axis Dim.pp lhs Dim.pp rhs
 end
 
 module Window = struct
@@ -25,7 +25,7 @@ module Window = struct
 
   let pp ppf { out; in_extent; kernel; stride; pad_before; pad_after; dilation }
       =
-    Format.fprintf ppf
+    Fmt.pf ppf
       "output extent must be >= 1, got %d (in=%a kernel=%a stride=%a \
        pad_before=%a pad_after=%a dilation=%a)"
       out Dim.pp in_extent Dim.pp kernel Op_config.Pos.pp stride
@@ -46,11 +46,11 @@ module Linear = struct
   let pp_error ppf (e : error) =
     match e with
     | Input_channels_mismatch { actual; expected } ->
-        Format.fprintf ppf "input C extent must equal in_features: %a vs %a"
-          Dim.pp actual Dim.pp expected
+        Fmt.pf ppf "input C extent must equal in_features: %a vs %a" Dim.pp
+          actual Dim.pp expected
     | Weight_channels_mismatch { actual; expected } ->
-        Format.fprintf ppf "weight C extent must equal in_features: %a vs %a"
-          Dim.pp actual Dim.pp expected
+        Fmt.pf ppf "weight C extent must equal in_features: %a vs %a" Dim.pp
+          actual Dim.pp expected
 end
 
 module Bmm = struct
@@ -63,18 +63,18 @@ module Bmm = struct
   let pp_error ppf (e : error) =
     match e with
     | Batch_mismatch { lhs; rhs } ->
-        Format.fprintf ppf "input H extent must equal mat2 H extent: %a vs %a"
-          Dim.pp lhs Dim.pp rhs
+        Fmt.pf ppf "input H extent must equal mat2 H extent: %a vs %a" Dim.pp
+          lhs Dim.pp rhs
     | Contract_mismatch { lhs; rhs } ->
-        Format.fprintf ppf "input C extent must equal mat2 W extent: %a vs %a"
-          Dim.pp lhs Dim.pp rhs
+        Fmt.pf ppf "input C extent must equal mat2 W extent: %a vs %a" Dim.pp
+          lhs Dim.pp rhs
 end
 
 module Permute = struct
   type t = { side : perm_side; axis : Axis.t; count : int }
 
   let pp ppf { side; axis; count } =
-    Format.fprintf ppf
+    Fmt.pf ppf
       "expected axis %a to appear exactly once on the %a side, found %d" Axis.pp
       axis pp_perm_side side count
 end
@@ -130,7 +130,7 @@ module Convolution = struct
 
   let pp_transposed_window_output ppf
       { out; in_extent; kernel; stride; pad; dilation; output_padding } =
-    Format.fprintf ppf
+    Fmt.pf ppf
       "transposed output extent must be >= 1, got %d (in=%a kernel=%a \
        stride=%a pad=%a dilation=%a output_padding=%a)"
       out Dim.pp in_extent Dim.pp kernel Op_config.Pos.pp stride
@@ -140,41 +140,41 @@ module Convolution = struct
   let pp_error ppf (e : error) =
     match e with
     | In_channels_not_divisible_by_groups { channels; groups } ->
-        Format.fprintf ppf "in_channels %d must be divisible by groups %d"
-          channels groups
+        Fmt.pf ppf "in_channels %d must be divisible by groups %d" channels
+          groups
     | Out_channels_not_divisible_by_groups { channels; groups } ->
-        Format.fprintf ppf "out_channels %d must be divisible by groups %d"
-          channels groups
+        Fmt.pf ppf "out_channels %d must be divisible by groups %d" channels
+          groups
     | Weight_channels_mismatch { weight_in_per_group; expected_in_per_group } ->
-        Format.fprintf ppf "weight C extent %d must equal in_channels/groups %d"
+        Fmt.pf ppf "weight C extent %d must equal in_channels/groups %d"
           weight_in_per_group expected_in_per_group
     | Weight_kernel_mismatch { axis; weight_extent; kernel_extent } ->
-        Format.fprintf ppf "weight %a extent must equal kernel extent: %a vs %a"
-          Axis.pp axis Dim.pp weight_extent Dim.pp kernel_extent
+        Fmt.pf ppf "weight %a extent must equal kernel extent: %a vs %a" Axis.pp
+          axis Dim.pp weight_extent Dim.pp kernel_extent
     | Input_channels_mismatch { input_channels; expected_in_channels } ->
-        Format.fprintf ppf "input C extent must equal in_channels: %a vs %a"
-          Dim.pp input_channels Dim.pp expected_in_channels
+        Fmt.pf ppf "input C extent must equal in_channels: %a vs %a" Dim.pp
+          input_channels Dim.pp expected_in_channels
     | Same_padding_requires_stride_one { stride } ->
-        Format.fprintf ppf
+        Fmt.pf ppf
           "padding=\"same\" is not supported for strided convolutions \
            (stride=%a)"
           Op_config.Pos.pp stride
     | Transposed_not_supported ->
-        Format.pp_print_string ppf
+        Fmt.string ppf
           "transposed convolutions are not supported in forward Conv2d lowering"
     | Output_padding_nonzero { h; w } ->
-        Format.fprintf ppf
+        Fmt.pf ppf
           "output_padding must be zero for non-transposed convolution, got \
            {h=%a; w=%a}"
           Op_config.Nonneg.pp h Op_config.Nonneg.pp w
     | Transposed_weight_input_mismatch { weight_input_channels; input_channels }
       ->
-        Format.fprintf ppf
+        Fmt.pf ppf
           "transposed weight N extent must equal input C extent: %a vs %a"
           Dim.pp weight_input_channels Dim.pp input_channels
     | Transposed_input_channels_not_divisible_by_groups { channels; groups } ->
-        Format.fprintf ppf "input C extent %d must be divisible by groups %d"
-          channels groups
+        Fmt.pf ppf "input C extent %d must be divisible by groups %d" channels
+          groups
     | Transposed_output_non_positive d -> pp_transposed_window_output ppf d
 end
 

@@ -70,15 +70,11 @@ let drop_leading pred axes =
   in
   aux axes
 
+let pp_axis_binding get ppf a = Fmt.pf ppf "%a=%a" Axis.pp a Dim.pp (get a)
+
 let pp_shape fmt (s : shape) =
   let axes = drop_leading (fun a -> Dim.to_int (get s a) = 1) Axis.all in
-  Format.pp_print_char fmt '[';
-  List.iteri
-    (fun i a ->
-      if i > 0 then Format.pp_print_char fmt ' ';
-      Format.fprintf fmt "%a=%a" Axis.pp a Dim.pp (get s a))
-    axes;
-  Format.pp_print_char fmt ']'
+  Fmt.brackets (Fmt.list ~sep:Fmt.sp (pp_axis_binding (get s))) fmt axes
 
 (* Encoded as a 6-element array [n, t, d, h, w, c]. *)
 let shape_jsont : shape Jsont.t =
@@ -94,10 +90,4 @@ let shape_jsont : shape Jsont.t =
 
 let pp_coord fmt (c : coord) =
   let axes = drop_leading (fun a -> Dim.to_int (get c a) = 0) Axis.all in
-  Format.pp_print_char fmt '(';
-  List.iteri
-    (fun i a ->
-      if i > 0 then Format.pp_print_char fmt ',';
-      Dim.pp fmt (get c a))
-    axes;
-  Format.pp_print_char fmt ')'
+  Fmt.parens (Fmt.list ~sep:(Fmt.any ",") Dim.pp) fmt (List.map (get c) axes)

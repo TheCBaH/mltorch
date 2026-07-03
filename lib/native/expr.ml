@@ -52,45 +52,31 @@ let reduction_kind_name = function Sum -> "sum" | Max_reduce -> "max_reduce"
 
 let rec pp_index_expr fmt = function
   | Index_var a -> Axis.pp fmt a
-  | Reduce_var v -> Format.fprintf fmt "r%d" v
-  | Index_const n -> Format.fprintf fmt "%d" n
-  | Index_add (a, b) ->
-      Format.fprintf fmt "%a+%a" pp_index_expr a pp_index_expr b
-  | Index_scale (k, a) -> Format.fprintf fmt "%d*%a" k pp_index_expr a
+  | Reduce_var v -> Fmt.pf fmt "r%d" v
+  | Index_const n -> Fmt.int fmt n
+  | Index_add (a, b) -> Fmt.pf fmt "%a+%a" pp_index_expr a pp_index_expr b
+  | Index_scale (k, a) -> Fmt.pf fmt "%d*%a" k pp_index_expr a
   | Index_floor_div_pos (a, d) ->
-      Format.fprintf fmt "floor_div(%a,%d)" pp_index_expr a d
-  | Index_ceil_div_pos (a, d) ->
-      Format.fprintf fmt "ceil_div(%a,%d)" pp_index_expr a d
-  | Index_max (a, b) ->
-      Format.fprintf fmt "max(%a,%a)" pp_index_expr a pp_index_expr b
-  | Index_min (a, b) ->
-      Format.fprintf fmt "min(%a,%a)" pp_index_expr a pp_index_expr b
+      Fmt.pf fmt "floor_div(%a,%d)" pp_index_expr a d
+  | Index_ceil_div_pos (a, d) -> Fmt.pf fmt "ceil_div(%a,%d)" pp_index_expr a d
+  | Index_max (a, b) -> Fmt.pf fmt "max(%a,%a)" pp_index_expr a pp_index_expr b
+  | Index_min (a, b) -> Fmt.pf fmt "min(%a,%a)" pp_index_expr a pp_index_expr b
 
-let pp_index_array fmt arr =
-  Array.iteri
-    (fun i ie ->
-      if i > 0 then Format.pp_print_char fmt ',';
-      pp_index_expr fmt ie)
-    arr
+let pp_index_array = Fmt.array ~sep:(Fmt.any ",") pp_index_expr
 
 let rec pp fmt = function
-  | Const x -> Format.fprintf fmt "%g" x
-  | Binary (op, a, b) ->
-      Format.fprintf fmt "(%a %s %a)" pp a (binary_op_sym op) pp b
-  | Unary (op, a) -> Format.fprintf fmt "%s(%a)" (unary_op_name op) pp a
-  | Select (c, a, b) ->
-      Format.fprintf fmt "select(%a, %a, %a)" pp_bool_expr c pp a pp b
-  | Load (s, index) ->
-      Format.fprintf fmt "%a[%a]" Tensor_sig.pp s pp_index_array index
+  | Const x -> Fmt.float fmt x
+  | Binary (op, a, b) -> Fmt.pf fmt "(%a %s %a)" pp a (binary_op_sym op) pp b
+  | Unary (op, a) -> Fmt.pf fmt "%s(%a)" (unary_op_name op) pp a
+  | Select (c, a, b) -> Fmt.pf fmt "select(%a, %a, %a)" pp_bool_expr c pp a pp b
+  | Load (s, index) -> Fmt.pf fmt "%a[%a]" Tensor_sig.pp s pp_index_array index
   | Reduce { kind; var; lo; hi; body } ->
-      Format.fprintf fmt "%s(r%d=%a..%a: %a)" (reduction_kind_name kind) var
+      Fmt.pf fmt "%s(r%d=%a..%a: %a)" (reduction_kind_name kind) var
         pp_index_expr lo pp_index_expr hi pp body
 
 and pp_bool_expr fmt = function
-  | Cmp (op, a, b) ->
-      Format.fprintf fmt "(%a %s %a)" pp a (compare_op_sym op) pp b
-  | Index_eq (a, b) ->
-      Format.fprintf fmt "(%a = %a)" pp_index_expr a pp_index_expr b
+  | Cmp (op, a, b) -> Fmt.pf fmt "(%a %s %a)" pp a (compare_op_sym op) pp b
+  | Index_eq (a, b) -> Fmt.pf fmt "(%a = %a)" pp_index_expr a pp_index_expr b
 
 (* ---- evaluation (verification against Direct) ---- *)
 

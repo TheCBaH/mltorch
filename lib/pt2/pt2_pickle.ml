@@ -25,14 +25,13 @@ type error =
 
 let pp_error ppf : error -> unit = function
   | #Pt2_dtype.error as e -> Pt2_dtype.pp_error ppf e
-  | `Malformed_pickle msg -> Format.fprintf ppf "pickle decode failed: %s" msg
-  | `Expected_int what -> Format.fprintf ppf "expected int for %s" what
+  | `Malformed_pickle msg -> Fmt.pf ppf "pickle decode failed: %s" msg
+  | `Expected_int what -> Fmt.pf ppf "expected int for %s" what
   | `Unexpected_storage_persistent_id ->
-      Format.pp_print_string ppf "unexpected storage persistent id"
+      Fmt.string ppf "unexpected storage persistent id"
   | `Unexpected_rebuild_args ->
-      Format.pp_print_string ppf "unexpected _rebuild_tensor_v2 arguments"
-  | `No_tensor_found ->
-      Format.pp_print_string ppf "pickle did not yield a tensor"
+      Fmt.string ppf "unexpected _rebuild_tensor_v2 arguments"
+  | `No_tensor_found -> Fmt.string ppf "pickle did not yield a tensor"
 
 let int_of what = function
   | V.Int i -> Core.return (Int64.to_int i)

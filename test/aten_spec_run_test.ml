@@ -11,13 +11,7 @@ let decode s =
 
 (* Run an action that prints through a Format formatter, capturing to stdout so
    ppx_expect sees it. *)
-let capture f =
-  let buf = Buffer.create 256 in
-  let ppf = Format.formatter_of_buffer buf in
-  f ppf;
-  Format.pp_print_flush ppf ();
-  print_string (Buffer.contents buf)
-
+let capture f = print_string (Core.Pretty.capture_to_string f)
 let eval s = capture (fun ppf -> Aten_spec_run.eval_print ~ppf (decode s))
 
 (* --- add.Tensor, one generator per input (same generator on both) --- *)

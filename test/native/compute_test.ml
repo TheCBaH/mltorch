@@ -14,9 +14,7 @@ let pp_shape_tensor ppf (out_shape, tensor) =
 let pp_named_shape_tensor name ppf (out_shape, tensor) =
   Format.fprintf ppf "%s: %a@.%a" name Vec6.pp_shape out_shape Tensor.pp tensor
 
-let pp_result pp_ok =
-  Fmt.result ~ok:pp_ok ~error:(fun ppf e ->
-      Shape_error.pp ppf e.Core.Error.kind)
+let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:Shape_error.pp
 
 let conv_axis ?(pad_before = 0) ?pad_after ?(dilation = 1) ~kernel ~stride () :
     Conv.Conv2d.axis_window =

@@ -8,8 +8,7 @@ let contains s sub =
   let rec go i = i + m <= n && (String.sub s i m = sub || go (i + 1)) in
   go 0
 
-let pp_dim_result pp_ok =
-  Fmt.result ~ok:pp_ok ~error:(fun ppf e -> Dim.pp_error ppf e.Core.Error.kind)
+let pp_dim_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:Dim.pp_error
 
 (* Deterministic payload messages — the real regression guard. *)
 let%expect_test "component pp_error messages" =
@@ -61,7 +60,7 @@ let%expect_test "fail captures backtrace; pp renders message + 'detected at:'" =
   | Ok _ -> Format.printf "unexpected Ok@."
   | Error e ->
       assert (Printexc.raw_backtrace_length e.Core.Error.backtrace > 0);
-      let s = Format.asprintf "%a" (Core.Error.pp Dim.pp_error) e in
+      let s = Core.Pretty.to_string (Core.Error.pp Dim.pp_error) e in
       Format.printf "msg=%b provenance=%b@."
         (contains s "extent must be >= 1, got -3")
         (contains s "detected at:");

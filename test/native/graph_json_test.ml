@@ -13,8 +13,7 @@ let pp_error ppf : [< error ] -> unit = function
   | `Build e -> Graph_builder.pp_error ppf e
   | `Json msg | `Message msg -> Format.pp_print_string ppf msg
 
-let pp_result pp_ok =
-  Fmt.result ~ok:pp_ok ~error:(fun ppf e -> pp_error ppf e.Core.Error.kind)
+let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
 
 let lift_build (r : ('a, Graph_builder.error) Core.result) :
     ('a, error) Core.result =

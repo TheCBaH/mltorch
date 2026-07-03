@@ -36,21 +36,20 @@ type error =
   | `Unexpected_output_kind of int * string ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Undefined_value name -> Format.fprintf ppf "undefined SSA value %S" name
-  | `Missing_argument name ->
-      Format.fprintf ppf "missing required argument %S" name
+  | `Undefined_value name -> Fmt.pf ppf "undefined SSA value %S" name
+  | `Missing_argument name -> Fmt.pf ppf "missing required argument %S" name
   | `Wrong_argument_kind (name, expected, actual) ->
-      Format.fprintf ppf "argument %S: expected %s, got %s" name expected actual
+      Fmt.pf ppf "argument %S: expected %s, got %s" name expected actual
   | `Unsupported_scalar_type_arg name ->
-      Format.fprintf ppf "unsupported scalar_type argument %S" name
+      Fmt.pf ppf "unsupported scalar_type argument %S" name
   | `Unsupported_layout_arg name ->
-      Format.fprintf ppf "unsupported layout argument %S" name
+      Fmt.pf ppf "unsupported layout argument %S" name
   | `Unsupported_device_arg name ->
-      Format.fprintf ppf "unsupported device argument %S" name
+      Fmt.pf ppf "unsupported device argument %S" name
   | `Unknown_memory_format name ->
-      Format.fprintf ppf "unknown memory_format for argument %S" name
+      Fmt.pf ppf "unknown memory_format for argument %S" name
   | `Unexpected_output_kind (i, actual) ->
-      Format.fprintf ppf "output %d: expected tensor/None, got %s" i actual
+      Fmt.pf ppf "output %d: expected tensor/None, got %s" i actual
 
 let argument_kind_name = function
   | Argument.None _ -> "None"

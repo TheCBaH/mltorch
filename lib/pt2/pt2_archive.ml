@@ -23,24 +23,23 @@ type error =
   | `Pt_pickle of string * Pt2_pickle.error ]
 
 let pp_error ppf : error -> unit = function
-  | `Io (path, message) ->
-      Format.fprintf ppf "failed to read %S: %s" path message
+  | `Io (path, message) -> Fmt.pf ppf "failed to read %S: %s" path message
   | `Zip_open (path, error) ->
-      Format.fprintf ppf "failed to open zip %S: %a" path Pt2_zip.pp_error error
+      Fmt.pf ppf "failed to open zip %S: %a" path Pt2_zip.pp_error error
   | `Read_archive_member (path, error) ->
-      Format.fprintf ppf "failed to read archive member %S: %a" path
-        Pt2_zip.pp_error error
+      Fmt.pf ppf "failed to read archive member %S: %a" path Pt2_zip.pp_error
+        error
   | `Model_json_decode msg ->
-      Format.fprintf ppf "failed to decode models/model.json: %s" msg
+      Fmt.pf ppf "failed to decode models/model.json: %s" msg
   | `Weights_config_decode msg ->
-      Format.fprintf ppf
-        "failed to decode data/weights/model_weights_config.json: %s" msg
-  | `Missing_weight name -> Format.fprintf ppf "no weight named %S" name
+      Fmt.pf ppf "failed to decode data/weights/model_weights_config.json: %s"
+        msg
+  | `Missing_weight name -> Fmt.pf ppf "no weight named %S" name
   | `Weight_tensor (name, error) ->
-      Format.fprintf ppf "invalid tensor metadata for weight %S: %a" name
+      Fmt.pf ppf "invalid tensor metadata for weight %S: %a" name
         Pt2_tensor.pp_error error
   | `Pt_pickle (path, error) ->
-      Format.fprintf ppf "failed to decode tensor pickle %S: %a" path
+      Fmt.pf ppf "failed to decode tensor pickle %S: %a" path
         Pt2_pickle.pp_error error
 
 let read_file path =

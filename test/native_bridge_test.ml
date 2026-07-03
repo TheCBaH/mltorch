@@ -53,10 +53,8 @@ let native_i64 shape vals =
     }
 
 let pp_result =
-  Fmt.result
-    ~ok:(fun ppf () -> Fmt.string ppf "Ok")
-    ~error:(fun ppf e ->
-      Fmt.pf ppf "Error: %a" Verify.pp_error e.Core.Error.kind)
+  Core.Pretty.core_result ~ok:(Fmt.any "Ok") ~error:(fun ppf e ->
+      Fmt.pf ppf "Error: %a" Verify.pp_error e)
 
 (* ---- of_aten: ATen -> Native conversion --------------------------------- *)
 

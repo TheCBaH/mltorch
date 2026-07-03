@@ -27,10 +27,10 @@ let compute_prefix zip =
   first (entries_of zip)
 
 let pp_error ppf : error -> unit = function
-  | `Zip_parse_failed msg -> Format.fprintf ppf "zip parse failed: %s" msg
+  | `Zip_parse_failed msg -> Fmt.pf ppf "zip parse failed: %s" msg
   | `Zip_read_failed (name, message) ->
-      Format.fprintf ppf "zip entry %S read failed: %s" name message
-  | `Zip_missing_entry name -> Format.fprintf ppf "zip entry %S is missing" name
+      Fmt.pf ppf "zip entry %S read failed: %s" name message
+  | `Zip_missing_entry name -> Fmt.pf ppf "zip entry %S is missing" name
 
 let of_string s =
   match Zipc.of_binary_string s with

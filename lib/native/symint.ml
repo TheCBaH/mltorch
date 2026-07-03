@@ -12,10 +12,10 @@ let add a b = Add (a, b)
 let scale k a = Scale (k, a)
 
 let rec pp fmt = function
-  | Const n -> Format.fprintf fmt "%d" n
-  | Var v -> Format.pp_print_string fmt v
-  | Add (a, b) -> Format.fprintf fmt "%a + %a" pp a pp b
-  | Scale (k, a) -> Format.fprintf fmt "%d*%a" k pp a
+  | Const n -> Fmt.int fmt n
+  | Var v -> Fmt.string fmt v
+  | Add (a, b) -> Fmt.pf fmt "%a + %a" pp a pp b
+  | Scale (k, a) -> Fmt.pf fmt "%d*%a" k pp a
 
 (* A variable's declared constraints. [divisor = 1] means "no divisibility
    requirement"; [hi] is exclusive. *)
@@ -35,9 +35,9 @@ type error = [ `Out_of_range of range | `Not_divisible of div ]
 
 let pp_error ppf : error -> unit = function
   | `Out_of_range { name; value; lo; hi } ->
-      Format.fprintf ppf "symint %s = %d out of [%d, %d)" name value lo hi
+      Fmt.pf ppf "symint %s = %d out of [%d, %d)" name value lo hi
   | `Not_divisible { name; value; divisor } ->
-      Format.fprintf ppf "symint %s = %d not divisible by %d" name value divisor
+      Fmt.pf ppf "symint %s = %d not divisible by %d" name value divisor
 
 (* Bind a variable to a concrete value, checking it against the declared
    constraints (mirrors dynamo's guard check). [Error] on a guard violation. *)

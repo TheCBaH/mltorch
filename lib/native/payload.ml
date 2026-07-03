@@ -41,7 +41,7 @@ let fmt_name : type e b q. (e, b, q) fmt -> string = function
   | I16 -> "i16"
   | I8 -> "i8"
 
-let pp_fmt fmt f = Format.pp_print_string fmt (fmt_name f)
+let pp_fmt fmt f = Fmt.string fmt (fmt_name f)
 
 (* Integer storage range of a quantized format (for re-quantising on store). *)
 let qrange : type e b q. (e, b, q) fmt -> int * int = function
@@ -87,7 +87,7 @@ let pp : type e b q. Format.formatter -> (e, b, q) payload -> unit =
  fun fmt p ->
   match p.quant with
   | No_quant -> pp_fmt fmt p.fmt
-  | Quant qz -> Format.fprintf fmt "%a[%a]" pp_fmt p.fmt Quant.pp qz
+  | Quant qz -> Fmt.pf fmt "%a[%a]" pp_fmt p.fmt Quant.pp qz
 
 (* ---- JSON codecs ---------------------------------------------------------- *)
 
