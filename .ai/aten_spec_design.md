@@ -54,6 +54,23 @@ payload is losslessly equivalent to materializing it as `Values`:
 The RNG is **PCG32** (`pcg_setseq_64_xsh_rr_32`), kept purely functional:
 `next : t -> int * t` returns the value and the advanced state.
 
+## Printing computed stats for cram goldens
+
+`pp_tensor_summary` (the per-step `min=/max=/mean=` line in `walk_eval`/`compare_report`,
+[[native_walk_design]]) prints an op's *actual output*, not a value we control — and
+libtorch's CPU reduction kernels aren't guaranteed to sum in the same order across
+architectures, so the last digit or two of a mean over many elements can differ between
+machines given bit-identical input. Cram tests diff that text literally, so full `%g`
+precision (6 significant digits) turns a human sanity-check into an accidental
+exact-value assertion that flakes across CI runners.
+
+Fix: print stats at 4 significant digits (`%.4g`) — enough to sanity-check a result's
+shape/scale, coarse enough to absorb last-ULP divergence. This is display-only; the real
+pass/fail for a step still goes through `Verify.verify_node ~atol:1e-5`'s numeric
+tolerance check, independent of what gets printed. Any future call site printing a
+*computed* (as opposed to synthesized/exact) float into cram-diffed output should follow
+the same convention rather than reaching for a bare `%g`/`%f`.
+
 ## Layering
 
 ```

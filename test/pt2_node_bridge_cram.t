@@ -26,105 +26,105 @@ this file's prior git history for the actual mismatch output.
   > done
   === data/resnet18/002_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,64,112,112]~normal(mean=0,variance=1))
-    -> out0: [1,64,112,112] min=0 max=4.85804 mean=0.39888
+    -> out0: [1,64,112,112] min=0 max=4.858 mean=0.3989
     status: matched
   === data/resnet18/006_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,64,56,56]~normal(mean=0,variance=1))
-    -> out0: [1,64,56,56] min=0 max=4.31824 mean=0.397692
+    -> out0: [1,64,56,56] min=0 max=4.318 mean=0.3977
     status: matched
   === data/resnet18/009_add_Tensor.json ===
   torch.ops.aten.add.Tensor(self=f32[1,64,56,56]~normal(mean=0,variance=1), other=f32[1,64,56,56]~normal(mean=0,variance=1), alpha=1)
-    -> out0: [1,64,56,56] min=-6.36831 max=6.1035 mean=-0.000585345
+    -> out0: [1,64,56,56] min=-6.368 max=6.103 mean=-0.0005853
     status: matched
   === data/resnet18/010_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,64,56,56]~normal(mean=0,variance=1))
-    -> out0: [1,64,56,56] min=0 max=4.31824 mean=0.397692
+    -> out0: [1,64,56,56] min=0 max=4.318 mean=0.3977
     status: matched
   === data/resnet18/013_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,64,56,56]~normal(mean=0,variance=1))
-    -> out0: [1,64,56,56] min=0 max=4.31824 mean=0.397692
+    -> out0: [1,64,56,56] min=0 max=4.318 mean=0.3977
     status: matched
   === data/resnet18/016_add_Tensor.json ===
   torch.ops.aten.add.Tensor(self=f32[1,64,56,56]~normal(mean=0,variance=1), other=f32[1,64,56,56]~normal(mean=0,variance=1), alpha=1)
-    -> out0: [1,64,56,56] min=-6.36831 max=6.1035 mean=-0.000585345
+    -> out0: [1,64,56,56] min=-6.368 max=6.103 mean=-0.0005853
     status: matched
   === data/resnet18/017_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,64,56,56]~normal(mean=0,variance=1))
-    -> out0: [1,64,56,56] min=0 max=4.31824 mean=0.397692
+    -> out0: [1,64,56,56] min=0 max=4.318 mean=0.3977
     status: matched
   === data/resnet18/020_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,128,28,28]~normal(mean=0,variance=1))
-    -> out0: [1,128,28,28] min=0 max=4.30131 mean=0.397262
+    -> out0: [1,128,28,28] min=0 max=4.301 mean=0.3973
     status: matched
   === data/resnet18/025_add_Tensor.json ===
   torch.ops.aten.add.Tensor(self=f32[1,128,28,28]~normal(mean=0,variance=1), other=f32[1,128,28,28]~normal(mean=0,variance=1), alpha=1)
-    -> out0: [1,128,28,28] min=-6.28841 max=6.69669 mean=-0.000806847
+    -> out0: [1,128,28,28] min=-6.288 max=6.697 mean=-0.0008068
     status: matched
   === data/resnet18/026_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,128,28,28]~normal(mean=0,variance=1))
-    -> out0: [1,128,28,28] min=0 max=4.30131 mean=0.397262
+    -> out0: [1,128,28,28] min=0 max=4.301 mean=0.3973
     status: matched
   === data/resnet18/029_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,128,28,28]~normal(mean=0,variance=1))
-    -> out0: [1,128,28,28] min=0 max=4.30131 mean=0.397262
+    -> out0: [1,128,28,28] min=0 max=4.301 mean=0.3973
     status: matched
   === data/resnet18/032_add_Tensor.json ===
   torch.ops.aten.add.Tensor(self=f32[1,128,28,28]~normal(mean=0,variance=1), other=f32[1,128,28,28]~normal(mean=0,variance=1), alpha=1)
-    -> out0: [1,128,28,28] min=-6.28841 max=6.69669 mean=-0.000806847
+    -> out0: [1,128,28,28] min=-6.288 max=6.697 mean=-0.0008068
     status: matched
   === data/resnet18/033_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,128,28,28]~normal(mean=0,variance=1))
-    -> out0: [1,128,28,28] min=0 max=4.30131 mean=0.397262
+    -> out0: [1,128,28,28] min=0 max=4.301 mean=0.3973
     status: matched
   === data/resnet18/036_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,256,14,14]~normal(mean=0,variance=1))
-    -> out0: [1,256,14,14] min=0 max=4.30131 mean=0.395645
+    -> out0: [1,256,14,14] min=0 max=4.301 mean=0.3956
     status: matched
   === data/resnet18/041_add_Tensor.json ===
   torch.ops.aten.add.Tensor(self=f32[1,256,14,14]~normal(mean=0,variance=1), other=f32[1,256,14,14]~normal(mean=0,variance=1), alpha=1)
-    -> out0: [1,256,14,14] min=-5.83675 max=6.16566 mean=-0.00458122
+    -> out0: [1,256,14,14] min=-5.837 max=6.166 mean=-0.004581
     status: matched
   === data/resnet18/042_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,256,14,14]~normal(mean=0,variance=1))
-    -> out0: [1,256,14,14] min=0 max=4.30131 mean=0.395645
+    -> out0: [1,256,14,14] min=0 max=4.301 mean=0.3956
     status: matched
   === data/resnet18/045_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,256,14,14]~normal(mean=0,variance=1))
-    -> out0: [1,256,14,14] min=0 max=4.30131 mean=0.395645
+    -> out0: [1,256,14,14] min=0 max=4.301 mean=0.3956
     status: matched
   === data/resnet18/048_add_Tensor.json ===
   torch.ops.aten.add.Tensor(self=f32[1,256,14,14]~normal(mean=0,variance=1), other=f32[1,256,14,14]~normal(mean=0,variance=1), alpha=1)
-    -> out0: [1,256,14,14] min=-5.83675 max=6.16566 mean=-0.00458122
+    -> out0: [1,256,14,14] min=-5.837 max=6.166 mean=-0.004581
     status: matched
   === data/resnet18/049_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,256,14,14]~normal(mean=0,variance=1))
-    -> out0: [1,256,14,14] min=0 max=4.30131 mean=0.395645
+    -> out0: [1,256,14,14] min=0 max=4.301 mean=0.3956
     status: matched
   === data/resnet18/052_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,512,7,7]~normal(mean=0,variance=1))
-    -> out0: [1,512,7,7] min=0 max=4.30131 mean=0.397151
+    -> out0: [1,512,7,7] min=0 max=4.301 mean=0.3972
     status: matched
   === data/resnet18/057_add_Tensor.json ===
   torch.ops.aten.add.Tensor(self=f32[1,512,7,7]~normal(mean=0,variance=1), other=f32[1,512,7,7]~normal(mean=0,variance=1), alpha=1)
-    -> out0: [1,512,7,7] min=-5.27822 max=5.74809 mean=-0.00806309
+    -> out0: [1,512,7,7] min=-5.278 max=5.748 mean=-0.008063
     status: matched
   === data/resnet18/058_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,512,7,7]~normal(mean=0,variance=1))
-    -> out0: [1,512,7,7] min=0 max=4.30131 mean=0.397151
+    -> out0: [1,512,7,7] min=0 max=4.301 mean=0.3972
     status: matched
   === data/resnet18/061_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,512,7,7]~normal(mean=0,variance=1))
-    -> out0: [1,512,7,7] min=0 max=4.30131 mean=0.397151
+    -> out0: [1,512,7,7] min=0 max=4.301 mean=0.3972
     status: matched
   === data/resnet18/064_add_Tensor.json ===
   torch.ops.aten.add.Tensor(self=f32[1,512,7,7]~normal(mean=0,variance=1), other=f32[1,512,7,7]~normal(mean=0,variance=1), alpha=1)
-    -> out0: [1,512,7,7] min=-5.27822 max=5.74809 mean=-0.00806309
+    -> out0: [1,512,7,7] min=-5.278 max=5.748 mean=-0.008063
     status: matched
   === data/resnet18/065_relu_default.json ===
   torch.ops.aten.relu.default(self=f32[1,512,7,7]~normal(mean=0,variance=1))
-    -> out0: [1,512,7,7] min=0 max=4.30131 mean=0.397151
+    -> out0: [1,512,7,7] min=0 max=4.301 mean=0.3972
     status: matched
   === data/resnet18/066_mean_dim.json ===
   torch.ops.aten.mean.dim(self=f32[1,512,7,7]~normal(mean=0,variance=1), dim=[-1,-2], keepdim=true)
-    -> out0: [1,512,1,1] min=-0.515346 max=0.331965 mean=0.00155162
+    -> out0: [1,512,1,1] min=-0.5153 max=0.332 mean=0.001552
     status: matched

@@ -237,7 +237,10 @@ let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
 let pp_aten ppf t =
   match Aten_tensor.as_float32 t with
   | Some ba -> Aten_tensor.pp_float32 ppf ba
-  | None -> Format.pp_print_string ppf "<non-f32>"
+  | None -> (
+      match Aten_tensor.as_int64 t with
+      | Some ba -> Aten_tensor.pp_int64 ppf ba
+      | None -> Format.pp_print_string ppf "<unsupported dtype>")
 
 (* A native output is a dense 6D tensor; flatten it to a 1D ATen tensor (same
    element order, see native_aten_bridge_design) so it prints with the same
@@ -426,15 +429,46 @@ let summarize_f32 (ba : Aten_tensor.float32_array) =
     let mn, mx, sum = go 1 ba.{0} ba.{0} ba.{0} in
     Some (mn, mx, sum /. float_of_int n)
 
+(* Same as [summarize_f32], for int64 tensors (e.g. max_pool2d_with_indices's
+   index output) — kept in Int64 arithmetic throughout so min/max/sum can
+   never overflow OCaml's 63-bit int, only converting to float for the final
+   mean. *)
+let summarize_i64 (ba : Aten_tensor.int64_array) =
+  let n = Bigarray.Array1.dim ba in
+  if n = 0 then None
+  else
+    let rec go i mn mx sum =
+      if i >= n then (mn, mx, sum)
+      else
+        let v = ba.{i} in
+        go (i + 1) (Int64.min mn v) (Int64.max mx v) (Int64.add sum v)
+    in
+    let mn, mx, sum = go 1 ba.{0} ba.{0} ba.{0} in
+    Some (mn, mx, Int64.to_float sum /. float_of_int n)
+
+(* 4 significant digits: enough to sanity-check a value, coarse enough to
+   survive the last-ULP differences an op's SIMD reduction order can produce
+   across architectures (e.g. a mean over many elements), which would
+   otherwise make cram goldens flaky between machines. *)
 let pp_tensor_summary ppf t =
   pp_shape ppf (Array.to_list (Aten_tensor.shape t));
   match Aten_tensor.as_float32 t with
-  | None -> Format.pp_print_string ppf " <non-f32>"
   | Some ba -> (
       match summarize_f32 ba with
       | None -> Format.pp_print_string ppf " <empty>"
       | Some (mn, mx, mean) ->
-          Format.fprintf ppf " min=%g max=%g mean=%g" mn mx mean)
+          Format.fprintf ppf " min=%.4g max=%.4g mean=%.4g" mn mx mean)
+  | None -> (
+      match Aten_tensor.as_int64 t with
+      | Some ba when Bigarray.Array1.dim ba < 16 ->
+          Format.pp_print_char ppf ' ';
+          Aten_tensor.pp_int64 ppf ba
+      | Some ba -> (
+          match summarize_i64 ba with
+          | None -> Format.pp_print_string ppf " <empty>"
+          | Some (mn, mx, mean) ->
+              Format.fprintf ppf " min=%Ld max=%Ld mean=%.4g" mn mx mean)
+      | None -> Format.pp_print_string ppf " <unsupported dtype>")
 
 (* Every named tensor axis of a spec (in declared order): a "self"/"input"/
    "weight"/... arg whose contents can be resampled independently. *)

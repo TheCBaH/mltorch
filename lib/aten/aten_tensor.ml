@@ -3,6 +3,7 @@ open Bigarray
 module F = Aten_c.Aten_functions
 
 type float32_array = (float, float32_elt, c_layout) Array1.t
+type int64_array = (int64, int64_elt, c_layout) Array1.t
 
 (* RAII: attach a finaliser so the C++ at::Tensor behind [t] is atc_free'd when
    the OCaml handle becomes unreachable. Returns [t] for chaining. Every handle
@@ -71,6 +72,7 @@ let data : type a b.
     Some ba
 
 let as_float32 t : float32_array option = data Aten_dtype.float32 t
+let as_int64 t : int64_array option = data Aten_dtype.int64 t
 
 (* A managed tensor of [shape] and dtype [dt], copied from the 1-D [src] (whose
    element count must equal the shape's). The tensor owns its own buffer, so
@@ -143,6 +145,14 @@ let pp_float32 fmt (ba : float32_array) =
     (Format.pp_print_seq
        ~pp_sep:(fun fmt () -> Format.pp_print_string fmt "; ")
        (fun fmt v -> Format.fprintf fmt "%g" v))
+    seq
+
+let pp_int64 fmt (ba : int64_array) =
+  let seq = Seq.init (Array1.dim ba) (fun i -> ba.{i}) in
+  Format.fprintf fmt "[%a]"
+    (Format.pp_print_seq
+       ~pp_sep:(fun fmt () -> Format.pp_print_string fmt "; ")
+       (fun fmt v -> Format.fprintf fmt "%Ld" v))
     seq
 
 (* Canonical rendering via ATen's tensor printer (multi-line, with a dtype/shape

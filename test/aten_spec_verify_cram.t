@@ -14,7 +14,7 @@ verify mode (stdin via "-"), add.Tensor with a different generator per input:
   > JSON
   === - ===
   torch.ops.aten.add.Tensor(self=f32[2,3]~uniform(low=-1,high=1), other=f32[2,3]~normal(mean=0,variance=1), alpha=1)
-    -> out0: [2,3] min=-2.14905 max=2.19213 mean=0.179521
+    -> out0: [2,3] min=-2.149 max=2.192 mean=0.1795
     status: matched
 
 --print mode: evaluate and print the output tensor from both paths:
