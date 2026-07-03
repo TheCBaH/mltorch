@@ -28,6 +28,7 @@ let floor_div_pos n d =
 let index_floor_div_pos = floor_div_pos
 let index_ceil_div_pos n d = -(floor_div_pos (-n) d)
 let index_min = Stdlib.min
+let index_eq = Int.equal
 let clamp_low x = Stdlib.max 0 x
 let assume_index x = x
 let load inp idx = Tensor.read_at inp idx

@@ -495,11 +495,11 @@ tensor:
 ```
 "…aten.relu.default"        -> let module M = Relu.Compute (Direct) in evaluate ~out (M.pixel x)
 "…aten.add.Tensor"          -> let module M = Add.Compute  (Direct) in evaluate ~out (M.pixel a b)
-"…aten.convolution.default" -> let module M = Conv2d.Compute (Direct) in evaluate ~out (M.pixel p ins)
+"…aten.convolution.default" -> let module M = Convolution.Compute (Direct) in evaluate ~out (M.pixel p ins)
 ```
 
 `~out`'s shape itself comes from `Relu.output_shape`/`Add.output_shape`/
-`Conv2d.output_shape` (§2b) applied to the graph node's already-known input
+`Convolution.output_shape` (§2b) applied to the graph node's already-known input
 shapes — not from the `.pt2` node's declared output shape (which exists, but
 checking the two agree is exactly the kind of guard the ATen `Interp.run`
 path already does and this one should too; out of scope here).

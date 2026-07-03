@@ -92,6 +92,14 @@ let bmm ?name input mat2 =
 let conv2d ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"conv2d" (Conv2d { Conv.Conv2d.params; x; weight; bias })
 
+let conv2d_padding ?name params ~x ~weight ?bias () =
+  op1 ?name ~kind:"conv2d_padding"
+    (Conv2d_padding { Conv.Conv2d_padding.params; x; weight; bias })
+
+let convolution ?name params ~x ~weight ?bias () =
+  op1 ?name ~kind:"convolution"
+    (Convolution { Conv.Convolution.params; x; weight; bias })
+
 let linear ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"linear" (Linear { Linear.Linear.params; x; weight; bias })
 

@@ -106,6 +106,30 @@ let conv_params =
 let p_to_nhwc = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ]
 let p_to_nchw = Axis.[ (N, N); (T, T); (D, D); (H, C); (W, H); (C, W) ]
 
+let conv_padding_params =
+  {
+    Conv.Conv2d_padding.stride =
+      { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+    padding = Conv.Conv2d_padding.Same;
+    dilation = { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+    groups = Op_config.Pos.of_int 1;
+  }
+
+let convolution_params =
+  {
+    Conv.Convolution.stride =
+      { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+    padding = { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+    dilation = { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+    transposed = false;
+    output_padding =
+      { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+    groups = Op_config.Pos.of_int 1;
+  }
+
+let convolution_transposed_params =
+  { convolution_params with Conv.Convolution.transposed = true }
+
 let%expect_test
     "Symbolic graph: conv decomposition stage DAG + ground matches Direct" =
   let g =
@@ -151,4 +175,112 @@ let%expect_test
   [%expect
     {|
     ground y_nchw = tensor f32 [W=2 C=2] {444, 452, 524, 532}
+    ground matches direct: true |}]
+
+let%expect_test "Symbolic graph: conv2d_padding same ground matches Direct" =
+  let g =
+    Graph_builder.(
+      build ~name:"conv_padding" ~outputs:(fun y -> [ y ])
+      @@
+      let* x = input ~shape:(s 1 1 1 3 3 1) ~name:"x" () in
+      let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
+      conv2d_padding ~name:"y" conv_padding_params ~x ~weight:w ())
+  in
+  let prog = Eval_symbolic.run g in
+  Format.printf "%a@." Stage_program.pp prog;
+  [%expect
+    {|
+    inputs: x, w
+    y = (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (x[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * w[C,0,0,r2,r3,r1])))) + const0[0,0,0,0,0,C])
+    outputs: y |}];
+  let x =
+    Tensor.materialize (s 1 1 1 3 3 1) (fun c ->
+        let h = Dim.to_int (Vec6.get c Axis.H) in
+        let w = Dim.to_int (Vec6.get c Axis.W) in
+        float_of_int ((h * 3) + w))
+  in
+  let w = Tensor.materialize (s 1 1 1 2 2 1) (fun _ -> 1.) in
+  let inputs = List.combine g.Graph.inputs [ x; w ] in
+  let bind id = List.assoc id inputs in
+  let grounded = Stage_program.ground prog ~bind in
+  let direct = Eval_direct.run g ~inputs in
+  let oid = List.hd g.Graph.outputs in
+  let gy = Tensor_id.Map.find oid grounded in
+  let (Tensor.Tensor r) = gy in
+  Format.printf "ground = %a@." Tensor.pp gy;
+  Format.printf "ground matches direct: %b@."
+    (tensors_match r.shape gy (Tensor_id.Map.find oid direct));
+  [%expect
+    {|
+    ground = tensor f32 [H=3 W=3 C=1] {8, 12, 7, 20, 24, 13, 13, 15, ...}
+    ground matches direct: true |}]
+
+let%expect_test "Symbolic graph: convolution ground matches Direct" =
+  let g =
+    Graph_builder.(
+      build ~name:"convolution" ~outputs:(fun y -> [ y ])
+      @@
+      let* x = input ~shape:(s 1 1 1 3 3 1) ~name:"x" () in
+      let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
+      convolution ~name:"y" convolution_params ~x ~weight:w ())
+  in
+  let prog = Eval_symbolic.run g in
+  Format.printf "%a@." Stage_program.pp prog;
+  [%expect
+    {|
+    inputs: x, w
+    y = (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (x[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * w[C,0,0,r2,r3,r1])))) + const0[0,0,0,0,0,C])
+    outputs: y |}];
+  let x =
+    Tensor.materialize (s 1 1 1 3 3 1) (fun c ->
+        let h = Dim.to_int (Vec6.get c Axis.H) in
+        let w = Dim.to_int (Vec6.get c Axis.W) in
+        float_of_int ((h * 3) + w))
+  in
+  let w = Tensor.materialize (s 1 1 1 2 2 1) (fun _ -> 1.) in
+  let inputs = List.combine g.Graph.inputs [ x; w ] in
+  let bind id = List.assoc id inputs in
+  let grounded = Stage_program.ground prog ~bind in
+  let direct = Eval_direct.run g ~inputs in
+  let oid = List.hd g.Graph.outputs in
+  let gy = Tensor_id.Map.find oid grounded in
+  let (Tensor.Tensor r) = gy in
+  Format.printf "ground = %a@." Tensor.pp gy;
+  Format.printf "ground matches direct: %b@."
+    (tensors_match r.shape gy (Tensor_id.Map.find oid direct));
+  [%expect
+    {|
+    ground = tensor f32 [H=2 W=2 C=1] {8, 12, 20, 24}
+    ground matches direct: true |}]
+
+let%expect_test "Symbolic graph: transposed convolution ground matches Direct" =
+  let g =
+    Graph_builder.(
+      build ~name:"convolution_transposed" ~outputs:(fun y -> [ y ])
+      @@
+      let* x = input ~shape:(s 1 1 1 2 2 1) ~name:"x" () in
+      let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
+      convolution ~name:"y" convolution_transposed_params ~x ~weight:w ())
+  in
+  let prog = Eval_symbolic.run g in
+  let x =
+    Tensor.materialize (s 1 1 1 2 2 1) (fun c ->
+        let h = Dim.to_int (Vec6.get c Axis.H) in
+        let w = Dim.to_int (Vec6.get c Axis.W) in
+        float_of_int ((h * 2) + w + 1))
+  in
+  let w = Tensor.materialize (s 1 1 1 2 2 1) (fun _ -> 1.) in
+  let inputs = List.combine g.Graph.inputs [ x; w ] in
+  let bind id = List.assoc id inputs in
+  let grounded = Stage_program.ground prog ~bind in
+  let direct = Eval_direct.run g ~inputs in
+  let oid = List.hd g.Graph.outputs in
+  let gy = Tensor_id.Map.find oid grounded in
+  let (Tensor.Tensor r) = gy in
+  Format.printf "ground = %a@." Tensor.pp gy;
+  Format.printf "ground matches direct: %b@."
+    (tensors_match r.shape gy (Tensor_id.Map.find oid direct));
+  [%expect
+    {|
+    ground = tensor f32 [H=3 W=3 C=1] {1, 3, 2, 4, 10, 6, 3, 7, ...}
     ground matches direct: true |}]

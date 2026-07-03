@@ -124,6 +124,99 @@ let%expect_test "bmm: 1x2x2 @ 1x2x2" =
       aten   out0 = [7; 10; 15; 22]
       native out0 = [7; 10; 15; 22] |}]
 
+(* --- conv2d.padding: string padding overload, distinct native op --- *)
+
+let%expect_test "conv2d.default: dilated 2d matches native" =
+  eval
+    {|{ "target": "torch.ops.aten.conv2d.default",
+        "args": {
+          "input": { "dtype": "f32", "shape": [1, 1, 1, 5], "values": [{"float":0},{"float":1},{"float":2},{"float":3},{"float":4}] },
+          "weight": { "dtype": "f32", "shape": [1, 1, 1, 3], "values": [{"float":1},{"float":1},{"float":1}] },
+          "bias": { "dtype": "f32", "shape": [1], "values": [{"float":0}] },
+          "stride": [1, 1],
+          "padding": [0, 1],
+          "dilation": [1, 2],
+          "groups": 1 } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.conv2d.default
+      aten   out0 = [4; 6; 4]
+      native out0 = [4; 6; 4] |}]
+
+let%expect_test "conv2d.padding: same padding matches native" =
+  eval
+    {|{ "target": "torch.ops.aten.conv2d.padding",
+        "args": {
+          "input": { "dtype": "f32", "shape": [1, 1, 3, 3], "sequence": { "start": 0.0, "step": 1.0 } },
+          "weight": { "dtype": "f32", "shape": [1, 1, 3, 3], "values": [{"float":1},{"float":1},{"float":1},{"float":1},{"float":1},{"float":1},{"float":1},{"float":1},{"float":1}] },
+          "bias": { "dtype": "f32", "shape": [1], "values": [{"float":0}] },
+          "stride": [1, 1],
+          "padding": "same",
+          "dilation": [1, 1],
+          "groups": 1 } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.conv2d.padding
+      aten   out0 = [8; 15; 12; 21; 36; 27; 20; 33; 24]
+      native out0 = [8; 15; 12; 21; 36; 27; 20; 33; 24] |}]
+
+let%expect_test "convolution.default: non-transposed 2d matches native" =
+  eval
+    {|{ "target": "torch.ops.aten.convolution.default",
+        "args": {
+          "input": { "dtype": "f32", "shape": [1, 1, 3, 3], "sequence": { "start": 0.0, "step": 1.0 } },
+          "weight": { "dtype": "f32", "shape": [1, 1, 2, 2], "values": [{"float":1},{"float":1},{"float":1},{"float":1}] },
+          "bias": { "dtype": "f32", "shape": [1], "values": [{"float":0}] },
+          "stride": [1, 1],
+          "padding": [0, 0],
+          "dilation": [1, 1],
+          "transposed": false,
+          "output_padding": [0, 0],
+          "groups": 1 } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.convolution.default
+      aten   out0 = [8; 12; 20; 24]
+      native out0 = [8; 12; 20; 24] |}]
+
+let%expect_test "convolution.default: dilated 2d matches native" =
+  eval
+    {|{ "target": "torch.ops.aten.convolution.default",
+        "args": {
+          "input": { "dtype": "f32", "shape": [1, 1, 1, 5], "values": [{"float":0},{"float":1},{"float":2},{"float":3},{"float":4}] },
+          "weight": { "dtype": "f32", "shape": [1, 1, 1, 3], "values": [{"float":1},{"float":1},{"float":1}] },
+          "bias": { "dtype": "f32", "shape": [1], "values": [{"float":0}] },
+          "stride": [1, 1],
+          "padding": [0, 1],
+          "dilation": [1, 2],
+          "transposed": false,
+          "output_padding": [0, 0],
+          "groups": 1 } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.convolution.default
+      aten   out0 = [4; 6; 4]
+      native out0 = [4; 6; 4] |}]
+
+let%expect_test "convolution.default: transposed 2d matches native" =
+  eval
+    {|{ "target": "torch.ops.aten.convolution.default",
+        "args": {
+          "input": { "dtype": "f32", "shape": [1, 1, 2, 2], "values": [{"float":1},{"float":2},{"float":3},{"float":4}] },
+          "weight": { "dtype": "f32", "shape": [1, 1, 2, 2], "values": [{"float":1},{"float":1},{"float":1},{"float":1}] },
+          "bias": { "dtype": "f32", "shape": [1], "values": [{"float":0}] },
+          "stride": [1, 1],
+          "padding": [0, 0],
+          "dilation": [1, 1],
+          "transposed": true,
+          "output_padding": [0, 0],
+          "groups": 1 } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.convolution.default
+      aten   out0 = [1; 3; 2; 4; 10; 6; 3; 7; 4]
+      native out0 = [1; 3; 2; 4; 10; 6; 3; 7; 4] |}]
+
 (* --- mean.dim: reduced axes via axis_of_dim, both keepdim flags --- *)
 
 let%expect_test "mean.dim: dim=[1] keepdim=true" =

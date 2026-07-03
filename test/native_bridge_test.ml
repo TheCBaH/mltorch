@@ -279,7 +279,44 @@ let%expect_test "dispatch: conv2d.default relayouts NCHW/OIHW with bias" =
     outputs: [t6 permute_6:f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {18, 22, 30, 34} |}]
 
-let%expect_test "dispatch: convolution.default uses conv2d relayout path" =
+let%expect_test "dispatch: conv2d.padding same uses distinct native op" =
+  let x = float_tensor [ 1; 1; 3; 3 ] (List.init 9 float_of_int) in
+  let w = float_tensor [ 1; 1; 2; 2 ] [ 1.; 1.; 1.; 1. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.conv2d.padding"
+    ~bindings:[ ("input", x); ("weight", w) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_none "bias";
+        in_ints "stride" [ 1; 1 ];
+        PT.NamedArgument.make "padding" (PT.Argument.String "same") None;
+        in_ints "dilation" [ 1; 1 ];
+        in_int "groups" 1;
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph conv2d_padding_relayout
+    inputs: [t0 input_0:f32 [W=3 C=3], t1 input_1:f32 [W=2 C=2]]
+    nodes:
+      n0: [t2 permute_2:f32 [H=3 W=3 C=1]] =
+        permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
+      n1: [t3 permute_3:f32 [H=2 W=2 C=1]] =
+        permute x=t1(input_1) perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
+      n2: [t4 conv2d_padding_4:f32 [H=3 W=3 C=1]] =
+        conv2d_padding
+          x=t2(permute_2)
+          weight=t3(permute_3)
+          bias=none
+          params={stride={h=1; w=1}; padding=same; dilation={h=1; w=1}; groups=1}
+      n3: [t5 permute_5:f32 [W=3 C=3]] =
+        permute x=t4(conv2d_padding_4) perm=[H<-C, W<-H, C<-W]
+    outputs: [t5 permute_5:f32 [W=3 C=3]]
+    tensor f32 [W=3 C=3] {8, 12, 7, 20, 24, 13, 13, 15, ...} |}]
+
+let%expect_test "dispatch: convolution.default uses distinct native op" =
   let x = float_tensor [ 1; 1; 3; 3 ] (List.init 9 float_of_int) in
   let w = float_tensor [ 1; 1; 2; 2 ] [ 1.; 1.; 1.; 1. ] in
   dispatch_print_with_graph ~print_graph:true
@@ -300,24 +337,26 @@ let%expect_test "dispatch: convolution.default uses conv2d relayout path" =
     ~noutputs:1;
   [%expect
     {|
-    graph conv2d_relayout
+    graph convolution_relayout
     inputs: [t0 input_0:f32 [W=3 C=3], t1 input_1:f32 [W=2 C=2]]
     nodes:
       n0: [t2 permute_2:f32 [H=3 W=3 C=1]] =
         permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
       n1: [t3 permute_3:f32 [H=2 W=2 C=1]] =
         permute x=t1(input_1) perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
-      n2: [t4 conv2d_4:f32 [H=2 W=2 C=1]] =
-        conv2d
+      n2: [t4 convolution_4:f32 [H=2 W=2 C=1]] =
+        convolution
           x=t2(permute_2)
           weight=t3(permute_3)
           bias=none
-          params={h={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
-                 w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
-                 in_channels=1;
+          params={stride={h=1; w=1};
+                 padding={h=0; w=0};
+                 dilation={h=1; w=1};
+                 transposed=false;
+                 output_padding={h=0; w=0};
                  groups=1}
       n3: [t5 permute_5:f32 [W=2 C=2]] =
-        permute x=t4(conv2d_4) perm=[H<-C, W<-H, C<-W]
+        permute x=t4(convolution_4) perm=[H<-C, W<-H, C<-W]
     outputs: [t5 permute_5:f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {8, 12, 20, 24} |}]
 
@@ -341,6 +380,26 @@ let%expect_test "dispatch: convolution.default grouped conv2d" =
       ]
     ~noutputs:1;
   [%expect {| tensor f32 [H=4 W=1 C=1] {3, 110, 1030, 10040} |}]
+
+let%expect_test "dispatch: convolution.default transposed" =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  let w = float_tensor [ 1; 1; 2; 2 ] [ 1.; 1.; 1.; 1. ] in
+  dispatch_print ~target:"torch.ops.aten.convolution.default"
+    ~bindings:[ ("input", x); ("weight", w) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_none "bias";
+        in_ints "stride" [ 1; 1 ];
+        in_ints "padding" [ 0; 0 ];
+        in_ints "dilation" [ 1; 1 ];
+        in_bool "transposed" true;
+        in_ints "output_padding" [ 0; 0 ];
+        in_int "groups" 1;
+      ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=3 C=3] {1, 3, 2, 4, 10, 6, 3, 7, ...} |}]
 
 let%expect_test "dispatch: conv2d.default dilated spatial window" =
   let x = float_tensor [ 1; 1; 1; 5 ] [ 0.; 1.; 2.; 3.; 4. ] in

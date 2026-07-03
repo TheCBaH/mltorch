@@ -57,7 +57,9 @@ over `C`; the conv/linear *weight* is read at `N = out-channel`. But:
 
 | ATen target | Native op | Transposes required |
 |---|---|---|
-| `convolution`/`conv2d` | `Conv2d` | input NCHW→NHWC, weight OIHW→`[Cout,1,1,Kh,Kw,Cin/groups]`, output NHWC→NCHW |
+| `conv2d` | `Conv2d` | input NCHW→NHWC, weight OIHW→`[Cout,1,1,Kh,Kw,Cin/groups]`, output NHWC→NCHW |
+| `conv2d.padding` | `Conv2d_padding` | same as `Conv2d`; the op keeps the ATen string-padding overload distinct and lowers internally to concrete `Conv2d` params |
+| `convolution` | `Convolution` | same as `Conv2d`; the op keeps the ATen lower-level overload distinct, including `transposed` and `output_padding`, and lowers supported non-transposed 2D calls internally |
 | `max_pool2d*`, `avg_pool2d` | `Max/AvgPool2d` | input NCHW→NHWC, output NHWC→NCHW (no weight) |
 | `addmm`/`linear` | `Linear` | weight only (`[N,In]` input already lands `In` on `C`); `addmm` carries `[In,Out]`, `linear` carries `[Out,In]` — different permutations |
 
@@ -78,6 +80,19 @@ conv2d_relayout graph:
   y     = Permute(y', perm_nhwc_to_nchw)
   outputs: [y]
 ```
+
+`conv2d_padding_relayout` has the same surrounding permutes, but its core node is
+`Conv2d_padding`. That keeps the graph/API mapping one-to-one with
+`torch.ops.aten.conv2d.padding`; internally the op derives kernel and
+input-channel counts from the relaid weight shape, maps `"valid"` to zero pads,
+and maps `"same"` to PyTorch's left/right padding convention before reusing the
+`Conv2d` computation.
+
+`convolution_relayout` also uses the same surrounding permutes, with a core
+`Convolution` node. Its graph/API surface keeps
+`torch.ops.aten.convolution.default` one-to-one, including `transposed` and
+`output_padding`; internally it reuses `Conv2d` for the forward 2D path and
+evaluates transposed 2D convolution with the same native weight relayout.
 
 The six permutations are defined as module-level constants in `op_bridge.ml`.
 All are full 6-axis bijections so `Permute.Compute` never hits `Not_found`.

@@ -31,6 +31,7 @@ module Make () = struct
     else Expr.Index_ceil_div_pos (a, (d :> int))
 
   let index_min a b = Expr.Index_min (a, b)
+  let index_eq a b = Expr.Index_eq (a, b)
   let clamp_low x = Expr.Index_max (Expr.Index_const 0, x)
   let assume_index x = x
 

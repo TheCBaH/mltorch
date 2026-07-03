@@ -66,6 +66,7 @@ let selection =
     op "linear";
     op "batch_norm";
     op "conv2d";
+    op "conv2d" ~overload:"padding";
     op "dropout";
     op "dropout_";
     op "avg_pool2d";

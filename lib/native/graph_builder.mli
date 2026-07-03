@@ -43,6 +43,24 @@ val conv2d :
   unit ->
   Tensor_id.t t
 
+val conv2d_padding :
+  ?name:string ->
+  Conv.Conv2d_padding.params ->
+  x:tensor_ref ->
+  weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
+val convolution :
+  ?name:string ->
+  Conv.Convolution.params ->
+  x:tensor_ref ->
+  weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
 val linear :
   ?name:string ->
   Linear.Linear.params ->

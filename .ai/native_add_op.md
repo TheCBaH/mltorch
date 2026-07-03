@@ -36,6 +36,12 @@ alphabetical position at every site below; don't append.
    payload helper there); reductions in `reduce.ml`; etc. Reuse the value basis in
    `semantics.ml` — `mul`/`add`/`sub`/`div`/`select`/`lt`/… already exist, so a new
    pointwise op usually needs no new primitive.
+   Keep the native graph surface one-to-one with ATen overloads when an overload
+   has a distinct target and user-visible parameter contract. It is fine for the
+   implementation to delegate internally after translating params (for example,
+   `Conv2d_padding` lowers `"valid"`/`"same"` into concrete `Conv2d` windows),
+   but the graph constructor, JSON tag, builder function, and bridge arm should
+   still name the distinct overload.
    - `Mul`: `type t = Bin.t`, `jsont = Bin.jsont ~name`, etc.;
      `output_shape = broadcast_output_shape` (the shared equal-or-1 broadcast rule
      in `pointwise.ml`), and `pixel ~a_shape ~b_shape a b out` reads each operand

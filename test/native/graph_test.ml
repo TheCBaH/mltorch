@@ -197,6 +197,39 @@ let%expect_test "Direct graph: conv with optional bias omitted (None -> zeros)"
     y (no bias) = tensor f32 [H=2 W=2 C=1] {8, 8, 16, 16}
     matches explicit zero bias: true |}]
 
+let%expect_test "Direct graph: transposed convolution" =
+  let params =
+    {
+      Conv.Convolution.stride =
+        { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+      padding = { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+      dilation = { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+      transposed = true;
+      output_padding =
+        { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+      groups = Op_config.Pos.of_int 1;
+    }
+  in
+  let g =
+    Graph_builder.(
+      build ~name:"transposed" ~outputs:(fun y -> [ y ])
+      @@
+      let* x = input ~shape:(s 1 1 1 2 2 1) ~name:"x" () in
+      let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
+      convolution ~name:"y" params ~x ~weight:w ())
+  in
+  let x =
+    Tensor.materialize (s 1 1 1 2 2 1) (fun c ->
+        float_of_int
+          ((Dim.to_int (Vec6.get c Axis.H) * 2)
+          + Dim.to_int (Vec6.get c Axis.W)
+          + 1))
+  in
+  let w = Tensor.materialize (s 1 1 1 2 2 1) (fun _ -> 1.) in
+  let env = Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x; w ]) in
+  Format.printf "y = %a@." Tensor.pp (Tensor_id.Map.find (id_of_name g "y") env);
+  [%expect {| y = tensor f32 [H=3 W=3 C=1] {1, 3, 2, 4, 10, 6, 3, 7, ...} |}]
+
 (* Nested subgraph: an outer graph invokes a named subgraph that computes
    add -> relu. The result must match the same computation built flat. *)
 let%expect_test "Direct graph: nested subgraph evaluation" =

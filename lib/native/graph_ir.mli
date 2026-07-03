@@ -39,6 +39,8 @@ type 'g gop =
   | Avg_pool2d of Pool.AvgPool2d.t
   | Bmm of Matmul.Bmm.t
   | Conv2d of Conv.Conv2d.t
+  | Conv2d_padding of Conv.Conv2d_padding.t
+  | Convolution of Conv.Convolution.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Mean of Reduce.Mean.t

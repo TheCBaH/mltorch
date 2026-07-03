@@ -88,6 +88,9 @@ machinery behind them. Two subtleties learned the hard way:
   compile the bundling TU.
 
 Status: 648 → ~24 residual; reaching 0 is a finite but fiddly stubbing pass.
+Since then the minimal closure has also grown to include
+`native/NaiveDilatedConvolution.cpp`, so `slow_conv_dilated2d_cpu` no longer
+needs a throwing stub and dilated 2D convs run on the real kernel path.
 
 ## Build closure (so far) beyond the 137-file core
 
@@ -96,8 +99,9 @@ ExplicitAutogradNonFunctional,ImplicitAutograd}_0`; hand-written native:
 `TensorIterator`, `EmptyTensor`, `Fill`, `Resize`, `TensorFactories`,
 `TensorProperties`, `Scalar`, `TypeProperties`, `MemoryOverlap`, `ExpandUtils`,
 `NamedTensorUtils`, `TensorUtils`, `Context`, `Parallel*`, `record_function`,
-`SequenceNumber`, `DeviceAccelerator`, `detail/*HooksInterface`,
-`cpu/FlushDenormal`; plus `libcpuinfo.a` and a `stubs.cpp` for the cold paths.
+`SequenceNumber`, `DeviceAccelerator`, `NaiveDilatedConvolution`,
+`detail/*HooksInterface`, `cpu/FlushDenormal`; plus `libcpuinfo.a` and a
+`stubs.cpp` for the remaining cold paths.
 
 ## Net
 

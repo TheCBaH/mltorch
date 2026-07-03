@@ -184,6 +184,34 @@ let%expect_test "bmm round-trip" =
           "mat2": { "dtype": "f32", "shape": [1, 2, 2], "sequence": { "start": 1.0, "step": 1.0 } } } }|};
   [%expect {| target=torch.ops.aten.bmm.default nargs=2 stable=true |}]
 
+let%expect_test "conv2d.padding round-trip (string padding)" =
+  roundtrip
+    {|{ "target": "torch.ops.aten.conv2d.padding",
+        "args": {
+          "input": { "dtype": "f32", "shape": [1, 1, 3, 3], "sequence": { "start": 0.0, "step": 1.0 } },
+          "weight": { "dtype": "f32", "shape": [1, 1, 3, 3], "values": [{"float":1},{"float":1},{"float":1},{"float":1},{"float":1},{"float":1},{"float":1},{"float":1},{"float":1}] },
+          "bias": { "dtype": "f32", "shape": [1], "values": [{"float":0}] },
+          "stride": [1, 1],
+          "padding": "same",
+          "dilation": [1, 1],
+          "groups": 1 } }|};
+  [%expect {| target=torch.ops.aten.conv2d.padding nargs=7 stable=true |}]
+
+let%expect_test "convolution.default round-trip" =
+  roundtrip
+    {|{ "target": "torch.ops.aten.convolution.default",
+        "args": {
+          "input": { "dtype": "f32", "shape": [1, 1, 3, 3], "sequence": { "start": 0.0, "step": 1.0 } },
+          "weight": { "dtype": "f32", "shape": [1, 1, 2, 2], "values": [{"float":1},{"float":1},{"float":1},{"float":1}] },
+          "bias": { "dtype": "f32", "shape": [1], "values": [{"float":0}] },
+          "stride": [1, 1],
+          "padding": [0, 0],
+          "dilation": [1, 1],
+          "transposed": false,
+          "output_padding": [0, 0],
+          "groups": 1 } }|};
+  [%expect {| target=torch.ops.aten.convolution.default nargs=9 stable=true |}]
+
 let%expect_test "mean.dim round-trip (dim + keepdim)" =
   roundtrip
     {|{ "target": "torch.ops.aten.mean.dim",

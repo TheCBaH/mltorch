@@ -45,6 +45,27 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Conv2d_padding { Conv.Conv2d_padding.params; x; weight; bias } ->
+        let module C = Conv.Conv2d_padding.Compute (S) in
+        let bias =
+          match bias with
+          | Some b -> operand b
+          | None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+        in
+        C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
+          ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Convolution { Conv.Convolution.params; x; weight; bias } ->
+        let module C = Conv.Convolution.Compute (S) in
+        let bias =
+          match bias with
+          | Some b -> operand b
+          | None ->
+              fill 0.
+                (Conv.Convolution.bias_shape ~weight_shape:(shape_of weight)
+                   params)
+        in
+        C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
+          ~x:(operand x) ~weight:(operand weight) ~bias out
     | Linear { Linear.Linear.params; x; weight; bias } ->
         let module C = Linear.Linear.Compute (S) in
         let bias =

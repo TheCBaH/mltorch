@@ -27,6 +27,8 @@ type 'g gop =
   | Avg_pool2d of Pool.AvgPool2d.t
   | Bmm of Matmul.Bmm.t
   | Conv2d of Conv.Conv2d.t
+  | Conv2d_padding of Conv.Conv2d_padding.t
+  | Convolution of Conv.Convolution.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Mean of Reduce.Mean.t
@@ -108,6 +110,18 @@ let op_registry : (module OP) list =
 
       let inject t = Conv2d t
       let project = function Conv2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Conv.Conv2d_padding
+
+      let inject t = Conv2d_padding t
+      let project = function Conv2d_padding t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Conv.Convolution
+
+      let inject t = Convolution t
+      let project = function Convolution t -> Some t | _ -> None
     end : OP);
     (module struct
       include Linear.Linear

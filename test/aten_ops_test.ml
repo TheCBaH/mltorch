@@ -211,6 +211,20 @@ let%expect_test "conv2d" =
   show (O.conv2d x w b (arr [ 1; 1 ]) 2 (arr [ 0; 0 ]) 2 (arr [ 1; 1 ]) 2 1L);
   [%expect "[1x1x2x2] = [6; 8; 12; 14]"]
 
+let%expect_test "conv2d (dilated)" =
+  let x = make [ 1; 1; 1; 5 ] [ 0.; 1.; 2.; 3.; 4. ] in
+  let w = make [ 1; 1; 1; 3 ] [ 1.; 1.; 1. ] in
+  let b = make [ 1 ] [ 0. ] in
+  show (O.conv2d x w b (arr [ 1; 1 ]) 2 (arr [ 0; 1 ]) 2 (arr [ 1; 2 ]) 2 1L);
+  [%expect "[1x1x1x3] = [4; 6; 4]"]
+
+let%expect_test "conv2d.padding" =
+  let x = make [ 1; 1; 3; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6.; 7.; 8.; 9. ] in
+  let w = make [ 1; 1; 2; 2 ] [ 1.; 0.; 0.; 1. ] in
+  let b = make [ 1 ] [ 0. ] in
+  show (O.conv2d_padding x w b (arr [ 1; 1 ]) 2 "valid" (arr [ 1; 1 ]) 2 1L);
+  [%expect "[1x1x2x2] = [6; 8; 12; 14]"]
+
 let%expect_test "dropout / dropout_ (inference)" =
   let t = make [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
   show (O.dropout t 0.5 false);
@@ -300,6 +314,22 @@ let%expect_test "convolution" =
        (arr [ 0; 0 ])
        2 1L);
   [%expect "[1x1x2x2] = [6; 8; 12; 14]"]
+
+let%expect_test "convolution (dilated)" =
+  let x = make [ 1; 1; 1; 5 ] [ 0.; 1.; 2.; 3.; 4. ] in
+  let w = make [ 1; 1; 1; 3 ] [ 1.; 1.; 1. ] in
+  let b = make [ 1 ] [ 0. ] in
+  show
+    (O.convolution x w b
+       (arr [ 1; 1 ])
+       2
+       (arr [ 0; 1 ])
+       2
+       (arr [ 1; 2 ])
+       2 false
+       (arr [ 0; 0 ])
+       2 1L);
+  [%expect "[1x1x1x3] = [4; 6; 4]"]
 
 let%expect_test "bmm" =
   (* batched [1x2x2] @ [1x2x2]: [[1,2],[3,4]] @ [[5,6],[7,8]] = [[19,22],[43,50]] *)

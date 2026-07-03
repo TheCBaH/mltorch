@@ -25,7 +25,9 @@ type index_expr =
 
 (* [bool_expr] is the boolean domain ([Symbolic.b]); it only appears as a [Select]
    guard, never as a standalone value — hence no [Bool] value constructor. *)
-type bool_expr = Cmp of compare_op * t * t
+type bool_expr =
+  | Cmp of compare_op * t * t
+  | Index_eq of index_expr * index_expr
 
 and t =
   | Const of float
@@ -84,8 +86,11 @@ let rec pp fmt = function
       Format.fprintf fmt "%s(r%d=%a..%a: %a)" (reduction_kind_name kind) var
         pp_index_expr lo pp_index_expr hi pp body
 
-and pp_bool_expr fmt (Cmp (op, a, b)) =
-  Format.fprintf fmt "(%a %s %a)" pp a (compare_op_sym op) pp b
+and pp_bool_expr fmt = function
+  | Cmp (op, a, b) ->
+      Format.fprintf fmt "(%a %s %a)" pp a (compare_op_sym op) pp b
+  | Index_eq (a, b) ->
+      Format.fprintf fmt "(%a = %a)" pp_index_expr a pp_index_expr b
 
 (* ---- evaluation (verification against Direct) ---- *)
 
@@ -123,14 +128,24 @@ let rec eval_index_expr ~coord ~rvars = function
 
 (* [binding] maps an input signature to a real tensor; [coord] gives the concrete
    output coordinate to evaluate at. *)
-let rec eval ~binding ~coord ?(rvars = []) e =
+let rec eval_bool_expr ~binding ~coord ~rvars = function
+  | Cmp (op, a, b) ->
+      apply_compare_op op
+        (eval ~binding ~coord ~rvars a)
+        (eval ~binding ~coord ~rvars b)
+  | Index_eq (a, b) ->
+      Int.equal
+        (eval_index_expr ~coord ~rvars a)
+        (eval_index_expr ~coord ~rvars b)
+
+and eval ~binding ~coord ?(rvars = []) e =
   let recur = eval ~binding ~coord ~rvars in
   match e with
   | Const x -> x
   | Binary (op, a, b) -> apply_binary_op op (recur a) (recur b)
   | Unary (op, a) -> apply_unary_op op (recur a)
-  | Select (Cmp (op, ca, cb), a, b) ->
-      if apply_compare_op op (recur ca) (recur cb) then recur a else recur b
+  | Select (c, a, b) ->
+      if eval_bool_expr ~binding ~coord ~rvars c then recur a else recur b
   | Load (s, index) ->
       Tensor.read_at (binding s) (fun a ->
           eval_index_expr ~coord ~rvars index.(Axis.to_int a))

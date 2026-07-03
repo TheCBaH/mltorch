@@ -25,6 +25,16 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> Tensor_sig.t) :
         Conv.Conv2d.output_shape ~x_shape:(shape x) ~weight_shape:(shape weight)
           params;
       ]
+  | Conv2d_padding { Conv.Conv2d_padding.params; x; weight; _ } ->
+      [
+        Conv.Conv2d_padding.output_shape ~x_shape:(shape x)
+          ~weight_shape:(shape weight) params;
+      ]
+  | Convolution { Conv.Convolution.params; x; weight; _ } ->
+      [
+        Conv.Convolution.output_shape ~x_shape:(shape x)
+          ~weight_shape:(shape weight) params;
+      ]
   | Linear { Linear.Linear.x; weight; _ } ->
       [
         Linear.Linear.output_shape ~x_shape:(shape x)

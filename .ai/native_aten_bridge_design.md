@@ -118,14 +118,19 @@ the six permutations):
 
 | ATen target | Native op | Relayout |
 |-------------|-----------|---------|
-| `convolution.default` / `conv2d.default` | `Conv2d` | input NCHW→NHWC, weight OIHW→native, output NHWC→NCHW |
+| `conv2d.default` | `Conv2d` | input NCHW→NHWC, weight OIHW→native, output NHWC→NCHW |
+| `conv2d.padding` | `Conv2d_padding` | same conv relayout; native op translates `"valid"`/`"same"` to concrete windows before delegating to `Conv2d` compute |
+| `convolution.default` | `Convolution` | same conv relayout; native op preserves `transposed`/`output_padding` params, reuses `Conv2d` for forward 2D, and evaluates transposed 2D directly |
 | `max_pool2d.default` | `MaxPool2d` | input NCHW→NHWC, output NHWC→NCHW |
 | `linear.default` | `Linear` | weight [Out,In]→[N=Out,C=In] |
 | `addmm.default` | `Linear` | weight (mat2) [In,Out]→[N=Out,C=In] |
 
-Skipped (return `None`): `max_pool2d_with_indices` (2-output mismatch),
-`adaptive_avg_pool2d` (output-size API, not kernel/stride/pad), and transposed
-convolutions. Dense, grouped/depthwise, and dilated forward Conv2d are covered.
+Skipped (return `None`): `max_pool2d_with_indices` (2-output mismatch) and
+`adaptive_avg_pool2d` (output-size API, not kernel/stride/pad). Dense,
+grouped/depthwise, dilated forward Conv2d, transposed 2D convolution, and
+`conv2d.padding` string modes `"valid"`/`"same"` are covered. Native
+`convolution.default` keeps `output_padding` for the transposed output-shape
+formula; native `"same"` matches PyTorch's stride restriction: stride must be 1.
 
 ### Extending coverage
 

@@ -125,11 +125,14 @@ mapfile -t SRCS_GLUE < <(
   # batch_norm: composite -> _batch_norm_impl_index -> native_batch_norm
   # (Normalization.cpp); CPU kernel is cpu/batch_norm_kernel.cpp (CAP).
   echo "$PT/aten/src/ATen/native/Normalization.cpp"
-  # conv2d -> convolution -> _convolution -> slow_conv2d (ConvolutionMM2d.cpp),
-  # which im2col's (Unfold2d.cpp) then gemm's. cpu/Unfold2d kernel is in CAP.
+  # conv2d/convolution -> _convolution -> slow_conv2d / slow_conv_dilated2d or
+  # slow_conv_transpose2d. The dilated path lives in NaiveDilatedConvolution.cpp;
+  # both 2d forward paths use im2col/col2im + gemm. cpu/Unfold2d kernel is in CAP.
   echo "$PT/aten/src/ATen/native/IndexingUtils.cpp"
   echo "$PT/aten/src/ATen/native/Convolution.cpp"
   echo "$PT/aten/src/ATen/native/ConvolutionMM2d.cpp"
+  echo "$PT/aten/src/ATen/native/NaiveDilatedConvolution.cpp"
+  echo "$PT/aten/src/ATen/native/NaiveConvolutionTranspose2d.cpp"
   echo "$PT/aten/src/ATen/native/Unfold2d.cpp"
   # _softmax: structured meta+impl (SoftMax.cpp, no vec.h); the lastdim/dim
   # softmax kernels are cpu/SoftMaxKernel.cpp in the CAP list.
