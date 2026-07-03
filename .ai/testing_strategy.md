@@ -47,6 +47,17 @@ End-to-end tests that decode real exported model files.
 
 Both tests share helper code from `test/model_test_utils.ml` via `#use`.
 
+### 4. Per-node op-spec fixtures (`test/pt2_node_spec_cram.t`)
+
+Committed JSON fixtures under `test/data/<model>/`, one per graph node, derived from a
+real `.pt2` model by `bin/pt2_spec_gen` (real op + hyperparameters, tensor contents
+synthesized from a distribution fit to that tensor's own real data when it's a
+parameter/buffer — see [[pt2_node_spec_design]]). The cram test evaluates every fixture
+through the ATen kernel only (`aten_spec_verify --eval`) and promotes the pretty-printed
+call + output shape + status as the golden reference — unlike `model_cram.t`/
+`pt2_load_cram.t`, this needs no `PT2_DATA` download to *run* (only to *generate* new
+fixtures), just the ATen C++ build.
+
 ## Shared Test Utilities: `model_test_utils.ml`
 
 `test/model_test_utils.ml` provides:

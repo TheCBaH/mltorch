@@ -168,8 +168,7 @@ let outputs_for target =
   List.init arity (fun i ->
       Argument.Tensor (TensorArgument.make (Printf.sprintf "out%d" i)))
 
-let to_node (spec : Aten_spec.Op_spec.t) =
-  let pcg0 = Pcg.default in
+let to_node ?(pcg0 = Pcg.default) (spec : Aten_spec.Op_spec.t) =
   let _pcg, env, inputs_rev =
     List.fold_left
       (fun (pcg, env, acc) (name, av) ->
@@ -300,3 +299,199 @@ let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
                   Format.fprintf ppf "  native %s = %a@." name pp_native packed
               | None -> Format.fprintf ppf "  native %s = <missing>@." name))
         out_names
+
+let pp_shape ppf shape =
+  Format.fprintf ppf "[%a]"
+    (Format.pp_print_list
+       ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ",")
+       Format.pp_print_int)
+    shape
+
+(* The payload/distribution a tensor arg's contents are synthesized from —
+   shown alongside its dtype/shape so a reader can see that a walk step's
+   "configuration" (shape + this) really is unchanged from step to step; only
+   the concrete draw from it differs. *)
+let pp_source ppf (s : Tspec.source) =
+  match s with
+  | Tspec.Values _ -> Format.pp_print_string ppf "values"
+  | Tspec.Sequence { start; step } ->
+      Format.fprintf ppf "sequence(start=%g,step=%g)" start step
+  | Tspec.Random (Uniform { low; high }) ->
+      Format.fprintf ppf "uniform(low=%g,high=%g)" low high
+  | Tspec.Random (Normal { mean; variance }) ->
+      Format.fprintf ppf "normal(mean=%g,variance=%g)" mean variance
+
+let pp_tensor_spec ppf (ts : Tspec.t) =
+  Format.fprintf ppf "%s%a~%a"
+    (Aten_spec.Dtype.to_string ts.dtype)
+    pp_shape ts.shape pp_source ts.source
+
+let pp_scalar_value ppf = function
+  | Sv.Int i -> Format.pp_print_int ppf i
+  | Sv.Float f -> Format.pp_print_float ppf f
+  | Sv.Bool b -> Format.pp_print_bool ppf b
+
+let pp_int_list ppf xs =
+  Format.fprintf ppf "[%a]"
+    (Format.pp_print_list
+       ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ",")
+       Format.pp_print_int)
+    xs
+
+(* One arg's value, for the "pretty print" of an op call: tensors show
+   dtype+shape (never their synthesized contents), everything else shows its
+   literal value. *)
+let pp_arg_value ppf (av : Av.t) =
+  match av with
+  | Av.Tensor ts -> pp_tensor_spec ppf ts
+  | Av.Tensor_opt None -> Format.pp_print_string ppf "none"
+  | Av.Tensor_opt (Some ts) -> pp_tensor_spec ppf ts
+  | Av.Tensor_list ts ->
+      Format.fprintf ppf "[%a]"
+        (Format.pp_print_list
+           ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ")
+           pp_tensor_spec)
+        ts
+  | Av.Int i -> Format.pp_print_int ppf i
+  | Av.Int_opt None -> Format.pp_print_string ppf "none"
+  | Av.Int_opt (Some i) -> Format.pp_print_int ppf i
+  | Av.Int_list xs -> pp_int_list ppf xs
+  | Av.Int_list_opt None -> Format.pp_print_string ppf "none"
+  | Av.Int_list_opt (Some xs) -> pp_int_list ppf xs
+  | Av.Float f -> Format.pp_print_float ppf f
+  | Av.Float_opt None -> Format.pp_print_string ppf "none"
+  | Av.Float_opt (Some f) -> Format.pp_print_float ppf f
+  | Av.Bool b -> Format.pp_print_bool ppf b
+  | Av.Bool_opt None -> Format.pp_print_string ppf "none"
+  | Av.Bool_opt (Some b) -> Format.pp_print_bool ppf b
+  | Av.Scalar sv -> pp_scalar_value ppf sv
+  | Av.Scalar_opt None -> Format.pp_print_string ppf "none"
+  | Av.Scalar_opt (Some sv) -> pp_scalar_value ppf sv
+  | Av.Str s -> Format.fprintf ppf "%S" s
+
+let pp_op_call ppf (spec : Aten_spec.Op_spec.t) =
+  Format.fprintf ppf "%s(%a)" spec.target
+    (Format.pp_print_list
+       ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ", ")
+       (fun ppf (name, av) -> Format.fprintf ppf "%s=%a" name pp_arg_value av))
+    spec.args
+
+(* ATen-only: no native-engine comparison at all (unlike [run]/[eval_print]).
+   Prints the op's pretty-printed call, each output's shape, and a status
+   line; the promoted cram output is itself the golden reference (see
+   .ai/pt2_node_spec_design.md) — there is no PyTorch ground truth to compare
+   against. *)
+let eval_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
+    unit =
+  let env, node = to_node spec in
+  Format.fprintf ppf "[node] %a@." pp_op_call spec;
+  match Interp_dispatch.dispatch env node with
+  | Error e ->
+      Format.fprintf ppf "  status: error: %a@." pp_interp_error
+        e.Core.Error.kind
+  | Ok env' ->
+      let out_names =
+        List.filter_map
+          (function
+            | Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
+          node.outputs
+      in
+      List.iter
+        (fun name ->
+          match String_map.find_opt name env' with
+          | Some t ->
+              Format.fprintf ppf "  -> %s: %a@." name pp_shape
+                (Array.to_list (Aten_tensor.shape t))
+          | None -> Format.fprintf ppf "  -> %s: <missing>@." name)
+        out_names;
+      Format.fprintf ppf "  status: ok@."
+
+(* A step's own independent seed: distinct from [Pcg.default] and from every
+   other step, but still reproducible from the step index alone. *)
+let walk_pcg step = Pcg.seed ~seed:(Int64.of_int step) ~seq:0xda3e39cb94b95bdbL
+
+(* min/max/mean over every element — not the raw values, which would make a
+   walk over a real model's fixtures (e.g. a 224x224x3 image, or a wide conv
+   activation) unreadably large. [None] on an empty tensor. *)
+let summarize_f32 (ba : Aten_tensor.float32_array) =
+  let n = Bigarray.Array1.dim ba in
+  if n = 0 then None
+  else
+    let rec go i mn mx sum =
+      if i >= n then (mn, mx, sum)
+      else
+        let v = ba.{i} in
+        go (i + 1) (Float.min mn v) (Float.max mx v) (sum +. v)
+    in
+    let mn, mx, sum = go 1 ba.{0} ba.{0} ba.{0} in
+    Some (mn, mx, sum /. float_of_int n)
+
+let pp_tensor_summary ppf t =
+  pp_shape ppf (Array.to_list (Aten_tensor.shape t));
+  match Aten_tensor.as_float32 t with
+  | None -> Format.pp_print_string ppf " <non-f32>"
+  | Some ba -> (
+      match summarize_f32 ba with
+      | None -> Format.pp_print_string ppf " <empty>"
+      | Some (mn, mx, mean) ->
+          Format.fprintf ppf " min=%g max=%g mean=%g" mn mx mean)
+
+(* Every named tensor axis of a spec (in declared order): a "self"/"input"/
+   "weight"/... arg whose contents can be resampled independently. *)
+let tensor_axes (spec : Aten_spec.Op_spec.t) =
+  List.filter_map
+    (fun (name, av) ->
+      match av with
+      | Av.Tensor ts | Av.Tensor_opt (Some ts) -> Some (name, ts)
+      | _ -> None)
+    spec.args
+
+(* Walks [spec] over [steps] steps. Every step mutates exactly one axis —
+   one named tensor arg, round-robin over the op's tensor args in declared
+   order (starting from a baseline where every axis already holds a fresh
+   draw) — drawing it anew from its own distribution while every other axis
+   keeps its previous value; the target/shapes/hyperparameters
+   ("configuration") never change, only which axis was just redrawn. Prints
+   the modified axis, the configuration, and a compact summary of the
+   output. ATen-only, no native comparison (see [eval_report]). *)
+let walk_eval ?(ppf = Format.std_formatter) ~steps (spec : Aten_spec.Op_spec.t)
+    : unit =
+  let axes = Array.of_list (tensor_axes spec) in
+  let n_axes = Array.length axes in
+  let env0, node = to_node ~pcg0:(walk_pcg 0) spec in
+  let report ~step ~axis env =
+    Format.fprintf ppf "[step %d/%d] modified axis: %s@." step steps axis;
+    Format.fprintf ppf "  %a@." pp_op_call spec;
+    match Interp_dispatch.dispatch env node with
+    | Error e ->
+        Format.fprintf ppf "  status: error: %a@." pp_interp_error
+          e.Core.Error.kind
+    | Ok env' ->
+        let out_names =
+          List.filter_map
+            (function
+              | Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
+            node.outputs
+        in
+        List.iter
+          (fun name ->
+            match String_map.find_opt name env' with
+            | Some t ->
+                Format.fprintf ppf "  -> %s: %a@." name pp_tensor_summary t
+            | None -> Format.fprintf ppf "  -> %s: <missing>@." name)
+          out_names;
+        Format.fprintf ppf "  status: ok@."
+  in
+  let rec go step env =
+    if step <= steps then (
+      if n_axes = 0 then (
+        report ~step ~axis:"(none)" env;
+        go (step + 1) env)
+      else
+        let name, ts = axes.((step - 1) mod n_axes) in
+        let _, t = synthesize (walk_pcg step) ts in
+        let env = String_map.add name t env in
+        report ~step ~axis:name env;
+        go (step + 1) env)
+  in
+  go 1 env0

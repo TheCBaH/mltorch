@@ -1,0 +1,1 @@
+{"target":"torch.ops.aten.addmm.default","args":{"self":{"dtype":"f32","shape":[1000],"random":{"normal":{"mean":-5.9737722040154046e-08,"variance":0.00025346944606313899}}},"mat1":{"dtype":"f32","shape":[1,512],"random":{"normal":{"mean":0,"variance":1}}},"mat2":{"dtype":"f32","shape":[512,1000],"random":{"normal":{"mean":0,"variance":1}}},"beta":{"int":1},"alpha":{"int":1}}}

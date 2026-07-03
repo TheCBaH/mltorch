@@ -159,3 +159,9 @@ needs the C++ ATen build but no downloaded weights.
 Current op coverage of the *verifying* path is whatever `Op_bridge` implements (add, relu);
 specs for other curated ops decode and run on ATen but report `skipped` until the native op
 lands. See [[native_aten_bridge_design]] for extending native coverage.
+
+Specs don't have to be hand-written: [[pt2_node_spec_design]] derives one per node from a
+real exported `.pt2` model's graph (real op targets/hyperparameters, tensor contents
+synthesized from a distribution fit to that tensor's own real data when it's a
+parameter/buffer), and `aten_spec_verify`'s `--eval` mode evaluates them through ATen only
+(no native comparison), for the `test/data/<model>/` fixtures + `pt2_node_spec_cram.t`.

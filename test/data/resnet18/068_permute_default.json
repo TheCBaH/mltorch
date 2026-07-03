@@ -1,0 +1,1 @@
+{"target":"torch.ops.aten.permute.default","args":{"self":{"dtype":"f32","shape":[1000,512],"random":{"normal":{"mean":5.8506621892703836e-08,"variance":0.0048245449097095048}}},"dims":[1,0]}}

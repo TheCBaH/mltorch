@@ -12,6 +12,7 @@ verify mode (stdin via "-"), add.Tensor with a different generator per input:
   >     "other": { "dtype": "f32", "shape": [2, 3], "random": { "normal":  { "mean": 0.0, "variance": 1.0 } } }
   >   } }
   > JSON
+  === - ===
   [spec] torch.ops.aten.add.Tensor: matched
 
 --print mode: evaluate and print the output tensor from both paths:
@@ -23,6 +24,7 @@ verify mode (stdin via "-"), add.Tensor with a different generator per input:
   >     "other": { "dtype": "f32", "shape": [2], "values": [{"float":0.5}, {"float":0.5}] }
   >   } }
   > JSON
+  === - ===
   [eval] torch.ops.aten.add.Tensor
     aten   out0 = [1.5; 2.5]
     native out0 = [1.5; 2.5]
@@ -36,4 +38,5 @@ verify mode, a no-relayout structured op (bmm) through the same plumbing:
   >     "mat2": { "dtype": "f32", "shape": [1, 2, 2], "sequence": { "start": 1.0, "step": 1.0 } }
   >   } }
   > JSON
+  === - ===
   [spec] torch.ops.aten.bmm.default: matched

@@ -1,0 +1,1 @@
+{"target":"torch.ops.aten.view.default","args":{"self":{"dtype":"f32","shape":[1,512,1,1],"random":{"normal":{"mean":0,"variance":1}}},"size":[1,512]}}

@@ -1,0 +1,18 @@
+; Derives per-node ATen op-spec JSON fixtures (see lib/aten_spec) from a real
+; exported .pt2 model graph: real op targets and hyperparameters, but tensor
+; contents replaced by a distribution fit to that tensor's own real data
+; (weights/buffers) or a fixed fallback (true activations). Pure OCaml, no
+; ATen/libtorch dependency — mirrors the pt2/aten_spec "pure" layering.
+
+(library
+ (name pt2_spec_gen)
+ (libraries
+  pt2
+  pytorch_types
+  schema_runtime
+  aten_config
+  aten_spec
+  aten_op_spec
+  core
+  jsont
+  jsont.bytesrw))

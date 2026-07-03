@@ -1,0 +1,1 @@
+{"target":"torch.ops.aten.convolution.default","args":{"input":{"dtype":"f32","shape":[1,64,56,56],"random":{"normal":{"mean":0,"variance":1}}},"weight":{"dtype":"f32","shape":[128,64,3,3],"random":{"normal":{"mean":-0.0014537476545702882,"variance":0.0017291447041391066}}},"stride":[2,2],"padding":[1,1],"dilation":[1,1],"transposed":false,"output_padding":[0,0],"groups":1}}

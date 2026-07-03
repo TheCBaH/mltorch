@@ -1,0 +1,1 @@
+{"target":"torch.ops.aten.mean.dim","args":{"self":{"dtype":"f32","shape":[1,512,7,7],"random":{"normal":{"mean":0,"variance":1}}},"dim":[-1,-2],"keepdim":true}}

@@ -62,7 +62,7 @@ let uniform ~low ~high t =
   let u, t = uniform_unit t in
   (Float32.to_f32 (low +. (u *. (high -. low))), t)
 
-let two_pi = 8.0 *. atan 1.0
+let two_pi = 2.0 *. Float.pi
 
 (* Box-Muller: one normal draw per call (the paired value is discarded to keep
    the state purely a function of how many draws were taken). *)
