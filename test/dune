@@ -89,6 +89,17 @@
  (preprocess
   (pps ppx_expect)))
 
+; Random-walk equivalence: walks conv2d, max_pool2d, mean.dim over their
+; configurable axes, validating ATen==native at every step.
+
+(library
+ (name native_walk_test)
+ (modules native_walk_test)
+ (libraries native_walk aten_op_walk aten_spec)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
 ; Spec runner: decode + verify/eval through the ATen-vs-native harness. Links the
 ; C++ ATen build (via aten_spec_run); runs in-process so the add-generator
 ; coverage is fast (the cram keeps a couple of end-to-end CLI cases).

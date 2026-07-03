@@ -1,0 +1,8 @@
+; Pure random-walk recipes: the family-level config spaces, cascades and shape
+; derivations the yaml can't express, plus the [Walk.Op] signature the runner
+; consumes. Depends only on aten_spec (no ATen C++), so the generated walk
+; modules built on it stay off the C++ build -- mirroring aten_op_spec.
+
+(library
+ (name aten_walk_recipes)
+ (libraries aten_spec))

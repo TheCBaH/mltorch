@@ -312,6 +312,15 @@ let emit_module buf (op : A.t) (kept : kept list) =
             (arg_ctor k.sty) k.id)
         kept;
       buf_add buf "    ]\n");
+  (* spec: assemble a full Op_spec.t from the typed record. Field names are
+     checked against [t], so the walk generator's [build] can't drift from the
+     binding. [to_args] ignores its argument in the nullary case, so this one
+     form serves both. *)
+  buf_add buf
+    {|
+  let spec (r : t) : Aten_spec.Op_spec.t =
+    { Aten_spec.Op_spec.target; args = to_args r }
+|};
   buf_add buf "end\n\n"
 
 let banner =

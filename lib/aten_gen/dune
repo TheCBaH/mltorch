@@ -9,5 +9,7 @@
   aten_emit
   aten_gen
   aten_config_gen
-  aten_spec_gen)
+  aten_spec_gen
+  aten_walk_gen
+  walk_meta)
  (libraries aten_schema))
