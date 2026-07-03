@@ -2,5 +2,6 @@ _build/
 .ccache/
 .claude/
 .devcontainer/devcontainer-lock.json
+AGENTS.md
 data/pt2/
 .profile/

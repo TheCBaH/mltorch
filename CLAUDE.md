@@ -153,7 +153,3 @@ Cram tests run `ocaml schema_runtime.cma script.ml 2>/dev/null`. Both `schema_ru
 - `yamlt` is vendored under `vendored/ocaml-yamlt/` (not on opam); `opickle` (pickle decoding) is vendored under `vendored/opickle/` the same way.
 - `data/pt2/<model>/` (downloaded release weights/images/results) is gitignored and not part of the default build — fetch via `make pt2.download-cram` or `make pt2.download-all` before running the gated tests above.
 
-## Git Rules
-- Use conventional commit messages.
-- NEVER include "Claude-Session" links, URLs, metadata in any commit.
-

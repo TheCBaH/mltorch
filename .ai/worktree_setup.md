@@ -76,7 +76,11 @@ above while working in a worktree; merge the branch before relying on `make`.
 ## 4. dune isn't on PATH — go through opam
 
 `dune` is not directly on PATH here; invoke it as `opam exec -- dune …` (the
-Makefile does the same). Formatting:
+Makefile does the same). Do not run Dune commands concurrently in the same
+checkout/build root: serialize `dune build`, `dune runtest`, `dune promote`,
+`dune fmt`, and Makefile targets that invoke Dune. Concurrent invocations contend
+for `_build` state and can produce confusing lock waits or partial promotion
+results. Formatting:
 
 ```sh
 opam exec -- dune build --root . @fmt --auto-promote   # apply
