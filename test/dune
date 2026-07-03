@@ -626,6 +626,24 @@
   %{exe:../bin/aten_spec_verify.exe}
   (source_tree data/resnet18)))
 
+; ATen-vs-native compare (default aten_spec_verify mode) over the pt2
+; fixtures, excluding convolution.default (too slow at real-model scale).
+
+(cram
+ (applies_to pt2_node_bridge_cram)
+ (deps
+  %{exe:../bin/aten_spec_verify.exe}
+  (source_tree data/resnet18)))
+
+; 10-step ATen-vs-native walk+compare over resnet18's 9 op targets, via the
+; existing generated walk modules (lib/aten_op_walk) rather than the pt2
+; fixtures directly (conv2d is too slow at real-model scale; the recipes use
+; small synthetic configs instead — see the cram body).
+
+(cram
+ (applies_to pt2_op_native_walk_cram)
+ (deps %{exe:../bin/native_walk_run.exe}))
+
 ; aten_schema stage 2: func string parser
 
 (library

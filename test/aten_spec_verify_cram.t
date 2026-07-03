@@ -13,7 +13,9 @@ verify mode (stdin via "-"), add.Tensor with a different generator per input:
   >   } }
   > JSON
   === - ===
-  [spec] torch.ops.aten.add.Tensor: matched
+  torch.ops.aten.add.Tensor(self=f32[2,3]~uniform(low=-1,high=1), other=f32[2,3]~normal(mean=0,variance=1), alpha=1)
+    -> out0: [2,3] min=-2.14905 max=2.19213 mean=0.179521
+    status: matched
 
 --print mode: evaluate and print the output tensor from both paths:
 
@@ -39,4 +41,6 @@ verify mode, a no-relayout structured op (bmm) through the same plumbing:
   >   } }
   > JSON
   === - ===
-  [spec] torch.ops.aten.bmm.default: matched
+  torch.ops.aten.bmm.default(self=f32[1,2,2]~sequence(start=1,step=1), mat2=f32[1,2,2]~sequence(start=1,step=1))
+    -> out0: [1,2,2] min=7 max=22 mean=13.5
+    status: matched

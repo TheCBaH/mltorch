@@ -495,3 +495,66 @@ let walk_eval ?(ppf = Format.std_formatter) ~steps (spec : Aten_spec.Op_spec.t)
         go (step + 1) env)
   in
   go 1 env0
+
+(* Like [run] (ATen-vs-native compare), but prints the input tensors'
+   shapes/distributions (the built config) and the ATen output's shape +
+   min/max/mean before the status line, rather than just matched/skipped/
+   mismatched with no other context. Suitable as a [Walk_core.Walk.run]
+   ~verify — e.g. for walking one of the generated recipes
+   (lib/aten_op_walk) with this richer per-step report instead of [run]'s
+   terse one. *)
+let compare_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
+    bool =
+  let env, node = to_node spec in
+  Format.fprintf ppf "%a@." pp_op_call spec;
+  match Interp_dispatch.dispatch env node with
+  | Error { Core.Error.kind = `Unhandled_op _; _ } ->
+      Format.fprintf ppf "  status: skipped (aten interp: unhandled op)@.";
+      true
+  | Error e ->
+      Format.fprintf ppf "  status: aten interp error: %a@." pp_interp_error
+        e.Core.Error.kind;
+      false
+  | Ok env' -> (
+      let out_names =
+        List.filter_map
+          (function
+            | Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
+          node.outputs
+      in
+      List.iter
+        (fun name ->
+          match String_map.find_opt name env' with
+          | Some t ->
+              Format.fprintf ppf "  -> %s: %a@." name pp_tensor_summary t
+          | None -> Format.fprintf ppf "  -> %s: <missing>@." name)
+        out_names;
+      match Op_bridge.dispatch ~aten_env:env node with
+      | None ->
+          Format.fprintf ppf "  status: skipped (no native impl)@.";
+          true
+      | Some (Error e) ->
+          Format.fprintf ppf "  status: bridge error: %a@." Op_bridge.pp_error
+            e.Core.Error.kind;
+          false
+      | Some (Ok (graph, bindings)) -> (
+          match Eval_direct.run graph ~inputs:bindings with
+          | Error e ->
+              Format.fprintf ppf "  status: eval error: %a@."
+                Eval_direct.pp_error e.Core.Error.kind;
+              false
+          | Ok result_env ->
+              let native_outputs =
+                List.map
+                  (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
+                  graph.Graph_ir.Graph.outputs
+              in
+              let errors =
+                Verify.verify_node ~atol:1e-5 ~aten_env:env' node native_outputs
+              in
+              if errors = [] then (
+                Format.fprintf ppf "  status: matched@.";
+                true)
+              else (
+                Verify.report ppf node.target errors;
+                false)))

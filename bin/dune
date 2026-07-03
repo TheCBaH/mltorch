@@ -25,3 +25,13 @@
  (name pt2_spec_gen)
  (modules pt2_spec_gen)
  (libraries pt2 core pt2_spec_gen))
+
+; CLI wrapper around the existing generated ATen-vs-native walk modules
+; (lib/aten_op_walk, see .ai/native_walk_design.md) — same machinery
+; test/native_walk_test.ml exercises inline, exposed here by target name for
+; cram tests over a chosen op subset.
+
+(executable
+ (name native_walk_run)
+ (modules native_walk_run)
+ (libraries aten_op_walk aten_walk_recipes aten_spec aten_spec_run))

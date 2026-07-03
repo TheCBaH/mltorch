@@ -4,13 +4,16 @@
    reads one spec from stdin. A spec ({ target, seed, args }) is decoded, its
    tensor inputs are synthesized from the seed, and the op is run.
 
-   Default mode compares the ATen and native outputs and exits non-zero on any
-   mismatch, error, or parse failure. With --print, the resulting output
-   tensor(s) are printed from both paths instead of compared. With --eval, the
-   op is run through ATen only (no native comparison at all) and its
-   pretty-printed call, output shape(s), and status are printed — used for the
-   per-node fixtures under test/data/ (see .ai/pt2_node_spec_design.md), whose
-   promoted cram output is itself the golden reference.
+   Default mode compares the ATen and native outputs, printing the input
+   tensors' shapes/distributions and the ATen output's shape + min/max/mean
+   before the status line (Aten_spec_run.compare_report), and exits non-zero
+   on any mismatch, error, or parse failure. With --print, the resulting
+   output tensor(s) are printed from both paths instead of compared. With
+   --eval, the op is run through ATen only (no native comparison at all) and
+   its pretty-printed call, output shape(s), and status are printed — used
+   for the per-node fixtures under test/data/ (see
+   .ai/pt2_node_spec_design.md), whose promoted cram output is itself the
+   golden reference.
 
    --walk N (only with --eval, for now) re-synthesizes the same spec from N
    independent seeds instead of just one, printing each step's configuration
@@ -43,7 +46,7 @@ let handle ~mode ~walk path =
       | None, Eval ->
           Aten_spec_run.eval_report spec;
           true
-      | None, Verify -> Aten_spec_run.run spec)
+      | None, Verify -> Aten_spec_run.compare_report spec)
 
 let () =
   let mode = ref Verify and walk = ref None and paths = ref [] in
