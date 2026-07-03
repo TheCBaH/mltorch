@@ -158,9 +158,13 @@ let perm_linear_weight : Permute.Permute.perm =
 
 (* [mean.dim] and [rms_norm] reference frame axes through [Aten_shape.axis_of_dim],
    so the dims must be derived from the ATen input's RANK (not the right-aligned
-   6D shape), keeping reduced axes consistent with where [of_aten] places the data. *)
+   6D shape), keeping reduced axes consistent with where [of_aten] places the
+   data. [aten.mean.dim] treats a missing/None/empty dim list as "all dims", so
+   the bridge normalizes all three spellings the same way. *)
 let dims_arg node ~rank name =
   match D.find_arg node name with
+  | Some (Argument.Ints []) | Some (Argument.None _) | None ->
+      Aten_shape.used_axes ~rank
   | Some (Argument.Ints xs) -> List.map (Aten_shape.axis_of_dim ~rank) xs
   | _ -> Aten_shape.used_axes ~rank
 

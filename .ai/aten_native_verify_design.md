@@ -46,9 +46,12 @@ For float32 outputs, compare Bigarray element-wise:
 
 Non-float32 outputs (int64, bool) and outputs with numel mismatch → `Skipped`.
 
-**Tolerance:** `atol = 1e-5` by default.  Pure float32 arithmetic is
-deterministic on the same hardware, so agreement should be exact or near-exact.
-Larger differences indicate an algorithmic discrepancy.
+**Tolerance:** `atol = 1e-5` by default, with selective widening for
+reduction-heavy ops whose accumulation order legitimately differs. Pure
+float32 pointwise arithmetic is deterministic on the same hardware, so those
+ops should still agree exactly or near-exactly. The current per-target
+override is `torch.ops.aten.addmm.default -> 1e-4`, which is enough for the
+resnet18 fixture's matmul noise without weakening pointwise verification.
 
 **Output pairing:** `node.outputs : Argument.t list` provides the SSA names.
 `Tensor` arguments in that list are matched positionally to `native_outputs`.
@@ -105,7 +108,8 @@ so differences should be 0.0 or at most ULP-level (~1e-7 for f32).
 
 If running under BLAS/vectorized ATen kernels, reduction ops (sum, matmul) may
 accumulate in different orders → expect larger differences (up to ~1e-4 for
-large tensors).  Use a wider tolerance for those ops when adding coverage.
+large tensors).  Use a wider **per-op** tolerance for those targets when
+adding coverage, rather than raising the global default.
 
 ## Files
 

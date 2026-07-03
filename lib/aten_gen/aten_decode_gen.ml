@@ -58,11 +58,18 @@ let anchor_of (args : A.Argument.t list) =
       match a.ty with A.Type.Base A.Base.Tensor -> Some a.name | _ -> None)
     args
 
+let is_mean_dim_optional_dims (op : A.t) (a : A.Argument.t) =
+  String.equal op.name.base "mean"
+  &&
+  match op.name.overload with
+  | Some "dim" -> String.equal a.name "dim"
+  | _ -> false
+
 (* Decode one argument to (preamble lets, call-site expressions). A list arg
    yields a preamble binding plus two expressions (data ptr + length), mirroring
    the (data, len) C parameter pair; everything else is a single expression and
    no preamble. Returns [None] for an unsupported type. *)
-let decode_arg ~anchor (a : A.Argument.t) =
+let decode_arg ~(op : A.t) ~anchor (a : A.Argument.t) =
   let q = Printf.sprintf "%S" a.name in
   let bind var call exprs =
     Some ([ Printf.sprintf "let* %s = %s in" var call ], exprs)
@@ -139,14 +146,21 @@ let decode_arg ~anchor (a : A.Argument.t) =
             (Printf.sprintf "(string_arg ~default:%S node %s)" s q)
             [ a.name ]
       | _ -> None)
-  (* int[] / SymInt[] and their optional forms all lower to a (data, len) pair;
-     mean.dim's int[1]? dim is decoded just like a present list (the exporter
-     always supplies it). *)
+  (* int[] / SymInt[] and their optional forms all lower to a (data, len) pair.
+     [aten.mean.dim] is special: its optional [dim] means "all dims" when
+     absent, and ATen treats an empty list the same way, so the spec path must
+     decode the missing case to [[]] rather than raising a missing-argument
+     error. *)
   | A.Type.List ((A.Type.Base A.Base.Int | A.Type.Base A.Base.SymInt), size)
   | A.Type.Optional
       (A.Type.List ((A.Type.Base A.Base.Int | A.Type.Base A.Base.SymInt), size))
     ->
-      let d = int_list_default a.default size in
+      let d =
+        let d = int_list_default a.default size in
+        if String.equal d "" && is_mean_dim_optional_dims op a then
+          " ~default:[]"
+        else d
+      in
       Some
         ( [ Printf.sprintf "let* %s = ints_arg%s node %s in" a.name d q ],
           [
@@ -173,7 +187,7 @@ let dispatch_arm (op : A.t) : string option =
     | Some (Aten_c_type.Tensors_ret nret) ->
         let args = op.arguments.positional @ op.arguments.kwarg_only in
         let anchor = anchor_of args in
-        let decoded = List.map (fun a -> decode_arg ~anchor a) args in
+        let decoded = List.map (fun a -> decode_arg ~op ~anchor a) args in
         if List.exists Option.is_none decoded then None
         else
           let decoded = List.map Option.get decoded in

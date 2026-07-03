@@ -135,7 +135,7 @@ let tensor_or_scalar_arg env node name ~like =
 let ints_arg ?(default = []) node name =
   match find_arg node name with
   | Some (Argument.Ints xs) -> Core.return xs
-  | None -> Core.return default
+  | Some (Argument.None _) | None -> Core.return default
   | Some arg -> wrong_kind name "int[]" arg
 
 let require name = function

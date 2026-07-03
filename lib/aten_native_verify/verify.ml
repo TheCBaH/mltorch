@@ -14,6 +14,18 @@ open Core.Syntax
 
 let max_points = 10
 
+module O = Aten_c.Aten_operations
+
+let default_atol = 1e-5
+
+(* Most bridge-covered ops are either pointwise or otherwise deterministic
+   enough to compare at a tight tolerance. Matrix/reduction-heavy ops can
+   differ slightly in accumulation order between ATen and the native evaluator,
+   so widen them selectively rather than weakening verification globally. *)
+let atol_for_target = function
+  | "torch.ops.aten.addmm.default" -> 1e-4
+  | _ -> default_atol
+
 type point = { coord : Vec6.coord; aten_val : float; native_val : float }
 
 type error =
@@ -73,8 +85,17 @@ let scan shape f =
           if !total <= max_points then points := pt :: !points);
   (List.rev !points, !total)
 
+(* Some ATen ops (notably permute/view/expand/select) return non-contiguous
+   views. [Aten_tensor.data] exposes a flat buffer and therefore only reflects
+   logical element order for contiguous tensors, so verification materializes
+   such views before scanning them element-wise. *)
+let logical_tensor t =
+  if Aten_tensor.is_contiguous t then t
+  else Aten_tensor.manage (O.contiguous t Aten_memory_format.Contiguous)
+
 let compare_tensors ~atol ~output aten_t native_t =
   let (Tensor.Tensor native_r) = native_t in
+  let aten_t = logical_tensor aten_t in
   (* 1. Shape *)
   let aten_arr = Aten_tensor.shape aten_t in
   let rank = Array.length aten_arr in

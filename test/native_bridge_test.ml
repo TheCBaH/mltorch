@@ -126,6 +126,17 @@ let%expect_test "compare_tensors: dtype mismatch" =
     (Verify.compare_tensors ~atol:1e-6 ~output:"y" aten native);
   [%expect {| Error: y: type mismatch: aten int64 native f32 |}]
 
+let%expect_test "compare_tensors: materializes non-contiguous permute view" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  let aten =
+    Aten_tensor.manage
+      (Aten_c.Aten_operations.permute x (Interp_decode.arr [ 1; 0 ]) 2)
+  in
+  let native = native_f32 [ 3; 2 ] [ 0.; 3.; 1.; 4.; 2.; 5. ] in
+  Format.printf "%a@." pp_result
+    (Verify.compare_tensors ~atol:1e-6 ~output:"y" aten native);
+  [%expect {| Ok |}]
+
 let%expect_test "compare_tensors: matching I64 -> Ok" =
   let aten = i64_tensor [ 4 ] [ 10L; 20L; 30L; 40L ] in
   let native = native_i64 [ 4 ] [ 10L; 20L; 30L; 40L ] in
@@ -569,6 +580,22 @@ let%expect_test "dispatch: mean.dim dim=[1] keepdim=false" =
     ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" false ]
     ~noutputs:1;
   [%expect {| tensor f32 [C=2] {1, 4} |}]
+
+let%expect_test "dispatch: mean.dim dim=[] reduces over all dims" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.mean.dim"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dim" []; in_bool "keepdim" false ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=1] {2.5} |}]
+
+let%expect_test "dispatch: mean.dim omitted dim reduces over all dims" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.mean.dim"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_bool "keepdim" false ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=1] {2.5} |}]
 
 let%expect_test "dispatch: rms_norm normalized_shape=[3] with weight" =
   let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in

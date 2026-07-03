@@ -32,8 +32,9 @@ let dispatch ~verify ?(ppf = Format.err_formatter) (env : Interp_decode.env)
                  (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
                  graph.Graph_ir.Graph.outputs
              in
+             let atol = Verify.atol_for_target node.target in
              let errors =
-               Verify.verify_node ~atol:1e-5 ~aten_env:env' node native_outputs
+               Verify.verify_node ~atol ~aten_env:env' node native_outputs
              in
              Verify.report ppf node.target errors));
   Core.return env'

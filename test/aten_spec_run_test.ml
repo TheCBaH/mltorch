@@ -239,6 +239,31 @@ let%expect_test "mean.dim: dim=[1] keepdim=false" =
       aten   out0 = [1; 4]
       native out0 = [1; 4] |}]
 
+let%expect_test "mean.dim: dim=[] reduces over all dims" =
+  eval
+    {|{ "target": "torch.ops.aten.mean.dim",
+        "args": {
+          "self": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 0.0, "step": 1.0 } },
+          "dim": [],
+          "keepdim": false } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.mean.dim
+      aten   out0 = [2.5]
+      native out0 = [2.5] |}]
+
+let%expect_test "mean.dim: omitted dim reduces over all dims" =
+  eval
+    {|{ "target": "torch.ops.aten.mean.dim",
+        "args": {
+          "self": { "dtype": "f32", "shape": [2, 3], "sequence": { "start": 0.0, "step": 1.0 } },
+          "keepdim": false } }|};
+  [%expect
+    {|
+    [eval] torch.ops.aten.mean.dim
+      aten   out0 = [2.5]
+      native out0 = [2.5] |}]
+
 (* --- rms_norm: normalise over the trailing (innermost) axis, with weight --- *)
 
 let%expect_test "rms_norm: normalized_shape=[3] with weight" =

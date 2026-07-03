@@ -224,8 +224,9 @@ let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
                   (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
                   graph.Graph_ir.Graph.outputs
               in
+              let atol = Verify.atol_for_target node.target in
               let errors =
-                Verify.verify_node ~atol:1e-5 ~aten_env:env' node native_outputs
+                Verify.verify_node ~atol ~aten_env:env' node native_outputs
               in
               if errors = [] then (
                 Format.fprintf ppf "[spec] %s: matched@." node.target;
@@ -583,8 +584,9 @@ let compare_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
                   (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
                   graph.Graph_ir.Graph.outputs
               in
+              let atol = Verify.atol_for_target node.target in
               let errors =
-                Verify.verify_node ~atol:1e-5 ~aten_env:env' node native_outputs
+                Verify.verify_node ~atol ~aten_env:env' node native_outputs
               in
               if errors = [] then (
                 Format.fprintf ppf "  status: matched@.";
