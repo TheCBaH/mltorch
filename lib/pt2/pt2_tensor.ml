@@ -13,6 +13,8 @@ type t = {
   data : bytes; (* the full storage, [numel storage] elements of [dtype] *)
 }
 
+type error = [ Pt2_dtype.error | `Symbolic_value of string ]
+
 let numel t = List.fold_left ( * ) 1 t.sizes
 
 (* Row-major (C-contiguous) strides for a shape. *)
@@ -29,19 +31,26 @@ let is_contiguous t =
   t.storage_offset = 0 && t.strides = contiguous_strides t.sizes
 
 (* SymInt -> int; every shape in a stored tensor is static (never symbolic). *)
-let int_of_symint = function
-  | Pytorch_types.SymInt.Int i -> i
-  | Pytorch_types.SymInt.Expr _ ->
-      failwith "Pt2_tensor: dynamic (symbolic) shape in a stored tensor"
+let pp_error ppf : error -> unit = function
+  | #Pt2_dtype.error as e -> Pt2_dtype.pp_error ppf e
+  | `Symbolic_value field ->
+      Format.fprintf ppf "symbolic tensor metadata is unsupported for %s" field
+
+let int_of_symint ?(field = "tensor metadata") = function
+  | Pytorch_types.SymInt.Int i -> Core.return i
+  | Pytorch_types.SymInt.Expr _ -> Core.fail (`Symbolic_value field)
 
 let of_meta (m : Pytorch_types.TensorMeta.t) ~data =
-  {
-    dtype = Pt2_dtype.of_scalar_type m.dtype;
-    sizes = List.map int_of_symint m.sizes;
-    strides = List.map int_of_symint m.strides;
-    storage_offset = int_of_symint m.storage_offset;
-    data;
-  }
+  let open Core.Syntax in
+  let* dtype =
+    Pt2_dtype.of_scalar_type m.dtype |> Core.map_error (fun e -> (e :> error))
+  in
+  let* sizes = Core.List.map (int_of_symint ~field:"sizes") m.sizes in
+  let* strides = Core.List.map (int_of_symint ~field:"strides") m.strides in
+  let* storage_offset =
+    int_of_symint ~field:"storage_offset" m.storage_offset
+  in
+  Core.return { dtype; sizes; strides; storage_offset; data }
 
 let pp_shape ppf t =
   Format.fprintf ppf "[%a]"

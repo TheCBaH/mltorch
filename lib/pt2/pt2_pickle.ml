@@ -15,61 +15,108 @@ type rebuild = {
   strides : int list;
 }
 
-let fail msg = failwith ("Pt2_pickle: " ^ msg)
-let int_of = function V.Int i -> Int64.to_int i | _ -> fail "expected int"
-let ints_of a = Array.to_list (Array.map int_of a)
+type error =
+  [ Pt2_dtype.error
+  | `Malformed_pickle of string
+  | `Expected_int of string
+  | `Unexpected_storage_persistent_id
+  | `Unexpected_rebuild_args
+  | `No_tensor_found ]
+
+let pp_error ppf : error -> unit = function
+  | #Pt2_dtype.error as e -> Pt2_dtype.pp_error ppf e
+  | `Malformed_pickle msg -> Format.fprintf ppf "pickle decode failed: %s" msg
+  | `Expected_int what -> Format.fprintf ppf "expected int for %s" what
+  | `Unexpected_storage_persistent_id ->
+      Format.pp_print_string ppf "unexpected storage persistent id"
+  | `Unexpected_rebuild_args ->
+      Format.pp_print_string ppf "unexpected _rebuild_tensor_v2 arguments"
+  | `No_tensor_found ->
+      Format.pp_print_string ppf "pickle did not yield a tensor"
+
+let int_of what = function
+  | V.Int i -> Core.return (Int64.to_int i)
+  | _ -> Core.fail (`Expected_int what)
+
+let ints_of what a = Core.List.map (int_of what) (Array.to_list a)
 
 (* A storage persistent id is ('storage', <TypeStorage>, key, device, numel). *)
 let storage_of_persid = function
   | V.Tuple [| V.Str "storage"; V.Global { name; _ }; V.Str key; _; _ |] ->
-      (Pt2_dtype.of_storage_name name, key)
-  | _ -> fail "unexpected storage persistent id"
+      let open Core.Syntax in
+      let+ dtype =
+        Pt2_dtype.of_storage_name name |> Core.map_error (fun e -> (e :> error))
+      in
+      (dtype, key)
+  | _ -> Core.fail `Unexpected_storage_persistent_id
 
 let rebuild_of_args = function
   | V.Tuple a when Array.length a >= 4 -> (
       match (a.(0), a.(1), a.(2), a.(3)) with
       | V.Persistent pid, offset, V.Tuple size, V.Tuple stride ->
-          let dtype, storage_key = storage_of_persid pid in
-          {
-            storage_key;
-            dtype;
-            storage_offset = int_of offset;
-            sizes = ints_of size;
-            strides = ints_of stride;
-          }
-      | _ -> fail "unexpected _rebuild_tensor_v2 arguments")
-  | _ -> fail "unexpected _rebuild_tensor_v2 arguments"
+          let open Core.Syntax in
+          let* dtype, storage_key = storage_of_persid pid in
+          let* storage_offset = int_of "storage_offset" offset in
+          let* sizes = ints_of "size" size in
+          let+ strides = ints_of "stride" stride in
+          { storage_key; dtype; storage_offset; sizes; strides }
+      | _ -> Core.fail `Unexpected_rebuild_args)
+  | _ -> Core.fail `Unexpected_rebuild_args
+
+let rec find_in_list = function
+  | [] -> Core.return None
+  | v :: vs -> (
+      let open Core.Syntax in
+      let* found = find_tensor v in
+      match found with Some _ -> Core.return found | None -> find_in_list vs)
+
+and find_in_dict = function
+  | [] -> Core.return None
+  | (k, v) :: rest -> (
+      let open Core.Syntax in
+      let* found = find_tensor k in
+      match found with
+      | Some _ -> Core.return found
+      | None -> (
+          let* found = find_tensor v in
+          match found with
+          | Some _ -> Core.return found
+          | None -> find_in_dict rest))
 
 (* Find the first _rebuild_tensor_v2 reduction anywhere in the value tree: a
    top-level tensor is wrapped by torch as ((tensor,), {}). *)
-let rec find_tensor (v : V.t) =
+and find_tensor (v : V.t) =
+  let open Core.Syntax in
   match v with
   | V.Reduce { func = V.Global { name = "_rebuild_tensor_v2"; _ }; args } ->
-      Some (rebuild_of_args args)
-  | V.Tuple a -> Array.find_map find_tensor a
-  | V.List r | V.Set r -> List.find_map find_tensor !r
-  | V.Frozenset l -> List.find_map find_tensor l
-  | V.Dict r ->
-      List.find_map
-        (fun (k, v) ->
-          match find_tensor k with Some _ as s -> s | None -> find_tensor v)
-        !r
+      let+ rb = rebuild_of_args args in
+      Some rb
+  | V.Tuple a -> find_in_list (Array.to_list a)
+  | V.List r | V.Set r -> find_in_list !r
+  | V.Frozenset l -> find_in_list l
+  | V.Dict r -> find_in_dict !r
   | V.Reduce { func; args } -> (
-      match find_tensor func with Some _ as s -> s | None -> find_tensor args)
+      let* found = find_tensor func in
+      match found with Some _ -> Core.return found | None -> find_tensor args)
   | V.Object { cls; args; state } -> (
-      match find_tensor cls with
-      | Some _ as s -> s
+      let* found = find_tensor cls in
+      match found with
+      | Some _ -> Core.return found
       | None -> (
-          match find_tensor args with
-          | Some _ as s -> s
-          | None -> Option.bind state find_tensor))
+          let* found = find_tensor args in
+          match (found, state) with
+          | Some _, _ -> Core.return found
+          | None, None -> Core.return None
+          | None, Some state -> find_tensor state))
   | V.Persistent id -> find_tensor id
-  | _ -> None
+  | _ -> Core.return None
 
 let parse_tensor s =
   match Opickle.of_string s with
-  | Error e -> fail (Opickle.Error.to_string e)
+  | Error e -> Core.fail (`Malformed_pickle (Opickle.Error.to_string e))
   | Ok v -> (
-      match find_tensor v with
-      | Some rb -> rb
-      | None -> fail "pickle did not yield a tensor")
+      let open Core.Syntax in
+      let* rb = find_tensor v in
+      match rb with
+      | Some rb -> Core.return rb
+      | None -> Core.fail `No_tensor_found)

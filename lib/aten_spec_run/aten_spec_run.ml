@@ -184,26 +184,34 @@ let to_node (spec : Aten_spec.Op_spec.t) =
   in
   (env, node)
 
+let pp_interp_error ppf = function
+  | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
+  | `Aten_runtime_failure (op, st) ->
+      Format.fprintf ppf "ATen op %s failed with status %d" op st
+  | `Unhandled_op target -> Format.fprintf ppf "unhandled op %S" target
+
 (* Execute the spec on both paths and report. Returns [true] if the native and
    ATen outputs agreed (or the op has no native impl, which is reported and
    treated as a pass), [false] on mismatch or error. *)
 let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
   let env, node = to_node spec in
   match Interp_dispatch.dispatch env node with
-  | exception Failure msg ->
-      (* The op has a binding/spec but no ATen interpreter arm (Aten_decode_gen
-         couldn't emit one): it isn't runnable on the ATen path, so report it as
-         a skip rather than letting the failure abort the walk. *)
-      Format.fprintf ppf "[spec] %s: skipped (aten interp: %s)@." node.target
-        msg;
+  | Error { Core.Error.kind = `Unhandled_op _; _ } ->
+      Format.fprintf ppf "[spec] %s: skipped (aten interp: unhandled op)@."
+        node.target;
       true
-  | env' -> (
+  | Error e ->
+      Format.fprintf ppf "[spec] %s: aten interp error: %a@." node.target
+        pp_interp_error e.Core.Error.kind;
+      false
+  | Ok env' -> (
       match Op_bridge.dispatch ~aten_env:env node with
       | None ->
           Format.fprintf ppf "[spec] %s: skipped (no native impl)@." node.target;
           true
-      | Some (Error msg) ->
-          Format.fprintf ppf "[spec] %s: bridge error: %s@." node.target msg;
+      | Some (Error e) ->
+          Format.fprintf ppf "[spec] %s: bridge error: %a@." node.target
+            Op_bridge.pp_error e.Core.Error.kind;
           false
       | Some (Ok (graph, bindings)) -> (
           match Eval_direct.run graph ~inputs:bindings with
@@ -245,41 +253,50 @@ let pp_native ppf packed =
 let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
     =
   let env, node = to_node spec in
-  let env' = Interp_dispatch.dispatch env node in
-  let out_names =
-    List.filter_map
-      (function Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
-      node.outputs
-  in
-  let native =
-    match Op_bridge.dispatch ~aten_env:env node with
-    | None -> `None
-    | Some (Error e) -> `Err e
-    | Some (Ok (graph, bindings)) -> (
-        match Eval_direct.run graph ~inputs:bindings with
-        | Error e ->
-            `Err
-              (Format.asprintf "eval error: %a" Eval_direct.pp_error
-                 e.Core.Error.kind)
-        | Ok result_env ->
-            `Ok
-              (List.map
-                 (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
-                 graph.Graph_ir.Graph.outputs))
-  in
-  Format.fprintf ppf "[eval] %s@." node.target;
-  List.iteri
-    (fun i name ->
-      (match String_map.find_opt name env' with
-      | Some t -> Format.fprintf ppf "  aten   %s = %a@." name pp_aten t
-      | None -> Format.fprintf ppf "  aten   %s = <missing>@." name);
-      match native with
-      | `None ->
-          if i = 0 then Format.fprintf ppf "  native = <no native impl>@."
-      | `Err e -> if i = 0 then Format.fprintf ppf "  native = <error: %s>@." e
-      | `Ok outs -> (
-          match List.nth_opt outs i with
-          | Some packed ->
-              Format.fprintf ppf "  native %s = %a@." name pp_native packed
-          | None -> Format.fprintf ppf "  native %s = <missing>@." name))
-    out_names
+  match Interp_dispatch.dispatch env node with
+  | Error e ->
+      Format.fprintf ppf "[eval] %s@.  aten = <error: %a>@." node.target
+        pp_interp_error e.Core.Error.kind
+  | Ok env' ->
+      let out_names =
+        List.filter_map
+          (function
+            | Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
+          node.outputs
+      in
+      let native =
+        match Op_bridge.dispatch ~aten_env:env node with
+        | None -> `None
+        | Some (Error e) -> `Bridge_error e
+        | Some (Ok (graph, bindings)) -> (
+            match Eval_direct.run graph ~inputs:bindings with
+            | Error e -> `Eval_error e
+            | Ok result_env ->
+                `Ok
+                  (List.map
+                     (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
+                     graph.Graph_ir.Graph.outputs))
+      in
+      Format.fprintf ppf "[eval] %s@." node.target;
+      List.iteri
+        (fun i name ->
+          (match String_map.find_opt name env' with
+          | Some t -> Format.fprintf ppf "  aten   %s = %a@." name pp_aten t
+          | None -> Format.fprintf ppf "  aten   %s = <missing>@." name);
+          match native with
+          | `None ->
+              if i = 0 then Format.fprintf ppf "  native = <no native impl>@."
+          | `Bridge_error e ->
+              if i = 0 then
+                Format.fprintf ppf "  native = <error: %a>@." Op_bridge.pp_error
+                  e.Core.Error.kind
+          | `Eval_error e ->
+              if i = 0 then
+                Format.fprintf ppf "  native = <error: eval error: %a>@."
+                  Eval_direct.pp_error e.Core.Error.kind
+          | `Ok outs -> (
+              match List.nth_opt outs i with
+              | Some packed ->
+                  Format.fprintf ppf "  native %s = %a@." name pp_native packed
+              | None -> Format.fprintf ppf "  native %s = <missing>@." name))
+        out_names

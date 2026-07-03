@@ -15,6 +15,18 @@
 
 module SMap = Map.Make (String)
 
+type error =
+  [ Pt2_archive.error
+  | Interp.error
+  | `Results_decode of string
+  | `No_reference of string ]
+
+let pp_error ppf : [< error ] -> unit = function
+  | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
+  | #Interp.error as e -> Interp.pp_error ppf e
+  | `Results_decode msg -> Format.fprintf ppf "results.json: %s" msg
+  | `No_reference key -> Format.fprintf ppf "no reference for %S" key
+
 let read_lines path =
   In_channel.with_open_text path (fun ic ->
       let rec go acc =
@@ -60,8 +72,8 @@ let results_jsont = Jsont.Object.as_string_map (Jsont.list pred_jsont)
 let decode_results path =
   let s = In_channel.with_open_bin path In_channel.input_all in
   match Jsont_bytesrw.decode_string results_jsont s with
-  | Ok m -> m
-  | Error e -> failwith ("results.json: " ^ e)
+  | Ok m -> Core.return m
+  | Error e -> Core.fail (`Results_decode e)
 
 type mode = Natural | Cram
 
@@ -75,7 +87,8 @@ let pp_match mode oc (local, refp) =
   | Cram -> ()
   | Natural -> Printf.fprintf oc " (%g, ref %g)" local refp
 
-let () =
+let main () =
+  let open Core.Syntax in
   let pt2 = Sys.argv.(1) and images_dir = Sys.argv.(2) in
   let synsets_path = Sys.argv.(3) and metadata_path = Sys.argv.(4) in
   let results_path = Sys.argv.(5) in
@@ -83,56 +96,75 @@ let () =
     if Array.length Sys.argv > 6 && Sys.argv.(6) = "--cram" then Cram
     else Natural
   in
-  let archive = Pt2_archive.open_pt2 pt2 in
+  let* archive =
+    Pt2_archive.open_pt2 pt2 |> Core.map_error (fun e -> (e :> error))
+  in
   let synsets = Array.of_list (read_lines synsets_path) in
   let names = names_of_metadata metadata_path in
   let label idx =
     let s = synsets.(idx) in
     s ^ " " ^ Option.value (Hashtbl.find_opt names s) ~default:"?"
   in
-  let results = decode_results results_path in
+  let* results = decode_results results_path in
   let files =
     Sys.readdir images_dir |> Array.to_list
     |> List.filter (fun f -> Filename.check_suffix f ".pt")
     |> List.sort String.compare
   in
-  List.iter
-    (fun f ->
-      let key = "images/" ^ f in
-      let image = Pt2_archive.load_pt (Filename.concat images_dir f) in
-      let t0 = Unix.gettimeofday () in
-      let logits = Interp.run archive image in
-      let dt_ms = (Unix.gettimeofday () -. t0) *. 1000. in
-      Printf.eprintf "%s: %.1f ms\n%!" key dt_ms;
-      let local = Interp.top_predictions logits 5 in
-      let expected =
-        match SMap.find_opt key results with
-        | Some ps -> ps
-        | None -> failwith ("no reference for " ^ key)
-      in
-      Printf.printf "=== %s ===\n" key;
-      let matches =
-        List.map fst local = List.map (fun p -> p.class_index) expected
-      in
-      if matches then
-        (* Top-5 agrees with the reference: show local probability and the
-           reference probability side by side (cram mode drops the pair). *)
-        List.iteri
-          (fun i (idx, prob) ->
-            let p = List.nth expected i in
-            Printf.printf "%d: %s%a\n" (i + 1) (label idx) (pp_match mode)
-              (prob, p.probability))
-          local
-      else begin
-        (* Disagreement: print both full rankings at natural precision. *)
-        print_endline "local:";
-        List.iteri
-          (fun i (idx, prob) ->
-            Printf.printf "%d: %s (%g)\n" (i + 1) (label idx) prob)
-          local;
-        print_endline "reference:";
-        List.iter
-          (fun p -> Printf.printf "%d: %s (%g)\n" p.rank p.label p.probability)
-          expected
-      end)
-    files
+  let* () =
+    Core.List.fold_left
+      (fun () f ->
+        let key = "images/" ^ f in
+        let* image =
+          Pt2_archive.load_pt (Filename.concat images_dir f)
+          |> Core.map_error (fun e -> (e :> error))
+        in
+        let t0 = Unix.gettimeofday () in
+        let* logits =
+          Interp.run archive image |> Core.map_error (fun e -> (e :> error))
+        in
+        let dt_ms = (Unix.gettimeofday () -. t0) *. 1000. in
+        Printf.eprintf "%s: %.1f ms\n%!" key dt_ms;
+        let* local =
+          Interp.top_predictions logits 5
+          |> Core.map_error (fun e -> (e :> error))
+        in
+        let* expected =
+          match SMap.find_opt key results with
+          | Some ps -> Core.return ps
+          | None -> Core.fail (`No_reference key)
+        in
+        Printf.printf "=== %s ===\n" key;
+        let matches =
+          List.map fst local = List.map (fun p -> p.class_index) expected
+        in
+        if matches then
+          List.iteri
+            (fun i (idx, prob) ->
+              let p = List.nth expected i in
+              Printf.printf "%d: %s%a\n" (i + 1) (label idx) (pp_match mode)
+                (prob, p.probability))
+            local
+        else begin
+          print_endline "local:";
+          List.iteri
+            (fun i (idx, prob) ->
+              Printf.printf "%d: %s (%g)\n" (i + 1) (label idx) prob)
+            local;
+          print_endline "reference:";
+          List.iter
+            (fun p ->
+              Printf.printf "%d: %s (%g)\n" p.rank p.label p.probability)
+            expected
+        end;
+        Core.return ())
+      () files
+  in
+  Core.return ()
+
+let () =
+  match main () with
+  | Ok () -> ()
+  | Error e ->
+      Format.eprintf "%a@." (Core.Error.pp pp_error) e;
+      exit 1

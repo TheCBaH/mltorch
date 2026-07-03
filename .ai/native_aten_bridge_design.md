@@ -64,16 +64,32 @@ is unambiguous.  Uses `Aten_tensor.of_bigarray` which copies the data.
 val dispatch :
   aten_env : Interp_decode.env ->
   node     : Pytorch_types.Node.t ->
-  (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, string) result option
+  ( Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list,
+    Op_bridge.error )
+  Core.result option
 ```
 
 - `None` — no native implementation; verification skips this node
-- `Some (Error msg)` — tensor conversion or param validation failed
+- `Some (Error e)` — decode / tensor-conversion / shape-validation failed, with
+  a typed `Op_bridge.error`
 - `Some (Ok (graph, bindings))` — a native graph encoding the op's computation
   (including relayout permutes where needed), plus input bindings mapping each
   graph input id to its pre-converted native tensor.  Callers evaluate the graph
   via `Eval_direct.run graph ~inputs:bindings` and extract outputs from
   `graph.outputs`.
+
+`Op_bridge.error` is intentionally small and boundary-oriented:
+- `Decode of Interp_decode.error` — argument lookup/kind/default failures lifted
+  from the interpreter decoder
+- `Tensor_bridge of { arg_name; message }` — ATen→native conversion failure for a
+  specific tensor argument
+- `Build of Graph_builder.error` — native graph construction failure
+- `Invalid_hw_arg { name; values }` — malformed `[h; w]` / `[v]` style config
+  lists
+- `Validation_failure of string` — low-level param conversion failure (for
+  example `Dim.extent` / `Op_config` checks)
+- op-specific invalid-rank variants such as
+  `Conv2d_padding_invalid_weight_rank of int array`
 
 ### Graph building
 
@@ -90,7 +106,8 @@ explicit `Permute` nodes before/after the core op (see `Op coverage` below and
 
 Tensor args are resolved from `aten_env` (ATen handles) and converted via
 `Tensor_bridge.of_aten`.  Non-tensor args (`int_arg`, `ints_arg`, `bool_arg`,
-`float_arg`, `scalar_arg`) reuse `Interp_decode`'s helpers directly.
+`float_arg`, `scalar_arg`) reuse `Interp_decode`'s result-returning helpers
+directly, and the bridge lifts those typed decode errors into `Op_bridge.error`.
 ```
 
 The `Direct` module (`lib/native/direct.ml`) has `type t = float` and `type
@@ -141,7 +158,10 @@ To add an op without relayout, add a match arm in `Op_bridge.dispatch`:
 4. Return `Some (Ok [result])`
 
 For ops requiring `op_config` param types (`Op_config.Pos.t`, `Hw.t`), validate
-ATen args at the boundary and fail explicitly if out-of-range.
+ATen args at the boundary and fail explicitly if out-of-range.  Rank-sensitive
+checks should stay typed as bridge errors rather than collapsing to ad hoc
+strings; for example `conv2d.padding` now reports
+`Conv2d_padding_invalid_weight_rank` carrying the offending weight shape.
 
 ## Dependency graph
 

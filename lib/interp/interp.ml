@@ -17,10 +17,30 @@ open Ctypes
 open Pytorch_types
 open Schema_runtime
 open Interp_decode
+open Core.Syntax
 module O = Aten_c.Aten_operations
 module TG = Aten_types_generated
 
 let tget = Aten_operation_description.tensors_get
+
+type error =
+  [ Pt2_archive.error
+  | Interp_decode.error
+  | `Aten_runtime_failure of string * int
+  | `Unhandled_op of string
+  | `Unexpected_graph_output of string
+  | `Topk_read_failed ]
+
+let pp_error ppf : [< error ] -> unit = function
+  | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
+  | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
+  | `Aten_runtime_failure (op, st) ->
+      Format.fprintf ppf "ATen op %s failed with status %d" op st
+  | `Unhandled_op target -> Format.fprintf ppf "unhandled op %S" target
+  | `Unexpected_graph_output summary ->
+      Format.fprintf ppf "expected a single tensor graph output, got %s" summary
+  | `Topk_read_failed ->
+      Format.pp_print_string ppf "failed to read topk outputs back from ATen"
 
 (* --- driver --- *)
 
@@ -41,6 +61,11 @@ let referenced_tensor_names (g : Graph.t) =
           | _ -> [])
         node.Node.inputs)
     g.Graph.nodes
+
+let graph_output_summary outputs =
+  match outputs with
+  | [ output ] -> Interp_decode.argument_kind_name output
+  | outputs -> Printf.sprintf "%d outputs" (List.length outputs)
 
 let run archive (image : Pt2_tensor.t) =
   let prog = Pt2_archive.program archive in
@@ -73,29 +98,40 @@ let run archive (image : Pt2_tensor.t) =
   (* Load exactly the parameters/buffers referenced by some node, so unused
      buffers (e.g. the int64 num_batches_tracked) never reach the float32
      bridge. *)
-  let env =
-    List.fold_left
+  let* env =
+    Core.List.fold_left
       (fun env name ->
-        if String_map.mem name env then env
+        if String_map.mem name env then Core.return env
         else
           match String_map.find_opt name params with
           | Some cfg_name ->
-              String_map.add name
-                (Pt2_aten.to_tensor (Pt2_archive.load_weight archive cfg_name))
-                env
-          | None -> env)
+              let* weight =
+                Pt2_archive.load_weight archive cfg_name
+                |> Core.map_error (fun e -> (e :> error))
+              in
+              Core.return (String_map.add name (Pt2_aten.to_tensor weight) env)
+          | None -> Core.return env)
       env
       (referenced_tensor_names g)
   in
-  let env = List.fold_left Interp_dispatch.dispatch env g.Graph.nodes in
+  let* env =
+    Core.List.fold_left
+      (fun env node ->
+        Interp_dispatch.dispatch env node
+        |> Core.map_error (fun e -> (e :> error)))
+      env g.Graph.nodes
+  in
   match g.Graph.outputs with
   | [ Argument.Tensor ta ] -> resolve env ta.TensorArgument.name
-  | _ -> failwith "interp: expected a single tensor graph output"
+  | outputs ->
+      Core.fail (`Unexpected_graph_output (graph_output_summary outputs))
 
 (* Index of the maximum element of the flattened logits, computed by ATen
    (at::argmax with dim=None) and read back as an int. *)
 let none_int = from_voidp int64_t null
-let argmax logits = Aten_tensor.item_int (O.argmax logits none_int false)
+
+let argmax logits =
+  Core.return (Aten_tensor.item_int (O.argmax logits none_int false))
 
 (* The [k] highest-scoring (class index, probability) pairs of [logits]
    ([1; classes]), descending: softmax over the last dim, then at::topk. *)
@@ -103,12 +139,14 @@ let top_predictions logits k =
   let probs = O._softmax logits 1L false in
   let out = make TG.tensors2_struct in
   let st = O.topk probs (Int64.of_int k) (-1L) true true (addr out) in
-  if st <> 0 then failwith "interp: topk failed";
-  match
-    ( Aten_tensor.data Aten_dtype.float32 (tget out TG.tensors2_v0),
-      Aten_tensor.data Aten_dtype.int64 (tget out TG.tensors2_v1) )
-  with
-  | Some vs, Some idx ->
-      List.init (Bigarray.Array1.dim idx) (fun i ->
-          (Int64.to_int idx.{i}, vs.{i}))
-  | _ -> failwith "interp: topk read failed"
+  if st <> 0 then Core.fail (`Aten_runtime_failure ("topk", st))
+  else
+    match
+      ( Aten_tensor.data Aten_dtype.float32 (tget out TG.tensors2_v0),
+        Aten_tensor.data Aten_dtype.int64 (tget out TG.tensors2_v1) )
+    with
+    | Some vs, Some idx ->
+        Core.return
+          (List.init (Bigarray.Array1.dim idx) (fun i ->
+               (Int64.to_int idx.{i}, vs.{i})))
+    | _ -> Core.fail `Topk_read_failed

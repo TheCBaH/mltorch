@@ -4,9 +4,29 @@ let col c = Dim.to_int (Vec6.get c Axis.W)
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 let f32 = Payload.Fmt Payload.F32
 
-let ok = function
-  | Ok x -> x
-  | Error e -> failwith (Format.asprintf "%a" Shape_error.pp e.Core.Error.kind)
+let pp_result pp_ok =
+  Fmt.result ~ok:pp_ok ~error:(fun ppf e ->
+      Shape_error.pp ppf e.Core.Error.kind)
+
+let pp_eval_result ppf (vals, ok) =
+  Format.fprintf ppf "eval=%s direct==symbolic=%b" vals ok
+
+let pp_ground_result ppf (tensor, ok) =
+  Format.fprintf ppf "grounded=%a match=%b" Tensor.pp tensor ok
+
+let compare_symbolic out_shape_result ~iter_shape ~eval_direct ~eval_symbolic =
+  let open Core.Syntax in
+  let* out_shape = out_shape_result in
+  let outs = ref [] and ok = ref true in
+  Vec6.iter iter_shape (fun c ->
+      let d = eval_direct c in
+      let s = eval_symbolic c in
+      outs := s :: !outs;
+      if not (Float.equal d s) then ok := false);
+  Core.return
+    ( String.concat "," (List.map (Printf.sprintf "%g") (List.rev !outs)),
+      !ok,
+      out_shape )
 
 let conv_axis ?(pad_before = 0) ?pad_after ?(dilation = 1) ~kernel ~stride () :
     Conv.Conv2d.axis_window =
@@ -33,6 +53,13 @@ let tensors_match shape a b =
   Vec6.iter shape (fun c ->
       if not (Float.equal (Tensor.read a c) (Tensor.read b c)) then ok := false);
   !ok
+
+let compare_grounded out_shape_result ~binding ~expr ~eval_direct =
+  let open Core.Syntax in
+  let* out_shape = out_shape_result in
+  let direct = Schedule.evaluate out_shape eval_direct in
+  let grounded = Schedule.ground out_shape ~binding expr in
+  Core.return (grounded, tensors_match out_shape direct grounded)
 
 let%expect_test "Symbolic: pointwise expr pp" =
   let module S = Symbolic.Make () in
@@ -77,9 +104,6 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
       ()
   in
   let p = conv_params ~kernel:(2, 2) ~stride:(1, 1) ~in_channels:1 () in
-  let out_shape =
-    ok (Conv.Conv2d.output_shape ~x_shape ~weight_shape:w_shape p)
-  in
   let e =
     Cs.pixel p ~x_shape ~weight_shape:w_shape ~x:xs ~weight:ws ~bias:bs
       Symbolic.out_coord
@@ -90,18 +114,16 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
   let binding (s : Tensor_sig.t) =
     if s.id = xs.id then x else if s.id = ws.id then weight else bias
   in
-  let outs = ref [] and ok = ref true in
-  Vec6.iter out_shape (fun c ->
-      let d =
-        Cd.pixel p ~x_shape ~weight_shape:w_shape ~x ~weight ~bias
-          (Schedule.coord_index c)
-      in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
-      outs := s :: !outs;
-      if not (Float.equal d s) then ok := false);
-  Format.printf "eval=%s direct==symbolic=%b@."
-    (String.concat "," (List.map (Printf.sprintf "%g") (List.rev !outs)))
-    !ok;
+  Format.printf "%a@." (pp_result pp_eval_result)
+    (compare_symbolic
+       (Conv.Conv2d.output_shape ~x_shape ~weight_shape:w_shape p)
+       ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1)
+       ~eval_direct:(fun c ->
+         Cd.pixel p ~x_shape ~weight_shape:w_shape ~x ~weight ~bias
+           (Schedule.coord_index c))
+       ~eval_symbolic:(fun c ->
+         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+    |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect {| eval=8,12,20,24 direct==symbolic=true |}]
 
 let%expect_test
@@ -129,18 +151,16 @@ let%expect_test
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let out_shape = ok (Pool.MaxPool2d.output_shape ~x_shape p) in
   let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_coord in
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else assert false in
-  let outs = ref [] and ok = ref true in
-  Vec6.iter out_shape (fun c ->
-      let d = Pd.pixel p ~x_shape ~x (Schedule.coord_index c) in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
-      outs := s :: !outs;
-      if not (Float.equal d s) then ok := false);
-  Format.printf "eval=%s direct==symbolic=%b@."
-    (String.concat "," (List.map (Printf.sprintf "%g") (List.rev !outs)))
-    !ok;
+  Format.printf "%a@." (pp_result pp_eval_result)
+    (compare_symbolic
+       (Pool.MaxPool2d.output_shape ~x_shape p)
+       ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:4 ~w:4 ~c:1)
+       ~eval_direct:(fun c -> Pd.pixel p ~x_shape ~x (Schedule.coord_index c))
+       ~eval_symbolic:(fun c ->
+         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+    |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect
     {| eval=-1,-1,-2,-3,-1,-1,-2,-3,-4,-4,-5,-6,-7,-7,-8,-9 direct==symbolic=true |}]
 
@@ -166,18 +186,16 @@ let%expect_test
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let out_shape = ok (Pool.AvgPool2d.output_shape ~x_shape p) in
   let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_coord in
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else assert false in
-  let outs = ref [] and ok = ref true in
-  Vec6.iter out_shape (fun c ->
-      let d = Pd.pixel p ~x_shape ~x (Schedule.coord_index c) in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
-      outs := s :: !outs;
-      if not (Float.equal d s) then ok := false);
-  Format.printf "eval=%s direct==symbolic=%b@."
-    (String.concat "," (List.map (Printf.sprintf "%g") (List.rev !outs)))
-    !ok;
+  Format.printf "%a@." (pp_result pp_eval_result)
+    (compare_symbolic
+       (Pool.AvgPool2d.output_shape ~x_shape p)
+       ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1)
+       ~eval_direct:(fun c -> Pd.pixel p ~x_shape ~x (Schedule.coord_index c))
+       ~eval_symbolic:(fun c ->
+         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+    |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect
     {| eval=0.25,0.5,0.25,0.5,1,0.5,0.25,0.5,0.25 direct==symbolic=true |}]
 
@@ -212,20 +230,19 @@ let%expect_test "Symbolic linear: eval matches Direct" =
       ~fmt:f32 ()
   in
   let p = { Linear.Linear.in_features = Dim.extent 3 } in
-  let out_shape = ok (Linear.Linear.output_shape p ~x_shape ~weight_shape) in
   let e = Ls.pixel p ~x:xs ~weight:ws ~bias:bs Symbolic.out_coord in
   let binding (s : Tensor_sig.t) =
     if s.id = xs.id then x else if s.id = ws.id then weight else bias
   in
-  let outs = ref [] and ok = ref true in
-  Vec6.iter out_shape (fun c ->
-      let d = Ld.pixel p ~x ~weight ~bias (Schedule.coord_index c) in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
-      outs := s :: !outs;
-      if not (Float.equal d s) then ok := false);
-  Format.printf "eval=%s direct==symbolic=%b@."
-    (String.concat "," (List.map (Printf.sprintf "%g") (List.rev !outs)))
-    !ok;
+  Format.printf "%a@." (pp_result pp_eval_result)
+    (compare_symbolic
+       (Linear.Linear.output_shape p ~x_shape ~weight_shape)
+       ~iter_shape:(s1c 2)
+       ~eval_direct:(fun c ->
+         Ld.pixel p ~x ~weight ~bias (Schedule.coord_index c))
+       ~eval_symbolic:(fun c ->
+         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+    |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect {| eval=11,105 direct==symbolic=true |}]
 
 (* Grounding: the [pixel] expression is built exactly once per op below, then
@@ -252,14 +269,11 @@ let%expect_test "Symbolic ground: relu over several different inputs" =
       let binding (s : Tensor_sig.t) =
         if s.id = xs.id then x else assert false
       in
-      let direct =
-        Schedule.evaluate
-          (ok (Pointwise.Relu.output_shape x_shape))
-          (Rd.pixel x)
-      in
-      let grounded = Schedule.ground x_shape ~binding e in
-      Format.printf "grounded=%a match=%b@." Tensor.pp grounded
-        (tensors_match x_shape direct grounded))
+      Format.printf "%a@."
+        (pp_result pp_ground_result)
+        (compare_grounded
+           (Pointwise.Relu.output_shape x_shape)
+           ~binding ~expr:e ~eval_direct:(Rd.pixel x)))
     inputs;
   [%expect
     {|
@@ -282,7 +296,6 @@ let%expect_test "Symbolic ground: add over several different input pairs" =
       ()
   in
   let e = A.pixel ~a_shape:x_shape ~b_shape:y_shape xs ys Symbolic.out_coord in
-  let out_shape = ok (Pointwise.Add.output_shape x_shape y_shape) in
   let cases =
     [
       ([| 1.; 2.; 3. |], [| 10.; 10.; 10. |]);
@@ -297,13 +310,12 @@ let%expect_test "Symbolic ground: add over several different input pairs" =
       let binding (s : Tensor_sig.t) =
         if s.id = xs.id then x else if s.id = ys.id then y else assert false
       in
-      let direct =
-        Schedule.evaluate out_shape
-          (Ad.pixel ~a_shape:x_shape ~b_shape:y_shape x y)
-      in
-      let grounded = Schedule.ground out_shape ~binding e in
-      Format.printf "grounded=%a match=%b@." Tensor.pp grounded
-        (tensors_match out_shape direct grounded))
+      Format.printf "%a@."
+        (pp_result pp_ground_result)
+        (compare_grounded
+           (Pointwise.Add.output_shape x_shape y_shape)
+           ~binding ~expr:e
+           ~eval_direct:(Ad.pixel ~a_shape:x_shape ~b_shape:y_shape x y)))
     cases;
   [%expect
     {|
@@ -332,7 +344,6 @@ let%expect_test
       ()
   in
   let p = conv_params ~kernel:(2, 2) ~stride:(1, 1) ~in_channels:1 () in
-  let out_shape = ok (Conv.Conv2d.output_shape ~x_shape ~weight_shape p) in
   let e =
     Cs.pixel p ~x_shape ~weight_shape ~x:xs ~weight:ws ~bias:bs
       Symbolic.out_coord
@@ -354,13 +365,12 @@ let%expect_test
       let binding (s : Tensor_sig.t) =
         if s.id = xs.id then x else if s.id = ws.id then weight else bias
       in
-      let direct =
-        Schedule.evaluate out_shape
-          (Cd.pixel p ~x_shape ~weight_shape ~x ~weight ~bias)
-      in
-      let grounded = Schedule.ground out_shape ~binding e in
-      Format.printf "grounded=%a match=%b@." Tensor.pp grounded
-        (tensors_match out_shape direct grounded))
+      Format.printf "%a@."
+        (pp_result pp_ground_result)
+        (compare_grounded
+           (Conv.Conv2d.output_shape ~x_shape ~weight_shape p)
+           ~binding ~expr:e
+           ~eval_direct:(Cd.pixel p ~x_shape ~weight_shape ~x ~weight ~bias)))
     cases;
   [%expect
     {|
@@ -389,7 +399,6 @@ let%expect_test "Symbolic ground: max_pool2d over several different inputs" =
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let out_shape = ok (Pool.MaxPool2d.output_shape ~x_shape p) in
   let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_coord in
   let inputs =
     [
@@ -404,10 +413,11 @@ let%expect_test "Symbolic ground: max_pool2d over several different inputs" =
       let binding (s : Tensor_sig.t) =
         if s.id = xs.id then x else assert false
       in
-      let direct = Schedule.evaluate out_shape (Pd.pixel p ~x_shape ~x) in
-      let grounded = Schedule.ground out_shape ~binding e in
-      Format.printf "grounded=%a match=%b@." Tensor.pp grounded
-        (tensors_match out_shape direct grounded))
+      Format.printf "%a@."
+        (pp_result pp_ground_result)
+        (compare_grounded
+           (Pool.MaxPool2d.output_shape ~x_shape p)
+           ~binding ~expr:e ~eval_direct:(Pd.pixel p ~x_shape ~x)))
     inputs;
   [%expect
     {|
@@ -436,7 +446,6 @@ let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let out_shape = ok (Pool.AvgPool2d.output_shape ~x_shape p) in
   let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_coord in
   let inputs =
     [
@@ -451,10 +460,11 @@ let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
       let binding (s : Tensor_sig.t) =
         if s.id = xs.id then x else assert false
       in
-      let direct = Schedule.evaluate out_shape (Pd.pixel p ~x_shape ~x) in
-      let grounded = Schedule.ground out_shape ~binding e in
-      Format.printf "grounded=%a match=%b@." Tensor.pp grounded
-        (tensors_match out_shape direct grounded))
+      Format.printf "%a@."
+        (pp_result pp_ground_result)
+        (compare_grounded
+           (Pool.AvgPool2d.output_shape ~x_shape p)
+           ~binding ~expr:e ~eval_direct:(Pd.pixel p ~x_shape ~x)))
     inputs;
   [%expect
     {|
@@ -484,7 +494,6 @@ let%expect_test
       ~fmt:f32 ()
   in
   let p = { Linear.Linear.in_features = Dim.extent 3 } in
-  let out_shape = ok (Linear.Linear.output_shape p ~x_shape ~weight_shape) in
   let e = Ls.pixel p ~x:xs ~weight:ws ~bias:bs Symbolic.out_coord in
   let select_w c =
     match (Dim.to_int (Vec6.get c Axis.N), chan c) with
@@ -507,10 +516,12 @@ let%expect_test
       let binding (s : Tensor_sig.t) =
         if s.id = xs.id then x else if s.id = ws.id then weight else bias
       in
-      let direct = Schedule.evaluate out_shape (Ld.pixel p ~x ~weight ~bias) in
-      let grounded = Schedule.ground out_shape ~binding e in
-      Format.printf "grounded=%a match=%b@." Tensor.pp grounded
-        (tensors_match out_shape direct grounded))
+      Format.printf "%a@."
+        (pp_result pp_ground_result)
+        (compare_grounded
+           (Linear.Linear.output_shape p ~x_shape ~weight_shape)
+           ~binding ~expr:e
+           ~eval_direct:(Ld.pixel p ~x ~weight ~bias)))
     cases;
   [%expect
     {|
@@ -529,7 +540,6 @@ let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
       ()
   in
   let p = { Reduce.Mean.dims = [ Axis.H; Axis.W ]; keepdim = true } in
-  let out_shape = ok (Reduce.Mean.output_shape ~x_shape p) in
   let e = Ms.pixel p ~x_shape ~x:xs Symbolic.out_coord in
   let inputs =
     [
@@ -544,10 +554,11 @@ let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
       let binding (s : Tensor_sig.t) =
         if s.id = xs.id then x else assert false
       in
-      let direct = Schedule.evaluate out_shape (Md.pixel p ~x_shape ~x) in
-      let grounded = Schedule.ground out_shape ~binding e in
-      Format.printf "grounded=%a match=%b@." Tensor.pp grounded
-        (tensors_match out_shape direct grounded))
+      Format.printf "%a@."
+        (pp_result pp_ground_result)
+        (compare_grounded
+           (Reduce.Mean.output_shape ~x_shape p)
+           ~binding ~expr:e ~eval_direct:(Md.pixel p ~x_shape ~x)))
     inputs;
   [%expect
     {|
@@ -572,22 +583,20 @@ let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
       ()
   in
   let p = { Norm.RmsNorm.dims = [ Axis.C ]; eps = 0. } in
-  let out_shape = ok (Norm.RmsNorm.output_shape ~x_shape) in
   let e = Rs.pixel p ~x_shape ~x:xs ~weight:ws Symbolic.out_coord in
   Format.printf "%a@." Expr.pp e;
   [%expect
     {| ((x[N,T,D,H,W,C] * (1 / sqrt(((sum(r1=0..2: (x[N,T,D,H,W,r1] * x[N,T,D,H,W,r1])) / 2) + 0)))) * w[0,0,0,0,0,C]) |}];
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else weight in
-  let outs = ref [] and ok = ref true in
-  Vec6.iter out_shape (fun c ->
-      let d = Rd.pixel p ~x_shape ~x ~weight (Schedule.coord_index c) in
-      let s = Expr.eval ~binding ~coord:(Schedule.coord_index c) e in
-      outs := s :: !outs;
-      if not (Float.equal d s) then ok := false);
-  (* mean(1²,7²)=25, sqrt=5, x/5 -> {0.2, 1.4} *)
-  Format.printf "eval=%s direct==symbolic=%b@."
-    (String.concat "," (List.map (Printf.sprintf "%g") (List.rev !outs)))
-    !ok;
+  Format.printf "%a@." (pp_result pp_eval_result)
+    (compare_symbolic
+       (Norm.RmsNorm.output_shape ~x_shape)
+       ~iter_shape:(s1c 2)
+       ~eval_direct:(fun c ->
+         Rd.pixel p ~x_shape ~x ~weight (Schedule.coord_index c))
+       ~eval_symbolic:(fun c ->
+         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+    |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect {| eval=0.2,1.4 direct==symbolic=true |}]
 
 let%expect_test
@@ -606,7 +615,6 @@ let%expect_test
     Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"mat2" ~shape:mat2_shape
       ~fmt:f32 ()
   in
-  let out_shape = ok (Matmul.Bmm.output_shape ~input_shape ~mat2_shape) in
   let e = Bs.pixel ~input_shape ~input:ins ~mat2:m2s Symbolic.out_coord in
   let batch h = Dim.to_int (Vec6.get h Axis.H) in
   let cases =
@@ -634,12 +642,12 @@ let%expect_test
         else if s.id = m2s.id then mat2
         else assert false
       in
-      let direct =
-        Schedule.evaluate out_shape (Bd.pixel ~input_shape ~input ~mat2)
-      in
-      let grounded = Schedule.ground out_shape ~binding e in
-      Format.printf "grounded=%a match=%b@." Tensor.pp grounded
-        (tensors_match out_shape direct grounded))
+      Format.printf "%a@."
+        (pp_result pp_ground_result)
+        (compare_grounded
+           (Matmul.Bmm.output_shape ~input_shape ~mat2_shape)
+           ~binding ~expr:e
+           ~eval_direct:(Bd.pixel ~input_shape ~input ~mat2)))
     cases;
   [%expect
     {|

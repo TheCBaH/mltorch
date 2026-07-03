@@ -8,6 +8,9 @@ let contains s sub =
   let rec go i = i + m <= n && (String.sub s i m = sub || go (i + 1)) in
   go 0
 
+let pp_dim_result pp_ok =
+  Fmt.result ~ok:pp_ok ~error:(fun ppf e -> Dim.pp_error ppf e.Core.Error.kind)
+
 (* Deterministic payload messages — the real regression guard. *)
 let%expect_test "component pp_error messages" =
   Format.printf "%a@." Dim.pp_error (`Non_positive_extent (-3));
@@ -99,12 +102,24 @@ let%expect_test "combinators: >>| >>= map_error Core.List.map" =
     Core.fail (`Non_positive_extent (-5)) |> Core.map_error (fun _ -> `Renamed)
   in
   let pos x = if x >= 0 then Core.return x else Core.fail (`Neg x) in
-  Format.printf "r1=%d lifted=%s listok=%b listerr=%b@." (Result.get_ok r1)
-    (match lifted with
-    | Ok () -> "ok"
-    | Error e -> if e.Core.Error.kind = `Renamed then "Renamed" else "?")
-    (Core.List.map pos [ 1; 2; 3 ] = Ok [ 1; 2; 3 ])
-    (match Core.List.map pos [ 1; -2; 3 ] with
-    | Error _ -> true
-    | Ok _ -> false);
+  let summary =
+    let* r1n = r1 in
+    let lifted_name =
+      match lifted with
+      | Ok () -> "ok"
+      | Error e -> if e.Core.Error.kind = `Renamed then "Renamed" else "?"
+    in
+    Core.return
+      ( r1n,
+        lifted_name,
+        Core.List.map pos [ 1; 2; 3 ] = Ok [ 1; 2; 3 ],
+        match Core.List.map pos [ 1; -2; 3 ] with
+        | Error _ -> true
+        | Ok _ -> false )
+  in
+  let pp_summary ppf (r1n, lifted, listok, listerr) =
+    Format.fprintf ppf "r1=%d lifted=%s listok=%b listerr=%b" r1n lifted listok
+      listerr
+  in
+  Format.printf "%a@." (pp_dim_result pp_summary) summary;
   [%expect {| r1=10 lifted=Renamed listok=true listerr=true |}]

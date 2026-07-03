@@ -64,40 +64,48 @@ let anchor_of (args : A.Argument.t list) =
    no preamble. Returns [None] for an unsupported type. *)
 let decode_arg ~anchor (a : A.Argument.t) =
   let q = Printf.sprintf "%S" a.name in
-  let single e = Some ([], [ e ]) in
+  let bind var call exprs =
+    Some ([ Printf.sprintf "let* %s = %s in" var call ], exprs)
+  in
   match a.ty with
   | A.Type.Base A.Base.Tensor -> (
-      if Some a.name = anchor then single a.name
+      if Some a.name = anchor then
+        bind a.name (Printf.sprintf "(tensor_arg env node %s)" q) [ a.name ]
       else
         match anchor with
         | Some like ->
-            single
+            bind a.name
               (Printf.sprintf "(tensor_or_scalar_arg env node %s ~like:%s)" q
                  like)
-        | None -> single (Printf.sprintf "(tensor_arg env node %s)" q))
+              [ a.name ]
+        | None ->
+            bind a.name (Printf.sprintf "(tensor_arg env node %s)" q) [ a.name ]
+      )
   | A.Type.Optional (A.Type.Base A.Base.Tensor) ->
-      single (Printf.sprintf "(tensor_arg env node %s)" q)
+      bind a.name (Printf.sprintf "(tensor_arg env node %s)" q) [ a.name ]
   | A.Type.Base A.Base.Int | A.Type.Base A.Base.SymInt ->
       let d =
         match a.default with
         | Some (A.Default.Int n) -> Printf.sprintf " ~default:%s" (lit n)
         | _ -> ""
       in
-      single (Printf.sprintf "(Int64.of_int (int_arg%s node %s))" d q)
+      bind a.name
+        (Printf.sprintf "(int_arg%s node %s)" d q)
+        [ Printf.sprintf "(Int64.of_int %s)" a.name ]
   | A.Type.Base A.Base.Float ->
       let d =
         match a.default with
         | Some (A.Default.Float s) -> Printf.sprintf " ~default:%s" (litf s)
         | _ -> ""
       in
-      single (Printf.sprintf "(float_arg%s node %s)" d q)
+      bind a.name (Printf.sprintf "(float_arg%s node %s)" d q) [ a.name ]
   | A.Type.Base A.Base.Bool ->
       let d =
         match a.default with
         | Some (A.Default.Bool b) -> Printf.sprintf " ~default:%b" b
         | _ -> ""
       in
-      single (Printf.sprintf "(bool_arg%s node %s)" d q)
+      bind a.name (Printf.sprintf "(bool_arg%s node %s)" d q) [ a.name ]
   | A.Type.Base A.Base.Scalar ->
       let d =
         match a.default with
@@ -107,25 +115,29 @@ let decode_arg ~anchor (a : A.Argument.t) =
             Printf.sprintf " ~default:(Aten_scalar.Float %s)" (litf s)
         | _ -> ""
       in
-      single (Printf.sprintf "(scalar_arg%s node %s)" d q)
+      bind a.name (Printf.sprintf "(scalar_arg%s node %s)" d q) [ a.name ]
   | A.Type.Optional (A.Type.Base A.Base.Scalar) ->
-      single (Printf.sprintf "(scalar_opt_arg node %s)" q)
+      bind a.name (Printf.sprintf "(scalar_opt_arg node %s)" q) [ a.name ]
   | A.Type.Optional (A.Type.Base A.Base.Float) ->
-      single (Printf.sprintf "(float_opt_ptr node %s)" q)
+      bind a.name (Printf.sprintf "(float_opt_ptr node %s)" q) [ a.name ]
   | A.Type.Optional (A.Type.Base A.Base.Bool) ->
-      single (Printf.sprintf "(bool_opt_arg node %s)" q)
+      bind a.name (Printf.sprintf "(bool_opt_arg node %s)" q) [ a.name ]
   | A.Type.Optional (A.Type.Base A.Base.MemoryFormat) ->
-      single (Printf.sprintf "(memory_format_opt_arg node %s)" q)
+      bind a.name
+        (Printf.sprintf "(memory_format_opt_arg node %s)" q)
+        [ a.name ]
   | A.Type.Optional (A.Type.Base A.Base.ScalarType) ->
-      single (Printf.sprintf "(scalar_type_opt_arg node %s)" q)
+      bind a.name (Printf.sprintf "(scalar_type_opt_arg node %s)" q) [ a.name ]
   | A.Type.Optional (A.Type.Base A.Base.Layout) ->
-      single (Printf.sprintf "(layout_opt_arg node %s)" q)
+      bind a.name (Printf.sprintf "(layout_opt_arg node %s)" q) [ a.name ]
   | A.Type.Optional (A.Type.Base A.Base.Device) ->
-      single (Printf.sprintf "(device_opt_arg node %s)" q)
+      bind a.name (Printf.sprintf "(device_opt_arg node %s)" q) [ a.name ]
   | A.Type.Base A.Base.Str -> (
       match a.default with
       | Some (A.Default.Str s) ->
-          single (Printf.sprintf "(string_arg ~default:%S node %s)" s q)
+          bind a.name
+            (Printf.sprintf "(string_arg ~default:%S node %s)" s q)
+            [ a.name ]
       | _ -> None)
   (* int[] / SymInt[] and their optional forms all lower to a (data, len) pair;
      mean.dim's int[1]? dim is decoded just like a present list (the exporter
@@ -136,14 +148,14 @@ let decode_arg ~anchor (a : A.Argument.t) =
     ->
       let d = int_list_default a.default size in
       Some
-        ( [ Printf.sprintf "let %s = ints_arg%s node %s in" a.name d q ],
+        ( [ Printf.sprintf "let* %s = ints_arg%s node %s in" a.name d q ],
           [
             Printf.sprintf "(arr %s)" a.name;
             Printf.sprintf "(List.length %s)" a.name;
           ] )
   | A.Type.List (A.Type.Base A.Base.Tensor, _) ->
       Some
-        ( [ Printf.sprintf "let %s = tensors_arg env node %s in" a.name q ],
+        ( [ Printf.sprintf "let* %s = tensors_arg env node %s in" a.name q ],
           [
             Printf.sprintf "(tensor_carray %s)" a.name;
             Printf.sprintf "(List.length %s)" a.name;
@@ -167,12 +179,6 @@ let dispatch_arm (op : A.t) : string option =
           let decoded = List.map Option.get decoded in
           let preambles = List.concat_map fst decoded in
           let exprs = List.concat_map snd decoded in
-          let anchor_pre =
-            match anchor with
-            | Some a ->
-                [ Printf.sprintf "let %s = tensor_arg env node %S in" a a ]
-            | None -> []
-          in
           let call =
             Printf.sprintf "O.%s %s" (ocaml_name op) (String.concat " " exprs)
           in
@@ -189,12 +195,13 @@ let dispatch_arm (op : A.t) : string option =
                   Printf.sprintf "let out = make TG.tensors%d_struct in" nret;
                   Printf.sprintf "let st = %s (addr out) in" call;
                   Printf.sprintf
-                    "if st <> 0 then failwith \"interp: %s failed\";"
+                    "if st <> 0 then Core.fail (`Aten_runtime_failure (%S, \
+                     st)) else"
                     (ocaml_name op);
                   Printf.sprintf "bind_many env node [ %s ]" reads;
                 ]
           in
-          let lines = anchor_pre @ preambles @ [ body ] in
+          let lines = preambles @ [ body ] in
           Some
             (Printf.sprintf "  | %S ->\n      %s" (target op)
                (String.concat "\n      " lines))
@@ -216,14 +223,15 @@ let file (ops : A.t list) : string =
 open Ctypes
 open Pytorch_types
 open Interp_decode
+open Core.Syntax
 module O = Aten_c.Aten_operations
 module TG = Aten_types_generated
 
 let tget = Aten_operation_description.tensors_get
 
-let dispatch (env : env) (node : Node.t) : env =
+let dispatch (env : env) (node : Node.t) =
   match node.target with
 %s
-  | other -> failwith ("interp: unhandled op " ^ other)
+  | other -> Core.fail (`Unhandled_op other)
 |}
     banner (String.concat "\n" arms)

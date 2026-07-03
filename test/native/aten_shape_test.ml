@@ -5,7 +5,11 @@ let pp_ints fmt a =
     (String.concat ";" (Array.to_list (Array.map string_of_int a)))
 
 (* [of_aten] now returns a result; these cases use only valid shapes. *)
-let of_aten a = Result.get_ok (Aten_shape.of_aten a)
+let of_aten a =
+  match Aten_shape.of_aten a with
+  | Ok shape -> shape
+  | Error e ->
+      failwith (Format.asprintf "%a" Aten_shape.pp_error e.Core.Error.kind)
 
 let%expect_test "of_aten: right-aligned into innermost axes" =
   Format.printf "%a@." Vec6.pp_shape (of_aten [| 6; 7; 8 |]);

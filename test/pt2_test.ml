@@ -14,29 +14,56 @@ let le32 b v =
    writer our reader is built on, so it exercises a real, CRC-correct archive. *)
 let make_zip entries =
   let add z (path, data) =
-    let file = Result.get_ok (Zipc.File.stored_of_binary_string data) in
-    let m = Result.get_ok (Zipc.Member.make ~path (Zipc.Member.File file)) in
+    let file =
+      match Zipc.File.stored_of_binary_string data with
+      | Ok file -> file
+      | Error e -> failwith ("Zipc.File.stored_of_binary_string: " ^ e)
+    in
+    let m =
+      match Zipc.Member.make ~path (Zipc.Member.File file) with
+      | Ok m -> m
+      | Error e -> failwith ("Zipc.Member.make: " ^ e)
+    in
     Zipc.add m z
   in
-  Result.get_ok (Zipc.to_binary_string (List.fold_left add Zipc.empty entries))
+  match Zipc.to_binary_string (List.fold_left add Zipc.empty entries) with
+  | Ok s -> s
+  | Error e -> failwith ("Zipc.to_binary_string: " ^ e)
 
 let%expect_test "zip round-trips STORED entries (incl. relative prefix)" =
-  let zip =
+  match
     Pt2_zip.of_string
       (make_zip
          [ ("m/models/model.json", "{\"k\":1}"); ("m/data/0", "raw-bytes") ])
-  in
-  Printf.printf "prefix=%s\n" (Pt2_zip.prefix zip);
-  Printf.printf "model.json=%s\n" (Pt2_zip.read_rel_exn zip "models/model.json");
-  Printf.printf "data/0=%s\n" (Pt2_zip.read_rel_exn zip "data/0");
-  Printf.printf "missing=%b\n" (Pt2_zip.read zip "m/nope" = None);
-  [%expect
-    {|
+  with
+  | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind
+  | Ok zip ->
+      Printf.printf "prefix=%s\n" (Pt2_zip.prefix zip);
+      (match Pt2_zip.read_rel_required zip "models/model.json" with
+      | Ok s -> Printf.printf "model.json=%s\n" s
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+      (match Pt2_zip.read_rel_required zip "data/0" with
+      | Ok s -> Printf.printf "data/0=%s\n" s
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+      (match Pt2_zip.read zip "m/nope" with
+      | Ok missing -> Printf.printf "missing=%b\n" (missing = None)
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+      [%expect
+        {|
     prefix=m
     model.json={"k":1}
     data/0=raw-bytes
     missing=true
     |}]
+
+let%expect_test "zip missing entry is typed" =
+  match Pt2_zip.of_string (make_zip [ ("m/data/0", "raw-bytes") ]) with
+  | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind
+  | Ok zip ->
+      (match Pt2_zip.read_rel_required zip "models/model.json" with
+      | Ok _ -> print_endline "unexpected success"
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+      [%expect {| zip entry "m/models/model.json" is missing |}]
 
 (* --- Pt2_tensor --- *)
 
@@ -61,6 +88,22 @@ let%expect_test "metadata: numel, contiguity, pp" =
     (Pt2_tensor.is_contiguous c)
     (Pt2_tensor.is_contiguous s);
   [%expect {| float32[2; 3] numel=6 contig(c)=true contig(s)=false |}]
+
+let%expect_test "dtype and tensor metadata failures are typed" =
+  (match Pt2_dtype.of_scalar_type Pytorch_types.ScalarType.HALF with
+  | Ok _ -> print_endline "unexpected success"
+  | Error e -> Format.printf "%a@." Pt2_dtype.pp_error e.Core.Error.kind);
+  (match
+     Pt2_tensor.int_of_symint ~field:"sizes"
+       (Pytorch_types.SymInt.Expr (Pytorch_types.SymExpr.make "s0" None))
+   with
+  | Ok _ -> print_endline "unexpected success"
+  | Error e -> Format.printf "%a@." Pt2_tensor.pp_error e.Core.Error.kind);
+  [%expect
+    {|
+    unsupported ScalarType HALF
+    symbolic tensor metadata is unsupported for sizes
+    |}]
 
 (* --- Pt2_pickle --- *)
 
@@ -112,11 +155,21 @@ let tensor_pickle () =
   Buffer.contents b
 
 let%expect_test "pickle yields rebuild descriptor" =
-  let rb = Pt2_pickle.parse_tensor (tensor_pickle ()) in
-  Printf.printf "key=%s dtype=%s offset=%d sizes=[%s] strides=[%s]\n"
-    rb.Pt2_pickle.storage_key
-    (Pt2_dtype.to_string rb.Pt2_pickle.dtype)
-    rb.Pt2_pickle.storage_offset
-    (String.concat ";" (List.map string_of_int rb.Pt2_pickle.sizes))
-    (String.concat ";" (List.map string_of_int rb.Pt2_pickle.strides));
-  [%expect {| key=0 dtype=float32 offset=0 sizes=[2;2] strides=[2;1] |}]
+  match Pt2_pickle.parse_tensor (tensor_pickle ()) with
+  | Error e -> Format.printf "%a@." Pt2_pickle.pp_error e.Core.Error.kind
+  | Ok rb ->
+      Printf.printf "key=%s dtype=%s offset=%d sizes=[%s] strides=[%s]\n"
+        rb.Pt2_pickle.storage_key
+        (Pt2_dtype.to_string rb.Pt2_pickle.dtype)
+        rb.Pt2_pickle.storage_offset
+        (String.concat ";" (List.map string_of_int rb.Pt2_pickle.sizes))
+        (String.concat ";" (List.map string_of_int rb.Pt2_pickle.strides));
+      [%expect {| key=0 dtype=float32 offset=0 sizes=[2;2] strides=[2;1] |}]
+
+let%expect_test "pickle failures are typed" =
+  match Pt2_pickle.parse_tensor "not a pickle" with
+  | Ok _ -> print_endline "unexpected success"
+  | Error e ->
+      Format.printf "%a@." Pt2_pickle.pp_error e.Core.Error.kind;
+      [%expect
+        {| pickle decode failed: pickle error at byte 1: unknown opcode 0x6e |}]

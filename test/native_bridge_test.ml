@@ -24,7 +24,12 @@ let native_f32 shape vals =
   let n = List.fold_left ( * ) 1 shape in
   let data = Array1.create float32 c_layout n in
   List.iteri (fun i x -> data.{i} <- x) vals;
-  let shape6 = Result.get_ok (Aten_shape.of_aten (Array.of_list shape)) in
+  let shape6 =
+    match Aten_shape.of_aten (Array.of_list shape) with
+    | Ok shape6 -> shape6
+    | Error e ->
+        failwith (Format.asprintf "%a" Aten_shape.pp_error e.Core.Error.kind)
+  in
   Tensor.Tensor
     {
       shape = shape6;
@@ -35,7 +40,12 @@ let native_i64 shape vals =
   let n = List.fold_left ( * ) 1 shape in
   let data = Array1.create int64 c_layout n in
   List.iteri (fun i x -> data.{i} <- x) vals;
-  let shape6 = Result.get_ok (Aten_shape.of_aten (Array.of_list shape)) in
+  let shape6 =
+    match Aten_shape.of_aten (Array.of_list shape) with
+    | Ok shape6 -> shape6
+    | Error e ->
+        failwith (Format.asprintf "%a" Aten_shape.pp_error e.Core.Error.kind)
+  in
   Tensor.Tensor
     {
       shape = shape6;
@@ -179,7 +189,8 @@ let dispatch_print_with_graph ~print_graph ~target ~bindings ~inputs ~noutputs =
   let node = PT.Node.make target inputs outputs Sm.empty None (Some "test") in
   match Op_bridge.dispatch ~aten_env:env node with
   | None -> print_string "no native impl\n"
-  | Some (Error e) -> Printf.printf "error: %s\n" e
+  | Some (Error e) ->
+      Format.printf "error: %a@." Op_bridge.pp_error e.Core.Error.kind
   | Some (Ok (graph, bindings)) -> (
       if print_graph then Format.printf "%a@." Graph_ir.pp graph;
       match Eval_direct.run graph ~inputs:bindings with
@@ -319,6 +330,24 @@ let%expect_test "dispatch: conv2d.padding same uses distinct native op" =
         permute x=t4(conv2d_padding_4) perm=[H<-C, W<-H, C<-W]
     outputs: [t5 permute_5:f32 [W=3 C=3]]
     tensor f32 [W=3 C=3] {8, 12, 7, 20, 24, 13, 13, 15, ...} |}]
+
+let%expect_test "dispatch: conv2d.padding invalid weight rank is typed" =
+  let x = float_tensor [ 1; 1; 3; 3 ] (List.init 9 float_of_int) in
+  let w = float_tensor [ 1; 4 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print ~target:"torch.ops.aten.conv2d.padding"
+    ~bindings:[ ("input", x); ("weight", w) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_none "bias";
+        in_ints "stride" [ 1; 1 ];
+        PT.NamedArgument.make "padding" (PT.Argument.String "same") None;
+        in_ints "dilation" [ 1; 1 ];
+        in_int "groups" 1;
+      ]
+    ~noutputs:1;
+  [%expect {| error: conv2d.padding: weight must be rank-4, got shape [1, 4] |}]
 
 let%expect_test "dispatch: convolution.default uses distinct native op" =
   let x = float_tensor [ 1; 1; 3; 3 ] (List.init 9 float_of_int) in

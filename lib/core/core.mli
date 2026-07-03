@@ -20,6 +20,12 @@ module Error : sig
      function's error set is named at compile time. *)
   type +'e t = { kind : 'e; backtrace : Printexc.raw_backtrace }
 
+  (* Build a bare [t] (not wrapped in a [result]), capturing the callstack the
+     same way [fail] does. For call sites that need an [Error.t] directly
+     (e.g. collecting a [t list] rather than short-circuiting on a [result]) —
+     prefer [fail] when a [result] is what's actually needed. *)
+  val make : 'e -> 'e t
+
   (* Print the payload via [pp_payload], then the detection backtrace. Core
      holds no knowledge of any payload's shape — the printer is supplied by the
      component. The backtrace block degrades to a notice when the binary carries

@@ -27,12 +27,12 @@ let%expect_test "float32 hex round-trip" =
     1e-20        0x1e3ce508 eq=true
     idempotent=true |}]
 
-let encode_exn codec v =
+let encode codec v =
   match Jsont_bytesrw.encode_string codec v with
   | Ok s -> s
   | Error e -> failwith e
 
-let decode_exn codec s =
+let decode codec s =
   match Jsont_bytesrw.decode_string codec s with
   | Ok v -> v
   | Error e -> failwith e
@@ -42,7 +42,7 @@ let%expect_test "float32 json encoding uses numbers except exceptional bits" =
     (fun (label, f) ->
       pf "%-10s %s -> %s\n" label
         (Aten_spec.Float32.to_hex f)
-        (encode_exn Aten_spec.Float32.jsont f))
+        (encode Aten_spec.Float32.jsont f))
     [
       ("one", 1.0);
       ("point-one", Aten_spec.Float32.to_f32 0.1);
@@ -65,7 +65,7 @@ let%expect_test "float32 json encoding uses numbers except exceptional bits" =
 let%expect_test "float32 json decoding accepts numbers and raw hex" =
   List.iter
     (fun json ->
-      let f = decode_exn Aten_spec.Float32.jsont json in
+      let f = decode Aten_spec.Float32.jsont json in
       pf "%s -> %s\n" json (Aten_spec.Float32.to_hex f))
     [ "1.0"; "\"0x3f800000\""; "0.1"; "\"0x3dcccccd\"" ];
   [%expect
@@ -77,10 +77,10 @@ let%expect_test "float32 json decoding accepts numbers and raw hex" =
 
 let%expect_test "tensor values decode both float forms and encode compactly" =
   let t =
-    decode_exn Aten_spec.Tensor_spec.jsont
+    decode Aten_spec.Tensor_spec.jsont
       {|{"dtype":"f32","shape":[5],"values":[1.0,{"float":0.5},{"float":"0x80000000"},{"float":"0x7f800000"},{"float":"0x7fc00001"}]}|}
   in
-  pf "%s\n" (encode_exn Aten_spec.Tensor_spec.jsont t);
+  pf "%s\n" (encode Aten_spec.Tensor_spec.jsont t);
   [%expect
     {| {"dtype":"f32","shape":[5],"values":[{"float":1},{"float":0.5},{"float":"0x80000000"},{"float":"0x7f800000"},{"float":"0x7fc00001"}]} |}]
 

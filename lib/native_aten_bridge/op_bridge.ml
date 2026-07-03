@@ -2,7 +2,7 @@
    build a native Graph_ir.graph encoding the equivalent computation.
 
    Returns [None] if no native implementation exists for this op.  Returns
-   [Some (Error msg)] if the op is mapped but argument conversion or param
+   [Some (Error e)] if the op is mapped but argument conversion or param
    validation fails.  Returns [Some (Ok (g, bindings))] where [g] is the native
    graph and [bindings] maps each graph input id to its converted native tensor.
 
@@ -14,6 +14,68 @@ open Pytorch_types
 module D = Interp_decode
 
 type aten_env = Interp_decode.env
+type invalid_hw_arg = { name : string; values : int list }
+type tensor_bridge_error = { arg_name : string; message : string }
+
+type error =
+  [ `Decode of Interp_decode.error
+  | `Tensor_bridge of tensor_bridge_error
+  | `Build of Graph_builder.error
+  | `Invalid_hw_arg of invalid_hw_arg
+  | `Validation_failure of string
+  | `Addmm_invalid_weight_rank of int array
+  | `Conv2d_invalid_weight_rank of int array
+  | `Conv2d_padding_invalid_weight_rank of int array
+  | `Convolution_invalid_weight_rank of int array
+  | `Linear_invalid_weight_rank of int array ]
+
+let pp_int_list ppf xs =
+  Format.fprintf ppf "[%s]" (String.concat ", " (List.map string_of_int xs))
+
+let pp_int_array ppf xs = pp_int_list ppf (Array.to_list xs)
+
+let pp_error ppf : [< error ] -> unit = function
+  | `Decode e -> Interp_decode.pp_error ppf e
+  | `Tensor_bridge { arg_name; message } ->
+      Format.fprintf ppf "%s: %s" arg_name message
+  | `Build e -> Graph_builder.pp_error ppf e
+  | `Invalid_hw_arg { name; values } ->
+      Format.fprintf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list
+        values
+  | `Validation_failure msg -> Format.pp_print_string ppf msg
+  | `Addmm_invalid_weight_rank shape ->
+      Format.fprintf ppf "addmm: mat2 must be rank-2, got shape %a" pp_int_array
+        shape
+  | `Conv2d_invalid_weight_rank shape ->
+      Format.fprintf ppf "conv2d: weight must be rank-4, got shape %a"
+        pp_int_array shape
+  | `Conv2d_padding_invalid_weight_rank shape ->
+      Format.fprintf ppf "conv2d.padding: weight must be rank-4, got shape %a"
+        pp_int_array shape
+  | `Convolution_invalid_weight_rank shape ->
+      Format.fprintf ppf "convolution: weight must be rank-4, got shape %a"
+        pp_int_array shape
+  | `Linear_invalid_weight_rank shape ->
+      Format.fprintf ppf "linear: weight must be rank-2, got shape %a"
+        pp_int_array shape
+
+let ( let* ) = Core.Syntax.( let* )
+let return = Core.return
+let fail = Core.fail
+let decode_result r = Core.map_error (fun e -> `Decode e) r
+let tensor_arg env node name = decode_result (D.tensor_arg_result env node name)
+
+let int_arg ?default node name =
+  decode_result (D.int_arg_result ?default node name)
+
+let ints_arg ?(default = []) node name =
+  decode_result (D.ints_arg_result ~default node name)
+
+let bool_arg ?(default = false) node name =
+  decode_result (D.bool_arg_result ~default node name)
+
+let string_arg ~default node name =
+  decode_result (D.string_arg_result ~default node name)
 
 let packed_shape (Tensor.Tensor r) = r.shape
 
@@ -36,20 +98,20 @@ let build_g ~name tensors body =
        let* ids = alloc_inputs tensors in
        body ids)
   with
-  | Ok g -> Ok (g, List.combine g.Graph_ir.Graph.inputs tensors)
-  | Error e ->
-      Error (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+  | Ok g -> Core.return (g, List.combine g.Graph_ir.Graph.inputs tensors)
+  | Error e -> Core.fail (`Build e.Core.Error.kind)
 
 let some_graph = function Ok x -> Some (Ok x) | Error e -> Some (Error e)
 
 (* Convert an ATen tensor to native, prefixing errors with [arg_name]. *)
 let native_of_aten arg_name t =
   match Tensor_bridge.of_aten t with
-  | Ok x -> Ok x
-  | Error e -> Error (Printf.sprintf "%s: %s" arg_name e)
+  | Ok x -> Core.return x
+  | Error message -> Core.fail (`Tensor_bridge { arg_name; message })
 
 let native_tensor_arg aten_env node name =
-  native_of_aten name (D.tensor_arg aten_env node name)
+  let* tensor = tensor_arg aten_env node name in
+  native_of_aten name tensor
 
 let optional_tensor_present node name =
   match D.find_arg node name with
@@ -140,9 +202,9 @@ let native_perm_of_aten ~rank dims =
 (* Validate a 2-element int list as [h; w].  A single-element list is accepted
    as [v; v] (symmetric). *)
 let hw2 name = function
-  | [ h; w ] -> Ok (h, w)
-  | [ v ] -> Ok (v, v)
-  | _ -> Error (Printf.sprintf "%s: expected [h; w] or [v]" name)
+  | [ h; w ] -> Core.return (h, w)
+  | [ v ] -> Core.return (v, v)
+  | values -> Core.fail (`Invalid_hw_arg { name; values })
 
 (* Construct Conv2d.params from the ATen weight shape array
    (rank-4: [Cout,Cin/groups,Kh,Kw]) and validated config ints.
@@ -188,14 +250,15 @@ let make_convolution_params sh sw ph pw dh dw transposed oph opw groups :
 
 (* Pool stride defaults to kernel_size when absent (PyTorch convention). *)
 let pool_stride kernel_size node =
-  match D.ints_arg ~default:[] node "stride" with [] -> kernel_size | s -> s
+  let* stride = ints_arg ~default:[] node "stride" in
+  return (match stride with [] -> kernel_size | s -> s)
 
 (* --- Op dispatch --- *)
 
 let dispatch ~(aten_env : aten_env) (node : Node.t) :
     ( Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list,
-      string )
-    result
+      error )
+    Core.result
     option =
   (* Arms in global alphabetical order by the dispatched op name. *)
   match node.target with
@@ -213,37 +276,31 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
-  | "torch.ops.aten.addmm.default" -> (
-      (* addmm(bias, mat1, mat2) = bias + mat1 @ mat2; alpha=beta=1 assumed. *)
-      let aten_bias = D.tensor_arg aten_env node "self" in
-      let aten_x = D.tensor_arg aten_env node "mat1" in
-      let aten_w = D.tensor_arg aten_env node "mat2" in
-      let w_shape = Aten_tensor.shape aten_w in
-      if Array.length w_shape <> 2 then
-        Some (Error "addmm: mat2 must be rank-2")
-      else
-        match
-          ( native_of_aten "self" aten_bias,
-            native_of_aten "mat1" aten_x,
-            native_of_aten "mat2" aten_w )
-        with
-        | Error e, _, _ | _, Error e, _ | _, _, Error e -> Some (Error e)
-        | Ok bias, Ok x, Ok w -> (
-            try
-              let params =
-                { Linear.Linear.in_features = Dim.extent w_shape.(0) }
-              in
-              build_g ~name:"addmm_relayout" [ bias; x; w ] (function
-                | [ bias_id; x_id; w_id ] ->
-                    let open Graph_builder in
-                    let* w' = permute perm_addmm_weight w_id in
-                    let+ y =
-                      linear params ~x:x_id ~weight:w' ~bias:bias_id ()
-                    in
-                    [ y ]
-                | _ -> assert false)
-              |> some_graph
-            with Invalid_argument msg -> Some (Error msg)))
+  | "torch.ops.aten.addmm.default" ->
+      Some
+        ((* addmm(bias, mat1, mat2) = bias + mat1 @ mat2; alpha=beta=1 assumed. *)
+         let* aten_bias = tensor_arg aten_env node "self" in
+         let* aten_x = tensor_arg aten_env node "mat1" in
+         let* aten_w = tensor_arg aten_env node "mat2" in
+         let w_shape = Aten_tensor.shape aten_w in
+         if Array.length w_shape <> 2 then
+           fail (`Addmm_invalid_weight_rank w_shape)
+         else
+           let* bias = native_of_aten "self" aten_bias in
+           let* x = native_of_aten "mat1" aten_x in
+           let* w = native_of_aten "mat2" aten_w in
+           try
+             let params =
+               { Linear.Linear.in_features = Dim.extent w_shape.(0) }
+             in
+             build_g ~name:"addmm_relayout" [ bias; x; w ] (function
+               | [ bias_id; x_id; w_id ] ->
+                   let open Graph_builder in
+                   let* w' = permute perm_addmm_weight w_id in
+                   let+ y = linear params ~x:x_id ~weight:w' ~bias:bias_id () in
+                   [ y ]
+               | _ -> assert false)
+           with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.bmm.default" -> (
       match
         ( native_tensor_arg aten_env node "self",
@@ -258,297 +315,232 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
-  | "torch.ops.aten.conv2d.default" -> (
-      let groups = D.int_arg ~default:1 node "groups" in
-      let dilation = D.ints_arg ~default:[ 1; 1 ] node "dilation" in
-      match hw2 "dilation" dilation with
-      | Error e -> Some (Error e)
-      | Ok (dh, dw) -> (
-          let aten_x = D.tensor_arg aten_env node "input" in
-          let aten_w = D.tensor_arg aten_env node "weight" in
-          let w_shape = Aten_tensor.shape aten_w in
-          if Array.length w_shape <> 4 then
-            Some (Error "conv2d: weight must be rank-4")
-          else
-            let stride = D.ints_arg ~default:[ 1; 1 ] node "stride" in
-            let padding = D.ints_arg ~default:[ 0; 0 ] node "padding" in
-            match (hw2 "stride" stride, hw2 "padding" padding) with
-            | Error e, _ | _, Error e -> Some (Error e)
-            | Ok (sh, sw), Ok (ph, pw) -> (
-                let has_bias = optional_tensor_present node "bias" in
-                let bias_res =
-                  if has_bias then
-                    match
-                      native_of_aten "bias" (D.tensor_arg aten_env node "bias")
-                    with
-                    | Ok b -> Ok (Some b)
-                    | Error e -> Error e
-                  else Ok None
-                in
-                match
-                  ( native_of_aten "input" aten_x,
-                    native_of_aten "weight" aten_w,
-                    bias_res )
-                with
-                | Error e, _, _ | _, Error e, _ | _, _, Error e ->
-                    Some (Error e)
-                | Ok x, Ok w, Ok bias_opt -> (
-                    try
-                      let params =
-                        make_conv2d_params w_shape sh sw ph pw dh dw groups
-                      in
-                      let tensors = [ x; w ] @ Option.to_list bias_opt in
-                      build_g ~name:"conv2d_relayout" tensors (function
-                        | [ x_id; w_id ] ->
-                            let open Graph_builder in
-                            let* x' = permute perm_nchw_to_nhwc x_id in
-                            let* w' = permute perm_oihw_to_conv_weight w_id in
-                            let* y' = conv2d params ~x:x' ~weight:w' () in
-                            let+ y = permute perm_nhwc_to_nchw y' in
-                            [ y ]
-                        | [ x_id; w_id; b_id ] ->
-                            let open Graph_builder in
-                            let* x' = permute perm_nchw_to_nhwc x_id in
-                            let* w' = permute perm_oihw_to_conv_weight w_id in
-                            let* y' =
-                              conv2d params ~x:x' ~weight:w' ~bias:b_id ()
-                            in
-                            let+ y = permute perm_nhwc_to_nchw y' in
-                            [ y ]
-                        | _ -> assert false)
-                      |> some_graph
-                    with Invalid_argument msg -> Some (Error msg)))))
-  | "torch.ops.aten.conv2d.padding" -> (
-      let groups = D.int_arg ~default:1 node "groups" in
-      let dilation = D.ints_arg ~default:[ 1; 1 ] node "dilation" in
-      match hw2 "dilation" dilation with
-      | Error e -> Some (Error e)
-      | Ok (dh, dw) -> (
-          let aten_x = D.tensor_arg aten_env node "input" in
-          let aten_w = D.tensor_arg aten_env node "weight" in
-          let w_shape = Aten_tensor.shape aten_w in
-          if Array.length w_shape <> 4 then
-            Some (Error "conv2d.padding: weight must be rank-4")
-          else
-            let stride = D.ints_arg ~default:[ 1; 1 ] node "stride" in
-            let padding = D.string_arg ~default:"valid" node "padding" in
-            match hw2 "stride" stride with
-            | Error e -> Some (Error e)
-            | Ok (sh, sw) -> (
-                let has_bias = optional_tensor_present node "bias" in
-                let bias_res =
-                  if has_bias then
-                    match
-                      native_of_aten "bias" (D.tensor_arg aten_env node "bias")
-                    with
-                    | Ok b -> Ok (Some b)
-                    | Error e -> Error e
-                  else Ok None
-                in
-                match
-                  ( native_of_aten "input" aten_x,
-                    native_of_aten "weight" aten_w,
-                    bias_res )
-                with
-                | Error e, _, _ | _, Error e, _ | _, _, Error e ->
-                    Some (Error e)
-                | Ok x, Ok w, Ok bias_opt -> (
-                    try
-                      let params =
-                        make_conv2d_padding_params sh sw padding dh dw groups
-                      in
-                      let tensors = [ x; w ] @ Option.to_list bias_opt in
-                      build_g ~name:"conv2d_padding_relayout" tensors (function
-                        | [ x_id; w_id ] ->
-                            let open Graph_builder in
-                            let* x' = permute perm_nchw_to_nhwc x_id in
-                            let* w' = permute perm_oihw_to_conv_weight w_id in
-                            let* y' =
-                              conv2d_padding params ~x:x' ~weight:w' ()
-                            in
-                            let+ y = permute perm_nhwc_to_nchw y' in
-                            [ y ]
-                        | [ x_id; w_id; b_id ] ->
-                            let open Graph_builder in
-                            let* x' = permute perm_nchw_to_nhwc x_id in
-                            let* w' = permute perm_oihw_to_conv_weight w_id in
-                            let* y' =
-                              conv2d_padding params ~x:x' ~weight:w' ~bias:b_id
-                                ()
-                            in
-                            let+ y = permute perm_nhwc_to_nchw y' in
-                            [ y ]
-                        | _ -> assert false)
-                      |> some_graph
-                    with Invalid_argument msg -> Some (Error msg)))))
-  | "torch.ops.aten.convolution.default" -> (
-      let transposed = D.bool_arg node "transposed" in
-      let groups = D.int_arg ~default:1 node "groups" in
-      let dilation = D.ints_arg ~default:[ 1; 1 ] node "dilation" in
-      match hw2 "dilation" dilation with
-      | Error e -> Some (Error e)
-      | Ok (dh, dw) -> (
-          let aten_x = D.tensor_arg aten_env node "input" in
-          let aten_w = D.tensor_arg aten_env node "weight" in
-          let w_shape = Aten_tensor.shape aten_w in
-          if Array.length w_shape <> 4 then
-            Some (Error "convolution: weight must be rank-4")
-          else
-            let stride = D.ints_arg ~default:[ 1; 1 ] node "stride" in
-            let padding = D.ints_arg ~default:[ 0; 0 ] node "padding" in
-            let output_padding =
-              D.ints_arg ~default:[ 0; 0 ] node "output_padding"
-            in
-            match
-              ( hw2 "stride" stride,
-                hw2 "padding" padding,
-                hw2 "output_padding" output_padding )
-            with
-            | Error e, _, _ | _, Error e, _ | _, _, Error e -> Some (Error e)
-            | Ok (sh, sw), Ok (ph, pw), Ok (oph, opw) -> (
-                let has_bias = optional_tensor_present node "bias" in
-                let bias_res =
-                  if has_bias then
-                    match
-                      native_of_aten "bias" (D.tensor_arg aten_env node "bias")
-                    with
-                    | Ok b -> Ok (Some b)
-                    | Error e -> Error e
-                  else Ok None
-                in
-                match
-                  ( native_of_aten "input" aten_x,
-                    native_of_aten "weight" aten_w,
-                    bias_res )
-                with
-                | Error e, _, _ | _, Error e, _ | _, _, Error e ->
-                    Some (Error e)
-                | Ok x, Ok w, Ok bias_opt -> (
-                    try
-                      let params =
-                        make_convolution_params sh sw ph pw dh dw transposed oph
-                          opw groups
-                      in
-                      let tensors = [ x; w ] @ Option.to_list bias_opt in
-                      build_g ~name:"convolution_relayout" tensors (function
-                        | [ x_id; w_id ] ->
-                            let open Graph_builder in
-                            let* x' = permute perm_nchw_to_nhwc x_id in
-                            let* w' = permute perm_oihw_to_conv_weight w_id in
-                            let* y' = convolution params ~x:x' ~weight:w' () in
-                            let+ y = permute perm_nhwc_to_nchw y' in
-                            [ y ]
-                        | [ x_id; w_id; b_id ] ->
-                            let open Graph_builder in
-                            let* x' = permute perm_nchw_to_nhwc x_id in
-                            let* w' = permute perm_oihw_to_conv_weight w_id in
-                            let* y' =
-                              convolution params ~x:x' ~weight:w' ~bias:b_id ()
-                            in
-                            let+ y = permute perm_nhwc_to_nchw y' in
-                            [ y ]
-                        | _ -> assert false)
-                      |> some_graph
-                    with Invalid_argument msg -> Some (Error msg)))))
-  | "torch.ops.aten.linear.default" -> (
-      let aten_x = D.tensor_arg aten_env node "input" in
-      let aten_w = D.tensor_arg aten_env node "weight" in
-      let w_shape = Aten_tensor.shape aten_w in
-      if Array.length w_shape <> 2 then
-        Some (Error "linear: weight must be rank-2")
-      else
-        let has_bias = optional_tensor_present node "bias" in
-        let bias_res =
-          if has_bias then
-            match native_of_aten "bias" (D.tensor_arg aten_env node "bias") with
-            | Ok b -> Ok (Some b)
-            | Error e -> Error e
-          else Ok None
-        in
-        match
-          ( native_of_aten "input" aten_x,
-            native_of_aten "weight" aten_w,
-            bias_res )
-        with
-        | Error e, _, _ | _, Error e, _ | _, _, Error e -> Some (Error e)
-        | Ok x, Ok w, Ok bias_opt -> (
-            try
-              let params =
-                { Linear.Linear.in_features = Dim.extent w_shape.(1) }
-              in
-              let tensors = [ x; w ] @ Option.to_list bias_opt in
-              build_g ~name:"linear_relayout" tensors (function
-                | [ x_id; w_id ] ->
-                    let open Graph_builder in
-                    let* w' = permute perm_linear_weight w_id in
-                    let+ y = linear params ~x:x_id ~weight:w' () in
-                    [ y ]
-                | [ x_id; w_id; b_id ] ->
-                    let open Graph_builder in
-                    let* w' = permute perm_linear_weight w_id in
-                    let+ y = linear params ~x:x_id ~weight:w' ~bias:b_id () in
-                    [ y ]
-                | _ -> assert false)
-              |> some_graph
-            with Invalid_argument msg -> Some (Error msg)))
-  | "torch.ops.aten.max_pool2d.default" -> (
-      let aten_x = D.tensor_arg aten_env node "self" in
-      let kernel_size = D.ints_arg node "kernel_size" in
-      let stride = pool_stride kernel_size node in
-      let padding = D.ints_arg ~default:[ 0; 0 ] node "padding" in
-      match
-        ( hw2 "kernel_size" kernel_size,
-          hw2 "stride" stride,
-          hw2 "padding" padding )
-      with
-      | Error e, _, _ | _, Error e, _ | _, _, Error e -> Some (Error e)
-      | Ok (kh, kw), Ok (sh, sw), Ok (ph, pw) -> (
-          match native_of_aten "self" aten_x with
-          | Error e -> Some (Error e)
-          | Ok x -> (
-              try
-                let params =
-                  {
-                    Pool.MaxPool2d.kernel =
-                      { h = Dim.extent kh; w = Dim.extent kw };
-                    stride =
-                      {
-                        h = Op_config.Pos.of_int sh;
-                        w = Op_config.Pos.of_int sw;
-                      };
-                    pad =
-                      {
-                        h = Op_config.Nonneg.of_int ph;
-                        w = Op_config.Nonneg.of_int pw;
-                      };
-                  }
-                in
-                build_g ~name:"max_pool2d_relayout" [ x ] (function
-                  | [ x_id ] ->
-                      let open Graph_builder in
-                      let* x' = permute perm_nchw_to_nhwc x_id in
-                      let* y' = max_pool2d params x' in
-                      let+ y = permute perm_nhwc_to_nchw y' in
-                      [ y ]
-                  | _ -> assert false)
-                |> some_graph
-              with Invalid_argument msg -> Some (Error msg))))
-  | "torch.ops.aten.mean.dim" -> (
-      let t = D.tensor_arg aten_env node "self" in
-      let rank = aten_rank t in
-      let dims = dims_arg node ~rank "dim" in
-      let keepdim = D.bool_arg node "keepdim" in
-      match native_of_aten "self" t with
-      | Error e -> Some (Error e)
-      | Ok x ->
-          let params = { Reduce.Mean.dims; keepdim } in
-          build_g ~name:"mean" [ x ] (function
-            | [ x_id ] ->
-                let open Graph_builder in
-                let+ y = mean params x_id in
-                [ y ]
-            | _ -> assert false)
-          |> some_graph)
+  | "torch.ops.aten.conv2d.default" ->
+      Some
+        (let* groups = int_arg ~default:1 node "groups" in
+         let* dilation = ints_arg ~default:[ 1; 1 ] node "dilation" in
+         let* dh, dw = hw2 "dilation" dilation in
+         let* aten_x = tensor_arg aten_env node "input" in
+         let* aten_w = tensor_arg aten_env node "weight" in
+         let w_shape = Aten_tensor.shape aten_w in
+         if Array.length w_shape <> 4 then
+           fail (`Conv2d_invalid_weight_rank w_shape)
+         else
+           let* stride = ints_arg ~default:[ 1; 1 ] node "stride" in
+           let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
+           let* sh, sw = hw2 "stride" stride in
+           let* ph, pw = hw2 "padding" padding in
+           let* bias_opt =
+             if optional_tensor_present node "bias" then
+               let* bias = tensor_arg aten_env node "bias" in
+               let* bias = native_of_aten "bias" bias in
+               return (Some bias)
+             else return None
+           in
+           let* x = native_of_aten "input" aten_x in
+           let* w = native_of_aten "weight" aten_w in
+           try
+             let params = make_conv2d_params w_shape sh sw ph pw dh dw groups in
+             let tensors = [ x; w ] @ Option.to_list bias_opt in
+             build_g ~name:"conv2d_relayout" tensors (function
+               | [ x_id; w_id ] ->
+                   let open Graph_builder in
+                   let* x' = permute perm_nchw_to_nhwc x_id in
+                   let* w' = permute perm_oihw_to_conv_weight w_id in
+                   let* y' = conv2d params ~x:x' ~weight:w' () in
+                   let+ y = permute perm_nhwc_to_nchw y' in
+                   [ y ]
+               | [ x_id; w_id; b_id ] ->
+                   let open Graph_builder in
+                   let* x' = permute perm_nchw_to_nhwc x_id in
+                   let* w' = permute perm_oihw_to_conv_weight w_id in
+                   let* y' = conv2d params ~x:x' ~weight:w' ~bias:b_id () in
+                   let+ y = permute perm_nhwc_to_nchw y' in
+                   [ y ]
+               | _ -> assert false)
+           with Invalid_argument msg -> fail (`Validation_failure msg))
+  | "torch.ops.aten.conv2d.padding" ->
+      Some
+        (let* groups = int_arg ~default:1 node "groups" in
+         let* dilation = ints_arg ~default:[ 1; 1 ] node "dilation" in
+         let* dh, dw = hw2 "dilation" dilation in
+         let* aten_x = tensor_arg aten_env node "input" in
+         let* aten_w = tensor_arg aten_env node "weight" in
+         let w_shape = Aten_tensor.shape aten_w in
+         if Array.length w_shape <> 4 then
+           fail (`Conv2d_padding_invalid_weight_rank w_shape)
+         else
+           let* stride = ints_arg ~default:[ 1; 1 ] node "stride" in
+           let* padding = string_arg ~default:"valid" node "padding" in
+           let* sh, sw = hw2 "stride" stride in
+           let* bias_opt =
+             if optional_tensor_present node "bias" then
+               let* bias = tensor_arg aten_env node "bias" in
+               let* bias = native_of_aten "bias" bias in
+               return (Some bias)
+             else return None
+           in
+           let* x = native_of_aten "input" aten_x in
+           let* w = native_of_aten "weight" aten_w in
+           try
+             let params =
+               make_conv2d_padding_params sh sw padding dh dw groups
+             in
+             let tensors = [ x; w ] @ Option.to_list bias_opt in
+             build_g ~name:"conv2d_padding_relayout" tensors (function
+               | [ x_id; w_id ] ->
+                   let open Graph_builder in
+                   let* x' = permute perm_nchw_to_nhwc x_id in
+                   let* w' = permute perm_oihw_to_conv_weight w_id in
+                   let* y' = conv2d_padding params ~x:x' ~weight:w' () in
+                   let+ y = permute perm_nhwc_to_nchw y' in
+                   [ y ]
+               | [ x_id; w_id; b_id ] ->
+                   let open Graph_builder in
+                   let* x' = permute perm_nchw_to_nhwc x_id in
+                   let* w' = permute perm_oihw_to_conv_weight w_id in
+                   let* y' =
+                     conv2d_padding params ~x:x' ~weight:w' ~bias:b_id ()
+                   in
+                   let+ y = permute perm_nhwc_to_nchw y' in
+                   [ y ]
+               | _ -> assert false)
+           with Invalid_argument msg -> fail (`Validation_failure msg))
+  | "torch.ops.aten.convolution.default" ->
+      Some
+        (let* transposed = bool_arg node "transposed" in
+         let* groups = int_arg ~default:1 node "groups" in
+         let* dilation = ints_arg ~default:[ 1; 1 ] node "dilation" in
+         let* dh, dw = hw2 "dilation" dilation in
+         let* aten_x = tensor_arg aten_env node "input" in
+         let* aten_w = tensor_arg aten_env node "weight" in
+         let w_shape = Aten_tensor.shape aten_w in
+         if Array.length w_shape <> 4 then
+           fail (`Convolution_invalid_weight_rank w_shape)
+         else
+           let* stride = ints_arg ~default:[ 1; 1 ] node "stride" in
+           let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
+           let* output_padding =
+             ints_arg ~default:[ 0; 0 ] node "output_padding"
+           in
+           let* sh, sw = hw2 "stride" stride in
+           let* ph, pw = hw2 "padding" padding in
+           let* oph, opw = hw2 "output_padding" output_padding in
+           let* bias_opt =
+             if optional_tensor_present node "bias" then
+               let* bias = tensor_arg aten_env node "bias" in
+               let* bias = native_of_aten "bias" bias in
+               return (Some bias)
+             else return None
+           in
+           let* x = native_of_aten "input" aten_x in
+           let* w = native_of_aten "weight" aten_w in
+           try
+             let params =
+               make_convolution_params sh sw ph pw dh dw transposed oph opw
+                 groups
+             in
+             let tensors = [ x; w ] @ Option.to_list bias_opt in
+             build_g ~name:"convolution_relayout" tensors (function
+               | [ x_id; w_id ] ->
+                   let open Graph_builder in
+                   let* x' = permute perm_nchw_to_nhwc x_id in
+                   let* w' = permute perm_oihw_to_conv_weight w_id in
+                   let* y' = convolution params ~x:x' ~weight:w' () in
+                   let+ y = permute perm_nhwc_to_nchw y' in
+                   [ y ]
+               | [ x_id; w_id; b_id ] ->
+                   let open Graph_builder in
+                   let* x' = permute perm_nchw_to_nhwc x_id in
+                   let* w' = permute perm_oihw_to_conv_weight w_id in
+                   let* y' =
+                     convolution params ~x:x' ~weight:w' ~bias:b_id ()
+                   in
+                   let+ y = permute perm_nhwc_to_nchw y' in
+                   [ y ]
+               | _ -> assert false)
+           with Invalid_argument msg -> fail (`Validation_failure msg))
+  | "torch.ops.aten.linear.default" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "input" in
+         let* aten_w = tensor_arg aten_env node "weight" in
+         let w_shape = Aten_tensor.shape aten_w in
+         if Array.length w_shape <> 2 then
+           fail (`Linear_invalid_weight_rank w_shape)
+         else
+           let* bias_opt =
+             if optional_tensor_present node "bias" then
+               let* bias = tensor_arg aten_env node "bias" in
+               let* bias = native_of_aten "bias" bias in
+               return (Some bias)
+             else return None
+           in
+           let* x = native_of_aten "input" aten_x in
+           let* w = native_of_aten "weight" aten_w in
+           try
+             let params =
+               { Linear.Linear.in_features = Dim.extent w_shape.(1) }
+             in
+             let tensors = [ x; w ] @ Option.to_list bias_opt in
+             build_g ~name:"linear_relayout" tensors (function
+               | [ x_id; w_id ] ->
+                   let open Graph_builder in
+                   let* w' = permute perm_linear_weight w_id in
+                   let+ y = linear params ~x:x_id ~weight:w' () in
+                   [ y ]
+               | [ x_id; w_id; b_id ] ->
+                   let open Graph_builder in
+                   let* w' = permute perm_linear_weight w_id in
+                   let+ y = linear params ~x:x_id ~weight:w' ~bias:b_id () in
+                   [ y ]
+               | _ -> assert false)
+           with Invalid_argument msg -> fail (`Validation_failure msg))
+  | "torch.ops.aten.max_pool2d.default" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* kernel_size = ints_arg node "kernel_size" in
+         let* stride = pool_stride kernel_size node in
+         let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
+         let* kh, kw = hw2 "kernel_size" kernel_size in
+         let* sh, sw = hw2 "stride" stride in
+         let* ph, pw = hw2 "padding" padding in
+         let* x = native_of_aten "self" aten_x in
+         try
+           let params =
+             {
+               Pool.MaxPool2d.kernel = { h = Dim.extent kh; w = Dim.extent kw };
+               stride =
+                 { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
+               pad =
+                 {
+                   h = Op_config.Nonneg.of_int ph;
+                   w = Op_config.Nonneg.of_int pw;
+                 };
+             }
+           in
+           build_g ~name:"max_pool2d_relayout" [ x ] (function
+             | [ x_id ] ->
+                 let open Graph_builder in
+                 let* x' = permute perm_nchw_to_nhwc x_id in
+                 let* y' = max_pool2d params x' in
+                 let+ y = permute perm_nhwc_to_nchw y' in
+                 [ y ]
+             | _ -> assert false)
+         with Invalid_argument msg -> fail (`Validation_failure msg))
+  | "torch.ops.aten.mean.dim" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let dims = dims_arg node ~rank "dim" in
+         let* keepdim = bool_arg node "keepdim" in
+         let* x = native_of_aten "self" t in
+         let params = { Reduce.Mean.dims; keepdim } in
+         build_g ~name:"mean" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = mean params x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" -> (
       match
         ( native_tensor_arg aten_env node "self",
@@ -563,21 +555,19 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
-  | "torch.ops.aten.permute.default" -> (
-      let t = D.tensor_arg aten_env node "self" in
-      let rank = aten_rank t in
-      let dims = D.ints_arg node "dims" in
-      let perm = native_perm_of_aten ~rank dims in
-      match native_of_aten "self" t with
-      | Error e -> Some (Error e)
-      | Ok x ->
-          build_g ~name:"permute" [ x ] (function
-            | [ x_id ] ->
-                let open Graph_builder in
-                let+ y = permute perm x_id in
-                [ y ]
-            | _ -> assert false)
-          |> some_graph)
+  | "torch.ops.aten.permute.default" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let* dims = ints_arg node "dims" in
+         let perm = native_perm_of_aten ~rank dims in
+         let* x = native_of_aten "self" t in
+         build_g ~name:"permute" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = permute perm x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.relu.default" | "torch.ops.aten.relu_.default" -> (
       match native_tensor_arg aten_env node "self" with
       | Error e -> Some (Error e)
@@ -589,31 +579,28 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
-  | "torch.ops.aten.rms_norm.default" -> (
-      let t = D.tensor_arg aten_env node "input" in
-      let rank = aten_rank t in
-      let k = List.length (D.ints_arg node "normalized_shape") in
-      let dims = trailing_axes ~rank ~k in
-      let eps = eps_arg node "eps" in
-      let params = { Norm.RmsNorm.dims; eps } in
-      match native_of_aten "input" t with
-      | Error e -> Some (Error e)
-      | Ok x -> (
-          let weight_res =
-            if optional_tensor_present node "weight" then
-              native_of_aten "weight" (D.tensor_arg aten_env node "weight")
-            else
-              let (Tensor.Tensor r) = x in
-              Ok (ones_weight r.shape dims)
-          in
-          match weight_res with
-          | Error e -> Some (Error e)
-          | Ok weight ->
-              build_g ~name:"rms_norm" [ x; weight ] (function
-                | [ x_id; w_id ] ->
-                    let open Graph_builder in
-                    let+ y = rms_norm params ~x:x_id ~weight:w_id () in
-                    [ y ]
-                | _ -> assert false)
-              |> some_graph))
+  | "torch.ops.aten.rms_norm.default" ->
+      Some
+        (let* t = tensor_arg aten_env node "input" in
+         let rank = aten_rank t in
+         let* normalized_shape = ints_arg node "normalized_shape" in
+         let k = List.length normalized_shape in
+         let dims = trailing_axes ~rank ~k in
+         let eps = eps_arg node "eps" in
+         let params = { Norm.RmsNorm.dims; eps } in
+         let* x = native_of_aten "input" t in
+         let* weight =
+           if optional_tensor_present node "weight" then
+             let* weight = tensor_arg aten_env node "weight" in
+             native_of_aten "weight" weight
+           else
+             let (Tensor.Tensor r) = x in
+             return (ones_weight r.shape dims)
+         in
+         build_g ~name:"rms_norm" [ x; weight ] (function
+           | [ x_id; w_id ] ->
+               let open Graph_builder in
+               let+ y = rms_norm params ~x:x_id ~weight:w_id () in
+               [ y ]
+           | _ -> assert false))
   | _ -> None

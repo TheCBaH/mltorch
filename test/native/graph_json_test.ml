@@ -6,15 +6,26 @@
 
 open Graph_ir
 
+type error =
+  [ `Build of Graph_builder.error | `Json of string | `Message of string ]
+
+let pp_error ppf : [< error ] -> unit = function
+  | `Build e -> Graph_builder.pp_error ppf e
+  | `Json msg | `Message msg -> Format.pp_print_string ppf msg
+
+let pp_result pp_ok =
+  Fmt.result ~ok:pp_ok ~error:(fun ppf e -> pp_error ppf e.Core.Error.kind)
+
+let lift_build (r : ('a, Graph_builder.error) Core.result) :
+    ('a, error) Core.result =
+  Core.map_error (fun e -> `Build e) r
+
+let lift_json (r : ('a, string) result) : ('a, error) Core.result =
+  match r with Ok x -> Core.return x | Error e -> Core.fail (`Json e)
+
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c c = s 1 1 1 1 1 c
 let chan c = Dim.to_int (Vec6.get c Axis.C)
-let pf fmt = Format.printf fmt
-
-let ok_build = function
-  | Ok x -> x
-  | Error e ->
-      failwith (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
 
 let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
   {
@@ -25,42 +36,66 @@ let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
     dilation = Op_config.Pos.of_int 1;
   }
 
-let encode_graph_exn g =
-  match Graph_json.encode_graph ~format:Jsont.Indent g with
-  | Ok s -> s
-  | Error e -> failwith e
+let encode_graph g = lift_json (Graph_json.encode_graph ~format:Jsont.Indent g)
+let decode_graph s = lift_json (Graph_json.decode_graph s)
 
-let decode_graph_exn s =
-  match Graph_json.decode_graph s with Ok g -> g | Error e -> failwith e
+let encode_tensor ?max_elts t =
+  lift_json (Graph_json.encode_tensor ~format:Jsont.Indent ?max_elts t)
 
-let encode_tensor_exn ?max_elts t =
-  match Graph_json.encode_tensor ~format:Jsont.Indent ?max_elts t with
-  | Ok s -> s
-  | Error e -> failwith e
+let decode_tensor s = lift_json (Graph_json.decode_tensor s)
 
-let decode_tensor_exn s =
-  match Graph_json.decode_tensor s with Ok t -> t | Error e -> failwith e
+let encode_op op =
+  lift_json
+    (Jsont_bytesrw.encode_string ~format:Jsont.Indent Graph_ir.op_jsont op)
+
+let first_node g =
+  match g.Graph.nodes with
+  | node :: _ -> Core.return node
+  | [] -> Core.fail (`Message "expected graph to contain at least one node")
+
+let pp_graph_json_and_op ppf (graph_json, op_json) =
+  Format.fprintf ppf "graph JSON:@.%s@.op JSON:@.%s" graph_json op_json
+
+let pp_json_and_graph ppf (json, g) =
+  Format.fprintf ppf "JSON:@.%s@.decoded graph:@.%a" json Graph_ir.pp g
+
+let pp_original_and_graph ppf (g, decoded) =
+  Format.fprintf ppf "original:@.%a@.decoded:@.%a" Graph_ir.pp g Graph_ir.pp
+    decoded
+
+let pp_decoded_graph ppf g =
+  Format.fprintf ppf "decoded graph:@.%a" Graph_ir.pp g
+
+let pp_decoded ppf g = Format.fprintf ppf "decoded:@.%a" Graph_ir.pp g
+
+let pp_original_and_tensor ppf (original, decoded) =
+  Format.fprintf ppf "original: %a@.decoded:  %a" Tensor.pp original Tensor.pp
+    decoded
+
+let pp_full_and_elided ppf (full_json, elided_json) =
+  Format.fprintf ppf "full (8 elts):@.%s@.elided (max_elts=4):@.%s" full_json
+    elided_json
 
 (* ---- ops ------------------------------------------------------------------ *)
 
 let%expect_test "op Add: encode → JSON" =
-  let g =
-    ok_build
-      Graph_builder.(
-        build ~name:"add" ~outputs:(fun r -> [ r ])
-        @@
-        let* a = input ~shape:(s1c 3) ~name:"a" () in
-        let* b = input ~shape:(s1c 3) ~name:"b" () in
-        add ~name:"out" a b)
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"add" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          let* b = input ~shape:(s1c 3) ~name:"b" () in
+          add ~name:"out" a b)
+    in
+    let* node = first_node g in
+    let* graph_json = encode_graph g in
+    let* op_json = encode_op node.Node.op in
+    Core.return (graph_json, op_json)
   in
-  let node = List.hd g.Graph.nodes in
-  pf "graph JSON:@.%s@." (encode_graph_exn g);
-  (match
-     Jsont_bytesrw.encode_string ~format:Jsont.Indent Graph_ir.op_jsont
-       node.Node.op
-   with
-  | Ok s -> pf "op JSON:@.%s@." s
-  | Error e -> pf "error: %s@." e);
+  Format.printf "%a@." (pp_result pp_graph_json_and_op) result;
   [%expect
     {|
     graph JSON:
@@ -147,20 +182,23 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
         groups = Op_config.Pos.of_int 1;
       }
   in
-  let g =
-    ok_build
-      Graph_builder.(
-        build ~name:"conv" ~outputs:(fun r -> [ r ])
-        @@
-        let* x = input ~shape:(s 1 1 1 4 4 8) ~name:"x" () in
-        let* w = input ~shape:(s 16 1 1 3 3 8) ~name:"w" () in
-        let* b = input ~shape:(s1c 16) ~name:"b" () in
-        conv2d ~name:"y" conv_params ~x ~weight:w ~bias:b ())
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"conv" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 4 4 8) ~name:"x" () in
+          let* w = input ~shape:(s 16 1 1 3 3 8) ~name:"w" () in
+          let* b = input ~shape:(s1c 16) ~name:"b" () in
+          conv2d ~name:"y" conv_params ~x ~weight:w ~bias:b ())
+    in
+    let* json = encode_graph g in
+    let* g2 = decode_graph json in
+    Core.return (json, g2)
   in
-  let json = encode_graph_exn g in
-  pf "JSON:@.%s@." json;
-  let g2 = decode_graph_exn json in
-  pf "decoded graph:@.%a@." Graph_ir.pp g2;
+  Format.printf "%a@." (pp_result pp_json_and_graph) result;
   [%expect
     {|
     JSON:
@@ -289,19 +327,22 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
         groups = Op_config.Pos.of_int 1;
       }
   in
-  let g =
-    ok_build
-      Graph_builder.(
-        build ~name:"conv_nb" ~outputs:(fun r -> [ r ])
-        @@
-        let* x = input ~shape:(s1c 4) ~name:"x" () in
-        let* w = input ~shape:(s 4 1 1 1 1 4) ~name:"w" () in
-        conv2d ~name:"y" conv_params ~x ~weight:w ())
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"conv_nb" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 4) ~name:"x" () in
+          let* w = input ~shape:(s 4 1 1 1 1 4) ~name:"w" () in
+          conv2d ~name:"y" conv_params ~x ~weight:w ())
+    in
+    let* json = encode_graph g in
+    let* g2 = decode_graph json in
+    Core.return (g, g2)
   in
-  let json = encode_graph_exn g in
-  let g2 = decode_graph_exn json in
-  pf "original:@.%a@." Graph_ir.pp g;
-  pf "decoded:@.%a@." Graph_ir.pp g2;
+  Format.printf "%a@." (pp_result pp_original_and_graph) result;
   [%expect
     {|
     original:
@@ -335,17 +376,20 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
 
 let%expect_test "op Permute: encode → decode" =
   let perm = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ] in
-  let g =
-    ok_build
-      Graph_builder.(
-        build ~name:"perm" ~outputs:(fun r -> [ r ])
-        @@
-        let* x = input ~shape:(s 1 1 1 2 3 4) ~name:"x" () in
-        permute ~name:"y" perm x)
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"perm" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 3 4) ~name:"x" () in
+          permute ~name:"y" perm x)
+    in
+    let* json = encode_graph g in
+    decode_graph json
   in
-  let json = encode_graph_exn g in
-  let g2 = decode_graph_exn json in
-  pf "decoded graph:@.%a@." Graph_ir.pp g2;
+  Format.printf "%a@." (pp_result pp_decoded_graph) result;
   [%expect
     {|
     decoded graph:
@@ -356,19 +400,22 @@ let%expect_test "op Permute: encode → decode" =
     outputs: [t1 y:f32 [H=3 W=4 C=2]] |}]
 
 let%expect_test "graph with Mean op: encode → decode → pretty-print" =
-  let g =
-    ok_build
-      Graph_builder.(
-        build ~name:"mean_hw" ~outputs:(fun r -> [ r ])
-        @@
-        let* x = input ~shape:(s 1 1 1 7 7 64) ~name:"x" () in
-        mean ~name:"out"
-          Reduce.Mean.{ dims = [ Axis.H; Axis.W ]; keepdim = false }
-          x)
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"mean_hw" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 7 7 64) ~name:"x" () in
+          mean ~name:"out"
+            Reduce.Mean.{ dims = [ Axis.H; Axis.W ]; keepdim = false }
+            x)
+    in
+    let* json = encode_graph g in
+    decode_graph json
   in
-  let json = encode_graph_exn g in
-  let g2 = decode_graph_exn json in
-  pf "decoded:@.%a@." Graph_ir.pp g2;
+  Format.printf "%a@." (pp_result pp_decoded) result;
   [%expect
     {|
     decoded:
@@ -379,27 +426,30 @@ let%expect_test "graph with Mean op: encode → decode → pretty-print" =
     outputs: [t1 out:f32 [C=64]] |}]
 
 let%expect_test "nested subgraph: encode → decode → pretty-print" =
-  let g =
-    ok_build
-      Graph_builder.(
-        build ~name:"outer" ~outputs:(fun outs -> outs)
-        @@
-        let* x = input ~shape:(s1c 4) ~name:"x" () in
-        let* y = input ~shape:(s1c 4) ~name:"y" () in
-        let* sg =
-          subgraph ~name:"add_relu"
-            (let* a = input ~shape:(s1c 4) ~name:"a" () in
-             let* b = input ~shape:(s1c 4) ~name:"b" () in
-             let* t = add ~name:"sum" a b in
-             let* r = relu ~name:"r" t in
-             return [ r ])
-        in
-        invoke ~names:[ "out" ] sg [ x; y ])
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"outer" ~outputs:(fun outs -> outs)
+          @@
+          let* x = input ~shape:(s1c 4) ~name:"x" () in
+          let* y = input ~shape:(s1c 4) ~name:"y" () in
+          let* sg =
+            subgraph ~name:"add_relu"
+              (let* a = input ~shape:(s1c 4) ~name:"a" () in
+               let* b = input ~shape:(s1c 4) ~name:"b" () in
+               let* t = add ~name:"sum" a b in
+               let* r = relu ~name:"r" t in
+               return [ r ])
+          in
+          invoke ~names:[ "out" ] sg [ x; y ])
+    in
+    let* json = encode_graph g in
+    let* g2 = decode_graph json in
+    Core.return (g, g2)
   in
-  let json = encode_graph_exn g in
-  let g2 = decode_graph_exn json in
-  pf "original:@.%a@." Graph_ir.pp g;
-  pf "decoded:@.%a@." Graph_ir.pp g2;
+  Format.printf "%a@." (pp_result pp_original_and_graph) result;
   [%expect
     {|
     original:
@@ -431,7 +481,7 @@ let%expect_test "nested subgraph: encode → decode → pretty-print" =
 
 let%expect_test "tensor: encode with Array payload" =
   let t = Tensor.materialize (s1c 4) (fun c -> float_of_int (chan c)) in
-  pf "%s@." (encode_tensor_exn t);
+  Format.printf "%a@." (pp_result Format.pp_print_string) (encode_tensor t);
   [%expect
     {|
     {
@@ -459,10 +509,13 @@ let%expect_test "tensor: encode → decode → verify values" =
   let original =
     Tensor.materialize (s1c 4) (fun c -> float_of_int (chan c) *. 0.5)
   in
-  let json = encode_tensor_exn original in
-  let decoded = decode_tensor_exn json in
-  pf "original: %a@." Tensor.pp original;
-  pf "decoded:  %a@." Tensor.pp decoded;
+  let result =
+    let open Core.Syntax in
+    let* json = encode_tensor original in
+    let* decoded = decode_tensor json in
+    Core.return (original, decoded)
+  in
+  Format.printf "%a@." (pp_result pp_original_and_tensor) result;
   [%expect
     {|
     original: tensor f32 [C=4] {0, 0.5, 1, 1.5}
@@ -470,8 +523,13 @@ let%expect_test "tensor: encode → decode → verify values" =
 
 let%expect_test "tensor: payload elided when numel exceeds max_elts" =
   let t = Tensor.materialize (s1c 8) (fun c -> float_of_int (chan c)) in
-  pf "full (8 elts):@.%s@." (encode_tensor_exn t);
-  pf "elided (max_elts=4):@.%s@." (encode_tensor_exn ~max_elts:4 t);
+  let result =
+    let open Core.Syntax in
+    let* full_json = encode_tensor t in
+    let* elided_json = encode_tensor ~max_elts:4 t in
+    Core.return (full_json, elided_json)
+  in
+  Format.printf "%a@." (pp_result pp_full_and_elided) result;
   [%expect
     {|
     full (8 elts):
@@ -520,18 +578,15 @@ let%expect_test "tensor: decode JSON literal" =
   let json =
     {|{"data":{"Array":[1,2,3]},"fmt":"f32","quant":null,"shape":[1,1,1,1,1,3]}|}
   in
-  pf "%a@." Tensor.pp (decode_tensor_exn json);
+  Format.printf "%a@." (pp_result Tensor.pp) (decode_tensor json);
   [%expect {| tensor f32 [C=3] {1, 2, 3} |}]
 
 let%expect_test "tensor: f32 special values roundtrip" =
   let t =
     Tensor.materialize (s1c 3) (fun c ->
-        match chan c with
-        | 0 -> Float.nan
-        | 1 -> 1.0 /. 0.0 (* +inf *)
-        | _ -> -0.0)
+        match chan c with 0 -> Float.nan | 1 -> 1.0 /. 0.0 | _ -> -0.0)
   in
-  pf "%s@." (encode_tensor_exn t);
+  Format.printf "%a@." (pp_result Format.pp_print_string) (encode_tensor t);
   [%expect
     {|
     {

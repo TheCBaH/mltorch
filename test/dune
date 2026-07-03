@@ -74,7 +74,7 @@
 (library
  (name pt2_test)
  (modules pt2_test)
- (libraries pt2 zipc)
+ (libraries core pt2 zipc)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
@@ -630,7 +630,7 @@
 (executable
  (name pt2_load)
  (modules pt2_load)
- (libraries pt2 pt2_aten))
+ (libraries core pt2 pt2_aten))
 
 (cram
  (applies_to pt2_load_cram)
@@ -643,7 +643,7 @@
 (executable
  (name interp_run)
  (modules interp_run)
- (libraries interp pt2 jsont jsont.bytesrw unix))
+ (libraries core interp pt2 jsont jsont.bytesrw unix))
 
 (cram
  (applies_to interp_resnet_cram)

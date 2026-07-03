@@ -5,6 +5,11 @@ module Monad = Monad
 module Error = struct
   type +'e t = { kind : 'e; backtrace : Printexc.raw_backtrace }
 
+  (* [get_callstack] works with no exception in flight and is independent of
+     [record_backtrace], so the detection site is captured for free. 64 frames
+     is plenty for these validation/config boundaries. *)
+  let make kind = { kind; backtrace = Printexc.get_callstack 64 }
+
   (* Symbolize the captured stack with [Printexc.Slot.format] (the same text the
      runtime uses for exception backtraces) rather than reading [location]
      fields, so this stays robust across compiler versions. Frame 0 is
@@ -35,10 +40,7 @@ end
 
 type ('a, 'e) result = ('a, 'e Error.t) Stdlib.result
 
-(* [get_callstack] works with no exception in flight and is independent of
-   [record_backtrace], so the detection site is captured for free. 64 frames is
-   plenty for these validation/config boundaries. *)
-let fail kind = Error { Error.kind; backtrace = Printexc.get_callstack 64 }
+let fail kind = Error (Error.make kind)
 let return x = Ok x
 
 let map_error f = function

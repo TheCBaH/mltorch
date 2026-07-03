@@ -12,8 +12,8 @@ val encode_tensor :
   ?max_elts:int ->
   Tensor.packed ->
   (string, string) result
-(** [~max_elts]: if provided and tensor has more elements, payload is
-    {"None":null}; otherwise {"Array":[...]}. *)
+(** [~max_elts]: if provided and tensor has more elements, the payload data is
+    elided; otherwise the full array payload is emitted. *)
 
 val decode_tensor : string -> (Tensor.packed, string) result
-(** Errors when the payload was {"None":null} (data was elided). *)
+(** Errors when the payload data was elided. *)

@@ -6,4 +6,11 @@
 (library
  (name pt2)
  (wrapped false)
- (libraries jsont jsont.bytesrw opickle pytorch_types schema_runtime zipc))
+ (libraries
+  core
+  jsont
+  jsont.bytesrw
+  opickle
+  pytorch_types
+  schema_runtime
+  zipc))

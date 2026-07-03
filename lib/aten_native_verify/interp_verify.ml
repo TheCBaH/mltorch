@@ -5,14 +5,22 @@
    element-wise by Verify.  Per-output errors are printed to [ppf] (default:
    stderr).  When [~verify:false] this is a thin pass-through with no overhead. *)
 
+let pp_interp_error ppf = function
+  | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
+  | `Aten_runtime_failure (op, st) ->
+      Format.fprintf ppf "ATen op %s failed with status %d" op st
+  | `Unhandled_op target -> Format.fprintf ppf "unhandled op %S" target
+
 let dispatch ~verify ?(ppf = Format.err_formatter) (env : Interp_decode.env)
-    (node : Pytorch_types.Node.t) : Interp_decode.env =
-  let env' = Interp_dispatch.dispatch env node in
+    (node : Pytorch_types.Node.t) =
+  let open Core.Syntax in
+  let* env' = Interp_dispatch.dispatch env node in
   (if verify then
      match Op_bridge.dispatch ~aten_env:env node with
      | None -> ()
-     | Some (Error msg) ->
-         Format.fprintf ppf "[verify] %s: bridge error: %s@." node.target msg
+     | Some (Error e) ->
+         Format.fprintf ppf "[verify] %s: bridge error: %a@." node.target
+           Op_bridge.pp_error e.Core.Error.kind
      | Some (Ok (graph, bindings)) -> (
          match Eval_direct.run graph ~inputs:bindings with
          | Error e ->
@@ -28,4 +36,4 @@ let dispatch ~verify ?(ppf = Format.err_formatter) (env : Interp_decode.env)
                Verify.verify_node ~atol:1e-5 ~aten_env:env' node native_outputs
              in
              Verify.report ppf node.target errors));
-  env'
+  Core.return env'

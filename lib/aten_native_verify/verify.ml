@@ -156,26 +156,18 @@ let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
   match List.compare_lengths out_names native_outputs with
   | n when n <> 0 ->
       [
-        {
-          Core.Error.kind =
-            Output_count
-              {
-                expected = List.length out_names;
-                got = List.length native_outputs;
-              };
-          backtrace = Printexc.get_callstack 0;
-        };
+        Core.Error.make
+          (Output_count
+             {
+               expected = List.length out_names;
+               got = List.length native_outputs;
+             });
       ]
   | _ ->
       List.filter_map
         (fun (name, native_t) ->
           match String_map.find_opt name aten_env with
-          | None ->
-              Some
-                {
-                  Core.Error.kind = Missing_output { name };
-                  backtrace = Printexc.get_callstack 0;
-                }
+          | None -> Some (Core.Error.make (Missing_output { name }))
           | Some aten_t -> (
               match compare_tensors ~atol ~output:name aten_t native_t with
               | Ok () -> None

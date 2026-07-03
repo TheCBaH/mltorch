@@ -215,13 +215,13 @@ let%expect_test "bridge coverage" =
     step 3 [groups]: {kernel=3x3 stride=1x1 dilation=1x1 groups=1 in_c=16 out_c=8 n=1 H=8 W=8 padding=same}
     [spec] torch.ops.aten.conv2d.padding: matched
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: interp: unhandled op torch.ops.aten.avg_pool2d.default)
+    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
     step 1 [pad_w]: {kernel=2x2 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: interp: unhandled op torch.ops.aten.avg_pool2d.default)
+    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
     step 2 [pad_h]: {kernel=2x2 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: interp: unhandled op torch.ops.aten.avg_pool2d.default)
+    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
     step 3 [input_w]: {kernel=2x2 stride=2x2 pad=0x1 n=1 c=4 H=8 W=10}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: interp: unhandled op torch.ops.aten.avg_pool2d.default)
+    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
     step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
     step 1 [w]: {shape=[2,4,8,16] dims=[2,3] keepdim=false}
