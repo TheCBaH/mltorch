@@ -26,18 +26,18 @@ let cascade c =
     if c.padding = "same" then (1, 1) else (c.stride_h, c.stride_w)
   in
   let in_channels =
-    Window_math.round_up_multiple ~n:c.in_channels ~m:c.groups
+    Walk_core.Window_math.round_up_multiple ~n:c.in_channels ~m:c.groups
   in
   let out_channels =
-    Window_math.round_up_multiple ~n:c.out_channels ~m:c.groups
+    Walk_core.Window_math.round_up_multiple ~n:c.out_channels ~m:c.groups
   in
   let input_h =
-    Window_math.grow_input ~in_size:c.input_h ~pad:0 ~kernel:c.kernel_h
-      ~dilation:c.dilation_h
+    Walk_core.Window_math.grow_input ~in_size:c.input_h ~pad:0
+      ~kernel:c.kernel_h ~dilation:c.dilation_h
   in
   let input_w =
-    Window_math.grow_input ~in_size:c.input_w ~pad:0 ~kernel:c.kernel_w
-      ~dilation:c.dilation_w
+    Walk_core.Window_math.grow_input ~in_size:c.input_w ~pad:0
+      ~kernel:c.kernel_w ~dilation:c.dilation_w
   in
   { c with stride_h; stride_w; in_channels; out_channels; input_h; input_w }
 

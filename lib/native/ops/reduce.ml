@@ -82,6 +82,46 @@ module Mean = struct
          (fun s (kin, oax) -> Vec6.set s oax (Vec6.get x_shape kin))
          ones (kept_map p))
 
+  (* This op's random-walk config space: a 4D NHWC tensor reduced over a curated
+     set of axis subsets with keepdim toggled. Any non-empty subset is valid, so
+     [cascade] is identity. Lives with the op (per backend). *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t; dims : Axis.t list; keepdim : bool }
+
+    let initial =
+      {
+        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        dims = [ Axis.H; Axis.W ];
+        keepdim = false;
+      }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+    let params (c : cfg) : params = { dims = c.dims; keepdim = c.keepdim }
+
+    let dim_sets =
+      Axis.[ [ H; W ]; [ H; W; C ]; [ C ]; [ H ]; [ W ]; [ N; H; W ] ]
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "dims" dim_sets (fun r v -> { r with dims = v });
+          field_axis "keepdim" [ true; false ] (fun r v ->
+              { r with keepdim = v });
+        ]
+
+    let pp fmt (c : cfg) =
+      Format.fprintf fmt "{shape=%a dims=[%a] keepdim=%b}" Walk_core.Shape.pp
+        c.shape
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt ",")
+           Axis.pp)
+        c.dims c.keepdim
+  end
+
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Axis.t -> Semantics.position S.index) =

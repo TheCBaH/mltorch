@@ -31,6 +31,86 @@ let window_output_shape ~(x_shape : Vec6.shape)
   let+ w = out_extent Axis.W ~kernel:kernel.w ~stride:stride.w ~pad:pad.w in
   Vec6.set (Vec6.set x_shape Axis.H h) Axis.W w
 
+(* Random-walk config space shared by the two pools (their [params] are field-
+   compatible). Each op's own [Walk] includes this and adds its [params] builder.
+   [cascade] enforces pooling's constraints (2*pad <= kernel; input large enough
+   for a >=1 output, dilation 1). Within the native backend only — not shared
+   with ATen. *)
+module Window_cfg (L : Walk_core.Limits.S) = struct
+  type cfg = {
+    shape : Walk_core.Shape.t;
+    kernel : Walk_core.Walk.hw;
+    stride : Walk_core.Walk.hw;
+    pad : Walk_core.Walk.hw;
+  }
+
+  let l = L.limits
+
+  let initial =
+    {
+      shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 8; w = 8; c = 4 };
+      kernel = { Walk_core.Walk.h = 2; w = 2 };
+      stride = { Walk_core.Walk.h = 2; w = 2 };
+      pad = { Walk_core.Walk.h = 0; w = 0 };
+    }
+
+  let cascade c =
+    let kh = c.kernel.Walk_core.Walk.h and kw = c.kernel.Walk_core.Walk.w in
+    let pad_h = Walk_core.Window_math.clamp_pad_pool ~pad:c.pad.h ~kernel:kh in
+    let pad_w = Walk_core.Window_math.clamp_pad_pool ~pad:c.pad.w ~kernel:kw in
+    let h =
+      Walk_core.Window_math.grow_input ~in_size:c.shape.Walk_core.Shape.h
+        ~pad:pad_h ~kernel:kh ~dilation:1
+    in
+    let w =
+      Walk_core.Window_math.grow_input ~in_size:c.shape.Walk_core.Shape.w
+        ~pad:pad_w ~kernel:kw ~dilation:1
+    in
+    {
+      c with
+      pad = { Walk_core.Walk.h = pad_h; w = pad_w };
+      shape = { c.shape with Walk_core.Shape.h; w };
+    }
+
+  let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+  let kernel (c : cfg) : Dim.extent Dim.t Op_config.Hw.t =
+    {
+      Op_config.Hw.h = Dim.extent c.kernel.Walk_core.Walk.h;
+      w = Dim.extent c.kernel.w;
+    }
+
+  let stride (c : cfg) : Op_config.Pos.t Op_config.Hw.t =
+    {
+      Op_config.Hw.h = Op_config.Pos.of_int c.stride.Walk_core.Walk.h;
+      w = Op_config.Pos.of_int c.stride.w;
+    }
+
+  let pad (c : cfg) : Op_config.Nonneg.t Op_config.Hw.t =
+    {
+      Op_config.Hw.h = Op_config.Nonneg.of_int c.pad.Walk_core.Walk.h;
+      w = Op_config.Nonneg.of_int c.pad.w;
+    }
+
+  let axes =
+    Walk_core.Walk.
+      [
+        shape_axis "input" l
+          ~get:(fun c -> c.shape)
+          ~set:(fun c s -> { c with shape = s });
+        hw_axis "kernel" ~lo:1 ~hi:l.max_kernel (fun c v ->
+            { c with kernel = v });
+        hw_axis "stride" ~lo:1 ~hi:l.max_stride (fun c v ->
+            { c with stride = v });
+        hw_axis "pad" ~lo:0 ~hi:l.max_pad (fun c v -> { c with pad = v });
+      ]
+
+  let pp fmt (c : cfg) =
+    Format.fprintf fmt "{shape=%a kernel=%dx%d stride=%dx%d pad=%dx%d}"
+      Walk_core.Shape.pp c.shape c.kernel.Walk_core.Walk.h c.kernel.w
+      c.stride.Walk_core.Walk.h c.stride.w c.pad.Walk_core.Walk.h c.pad.w
+end
+
 module MaxPool2d = struct
   (* Matches ATen's `max_pool2d` (the value output only; `max_pool2d_with_indices`
      — what resnet18's graph actually calls — also returns the argmax indices
@@ -64,6 +144,14 @@ module MaxPool2d = struct
       p.stride
       (Op_config.Hw.pp Op_config.Nonneg.pp)
       p.pad
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    module W = Window_cfg (L)
+    include W
+
+    let params (c : W.cfg) : params =
+      { kernel = W.kernel c; stride = W.stride c; pad = W.pad c }
+  end
 
   type t = { params : params; x : Tensor_ref.t }
 
@@ -153,6 +241,14 @@ module AvgPool2d = struct
       p.stride
       (Op_config.Hw.pp Op_config.Nonneg.pp)
       p.pad
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    module W = Window_cfg (L)
+    include W
+
+    let params (c : W.cfg) : params =
+      { kernel = W.kernel c; stride = W.stride c; pad = W.pad c }
+  end
 
   type t = { params : params; x : Tensor_ref.t }
 

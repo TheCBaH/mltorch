@@ -1,8 +1,7 @@
-; Generic random-walk equivalence engine for the ATen/native op harness.
-; Uses the functional PCG32 from aten_spec to drive both config mutation and
-; tensor-value synthesis; delegates verification to aten_spec_run.
+; ATen specialization of the shared walk runner: fixes [verify] to the
+; ATen-vs-native harness (aten_spec_run). The generic loop lives in walk_core.
 
 (library
  (name native_walk)
  (wrapped false)
- (libraries aten_spec aten_spec_run aten_walk_recipes))
+ (libraries walk_core aten_spec aten_spec_run aten_walk_recipes))

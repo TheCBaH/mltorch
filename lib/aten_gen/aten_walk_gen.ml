@@ -51,7 +51,8 @@ let tensor_binding (k : Sg.kept) =
 (* Emit a Meta-tier module from its Walk_meta entry. *)
 let emit_meta buf (m : Walk_meta.t) =
   Printf.bprintf buf "module %s = struct\n" m.module_name;
-  Printf.bprintf buf "  type cfg = Aten_walk_recipes.%s.t\n\n" m.recipe;
+  Printf.bprintf buf "  type cfg = Aten_walk_recipes.%s.t\n" m.recipe;
+  buf_add buf "  type subject = Aten_spec.Op_spec.t\n\n";
   Printf.bprintf buf "  let target = %S\n" m.target;
   Printf.bprintf buf "  let initial = %s\n" m.initial;
   Printf.bprintf buf "  let axes = %s\n" m.axes;
@@ -76,7 +77,8 @@ let emit_default buf (op : A.t) (kept : Sg.kept list) (tk : Sg.kept) =
   in
   let fields = String.concat "; " (List.map field kept) in
   Printf.bprintf buf "module %s = struct\n" name;
-  buf_add buf "  type cfg = Aten_walk_recipes.Recipe_default.t\n\n";
+  buf_add buf "  type cfg = Aten_walk_recipes.Recipe_default.t\n";
+  buf_add buf "  type subject = Aten_spec.Op_spec.t\n\n";
   Printf.bprintf buf "  let target = %S\n" (Sg.target op);
   buf_add buf
     "  let initial = Aten_walk_recipes.Recipe_default.{ shape = [ 2; 3; 4; 4 ] }\n";
@@ -140,10 +142,18 @@ let file (ops : A.t list) =
     Walk_meta.entries;
   let walks = List.rev !walks in
   let needs_meta = List.rev !needs_meta in
-  buf_add buf "let all_walks : (module Aten_walk_recipes.Walk.Op) list =\n  [\n";
+  buf_add buf
+    {|let all_walks :
+    (module Aten_walk_recipes.Walk.Op with type subject = Aten_spec.Op_spec.t)
+    list =
+  [
+|};
   List.iter
     (fun name ->
-      Printf.bprintf buf "    (module %s : Aten_walk_recipes.Walk.Op);\n" name)
+      Printf.bprintf buf
+        "    (module %s : Aten_walk_recipes.Walk.Op with type subject = \
+         Aten_spec.Op_spec.t);\n"
+        name)
     walks;
   buf_add buf "  ]\n\n";
   buf_add buf "let needs_meta : string list =\n  [\n";

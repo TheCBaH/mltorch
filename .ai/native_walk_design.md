@@ -7,6 +7,51 @@ by random-walking over the configuration space of each op and asserting `native 
 step. Individual spec tests check a few hand-picked configs; this framework provides broad coverage
 over the hyperparameter manifold, and aims to cover the **whole curated aten↔native bridge**.
 
+## Two backends, one machinery
+
+The walk runs against **two backends** that share the same engine:
+
+- **ATen backend** (`lib/native_walk`, libtorch-linked): subject is an `Aten_spec.Op_spec.t`, the
+  oracle is `native == ATen` (`Aten_spec_run.run`). Walk modules are **generated** (below).
+- **Native backend** (`lib/native_op_walk`, pure OCaml): subject is a one-node native graph + its
+  inputs, the oracle is **Direct == Symbolic** — the engine's two evaluation paths (`Eval_direct`
+  vs `Stage_program.ground (Eval_symbolic.run g)`) must agree. No libtorch; runs under
+  `dune runtest test/native`. Walk modules are **hand-written**, one per native op.
+
+### `walk_core` — the shared, backend-neutral foundation (`lib/walk_core/`)
+
+- `Float32`, `Pcg` (moved here; `aten_spec` re-exports them so `lib/native` can use the PRNG
+  without depending on `aten_spec`).
+- `Walk`: the `axis` type, `pick`/`field_axis`, the `module type Op_space`/`Op`, and the generic
+  `run : (module Op with type subject = 'a) -> verify:(…) -> …` loop. `verify` is passed in per
+  backend (run evaluator + compare), so `walk_core` links neither backend.
+- `Window_math`: pure conv/pool cascade arithmetic.
+- **The walk "language"** — `Limits`, `Shape`, and range/compound axis combinators (next section).
+
+### The walk language: global Limits + compound axes
+
+Numeric dimensions are **domains, not lists**, bounded by one shared config:
+
+- `Limits.t` — global caps (max kernel/stride/pad/dilation/channels/extent/batch/numel) + `default`
+  + `module type S`. Each op's `Walk` is a **functor over `Limits.S`**, so one shared instance
+  (`lib/native_op_walk/walk_limits.ml`) bounds every op's tensor sizes.
+- `Shape.t` — a neutral 6-axis (N T D H W C) tensor shape carried as **one** compound config entry;
+  `valid`/`resize` clamp to the per-axis cap and the total-numel budget, so a shape is valid by
+  construction. `lib/native/walk_bridge.ml` maps it to the engine's `Vec6` (direct field map).
+- Axis combinators: `int_axis ~lo ~hi` (draw any int in range), `hw_axis ~lo ~hi` (an H/W pair as
+  one entry setting two fields — kernel/stride/pad/dilation), `shape_axis` (mutate one axis of the
+  shape within limits). `field_axis` (enumerated) stays for non-numeric axes (padding mode, dim
+  subsets, bool). This collapses conv's ~27 scalar axes to ~7 compound ones.
+
+A native op's walk properties (`cfg`/`axes`/`cascade`) live **inside the op module** (its `Walk`
+functor in `lib/native/ops/*.ml`) — they are NOT shared with the ATen backend, whose constraints can
+differ. Only the machinery above is shared. The graph `build` (which needs `Graph_builder`, above
+the op modules in the dep graph) and the Direct-vs-Symbolic `verify` live in `lib/native_op_walk`.
+
+> The rest of this document describes the **ATen backend**'s generated walk modules. The native
+> backend reuses the same `walk_core` engine + language; Phase C will move the ATen backend onto the
+> same Limits/compound language (retiring the `Recipe_*` discrete lists).
+
 ## Architecture
 
 The walk modules are **generated at build time** from the same curated op `selection` that drives

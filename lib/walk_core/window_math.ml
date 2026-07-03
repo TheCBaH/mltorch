@@ -1,5 +1,7 @@
-(* Spatial-window arithmetic shared by the conv and pool recipes: the output
-   extent formula and the cascade repairs that keep a windowed config valid. *)
+(* Spatial-window arithmetic shared by windowed ops (conv/pool): the output
+   extent formula and the cascade repairs that keep a windowed config valid.
+   Pure int math — a machinery helper, not a per-op walk description, so both
+   backends' cascades may call it. *)
 
 (* Output extent of one spatial axis, matching Window_axis.output_extent:
      (in + 2*pad - ((kernel-1)*dilation + 1)) / stride + 1. *)

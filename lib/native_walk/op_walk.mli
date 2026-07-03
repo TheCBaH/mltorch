@@ -1,17 +1,11 @@
-(** Random-walk driver for ATen/native equivalence checking.
-
-    Given a walkable op (a [(module Walk.Op)]), thread one PCG through axis
-    selection, config mutation and tensor-value synthesis, comparing native vs
-    ATen at every step. A run is fully reproducible from its seed. *)
+(** ATen specialization of the shared random-walk runner: drives a generated
+    ATen walk module ([build] produces an [Aten_spec.Op_spec.t]) and verifies
+    each config through the ATen-vs-native harness. The generic loop is
+    [Walk_core.Walk.run]; this fixes [verify] to [Aten_spec_run.run]. *)
 
 val run :
-  (module Aten_walk_recipes.Walk.Op) ->
+  (module Walk_core.Walk.Op with type subject = Aten_spec.Op_spec.t) ->
   ppf:Format.formatter ->
-  pcg:Aten_spec.Pcg.t ->
+  pcg:Walk_core.Pcg.t ->
   steps:int ->
   unit
-(** [run (module M) ~ppf ~pcg ~steps] validates the (cascaded) initial config
-    (step 0), then takes up to [steps] steps. Each step picks an axis, mutates
-    it freely, and re-cascades so dependent parameters stay valid; it prints the
-    config and the comparison result. Stops on the first mismatch so the failing
-    configuration is the last line printed. *)

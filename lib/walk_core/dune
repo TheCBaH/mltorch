@@ -1,0 +1,9 @@
+; Neutral foundation for the random-walk verification framework: the functional
+; PCG32 RNG, bit-exact Float32, windowed-op math helpers, and the backend-neutral
+; walk machinery (axis abstraction + the run loop parameterized by a per-backend
+; [verify]). Pure (jsont only): depended on by aten_spec (re-exports Pcg/Float32),
+; lib/native (op walk submodules), and both walk runners.
+
+(library
+ (name walk_core)
+ (libraries jsont))

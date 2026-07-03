@@ -25,8 +25,8 @@ let axes ~n ~c ~h ~w ~dims ~keepdim =
     [
       field_axis "n" n (fun c v -> { c with n = v });
       field_axis "c" c (fun cf v -> { cf with c = v });
-      field_axis "h" h (fun c v -> { c with h = v });
-      field_axis "w" w (fun c v -> { c with w = v });
+      field_axis "h" h (fun (c : t) v -> { c with h = v });
+      field_axis "w" w (fun (c : t) v -> { c with w = v });
       field_axis "dims" dims (fun c v -> { c with dims = v });
       field_axis "keepdim" keepdim (fun c v -> { c with keepdim = v });
     ]

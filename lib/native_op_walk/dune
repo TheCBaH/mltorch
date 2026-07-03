@@ -1,0 +1,7 @@
+; Native-operation random walk: drives each native op's own config space
+; (its Walk submodule in lib/native/ops) and verifies the Direct and Symbolic
+; backends agree. Pure OCaml (no libtorch); the verify oracle is self-contained.
+
+(library
+ (name native_op_walk)
+ (libraries native walk_core core))

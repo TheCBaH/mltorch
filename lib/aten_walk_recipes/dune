@@ -5,4 +5,4 @@
 
 (library
  (name aten_walk_recipes)
- (libraries aten_spec))
+ (libraries aten_spec walk_core))

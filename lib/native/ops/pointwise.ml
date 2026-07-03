@@ -66,6 +66,30 @@ module Relu = struct
       let v = S.load x out in
       S.select (S.lt v (S.const 0.)) (S.const 0.) v
   end
+
+  (* This op's own random-walk config space: a single tensor of any shape (relu
+     imposes no constraint, so [cascade] is identity). A functor over the global
+     Limits; the shape is one compound entry mutated within the limits' budget.
+     Lives with the op so it can diverge from any other backend's walk. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+  end
 end
 
 (* A binary elementwise op: read each operand at the output coord reduced against
@@ -104,6 +128,29 @@ module Bin = struct
 
   let pp ~op (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>%s@ a=%a@ b=%a@]" op pp_ref t.a pp_ref t.b
+
+  (* Walk config space shared by the binary pointwise ops (Add/Mul): one shape
+     used for both operands (equal-shape; broadcast not exercised). A functor
+     over the global Limits; no constraint, so [cascade] is identity. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+  end
 end
 
 module Add = struct

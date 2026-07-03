@@ -5,4 +5,4 @@
 
 (library
  (name aten_spec)
- (libraries jsont))
+ (libraries jsont walk_core))

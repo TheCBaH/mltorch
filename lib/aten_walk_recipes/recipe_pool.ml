@@ -17,15 +17,19 @@ type t = {
 
 (* Clamp pad to <= kernel/2, then grow each input for a >=1 output (dilation 1). *)
 let cascade c =
-  let pad_h = Window_math.clamp_pad_pool ~pad:c.pad_h ~kernel:c.kernel_h in
-  let pad_w = Window_math.clamp_pad_pool ~pad:c.pad_w ~kernel:c.kernel_w in
+  let pad_h =
+    Walk_core.Window_math.clamp_pad_pool ~pad:c.pad_h ~kernel:c.kernel_h
+  in
+  let pad_w =
+    Walk_core.Window_math.clamp_pad_pool ~pad:c.pad_w ~kernel:c.kernel_w
+  in
   let input_h =
-    Window_math.grow_input ~in_size:c.input_h ~pad:pad_h ~kernel:c.kernel_h
-      ~dilation:1
+    Walk_core.Window_math.grow_input ~in_size:c.input_h ~pad:pad_h
+      ~kernel:c.kernel_h ~dilation:1
   in
   let input_w =
-    Window_math.grow_input ~in_size:c.input_w ~pad:pad_w ~kernel:c.kernel_w
-      ~dilation:1
+    Walk_core.Window_math.grow_input ~in_size:c.input_w ~pad:pad_w
+      ~kernel:c.kernel_w ~dilation:1
   in
   { c with pad_h; pad_w; input_h; input_w }
 
