@@ -29,7 +29,21 @@ module Bmm = struct
 
   (* H/W from [input_shape] (batch/rows); C replaced by mat2_shape.C (columns). *)
   let output_shape ~(input_shape : Vec6.shape) ~(mat2_shape : Vec6.shape) =
-    Vec6.set input_shape Axis.C (Vec6.get mat2_shape Axis.C)
+    let input_batch = Vec6.get input_shape Axis.H in
+    let mat2_batch = Vec6.get mat2_shape Axis.H in
+    let input_contract = Vec6.get input_shape Axis.C in
+    let mat2_contract = Vec6.get mat2_shape Axis.W in
+    if not (Dim.equal input_batch mat2_batch) then
+      Core.fail
+        (`Bmm
+           (Shape_error.Bmm.Batch_mismatch
+              Shape_error.Bmm.{ lhs = input_batch; rhs = mat2_batch }))
+    else if not (Dim.equal input_contract mat2_contract) then
+      Core.fail
+        (`Bmm
+           (Shape_error.Bmm.Contract_mismatch
+              Shape_error.Bmm.{ lhs = input_contract; rhs = mat2_contract }))
+    else Core.return (Vec6.set input_shape Axis.C (Vec6.get mat2_shape Axis.C))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel ~(input_shape : Vec6.shape) ~input ~mat2

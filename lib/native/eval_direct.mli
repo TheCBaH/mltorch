@@ -6,7 +6,22 @@
 
 open Graph_ir
 
+type context = Operand | Sig_shape | Subgraph_input | Subgraph_output
+type missing_tensor = { context : context; id : Tensor_id.t }
+type arity_mismatch = { expected : int; actual : int }
+type output_count = { count : int }
+
+type error =
+  [ Graph_shape.error
+  | `Missing_tensor of missing_tensor
+  | `Subgraph_input_arity_mismatch of arity_mismatch
+  | `Subgraph_output_arity_mismatch of arity_mismatch
+  | `Expected_single_output_shape of output_count
+  | `Expected_single_output_id of output_count ]
+
+val pp_error : Format.formatter -> [< error ] -> unit
+
 val run :
   graph ->
   inputs:(Tensor_id.t * Tensor.packed) list ->
-  Tensor.packed Tensor_id.Map.t
+  (Tensor.packed Tensor_id.Map.t, error) Core.result

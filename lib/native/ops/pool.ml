@@ -22,15 +22,14 @@ let window_output_shape ~(x_shape : Vec6.shape)
     ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
     ~(stride : Op_config.Pos.t Op_config.Hw.t)
     ~(pad : Op_config.Nonneg.t Op_config.Hw.t) =
+  let open Core.Syntax in
   let out_extent axis ~kernel ~stride ~pad =
     Window_axis.output_extent ~in_extent:(Vec6.get x_shape axis) ~kernel ~stride
       ~pad_before:pad ~pad_after:pad ~dilation:(Op_config.Pos.of_int 1)
   in
-  Vec6.set
-    (Vec6.set x_shape Axis.H
-       (out_extent Axis.H ~kernel:kernel.h ~stride:stride.h ~pad:pad.h))
-    Axis.W
-    (out_extent Axis.W ~kernel:kernel.w ~stride:stride.w ~pad:pad.w)
+  let* h = out_extent Axis.H ~kernel:kernel.h ~stride:stride.h ~pad:pad.h in
+  let+ w = out_extent Axis.W ~kernel:kernel.w ~stride:stride.w ~pad:pad.w in
+  Vec6.set (Vec6.set x_shape Axis.H h) Axis.W w
 
 module MaxPool2d = struct
   (* Matches ATen's `max_pool2d` (the value output only; `max_pool2d_with_indices`

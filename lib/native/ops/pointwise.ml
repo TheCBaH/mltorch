@@ -9,21 +9,19 @@
    larger of the two. Computed in extent-space (no [:> int] round-trips); start
    from [a_shape] and overwrite every axis. See .ai/native_compute_design.md §2b. *)
 let broadcast_output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
-  List.fold_left
+  let open Core.Syntax in
+  Core.List.fold_left
     (fun s axis ->
       let a = Vec6.get a_shape axis and b = Vec6.get b_shape axis in
-      let out =
-        if Dim.equal a b then a
-        else if Dim.equal a Dim.one then b
-        else if Dim.equal b Dim.one then a
+      let* out =
+        if Dim.equal a b then Core.return a
+        else if Dim.equal a Dim.one then Core.return b
+        else if Dim.equal b Dim.one then Core.return a
         else
-          invalid_arg
-            (Format.asprintf
-               "Pointwise.broadcast_output_shape: incompatible extents on axis \
-                %a: %a vs %a"
-               Axis.pp axis Dim.pp a Dim.pp b)
+          Core.fail
+            (`Broadcast Shape_error.Broadcast.{ axis; lhs = a; rhs = b })
       in
-      Vec6.set s axis out)
+      Core.return (Vec6.set s axis out))
     a_shape Axis.all
 
 (* Broadcasting for a binary op. [load] is strict — an out-of-bounds index is an
@@ -60,7 +58,7 @@ module Relu = struct
     Fmt.pf fmt "@[<hv 2>relu@ x=%a@]" pp_ref t.x
 
   (* Identity: relu doesn't change shape. See .ai/native_compute_design.md §2b. *)
-  let output_shape (x_shape : Vec6.shape) = x_shape
+  let output_shape (x_shape : Vec6.shape) = Core.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* relu x = (x < 0 ? 0 : x) — derived from [select]+[lt], not a primitive *)

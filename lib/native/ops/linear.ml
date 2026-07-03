@@ -66,8 +66,22 @@ module Linear = struct
   (* N/T/D/H/W pass through from [x_shape] (no spatial reduction); only C
      changes, to [weight_shape]'s [Out]. Extent-space, no [:> int] round-trips.
      See .ai/native_compute_design.md §2b. *)
-  let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape) =
-    Vec6.set x_shape Axis.C (Vec6.get weight_shape Axis.N)
+  let output_shape (p : params) ~(x_shape : Vec6.shape)
+      ~(weight_shape : Vec6.shape) =
+    let expected = p.in_features in
+    let x_channels = Vec6.get x_shape Axis.C in
+    let weight_channels = Vec6.get weight_shape Axis.C in
+    if not (Dim.equal x_channels expected) then
+      Core.fail
+        (`Linear
+           (Shape_error.Linear.Input_channels_mismatch
+              Shape_error.Linear.{ actual = x_channels; expected }))
+    else if not (Dim.equal weight_channels expected) then
+      Core.fail
+        (`Linear
+           (Shape_error.Linear.Weight_channels_mismatch
+              Shape_error.Linear.{ actual = weight_channels; expected }))
+    else Core.return (Vec6.set x_shape Axis.C (Vec6.get weight_shape Axis.N))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~x ~weight ~bias

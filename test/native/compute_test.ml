@@ -3,6 +3,10 @@ let row c = Dim.to_int (Vec6.get c Axis.H)
 let col c = Dim.to_int (Vec6.get c Axis.W)
 let s1c n = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:n
 
+let ok = function
+  | Ok x -> x
+  | Error e -> failwith (Format.asprintf "%a" Shape_error.pp e.Core.Error.kind)
+
 let conv_axis ?(pad_before = 0) ?pad_after ?(dilation = 1) ~kernel ~stride () :
     Conv.Conv2d.axis_window =
   {
@@ -41,7 +45,7 @@ let%expect_test "Direct: relu pointwise" =
     Tensor.materialize x_shape (fun c -> [| -2.; -0.5; 1.; 3. |].(chan c))
   in
   Format.printf "%a@." Tensor.pp
-    (Schedule.evaluate (Pointwise.Relu.output_shape x_shape) (R.pixel x));
+    (Schedule.evaluate (ok (Pointwise.Relu.output_shape x_shape)) (R.pixel x));
   [%expect {| tensor f32 [C=4] {0, 0, 1, 3} |}]
 
 let%expect_test "Direct: add" =
@@ -51,7 +55,7 @@ let%expect_test "Direct: add" =
   let y = Tensor.materialize y_shape (fun _ -> 10.) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate
-       (Pointwise.Add.output_shape x_shape y_shape)
+       (ok (Pointwise.Add.output_shape x_shape y_shape))
        (A.pixel ~a_shape:x_shape ~b_shape:y_shape x y));
   [%expect {| tensor f32 [C=3] {10, 11, 12} |}]
 
@@ -62,7 +66,7 @@ let%expect_test "Direct: mul" =
   let y = Tensor.materialize y_shape (fun _ -> 10.) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate
-       (Pointwise.Mul.output_shape x_shape y_shape)
+       (ok (Pointwise.Mul.output_shape x_shape y_shape))
        (M.pixel ~a_shape:x_shape ~b_shape:y_shape x y));
   [%expect {| tensor f32 [C=3] {0, 10, 20} |}]
 
@@ -79,7 +83,7 @@ let%expect_test "Direct: add broadcasts an extent-1 axis" =
   let b = Tensor.materialize b_shape (fun c -> [| 10.; 20.; 30. |].(chan c)) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate
-       (Pointwise.Add.output_shape a_shape b_shape)
+       (ok (Pointwise.Add.output_shape a_shape b_shape))
        (A.pixel ~a_shape ~b_shape a b));
   [%expect {| tensor f32 [W=2 C=3] {10, 21, 32, 13, 24, 35} |}]
 
@@ -88,10 +92,9 @@ let%expect_test "Direct: add broadcasts an extent-1 axis" =
 let%expect_test "Direct: add of incompatible extents raises" =
   let a_shape = s1c 3 and b_shape = s1c 5 in
   (match Pointwise.Add.output_shape a_shape b_shape with
-  | _ -> print_string "no error"
-  | exception Invalid_argument msg -> Printf.printf "raised: %s\n" msg);
-  [%expect
-    {| raised: Pointwise.broadcast_output_shape: incompatible extents on axis C: 3 vs 5 |}]
+  | Ok _ -> print_string "no error"
+  | Error e -> Format.printf "error: %a@." Shape_error.pp e.Core.Error.kind);
+  [%expect {| error: incompatible broadcast extents on axis C: 3 vs 5 |}]
 
 let%expect_test "Direct: conv2d 2x2 box filter (stride 1, no pad)" =
   let module Cv = Conv.Conv2d.Compute (Direct) in
@@ -105,7 +108,7 @@ let%expect_test "Direct: conv2d 2x2 box filter (stride 1, no pad)" =
   let weight = Tensor.materialize weight_shape (fun _ -> 1.) in
   let bias = Tensor.materialize (s1c 1) (fun _ -> 0.) in
   let p = conv_params ~kernel:(2, 2) ~stride:(1, 1) ~in_channels:1 () in
-  let out_shape = Conv.Conv2d.output_shape ~x_shape ~weight_shape p in
+  let out_shape = ok (Conv.Conv2d.output_shape ~x_shape ~weight_shape p) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape
        (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
@@ -129,7 +132,7 @@ let%expect_test
   let p =
     conv_params ~kernel:(3, 3) ~stride:(1, 1) ~pad:(1, 1) ~in_channels:1 ()
   in
-  let out_shape = Conv.Conv2d.output_shape ~x_shape ~weight_shape p in
+  let out_shape = ok (Conv.Conv2d.output_shape ~x_shape ~weight_shape p) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape
        (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
@@ -159,7 +162,7 @@ let%expect_test "Direct: grouped conv2d reduces only within each channel group"
   let p =
     conv_params ~groups:2 ~kernel:(1, 1) ~stride:(1, 1) ~in_channels:4 ()
   in
-  let out_shape = Conv.Conv2d.output_shape ~x_shape ~weight_shape p in
+  let out_shape = ok (Conv.Conv2d.output_shape ~x_shape ~weight_shape p) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape
        (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
@@ -187,7 +190,7 @@ let%expect_test
   let p =
     conv_params ~groups:2 ~kernel:(1, 1) ~stride:(1, 1) ~in_channels:2 ()
   in
-  let out_shape = Conv.Conv2d.output_shape ~x_shape ~weight_shape p in
+  let out_shape = ok (Conv.Conv2d.output_shape ~x_shape ~weight_shape p) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape
        (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
@@ -205,7 +208,7 @@ let%expect_test "Direct: conv2d asymmetric padding with dilation" =
       ~pad_after:(Some (0, 2))
       ~kernel:(1, 3) ~stride:(1, 1) ~in_channels:1 ()
   in
-  let out_shape = Conv.Conv2d.output_shape ~x_shape ~weight_shape p in
+  let out_shape = ok (Conv.Conv2d.output_shape ~x_shape ~weight_shape p) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape
        (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
@@ -235,7 +238,7 @@ let%expect_test
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let out_shape = Pool.MaxPool2d.output_shape ~x_shape p in
+  let out_shape = ok (Pool.MaxPool2d.output_shape ~x_shape p) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (P.pixel p ~x_shape ~x));
   (* hand-computed: input(h,w) = -(h*3+w)-1, i.e. -1..-9 row-major; each
@@ -263,7 +266,7 @@ let%expect_test "Direct: avg_pool2d 2x2 (stride 1, pad 0) — box-filter average
           { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
     }
   in
-  let out_shape = Pool.AvgPool2d.output_shape ~x_shape p in
+  let out_shape = ok (Pool.AvgPool2d.output_shape ~x_shape p) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (P.pixel p ~x_shape ~x));
   [%expect {| tensor f32 [H=2 W=2 C=1] {2, 3, 5, 6} |}]
@@ -289,7 +292,7 @@ let%expect_test
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let out_shape = Pool.AvgPool2d.output_shape ~x_shape p in
+  let out_shape = ok (Pool.AvgPool2d.output_shape ~x_shape p) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (P.pixel p ~x_shape ~x));
   [%expect
@@ -314,7 +317,7 @@ let%expect_test "Direct: linear (addmm) — out_features mix in_features" =
     Tensor.materialize bias_shape (fun c -> [| 10.; 100. |].(chan c))
   in
   let p = { Linear.Linear.in_features = Dim.extent 3 } in
-  let out_shape = Linear.Linear.output_shape ~x_shape ~weight_shape in
+  let out_shape = ok (Linear.Linear.output_shape p ~x_shape ~weight_shape) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (L.pixel p ~x ~weight ~bias));
   [%expect {| tensor f32 [C=2] {11, 105} |}]
@@ -346,7 +349,7 @@ let%expect_test
         let j = Dim.to_int (Vec6.get c Axis.C) in
         [| m2_0; m2_1 |].(b).(k).(j))
   in
-  let out_shape = Matmul.Bmm.output_shape ~input_shape ~mat2_shape in
+  let out_shape = ok (Matmul.Bmm.output_shape ~input_shape ~mat2_shape) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (B.pixel ~input_shape ~input ~mat2));
   (* batch 0: [1,2,3]·[[1,0],[0,1],[1,1]] = [4,5]; [4,5,6]·same = [10,11]
@@ -370,6 +373,7 @@ let%expect_test "windowed axis: output_extent and window agree" =
     let out_extent =
       Window_axis.output_extent ~kernel ~stride ~pad_before:pad ~pad_after:pad
         ~dilation:(Op_config.Pos.of_int 1) ~in_extent
+      |> ok
     in
     let non_empty out =
       let w =
@@ -414,7 +418,7 @@ let%expect_test "Direct: mean over spatial (H,W), per channel" =
         if chan c = 0 then base else base *. 10.)
   in
   let p = { Reduce.Mean.dims = [ Axis.H; Axis.W ]; keepdim = true } in
-  let out_shape = Reduce.Mean.output_shape ~x_shape p in
+  let out_shape = ok (Reduce.Mean.output_shape ~x_shape p) in
   Format.printf "%a@." Tensor.pp
     (Schedule.evaluate out_shape (M.pixel p ~x_shape ~x));
   [%expect {| tensor f32 [C=2] {2.5, 25} |}]
@@ -425,7 +429,9 @@ let%expect_test
      keepdim=false removes W and re-packs H's data onto W (§1d). *)
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:6 ~w:7 ~c:8 in
   let shape ~keepdim =
-    Reduce.Mean.output_shape ~x_shape { Reduce.Mean.dims = [ Axis.W ]; keepdim }
+    ok
+      (Reduce.Mean.output_shape ~x_shape
+         { Reduce.Mean.dims = [ Axis.W ]; keepdim })
   in
   Format.printf "keepdim=true:  %a@." Vec6.pp_shape (shape ~keepdim:true);
   Format.printf "keepdim=false: %a@." Vec6.pp_shape (shape ~keepdim:false);
@@ -445,7 +451,7 @@ let%expect_test "Direct: mean over W, keepdim=false shifts H's data onto W" =
     let p = { Reduce.Mean.dims = [ Axis.W ]; keepdim } in
     Format.printf "%a@." Tensor.pp
       (Schedule.evaluate
-         (Reduce.Mean.output_shape ~x_shape p)
+         (ok (Reduce.Mean.output_shape ~x_shape p))
          (M.pixel p ~x_shape ~x))
   in
   run ~keepdim:true;
@@ -468,7 +474,7 @@ let%expect_test "Direct: rms_norm over C (channel-wise normalise)" =
     let p = { Norm.RmsNorm.dims = [ Axis.C ]; eps } in
     Format.printf "%a@." Tensor.pp
       (Schedule.evaluate
-         (Norm.RmsNorm.output_shape ~x_shape)
+         (ok (Norm.RmsNorm.output_shape ~x_shape))
          (R.pixel p ~x_shape ~x ~weight))
   in
   (* distinct |x| so the mean genuinely averages: mean(1²,7²)=mean(1,49)=25,
@@ -499,7 +505,7 @@ let%expect_test "Direct: permute [W=2 C=3] — swap W and C gives [W=3 C=2]" =
       (Axis.C, Axis.W);
     ]
   in
-  let out_shape = Permute.Permute.output_shape ~x_shape perm in
+  let out_shape = ok (Permute.Permute.output_shape ~x_shape perm) in
   Format.printf "%a@." Tensor.pp (Schedule.evaluate out_shape (P.pixel perm ~x));
   (* transpose of [[0,1,2],[3,4,5]] is [[0,3],[1,4],[2,5]]: row-major 0,3,1,4,2,5 *)
   [%expect {| tensor f32 [W=3 C=2] {0, 3, 1, 4, 2, 5} |}]
@@ -511,7 +517,7 @@ let%expect_test "Direct: permute identity — output equals input" =
     Tensor.materialize x_shape (fun c -> float_of_int (row c + col c + chan c))
   in
   let perm = List.map (fun a -> (a, a)) Axis.all in
-  let out_shape = Permute.Permute.output_shape ~x_shape perm in
+  let out_shape = ok (Permute.Permute.output_shape ~x_shape perm) in
   (* Shape unchanged *)
   Format.printf "shape: %a@." Vec6.pp_shape out_shape;
   (* Values unchanged: compare first-8 directly with Tensor.pp *)
@@ -541,7 +547,7 @@ let%expect_test "Direct: permute 3D [H=2 W=3 C=4] — cycle H->W->C->H" =
       (Axis.C, Axis.H);
     ]
   in
-  let out_shape = Permute.Permute.output_shape ~x_shape perm in
+  let out_shape = ok (Permute.Permute.output_shape ~x_shape perm) in
   Format.printf "out shape: %a@." Vec6.pp_shape out_shape;
   Format.printf "%a@." Tensor.pp (Schedule.evaluate out_shape (P.pixel perm ~x));
   (* output[h,w,c] = input[c, h, w]  (inverse cycle: C->H->W->C)

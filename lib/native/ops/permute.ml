@@ -56,10 +56,29 @@ module Permute = struct
   (* output_shape[out_ax] = x_shape[in_ax] for each (out_ax, in_ax) pair.
      Axes absent from [perm] default to extent 1 (never happens for a full perm). *)
   let output_shape ~(x_shape : Vec6.shape) (perm : perm) =
-    List.fold_left
-      (fun s (out_ax, in_ax) -> Vec6.set s out_ax (Vec6.get x_shape in_ax))
-      (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
-      perm
+    let open Core.Syntax in
+    let validate_axis side proj axis =
+      let count =
+        List.length (List.filter (fun pair -> Axis.equal (proj pair) axis) perm)
+      in
+      if count = 1 then Core.return ()
+      else Core.fail (`Permute Shape_error.Permute.{ side; axis; count })
+    in
+    let* () =
+      Core.List.fold_left
+        (fun () axis -> validate_axis `Output fst axis)
+        () Axis.all
+    in
+    let* () =
+      Core.List.fold_left
+        (fun () axis -> validate_axis `Input snd axis)
+        () Axis.all
+    in
+    Core.return
+      (List.fold_left
+         (fun s (out_ax, in_ax) -> Vec6.set s out_ax (Vec6.get x_shape in_ax))
+         (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
+         perm)
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* At each output coord [out], read the input at the coordinate produced by

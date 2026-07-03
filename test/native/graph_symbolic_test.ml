@@ -8,6 +8,16 @@ let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 
+let ok_build = function
+  | Ok x -> x
+  | Error e ->
+      failwith (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+
+let ok_eval = function
+  | Ok x -> x
+  | Error e ->
+      failwith (Format.asprintf "%a" Eval_direct.pp_error e.Core.Error.kind)
+
 let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
   {
     kernel = Dim.extent kernel;
@@ -26,13 +36,14 @@ let tensors_match shape a b =
 let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
     =
   let g =
-    Graph_builder.(
-      build ~name:"seq" ~outputs:(fun r -> [ r ])
-      @@
-      let* a = input ~shape:(s1c 3) ~name:"a" () in
-      let* b = input ~shape:(s1c 3) ~name:"b" () in
-      let* t = add ~name:"sum" a b in
-      relu ~name:"out" t)
+    ok_build
+      Graph_builder.(
+        build ~name:"seq" ~outputs:(fun r -> [ r ])
+        @@
+        let* a = input ~shape:(s1c 3) ~name:"a" () in
+        let* b = input ~shape:(s1c 3) ~name:"b" () in
+        let* t = add ~name:"sum" a b in
+        relu ~name:"out" t)
   in
   let prog = Eval_symbolic.run g in
   Format.printf "%a@." Stage_program.pp prog;
@@ -47,7 +58,7 @@ let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
   let inputs = List.combine g.Graph.inputs [ a; b ] in
   let bind id = List.assoc id inputs in
   let grounded = Stage_program.ground prog ~bind in
-  let direct = Eval_direct.run g ~inputs in
+  let direct = ok_eval (Eval_direct.run g ~inputs) in
   let oid = List.hd g.Graph.outputs in
   Format.printf "ground = %a@." Tensor.pp (Tensor_id.Map.find oid grounded);
   Format.printf "ground matches direct: %b@."
@@ -61,12 +72,13 @@ let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
 
 let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
   let g =
-    Graph_builder.(
-      build ~name:"prod" ~outputs:(fun r -> [ r ])
-      @@
-      let* a = input ~shape:(s1c 3) ~name:"a" () in
-      let* b = input ~shape:(s1c 3) ~name:"b" () in
-      mul ~name:"out" a b)
+    ok_build
+      Graph_builder.(
+        build ~name:"prod" ~outputs:(fun r -> [ r ])
+        @@
+        let* a = input ~shape:(s1c 3) ~name:"a" () in
+        let* b = input ~shape:(s1c 3) ~name:"b" () in
+        mul ~name:"out" a b)
   in
   let prog = Eval_symbolic.run g in
   Format.printf "%a@." Stage_program.pp prog;
@@ -80,7 +92,7 @@ let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
   let inputs = List.combine g.Graph.inputs [ a; b ] in
   let bind id = List.assoc id inputs in
   let grounded = Stage_program.ground prog ~bind in
-  let direct = Eval_direct.run g ~inputs in
+  let direct = ok_eval (Eval_direct.run g ~inputs) in
   let oid = List.hd g.Graph.outputs in
   Format.printf "ground = %a@." Tensor.pp (Tensor_id.Map.find oid grounded);
   Format.printf "ground matches direct: %b@."
@@ -133,16 +145,19 @@ let convolution_transposed_params =
 let%expect_test
     "Symbolic graph: conv decomposition stage DAG + ground matches Direct" =
   let g =
-    Graph_builder.(
-      build ~name:"conv_decomp" ~outputs:(fun (_, _, _, y) -> [ y ])
-      @@
-      let* x = input ~shape:(s 1 1 1 2 3 3) ~name:"x_nchw" () in
-      let* w = input ~shape:(s 1 1 1 2 2 2) ~name:"w" () in
-      let* b = input ~shape:(s1c 1) ~name:"b" () in
-      let* xh = permute ~name:"x_nhwc" p_to_nhwc x in
-      let* yh = conv2d ~name:"y_nhwc" conv_params ~x:xh ~weight:w ~bias:b () in
-      let* y = permute ~name:"y_nchw" p_to_nchw yh in
-      return (x, w, b, y))
+    ok_build
+      Graph_builder.(
+        build ~name:"conv_decomp" ~outputs:(fun (_, _, _, y) -> [ y ])
+        @@
+        let* x = input ~shape:(s 1 1 1 2 3 3) ~name:"x_nchw" () in
+        let* w = input ~shape:(s 1 1 1 2 2 2) ~name:"w" () in
+        let* b = input ~shape:(s1c 1) ~name:"b" () in
+        let* xh = permute ~name:"x_nhwc" p_to_nhwc x in
+        let* yh =
+          conv2d ~name:"y_nhwc" conv_params ~x:xh ~weight:w ~bias:b ()
+        in
+        let* y = permute ~name:"y_nchw" p_to_nchw yh in
+        return (x, w, b, y))
   in
   let prog = Eval_symbolic.run g in
   Format.printf "%a@." Stage_program.pp prog;
@@ -165,7 +180,7 @@ let%expect_test
   let inputs = List.combine g.Graph.inputs [ x; w; b ] in
   let bind id = List.assoc id inputs in
   let grounded = Stage_program.ground prog ~bind in
-  let direct = Eval_direct.run g ~inputs in
+  let direct = ok_eval (Eval_direct.run g ~inputs) in
   let oid = List.hd g.Graph.outputs in
   let gy = Tensor_id.Map.find oid grounded in
   let (Tensor.Tensor r) = gy in
@@ -179,12 +194,13 @@ let%expect_test
 
 let%expect_test "Symbolic graph: conv2d_padding same ground matches Direct" =
   let g =
-    Graph_builder.(
-      build ~name:"conv_padding" ~outputs:(fun y -> [ y ])
-      @@
-      let* x = input ~shape:(s 1 1 1 3 3 1) ~name:"x" () in
-      let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
-      conv2d_padding ~name:"y" conv_padding_params ~x ~weight:w ())
+    ok_build
+      Graph_builder.(
+        build ~name:"conv_padding" ~outputs:(fun y -> [ y ])
+        @@
+        let* x = input ~shape:(s 1 1 1 3 3 1) ~name:"x" () in
+        let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
+        conv2d_padding ~name:"y" conv_padding_params ~x ~weight:w ())
   in
   let prog = Eval_symbolic.run g in
   Format.printf "%a@." Stage_program.pp prog;
@@ -203,7 +219,7 @@ let%expect_test "Symbolic graph: conv2d_padding same ground matches Direct" =
   let inputs = List.combine g.Graph.inputs [ x; w ] in
   let bind id = List.assoc id inputs in
   let grounded = Stage_program.ground prog ~bind in
-  let direct = Eval_direct.run g ~inputs in
+  let direct = ok_eval (Eval_direct.run g ~inputs) in
   let oid = List.hd g.Graph.outputs in
   let gy = Tensor_id.Map.find oid grounded in
   let (Tensor.Tensor r) = gy in
@@ -217,12 +233,13 @@ let%expect_test "Symbolic graph: conv2d_padding same ground matches Direct" =
 
 let%expect_test "Symbolic graph: convolution ground matches Direct" =
   let g =
-    Graph_builder.(
-      build ~name:"convolution" ~outputs:(fun y -> [ y ])
-      @@
-      let* x = input ~shape:(s 1 1 1 3 3 1) ~name:"x" () in
-      let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
-      convolution ~name:"y" convolution_params ~x ~weight:w ())
+    ok_build
+      Graph_builder.(
+        build ~name:"convolution" ~outputs:(fun y -> [ y ])
+        @@
+        let* x = input ~shape:(s 1 1 1 3 3 1) ~name:"x" () in
+        let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
+        convolution ~name:"y" convolution_params ~x ~weight:w ())
   in
   let prog = Eval_symbolic.run g in
   Format.printf "%a@." Stage_program.pp prog;
@@ -241,7 +258,7 @@ let%expect_test "Symbolic graph: convolution ground matches Direct" =
   let inputs = List.combine g.Graph.inputs [ x; w ] in
   let bind id = List.assoc id inputs in
   let grounded = Stage_program.ground prog ~bind in
-  let direct = Eval_direct.run g ~inputs in
+  let direct = ok_eval (Eval_direct.run g ~inputs) in
   let oid = List.hd g.Graph.outputs in
   let gy = Tensor_id.Map.find oid grounded in
   let (Tensor.Tensor r) = gy in
@@ -255,12 +272,13 @@ let%expect_test "Symbolic graph: convolution ground matches Direct" =
 
 let%expect_test "Symbolic graph: transposed convolution ground matches Direct" =
   let g =
-    Graph_builder.(
-      build ~name:"convolution_transposed" ~outputs:(fun y -> [ y ])
-      @@
-      let* x = input ~shape:(s 1 1 1 2 2 1) ~name:"x" () in
-      let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
-      convolution ~name:"y" convolution_transposed_params ~x ~weight:w ())
+    ok_build
+      Graph_builder.(
+        build ~name:"convolution_transposed" ~outputs:(fun y -> [ y ])
+        @@
+        let* x = input ~shape:(s 1 1 1 2 2 1) ~name:"x" () in
+        let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
+        convolution ~name:"y" convolution_transposed_params ~x ~weight:w ())
   in
   let prog = Eval_symbolic.run g in
   let x =
@@ -273,7 +291,7 @@ let%expect_test "Symbolic graph: transposed convolution ground matches Direct" =
   let inputs = List.combine g.Graph.inputs [ x; w ] in
   let bind id = List.assoc id inputs in
   let grounded = Stage_program.ground prog ~bind in
-  let direct = Eval_direct.run g ~inputs in
+  let direct = ok_eval (Eval_direct.run g ~inputs) in
   let oid = List.hd g.Graph.outputs in
   let gy = Tensor_id.Map.find oid grounded in
   let (Tensor.Tensor r) = gy in

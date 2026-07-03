@@ -8,6 +8,20 @@ let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 
+let ok_build = function
+  | Ok x -> x
+  | Error e ->
+      failwith (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+
+let ok_eval = function
+  | Ok x -> x
+  | Error e ->
+      failwith (Format.asprintf "%a" Eval_direct.pp_error e.Core.Error.kind)
+
+let ok_shape = function
+  | Ok x -> x
+  | Error e -> failwith (Format.asprintf "%a" Shape_error.pp e.Core.Error.kind)
+
 let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
   {
     kernel = Dim.extent kernel;
@@ -33,13 +47,14 @@ let tensors_match shape a b =
 
 let%expect_test "Direct graph: sequence add -> relu (with intermediate)" =
   let g =
-    Graph_builder.(
-      build ~name:"seq" ~outputs:(fun r -> [ r ])
-      @@
-      let* a = input ~shape:(s1c 4) ~name:"a" () in
-      let* b = input ~shape:(s1c 4) ~name:"b" () in
-      let* t = add ~name:"sum" a b in
-      relu ~name:"out" t)
+    ok_build
+      Graph_builder.(
+        build ~name:"seq" ~outputs:(fun r -> [ r ])
+        @@
+        let* a = input ~shape:(s1c 4) ~name:"a" () in
+        let* b = input ~shape:(s1c 4) ~name:"b" () in
+        let* t = add ~name:"sum" a b in
+        relu ~name:"out" t)
   in
   let a =
     Tensor.materialize (s1c 4) (fun c -> [| 1.; -5.; 2.; -8. |].(chan c))
@@ -47,7 +62,9 @@ let%expect_test "Direct graph: sequence add -> relu (with intermediate)" =
   let b =
     Tensor.materialize (s1c 4) (fun c -> [| -3.; 1.; 2.; 3. |].(chan c))
   in
-  let env = Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]) in
+  let env =
+    ok_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]))
+  in
   let get name = Tensor_id.Map.find (id_of_name g name) env in
   Format.printf "sum = %a@." Tensor.pp (get "sum");
   Format.printf "out = %a@." Tensor.pp (get "out");
@@ -58,32 +75,38 @@ let%expect_test "Direct graph: sequence add -> relu (with intermediate)" =
 
 let%expect_test "Direct graph: add of two inputs" =
   let g =
-    Graph_builder.(
-      build ~name:"add" ~outputs:(fun r -> [ r ])
-      @@
-      let* a = input ~shape:(s1c 3) ~name:"a" () in
-      let* b = input ~shape:(s1c 3) ~name:"b" () in
-      add ~name:"out" a b)
+    ok_build
+      Graph_builder.(
+        build ~name:"add" ~outputs:(fun r -> [ r ])
+        @@
+        let* a = input ~shape:(s1c 3) ~name:"a" () in
+        let* b = input ~shape:(s1c 3) ~name:"b" () in
+        add ~name:"out" a b)
   in
   let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
   let b = Tensor.materialize (s1c 3) (fun _ -> 10.) in
-  let env = Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]) in
+  let env =
+    ok_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]))
+  in
   Format.printf "out = %a@." Tensor.pp
     (Tensor_id.Map.find (id_of_name g "out") env);
   [%expect {| out = tensor f32 [C=3] {10, 11, 12} |}]
 
 let%expect_test "Direct graph: mul of two inputs" =
   let g =
-    Graph_builder.(
-      build ~name:"mul" ~outputs:(fun r -> [ r ])
-      @@
-      let* a = input ~shape:(s1c 3) ~name:"a" () in
-      let* b = input ~shape:(s1c 3) ~name:"b" () in
-      mul ~name:"out" a b)
+    ok_build
+      Graph_builder.(
+        build ~name:"mul" ~outputs:(fun r -> [ r ])
+        @@
+        let* a = input ~shape:(s1c 3) ~name:"a" () in
+        let* b = input ~shape:(s1c 3) ~name:"b" () in
+        mul ~name:"out" a b)
   in
   let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
   let b = Tensor.materialize (s1c 3) (fun _ -> 10.) in
-  let env = Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]) in
+  let env =
+    ok_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]))
+  in
   Format.printf "out = %a@." Tensor.pp
     (Tensor_id.Map.find (id_of_name g "out") env);
   [%expect {| out = tensor f32 [C=3] {0, 10, 20} |}]
@@ -106,16 +129,19 @@ let p_to_nchw = Axis.[ (N, N); (T, T); (D, D); (H, C); (W, H); (C, W) ]
 let%expect_test
     "Direct graph: conv NCHW -> permute -> NHWC conv -> permute -> NCHW" =
   let g =
-    Graph_builder.(
-      build ~name:"conv_decomp" ~outputs:(fun (_, _, _, y) -> [ y ])
-      @@
-      let* x = input ~shape:(s 1 1 1 2 3 3) ~name:"x_nchw" () in
-      let* w = input ~shape:(s 1 1 1 2 2 2) ~name:"w" () in
-      let* b = input ~shape:(s1c 1) ~name:"b" () in
-      let* xh = permute ~name:"x_nhwc" p_to_nhwc x in
-      let* yh = conv2d ~name:"y_nhwc" conv_params ~x:xh ~weight:w ~bias:b () in
-      let* y = permute ~name:"y_nchw" p_to_nchw yh in
-      return (x, w, b, y))
+    ok_build
+      Graph_builder.(
+        build ~name:"conv_decomp" ~outputs:(fun (_, _, _, y) -> [ y ])
+        @@
+        let* x = input ~shape:(s 1 1 1 2 3 3) ~name:"x_nchw" () in
+        let* w = input ~shape:(s 1 1 1 2 2 2) ~name:"w" () in
+        let* b = input ~shape:(s1c 1) ~name:"b" () in
+        let* xh = permute ~name:"x_nhwc" p_to_nhwc x in
+        let* yh =
+          conv2d ~name:"y_nhwc" conv_params ~x:xh ~weight:w ~bias:b ()
+        in
+        let* y = permute ~name:"y_nchw" p_to_nchw yh in
+        return (x, w, b, y))
   in
   (* NCHW frame: value(chan,spH,spW) = chan*100 + spH*10 + spW *)
   let x =
@@ -128,7 +154,8 @@ let%expect_test
   let w = Tensor.materialize (s 1 1 1 2 2 2) (fun _ -> 1.) in
   let b = Tensor.materialize (s1c 1) (fun _ -> 0.) in
   let env =
-    Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x; w; b ])
+    ok_eval
+      (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x; w; b ]))
   in
   let get name = Tensor_id.Map.find (id_of_name g name) env in
   Format.printf "x_nhwc = %a@." Tensor.pp (get "x_nhwc");
@@ -139,8 +166,9 @@ let%expect_test
   let xh = get "x_nhwc" in
   let (Tensor.Tensor r) = xh in
   let ref_shape =
-    Conv.Conv2d.output_shape ~x_shape:r.shape ~weight_shape:(s 1 1 1 2 2 2)
-      conv_params
+    ok_shape
+      (Conv.Conv2d.output_shape ~x_shape:r.shape ~weight_shape:(s 1 1 1 2 2 2)
+         conv_params)
   in
   let ref_y =
     Schedule.evaluate ref_shape
@@ -178,13 +206,16 @@ let%expect_test "Direct graph: conv with optional bias omitted (None -> zeros)"
   in
   let w = Tensor.materialize (s 1 1 1 2 2 2) (fun _ -> 1.) in
   let b = Tensor.materialize (s1c 1) (fun _ -> 0.) in
-  let g_no = build_one ~with_bias:false in
-  let g_yes = build_one ~with_bias:true in
+  let g_no = ok_build (build_one ~with_bias:false) in
+  let g_yes = ok_build (build_one ~with_bias:true) in
   let env_no =
-    Eval_direct.run g_no ~inputs:(List.combine g_no.Graph.inputs [ x; w ])
+    ok_eval
+      (Eval_direct.run g_no ~inputs:(List.combine g_no.Graph.inputs [ x; w ]))
   in
   let env_yes =
-    Eval_direct.run g_yes ~inputs:(List.combine g_yes.Graph.inputs [ x; w; b ])
+    ok_eval
+      (Eval_direct.run g_yes
+         ~inputs:(List.combine g_yes.Graph.inputs [ x; w; b ]))
   in
   let y_no = Tensor_id.Map.find (id_of_name g_no "y") env_no in
   let y_yes = Tensor_id.Map.find (id_of_name g_yes "y") env_yes in
@@ -211,12 +242,13 @@ let%expect_test "Direct graph: transposed convolution" =
     }
   in
   let g =
-    Graph_builder.(
-      build ~name:"transposed" ~outputs:(fun y -> [ y ])
-      @@
-      let* x = input ~shape:(s 1 1 1 2 2 1) ~name:"x" () in
-      let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
-      convolution ~name:"y" params ~x ~weight:w ())
+    ok_build
+      Graph_builder.(
+        build ~name:"transposed" ~outputs:(fun y -> [ y ])
+        @@
+        let* x = input ~shape:(s 1 1 1 2 2 1) ~name:"x" () in
+        let* w = input ~shape:(s 1 1 1 2 2 1) ~name:"w" () in
+        convolution ~name:"y" params ~x ~weight:w ())
   in
   let x =
     Tensor.materialize (s 1 1 1 2 2 1) (fun c ->
@@ -226,7 +258,9 @@ let%expect_test "Direct graph: transposed convolution" =
           + 1))
   in
   let w = Tensor.materialize (s 1 1 1 2 2 1) (fun _ -> 1.) in
-  let env = Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x; w ]) in
+  let env =
+    ok_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x; w ]))
+  in
   Format.printf "y = %a@." Tensor.pp (Tensor_id.Map.find (id_of_name g "y") env);
   [%expect {| y = tensor f32 [H=3 W=3 C=1] {1, 3, 2, 4, 10, 6, 3, 7, ...} |}]
 
@@ -234,29 +268,31 @@ let%expect_test "Direct graph: transposed convolution" =
    add -> relu. The result must match the same computation built flat. *)
 let%expect_test "Direct graph: nested subgraph evaluation" =
   let nested =
-    Graph_builder.(
-      build ~name:"outer" ~outputs:(fun outs -> outs)
-      @@
-      let* x = input ~shape:(s1c 4) ~name:"x" () in
-      let* y = input ~shape:(s1c 4) ~name:"y" () in
-      let* seq =
-        subgraph ~name:"add_relu"
-          (let* a = input ~shape:(s1c 4) ~name:"a" () in
-           let* b = input ~shape:(s1c 4) ~name:"b" () in
-           let* t = add ~name:"sum" a b in
-           let* r = relu ~name:"r" t in
-           return [ r ])
-      in
-      invoke ~names:[ "nested_out" ] seq [ x; y ])
+    ok_build
+      Graph_builder.(
+        build ~name:"outer" ~outputs:(fun outs -> outs)
+        @@
+        let* x = input ~shape:(s1c 4) ~name:"x" () in
+        let* y = input ~shape:(s1c 4) ~name:"y" () in
+        let* seq =
+          subgraph ~name:"add_relu"
+            (let* a = input ~shape:(s1c 4) ~name:"a" () in
+             let* b = input ~shape:(s1c 4) ~name:"b" () in
+             let* t = add ~name:"sum" a b in
+             let* r = relu ~name:"r" t in
+             return [ r ])
+        in
+        invoke ~names:[ "nested_out" ] seq [ x; y ])
   in
   let flat =
-    Graph_builder.(
-      build ~name:"flat" ~outputs:(fun r -> [ r ])
-      @@
-      let* x = input ~shape:(s1c 4) ~name:"x" () in
-      let* y = input ~shape:(s1c 4) ~name:"y" () in
-      let* t = add x y in
-      relu ~name:"out" t)
+    ok_build
+      Graph_builder.(
+        build ~name:"flat" ~outputs:(fun r -> [ r ])
+        @@
+        let* x = input ~shape:(s1c 4) ~name:"x" () in
+        let* y = input ~shape:(s1c 4) ~name:"y" () in
+        let* t = add x y in
+        relu ~name:"out" t)
   in
   let x =
     Tensor.materialize (s1c 4) (fun c -> [| 1.; -5.; 2.; -8. |].(chan c))
@@ -265,10 +301,13 @@ let%expect_test "Direct graph: nested subgraph evaluation" =
     Tensor.materialize (s1c 4) (fun c -> [| -3.; 1.; 2.; 3. |].(chan c))
   in
   let env_n =
-    Eval_direct.run nested ~inputs:(List.combine nested.Graph.inputs [ x; y ])
+    ok_eval
+      (Eval_direct.run nested
+         ~inputs:(List.combine nested.Graph.inputs [ x; y ]))
   in
   let env_f =
-    Eval_direct.run flat ~inputs:(List.combine flat.Graph.inputs [ x; y ])
+    ok_eval
+      (Eval_direct.run flat ~inputs:(List.combine flat.Graph.inputs [ x; y ]))
   in
   let out_n = Tensor_id.Map.find (id_of_name nested "nested_out") env_n in
   let out_f = Tensor_id.Map.find (id_of_name flat "out") env_f in
@@ -283,12 +322,13 @@ let%expect_test "Direct graph: nested subgraph evaluation" =
    This verifies the state-monad id generator produces consistent ids. *)
 let%expect_test "Builder: Tensor_sig.id equals Tensor_id for all edges" =
   let g =
-    Graph_builder.(
-      build ~name:"check" ~outputs:(fun r -> [ r ])
-      @@
-      let* a = input ~shape:(s1c 2) ~name:"a" () in
-      let* b = input ~shape:(s1c 2) ~name:"b" () in
-      add ~name:"out" a b)
+    ok_build
+      Graph_builder.(
+        build ~name:"check" ~outputs:(fun r -> [ r ])
+        @@
+        let* a = input ~shape:(s1c 2) ~name:"a" () in
+        let* b = input ~shape:(s1c 2) ~name:"b" () in
+        add ~name:"out" a b)
   in
   Tensor_id.Map.iter
     (fun tid sg ->
@@ -313,8 +353,8 @@ let%expect_test "Builder: ids are deterministic across multiple build calls" =
       let* b = input ~shape:(s1c 3) ~name:"b" () in
       add ~name:"out" a b)
   in
-  let g1 = build_add () in
-  let g2 = build_add () in
+  let g1 = ok_build (build_add ()) in
+  let g2 = ok_build (build_add ()) in
   let ids_of g =
     Tensor_id.Map.bindings g.Graph.tensors
     |> List.map (fun (tid, sg) -> (tid, sg.Tensor_sig.id))

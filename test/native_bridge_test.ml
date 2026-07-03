@@ -180,15 +180,19 @@ let dispatch_print_with_graph ~print_graph ~target ~bindings ~inputs ~noutputs =
   match Op_bridge.dispatch ~aten_env:env node with
   | None -> print_string "no native impl\n"
   | Some (Error e) -> Printf.printf "error: %s\n" e
-  | Some (Ok (graph, bindings)) ->
+  | Some (Ok (graph, bindings)) -> (
       if print_graph then Format.printf "%a@." Graph_ir.pp graph;
-      let result_env = Eval_direct.run graph ~inputs:bindings in
-      let outs =
-        List.map
-          (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
-          graph.Graph_ir.Graph.outputs
-      in
-      List.iter (fun o -> Format.printf "%a@." Tensor.pp o) outs
+      match Eval_direct.run graph ~inputs:bindings with
+      | Error e ->
+          Format.printf "eval error: %a@." Eval_direct.pp_error
+            e.Core.Error.kind
+      | Ok result_env ->
+          let outs =
+            List.map
+              (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
+              graph.Graph_ir.Graph.outputs
+          in
+          List.iter (fun o -> Format.printf "%a@." Tensor.pp o) outs)
 
 let dispatch_print ~target ~bindings ~inputs ~noutputs =
   dispatch_print_with_graph ~print_graph:false ~target ~bindings ~inputs

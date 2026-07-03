@@ -68,7 +68,7 @@ module RmsNorm = struct
       t.weight pp_params t.params
 
   (* Output keeps the input shape: rms-norm rescales, it does not reduce. *)
-  let output_shape ~(x_shape : Vec6.shape) = x_shape
+  let output_shape ~(x_shape : Vec6.shape) = Core.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x ~weight

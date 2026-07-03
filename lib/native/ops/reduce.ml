@@ -77,9 +77,10 @@ module Mean = struct
      reduced axes (and, for keepdim=false, the vacated outer axes) are extent 1. *)
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
     let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
-    List.fold_left
-      (fun s (kin, oax) -> Vec6.set s oax (Vec6.get x_shape kin))
-      ones (kept_map p)
+    Core.return
+      (List.fold_left
+         (fun s (kin, oax) -> Vec6.set s oax (Vec6.get x_shape kin))
+         ones (kept_map p))
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x

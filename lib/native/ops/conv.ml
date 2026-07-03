@@ -10,6 +10,11 @@
    extent-1 axes still go through [load]'s ordinary broadcast). See
    .ai/native_compute_design.md §2. *)
 
+let or_invalid_arg = function
+  | Ok x -> x
+  | Error e ->
+      invalid_arg (Format.asprintf "%a" Shape_error.pp e.Core.Error.kind)
+
 module Conv2d = struct
   (* [params]/[output_shape] are outside [Compute] so Direct/Symbolic share one
      [params] type. Field types per .ai/native_op_config.md. *)
@@ -113,31 +118,83 @@ module Conv2d = struct
       t.bias pp_params t.params
 
   let validate_channels ~(weight_shape : Vec6.shape) (p : params) =
+    let open Core.Syntax in
     let in_channels = (p.in_channels :> int) in
     let groups = (p.groups :> int) in
     let out_channels = (Vec6.get weight_shape Axis.N :> int) in
     let weight_in_per_group = (Vec6.get weight_shape Axis.C :> int) in
-    if in_channels mod groups <> 0 then
-      invalid_arg "Conv2d: in_channels must be divisible by groups";
-    if out_channels mod groups <> 0 then
-      invalid_arg "Conv2d: out_channels must be divisible by groups";
+    let* () =
+      if in_channels mod groups <> 0 then
+        Core.fail
+          (`Convolution
+             (Shape_error.Convolution.In_channels_not_divisible_by_groups
+                Shape_error.Convolution.{ channels = in_channels; groups }))
+      else Core.return ()
+    in
+    let* () =
+      if out_channels mod groups <> 0 then
+        Core.fail
+          (`Convolution
+             (Shape_error.Convolution.Out_channels_not_divisible_by_groups
+                Shape_error.Convolution.{ channels = out_channels; groups }))
+      else Core.return ()
+    in
     let in_per_group = in_channels / groups in
-    if weight_in_per_group <> in_per_group then
-      invalid_arg
-        "Conv2d: weight C extent must equal in_channels divided by groups";
-    if not (Dim.equal (Vec6.get weight_shape Axis.H) p.h.kernel) then
-      invalid_arg "Conv2d: weight H extent must equal h.kernel";
-    if not (Dim.equal (Vec6.get weight_shape Axis.W) p.w.kernel) then
-      invalid_arg "Conv2d: weight W extent must equal w.kernel";
-    (in_per_group, out_channels / groups)
+    let* () =
+      if weight_in_per_group <> in_per_group then
+        Core.fail
+          (`Convolution
+             (Shape_error.Convolution.Weight_channels_mismatch
+                Shape_error.Convolution.
+                  { weight_in_per_group; expected_in_per_group = in_per_group }))
+      else Core.return ()
+    in
+    let* () =
+      if not (Dim.equal (Vec6.get weight_shape Axis.H) p.h.kernel) then
+        Core.fail
+          (`Convolution
+             (Shape_error.Convolution.Weight_kernel_mismatch
+                Shape_error.Convolution.
+                  {
+                    axis = Axis.H;
+                    weight_extent = Vec6.get weight_shape Axis.H;
+                    kernel_extent = p.h.kernel;
+                  }))
+      else Core.return ()
+    in
+    let* () =
+      if not (Dim.equal (Vec6.get weight_shape Axis.W) p.w.kernel) then
+        Core.fail
+          (`Convolution
+             (Shape_error.Convolution.Weight_kernel_mismatch
+                Shape_error.Convolution.
+                  {
+                    axis = Axis.W;
+                    weight_extent = Vec6.get weight_shape Axis.W;
+                    kernel_extent = p.w.kernel;
+                  }))
+      else Core.return ()
+    in
+    Core.return (in_per_group, out_channels / groups)
 
   (* N/T/D pass through; H/W shrink via [Window_axis.output_extent]; C = Cout from
      weight_shape. *)
   let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
       (p : params) =
-    let _in_per_group, _out_per_group = validate_channels ~weight_shape p in
-    if not (Dim.equal (Vec6.get x_shape Axis.C) p.in_channels) then
-      invalid_arg "Conv2d: input C extent must equal in_channels";
+    let open Core.Syntax in
+    let* _in_per_group, _out_per_group = validate_channels ~weight_shape p in
+    let* () =
+      if not (Dim.equal (Vec6.get x_shape Axis.C) p.in_channels) then
+        Core.fail
+          (`Convolution
+             (Shape_error.Convolution.Input_channels_mismatch
+                Shape_error.Convolution.
+                  {
+                    input_channels = Vec6.get x_shape Axis.C;
+                    expected_in_channels = p.in_channels;
+                  }))
+      else Core.return ()
+    in
     let out_extent axis (w : axis_window) =
       Window_axis.output_extent ~in_extent:(Vec6.get x_shape axis)
         ~kernel:w.kernel ~stride:w.stride ~pad_before:w.pad_before
@@ -145,10 +202,10 @@ module Conv2d = struct
     in
     (* Start from the input shape (N/T/D pass through unchanged) and replace only
        the axes the op resizes — all in extent-space, no [:> int] round-trips. *)
+    let* h = out_extent Axis.H p.h in
+    let+ w = out_extent Axis.W p.w in
     Vec6.set
-      (Vec6.set
-         (Vec6.set x_shape Axis.H (out_extent Axis.H p.h))
-         Axis.W (out_extent Axis.W p.w))
+      (Vec6.set (Vec6.set x_shape Axis.H h) Axis.W w)
       Axis.C
       (Vec6.get weight_shape Axis.N)
 
@@ -157,7 +214,9 @@ module Conv2d = struct
 
     let pixel (p : params) ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
         ~x ~weight ~bias (out : Axis.t -> Semantics.position S.index) =
-      let in_per_group, out_per_group = validate_channels ~weight_shape p in
+      let in_per_group, out_per_group =
+        or_invalid_arg (validate_channels ~weight_shape p)
+      in
       let oc = out Axis.C in
       let group =
         if (p.groups :> int) = 1 then S.index_const 0
@@ -302,44 +361,49 @@ module Conv2d_padding = struct
   let same_padding ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
       ~(dilation : Op_config.Pos.t) =
     if (stride :> int) <> 1 then
-      invalid_arg
-        "Conv2d_padding: padding=\"same\" is not supported for strided \
-         convolutions";
-    let total = (dilation :> int) * ((kernel :> int) - 1) in
-    ( Op_config.Nonneg.of_int (total / 2),
-      Op_config.Nonneg.of_int (total - (total / 2)) )
+      Core.fail
+        (`Convolution
+           (Shape_error.Convolution.Same_padding_requires_stride_one { stride }))
+    else
+      let total = (dilation :> int) * ((kernel :> int) - 1) in
+      Core.return
+        ( Op_config.Nonneg.of_int (total / 2),
+          Op_config.Nonneg.of_int (total - (total / 2)) )
 
   let axis_window ~(padding : padding) ~(kernel : Dim.extent Dim.t)
       ~(stride : Op_config.Pos.t) ~(dilation : Op_config.Pos.t) :
-      Conv2d.axis_window =
-    let pad_before, pad_after =
+      (Conv2d.axis_window, Shape_error.t) Core.result =
+    let open Core.Syntax in
+    let* pad_before, pad_after =
       match padding with
-      | Valid -> (Op_config.Nonneg.of_int 0, Op_config.Nonneg.of_int 0)
+      | Valid ->
+          Core.return (Op_config.Nonneg.of_int 0, Op_config.Nonneg.of_int 0)
       | Same -> same_padding ~kernel ~stride ~dilation
     in
-    { Conv2d.kernel; stride; pad_before; pad_after; dilation }
+    Core.return { Conv2d.kernel; stride; pad_before; pad_after; dilation }
 
-  let to_conv2d_params ~(weight_shape : Vec6.shape) (p : params) : Conv2d.params
-      =
+  let to_conv2d_params ~(weight_shape : Vec6.shape) (p : params) :
+      (Conv2d.params, Shape_error.t) Core.result =
+    let open Core.Syntax in
     let groups = (p.groups :> int) in
     let in_channels = (Vec6.get weight_shape Axis.C :> int) * groups in
-    {
-      Conv2d.h =
-        axis_window ~padding:p.padding
-          ~kernel:(Vec6.get weight_shape Axis.H)
-          ~stride:p.stride.h ~dilation:p.dilation.h;
-      w =
-        axis_window ~padding:p.padding
-          ~kernel:(Vec6.get weight_shape Axis.W)
-          ~stride:p.stride.w ~dilation:p.dilation.w;
-      in_channels = Dim.extent in_channels;
-      groups = p.groups;
-    }
+    let* h =
+      axis_window ~padding:p.padding
+        ~kernel:(Vec6.get weight_shape Axis.H)
+        ~stride:p.stride.h ~dilation:p.dilation.h
+    in
+    let+ w =
+      axis_window ~padding:p.padding
+        ~kernel:(Vec6.get weight_shape Axis.W)
+        ~stride:p.stride.w ~dilation:p.dilation.w
+    in
+    { Conv2d.h; w; in_channels = Dim.extent in_channels; groups = p.groups }
 
   let output_shape ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
       (p : params) =
-    Conv2d.output_shape ~x_shape ~weight_shape
-      (to_conv2d_params ~weight_shape p)
+    let open Core.Syntax in
+    let* p = to_conv2d_params ~weight_shape p in
+    Conv2d.output_shape ~x_shape ~weight_shape p
 
   module Compute (S : Semantics.SEMANTICS) = struct
     module C = Conv2d.Compute (S)
@@ -347,7 +411,7 @@ module Conv2d_padding = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~(weight_shape : Vec6.shape)
         ~x ~weight ~bias out =
       C.pixel
-        (to_conv2d_params ~weight_shape p)
+        (or_invalid_arg (to_conv2d_params ~weight_shape p))
         ~x_shape ~weight_shape ~x ~weight ~bias out
   end
 end
@@ -438,33 +502,43 @@ module Convolution = struct
       t.bias pp_params t.params
 
   let require_forward_2d (p : params) =
-    if p.transposed then
-      invalid_arg "Convolution: transposed convolutions are not supported";
+    let open Core.Syntax in
+    let* () =
+      if p.transposed then
+        Core.fail
+          (`Convolution Shape_error.Convolution.Transposed_not_supported)
+      else Core.return ()
+    in
     if (p.output_padding.h :> int) <> 0 || (p.output_padding.w :> int) <> 0 then
-      invalid_arg
-        "Convolution: output_padding must be zero for non-transposed \
-         convolution"
+      Core.fail
+        (`Convolution
+           (Shape_error.Convolution.Output_padding_nonzero
+              Shape_error.Convolution.
+                { h = p.output_padding.h; w = p.output_padding.w }))
+    else Core.return ()
 
   let axis_window ~kernel ~stride ~pad ~dilation : Conv2d.axis_window =
     { Conv2d.kernel; stride; pad_before = pad; pad_after = pad; dilation }
 
-  let to_conv2d_params ~(weight_shape : Vec6.shape) (p : params) : Conv2d.params
-      =
-    require_forward_2d p;
+  let to_conv2d_params ~(weight_shape : Vec6.shape) (p : params) :
+      (Conv2d.params, Shape_error.t) Core.result =
+    let open Core.Syntax in
+    let* () = require_forward_2d p in
     let groups = (p.groups :> int) in
     let in_channels = (Vec6.get weight_shape Axis.C :> int) * groups in
-    {
-      Conv2d.h =
-        axis_window
-          ~kernel:(Vec6.get weight_shape Axis.H)
-          ~stride:p.stride.h ~pad:p.padding.h ~dilation:p.dilation.h;
-      w =
-        axis_window
-          ~kernel:(Vec6.get weight_shape Axis.W)
-          ~stride:p.stride.w ~pad:p.padding.w ~dilation:p.dilation.w;
-      in_channels = Dim.extent in_channels;
-      groups = p.groups;
-    }
+    Core.return
+      {
+        Conv2d.h =
+          axis_window
+            ~kernel:(Vec6.get weight_shape Axis.H)
+            ~stride:p.stride.h ~pad:p.padding.h ~dilation:p.dilation.h;
+        w =
+          axis_window
+            ~kernel:(Vec6.get weight_shape Axis.W)
+            ~stride:p.stride.w ~pad:p.padding.w ~dilation:p.dilation.w;
+        in_channels = Dim.extent in_channels;
+        groups = p.groups;
+      }
 
   let transposed_output_axis ~(in_extent : Dim.extent Dim.t)
       ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
@@ -478,39 +552,71 @@ module Convolution = struct
       + 1
     in
     if out < 1 then
-      invalid_arg "Convolution: transposed output extent must be positive";
-    Dim.extent out
+      Core.fail
+        (`Convolution
+           (Shape_error.Convolution.Transposed_output_non_positive
+              Shape_error.Convolution.
+                {
+                  out;
+                  in_extent;
+                  kernel;
+                  stride;
+                  pad;
+                  dilation;
+                  output_padding;
+                }))
+    else Core.return (Dim.extent out)
 
   let validate_transposed_channels ~(x_shape : Vec6.shape)
       ~(weight_shape : Vec6.shape) (p : params) =
+    let open Core.Syntax in
     let groups = (p.groups :> int) in
     let in_channels = (Vec6.get x_shape Axis.C :> int) in
     let weight_in_channels = (Vec6.get weight_shape Axis.N :> int) in
     let out_per_group = (Vec6.get weight_shape Axis.C :> int) in
-    if weight_in_channels <> in_channels then
-      invalid_arg
-        "Convolution: transposed weight N extent must equal input C extent";
-    if in_channels mod groups <> 0 then
-      invalid_arg "Convolution: input C extent must be divisible by groups";
-    (in_channels / groups, out_per_group)
+    let* () =
+      if weight_in_channels <> in_channels then
+        Core.fail
+          (`Convolution
+             (Shape_error.Convolution.Transposed_weight_input_mismatch
+                Shape_error.Convolution.
+                  {
+                    weight_input_channels = Vec6.get weight_shape Axis.N;
+                    input_channels = Vec6.get x_shape Axis.C;
+                  }))
+      else Core.return ()
+    in
+    let* () =
+      if in_channels mod groups <> 0 then
+        Core.fail
+          (`Convolution
+             (Shape_error.Convolution
+              .Transposed_input_channels_not_divisible_by_groups
+                Shape_error.Convolution.{ channels = in_channels; groups }))
+      else Core.return ()
+    in
+    Core.return (in_channels / groups, out_per_group)
 
   let transposed_output_shape ~(x_shape : Vec6.shape)
       ~(weight_shape : Vec6.shape) (p : params) =
-    let _in_per_group, out_per_group =
+    let open Core.Syntax in
+    let* _in_per_group, out_per_group =
       validate_transposed_channels ~x_shape ~weight_shape p
     in
+    let* h =
+      transposed_output_axis ~in_extent:(Vec6.get x_shape Axis.H)
+        ~kernel:(Vec6.get weight_shape Axis.H)
+        ~stride:p.stride.h ~pad:p.padding.h ~dilation:p.dilation.h
+        ~output_padding:p.output_padding.h
+    in
+    let+ w =
+      transposed_output_axis ~in_extent:(Vec6.get x_shape Axis.W)
+        ~kernel:(Vec6.get weight_shape Axis.W)
+        ~stride:p.stride.w ~pad:p.padding.w ~dilation:p.dilation.w
+        ~output_padding:p.output_padding.w
+    in
     Vec6.set
-      (Vec6.set
-         (Vec6.set x_shape Axis.H
-            (transposed_output_axis ~in_extent:(Vec6.get x_shape Axis.H)
-               ~kernel:(Vec6.get weight_shape Axis.H)
-               ~stride:p.stride.h ~pad:p.padding.h ~dilation:p.dilation.h
-               ~output_padding:p.output_padding.h))
-         Axis.W
-         (transposed_output_axis ~in_extent:(Vec6.get x_shape Axis.W)
-            ~kernel:(Vec6.get weight_shape Axis.W)
-            ~stride:p.stride.w ~pad:p.padding.w ~dilation:p.dilation.w
-            ~output_padding:p.output_padding.w))
+      (Vec6.set (Vec6.set x_shape Axis.H h) Axis.W w)
       Axis.C
       (Dim.extent (out_per_group * (p.groups :> int)))
 
@@ -518,8 +624,9 @@ module Convolution = struct
       (p : params) =
     if p.transposed then transposed_output_shape ~x_shape ~weight_shape p
     else
-      Conv2d.output_shape ~x_shape ~weight_shape
-        (to_conv2d_params ~weight_shape p)
+      let open Core.Syntax in
+      let* p = to_conv2d_params ~weight_shape p in
+      Conv2d.output_shape ~x_shape ~weight_shape p
 
   let bias_shape ~(weight_shape : Vec6.shape) (p : params) =
     let channels =
@@ -543,7 +650,7 @@ module Convolution = struct
     let transposed_pixel (p : params) ~(x_shape : Vec6.shape)
         ~(weight_shape : Vec6.shape) ~x ~weight ~bias out =
       let in_per_group, out_per_group =
-        validate_transposed_channels ~x_shape ~weight_shape p
+        or_invalid_arg (validate_transposed_channels ~x_shape ~weight_shape p)
       in
       let oc = out Axis.C in
       let group =
@@ -619,7 +726,7 @@ module Convolution = struct
         transposed_pixel p ~x_shape ~weight_shape ~x ~weight ~bias out
       else
         C.pixel
-          (to_conv2d_params ~weight_shape p)
+          (or_invalid_arg (to_conv2d_params ~weight_shape p))
           ~x_shape ~weight_shape ~x ~weight ~bias out
   end
 end

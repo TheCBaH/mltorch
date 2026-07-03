@@ -11,6 +11,11 @@ let s1c c = s 1 1 1 1 1 c
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 let pf fmt = Format.printf fmt
 
+let ok_build = function
+  | Ok x -> x
+  | Error e ->
+      failwith (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+
 let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
   {
     kernel = Dim.extent kernel;
@@ -40,12 +45,13 @@ let decode_tensor_exn s =
 
 let%expect_test "op Add: encode → JSON" =
   let g =
-    Graph_builder.(
-      build ~name:"add" ~outputs:(fun r -> [ r ])
-      @@
-      let* a = input ~shape:(s1c 3) ~name:"a" () in
-      let* b = input ~shape:(s1c 3) ~name:"b" () in
-      add ~name:"out" a b)
+    ok_build
+      Graph_builder.(
+        build ~name:"add" ~outputs:(fun r -> [ r ])
+        @@
+        let* a = input ~shape:(s1c 3) ~name:"a" () in
+        let* b = input ~shape:(s1c 3) ~name:"b" () in
+        add ~name:"out" a b)
   in
   let node = List.hd g.Graph.nodes in
   pf "graph JSON:@.%s@." (encode_graph_exn g);
@@ -142,13 +148,14 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
       }
   in
   let g =
-    Graph_builder.(
-      build ~name:"conv" ~outputs:(fun r -> [ r ])
-      @@
-      let* x = input ~shape:(s 1 1 1 4 4 8) ~name:"x" () in
-      let* w = input ~shape:(s 16 1 1 3 3 8) ~name:"w" () in
-      let* b = input ~shape:(s1c 16) ~name:"b" () in
-      conv2d ~name:"y" conv_params ~x ~weight:w ~bias:b ())
+    ok_build
+      Graph_builder.(
+        build ~name:"conv" ~outputs:(fun r -> [ r ])
+        @@
+        let* x = input ~shape:(s 1 1 1 4 4 8) ~name:"x" () in
+        let* w = input ~shape:(s 16 1 1 3 3 8) ~name:"w" () in
+        let* b = input ~shape:(s1c 16) ~name:"b" () in
+        conv2d ~name:"y" conv_params ~x ~weight:w ~bias:b ())
   in
   let json = encode_graph_exn g in
   pf "JSON:@.%s@." json;
@@ -283,12 +290,13 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
       }
   in
   let g =
-    Graph_builder.(
-      build ~name:"conv_nb" ~outputs:(fun r -> [ r ])
-      @@
-      let* x = input ~shape:(s1c 4) ~name:"x" () in
-      let* w = input ~shape:(s 4 1 1 1 1 4) ~name:"w" () in
-      conv2d ~name:"y" conv_params ~x ~weight:w ())
+    ok_build
+      Graph_builder.(
+        build ~name:"conv_nb" ~outputs:(fun r -> [ r ])
+        @@
+        let* x = input ~shape:(s1c 4) ~name:"x" () in
+        let* w = input ~shape:(s 4 1 1 1 1 4) ~name:"w" () in
+        conv2d ~name:"y" conv_params ~x ~weight:w ())
   in
   let json = encode_graph_exn g in
   let g2 = decode_graph_exn json in
@@ -328,11 +336,12 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
 let%expect_test "op Permute: encode → decode" =
   let perm = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ] in
   let g =
-    Graph_builder.(
-      build ~name:"perm" ~outputs:(fun r -> [ r ])
-      @@
-      let* x = input ~shape:(s 1 1 1 2 3 4) ~name:"x" () in
-      permute ~name:"y" perm x)
+    ok_build
+      Graph_builder.(
+        build ~name:"perm" ~outputs:(fun r -> [ r ])
+        @@
+        let* x = input ~shape:(s 1 1 1 2 3 4) ~name:"x" () in
+        permute ~name:"y" perm x)
   in
   let json = encode_graph_exn g in
   let g2 = decode_graph_exn json in
@@ -348,13 +357,14 @@ let%expect_test "op Permute: encode → decode" =
 
 let%expect_test "graph with Mean op: encode → decode → pretty-print" =
   let g =
-    Graph_builder.(
-      build ~name:"mean_hw" ~outputs:(fun r -> [ r ])
-      @@
-      let* x = input ~shape:(s 1 1 1 7 7 64) ~name:"x" () in
-      mean ~name:"out"
-        Reduce.Mean.{ dims = [ Axis.H; Axis.W ]; keepdim = false }
-        x)
+    ok_build
+      Graph_builder.(
+        build ~name:"mean_hw" ~outputs:(fun r -> [ r ])
+        @@
+        let* x = input ~shape:(s 1 1 1 7 7 64) ~name:"x" () in
+        mean ~name:"out"
+          Reduce.Mean.{ dims = [ Axis.H; Axis.W ]; keepdim = false }
+          x)
   in
   let json = encode_graph_exn g in
   let g2 = decode_graph_exn json in
@@ -370,20 +380,21 @@ let%expect_test "graph with Mean op: encode → decode → pretty-print" =
 
 let%expect_test "nested subgraph: encode → decode → pretty-print" =
   let g =
-    Graph_builder.(
-      build ~name:"outer" ~outputs:(fun outs -> outs)
-      @@
-      let* x = input ~shape:(s1c 4) ~name:"x" () in
-      let* y = input ~shape:(s1c 4) ~name:"y" () in
-      let* sg =
-        subgraph ~name:"add_relu"
-          (let* a = input ~shape:(s1c 4) ~name:"a" () in
-           let* b = input ~shape:(s1c 4) ~name:"b" () in
-           let* t = add ~name:"sum" a b in
-           let* r = relu ~name:"r" t in
-           return [ r ])
-      in
-      invoke ~names:[ "out" ] sg [ x; y ])
+    ok_build
+      Graph_builder.(
+        build ~name:"outer" ~outputs:(fun outs -> outs)
+        @@
+        let* x = input ~shape:(s1c 4) ~name:"x" () in
+        let* y = input ~shape:(s1c 4) ~name:"y" () in
+        let* sg =
+          subgraph ~name:"add_relu"
+            (let* a = input ~shape:(s1c 4) ~name:"a" () in
+             let* b = input ~shape:(s1c 4) ~name:"b" () in
+             let* t = add ~name:"sum" a b in
+             let* r = relu ~name:"r" t in
+             return [ r ])
+        in
+        invoke ~names:[ "out" ] sg [ x; y ])
   in
   let json = encode_graph_exn g in
   let g2 = decode_graph_exn json in

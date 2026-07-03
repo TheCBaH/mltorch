@@ -5,6 +5,13 @@
 
 open Graph_ir
 
+type error =
+  [ Graph_shape.error | `Expected_single_output_shape of output_count ]
+
+and output_count = { count : int }
+
+val pp_error : Format.formatter -> [< error ] -> unit
+
 type 'a t
 
 val return : 'a -> 'a t
@@ -108,4 +115,4 @@ val build :
   name:string ->
   outputs:('a -> Tensor_id.t list) ->
   'a t ->
-  graph
+  (graph, error) Core.result

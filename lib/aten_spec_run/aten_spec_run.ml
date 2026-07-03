@@ -197,22 +197,27 @@ let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
   | Some (Error msg) ->
       Format.fprintf ppf "[spec] %s: bridge error: %s@." node.target msg;
       false
-  | Some (Ok (graph, bindings)) ->
-      let result_env = Eval_direct.run graph ~inputs:bindings in
-      let native_outputs =
-        List.map
-          (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
-          graph.Graph_ir.Graph.outputs
-      in
-      let errors =
-        Verify.verify_node ~atol:1e-5 ~aten_env:env' node native_outputs
-      in
-      if errors = [] then (
-        Format.fprintf ppf "[spec] %s: matched@." node.target;
-        true)
-      else (
-        Verify.report ppf node.target errors;
-        false)
+  | Some (Ok (graph, bindings)) -> (
+      match Eval_direct.run graph ~inputs:bindings with
+      | Error e ->
+          Format.fprintf ppf "[spec] %s: eval error: %a@." node.target
+            Eval_direct.pp_error e.Core.Error.kind;
+          false
+      | Ok result_env ->
+          let native_outputs =
+            List.map
+              (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
+              graph.Graph_ir.Graph.outputs
+          in
+          let errors =
+            Verify.verify_node ~atol:1e-5 ~aten_env:env' node native_outputs
+          in
+          if errors = [] then (
+            Format.fprintf ppf "[spec] %s: matched@." node.target;
+            true)
+          else (
+            Verify.report ppf node.target errors;
+            false))
 
 let pp_aten ppf t =
   match Aten_tensor.as_float32 t with
@@ -242,12 +247,17 @@ let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
     match Op_bridge.dispatch ~aten_env:env node with
     | None -> `None
     | Some (Error e) -> `Err e
-    | Some (Ok (graph, bindings)) ->
-        let result_env = Eval_direct.run graph ~inputs:bindings in
-        `Ok
-          (List.map
-             (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
-             graph.Graph_ir.Graph.outputs)
+    | Some (Ok (graph, bindings)) -> (
+        match Eval_direct.run graph ~inputs:bindings with
+        | Error e ->
+            `Err
+              (Format.asprintf "eval error: %a" Eval_direct.pp_error
+                 e.Core.Error.kind)
+        | Ok result_env ->
+            `Ok
+              (List.map
+                 (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
+                 graph.Graph_ir.Graph.outputs))
   in
   Format.fprintf ppf "[eval] %s@." node.target;
   List.iteri

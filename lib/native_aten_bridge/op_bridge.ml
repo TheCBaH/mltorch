@@ -30,13 +30,17 @@ let rec alloc_inputs = function
 (* Build a graph from [tensors] (native packed args) and [body] mapping input
    ids to output ids.  Returns the graph and its input bindings [(id, packed)]. *)
 let build_g ~name tensors body =
-  let g =
+  match
     Graph_builder.build ~name ~outputs:Fun.id
       (let open Graph_builder in
        let* ids = alloc_inputs tensors in
        body ids)
-  in
-  (g, List.combine g.Graph_ir.Graph.inputs tensors)
+  with
+  | Ok g -> Ok (g, List.combine g.Graph_ir.Graph.inputs tensors)
+  | Error e ->
+      Error (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+
+let some_graph = function Ok x -> Some (Ok x) | Error e -> Some (Error e)
 
 (* Convert an ATen tensor to native, prefixing errors with [arg_name]. *)
 let native_of_aten arg_name t =
@@ -202,15 +206,13 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       with
       | Error e, _ | _, Error e -> Some (Error e)
       | Ok a, Ok b ->
-          let g, bindings =
-            build_g ~name:"add" [ a; b ] (function
-              | [ a_id; b_id ] ->
-                  let open Graph_builder in
-                  let+ y = add a_id b_id in
-                  [ y ]
-              | _ -> assert false)
-          in
-          Some (Ok (g, bindings)))
+          build_g ~name:"add" [ a; b ] (function
+            | [ a_id; b_id ] ->
+                let open Graph_builder in
+                let+ y = add a_id b_id in
+                [ y ]
+            | _ -> assert false)
+          |> some_graph)
   | "torch.ops.aten.addmm.default" -> (
       (* addmm(bias, mat1, mat2) = bias + mat1 @ mat2; alpha=beta=1 assumed. *)
       let aten_bias = D.tensor_arg aten_env node "self" in
@@ -231,18 +233,16 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
               let params =
                 { Linear.Linear.in_features = Dim.extent w_shape.(0) }
               in
-              let g, bindings =
-                build_g ~name:"addmm_relayout" [ bias; x; w ] (function
-                  | [ bias_id; x_id; w_id ] ->
-                      let open Graph_builder in
-                      let* w' = permute perm_addmm_weight w_id in
-                      let+ y =
-                        linear params ~x:x_id ~weight:w' ~bias:bias_id ()
-                      in
-                      [ y ]
-                  | _ -> assert false)
-              in
-              Some (Ok (g, bindings))
+              build_g ~name:"addmm_relayout" [ bias; x; w ] (function
+                | [ bias_id; x_id; w_id ] ->
+                    let open Graph_builder in
+                    let* w' = permute perm_addmm_weight w_id in
+                    let+ y =
+                      linear params ~x:x_id ~weight:w' ~bias:bias_id ()
+                    in
+                    [ y ]
+                | _ -> assert false)
+              |> some_graph
             with Invalid_argument msg -> Some (Error msg)))
   | "torch.ops.aten.bmm.default" -> (
       match
@@ -251,15 +251,13 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       with
       | Error e, _ | _, Error e -> Some (Error e)
       | Ok a, Ok b ->
-          let g, bindings =
-            build_g ~name:"bmm" [ a; b ] (function
-              | [ a_id; b_id ] ->
-                  let open Graph_builder in
-                  let+ y = bmm a_id b_id in
-                  [ y ]
-              | _ -> assert false)
-          in
-          Some (Ok (g, bindings)))
+          build_g ~name:"bmm" [ a; b ] (function
+            | [ a_id; b_id ] ->
+                let open Graph_builder in
+                let+ y = bmm a_id b_id in
+                [ y ]
+            | _ -> assert false)
+          |> some_graph)
   | "torch.ops.aten.conv2d.default" -> (
       let groups = D.int_arg ~default:1 node "groups" in
       let dilation = D.ints_arg ~default:[ 1; 1 ] node "dilation" in
@@ -300,27 +298,25 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                         make_conv2d_params w_shape sh sw ph pw dh dw groups
                       in
                       let tensors = [ x; w ] @ Option.to_list bias_opt in
-                      let g, bindings =
-                        build_g ~name:"conv2d_relayout" tensors (function
-                          | [ x_id; w_id ] ->
-                              let open Graph_builder in
-                              let* x' = permute perm_nchw_to_nhwc x_id in
-                              let* w' = permute perm_oihw_to_conv_weight w_id in
-                              let* y' = conv2d params ~x:x' ~weight:w' () in
-                              let+ y = permute perm_nhwc_to_nchw y' in
-                              [ y ]
-                          | [ x_id; w_id; b_id ] ->
-                              let open Graph_builder in
-                              let* x' = permute perm_nchw_to_nhwc x_id in
-                              let* w' = permute perm_oihw_to_conv_weight w_id in
-                              let* y' =
-                                conv2d params ~x:x' ~weight:w' ~bias:b_id ()
-                              in
-                              let+ y = permute perm_nhwc_to_nchw y' in
-                              [ y ]
-                          | _ -> assert false)
-                      in
-                      Some (Ok (g, bindings))
+                      build_g ~name:"conv2d_relayout" tensors (function
+                        | [ x_id; w_id ] ->
+                            let open Graph_builder in
+                            let* x' = permute perm_nchw_to_nhwc x_id in
+                            let* w' = permute perm_oihw_to_conv_weight w_id in
+                            let* y' = conv2d params ~x:x' ~weight:w' () in
+                            let+ y = permute perm_nhwc_to_nchw y' in
+                            [ y ]
+                        | [ x_id; w_id; b_id ] ->
+                            let open Graph_builder in
+                            let* x' = permute perm_nchw_to_nhwc x_id in
+                            let* w' = permute perm_oihw_to_conv_weight w_id in
+                            let* y' =
+                              conv2d params ~x:x' ~weight:w' ~bias:b_id ()
+                            in
+                            let+ y = permute perm_nhwc_to_nchw y' in
+                            [ y ]
+                        | _ -> assert false)
+                      |> some_graph
                     with Invalid_argument msg -> Some (Error msg)))))
   | "torch.ops.aten.conv2d.padding" -> (
       let groups = D.int_arg ~default:1 node "groups" in
@@ -362,31 +358,28 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                         make_conv2d_padding_params sh sw padding dh dw groups
                       in
                       let tensors = [ x; w ] @ Option.to_list bias_opt in
-                      let g, bindings =
-                        build_g ~name:"conv2d_padding_relayout" tensors
-                          (function
-                          | [ x_id; w_id ] ->
-                              let open Graph_builder in
-                              let* x' = permute perm_nchw_to_nhwc x_id in
-                              let* w' = permute perm_oihw_to_conv_weight w_id in
-                              let* y' =
-                                conv2d_padding params ~x:x' ~weight:w' ()
-                              in
-                              let+ y = permute perm_nhwc_to_nchw y' in
-                              [ y ]
-                          | [ x_id; w_id; b_id ] ->
-                              let open Graph_builder in
-                              let* x' = permute perm_nchw_to_nhwc x_id in
-                              let* w' = permute perm_oihw_to_conv_weight w_id in
-                              let* y' =
-                                conv2d_padding params ~x:x' ~weight:w'
-                                  ~bias:b_id ()
-                              in
-                              let+ y = permute perm_nhwc_to_nchw y' in
-                              [ y ]
-                          | _ -> assert false)
-                      in
-                      Some (Ok (g, bindings))
+                      build_g ~name:"conv2d_padding_relayout" tensors (function
+                        | [ x_id; w_id ] ->
+                            let open Graph_builder in
+                            let* x' = permute perm_nchw_to_nhwc x_id in
+                            let* w' = permute perm_oihw_to_conv_weight w_id in
+                            let* y' =
+                              conv2d_padding params ~x:x' ~weight:w' ()
+                            in
+                            let+ y = permute perm_nhwc_to_nchw y' in
+                            [ y ]
+                        | [ x_id; w_id; b_id ] ->
+                            let open Graph_builder in
+                            let* x' = permute perm_nchw_to_nhwc x_id in
+                            let* w' = permute perm_oihw_to_conv_weight w_id in
+                            let* y' =
+                              conv2d_padding params ~x:x' ~weight:w' ~bias:b_id
+                                ()
+                            in
+                            let+ y = permute perm_nhwc_to_nchw y' in
+                            [ y ]
+                        | _ -> assert false)
+                      |> some_graph
                     with Invalid_argument msg -> Some (Error msg)))))
   | "torch.ops.aten.convolution.default" -> (
       let transposed = D.bool_arg node "transposed" in
@@ -437,30 +430,25 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                           opw groups
                       in
                       let tensors = [ x; w ] @ Option.to_list bias_opt in
-                      let g, bindings =
-                        build_g ~name:"convolution_relayout" tensors (function
-                          | [ x_id; w_id ] ->
-                              let open Graph_builder in
-                              let* x' = permute perm_nchw_to_nhwc x_id in
-                              let* w' = permute perm_oihw_to_conv_weight w_id in
-                              let* y' =
-                                convolution params ~x:x' ~weight:w' ()
-                              in
-                              let+ y = permute perm_nhwc_to_nchw y' in
-                              [ y ]
-                          | [ x_id; w_id; b_id ] ->
-                              let open Graph_builder in
-                              let* x' = permute perm_nchw_to_nhwc x_id in
-                              let* w' = permute perm_oihw_to_conv_weight w_id in
-                              let* y' =
-                                convolution params ~x:x' ~weight:w' ~bias:b_id
-                                  ()
-                              in
-                              let+ y = permute perm_nhwc_to_nchw y' in
-                              [ y ]
-                          | _ -> assert false)
-                      in
-                      Some (Ok (g, bindings))
+                      build_g ~name:"convolution_relayout" tensors (function
+                        | [ x_id; w_id ] ->
+                            let open Graph_builder in
+                            let* x' = permute perm_nchw_to_nhwc x_id in
+                            let* w' = permute perm_oihw_to_conv_weight w_id in
+                            let* y' = convolution params ~x:x' ~weight:w' () in
+                            let+ y = permute perm_nhwc_to_nchw y' in
+                            [ y ]
+                        | [ x_id; w_id; b_id ] ->
+                            let open Graph_builder in
+                            let* x' = permute perm_nchw_to_nhwc x_id in
+                            let* w' = permute perm_oihw_to_conv_weight w_id in
+                            let* y' =
+                              convolution params ~x:x' ~weight:w' ~bias:b_id ()
+                            in
+                            let+ y = permute perm_nhwc_to_nchw y' in
+                            [ y ]
+                        | _ -> assert false)
+                      |> some_graph
                     with Invalid_argument msg -> Some (Error msg)))))
   | "torch.ops.aten.linear.default" -> (
       let aten_x = D.tensor_arg aten_env node "input" in
@@ -489,21 +477,19 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 { Linear.Linear.in_features = Dim.extent w_shape.(1) }
               in
               let tensors = [ x; w ] @ Option.to_list bias_opt in
-              let g, bindings =
-                build_g ~name:"linear_relayout" tensors (function
-                  | [ x_id; w_id ] ->
-                      let open Graph_builder in
-                      let* w' = permute perm_linear_weight w_id in
-                      let+ y = linear params ~x:x_id ~weight:w' () in
-                      [ y ]
-                  | [ x_id; w_id; b_id ] ->
-                      let open Graph_builder in
-                      let* w' = permute perm_linear_weight w_id in
-                      let+ y = linear params ~x:x_id ~weight:w' ~bias:b_id () in
-                      [ y ]
-                  | _ -> assert false)
-              in
-              Some (Ok (g, bindings))
+              build_g ~name:"linear_relayout" tensors (function
+                | [ x_id; w_id ] ->
+                    let open Graph_builder in
+                    let* w' = permute perm_linear_weight w_id in
+                    let+ y = linear params ~x:x_id ~weight:w' () in
+                    [ y ]
+                | [ x_id; w_id; b_id ] ->
+                    let open Graph_builder in
+                    let* w' = permute perm_linear_weight w_id in
+                    let+ y = linear params ~x:x_id ~weight:w' ~bias:b_id () in
+                    [ y ]
+                | _ -> assert false)
+              |> some_graph
             with Invalid_argument msg -> Some (Error msg)))
   | "torch.ops.aten.max_pool2d.default" -> (
       let aten_x = D.tensor_arg aten_env node "self" in
@@ -537,17 +523,15 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                       };
                   }
                 in
-                let g, bindings =
-                  build_g ~name:"max_pool2d_relayout" [ x ] (function
-                    | [ x_id ] ->
-                        let open Graph_builder in
-                        let* x' = permute perm_nchw_to_nhwc x_id in
-                        let* y' = max_pool2d params x' in
-                        let+ y = permute perm_nhwc_to_nchw y' in
-                        [ y ]
-                    | _ -> assert false)
-                in
-                Some (Ok (g, bindings))
+                build_g ~name:"max_pool2d_relayout" [ x ] (function
+                  | [ x_id ] ->
+                      let open Graph_builder in
+                      let* x' = permute perm_nchw_to_nhwc x_id in
+                      let* y' = max_pool2d params x' in
+                      let+ y = permute perm_nhwc_to_nchw y' in
+                      [ y ]
+                  | _ -> assert false)
+                |> some_graph
               with Invalid_argument msg -> Some (Error msg))))
   | "torch.ops.aten.mean.dim" -> (
       let t = D.tensor_arg aten_env node "self" in
@@ -558,15 +542,13 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       | Error e -> Some (Error e)
       | Ok x ->
           let params = { Reduce.Mean.dims; keepdim } in
-          let g, bindings =
-            build_g ~name:"mean" [ x ] (function
-              | [ x_id ] ->
-                  let open Graph_builder in
-                  let+ y = mean params x_id in
-                  [ y ]
-              | _ -> assert false)
-          in
-          Some (Ok (g, bindings)))
+          build_g ~name:"mean" [ x ] (function
+            | [ x_id ] ->
+                let open Graph_builder in
+                let+ y = mean params x_id in
+                [ y ]
+            | _ -> assert false)
+          |> some_graph)
   | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" -> (
       match
         ( native_tensor_arg aten_env node "self",
@@ -574,15 +556,13 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       with
       | Error e, _ | _, Error e -> Some (Error e)
       | Ok a, Ok b ->
-          let g, bindings =
-            build_g ~name:"mul" [ a; b ] (function
-              | [ a_id; b_id ] ->
-                  let open Graph_builder in
-                  let+ y = mul a_id b_id in
-                  [ y ]
-              | _ -> assert false)
-          in
-          Some (Ok (g, bindings)))
+          build_g ~name:"mul" [ a; b ] (function
+            | [ a_id; b_id ] ->
+                let open Graph_builder in
+                let+ y = mul a_id b_id in
+                [ y ]
+            | _ -> assert false)
+          |> some_graph)
   | "torch.ops.aten.permute.default" -> (
       let t = D.tensor_arg aten_env node "self" in
       let rank = aten_rank t in
@@ -591,28 +571,24 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       match native_of_aten "self" t with
       | Error e -> Some (Error e)
       | Ok x ->
-          let g, bindings =
-            build_g ~name:"permute" [ x ] (function
-              | [ x_id ] ->
-                  let open Graph_builder in
-                  let+ y = permute perm x_id in
-                  [ y ]
-              | _ -> assert false)
-          in
-          Some (Ok (g, bindings)))
+          build_g ~name:"permute" [ x ] (function
+            | [ x_id ] ->
+                let open Graph_builder in
+                let+ y = permute perm x_id in
+                [ y ]
+            | _ -> assert false)
+          |> some_graph)
   | "torch.ops.aten.relu.default" | "torch.ops.aten.relu_.default" -> (
       match native_tensor_arg aten_env node "self" with
       | Error e -> Some (Error e)
       | Ok x ->
-          let g, bindings =
-            build_g ~name:"relu" [ x ] (function
-              | [ x_id ] ->
-                  let open Graph_builder in
-                  let+ y = relu x_id in
-                  [ y ]
-              | _ -> assert false)
-          in
-          Some (Ok (g, bindings)))
+          build_g ~name:"relu" [ x ] (function
+            | [ x_id ] ->
+                let open Graph_builder in
+                let+ y = relu x_id in
+                [ y ]
+            | _ -> assert false)
+          |> some_graph)
   | "torch.ops.aten.rms_norm.default" -> (
       let t = D.tensor_arg aten_env node "input" in
       let rank = aten_rank t in
@@ -633,13 +609,11 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
           match weight_res with
           | Error e -> Some (Error e)
           | Ok weight ->
-              let g, bindings =
-                build_g ~name:"rms_norm" [ x; weight ] (function
-                  | [ x_id; w_id ] ->
-                      let open Graph_builder in
-                      let+ y = rms_norm params ~x:x_id ~weight:w_id () in
-                      [ y ]
-                  | _ -> assert false)
-              in
-              Some (Ok (g, bindings))))
+              build_g ~name:"rms_norm" [ x; weight ] (function
+                | [ x_id; w_id ] ->
+                    let open Graph_builder in
+                    let+ y = rms_norm params ~x:x_id ~weight:w_id () in
+                    [ y ]
+                | _ -> assert false)
+              |> some_graph))
   | _ -> None
