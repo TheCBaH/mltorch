@@ -266,6 +266,48 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
     option =
   (* Arms in global alphabetical order by the dispatched op name. *)
   match node.target with
+  | "torch.ops.aten._native_batch_norm_legit_no_training.default" ->
+      Some
+        ((* Inference batch norm: only out0 (the normalised activations) is
+            represented. ATen also returns save_mean/save_invstd, but in eval mode
+            those are recorded size-[0] in the exported graph and are dropped
+            (the engine has no empty tensors). See
+            .ai/native_multi_output_design.md. *)
+         let* aten_x = tensor_arg aten_env node "input" in
+         let* x = native_of_aten "input" aten_x in
+         let* aten_rm = tensor_arg aten_env node "running_mean" in
+         let* rm = native_of_aten "running_mean" aten_rm in
+         let* aten_rv = tensor_arg aten_env node "running_var" in
+         let* rv = native_of_aten "running_var" aten_rv in
+         let eps = eps_arg node "eps" in
+         let (Tensor.Tensor rm_r) = rm in
+         (* weight/bias are optional (ATen `Tensor?`); materialise the identity
+            (ones / zeros) [C] vector when absent, as [rms_norm] does. *)
+         let* weight =
+           if optional_tensor_present node "weight" then
+             let* w = tensor_arg aten_env node "weight" in
+             native_of_aten "weight" w
+           else return (Tensor.materialize rm_r.shape (fun _ -> 1.))
+         in
+         let* bias =
+           if optional_tensor_present node "bias" then
+             let* b = tensor_arg aten_env node "bias" in
+             native_of_aten "bias" b
+           else return (Tensor.materialize rm_r.shape (fun _ -> 0.))
+         in
+         let params = { Norm.BatchNorm.channel = Axis.C; eps } in
+         build_g ~name:"batch_norm_relayout" [ x; weight; bias; rm; rv ]
+           (function
+           | [ x_id; w_id; b_id; rm_id; rv_id ] ->
+               let open Graph_builder in
+               let* x' = permute perm_nchw_to_nhwc x_id in
+               let* y' =
+                 batch_norm params ~x:x' ~weight:w_id ~bias:b_id
+                   ~running_mean:rm_id ~running_var:rv_id ()
+               in
+               let+ y = permute perm_nhwc_to_nchw y' in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.add.Tensor" | "torch.ops.aten.add_.Tensor" -> (
       match
         ( native_tensor_arg aten_env node "self",

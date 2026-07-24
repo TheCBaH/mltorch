@@ -185,6 +185,55 @@ let%expect_test "Symbolic graph: Discard emits no stage; ground matches Direct"
     ground = tensor f32 [C=3] {-2, -4, 4}
     ground matches direct: true |}]
 
+(* Batch norm symbolically: the per-channel affine over running stats, grounded
+   against Direct. *)
+let%expect_test "Symbolic graph: batch_norm ground matches Direct" =
+  let result =
+    let open Core.Syntax in
+    let vec2 a0 a1 =
+      Tensor.materialize (s1c 2) (fun c -> [| a0; a1 |].(chan c))
+    in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"bn" ~outputs:(fun y -> [ y ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 1 2) ~name:"x" () in
+          let* w = input ~shape:(s1c 2) ~name:"w" () in
+          let* b = input ~shape:(s1c 2) ~name:"b" () in
+          let* rm = input ~shape:(s1c 2) ~name:"rm" () in
+          let* rv = input ~shape:(s1c 2) ~name:"rv" () in
+          batch_norm ~name:"y"
+            { Norm.BatchNorm.channel = Axis.C; eps = 0. }
+            ~x ~weight:w ~bias:b ~running_mean:rm ~running_var:rv ())
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let x =
+      Tensor.materialize (s 1 1 1 2 1 2) (fun c ->
+          [| [| 1.; 3. |]; [| 5.; 7. |] |].(chan c).(Dim.to_int
+                                                       (Vec6.get c Axis.H)))
+    in
+    let inputs =
+      List.combine g.Graph.inputs
+        [ x; vec2 2. 10.; vec2 1. (-1.); vec2 1. 5.; vec2 4. 4. ]
+    in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: x, w, b, rm, rv
+    y = ((((x[N,T,D,H,W,C] - rm[0,0,0,0,0,C]) * (1 / sqrt((rv[0,0,0,0,0,C] + 0)))) * w[0,0,0,0,0,C]) + b[0,0,0,0,0,C])
+    outputs: y |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [H=2 W=1 C=2] {1, -1, 3, 9}
+    ground matches direct: true |}]
+
 (* Conv decomposition symbolically: the conv stage loads the permute stage's
    signature, and the final permute loads the conv stage's — i.e. symbolic
    execution extends through the whole graph by tensor signature. *)

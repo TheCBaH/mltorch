@@ -262,6 +262,58 @@ let%expect_test "dispatch: addmm.default relayouts [In,Out] weight" =
     outputs: [t4 linear_4:f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {11, 105, 14, 111} |}]
 
+let%expect_test "dispatch: _native_batch_norm_legit_no_training per-channel" =
+  (* NCHW [1,2,1,2]: c0 = [1,3], c1 = [5,7]. mean=[1,5], var=[4,4] (inv=0.5),
+     weight=[2,10], bias=[1,-1], eps=0 -> y = (x-mean)*0.5*w+b: c0=[1,3],
+     c1=[-1,9]. Only out0 is produced (the size-0 save_* outputs are dropped). *)
+  let x = float_tensor [ 1; 2; 1; 2 ] [ 1.; 3.; 5.; 7. ] in
+  let w = float_tensor [ 2 ] [ 2.; 10. ] in
+  let b = float_tensor [ 2 ] [ 1.; -1. ] in
+  let rm = float_tensor [ 2 ] [ 1.; 5. ] in
+  let rv = float_tensor [ 2 ] [ 4.; 4. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten._native_batch_norm_legit_no_training.default"
+    ~bindings:
+      [
+        ("input", x);
+        ("weight", w);
+        ("bias", b);
+        ("running_mean", rm);
+        ("running_var", rv);
+      ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_tensor "bias";
+        in_tensor "running_mean";
+        in_tensor "running_var";
+        in_float "momentum" 0.1;
+        in_float "eps" 0.;
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph batch_norm_relayout
+    inputs:
+      [t0 input_0:f32 [H=2 W=1 C=2], t1 input_1:f32 [C=2], t2 input_2:f32 [C=2],
+       t3 input_3:f32 [C=2], t4 input_4:f32 [C=2]]
+    nodes:
+      n0: [t5 permute_5:f32 [W=2 C=2]] =
+        permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
+      n1: [t6 batch_norm_6:f32 [W=2 C=2]] =
+        batch_norm
+          x=t5(permute_5)
+          weight=t1(input_1)
+          bias=t2(input_2)
+          running_mean=t3(input_3)
+          running_var=t4(input_4)
+          params={channel=C; eps=0}
+      n2: [t7 permute_7:f32 [H=2 W=1 C=2]] =
+        permute x=t6(batch_norm_6) perm=[H<-C, W<-H, C<-W]
+    outputs: [t7 permute_7:f32 [H=2 W=1 C=2]]
+    tensor f32 [H=2 W=1 C=2] {1, 3, -1, 9} |}]
+
 let%expect_test "dispatch: conv2d.default relayouts NCHW/OIHW with bias" =
   let x = float_tensor [ 1; 1; 3; 3 ] (List.init 9 float_of_int) in
   let w = float_tensor [ 1; 1; 2; 2 ] [ 1.; 1.; 1.; 1. ] in

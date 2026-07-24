@@ -42,6 +42,10 @@ let output_shape (op : op)
       let* x_shape = shape x in
       let+ out = widen (Pool.AvgPool2d.output_shape ~x_shape params) in
       [ out ]
+  | Batch_norm { Norm.BatchNorm.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Norm.BatchNorm.output_shape ~x_shape) in
+      [ out ]
   | Bmm { Matmul.Bmm.input; mat2 } ->
       let* input_shape = shape input in
       let* mat2_shape = shape mat2 in

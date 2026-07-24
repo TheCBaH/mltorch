@@ -32,6 +32,20 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Avg_pool2d { Pool.AvgPool2d.params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Batch_norm
+        { Norm.BatchNorm.params; x; weight; bias; running_mean; running_var } ->
+        let module C = Norm.BatchNorm.Compute (S) in
+        let weight =
+          match weight with Some w -> operand w | None -> fill 1. (shape_of x)
+          (* absent weight = identity scale *)
+        in
+        let bias =
+          match bias with Some b -> operand b | None -> fill 0. (shape_of x)
+          (* absent bias = identity shift *)
+        in
+        C.pixel params ~x:(operand x) ~weight ~bias
+          ~running_mean:(operand running_mean)
+          ~running_var:(operand running_var) out
     | Bmm { Matmul.Bmm.input; mat2 } ->
         let module C = Matmul.Bmm.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~input:(operand input)

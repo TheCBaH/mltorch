@@ -228,6 +228,43 @@ let%expect_test "Direct graph: Discard sink (dead edge still materialised)" =
     out = tensor f32 [C=3] {10, 11, 12}
     dead = tensor f32 [C=3] {0, 10, 20} |}]
 
+(* Batch norm applies per-channel affine using running stats: with mean=[1,5],
+   var=[4,4] (inv=0.5) and weight/bias [2,10]/[1,-1], y = (x-mean)*0.5*w+b. *)
+let%expect_test "Direct graph: batch_norm per-channel over C" =
+  let result =
+    let open Core.Syntax in
+    let vec2 a0 a1 =
+      Tensor.materialize (s1c 2) (fun c -> [| a0; a1 |].(chan c))
+    in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"bn" ~outputs:(fun y -> [ y ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 1 2) ~name:"x" () in
+          let* w = input ~shape:(s1c 2) ~name:"w" () in
+          let* b = input ~shape:(s1c 2) ~name:"b" () in
+          let* rm = input ~shape:(s1c 2) ~name:"rm" () in
+          let* rv = input ~shape:(s1c 2) ~name:"rv" () in
+          batch_norm ~name:"y"
+            { Norm.BatchNorm.channel = Axis.C; eps = 0. }
+            ~x ~weight:w ~bias:b ~running_mean:rm ~running_var:rv ())
+    in
+    let x =
+      Tensor.materialize (s 1 1 1 2 1 2) (fun c ->
+          [| [| 1.; 3. |]; [| 5.; 7. |] |].(chan c).(Dim.to_int
+                                                       (Vec6.get c Axis.H)))
+    in
+    let inputs =
+      List.combine g.Graph.inputs
+        [ x; vec2 2. 10.; vec2 1. (-1.); vec2 1. 5.; vec2 4. 4. ]
+    in
+    let* env = lift_eval (Eval_direct.run g ~inputs) in
+    tensor_of_name g env "y"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "y")) result;
+  [%expect {| y = tensor f32 [H=2 W=1 C=2] {1, -1, 3, 9} |}]
+
 (* Conv decomposition. The input is laid out NCHW: in the 6D frame its channel sits
    on H, spatial-H on W, spatial-W on C. Two permutes bracket a native (NHWC)
    conv: NCHW->NHWC moves the channel to C and the spatial axes to H/W; NHWC->NCHW

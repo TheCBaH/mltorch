@@ -39,6 +39,17 @@ val add : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val avg_pool2d :
   ?name:string -> Pool.AvgPool2d.params -> tensor_ref -> Tensor_id.t t
 
+val batch_norm :
+  ?name:string ->
+  Norm.BatchNorm.params ->
+  x:tensor_ref ->
+  ?weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  running_mean:tensor_ref ->
+  running_var:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
 val bmm : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 val conv2d :

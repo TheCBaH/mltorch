@@ -25,6 +25,7 @@ type 'g gop =
      and is handled directly wherever the registry is folded. *)
   | Add of Pointwise.Add.t
   | Avg_pool2d of Pool.AvgPool2d.t
+  | Batch_norm of Norm.BatchNorm.t
   | Bmm of Matmul.Bmm.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
@@ -99,6 +100,12 @@ let op_registry : (module OP) list =
 
       let inject t = Avg_pool2d t
       let project = function Avg_pool2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Norm.BatchNorm
+
+      let inject t = Batch_norm t
+      let project = function Batch_norm t -> Some t | _ -> None
     end : OP);
     (module struct
       include Matmul.Bmm

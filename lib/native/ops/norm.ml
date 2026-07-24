@@ -1,6 +1,145 @@
-(* Normalisations over a set of axes (NHWC). Currently just [RmsNorm] (ATen's
-   `aten.rms_norm`); a category file so a future `LayerNorm` lands beside it, the
-   way [Reduce] holds the reductions. *)
+(* Normalisations over a set of axes (NHWC). [BatchNorm] (inference) and
+   [RmsNorm] (ATen's `aten.rms_norm`); a category file so a future `LayerNorm`
+   lands beside them, the way [Reduce] holds the reductions. *)
+
+module BatchNorm = struct
+  (* Inference batch normalisation (ATen
+     `aten._native_batch_norm_legit_no_training`). Per-channel affine using the
+     tracked running statistics — no batch reduction, since eval mode reads the
+     running stats directly:
+
+       y = (x - running_mean[c]) / sqrt(running_var[c] + eps) * weight[c] + bias[c]
+
+     where [c] is the output pixel's index on the [channel] axis; weight, bias,
+     running_mean and running_var are the per-channel [C] vectors, read at that
+     channel (size 1 / index 0 on every other axis). weight and bias are optional
+     (ATen `Tensor?`): an absent weight is the identity scale (1), an absent bias
+     the identity shift (0), materialised by [Eval_op]. The output keeps the
+     input's full shape (batch norm rescales, it does not reduce). See
+     .ai/native_compute_design.md. *)
+  type params = { channel : Axis.t; eps : float }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"batch_norm_params" (fun channel eps ->
+        { channel; eps })
+    |> Jsont.Object.mem "channel" Axis.jsont ~enc:(fun p -> p.channel)
+    |> Jsont.Object.mem "eps" Json_util.f32_jsont ~enc:(fun p -> p.eps)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{channel=%a;@ eps=%a}@]" Axis.pp p.channel Fmt.float p.eps
+
+  type t = {
+    params : params;
+    x : Tensor_ref.t;
+    weight : Tensor_ref.t option;
+    bias : Tensor_ref.t option;
+    running_mean : Tensor_ref.t;
+    running_var : Tensor_ref.t;
+  }
+
+  let name = "Batch_norm"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          x = get "x" Tensor_ref.jsont;
+          weight = Json_util.opt_field ms "weight" Tensor_ref.jsont;
+          bias = Json_util.opt_field ms "bias" Tensor_ref.jsont;
+          running_mean = get "running_mean" Tensor_ref.jsont;
+          running_var = get "running_var" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        let ref_ = Json_util.enc Tensor_ref.jsont in
+        let opt k = function None -> [] | Some r -> [ (k, ref_ r) ] in
+        Json_util.jobj
+          ([ ("params", Json_util.enc params_jsont t.params) ]
+          @ opt "weight" t.weight @ opt "bias" t.bias
+          @ [
+              ("running_mean", ref_ t.running_mean);
+              ("running_var", ref_ t.running_var);
+              ("x", ref_ t.x);
+            ]))
+      Jsont.json
+
+  let operands (t : t) =
+    (t.x :: Option.to_list t.weight)
+    @ Option.to_list t.bias
+    @ [ t.running_mean; t.running_var ]
+
+  let map_operands f (t : t) =
+    {
+      t with
+      x = f t.x;
+      weight = Option.map f t.weight;
+      bias = Option.map f t.bias;
+      running_mean = f t.running_mean;
+      running_var = f t.running_var;
+    }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt
+      "@[<hv 2>batch_norm@ x=%a@ weight=%a@ bias=%a@ running_mean=%a@ \
+       running_var=%a@ params=%a@]"
+      pp_ref t.x
+      (Fmt.option ~none:(Fmt.any "none") pp_ref)
+      t.weight
+      (Fmt.option ~none:(Fmt.any "none") pp_ref)
+      t.bias pp_ref t.running_mean pp_ref t.running_var pp_params t.params
+
+  (* Output keeps the input shape: batch norm rescales, it does not reduce. *)
+  let output_shape ~(x_shape : Vec6.shape) = Core.return x_shape
+
+  (* Walk config: just the input shape and eps; the per-channel [C] vectors are
+     derived from the shape's C extent by the walk's [build] (see
+     lib/native_op_walk/batch_norm_nwalk.ml), which also keeps running_var
+     non-negative so sqrt is real. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t; eps : float }
+
+    let initial =
+      {
+        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        eps = 1e-5;
+      }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+    let params (c : cfg) : params = { channel = Axis.C; eps = c.eps }
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "eps" [ 1e-5; 0.; 1e-3 ] (fun r v -> { r with eps = v });
+        ]
+
+    let pp fmt (c : cfg) =
+      Format.fprintf fmt "{shape=%a eps=%g}" Walk_core.Shape.pp c.shape c.eps
+  end
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel (p : params) ~x ~weight ~bias ~running_mean ~running_var
+        (out : Semantics.position S.index Vec6.t) =
+      (* Each [C] vector is read at the output pixel's channel index, broadcast
+         (size 1, index 0) on every other axis. *)
+      let zero = Vec6.map (fun _ -> S.index_zero) out in
+      let at_channel v = S.load v (Vec6.copy_axis out p.channel zero) in
+      let mean = at_channel running_mean in
+      let var = at_channel running_var in
+      (* 1 / sqrt(running_var + eps) — ATen's rsqrt via the sqrt primitive. *)
+      let inv = S.div (S.const 1.) (S.sqrt (S.add var (S.const p.eps))) in
+      S.add
+        (S.mul (S.mul (S.sub (S.load x out) mean) inv) (at_channel weight))
+        (at_channel bias)
+  end
+end
 
 module RmsNorm = struct
   (* Root-mean-square normalisation (ATen `aten.rms_norm`). Unlike a [Reduce],

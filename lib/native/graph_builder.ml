@@ -112,6 +112,11 @@ let add ?name a b = op1 ?name ~kind:"add" (Add { Pointwise.Bin.a; b })
 let avg_pool2d ?name params x =
   op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { Pool.AvgPool2d.params; x })
 
+let batch_norm ?name params ~x ?weight ?bias ~running_mean ~running_var () =
+  op1 ?name ~kind:"batch_norm"
+    (Batch_norm
+       { Norm.BatchNorm.params; x; weight; bias; running_mean; running_var })
+
 let bmm ?name input mat2 =
   op1 ?name ~kind:"bmm" (Bmm { Matmul.Bmm.input; mat2 })
 

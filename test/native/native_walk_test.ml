@@ -123,4 +123,16 @@ let%expect_test "native walk coverage" =
     step 4 [out_channels]: {shape=[n=1 c=4 h=8 w=8] kernel=3x3 stride=1x1 dilation=1x1 groups=1 out_c=6 padding=same}
     [native] conv2d_padding: direct==symbolic
     step 5 [groups]: {shape=[n=1 c=4 h=8 w=8] kernel=3x3 stride=1x1 dilation=1x1 groups=2 out_c=6 padding=same}
-    [native] conv2d_padding: direct==symbolic |}]
+    [native] conv2d_padding: direct==symbolic
+    step 0: {shape=[n=2 c=4 h=4 w=4] eps=1e-05}
+    [native] batch_norm: direct==symbolic
+    step 1 [input]: {shape=[n=2 c=4 h=4 w=4] eps=1e-05}
+    [native] batch_norm: direct==symbolic
+    step 2 [input]: {shape=[n=2 c=4 h=10 w=4] eps=1e-05}
+    [native] batch_norm: direct==symbolic
+    step 3 [input]: {shape=[n=2 c=4 h=6 w=4] eps=1e-05}
+    [native] batch_norm: direct==symbolic
+    step 4 [eps]: {shape=[n=2 c=4 h=6 w=4] eps=0.001}
+    [native] batch_norm: direct==symbolic
+    step 5 [input]: {shape=[n=1 c=4 h=6 w=4] eps=0.001}
+    [native] batch_norm: direct==symbolic |}]

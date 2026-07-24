@@ -503,6 +503,36 @@ let%expect_test "Direct: rms_norm over C (channel-wise normalise)" =
     tensor f32 [C=2] {0.2, 1.4}
     tensor f32 [C=4] {0.5, -1, 1.5, -2} |}]
 
+let%expect_test
+    "Direct: batch_norm per-channel affine over C (broadcast over H)" =
+  let module B = Norm.BatchNorm.Compute (Direct) in
+  (* [H=2 C=2]: x[h,c] with c0 = [1,3] over h, c1 = [5,7]. The per-channel
+     running stats (mean=[1,5], var=[4,4]) apply across the H axis. *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:2 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| [| 1.; 3. |]; [| 5.; 7. |] |].(chan c).(row c))
+  in
+  let vec2 a0 a1 =
+    Tensor.materialize (s1c 2) (fun c -> [| a0; a1 |].(chan c))
+  in
+  let p = { Norm.BatchNorm.channel = Axis.C; eps = 0. } in
+  let run ~w0 ~w1 ~b0 ~b1 =
+    Format.printf "%a@." (pp_result Tensor.pp)
+      (eval_tensor
+         (Norm.BatchNorm.output_shape ~x_shape)
+         (B.pixel p ~x ~weight:(vec2 w0 w1) ~bias:(vec2 b0 b1)
+            ~running_mean:(vec2 1. 5.) ~running_var:(vec2 4. 4.)))
+  in
+  (* mean=[1,5], 1/sqrt(4)=0.5, weight=1 bias=0: (x-mean)*0.5 per channel. *)
+  run ~w0:1. ~w1:1. ~b0:0. ~b1:0.;
+  (* per-channel weight/bias: c0 -> *2 + 1, c1 -> *10 - 1. *)
+  run ~w0:2. ~w1:10. ~b0:1. ~b1:(-1.);
+  [%expect
+    {|
+    tensor f32 [H=2 W=1 C=2] {0, 0, 1, 1}
+    tensor f32 [H=2 W=1 C=2] {1, -1, 3, 9} |}]
+
 let%expect_test "Direct: permute [W=2 C=3] — swap W and C gives [W=3 C=2]" =
   let module P = Permute.Permute.Compute (Direct) in
   (* [W=2 C=3] tensor: x[w,c] = w*3 + c, row-major values 0..5. *)

@@ -24,6 +24,8 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Conv2d_padding_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Batch_norm_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
   ]
 
 let run (m : op) ~ppf ~pcg ~steps =

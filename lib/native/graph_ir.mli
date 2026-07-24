@@ -37,6 +37,7 @@ type 'g gop =
      context the payload can't carry. *)
   | Add of Pointwise.Add.t
   | Avg_pool2d of Pool.AvgPool2d.t
+  | Batch_norm of Norm.BatchNorm.t
   | Bmm of Matmul.Bmm.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
