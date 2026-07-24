@@ -94,6 +94,20 @@ alphabetical position at every site below; don't append.
      right-aligned positional mapping. Ops needing NCHW↔NHWC relayout are the
      deferred class documented in `native_aten_bridge_layout.md`.
 
+## Multi-output ops and dead outputs
+
+Most ops produce one output; a few ATen ops return a tuple. If yours does:
+
+- `Graph_shape.output_shape` returns one shape **per output**; `Node.outputs`
+  holds one id per output. `Eval_direct`/`Eval_symbolic` loop over them, so the
+  builder must allocate all output edges (not just via the single-output `op1`).
+- If the outputs need **different** per-pixel computations, thread an output
+  selector into `Eval_op.pixel` and have the op's `Compute` expose one pixel
+  function per output (e.g. values vs argmax indices).
+- Route a genuinely-dead output into a `Discard` sink
+  (`Graph_builder.discard`); drop a size-0 ATen output entirely (the engine has
+  no empty tensors). See `native_multi_output_design.md` for the full rationale.
+
 ## Tests (mirror the existing `add` cases)
 
 - `test/native/compute_test.ml` — `Direct: <op>`: evaluate `Compute (Direct)`

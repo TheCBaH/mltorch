@@ -41,6 +41,12 @@ type 'g gop =
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t
+  | Discard of { x : tensor_ref }
+    (* A sink: consumes one edge and produces NO output (its [Node.outputs] is
+       empty). Used to route a dead op output — e.g. the argmax indices of
+       [Max_pool2d_with_indices] — so the op keeps its full ATen arity while the
+       edge is explicitly marked unused for a future pruning pass. Like
+       [Subgraph], it is handled inline wherever the [op_registry] is folded. *)
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Mean of Reduce.Mean.t

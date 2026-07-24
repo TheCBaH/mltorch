@@ -183,6 +183,51 @@ let%expect_test "Direct graph: mul of two inputs" =
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
   [%expect {| out = tensor f32 [C=3] {0, 10, 20} |}]
 
+(* A [Discard] sink consumes a dead edge and produces no output. The graph still
+   evaluates, the discarded producer ("dead") is still materialised in the env
+   (so tools can inspect it), and the node prints with an empty output list. *)
+let pp_discard ppf (g, out, dead) =
+  Format.fprintf ppf "%a@.out = %a@.dead = %a" Graph_ir.pp g Tensor.pp out
+    Tensor.pp dead
+
+let%expect_test "Direct graph: Discard sink (dead edge still materialised)" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"discard" ~outputs:(fun (out, _) -> [ out ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          let* b = input ~shape:(s1c 3) ~name:"b" () in
+          let* out = add ~name:"out" a b in
+          let* dead = mul ~name:"dead" a b in
+          let* () = discard dead in
+          return (out, dead))
+    in
+    let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
+    let b = Tensor.materialize (s1c 3) (fun _ -> 10.) in
+    let* env =
+      lift_eval
+        (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]))
+    in
+    let* out = tensor_of_name g env "out" in
+    let* dead = tensor_of_name g env "dead" in
+    Core.return (g, out, dead)
+  in
+  Format.printf "%a@." (pp_result pp_discard) result;
+  [%expect
+    {|
+    graph discard
+    inputs: [t0 a:f32 [C=3], t1 b:f32 [C=3]]
+    nodes:
+      n0: [t2 out:f32 [C=3]] = add a=t0(a) b=t1(b)
+      n1: [t3 dead:f32 [C=3]] = mul a=t0(a) b=t1(b)
+      n2: [] = discard x=t3(dead)
+    outputs: [t2 out:f32 [C=3]]
+    out = tensor f32 [C=3] {10, 11, 12}
+    dead = tensor f32 [C=3] {0, 10, 20} |}]
+
 (* Conv decomposition. The input is laid out NCHW: in the 6D frame its channel sits
    on H, spatial-H on W, spatial-W on C. Two permutes bracket a native (NHWC)
    conv: NCHW->NHWC moves the channel to C and the spatial axes to H/W; NHWC->NCHW

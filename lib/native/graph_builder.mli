@@ -68,6 +68,10 @@ val convolution :
   unit ->
   Tensor_id.t t
 
+(* Route a dead edge into a [Discard] sink node (no output). Used to keep a
+   multi-output op's full arity while marking an unused result for later pruning. *)
+val discard : tensor_ref -> unit t
+
 val linear :
   ?name:string ->
   Linear.Linear.params ->

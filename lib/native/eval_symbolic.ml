@@ -79,15 +79,15 @@ let run (g : graph) : Stage_program.t =
     | op ->
         let operand r = Tensor_id.Map.find r env in
         let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
-        let body = E.pixel op ~operand ~shape_of ~fill Symbolic.out_vec in
-        let oid =
-          match node.Node.outputs with
-          | [ oid ] -> oid
-          | _ -> invalid_arg "Eval_symbolic: expected a single output id"
-        in
-        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-        let st = { Stage_program.Stage.id = oid; sg = out_sig; body } in
-        (Tensor_id.Map.add oid out_sig env, st :: stages)
+        (* One stage per output edge: single-output ops emit one; a [Discard]-style
+           zero-output op emits none (the fold body, hence [E.pixel], never runs). *)
+        List.fold_left
+          (fun (env, stages) oid ->
+            let body = E.pixel op ~operand ~shape_of ~fill Symbolic.out_vec in
+            let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+            let st = { Stage_program.Stage.id = oid; sg = out_sig; body } in
+            (Tensor_id.Map.add oid out_sig env, st :: stages))
+          (env, stages) node.Node.outputs
   in
   let _env, rev_stages = process g g.Graph.tensors [] in
   let inputs =

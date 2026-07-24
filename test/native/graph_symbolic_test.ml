@@ -144,6 +144,47 @@ let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
     ground = tensor f32 [C=3] {-3, -5, 4}
     ground matches direct: true |}]
 
+(* A [Discard] node emits NO stage (its producer "dead" still does), so the
+   stage DAG lists sum + dead but nothing for the sink; grounding the kept
+   output still matches Direct. *)
+let%expect_test "Symbolic graph: Discard emits no stage; ground matches Direct"
+    =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"discard" ~outputs:(fun (out, _) -> [ out ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          let* b = input ~shape:(s1c 3) ~name:"b" () in
+          let* out = add ~name:"out" a b in
+          let* dead = mul ~name:"dead" a b in
+          let* () = discard dead in
+          return (out, dead))
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a = Tensor.materialize (s1c 3) (fun c -> [| 1.; -5.; 2. |].(chan c)) in
+    let b = Tensor.materialize (s1c 3) (fun c -> [| -3.; 1.; 2. |].(chan c)) in
+    let inputs = List.combine g.Graph.inputs [ a; b ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: a, b
+    out = (a[0,0,0,0,0,C] + b[0,0,0,0,0,C])
+    dead = (a[0,0,0,0,0,C] * b[0,0,0,0,0,C])
+    outputs: out |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=3] {-2, -4, 4}
+    ground matches direct: true |}]
+
 (* Conv decomposition symbolically: the conv stage loads the permute stage's
    signature, and the final permute loads the conv stage's — i.e. symbolic
    execution extends through the whole graph by tensor signature. *)

@@ -29,6 +29,7 @@ type 'g gop =
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t
+  | Discard of { x : tensor_ref }
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Mean of Reduce.Mean.t
@@ -175,12 +176,14 @@ let registry_pick (f : (module OP) -> 'a option) : 'a =
 
 let operands : op -> tensor_ref list = function
   | Subgraph { args; _ } -> args
+  | Discard { x } -> [ x ]
   | op ->
       registry_pick (fun (module M : OP) ->
           Option.map M.operands (M.project op))
 
 let map_operands (f : tensor_ref -> tensor_ref) : op -> op = function
   | Subgraph { graph; args } -> Subgraph { graph; args = List.map f args }
+  | Discard { x } -> Discard { x = f x }
   | op ->
       registry_pick (fun (module M : OP) ->
           Option.map (fun t -> M.inject (M.map_operands f t)) (M.project op))
@@ -224,6 +227,7 @@ let pp_op (g : graph) fmt : op -> unit = function
   | Subgraph { graph; args } ->
       Fmt.pf fmt "@[<hv 2>subgraph@ %s@ args=%a@]" graph.Graph.name
         (pp_tensor_refs g) args
+  | Discard { x } -> Fmt.pf fmt "@[<hv 2>discard@ x=%a@]" (pp_tensor_ref g) x
   | op ->
       let pp_ref = pp_tensor_ref g in
       registry_pick (fun (module M : OP) ->
@@ -288,7 +292,16 @@ let rec dec_op (json : Jsont.json) : op =
             args = get "args" (Jsont.list tensor_ref_jsont);
           } )
   in
-  Json_util.union ~kind:"op" (subgraph_case :: op_decode_cases) json
+  let discard_case =
+    ( "Discard",
+      fun v ->
+        let ms = Json_util.req_obj v "Discard" in
+        let get k c = Json_util.req_field ms k c "Discard" in
+        Discard { x = get "x" tensor_ref_jsont } )
+  in
+  Json_util.union ~kind:"op"
+    (subgraph_case :: discard_case :: op_decode_cases)
+    json
 
 and dec_node (json : Jsont.json) : node =
   let ms = Json_util.req_obj json "node" in
@@ -333,6 +346,9 @@ and enc_op (op : op) : Jsont.json =
              );
              ("graph", enc_graph graph);
            ])
+  | Discard { x } ->
+      Json_util.single ~case:"Discard"
+        (Json_util.jobj [ ("x", Json_util.enc tensor_ref_jsont x) ])
   | op ->
       registry_pick (fun (module M : OP) ->
           Option.map

@@ -97,6 +97,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           (* absent weight = identity scale *)
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    | Discard _ ->
+        invalid_arg
+          "Eval_op.pixel: Discard produces no output, so it has no pixel"
     | Subgraph _ ->
         invalid_arg
           "Eval_op.pixel: Subgraph is handled by the graph traversal, not a \

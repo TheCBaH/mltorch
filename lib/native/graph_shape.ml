@@ -68,6 +68,7 @@ let output_shape (op : op)
         widen (Conv.Convolution.output_shape ~x_shape ~weight_shape params)
       in
       [ out ]
+  | Discard _ -> Core.return []
   | Linear { Linear.Linear.params; x; weight; _ } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in

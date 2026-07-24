@@ -10,15 +10,13 @@ module E = Eval_op.Make (Direct)
 type context = Operand | Sig_shape | Subgraph_input | Subgraph_output
 type missing_tensor = { context : context; id : Tensor_id.t }
 type arity_mismatch = { expected : int; actual : int }
-type output_count = { count : int }
 
 type error =
   [ Graph_shape.error
   | `Missing_tensor of missing_tensor
   | `Subgraph_input_arity_mismatch of arity_mismatch
   | `Subgraph_output_arity_mismatch of arity_mismatch
-  | `Expected_single_output_shape of output_count
-  | `Expected_single_output_id of output_count ]
+  | `Output_arity_mismatch of arity_mismatch ]
 
 let pp_context ppf = function
   | Operand -> Format.pp_print_string ppf "operand"
@@ -37,10 +35,10 @@ let pp_error ppf : [< error ] -> unit = function
   | `Subgraph_output_arity_mismatch { expected; actual } ->
       Format.fprintf ppf "subgraph output arity mismatch: expected %d got %d"
         expected actual
-  | `Expected_single_output_shape { count } ->
-      Format.fprintf ppf "expected a single output shape, got %d" count
-  | `Expected_single_output_id { count } ->
-      Format.fprintf ppf "expected a single output id, got %d" count
+  | `Output_arity_mismatch { expected; actual } ->
+      Format.fprintf ppf
+        "node output arity mismatch: %d output shapes for %d output ids"
+        expected actual
 
 let find_tensor map id ~context =
   match Tensor_id.Map.find_opt id map with
@@ -110,13 +108,6 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
                | Some sg -> Core.return sg
                | None -> Core.fail (`Missing_tensor_sig r)))
       in
-      let* out_shape =
-        match shapes with
-        | [ sh ] -> Core.return sh
-        | _ ->
-            Core.fail
-              (`Expected_single_output_shape { count = List.length shapes })
-      in
       let* operand_env =
         Core.List.fold_left
           (fun acc r ->
@@ -131,22 +122,29 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
             Tensor_id.Map.add r sh acc)
           Tensor_id.Map.empty (Graph_ir.operands op)
       in
-      let result =
-        Schedule.evaluate out_shape
-          (E.pixel op
-             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-             ~fill)
-      in
-      let* oid =
-        match node.Node.outputs with
-        | [ oid ] -> Core.return oid
-        | _ ->
-            Core.fail
-              (`Expected_single_output_id
-                 { count = List.length node.Node.outputs })
-      in
-      Core.return (Tensor_id.Map.add oid result env)
+      (* One materialisation per output edge: [Graph_shape] and [Node.outputs]
+         agree in length by construction (single-output ops give one of each; a
+         [Discard]-style zero-output op gives none, so the fold is empty). *)
+      if List.compare_lengths node.Node.outputs shapes <> 0 then
+        Core.fail
+          (`Output_arity_mismatch
+             {
+               expected = List.length shapes;
+               actual = List.length node.Node.outputs;
+             })
+      else
+        Core.List.fold_left
+          (fun env (oid, out_shape) ->
+            let result =
+              Schedule.evaluate out_shape
+                (E.pixel op
+                   ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                   ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                   ~fill)
+            in
+            Core.return (Tensor_id.Map.add oid result env))
+          env
+          (List.combine node.Node.outputs shapes)
 
 let run (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let env0 =
