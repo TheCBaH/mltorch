@@ -1,0 +1,18 @@
+; Backs bin/native_graph, a general-purpose CLI for the native engine's graph
+; representation. Currently one operation (a full node-by-node print of a real
+; .pt2 model's graph, converted via lib/native_aten_bridge's Op_bridge — a
+; real ATen/libtorch dependency, unlike lib/pt2_spec_gen's pure-OCaml
+; pipeline); more are expected to land here as bin/native_graph grows.
+
+(library
+ (name native_graph)
+ (wrapped false)
+ (libraries
+  pt2
+  pytorch_types
+  schema_runtime
+  aten
+  interp
+  native_aten_bridge
+  native
+  core))

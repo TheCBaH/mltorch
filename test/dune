@@ -719,6 +719,17 @@
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
+; Convert resnet18's real exported graph to the native engine's Graph_ir node
+; by node (`native_graph print --verbose`, see
+; .ai/native_aten_bridge_layout.md); pins every node's translated native graph
+; end to end, alongside the ATen node that produced it.
+
+(cram
+ (applies_to native_graph_cram)
+ (deps %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
 (cram
  (applies_to aten_gen_coverage_cram)
  (deps %{exe:aten_gen_coverage.exe} native_functions.yaml))

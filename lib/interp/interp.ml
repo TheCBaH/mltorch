@@ -67,24 +67,53 @@ let graph_output_summary outputs =
   | [ output ] -> Interp_decode.argument_kind_name output
   | outputs -> Printf.sprintf "%d outputs" (List.length outputs)
 
-let run archive (image : Pt2_tensor.t) =
+(* The graph and its I/O signature out of an opened archive — the starting
+   point shared by [run] and any other node-by-node walk (e.g.
+   Native_graph). *)
+let graph_and_signature archive =
   let prog = Pt2_archive.program archive in
-  let g = prog.ExportedProgram.graph_module.GraphModule.graph in
-  let sign = prog.ExportedProgram.graph_module.GraphModule.signature in
-  (* graph input name -> weight config name *)
-  let params =
-    List.fold_left
-      (fun params (spec : InputSpec.t) ->
-        match spec with
-        | InputSpec.Parameter p ->
-            String_map.add p.InputToParameterSpec.arg.TensorArgument.name
-              p.InputToParameterSpec.parameter_name params
-        | InputSpec.Buffer b ->
-            String_map.add b.InputToBufferSpec.arg.TensorArgument.name
-              b.InputToBufferSpec.buffer_name params
-        | _ -> params)
-      String_map.empty sign.GraphSignature.input_specs
-  in
+  ( prog.ExportedProgram.graph_module.GraphModule.graph,
+    prog.ExportedProgram.graph_module.GraphModule.signature )
+
+(* graph input name -> weight config name, for the [InputSpec] cases backed by
+   a loadable weight ([Parameter]/[Buffer]; every other case is either a user
+   input or not yet supported). *)
+let param_names (sign : GraphSignature.t) =
+  List.fold_left
+    (fun params (spec : InputSpec.t) ->
+      match spec with
+      | InputSpec.Parameter p ->
+          String_map.add p.InputToParameterSpec.arg.TensorArgument.name
+            p.InputToParameterSpec.parameter_name params
+      | InputSpec.Buffer b ->
+          String_map.add b.InputToBufferSpec.arg.TensorArgument.name
+            b.InputToBufferSpec.buffer_name params
+      | _ -> params)
+    String_map.empty sign.GraphSignature.input_specs
+
+(* Load exactly the parameters/buffers referenced by some node of [g] into
+   [env], so unused buffers (e.g. the int64 num_batches_tracked) never reach
+   the float32 bridge. Names [env] already binds (e.g. user inputs) are left
+   untouched. *)
+let load_referenced_params archive (g : Graph.t) (sign : GraphSignature.t) env =
+  let params = param_names sign in
+  Core.List.fold_left
+    (fun env name ->
+      if String_map.mem name env then Core.return env
+      else
+        match String_map.find_opt name params with
+        | Some cfg_name ->
+            let* weight =
+              Pt2_archive.load_weight archive cfg_name
+              |> Core.map_error (fun e -> (e :> error))
+            in
+            Core.return (String_map.add name (Pt2_aten.to_tensor weight) env)
+        | None -> Core.return env)
+    env
+    (referenced_tensor_names g)
+
+let run archive (image : Pt2_tensor.t) =
+  let g, sign = graph_and_signature archive in
   (* User inputs are bound to the supplied image. *)
   let env =
     List.fold_left
@@ -95,25 +124,7 @@ let run archive (image : Pt2_tensor.t) =
         | _ -> env)
       String_map.empty sign.GraphSignature.input_specs
   in
-  (* Load exactly the parameters/buffers referenced by some node, so unused
-     buffers (e.g. the int64 num_batches_tracked) never reach the float32
-     bridge. *)
-  let* env =
-    Core.List.fold_left
-      (fun env name ->
-        if String_map.mem name env then Core.return env
-        else
-          match String_map.find_opt name params with
-          | Some cfg_name ->
-              let* weight =
-                Pt2_archive.load_weight archive cfg_name
-                |> Core.map_error (fun e -> (e :> error))
-              in
-              Core.return (String_map.add name (Pt2_aten.to_tensor weight) env)
-          | None -> Core.return env)
-      env
-      (referenced_tensor_names g)
-  in
+  let* env = load_referenced_params archive g sign env in
   let* env =
     Core.List.fold_left
       (fun env node ->

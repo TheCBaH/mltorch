@@ -86,9 +86,9 @@ type graph = Graph.t
 val operands : op -> tensor_ref list
 val map_operands : (tensor_ref -> tensor_ref) -> op -> op
 
-(* Deterministic, test-oriented graph dump.  It prints graph inputs, every node in
-   topo order, op operands/parameters, and outputs; subgraphs are printed
-   recursively under their call site. *)
+(* Deterministic graph dump — used by tests and by bin/native_graph. It
+   prints graph inputs, every node in topo order, op operands/parameters, and
+   outputs; subgraphs are printed recursively under their call site. *)
 val pp : Format.formatter -> graph -> unit
 val op_jsont : op Jsont.t
 val graph_jsont : graph Jsont.t

@@ -50,3 +50,14 @@
  (name native_walk_run)
  (modules native_walk_run)
  (libraries aten_op_walk aten_walk_recipes aten_spec aten_spec_run))
+
+; General-purpose CLI for the native engine's graph representation (see
+; lib/native_graph); cmdliner-based so more subcommands can land alongside
+; `print` as the tool grows. `print` needs the real ATen/libtorch build
+; (unlike pt2_spec_gen above), since native conv/pool/linear relayout reads
+; real weight tensor shapes.
+
+(executable
+ (name native_graph)
+ (modules native_graph)
+ (libraries cmdliner pt2 core native_graph))
