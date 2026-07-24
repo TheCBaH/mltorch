@@ -170,13 +170,13 @@ let%expect_test "bridge coverage" =
     step 3 [shape]: {shape=[3,3,8,4]}
     [spec] torch.ops.aten.gelu.default: skipped (no native impl)
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
-    [spec] torch.ops.aten.max_pool2d_with_indices.default: skipped (no native impl)
+    [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
     step 1 [kernel_h]: {kernel=4x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
-    [spec] torch.ops.aten.max_pool2d_with_indices.default: skipped (no native impl)
+    [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
     step 2 [pad_h]: {kernel=4x2 stride=2x2 pad=1x0 n=1 c=4 H=8 W=8}
-    [spec] torch.ops.aten.max_pool2d_with_indices.default: skipped (no native impl)
+    [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
     step 3 [input_w]: {kernel=4x2 stride=2x2 pad=1x0 n=1 c=4 H=8 W=10}
-    [spec] torch.ops.aten.max_pool2d_with_indices.default: skipped (no native impl)
+    [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.max_pool2d.default: matched
     step 1 [c]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=8 H=8 W=8}

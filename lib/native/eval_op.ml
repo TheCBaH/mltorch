@@ -20,7 +20,9 @@ let bias_shape ~weight_shape =
     (Vec6.get weight_shape Axis.N)
 
 module Make (S : Semantics.SEMANTICS) = struct
-  let pixel (op : op) ~(operand : tensor_ref -> S.input)
+  (* [output] selects which output edge's pixel to build, for multi-output ops
+     (0-based, in [Node.outputs] order). Single-output ops ignore it. *)
+  let pixel (op : op) ~output ~(operand : tensor_ref -> S.input)
       ~(shape_of : tensor_ref -> Vec6.shape)
       ~(fill : float -> Vec6.shape -> S.input)
       (out : Semantics.position S.index Vec6.t) : S.t =
@@ -91,6 +93,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Max_pool2d { Pool.MaxPool2d.params; x } ->
         let module C = Pool.MaxPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x } ->
+        let module C = Pool.MaxPool2dWithIndices.Compute (S) in
+        let pix = if output = 0 then C.value_pixel else C.index_pixel in
+        pix params ~x_shape:(shape_of x) ~x:(operand x) out
     | Mean { Reduce.Mean.params; x } ->
         let module C = Reduce.Mean.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

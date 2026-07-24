@@ -265,6 +265,52 @@ let%expect_test "Direct graph: batch_norm per-channel over C" =
   Format.printf "%a@." (pp_result (pp_named_tensor "y")) result;
   [%expect {| y = tensor f32 [H=2 W=1 C=2] {1, -1, 3, 9} |}]
 
+(* max_pool2d_with_indices produces TWO outputs — exercising the multi-output
+   eval loop. value(h,w)=h*4+w; each 2x2/stride-2 window's max is its
+   bottom-right corner, and the argmax index is that corner's flat position. *)
+let mp_params =
+  {
+    Pool.MaxPool2d.kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+    stride =
+      Op_config.Hw.{ h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
+    pad =
+      Op_config.Hw.
+        { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+  }
+
+let%expect_test "Direct graph: max_pool2d_with_indices (two outputs)" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"mp" ~outputs:(fun (v, i) -> [ v; i ])
+          @@
+          let* x = input ~shape:(s 1 1 1 4 4 1) ~name:"x" () in
+          max_pool2d_with_indices ~name:"vals" mp_params x)
+    in
+    let x =
+      Tensor.materialize (s 1 1 1 4 4 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 4)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    match g.Graph.outputs with
+    | [ vid; iid ] ->
+        Core.return (Tensor_id.Map.find vid env, Tensor_id.Map.find iid env)
+    | _ -> Core.fail (`Missing_named_tensor "two outputs")
+  in
+  Format.printf "%a@."
+    (pp_result (pp_named_tensor_pair "values" "indices"))
+    result;
+  [%expect
+    {|
+    values = tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}
+    indices = tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15} |}]
+
 (* Conv decomposition. The input is laid out NCHW: in the 6D frame its channel sits
    on H, spatial-H on W, spatial-W on C. Two permutes bracket a native (NHWC)
    conv: NCHW->NHWC moves the channel to C and the spatial axes to H/W; NHWC->NCHW

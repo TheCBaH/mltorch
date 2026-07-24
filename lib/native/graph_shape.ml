@@ -84,6 +84,13 @@ let output_shape (op : op)
       let* x_shape = shape x in
       let+ out = widen (Pool.MaxPool2d.output_shape ~x_shape params) in
       [ out ]
+  | Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x } ->
+      let* x_shape = shape x in
+      let+ out =
+        widen (Pool.MaxPool2dWithIndices.output_shape ~x_shape params)
+      in
+      (* out0 = values, out1 = indices; both share the pooled window shape. *)
+      [ out; out ]
   | Mean { Reduce.Mean.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reduce.Mean.output_shape ~x_shape params) in

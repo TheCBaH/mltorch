@@ -202,6 +202,109 @@ module MaxPool2d = struct
   end
 end
 
+module MaxPool2dWithIndices = struct
+  (* ATen's `max_pool2d_with_indices` — the overload resnet18's graph actually
+     calls. Two outputs: out0 is the pooled max (identical to [MaxPool2d]); out1
+     is the argmax *indices* — for each output pixel, the flattened input-plane
+     position [ih*in_W + iw] of the max within its window. The indices output is
+     unused by inference (routed to a [Discard] sink by the bridge), but the
+     engine materialises it to preserve the op's full ATen arity; a later pass
+     prunes it. Ties resolve to the smallest flat index. *)
+  type params = MaxPool2d.params
+
+  let params_jsont = MaxPool2d.params_jsont
+  let pp_params = MaxPool2d.pp_params
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    module W = Window_cfg (L)
+    include W
+
+    let params (c : W.cfg) : params =
+      { kernel = W.kernel c; stride = W.stride c; pad = W.pad c }
+  end
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Max_pool2d_with_indices"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>max_pool2d_with_indices@ x=%a@ params=%a@]" pp_ref t.x
+      pp_params t.params
+
+  (* Both outputs (values, indices) share the pooled window shape. *)
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
+    window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module Wa = Window_axis.Compute (S)
+
+    let windows (p : params) ~(x_shape : Vec6.shape) out =
+      let wh =
+        Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad_before:p.pad.h
+          ~dilation:(Op_config.Pos.of_int 1)
+          ~in_extent:(Vec6.get x_shape Axis.H) (Vec6.get out Axis.H)
+      in
+      let ww =
+        Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad_before:p.pad.w
+          ~dilation:(Op_config.Pos.of_int 1)
+          ~in_extent:(Vec6.get x_shape Axis.W) (Vec6.get out Axis.W)
+      in
+      (wh, ww)
+
+    (* out0: the windowed max (identical to [MaxPool2d]). *)
+    let value_pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let wh, ww = windows p ~x_shape out in
+      S.max_reduce ~lo:wh.lo ~hi:wh.hi (fun kh ->
+          S.max_reduce ~lo:ww.lo ~hi:ww.hi (fun kw ->
+              S.load x (out |> Vec6.set_h (wh.src kh) |> Vec6.set_w (ww.src kw))))
+
+    (* out1: the flat input-plane index [ih*in_W + iw] of the max. Take the
+       minimum flat index over window positions whose value equals the max;
+       non-max positions are excluded with +inf, and min is computed as
+       [-max_reduce (-cand)] (there is no min_reduce primitive). *)
+    let index_pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let wh, ww = windows p ~x_shape out in
+      let in_w = (Vec6.get x_shape Axis.W :> int) in
+      let m = value_pixel p ~x_shape ~x out in
+      let neg_min =
+        S.max_reduce ~lo:wh.lo ~hi:wh.hi (fun kh ->
+            S.max_reduce ~lo:ww.lo ~hi:ww.hi (fun kw ->
+                let ih = wh.src kh and iw = ww.src kw in
+                let flat =
+                  S.index_add
+                    (S.index_scale in_w (S.of_index ih))
+                    (S.of_index iw)
+                in
+                let v = S.load x (out |> Vec6.set_h ih |> Vec6.set_w iw) in
+                let cand =
+                  S.select (S.lt v m) (S.const Float.infinity)
+                    (S.value_of_index flat)
+                in
+                S.sub (S.const 0.) cand))
+      in
+      S.sub (S.const 0.) neg_min
+  end
+end
+
 module AvgPool2d = struct
   (* Same [params] shape as [MaxPool2d] (kernel/stride/pad, no [in_channels]).
      Matches ATen's `avg_pool2d` defaults: `count_include_pad=true`,

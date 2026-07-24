@@ -140,6 +140,30 @@ let linear ?name params ~x ~weight ?bias () =
 let max_pool2d ?name params x =
   op1 ?name ~kind:"max_pool2d" (Max_pool2d { Pool.MaxPool2d.params; x })
 
+(* Two outputs (values, indices): allocate an edge per output shape, append the
+   node with both, and return them as a pair. *)
+let max_pool2d_with_indices ?name params x =
+  let op = Max_pool2d_with_indices { Pool.MaxPool2dWithIndices.params; x } in
+  let* s = get in
+  let* shapes =
+    lift_result
+      (Graph_shape.output_shape op ~sig_of:(fun r ->
+           match Tensor_id.Map.find_opt r s.tensors with
+           | Some sg -> Core.return sg
+           | None -> Core.fail (`Missing_tensor_sig r)))
+  in
+  match shapes with
+  | [ vshape; ishape ] ->
+      let* vid = new_edge ?name ~kind:"max_pool2d_with_indices" vshape in
+      let* iid = new_edge ~kind:"max_pool2d_with_indices_idx" ishape in
+      let* () = push_node op [ vid; iid ] in
+      return (vid, iid)
+  | _ ->
+      fun s ->
+        ( Core.fail
+            (`Expected_single_output_shape { count = List.length shapes }),
+          s )
+
 let mean ?name params x =
   op1 ?name ~kind:"mean" (Mean { Reduce.Mean.params; x })
 

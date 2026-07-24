@@ -59,6 +59,11 @@ module type SEMANTICS = sig
   val clamp_low : delta index -> position index
   val assume_index : delta index -> position index
 
+  (* Carry an index into the value domain as its ordinal (a float). The one
+     value/index bridge besides [load] — argmax (max_pool2d_with_indices) needs
+     the flat position of the max as a value. *)
+  val value_of_index : delta index -> t
+
   type input
 
   (* [Vec6.t], not a closure: most call sites only override one or two axes

@@ -234,6 +234,63 @@ let%expect_test "Symbolic graph: batch_norm ground matches Direct" =
     ground = tensor f32 [H=2 W=1 C=2] {1, -1, 3, 9}
     ground matches direct: true |}]
 
+(* max_pool2d_with_indices has two outputs and the index output uses the
+   value_of_index bridge + an argmax reduction; its stage DAG is large, so we
+   assert Direct==Symbolic on both outputs rather than pin the program text. *)
+let mp_params =
+  {
+    Pool.MaxPool2d.kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+    stride =
+      Op_config.Hw.{ h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
+    pad =
+      Op_config.Hw.
+        { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+  }
+
+let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
+    =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"mp" ~outputs:(fun (v, i) -> [ v; i ])
+          @@
+          let* x = input ~shape:(s 1 1 1 4 4 1) ~name:"x" () in
+          max_pool2d_with_indices mp_params x)
+    in
+    let prog = Eval_symbolic.run g in
+    let x =
+      Tensor.materialize (s 1 1 1 4 4 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 4)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let inputs = List.combine g.Graph.inputs [ x ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    Core.return
+      (List.map
+         (fun oid ->
+           let d = Tensor_id.Map.find oid direct in
+           let gr = Tensor_id.Map.find oid grounded in
+           let (Tensor.Tensor r) = d in
+           (d, tensors_match r.shape d gr))
+         g.Graph.outputs)
+  in
+  (match result with
+  | Ok outs ->
+      List.iter
+        (fun (t, m) ->
+          Format.printf "%a  ground matches direct: %b@." Tensor.pp t m)
+        outs
+  | Error e -> Format.printf "%a@." pp_error e.Core.Error.kind);
+  [%expect
+    {|
+    tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true
+    tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true |}]
+
 (* Conv decomposition symbolically: the conv stage loads the permute stage's
    signature, and the final permute loads the conv stage's — i.e. symbolic
    execution extends through the whole graph by tensor signature. *)

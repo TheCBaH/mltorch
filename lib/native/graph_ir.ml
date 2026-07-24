@@ -33,6 +33,7 @@ type 'g gop =
   | Discard of { x : tensor_ref }
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
+  | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean of Reduce.Mean.t
   | Mul of Pointwise.Mul.t
   | Permute of Permute.Permute.t
@@ -142,6 +143,12 @@ let op_registry : (module OP) list =
 
       let inject t = Max_pool2d t
       let project = function Max_pool2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pool.MaxPool2dWithIndices
+
+      let inject t = Max_pool2d_with_indices t
+      let project = function Max_pool2d_with_indices t -> Some t | _ -> None
     end : OP);
     (module struct
       include Reduce.Mean

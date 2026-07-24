@@ -82,12 +82,15 @@ let run (g : graph) : Stage_program.t =
         (* One stage per output edge: single-output ops emit one; a [Discard]-style
            zero-output op emits none (the fold body, hence [E.pixel], never runs). *)
         List.fold_left
-          (fun (env, stages) oid ->
-            let body = E.pixel op ~operand ~shape_of ~fill Symbolic.out_vec in
+          (fun (env, stages) (output, oid) ->
+            let body =
+              E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec
+            in
             let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
             let st = { Stage_program.Stage.id = oid; sg = out_sig; body } in
             (Tensor_id.Map.add oid out_sig env, st :: stages))
-          (env, stages) node.Node.outputs
+          (env, stages)
+          (List.mapi (fun i oid -> (i, oid)) node.Node.outputs)
   in
   let _env, rev_stages = process g g.Graph.tensors [] in
   let inputs =

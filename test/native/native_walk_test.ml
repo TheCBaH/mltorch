@@ -135,4 +135,16 @@ let%expect_test "native walk coverage" =
     step 4 [eps]: {shape=[n=2 c=4 h=6 w=4] eps=0.001}
     [native] batch_norm: direct==symbolic
     step 5 [input]: {shape=[n=1 c=4 h=6 w=4] eps=0.001}
-    [native] batch_norm: direct==symbolic |}]
+    [native] batch_norm: direct==symbolic
+    step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0}
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 1 [input]: {shape=[n=2 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0}
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 2 [pad]: {shape=[n=2 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0}
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 3 [input]: {shape=[n=2 c=16 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0}
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 4 [stride]: {shape=[n=2 c=16 h=8 w=8] kernel=2x2 stride=1x3 pad=0x0}
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 5 [input]: {shape=[n=2 c=16 h=8 w=10] kernel=2x2 stride=1x3 pad=0x0}
+    [native] max_pool2d_with_indices: direct==symbolic |}]

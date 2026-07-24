@@ -573,6 +573,42 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  [ y ]
              | _ -> assert false)
          with Invalid_argument msg -> fail (`Validation_failure msg))
+  | "torch.ops.aten.max_pool2d_with_indices.default" ->
+      Some
+        ((* Two ATen outputs (values, indices). We materialise both, relayout the
+            value back to NCHW as the graph output, and route the dead indices
+            edge into a Discard sink (see .ai/native_multi_output_design.md). *)
+         let* aten_x = tensor_arg aten_env node "self" in
+         let* kernel_size = ints_arg node "kernel_size" in
+         let* stride = pool_stride kernel_size node in
+         let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
+         let* kh, kw = hw2 "kernel_size" kernel_size in
+         let* sh, sw = hw2 "stride" stride in
+         let* ph, pw = hw2 "padding" padding in
+         let* x = native_of_aten "self" aten_x in
+         try
+           let params =
+             {
+               Pool.MaxPool2d.kernel = { h = Dim.extent kh; w = Dim.extent kw };
+               stride =
+                 { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
+               pad =
+                 {
+                   h = Op_config.Nonneg.of_int ph;
+                   w = Op_config.Nonneg.of_int pw;
+                 };
+             }
+           in
+           build_g ~name:"max_pool2d_with_indices_relayout" [ x ] (function
+             | [ x_id ] ->
+                 let open Graph_builder in
+                 let* x' = permute perm_nchw_to_nhwc x_id in
+                 let* values, indices = max_pool2d_with_indices params x' in
+                 let* () = discard indices in
+                 let+ y = permute perm_nhwc_to_nchw values in
+                 [ y ]
+             | _ -> assert false)
+         with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.mean.dim" ->
       Some
         (let* t = tensor_arg aten_env node "self" in

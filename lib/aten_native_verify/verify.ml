@@ -164,9 +164,13 @@ let compare_tensors ~atol ~output aten_t native_t =
              native_fmt = Payload.fmt_name native_r.payload.fmt;
            })
 
-(* Verify all tensor outputs of [node] against [native_outputs] (paired
-   positionally with the tensor outputs in [node.outputs]).  Returns one
-   Core.Error.t per output that fails; empty list means all matched. *)
+(* Verify the tensor outputs [native_outputs] the bridge exposes against the
+   LEADING tensor outputs of [node].  The native bridge may expose FEWER outputs
+   than the ATen op: a dead output (e.g. max_pool2d_with_indices' int64 argmax
+   indices, which the native F32 engine can't compare anyway) is dropped /
+   routed to a Discard sink, so it is simply not verified.  Only exposing MORE
+   outputs than the op has is an error.  Returns one Core.Error.t per output
+   that fails; empty list means all compared outputs matched. *)
 let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
   let open Pytorch_types in
   let out_names =
@@ -174,26 +178,27 @@ let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
       (function Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
       node.outputs
   in
-  match List.compare_lengths out_names native_outputs with
-  | n when n <> 0 ->
-      [
-        Core.Error.make
-          (Output_count
-             {
-               expected = List.length out_names;
-               got = List.length native_outputs;
-             });
-      ]
-  | _ ->
-      List.filter_map
-        (fun (name, native_t) ->
-          match String_map.find_opt name aten_env with
-          | None -> Some (Core.Error.make (Missing_output { name }))
-          | Some aten_t -> (
-              match compare_tensors ~atol ~output:name aten_t native_t with
-              | Ok () -> None
-              | Error e -> Some e))
-        (List.combine out_names native_outputs)
+  if List.length native_outputs > List.length out_names then
+    [
+      Core.Error.make
+        (Output_count
+           {
+             expected = List.length out_names;
+             got = List.length native_outputs;
+           });
+    ]
+  else
+    let k = List.length native_outputs in
+    let leading = List.filteri (fun i _ -> i < k) out_names in
+    List.filter_map
+      (fun (name, native_t) ->
+        match String_map.find_opt name aten_env with
+        | None -> Some (Core.Error.make (Missing_output { name }))
+        | Some aten_t -> (
+            match compare_tensors ~atol ~output:name aten_t native_t with
+            | Ok () -> None
+            | Error e -> Some e))
+      (List.combine leading native_outputs)
 
 let report ppf op errors =
   List.iter

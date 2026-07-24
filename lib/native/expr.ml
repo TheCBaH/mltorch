@@ -34,6 +34,9 @@ and t =
   | Binary of binary_op * t * t
   | Unary of unary_op * t
   | Select of bool_expr * t * t (* [select c a b]: a when c holds, else b *)
+  | Value_of_index of index_expr
+    (* an index carried into the value domain (its ordinal as a float) — the
+       one bridge besides [Load]; needed by argmax (max_pool2d_with_indices) *)
   | Load of Tensor_sig.t * index_expr Vec6.t (* one sub-expression per axis *)
   | Reduce of {
       kind : reduction_kind;
@@ -72,6 +75,7 @@ let rec pp fmt = function
   | Binary (op, a, b) -> Fmt.pf fmt "(%a %s %a)" pp a (binary_op_sym op) pp b
   | Unary (op, a) -> Fmt.pf fmt "%s(%a)" (unary_op_name op) pp a
   | Select (c, a, b) -> Fmt.pf fmt "select(%a, %a, %a)" pp_bool_expr c pp a pp b
+  | Value_of_index i -> Fmt.pf fmt "value_of_index(%a)" pp_index_expr i
   | Load (s, index) -> Fmt.pf fmt "%a[%a]" Tensor_sig.pp s pp_index_vec index
   | Reduce { kind; var; lo; hi; body } ->
       Fmt.pf fmt "%s(r%d=%a..%a: %a)" (reduction_kind_name kind) var
@@ -135,6 +139,7 @@ and eval ~binding ~coord ?(rvars = []) e =
   | Unary (op, a) -> apply_unary_op op (recur a)
   | Select (c, a, b) ->
       if eval_bool_expr ~binding ~coord ~rvars c then recur a else recur b
+  | Value_of_index i -> float_of_int (eval_index_expr ~coord ~rvars i)
   | Load (s, index) ->
       Tensor.read_at_raw (binding s) (fun a ->
           eval_index_expr ~coord ~rvars (Vec6.get index a))

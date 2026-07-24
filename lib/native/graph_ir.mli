@@ -50,6 +50,7 @@ type 'g gop =
        [Subgraph], it is handled inline wherever the [op_registry] is folded. *)
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
+  | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean of Reduce.Mean.t
   | Mul of Pointwise.Mul.t
   | Permute of Permute.Permute.t

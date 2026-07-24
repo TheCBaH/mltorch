@@ -617,6 +617,40 @@ let%expect_test "dispatch: max_pool2d.default relayouts NCHW input and output" =
     outputs: [t3 permute_3:f32 [W=4 C=4]]
     tensor f32 [W=4 C=4] {-1, -1, -2, -3, -1, -1, -2, -3, ...} |}]
 
+let%expect_test "dispatch: max_pool2d_with_indices.default discards indices" =
+  (* NCHW [1,1,4,4], value(h,w)=h*4+w. 2x2/stride-2 windows: max is each
+     window's bottom-right; the graph output is the relayout'd values, and the
+     dead indices edge is routed into a Discard node. *)
+  let x = float_tensor [ 1; 1; 4; 4 ] (List.init 16 float_of_int) in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.max_pool2d_with_indices.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_ints "kernel_size" [ 2; 2 ];
+        in_ints "stride" [ 2; 2 ];
+        in_ints "padding" [ 0; 0 ];
+      ]
+    ~noutputs:2;
+  [%expect
+    {|
+    graph max_pool2d_with_indices_relayout
+    inputs: [t0 input_0:f32 [W=4 C=4]]
+    nodes:
+      n0: [t1 permute_1:f32 [H=4 W=4 C=1]] =
+        permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
+      n1: [t2 max_pool2d_with_indices_2:f32 [H=2 W=2 C=1],
+           t3 max_pool2d_with_indices_idx_3:f32 [H=2 W=2 C=1]] =
+        max_pool2d_with_indices
+          x=t1(permute_1)
+          params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
+      n2: [] = discard x=t3(max_pool2d_with_indices_idx_3)
+      n3: [t4 permute_4:f32 [W=2 C=2]] =
+        permute x=t2(max_pool2d_with_indices_2) perm=[H<-C, W<-H, C<-W]
+    outputs: [t4 permute_4:f32 [W=2 C=2]]
+    tensor f32 [W=2 C=2] {5, 7, 13, 15} |}]
+
 let%expect_test "dispatch: mean.dim dim=[1] keepdim=true" =
   let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
   dispatch_print ~target:"torch.ops.aten.mean.dim"

@@ -95,6 +95,13 @@ val linear :
 val max_pool2d :
   ?name:string -> Pool.MaxPool2d.params -> tensor_ref -> Tensor_id.t t
 
+(* max_pool2d_with_indices returns two edges: (values, indices). *)
+val max_pool2d_with_indices :
+  ?name:string ->
+  Pool.MaxPool2dWithIndices.params ->
+  tensor_ref ->
+  (Tensor_id.t * Tensor_id.t) t
+
 val mean : ?name:string -> Reduce.Mean.params -> tensor_ref -> Tensor_id.t t
 val mul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 

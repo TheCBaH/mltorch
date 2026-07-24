@@ -133,18 +133,22 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
                actual = List.length node.Node.outputs;
              })
       else
+        let outs =
+          List.mapi
+            (fun output (oid, out_shape) -> (output, oid, out_shape))
+            (List.combine node.Node.outputs shapes)
+        in
         Core.List.fold_left
-          (fun env (oid, out_shape) ->
+          (fun env (output, oid, out_shape) ->
             let result =
               Schedule.evaluate out_shape
-                (E.pixel op
+                (E.pixel op ~output
                    ~operand:(fun r -> Tensor_id.Map.find r operand_env)
                    ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                    ~fill)
             in
             Core.return (Tensor_id.Map.add oid result env))
-          env
-          (List.combine node.Node.outputs shapes)
+          env outs
 
 let run (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let env0 =
