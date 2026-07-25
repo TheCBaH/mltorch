@@ -11,7 +11,7 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — stages 1 to 3 have landed.
+Status: **in progress** — stages 1 to 4 have landed.
 Each section below carries its own status marker, flipped by the commit that
 implements it; `## 12. Staging` tracks the whole sequence.
 
@@ -566,9 +566,9 @@ folded constant at all.
 
 ## 11. Matching
 
-Status: **partly implemented** — `graph_view.ml` and `region.ml` have landed, with
-tests in `test/native/graph_view_test.ml` and the shared fixtures in
-`test/native/graph_fixtures.ml`. `Pattern` itself is still design only.
+Status: **implemented** — `graph_view.ml`, `region.ml` and `pattern.ml`, with
+tests in `test/native/graph_view_test.ml` and `pattern_test.ml`, over the shared
+fixtures in `test/native/graph_fixtures.ml`.
 
 > **Changed while implementing: the view is unversioned.** The plan had
 > `'v Graph_view.t`, so that a recipe built from a match would inherit the view's
@@ -598,7 +598,7 @@ val uses  : Tensor_id.t -> node list t
 val interior : Tensor_id.t -> unit t     (* exactly one use and not a graph output *)
 val constant : Tensor_id.t -> unit t
 val chain : (Tensor_id.t -> ('a * Tensor_id.t) t) -> Tensor_id.t -> 'a list t
-val run  : 'a t -> Graph_view.t -> anchor:Tensor_id.t -> ('a * Region.t, failure) result
+val run  : 'a t -> Graph_view.t -> ('a * Region.t, failure) result
 val scan : (Tensor_id.t -> 'a t) -> Graph_view.t -> ('a * Region.t) list
 ```
 
@@ -671,7 +671,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 1 | `native: add id_supply and graph mapping` | `Tensor_id.Set`/`Node_id.Set`, `Group_id` ordering, `Id_supply`, `Cluster_relation`, `Correspondence`, `Node_map`, `Provenance`, `Graph_map` | done |
 | 2 | `native: add graph_view and region` | validation, the index, `common_group`, topo sort, `Region`, `test/native/graph_fixtures.ml` | done |
 | 3 | `native: add recipe and rewrite` | the state, `Recipe`, `apply`, `output_transfer` (+ its entry in `native_add_op.md`) | done |
-| 4 | `native: add graph match combinators` | `Pattern`, `run`, `scan` |
+| 4 | `native: add graph match combinators` | `Pattern`, `run`, `scan` | done |
 | 5 | `native: add pass driver` | `Pass`, `fixpoint`, `run_all` |
 | 6 | `native: add permute simplification passes` | `trim_permute`, `chain_permute`, `reshape_to_permute` |
 | 7 | `native: add constant folding` | `fold_const` — the motivating permute-of-constant-weight case |
