@@ -11,7 +11,7 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — stages 1 and 2 have landed.
+Status: **in progress** — stages 1 to 3 have landed.
 Each section below carries its own status marker, flipped by the commit that
 implements it; `## 12. Staging` tracks the whole sequence.
 
@@ -225,8 +225,9 @@ a golden or a diagnostic wants the former.
 
 ## 4. Id identity — the rule everything else leans on
 
-Status: **partly implemented** — `id_supply.ml` holds the monotone supply and the frozen
-origin watermark. The `apply`-side enforcement of the rule lands with §7.
+Status: **implemented** — `id_supply.ml` holds the monotone supply and the frozen
+origin watermark; `rewrite.ml` enforces the rule (`check_signatures`, then
+`check_preserved` for redefinition).
 
 > **An id may be kept only when the tensor is exactly the same one** — same value,
 > shape, format and quantization. Any modification mints a new id, including a
@@ -268,7 +269,7 @@ and `is_post` is how it tells the two apart.
 
 ## 5. The transform state
 
-Status: **design only**.
+Status: **implemented** — `rewrite.ml`; tests in `test/native/rewrite_test.ml`.
 
 ```ocaml
 type 'v t                                   (* graph + constants + supply + origin watermark *)
@@ -324,7 +325,7 @@ all.
 
 ## 6. The recipe
 
-Status: **design only**.
+Status: **implemented** — `recipe.ml`.
 
 ```ocaml
 type insertion = { op : op; outputs : Tensor_id.t list; from : Node_id.t list }
@@ -377,7 +378,7 @@ output id would be handed an implicit `Identical`.
 
 ## 7. `apply`
 
-Status: **design only**. In order:
+Status: **implemented** — `rewrite.ml`. In order:
 
 1. **Validate** against the source view: known nodes, disjoint replacement regions,
    convexity where a constructor requires it, start watermark equal to the state's.
@@ -406,6 +407,24 @@ Status: **design only**. In order:
     `{t1,t2} ↔ {t0}` — without the closure the explicit and implicit clusters would
     overlap and the relation would not be an equivalence.
 
+> **Two ordering constraints found while implementing.** Both are load-bearing,
+> and both are invisible until something fails.
+>
+> The clusters have to be built **before** step 8, not after, because "did this
+> definition change" is a question about clusters rather than raw claim pairs.
+> Deriving a representative pairwise gives `t1 ↦ t0` from one claim and
+> `t1 ↦ t1` from the next, so after trimming a chain a consumer rewired from
+> `t2` to `t0` looks redefined and is rejected. Taking the representative from
+> the normalised cluster answers correctly. A claim's destination also has to be
+> read through the normalised substitution first, or a claim naming an edge that
+> was itself substituted away points at an id the destination graph no longer has.
+>
+> The **signature** half of the id-identity check has to run before the result is
+> validated as a graph. Otherwise a recipe that takes over an id with a different
+> shape is reported as "this node's output signature disagrees with its op",
+> which is true but describes the symptom; the cause is that it reused an id it
+> was not entitled to.
+
 **Group maintenance.** Removed nodes drop out of their items; a group whose subtree
 empties is pruned; insertions are appended to the nearest common ancestor of the
 replacement's touched nodes, or to a fresh child group when
@@ -424,7 +443,7 @@ their first node.
 
 ## 8. Claim propagation
 
-Status: **design only**.
+Status: **implemented** — `rewrite.ml`'s `propagate`, over `output_transfer.ml`.
 
 A node whose op is unchanged *modulo cluster representatives* (so a consumer whose
 operand was merely rewired to an equal edge counts as unchanged) gives its outputs
@@ -631,6 +650,10 @@ Two details the tests pin, both easy to get subtly wrong:
   nodes; those outputs are absent from any view of the pre-rewrite graph, so
   resolving through a view would make dependencies *between new nodes* invisible
   and emit a plausible but wrong order.
+- **An output's signature must be the shape its op produces.** Arity alone lets a
+  rewrite install an edge whose declared shape contradicts its operands, which
+  then surfaces only at evaluation. Added while building `apply`, whose whole job
+  is producing graphs that were not written by the builder.
 
 Convexity is subtler than "the region skips a node": in the diamond fixture,
 claiming `{relu, add}` skips the `mul`, but the `mul` reads the graph input rather
@@ -647,7 +670,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 0 | `docs: design the native graph transformation framework` | this doc; `native_graph_design.md` §7 → pointer | done |
 | 1 | `native: add id_supply and graph mapping` | `Tensor_id.Set`/`Node_id.Set`, `Group_id` ordering, `Id_supply`, `Cluster_relation`, `Correspondence`, `Node_map`, `Provenance`, `Graph_map` | done |
 | 2 | `native: add graph_view and region` | validation, the index, `common_group`, topo sort, `Region`, `test/native/graph_fixtures.ml` | done |
-| 3 | `native: add recipe and rewrite` | the state, `Recipe`, `apply`, `output_transfer` (+ its entry in `native_add_op.md`), `Graph_builder.fragment` |
+| 3 | `native: add recipe and rewrite` | the state, `Recipe`, `apply`, `output_transfer` (+ its entry in `native_add_op.md`) | done |
 | 4 | `native: add graph match combinators` | `Pattern`, `run`, `scan` |
 | 5 | `native: add pass driver` | `Pass`, `fixpoint`, `run_all` |
 | 6 | `native: add permute simplification passes` | `trim_permute`, `chain_permute`, `reshape_to_permute` |

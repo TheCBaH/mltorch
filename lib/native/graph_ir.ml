@@ -299,13 +299,17 @@ let pp_op_header ?printer g fmt (node : node) =
     (pp_tensor_defs ?printer g)
     node.outputs
 
-let pp_op ?printer (g : graph) fmt : op -> unit = function
-  | Discard { x } ->
-      Fmt.pf fmt "@[<hv 2>discard@ x=%a@]" (pp_tensor_ref ?printer g) x
+(* Op printing needs only a way to render an operand reference, so the primitive
+   takes one. That lets a caller without a graph — a recipe describing nodes it
+   has not spliced yet — print an op by falling back to bare ids. *)
+let pp_op_with ~pp_ref fmt : op -> unit = function
+  | Discard { x } -> Fmt.pf fmt "@[<hv 2>discard@ x=%a@]" pp_ref x
   | op ->
-      let pp_ref = pp_tensor_ref ?printer g in
       registry_pick (fun (module M : OP) ->
           Option.map (fun t -> M.pp pp_ref fmt t) (M.project op))
+
+let pp_op ?printer (g : graph) fmt op =
+  pp_op_with ~pp_ref:(pp_tensor_ref ?printer g) fmt op
 
 let pp_graph_header fmt (_g : graph) = Fmt.pf fmt "graph"
 

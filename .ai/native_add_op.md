@@ -76,13 +76,22 @@ alphabetical position at every site below; don't append.
    single functor applied once at `Direct` and once at `Symbolic`. Absent optional
    operands are materialised with `fill` (zeros bias / ones weight).
 
-5. **Builder** — `lib/native/graph_builder.ml` and `graph_builder.mli`
+5. **Claim transfer** — `lib/native/transform/output_transfer.ml`
+   Add the op to `classify`, per output: `Reindexing` if the output is a
+   permutation of the input's values, `Discontinuous` if an arbitrarily small
+   input change can switch the result (an argmax), otherwise `Continuous`. The
+   match is exhaustive with no default arm on purpose — a defaulting classifier
+   would silently mis-transfer a new op, and mis-transferring means a verifier
+   asserting an equality the graph does not guarantee. See
+   `.ai/native_transform_design.md` §8.
+
+6. **Builder** — `lib/native/graph_builder.ml` and `graph_builder.mli`
    Add the constructor function (alphabetical) in both. It just appends a node via
    `op1 ?name ~kind:"<op>" (<Op> { … })` (first label qualified); output shapes are
    computed by `Graph_shape`, never passed in.
    - `let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })`
 
-6. **ATen bridge** — `lib/native_aten_bridge/op_bridge.ml`
+7. **ATen bridge** — `lib/native_aten_bridge/op_bridge.ml`
    - A `run_<op>` Direct-scheduler helper (alphabetical) that materialises the
      output via `Schedule.evaluate (output_shape …) (C.pixel …)`.
    - A `dispatch` arm (alphabetical by op name) matching the ATen `node.target`

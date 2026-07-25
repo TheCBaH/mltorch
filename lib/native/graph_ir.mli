@@ -132,6 +132,12 @@ val nodes : graph -> node list
 val pp_with : printer:Printer.t -> Format.formatter -> graph -> unit
 val pp : Format.formatter -> graph -> unit
 val pp_node : ?printer:Printer.t -> graph -> Format.formatter -> node -> unit
+val pp_op : ?printer:Printer.t -> graph -> Format.formatter -> op -> unit
+
+(* Op printing given only a way to render an operand reference — for callers
+   with no graph to resolve against, such as a recipe describing nodes it has not
+   spliced yet. [pp_op] is this with the graph's own reference printer. *)
+val pp_op_with : pp_ref:tensor_ref Fmt.t -> Format.formatter -> op -> unit
 val input_kind : graph -> Tensor_id.t -> Input.kind
 val op_jsont : op Jsont.t
 val graph_jsont : graph Jsont.t

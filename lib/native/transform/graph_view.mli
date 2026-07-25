@@ -30,6 +30,7 @@ type error =
   | `Node_not_grouped of Node_id.t
   | `Not_topological of Node_id.t
   | `Output_arity of arity
+  | `Output_shape_mismatch of Tensor_id.t
   | `Sig_key_mismatch of sig_key
   | `Unknown_group_item of Node_id.t
   | `Unknown_input_kind of Tensor_id.t

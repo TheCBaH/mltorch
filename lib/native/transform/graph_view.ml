@@ -16,6 +16,7 @@ type error =
   | `Node_not_grouped of Node_id.t
   | `Not_topological of Node_id.t
   | `Output_arity of arity
+  | `Output_shape_mismatch of Tensor_id.t
   | `Sig_key_mismatch of sig_key
   | `Unknown_group_item of Node_id.t
   | `Unknown_input_kind of Tensor_id.t
@@ -38,6 +39,9 @@ let pp_error ppf : [< error ] -> unit = function
   | `Output_arity { node; expected; actual } ->
       Fmt.pf ppf "node %a declares %d outputs but its op has %d" Node_id.pp node
         actual expected
+  | `Output_shape_mismatch id ->
+      Fmt.pf ppf "%a's signature is not the shape its op produces" Tensor_id.pp
+        id
   | `Sig_key_mismatch { key; recorded } ->
       Fmt.pf ppf "tensor map key %a holds a signature for %a" Tensor_id.pp key
         Tensor_id.pp recorded
@@ -268,8 +272,28 @@ let of_graph (g : graph) =
         in
         let expected = List.length shapes
         and actual = List.length n.Node.outputs in
-        if expected = actual then Core.return ()
-        else Core.fail (`Output_arity { node = n.Node.id; expected; actual }))
+        let* () =
+          if expected = actual then Core.return ()
+          else Core.fail (`Output_arity { node = n.Node.id; expected; actual })
+        in
+        (* The recorded signature must be the shape the op actually produces.
+           Arity alone would let a rewrite install an output whose declared
+           shape contradicts its operands, which then only surfaces at eval. *)
+        fold_result
+          (fun () (id, computed) ->
+            match Tensor_id.Map.find_opt id g.Graph.tensors with
+            | Some sg
+              when List.for_all
+                     (fun ax ->
+                       Dim.equal
+                         (Vec6.get sg.Tensor_sig.shape ax)
+                         (Vec6.get computed ax))
+                     Axis.all ->
+                Core.return ()
+            | Some _ -> Core.fail (`Output_shape_mismatch id)
+            | None -> Core.fail (`Missing_tensor_sig id))
+          ()
+          (List.combine n.Node.outputs shapes))
       () g.Graph.nodes
   in
   (* Consumers, deduplicated: a node reading the same edge twice (`mul x x`) is
