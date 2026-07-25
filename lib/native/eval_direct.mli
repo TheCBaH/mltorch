@@ -1,20 +1,18 @@
 (* Direct (concrete) evaluation of a native graph. Walks the topo-ordered nodes
    threading an immutable env, runs each op through [Eval_op.Make (Direct)] and
-   [Schedule.evaluate], and recurses into embedded subgraphs. Returns EVERY edge's
+   [Schedule.evaluate]. Structural groups do not affect evaluation. Returns EVERY edge's
    tensor (inputs, intermediates, outputs), keyed by edge id — so callers can print
    any intermediate, not just the graph outputs. See .ai/native_graph_design.md. *)
 
 open Graph_ir
 
-type context = Operand | Sig_shape | Subgraph_input | Subgraph_output
+type context = Operand | Sig_shape
 type missing_tensor = { context : context; id : Tensor_id.t }
 type arity_mismatch = { expected : int; actual : int }
 
 type error =
   [ Graph_shape.error
   | `Missing_tensor of missing_tensor
-  | `Subgraph_input_arity_mismatch of arity_mismatch
-  | `Subgraph_output_arity_mismatch of arity_mismatch
   | `Output_arity_mismatch of arity_mismatch
   | `Missing_input of Tensor_id.t
   | `Missing_constant of Tensor_id.t ]

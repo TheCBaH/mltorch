@@ -32,13 +32,11 @@ end
 
 type tensor_ref = Tensor_id.t
 
-type 'g gop =
+type op =
   (* Constructors kept in global alphabetical order (see graph_ir.mli). Each
-     non-[Subgraph] op carries its own payload record (params + operand refs),
+     each op carries its own payload record (params + operand refs),
      defined in that op's module; the shared serialise / dataflow / pp logic is
-     driven from [op_registry] below, not a per-constructor match. [Subgraph] is
-     the exception — it embeds the recursive graph type ['g] — so it stays inline
-     and is handled directly wherever the registry is folded. *)
+     driven from [op_registry] below, not a per-constructor match. *)
   | Add of Pointwise.Add.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
@@ -56,35 +54,39 @@ type 'g gop =
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
-  | Subgraph of { graph : 'g; args : tensor_ref list }
 
-module rec Node : sig
-  type t = { id : Node_id.t; op : Graph.t gop; outputs : Tensor_id.t list }
-end = struct
-  type t = { id : Node_id.t; op : Graph.t gop; outputs : Tensor_id.t list }
+module Node = struct
+  type t = { id : Node_id.t; op : op; outputs : Tensor_id.t list }
 end
 
-and Graph : sig
+module Group_id = struct
+  type t = int
+
+  let of_int x = x
+  let to_int x = x
+  let pp fmt x = Format.fprintf fmt "g%d" x
+end
+
+module Group = struct
+  type item = Node of Node_id.t | Group of t
+  and t = { id : Group_id.t; label : string option; items : item list }
+end
+
+module Graph = struct
   type t = {
     nodes : Node.t list;
+    root : Group.t;
     tensors : Tensor_sig.t Tensor_id.Map.t;
     inputs : Tensor_id.t list;
     input_kinds : Input.kind Tensor_id.Map.t;
     outputs : Tensor_id.t list;
   }
-end = struct
-  type t = {
-    nodes : Node.t list;
-    tensors : Tensor_sig.t Tensor_id.Map.t;
-    inputs : Tensor_id.t list;
-    input_kinds : Input.kind Tensor_id.Map.t;
-    outputs : Tensor_id.t list;
-  }
 end
 
-type op = Graph.t gop
 type node = Node.t
 type graph = Graph.t
+
+let nodes g = g.Graph.nodes
 
 module Printer = struct
   type t = {
@@ -115,8 +117,7 @@ module type OP = sig
   val project : op -> t option
 end
 
-(* In global alphabetical order, mirroring the [gop] constructors. [Subgraph] is
-   deliberately absent — it is handled directly by every fold below. *)
+(* In global alphabetical order, mirroring the [op] constructors. *)
 let op_registry : (module OP) list =
   [
     (module struct
@@ -217,21 +218,17 @@ let op_registry : (module OP) list =
     end : OP);
   ]
 
-(* Apply [f] to whichever registry module owns the current op (the one whose
-   [project] succeeds). Total for every non-[Subgraph] op, which the callers
-   match away first. *)
+(* Apply [f] to whichever registry module owns the current op. *)
 let registry_pick (f : (module OP) -> 'a option) : 'a =
   Option.get (List.find_map f op_registry)
 
 let operands : op -> tensor_ref list = function
-  | Subgraph { args; _ } -> args
   | Discard { x } -> [ x ]
   | op ->
       registry_pick (fun (module M : OP) ->
           Option.map M.operands (M.project op))
 
 let map_operands (f : tensor_ref -> tensor_ref) : op -> op = function
-  | Subgraph { graph; args } -> Subgraph { graph; args = List.map f args }
   | Discard { x } -> Discard { x = f x }
   | op ->
       registry_pick (fun (module M : OP) ->
@@ -280,7 +277,6 @@ let pp_tensor_def ?printer (g : graph) fmt id =
         id
 
 let pp_tensor_defs ?printer g = pp_list (pp_tensor_def ?printer g)
-let pp_tensor_refs ?printer g = pp_list (pp_tensor_ref ?printer g)
 
 let pp_op_header ?printer g fmt (node : node) =
   Fmt.pf fmt "@[<h>%a%a: %a =@]" Node_id.pp node.Node.id
@@ -289,23 +285,7 @@ let pp_op_header ?printer g fmt (node : node) =
     (pp_tensor_defs ?printer g)
     node.outputs
 
-let pp_subgraph_args ?printer outer sub fmt args =
-  let pp_binding fmt (outer_id, inner_id) =
-    Fmt.pf fmt "@[<v 2>%a@,-> %a@]"
-      (pp_tensor_ref ?printer outer)
-      outer_id
-      (pp_tensor_ref ?printer sub)
-      inner_id
-  in
-  match List.combine args sub.Graph.inputs with
-  | bindings -> pp_list pp_binding fmt bindings
-  | exception Invalid_argument _ -> pp_tensor_refs ?printer outer fmt args
-
 let pp_op ?printer (g : graph) fmt : op -> unit = function
-  | Subgraph { graph; args } ->
-      Fmt.pf fmt "@[<hv 2>subgraph@ args=%a@]"
-        (pp_subgraph_args ?printer g graph)
-        args
   | Discard { x } ->
       Fmt.pf fmt "@[<hv 2>discard@ x=%a@]" (pp_tensor_ref ?printer g) x
   | op ->
@@ -332,61 +312,57 @@ let pp_node_header ?printer g fmt node =
   Fmt.pf fmt "@[<hv 2>%a@ %a@]" (pp_op_header ?printer g) node
     (pp_op ?printer g) node.Node.op
 
+let node_by_id (g : graph) id =
+  List.find_opt
+    (fun (node : node) -> Node_id.equal node.Node.id id)
+    g.Graph.nodes
+
 let rec pp_graph ?printer fmt (g : graph) =
   Fmt.pf fmt "@[<v>%a@,%a@,%a@,%a@]" pp_graph_header g
-    (pp_graph_inputs ?printer) g (pp_nodes ?printer g) g.Graph.nodes
+    (pp_graph_inputs ?printer) g (pp_root ?printer g) g.Graph.root
     (pp_graph_outputs ?printer)
     g
 
-and pp_nodes ?printer g fmt = function
-  | [] -> Fmt.pf fmt "nodes: []"
-  | nodes ->
-      Fmt.pf fmt "@[<v 2>nodes:@,%a@]"
-        (Fmt.list ~sep:Fmt.cut (pp_node ?printer g))
-        nodes
+and pp_root ?printer g fmt (root : Group.t) =
+  let pp_item fmt = function
+    | Group.Node id -> (
+        match node_by_id g id with
+        | Some node -> pp_node_header ?printer g fmt node
+        | None -> Fmt.pf fmt "%a <missing>" Node_id.pp id)
+    | Group.Group child -> pp_group ?printer g fmt child
+  in
+  Fmt.pf fmt "@[<v 2>nodes:@,%a@]" (Fmt.list ~sep:Fmt.cut pp_item) root.items
 
-and pp_node ?printer g fmt node =
-  match node.Node.op with
-  | Subgraph { graph; _ } ->
-      Fmt.pf fmt "@[<v 2>%a@,%a@]"
-        (pp_node_header ?printer g)
-        node (pp_graph ?printer) graph
-  | _ -> pp_node_header ?printer g fmt node
+and pp_group ?printer g fmt (group : Group.t) =
+  let pp_item fmt = function
+    | Group.Node id -> (
+        match node_by_id g id with
+        | Some node -> pp_node_header ?printer g fmt node
+        | None -> Fmt.pf fmt "%a <missing>" Node_id.pp id)
+    | Group.Group child -> pp_group ?printer g fmt child
+  in
+  let label = Option.value group.label ~default:"" in
+  Fmt.pf fmt "@[<v 2>group %a%s:@,%a@]" Group_id.pp group.id
+    (if String.equal label "" then "" else " " ^ label)
+    (Fmt.list ~sep:Fmt.cut pp_item)
+    group.items
 
 let pp_with ~printer = pp_graph ~printer
 let pp fmt graph = pp_graph fmt graph
 
 (* ---- JSON codecs ---------------------------------------------------------- *)
-(* op → node → graph is a mutually recursive type, so the encode/decode
-   functions are defined as a single [let rec] group and then wrapped in
-   Jsont codecs. *)
+(* Groups and graph records are serialised separately from ordinary operations. *)
 
 let tensor_ref_jsont : tensor_ref Jsont.t = Tensor_id.jsont
 
-(* The registry's decode side: one [(case, decoder)] per op, the decoder reading
-   the payload object through that op's own [jsont] and injecting it. [Subgraph]
-   is added separately by [dec_op] since its decoder recurses through [dec_graph]. *)
+(* The registry's decode side: one [(case, decoder)] per op. *)
 let op_decode_cases : (string * (Jsont.json -> op)) list =
   List.map
     (fun (module M : OP) ->
       (M.name, fun v -> M.inject (Json_util.dec M.jsont v)))
     op_registry
 
-let rec dec_op (json : Jsont.json) : op =
-  let subgraph_case =
-    ( "Subgraph",
-      fun v ->
-        let ms = Json_util.req_obj v "Subgraph" in
-        let get k c = Json_util.req_field ms k c "Subgraph" in
-        let graph_codec =
-          Jsont.map ~kind:"graph" ~dec:dec_graph ~enc:enc_graph Jsont.json
-        in
-        Subgraph
-          {
-            graph = get "graph" graph_codec;
-            args = get "args" (Jsont.list tensor_ref_jsont);
-          } )
-  in
+let dec_op (json : Jsont.json) : op =
   let discard_case =
     ( "Discard",
       fun v ->
@@ -394,11 +370,30 @@ let rec dec_op (json : Jsont.json) : op =
         let get k c = Json_util.req_field ms k c "Discard" in
         Discard { x = get "x" tensor_ref_jsont } )
   in
-  Json_util.union ~kind:"op"
-    (subgraph_case :: discard_case :: op_decode_cases)
-    json
+  Json_util.union ~kind:"op" (discard_case :: op_decode_cases) json
 
-and dec_node (json : Jsont.json) : node =
+let enc_op (op : op) : Jsont.json =
+  match op with
+  | Discard { x } ->
+      Json_util.single ~case:"Discard"
+        (Json_util.jobj [ ("x", Json_util.enc tensor_ref_jsont x) ])
+  | op ->
+      registry_pick (fun (module M : OP) ->
+          Option.map
+            (fun t -> Json_util.single ~case:M.name (Json_util.enc M.jsont t))
+            (M.project op))
+
+let enc_node (node : node) : Jsont.json =
+  Json_util.jobj
+    [
+      ("id", Json_util.jint (Node_id.to_int node.Node.id));
+      ("op", enc_op node.Node.op);
+      ( "outputs",
+        Json_util.jarr
+          (List.map (Json_util.enc tensor_ref_jsont) node.Node.outputs) );
+    ]
+
+let dec_node (json : Jsont.json) : node =
   let ms = Json_util.req_obj json "node" in
   let get k c = Json_util.req_field ms k c "node" in
   let op_codec = Jsont.map ~kind:"op" ~dec:dec_op ~enc:enc_op Jsont.json in
@@ -409,7 +404,31 @@ and dec_node (json : Jsont.json) : node =
       outputs = get "outputs" (Jsont.list tensor_ref_jsont);
     }
 
-and dec_graph (json : Jsont.json) : graph =
+let rec dec_group (json : Jsont.json) : Group.t =
+  let ms = Json_util.req_obj json "group" in
+  let get k c = Json_util.req_field ms k c "group" in
+  let dec_item json =
+    Json_util.union ~kind:"group item"
+      [
+        ( "Node",
+          fun v -> Group.Node (Json_util.dec Jsont.int v |> Node_id.of_int) );
+        ("Group", fun v -> Group.Group (dec_group v));
+      ]
+      json
+  in
+  Group.
+    {
+      id = Group_id.of_int (get "id" Jsont.int);
+      label = Json_util.opt_field ms "label" Jsont.string;
+      items =
+        get "items"
+          (Jsont.list
+             (Jsont.map ~kind:"group item" ~dec:dec_item
+                ~enc:(fun _ -> assert false)
+                Jsont.json));
+    }
+
+let dec_graph (json : Jsont.json) : graph =
   let ms = Json_util.req_obj json "graph" in
   let get k c = Json_util.req_field ms k c "graph" in
   let node_codec =
@@ -439,41 +458,32 @@ and dec_graph (json : Jsont.json) : graph =
       inputs = get "inputs" (Jsont.list tensor_ref_jsont);
       input_kinds;
       nodes = get "nodes" (Jsont.list node_codec);
+      root =
+        get "root"
+          (Jsont.map ~kind:"group" ~dec:dec_group
+             ~enc:(fun _ -> assert false)
+             Jsont.json);
       outputs = get "outputs" (Jsont.list tensor_ref_jsont);
       tensors;
     }
 
-and enc_op (op : op) : Jsont.json =
-  match op with
-  | Subgraph { graph; args } ->
-      Json_util.single ~case:"Subgraph"
-        (Json_util.jobj
-           [
-             ( "args",
-               Json_util.jarr (List.map (Json_util.enc tensor_ref_jsont) args)
-             );
-             ("graph", enc_graph graph);
-           ])
-  | Discard { x } ->
-      Json_util.single ~case:"Discard"
-        (Json_util.jobj [ ("x", Json_util.enc tensor_ref_jsont x) ])
-  | op ->
-      registry_pick (fun (module M : OP) ->
-          Option.map
-            (fun t -> Json_util.single ~case:M.name (Json_util.enc M.jsont t))
-            (M.project op))
-
-and enc_node (node : node) : Jsont.json =
+let rec enc_group (group : Group.t) : Jsont.json =
+  let enc_item = function
+    | Group.Node id ->
+        Json_util.single ~case:"Node" (Json_util.jint (Node_id.to_int id))
+    | Group.Group child -> Json_util.single ~case:"Group" (enc_group child)
+  in
   Json_util.jobj
-    [
-      ("id", Json_util.jint (Node_id.to_int node.Node.id));
-      ("op", enc_op node.Node.op);
-      ( "outputs",
-        Json_util.jarr
-          (List.map (Json_util.enc tensor_ref_jsont) node.Node.outputs) );
-    ]
+    ([
+       ("id", Json_util.jint (Group_id.to_int group.id));
+       ("items", Json_util.jarr (List.map enc_item group.items));
+     ]
+    @
+    match group.label with
+    | None -> []
+    | Some label -> [ ("label", Json_util.jstr label) ])
 
-and enc_graph (g : graph) : Jsont.json =
+let enc_graph (g : graph) : Jsont.json =
   let tensors_json =
     Tensor_id.Map.bindings g.Graph.tensors
     |> List.map (fun (_tid, sg) -> Json_util.enc Tensor_sig.jsont sg)
@@ -493,6 +503,7 @@ and enc_graph (g : graph) : Jsont.json =
         Json_util.jarr
           (List.map (Json_util.enc tensor_ref_jsont) g.Graph.inputs) );
       ("nodes", Json_util.jarr (List.map enc_node g.Graph.nodes));
+      ("root", enc_group g.Graph.root);
       ( "outputs",
         Json_util.jarr
           (List.map (Json_util.enc tensor_ref_jsont) g.Graph.outputs) );

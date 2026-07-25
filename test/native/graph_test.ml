@@ -527,9 +527,9 @@ let%expect_test "Direct graph: transposed convolution" =
   Format.printf "%a@." (pp_result (pp_named_tensor "y")) result;
   [%expect {| y = tensor f32 [H=3 W=3 C=1] {1, 3, 2, 4, 10, 6, 3, 7, ...} |}]
 
-(* Nested subgraph: an outer graph invokes a named subgraph that computes
-   add -> relu. The result must match the same computation built flat. *)
-let%expect_test "Direct graph: nested subgraph evaluation" =
+(* A structural group computes add -> relu in the parent graph's global SSA
+   namespace. Its result must match the same computation built flat. *)
+let%expect_test "Direct graph: grouped evaluation" =
   let result =
     let open Core.Syntax in
     let* nested =
@@ -539,15 +539,10 @@ let%expect_test "Direct graph: nested subgraph evaluation" =
           @@
           let* x = input ~shape:(s1c 4) ~name:"x" () in
           let* y = input ~shape:(s1c 4) ~name:"y" () in
-          let* seq =
-            subgraph ~name:"add_relu"
-              (let* a = input ~shape:(s1c 4) ~name:"a" () in
-               let* b = input ~shape:(s1c 4) ~name:"b" () in
-               let* t = add ~name:"sum" a b in
-               let* r = relu ~name:"r" t in
-               return [ r ])
-          in
-          invoke ~names:[ "nested_out" ] seq [ x; y ])
+          group ~label:"add_relu"
+            (let* t = add ~name:"sum" x y in
+             let* r = relu ~name:"r" t in
+             return [ r ]))
     in
     let* flat =
       lift_build

@@ -59,21 +59,17 @@ let pp_error ppf : [< error ] -> unit = function
         Tensor_id.pp id
 
 let graph_ids (g : graph) =
-  let rec walk tensors nodes gr =
-    let tensors =
-      Tensor_id.Map.fold
-        (fun id _ ids -> Tensor_id.Map.add id () ids)
-        gr.Graph.tensors tensors
-    in
-    List.fold_left
-      (fun (tensors, nodes) (node : node) ->
-        let nodes = Node_id.Map.add node.Node.id () nodes in
-        match node.Node.op with
-        | Subgraph { graph; _ } -> walk tensors nodes graph
-        | _ -> (tensors, nodes))
-      (tensors, nodes) gr.Graph.nodes
+  let tensors =
+    Tensor_id.Map.fold
+      (fun id _ ids -> Tensor_id.Map.add id () ids)
+      g.Graph.tensors Tensor_id.Map.empty
   in
-  walk Tensor_id.Map.empty Node_id.Map.empty g
+  let nodes =
+    List.fold_left
+      (fun ids (node : node) -> Node_id.Map.add node.Node.id () ids)
+      Node_id.Map.empty g.Graph.nodes
+  in
+  (tensors, nodes)
 
 let make ~graph ~tensor_origins ~node_origins ~captured_targets =
   let tensors, nodes = graph_ids graph in

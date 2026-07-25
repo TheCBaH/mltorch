@@ -113,7 +113,7 @@ the bound `O.*` op.
   to one `Graph_ir.graph`, preserves source SSA metadata and captured payload
   targets in `Pt2_native_graph`, and covers ResNet-18's convolution, inference
   batch-norm, ReLU, max-pool-with-indices, add, mean, permute, view, and addmm
-  nodes. Non-trivial PT2 mappings are represented as native `Subgraph` calls:
+  nodes. Non-trivial PT2 mappings are represented as structural native `Group`s:
   their relayout/decomposition stays grouped under the corresponding PT2 node,
   while one-to-one mappings remain flat. `Native_interp.run` materialises
   static float32 PT2 storage (including

@@ -123,8 +123,4 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Discard _ ->
         invalid_arg
           "Eval_op.pixel: Discard produces no output, so it has no pixel"
-    | Subgraph _ ->
-        invalid_arg
-          "Eval_op.pixel: Subgraph is handled by the graph traversal, not a \
-           pixel"
 end

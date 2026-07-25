@@ -132,16 +132,9 @@ val rms_norm :
   unit ->
   Tensor_id.t t
 
-(* Build a nested graph by value: [body] declares the sub's inputs (via [input])
-   and returns its outputs, run in a child accumulation that shares the global id
-   counters (so ids stay unique tree-wide) and never pollutes the parent. *)
-val subgraph : name:string -> Tensor_id.t list t -> graph t
-
-(* Embed a built graph as a [Subgraph] node, wiring [args] positionally to the
-   sub's [inputs]; returns fresh parent-side output edges (named by [?names],
-   default "<sub.name>_<output-id>"). *)
-val invoke :
-  ?names:string list -> graph -> tensor_ref list -> Tensor_id.t list t
+(* Structurally group nodes emitted by [body].  The group shares the enclosing
+   graph's global SSA namespace and has no inputs, outputs, or call semantics. *)
+val group : ?label:string -> 'a t -> 'a t
 
 (* Run a builder computation from the empty state and finalise into a graph;
    [outputs] selects the graph outputs from the computation's result. [?dtype] is

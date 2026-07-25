@@ -7,22 +7,12 @@
 
 open Graph_ir
 
-type error =
-  [ Shape_error.t
-  | `Missing_tensor_sig of Tensor_id.t
-  | `Missing_subgraph_output_sig of Tensor_id.t ]
+type error = [ Shape_error.t | `Missing_tensor_sig of Tensor_id.t ]
 
 let pp_error ppf : [< error ] -> unit = function
   | #Shape_error.t as e -> Shape_error.pp ppf e
   | `Missing_tensor_sig id ->
       Format.fprintf ppf "missing tensor sig t%d" (Tensor_id.to_int id)
-  | `Missing_subgraph_output_sig id ->
-      Format.fprintf ppf "missing subgraph output sig t%d" (Tensor_id.to_int id)
-
-let find_tensor_sig tensors id =
-  match Tensor_id.Map.find_opt id tensors with
-  | Some sg -> Core.return sg
-  | None -> Core.fail (`Missing_subgraph_output_sig id)
 
 let widen (r : ('a, [< error ]) Core.result) : ('a, error) Core.result =
   (r :> ('a, error) Core.result)
@@ -115,10 +105,3 @@ let output_shape (op : op)
       let* x_shape = shape x in
       let+ out = widen (Norm.RmsNorm.output_shape ~x_shape) in
       [ out ]
-  | Subgraph { graph; _ } ->
-      (* A subgraph's outputs are exactly its embedded graph's output edges. *)
-      Core.List.map
-        (fun oid ->
-          let+ s = find_tensor_sig graph.Graph.tensors oid in
-          s.shape)
-        graph.Graph.outputs

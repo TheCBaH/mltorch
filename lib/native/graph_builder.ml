@@ -13,8 +13,10 @@ and output_count = { count : int }
 type state = {
   next_tid : int;
   next_nid : int;
+  next_gid : int;
   dtype : Payload.packed_fmt;
   rev_nodes : node list;
+  rev_items : Group.item list;
   tensors : Tensor_sig.t Tensor_id.Map.t;
   rev_inputs : tensor_ref list;
   input_kinds : Input.kind Tensor_id.Map.t;
@@ -88,6 +90,7 @@ let push_node op outputs s =
       s with
       next_nid = s.next_nid + 1;
       rev_nodes = { Node.id = nid; op; outputs } :: s.rev_nodes;
+      rev_items = Group.Node nid :: s.rev_items;
     } )
 
 (* A single-output op: compute its output shape from the current edge metadata,
@@ -190,84 +193,33 @@ let reshape ?name params x =
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
 
-let subgraph ~name:_ (body : Tensor_id.t list t) : graph t =
+let group ?label (body : 'a t) : 'a t =
  fun s ->
-  (* run [body] in a child accumulation that shares the id counters/dtype *)
-  let child_start =
-    {
-      s with
-      rev_nodes = [];
-      rev_inputs = [];
-      tensors = Tensor_id.Map.empty;
-      input_kinds = Tensor_id.Map.empty;
-    }
-  in
+  (* A group changes only structural ownership.  Its child shares every global
+     SSA accumulator and counter with the parent. *)
+  let child_start = { s with next_gid = s.next_gid + 1; rev_items = [] } in
   match body child_start with
   | Error e, _ -> (Error e, s)
-  | Ok outputs, child_end ->
-      let g =
-        Graph.
+  | Ok value, child_end ->
+      let group =
+        Group.
           {
-            nodes = List.rev child_end.rev_nodes;
-            tensors = child_end.tensors;
-            inputs = List.rev child_end.rev_inputs;
-            input_kinds = child_end.input_kinds;
-            outputs;
+            id = Group_id.of_int s.next_gid;
+            label;
+            items = List.rev child_end.rev_items;
           }
       in
-      (* keep the advanced counters; restore the parent's own accumulators *)
-      ( Ok g,
-        { s with next_tid = child_end.next_tid; next_nid = child_end.next_nid }
-      )
-
-let invoke ?names (g : graph) (args : tensor_ref list) : Tensor_id.t list t =
- fun s ->
-  let names_arr =
-    match names with Some ns -> Array.of_list ns | None -> [||]
-  in
-  let rec alloc i outs next_tid tensors acc =
-    match outs with
-    | [] -> Ok (List.rev acc, next_tid, tensors)
-    | oid :: rest -> (
-        match Tensor_id.Map.find_opt oid g.Graph.tensors with
-        | None -> Core.fail (`Missing_subgraph_output_sig oid)
-        | Some (sub_sig : Tensor_sig.t) ->
-            let tid_int = next_tid in
-            let tid = Tensor_id.of_int tid_int in
-            let name =
-              if i < Array.length names_arr then names_arr.(i)
-              else Printf.sprintf "subgraph_%d" tid_int
-            in
-            let sg =
-              Tensor_sig.create ~id:tid ~name ~shape:sub_sig.shape ~fmt:f32 ()
-            in
-            alloc (i + 1) rest (tid_int + 1)
-              (Tensor_id.Map.add tid sg tensors)
-              (tid :: acc))
-  in
-  match alloc 0 g.Graph.outputs s.next_tid s.tensors [] with
-  | Error e -> (Error e, s)
-  | Ok (out_ids, next_tid, tensors) ->
-      let nid = Node_id.of_int s.next_nid in
-      let node =
-        { Node.id = nid; op = Subgraph { graph = g; args }; outputs = out_ids }
-      in
-      ( Ok out_ids,
-        {
-          s with
-          next_tid;
-          next_nid = s.next_nid + 1;
-          tensors;
-          rev_nodes = node :: s.rev_nodes;
-        } )
+      (Ok value, { child_end with rev_items = Group.Group group :: s.rev_items })
 
 let build ?(dtype = f32) ~name:_ ~outputs (m : 'a t) =
   let s0 =
     {
       next_tid = 0;
       next_nid = 0;
+      next_gid = 1;
       dtype;
       rev_nodes = [];
+      rev_items = [];
       tensors = Tensor_id.Map.empty;
       rev_inputs = [];
       input_kinds = Tensor_id.Map.empty;
@@ -280,6 +232,13 @@ let build ?(dtype = f32) ~name:_ ~outputs (m : 'a t) =
         Graph.
           {
             nodes = List.rev s.rev_nodes;
+            root =
+              Group.
+                {
+                  id = Group_id.of_int 0;
+                  label = None;
+                  items = List.rev s.rev_items;
+                };
             tensors = s.tensors;
             inputs = List.rev s.rev_inputs;
             input_kinds = s.input_kinds;

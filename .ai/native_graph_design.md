@@ -19,18 +19,17 @@ transformation in mind, it is called out.
 Tensor_id.t / Node_id.t = private int      (* builder-allocated, unique tree-wide *)
 tensor_ref = Tensor_id.t                    (* edges are single-assignment *)
 
-type 'g gop =                               (* parametrised over the subgraph type *)
+type op =
   | Add of Pointwise.Add.t | Mul of Pointwise.Mul.t | Relu of Pointwise.Relu.t
   | Bmm of Matmul.Bmm.t | Conv2d of Conv.Conv2d.t | Linear of Linear.Linear.t
   | Permute of Permute.Permute.t | Mean of Reduce.Mean.t | Rms_norm of Norm.RmsNorm.t
   | Max_pool2d of Pool.MaxPool2d.t | Avg_pool2d of Pool.AvgPool2d.t
-  | Subgraph of { graph : 'g; args : tensor_ref list }
-  (* each non-Subgraph payload (params + typed operand refs) is a record `t` owned
-     by that op's module, e.g. Conv.Conv2d.t = { params; x; weight; bias : _ option } *)
+  (* each payload (params + typed operand refs) is a record `t` owned by that
+     op's module, e.g. Conv.Conv2d.t = { params; x; weight; bias : _ option } *)
 
-module Node  : sig type t = { id : Node_id.t; op : Graph.t gop; outputs : Tensor_id.t list } end
-module Graph : sig type t = { nodes; tensors; inputs; input_kinds; outputs } end
-type op = Graph.t gop
+module Node  : sig type t = { id : Node_id.t; op; outputs : Tensor_id.t list } end
+module Group : sig type t = { id; label; items : Node of Node_id.t | Group of t } end
+module Graph : sig type t = { nodes; root : Group.t; tensors; inputs; input_kinds; outputs } end
 ```
 
 Design decisions:
@@ -49,8 +48,8 @@ Design decisions:
   them in `op_registry`; JSON encode/decode, `operands`, `map_operands`, and
   `pp_op` are then single registry folds rather than per-constructor matches. The
   payloads now depend on `Tensor_ref` (= `Tensor_id.t`) — the accepted cost of
-  letting an op own its operand refs without depending on `Graph_ir`. `Subgraph`,
-  which carries the recursive `'g`, is the lone op handled inline in each fold.
+  letting an op own its operand refs without depending on `Graph_ir`. `Discard`,
+  which has no payload module, is handled inline in each fold.
 - **Optional tensors are `tensor_ref option`.** "Conv without bias" is just
   `bias = None`; there is no inputs-list length to reason about. The evaluator
   resolves a `None` to a constant-filled handle (`fill 0.` bias, `fill 1.`
@@ -65,13 +64,10 @@ Design decisions:
   across op payloads (`x`, `params`, …) but stay unambiguous because each `t` is
   in its own module; the few cross-module match/build sites (`Eval_op`,
   `Graph_shape`, `Graph_builder`) qualify the first label (`{ Conv.Conv2d.params;
-  x; … }`), the same convention as `node.Node.outputs`. `op` is parametrised over
-  the subgraph type (`'g gop`) so it can be defined once rather than copied into
-  the `module rec Node/Graph` group; `type op = Graph.t gop` ties it down.
-- **Ids are graph-local and deterministic.** One builder owns a single tensor-id
-  and a single node-id counter for the whole graph tree (subgraphs share them), so
-  ids are unique across the tree (no collision when recursing/merging) and start
-  at 0 per top-level build (stable expect-test output). The id is the carrier the
+  x; … }`), the same convention as `node.Node.outputs`.
+- **Ids are global and deterministic.** One builder owns a single tensor-id and
+  node-id counter for the whole graph, so every ID denotes one concrete SSA value
+  or operation and starts at 0 per top-level build. The id is the carrier the
   symbolic `Expr.Load` already references via `Tensor_sig`.
 - **No native display names.** `Graph.name` and `Tensor_sig.name` are omitted:
   graph structure is identified only by deterministic node/tensor ids.
@@ -94,17 +90,13 @@ Design decisions:
   edge order and existing operand machinery remain unchanged. JSON records only
   non-default constant entries (`input_constants`); absent metadata decodes as
   `Input` for backward compatibility.
-- **Nested graphs are embedded, not registered.** `Subgraph` holds its nested
-  `Graph.t` by value — no `subgraphs` map, no `Subgraph_id`. `args` map
-  positionally to its ordered `inputs`
-  (function-application convention). A registry (sharing one definition across
-  call sites) is a possible transform-era addition, not needed now.
-  The PT2 importer uses this directly for a non-trivial one-to-many mapping
-  (such as NCHW/NHWC relayout around convolution): the parent `Subgraph` node
-  carries the PT2 provenance, while its nested native implementation remains
-  inspectable as one unit. The graph printer renders each invocation binding
-  explicitly as `parent_arg -> subgraph_input`, not merely as two positional
-  lists, so a captured source tensor can be followed to its inner use.
+- **Groups are structural, not callable.** `Graph.root` is an authoritative,
+  ordered tree of groups over globally stored nodes. Every node belongs to exactly
+  one group; group items are node IDs or nested groups. Groups neither create
+  inputs/outputs nor affect evaluation. Their boundary is derived from global
+  dataflow. The PT2 importer uses a group for a non-trivial one-to-many lowering
+  (such as NCHW/NHWC relayout around convolution), keeping that implementation
+  inspectable as one unit without inventing a call boundary.
 
 ## 2. The builder (`graph_builder.ml`) — a state monad
 
@@ -117,14 +109,14 @@ are **computed** (`Graph_shape`), never supplied.
   compatibility argument.
 - Op constructors (`relu`, `add`, `conv2d`, …) — `?name` is likewise ignored;
   omitting `?bias`/`?weight` records `None`.
-- `subgraph ~name body` runs `body` in a child accumulation that shares the global
-  counters (ids stay unique) and returns a `Graph.t`; `invoke ?names g args`
-  embeds it in a `Subgraph` node and allocates the parent-side output edges.
+- `group ?label body` runs `body` in a child structural accumulation that shares
+  the global SSA counters and tables, then records its emitted node IDs as a
+  nested group. It returns the body's result directly.
 - `build ?dtype ~name ~outputs m` runs from the empty state and finalises;
   `~name` is ignored for compatibility.
 
 A DSL with sugar beyond this (e.g. operator notation) can layer on top; the monad
-already composes (subgraphs and future transform passes are builder computations).
+already composes (groups and future transform passes are builder computations).
 
 ## 3. The two per-op dispatch points
 
@@ -132,11 +124,9 @@ already composes (subgraphs and future transform passes are builder computations
   `S`, applied once at `Direct` and once at a fresh `Symbolic.Make ()`. Each arm
   reads the op's typed fields, resolving a `tensor_ref` to a data handle via
   `operand : tensor_ref -> S.input`, shapes via `shape_of`, and an absent optional
-  via `fill : float -> Vec6.shape -> S.input`. `Subgraph` is *not* a pixel — the
-  graph traversal handles it.
+  via `fill : float -> Vec6.shape -> S.input`.
 - `Graph_shape.output_shape` (`graph_shape.ml`) — the S-independent twin, calling
-  each native op's own `output_shape` on the operand sigs; `Subgraph` returns its
-  embedded graph's output sigs' shapes.
+  each native op's own `output_shape` on the operand sigs.
 
 ## 4. Optional operands
 
@@ -151,18 +141,17 @@ weight's `N`); rms-norm weight-`None` fills ones.
 ## 5. Evaluation
 
 - **Direct** (`eval_direct.ml`): `run : graph -> inputs:(id*packed) list -> packed
-  Tensor_id.Map.t`. Topo-walk threading an immutable env; per node,
+  Tensor_id.Map.t`. A single topo-walk threads an immutable global env; per node,
   `Schedule.evaluate out_shape (Eval_op.Make(Direct).pixel op ~operand ~shape_of
-  ~fill)`; `Subgraph` recurses (`args`→sub `inputs`, sub `outputs`→node
-  `outputs`). Returns **every** edge's tensor, so any intermediate is printable.
+  ~fill)`. Returns **every** edge's tensor, so any intermediate is printable.
 - **Symbolic** (`eval_symbolic.ml` + `stage_program.ml`): `run : graph ->
   Stage_program.t`. One `Symbolic.Make ()` for the whole graph; env maps each edge
   id to its `Tensor_sig.t` (the builder already created one per edge), so a node's
   per-pixel `Expr.t` loads its producers' signatures — i.e. the **stage DAG falls
   out automatically**: a downstream stage references an upstream one purely through
   the signature it `Load`s (the "source = Input | Stage" distinction is recovered
-  by membership, *not* an `Expr` variant — `Expr` is unchanged). Subgraphs are
-  inline-expanded (flat DAG; nested-program form is future work).
+  by membership, *not* an `Expr` variant — `Expr` is unchanged). Groups are
+  ignored by the flat stage DAG.
   `Stage_program.ground ~bind` chain-grounds the stages in topo order, feeding each
   result into the next stage's binding — making symbolic execution extend through
   the whole graph, and verifiable against Direct.
@@ -223,7 +212,7 @@ the dump shows only the semantic moves, e.g. `perm=[H<-W, W<-C, C<-H]`.
 
 `test/native/graph_test.ml` (Direct): sequence (add→relu, intermediate shown),
 add, conv decomposition (NHWC intermediate + NCHW result + match vs reference
-conv), optional bias omitted (None→zeros vs explicit zero), nested subgraph
+conv), optional bias omitted (None→zeros vs explicit zero), nested group
 (matches the flat build). `test/native/graph_symbolic_test.ml`: the add→relu and
 conv-decomposition stage DAGs printed, then chain-grounded and checked equal to
 Direct.

@@ -6,55 +6,18 @@
 
 open Graph_ir
 
-(* An identity copy expression: read [sg] at the output coordinate, per axis. *)
-let identity_load (sg : Tensor_sig.t) : Expr.t = Expr.Load (sg, Symbolic.out_vec)
 let f32 = Payload.Fmt Payload.F32
 
 let first_free_tid (g : graph) =
-  let rec walk acc gr =
-    let acc =
-      Tensor_id.Map.fold
-        (fun k _ a -> max a (Tensor_id.to_int k + 1))
-        gr.Graph.tensors acc
-    in
-    List.fold_left
-      (fun acc (node : node) ->
-        match node.Node.op with
-        | Subgraph { graph = sub; _ } -> walk acc sub
-        | _ -> acc)
-      acc gr.Graph.nodes
-  in
-  walk 0 g
+  Tensor_id.Map.fold
+    (fun k _ acc -> max acc (Tensor_id.to_int k + 1))
+    g.Graph.tensors 0
 
-(* Root inputs are stage sources. Nested graphs receive their [Input] values
-   from invocation args, but their captured constants remain independent stage
-   sources and must therefore be included for grounding. *)
 let stage_sources (g : graph) =
-  let rec walk ~root acc kinds gr =
-    let ids =
-      List.filter
-        (fun id -> root || Graph_ir.input_kind gr id = Input.Constant)
-        gr.Graph.inputs
-    in
-    let acc =
-      List.fold_left
-        (fun acc id -> (id, Tensor_id.Map.find id gr.Graph.tensors) :: acc)
-        acc ids
-    in
-    let kinds =
-      Tensor_id.Map.union
-        (fun _ _ nested -> Some nested)
-        kinds gr.Graph.input_kinds
-    in
-    List.fold_left
-      (fun (acc, kinds) (node : node) ->
-        match node.Node.op with
-        | Subgraph { graph; _ } -> walk ~root:false acc kinds graph
-        | _ -> (acc, kinds))
-      (acc, kinds) gr.Graph.nodes
-  in
-  let sources, kinds = walk ~root:true [] Tensor_id.Map.empty g in
-  (List.rev sources, kinds)
+  ( List.map
+      (fun id -> (id, Tensor_id.Map.find id g.Graph.tensors))
+      g.Graph.inputs,
+    g.Graph.input_kinds )
 
 let run (g : graph) : Stage_program.t =
   (* a fresh Symbolic instance per graph: its reduction-var counter starts clean,
@@ -70,59 +33,28 @@ let run (g : graph) : Stage_program.t =
     consts := (sg, v) :: !consts;
     sg
   in
-  let rec process (gr : graph) env stages =
-    List.fold_left
-      (fun (env, stages) node -> process_node gr env stages node)
-      (env, stages) gr.Graph.nodes
-  and process_node (gr : graph) env stages (node : node) =
-    match node.Node.op with
-    | Subgraph { graph = sub; args } ->
-        (* inline: add the sub's edge sigs, alias its inputs to the call args *)
-        let env =
-          Tensor_id.Map.union (fun _ a _ -> Some a) env sub.Graph.tensors
-        in
-        let env =
-          List.fold_left2
-            (fun e iid aid ->
-              Tensor_id.Map.add iid (Tensor_id.Map.find aid env) e)
-            env
-            (List.filter
-               (fun id -> Graph_ir.input_kind sub id = Input.Input)
-               sub.Graph.inputs)
-            args
-        in
-        let env, stages = process sub env stages in
-        (* alias node outputs to sub outputs via identity-copy stages *)
-        List.fold_left2
-          (fun (env, stages) oid sub_oid ->
-            let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-            let src_sig = Tensor_id.Map.find sub_oid env in
-            let st =
-              {
-                Stage_program.Stage.id = oid;
-                sg = out_sig;
-                body = identity_load src_sig;
-              }
-            in
-            (Tensor_id.Map.add oid out_sig env, st :: stages))
-          (env, stages) node.Node.outputs sub.Graph.outputs
-    | op ->
-        let operand r = Tensor_id.Map.find r env in
-        let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
-        (* One stage per output edge: single-output ops emit one; a [Discard]-style
+  let process_node (gr : graph) env stages (node : node) =
+    let op = node.Node.op in
+    let operand r = Tensor_id.Map.find r env in
+    let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
+    (* One stage per output edge: single-output ops emit one; a [Discard]-style
            zero-output op emits none (the fold body, hence [E.pixel], never runs). *)
-        List.fold_left
-          (fun (env, stages) (output, oid) ->
-            let body =
-              E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec
-            in
-            let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
-            let st = { Stage_program.Stage.id = oid; sg = out_sig; body } in
-            (Tensor_id.Map.add oid out_sig env, st :: stages))
-          (env, stages)
-          (List.mapi (fun i oid -> (i, oid)) node.Node.outputs)
+    List.fold_left
+      (fun (env, stages) (output, oid) ->
+        let body =
+          E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec
+        in
+        let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
+        let st = { Stage_program.Stage.id = oid; sg = out_sig; body } in
+        (Tensor_id.Map.add oid out_sig env, st :: stages))
+      (env, stages)
+      (List.mapi (fun i oid -> (i, oid)) node.Node.outputs)
   in
-  let _env, rev_stages = process g g.Graph.tensors [] in
+  let _env, rev_stages =
+    List.fold_left
+      (fun (env, stages) node -> process_node g env stages node)
+      (g.Graph.tensors, []) g.Graph.nodes
+  in
   let inputs, input_kinds = stage_sources g in
   {
     Stage_program.inputs;

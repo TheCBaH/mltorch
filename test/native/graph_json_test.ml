@@ -141,6 +141,14 @@ let%expect_test "op Add: encode → JSON" =
           ]
         }
       ],
+      "root": {
+        "id": 0,
+        "items": [
+          {
+            "Node": 0
+          }
+        ]
+      },
       "outputs": [
         2
       ],
@@ -260,6 +268,14 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
           ]
         }
       ],
+      "root": {
+        "id": 0,
+        "items": [
+          {
+            "Node": 0
+          }
+        ]
+      },
       "outputs": [
         3
       ],
@@ -438,7 +454,7 @@ let%expect_test "graph with Mean op: encode → decode → pretty-print" =
       n0: [t1 f32 [C=64]] = mean x=t0 params={dims=[H, W]; keepdim=false}
     outputs: [t1 f32 [C=64]] |}]
 
-let%expect_test "nested subgraph: encode → decode → pretty-print" =
+let%expect_test "nested group: encode → decode → pretty-print" =
   let result =
     let open Core.Syntax in
     let* g =
@@ -448,15 +464,10 @@ let%expect_test "nested subgraph: encode → decode → pretty-print" =
           @@
           let* x = input ~shape:(s1c 4) ~name:"x" () in
           let* y = input ~shape:(s1c 4) ~name:"y" () in
-          let* sg =
-            subgraph ~name:"add_relu"
-              (let* a = input ~shape:(s1c 4) ~name:"a" () in
-               let* b = input ~shape:(s1c 4) ~name:"b" () in
-               let* t = add ~name:"sum" a b in
-               let* r = relu ~name:"r" t in
-               return [ r ])
-          in
-          invoke ~names:[ "out" ] sg [ x; y ])
+          group ~label:"add_relu"
+            (let* t = add ~name:"sum" x y in
+             let* r = relu ~name:"r" t in
+             return [ r ]))
     in
     let* json = encode_graph g in
     let* g2 = decode_graph json in
@@ -469,30 +480,18 @@ let%expect_test "nested subgraph: encode → decode → pretty-print" =
     graph
     inputs: [t0 f32 [C=4], t1 f32 [C=4]]
     nodes:
-      n2: [t6 f32 [C=4]] = subgraph args=[t0
-                                            -> t2, t1
-                                                     -> t3]
-        graph
-        inputs: [t2 f32 [C=4], t3 f32 [C=4]]
-        nodes:
-          n0: [t4 f32 [C=4]] = add a=t2 b=t3
-          n1: [t5 f32 [C=4]] = relu x=t4
-        outputs: [t5 f32 [C=4]]
-    outputs: [t6 f32 [C=4]]
+      group g1 add_relu:
+        n0: [t2 f32 [C=4]] = add a=t0 b=t1
+        n1: [t3 f32 [C=4]] = relu x=t2
+    outputs: [t3 f32 [C=4]]
     decoded:
     graph
     inputs: [t0 f32 [C=4], t1 f32 [C=4]]
     nodes:
-      n2: [t6 f32 [C=4]] = subgraph args=[t0
-                                            -> t2, t1
-                                                     -> t3]
-        graph
-        inputs: [t2 f32 [C=4], t3 f32 [C=4]]
-        nodes:
-          n0: [t4 f32 [C=4]] = add a=t2 b=t3
-          n1: [t5 f32 [C=4]] = relu x=t4
-        outputs: [t5 f32 [C=4]]
-    outputs: [t6 f32 [C=4]] |}]
+      group g1 add_relu:
+        n0: [t2 f32 [C=4]] = add a=t0 b=t1
+        n1: [t3 f32 [C=4]] = relu x=t2
+    outputs: [t3 f32 [C=4]] |}]
 
 (* ---- tensor payload ------------------------------------------------------- *)
 

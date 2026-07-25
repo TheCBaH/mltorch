@@ -111,18 +111,6 @@ let output_names (node : Pytorch_types.Node.t) =
       | _ -> malformed "%s has a non-tensor output" node.target)
     node.outputs
 
-let tensor_input_names (node : Pytorch_types.Node.t) =
-  let add names name = if List.mem name names then names else name :: names in
-  List.fold_left
-    (fun names (arg : NamedArgument.t) ->
-      match arg.arg with
-      | Argument.Tensor t -> add names t.TensorArgument.name
-      | Argument.Optional_tensor (OptionalTensorArgument.Tensor t) ->
-          add names t.TensorArgument.name
-      | _ -> names)
-    [] node.inputs
-  |> List.rev
-
 let is_nontrivial_node (node : Pytorch_types.Node.t) =
   match node.target with
   | "torch.ops.aten.convolution.default"
@@ -419,21 +407,7 @@ let lower program =
           add_env env names ids
         in
         if is_nontrivial_node node then
-          let inputs = tensor_input_names node in
-          let* sub =
-            subgraph ~name:node.target
-              (let* local_env =
-                 List.fold_left
-                   (fun acc name ->
-                     let* local_env = acc in
-                     let* id = input ~shape:(tensor_shape graph name) () in
-                     return (String_map.add name id local_env))
-                   (return String_map.empty) inputs
-               in
-               lower_op local_env node)
-          in
-          let args = List.map (env_find env) inputs in
-          let* ids = invoke ~names sub args in
+          let* ids = group ~label:node.target (lower_op env node) in
           return (bind ids)
         else
           let* ids = lower_op env node in
