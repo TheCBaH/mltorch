@@ -86,6 +86,20 @@ let%expect_test "of_aten: shape is right-aligned to 6D" =
   | Ok (Tensor.Tensor r) -> Format.printf "shape=%a@." Vec6.pp_shape r.shape);
   [%expect {| shape=[W=3 C=4] |}]
 
+(* A non-contiguous ATen tensor (here a permute view) is materialized contiguous
+   before conversion, so the native tensor holds the logical (transposed) order.
+   This is what lets addmm's transposed fc weight convert on the real graph. *)
+let%expect_test "of_aten: materializes a non-contiguous permute view" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  let aten =
+    Aten_tensor.manage
+      (Aten_c.Aten_operations.permute x (Interp_decode.arr [ 1; 0 ]) 2)
+  in
+  (match Tensor_bridge.of_aten aten with
+  | Error msg -> Printf.printf "Error: %s\n" msg
+  | Ok native -> Format.printf "%a@." Tensor.pp native);
+  [%expect {| tensor f32 [W=3 C=2] {0, 3, 1, 4, 2, 5} |}]
+
 (* ---- compare_tensors: shape/type/payload checks ------------------------- *)
 
 let%expect_test "compare_tensors: matching F32 tensors -> Ok" =
