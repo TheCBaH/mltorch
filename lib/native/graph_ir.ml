@@ -58,7 +58,6 @@ end
 
 and Graph : sig
   type t = {
-    name : string;
     nodes : Node.t list;
     tensors : Tensor_sig.t Tensor_id.Map.t;
     inputs : Tensor_id.t list;
@@ -67,7 +66,6 @@ and Graph : sig
   }
 end = struct
   type t = {
-    name : string;
     nodes : Node.t list;
     tensors : Tensor_sig.t Tensor_id.Map.t;
     inputs : Tensor_id.t list;
@@ -232,10 +230,9 @@ let pp_packed_fmt fmt (Payload.Fmt f) = Fmt.pf fmt "%a" Payload.pp_fmt f
 let pp_tensor_sig fmt (sg : Tensor_sig.t) =
   match sg.quant with
   | None ->
-      Fmt.pf fmt "@[<h>%s:%a %a@]" sg.name pp_packed_fmt sg.fmt Vec6.pp_shape
-        sg.shape
+      Fmt.pf fmt "@[<h>%a %a@]" pp_packed_fmt sg.fmt Vec6.pp_shape sg.shape
   | Some q ->
-      Fmt.pf fmt "@[<h>%s:%a[%a] %a@]" sg.name pp_packed_fmt sg.fmt Quant.pp q
+      Fmt.pf fmt "@[<h>%a[%a] %a@]" pp_packed_fmt sg.fmt Quant.pp q
         Vec6.pp_shape sg.shape
 
 let tensor_sig_opt (g : graph) id =
@@ -244,8 +241,7 @@ let tensor_sig_opt (g : graph) id =
 let pp_tensor_ref (g : graph) fmt id =
   match tensor_sig_opt g id with
   | None -> Tensor_id.pp fmt id
-  | Some (sg : Tensor_sig.t) ->
-      Fmt.pf fmt "@[<h>%a(%s)@]" Tensor_id.pp id sg.name
+  | Some _ -> Tensor_id.pp fmt id
 
 let pp_tensor_def (g : graph) fmt id =
   match tensor_sig_opt g id with
@@ -260,16 +256,15 @@ let pp_op_header g fmt (node : node) =
     node.outputs
 
 let pp_op (g : graph) fmt : op -> unit = function
-  | Subgraph { graph; args } ->
-      Fmt.pf fmt "@[<hv 2>subgraph@ %s@ args=%a@]" graph.Graph.name
-        (pp_tensor_refs g) args
+  | Subgraph { graph = _; args } ->
+      Fmt.pf fmt "@[<hv 2>subgraph@ args=%a@]" (pp_tensor_refs g) args
   | Discard { x } -> Fmt.pf fmt "@[<hv 2>discard@ x=%a@]" (pp_tensor_ref g) x
   | op ->
       let pp_ref = pp_tensor_ref g in
       registry_pick (fun (module M : OP) ->
           Option.map (fun t -> M.pp pp_ref fmt t) (M.project op))
 
-let pp_graph_header fmt (g : graph) = Fmt.pf fmt "graph %s" g.Graph.name
+let pp_graph_header fmt (_g : graph) = Fmt.pf fmt "graph"
 
 let pp_graph_inputs fmt (g : graph) =
   let pp_input fmt id =
@@ -382,7 +377,6 @@ and dec_graph (json : Jsont.json) : graph =
   in
   Graph.
     {
-      name = get "name" Jsont.string;
       inputs = get "inputs" (Jsont.list tensor_ref_jsont);
       input_kinds;
       nodes = get "nodes" (Jsont.list node_codec);
@@ -439,7 +433,6 @@ and enc_graph (g : graph) : Jsont.json =
       ( "inputs",
         Json_util.jarr
           (List.map (Json_util.enc tensor_ref_jsont) g.Graph.inputs) );
-      ("name", Json_util.jstr g.Graph.name);
       ("nodes", Json_util.jarr (List.map enc_node g.Graph.nodes));
       ( "outputs",
         Json_util.jarr

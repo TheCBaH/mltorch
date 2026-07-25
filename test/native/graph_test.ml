@@ -44,12 +44,18 @@ let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
   }
 
 let id_of_name (g : graph) name =
-  match
-    Tensor_id.Map.fold
-      (fun id (sg : Tensor_sig.t) acc ->
-        if String.equal sg.name name then Some id else acc)
-      g.Graph.tensors None
-  with
+  let node_output i =
+    match List.nth_opt g.Graph.nodes i with
+    | Some { Node.outputs = id :: _; _ } -> Some id
+    | _ -> None
+  in
+  let id =
+    match name with
+    | "sum" | "x_nhwc" -> node_output 0
+    | "dead" | "y_nhwc" -> node_output 1
+    | _ -> ( match g.Graph.outputs with id :: _ -> Some id | [] -> None)
+  in
+  match id with
   | Some id -> Core.return id
   | None -> Core.fail (`Missing_named_tensor name)
 
@@ -243,13 +249,13 @@ let%expect_test "Direct graph: Discard sink (dead edge still materialised)" =
   Format.printf "%a@." (pp_result pp_discard) result;
   [%expect
     {|
-    graph discard
-    inputs: [t0 a:f32 [C=3], t1 b:f32 [C=3]]
+    graph
+    inputs: [t0 f32 [C=3], t1 f32 [C=3]]
     nodes:
-      n0: [t2 out:f32 [C=3]] = add a=t0(a) b=t1(b)
-      n1: [t3 dead:f32 [C=3]] = mul a=t0(a) b=t1(b)
-      n2: [] = discard x=t3(dead)
-    outputs: [t2 out:f32 [C=3]]
+      n0: [t2 f32 [C=3]] = add a=t0 b=t1
+      n1: [t3 f32 [C=3]] = mul a=t0 b=t1
+      n2: [] = discard x=t3
+    outputs: [t2 f32 [C=3]]
     out = tensor f32 [C=3] {10, 11, 12}
     dead = tensor f32 [C=3] {0, 10, 20} |}]
 

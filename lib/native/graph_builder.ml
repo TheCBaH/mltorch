@@ -45,10 +45,11 @@ let source ~kind ~shape ?name ?fmt ?quant () s =
   let tid_int = s.next_tid in
   let tid = Tensor_id.of_int tid_int in
   let fmt = Option.value fmt ~default:s.dtype in
-  let name =
-    match name with Some n -> n | None -> Printf.sprintf "input_%d" tid_int
+  let sg =
+    Tensor_sig.create ~id:tid
+      ~name:(Option.value name ~default:"")
+      ~shape ~fmt ?quant ()
   in
-  let sg = Tensor_sig.create ~id:tid ~name ~shape ~fmt ?quant () in
   ( Ok tid,
     {
       s with
@@ -65,13 +66,14 @@ let constant ~shape ?name ?fmt ?quant () =
   source ~kind:Input.Constant ~shape ?name ?fmt ?quant ()
 
 (* Allocate one fresh F32 output edge with [shape] (default-named from [kind]). *)
-let new_edge ?name ~kind shape s =
+let new_edge ?name ~kind:_ shape s =
   let tid_int = s.next_tid in
   let tid = Tensor_id.of_int tid_int in
-  let name =
-    match name with Some n -> n | None -> Printf.sprintf "%s_%d" kind tid_int
+  let sg =
+    Tensor_sig.create ~id:tid
+      ~name:(Option.value name ~default:"")
+      ~shape ~fmt:f32 ()
   in
-  let sg = Tensor_sig.create ~id:tid ~name ~shape ~fmt:f32 () in
   ( Ok tid,
     {
       s with
@@ -188,7 +190,7 @@ let reshape ?name params x =
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
 
-let subgraph ~name (body : Tensor_id.t list t) : graph t =
+let subgraph ~name:_ (body : Tensor_id.t list t) : graph t =
  fun s ->
   (* run [body] in a child accumulation that shares the id counters/dtype *)
   let child_start =
@@ -204,14 +206,14 @@ let subgraph ~name (body : Tensor_id.t list t) : graph t =
   | Error e, _ -> (Error e, s)
   | Ok outputs, child_end ->
       let g =
-        {
-          Graph.name;
-          nodes = List.rev child_end.rev_nodes;
-          tensors = child_end.tensors;
-          inputs = List.rev child_end.rev_inputs;
-          input_kinds = child_end.input_kinds;
-          outputs;
-        }
+        Graph.
+          {
+            nodes = List.rev child_end.rev_nodes;
+            tensors = child_end.tensors;
+            inputs = List.rev child_end.rev_inputs;
+            input_kinds = child_end.input_kinds;
+            outputs;
+          }
       in
       (* keep the advanced counters; restore the parent's own accumulators *)
       ( Ok g,
@@ -234,7 +236,7 @@ let invoke ?names (g : graph) (args : tensor_ref list) : Tensor_id.t list t =
             let tid = Tensor_id.of_int tid_int in
             let name =
               if i < Array.length names_arr then names_arr.(i)
-              else Printf.sprintf "%s_%d" g.Graph.name tid_int
+              else Printf.sprintf "subgraph_%d" tid_int
             in
             let sg =
               Tensor_sig.create ~id:tid ~name ~shape:sub_sig.shape ~fmt:f32 ()
@@ -259,7 +261,7 @@ let invoke ?names (g : graph) (args : tensor_ref list) : Tensor_id.t list t =
           rev_nodes = node :: s.rev_nodes;
         } )
 
-let build ?(dtype = f32) ~name ~outputs (m : 'a t) =
+let build ?(dtype = f32) ~name:_ ~outputs (m : 'a t) =
   let s0 =
     {
       next_tid = 0;
@@ -275,11 +277,11 @@ let build ?(dtype = f32) ~name ~outputs (m : 'a t) =
   | Error e, _ -> Error e
   | Ok a, s ->
       Ok
-        {
-          Graph.name;
-          nodes = List.rev s.rev_nodes;
-          tensors = s.tensors;
-          inputs = List.rev s.rev_inputs;
-          input_kinds = s.input_kinds;
-          outputs = outputs a;
-        }
+        Graph.
+          {
+            nodes = List.rev s.rev_nodes;
+            tensors = s.tensors;
+            inputs = List.rev s.rev_inputs;
+            input_kinds = s.input_kinds;
+            outputs = outputs a;
+          }

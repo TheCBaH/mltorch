@@ -29,7 +29,7 @@ type 'g gop =                               (* parametrised over the subgraph ty
      by that op's module, e.g. Conv.Conv2d.t = { params; x; weight; bias : _ option } *)
 
 module Node  : sig type t = { id : Node_id.t; op : Graph.t gop; outputs : Tensor_id.t list } end
-module Graph : sig type t = { name; nodes; tensors; inputs; input_kinds; outputs } end
+module Graph : sig type t = { nodes; tensors; inputs; input_kinds; outputs } end
 type op = Graph.t gop
 ```
 
@@ -73,6 +73,10 @@ Design decisions:
   ids are unique across the tree (no collision when recursing/merging) and start
   at 0 per top-level build (stable expect-test output). The id is the carrier the
   symbolic `Expr.Load` already references via `Tensor_sig`.
+- **No native display names.** `Graph.name` and `Tensor_sig.name` are omitted:
+  graph structure is identified only by deterministic node/tensor ids.
+  Importer-facing names and paths belong in a provenance sidecar, not the
+  execution IR.
 - **Inference inputs are kinded.** Every id in `Graph.inputs` has an
   `Input.kind`: `Input` is supplied by the caller for each run, while
   `Constant` is captured model state supplied by the model/archive loader.
@@ -84,8 +88,8 @@ Design decisions:
   non-default constant entries (`input_constants`); absent metadata decodes as
   `Input` for backward compatibility.
 - **Nested graphs are embedded, not registered.** `Subgraph` holds its nested
-  `Graph.t` by value — no `subgraphs` map, no `Subgraph_id`. The nested graph
-  carries its own `name`; `args` map positionally to its ordered `inputs`
+  `Graph.t` by value — no `subgraphs` map, no `Subgraph_id`. `args` map
+  positionally to its ordered `inputs`
   (function-application convention). A registry (sharing one definition across
   call sites) is a possible transform-era addition, not needed now.
 
@@ -96,14 +100,15 @@ threading the id counters, default element type, and accumulators. Output shapes
 are **computed** (`Graph_shape`), never supplied.
 
 - `input ~shape ?name ?fmt ?quant ()` — `?fmt` defaults to the builder's default
-  element type (F32 unless `build ?dtype` overrides); `?name` defaults to
-  `"input_<id>"`.
-- Op constructors (`relu`, `add`, `conv2d`, …) — `?name` defaults to
-  `"<op>_<output-id>"`; omitting `?bias`/`?weight` records `None`.
+  element type (F32 unless `build ?dtype` overrides). `?name` is an ignored
+  compatibility argument.
+- Op constructors (`relu`, `add`, `conv2d`, …) — `?name` is likewise ignored;
+  omitting `?bias`/`?weight` records `None`.
 - `subgraph ~name body` runs `body` in a child accumulation that shares the global
   counters (ids stay unique) and returns a `Graph.t`; `invoke ?names g args`
   embeds it in a `Subgraph` node and allocates the parent-side output edges.
-- `build ?dtype ~name ~outputs m` runs from the empty state and finalises.
+- `build ?dtype ~name ~outputs m` runs from the empty state and finalises;
+  `~name` is ignored for compatibility.
 
 A DSL with sugar beyond this (e.g. operator notation) can layer on top; the monad
 already composes (subgraphs and future transform passes are builder computations).

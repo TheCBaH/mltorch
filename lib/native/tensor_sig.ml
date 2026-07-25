@@ -9,15 +9,14 @@
 
 type t = {
   id : Tensor_id.t; (* binding key; the source a Load refers to *)
-  name : string; (* the value name, for debug / pp *)
   shape : Vec6.shape; (* extents drive bounds & broadcast (static for now) *)
   fmt : Payload.packed_fmt;
       (* which storage format — existential over the GADT *)
   quant : Quant.t option; (* Some iff fmt is quantized *)
 }
 
-let create ~id ~name ~shape ~fmt ?quant () = { id; name; shape; fmt; quant }
-let pp fmt s = Format.pp_print_string fmt s.name
+let create ~id ~name:_ ~shape ~fmt ?quant () = { id; shape; fmt; quant }
+let pp fmt s = Tensor_id.pp fmt s.id
 
 let jsont : t Jsont.t =
   Jsont.map ~kind:"tensor_sig"
@@ -25,17 +24,15 @@ let jsont : t Jsont.t =
       let ms = Json_util.req_obj json "tensor_sig" in
       let get k c = Json_util.req_field ms k c "tensor_sig" in
       let id = get "id" Tensor_id.jsont in
-      let name = get "name" Jsont.string in
       let shape = get "shape" Vec6.shape_jsont in
       let fmt = get "fmt" Payload.packed_fmt_jsont in
       let quant = Json_util.opt_field ms "quant" Quant.jsont in
-      { id; name; shape; fmt; quant })
+      { id; shape; fmt; quant })
     ~enc:(fun sg ->
       let base =
         [
           ("fmt", Json_util.enc Payload.packed_fmt_jsont sg.fmt);
           ("id", Json_util.enc Tensor_id.jsont sg.id);
-          ("name", Json_util.jstr sg.name);
           ("shape", Json_util.enc Vec6.shape_jsont sg.shape);
         ]
       in

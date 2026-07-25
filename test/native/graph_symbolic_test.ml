@@ -4,7 +4,7 @@
 
 open Graph_ir
 
-type output_count = { graph_name : string; count : int }
+type output_count = { count : int }
 
 type error =
   [ `Build of Graph_builder.error
@@ -15,9 +15,8 @@ type error =
 let pp_error ppf : [< error ] -> unit = function
   | `Build e -> Graph_builder.pp_error ppf e
   | `Eval e -> Eval_direct.pp_error ppf e
-  | `Expected_single_output { graph_name; count } ->
-      Format.fprintf ppf "graph %S expected a single output, got %d" graph_name
-        count
+  | `Expected_single_output { count } ->
+      Format.fprintf ppf "graph expected a single output, got %d" count
   | `Missing_output_tensor id ->
       Format.fprintf ppf "missing output tensor t%d" (Tensor_id.to_int id)
 
@@ -54,9 +53,7 @@ let output_id (g : graph) =
   match g.Graph.outputs with
   | [ id ] -> Core.return id
   | outputs ->
-      Core.fail
-        (`Expected_single_output
-           { graph_name = g.Graph.name; count = List.length outputs })
+      Core.fail (`Expected_single_output { count = List.length outputs })
 
 let find_tensor env id =
   match Tensor_id.Map.find_opt id env with
@@ -101,10 +98,10 @@ let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
   in
   [%expect
     {|
-    inputs: a, b
-    sum = (a[0,0,0,0,0,C] + b[0,0,0,0,0,C])
-    out = select((sum[N,T,D,H,W,C] < 0), 0, sum[N,T,D,H,W,C])
-    outputs: out |}];
+    inputs: t0, t1
+    t2 = (t0[0,0,0,0,0,C] + t1[0,0,0,0,0,C])
+    t3 = select((t2[N,T,D,H,W,C] < 0), 0, t2[N,T,D,H,W,C])
+    outputs: t3 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
     {|
@@ -135,9 +132,9 @@ let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
   in
   [%expect
     {|
-    inputs: a, b
-    out = (a[0,0,0,0,0,C] * b[0,0,0,0,0,C])
-    outputs: out |}];
+    inputs: t0, t1
+    t2 = (t0[0,0,0,0,0,C] * t1[0,0,0,0,0,C])
+    outputs: t2 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
     {|
@@ -175,10 +172,10 @@ let%expect_test "Symbolic graph: Discard emits no stage; ground matches Direct"
   in
   [%expect
     {|
-    inputs: a, b
-    out = (a[0,0,0,0,0,C] + b[0,0,0,0,0,C])
-    dead = (a[0,0,0,0,0,C] * b[0,0,0,0,0,C])
-    outputs: out |}];
+    inputs: t0, t1
+    t2 = (t0[0,0,0,0,0,C] + t1[0,0,0,0,0,C])
+    t3 = (t0[0,0,0,0,0,C] * t1[0,0,0,0,0,C])
+    outputs: t2 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
     {|
@@ -225,9 +222,9 @@ let%expect_test "Symbolic graph: batch_norm ground matches Direct" =
   in
   [%expect
     {|
-    inputs: x, w, b, rm, rv
-    y = ((((x[N,T,D,H,W,C] - rm[0,0,0,0,0,C]) * (1 / sqrt((rv[0,0,0,0,0,C] + 0)))) * w[0,0,0,0,0,C]) + b[0,0,0,0,0,C])
-    outputs: y |}];
+    inputs: t0, t1, t2, t3, t4
+    t5 = ((((t0[N,T,D,H,W,C] - t3[0,0,0,0,0,C]) * (1 / sqrt((t4[0,0,0,0,0,C] + 0)))) * t1[0,0,0,0,0,C]) + t2[0,0,0,0,0,C])
+    outputs: t5 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
     {|
@@ -289,10 +286,10 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
   | Error e -> Format.printf "%a@." pp_error e.Core.Error.kind);
   [%expect
     {|
-    inputs: x
-    max_pool2d_with_indices_1 = max_pool2d_value(x; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C])
-    max_pool2d_with_indices_idx_2 = max_pool2d_index(x; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C])
-    outputs: max_pool2d_with_indices_1, max_pool2d_with_indices_idx_2
+    inputs: t0
+    t1 = max_pool2d_value(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C])
+    t2 = max_pool2d_index(t0; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C])
+    outputs: t1, t2
     tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true
     tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true |}]
 
@@ -325,9 +322,9 @@ let%expect_test "Symbolic graph: reshape ground matches Direct" =
   in
   [%expect
     {|
-    inputs: x
-    out = x[floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3)+-2*floor_div(floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3),2),6*1*1*1*1*1*0+N+T+D+H+W+C+-3*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3),6*1*1*1*1*1*0+N+T+D+H+W+C+-1*6*1*1*1*1*1*0+N+T+D+H+W+C]
-    outputs: out |}];
+    inputs: t0
+    t1 = t0[floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3)+-2*floor_div(floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3),2),6*1*1*1*1*1*0+N+T+D+H+W+C+-3*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3),6*1*1*1*1*1*0+N+T+D+H+W+C+-1*6*1*1*1*1*1*0+N+T+D+H+W+C]
+    outputs: t1 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
     {|
@@ -410,11 +407,11 @@ let%expect_test
   in
   [%expect
     {|
-    inputs: x_nchw, w, b
-    x_nhwc = x_nchw[N,T,D,C,H,W]
-    y_nhwc = (sum(r1=0..2: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (x_nhwc[N,T,D,1*H+0+1*r2,1*W+0+1*r3,2*0+r1] * w[C,0,0,r2,r3,r1])))) + b[0,0,0,0,0,C])
-    y_nchw = y_nhwc[N,T,D,W,C,H]
-    outputs: y_nchw |}];
+    inputs: t0, t1, t2
+    t3 = t0[N,T,D,C,H,W]
+    t4 = (sum(r1=0..2: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (t3[N,T,D,1*H+0+1*r2,1*W+0+1*r3,2*0+r1] * t1[C,0,0,r2,r3,r1])))) + t2[0,0,0,0,0,C])
+    t5 = t4[N,T,D,W,C,H]
+    outputs: t5 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground y_nchw")) result;
   [%expect
     {|
@@ -450,9 +447,9 @@ let%expect_test "Symbolic graph: conv2d_padding same ground matches Direct" =
   in
   [%expect
     {|
-    inputs: x, w
-    y = (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (x[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * w[C,0,0,r2,r3,r1])))) + const0[0,0,0,0,0,C])
-    outputs: y |}];
+    inputs: t0, t1
+    t2 = (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (t0[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * t1[C,0,0,r2,r3,r1])))) + t3[0,0,0,0,0,C])
+    outputs: t2 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
     {|
@@ -488,9 +485,9 @@ let%expect_test "Symbolic graph: convolution ground matches Direct" =
   in
   [%expect
     {|
-    inputs: x, w
-    y = (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (x[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * w[C,0,0,r2,r3,r1])))) + const0[0,0,0,0,0,C])
-    outputs: y |}];
+    inputs: t0, t1
+    t2 = (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (t0[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * t1[C,0,0,r2,r3,r1])))) + t3[0,0,0,0,0,C])
+    outputs: t2 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
     {|

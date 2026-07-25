@@ -261,19 +261,14 @@ let%expect_test "dispatch: addmm.default relayouts [In,Out] weight" =
     ~noutputs:1;
   [%expect
     {|
-    graph addmm_relayout
-    inputs:
-      [t0 input_0:f32 [C=2], t1 input_1:f32 [W=2 C=3], t2 input_2:f32 [W=3 C=2]]
+    graph
+    inputs: [t0 f32 [C=2], t1 f32 [W=2 C=3], t2 f32 [W=3 C=2]]
     nodes:
-      n0: [t3 permute_3:f32 [N=2 T=1 D=1 H=1 W=1 C=3]] =
-        permute x=t2(input_2) perm=[N<-C, W<-N, C<-W]
-      n1: [t4 linear_4:f32 [W=2 C=2]] =
-        linear
-          x=t1(input_1)
-          weight=t3(permute_3)
-          bias=t0(input_0)
-          params={in_features=3}
-    outputs: [t4 linear_4:f32 [W=2 C=2]]
+      n0: [t3 f32 [N=2 T=1 D=1 H=1 W=1 C=3]] =
+        permute x=t2 perm=[N<-C, W<-N, C<-W]
+      n1: [t4 f32 [W=2 C=2]] =
+        linear x=t1 weight=t3 bias=t0 params={in_features=3}
+    outputs: [t4 f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {11, 105, 14, 111} |}]
 
 let%expect_test "dispatch: _native_batch_norm_legit_no_training per-channel" =
@@ -308,24 +303,22 @@ let%expect_test "dispatch: _native_batch_norm_legit_no_training per-channel" =
     ~noutputs:1;
   [%expect
     {|
-    graph batch_norm_relayout
+    graph
     inputs:
-      [t0 input_0:f32 [H=2 W=1 C=2], t1 input_1:f32 [C=2], t2 input_2:f32 [C=2],
-       t3 input_3:f32 [C=2], t4 input_4:f32 [C=2]]
+      [t0 f32 [H=2 W=1 C=2], t1 f32 [C=2], t2 f32 [C=2], t3 f32 [C=2],
+       t4 f32 [C=2]]
     nodes:
-      n0: [t5 permute_5:f32 [W=2 C=2]] =
-        permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
-      n1: [t6 batch_norm_6:f32 [W=2 C=2]] =
+      n0: [t5 f32 [W=2 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t6 f32 [W=2 C=2]] =
         batch_norm
-          x=t5(permute_5)
-          weight=t1(input_1)
-          bias=t2(input_2)
-          running_mean=t3(input_3)
-          running_var=t4(input_4)
+          x=t5
+          weight=t1
+          bias=t2
+          running_mean=t3
+          running_var=t4
           params={channel=C; eps=0}
-      n2: [t7 permute_7:f32 [H=2 W=1 C=2]] =
-        permute x=t6(batch_norm_6) perm=[H<-C, W<-H, C<-W]
-    outputs: [t7 permute_7:f32 [H=2 W=1 C=2]]
+      n2: [t7 f32 [H=2 W=1 C=2]] = permute x=t6 perm=[H<-C, W<-H, C<-W]
+    outputs: [t7 f32 [H=2 W=1 C=2]]
     tensor f32 [H=2 W=1 C=2] {1, 3, -1, 9} |}]
 
 let%expect_test "dispatch: conv2d.default relayouts NCHW/OIHW with bias" =
@@ -347,26 +340,23 @@ let%expect_test "dispatch: conv2d.default relayouts NCHW/OIHW with bias" =
     ~noutputs:1;
   [%expect
     {|
-    graph conv2d_relayout
-    inputs:
-      [t0 input_0:f32 [W=3 C=3], t1 input_1:f32 [W=2 C=2], t2 input_2:f32 [C=1]]
+    graph
+    inputs: [t0 f32 [W=3 C=3], t1 f32 [W=2 C=2], t2 f32 [C=1]]
     nodes:
-      n0: [t3 permute_3:f32 [H=3 W=3 C=1]] =
-        permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
-      n1: [t4 permute_4:f32 [H=2 W=2 C=1]] =
-        permute x=t1(input_1) perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
-      n2: [t5 conv2d_5:f32 [H=2 W=2 C=1]] =
+      n0: [t3 f32 [H=3 W=3 C=1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t4 f32 [H=2 W=2 C=1]] =
+        permute x=t1 perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
+      n2: [t5 f32 [H=2 W=2 C=1]] =
         conv2d
-          x=t3(permute_3)
-          weight=t4(permute_4)
-          bias=t2(input_2)
+          x=t3
+          weight=t4
+          bias=t2
           params={h={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                  w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=1;
                  groups=1}
-      n3: [t6 permute_6:f32 [W=2 C=2]] =
-        permute x=t5(conv2d_5) perm=[H<-C, W<-H, C<-W]
-    outputs: [t6 permute_6:f32 [W=2 C=2]]
+      n3: [t6 f32 [W=2 C=2]] = permute x=t5 perm=[H<-C, W<-H, C<-W]
+    outputs: [t6 f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {18, 22, 30, 34} |}]
 
 let%expect_test "dispatch: conv2d.padding same uses distinct native op" =
@@ -388,22 +378,20 @@ let%expect_test "dispatch: conv2d.padding same uses distinct native op" =
     ~noutputs:1;
   [%expect
     {|
-    graph conv2d_padding_relayout
-    inputs: [t0 input_0:f32 [W=3 C=3], t1 input_1:f32 [W=2 C=2]]
+    graph
+    inputs: [t0 f32 [W=3 C=3], t1 f32 [W=2 C=2]]
     nodes:
-      n0: [t2 permute_2:f32 [H=3 W=3 C=1]] =
-        permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
-      n1: [t3 permute_3:f32 [H=2 W=2 C=1]] =
-        permute x=t1(input_1) perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
-      n2: [t4 conv2d_padding_4:f32 [H=3 W=3 C=1]] =
+      n0: [t2 f32 [H=3 W=3 C=1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t3 f32 [H=2 W=2 C=1]] =
+        permute x=t1 perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
+      n2: [t4 f32 [H=3 W=3 C=1]] =
         conv2d_padding
-          x=t2(permute_2)
-          weight=t3(permute_3)
+          x=t2
+          weight=t3
           bias=none
           params={stride={h=1; w=1}; padding=same; dilation={h=1; w=1}; groups=1}
-      n3: [t5 permute_5:f32 [W=3 C=3]] =
-        permute x=t4(conv2d_padding_4) perm=[H<-C, W<-H, C<-W]
-    outputs: [t5 permute_5:f32 [W=3 C=3]]
+      n3: [t5 f32 [W=3 C=3]] = permute x=t4 perm=[H<-C, W<-H, C<-W]
+    outputs: [t5 f32 [W=3 C=3]]
     tensor f32 [W=3 C=3] {8, 12, 7, 20, 24, 13, 13, 15, ...} |}]
 
 let%expect_test "dispatch: conv2d.padding invalid weight rank is typed" =
@@ -445,17 +433,16 @@ let%expect_test "dispatch: convolution.default uses distinct native op" =
     ~noutputs:1;
   [%expect
     {|
-    graph convolution_relayout
-    inputs: [t0 input_0:f32 [W=3 C=3], t1 input_1:f32 [W=2 C=2]]
+    graph
+    inputs: [t0 f32 [W=3 C=3], t1 f32 [W=2 C=2]]
     nodes:
-      n0: [t2 permute_2:f32 [H=3 W=3 C=1]] =
-        permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
-      n1: [t3 permute_3:f32 [H=2 W=2 C=1]] =
-        permute x=t1(input_1) perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
-      n2: [t4 convolution_4:f32 [H=2 W=2 C=1]] =
+      n0: [t2 f32 [H=3 W=3 C=1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t3 f32 [H=2 W=2 C=1]] =
+        permute x=t1 perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
+      n2: [t4 f32 [H=2 W=2 C=1]] =
         convolution
-          x=t2(permute_2)
-          weight=t3(permute_3)
+          x=t2
+          weight=t3
           bias=none
           params={stride={h=1; w=1};
                  padding={h=0; w=0};
@@ -463,9 +450,8 @@ let%expect_test "dispatch: convolution.default uses distinct native op" =
                  transposed=false;
                  output_padding={h=0; w=0};
                  groups=1}
-      n3: [t5 permute_5:f32 [W=2 C=2]] =
-        permute x=t4(convolution_4) perm=[H<-C, W<-H, C<-W]
-    outputs: [t5 permute_5:f32 [W=2 C=2]]
+      n3: [t5 f32 [W=2 C=2]] = permute x=t4 perm=[H<-C, W<-H, C<-W]
+    outputs: [t5 f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {8, 12, 20, 24} |}]
 
 let%expect_test "dispatch: convolution.default grouped conv2d" =
@@ -561,19 +547,13 @@ let%expect_test "dispatch: linear.default relayouts [Out,In] weight with bias" =
     ~noutputs:1;
   [%expect
     {|
-    graph linear_relayout
-    inputs:
-      [t0 input_0:f32 [W=2 C=3], t1 input_1:f32 [W=2 C=3], t2 input_2:f32 [C=2]]
+    graph
+    inputs: [t0 f32 [W=2 C=3], t1 f32 [W=2 C=3], t2 f32 [C=2]]
     nodes:
-      n0: [t3 permute_3:f32 [N=2 T=1 D=1 H=1 W=1 C=3]] =
-        permute x=t1(input_1) perm=[N<-W, W<-N]
-      n1: [t4 linear_4:f32 [W=2 C=2]] =
-        linear
-          x=t0(input_0)
-          weight=t3(permute_3)
-          bias=t2(input_2)
-          params={in_features=3}
-    outputs: [t4 linear_4:f32 [W=2 C=2]]
+      n0: [t3 f32 [N=2 T=1 D=1 H=1 W=1 C=3]] = permute x=t1 perm=[N<-W, W<-N]
+      n1: [t4 f32 [W=2 C=2]] =
+        linear x=t0 weight=t3 bias=t2 params={in_features=3}
+    outputs: [t4 f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {11, 105, 14, 111} |}]
 
 let%expect_test "dispatch: linear.default accepts explicit None bias" =
@@ -586,18 +566,13 @@ let%expect_test "dispatch: linear.default accepts explicit None bias" =
     ~noutputs:1;
   [%expect
     {|
-    graph linear_relayout
-    inputs: [t0 input_0:f32 [W=2 C=3], t1 input_1:f32 [W=2 C=3]]
+    graph
+    inputs: [t0 f32 [W=2 C=3], t1 f32 [W=2 C=3]]
     nodes:
-      n0: [t2 permute_2:f32 [N=2 T=1 D=1 H=1 W=1 C=3]] =
-        permute x=t1(input_1) perm=[N<-W, W<-N]
-      n1: [t3 linear_3:f32 [W=2 C=2]] =
-        linear
-          x=t0(input_0)
-          weight=t2(permute_2)
-          bias=none
-          params={in_features=3}
-    outputs: [t3 linear_3:f32 [W=2 C=2]]
+      n0: [t2 f32 [N=2 T=1 D=1 H=1 W=1 C=3]] = permute x=t1 perm=[N<-W, W<-N]
+      n1: [t3 f32 [W=2 C=2]] =
+        linear x=t0 weight=t2 bias=none params={in_features=3}
+    outputs: [t3 f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {1, 5, 4, 11} |}]
 
 let%expect_test "dispatch: max_pool2d.default relayouts NCHW input and output" =
@@ -617,18 +592,16 @@ let%expect_test "dispatch: max_pool2d.default relayouts NCHW input and output" =
     ~noutputs:1;
   [%expect
     {|
-    graph max_pool2d_relayout
-    inputs: [t0 input_0:f32 [W=3 C=3]]
+    graph
+    inputs: [t0 f32 [W=3 C=3]]
     nodes:
-      n0: [t1 permute_1:f32 [H=3 W=3 C=1]] =
-        permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
-      n1: [t2 max_pool2d_2:f32 [H=4 W=4 C=1]] =
+      n0: [t1 f32 [H=3 W=3 C=1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t2 f32 [H=4 W=4 C=1]] =
         max_pool2d
-          x=t1(permute_1)
+          x=t1
           params={kernel={h=2; w=2}; stride={h=1; w=1}; pad={h=1; w=1}}
-      n2: [t3 permute_3:f32 [W=4 C=4]] =
-        permute x=t2(max_pool2d_2) perm=[H<-C, W<-H, C<-W]
-    outputs: [t3 permute_3:f32 [W=4 C=4]]
+      n2: [t3 f32 [W=4 C=4]] = permute x=t2 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [W=4 C=4]]
     tensor f32 [W=4 C=4] {-1, -1, -2, -3, -1, -1, -2, -3, ...} |}]
 
 let%expect_test "dispatch: max_pool2d_with_indices.default discards indices" =
@@ -649,20 +622,17 @@ let%expect_test "dispatch: max_pool2d_with_indices.default discards indices" =
     ~noutputs:2;
   [%expect
     {|
-    graph max_pool2d_with_indices_relayout
-    inputs: [t0 input_0:f32 [W=4 C=4]]
+    graph
+    inputs: [t0 f32 [W=4 C=4]]
     nodes:
-      n0: [t1 permute_1:f32 [H=4 W=4 C=1]] =
-        permute x=t0(input_0) perm=[H<-W, W<-C, C<-H]
-      n1: [t2 max_pool2d_with_indices_2:f32 [H=2 W=2 C=1],
-           t3 max_pool2d_with_indices_idx_3:f32 [H=2 W=2 C=1]] =
+      n0: [t1 f32 [H=4 W=4 C=1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t2 f32 [H=2 W=2 C=1], t3 f32 [H=2 W=2 C=1]] =
         max_pool2d_with_indices
-          x=t1(permute_1)
+          x=t1
           params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
-      n2: [] = discard x=t3(max_pool2d_with_indices_idx_3)
-      n3: [t4 permute_4:f32 [W=2 C=2]] =
-        permute x=t2(max_pool2d_with_indices_2) perm=[H<-C, W<-H, C<-W]
-    outputs: [t4 permute_4:f32 [W=2 C=2]]
+      n2: [] = discard x=t3
+      n3: [t4 f32 [W=2 C=2]] = permute x=t2 perm=[H<-C, W<-H, C<-W]
+    outputs: [t4 f32 [W=2 C=2]]
     tensor f32 [W=2 C=2] {5, 7, 13, 15} |}]
 
 let%expect_test "dispatch: mean.dim dim=[1] keepdim=true" =
@@ -771,10 +741,9 @@ let%expect_test "dispatch: view.default contiguous reshape (no permute)" =
     ~noutputs:1;
   [%expect
     {|
-    graph view
-    inputs: [t0 input_0:f32 [W=2 C=3]]
+    graph
+    inputs: [t0 f32 [W=2 C=3]]
     nodes:
-      n0: [t1 reshape_1:f32 [W=3 C=2]] =
-        reshape x=t0(input_0) params={shape=[W=3 C=2]}
-    outputs: [t1 reshape_1:f32 [W=3 C=2]]
+      n0: [t1 f32 [W=3 C=2]] = reshape x=t0 params={shape=[W=3 C=2]}
+    outputs: [t1 f32 [W=3 C=2]]
     tensor f32 [W=3 C=2] {0, 1, 2, 3, 4, 5} |}]

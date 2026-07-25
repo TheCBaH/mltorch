@@ -127,7 +127,6 @@ let%expect_test "op Add: encode → JSON" =
         0,
         1
       ],
-      "name": "add",
       "nodes": [
         {
           "id": 0,
@@ -149,7 +148,6 @@ let%expect_test "op Add: encode → JSON" =
         {
           "fmt": "f32",
           "id": 0,
-          "name": "a",
           "shape": [
             1,
             1,
@@ -162,7 +160,6 @@ let%expect_test "op Add: encode → JSON" =
         {
           "fmt": "f32",
           "id": 1,
-          "name": "b",
           "shape": [
             1,
             1,
@@ -175,7 +172,6 @@ let%expect_test "op Add: encode → JSON" =
         {
           "fmt": "f32",
           "id": 2,
-          "name": "out",
           "shape": [
             1,
             1,
@@ -231,7 +227,6 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
         1,
         2
       ],
-      "name": "conv",
       "nodes": [
         {
           "id": 0,
@@ -272,7 +267,6 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
         {
           "fmt": "f32",
           "id": 0,
-          "name": "x",
           "shape": [
             1,
             1,
@@ -285,7 +279,6 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
         {
           "fmt": "f32",
           "id": 1,
-          "name": "w",
           "shape": [
             16,
             1,
@@ -298,7 +291,6 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
         {
           "fmt": "f32",
           "id": 2,
-          "name": "b",
           "shape": [
             1,
             1,
@@ -311,7 +303,6 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
         {
           "fmt": "f32",
           "id": 3,
-          "name": "y",
           "shape": [
             1,
             1,
@@ -324,21 +315,20 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
       ]
     }
     decoded graph:
-    graph conv
+    graph
     inputs:
-      [t0 x:f32 [H=4 W=4 C=8], t1 w:f32 [N=16 T=1 D=1 H=3 W=3 C=8],
-       t2 b:f32 [C=16]]
+      [t0 f32 [H=4 W=4 C=8], t1 f32 [N=16 T=1 D=1 H=3 W=3 C=8], t2 f32 [C=16]]
     nodes:
-      n0: [t3 y:f32 [H=4 W=4 C=16]] =
+      n0: [t3 f32 [H=4 W=4 C=16]] =
         conv2d
-          x=t0(x)
-          weight=t1(w)
-          bias=t2(b)
+          x=t0
+          weight=t1
+          bias=t2
           params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
                  w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
                  in_channels=8;
                  groups=1}
-    outputs: [t3 y:f32 [H=4 W=4 C=16]] |}]
+    outputs: [t3 f32 [H=4 W=4 C=16]] |}]
 
 let%expect_test "op Conv2d no bias: optional field absent in JSON" =
   let conv_params =
@@ -369,33 +359,33 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
   [%expect
     {|
     original:
-    graph conv_nb
-    inputs: [t0 x:f32 [C=4], t1 w:f32 [N=4 T=1 D=1 H=1 W=1 C=4]]
+    graph
+    inputs: [t0 f32 [C=4], t1 f32 [N=4 T=1 D=1 H=1 W=1 C=4]]
     nodes:
-      n0: [t2 y:f32 [C=4]] =
+      n0: [t2 f32 [C=4]] =
         conv2d
-          x=t0(x)
-          weight=t1(w)
+          x=t0
+          weight=t1
           bias=none
           params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
                  w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=4;
                  groups=1}
-    outputs: [t2 y:f32 [C=4]]
+    outputs: [t2 f32 [C=4]]
     decoded:
-    graph conv_nb
-    inputs: [t0 x:f32 [C=4], t1 w:f32 [N=4 T=1 D=1 H=1 W=1 C=4]]
+    graph
+    inputs: [t0 f32 [C=4], t1 f32 [N=4 T=1 D=1 H=1 W=1 C=4]]
     nodes:
-      n0: [t2 y:f32 [C=4]] =
+      n0: [t2 f32 [C=4]] =
         conv2d
-          x=t0(x)
-          weight=t1(w)
+          x=t0
+          weight=t1
           bias=none
           params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
                  w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=4;
                  groups=1}
-    outputs: [t2 y:f32 [C=4]] |}]
+    outputs: [t2 f32 [C=4]] |}]
 
 let%expect_test "op Permute: encode → decode" =
   let perm = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ] in
@@ -416,11 +406,11 @@ let%expect_test "op Permute: encode → decode" =
   [%expect
     {|
     decoded graph:
-    graph perm
-    inputs: [t0 x:f32 [H=2 W=3 C=4]]
+    graph
+    inputs: [t0 f32 [H=2 W=3 C=4]]
     nodes:
-      n0: [t1 y:f32 [H=3 W=4 C=2]] = permute x=t0(x) perm=[H<-W, W<-C, C<-H]
-    outputs: [t1 y:f32 [H=3 W=4 C=2]] |}]
+      n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+    outputs: [t1 f32 [H=3 W=4 C=2]] |}]
 
 let%expect_test "graph with Mean op: encode → decode → pretty-print" =
   let result =
@@ -442,11 +432,11 @@ let%expect_test "graph with Mean op: encode → decode → pretty-print" =
   [%expect
     {|
     decoded:
-    graph mean_hw
-    inputs: [t0 x:f32 [H=7 W=7 C=64]]
+    graph
+    inputs: [t0 f32 [H=7 W=7 C=64]]
     nodes:
-      n0: [t1 out:f32 [C=64]] = mean x=t0(x) params={dims=[H, W]; keepdim=false}
-    outputs: [t1 out:f32 [C=64]] |}]
+      n0: [t1 f32 [C=64]] = mean x=t0 params={dims=[H, W]; keepdim=false}
+    outputs: [t1 f32 [C=64]] |}]
 
 let%expect_test "nested subgraph: encode → decode → pretty-print" =
   let result =
@@ -476,29 +466,29 @@ let%expect_test "nested subgraph: encode → decode → pretty-print" =
   [%expect
     {|
     original:
-    graph outer
-    inputs: [t0 x:f32 [C=4], t1 y:f32 [C=4]]
+    graph
+    inputs: [t0 f32 [C=4], t1 f32 [C=4]]
     nodes:
-      n2: [t6 out:f32 [C=4]] = subgraph add_relu args=[t0(x), t1(y)]
-        graph add_relu
-        inputs: [t2 a:f32 [C=4], t3 b:f32 [C=4]]
+      n2: [t6 f32 [C=4]] = subgraph args=[t0, t1]
+        graph
+        inputs: [t2 f32 [C=4], t3 f32 [C=4]]
         nodes:
-          n0: [t4 sum:f32 [C=4]] = add a=t2(a) b=t3(b)
-          n1: [t5 r:f32 [C=4]] = relu x=t4(sum)
-        outputs: [t5 r:f32 [C=4]]
-    outputs: [t6 out:f32 [C=4]]
+          n0: [t4 f32 [C=4]] = add a=t2 b=t3
+          n1: [t5 f32 [C=4]] = relu x=t4
+        outputs: [t5 f32 [C=4]]
+    outputs: [t6 f32 [C=4]]
     decoded:
-    graph outer
-    inputs: [t0 x:f32 [C=4], t1 y:f32 [C=4]]
+    graph
+    inputs: [t0 f32 [C=4], t1 f32 [C=4]]
     nodes:
-      n2: [t6 out:f32 [C=4]] = subgraph add_relu args=[t0(x), t1(y)]
-        graph add_relu
-        inputs: [t2 a:f32 [C=4], t3 b:f32 [C=4]]
+      n2: [t6 f32 [C=4]] = subgraph args=[t0, t1]
+        graph
+        inputs: [t2 f32 [C=4], t3 f32 [C=4]]
         nodes:
-          n0: [t4 sum:f32 [C=4]] = add a=t2(a) b=t3(b)
-          n1: [t5 r:f32 [C=4]] = relu x=t4(sum)
-        outputs: [t5 r:f32 [C=4]]
-    outputs: [t6 out:f32 [C=4]] |}]
+          n0: [t4 f32 [C=4]] = add a=t2 b=t3
+          n1: [t5 f32 [C=4]] = relu x=t4
+        outputs: [t5 f32 [C=4]]
+    outputs: [t6 f32 [C=4]] |}]
 
 (* ---- tensor payload ------------------------------------------------------- *)
 

@@ -17,21 +17,13 @@ type t = {
 }
 
 let pp fmt (p : t) =
-  let names =
-    List.map (fun (id, (s : Tensor_sig.t)) -> (id, s.name)) p.inputs
-    @ List.map (fun (st : Stage.t) -> (st.id, st.sg.name)) p.stages
-  in
-  let name_of id =
-    match List.assoc_opt id names with
-    | Some n -> n
-    | None -> Format.asprintf "%a" Tensor_id.pp id
-  in
+  let name_of id = Format.asprintf "%a" Tensor_id.pp id in
   let comma = String.concat ", " in
   Format.fprintf fmt "@[<v>inputs: %s@,"
-    (comma (List.map (fun (_, (s : Tensor_sig.t)) -> s.name) p.inputs));
+    (comma (List.map (fun (id, _) -> name_of id) p.inputs));
   List.iter
     (fun (st : Stage.t) ->
-      Format.fprintf fmt "%s = %a@," st.sg.name Expr.pp st.body)
+      Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Expr.pp st.body)
     p.stages;
   Format.fprintf fmt "outputs: %s@]" (comma (List.map name_of p.outputs))
 

@@ -77,7 +77,6 @@ end
 
 and Graph : sig
   type t = {
-    name : string; (* unique within its parent (the subgraph's name) *)
     nodes : Node.t list; (* topo-ordered by construction *)
     tensors : Tensor_sig.t Tensor_id.Map.t; (* metadata for every edge id *)
     inputs : Tensor_id.t list; (* ordered = the graph's signature *)

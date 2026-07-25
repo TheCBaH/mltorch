@@ -71,11 +71,11 @@ let%expect_test "Symbolic: pointwise expr pp" =
       ()
   in
   Format.printf "%a@." Expr.pp (R.pixel xs Symbolic.out_vec);
-  [%expect {| select((x[N,T,D,H,W,C] < 0), 0, x[N,T,D,H,W,C]) |}];
+  [%expect {| select((t0[N,T,D,H,W,C] < 0), 0, t0[N,T,D,H,W,C]) |}];
   Format.printf "%a@." Expr.pp
     (A.pixel ~a_shape:(s1c 3) ~b_shape:(s1c 3) xs ys Symbolic.out_vec);
   (* the broadcast (extent-1) axes are read at index 0 — [load] is strict *)
-  [%expect {| (x[0,0,0,0,0,C] + y[0,0,0,0,0,C]) |}]
+  [%expect {| (t0[0,0,0,0,0,C] + t1[0,0,0,0,0,C]) |}]
 
 let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
   let module S = Symbolic.Make () in
@@ -107,7 +107,7 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
   in
   Format.printf "%a@." Expr.pp e;
   [%expect
-    {| (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (x[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * w[C,0,0,r2,r3,r1])))) + b[0,0,0,0,0,C]) |}];
+    {| (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (t0[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * t1[C,0,0,r2,r3,r1])))) + t2[0,0,0,0,0,C]) |}];
   let binding (s : Tensor_sig.t) =
     if s.id = xs.id then x else if s.id = ws.id then weight else bias
   in
@@ -148,7 +148,7 @@ let%expect_test
   in
   let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
   Format.printf "%a@." Expr.pp e;
-  [%expect {| max_pool2d_value(x; k=2x2 s=1x1 p=1x1; out=[N,T,D,H,W,C]) |}];
+  [%expect {| max_pool2d_value(t0; k=2x2 s=1x1 p=1x1; out=[N,T,D,H,W,C]) |}];
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else assert false in
   Format.printf "%a@." (pp_result pp_eval_result)
     (compare_symbolic (Pool.MaxPool2d.output_shape ~x_shape p)
@@ -575,7 +575,7 @@ let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
   let e = Rs.pixel p ~x_shape ~x:xs ~weight:ws Symbolic.out_vec in
   Format.printf "%a@." Expr.pp e;
   [%expect
-    {| ((x[N,T,D,H,W,C] * (1 / sqrt(((sum(r1=0..2: (x[N,T,D,H,W,r1] * x[N,T,D,H,W,r1])) / 2) + 0)))) * w[0,0,0,0,0,C]) |}];
+    {| ((t0[N,T,D,H,W,C] * (1 / sqrt(((sum(r1=0..2: (t0[N,T,D,H,W,r1] * t0[N,T,D,H,W,r1])) / 2) + 0)))) * t1[0,0,0,0,0,C]) |}];
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else weight in
   Format.printf "%a@." (pp_result pp_eval_result)
     (compare_symbolic (Norm.RmsNorm.output_shape ~x_shape) ~iter_shape:(s1c 2)

@@ -66,11 +66,7 @@ let run (g : graph) : Stage_program.t =
   let fill v shape =
     let id = Tensor_id.of_int !next_const in
     incr next_const;
-    let sg =
-      Tensor_sig.create ~id
-        ~name:(Printf.sprintf "const%g" v)
-        ~shape ~fmt:f32 ()
-    in
+    let sg = Tensor_sig.create ~id ~name:"" ~shape ~fmt:f32 () in
     consts := (sg, v) :: !consts;
     sg
   in

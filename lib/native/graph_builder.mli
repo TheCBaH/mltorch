@@ -18,9 +18,10 @@ val return : 'a -> 'a t
 val ( let* ) : 'a t -> ('a -> 'b t) -> 'b t
 val ( let+ ) : 'a t -> ('a -> 'b) -> 'b t
 
-(* An external input edge (graph parameter). [?name] defaults to "input_<id>";
-   [?fmt] defaults to the builder's default element type (F32 unless [build]
-   overrides it). *)
+(* An external input edge. [?name] is retained as an ignored compatibility
+   argument; native graph identity is always the allocated [Tensor_id]. [?fmt]
+   defaults to the builder's default element type (F32 unless [build] overrides
+   it). *)
 val input :
   shape:Vec6.shape ->
   ?name:string ->
@@ -40,8 +41,8 @@ val constant :
   Tensor_id.t t
 
 (* Typed-operand op constructors: each appends a node and returns its fresh output
-   edge. [?name] defaults to "<op>_<output-id>". Omitting an optional operand
-   ([?bias], [?weight]) records [None] in the IR; the evaluator fills the
+   edge. [?name] is an ignored compatibility argument. Omitting an optional
+   operand ([?bias], [?weight]) records [None] in the IR; the evaluator fills the
    identity (zeros bias / ones weight). *)
 (* Op constructors in global alphabetical order (see graph_ir.mli). *)
 val add : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
@@ -144,7 +145,7 @@ val invoke :
 
 (* Run a builder computation from the empty state and finalise into a graph;
    [outputs] selects the graph outputs from the computation's result. [?dtype] is
-   the default element type for [input] (default F32). *)
+   the default element type for [input] (default F32). [name] is ignored. *)
 val build :
   ?dtype:Payload.packed_fmt ->
   name:string ->
