@@ -312,6 +312,8 @@ let pp_node_header ?printer g fmt node =
   Fmt.pf fmt "@[<hv 2>%a@ %a@]" (pp_op_header ?printer g) node
     (pp_op ?printer g) node.Node.op
 
+let pp_node = pp_node_header
+
 let node_by_id (g : graph) id =
   List.find_opt
     (fun (node : node) -> Node_id.equal node.Node.id id)

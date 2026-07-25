@@ -14,6 +14,9 @@ type error =
   | `Missing_input of Tensor_id.t
   | `Missing_constant of Tensor_id.t ]
 
+type hooks =
+  | Hooks : { on_start : node -> 'a; on_end : node -> 'a -> unit } -> hooks
+
 let pp_context ppf = function
   | Operand -> Format.pp_print_string ppf "operand"
   | Sig_shape -> Format.pp_print_string ppf "shape lookup"
@@ -48,22 +51,41 @@ let sig_shape (g : graph) r =
 let input_ids g =
   List.filter (fun id -> Graph_ir.input_kind g id = Input.Input) g.Graph.inputs
 
+(* An exported program can retain captured state that no lowered operation
+   consumes (for example BatchNorm's int64 num_batches_tracked).  Constants are
+   therefore required only when they occur as an actual graph operand. *)
+let constant_is_used g id =
+  List.exists
+    (fun node -> List.mem id (Graph_ir.operands node.Node.op))
+    g.Graph.nodes
+
 let bind_constants g constants env =
   Core.List.fold_left
     (fun env id ->
       match Graph_ir.input_kind g id with
       | Input.Input -> Core.return env
+      | Input.Constant when not (constant_is_used g id) -> Core.return env
       | Input.Constant -> (
           match List.assoc_opt id constants with
           | Some tensor -> Core.return (Tensor_id.Map.add id tensor env)
           | None -> Core.fail (`Missing_constant id)))
     env g.Graph.inputs
 
-let rec run_graph ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
+let rec run_graph ?hooks ~constants (g : graph)
+    (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Core.result =
   let open Core.Syntax in
   let* env = bind_constants g constants env in
-  Core.List.fold_left (fun env node -> eval_node g env node) env g.Graph.nodes
+  Core.List.fold_left
+    (fun env node ->
+      match hooks with
+      | None -> eval_node g env node
+      | Some (Hooks h) ->
+          let state = h.on_start node in
+          let* env = eval_node g env node in
+          h.on_end node state;
+          Core.return env)
+    env g.Graph.nodes
 
 and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
     (Tensor.packed Tensor_id.Map.t, error) Core.result =
@@ -121,7 +143,7 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
         Core.return (Tensor_id.Map.add oid result env))
       env outs
 
-let run ?(constants = []) (g : graph)
+let run ?hooks ?(constants = []) (g : graph)
     ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let provided =
     List.fold_left
@@ -137,4 +159,4 @@ let run ?(constants = []) (g : graph)
         | None -> Core.fail (`Missing_input id))
       Tensor_id.Map.empty (input_ids g)
   in
-  run_graph ~constants g env0
+  run_graph ?hooks ~constants g env0

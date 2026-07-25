@@ -9,6 +9,13 @@ type error =
   | `Build of Graph_builder.error
   | `Provenance of Pt2_native_graph.error ]
 
+type hooks =
+  | Hooks : {
+      on_start : Pt2_native_graph.t -> Graph_ir.node -> 'a;
+      on_end : Pt2_native_graph.t -> Graph_ir.node -> 'a -> unit;
+    }
+      -> hooks
+
 val pp_error : Format.formatter -> [< error ] -> unit
 
 (* Lowers a root exported graph into one native graph.  PT2 SSA names remain
@@ -22,4 +29,7 @@ val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Core.result
 (* Execute a one-user-input static graph.  Captured tensor payloads are loaded
    through the sidecar's [Tensor_id -> target] map, never through native IR. *)
 val run :
-  Pt2_archive.t -> input:Pt2_tensor.t -> (Tensor.packed list, error) Core.result
+  ?hooks:hooks ->
+  Pt2_archive.t ->
+  input:Pt2_tensor.t ->
+  (Tensor.packed list, error) Core.result

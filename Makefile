@@ -1,4 +1,4 @@
-.PHONY: build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa
+.PHONY: build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.%
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -31,6 +31,10 @@ PT2_MODELS_ALL := $(PT2_MODELS_RESNET) $(PT2_MODELS_EFFICIENTNET) \
 # The smallest/fastest model per architecture - exactly what
 # test/interp_*_cram.t run, and all `make pt2.runtest` needs on disk.
 PT2_MODELS_CRAM := resnet18 efficientnet_b0 mobilenet_v3_small vit_b_32
+
+# Whole-graph native verification is intentionally a small, explicit list:
+# native convolution is pure OCaml and much slower than the ATen reference.
+PT2_NATIVE_VERIFY_MODELS := resnet18
 
 # Fetch the release zip (model .pt2 + sample input images) for the interpreter
 # tests, under data/pt2/<model>/. Gitignored and not part of the default build
@@ -111,6 +115,23 @@ inference.%: $(PT2_RUN)
 # independent (own dir, own download, own process), so this is safe to run
 # with `-j` (e.g. `make -j$(nproc) inference`) to cut wall time.
 inference: $(addprefix inference., $(PT2_MODELS_ALL))
+
+# Keep ATen out of native_graph: this target first writes a reference with the
+# existing Interp.run evaluator, then asks the pure native executable to read
+# and compare it.  The reference is temporary, never a committed golden file.
+ATEN_GRAPH_REF := _build/default/bin/aten_graph_ref.exe
+NATIVE_GRAPH := _build/default/bin/native_graph.exe
+$(ATEN_GRAPH_REF) $(NATIVE_GRAPH):
+	opam exec -- dune build bin/aten_graph_ref.exe bin/native_graph.exe
+
+native-infer-verify.%: PT2_MODEL = $*
+native-infer-verify.%: $(ATEN_GRAPH_REF) $(NATIVE_GRAPH)
+	test -f $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 || $(MAKE) pt2.download PT2_MODEL=$*
+	set -eux; ref=$$(mktemp); trap 'rm -f "$$ref"' EXIT; \
+	$(ATEN_GRAPH_REF) $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/images/000000000149.pt "$$ref"; \
+	$(NATIVE_GRAPH) eval --pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 --input $(PT2_MODEL_DIR)/images/000000000149.pt --expect "$$ref" --verbose
+
+native-infer-verify: $(addprefix native-infer-verify., $(PT2_NATIVE_VERIFY_MODELS))
 
 # --- benchmark.*: permanent latency benchmarks, each isolating one component ---
 

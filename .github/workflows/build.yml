@@ -132,3 +132,6 @@ jobs:
     - name: profile native conv2d (landmarks)
       run: |
         ${{ env.EXEC }} make profile.landmarks PROFILE_FIXTURE=test/data/profile/conv2d_small.json
+    - name: native whole-graph inference verification
+      run: |
+        ${{ env.EXEC }} make native-infer-verify

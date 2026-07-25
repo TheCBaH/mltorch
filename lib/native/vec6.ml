@@ -187,6 +187,28 @@ let iter (s : shape) (f : coord -> unit) =
     done
   done
 
+let fold_coords (s : shape) ~init ~f =
+  let en = Dim.to_int s.n in
+  let et = Dim.to_int s.t in
+  let ed = Dim.to_int s.d in
+  let eh = Dim.to_int s.h in
+  let ew = Dim.to_int s.w in
+  let ec = Dim.to_int s.c in
+  let rec loop_n n acc = if n = en then acc else loop_n (n + 1) (loop_t n 0 acc)
+  and loop_t n t acc =
+    if t = et then acc else loop_t n (t + 1) (loop_d n t 0 acc)
+  and loop_d n t d acc =
+    if d = ed then acc else loop_d n t (d + 1) (loop_h n t d 0 acc)
+  and loop_h n t d h acc =
+    if h = eh then acc else loop_h n t d (h + 1) (loop_w n t d h 0 acc)
+  and loop_w n t d h w acc =
+    if w = ew then acc else loop_w n t d h (w + 1) (loop_c n t d h w 0 acc)
+  and loop_c n t d h w c acc =
+    if c = ec then acc
+    else loop_c n t d h w (c + 1) (f acc (coord ~n ~t ~d ~h ~w ~c))
+  in
+  loop_n 0 init
+
 let drop_leading pred axes =
   let rec aux = function
     | [] -> [ List.nth axes (List.length axes - 1) ]

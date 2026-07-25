@@ -17,9 +17,13 @@ type error =
   | `Missing_input of Tensor_id.t
   | `Missing_constant of Tensor_id.t ]
 
+type hooks =
+  | Hooks : { on_start : node -> 'a; on_end : node -> 'a -> unit } -> hooks
+
 val pp_error : Format.formatter -> [< error ] -> unit
 
 val run :
+  ?hooks:hooks ->
   ?constants:(Tensor_id.t * Tensor.packed) list ->
   graph ->
   inputs:(Tensor_id.t * Tensor.packed) list ->

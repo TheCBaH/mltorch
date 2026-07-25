@@ -105,6 +105,7 @@ val offset_of :
   int
 
 val iter : shape -> (coord -> unit) -> unit (* C innermost *)
+val fold_coords : shape -> init:'acc -> f:('acc -> coord -> 'acc) -> 'acc
 
 val pp_shape :
   Format.formatter -> shape -> unit (* [H=2 W=2 C=3] — leading 1s trimmed *)

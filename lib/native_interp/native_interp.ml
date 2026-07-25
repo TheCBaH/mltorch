@@ -12,6 +12,13 @@ type error =
   | `Build of Graph_builder.error
   | `Provenance of Pt2_native_graph.error ]
 
+type hooks =
+  | Hooks : {
+      on_start : Pt2_native_graph.t -> Graph_ir.node -> 'a;
+      on_end : Pt2_native_graph.t -> Graph_ir.node -> 'a -> unit;
+    }
+      -> hooks
+
 let pp_error ppf : [< error ] -> unit = function
   | `Unsupported_input s -> Fmt.pf ppf "unsupported PT2 input: %s" s
   | `Unsupported_operator s -> Fmt.pf ppf "unsupported PT2 operator: %s" s
@@ -505,10 +512,21 @@ let tensor_of_pt2 (tensor : Pt2_tensor.t) =
            (Format.asprintf "only float32 is supported, got %s"
               (Pt2_dtype.to_string dtype)))
 
-let run archive ~input =
+let run ?hooks archive ~input =
   let open Core.Syntax in
   let* lowered = lower_archive archive in
   let graph = lowered.Pt2_native_graph.graph in
+  let eval_hooks =
+    match hooks with
+    | None -> None
+    | Some (Hooks h) ->
+        Some
+          (Eval_direct.Hooks
+             {
+               on_start = (fun node -> h.on_start lowered node);
+               on_end = (fun node state -> h.on_end lowered node state);
+             })
+  in
   let* input = tensor_of_pt2 input in
   let user_ids =
     List.filter
@@ -524,6 +542,11 @@ let run archive ~input =
              (Format.asprintf "expected one user input, got %d"
                 (List.length ids)))
   in
+  let used_constants =
+    List.concat_map
+      (fun node -> Graph_ir.operands node.Graph_ir.Node.op)
+      graph.Graph_ir.Graph.nodes
+  in
   let* constants =
     Core.List.map
       (fun (id, target) ->
@@ -534,10 +557,12 @@ let run archive ~input =
         in
         let+ tensor = tensor_of_pt2 raw in
         (id, tensor))
-      (Tensor_id.Map.bindings lowered.captured_targets)
+      (List.filter
+         (fun (id, _) -> List.mem id used_constants)
+         (Tensor_id.Map.bindings lowered.captured_targets))
   in
   let* env =
-    Eval_direct.run ~constants graph ~inputs
+    Eval_direct.run ?hooks:eval_hooks ~constants graph ~inputs
     |> Core.map_error (fun e -> `Eval e)
   in
   Core.List.map

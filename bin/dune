@@ -53,11 +53,15 @@
 
 ; General-purpose CLI for the native engine's graph representation (see
 ; lib/native_graph); cmdliner-based so more subcommands can land alongside
-; `print` as the tool grows. `print` needs the real ATen/libtorch build
-; (unlike pt2_spec_gen above), since native conv/pool/linear relayout reads
-; real weight tensor shapes.
+; `print` as the tool grows.  It is pure OCaml; PT2 tensor shapes are read
+; directly by Native_interp, not through ATen.
 
 (executable
  (name native_graph)
  (modules native_graph)
  (libraries cmdliner pt2 core native_graph native_interp))
+
+(executable
+ (name aten_graph_ref)
+ (modules aten_graph_ref)
+ (libraries core pt2 interp native_aten_bridge native jsont jsont.bytesrw))
