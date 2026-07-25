@@ -29,7 +29,7 @@ type 'g gop =                               (* parametrised over the subgraph ty
      by that op's module, e.g. Conv.Conv2d.t = { params; x; weight; bias : _ option } *)
 
 module Node  : sig type t = { id : Node_id.t; op : Graph.t gop; outputs : Tensor_id.t list } end
-module Graph : sig type t = { name; nodes; tensors; inputs; outputs } end
+module Graph : sig type t = { name; nodes; tensors; inputs; input_kinds; outputs } end
 type op = Graph.t gop
 ```
 
@@ -73,6 +73,16 @@ Design decisions:
   ids are unique across the tree (no collision when recursing/merging) and start
   at 0 per top-level build (stable expect-test output). The id is the carrier the
   symbolic `Expr.Load` already references via `Tensor_sig`.
+- **Inference inputs are kinded.** Every id in `Graph.inputs` has an
+  `Input.kind`: `Input` is supplied by the caller for each run, while
+  `Constant` is captured model state supplied by the model/archive loader.
+  Parameters, buffers, and PT2 tensor constants deliberately collapse to the
+  latter: inference does not need training ownership or mutation semantics.
+  Importer-specific payload lookup lives in a separate provenance sidecar. The
+  graph keeps an id→kind map instead of changing its ordered id list, so
+  edge order and existing operand machinery remain unchanged. JSON records only
+  non-default constant entries (`input_constants`); absent metadata decodes as
+  `Input` for backward compatibility.
 - **Nested graphs are embedded, not registered.** `Subgraph` holds its nested
   `Graph.t` by value — no `subgraphs` map, no `Subgraph_id`. The nested graph
   carries its own `name`; `args` map positionally to its ordered `inputs`

@@ -16,7 +16,9 @@ type error =
   | `Missing_tensor of missing_tensor
   | `Subgraph_input_arity_mismatch of arity_mismatch
   | `Subgraph_output_arity_mismatch of arity_mismatch
-  | `Output_arity_mismatch of arity_mismatch ]
+  | `Output_arity_mismatch of arity_mismatch
+  | `Missing_input of Tensor_id.t
+  | `Missing_constant of Tensor_id.t ]
 
 let pp_context ppf = function
   | Operand -> Format.pp_print_string ppf "operand"
@@ -39,6 +41,10 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "node output arity mismatch: %d output shapes for %d output ids"
         expected actual
+  | `Missing_input id ->
+      Format.fprintf ppf "missing input tensor t%d" (Tensor_id.to_int id)
+  | `Missing_constant id ->
+      Format.fprintf ppf "missing constant tensor t%d" (Tensor_id.to_int id)
 
 let find_tensor map id ~context =
   match Tensor_id.Map.find_opt id map with
@@ -53,12 +59,30 @@ let sig_shape (g : graph) r =
   let+ sg = find_tensor g.Graph.tensors r ~context:Sig_shape in
   sg.Tensor_sig.shape
 
-let rec run_graph (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
-    (Tensor.packed Tensor_id.Map.t, error) Core.result =
-  Core.List.fold_left (fun env node -> eval_node g env node) env g.Graph.nodes
+let input_ids g =
+  List.filter (fun id -> Graph_ir.input_kind g id = Input.Input) g.Graph.inputs
 
-and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
+let bind_constants g constants env =
+  Core.List.fold_left
+    (fun env id ->
+      match Graph_ir.input_kind g id with
+      | Input.Input -> Core.return env
+      | Input.Constant -> (
+          match List.assoc_opt id constants with
+          | Some tensor -> Core.return (Tensor_id.Map.add id tensor env)
+          | None -> Core.fail (`Missing_constant id)))
+    env g.Graph.inputs
+
+let rec run_graph ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Core.result =
+  let open Core.Syntax in
+  let* env = bind_constants g constants env in
+  Core.List.fold_left
+    (fun env node -> eval_node ~constants g env node)
+    env g.Graph.nodes
+
+and eval_node ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t)
+    (node : node) : (Tensor.packed Tensor_id.Map.t, error) Core.result =
   let open Core.Syntax in
   match node.Node.op with
   | Subgraph { graph = sub; args } ->
@@ -72,12 +96,12 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
             Core.fail
               (`Subgraph_input_arity_mismatch
                  {
-                   expected = List.length sub.Graph.inputs;
+                   expected = List.length (input_ids sub);
                    actual = List.length args;
                  })
       in
-      let* sub_env = bind_inputs Tensor_id.Map.empty sub.Graph.inputs args in
-      let* sub_result = run_graph sub sub_env in
+      let* sub_env = bind_inputs Tensor_id.Map.empty (input_ids sub) args in
+      let* sub_result = run_graph ~constants sub sub_env in
       (* surface the sub's intermediates, then alias node outputs to sub outputs *)
       let env = Tensor_id.Map.union (fun _ _ b -> Some b) env sub_result in
       let rec bind_outputs e oids sub_oids =
@@ -150,10 +174,20 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
             Core.return (Tensor_id.Map.add oid result env))
           env outs
 
-let run (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =
-  let env0 =
+let run ?(constants = []) (g : graph)
+    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
+  let provided =
     List.fold_left
       (fun e (id, t) -> Tensor_id.Map.add id t e)
       Tensor_id.Map.empty inputs
   in
-  run_graph g env0
+  let open Core.Syntax in
+  let* env0 =
+    Core.List.fold_left
+      (fun env id ->
+        match Tensor_id.Map.find_opt id provided with
+        | Some tensor -> Core.return (Tensor_id.Map.add id tensor env)
+        | None -> Core.fail (`Missing_input id))
+      Tensor_id.Map.empty (input_ids g)
+  in
+  run_graph ~constants g env0

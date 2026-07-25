@@ -26,6 +26,36 @@ let first_free_tid (g : graph) =
   in
   walk 0 g
 
+(* Root inputs are stage sources. Nested graphs receive their [Input] values
+   from invocation args, but their captured constants remain independent stage
+   sources and must therefore be included for grounding. *)
+let stage_sources (g : graph) =
+  let rec walk ~root acc kinds gr =
+    let ids =
+      List.filter
+        (fun id -> root || Graph_ir.input_kind gr id = Input.Constant)
+        gr.Graph.inputs
+    in
+    let acc =
+      List.fold_left
+        (fun acc id -> (id, Tensor_id.Map.find id gr.Graph.tensors) :: acc)
+        acc ids
+    in
+    let kinds =
+      Tensor_id.Map.union
+        (fun _ _ nested -> Some nested)
+        kinds gr.Graph.input_kinds
+    in
+    List.fold_left
+      (fun (acc, kinds) (node : node) ->
+        match node.Node.op with
+        | Subgraph { graph; _ } -> walk ~root:false acc kinds graph
+        | _ -> (acc, kinds))
+      (acc, kinds) gr.Graph.nodes
+  in
+  let sources, kinds = walk ~root:true [] Tensor_id.Map.empty g in
+  (List.rev sources, kinds)
+
 let run (g : graph) : Stage_program.t =
   (* a fresh Symbolic instance per graph: its reduction-var counter starts clean,
      so the produced expressions are deterministic. *)
@@ -59,7 +89,11 @@ let run (g : graph) : Stage_program.t =
           List.fold_left2
             (fun e iid aid ->
               Tensor_id.Map.add iid (Tensor_id.Map.find aid env) e)
-            env sub.Graph.inputs args
+            env
+            (List.filter
+               (fun id -> Graph_ir.input_kind sub id = Input.Input)
+               sub.Graph.inputs)
+            args
         in
         let env, stages = process sub env stages in
         (* alias node outputs to sub outputs via identity-copy stages *)
@@ -93,13 +127,10 @@ let run (g : graph) : Stage_program.t =
           (List.mapi (fun i oid -> (i, oid)) node.Node.outputs)
   in
   let _env, rev_stages = process g g.Graph.tensors [] in
-  let inputs =
-    List.map
-      (fun id -> (id, Tensor_id.Map.find id g.Graph.tensors))
-      g.Graph.inputs
-  in
+  let inputs, input_kinds = stage_sources g in
   {
     Stage_program.inputs;
+    input_kinds;
     consts = List.rev !consts;
     stages = List.rev rev_stages;
     outputs = g.Graph.outputs;

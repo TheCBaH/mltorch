@@ -17,6 +17,7 @@ type state = {
   rev_nodes : node list;
   tensors : Tensor_sig.t Tensor_id.Map.t;
   rev_inputs : tensor_ref list;
+  input_kinds : Input.kind Tensor_id.Map.t;
 }
 
 type 'a t = state -> ('a, error) Core.result * state
@@ -40,7 +41,7 @@ let ( let+ ) m f s =
 let get s = (Ok s, s)
 let f32 = Payload.Fmt Payload.F32
 
-let input ~shape ?name ?fmt ?quant () s =
+let source ~kind ~shape ?name ?fmt ?quant () s =
   let tid_int = s.next_tid in
   let tid = Tensor_id.of_int tid_int in
   let fmt = Option.value fmt ~default:s.dtype in
@@ -54,7 +55,14 @@ let input ~shape ?name ?fmt ?quant () s =
       next_tid = tid_int + 1;
       tensors = Tensor_id.Map.add tid sg s.tensors;
       rev_inputs = tid :: s.rev_inputs;
+      input_kinds = Tensor_id.Map.add tid kind s.input_kinds;
     } )
+
+let input ~shape ?name ?fmt ?quant () =
+  source ~kind:Input.Input ~shape ?name ?fmt ?quant ()
+
+let constant ~shape ?name ?fmt ?quant () =
+  source ~kind:Input.Constant ~shape ?name ?fmt ?quant ()
 
 (* Allocate one fresh F32 output edge with [shape] (default-named from [kind]). *)
 let new_edge ?name ~kind shape s =
@@ -184,7 +192,13 @@ let subgraph ~name (body : Tensor_id.t list t) : graph t =
  fun s ->
   (* run [body] in a child accumulation that shares the id counters/dtype *)
   let child_start =
-    { s with rev_nodes = []; rev_inputs = []; tensors = Tensor_id.Map.empty }
+    {
+      s with
+      rev_nodes = [];
+      rev_inputs = [];
+      tensors = Tensor_id.Map.empty;
+      input_kinds = Tensor_id.Map.empty;
+    }
   in
   match body child_start with
   | Error e, _ -> (Error e, s)
@@ -195,6 +209,7 @@ let subgraph ~name (body : Tensor_id.t list t) : graph t =
           nodes = List.rev child_end.rev_nodes;
           tensors = child_end.tensors;
           inputs = List.rev child_end.rev_inputs;
+          input_kinds = child_end.input_kinds;
           outputs;
         }
       in
@@ -253,6 +268,7 @@ let build ?(dtype = f32) ~name ~outputs (m : 'a t) =
       rev_nodes = [];
       tensors = Tensor_id.Map.empty;
       rev_inputs = [];
+      input_kinds = Tensor_id.Map.empty;
     }
   in
   match m s0 with
@@ -264,5 +280,6 @@ let build ?(dtype = f32) ~name ~outputs (m : 'a t) =
           nodes = List.rev s.rev_nodes;
           tensors = s.tensors;
           inputs = List.rev s.rev_inputs;
+          input_kinds = s.input_kinds;
           outputs = outputs a;
         }

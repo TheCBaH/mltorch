@@ -20,6 +20,8 @@ end
 type t = {
   inputs : (Tensor_id.t * Tensor_sig.t) list;
       (* graph inputs (Load "sources") *)
+  input_kinds : Input.kind Tensor_id.Map.t;
+      (* same source classification as the originating graph *)
   consts : (Tensor_sig.t * float) list; (* synthetic constant-filled operands *)
   stages : Stage.t list; (* topo-ordered *)
   outputs : Tensor_id.t list;

@@ -15,11 +15,14 @@ type error =
   | `Missing_tensor of missing_tensor
   | `Subgraph_input_arity_mismatch of arity_mismatch
   | `Subgraph_output_arity_mismatch of arity_mismatch
-  | `Output_arity_mismatch of arity_mismatch ]
+  | `Output_arity_mismatch of arity_mismatch
+  | `Missing_input of Tensor_id.t
+  | `Missing_constant of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
 val run :
+  ?constants:(Tensor_id.t * Tensor.packed) list ->
   graph ->
   inputs:(Tensor_id.t * Tensor.packed) list ->
   (Tensor.packed Tensor_id.Map.t, error) Core.result

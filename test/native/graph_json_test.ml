@@ -75,6 +75,30 @@ let pp_full_and_elided ppf (full_json, elided_json) =
   Format.fprintf ppf "full (8 elts):@.%s@.elided (max_elts=4):@.%s" full_json
     elided_json
 
+let%expect_test "graph: captured input kind survives JSON roundtrip" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"captured" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 2) ~name:"x" () in
+          let* weight = constant ~shape:(s1c 2) ~name:"weight" () in
+          add x weight)
+    in
+    let* json = encode_graph g in
+    let* decoded = decode_graph json in
+    match List.nth decoded.Graph.inputs 1 |> Graph_ir.input_kind decoded with
+    | Input.Constant -> Core.return (String.contains json 'c')
+    | Input.Input -> Core.fail (`Message "constant decoded as input")
+  in
+  Format.printf "%a@."
+    (pp_result (fun ppf has_constants ->
+         Format.fprintf ppf "input_constants=%b" has_constants))
+    result;
+  [%expect {| input_constants=true |}]
+
 (* ---- ops ------------------------------------------------------------------ *)
 
 let%expect_test "op Add: encode → JSON" =

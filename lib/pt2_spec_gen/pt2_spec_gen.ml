@@ -113,9 +113,8 @@ let distribution_of_stats (s : Stats.t) : Aten_spec.Distribution.t =
 let default_activation_distribution : Aten_spec.Distribution.t =
   Normal { mean = 0.; variance = 1. }
 
-(* Graph-input SSA name -> weight config name, for every Parameter/Buffer
-   input. Mirrors lib/interp/interp.ml's `params` (can't depend on lib/interp
-   itself: it pulls in ctypes/ATen, this generator must stay pure). *)
+(* Graph-input SSA name -> captured payload name, for every inference tensor
+   source. Mirrors lib/interp/interp.ml's mapping (this generator stays pure). *)
 let params_of_signature (sign : GraphSignature.t) : string String_map.t =
   List.fold_left
     (fun acc (spec : InputSpec.t) ->
@@ -126,6 +125,9 @@ let params_of_signature (sign : GraphSignature.t) : string String_map.t =
       | InputSpec.Buffer b ->
           String_map.add b.InputToBufferSpec.arg.name
             b.InputToBufferSpec.buffer_name acc
+      | InputSpec.Tensor_constant c ->
+          String_map.add c.InputToTensorConstantSpec.arg.name
+            c.InputToTensorConstantSpec.tensor_constant_name acc
       | _ -> acc)
     String_map.empty sign.input_specs
 
@@ -134,7 +136,7 @@ let tensor_spec_of archive params tensor_values name :
   match String_map.find_opt name params with
   | Some cfg_name ->
       let* wt =
-        Pt2_archive.load_weight archive cfg_name
+        Pt2_archive.load_captured_tensor archive cfg_name
         |> Core.map_error (fun e -> (e :> error))
       in
       let* dtype = dtype_of_pt2 wt.dtype in

@@ -20,6 +20,15 @@ module Node_id : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* Inference source classification. [Input] is supplied by the caller for each
+   run; [Constant] is model-bound state. Payload lookup belongs to an importer
+   sidecar, not to this generic native IR. *)
+module Input : sig
+  type kind = Input | Constant
+
+  val pp_kind : Format.formatter -> kind -> unit
+end
+
 (* A reference to a produced edge. Edges are single-assignment, so a reference is
    just the producing edge's id. *)
 type tensor_ref = Tensor_id.t
@@ -72,6 +81,8 @@ and Graph : sig
     nodes : Node.t list; (* topo-ordered by construction *)
     tensors : Tensor_sig.t Tensor_id.Map.t; (* metadata for every edge id *)
     inputs : Tensor_id.t list; (* ordered = the graph's signature *)
+    input_kinds : Input.kind Tensor_id.Map.t;
+        (* source classification for every [inputs] entry *)
     outputs : Tensor_id.t list;
   }
 end
@@ -90,5 +101,6 @@ val map_operands : (tensor_ref -> tensor_ref) -> op -> op
    prints graph inputs, every node in topo order, op operands/parameters, and
    outputs; subgraphs are printed recursively under their call site. *)
 val pp : Format.formatter -> graph -> unit
+val input_kind : graph -> Tensor_id.t -> Input.kind
 val op_jsont : op Jsont.t
 val graph_jsont : graph Jsont.t

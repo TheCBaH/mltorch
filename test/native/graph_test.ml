@@ -137,6 +137,31 @@ let%expect_test "Direct graph: sequence add -> relu (with intermediate)" =
     sum = tensor f32 [C=4] {-2, -4, 4, -5}
     out = tensor f32 [C=4] {0, 0, 4, 0} |}]
 
+let%expect_test "Direct graph: captured constant is bound by tensor id" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"captured" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 3) ~name:"x" () in
+          let* weight = constant ~shape:(s1c 3) ~name:"weight" () in
+          add ~name:"out" x weight)
+    in
+    let x = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c + 1)) in
+    let weight = Tensor.materialize (s1c 3) (fun _ -> 10.) in
+    let* env =
+      lift_eval
+        (Eval_direct.run g
+           ~inputs:[ (List.hd g.Graph.inputs, x) ]
+           ~constants:[ (List.nth g.Graph.inputs 1, weight) ])
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result Tensor.pp) result;
+  [%expect {| tensor f32 [C=3] {11, 12, 13} |}]
+
 let%expect_test "Direct graph: add of two inputs" =
   let result =
     let open Core.Syntax in

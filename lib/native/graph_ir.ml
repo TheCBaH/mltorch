@@ -14,6 +14,14 @@ module Node_id = struct
   let pp fmt x = Format.fprintf fmt "n%d" x
 end
 
+module Input = struct
+  type kind = Input | Constant
+
+  let pp_kind fmt = function
+    | Input -> Format.pp_print_string fmt "input"
+    | Constant -> Format.pp_print_string fmt "constant"
+end
+
 type tensor_ref = Tensor_id.t
 
 type 'g gop =
@@ -54,6 +62,7 @@ and Graph : sig
     nodes : Node.t list;
     tensors : Tensor_sig.t Tensor_id.Map.t;
     inputs : Tensor_id.t list;
+    input_kinds : Input.kind Tensor_id.Map.t;
     outputs : Tensor_id.t list;
   }
 end = struct
@@ -62,6 +71,7 @@ end = struct
     nodes : Node.t list;
     tensors : Tensor_sig.t Tensor_id.Map.t;
     inputs : Tensor_id.t list;
+    input_kinds : Input.kind Tensor_id.Map.t;
     outputs : Tensor_id.t list;
   }
 end
@@ -69,6 +79,11 @@ end
 type op = Graph.t gop
 type node = Node.t
 type graph = Graph.t
+
+let input_kind g id =
+  Option.value
+    (Tensor_id.Map.find_opt id g.Graph.input_kinds)
+    ~default:Input.Input
 
 (* Per-op interface. Each op module supplies the name, codec, dataflow accessors
    and printer for its OWN payload; [inject]/[project] (added by the wrappers in
@@ -257,7 +272,12 @@ let pp_op (g : graph) fmt : op -> unit = function
 let pp_graph_header fmt (g : graph) = Fmt.pf fmt "graph %s" g.Graph.name
 
 let pp_graph_inputs fmt (g : graph) =
-  Fmt.pf fmt "@[<hv 2>inputs:@ %a@]" (pp_tensor_defs g) g.Graph.inputs
+  let pp_input fmt id =
+    match input_kind g id with
+    | Input.Input -> pp_tensor_def g fmt id
+    | Input.Constant -> Fmt.pf fmt "%a constant" (pp_tensor_def g) id
+  in
+  Fmt.pf fmt "@[<hv 2>inputs:@ %a@]" (pp_list pp_input) g.Graph.inputs
 
 let pp_graph_outputs fmt (g : graph) =
   Fmt.pf fmt "@[<hv 2>outputs:@ %a@]" (pp_tensor_defs g) g.Graph.outputs
@@ -347,10 +367,24 @@ and dec_graph (json : Jsont.json) : graph =
       (fun m (sg : Tensor_sig.t) -> Tensor_id.Map.add sg.id sg m)
       Tensor_id.Map.empty tensors_list
   in
+  let input_kinds =
+    match Json_util.opt_field ms "input_constants" (Jsont.list Jsont.json) with
+    | None -> Tensor_id.Map.empty
+    | Some constants ->
+        List.fold_left
+          (fun kinds json ->
+            let cms = Json_util.req_obj json "input constant" in
+            let id =
+              Json_util.req_field cms "id" tensor_ref_jsont "input constant"
+            in
+            Tensor_id.Map.add id Input.Constant kinds)
+          Tensor_id.Map.empty constants
+  in
   Graph.
     {
       name = get "name" Jsont.string;
       inputs = get "inputs" (Jsont.list tensor_ref_jsont);
+      input_kinds;
       nodes = get "nodes" (Jsont.list node_codec);
       outputs = get "outputs" (Jsont.list tensor_ref_jsont);
       tensors;
@@ -391,7 +425,16 @@ and enc_graph (g : graph) : Jsont.json =
     Tensor_id.Map.bindings g.Graph.tensors
     |> List.map (fun (_tid, sg) -> Json_util.enc Tensor_sig.jsont sg)
   in
-  Json_util.jobj
+  let constants =
+    List.filter_map
+      (fun id ->
+        match input_kind g id with
+        | Input.Input -> None
+        | Input.Constant ->
+            Some (Json_util.jobj [ ("id", Json_util.enc tensor_ref_jsont id) ]))
+      g.Graph.inputs
+  in
+  let fields =
     [
       ( "inputs",
         Json_util.jarr
@@ -403,6 +446,10 @@ and enc_graph (g : graph) : Jsont.json =
           (List.map (Json_util.enc tensor_ref_jsont) g.Graph.outputs) );
       ("tensors", Json_util.jarr tensors_json);
     ]
+  in
+  Json_util.jobj
+    (if constants = [] then fields
+     else ("input_constants", Json_util.jarr constants) :: fields)
 
 let op_jsont : op Jsont.t =
   Jsont.map ~kind:"op" ~dec:dec_op ~enc:enc_op Jsont.json

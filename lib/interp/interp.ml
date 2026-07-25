@@ -75,9 +75,8 @@ let graph_and_signature archive =
   ( prog.ExportedProgram.graph_module.GraphModule.graph,
     prog.ExportedProgram.graph_module.GraphModule.signature )
 
-(* graph input name -> weight config name, for the [InputSpec] cases backed by
-   a loadable weight ([Parameter]/[Buffer]; every other case is either a user
-   input or not yet supported). *)
+(* graph input name -> captured payload name, for every tensor source the
+   inference runtime can bind before execution. *)
 let param_names (sign : GraphSignature.t) =
   List.fold_left
     (fun params (spec : InputSpec.t) ->
@@ -88,10 +87,13 @@ let param_names (sign : GraphSignature.t) =
       | InputSpec.Buffer b ->
           String_map.add b.InputToBufferSpec.arg.TensorArgument.name
             b.InputToBufferSpec.buffer_name params
+      | InputSpec.Tensor_constant c ->
+          String_map.add c.InputToTensorConstantSpec.arg.TensorArgument.name
+            c.InputToTensorConstantSpec.tensor_constant_name params
       | _ -> params)
     String_map.empty sign.GraphSignature.input_specs
 
-(* Load exactly the parameters/buffers referenced by some node of [g] into
+(* Load exactly the captured tensors referenced by some node of [g] into
    [env], so unused buffers (e.g. the int64 num_batches_tracked) never reach
    the float32 bridge. Names [env] already binds (e.g. user inputs) are left
    untouched. *)
@@ -104,7 +106,7 @@ let load_referenced_params archive (g : Graph.t) (sign : GraphSignature.t) env =
         match String_map.find_opt name params with
         | Some cfg_name ->
             let* weight =
-              Pt2_archive.load_weight archive cfg_name
+              Pt2_archive.load_captured_tensor archive cfg_name
               |> Core.map_error (fun e -> (e :> error))
             in
             Core.return (String_map.add name (Pt2_aten.to_tensor weight) env)

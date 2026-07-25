@@ -10,6 +10,7 @@ type t = {
   zip : Pt2_zip.t;
   program : ExportedProgram.t;
   weights : ModelWeightsConfig.t;
+  constants : ModelWeightsConfig.t;
 }
 
 type error =
@@ -18,7 +19,9 @@ type error =
   | `Read_archive_member of string * Pt2_zip.error
   | `Model_json_decode of string
   | `Weights_config_decode of string
+  | `Constants_config_decode of string
   | `Missing_weight of string
+  | `Missing_captured_tensor of string
   | `Weight_tensor of string * Pt2_tensor.error
   | `Pt_pickle of string * Pt2_pickle.error ]
 
@@ -34,7 +37,12 @@ let pp_error ppf : error -> unit = function
   | `Weights_config_decode msg ->
       Fmt.pf ppf "failed to decode data/weights/model_weights_config.json: %s"
         msg
+  | `Constants_config_decode msg ->
+      Fmt.pf ppf
+        "failed to decode data/constants/model_constants_config.json: %s" msg
   | `Missing_weight name -> Fmt.pf ppf "no weight named %S" name
+  | `Missing_captured_tensor name ->
+      Fmt.pf ppf "no captured tensor named %S" name
   | `Weight_tensor (name, error) ->
       Fmt.pf ppf "invalid tensor metadata for weight %S: %a" name
         Pt2_tensor.pp_error error
@@ -70,23 +78,54 @@ let open_pt2 path =
     | Ok weights -> Core.return weights
     | Error e -> Core.fail (`Weights_config_decode e)
   in
-  Core.return { zip; program; weights }
+  let* constants_data =
+    Pt2_zip.read_rel zip "data/constants/model_constants_config.json"
+    |> Core.map_error (fun error ->
+        `Read_archive_member
+          ("data/constants/model_constants_config.json", error))
+  in
+  let* constants =
+    match constants_data with
+    | None -> Core.return { ModelWeightsConfig.config = String_map.empty }
+    | Some json -> (
+        match Jsont_bytesrw.decode_string ModelWeightsConfig.jsont json with
+        | Ok constants -> Core.return constants
+        | Error e -> Core.fail (`Constants_config_decode e))
+  in
+  Core.return { zip; program; weights; constants }
 
 let program t = t.program
 let weights_config t = t.weights
+let constants_config t = t.constants
 
 (* Names of all parameters/buffers, in config order. *)
 let weight_names t =
   String_map.bindings t.weights.ModelWeightsConfig.config |> List.map fst
 
+let constant_names t =
+  String_map.bindings t.constants.ModelWeightsConfig.config |> List.map fst
+
+let load_entry t ~dir name (e : WeightEntry.t) =
+  let* data = read_member t.zip (dir ^ "/" ^ e.path_name) in
+  Pt2_tensor.of_meta e.tensor_meta ~data:(Bytes.of_string data)
+  |> Core.map_error (fun error -> `Weight_tensor (name, error))
+
 (* Load a parameter/buffer by its config name (e.g. "conv1.weight"). *)
 let load_weight t name =
   match String_map.find_opt name t.weights.ModelWeightsConfig.config with
   | None -> Core.fail (`Missing_weight name)
-  | Some (e : WeightEntry.t) ->
-      let* data = read_member t.zip ("data/weights/" ^ e.path_name) in
-      Pt2_tensor.of_meta e.tensor_meta ~data:(Bytes.of_string data)
-      |> Core.map_error (fun error -> `Weight_tensor (name, error))
+  | Some e -> load_entry t ~dir:"data/weights" name e
+
+(* Resolve a native inference [Constant { target }] across both payload roots.
+   PT2 guarantees the target naming; the archive location is deliberately not
+   part of native IR's inference-only source classification. *)
+let load_captured_tensor t name =
+  match String_map.find_opt name t.weights.ModelWeightsConfig.config with
+  | Some e -> load_entry t ~dir:"data/weights" name e
+  | None -> (
+      match String_map.find_opt name t.constants.ModelWeightsConfig.config with
+      | Some e -> load_entry t ~dir:"data/constants" name e
+      | None -> Core.fail (`Missing_captured_tensor name))
 
 (* Load a standalone `.pt` tensor file (a sample input image, or the archive's
    own data/sample_inputs/model.pt extracted to a path). *)

@@ -10,6 +10,7 @@ end
 
 type t = {
   inputs : (Tensor_id.t * Tensor_sig.t) list;
+  input_kinds : Input.kind Tensor_id.Map.t;
   consts : (Tensor_sig.t * float) list;
   stages : Stage.t list;
   outputs : Tensor_id.t list;

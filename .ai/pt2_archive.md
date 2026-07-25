@@ -40,3 +40,15 @@ used to detect out-of-sync regeneration.
 Current version: `SCHEMA_VERSION = (8, 14)` (major, minor).
 - Major bump = breaking change (field removed or added without default).
 - Minor bump = compatible change (field added with default).
+
+## Inference source binding
+
+`GraphSignature.input_specs` classifies graph placeholders. For native
+inference lowering, `USER_INPUT` remains caller-bound; `PARAMETER`, `BUFFER`,
+and `CONSTANT_TENSOR` all lower to `Constant`. Their targets are resolved
+once across `data/weights/model_weights_config.json` and
+`data/constants/model_constants_config.json`, then reused for every SSA use of
+that placeholder. Target names are importer provenance, not native IR. The
+native IR intentionally does not retain trainability, buffer persistence, or
+mutation semantics. Exact aliasing between separately named payloads is also
+outside this inference-only boundary.

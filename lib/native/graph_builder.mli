@@ -29,6 +29,16 @@ val input :
   unit ->
   Tensor_id.t t
 
+(* A captured, read-only inference tensor. Its model/archive payload association
+   belongs to the importer sidecar, not to the generic native graph. *)
+val constant :
+  shape:Vec6.shape ->
+  ?name:string ->
+  ?fmt:Payload.packed_fmt ->
+  ?quant:Quant.t ->
+  unit ->
+  Tensor_id.t t
+
 (* Typed-operand op constructors: each appends a node and returns its fresh output
    edge. [?name] defaults to "<op>_<output-id>". Omitting an optional operand
    ([?bias], [?weight]) records [None] in the IR; the evaluator fills the
