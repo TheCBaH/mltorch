@@ -111,6 +111,18 @@ let permute_sequence () =
       let* b = permute unrotate_hwc a in
       relu b)
 
+(* Three identity permutes in a row. A pass that only fires on a permute reading
+   a graph input can remove exactly one per sweep, so this is what makes a fixed
+   point observably different from a single sweep. *)
+let permute_identity_chain () =
+  build "permute_identity_chain"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute identity_perm x in
+      let* b = permute identity_perm a in
+      let* c = permute identity_perm b in
+      relu c)
+
 (* Two permutes that compose to something else, which chaining should fuse into
    one node rather than remove. *)
 let permute_pair () =
@@ -187,6 +199,7 @@ let all =
     ("diamond", diamond);
     ("grouped", grouped);
     ("multi_output", multi_output);
+    ("permute_identity_chain", permute_identity_chain);
     ("permute_noop", permute_noop);
     ("permute_pair", permute_pair);
     ("permute_sequence", permute_sequence);

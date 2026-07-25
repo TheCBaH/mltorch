@@ -44,6 +44,7 @@ let%expect_test "validation: a well-formed fixture is accepted" =
     diamond: ok
     grouped: ok
     multi_output: ok
+    permute_identity_chain: ok
     permute_noop: ok
     permute_pair: ok
     permute_sequence: ok

@@ -11,7 +11,8 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — stages 1 to 4 have landed.
+Status: **in progress** — stages 1 to 5 have landed; the framework is complete
+and the transformations built on it are next.
 Each section below carries its own status marker, flipped by the commit that
 implements it; `## 12. Staging` tracks the whole sequence.
 
@@ -269,7 +270,22 @@ and `is_post` is how it tells the two apart.
 
 ## 5. The transform state
 
-Status: **implemented** — `rewrite.ml`; tests in `test/native/rewrite_test.ml`.
+Status: **implemented** — `rewrite.ml` and `pass.ml`; tests in
+`test/native/rewrite_test.ml` and `pass_test.ml`.
+
+The driver sits on top: `Pass.per_node` and `Pass.of_pattern` collect *builders*
+from a sweep, and the driver plans them one after another so their allocations
+are contiguous, merges them, and applies once — so a sweep is a single step with
+a single mapping rather than N steps whose maps the caller would compose.
+`Pass.fixpoint` re-sweeps until nothing changes, composing each iteration into
+the accumulated mapping; exhausting `max_iters` is an error rather than a silent
+stop, because the answer would otherwise depend on the bound.
+
+> **Found while implementing.** `fixpoint`'s accumulator cannot be a
+> `('v,'w) Graph_map.t` — its destination changes every iteration, so `'w` would
+> escape. `Rewrite.step` already packages a state with the map reaching it,
+> existentially, so the accumulator *is* a step and composing into it keeps the
+> caller's view as one mapping from the state handed in to the final graph.
 
 ```ocaml
 type 'v t                                   (* graph + constants + supply + origin watermark *)
@@ -672,7 +688,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 2 | `native: add graph_view and region` | validation, the index, `common_group`, topo sort, `Region`, `test/native/graph_fixtures.ml` | done |
 | 3 | `native: add recipe and rewrite` | the state, `Recipe`, `apply`, `output_transfer` (+ its entry in `native_add_op.md`) | done |
 | 4 | `native: add graph match combinators` | `Pattern`, `run`, `scan` | done |
-| 5 | `native: add pass driver` | `Pass`, `fixpoint`, `run_all` |
+| 5 | `native: add pass driver` | `Pass`, `fixpoint`, `run_all` | done |
 | 6 | `native: add permute simplification passes` | `trim_permute`, `chain_permute`, `reshape_to_permute` |
 | 7 | `native: add constant folding` | `fold_const` — the motivating permute-of-constant-weight case |
 | 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding |
