@@ -469,7 +469,9 @@ let%expect_test "nested subgraph: encode → decode → pretty-print" =
     graph
     inputs: [t0 f32 [C=4], t1 f32 [C=4]]
     nodes:
-      n2: [t6 f32 [C=4]] = subgraph args=[t0, t1]
+      n2: [t6 f32 [C=4]] = subgraph args=[t0
+                                            -> t2, t1
+                                                     -> t3]
         graph
         inputs: [t2 f32 [C=4], t3 f32 [C=4]]
         nodes:
@@ -481,7 +483,9 @@ let%expect_test "nested subgraph: encode → decode → pretty-print" =
     graph
     inputs: [t0 f32 [C=4], t1 f32 [C=4]]
     nodes:
-      n2: [t6 f32 [C=4]] = subgraph args=[t0, t1]
+      n2: [t6 f32 [C=4]] = subgraph args=[t0
+                                            -> t2, t1
+                                                     -> t3]
         graph
         inputs: [t2 f32 [C=4], t3 f32 [C=4]]
         nodes:

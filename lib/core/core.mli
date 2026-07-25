@@ -74,6 +74,7 @@ end
    the error row automatically, so migrated callers stay concise. *)
 module List : sig
   val map : ('a -> ('b, 'e) result) -> 'a list -> ('b list, 'e) result
+  val iter : ('a -> (unit, 'e) result) -> 'a list -> (unit, 'e) result
 
   val fold_left :
     ('acc -> 'a -> ('acc, 'e) result) -> 'acc -> 'a list -> ('acc, 'e) result

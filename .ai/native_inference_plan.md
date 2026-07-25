@@ -108,10 +108,19 @@ the bound `O.*` op.
   checked by the footprint analysis), dequant∘quant elision across fused ops,
   tiled/parallel/vectorized schedules. Tiling legality is validated over `Sym`
   extents (one proof for the whole admissible-shape family).
-- **Phase 5 — graph driver + dynamic shapes.** `Native_interp` dispatching `.pt2`
-  nodes to native ops; seed the `ShapeEnv` from `range_constraints`, `Symint.bind`
-  the concrete input sizes + check guards, then run with fully-static extents.
-  Run resnet18 pure-OCaml, compare to `Interp.run`.
+- **Phase 5 — graph driver + dynamic shapes.** The first implemented slice is
+  `lib/native_interp`: a pure-OCaml static importer that lowers a root PT2 graph
+  to one `Graph_ir.graph`, preserves source SSA metadata and captured payload
+  targets in `Pt2_native_graph`, and covers ResNet-18's convolution, inference
+  batch-norm, ReLU, max-pool-with-indices, add, mean, permute, view, and addmm
+  nodes. Non-trivial PT2 mappings are represented as native `Subgraph` calls:
+  their relayout/decomposition stays grouped under the corresponding PT2 node,
+  while one-to-one mappings remain flat. `Native_interp.run` materialises
+  static float32 PT2 storage (including
+  strides) into native tensors, binds constants through the sidecar, and calls
+  `Eval_direct`; `native_graph print`/`eval` and `native_graph_cram.t` verify
+  lowering of the real archive without the ATen bridge. Dynamic shape guards
+  and a full end-to-end ResNet comparison with `Interp.run` remain next.
 
 ## Non-goals
 

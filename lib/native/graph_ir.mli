@@ -17,7 +17,11 @@ module Node_id : sig
 
   val of_int : int -> t
   val to_int : t -> int
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
+
+  module Map : Map.S with type key = t
 end
 
 (* Inference source classification. [Input] is supplied by the caller for each
@@ -90,6 +94,17 @@ type op = Graph.t gop
 type node = Node.t
 type graph = Graph.t
 
+(* Optional, importer-owned annotations for a human-facing graph dump.  The
+   generic IR deliberately has no names or foreign metadata; callers such as a
+   PT2 importer can render those alongside the stable native ids without
+   changing graph identity or serialisation. *)
+module Printer : sig
+  type t = {
+    tensor : Format.formatter -> Tensor_id.t -> unit;
+    node : Format.formatter -> Node_id.t -> unit;
+  }
+end
+
 (* Generic dataflow view — the only generic accessors needed (evaluation reads the
    typed fields directly). [operands] lists an op's input edges; [map_operands]
    rewrites them (for transform/remap). Both are one exhaustiveness-checked match. *)
@@ -98,7 +113,10 @@ val map_operands : (tensor_ref -> tensor_ref) -> op -> op
 
 (* Deterministic graph dump — used by tests and by bin/native_graph. It
    prints graph inputs, every node in topo order, op operands/parameters, and
-   outputs; subgraphs are printed recursively under their call site. *)
+   outputs; subgraphs are printed recursively under their call site. [pp_with]
+   adds importer-side metadata inline after tensor definitions, node ids, and
+   subgraph argument bindings. *)
+val pp_with : printer:Printer.t -> Format.formatter -> graph -> unit
 val pp : Format.formatter -> graph -> unit
 val input_kind : graph -> Tensor_id.t -> Input.kind
 val op_jsont : op Jsont.t

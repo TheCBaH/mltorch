@@ -11,7 +11,15 @@ module Node_id = struct
 
   let of_int x = x
   let to_int x = x
+  let equal = Int.equal
+  let compare = Int.compare
   let pp fmt x = Format.fprintf fmt "n%d" x
+
+  module Map = Map.Make (struct
+    type nonrec t = t
+
+    let compare = compare
+  end)
 end
 
 module Input = struct
@@ -77,6 +85,13 @@ end
 type op = Graph.t gop
 type node = Node.t
 type graph = Graph.t
+
+module Printer = struct
+  type t = {
+    tensor : Format.formatter -> Tensor_id.t -> unit;
+    node : Format.formatter -> Node_id.t -> unit;
+  }
+end
 
 let input_kind g id =
   Option.value
@@ -238,64 +253,108 @@ let pp_tensor_sig fmt (sg : Tensor_sig.t) =
 let tensor_sig_opt (g : graph) id =
   try Some (Tensor_id.Map.find id g.Graph.tensors) with Not_found -> None
 
-let pp_tensor_ref (g : graph) fmt id =
+let pp_tensor_annotation printer fmt id =
+  match printer with
+  | None -> ()
+  | Some (printer : Printer.t) ->
+      Fmt.pf fmt " @[<h>{%a}@]" (fun fmt () -> printer.tensor fmt id) ()
+
+let pp_node_annotation printer fmt id =
+  match printer with
+  | None -> ()
+  | Some (printer : Printer.t) ->
+      Fmt.pf fmt " @[<h>{%a}@]" (fun fmt () -> printer.node fmt id) ()
+
+let pp_tensor_ref ?printer (g : graph) fmt id =
   match tensor_sig_opt g id with
   | None -> Tensor_id.pp fmt id
-  | Some _ -> Tensor_id.pp fmt id
+  | Some _ ->
+      Fmt.pf fmt "%a%a" Tensor_id.pp id (pp_tensor_annotation printer) id
 
-let pp_tensor_def (g : graph) fmt id =
+let pp_tensor_def ?printer (g : graph) fmt id =
   match tensor_sig_opt g id with
   | None -> Tensor_id.pp fmt id
-  | Some sg -> Fmt.pf fmt "@[<h>%a %a@]" Tensor_id.pp id pp_tensor_sig sg
+  | Some sg ->
+      Fmt.pf fmt "@[<h>%a %a%a@]" Tensor_id.pp id pp_tensor_sig sg
+        (pp_tensor_annotation printer)
+        id
 
-let pp_tensor_defs g = pp_list (pp_tensor_def g)
-let pp_tensor_refs g = pp_list (pp_tensor_ref g)
+let pp_tensor_defs ?printer g = pp_list (pp_tensor_def ?printer g)
+let pp_tensor_refs ?printer g = pp_list (pp_tensor_ref ?printer g)
 
-let pp_op_header g fmt (node : node) =
-  Fmt.pf fmt "@[<h>%a: %a =@]" Node_id.pp node.Node.id (pp_tensor_defs g)
+let pp_op_header ?printer g fmt (node : node) =
+  Fmt.pf fmt "@[<h>%a%a: %a =@]" Node_id.pp node.Node.id
+    (pp_node_annotation printer)
+    node.Node.id
+    (pp_tensor_defs ?printer g)
     node.outputs
 
-let pp_op (g : graph) fmt : op -> unit = function
-  | Subgraph { graph = _; args } ->
-      Fmt.pf fmt "@[<hv 2>subgraph@ args=%a@]" (pp_tensor_refs g) args
-  | Discard { x } -> Fmt.pf fmt "@[<hv 2>discard@ x=%a@]" (pp_tensor_ref g) x
+let pp_subgraph_args ?printer outer sub fmt args =
+  let pp_binding fmt (outer_id, inner_id) =
+    Fmt.pf fmt "@[<v 2>%a@,-> %a@]"
+      (pp_tensor_ref ?printer outer)
+      outer_id
+      (pp_tensor_ref ?printer sub)
+      inner_id
+  in
+  match List.combine args sub.Graph.inputs with
+  | bindings -> pp_list pp_binding fmt bindings
+  | exception Invalid_argument _ -> pp_tensor_refs ?printer outer fmt args
+
+let pp_op ?printer (g : graph) fmt : op -> unit = function
+  | Subgraph { graph; args } ->
+      Fmt.pf fmt "@[<hv 2>subgraph@ args=%a@]"
+        (pp_subgraph_args ?printer g graph)
+        args
+  | Discard { x } ->
+      Fmt.pf fmt "@[<hv 2>discard@ x=%a@]" (pp_tensor_ref ?printer g) x
   | op ->
-      let pp_ref = pp_tensor_ref g in
+      let pp_ref = pp_tensor_ref ?printer g in
       registry_pick (fun (module M : OP) ->
           Option.map (fun t -> M.pp pp_ref fmt t) (M.project op))
 
 let pp_graph_header fmt (_g : graph) = Fmt.pf fmt "graph"
 
-let pp_graph_inputs fmt (g : graph) =
+let pp_graph_inputs ?printer fmt (g : graph) =
   let pp_input fmt id =
     match input_kind g id with
-    | Input.Input -> pp_tensor_def g fmt id
-    | Input.Constant -> Fmt.pf fmt "%a constant" (pp_tensor_def g) id
+    | Input.Input -> pp_tensor_def ?printer g fmt id
+    | Input.Constant -> Fmt.pf fmt "%a constant" (pp_tensor_def ?printer g) id
   in
   Fmt.pf fmt "@[<hv 2>inputs:@ %a@]" (pp_list pp_input) g.Graph.inputs
 
-let pp_graph_outputs fmt (g : graph) =
-  Fmt.pf fmt "@[<hv 2>outputs:@ %a@]" (pp_tensor_defs g) g.Graph.outputs
+let pp_graph_outputs ?printer fmt (g : graph) =
+  Fmt.pf fmt "@[<hv 2>outputs:@ %a@]"
+    (pp_tensor_defs ?printer g)
+    g.Graph.outputs
 
-let pp_node_header g fmt node =
-  Fmt.pf fmt "@[<hv 2>%a@ %a@]" (pp_op_header g) node (pp_op g) node.Node.op
+let pp_node_header ?printer g fmt node =
+  Fmt.pf fmt "@[<hv 2>%a@ %a@]" (pp_op_header ?printer g) node
+    (pp_op ?printer g) node.Node.op
 
-let rec pp_graph fmt (g : graph) =
-  Fmt.pf fmt "@[<v>%a@,%a@,%a@,%a@]" pp_graph_header g pp_graph_inputs g
-    (pp_nodes g) g.Graph.nodes pp_graph_outputs g
+let rec pp_graph ?printer fmt (g : graph) =
+  Fmt.pf fmt "@[<v>%a@,%a@,%a@,%a@]" pp_graph_header g
+    (pp_graph_inputs ?printer) g (pp_nodes ?printer g) g.Graph.nodes
+    (pp_graph_outputs ?printer)
+    g
 
-and pp_nodes g fmt = function
+and pp_nodes ?printer g fmt = function
   | [] -> Fmt.pf fmt "nodes: []"
   | nodes ->
-      Fmt.pf fmt "@[<v 2>nodes:@,%a@]" (Fmt.list ~sep:Fmt.cut (pp_node g)) nodes
+      Fmt.pf fmt "@[<v 2>nodes:@,%a@]"
+        (Fmt.list ~sep:Fmt.cut (pp_node ?printer g))
+        nodes
 
-and pp_node g fmt node =
+and pp_node ?printer g fmt node =
   match node.Node.op with
   | Subgraph { graph; _ } ->
-      Fmt.pf fmt "@[<v 2>%a@,%a@]" (pp_node_header g) node pp_graph graph
-  | _ -> pp_node_header g fmt node
+      Fmt.pf fmt "@[<v 2>%a@,%a@]"
+        (pp_node_header ?printer g)
+        node (pp_graph ?printer) graph
+  | _ -> pp_node_header ?printer g fmt node
 
-let pp = pp_graph
+let pp_with ~printer = pp_graph ~printer
+let pp fmt graph = pp_graph fmt graph
 
 (* ---- JSON codecs ---------------------------------------------------------- *)
 (* op → node → graph is a mutually recursive type, so the encode/decode

@@ -747,3 +747,60 @@ let%expect_test "dispatch: view.default contiguous reshape (no permute)" =
       n0: [t1 f32 [W=3 C=2]] = reshape x=t0 params={shape=[W=3 C=2]}
     outputs: [t1 f32 [W=3 C=2]]
     tensor f32 [W=3 C=2] {0, 1, 2, 3, 4, 5} |}]
+
+let%expect_test "PT2 provenance: native ids map to qualified source origins" =
+  let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2 in
+  let graph =
+    match
+      Graph_builder.(
+        build ~name:"ignored" ~outputs:(fun r -> [ r ])
+        @@
+        let* x = input ~shape () in
+        let* weight = constant ~shape () in
+        add x weight)
+    with
+    | Ok graph -> graph
+    | Error _ -> assert false
+  in
+  let weight = List.nth graph.Graph_ir.Graph.inputs 1 in
+  let node = List.hd graph.Graph_ir.Graph.nodes in
+  let tensor_origins =
+    Graph_ir.Tensor_id.Map.singleton weight
+      (Pt2_native_graph.Source
+         {
+           Pt2_native_graph.Tensor_origin.graph_path = [ 4; 2 ];
+           ssa_name = "p_layer_weight";
+           meta = None;
+         })
+  in
+  let node_origins =
+    Graph_ir.Node_id.Map.singleton node.Graph_ir.Node.id
+      [
+        {
+          Pt2_native_graph.Node_origin.graph_path =
+            Pt2_native_graph.Graph_path.root;
+          index = 7;
+          target = "torch.ops.aten.add.Tensor";
+          name = Some "add";
+          metadata = Schema_runtime.String_map.empty;
+        };
+      ]
+  in
+  match
+    Pt2_native_graph.make ~graph ~tensor_origins ~node_origins
+      ~captured_targets:(Graph_ir.Tensor_id.Map.singleton weight "layer.weight")
+  with
+  | Error _ -> print_endline "unexpected error"
+  | Ok provenance ->
+      let origin =
+        Graph_ir.Tensor_id.Map.find weight provenance.tensor_origins
+      in
+      (match origin with
+      | Pt2_native_graph.Source { graph_path; ssa_name; _ } ->
+          Format.printf "tensor=t%d path=%a name=%s target=%s@."
+            (Graph_ir.Tensor_id.to_int weight)
+            Pt2_native_graph.Graph_path.pp graph_path ssa_name
+            (Graph_ir.Tensor_id.Map.find weight provenance.captured_targets)
+      | Derived -> assert false);
+      [%expect
+        {| tensor=t1 path=root/4/2 name=p_layer_weight target=layer.weight |}]

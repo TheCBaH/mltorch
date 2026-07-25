@@ -124,37 +124,20 @@ Op-config params (`kernel`/`stride`/`pad` → `Op_config.Hw`/`Pos`/`Nonneg`) are
 validated at the boundary with `try … with Invalid_argument` so bad args become
 `Some (Error msg)` instead of an uncaught exception.
 
-## Whole-graph print: `bin/native_graph print` (`lib/native_graph`)
+## Whole-graph import: `bin/native_graph print` / `eval`
 
-`bin/native_graph` is a general-purpose, cmdliner-based CLI for the native
-engine's graph representation, meant to grow more subcommands over time. Its
-first subcommand, `print`, walks every node of a real `.pt2` model's exported
-graph (in program order) and, for each one, prints `Op_bridge.dispatch`'s
-native translation via `Graph_ir.pp` — i.e. this table's "implemented" ops
-rendered node-by-node across a whole real model, not just the hand-built
-single-node graphs in `test/native_bridge_test.ml`. The model is sourced via
-`--pt2 MODEL.pt2` (an option, not a bare positional, so other graph sources
-can land as sibling options later); `-v`/`--verbose` additionally prints each
-node's source ATen target/name before its translated graph — without it, only
-the translated graphs themselves print, with no conversion narration.
+`native_graph` now uses the pure `Native_interp` importer rather than the
+ATen `Op_bridge` report. `print --pt2 MODEL.pt2` lowers the root exported graph
+to one `Graph_ir.graph`, then prints its complete structure with each tensor
+definition/reference and node id annotated inline by PT2 graph path, SSA name,
+target, and captured payload target where applicable. Nested calls print their
+positional wiring explicitly as `parent_arg -> subgraph_input` so a source such
+as a captured weight can be traced to its inner use. `Graph_ir.pp_with
+~printer` accepts generic `Printer.t` callbacks, so the native IR remains
+name-free while PT2 diagnostics remain human-identifiable.
 
-It does not stitch the per-node graphs into one combined `Graph_ir.graph`:
-each node gets its own independent relayout graph (as `Op_bridge` already
-returns), printed in sequence, labeled (under `--verbose`) by the node's ATen
-target. Graph inputs are synthesized (uninitialised, correctly shaped/typed,
-from the exported graph's own `tensor_values` metadata) rather than loaded
-from a real sample image — only shapes need to flow through the conversion.
-Parameters/buffers are still loaded for real via
-`Interp.load_referenced_params` (extracted from `Interp.run` for this reuse),
-since relayout reads their actual shapes.
-
-The walk stops at the first node whose target has no `Op_bridge` mapping or
-whose decode/shape-validation fails — a coverage report, not a best-effort
-partial dump. `test/native_graph_cram.t` pins `native_graph print --verbose`'s
-full output over resnet18 — every converted node's ATen target/name and its
-translated native graph, in program order. resnet18 now converts **every node
-end to end** — the whole graph, ending at the fc `addmm`, with no unsupported
-op or conversion failure. (Reaching `addmm` required `Tensor_bridge.of_aten`
-to materialize the non-contiguous transposed fc weight; it now does, via
-ATen's `contiguous`.) The cram is gated on `PT2_DATA` like the other
-real-model crams (`make pt2.runtest`).
+`eval --pt2 MODEL.pt2 --input INPUT.pt` uses that same import and sidecar to
+load the single user input and every captured parameter/buffer, then runs
+`Eval_direct`. The current static float32 implementation targets the ResNet-18
+operator set and does not yet enforce dynamic-shape guards. The ResNet cram is
+gated on `PT2_DATA` like the other real-model crams (`make pt2.runtest`).

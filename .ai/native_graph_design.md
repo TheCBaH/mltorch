@@ -77,6 +77,13 @@ Design decisions:
   graph structure is identified only by deterministic node/tensor ids.
   Importer-facing names and paths belong in a provenance sidecar, not the
   execution IR.
+- **PT2 provenance is a wrapper, not an IR field.** `Pt2_native_graph.t` pairs
+  a native graph with qualified PT2 origins: tensor origins are
+  `(graph_path, SSA name, TensorMeta)`, node origins are `(graph_path, node
+  index, target, optional FX name, metadata)`, and constant tensor ids map to
+  archive payload targets. One native node may carry several PT2 origins and a
+  tensor may be `Derived`, so relayout/decomposition/fusion does not require
+  fabricating source identities.
 - **Inference inputs are kinded.** Every id in `Graph.inputs` has an
   `Input.kind`: `Input` is supplied by the caller for each run, while
   `Constant` is captured model state supplied by the model/archive loader.
@@ -92,6 +99,12 @@ Design decisions:
   positionally to its ordered `inputs`
   (function-application convention). A registry (sharing one definition across
   call sites) is a possible transform-era addition, not needed now.
+  The PT2 importer uses this directly for a non-trivial one-to-many mapping
+  (such as NCHW/NHWC relayout around convolution): the parent `Subgraph` node
+  carries the PT2 provenance, while its nested native implementation remains
+  inspectable as one unit. The graph printer renders each invocation binding
+  explicitly as `parent_arg -> subgraph_input`, not merely as two positional
+  lists, so a captured source tensor can be followed to its inner use.
 
 ## 2. The builder (`graph_builder.ml`) — a state monad
 

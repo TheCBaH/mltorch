@@ -79,6 +79,10 @@ module List = struct
         | Ok y -> (
             match map f xs with Error e -> Error e | Ok ys -> Ok (y :: ys)))
 
+  let rec iter f = function
+    | [] -> Ok ()
+    | x :: xs -> ( match f x with Error e -> Error e | Ok () -> iter f xs)
+
   let rec fold_left f acc = function
     | [] -> Ok acc
     | x :: xs -> (

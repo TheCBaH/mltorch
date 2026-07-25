@@ -59,6 +59,7 @@
  (libraries
   aten
   native
+  native_graph
   native_aten_bridge
   aten_native_verify
   aten_config
@@ -719,10 +720,9 @@
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
-; Convert resnet18's real exported graph to the native engine's Graph_ir node
-; by node (`native_graph print --verbose`, see
-; .ai/native_aten_bridge_layout.md); pins every node's translated native graph
-; end to end, alongside the ATen node that produced it.
+; Import resnet18's real exported graph as one pure native Graph_ir plus its
+; PT2 provenance sidecar (`native_graph print`; see
+; .ai/native_aten_bridge_layout.md).
 
 (cram
  (applies_to native_graph_cram)
