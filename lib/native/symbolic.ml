@@ -37,6 +37,13 @@ module Make () = struct
   let value_of_index x = Expr.Value_of_index x
   let load s (v : Expr.index_expr Vec6.t) = Expr.Load (s, v)
   let load6 s ~n ~t ~d ~h ~w ~c = Expr.Load (s, Vec6.make ~n ~t ~d ~h ~w ~c)
+
+  let max_pool2d input ~x_shape:_ ~kernel ~stride ~pad out =
+    Expr.Max_pool { input; kernel; stride; pad; out; result = Value }
+
+  let max_pool2d_index input ~x_shape:_ ~kernel ~stride ~pad out =
+    Expr.Max_pool { input; kernel; stride; pad; out; result = Index }
+
   let c = ref 0
 
   let sum ~lo ~hi f =

@@ -71,6 +71,72 @@ let load inp (v : Semantics.position index Vec6.t) =
 
 let load6 inp ~n ~t ~d ~h ~w ~c = Tensor.read_at6 inp ~n ~t ~d ~h ~w ~c
 
+let pool_bounds ~out ~kernel ~stride ~pad ~extent =
+  let start = (out * stride) - pad in
+  (Stdlib.max 0 start, Stdlib.min extent (start + kernel))
+
+let max_pool2d inp ~(x_shape : Vec6.shape)
+    ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
+    ~(stride : Op_config.Pos.t Op_config.Hw.t)
+    ~(pad : Op_config.Nonneg.t Op_config.Hw.t)
+    (out : Semantics.position index Vec6.t) =
+  let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.w :> int)) in
+  let sh, sw = ((stride.Op_config.Hw.h :> int), (stride.w :> int)) in
+  let ph, pw = ((pad.Op_config.Hw.h :> int), (pad.w :> int)) in
+  let h, w =
+    ((Vec6.get x_shape Axis.H :> int), (Vec6.get x_shape Axis.W :> int))
+  in
+  let hlo, hhi =
+    pool_bounds ~out:(out.Vec6.h :> int) ~kernel:kh ~stride:sh ~pad:ph ~extent:h
+  in
+  let wlo, whi =
+    pool_bounds ~out:(out.Vec6.w :> int) ~kernel:kw ~stride:sw ~pad:pw ~extent:w
+  in
+  let rec loop_w ih iw best =
+    if iw >= whi then loop_h (ih + 1) best
+    else
+      let v =
+        load6 inp ~n:out.n ~t:out.t ~d:out.d ~h:(Dim.index ih) ~w:(Dim.index iw)
+          ~c:out.c
+      in
+      loop_w ih (iw + 1) (Float.max best v)
+  and loop_h ih best = if ih >= hhi then best else loop_w ih wlo best in
+  loop_h hlo neg_infinity
+
+let max_pool2d_index inp ~(x_shape : Vec6.shape)
+    ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
+    ~(stride : Op_config.Pos.t Op_config.Hw.t)
+    ~(pad : Op_config.Nonneg.t Op_config.Hw.t)
+    (out : Semantics.position index Vec6.t) =
+  let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.w :> int)) in
+  let sh, sw = ((stride.Op_config.Hw.h :> int), (stride.w :> int)) in
+  let ph, pw = ((pad.Op_config.Hw.h :> int), (pad.w :> int)) in
+  let h, w =
+    ((Vec6.get x_shape Axis.H :> int), (Vec6.get x_shape Axis.W :> int))
+  in
+  let hlo, hhi =
+    pool_bounds ~out:(out.Vec6.h :> int) ~kernel:kh ~stride:sh ~pad:ph ~extent:h
+  in
+  let wlo, whi =
+    pool_bounds ~out:(out.Vec6.w :> int) ~kernel:kw ~stride:sw ~pad:pw ~extent:w
+  in
+  let rec loop_w ih iw best best_index =
+    if iw >= whi then loop_h (ih + 1) best best_index
+    else
+      let v =
+        load6 inp ~n:out.n ~t:out.t ~d:out.d ~h:(Dim.index ih) ~w:(Dim.index iw)
+          ~c:out.c
+      in
+      (* Strict comparison preserves the first (smallest flat) index on ties. *)
+      let best, best_index =
+        if v > best then (v, (ih * w) + iw) else (best, best_index)
+      in
+      loop_w ih (iw + 1) best best_index
+  and loop_h ih best best_index =
+    if ih >= hhi then best_index else loop_w ih wlo best best_index
+  in
+  float_of_int (loop_h hlo neg_infinity 0)
+
 let sum ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
     (f : Semantics.position index -> t) =
   let rec loop (i : Semantics.position index) acc =

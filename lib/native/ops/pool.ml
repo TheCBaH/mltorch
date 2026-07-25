@@ -5,14 +5,10 @@
    stride=2, pad=1, dilation=1, ceil_mode=false, and nothing else needs more
    yet.
 
-   Both share [Window_axis] with conv: the kh/kw reduction bounds are clipped
-   to exactly the kernel offsets whose source position lands inside the
-   input, so the position [load] reads is always valid by construction. For
-   [MaxPool2d] this isn't just convenient — it's required for correctness: a
-   guarded-read-returns-0 fallback for the padding region (as a naive [load]
-   would do) would be wrong for [max_reduce] over real, possibly-negative data,
-   where 0 is not a safe stand-in for "no value here." See
-   .ai/native_compute_design.md §4. *)
+   The semantic pool primitives clip the window to the input directly. For
+   [MaxPool2d] this is required for correctness: padding must not contribute 0
+   and beat a real, negative activation. Symbolic semantics retain max-pool
+   windows as one expression node. See .ai/native_compute_design.md. *)
 
 (* Pooling output shape, shared by both pools (their [params] are field-
    compatible): N/T/D/C pass through from [x_shape] unchanged (pooling never
@@ -112,10 +108,7 @@ module Window_cfg (L : Walk_core.Limits.S) = struct
 end
 
 module MaxPool2d = struct
-  (* Matches ATen's `max_pool2d` (the value output only; `max_pool2d_with_indices`
-     — what resnet18's graph actually calls — also returns the argmax indices
-     for backprop, not modeled here: this engine is inference-only, the
-     indices output is unused in eval mode). *)
+  (* Matches ATen's `max_pool2d` value-only overload. *)
 
   (* Same field shape as [Conv2d.params] minus [in_channels] (pooling never
      reduces over channels). See .ai/native_op_config.md, which already
@@ -182,23 +175,9 @@ module MaxPool2d = struct
     window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
 
   module Compute (S : Semantics.SEMANTICS) = struct
-    module Wa = Window_axis.Compute (S)
-
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
-      let wh =
-        Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad_before:p.pad.h
-          ~dilation:(Op_config.Pos.of_int 1)
-          ~in_extent:(Vec6.get x_shape Axis.H) (Vec6.get out Axis.H)
-      in
-      let ww =
-        Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad_before:p.pad.w
-          ~dilation:(Op_config.Pos.of_int 1)
-          ~in_extent:(Vec6.get x_shape Axis.W) (Vec6.get out Axis.W)
-      in
-      S.max_reduce ~lo:wh.lo ~hi:wh.hi (fun kh ->
-          S.max_reduce ~lo:ww.lo ~hi:ww.hi (fun kw ->
-              S.load x (out |> Vec6.set_h (wh.src kh) |> Vec6.set_w (ww.src kw))))
+      S.max_pool2d x ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad out
   end
 end
 
@@ -253,55 +232,16 @@ module MaxPool2dWithIndices = struct
     window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
 
   module Compute (S : Semantics.SEMANTICS) = struct
-    module Wa = Window_axis.Compute (S)
-
-    let windows (p : params) ~(x_shape : Vec6.shape) out =
-      let wh =
-        Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad_before:p.pad.h
-          ~dilation:(Op_config.Pos.of_int 1)
-          ~in_extent:(Vec6.get x_shape Axis.H) (Vec6.get out Axis.H)
-      in
-      let ww =
-        Wa.window ~kernel:p.kernel.w ~stride:p.stride.w ~pad_before:p.pad.w
-          ~dilation:(Op_config.Pos.of_int 1)
-          ~in_extent:(Vec6.get x_shape Axis.W) (Vec6.get out Axis.W)
-      in
-      (wh, ww)
-
-    (* out0: the windowed max (identical to [MaxPool2d]). *)
     let value_pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
-      let wh, ww = windows p ~x_shape out in
-      S.max_reduce ~lo:wh.lo ~hi:wh.hi (fun kh ->
-          S.max_reduce ~lo:ww.lo ~hi:ww.hi (fun kw ->
-              S.load x (out |> Vec6.set_h (wh.src kh) |> Vec6.set_w (ww.src kw))))
+      S.max_pool2d x ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad out
 
-    (* out1: the flat input-plane index [ih*in_W + iw] of the max. Take the
-       minimum flat index over window positions whose value equals the max;
-       non-max positions are excluded with +inf, and min is computed as
-       [-max_reduce (-cand)] (there is no min_reduce primitive). *)
+    (* out1: the flat input-plane index [ih*in_W + iw] of the max. The semantic
+       primitive resolves ties to the smallest flat index. *)
     let index_pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
-      let wh, ww = windows p ~x_shape out in
-      let in_w = (Vec6.get x_shape Axis.W :> int) in
-      let m = value_pixel p ~x_shape ~x out in
-      let neg_min =
-        S.max_reduce ~lo:wh.lo ~hi:wh.hi (fun kh ->
-            S.max_reduce ~lo:ww.lo ~hi:ww.hi (fun kw ->
-                let ih = wh.src kh and iw = ww.src kw in
-                let flat =
-                  S.index_add
-                    (S.index_scale in_w (S.of_index ih))
-                    (S.of_index iw)
-                in
-                let v = S.load x (out |> Vec6.set_h ih |> Vec6.set_w iw) in
-                let cand =
-                  S.select (S.lt v m) (S.const Float.infinity)
-                    (S.value_of_index flat)
-                in
-                S.sub (S.const 0.) cand))
-      in
-      S.sub (S.const 0.) neg_min
+      S.max_pool2d_index x ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
+        out
   end
 end
 
@@ -378,10 +318,9 @@ module AvgPool2d = struct
     window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
 
   module Compute (S : Semantics.SEMANTICS) = struct
-    module Wa = Window_axis.Compute (S)
-
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
+      let module Wa = Window_axis.Compute (S) in
       let wh =
         Wa.window ~kernel:p.kernel.h ~stride:p.stride.h ~pad_before:p.pad.h
           ~dilation:(Op_config.Pos.of_int 1)

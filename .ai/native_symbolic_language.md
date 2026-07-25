@@ -323,3 +323,16 @@ decision can never disagree with the actual computation.
   axis is flagged untileable unless the `ShapeEnv` declares an upper bound. Gather's
   data-dependent footprint and unbacked sizes are the same phenomenon at index vs
   size level.
+
+## Compact pool stencils
+
+The value IR has an opaque `Max_pool` node. Its namespaced descriptor record
+holds an input `Tensor_sig`, fixed kernel/stride/padding, symbolic output
+coordinate, and `Value` or `Index` result kind. The configuration retains the
+validated domain types (`Dim.extent`, `Op_config.Pos`, and `Op_config.Nonneg`),
+rather than untyped integers. The geometry is retained rather than expanded
+into nested generic reductions, letting a footprint pass recognize the clipped
+2D stencil directly. Max-index evaluation chooses the first (smallest flattened
+input-plane) index on ties. `AvgPool2d` remains a generic clipped sum and
+divide: unlike max pooling, it has neither a padding-as-zero hazard nor an
+index-output contract.

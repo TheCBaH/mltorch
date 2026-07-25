@@ -65,13 +65,11 @@ metadata. There are two shapes of deadness, handled differently by the bridge:
   computation) and routes it into a `Discard` node, so the op keeps its full
   two-output arity while the edge is explicitly marked dead.
 
-  The argmax needs an index carried into the value domain, which the abstract
-  `Semantics` deliberately separates from indices (`load` was the only bridge).
-  So one minimal primitive was added — `value_of_index : delta index -> t`
-  (Direct: `float_of_int`; Symbolic: an `Expr.Value_of_index` node). The index
-  pixel takes, over each window, the minimum flat index `ih*in_W + iw` among
-  positions whose value equals the max (non-max positions excluded with `+inf`;
-  min via `-max_reduce(-·)`, since there is no `min_reduce`).
+  Pool values and indices are now separate compact symbolic `Max_pool` nodes,
+  both retaining the same input signature and window geometry. The index node
+  directly evaluates the clipped window and chooses the smallest flattened
+  `ih*in_W + iw` among tied maxima. Unlike max pooling, `avg_pool2d` remains a
+  single-output operation: ATen provides no average-pool index tensor.
 
 ## 4. ATen-vs-native verification of dropped outputs
 

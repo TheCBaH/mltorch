@@ -521,3 +521,19 @@ difference is the dispatch target and that tensors are native `packed` values.
   over sampled coords — equivalence of the two instantiations.
 - **Phase 4 (codegen):** fused-vs-unfused agreement; dequant/quant-elision keeps
   results within one quantum of the dequant-to-float path.
+
+## Compact symbolic pool primitives
+
+`MaxPool2d` and `MaxPool2dWithIndices` use dedicated scalar semantic operations
+in symbolic mode, rather than nested generic `Reduce` expressions. Each node
+retains its input signature, kernel/stride/padding, and symbolic output
+coordinate. This exposes a clipped fixed-window 2D stencil footprint directly
+to future lowering and footprint analysis.
+
+Direct evaluation loops over that clipped window. Max pooling excludes padded
+positions (so padding cannot win against negative activations), and its index
+output chooses the smallest flattened `ih * input_width + iw` on ties. Average
+pooling remains the generic clipped-sum/divide expression because it has no
+index output or max-padding hazard. It keeps the supported ATen-default subset:
+`count_include_pad=true`, `divisor_override=None`, no dilation, and
+`ceil_mode=false`; it has one value output and divides by the full kernel area.

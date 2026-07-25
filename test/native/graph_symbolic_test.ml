@@ -260,6 +260,7 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
           max_pool2d_with_indices mp_params x)
     in
     let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
     let x =
       Tensor.materialize (s 1 1 1 4 4 1) (fun c ->
           float_of_int
@@ -288,6 +289,10 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
   | Error e -> Format.printf "%a@." pp_error e.Core.Error.kind);
   [%expect
     {|
+    inputs: x
+    max_pool2d_with_indices_1 = max_pool2d_value(x; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C])
+    max_pool2d_with_indices_idx_2 = max_pool2d_index(x; k=2x2 s=2x2 p=0x0; out=[N,T,D,H,W,C])
+    outputs: max_pool2d_with_indices_1, max_pool2d_with_indices_idx_2
     tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true
     tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true |}]
 

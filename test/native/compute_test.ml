@@ -288,6 +288,28 @@ let%expect_test "Direct: max_pool2d_with_indices 2x2 stride 2 — values + argma
     values:  tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}
     indices: tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15} |}]
 
+let%expect_test
+    "Direct: max_pool2d_with_indices ties choose smallest flat index" =
+  let module M = Pool.MaxPool2dWithIndices.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let x = Tensor.materialize x_shape (fun _ -> 7.) in
+  let p =
+    {
+      Pool.MaxPool2d.kernel =
+        Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      stride =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
+      pad =
+        Op_config.Hw.
+          { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pool.MaxPool2dWithIndices.output_shape ~x_shape p)
+       (M.index_pixel p ~x_shape ~x));
+  [%expect {| tensor f32 [C=1] {0} |}]
+
 let%expect_test "Direct: reshape [H=2 W=3 C=1] -> [W=3 C=2] (contiguous)" =
   let module R = Reshape.Reshape.Compute (Direct) in
   (* row-major elements 0..5; a contiguous reshape reinterprets the same flat

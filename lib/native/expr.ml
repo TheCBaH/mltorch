@@ -23,6 +23,22 @@ type index_expr =
       index_expr * index_expr (* clamp a windowed reduction's bounds in-range *)
   | Index_min of index_expr * index_expr
 
+(* Pooling is a stencil primitive, not a pair of generic reductions.  Keeping
+   the signature, fixed geometry, and output coordinate together makes the
+   dependency explicit for later code generation and footprint analysis. *)
+module Max_pool = struct
+  type result = Value | Index
+
+  type t = {
+    input : Tensor_sig.t;
+    kernel : Dim.extent Dim.t Op_config.Hw.t;
+    stride : Op_config.Pos.t Op_config.Hw.t;
+    pad : Op_config.Nonneg.t Op_config.Hw.t;
+    out : index_expr Vec6.t;
+    result : result;
+  }
+end
+
 (* [bool_expr] is the boolean domain ([Symbolic.b]); it only appears as a [Select]
    guard, never as a standalone value — hence no [Bool] value constructor. *)
 type bool_expr =
@@ -38,6 +54,7 @@ and t =
     (* an index carried into the value domain (its ordinal as a float) — the
        one bridge besides [Load]; needed by argmax (max_pool2d_with_indices) *)
   | Load of Tensor_sig.t * index_expr Vec6.t (* one sub-expression per axis *)
+  | Max_pool of Max_pool.t
   | Reduce of {
       kind : reduction_kind;
       var : int;
@@ -70,6 +87,15 @@ let rec pp_index_expr fmt = function
 let pp_index_vec fmt (v : index_expr Vec6.t) =
   Fmt.list ~sep:(Fmt.any ",") pp_index_expr fmt (List.map (Vec6.get v) Axis.all)
 
+let pp_pool_config fmt
+    ( (kernel : Dim.extent Dim.t Op_config.Hw.t),
+      (stride : Op_config.Pos.t Op_config.Hw.t),
+      (pad : Op_config.Nonneg.t Op_config.Hw.t) ) =
+  let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.w :> int))
+  and sh, sw = ((stride.Op_config.Hw.h :> int), (stride.w :> int))
+  and ph, pw = ((pad.Op_config.Hw.h :> int), (pad.w :> int)) in
+  Fmt.pf fmt "k=%dx%d s=%dx%d p=%dx%d" kh kw sh sw ph pw
+
 let rec pp fmt = function
   | Const x -> Fmt.float fmt x
   | Binary (op, a, b) -> Fmt.pf fmt "(%a %s %a)" pp a (binary_op_sym op) pp b
@@ -77,6 +103,11 @@ let rec pp fmt = function
   | Select (c, a, b) -> Fmt.pf fmt "select(%a, %a, %a)" pp_bool_expr c pp a pp b
   | Value_of_index i -> Fmt.pf fmt "value_of_index(%a)" pp_index_expr i
   | Load (s, index) -> Fmt.pf fmt "%a[%a]" Tensor_sig.pp s pp_index_vec index
+  | Max_pool { input; kernel; stride; pad; out; result } ->
+      Fmt.pf fmt "max_pool2d_%s(%a; %a; out=[%a])"
+        (match result with Value -> "value" | Index -> "index")
+        Tensor_sig.pp input pp_pool_config (kernel, stride, pad) pp_index_vec
+        out
   | Reduce { kind; var; lo; hi; body } ->
       Fmt.pf fmt "%s(r%d=%a..%a: %a)" (reduction_kind_name kind) var
         pp_index_expr lo pp_index_expr hi pp body
@@ -143,6 +174,37 @@ and eval ~binding ~coord ?(rvars = []) e =
   | Load (s, index) ->
       Tensor.read_at_raw (binding s) (fun a ->
           eval_index_expr ~coord ~rvars (Vec6.get index a))
+  | Max_pool { input; kernel; stride; pad; out; result } -> (
+      let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.w :> int))
+      and sh, sw = ((stride.Op_config.Hw.h :> int), (stride.w :> int))
+      and ph, pw = ((pad.Op_config.Hw.h :> int), (pad.w :> int)) in
+      let out_h = eval_index_expr ~coord ~rvars out.h
+      and out_w = eval_index_expr ~coord ~rvars out.w in
+      let x = binding input in
+      let h = (Vec6.get input.shape Axis.H :> int)
+      and w = (Vec6.get input.shape Axis.W :> int) in
+      let hlo = Stdlib.max 0 ((out_h * sh) - ph)
+      and hhi = Stdlib.min h ((out_h * sh) - ph + kh) in
+      let wlo = Stdlib.max 0 ((out_w * sw) - pw)
+      and whi = Stdlib.min w ((out_w * sw) - pw + kw) in
+      let rec loop_w ih iw best best_index =
+        if iw >= whi then loop_h (ih + 1) best best_index
+        else
+          let v =
+            Tensor.read_at_raw x (fun a ->
+                if a = Axis.H then ih
+                else if a = Axis.W then iw
+                else eval_index_expr ~coord ~rvars (Vec6.get out a))
+          in
+          let best, best_index =
+            if v > best then (v, (ih * w) + iw) else (best, best_index)
+          in
+          loop_w ih (iw + 1) best best_index
+      and loop_h ih best best_index =
+        if ih >= hhi then (best, best_index) else loop_w ih wlo best best_index
+      in
+      let best, best_index = loop_h hlo neg_infinity 0 in
+      match result with Value -> best | Index -> float_of_int best_index)
   | Reduce { kind; var; lo; hi; body } ->
       let combine, init =
         match kind with

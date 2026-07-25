@@ -147,6 +147,8 @@ let%expect_test
     }
   in
   let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
+  Format.printf "%a@." Expr.pp e;
+  [%expect {| max_pool2d_value(x; k=2x2 s=1x1 p=1x1; out=[N,T,D,H,W,C]) |}];
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else assert false in
   Format.printf "%a@." (pp_result pp_eval_result)
     (compare_symbolic (Pool.MaxPool2d.output_shape ~x_shape p)

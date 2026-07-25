@@ -91,6 +91,27 @@ module type SEMANTICS = sig
     c:position index ->
     t
 
+  (* Fixed-window pool primitives.  These stay scalar operations so symbolic
+     semantics can retain the complete window geometry in one expression node
+     rather than expanding it into nested generic reductions. *)
+  val max_pool2d :
+    input ->
+    x_shape:Vec6.shape ->
+    kernel:Dim.extent Dim.t Op_config.Hw.t ->
+    stride:Op_config.Pos.t Op_config.Hw.t ->
+    pad:Op_config.Nonneg.t Op_config.Hw.t ->
+    position index Vec6.t ->
+    t
+
+  val max_pool2d_index :
+    input ->
+    x_shape:Vec6.shape ->
+    kernel:Dim.extent Dim.t Op_config.Hw.t ->
+    stride:Op_config.Pos.t Op_config.Hw.t ->
+    pad:Op_config.Nonneg.t Op_config.Hw.t ->
+    position index Vec6.t ->
+    t
+
   val sum : lo:position index -> hi:delta index -> (position index -> t) -> t
 
   val max_reduce :
