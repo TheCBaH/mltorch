@@ -252,6 +252,16 @@ let make_convolution_params sh sw ph pw dh dw transposed oph opw groups :
     groups = Op_config.Pos.of_int groups;
   }
 
+(* Resolve a single inferred [-1] in a view/reshape size against the total
+   numel (PyTorch convention). *)
+let resolve_view_size size numel =
+  if List.mem (-1) size then
+    let known =
+      List.fold_left (fun p d -> if d = -1 then p else p * d) 1 size
+    in
+    List.map (fun d -> if d = -1 then numel / known else d) size
+  else size
+
 (* Pool stride defaults to kernel_size when absent (PyTorch convention). *)
 let pool_stride kernel_size node =
   let* stride = ints_arg ~default:[] node "stride" in
@@ -685,4 +695,29 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = rms_norm params ~x:x_id ~weight:w_id () in
                [ y ]
            | _ -> assert false))
+  | "torch.ops.aten.view.default" ->
+      Some
+        ((* Contiguous reshape. [of_aten] inputs are already ATen-row-major, so
+            the native reshape needs no surrounding permutes; the target native
+            shape is [size] right-aligned (a single -1 resolved against numel). *)
+         let* aten_x = tensor_arg aten_env node "self" in
+         let* size = ints_arg node "size" in
+         let* x = native_of_aten "self" aten_x in
+         let (Tensor.Tensor r) = x in
+         let numel = (Vec6.numel r.shape :> int) in
+         let resolved = resolve_view_size size numel in
+         match Aten_shape.of_aten (Array.of_list resolved) with
+         | Error e ->
+             fail
+               (`Validation_failure
+                  (Format.asprintf "view: %a" Aten_shape.pp_error
+                     e.Core.Error.kind))
+         | Ok target ->
+             let params = { Reshape.Reshape.shape = target } in
+             build_g ~name:"view" [ x ] (function
+               | [ x_id ] ->
+                   let open Graph_builder in
+                   let+ y = reshape params x_id in
+                   [ y ]
+               | _ -> assert false))
   | _ -> None

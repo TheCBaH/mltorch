@@ -744,3 +744,23 @@ let%expect_test "dispatch: permute.default identity — output equals input" =
     ~inputs:[ in_tensor "self"; in_ints "dims" [ 0; 1 ] ]
     ~noutputs:1;
   [%expect {| tensor f32 [W=3 C=4] {0, 1, 2, 3, 4, 5, 6, 7, ...} |}]
+
+let%expect_test "dispatch: view.default contiguous reshape (no permute)" =
+  (* NCHW [1,1,2,3] (values 0..5) viewed as [3,2]. of_aten inputs are already
+     ATen-row-major, so the graph is a single reshape (no surrounding permute);
+     a contiguous reshape leaves the flat buffer unchanged. *)
+  let x = float_tensor [ 1; 1; 2; 3 ] (List.init 6 float_of_int) in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.view.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "size" [ 3; 2 ] ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph view
+    inputs: [t0 input_0:f32 [W=2 C=3]]
+    nodes:
+      n0: [t1 reshape_1:f32 [W=3 C=2]] =
+        reshape x=t0(input_0) params={shape=[W=3 C=2]}
+    outputs: [t1 reshape_1:f32 [W=3 C=2]]
+    tensor f32 [W=3 C=2] {0, 1, 2, 3, 4, 5} |}]

@@ -110,6 +110,9 @@ val permute :
 
 val relu : ?name:string -> tensor_ref -> Tensor_id.t t
 
+val reshape :
+  ?name:string -> Reshape.Reshape.params -> tensor_ref -> Tensor_id.t t
+
 val rms_norm :
   ?name:string ->
   Norm.RmsNorm.params ->

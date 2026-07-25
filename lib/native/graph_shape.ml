@@ -108,6 +108,9 @@ let output_shape (op : op)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Relu.output_shape x_shape) in
       [ out ]
+  | Reshape { Reshape.Reshape.params; _ } ->
+      let+ out = widen (Reshape.Reshape.output_shape params) in
+      [ out ]
   | Rms_norm { Norm.RmsNorm.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Norm.RmsNorm.output_shape ~x_shape) in

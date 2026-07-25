@@ -291,6 +291,44 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
     tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true
     tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}  ground matches direct: true |}]
 
+(* Reshape symbolically: the index expression carries div/mod over the flat
+   offset (the value_of_index-free delinearize path); ground must match Direct. *)
+let%expect_test "Symbolic graph: reshape ground matches Direct" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"reshape" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 3 1) ~name:"x" () in
+          reshape ~name:"out" { Reshape.Reshape.shape = s 1 1 1 1 1 6 } x)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let x =
+      Tensor.materialize (s 1 1 1 2 3 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 3)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let inputs = List.combine g.Graph.inputs [ x ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: x
+    out = x[floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3)+-2*floor_div(floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3),2),6*1*1*1*1*1*0+N+T+D+H+W+C+-3*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3),6*1*1*1*1*1*0+N+T+D+H+W+C+-1*6*1*1*1*1*1*0+N+T+D+H+W+C]
+    outputs: out |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=6] {0, 1, 2, 3, 4, 5}
+    ground matches direct: true |}]
+
 (* Conv decomposition symbolically: the conv stage loads the permute stage's
    signature, and the final permute loads the conv stage's — i.e. symbolic
    execution extends through the whole graph by tensor signature. *)

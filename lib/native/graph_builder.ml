@@ -174,6 +174,9 @@ let permute ?name perm x =
 
 let relu ?name x = op1 ?name ~kind:"relu" (Relu { Pointwise.Relu.x })
 
+let reshape ?name params x =
+  op1 ?name ~kind:"reshape" (Reshape { Reshape.Reshape.params; x })
+
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
 

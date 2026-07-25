@@ -110,6 +110,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Relu { Pointwise.Relu.x } ->
         let module C = Pointwise.Relu.Compute (S) in
         C.pixel (operand x) out
+    | Reshape { Reshape.Reshape.params; x } ->
+        let module C = Reshape.Reshape.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Rms_norm { Norm.RmsNorm.params; x; weight } ->
         let module C = Norm.RmsNorm.Compute (S) in
         let weight =

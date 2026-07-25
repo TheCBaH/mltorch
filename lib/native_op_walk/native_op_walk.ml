@@ -28,6 +28,8 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Max_pool2d_with_indices_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Reshape_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
   ]
 
 let run (m : op) ~ppf ~pcg ~steps =

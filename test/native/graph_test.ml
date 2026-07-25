@@ -311,6 +311,32 @@ let%expect_test "Direct graph: max_pool2d_with_indices (two outputs)" =
     values = tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}
     indices = tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15} |}]
 
+(* Reshape reinterprets the same flat buffer under a new shape (contiguous). *)
+let%expect_test "Direct graph: reshape [H=2 W=3 C=1] -> [C=6] (flatten)" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"reshape" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 3 1) ~name:"x" () in
+          reshape ~name:"out" { Reshape.Reshape.shape = s 1 1 1 1 1 6 } x)
+    in
+    let x =
+      Tensor.materialize (s 1 1 1 2 3 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 3)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=6] {0, 1, 2, 3, 4, 5} |}]
+
 (* Conv decomposition. The input is laid out NCHW: in the 6D frame its channel sits
    on H, spatial-H on W, spatial-W on C. Two permutes bracket a native (NHWC)
    conv: NCHW->NHWC moves the channel to C and the spatial axes to H/W; NHWC->NCHW

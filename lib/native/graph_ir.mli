@@ -55,6 +55,7 @@ type 'g gop =
   | Mul of Pointwise.Mul.t
   | Permute of Permute.Permute.t
   | Relu of Pointwise.Relu.t
+  | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
   | Subgraph of { graph : 'g; args : tensor_ref list }
 (* [args] map positionally to [graph.inputs] *)

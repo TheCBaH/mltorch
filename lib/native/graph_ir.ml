@@ -38,6 +38,7 @@ type 'g gop =
   | Mul of Pointwise.Mul.t
   | Permute of Permute.Permute.t
   | Relu of Pointwise.Relu.t
+  | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
   | Subgraph of { graph : 'g; args : tensor_ref list }
 
@@ -173,6 +174,12 @@ let op_registry : (module OP) list =
 
       let inject t = Relu t
       let project = function Relu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Reshape.Reshape
+
+      let inject t = Reshape t
+      let project = function Reshape t -> Some t | _ -> None
     end : OP);
     (module struct
       include Norm.RmsNorm

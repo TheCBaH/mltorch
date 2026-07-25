@@ -288,6 +288,21 @@ let%expect_test "Direct: max_pool2d_with_indices 2x2 stride 2 — values + argma
     values:  tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15}
     indices: tensor f32 [H=2 W=2 C=1] {5, 7, 13, 15} |}]
 
+let%expect_test "Direct: reshape [H=2 W=3 C=1] -> [W=3 C=2] (contiguous)" =
+  let module R = Reshape.Reshape.Compute (Direct) in
+  (* row-major elements 0..5; a contiguous reshape reinterprets the same flat
+     buffer, so the values are unchanged, only the shape differs. *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c -> float_of_int ((row c * 3) + col c))
+  in
+  let p =
+    { Reshape.Reshape.shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:2 }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor (Reshape.Reshape.output_shape p) (R.pixel p ~x_shape ~x));
+  [%expect {| tensor f32 [W=3 C=2] {0, 1, 2, 3, 4, 5} |}]
+
 let%expect_test "Direct: avg_pool2d 2x2 (stride 1, pad 0) — box-filter average"
     =
   let module P = Pool.AvgPool2d.Compute (Direct) in
