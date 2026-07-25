@@ -11,7 +11,7 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — `lib/native/transform/` exists and stage 1 has landed.
+Status: **in progress** — stages 1 and 2 have landed.
 Each section below carries its own status marker, flipped by the commit that
 implements it; `## 12. Staging` tracks the whole sequence.
 
@@ -277,7 +277,7 @@ val origin : ?constants:(Tensor_id.t * Tensor.packed) list -> graph ->
              (origin, error) Core.result    (* the ONLY minter of a version *)
 val graph     : 'v t -> graph
 val constants : 'v t -> Tensor.packed Tensor_id.Map.t
-val view      : 'v t -> 'v Graph_view.t     (* the ONLY source of a versioned view *)
+val view      : 'v t -> Graph_view.t        (* validated index of the current graph *)
 
 type 'v allocator                           (* abstract; watermarked *)
 type 'v recipe                              (* abstract; retains start and end watermark *)
@@ -547,13 +547,30 @@ folded constant at all.
 
 ## 11. Matching
 
-Status: **design only**.
+Status: **partly implemented** — `graph_view.ml` and `region.ml` have landed, with
+tests in `test/native/graph_view_test.ml` and the shared fixtures in
+`test/native/graph_fixtures.ml`. `Pattern` itself is still design only.
+
+> **Changed while implementing: the view is unversioned.** The plan had
+> `'v Graph_view.t`, so that a recipe built from a match would inherit the view's
+> version tag. Writing the signature showed the tag would be forgeable anyway —
+> `of_graph : graph -> ('v t, error) result` lets the caller pick `'v`, exactly the
+> hole this design already closed twice elsewhere — while forcing every `Pass`
+> callback taking a view to be a rank-2 record. It buys nothing and costs real
+> complexity, so `Graph_view.t` is plain.
+>
+> Version safety does not depend on it. A recipe's tag comes from
+> `Rewrite.plan`, which takes the *state*, and that cannot be faked. What remains
+> is matching against a view of one version and planning against another; the
+> id-identity rule (§4) makes that safe rather than merely unlikely, because an id
+> is never reused within a pipeline, so an id present in two versions denotes the
+> same tensor. A stale match is therefore either caught by `apply` (the id is gone)
+> or harmless (it still means what it meant).
 
 A state+error monad over `{ view; claimed }`. **No cursor** — every primitive names
 the edge it operates on, which is the honest formulation for a DAG and reads better
 than a hidden position. Matching walks *up* operand edges, which is deterministic
-because operands are typed fields; `uses` covers fan-out. `'a Pattern.t` carries no
-version, so one pattern serves every version.
+because operands are typed fields; `uses` covers fan-out.
 
 ```ocaml
 val def   : Tensor_id.t -> (op -> 'a option) -> ('a * node) t  (* producer; claims it *)
@@ -562,8 +579,8 @@ val uses  : Tensor_id.t -> node list t
 val interior : Tensor_id.t -> unit t     (* exactly one use and not a graph output *)
 val constant : Tensor_id.t -> unit t
 val chain : (Tensor_id.t -> ('a * Tensor_id.t) t) -> Tensor_id.t -> 'a list t
-val run  : 'a t -> 'v Graph_view.t -> anchor:Tensor_id.t -> ('a * Region.t, failure) result
-val scan : (Tensor_id.t -> 'a t) -> 'v Graph_view.t -> ('a * Region.t) list
+val run  : 'a t -> Graph_view.t -> anchor:Tensor_id.t -> ('a * Region.t, failure) result
+val scan : (Tensor_id.t -> 'a t) -> Graph_view.t -> ('a * Region.t) list
 ```
 
 The projector is a plain `op -> 'a option`, so patterns destructure the existing
@@ -595,7 +612,7 @@ point, so the fusing constructors require it while other recipes need not, and
 `apply`'s cycle check is the general backstop. `Region.extract` builds a standalone
 graph so a match prints with plain `Graph_ir.pp`.
 
-`Graph_view.validate` is the framework's trust boundary and checks: unique node and
+`Graph_view.of_graph` is the framework's trust boundary and checks: unique node and
 group ids, single assignment, every operand defined-or-declared-input, every graph
 output present, `tensors` key equal to `Tensor_sig.id`, inputs unique and not
 node-defined, **every `input_kinds` key a member of `Graph.inputs`** (totality is
@@ -603,6 +620,22 @@ node-defined, **every `input_kinds` key a member of `Graph.inputs`** (totality i
 `Graph_shape.output_shape`, `nodes` genuinely topologically ordered, and `root` a
 partition of `nodes`. Without it, `def = None` is ambiguous between "graph input"
 and "dangling operand" and every matcher silently misbehaves.
+
+Two details the tests pin, both easy to get subtly wrong:
+
+- **`uses` deduplicates consumers.** A node reading the same edge twice (`mul x x`)
+  is *one* consumer. Otherwise `interior`'s "exactly one use" would refuse to fuse
+  a perfectly fusable edge.
+- **`topo_sort` takes no view** and resolves producers from the node list it is
+  given. Its caller is `apply`, re-sorting a list containing freshly inserted
+  nodes; those outputs are absent from any view of the pre-rewrite graph, so
+  resolving through a view would make dependencies *between new nodes* invisible
+  and emit a plausible but wrong order.
+
+Convexity is subtler than "the region skips a node": in the diamond fixture,
+claiming `{relu, add}` skips the `mul`, but the `mul` reads the graph input rather
+than the `relu`, so no path leaves the region and returns — it is convex. The
+non-convex case needs a claimed node feeding an unclaimed one that feeds back in.
 
 ## 12. Staging
 
@@ -613,7 +646,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 |---|---|---|---|
 | 0 | `docs: design the native graph transformation framework` | this doc; `native_graph_design.md` §7 → pointer | done |
 | 1 | `native: add id_supply and graph mapping` | `Tensor_id.Set`/`Node_id.Set`, `Group_id` ordering, `Id_supply`, `Cluster_relation`, `Correspondence`, `Node_map`, `Provenance`, `Graph_map` | done |
-| 2 | `native: add graph_view and region` | `validate`, the index, `common_group`, topo sort, `Region`, `test/native/graph_fixtures.ml` |
+| 2 | `native: add graph_view and region` | validation, the index, `common_group`, topo sort, `Region`, `test/native/graph_fixtures.ml` | done |
 | 3 | `native: add recipe and rewrite` | the state, `Recipe`, `apply`, `output_transfer` (+ its entry in `native_add_op.md`), `Graph_builder.fragment` |
 | 4 | `native: add graph match combinators` | `Pattern`, `run`, `scan` |
 | 5 | `native: add pass driver` | `Pass`, `fixpoint`, `run_all` |
