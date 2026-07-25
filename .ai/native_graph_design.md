@@ -8,10 +8,10 @@ evaluate as a whole, print intermediates of, and — the long-term purpose —
 modules `Graph_ir`, `Graph_builder`, `Graph_shape`, `Eval_op`, `Eval_direct`,
 `Stage_program`, `Eval_symbolic`.
 
-The immediate goal is **evaluation**; the transformation framework is **designed
-here but not yet implemented** (the conv decomposition is demonstrated by
-*constructing* the decomposed graph, §6). Where a choice was made with future
-transformation in mind, it is called out.
+The immediate goal is **evaluation**; the transformation framework has moved to its
+own doc, `native_transform_design.md`, and is **not yet implemented** (the conv
+decomposition is demonstrated by *constructing* the decomposed graph, §6). Where a
+choice here was made with transformation in mind, it is called out.
 
 ## 1. The IR (`graph_ir.ml`)
 
@@ -171,29 +171,25 @@ equal to a single native conv on the equivalently-laid input. Symbolically
 (`graph_symbolic_test.ml`) the conv stage loads the permute stage's signature and
 the final permute loads the conv stage's — the stage DAG made visible.
 
-## 7. Transformation framework (designed, not implemented)
+## 7. Transformation framework
 
-Applicative: a transformer returns a **recipe** of edits; `apply` produces a *new*
-graph plus an old→new id mapping. Inputs are never mutated.
+Designed in **`native_transform_design.md`**, which supersedes the
+`template`/`edit`/`recipe`/`remap` sketch this section used to carry. The shape of
+the answer changed in three ways worth knowing before reading that doc: a recipe is
+a list of independently placed *replacements* rather than a flat edit list; the
+old→new `remap` became three relations (tensor value clusters, node clusters, and
+directed provenance) because merging them loses claims; and the mapping carries an
+explicit **equivalence claim** per cluster, so a future harness can verify that
+both graphs compute the same values.
 
-```
-type template = Graph_builder.t -> ins:Tensor_id.t list -> Tensor_id.t list
-type edit  = Replace_node of Node_id.t * template
-           | Remove_node  of Node_id.t
-           | Insert_before of Node_id.t * template
-type recipe = edit list
-type remap = { nodes : Node_id.t -> Node_id.t option;
-               tensors : Tensor_id.t -> Tensor_id.t option }
-val apply : graph -> recipe -> graph * remap
-```
-
-Why the IR is shaped for this: stable ids let a recipe reference nodes/tensors by
-id and let `apply` preserve every untouched id (keeping the rest of a recipe — and
-external references like the ATen-vs-native verify harness — valid); `remap`
-chains transform passes; immutability lets the input graph's analysis (the
-symbolic stage DAG, future footprint) stay valid while the output is built. The
-conv decomposition is the canonical `Replace_node (conv, decomposition_template)`.
-`operands`/`map_operands` are the generic hooks an id-remap needs.
+Why *this* IR is shaped for it, which has not changed: stable ids let a recipe
+reference nodes and tensors by id and let `apply` preserve every untouched id, so
+the mapping stays sparse and external references (the ATen-vs-native verify
+harness) stay valid; immutability lets the input graph's analysis (the symbolic
+stage DAG, future footprint) stay valid while the output is built;
+`operands`/`map_operands` are the generic hooks an id remap needs; and the closed
+op variant gives the matcher exhaustiveness and cheap structural comparison. The
+conv decomposition of §6 is the canonical 1:N case.
 
 ## 8. Pretty-printing
 

@@ -8,3 +8,4 @@ val pp : Format.formatter -> t -> unit
 val jsont : t Jsont.t
 
 module Map : Map.S with type key = t
+module Set : Set.S with type elt = t

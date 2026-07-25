@@ -19,6 +19,7 @@ module Node_id : sig
   val pp : Format.formatter -> t -> unit
 
   module Map : Map.S with type key = t
+  module Set : Set.S with type elt = t
 end
 
 (* Inference source classification. [Input] is supplied by the caller for each
@@ -78,7 +79,12 @@ module Group_id : sig
 
   val of_int : int -> t
   val to_int : t -> int
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
+
+  module Map : Map.S with type key = t
+  module Set : Set.S with type elt = t
 end
 
 module Group : sig

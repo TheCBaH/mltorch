@@ -15,11 +15,14 @@ module Node_id = struct
   let compare = Int.compare
   let pp fmt x = Format.fprintf fmt "n%d" x
 
-  module Map = Map.Make (struct
+  module Ord = struct
     type nonrec t = t
 
     let compare = compare
-  end)
+  end
+
+  module Map = Map.Make (Ord)
+  module Set = Set.Make (Ord)
 end
 
 module Input = struct
@@ -64,7 +67,18 @@ module Group_id = struct
 
   let of_int x = x
   let to_int x = x
+  let equal = Int.equal
+  let compare = Int.compare
   let pp fmt x = Format.fprintf fmt "g%d" x
+
+  module Ord = struct
+    type nonrec t = t
+
+    let compare = compare
+  end
+
+  module Map = Map.Make (Ord)
+  module Set = Set.Make (Ord)
 end
 
 module Group = struct
