@@ -795,6 +795,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 11 | `native: resolve PT2 provenance through a transformation map` | `Pt2_native_graph.lens`; `Native_interp.transform`/`evaluate`; `native_graph transform` | done |
 | 12 | `native: sink permutes through elementwise ops` | `Sink_permute` (§12d) — cancels a permute pair flanking `Relu`/`Add`/... | done |
 | 13 | `native: reuse existing layouts and bypass inverse permutes` | `Reuse_permute`, `Bypass_permute` (§12e), `Permute.Permute.are_inverse`, `Pass.sequence`, `Pattern.is_graph_output`, `relayout_pass` | done |
+| 14 | `native: transport permutes through keepdim=true Mean` | `Sink_permute_mean` (§12f), `Reduce.Mean.map_dims` | done |
 
 ### 12a. The permute simplifications
 
@@ -1036,8 +1037,9 @@ slot at a time. It holds for the broadcasting binary ops too (`Add`, `Sub`,
 axes of every operand identically, so the broadcast pattern permutes right
 along with the data. It does **not** hold for `Mean` (reduces over *named*
 axes — permuting the input first would reduce over the wrong ones unless the
-reduced axes were also carried through `p`, which this pass does not attempt),
-or for anything else with axis-specific semantics: `Conv2d`/`Pool`/`Bmm`/
+reduced axes were also carried through `p`, which this pass does not attempt;
+§12f transports them instead, for the `keepdim=true` case), or for anything
+else with axis-specific semantics: `Conv2d`/`Pool`/`Bmm`/
 `Linear`/`Batch_norm`/`Rms_norm`/`Reshape`/`Permute` itself. So `Sink_permute`
 matches an explicit allowlist — `{Add, Div, Mul, Relu, Sqrt, Sub}` — rather
 than every op `Graph_ir.operands` can see.
@@ -1246,6 +1248,7 @@ let relayout_pass =
        [
          Pass.fixpoint Chain_permute.pass;
          Pass.fixpoint Trim_permute.pass;
+         Pass.fixpoint Sink_permute_mean.pass;
          Pass.fixpoint Sink_permute.pass;
          Pass.fixpoint Reuse_permute.pass;
          Pass.fixpoint Sink_permute.pass;
@@ -1257,20 +1260,95 @@ let relayout_pass =
 
 `Pass.sequence` is the small combinator this needed: a fixed list of passes as
 one named pass, delegating to `Pass.run_all` and composing the resulting step,
-so the whole group can be handed to `fixpoint` as a unit.
+so the whole group can be handed to `fixpoint` as a unit. (`Sink_permute_mean`
+— §12f — was added after this pipeline shape was established; it slots in
+right after the initial chain/trim cleanup, since transporting a permutation
+through `Mean` is a local rewrite with no fan-out interaction of its own, and
+its output feeds the same sink/reuse/bypass machinery either way.)
 
 **On ResNet-18** (`test/native_transform_cram.t`), the structural pipeline
-goes from 174 nodes to **93** (down from 112 with `Sink_permute` alone) — the
-identity-skip residual blocks' `Add`/`Relu` now run in native layout without a
-speculative relayout, and `Bypass_permute` removes the duplicate downstream
-rotations that leaves behind. `--verify` still reports `max_abs=0`: reusing an
-existing edge and bypassing a redundant consumer are both `Identical`
-rewrites, same as `Sink_permute`. The folded pipeline (`--fold`) goes from 71
-to **52** nodes, with the same `~1.9e-06` batch-norm-fold residual as before —
-the relayout family's own claims are all `Identical`, so the tolerance is
-unchanged by this stage. Not every permute disappears: initial input relayouts,
-genuine pool/mean/linear layout boundaries, and any operand pair that never had
-a reusable alternate-layout edge to begin with are expected to remain.
+goes from 174 nodes to **91** (down from 112 with `Sink_permute` alone, 93
+before `Sink_permute_mean`) — the identity-skip residual blocks' `Add`/`Relu`
+now run in native layout without a speculative relayout, and `Bypass_permute`
+removes the duplicate downstream rotations that leaves behind; the two
+remaining nodes come from `Sink_permute_mean` collapsing the global-average-pool
+`Mean`'s flanking permute pair (§12f). `--verify` still reports `max_abs=0`:
+reusing an existing edge, bypassing a redundant consumer, and transporting a
+permutation through `Mean` are all `Identical` rewrites, same as
+`Sink_permute`. The folded pipeline (`--fold`) goes from 71 to **50** nodes,
+with the same `~1.9e-06` batch-norm-fold residual as before — the relayout
+family's own claims are all `Identical`, so the tolerance is unchanged by this
+stage. Not every permute disappears: initial input relayouts, genuine
+pool/linear layout boundaries, and any operand pair that never had a reusable
+alternate-layout edge to begin with are expected to remain.
+
+### 12f. Transporting a permutation through a keepdim=true Mean
+
+Status: **implemented** — `lib/native/transform/passes/sink_permute_mean.ml`,
+`Reduce.Mean.map_dims`, tests in `test/native/permute_passes_test.ml`.
+
+`Mean` reduces over *named* axes, so `Sink_permute` (§12d) deliberately excludes
+it: naively sinking a permute through `Mean` and reducing the same axis names
+afterward would reduce the wrong dimensions. But the reduction's dimension
+list is itself expressible in terms of either layout, so it can be
+*transported* through the permutation instead of left behind. For `P` an
+output-to-input permutation and `D` the ordered list of reduction axes:
+
+```
+Mean_D(P(x)) = P(Mean_{P(D)}(x))          (keepdim=true only)
+```
+
+`P(D)` is `List.map (Permute.Permute.lookup P) D`. This holds because
+`keepdim=true` collapses each reduced axis to extent 1 *in place* — the
+induced output permutation is exactly `P` again, with no separate survivor
+remapping the way `keepdim=false` (`Mean.kept_map`) would need. That remapping
+is out of scope for this pass; so are multi-operand ops whose axis parameters
+interact with weights, masks, or windows (`Batch_norm`, `Rms_norm`, `Conv2d`,
+`Pool`, `Linear`, `Bmm`).
+
+**Parameter transport.** `Reduce.Mean.map_dims : (Axis.t -> Axis.t) -> params
+-> params` maps every entry of `params.dims` through a caller-supplied
+function, in list order, keeping `keepdim` untouched. `Sink_permute_mean`
+supplies `Permute.Permute.lookup P`. Keeping this on `Reduce.Mean` rather than
+the pass mirrors `Sink_permute`'s own split: permutation algebra stays on
+`Permute.Permute`, op-specific parameter semantics stay on the op.
+
+**Matching.** The anchor is a `Mean` node with `params.keepdim = true`. Its
+input must be `interior` (single consumer, not a graph output) and produced by
+a `Permute(P)`. The permute's own input and output signatures must agree in
+format and quantization (`precision_equal`, `Bypass_permute`'s helper: a
+`packed_fmt` has no usable structural order, so it compares by format name).
+Finally, the shapes must round-trip exactly: `Mean.output_shape` on the
+permute's pre-image with the mapped dims, then `Permute.output_shape` with `P`
+again, must equal the untouched `Mean` node's own output shape — this is the
+identity's own claim, checked rather than assumed. The `Mean` output itself
+carries no interior or graph-output requirement: the rewrite preserves its
+tensor id, so any downstream consumer or graph output stays valid regardless.
+
+**Building.** Mirrors `Sink_permute`'s shape, with the roles reversed: a fresh
+`Mean` node reads the permute's own input directly (`Graph_ir`'s `x`, not the
+permuted edge) and lands on a fresh id; a new `Permute(P)` node, reading that
+fresh id, takes over the *original* `Mean` node's output id — same tensor, so
+`claims:[(out, out, Identical)]`, the same self-claim `Chain_permute` and
+`Sink_permute` use. The fresh tensor's format and quantization are copied from
+the original `Mean` output's own signature (permute preserves them, so the
+pre-permute tensor and the post-permute one agree). The old input permutation
+and the old `Mean` node are both removed; the rebuilt `Mean` maps from the old
+`Mean` node, and the new wrapping permute maps from the old input permutation
+— the same node-provenance shape `Sink_permute` uses for its rebuilt op and
+inserted permute.
+
+One match transports one permutation across one `Mean`; there is no reverse
+direction, so under `Pass.fixpoint` the rewrite makes monotonic progress. The
+pass creates an adjacency (the new wrapping `Permute(P)` next to whatever the
+old `Mean` output already fed, or next to a downstream inverse) without
+cancelling anything itself — `Chain_permute`/`Trim_permute`, which run again
+later in `relayout_pass`, do that. On ResNet-18's global-average-pool `Mean`
+(the motivating case: a permute, a `keepdim=true` `Mean` over two axes, and its
+exact inverse permute), the three passes together collapse the whole
+three-node run to one `Mean` reducing the correctly-mapped dimensions, with no
+permute left around it at all — see the `Sink_permute_mean.pass` result quoted
+in `test/native_transform_cram.t` under `torch.ops.aten.mean.dim`.
 
 ## 13. Tests
 
@@ -1329,7 +1407,14 @@ runs after both `Sink_permute` stages in the sequence, so one application
 leaves the `Relu` still reading the permuted edge; only wrapping the whole
 sequence in a second `Pass.fixpoint` sinks it — the fixture pinning §12e's
 own "why an outer fixed point" claim the same way `sink_permute_binary`
-pinned it for `Sink_permute` alone.
+pinned it for `Sink_permute` alone. (§12f) `sink_permute_mean_basic` (transport
+with no downstream inverse — the rewrite leaves `Mean(mapped dims) ->
+Permute(P)` rather than cancelling anything), `sink_permute_mean_cycle` (the
+motivating permute/`Mean`/inverse-permute run, collapsing to one `Mean` under
+`Sink_permute_mean` + `Chain_permute` + `Trim_permute`), `sink_permute_mean_shared`
+(the input permutation has a second consumer, so it is not `interior`),
+`sink_permute_mean_not_keepdim` (`keepdim=false` is out of scope for this
+pass and is declined outright).
 A fixture is named after the *shape* it exercises, never after the pass that
 consumes it, so one graph can pin several passes.
 

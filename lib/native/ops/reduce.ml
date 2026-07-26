@@ -33,6 +33,12 @@ module Mean = struct
     |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
     |> Jsont.Object.finish
 
+  (* Transports [params] through an axis mapping (e.g. a permutation's
+     [lookup]): every entry of [dims] is remapped, in place, order preserved.
+     Used by [Sink_permute_mean] to move a reduction past an input permute
+     without touching [keepdim]. See .ai/native_transform_design.md §12f. *)
+  let map_dims f (p : params) = { p with dims = List.map f p.dims }
+
   let pp_params fmt (p : params) =
     Fmt.pf fmt "@[<hv>{dims=%a;@ keepdim=%a}@]"
       (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis.pp))

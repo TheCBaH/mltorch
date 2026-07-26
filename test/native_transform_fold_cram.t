@@ -14,7 +14,7 @@ to compute over, so the node count and constant provenance differ from
 the unfolded structural test.
 
   $ ../bin/native_graph.exe transform --fold --pt2 "$PT2_DATA/resnet18/resnet18.pt2"
-  nodes: 174 -> 52
+  nodes: 174 -> 50
   constants: 42, of which 41 folded
   graph
   inputs:
@@ -514,17 +514,12 @@ the unfolded structural test.
       add a=t379 {derived} b=t376 {derived}
     n218 {pt2=root[65] torch.ops.aten.relu.default}: [t381 f32 [H=7 W=7 C=512] {derived}] =
       relu x=t380 {derived}
-    n219 {pt2=root[63] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t291 f32 [H=512
-                                                                      W=7 C=7] {pt2=root:relu_16}] =
-      permute x=t381 {derived} perm=[H<-C, W<-H, C<-W]
-    n169 {pt2=root[66] torch.ops.aten.mean.dim}: [t292 f32 [H=512 W=1 C=1] {pt2=root:mean}] =
-      mean x=t291 {pt2=root:relu_16} params={dims=[C, W]; keepdim=true}
-    n220 {pt2=root[67] torch.ops.aten.view.default}: [t293 f32 [C=512] {pt2=root:view}] =
-      permute x=t292 {pt2=root:mean} perm=[H<-W, W<-C, C<-H]
+    n219 {pt2=root[66] torch.ops.aten.mean.dim}: [t382 f32 [C=512] {pt2=root:view}] =
+      mean x=t381 {derived} params={dims=[W, H]; keepdim=true}
     group g42 torch.ops.aten.addmm.default:
       n173 {pt2=root[69] torch.ops.aten.addmm.default}: [t296 f32 [C=1000] {pt2=root:addmm}] =
         linear
-          x=t293 {pt2=root:view}
+          x=t382 {pt2=root:view}
           weight=t295 {folded from=[p_fc_weight]}
           bias=t61 {pt2=root:p_fc_bias target=fc.bias}
           params={in_features=512}

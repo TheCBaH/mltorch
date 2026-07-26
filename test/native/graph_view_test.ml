@@ -73,6 +73,10 @@ let%expect_test "validation: a well-formed fixture is accepted" =
     sink_permute_binary: ok
     sink_permute_broadcast: ok
     sink_permute_fuse: ok
+    sink_permute_mean_basic: ok
+    sink_permute_mean_cycle: ok
+    sink_permute_mean_not_keepdim: ok
+    sink_permute_mean_shared: ok
     sink_permute_mismatch: ok
     sink_permute_output: ok
     sink_permute_shared: ok

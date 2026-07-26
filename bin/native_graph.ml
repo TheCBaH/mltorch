@@ -314,6 +314,13 @@ let eval_cmd =
    pair — Chain/Trim only cancel ADJACENT permutes, so sinking has to make
    them adjacent first; a second Chain/Trim round then collapses what it
    exposes. *)
+(* [Sink_permute_mean] transports a permutation through a [keepdim=true]
+   [Mean] (§12f) rather than sinking it unchanged — [Mean] is intentionally
+   absent from [Sink_permute]'s allowlist, since reducing the same axis names
+   after removing its input permutation would reduce the wrong dimensions.
+   It runs right after the initial chain/trim cleanup: transport can expose
+   an adjacent permute pair on either side, which [Sink_permute] and a later
+   [Chain_permute]/[Trim_permute] round then pick up. *)
 (* [Reuse_permute] and [Bypass_permute] complement [Sink_permute]: see
    .ai/native_layout_reuse_plan.md. [Reuse_permute] turns a mixed elementwise
    operand set uniform by reusing an alternate-layout edge the graph already
@@ -330,6 +337,7 @@ let relayout_pass =
        [
          Pass.fixpoint Chain_permute.pass;
          Pass.fixpoint Trim_permute.pass;
+         Pass.fixpoint Sink_permute_mean.pass;
          Pass.fixpoint Sink_permute.pass;
          Pass.fixpoint Reuse_permute.pass;
          Pass.fixpoint Sink_permute.pass;

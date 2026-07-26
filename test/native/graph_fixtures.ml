@@ -320,6 +320,54 @@ let sink_permute_allowlist () =
       let* s4 = add s1 s2 in
       add s4 s3)
 
+(* ---- transporting a permute through a keepdim=true Mean ------------------ *)
+
+(* [Sink_permute_mean]'s minimal shape: no downstream inverse, so the rewrite
+   leaves [Mean(mapped dims) -> Permute(same perm)] rather than cancelling
+   anything — the old Mean output id is preserved either way. *)
+let sink_permute_mean_basic () =
+  build "sink_permute_mean_basic"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute rotate_hwc x in
+      mean { Reduce.Mean.dims = Axis.[ W; C ]; keepdim = true } a)
+
+(* The motivating cycle from .ai/native_transform_design.md §12f: a permute,
+   a keepdim=true [Mean], and its exact inverse. [Sink_permute_mean] alone
+   only transports the input permute past [Mean]; [Chain_permute]/
+   [Trim_permute] then cancel the resulting adjacent inverse pair, so the
+   full collapse needs all three passes together. *)
+let sink_permute_mean_cycle () =
+  build "sink_permute_mean_cycle"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute rotate_hwc x in
+      let* b = mean { Reduce.Mean.dims = Axis.[ W; C ]; keepdim = true } a in
+      let* c = permute unrotate_hwc b in
+      relu c)
+
+(* [a]'s output feeds the [Mean] AND another consumer, so it is not interior:
+   transporting the permute away would delete a node the other consumer still
+   needs. Mirrors [sink_permute_shared] for this pass. *)
+let sink_permute_mean_shared () =
+  build "sink_permute_mean_shared"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute rotate_hwc x in
+      let* other = relu a in
+      let* () = discard other in
+      mean { Reduce.Mean.dims = Axis.[ W; C ]; keepdim = true } a)
+
+(* [keepdim=false] is out of scope for the first implementation (see
+   .ai/native_transform_design.md §12f): the survivor axes are repacked by
+   [Mean.kept_map], so the induced output permutation is not simply [P]. *)
+let sink_permute_mean_not_keepdim () =
+  build "sink_permute_mean_not_keepdim"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute rotate_hwc x in
+      mean { Reduce.Mean.dims = Axis.[ W; C ]; keepdim = false } a)
+
 (* [Reuse_permute]'s motivating shape: [add(P(x_pre), b)] where [b] already has
    an existing inverse-layout consumer [qb = permute unrotate_hwc b] — reused
    directly rather than re-permuting [b]. [qb] is fed to a second consumer so it
@@ -675,6 +723,10 @@ let all =
     ("sink_permute_binary", sink_permute_binary);
     ("sink_permute_broadcast", sink_permute_broadcast);
     ("sink_permute_fuse", sink_permute_fuse);
+    ("sink_permute_mean_basic", sink_permute_mean_basic);
+    ("sink_permute_mean_cycle", sink_permute_mean_cycle);
+    ("sink_permute_mean_not_keepdim", sink_permute_mean_not_keepdim);
+    ("sink_permute_mean_shared", sink_permute_mean_shared);
     ("sink_permute_mismatch", sink_permute_mismatch);
     ("sink_permute_output", sink_permute_output);
     ("sink_permute_shared", sink_permute_shared);
