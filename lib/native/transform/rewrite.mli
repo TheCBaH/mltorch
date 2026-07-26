@@ -70,3 +70,21 @@ val pp_recipe : Format.formatter -> 'v recipe -> unit
 type 'v step = Step : 'w t * ('v, 'w) Graph_map.t -> 'v step
 
 val apply : 'v t -> 'v recipe -> ('v step, error) Core.result
+
+(* Terminal compaction, run once when no further rewriting is planned. Monotone
+   allocation makes ids creep, so the ids introduced *after* the origin are
+   renumbered densely upward from the origin's per-space watermark, in canonical
+   order: graph inputs in signature order then node outputs in topological order
+   for tensors, [Graph.nodes] order for nodes, tree pre-order for groups.
+
+   ORIGIN IDS ARE NEVER TOUCHED. Renumbering one would be exactly the reuse §4
+   forbids, and it would turn every untouched tensor into an explicit rename,
+   destroying the implicit-identity bulk that keeps a map proportional to what
+   changed. The resulting map is all-[Identical] and mentions only the ids that
+   moved, so it composes like any other step and the PT2 lens still resolves a
+   packed id. Constant payloads are renumbered with their edges.
+
+   Not one of the four transformation kinds: nothing in stages 1-9 needs or
+   assumes it, and it is only well-defined once "which ids are worth compacting"
+   has stopped changing. See .ai/native_transform_design.md §9. *)
+val pack : 'v t -> ('v step, error) Core.result

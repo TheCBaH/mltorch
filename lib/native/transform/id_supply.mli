@@ -32,6 +32,15 @@ val is_post : t -> Tensor_id.t -> bool
 val is_post_node : t -> Node_id.t -> bool
 val is_post_group : t -> Group_id.t -> bool
 
+(* For [Rewrite.pack] and nothing else. Packing needs both halves of the origin
+   watermark: [origin_marks] says where to start numbering each space, and
+   [repack] rebuilds the supply once the dense numbering has consumed a known
+   count. [repack] is the ONE operation that lowers [next]; it is sound only
+   because the ids between the new [next] and the old one have just been
+   renumbered out of existence. *)
+val origin_marks : t -> int * int * int
+val repack : t -> tensor:int -> node:int -> group:int -> t
+
 (* Structural equality of the watermarks, for the [Rewrite] staleness and
    contiguity checks (a recipe's end watermark must equal the next one's start). *)
 val equal : t -> t -> bool

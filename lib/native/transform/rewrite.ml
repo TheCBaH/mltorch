@@ -707,3 +707,151 @@ let apply state recipe =
     Tensor_id.Map.filter (fun id _ -> Tensor_id.Set.mem id live) constants
   in
   Core.return (Step ({ graph = new_g; constants; ids; view = new_view }, map))
+
+(* ---- terminal packing ----------------------------------------------------- *)
+
+module Int_map = Map.Make (Int)
+
+(* Post-origin ids in canonical order, deduplicated, handed dense values from the
+   origin watermark. Origin ids are absent from the table and so map to
+   themselves — which is what keeps the two blocks disjoint, everything below the
+   watermark staying put and everything at or above it landing inside
+   [watermark, watermark + count). Returns the renaming and the new watermark. *)
+let renaming ~is_post ~to_int ~of_int ~mark ids =
+  let ordered =
+    List.fold_left
+      (fun (seen, acc) id ->
+        let i = to_int id in
+        if (not (is_post id)) || Int_map.mem i seen then (seen, acc)
+        else (Int_map.add i () seen, i :: acc))
+      (Int_map.empty, []) ids
+    |> snd |> List.rev
+  in
+  let table, next =
+    List.fold_left
+      (fun (table, next) i -> (Int_map.add i next table, next + 1))
+      (Int_map.empty, mark) ordered
+  in
+  ( (fun id ->
+      match Int_map.find_opt (to_int id) table with
+      | Some packed -> of_int packed
+      | None -> id),
+    next )
+
+(* Canonical tensor order: graph inputs, then each node's outputs in topological
+   order. The trailing sweep over [tensors] keeps the renaming total even for a
+   graph carrying a signature that nothing defines or reads. *)
+let tensor_order (g : graph) =
+  g.Graph.inputs
+  @ List.concat_map (fun (n : node) -> n.Node.outputs) g.Graph.nodes
+  @ List.map fst (Tensor_id.Map.bindings g.Graph.tensors)
+
+let rec group_order (grp : Group.t) =
+  grp.Group.id
+  :: List.concat_map
+       (function Group.Node _ -> [] | Group.Group c -> group_order c)
+       grp.Group.items
+
+let rec rename_group ~node_id ~group_id (grp : Group.t) =
+  {
+    grp with
+    Group.id = group_id grp.Group.id;
+    items =
+      List.map
+        (function
+          | Group.Node id -> Group.Node (node_id id)
+          | Group.Group c -> Group.Group (rename_group ~node_id ~group_id c))
+        grp.Group.items;
+  }
+
+let pack state =
+  let g = state.graph in
+  let t_mark, n_mark, g_mark = Id_supply.origin_marks state.ids in
+  let tensor_id, tensor_next =
+    renaming
+      ~is_post:(Id_supply.is_post state.ids)
+      ~to_int:Tensor_id.to_int ~of_int:Tensor_id.of_int ~mark:t_mark
+      (tensor_order g)
+  in
+  let node_id, node_next =
+    renaming
+      ~is_post:(Id_supply.is_post_node state.ids)
+      ~to_int:Node_id.to_int ~of_int:Node_id.of_int ~mark:n_mark
+      (List.map (fun (n : node) -> n.Node.id) g.Graph.nodes)
+  in
+  let group_id, group_next =
+    renaming
+      ~is_post:(Id_supply.is_post_group state.ids)
+      ~to_int:Group_id.to_int ~of_int:Group_id.of_int ~mark:g_mark
+      (group_order g.Graph.root)
+  in
+  let new_g =
+    {
+      Graph.nodes =
+        List.map
+          (fun (n : node) ->
+            {
+              Node.id = node_id n.Node.id;
+              op = Graph_ir.map_operands tensor_id n.Node.op;
+              outputs = List.map tensor_id n.Node.outputs;
+            })
+          g.Graph.nodes;
+      root = rename_group ~node_id ~group_id g.Graph.root;
+      tensors =
+        Tensor_id.Map.fold
+          (fun id sg acc ->
+            let id = tensor_id id in
+            Tensor_id.Map.add id { sg with Tensor_sig.id } acc)
+          g.Graph.tensors Tensor_id.Map.empty;
+      inputs = List.map tensor_id g.Graph.inputs;
+      input_kinds =
+        Tensor_id.Map.fold
+          (fun id kind acc -> Tensor_id.Map.add (tensor_id id) kind acc)
+          g.Graph.input_kinds Tensor_id.Map.empty;
+      outputs = List.map tensor_id g.Graph.outputs;
+    }
+  in
+  (* A bulk renaming is exactly the kind of edit that can silently produce a
+     graph nobody would accept, so the result goes through the trust boundary
+     like any other. *)
+  let* view =
+    (Graph_view.of_graph new_g :> (Graph_view.t, error) Core.result)
+  in
+  let constants =
+    Tensor_id.Map.fold
+      (fun id payload acc -> Tensor_id.Map.add (tensor_id id) payload acc)
+      state.constants Tensor_id.Map.empty
+  in
+  (* Only ids that actually moved are mentioned; the untouched bulk stays
+     implicit, which is the whole point of leaving origin ids alone. *)
+  let moved_values =
+    Tensor_id.Map.fold
+      (fun id _ acc ->
+        let packed = tensor_id id in
+        if Tensor_id.equal id packed then acc
+        else Correspondence.pair id packed Correspondence.Identical :: acc)
+      g.Graph.tensors []
+  in
+  let moved_nodes =
+    List.filter_map
+      (fun (n : node) ->
+        let packed = node_id n.Node.id in
+        if Node_id.equal n.Node.id packed then None
+        else Some (Node_map.pair n.Node.id packed))
+      g.Graph.nodes
+  in
+  let map =
+    {
+      Graph_map.values = Correspondence.of_clusters moved_values;
+      nodes = Node_map.of_clusters moved_nodes;
+      provenance = Provenance.empty;
+    }
+  in
+  let* () =
+    (Graph_map.validate map ~src:g ~dst:new_g :> (unit, error) Core.result)
+  in
+  let ids =
+    Id_supply.repack state.ids ~tensor:tensor_next ~node:node_next
+      ~group:group_next
+  in
+  Core.return (Step ({ graph = new_g; constants; ids; view }, map))

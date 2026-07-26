@@ -72,6 +72,8 @@ let tensors t n =
   in
   if n <= 0 then ([], t) else take t [] n
 
+let origin_marks t = (t.origin.tensor, t.origin.node, t.origin.group)
+let repack t ~tensor ~node ~group = { t with next = { tensor; node; group } }
 let is_post t id = Tensor_id.to_int id >= t.origin.tensor
 let is_post_node t id = Node_id.to_int id >= t.origin.node
 let is_post_group t id = Group_id.to_int id >= t.origin.group

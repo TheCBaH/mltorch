@@ -11,9 +11,9 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — stages 1 to 9 have landed: the framework is complete and
-every transformation runs on it — the permute simplifications, constant folding
-and batch-norm folding. Terminal id packing and the PT2 lens remain.
+Status: **in progress** — stages 1 to 10 have landed: the framework, every
+transformation built on it (permute simplification, constant folding, batch-norm
+folding), and terminal id packing. Only the PT2 lens remains.
 Each section below carries its own status marker, flipped by the commit that
 implements it; `## 12. Staging and the transformations` tracks the whole sequence.
 
@@ -505,7 +505,8 @@ normally.
 
 ## 9. Terminal packing
 
-Status: **design only**.
+Status: **implemented** — `rewrite.ml`'s `pack`, over `Id_supply.origin_marks`
+and `repack`; tests in `test/native/pack_test.ml`.
 
 Monotone allocation makes ids creep. `pack` compacts them once at the very end.
 Origin ids keep their values — renumbering them would be exactly the reuse §4
@@ -527,6 +528,28 @@ order with each node's outputs in order, groups in tree pre-order.
 Its map is all-`Identical` and mentions only repacked ids, so it composes like any
 other step and the PT2 lens still resolves packed ids. Constant payloads are
 renumbered with them.
+
+It is **idempotent**, which is the check that the canonical order is genuinely
+canonical: a second pack re-enumerates the same structure and can only differ from
+the first if the enumeration depends on something other than the graph.
+
+> **Changed while implementing: `pack` returns a `result`.** The sketch had
+> `val pack : 'v t -> 'v step`, total. But the state holds a *validated* view, and
+> the only way to one is `Graph_view.of_graph`, which is fallible — there is no
+> honest way to fabricate the view a total signature would need. Running the
+> result back through the trust boundary is also the right thing on its own
+> merits: a bulk renaming of every id in a graph is exactly the edit that can
+> silently produce something nobody would accept.
+
+> **Found while implementing: the dead-id reuse is not hypothetical, and the
+> pipeline already produces it.** Batch-norm folding mints `t10`–`t19`, constant
+> folding kills `t10`–`t14`, and packing then lands the surviving `t15` **on
+> `t10`**. So the §3 identity-extension guard is exercised by the ordinary
+> pipeline rather than by a constructed case, and `pack_test.ml` pins that the
+> composed map keeps `{} → {t10}` (a creation) separate from the dead `t10`,
+> under both association orders. Provenance survives it too: the folded weight
+> resolves back to the origin's weight, gamma and var with a packed destination
+> id, which is precisely what the PT2 lens will walk.
 
 ## 10. PT2 provenance — recovered, never carried
 
@@ -694,7 +717,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 7 | `native: add constant folding` | `Fold_const` — the motivating permute-of-constant-weight case; `Pass.env` | done |
 | 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding; two stale steps fixed in `native_add_op.md` | done |
 | 9 | `native: add batch-norm folding pass` | `Fold_batch_norm`; recipe-payload validation in `apply` | done |
-| 10 | `native: add terminal id packing` | `Rewrite.pack` | |
+| 10 | `native: add terminal id packing` | `Rewrite.pack`, `Id_supply.origin_marks`/`repack` | done |
 | 11 | `native: resolve PT2 provenance through a transformation map` | the lens; `native_interp` payload order | |
 
 ### 12a. The permute simplifications
