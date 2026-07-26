@@ -11,10 +11,9 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — stages 1 to 8 have landed: the framework is complete, the
-permute simplifications and constant folding run on it, and the ops batch-norm
-folding is written in terms of exist. That fold itself, packing and the PT2 lens
-remain.
+Status: **in progress** — stages 1 to 9 have landed: the framework is complete and
+every transformation runs on it — the permute simplifications, constant folding
+and batch-norm folding. Terminal id packing and the PT2 lens remain.
 Each section below carries its own status marker, flipped by the commit that
 implements it; `## 12. Staging and the transformations` tracks the whole sequence.
 
@@ -694,7 +693,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 6 | `native: add permute simplification passes` | `Trim_permute`, `Chain_permute`, `Reshape_to_permute`, perm algebra on `Permute.Permute` | done |
 | 7 | `native: add constant folding` | `Fold_const` — the motivating permute-of-constant-weight case; `Pass.env` | done |
 | 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding; two stale steps fixed in `native_add_op.md` | done |
-| 9 | `native: add batch-norm folding pass` | `fold_batch_norm` | |
+| 9 | `native: add batch-norm folding pass` | `Fold_batch_norm`; recipe-payload validation in `apply` | done |
 | 10 | `native: add terminal id packing` | `Rewrite.pack` | |
 | 11 | `native: resolve PT2 provenance through a transformation map` | the lens; `native_interp` payload order | |
 
@@ -833,6 +832,71 @@ computing the node itself, i.e. correct.
 > overlap rule rather than contradicting it, but it does mean a pass author cannot
 > assume a sweep takes the *largest* match, and any pass with nested matches wants
 > a fixed point.
+
+### 12c. Batch-norm folding
+
+Status: **implemented** — `lib/native/transform/passes/fold_batch_norm.ml`, tests
+in `test/native/fold_batch_norm_test.ml`.
+
+With `s = gamma / sqrt(var + eps)`, inference batch norm is `y = (z - mean) * s +
+beta` over `z = conv(x, W) + b`, so
+
+```
+y = conv(x, W * s) + (b - mean) * s + beta
+```
+
+and the normalisation disappears into the conv's parameters. **Layouts decide the
+shape of the rewrite.** `beta`, `mean`, `var` and the conv bias all live on C, so
+the new bias is plain pointwise; the weight is `[Cout,1,1,Kh,Kw,Cin]` with Cout on
+**N**, so the scale is permuted C → N before it multiplies the weight. The
+arithmetic is emitted as ordinary graph nodes and §12b collapses it, leaving a
+plain conv with two computed constants.
+
+Preconditions, each checked by the pattern:
+
+- `bn.channel = Axis.C` — the rewrite moves the scale onto the weight's N axis,
+  which is the channel axis only for a C-norm.
+- the conv output is `interior` — folding removes the node computing it, and any
+  other consumer still wants the *unnormalised* value.
+- every parameter is `Constant`. Not a correctness condition but an economic one:
+  on a runtime parameter the fold moves a per-channel scale of the *output* onto
+  the whole weight tensor, which is more work per inference, not less.
+- `weight.N = param.C` — otherwise the permuted scale broadcasts against the
+  wrong extent.
+
+**The folded conv gets a fresh id.** It is equal in exact arithmetic but rounds
+differently, and §4 permits keeping an id only for the very same tensor. So the
+recipe substitutes the old bn output onto a fresh id and claims
+`(old, fresh, Equivalent)` — the first rewrite here to claim anything but
+`Identical`. §8's propagation then carries `Equivalent` to everything downstream,
+which the test pins on the relu below the fold: leaving that implicitly
+`Identical` would have a verifier assert bit-equality on the model's own output.
+
+**One arithmetic path, not eight.** BN weight, BN bias and conv bias are
+independently optional. Rather than branch the emitted graph eight ways, an
+absent operand becomes an explicit scalar constant holding its identity value
+(1, 0, 0). That costs nothing: `eps` is a float *parameter* rather than an edge,
+so the pass has to bind a literal payload regardless, and `Fold_const` removes
+all of them again. The eight combinations are then the same code, which is why
+the numeric test runs all eight rather than a representative few.
+
+> **Found while implementing: two framework gaps, both exposed by being the first
+> value-changing pass.**
+>
+> `Recipe.replace` decided whether to invent an `Identical` self-claim by asking
+> whether the substitution's target was already a claim *source*. Every earlier
+> constructor substitutes a fresh output *onto* an existing id, so that was
+> enough. A value-changing rewrite substitutes the other way — old output onto a
+> fresh id — and the invented self-claim then named an edge absent from the
+> source graph, which `Graph_map.validate` rightly rejects. The test is now
+> "does the recipe already speak about this edge", on either side of a claim.
+>
+> `apply` never validated a recipe-bound payload against the signature the recipe
+> declares; only `origin` checked its own, and only the shape at that. Fine while
+> `Fold_const` was the only producer, since its values come from `Eval_direct` and
+> are right by construction — but a pass that computes a parameter itself can bind
+> data whose shape or format contradicts its edge, and the mismatch would surface
+> only at evaluation. Both paths now check shape *and* format.
 
 ## 13. Tests
 

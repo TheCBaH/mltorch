@@ -85,8 +85,12 @@ let fold_result f init l =
 let same_shape a b =
   List.for_all (fun ax -> Dim.equal (Vec6.get a ax) (Vec6.get b ax)) Axis.all
 
+let fmt_name (Payload.Fmt f) = Payload.fmt_name f
+
 let payload_matches (sg : Tensor_sig.t) (Tensor.Tensor payload) =
   same_shape sg.shape payload.Tensor.shape
+  && String.equal (fmt_name sg.fmt)
+       (Payload.fmt_name payload.Tensor.payload.fmt)
 
 let check_payloads g pairs =
   fold_result
@@ -340,8 +344,6 @@ let rebuild_groups (root : Group.t) ~removed ~placements ~position =
 
 (* ---- preserved-id checks ------------------------------------------------- *)
 
-let fmt_name (Payload.Fmt f) = Payload.fmt_name f
-
 let same_sig (a : Tensor_sig.t) (b : Tensor_sig.t) =
   same_shape a.shape b.shape
   && String.equal (fmt_name a.fmt) (fmt_name b.fmt)
@@ -543,6 +545,19 @@ let apply state recipe =
   let live = Tensor_id.Set.union referenced (Tensor_id.Set.of_list inputs) in
   let tensors =
     Tensor_id.Map.filter (fun id _ -> Tensor_id.Set.mem id live) tensors
+  in
+  (* A recipe-bound payload is held to the same contract [origin] holds its own
+     to, against the signature the recipe declares for the edge. Without it a
+     pass that computes a parameter itself — batch-norm folding is the first —
+     could bind data whose shape or format contradicts its edge, and the
+     mismatch would surface only at evaluation, far from the recipe. *)
+  let* () =
+    fold_result
+      (fun () (id, payload) ->
+        match Tensor_id.Map.find_opt id tensors with
+        | Some sg when payload_matches sg payload -> Core.return ()
+        | _ -> Core.fail (`Bad_constant_payload id))
+      () new_constants
   in
   let* () =
     check_signatures ~old_tensors:old_g.Graph.tensors ~new_tensors:tensors

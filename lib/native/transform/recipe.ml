@@ -92,17 +92,24 @@ let trim ~remove ~tie =
 
 let replace ~remove ~insert ?(tensors = []) ?(subst = []) ?(claims = [])
     ?(placement = Inherit) () =
-  (* Every source output the insertions take over keeps its id while changing
-     definition, which [apply] requires a claim for. Add the [Identical]
-     self-claim for each unless the caller said otherwise — a rewrite that
-     changes the value gives the output a fresh id and claims the pair itself. *)
-  let claimed id =
-    List.exists (fun (src, _, _) -> Tensor_id.equal src id) claims
+  (* A source output the insertions take over keeps its id while changing
+     definition, which [apply] requires a claim for; add the [Identical]
+     self-claim unless the recipe already speaks about that edge.
+
+     "Already speaks about" has to mean EITHER side of a claim, not just the
+     source. A value-changing rewrite substitutes the other way round — old
+     output onto a fresh id, claimed [(old, fresh, Equivalent)] — and inventing
+     a self-claim for [fresh] would name an edge that does not exist in the
+     source graph at all, which [Graph_map.validate] rightly rejects. *)
+  let mentioned id =
+    List.exists
+      (fun (src, dst, _) -> Tensor_id.equal src id || Tensor_id.equal dst id)
+      claims
   in
   let self_claims =
     List.filter_map
       (fun (_, onto) ->
-        if claimed onto then None
+        if mentioned onto then None
         else Some (onto, onto, Correspondence.Identical))
       subst
   in

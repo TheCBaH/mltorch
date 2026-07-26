@@ -424,6 +424,23 @@ let%expect_test "guard: an output signature contradicting its op is rejected" =
         ());
   [%expect {| t2's signature is not the shape its op produces |}]
 
+let%expect_test "guard: a bound payload must match the signature it declares" =
+  (* A pass that computes a parameter itself — batch-norm folding is the first —
+     binds data the framework has no other way to check. Without this the
+     mismatch surfaces only at evaluation, a long way from the recipe that
+     caused it. The edge here is declared [C=3] and given a [C=4] tensor. *)
+  rejected
+    (Graph_fixtures.permute_noop ())
+    Recipe.(
+      let* id = fresh (shape ~h:1 ~w:1 ~c:3) in
+      emit
+        {
+          empty_replacement with
+          constants =
+            [ (id, Tensor.materialize (shape ~h:1 ~w:1 ~c:4) (fun _ -> 1.)) ];
+        });
+  [%expect {| payload for t3 does not match its signature |}]
+
 let%expect_test "guard: two replacements claiming the same node is rejected" =
   rejected
     (Graph_fixtures.permute_sequence ())
