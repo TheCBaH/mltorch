@@ -16,17 +16,23 @@ type t = {
   run : 'v. 'v Rewrite.t -> ('v Rewrite.step, error) Core.result;
 }
 
-(* Visit each node and offer a rewrite. The callback takes a view, so it too has
-   to be explicitly polymorphic; it returns a BUILDER rather than a recipe, so
-   the driver — not the pass — threads the allocator and keeps allocation
-   sequential and contiguous across the matches it accepts. *)
-type per_node = { on_node : Graph_view.t -> node -> unit Recipe.t option }
+(* What a pass sees. Both halves come from the state, and the payloads are the
+   state's CUMULATIVE map, so a fold running under a [fixpoint] sees what earlier
+   iterations produced. A callback handed only a graph could not express constant
+   folding at all — it has to evaluate. *)
+type env = { constants : Tensor.packed Tensor_id.Map.t; view : Graph_view.t }
+
+(* Visit each node and offer a rewrite. The callback returns a BUILDER rather
+   than a recipe, so the driver — not the pass — threads the allocator and keeps
+   allocation sequential and contiguous across the matches it accepts. *)
+type per_node = { on_node : env -> node -> unit Recipe.t option }
 
 val per_node : name:string -> per_node -> t
 
 (* Match with a pattern anchored at each node output; [build] turns an accepted
-   match into a builder. Needs no rank-2 annotation, [Recipe.t] being
-   version-free. *)
+   match into a builder. Neither takes the env: [Pattern] is defined over the
+   view alone, and no pattern-based pass has needed payloads. One that does
+   should grow the env here rather than reach around the driver. *)
 val of_pattern :
   name:string ->
   pattern:(Tensor_id.t -> 'a Pattern.t) ->

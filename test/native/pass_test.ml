@@ -19,7 +19,7 @@ let trim_identity =
   Pass.per_node ~name:"trim_identity"
     {
       Pass.on_node =
-        (fun _view (n : node) ->
+        (fun _env (n : node) ->
           match (n.Node.op, n.Node.outputs) with
           | Permute { perm; x }, [ out ] when is_identity_perm perm ->
               Some (Recipe.trim ~remove:[ n.Node.id ] ~tie:[ (out, x) ])
@@ -168,7 +168,7 @@ let%expect_test "fixpoint reports a pass that will not converge" =
     Pass.per_node ~name:"churn"
       {
         Pass.on_node =
-          (fun _view (n : node) ->
+          (fun _env (n : node) ->
             match (n.Node.op, n.Node.outputs) with
             | Relu { x }, [ out ] ->
                 (* Replace the relu with an identical one: always a change. *)
@@ -228,7 +228,7 @@ let%expect_test "constant payloads accumulate across a pipeline" =
     Pass.per_node ~name:"fold"
       {
         Pass.on_node =
-          (fun _view (n : node) ->
+          (fun _env (n : node) ->
             if Node_id.equal n.Node.id node then
               Some
                 (Recipe.fold_to_constant ~node ~output:out

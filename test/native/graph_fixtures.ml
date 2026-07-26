@@ -177,14 +177,33 @@ let reshape_flatten () =
       relu r)
 
 (* THE motivating case: a constant weight behind a permute, re-permuted on every
-   inference until constant folding hoists it to load time. *)
+   inference until constant folding hoists it to load time. The perm is a real
+   rearrangement — with the identity here the weight would be trimmed rather than
+   folded, and the fixture would exercise the wrong pass. *)
 let const_permute () =
   build "const_permute"
     Graph_builder.(
       let* x = input ~shape:(nhwc ~h:3 ~w:3 ~c:2) () in
       let* w = constant ~shape:(s 3 1 1 2 2 2) () in
-      let* wp = permute identity_perm w in
+      let* wp = permute swap_hw w in
       conv2d (conv_params ~in_channels:2) ~x ~weight:wp ())
+
+(* A constant behind a multi-output op: foldable in principle, out of scope for
+   [Fold_const], which binds one output per recipe. *)
+let const_pool () =
+  build "const_pool"
+    Graph_builder.(
+      let* c = constant ~shape:(nhwc ~h:4 ~w:4 ~c:2) () in
+      let params : Pool.MaxPool2dWithIndices.params =
+        {
+          kernel = { h = Dim.extent 2; w = Dim.extent 2 };
+          stride = { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
+          pad = { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+        }
+      in
+      let* values, indices = max_pool2d_with_indices params c in
+      let* () = discard indices in
+      relu values)
 
 (* A multi-node all-constant sub-DAG, for folding under a fixed point. *)
 let const_arith () =
@@ -230,6 +249,7 @@ let all =
     ("chain", chain);
     ("const_arith", const_arith);
     ("const_permute", const_permute);
+    ("const_pool", const_pool);
     ("diamond", diamond);
     ("grouped", grouped);
     ("multi_output", multi_output);

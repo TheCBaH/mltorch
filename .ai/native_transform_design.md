@@ -11,8 +11,8 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — stages 1 to 6 have landed: the framework is complete and
-the first transformations run on it. Constant folding, the ops batch-norm folding
+Status: **in progress** — stages 1 to 7 have landed: the framework is complete, the
+permute simplifications and constant folding run on it. The ops batch-norm folding
 needs, that fold itself, packing and the PT2 lens remain.
 Each section below carries its own status marker, flipped by the commit that
 implements it; `## 12. Staging and the transformations` tracks the whole sequence.
@@ -691,7 +691,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 4 | `native: add graph match combinators` | `Pattern`, `run`, `scan` | done |
 | 5 | `native: add pass driver` | `Pass`, `fixpoint`, `run_all` | done |
 | 6 | `native: add permute simplification passes` | `Trim_permute`, `Chain_permute`, `Reshape_to_permute`, perm algebra on `Permute.Permute` | done |
-| 7 | `native: add constant folding` | `fold_const` — the motivating permute-of-constant-weight case | |
+| 7 | `native: add constant folding` | `Fold_const` — the motivating permute-of-constant-weight case; `Pass.env` | done |
 | 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding | |
 | 9 | `native: add batch-norm folding pass` | `fold_batch_norm` | |
 | 10 | `native: add terminal id packing` | `Rewrite.pack` | |
@@ -760,6 +760,71 @@ shape.
 > preserves; "the map is sound" is.
 
 > **Found while implementing: greedy disjoint matching favours the shortest run.**
+> `Pattern.scan` anchors in node order and drops later matches that overlap an
+> accepted one, so on a three-permute chain the one-node run anchored at `t1` wins
+> and the two- and three-node runs are discarded. One sweep removes one node;
+> `Pass.fixpoint` is what collapses the chain. That follows from §11's specified
+> overlap rule rather than contradicting it, but it does mean a pass author cannot
+> assume a sweep takes the *largest* match, and any pass with nested matches wants
+> a fixed point.
+
+### 12b. Constant folding
+
+Status: **implemented** — `lib/native/transform/passes/fold_const.ml`, tests in
+`test/native/fold_const_test.ml`.
+
+`Fold_const` is what lets every other pass stay simple. Constant arithmetic is
+expressed as **ordinary graph ops** — a relayout emits a `Permute` of a weight,
+batch-norm folding (§12c) will emit its parameter arithmetic as nodes — and this
+one pass turns the resulting all-constant sub-DAG into data. No pass computes on
+payloads itself, so no pass needs an evaluator, and there is exactly one place
+where a value can be got wrong.
+
+It folds a node with **exactly one output and at least one operand**, every
+operand a `Constant` with a bound payload. It refuses:
+
+- **zero outputs** (`Discard`) — removing those is dead-code elimination's job;
+- **several outputs** — binding them all needs one recipe that says so, which
+  `Recipe.fold_to_constant` does not express. Atomic multi-output folding is
+  future work, recorded rather than half-done;
+- **a constant with no bound payload** — payloads live outside the IR (§2), so
+  "declared constant, not yet loaded" is a legitimate state, not an error. The
+  node simply stays.
+
+Evaluation goes through `Region.extract` + `Eval_direct.run`: the matched node
+becomes a one-node standalone graph (boundary inputs keep their `Input.kind`,
+which is what makes the operands resolve as constants) and runs down the same
+path inference takes. There is no second evaluator to disagree with the first.
+`Eval_direct` returns every edge, so the value is available whether or not the
+folded output escaped the region.
+
+The recipe keeps the node's output id — same tensor, computed earlier — so it is
+a self-claim plus a provenance edge, exactly §3's worked example: for
+`w --Permute--> wp`, `wp` stays implicit, `{w} ↔ {}` is a deletion, and
+`[w] → wp` is provenance. Under `Pass.fixpoint` a multi-node sub-DAG collapses
+one layer per sweep, since a node only becomes foldable once the sweep before it
+bound its operands, and the intermediate payloads drop out of the state as they
+stop being referenced.
+
+**Evaluation failure is unreachable, and skipping is the response.** Each way
+`evaluate` could fail is ruled out by something already checked: the region is a
+known singleton, shapes and arities were verified by `Graph_view.of_graph`, the
+extracted graph has no `Input`-kind inputs because every operand is constant, and
+every operand has a payload. Rather than thread a new error row through `Pass`
+for a case that cannot arise, the pass declines to fold — which leaves the graph
+computing the node itself, i.e. correct.
+
+> **Changed while implementing: a pass sees `Pass.env`, not a bare view.**
+> `per_node`'s callback took a `Graph_view.t`, and constant folding cannot be
+> written against one — it has to *evaluate*, which needs the payloads. So the
+> callback now takes `{ constants; view }`, both read off the state by the
+> driver. The payloads must be the state's cumulative map rather than a
+> per-step delta, or the second iteration of a `fixpoint` fold would have no
+> payload for the first iteration's output; §5 already required that of the
+> state, and this is where it pays. `of_pattern` still passes only the view,
+> because `Pattern` is defined over one and no pattern-based pass has needed
+> payloads; one that does should grow the env there too rather than reach
+> around the driver.
 > `Pattern.scan` anchors in node order and drops later matches that overlap an
 > accepted one, so on a three-permute chain the one-node run anchored at `t1` wins
 > and the two- and three-node runs are discarded. One sweep removes one node;

@@ -14,7 +14,8 @@ type t = {
   run : 'v. 'v Rewrite.t -> ('v Rewrite.step, error) Core.result;
 }
 
-type per_node = { on_node : Graph_view.t -> node -> unit Recipe.t option }
+type env = { constants : Tensor.packed Tensor_id.Map.t; view : Graph_view.t }
+type per_node = { on_node : env -> node -> unit Recipe.t option }
 
 let lift r = (r :> ('a, error) Core.result)
 
@@ -52,18 +53,21 @@ let of_sweep ~name collect =
     name;
     run =
       (fun state ->
-        let* result = sweep state (collect (Rewrite.view state)) in
+        let env =
+          { constants = Rewrite.constants state; view = Rewrite.view state }
+        in
+        let* result = sweep state (collect env) in
         Core.return
           (match result with None -> identity_step state | Some step -> step));
   }
 
 let per_node ~name { on_node } =
-  of_sweep ~name (fun view ->
-      List.filter_map (on_node view) (Graph_ir.nodes (Graph_view.graph view)))
+  of_sweep ~name (fun env ->
+      List.filter_map (on_node env) (Graph_ir.nodes (Graph_view.graph env.view)))
 
 let of_pattern ~name ~pattern ~build =
-  of_sweep ~name (fun view ->
-      Pattern.scan pattern view
+  of_sweep ~name (fun env ->
+      Pattern.scan pattern env.view
       |> List.map (fun (value, region) -> build value region))
 
 (* Convergence is "the graph stopped changing", read off the node and tensor
