@@ -730,6 +730,16 @@
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
+; Rewrite resnet18's graph with the transformation framework and execute it,
+; resolving PT2 provenance through the composed map (see
+; .ai/native_transform_design.md §10).
+
+(cram
+ (applies_to native_transform_cram)
+ (deps %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
 (cram
  (applies_to aten_gen_coverage_cram)
  (deps %{exe:aten_gen_coverage.exe} native_functions.yaml))

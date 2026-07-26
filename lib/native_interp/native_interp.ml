@@ -10,7 +10,9 @@ type error =
   | `Tensor_bridge of string
   | `Eval of Eval_direct.error
   | `Build of Graph_builder.error
-  | `Provenance of Pt2_native_graph.error ]
+  | `Provenance of Pt2_native_graph.error
+  | `Transform of Pass.error
+  | `Lens of Pt2_native_graph.lens_error ]
 
 type hooks =
   | Hooks : {
@@ -27,6 +29,8 @@ let pp_error ppf : [< error ] -> unit = function
   | `Eval e -> Eval_direct.pp_error ppf e
   | `Build e -> Graph_builder.pp_error ppf e
   | `Provenance e -> Pt2_native_graph.pp_error ppf e
+  | `Transform e -> Pass.pp_error ppf e
+  | `Lens e -> Pt2_native_graph.pp_lens_error ppf e
 
 exception Lower_error of error
 
@@ -571,3 +575,179 @@ let run ?hooks archive ~input =
       | Some tensor -> Core.return tensor
       | None -> Core.fail (`Malformed_graph "native output was not evaluated"))
     graph.Graph_ir.Graph.outputs
+
+(* ---- running a transformed graph ------------------------------------------ *)
+
+type report = {
+  nodes_before : int;
+  nodes_after : int;
+  from_state : int;
+  from_archive : int;
+  derived : (Tensor_id.t * string list) list;
+}
+
+let load_captured archive target =
+  let open Core.Syntax in
+  let* raw =
+    Pt2_archive.load_captured_tensor archive target
+    |> Core.map_error (fun e ->
+        `Tensor_bridge (Format.asprintf "%a" Pt2_archive.pp_error e))
+  in
+  tensor_of_pt2 raw
+
+(* Payloads for the constants the graph actually reads, state before archive.
+   An edge with neither is simply absent; [Eval_direct] is the one that decides
+   whether that matters, and says which edge if it does. *)
+let constants_for archive ~lens ~graph ~computed =
+  let open Core.Syntax in
+  let used =
+    List.concat_map
+      (fun (n : Graph_ir.node) -> Graph_ir.operands n.Graph_ir.Node.op)
+      graph.Graph_ir.Graph.nodes
+    |> Tensor_id.Set.of_list
+  in
+  let+ loaded =
+    Core.List.fold_left
+      (fun acc id ->
+        if not (Tensor_id.Set.mem id used) then Core.return acc
+        else
+          match Tensor_id.Map.find_opt id computed with
+          | Some payload -> Core.return ((id, payload, `State) :: acc)
+          | None -> (
+              let* target =
+                Pt2_native_graph.captured_target lens id
+                |> Core.map_error (fun e -> `Lens e)
+              in
+              match target with
+              | None -> Core.return acc
+              | Some target ->
+                  let+ payload = load_captured archive target in
+                  (id, payload, `Archive) :: acc))
+      []
+      (List.filter
+         (fun id -> Graph_ir.input_kind graph id = Graph_ir.Input.Constant)
+         graph.Graph_ir.Graph.inputs)
+  in
+  let count source =
+    List.length (List.filter (fun (_, _, s) -> s = source) loaded)
+  in
+  ( List.rev_map (fun (id, payload, _) -> (id, payload)) loaded,
+    count `State,
+    count `Archive )
+
+(* The PT2 names a destination constant derives from: its provenance sources,
+   resolved in the sidecar the importer built. Asked only of an edge with no
+   archive path of its own — a folded weight — which is exactly where "where did
+   this come from" has no other answer. *)
+let derivations lens sidecar (graph : Graph_ir.graph) =
+  let open Core.Syntax in
+  Core.List.fold_left
+    (fun acc id ->
+      if Graph_ir.input_kind graph id <> Graph_ir.Input.Constant then
+        Core.return acc
+      else
+        let+ target =
+          Pt2_native_graph.captured_target lens id
+          |> Core.map_error (fun e -> `Lens e)
+        in
+        match target with
+        | Some _ -> acc
+        | None -> (
+            let names =
+              List.filter_map
+                (fun src ->
+                  match
+                    Tensor_id.Map.find_opt src
+                      sidecar.Pt2_native_graph.tensor_origins
+                  with
+                  | Some (Pt2_native_graph.Source o) ->
+                      Some o.Pt2_native_graph.Tensor_origin.ssa_name
+                  | Some Pt2_native_graph.Derived | None -> None)
+                (Pt2_native_graph.provenance_sources lens id)
+            in
+            match names with [] -> acc | _ -> (id, names) :: acc))
+    [] graph.Graph_ir.Graph.inputs
+
+let run_transformed ?(preload = false) archive ~passes ~input =
+  let open Core.Syntax in
+  let* lowered = lower_archive archive in
+  let source = lowered.Pt2_native_graph.graph in
+  let* input = tensor_of_pt2 input in
+  (* Nothing is bound by default: the imported weights stay in the archive until
+     something reads them, so a structural pipeline never materialises one.
+     [preload] is what constant folding needs, and it reads the whole archive. *)
+  let read_by_a_node =
+    List.concat_map
+      (fun (n : Graph_ir.node) -> Graph_ir.operands n.Graph_ir.Node.op)
+      source.Graph_ir.Graph.nodes
+    |> Tensor_id.Set.of_list
+  in
+  let* seeded =
+    if not preload then Core.return []
+    else
+      (* Only what a node reads: an archive holds buffers nothing evaluates —
+         resnet18's int64 [num_batches_tracked] among them — and loading one
+         would fail on a dtype the engine has no reason to support. *)
+      Core.List.map
+        (fun (id, target) ->
+          let+ payload = load_captured archive target in
+          (id, payload))
+        (List.filter
+           (fun (id, _) -> Tensor_id.Set.mem id read_by_a_node)
+           (Tensor_id.Map.bindings lowered.Pt2_native_graph.captured_targets))
+  in
+  let transform_error e = `Transform ((e : Rewrite.error) :> Pass.error) in
+  let* (Rewrite.Origin origin) =
+    Rewrite.origin ~constants:seeded source |> Core.map_error transform_error
+  in
+  let* (Rewrite.Step (rewritten, rewrite_map)) =
+    Pass.run_all origin passes |> Core.map_error (fun e -> `Transform e)
+  in
+  let* (Rewrite.Step (packed, pack_map)) =
+    Rewrite.pack rewritten |> Core.map_error transform_error
+  in
+  let graph = Rewrite.graph packed in
+  let* lens =
+    Pt2_native_graph.lens lowered ~src:origin
+      (Graph_map.compose rewrite_map pack_map)
+      ~dst:packed
+    |> Core.map_error (fun e -> `Lens e)
+  in
+  let* constants, from_state, from_archive =
+    constants_for archive ~lens ~graph ~computed:(Rewrite.constants packed)
+  in
+  let* derived = derivations lens lowered graph in
+  let user_ids =
+    List.filter
+      (fun id -> Graph_ir.input_kind graph id = Graph_ir.Input.Input)
+      graph.Graph_ir.Graph.inputs
+  in
+  let* inputs =
+    match user_ids with
+    | [ id ] -> Core.return [ (id, input) ]
+    | ids ->
+        Core.fail
+          (`Unsupported_input
+             (Format.asprintf "expected one user input, got %d"
+                (List.length ids)))
+  in
+  let* env =
+    Eval_direct.run ~constants graph ~inputs
+    |> Core.map_error (fun e -> `Eval e)
+  in
+  let+ outputs =
+    Core.List.map
+      (fun id ->
+        match Tensor_id.Map.find_opt id env with
+        | Some tensor -> Core.return tensor
+        | None -> Core.fail (`Malformed_graph "native output was not evaluated"))
+      graph.Graph_ir.Graph.outputs
+  in
+  ( outputs,
+    {
+      nodes_before = List.length source.Graph_ir.Graph.nodes;
+      nodes_after = List.length graph.Graph_ir.Graph.nodes;
+      from_state;
+      from_archive;
+      derived = List.rev derived;
+    } )

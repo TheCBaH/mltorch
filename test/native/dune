@@ -1,9 +1,18 @@
-; Expect tests for lib/native, one module per native module under test. Pure
+; Expect tests for lib/native, one module per native module under test, plus the
+; PT2 provenance lens, which is a thin layer directly on top of the
+; transformation framework and is tested next to the mapping it walks. Pure
 ; OCaml (no C++/ctypes), so this runs in isolation: `dune runtest test/native`.
 
 (library
  (name native_test)
- (libraries native native_op_walk walk_core core jsont jsont.bytesrw)
+ (libraries
+  native
+  native_graph
+  native_op_walk
+  walk_core
+  core
+  jsont
+  jsont.bytesrw)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))

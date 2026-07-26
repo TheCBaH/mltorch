@@ -96,3 +96,135 @@ let make ~graph ~tensor_origins ~node_origins ~captured_targets =
       (Tensor_id.Map.bindings captured_targets)
   in
   Core.return { graph; tensor_origins; node_origins; captured_targets }
+
+(* ---- the transformation lens ---------------------------------------------- *)
+
+type lens_error =
+  [ error
+  | Graph_map.error
+  | `Sidecar_graph_mismatch
+  | `Unknown_destination_node of Node_id.t
+  | `Unknown_destination_tensor of Tensor_id.t ]
+
+let pp_lens_error ppf : [< lens_error ] -> unit = function
+  | #error as e -> pp_error ppf e
+  | #Graph_map.error as e -> Graph_map.pp_error ppf e
+  | `Sidecar_graph_mismatch ->
+      Format.fprintf ppf "the sidecar does not describe the map's source graph"
+  | `Unknown_destination_node id ->
+      Format.fprintf ppf "%a is not a node of the destination graph" Node_id.pp
+        id
+  | `Unknown_destination_tensor id ->
+      Format.fprintf ppf "%a is not an edge of the destination graph"
+        Tensor_id.pp id
+
+type 'dst lens =
+  | Lens : {
+      map : ('src, 'dst) Graph_map.t;
+      nodes : Node_id.Set.t;
+      sidecar : t;
+      tensors : Tensor_id.Set.t;
+    }
+      -> 'dst lens
+
+(* Canonical bytes, not structural equality: [graph] holds a [Tensor_id.Map]
+   whose tree shape depends on insertion order, so [=] can call two identical
+   maps unequal. A graph that will not encode compares equal to nothing, which is
+   the conservative answer. *)
+let canonical g = Result.to_option (Graph_json.encode_graph g)
+
+let lens sidecar ~src map ~dst =
+  let open Core.Syntax in
+  let src_g = Rewrite.graph src and dst_g = Rewrite.graph dst in
+  let* () =
+    match (canonical sidecar.graph, canonical src_g) with
+    | Some a, Some b when String.equal a b -> Core.return ()
+    | _ -> Core.fail `Sidecar_graph_mismatch
+  in
+  let* () =
+    (Graph_map.validate map ~src:src_g ~dst:dst_g
+      :> (unit, lens_error) Core.result)
+  in
+  let tensors =
+    Tensor_id.Map.fold
+      (fun id _ acc -> Tensor_id.Set.add id acc)
+      dst_g.Graph.tensors Tensor_id.Set.empty
+  in
+  let nodes =
+    List.fold_left
+      (fun acc (n : node) -> Node_id.Set.add n.Node.id acc)
+      Node_id.Set.empty dst_g.Graph.nodes
+  in
+  Core.return (Lens { map; nodes; sidecar; tensors })
+
+(* The source ids a destination edge corresponds to, with the claim over them.
+   An id in no cluster is implicitly [Identical] to itself (§3); [Set.elements]
+   is ascending, so every list below is deterministic. *)
+let sources_of (Lens l) id =
+  match
+    List.find_opt
+      (fun (c : Correspondence.Cluster.t) -> Tensor_id.Set.mem id c.dst)
+      (Correspondence.clusters l.map.Graph_map.values)
+  with
+  | Some c -> (Tensor_id.Set.elements c.src, c.label)
+  | None -> ([ id ], Correspondence.Identical)
+
+let known_tensor (Lens l) id =
+  if Tensor_id.Set.mem id l.tensors then Core.return ()
+  else Core.fail (`Unknown_destination_tensor id)
+
+let dedup_by key l =
+  List.fold_left
+    (fun (seen, acc) x ->
+      if List.mem (key x) seen then (seen, acc) else (key x :: seen, x :: acc))
+    ([], []) l
+  |> snd |> List.rev
+
+let tensor_origins (Lens l as lens) id =
+  let open Core.Syntax in
+  let+ () = known_tensor lens id in
+  let sources, _ = sources_of lens id in
+  List.filter_map
+    (fun s ->
+      match Tensor_id.Map.find_opt s l.sidecar.tensor_origins with
+      | Some (Source o) -> Some o
+      | Some Derived | None -> None)
+    sources
+  |> dedup_by (fun (o : Tensor_origin.t) -> (o.graph_path, o.ssa_name))
+
+let node_origins (Lens l) id =
+  let open Core.Syntax in
+  let+ () =
+    if Node_id.Set.mem id l.nodes then Core.return ()
+    else Core.fail (`Unknown_destination_node id)
+  in
+  let sources =
+    match
+      List.find_opt
+        (fun (c : Node_map.Cluster.t) -> Node_id.Set.mem id c.dst)
+        (Node_map.clusters l.map.Graph_map.nodes)
+    with
+    | Some c -> Node_id.Set.elements c.src
+    | None -> [ id ]
+  in
+  let key (o : Node_origin.t) = (o.graph_path, o.index) in
+  List.concat_map
+    (fun s ->
+      Option.value (Node_id.Map.find_opt s l.sidecar.node_origins) ~default:[])
+    sources
+  |> List.stable_sort (fun a b -> compare (key a) (key b))
+  |> dedup_by key
+
+let captured_target (Lens l as lens) id =
+  let open Core.Syntax in
+  let+ () = known_tensor lens id in
+  match sources_of lens id with
+  | sources, Correspondence.Identical ->
+      List.find_map
+        (fun s -> Tensor_id.Map.find_opt s l.sidecar.captured_targets)
+        sources
+  (* Anything weaker than [Identical] means the bytes differ by construction. *)
+  | _, _ -> None
+
+let provenance_sources (Lens l) id =
+  Tensor_id.Set.elements (Provenance.sources_of l.map.Graph_map.provenance id)

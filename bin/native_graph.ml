@@ -295,8 +295,91 @@ let eval_cmd =
   Cmd.v (Cmd.info "eval" ~doc)
     Term.(const eval $ pt2_arg $ input_arg $ expect_arg $ verbose_arg)
 
+(* The pipeline the transform subcommand runs. Structural only: no weight is
+   materialised, so [Fold_const] is deliberately absent — with no payload bound
+   it would decline every node, and including it would suggest otherwise. The
+   permute passes are here for the case .ai/native_transform_design.md §1 names
+   directly: the relayout lowering emits an inverse permute pair at every op
+   boundary, and cancelling them is the whole point. *)
+let passes ~fold =
+  [
+    Reshape_to_permute.pass;
+    Pass.fixpoint Chain_permute.pass;
+    Pass.fixpoint Trim_permute.pass;
+    Fold_batch_norm.pass;
+  ]
+  @ if fold then [ Pass.fixpoint Fold_const.pass ] else []
+
+let fold_arg =
+  let doc =
+    "Load every captured weight up front so constant folding can hoist \
+     parameter arithmetic to load time. Reads the whole archive."
+  in
+  Arg.(value & flag & info [ "fold" ] ~doc)
+
+let transform model input expect fold : (unit, string) result =
+  with_archive model (fun archive ->
+      match Pt2_archive.load_pt input with
+      | Error e ->
+          Error (Format.asprintf "%a" Pt2_archive.pp_error e.Core.Error.kind)
+      | Ok input -> (
+          match
+            Native_interp.run_transformed ~preload:fold archive
+              ~passes:(passes ~fold) ~input
+          with
+          | Error e ->
+              Error
+                (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind)
+          | Ok (outputs, report) -> (
+              Format.printf "nodes: %d -> %d@." report.nodes_before
+                report.nodes_after;
+              Format.printf "constants: %d computed, %d from the archive@."
+                report.from_state report.from_archive;
+              Format.printf "derived constants: %d@."
+                (List.length report.derived);
+              List.iteri
+                (fun i (id, names) ->
+                  if i < 3 then
+                    Format.printf "  %a <- %a@." Graph_ir.Tensor_id.pp id
+                      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.string))
+                      names)
+                report.derived;
+              match (outputs, expect) with
+              | [ output ], None ->
+                  Format.printf "output[0] = %a@." Tensor.pp output;
+                  Ok ()
+              | [ output ], Some path -> (
+                  match Graph_json.decode_tensor (read_source path) with
+                  | Error message ->
+                      Error ("cannot decode reference: " ^ message)
+                  | Ok expected -> (
+                      match compare_tensor ~atol:1e-4 expected output with
+                      | Ok distance ->
+                          Format.printf "output[0]: %a@." pp_distance distance;
+                          Format.printf "output[0]: matches %s@." path;
+                          Ok ()
+                      | Error (distance, message) ->
+                          Option.iter
+                            (fun distance ->
+                              Format.printf "output[0]: %a@." pp_distance
+                                distance)
+                            distance;
+                          Error message))
+              | _ -> Error "expected exactly one native graph output")))
+
+let transform_cmd =
+  let doc =
+    "Import, transform and evaluate a static single-input PT2 graph, resolving \
+     provenance through the transformation map."
+  in
+  Cmd.v
+    (Cmd.info "transform" ~doc)
+    Term.(const transform $ pt2_arg $ input_arg $ expect_arg $ fold_arg)
+
 let cmd =
   let doc = "Tools for the native inference engine's graph representation." in
-  Cmd.group (Cmd.info "native_graph" ~doc) [ print_cmd; eval_cmd ]
+  Cmd.group
+    (Cmd.info "native_graph" ~doc)
+    [ print_cmd; eval_cmd; transform_cmd ]
 
 let () = exit (Cmd.eval_result cmd)

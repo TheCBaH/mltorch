@@ -11,9 +11,10 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — stages 1 to 10 have landed: the framework, every
-transformation built on it (permute simplification, constant folding, batch-norm
-folding), and terminal id packing. Only the PT2 lens remains.
+Status: **complete** — all eleven stages have landed. The framework, the
+transformations built on it (permute simplification, constant folding, batch-norm
+folding), terminal id packing, and PT2 provenance resolved through the composed
+map. `native_graph transform` runs the pipeline end to end on a real model.
 Each section below carries its own status marker, flipped by the commit that
 implements it; `## 12. Staging and the transformations` tracks the whole sequence.
 
@@ -553,7 +554,10 @@ the first if the enumeration depends on something other than the graph.
 
 ## 10. PT2 provenance — recovered, never carried
 
-Status: **design only**.
+Status: **implemented** — `pt2_native_graph.ml`'s `lens` and its queries,
+`native_interp.ml`'s `run_transformed`, and the `native_graph transform`
+subcommand; tests in `test/native/lens_test.ml` and
+`test/native_transform_cram.t`.
 
 **The sidecar is not transformed.** `Pt2_native_graph.t` stays anchored to the
 original graph exactly as the importer built it; a destination id's origin is
@@ -599,10 +603,41 @@ source id, node origins by `(graph_path, index)`.
 
 **Constant payloads split the same way.** Archive-captured data is reached by
 resolving a destination constant back to its source `captured_target`;
-pass-computed data lives in the final `Rewrite.constants`. `native_interp` consults
-the state's payload map first and falls back to the archive through the lens,
-replacing today's "load every constant via `captured_targets`", which cannot see a
-folded constant at all.
+pass-computed data lives in the final `Rewrite.constants`. `Native_interp.run_transformed`
+consults the state's payload map first and falls back to the archive through the
+lens, replacing "load every constant via `captured_targets`", which cannot see a
+folded constant at all. `run` itself is untouched: it transforms nothing, so it has
+no folded constants and no reason to take the new path.
+
+> **Found while implementing: the lazy path is the interesting one, and it
+> decides what a pass can do.** `run_transformed` seeds the origin state with *no*
+> payloads, so a structural pipeline never materialises a weight — but `Fold_const`
+> then declines every node, because it refuses a constant whose payload is not
+> bound (§12b). `~preload:true` binds every captured payload a node reads first,
+> which is what lets folding hoist a permuted weight. Two genuinely different
+> modes, and the flag is the honest way to say which: on ResNet-18 the structural
+> pipeline removes 41 nodes reading nothing from disk, and the preloaded one
+> removes 62 and hoists 21 weights.
+
+> **Found while implementing: only load what a node reads.** Preloading every
+> `captured_target` fails on ResNet-18 — the archive carries an int64
+> `num_batches_tracked` per batch-norm module that no node evaluates, and the
+> engine has no reason to support the dtype. Filtering to operands is both the fix
+> and the cheaper thing to do.
+
+**On a real model** (`test/native_transform_cram.t`), the ResNet-18 import goes
+from 174 nodes to 112 with identical outputs. The 41 nodes the permute passes
+remove are the inverse pairs the relayout lowering emits at each op boundary —
+§1's second case — and the 21 the fold removes are the constant weight permutes,
+§1's motivating case. Each hoisted weight reports `captured_target = None` and
+names its origin through provenance (`t124 <- [p_conv1_weight]`), which is exactly
+the split this section exists to enforce.
+
+Batch-norm folding does **not** fire on ResNet-18: the import lowers convolution
+to `Convolution`, not `Conv2d`, and §12c's pattern matches only the latter.
+Extending it is a small change and deliberately not made here — the pass is
+verified numerically against all eight operand combinations on fixtures, and
+widening the match without widening that verification would be the wrong order.
 
 ## 11. Matching
 
@@ -718,7 +753,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding; two stale steps fixed in `native_add_op.md` | done |
 | 9 | `native: add batch-norm folding pass` | `Fold_batch_norm`; recipe-payload validation in `apply` | done |
 | 10 | `native: add terminal id packing` | `Rewrite.pack`, `Id_supply.origin_marks`/`repack` | done |
-| 11 | `native: resolve PT2 provenance through a transformation map` | the lens; `native_interp` payload order | |
+| 11 | `native: resolve PT2 provenance through a transformation map` | `Pt2_native_graph.lens`; `Native_interp.run_transformed`; `native_graph transform` | done |
 
 ### 12a. The permute simplifications
 

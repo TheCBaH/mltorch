@@ -56,3 +56,72 @@ val make :
   node_origins:Node_origin.t list Node_id.Map.t ->
   captured_targets:string Tensor_id.Map.t ->
   (t, error) Core.result
+
+(* Resolving provenance for a TRANSFORMED graph.
+
+   The sidecar is never transformed. It stays anchored to the graph the importer
+   built, and a destination id's origin is *recovered* by walking a composed
+   source-to-destination map backwards. So there is no rebuild path, no
+   per-step revalidation, and no drift — there is only ever one sidecar value.
+   See .ai/native_transform_design.md §10. *)
+
+type lens_error =
+  [ error
+  | Graph_map.error
+  | `Sidecar_graph_mismatch
+  | `Unknown_destination_node of Node_id.t
+  | `Unknown_destination_tensor of Tensor_id.t ]
+
+val pp_lens_error : Format.formatter -> [< lens_error ] -> unit
+
+(* Parameterised by the DESTINATION version only; the source is existential,
+   having no use beyond construction. *)
+type 'dst lens
+
+(* Both endpoint states are required. Correspondence is sparse, so an id in no
+   cluster resolves to itself — without [dst] a bogus destination id would
+   silently "resolve" to the same-numbered source. The lens therefore stores the
+   destination's membership and rejects an id outside it.
+
+   Validated once, here: the sidecar's graph against [src]'s by canonical
+   [graph_jsont] bytes, and the map against both graphs. The byte comparison ties
+   the sidecar to the source; [Graph_map.validate] ties the *map* to the pair,
+   which nothing else does — a hand-built or [identity] map type-checks between
+   any two graphs. An id-set fingerprint would be worthless (builders start at
+   zero, so unrelated graphs routinely share ids) and structural equality is not
+   an option either, [graph] containing a [Tensor_id.Map] whose tree shape
+   depends on insertion order. *)
+val lens :
+  t ->
+  src:'a Rewrite.t ->
+  ('a, 'b) Graph_map.t ->
+  dst:'b Rewrite.t ->
+  ('b lens, lens_error) Core.result
+
+(* A LIST because a cluster is many-to-one and picking one origin would be
+   arbitrary. Yields [Tensor_origin.t] rather than the sidecar's [tensor_origin]
+   variant, so "derived" has exactly one representation — the empty list — and is
+   never ambiguous between [[]] and [[Derived]]. Sorted by source id and
+   deduplicated. *)
+val tensor_origins :
+  'b lens -> Tensor_id.t -> (Tensor_origin.t list, lens_error) Core.result
+
+(* Combined through the node clusters, sorted by [(graph_path, index)] and
+   deduplicated. *)
+val node_origins :
+  'b lens -> Node_id.t -> (Node_origin.t list, lens_error) Core.result
+
+(* Follows ONLY an [Identical] correspondence. Provenance is never a fallback
+   here and neither is a weaker claim: for [archive w --Permute--> wp] the
+   provenance edge says [w -> wp], but w's archive bytes are in the *unpermuted*
+   layout and are not a valid payload for wp — conflating the two is data
+   corruption, not imprecision. Where a many-to-one cluster offers several
+   captured sources they are all [Identical] and so interchangeable; the lowest
+   id is taken for determinism. *)
+val captured_target :
+  'b lens -> Tensor_id.t -> (string option, lens_error) Core.result
+
+(* The derivation, exposed separately from value correspondence because it
+   answers a different question: where a folded constant came from, not which
+   bytes it holds. Diagnostics only — never a payload source. *)
+val provenance_sources : 'b lens -> Tensor_id.t -> Tensor_id.t list
