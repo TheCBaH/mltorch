@@ -52,6 +52,7 @@ type op =
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t
+  | Div of Pointwise.Div.t
   | Discard of { x : tensor_ref }
     (* A sink: consumes one edge and produces NO output (its [Node.outputs] is
        empty). Used to route a dead op output — e.g. the argmax indices of
@@ -67,6 +68,8 @@ type op =
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
+  | Sqrt of Pointwise.Sqrt.t
+  | Sub of Pointwise.Sub.t
 
 module Node : sig
   type t = { id : Node_id.t; op : op; outputs : Tensor_id.t list }

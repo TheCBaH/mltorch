@@ -68,6 +68,17 @@ let%expect_test "Direct: add" =
        (A.pixel ~a_shape:x_shape ~b_shape:y_shape x y));
   [%expect {| tensor f32 [C=3] {10, 11, 12} |}]
 
+let%expect_test "Direct: div" =
+  let module D = Pointwise.Div.Compute (Direct) in
+  let x_shape = s1c 3 and y_shape = s1c 3 in
+  let x = Tensor.materialize x_shape (fun c -> float_of_int (chan c) +. 1.) in
+  let y = Tensor.materialize y_shape (fun _ -> 4.) in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Div.output_shape x_shape y_shape)
+       (D.pixel ~a_shape:x_shape ~b_shape:y_shape x y));
+  [%expect {| tensor f32 [C=3] {0.25, 0.5, 0.75} |}]
+
 let%expect_test "Direct: mul" =
   let module M = Pointwise.Mul.Compute (Direct) in
   let x_shape = s1c 3 and y_shape = s1c 3 in
@@ -78,6 +89,27 @@ let%expect_test "Direct: mul" =
        (Pointwise.Mul.output_shape x_shape y_shape)
        (M.pixel ~a_shape:x_shape ~b_shape:y_shape x y));
   [%expect {| tensor f32 [C=3] {0, 10, 20} |}]
+
+let%expect_test "Direct: sqrt" =
+  let module Q = Pointwise.Sqrt.Compute (Direct) in
+  let x_shape = s1c 4 in
+  let x =
+    Tensor.materialize x_shape (fun c -> [| 0.; 1.; 4.; 2.25 |].(chan c))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor (Pointwise.Sqrt.output_shape x_shape) (Q.pixel x));
+  [%expect {| tensor f32 [C=4] {0, 1, 2, 1.5} |}]
+
+let%expect_test "Direct: sub" =
+  let module S = Pointwise.Sub.Compute (Direct) in
+  let x_shape = s1c 3 and y_shape = s1c 3 in
+  let x = Tensor.materialize x_shape (fun c -> float_of_int (chan c)) in
+  let y = Tensor.materialize y_shape (fun _ -> 10.) in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Sub.output_shape x_shape y_shape)
+       (S.pixel ~a_shape:x_shape ~b_shape:y_shape x y));
+  [%expect {| tensor f32 [C=3] {-10, -9, -8} |}]
 
 (* Broadcast: [b] has an extent-1 axis (W) where [a] does not;
    [Pointwise.broadcast_coord] reads b at index 0 there, so its per-channel value

@@ -100,6 +100,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Mean { Reduce.Mean.params; x } ->
         let module C = Reduce.Mean.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Div { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Div.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Mul { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Mul.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
@@ -120,6 +124,13 @@ module Make (S : Semantics.SEMANTICS) = struct
           (* absent weight = identity scale *)
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    | Sqrt { Pointwise.Sqrt.x } ->
+        let module C = Pointwise.Sqrt.Compute (S) in
+        C.pixel (operand x) out
+    | Sub { Pointwise.Bin.a; b } ->
+        let module C = Pointwise.Sub.Compute (S) in
+        C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
+          (operand b) out
     | Discard _ ->
         invalid_arg
           "Eval_op.pixel: Discard produces no output, so it has no pixel"

@@ -92,16 +92,26 @@ alphabetical position at every site below; don't append.
    - `let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })`
 
 7. **ATen bridge** — `lib/native_aten_bridge/op_bridge.ml`
-   - A `run_<op>` Direct-scheduler helper (alphabetical) that materialises the
-     output via `Schedule.evaluate (output_shape …) (C.pixel …)`.
-   - A `dispatch` arm (alphabetical by op name) matching the ATen `node.target`
-     string(s) — include both the functional and in-place variants when they share
-     semantics (e.g. `"…aten.mul.Tensor" | "…aten.mul_.Tensor"`). Use the `unary`
-     / `binary` helpers for tensor-only ops; decode extra args with the
-     `Interp_decode` (`D.`) helpers as the reductions do.
+   - One `dispatch` arm (alphabetical by op name) matching the ATen
+     `node.target` string(s) — include both the functional and in-place variants
+     when they share semantics (e.g. `"…aten.mul.Tensor" | "…aten.mul_.Tensor"`).
+   - The arm builds a small native graph rather than calling the `Compute`
+     functor itself: `native_tensor_arg` for each tensor operand, then
+     `build_g ~name [operands] (function [ids] -> … | _ -> assert false)` with a
+     `Graph_builder` body, piped through `some_graph`. That is what lets an arm
+     insert relayout `permute`s around the op (see the batch-norm arm) instead of
+     being limited to one node. Decode non-tensor args with the `Interp_decode`
+     (`D.`) helpers as the reductions do.
    - Bridge only when operand/result layouts already line up under `of_aten`'s
      right-aligned positional mapping. Ops needing NCHW↔NHWC relayout are the
      deferred class documented in `native_aten_bridge_layout.md`.
+
+8. **Random-walk fuzzing** (optional) — `lib/native_op_walk/`
+   A `<op>_nwalk.ml` assembling the op's `Walk` config space into a subject, plus
+   an entry in `native_op_walk.ml`'s list. Optional because it is a fuzz harness,
+   not a correctness site, and it is not always appropriate: `Div` is deliberately
+   not registered, since a random divisor hits zero and the resulting inf/NaN
+   would make the walk flaky rather than informative.
 
 ## Multi-output ops and dead outputs
 

@@ -11,9 +11,10 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — stages 1 to 7 have landed: the framework is complete, the
-permute simplifications and constant folding run on it. The ops batch-norm folding
-needs, that fold itself, packing and the PT2 lens remain.
+Status: **in progress** — stages 1 to 8 have landed: the framework is complete, the
+permute simplifications and constant folding run on it, and the ops batch-norm
+folding is written in terms of exist. That fold itself, packing and the PT2 lens
+remain.
 Each section below carries its own status marker, flipped by the commit that
 implements it; `## 12. Staging and the transformations` tracks the whole sequence.
 
@@ -692,7 +693,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 5 | `native: add pass driver` | `Pass`, `fixpoint`, `run_all` | done |
 | 6 | `native: add permute simplification passes` | `Trim_permute`, `Chain_permute`, `Reshape_to_permute`, perm algebra on `Permute.Permute` | done |
 | 7 | `native: add constant folding` | `Fold_const` — the motivating permute-of-constant-weight case; `Pass.env` | done |
-| 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding | |
+| 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding; two stale steps fixed in `native_add_op.md` | done |
 | 9 | `native: add batch-norm folding pass` | `fold_batch_norm` | |
 | 10 | `native: add terminal id packing` | `Rewrite.pack` | |
 | 11 | `native: resolve PT2 provenance through a transformation map` | the lens; `native_interp` payload order | |

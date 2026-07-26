@@ -90,6 +90,8 @@ val convolution :
   unit ->
   Tensor_id.t t
 
+val div : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+
 (* Route a dead edge into a [Discard] sink node (no output). Used to keep a
    multi-output op's full arity while marking an unused result for later pruning. *)
 val discard : tensor_ref -> unit t
@@ -131,6 +133,9 @@ val rms_norm :
   ?weight:tensor_ref ->
   unit ->
   Tensor_id.t t
+
+val sqrt : ?name:string -> tensor_ref -> Tensor_id.t t
+val sub : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 (* Structurally group nodes emitted by [body].  The group shares the enclosing
    graph's global SSA namespace and has no inputs, outputs, or call semantics. *)

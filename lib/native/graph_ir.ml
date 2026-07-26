@@ -47,6 +47,7 @@ type op =
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t
+  | Div of Pointwise.Div.t
   | Discard of { x : tensor_ref }
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
@@ -57,6 +58,8 @@ type op =
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
+  | Sqrt of Pointwise.Sqrt.t
+  | Sub of Pointwise.Sub.t
 
 module Node = struct
   type t = { id : Node_id.t; op : op; outputs : Tensor_id.t list }
@@ -177,6 +180,12 @@ let op_registry : (module OP) list =
       let project = function Convolution t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Div
+
+      let inject t = Div t
+      let project = function Div t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Linear.Linear
 
       let inject t = Linear t
@@ -229,6 +238,18 @@ let op_registry : (module OP) list =
 
       let inject t = Rms_norm t
       let project = function Rms_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Sqrt
+
+      let inject t = Sqrt t
+      let project = function Sqrt t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Sub
+
+      let inject t = Sub t
+      let project = function Sub t -> Some t | _ -> None
     end : OP);
   ]
 

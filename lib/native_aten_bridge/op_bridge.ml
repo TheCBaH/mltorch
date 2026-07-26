@@ -516,6 +516,20 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    [ y ]
                | _ -> assert false)
            with Invalid_argument msg -> fail (`Validation_failure msg))
+  | "torch.ops.aten.div.Tensor" | "torch.ops.aten.div_.Tensor" -> (
+      match
+        ( native_tensor_arg aten_env node "self",
+          native_tensor_arg aten_env node "other" )
+      with
+      | Error e, _ | _, Error e -> Some (Error e)
+      | Ok a, Ok b ->
+          build_g ~name:"div" [ a; b ] (function
+            | [ a_id; b_id ] ->
+                let open Graph_builder in
+                let+ y = div a_id b_id in
+                [ y ]
+            | _ -> assert false)
+          |> some_graph)
   | "torch.ops.aten.linear.default" ->
       Some
         (let* aten_x = tensor_arg aten_env node "input" in
@@ -695,6 +709,32 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = rms_norm params ~x:x_id ~weight:w_id () in
                [ y ]
            | _ -> assert false))
+  | "torch.ops.aten.sqrt.default" | "torch.ops.aten.sqrt_.default" -> (
+      match native_tensor_arg aten_env node "self" with
+      | Error e -> Some (Error e)
+      | Ok x ->
+          build_g ~name:"sqrt" [ x ] (function
+            | [ x_id ] ->
+                let open Graph_builder in
+                let+ y = sqrt x_id in
+                [ y ]
+            | _ -> assert false)
+          |> some_graph)
+  | "torch.ops.aten.sub.Tensor" | "torch.ops.aten.sub_.Tensor" -> (
+      (* alpha is assumed 1, as the add arm above assumes. *)
+      match
+        ( native_tensor_arg aten_env node "self",
+          native_tensor_arg aten_env node "other" )
+      with
+      | Error e, _ | _, Error e -> Some (Error e)
+      | Ok a, Ok b ->
+          build_g ~name:"sub" [ a; b ] (function
+            | [ a_id; b_id ] ->
+                let open Graph_builder in
+                let+ y = sub a_id b_id in
+                [ y ]
+            | _ -> assert false)
+          |> some_graph)
   | "torch.ops.aten.view.default" ->
       Some
         ((* Contiguous reshape. [of_aten] inputs are already ATen-row-major, so

@@ -96,6 +96,37 @@ module Relu = struct
   end
 end
 
+module Sqrt = struct
+  type t = { x : Tensor_ref.t }
+
+  let name = "Sqrt"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>sqrt@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Core.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* [sqrt] is one of the genuinely primitive values in [SEMANTICS] — unlike
+       relu it is not expressible from select/lt — so this is a direct call. A
+       negative input yields NaN, as the float operation does. *)
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      S.sqrt (S.load x out)
+  end
+end
+
 (* A binary elementwise op: read each operand at the output coord reduced against
    that operand's own shape ([broadcast_coord]), so an extent-1 axis fans out
    without ever handing [load] an out-of-bounds index. [combine] is the scalar op
@@ -175,6 +206,27 @@ module Add = struct
   end
 end
 
+module Div = struct
+  type t = Bin.t
+
+  let name = "Div"
+  let jsont = Bin.jsont ~name
+  let operands = Bin.operands
+  let map_operands = Bin.map_operands
+  let pp pp_ref fmt t = Bin.pp ~op:"div" pp_ref fmt t
+  let output_shape = broadcast_output_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Binary (S)
+
+    (* A zero divisor is the caller's business, exactly as it is for the
+       underlying float division: no guard here, so the result is the IEEE
+       infinity or NaN rather than a silently substituted value. *)
+    let pixel ~a_shape ~b_shape a b out =
+      B.pixel ~combine:S.div ~a_shape ~b_shape a b out
+  end
+end
+
 module Mul = struct
   type t = Bin.t
 
@@ -190,5 +242,23 @@ module Mul = struct
 
     let pixel ~a_shape ~b_shape a b out =
       B.pixel ~combine:S.mul ~a_shape ~b_shape a b out
+  end
+end
+
+module Sub = struct
+  type t = Bin.t
+
+  let name = "Sub"
+  let jsont = Bin.jsont ~name
+  let operands = Bin.operands
+  let map_operands = Bin.map_operands
+  let pp pp_ref fmt t = Bin.pp ~op:"sub" pp_ref fmt t
+  let output_shape = broadcast_output_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Binary (S)
+
+    let pixel ~a_shape ~b_shape a b out =
+      B.pixel ~combine:S.sub ~a_shape ~b_shape a b out
   end
 end

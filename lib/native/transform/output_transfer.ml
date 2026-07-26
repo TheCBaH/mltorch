@@ -29,8 +29,8 @@ let classify (op : op) ~output =
      conservatively rather than inventing a guarantee. *)
   | Discard _ -> Discontinuous
   | Add _ | Avg_pool2d _ | Batch_norm _ | Bmm _ | Conv2d _ | Conv2d_padding _
-  | Convolution _ | Linear _ | Max_pool2d _ | Mean _ | Mul _ | Relu _
-  | Rms_norm _ ->
+  | Convolution _ | Div _ | Linear _ | Max_pool2d _ | Mean _ | Mul _ | Relu _
+  | Rms_norm _ | Sqrt _ | Sub _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

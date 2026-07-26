@@ -85,6 +85,11 @@ let output_shape (op : op)
       let* x_shape = shape x in
       let+ out = widen (Reduce.Mean.output_shape ~x_shape params) in
       [ out ]
+  | Div { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      let+ out = widen (Pointwise.Div.output_shape a_shape b_shape) in
+      [ out ]
   | Mul { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in
@@ -104,4 +109,13 @@ let output_shape (op : op)
   | Rms_norm { Norm.RmsNorm.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Norm.RmsNorm.output_shape ~x_shape) in
+      [ out ]
+  | Sqrt { Pointwise.Sqrt.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Sqrt.output_shape x_shape) in
+      [ out ]
+  | Sub { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      let+ out = widen (Pointwise.Sub.output_shape a_shape b_shape) in
       [ out ]

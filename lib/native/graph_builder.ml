@@ -177,6 +177,8 @@ let max_pool2d_with_indices ?name params x =
             (`Expected_single_output_shape { count = List.length shapes }),
           s )
 
+let div ?name a b = op1 ?name ~kind:"div" (Div { Pointwise.Bin.a; b })
+
 let mean ?name params x =
   op1 ?name ~kind:"mean" (Mean { Reduce.Mean.params; x })
 
@@ -192,6 +194,9 @@ let reshape ?name params x =
 
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
+
+let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })
+let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
 
 let group ?label (body : 'a t) : 'a t =
  fun s ->

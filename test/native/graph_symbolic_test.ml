@@ -141,6 +141,48 @@ let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
     ground = tensor f32 [C=3] {-3, -5, 4}
     ground matches direct: true |}]
 
+(* The three ops batch-norm folding is written in terms of, through the shared
+   [Eval_op] functor: one graph exercising sub, div and sqrt at once, so the
+   stage DAG shows how they compose and grounding checks all three against
+   Direct. *)
+let%expect_test "Symbolic graph: sub/div/sqrt stage DAG + ground matches Direct"
+    =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"scale" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          let* b = input ~shape:(s1c 3) ~name:"b" () in
+          let* d = sub ~name:"diff" a b in
+          let* r = sqrt ~name:"root" b in
+          div ~name:"out" d r)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a = Tensor.materialize (s1c 3) (fun c -> [| 5.; 1.; 8. |].(chan c)) in
+    let b = Tensor.materialize (s1c 3) (fun c -> [| 4.; 1.; 16. |].(chan c)) in
+    let inputs = List.combine g.Graph.inputs [ a; b ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0, t1
+    t2 = (t0[0,0,0,0,0,C] - t1[0,0,0,0,0,C])
+    t3 = sqrt(t1[N,T,D,H,W,C])
+    t4 = (t2[0,0,0,0,0,C] / t3[0,0,0,0,0,C])
+    outputs: t4 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=3] {0.5, 0, -2}
+    ground matches direct: true |}]
+
 (* A [Discard] node emits NO stage (its producer "dead" still does), so the
    stage DAG lists sum + dead but nothing for the sink; grounding the kept
    output still matches Direct. *)

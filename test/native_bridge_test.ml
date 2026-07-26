@@ -232,6 +232,15 @@ let dispatch_print ~target ~bindings ~inputs ~noutputs =
   dispatch_print_with_graph ~print_graph:false ~target ~bindings ~inputs
     ~noutputs
 
+let%expect_test "dispatch: div.Tensor elementwise" =
+  let a = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let b = float_tensor [ 2; 3 ] [ 2.; 4.; 0.5; 1.; 10.; 3. ] in
+  dispatch_print ~target:"torch.ops.aten.div.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=3] {0.5, 0.5, 6, 4, 0.5, 2} |}]
+
 let%expect_test "dispatch: mul.Tensor elementwise" =
   let a = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
   let b = float_tensor [ 2; 3 ] [ 0.; 10.; 100.; 1.; 2.; 3. ] in
@@ -249,6 +258,23 @@ let%expect_test "dispatch: bmm 1x2x2 @ 1x2x2" =
     ~inputs:[ in_tensor "self"; in_tensor "mat2" ]
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=2] {7, 10, 15, 22} |}]
+
+let%expect_test "dispatch: sqrt.default elementwise" =
+  let a = float_tensor [ 2; 2 ] [ 0.; 1.; 4.; 2.25 ] in
+  dispatch_print ~target:"torch.ops.aten.sqrt.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {0, 1, 2, 1.5} |}]
+
+let%expect_test "dispatch: sub.Tensor elementwise" =
+  let a = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let b = float_tensor [ 2; 3 ] [ 0.; 10.; 100.; 1.; 2.; 3. ] in
+  dispatch_print ~target:"torch.ops.aten.sub.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=3] {1, -8, -97, 3, 3, 3} |}]
 
 let%expect_test "dispatch: addmm.default relayouts [In,Out] weight" =
   let bias = float_tensor [ 2 ] [ 10.; 100. ] in
