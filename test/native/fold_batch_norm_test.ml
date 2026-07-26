@@ -57,7 +57,24 @@ let optional flag shape =
     Some id
   else return None
 
-let case ~conv_bias ~bn_weight ~bn_bias =
+(* [Convolution] is the op the PT2 importer actually emits — resnet18 lowers
+   every convolution through [aten.convolution.default] — so both arms of the
+   pass get the same eight-way numeric check rather than one being a spot
+   check. *)
+let convolution_params ~transposed : Conv.Convolution.params =
+  {
+    stride = { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+    padding = { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+    dilation = { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+    transposed;
+    output_padding =
+      { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+    groups = Op_config.Pos.of_int 1;
+  }
+
+type flavour = As_conv2d | As_convolution
+
+let case ?(flavour = As_conv2d) ~conv_bias ~bn_weight ~bn_bias () =
   match
     Graph_builder.build ~name:"conv_bn"
       ~outputs:(fun o -> [ o ])
@@ -70,9 +87,15 @@ let case ~conv_bias ~bn_weight ~bn_bias =
         let* mean = constant ~shape:(s1c 3) () in
         let* var = constant ~shape:(s1c 3) () in
         let* y =
-          conv2d
-            (Graph_fixtures.conv_params ~in_channels:2)
-            ~x ~weight:w ?bias:b ()
+          match flavour with
+          | As_conv2d ->
+              conv2d
+                (Graph_fixtures.conv_params ~in_channels:2)
+                ~x ~weight:w ?bias:b ()
+          | As_convolution ->
+              convolution
+                (convolution_params ~transposed:false)
+                ~x ~weight:w ?bias:b ()
         in
         let* n =
           batch_norm Graph_fixtures.bn_params ~x:y ?weight:gamma ?bias:beta
@@ -158,7 +181,7 @@ let%expect_test "fold_batch_norm: the normalisation moves into the conv" =
      computed weight and bias. The relu's output is claimed [Equivalent] too,
      propagated from the fresh conv output — leaving it implicitly [Identical]
      would have a verifier assert bit-equality on the model's own output. *)
-  let g = case ~conv_bias:true ~bn_weight:true ~bn_bias:true in
+  let g = case ~conv_bias:true ~bn_weight:true ~bn_bias:true () in
   Format.printf "@[<v 2>before:@,%a@]@." Graph_ir.pp g;
   run g
     ~constants:(constants_of g ~conv_bias:true ~bn_weight:true ~bn_bias:true)
@@ -239,7 +262,7 @@ let%expect_test "fold_batch_norm: the normalisation moves into the conv" =
 let%expect_test "fold_batch_norm then fold_const leave two constants" =
   (* The point of emitting the parameter arithmetic as nodes: folding collapses
      all of it, and the result is a plain conv with a computed weight and bias. *)
-  let g = case ~conv_bias:true ~bn_weight:true ~bn_bias:true in
+  let g = case ~conv_bias:true ~bn_weight:true ~bn_bias:true () in
   run g
     ~passes:[ Fold_batch_norm.pass; Pass.fixpoint Fold_const.pass ]
     ~constants:(constants_of g ~conv_bias:true ~bn_weight:true ~bn_bias:true)
@@ -284,12 +307,23 @@ let%expect_test "fold_batch_norm then fold_const leave two constants" =
 
 (* ---- numeric equivalence, all eight combinations -------------------------- *)
 
-let%expect_test "fold_batch_norm: every operand combination agrees numerically"
-    =
+let combinations =
+  [
+    (false, false, false);
+    (false, false, true);
+    (false, true, false);
+    (false, true, true);
+    (true, false, false);
+    (true, false, true);
+    (true, true, false);
+    (true, true, true);
+  ]
+
+let check_combinations flavour =
   let x = hw_ramp x_shape in
   List.iter
     (fun (conv_bias, bn_weight, bn_bias) ->
-      let g = case ~conv_bias ~bn_weight ~bn_bias in
+      let g = case ~flavour ~conv_bias ~bn_weight ~bn_bias () in
       let constants = constants_of g ~conv_bias ~bn_weight ~bn_bias in
       let before = output g ~constants ~inputs:[ x ] in
       run ~show:false g ~constants
@@ -299,16 +333,27 @@ let%expect_test "fold_batch_norm: every operand combination agrees numerically"
           Format.printf
             "conv_bias=%-5b bn_weight=%-5b bn_bias=%-5b  agrees=%b@." conv_bias
             bn_weight bn_bias (agrees before after)))
-    [
-      (false, false, false);
-      (false, false, true);
-      (false, true, false);
-      (false, true, true);
-      (true, false, false);
-      (true, false, true);
-      (true, true, false);
-      (true, true, true);
-    ];
+    combinations
+
+let%expect_test "fold_batch_norm: every operand combination agrees numerically"
+    =
+  check_combinations As_conv2d;
+  [%expect
+    {|
+    conv_bias=false bn_weight=false bn_bias=false  agrees=true
+    conv_bias=false bn_weight=false bn_bias=true   agrees=true
+    conv_bias=false bn_weight=true  bn_bias=false  agrees=true
+    conv_bias=false bn_weight=true  bn_bias=true   agrees=true
+    conv_bias=true  bn_weight=false bn_bias=false  agrees=true
+    conv_bias=true  bn_weight=false bn_bias=true   agrees=true
+    conv_bias=true  bn_weight=true  bn_bias=false  agrees=true
+    conv_bias=true  bn_weight=true  bn_bias=true   agrees=true |}]
+
+let%expect_test "fold_batch_norm: the same, through aten.convolution" =
+  (* Same rewrite, same eight combinations, the op the importer emits. A forward
+     [Convolution] delegates its shape and compute to [Conv2d], so the fold is
+     identical — but only a numeric check says so. *)
+  check_combinations As_convolution;
   [%expect
     {|
     conv_bias=false bn_weight=false bn_bias=false  agrees=true
@@ -384,6 +429,43 @@ let%expect_test "fold_batch_norm: a non-constant parameter is refused" =
   in
   matches g;
   [%expect {| matches: 0 |}]
+
+let%expect_test "fold_batch_norm: a transposed convolution is refused" =
+  (* The one case where the layout genuinely differs: [Convolution.bias_shape]
+     takes a transposed conv's channel count from the weight's C, not its N, so
+     the C -> N permuted scale would broadcast against the wrong extent. Nothing
+     about the arithmetic would look wrong — only the axis.
+
+     Both flags are shown, over a weight square in N and C so the channel-count
+     guard passes either way. Without the forward case there would be no evidence
+     that [transposed] is what does the rejecting. *)
+  let square ~transposed =
+    match
+      Graph_builder.build ~name:"transposed"
+        ~outputs:(fun o -> [ o ])
+        Graph_builder.(
+          let* x = input ~shape:(Graph_fixtures.nhwc ~h:4 ~w:4 ~c:3) () in
+          let* w = constant ~shape:(Graph_fixtures.s 3 1 1 2 2 3) () in
+          let* mean = constant ~shape:(s1c 3) () in
+          let* var = constant ~shape:(s1c 3) () in
+          let* y =
+            convolution (convolution_params ~transposed) ~x ~weight:w ()
+          in
+          batch_norm Graph_fixtures.bn_params ~x:y ~running_mean:mean
+            ~running_var:var ())
+    with
+    | Ok g -> g
+    | Error e ->
+        invalid_arg
+          (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+  in
+  Format.printf "forward:   ";
+  matches (square ~transposed:false);
+  Format.printf "transposed: ";
+  matches (square ~transposed:true);
+  [%expect {|
+    forward:   matches: 1
+    transposed: matches: 0 |}]
 
 let%expect_test "fold_batch_norm: a shared conv output is refused" =
   (* Removing the conv would leave the second consumer without the

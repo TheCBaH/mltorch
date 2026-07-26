@@ -15,6 +15,15 @@ let input_arg =
   let doc = "Path to the single user-input .pt tensor." in
   Arg.(required & opt (some file) None & info [ "input" ] ~docv:"INPUT.pt" ~doc)
 
+(* [transform] prints the rewritten graph when given no input, so that seeing
+   what a pipeline produced does not require running inference over it. *)
+let optional_input_arg =
+  let doc =
+    "Path to the single user-input .pt tensor. Omit to print the transformed \
+     graph instead of evaluating it."
+  in
+  Arg.(value & opt (some file) None & info [ "input" ] ~docv:"INPUT.pt" ~doc)
+
 let expect_arg =
   let doc = "Native JSON tensor written by aten_graph_ref for comparison." in
   Arg.(
@@ -301,14 +310,26 @@ let eval_cmd =
    permute passes are here for the case .ai/native_transform_design.md §1 names
    directly: the relayout lowering emits an inverse permute pair at every op
    boundary, and cancelling them is the whole point. *)
+(* Order is load-bearing. The importer emits every conv weight behind a relayout
+   permute, so the weight is a NODE OUTPUT until folding materialises it — and
+   batch-norm folding requires constant parameters. So constant folding runs
+   first to make the weights constant, then the batch-norm fold, then constant
+   folding again to collapse the parameter arithmetic that fold emits. Without
+   the first pass the batch-norm fold matches nothing at all. *)
 let passes ~fold =
   [
     Reshape_to_permute.pass;
     Pass.fixpoint Chain_permute.pass;
     Pass.fixpoint Trim_permute.pass;
-    Fold_batch_norm.pass;
   ]
-  @ if fold then [ Pass.fixpoint Fold_const.pass ] else []
+  @
+  if fold then
+    [
+      Pass.fixpoint Fold_const.pass;
+      Fold_batch_norm.pass;
+      Pass.fixpoint Fold_const.pass;
+    ]
+  else [ Fold_batch_norm.pass ]
 
 let fold_arg =
   let doc =
@@ -317,64 +338,157 @@ let fold_arg =
   in
   Arg.(value & flag & info [ "fold" ] ~doc)
 
-let transform model input expect fold : (unit, string) result =
+let verify_arg =
+  let doc =
+    "Also evaluate the untransformed graph and report the distance between the \
+     two outputs. Requires --input."
+  in
+  Arg.(value & flag & info [ "verify" ] ~doc)
+
+(* Annotates the TRANSFORMED graph with provenance recovered through the lens,
+   which is the whole claim of §10 made visible: the sidecar still describes the
+   imported graph, and every name here was recovered by walking the composed map
+   backwards. A folded constant has no PT2 name and no archive path of its own,
+   so it shows what it was computed from instead. *)
+let pp_lens_printer lens derived : Graph_ir.Printer.t =
+  {
+    tensor =
+      (fun ppf id ->
+        let origins =
+          Result.value ~default:[] (Pt2_native_graph.tensor_origins lens id)
+        in
+        let target =
+          Result.value ~default:None (Pt2_native_graph.captured_target lens id)
+        in
+        match (origins, target, List.assoc_opt id derived) with
+        | [], _, Some names ->
+            Format.fprintf ppf "folded from=%a"
+              (Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.string))
+              names
+        | [], _, None -> Format.pp_print_string ppf "derived"
+        | origins, target, _ ->
+            Format.fprintf ppf "pt2=%a"
+              (Fmt.list ~sep:(Fmt.any ";")
+                 (fun ppf (o : Pt2_native_graph.Tensor_origin.t) ->
+                   Format.fprintf ppf "%a:%s" Pt2_native_graph.Graph_path.pp
+                     o.graph_path o.ssa_name))
+              origins;
+            Option.iter (Format.fprintf ppf " target=%s") target);
+    node =
+      (fun ppf id ->
+        match Pt2_native_graph.node_origins lens id with
+        | Error _ | Ok [] -> Format.pp_print_string ppf "derived"
+        | Ok origins ->
+            List.iteri
+              (fun i (o : Pt2_native_graph.Node_origin.t) ->
+                if i > 0 then Format.pp_print_string ppf "; ";
+                Format.fprintf ppf "pt2=%a[%d] %s"
+                  Pt2_native_graph.Graph_path.pp o.graph_path o.index o.target)
+              origins);
+  }
+
+let pp_summary ppf (Native_interp.Transformed t) =
+  let constants =
+    List.length
+      (List.filter
+         (fun id -> Graph_ir.input_kind t.graph id = Graph_ir.Input.Constant)
+         t.graph.Graph_ir.Graph.inputs)
+  in
+  Format.fprintf ppf "nodes: %d -> %d@." t.nodes_before
+    (List.length t.graph.Graph_ir.Graph.nodes);
+  Format.fprintf ppf "constants: %d, of which %d folded@." constants
+    (List.length t.derived)
+
+let transform model input expect fold verify : (unit, string) result =
   with_archive model (fun archive ->
-      match Pt2_archive.load_pt input with
+      match
+        Native_interp.transform ~preload:fold archive ~passes:(passes ~fold)
+      with
       | Error e ->
-          Error (Format.asprintf "%a" Pt2_archive.pp_error e.Core.Error.kind)
-      | Ok input -> (
-          match
-            Native_interp.run_transformed ~preload:fold archive
-              ~passes:(passes ~fold) ~input
-          with
-          | Error e ->
-              Error
-                (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind)
-          | Ok (outputs, report) -> (
-              Format.printf "nodes: %d -> %d@." report.nodes_before
-                report.nodes_after;
-              Format.printf "constants: %d computed, %d from the archive@."
-                report.from_state report.from_archive;
-              Format.printf "derived constants: %d@."
-                (List.length report.derived);
-              List.iteri
-                (fun i (id, names) ->
-                  if i < 3 then
-                    Format.printf "  %a <- %a@." Graph_ir.Tensor_id.pp id
-                      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.string))
-                      names)
-                report.derived;
-              match (outputs, expect) with
-              | [ output ], None ->
-                  Format.printf "output[0] = %a@." Tensor.pp output;
-                  Ok ()
-              | [ output ], Some path -> (
-                  match Graph_json.decode_tensor (read_source path) with
-                  | Error message ->
-                      Error ("cannot decode reference: " ^ message)
-                  | Ok expected -> (
-                      match compare_tensor ~atol:1e-4 expected output with
-                      | Ok distance ->
-                          Format.printf "output[0]: %a@." pp_distance distance;
-                          Format.printf "output[0]: matches %s@." path;
-                          Ok ()
-                      | Error (distance, message) ->
-                          Option.iter
-                            (fun distance ->
-                              Format.printf "output[0]: %a@." pp_distance
-                                distance)
-                            distance;
-                          Error message))
-              | _ -> Error "expected exactly one native graph output")))
+          Error (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind)
+      | Ok (Native_interp.Transformed t as transformed) -> (
+          pp_summary Format.std_formatter transformed;
+          match input with
+          | None ->
+              (* Structure only: deterministic, and no inference to wait for. *)
+              Format.printf "%a@."
+                (Graph_ir.pp_with ~printer:(pp_lens_printer t.lens t.derived))
+                t.graph;
+              Ok ()
+          | Some input -> (
+              match Pt2_archive.load_pt input with
+              | Error e ->
+                  Error
+                    (Format.asprintf "%a" Pt2_archive.pp_error e.Core.Error.kind)
+              | Ok input -> (
+                  match Native_interp.evaluate archive transformed ~input with
+                  | Error e ->
+                      Error
+                        (Format.asprintf "%a" Native_interp.pp_error
+                           e.Core.Error.kind)
+                  | Ok (outputs, loaded) -> (
+                      Format.printf
+                        "payloads: %d computed, %d from the archive@."
+                        loaded.from_state loaded.from_archive;
+                      let verified output =
+                        if not verify then Ok ()
+                        else
+                          match Native_interp.run archive ~input with
+                          | Error e ->
+                              Error
+                                (Format.asprintf "%a" Native_interp.pp_error
+                                   e.Core.Error.kind)
+                          | Ok [ reference ] -> (
+                              match
+                                compare_tensor ~atol:1e-4 reference output
+                              with
+                              | Ok distance ->
+                                  Format.printf "vs untransformed: %a@."
+                                    pp_distance distance;
+                                  Ok ()
+                              | Error (_, message) -> Error message)
+                          | Ok _ ->
+                              Error
+                                "untransformed graph produced unexpected \
+                                 outputs"
+                      in
+                      match (outputs, expect) with
+                      | [ output ], None ->
+                          Format.printf "output[0] = %a@." Tensor.pp output;
+                          verified output
+                      | [ output ], Some path -> (
+                          match Graph_json.decode_tensor (read_source path) with
+                          | Error message ->
+                              Error ("cannot decode reference: " ^ message)
+                          | Ok expected -> (
+                              match
+                                compare_tensor ~atol:1e-4 expected output
+                              with
+                              | Ok distance ->
+                                  Format.printf "output[0]: %a@." pp_distance
+                                    distance;
+                                  Format.printf "output[0]: matches %s@." path;
+                                  verified output
+                              | Error (distance, message) ->
+                                  Option.iter
+                                    (fun distance ->
+                                      Format.printf "output[0]: %a@."
+                                        pp_distance distance)
+                                    distance;
+                                  Error message))
+                      | _ -> Error "expected exactly one native graph output")))
+          ))
 
 let transform_cmd =
   let doc =
-    "Import, transform and evaluate a static single-input PT2 graph, resolving \
-     provenance through the transformation map."
+    "Import and transform a PT2 graph, printing the result or evaluating it, \
+     with provenance resolved through the transformation map."
   in
   Cmd.v
     (Cmd.info "transform" ~doc)
-    Term.(const transform $ pt2_arg $ input_arg $ expect_arg $ fold_arg)
+    Term.(
+      const transform $ pt2_arg $ optional_input_arg $ expect_arg $ fold_arg
+      $ verify_arg)
 
 let cmd =
   let doc = "Tools for the native inference engine's graph representation." in

@@ -18,10 +18,50 @@
 
 open Graph_ir
 
+(* The convolutions this can fold into, reduced to what the rewrite needs. Both
+   [Conv2d] and a forward [Convolution] carry Cout on the weight's N — the latter
+   delegates its shape and compute straight to the former — so one rewrite serves
+   both and [rebuild] is all that distinguishes them.
+
+   A TRANSPOSED convolution is not one of them: [Conv.Convolution.bias_shape]
+   takes its channel count from the weight's C rather than its N, so the permuted
+   scale would land on the wrong axis and broadcast against the wrong extent. *)
+type conv = {
+  bias : Tensor_ref.t option;
+  rebuild : weight:Tensor_ref.t -> bias:Tensor_ref.t -> op;
+  weight : Tensor_ref.t;
+  x : Tensor_ref.t;
+}
+
+let as_conv = function
+  | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
+      Some
+        {
+          bias;
+          weight;
+          x;
+          rebuild =
+            (fun ~weight ~bias ->
+              Conv2d { Conv.Conv2d.params; x; weight; bias = Some bias });
+        }
+  | Convolution { Conv.Convolution.params; x; weight; bias }
+    when not params.transposed ->
+      Some
+        {
+          bias;
+          weight;
+          x;
+          rebuild =
+            (fun ~weight ~bias ->
+              Convolution
+                { Conv.Convolution.params; x; weight; bias = Some bias });
+        }
+  | _ -> None
+
 type match_ = {
   bn : Norm.BatchNorm.t;
   bn_node : Node_id.t;
-  conv : Conv.Conv2d.t;
+  conv : conv;
   conv_node : Node_id.t;
   out : Tensor_id.t; (* the batch norm's output, substituted away *)
   param : Tensor_sig.t; (* running_mean's: the shape every C vector has *)
@@ -64,9 +104,7 @@ let pattern anchor =
   (* The conv output must not escape: folding removes the node that computes
      it, and any other consumer still wants the unnormalised value. *)
   let* () = interior bn.x in
-  let* (conv : Conv.Conv2d.t), (conv_node : node) =
-    def bn.x (function Conv2d c -> Some c | _ -> None)
-  in
+  let* (conv : conv), (conv_node : node) = def bn.x as_conv in
   (* Every parameter has to be constant or this pessimises rather than
      optimises: the weight multiply would run on every inference, over the whole
      weight tensor, where before it was a per-channel scale of the output. *)
@@ -151,13 +189,7 @@ let build m _region =
           node (Mul { a = centred; b = scale }) [ scaled ] from_bn;
           node (Add { a = scaled; b = beta }) [ bias' ] from_bn;
           node
-            (Conv2d
-               {
-                 params = m.conv.params;
-                 x = m.conv.x;
-                 weight = weight';
-                 bias = Some bias';
-               })
+            (m.conv.rebuild ~weight:weight' ~bias:bias')
             [ y' ] [ m.conv_node; m.bn_node ];
         ];
       subst = Tensor_id.Map.singleton m.out y';

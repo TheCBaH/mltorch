@@ -1,4 +1,4 @@
-.PHONY: build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.%
+.PHONY: build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.%
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -73,7 +73,7 @@ pt2.runtest:
 		test/pt2_load_cram.t test/interp_resnet_cram.t \
 		test/interp_efficientnet_cram.t test/interp_mobilenet_cram.t \
 		test/interp_vit_cram.t test/native_graph_cram.t \
-		test/native_transform_cram.t
+		test/native_transform_cram.t test/native_transform_fold_cram.t
 
 # Shared argument list for every interp_run.exe invocation below, so
 # inference-run and benchmark.inference can't drift apart.
@@ -133,6 +133,30 @@ native-infer-verify.%: $(ATEN_GRAPH_REF) $(NATIVE_GRAPH)
 	$(NATIVE_GRAPH) eval --pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 --input $(PT2_MODEL_DIR)/images/000000000149.pt --expect "$$ref" --verbose
 
 native-infer-verify: $(addprefix native-infer-verify., $(PT2_NATIVE_VERIFY_MODELS))
+
+# Execute a TRANSFORMED graph and check it against the untransformed one. This
+# is a make rule and not a cram golden for two reasons: a full inference is far
+# too slow for the test suite, and the residual it reports is floating point, so
+# pinning it as text would make the suite platform-dependent. What the cram
+# pins instead is the transformed graph's STRUCTURE, which is exact.
+#
+# Both pipelines are checked, because they make different claims. The structural
+# one claims only Identical and must agree bit-for-bit; --fold adds batch-norm
+# folding, whose single Equivalent claim says "equal in exact arithmetic, rounds
+# differently", so it is held to --atol instead. See
+# .ai/native_transform_design.md §3.
+native-transform-verify.%: PT2_MODEL = $*
+native-transform-verify.%: $(NATIVE_GRAPH)
+	test -f $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 || $(MAKE) pt2.download PT2_MODEL=$*
+	set -eux; \
+	$(NATIVE_GRAPH) transform --verify \
+		--pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 \
+		--input $(PT2_MODEL_DIR)/images/000000000149.pt; \
+	$(NATIVE_GRAPH) transform --fold --verify \
+		--pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 \
+		--input $(PT2_MODEL_DIR)/images/000000000149.pt
+
+native-transform-verify: $(addprefix native-transform-verify., $(PT2_NATIVE_VERIFY_MODELS))
 
 # --- benchmark.*: permanent latency benchmarks, each isolating one component ---
 

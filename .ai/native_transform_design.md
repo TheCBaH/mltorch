@@ -555,9 +555,9 @@ the first if the enumeration depends on something other than the graph.
 ## 10. PT2 provenance — recovered, never carried
 
 Status: **implemented** — `pt2_native_graph.ml`'s `lens` and its queries,
-`native_interp.ml`'s `run_transformed`, and the `native_graph transform`
-subcommand; tests in `test/native/lens_test.ml` and
-`test/native_transform_cram.t`.
+`native_interp.ml`'s `transform`/`evaluate`, and the `native_graph transform`
+subcommand; tests in `test/native/lens_test.ml`, `test/native_transform_cram.t`
+(structure) and `make native-transform-verify` (numbers).
 
 **The sidecar is not transformed.** `Pt2_native_graph.t` stays anchored to the
 original graph exactly as the importer built it; a destination id's origin is
@@ -603,14 +603,18 @@ source id, node origins by `(graph_path, index)`.
 
 **Constant payloads split the same way.** Archive-captured data is reached by
 resolving a destination constant back to its source `captured_target`;
-pass-computed data lives in the final `Rewrite.constants`. `Native_interp.run_transformed`
+pass-computed data lives in the final `Rewrite.constants`. `Native_interp.evaluate`
 consults the state's payload map first and falls back to the archive through the
 lens, replacing "load every constant via `captured_targets`", which cannot see a
 folded constant at all. `run` itself is untouched: it transforms nothing, so it has
 no folded constants and no reason to take the new path.
 
+`transform` and `evaluate` are separate because seeing what a pipeline produced
+should not require running inference over it — which is also what lets the cram
+test pin structure without paying for, or depending on, arithmetic.
+
 > **Found while implementing: the lazy path is the interesting one, and it
-> decides what a pass can do.** `run_transformed` seeds the origin state with *no*
+> decides what a pass can do.** `transform` seeds the origin state with *no*
 > payloads, so a structural pipeline never materialises a weight — but `Fold_const`
 > then declines every node, because it refuses a constant whose payload is not
 > bound (§12b). `~preload:true` binds every captured payload a node reads first,
@@ -633,11 +637,34 @@ remove are the inverse pairs the relayout lowering emits at each op boundary —
 names its origin through provenance (`t124 <- [p_conv1_weight]`), which is exactly
 the split this section exists to enforce.
 
-Batch-norm folding does **not** fire on ResNet-18: the import lowers convolution
-to `Convolution`, not `Conv2d`, and §12c's pattern matches only the latter.
-Extending it is a small change and deliberately not made here — the pass is
-verified numerically against all eight operand combinations on fixtures, and
-widening the match without widening that verification would be the wrong order.
+**Pass order is load-bearing, and the reason is a layout.** The importer emits
+every conv weight behind a relayout `Permute`, so the weight is a *node output*
+until folding materialises it — and batch-norm folding requires constant
+parameters (§12c). So the pipeline runs constant folding first to make the
+weights constant, then the batch-norm fold, then constant folding again to
+collapse the parameter arithmetic that fold emits. With `Fold_batch_norm` placed
+before the first fold it matches nothing at all, which is easy to mistake for the
+pattern being wrong.
+
+With that order, ResNet-18 goes from 174 nodes to **92**: all 20 batch norms
+disappear into their convolutions, and 41 constants are computed at load time
+where the imported graph recomputed them on every inference.
+
+**And the claim lattice predicts the numbers.** The structural pipeline claims
+only `Identical`, and `--verify` reports `max_abs=0` — bit-identical over all
+1000 logits. Add the fold, whose one `Equivalent` claim says "equal in exact
+arithmetic, rounds differently", and the same comparison reports
+`max_abs=1.9e-06`. A verifier reading the map would assert bit-equality in the
+first case and a tolerance in the second, which is exactly what §3 exists to let
+it decide.
+
+**Structure is pinned; numbers are checked.** `test/native_transform_cram.t`
+prints the transformed graph — exact, fast, and annotated with provenance
+recovered through the lens — while `make native-transform-verify` executes it
+and compares against the untransformed run. The split is deliberate: a full
+inference is far too slow for the test suite, and the residual above is floating
+point, so pinning it as golden text would make the suite depend on the
+platform's arithmetic.
 
 ## 11. Matching
 
@@ -753,7 +780,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding; two stale steps fixed in `native_add_op.md` | done |
 | 9 | `native: add batch-norm folding pass` | `Fold_batch_norm`; recipe-payload validation in `apply` | done |
 | 10 | `native: add terminal id packing` | `Rewrite.pack`, `Id_supply.origin_marks`/`repack` | done |
-| 11 | `native: resolve PT2 provenance through a transformation map` | `Pt2_native_graph.lens`; `Native_interp.run_transformed`; `native_graph transform` | done |
+| 11 | `native: resolve PT2 provenance through a transformation map` | `Pt2_native_graph.lens`; `Native_interp.transform`/`evaluate`; `native_graph transform` | done |
 
 ### 12a. The permute simplifications
 
@@ -910,10 +937,22 @@ the new bias is plain pointwise; the weight is `[Cout,1,1,Kh,Kw,Cin]` with Cout 
 arithmetic is emitted as ordinary graph nodes and §12b collapses it, leaving a
 plain conv with two computed constants.
 
+It folds into `Conv2d` **and** a forward `Convolution`, which is the op the PT2
+importer actually emits — resnet18 lowers every convolution through
+`aten.convolution.default`. A non-transposed `Convolution` delegates its shape
+and compute straight to `Conv2d`, so one rewrite serves both and only the
+reconstruction differs; both arms get the same eight-way numeric check rather
+than one being a spot check.
+
 Preconditions, each checked by the pattern:
 
 - `bn.channel = Axis.C` — the rewrite moves the scale onto the weight's N axis,
   which is the channel axis only for a C-norm.
+- the convolution is **not transposed**. `Conv.Convolution.bias_shape` takes a
+  transposed conv's channel count from the weight's C rather than its N, so the
+  C → N permuted scale would broadcast against the wrong extent. Nothing about
+  the arithmetic would look wrong — only the axis — which is why the test shows
+  the forward and transposed forms of one weight side by side.
 - the conv output is `interior` — folding removes the node computing it, and any
   other consumer still wants the *unnormalised* value.
 - every parameter is `Constant`. Not a correctness condition but an economic one:

@@ -36,42 +36,55 @@ val run :
   input:Pt2_tensor.t ->
   (Tensor.packed list, error) Core.result
 
-(* What the transformed run did, so a caller can see that the passes fired and
-   that both payload sources were reached. *)
-type report = {
-  nodes_before : int;
-  nodes_after : int;
-  from_state : int; (* constants a pass computed *)
-  from_archive : int; (* constants resolved back to a captured source *)
-  derived : (Graph_ir.Tensor_id.t * string list) list;
-      (* Constants with NO archive path, and the PT2 names they were computed
-         from. A folded weight lands here: its bytes exist only in the transform
-         state, while the tensors it derives from are still nameable. That
-         separation is the point of keeping provenance out of the value
-         lattice. *)
-}
+(* Transforming, printing and executing are separate: a caller that only wants to
+   SEE what a pipeline produced should not have to run inference to find out. *)
 
-(* Execute the graph a pipeline produces, rather than the imported one.
+(* The result of a pipeline, existential in the destination version because that
+   tag has no use beyond building the lens. *)
+type transformed =
+  | Transformed : {
+      constants : Tensor.packed Graph_ir.Tensor_id.Map.t;
+          (* payloads the passes computed; a folded weight lives only here *)
+      derived : (Graph_ir.Tensor_id.t * string list) list;
+          (* constants with NO archive path, and the PT2 names they were computed
+             from. A folded weight lands here: its bytes exist only in the
+             transform state, while the tensors it derives from are still
+             nameable. That separation is the point of keeping provenance out of
+             the value lattice. *)
+      graph : Graph_ir.graph;
+      lens : 'b Pt2_native_graph.lens;
+      nodes_before : int;
+    }
+      -> transformed
 
-   Payloads come from the two sources §10 of .ai/native_transform_design.md
-   separates, in that order: the transform state first, because a pass-computed
-   constant exists nowhere else, then the archive, reached by resolving the
-   destination id back to a captured source through the lens. The archive is
-   never reached through PROVENANCE — for a folded weight the captured bytes are
-   the pre-fold layout and handing them back would be corruption, so the lens
-   follows only an [Identical] correspondence and such an edge simply has no
-   archive path.
+(* Import, rewrite, pack, and build the lens onto the result.
 
-   The state is seeded with no payloads, so this is the lazy path: only what the
-   destination graph reads is loaded, and structural passes ([Fold_batch_norm],
-   the permute simplifications) run without materialising any weight at all.
-   [Fold_const] correspondingly folds nothing on that path — it declines a
+   No payload is bound by default, so a structural pipeline never materialises a
+   weight — but [Fold_const] then declines every node, since it refuses a
    constant whose payload is not bound. [~preload:true] binds every captured
-   payload up front instead, which is what lets folding hoist a permuted weight
-   to load time; it costs reading the whole archive, so it is not the default. *)
-val run_transformed :
+   payload a node reads, which is what lets folding hoist a permuted weight; it
+   reads the whole archive, so it is not the default. *)
+val transform :
   ?preload:bool ->
   Pt2_archive.t ->
   passes:Pass.t list ->
+  (transformed, error) Core.result
+
+type loaded = {
+  from_state : int; (* constants a pass computed *)
+  from_archive : int; (* constants resolved back to a captured source *)
+}
+
+(* Execute a transformed graph. Payloads come from the two sources §10 of
+   .ai/native_transform_design.md separates, in that order: the transform state
+   first, because a pass-computed constant exists nowhere else, then the archive,
+   reached by resolving the destination id back to a captured source through the
+   lens. The archive is never reached through PROVENANCE — for a folded weight
+   the captured bytes are the pre-fold values and handing them back would be
+   corruption, so the lens follows only an [Identical] correspondence and such an
+   edge simply has no archive path. *)
+val evaluate :
+  Pt2_archive.t ->
+  transformed ->
   input:Pt2_tensor.t ->
-  (Tensor.packed list * report, error) Core.result
+  (Tensor.packed list * loaded, error) Core.result
