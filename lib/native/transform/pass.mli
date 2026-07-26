@@ -44,4 +44,9 @@ val of_pattern :
    — and exhausting it is an error rather than a silent stop, since the result
    would depend on the bound. *)
 val fixpoint : ?max_iters:int -> t -> t
+
+(* Compose a fixed list of passes into one, so a caller can [fixpoint] the
+   whole group as a unit — needed when the passes unlock each other, and no
+   single non-interleaved round through them all is enough. *)
+val sequence : name:string -> t list -> t
 val run_all : 'v Rewrite.t -> t list -> ('v Rewrite.step, error) Core.result

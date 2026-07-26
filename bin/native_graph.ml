@@ -309,7 +309,35 @@ let eval_cmd =
    it would decline every node, and including it would suggest otherwise. The
    permute passes are here for the case .ai/native_transform_design.md §1 names
    directly: the relayout lowering emits an inverse permute pair at every op
-   boundary, and cancelling them is the whole point. *)
+   boundary, and cancelling them is the whole point. [Sink_permute] (§12d)
+   catches the case where an elementwise op (Relu, Add, ...) sits between the
+   pair — Chain/Trim only cancel ADJACENT permutes, so sinking has to make
+   them adjacent first; a second Chain/Trim round then collapses what it
+   exposes. *)
+(* [Reuse_permute] and [Bypass_permute] complement [Sink_permute]: see
+   .ai/native_layout_reuse_plan.md. [Reuse_permute] turns a mixed elementwise
+   operand set uniform by reusing an alternate-layout edge the graph already
+   computes, which [Sink_permute] can then move downstream; [Bypass_permute]
+   then removes the inverse consumers that move exposes, without requiring
+   the whole run to be interior the way [Trim_permute] does. These unlock one
+   another — bypassing one residual block's inverse permutes can make the
+   next block's skip edge interior, exposing another sink/trim opportunity —
+   so the whole group runs under one outer fixed point rather than a single
+   pass over each. *)
+let relayout_pass =
+  Pass.fixpoint
+    (Pass.sequence ~name:"relayout"
+       [
+         Pass.fixpoint Chain_permute.pass;
+         Pass.fixpoint Trim_permute.pass;
+         Pass.fixpoint Sink_permute.pass;
+         Pass.fixpoint Reuse_permute.pass;
+         Pass.fixpoint Sink_permute.pass;
+         Pass.fixpoint Bypass_permute.pass;
+         Pass.fixpoint Chain_permute.pass;
+         Pass.fixpoint Trim_permute.pass;
+       ])
+
 (* Order is load-bearing. The importer emits every conv weight behind a relayout
    permute, so the weight is a NODE OUTPUT until folding materialises it — and
    batch-norm folding requires constant parameters. So constant folding runs
@@ -317,11 +345,7 @@ let eval_cmd =
    folding again to collapse the parameter arithmetic that fold emits. Without
    the first pass the batch-norm fold matches nothing at all. *)
 let passes ~fold =
-  [
-    Reshape_to_permute.pass;
-    Pass.fixpoint Chain_permute.pass;
-    Pass.fixpoint Trim_permute.pass;
-  ]
+  [ Reshape_to_permute.pass; relayout_pass ]
   @
   if fold then
     [

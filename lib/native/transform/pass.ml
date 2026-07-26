@@ -113,3 +113,8 @@ let run_all state passes =
         Rewrite.Step (final, Graph_map.compose map rest_map)
   in
   go state passes
+
+(* A fixed list of passes as one named pass, so a caller can [fixpoint] the
+   whole group — needed when the passes unlock each other and no single
+   non-interleaved round through them all is enough. *)
+let sequence ~name passes = { name; run = (fun state -> run_all state passes) }

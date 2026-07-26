@@ -34,9 +34,20 @@ let pp_failure fmt = function
   | Invalid e -> Region.pp_error fmt e
   | Mismatch m -> pp_mismatch fmt m
 
-(* The view is read-only; only [claimed] grows, and it is threaded rather than
-   mutated so a failed alternative simply drops its version of it. *)
-type state = { view : Graph_view.t; claimed : Node_id.Set.t }
+(* The view is read-only; only [claimed]/[shared] grow, and they are threaded
+   rather than mutated so a failed alternative simply drops its version of
+   them. [claimed] is EXCLUSIVE — a node a match removes or rewrites, which
+   must not overlap any OTHER match's claim, exclusive or shared, in the same
+   sweep. [shared] is a node a match merely reads and leaves untouched — safe
+   to overlap another match's [shared] claim on the SAME node, since neither
+   removes it, but still forbidden against an exclusive claim on it (from
+   either side). See [scan]'s conflict rule. *)
+type state = {
+  view : Graph_view.t;
+  claimed : Node_id.Set.t;
+  shared : Node_id.Set.t;
+}
+
 type 'a t = state -> ('a * state, failure) Stdlib.result
 
 let return x s = Ok (x, s)
@@ -66,12 +77,18 @@ let optional m s =
   | Error (Mismatch _) -> Ok (None, s)
 
 let view s = Ok (s.view, s)
-let claimed s = Ok (s.claimed, s)
+let claimed s = Ok (Node_id.Set.union s.claimed s.shared, s)
 
 (* Idempotent: a diamond's two paths reach the same producer, and re-claiming it
    has to succeed or no diamond could ever match. *)
 let claim (n : node) s =
   Ok ((), { s with claimed = Node_id.Set.add n.Node.id s.claimed })
+
+(* A read-only reservation: safe to share with another match's OWN
+   [claim_shared] of the same node (neither removes it), but still exclusive
+   against any [claim] on it, from either side. See [scan]. *)
+let claim_shared (n : node) s =
+  Ok ((), { s with shared = Node_id.Set.add n.Node.id s.shared })
 
 let producer ~take edge s =
   match Graph_view.def s.view edge with
@@ -107,6 +124,15 @@ let use edge take =
       (payload, n)
   | _ -> fail (Ambiguous_use edge)
 
+(* Whether [edge] is a declared graph output, with no claim — for deciding
+   whether a producer may be removed only once every consumer has been
+   accounted for, which is a separate question from [interior]'s "exactly one
+   consumer AND not a graph output" (the precondition for fusing an edge into a
+   region, not for this). *)
+let is_graph_output edge =
+  let* v = view in
+  return (Graph_view.is_graph_output v edge)
+
 let interior edge =
   let* v = view in
   if Graph_view.is_graph_output v edge then fail (Escapes edge)
@@ -126,7 +152,7 @@ let sig_of edge =
   | None -> fail (Unproduced edge)
 
 let region s =
-  match Region.of_nodes s.view s.claimed with
+  match Region.of_nodes s.view (Node_id.Set.union s.claimed s.shared) with
   | Ok r -> Ok (r, s)
   | Error e -> Error (Invalid e.Core.Error.kind)
 
@@ -151,11 +177,17 @@ let chain step start =
   in
   go start []
 
+(* Not exposed: [run] and [scan] both need the raw exclusive/shared split (the
+   latter for its conflict rule below), where the public [run] collapses them
+   into one [Region.t]. *)
+let run_state m v =
+  m { view = v; claimed = Node_id.Set.empty; shared = Node_id.Set.empty }
+
 let run m v =
-  match m { view = v; claimed = Node_id.Set.empty } with
+  match run_state m v with
   | Error e -> Error e
   | Ok (value, s) -> (
-      match Region.of_nodes s.view s.claimed with
+      match Region.of_nodes s.view (Node_id.Set.union s.claimed s.shared) with
       | Ok r -> Ok (value, r)
       | Error e -> Error (Invalid e.Core.Error.kind))
 
@@ -165,15 +197,40 @@ let scan pattern v =
       (fun (n : node) -> n.Node.outputs)
       (Graph_ir.nodes (Graph_view.graph v))
   in
-  (* Greedy and disjoint: a later match overlapping an accepted one is dropped
-     rather than retried, so the results can all be applied in one recipe. *)
-  List.fold_left
-    (fun (taken, acc) anchor ->
-      match run (pattern anchor) v with
-      | Error _ -> (taken, acc)
-      | Ok (value, (r : Region.t)) ->
-          if Node_id.Set.is_empty (Node_id.Set.inter taken r.nodes) then
-            (Node_id.Set.union taken r.nodes, (value, r) :: acc)
-          else (taken, acc))
-    (Node_id.Set.empty, []) anchors
-  |> snd |> List.rev
+  (* Greedy and disjoint, but "disjoint" is read/write, not a flat node set:
+     two matches conflict only if one's EXCLUSIVE claim lands on a node the
+     other touches at all (exclusive or shared) — so several matches that
+     merely [claim_shared] the same node (e.g. several independent
+     [Reuse_permute] rewrites reading one preserved [Permute(Q)] output) can
+     all be accepted in the SAME sweep, where a flat node-set overlap check
+     would serialize them one-per-sweep and could exhaust a bounded
+     [Pass.fixpoint] on a wide enough fan-out. An exclusive claim from EITHER
+     side still conflicts with anything the other touches, which is what
+     keeps an unwrap-and-remove from colliding with a reuse of that same
+     node regardless of which is found first. *)
+  let conflicts ~exclusive ~touched ~acc_exclusive ~acc_touched =
+    (not (Node_id.Set.is_empty (Node_id.Set.inter exclusive acc_touched)))
+    || not (Node_id.Set.is_empty (Node_id.Set.inter acc_exclusive touched))
+  in
+  let empty = Node_id.Set.empty in
+  let _, _, found =
+    List.fold_left
+      (fun (acc_exclusive, acc_touched, found) anchor ->
+        match run_state (pattern anchor) v with
+        | Error _ -> (acc_exclusive, acc_touched, found)
+        | Ok (value, s) -> (
+            let touched = Node_id.Set.union s.claimed s.shared in
+            if
+              conflicts ~exclusive:s.claimed ~touched ~acc_exclusive
+                ~acc_touched
+            then (acc_exclusive, acc_touched, found)
+            else
+              match Region.of_nodes s.view touched with
+              | Error _ -> (acc_exclusive, acc_touched, found)
+              | Ok r ->
+                  ( Node_id.Set.union acc_exclusive s.claimed,
+                    Node_id.Set.union acc_touched touched,
+                    (value, r) :: found )))
+      (empty, empty, []) anchors
+  in
+  List.rev found

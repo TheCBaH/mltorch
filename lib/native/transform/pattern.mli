@@ -57,12 +57,27 @@ val uses : Tensor_id.t -> node list t
    several match, since a pattern that silently picked one would be arbitrary. *)
 val use : Tensor_id.t -> (op -> 'a option) -> ('a * node) t
 
+(* Whether [edge] is a declared graph output, with no claim. A separate
+   question from [interior]'s combined check: removing a producer once every
+   consumer is accounted for depends on "not a graph output" alone, without
+   also requiring exactly one consumer. *)
+val is_graph_output : Tensor_id.t -> bool t
+
 (* Exactly one consumer and not a graph output — the precondition for consuming
    an edge inside a fused region. *)
 val interior : Tensor_id.t -> unit t
 val constant : Tensor_id.t -> unit t
 val sig_of : Tensor_id.t -> Tensor_sig.t t
 val claim : node -> unit t
+
+(* A read-only reservation, distinct from [claim]: safe to overlap ANOTHER
+   match's own [claim_shared] of the same node in one [scan] sweep (neither
+   removes it, so several matches merely reading one preserved node can all
+   be accepted together), but still exclusive against a [claim] on it from
+   either side — an unwrap-and-remove must never collide with a read of the
+   same node, regardless of which match [scan] reaches first. Use this for a
+   node the match consumes but leaves standing. *)
+val claim_shared : node -> unit t
 val claimed : Node_id.Set.t t
 
 (* The region claimed so far, for a guard that depends on the boundary. *)
@@ -78,7 +93,12 @@ val chain : (Tensor_id.t -> ('a * Tensor_id.t) t) -> Tensor_id.t -> 'a list t
 val run : 'a t -> Graph_view.t -> ('a * Region.t, failure) Stdlib.result
 
 (* Anchors on every node output edge in [Graph.nodes] order, each output of a
-   multi-output node separately. Greedy: the first match in that order wins, and
-   a later one whose region intersects an accepted region is discarded rather
-   than retried, so the results are disjoint. *)
+   multi-output node separately. Greedy: the first match in that order wins,
+   and a later one is discarded rather than retried if it CONFLICTS with an
+   accepted one — where conflict is read/write, not a flat node-set
+   intersection: an exclusive ([claim]) reservation on either side conflicts
+   with anything the other touches (exclusive or [claim_shared]), but two
+   matches that only [claim_shared] the same node do not conflict with each
+   other. So the results are pairwise safe to apply together, not
+   node-disjoint. *)
 val scan : (Tensor_id.t -> 'a t) -> Graph_view.t -> ('a * Region.t) list

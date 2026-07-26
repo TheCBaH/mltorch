@@ -385,3 +385,68 @@ let%expect_test "scan is greedy: overlapping matches are dropped, not retried" =
   [%expect {|
     pair n1/n0 region [n0, n1]
     singles: [n0, n1] |}]
+
+(* ---- exclusive vs. shared claims ------------------------------------------ *)
+
+(* Two anchors that both reach the diamond's [relu] node (n0, producing t1):
+   directly, from t1 itself, and via [add]'s [a] operand from t3. Neither
+   claims it through [def] (which is always exclusive) — [peek] finds the
+   node, and the caller picks how to claim it, so the SAME pair of matches
+   can be run under all four combinations of [claim]/[claim_shared]. *)
+let scan_pair ~kind1 ~kind2 v =
+  Pattern.scan
+    (fun anchor ->
+      Pattern.(
+        if Tensor_id.equal anchor (t_ 1) then
+          let* _, n = peek anchor relu in
+          let+ () = kind1 n in
+          `Via_t1
+        else if Tensor_id.equal anchor (t_ 3) then
+          let* a, _ = def anchor add in
+          let* _, n = peek a.a relu in
+          let+ () = kind2 n in
+          `Via_t3
+        else fail Rejected))
+    v
+
+let pp_found found =
+  List.iter
+    (fun (value, (r : Region.t)) ->
+      let label = match value with `Via_t1 -> "t1" | `Via_t3 -> "t3" in
+      Format.printf "%s: %a@." label (ids Node_id.pp)
+        (Node_id.Set.elements r.nodes))
+    found
+
+let%expect_test "two shared claims on the same node do not conflict" =
+  (* Neither match removes or rewrites n0, so both are accepted — and their
+     RETURNED regions overlap on n0, which a flat node-disjoint rule (the
+     pre-[claim_shared] behavior) could never allow. *)
+  let g = Graph_fixtures.diamond () in
+  pp_found
+    (scan_pair ~kind1:Pattern.claim_shared ~kind2:Pattern.claim_shared
+       (view_of g));
+  [%expect {|
+    t1: [n0]
+    t3: [n0, n2] |}]
+
+let%expect_test "exclusive first, shared second: the second is dropped" =
+  let g = Graph_fixtures.diamond () in
+  pp_found
+    (scan_pair ~kind1:Pattern.claim ~kind2:Pattern.claim_shared (view_of g));
+  [%expect {| t1: [n0] |}]
+
+let%expect_test "shared first, exclusive second: the second is dropped too" =
+  (* The mirror image of the case above — the conflict rule has to be
+     symmetric in which side is exclusive, not just in which side scan
+     reaches first. *)
+  let g = Graph_fixtures.diamond () in
+  pp_found
+    (scan_pair ~kind1:Pattern.claim_shared ~kind2:Pattern.claim (view_of g));
+  [%expect {| t1: [n0] |}]
+
+let%expect_test "two exclusive claims on the same node conflict" =
+  (* The complete matrix's remaining corner: both exclusive is the ordinary,
+     pre-[claim_shared] node-disjoint rule. *)
+  let g = Graph_fixtures.diamond () in
+  pp_found (scan_pair ~kind1:Pattern.claim ~kind2:Pattern.claim (view_of g));
+  [%expect {| t1: [n0] |}]

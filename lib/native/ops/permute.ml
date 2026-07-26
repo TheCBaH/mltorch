@@ -52,6 +52,12 @@ module Permute = struct
   let is_identity (perm : perm) =
     List.for_all (fun (out_axis, in_axis) -> Axis.equal out_axis in_axis) perm
 
+  (* [Q] is inverse to [P] exactly when applying [P] then [Q] gets back to
+     where it started: [y = before x], [z = after y], [z = x]. Functional,
+     not association-list, equality — [before]/[after] need not enumerate
+     their axis pairs in the same order to compose to the identity. *)
+  let are_inverse ~before ~after = is_identity (compose ~before ~after)
+
   type t = { perm : perm; x : Tensor_ref.t }
 
   let name = "Permute"

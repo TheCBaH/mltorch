@@ -135,3 +135,14 @@ jobs:
     - name: native whole-graph inference verification
       run: |
         ${{ env.EXEC }} make native-infer-verify
+    # native-infer-verify above checks the UNTRANSFORMED interpreter path
+    # against ATen; the transform pipeline (permute simplification, folding,
+    # ...) is otherwise only checked structurally, by the golden text in
+    # native_transform_cram.t/native_transform_fold_cram.t. This runs both the
+    # structural and --fold pipelines and numerically compares each against
+    # the untransformed graph, so a transformation that silently changes
+    # output values (rather than node structure) is still caught. See
+    # .ai/native_transform_design.md §3.
+    - name: native transform pipeline verification
+      run: |
+        ${{ env.EXEC }} make native-transform-verify

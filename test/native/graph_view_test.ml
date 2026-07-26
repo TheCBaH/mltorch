@@ -38,6 +38,12 @@ let%expect_test "validation: a well-formed fixture is accepted" =
     Graph_fixtures.all;
   [%expect
     {|
+    bypass_permute_fanout: ok
+    bypass_permute_mixed_compatibility: ok
+    bypass_permute_output: ok
+    bypass_permute_pair: ok
+    bypass_permute_shared: ok
+    bypass_unlocks_sink: ok
     chain: ok
     const_arith: ok
     const_permute: ok
@@ -53,7 +59,24 @@ let%expect_test "validation: a well-formed fixture is accepted" =
     permute_shared: ok
     reshape_flatten: ok
     reshape_relabel: ok
-    residual: ok |}]
+    residual: ok
+    reuse_permute_backtrack_candidate: ok
+    reuse_permute_basic: ok
+    reuse_permute_competing_matches: ok
+    reuse_permute_div_order: ok
+    reuse_permute_missing_alternate: ok
+    reuse_permute_self_inverse: ok
+    reuse_permute_sub_order: ok
+    reuse_permute_wide_fanout: ok
+    reuse_permute_wrong_alternate: ok
+    sink_permute_allowlist: ok
+    sink_permute_binary: ok
+    sink_permute_broadcast: ok
+    sink_permute_fuse: ok
+    sink_permute_mismatch: ok
+    sink_permute_output: ok
+    sink_permute_shared: ok
+    sink_permute_unary: ok |}]
 
 let%expect_test
     "validation: an operand with no definition is a dangling operand" =

@@ -29,15 +29,45 @@ let rewritten g passes =
       | Error _ -> None
       | Ok (Rewrite.Step (final, _)) -> Some (Rewrite.graph final))
 
-let evaluated g input =
+(* [inputs] pairs positionally with [g.Graph_ir.Graph.inputs], so a fixture
+   with N declared inputs needs N tensors here — [reshape_to_permute]'s numeric
+   test passes one, [sink_permute_broadcast]'s passes two independently
+   shaped ones. *)
+let evaluated g inputs =
   match
-    Eval_direct.run g ~inputs:(List.combine g.Graph_ir.Graph.inputs [ input ])
+    Eval_direct.run g ~inputs:(List.combine g.Graph_ir.Graph.inputs inputs)
   with
   | Error e -> Format.asprintf "%a" Eval_direct.pp_error e.Core.Error.kind
   | Ok env -> (
       match g.Graph_ir.Graph.outputs with
       | [ out ] -> Format.asprintf "%a" Tensor.pp (Tensor_id.Map.find out env)
       | _ -> "expected exactly one output")
+
+(* The single-output tensor itself, for a comparison that isn't limited to
+   [Tensor.pp]'s abbreviated first-8-elements printout. *)
+let output_tensor g inputs =
+  match
+    Eval_direct.run g ~inputs:(List.combine g.Graph_ir.Graph.inputs inputs)
+  with
+  | Error _ -> None
+  | Ok env -> (
+      match g.Graph_ir.Graph.outputs with
+      | [ out ] -> Some (Tensor_id.Map.find out env)
+      | _ -> None)
+
+(* Every coordinate, not just [Tensor.pp]'s truncated preview. *)
+let same_tensor (Tensor.Tensor a) (Tensor.Tensor b) =
+  Stdlib.( = ) a.Tensor.shape b.Tensor.shape
+  &&
+  let same = ref true in
+  Vec6.iter a.Tensor.shape (fun c ->
+      if
+        not
+          (Float.equal
+             (Tensor.read (Tensor.Tensor a) c)
+             (Tensor.read (Tensor.Tensor b) c))
+      then same := false);
+  !same
 
 (* What a pass matches, independent of what it then builds. *)
 let matches pattern g =
@@ -285,6 +315,297 @@ let%expect_test "chain_permute then trim_permute collapse a whole run" =
       provenance:
         none |}]
 
+(* ---- sinking a permute through an elementwise op -------------------------- *)
+
+let%expect_test "sink_permute: through relu, one sweep is enough" =
+  run (Graph_fixtures.sink_permute_unary ()) [ Sink_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=4 C=2]] = relu x=t1
+        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 perm=[H<-C, W<-H, C<-W]
+      outputs: [t3 f32 [H=2 W=3 C=4]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
+        n4: [t2 f32 [H=3 W=4 C=2]] = permute x=t4 perm=[H<-W, W<-C, C<-H]
+        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 perm=[H<-C, W<-H, C<-W]
+      outputs: [t3 f32 [H=2 W=3 C=4]]
+    map:
+      values:
+        {t1} -> {} identical
+        {} -> {t4} identical
+      nodes:
+        {n0} -> {n4}
+        {n1} -> {n3}
+      provenance:
+        none |}]
+
+let%expect_test "sink_permute: through add, one sweep only reaches the add" =
+  (* [relu] hasn't sunk yet after a single application — its operand is still
+     produced by [Add], not yet a [Permute] — so this pins that crossing BOTH
+     [add] and [relu] genuinely needs the second sweep [Pass.fixpoint] below
+     supplies, not that one sweep happens to already suffice. *)
+  run (Graph_fixtures.sink_permute_binary ()) [ Sink_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t2 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t3 f32 [H=3 W=4 C=2]] = permute x=t1 perm=[H<-W, W<-C, C<-H]
+        n2: [t4 f32 [H=3 W=4 C=2]] = add a=t2 b=t3
+        n3: [t5 f32 [H=3 W=4 C=2]] = relu x=t4
+        n4: [t6 f32 [H=2 W=3 C=4]] = permute x=t5 perm=[H<-C, W<-H, C<-W]
+      outputs: [t6 f32 [H=2 W=3 C=4]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=2 W=3 C=4]]
+      nodes:
+        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t0 b=t1
+        n6: [t4 f32 [H=3 W=4 C=2]] = permute x=t7 perm=[H<-W, W<-C, C<-H]
+        n3: [t5 f32 [H=3 W=4 C=2]] = relu x=t4
+        n4: [t6 f32 [H=2 W=3 C=4]] = permute x=t5 perm=[H<-C, W<-H, C<-W]
+      outputs: [t6 f32 [H=2 W=3 C=4]]
+    map:
+      values:
+        {t2} -> {} identical
+        {t3} -> {} identical
+        {} -> {t7} identical
+      nodes:
+        {n0, n1} -> {n6}
+        {n2} -> {n5}
+      provenance:
+        none |}]
+
+let%expect_test "sink_permute: perm mismatch is declined outright" =
+  matches Sink_permute.pattern (Graph_fixtures.sink_permute_mismatch ());
+  [%expect {| no match |}]
+
+let%expect_test "sink_permute: a shared operand is not interior" =
+  matches Sink_permute.pattern (Graph_fixtures.sink_permute_shared ());
+  [%expect {| no match |}]
+
+let%expect_test "sink_permute: an operand that is also a graph output" =
+  matches Sink_permute.pattern (Graph_fixtures.sink_permute_output ());
+  [%expect {| no match |}]
+
+let%expect_test "sink_permute: every accepted op sinks" =
+  run ~show_before:false
+    (Graph_fixtures.sink_permute_allowlist ())
+    [ Pass.fixpoint Sink_permute.pass ];
+  [%expect
+    {|
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=2 W=3 C=4]]
+      nodes:
+        n21: [t23 f32 [H=2 W=3 C=4]] = relu x=t0
+        n23: [t24 f32 [H=2 W=3 C=4]] = sqrt x=t0
+        n25: [t25 f32 [H=2 W=3 C=4]] = add a=t0 b=t1
+        n27: [t26 f32 [H=2 W=3 C=4]] = sub a=t0 b=t1
+        n29: [t27 f32 [H=2 W=3 C=4]] = mul a=t0 b=t1
+        n31: [t28 f32 [H=2 W=3 C=4]] = div a=t0 b=t1
+        n37: [t31 f32 [H=2 W=3 C=4]] = add a=t23 b=t24
+        n33: [t29 f32 [H=2 W=3 C=4]] = add a=t25 b=t26
+        n35: [t30 f32 [H=2 W=3 C=4]] = add a=t27 b=t28
+        n39: [t32 f32 [H=2 W=3 C=4]] = add a=t29 b=t30
+        n41: [t33 f32 [H=2 W=3 C=4]] = add a=t32 b=t31
+        n42: [t22 f32 [H=3 W=4 C=2]] = permute x=t33 perm=[H<-W, W<-C, C<-H]
+      outputs: [t22 f32 [H=3 W=4 C=2]]
+    map:
+      values:
+        {t2} -> {} identical
+        {t3} -> {} identical
+        {t4} -> {} identical
+        {t5} -> {} identical
+        {t6} -> {} identical
+        {t7} -> {} identical
+        {t8} -> {} identical
+        {t9} -> {} identical
+        {t10} -> {} identical
+        {t11} -> {} identical
+        {t12} -> {} identical
+        {t13} -> {} identical
+        {t14} -> {} identical
+        {t15} -> {} identical
+        {t16} -> {} identical
+        {t17} -> {} identical
+        {t18} -> {} identical
+        {t19} -> {} identical
+        {t20} -> {} identical
+        {t21} -> {} identical
+        {} -> {t23} identical
+        {} -> {t24} identical
+        {} -> {t25} identical
+        {} -> {t26} identical
+        {} -> {t27} identical
+        {} -> {t28} identical
+        {} -> {t29} identical
+        {} -> {t30} identical
+        {} -> {t31} identical
+        {} -> {t32} identical
+        {} -> {t33} identical
+      nodes:
+        {n0, n2, n4, n5, n7, n8, n10, n11, n13, n14} -> {n42}
+        {n1} -> {n21}
+        {n3} -> {n23}
+        {n6} -> {n25}
+        {n9} -> {n27}
+        {n12} -> {n29}
+        {n15} -> {n31}
+        {n16} -> {n33}
+        {n17} -> {n35}
+        {n18} -> {n37}
+        {n19} -> {n39}
+        {n20} -> {n41}
+      provenance:
+        none |}]
+
+let%expect_test "sink_permute then chain/trim: unary case fully cancels" =
+  run
+    (Graph_fixtures.sink_permute_unary ())
+    [ Pass.fixpoint Sink_permute.pass; Chain_permute.pass; Trim_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=4 C=2]] = relu x=t1
+        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 perm=[H<-C, W<-H, C<-W]
+      outputs: [t3 f32 [H=2 W=3 C=4]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
+      outputs: [t4 f32 [H=2 W=3 C=4]]
+    map:
+      values:
+        {t1} -> {} identical
+        {t2} -> {} identical
+        {t3} -> {t4} identical
+      nodes:
+        {n0, n2} -> {}
+        {n1} -> {n3}
+      provenance:
+        none |}]
+
+let%expect_test "sink_permute then chain/trim: a non-cancelling pair fuses" =
+  (* [rotate_hwc] and [swap_hw] are not inverses, so this pins the other half
+     of the end-to-end interaction: sinking exposes the adjacency, but here
+     [Chain_permute] fuses it into one composite permute — [Trim_permute]
+     leaves that alone since it isn't the identity — rather than the pair
+     cancelling outright as in the unary case above. Three nodes become two,
+     and the final output id is preserved either way. *)
+  run
+    (Graph_fixtures.sink_permute_fuse ())
+    [ Pass.fixpoint Sink_permute.pass; Chain_permute.pass; Trim_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=4 C=2]] = relu x=t1
+        n2: [t3 f32 [H=4 W=3 C=2]] = permute x=t2 perm=[H<-W, W<-H]
+      outputs: [t3 f32 [H=4 W=3 C=2]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
+        n5: [t3 f32 [H=4 W=3 C=2]] = permute x=t4 perm=[H<-C, C<-H]
+      outputs: [t3 f32 [H=4 W=3 C=2]]
+    map:
+      values:
+        {t1} -> {} identical
+        {t2} -> {} identical
+        {} -> {t4} identical
+      nodes:
+        {n0, n2} -> {n5}
+        {n1} -> {n3}
+      provenance:
+        none |}]
+
+let%expect_test "sink_permute then chain/trim: binary case fully cancels" =
+  (* The real ResNet residual-add shape: needs [Pass.fixpoint Sink_permute.pass]
+     (add, then relu) before chain/trim have two adjacent permutes to collapse. *)
+  run ~show_before:false
+    (Graph_fixtures.sink_permute_binary ())
+    [ Pass.fixpoint Sink_permute.pass; Chain_permute.pass; Trim_permute.pass ];
+  [%expect
+    {|
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=2 W=3 C=4]]
+      nodes:
+        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t0 b=t1
+        n7: [t8 f32 [H=2 W=3 C=4]] = relu x=t7
+      outputs: [t8 f32 [H=2 W=3 C=4]]
+    map:
+      values:
+        {t2} -> {} identical
+        {t3} -> {} identical
+        {t4} -> {} identical
+        {t5} -> {} identical
+        {t6} -> {t8} identical
+        {} -> {t7} identical
+      nodes:
+        {n0, n1, n4} -> {}
+        {n2} -> {n5}
+        {n3} -> {n7}
+      provenance:
+        none |}]
+
+let%expect_test "sink_permute: numeric equivalence under broadcasting" =
+  (* The commutation argument's load-bearing case: [b]'s pre-permute shape
+     broadcasts against [a]'s, so after the shared perm their extent-1 axes
+     land in different physical slots. Only the numbers confirm the rewrite
+     still broadcasts correctly, the same reason reshape_to_permute gets a
+     numeric test above. *)
+  let g = Graph_fixtures.sink_permute_broadcast () in
+  let a =
+    Tensor.materialize (Graph_fixtures.nhwc ~h:2 ~w:3 ~c:4) (fun c ->
+        float_of_int
+          ((Dim.to_int (Vec6.get c Axis.H) * 12)
+          + (Dim.to_int (Vec6.get c Axis.W) * 4)
+          + Dim.to_int (Vec6.get c Axis.C)))
+  in
+  let b =
+    Tensor.materialize (Graph_fixtures.nhwc ~h:1 ~w:1 ~c:4) (fun c ->
+        float_of_int (Dim.to_int (Vec6.get c Axis.C)))
+  in
+  Format.printf "before: %s@." (evaluated g [ a; b ]);
+  (match rewritten g [ Pass.fixpoint Sink_permute.pass ] with
+  | None -> Format.printf "rewrite failed@."
+  | Some g' ->
+      Format.printf "after:  %s@." (evaluated g' [ a; b ]);
+      (* [evaluated] prints only [Tensor.pp]'s first 8 of this fixture's 24
+         elements — the real check is every coordinate, via [output_tensor]/
+         [same_tensor] on the packed results directly. *)
+      let same =
+        match (output_tensor g [ a; b ], output_tensor g' [ a; b ]) with
+        | Some before, Some after -> same_tensor before after
+        | _ -> false
+      in
+      Format.printf "same:   %b@." same);
+  [%expect
+    {|
+    before: tensor f32 [H=2 W=3 C=4] {0, 2, 4, 6, 4, 6, 8, 10, ...}
+    after:  tensor f32 [H=2 W=3 C=4] {0, 2, 4, 6, 4, 6, 8, 10, ...}
+    same:   true |}]
+
 (* ---- reshape as relabelling ---------------------------------------------- *)
 
 let%expect_test "reshape_to_permute: a pure relabelling" =
@@ -344,13 +665,13 @@ let%expect_test "reshape_to_permute: the permute computes the same tensor" =
         float_of_int
           ((Dim.to_int (Vec6.get c Axis.W) * 3) + Dim.to_int (Vec6.get c Axis.C)))
   in
-  let before = evaluated g input in
+  let before = evaluated g [ input ] in
   Format.printf "reshape:  %s@." before;
   (match rewritten g [ Reshape_to_permute.pass ] with
   | None -> Format.printf "rewrite failed@."
   | Some g' ->
       Format.printf "@[<v 2>as permute:@,%a@]@." Graph_ir.pp g';
-      let after = evaluated g' input in
+      let after = evaluated g' [ input ] in
       Format.printf "permute:  %s@." after;
       Format.printf "same:     %b@." (String.equal before after));
   [%expect
@@ -364,6 +685,573 @@ let%expect_test "reshape_to_permute: the permute computes the same tensor" =
       outputs: [t1 f32 [H=2 W=3 C=1]]
     permute:  tensor f32 [H=2 W=3 C=1] {0, 1, 2, 3, 4, 5}
     same:     true |}]
+
+(* ---- reusing an existing alternate layout -------------------------------- *)
+
+let%expect_test "reuse_permute: unwrap one operand, reuse the other" =
+  run (Graph_fixtures.reuse_permute_basic ()) [ Reuse_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      nodes:
+        n0: [t2 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [] = discard x=t3
+        n3: [t4 f32 [H=3 W=4 C=2]] = add a=t2 b=t1
+      outputs: [t4 f32 [H=3 W=4 C=2]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      nodes:
+        n1: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n4: [t5 f32 [H=2 W=3 C=4]] = add a=t0 b=t3
+        n2: [] = discard x=t3
+        n5: [t4 f32 [H=3 W=4 C=2]] = permute x=t5 perm=[H<-W, W<-C, C<-H]
+      outputs: [t4 f32 [H=3 W=4 C=2]]
+    map:
+      values:
+        {t2} -> {} identical
+        {} -> {t5} identical
+      nodes:
+        {n0} -> {n5}
+        {n3} -> {n4}
+      provenance:
+        none |}]
+
+let%expect_test "reuse_permute: two matches competing over one producer" =
+  (* [Found in review, P1]: [add1] reuses [qb] without removing it, [add2]
+     would unwrap (remove) that very [qb] — both are found in the SAME sweep,
+     over the untouched graph, before either recipe has run. Claiming [qb] on
+     the reuse side is what makes [Pattern.scan]'s ordinary greedy-disjoint
+     rule drop the overlapping one instead of merging both recipes into a
+     dangling reference. Only [add1] resolves; [add2] never does, even under
+     a fixpoint, because after [add1]'s rewrite [qb]'s output gains a SECOND
+     consumer (the rebuilt [add1] itself now reads it too) and is no longer
+     interior — a real consequence, not a bug: [add2] correctly keeps
+     declining rather than being unsafely forced through. *)
+  run
+    (Graph_fixtures.reuse_permute_competing_matches ())
+    [ Pass.fixpoint Reuse_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2], t2 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t3 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t4 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t5 f32 [H=3 W=4 C=2]] = permute x=t2 perm=[H<-W, W<-C, C<-H]
+        n3: [] = discard x=t5
+        n4: [t6 f32 [H=3 W=4 C=2]] = add a=t3 b=t1
+        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t4 b=t2
+      outputs: [t6 f32 [H=3 W=4 C=2], t7 f32 [H=2 W=3 C=4]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2], t2 f32 [H=2 W=3 C=4]]
+      nodes:
+        n1: [t4 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t5 f32 [H=3 W=4 C=2]] = permute x=t2 perm=[H<-W, W<-C, C<-H]
+        n6: [t8 f32 [H=2 W=3 C=4]] = add a=t0 b=t4
+        n3: [] = discard x=t5
+        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t4 b=t2
+        n7: [t6 f32 [H=3 W=4 C=2]] = permute x=t8 perm=[H<-W, W<-C, C<-H]
+      outputs: [t6 f32 [H=3 W=4 C=2], t7 f32 [H=2 W=3 C=4]]
+    map:
+      values:
+        {t3} -> {} identical
+        {} -> {t8} identical
+      nodes:
+        {n0} -> {n7}
+        {n4} -> {n6}
+      provenance:
+        none |}]
+
+let%expect_test "reuse_permute: wide fan-out reuse is not serialized" =
+  (* [Found in review, P1]: 16 independent matches all reading (never
+     removing) the same [Q(b)] used to be forced one-per-sweep by the
+     exclusive [claim] every reuse took — needing 16 sweeps, which exactly
+     exhausted [Pass.fixpoint]'s default 16-unit fuel with `Not_converged`
+     on a graph that was never actually stuck. [claim_shared]'s read/read
+     tolerance is what lets every one of them resolve in a SINGLE sweep, so
+     a single (non-fixpoint) application of the pass is enough — and a
+     second, quiet run confirms nothing more is left to do. *)
+  let g = Graph_fixtures.reuse_permute_wide_fanout () in
+  let before = List.length (Graph_ir.nodes g) in
+  (match rewritten g [ Reuse_permute.pass ] with
+  | None -> Format.printf "rewrite failed@."
+  | Some g' ->
+      Format.printf "nodes: %d -> %d@." before (List.length (Graph_ir.nodes g'));
+      matches Reuse_permute.pattern g');
+  [%expect {|
+    nodes: 34 -> 34
+    no match |}]
+
+let%expect_test "reuse_permute: no alternate layout to reuse is declined" =
+  matches Reuse_permute.pattern
+    (Graph_fixtures.reuse_permute_missing_alternate ());
+  [%expect {| no match |}]
+
+let%expect_test "reuse_permute: an existing consumer that is not the inverse" =
+  matches Reuse_permute.pattern
+    (Graph_fixtures.reuse_permute_wrong_alternate ());
+  [%expect {| no match |}]
+
+let%expect_test
+    "reuse_permute: an incompatible candidate does not hide a later one" =
+  run
+    (Graph_fixtures.reuse_permute_backtrack_candidate ())
+    [ Reuse_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      nodes:
+        n0: [t2 f16 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2
+        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n3: [] = discard x=t3
+        n4: [t4 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n5: [t5 f32 [H=3 W=4 C=2]] = add a=t4 b=t1
+      outputs: [t5 f32 [H=3 W=4 C=2]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      nodes:
+        n0: [t2 f16 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2
+        n3: [] = discard x=t3
+        n6: [t6 f32 [H=2 W=3 C=4]] = add a=t0 b=t3
+        n7: [t5 f32 [H=3 W=4 C=2]] = permute x=t6 perm=[H<-W, W<-C, C<-H]
+      outputs: [t5 f32 [H=3 W=4 C=2]]
+    map:
+      values:
+        {t4} -> {} identical
+        {} -> {t6} identical
+      nodes:
+        {n4} -> {n7}
+        {n5} -> {n6}
+      provenance:
+        none |}]
+
+let%expect_test
+    "reuse_permute: a self-inverse permutation cannot resolve both roles at \
+     once" =
+  (* [Found in review, P1]: without disjointness tracking, [pb]'s node was
+     both the unwrap target (removed) and the reuse source (its output kept
+     alive), corrupting the graph — `Rewrite.apply` failed with "operand t1
+     has no definition". There is no other node either operand could use
+     instead, so the correct outcome is no match at all. *)
+  matches Reuse_permute.pattern (Graph_fixtures.reuse_permute_self_inverse ());
+  [%expect {| no match |}]
+
+let%expect_test
+    "reuse_permute: the self-inverse case does not corrupt the graph" =
+  run (Graph_fixtures.reuse_permute_self_inverse ()) [ Reuse_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=2 C=4]]
+      nodes:
+        n0: [t1 f32 [H=2 W=2 C=4]] = permute x=t0 perm=[H<-W, W<-H]
+        n1: [t2 f32 [H=2 W=2 C=4]] = add a=t1 b=t0
+      outputs: [t2 f32 [H=2 W=2 C=4]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=2 C=4]]
+      nodes:
+        n0: [t1 f32 [H=2 W=2 C=4]] = permute x=t0 perm=[H<-W, W<-H]
+        n1: [t2 f32 [H=2 W=2 C=4]] = add a=t1 b=t0
+      outputs: [t2 f32 [H=2 W=2 C=4]]
+    map:
+      values:
+        identity
+      nodes:
+        identity
+      provenance:
+        none |}]
+
+let%expect_test "reuse_permute: sub keeps operand order (reuse first)" =
+  run (Graph_fixtures.reuse_permute_sub_order ()) [ Reuse_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      nodes:
+        n0: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2
+        n2: [t3 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n3: [t4 f32 [H=3 W=4 C=2]] = sub a=t1 b=t3
+      outputs: [t4 f32 [H=3 W=4 C=2]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      nodes:
+        n0: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2
+        n4: [t5 f32 [H=2 W=3 C=4]] = sub a=t2 b=t0
+        n5: [t4 f32 [H=3 W=4 C=2]] = permute x=t5 perm=[H<-W, W<-C, C<-H]
+      outputs: [t4 f32 [H=3 W=4 C=2]]
+    map:
+      values:
+        {t3} -> {} identical
+        {} -> {t5} identical
+      nodes:
+        {n2} -> {n5}
+        {n3} -> {n4}
+      provenance:
+        none |}]
+
+let%expect_test "reuse_permute: numeric equivalence, sub (non-commutative)" =
+  (* The load-bearing check: getting the rebuilt op's operand order wrong would
+     silently negate the result rather than fail to type-check. *)
+  let g = Graph_fixtures.reuse_permute_sub_order () in
+  let x_pre =
+    Tensor.materialize (Graph_fixtures.nhwc ~h:2 ~w:3 ~c:4) (fun c ->
+        float_of_int
+          ((Dim.to_int (Vec6.get c Axis.H) * 12)
+          + (Dim.to_int (Vec6.get c Axis.W) * 4)
+          + Dim.to_int (Vec6.get c Axis.C)))
+  in
+  let a =
+    Tensor.materialize (Graph_fixtures.nhwc ~h:3 ~w:4 ~c:2) (fun c ->
+        float_of_int
+          (100
+          + (Dim.to_int (Vec6.get c Axis.H) * 8)
+          + (Dim.to_int (Vec6.get c Axis.W) * 2)
+          + Dim.to_int (Vec6.get c Axis.C)))
+  in
+  let same =
+    match
+      (output_tensor g [ x_pre; a ], rewritten g [ Reuse_permute.pass ])
+    with
+    | Some before, Some g' -> (
+        match output_tensor g' [ x_pre; a ] with
+        | Some after -> same_tensor before after
+        | None -> false)
+    | _ -> false
+  in
+  Format.printf "same: %b@." same;
+  [%expect {| same: true |}]
+
+let%expect_test "reuse_permute: div keeps operand order (reuse first)" =
+  run (Graph_fixtures.reuse_permute_div_order ()) [ Reuse_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      nodes:
+        n0: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2
+        n2: [t3 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n3: [t4 f32 [H=3 W=4 C=2]] = div a=t1 b=t3
+      outputs: [t4 f32 [H=3 W=4 C=2]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      nodes:
+        n0: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2
+        n4: [t5 f32 [H=2 W=3 C=4]] = div a=t2 b=t0
+        n5: [t4 f32 [H=3 W=4 C=2]] = permute x=t5 perm=[H<-W, W<-C, C<-H]
+      outputs: [t4 f32 [H=3 W=4 C=2]]
+    map:
+      values:
+        {t3} -> {} identical
+        {} -> {t5} identical
+      nodes:
+        {n2} -> {n5}
+        {n3} -> {n4}
+      provenance:
+        none |}]
+
+let%expect_test "reuse_permute: numeric equivalence, div (non-commutative)" =
+  (* Same load-bearing concern as the sub test above, for the other
+     non-commutative op. [x_pre] is offset away from zero so the permuted
+     denominator never divides by zero. *)
+  let g = Graph_fixtures.reuse_permute_div_order () in
+  let x_pre =
+    Tensor.materialize (Graph_fixtures.nhwc ~h:2 ~w:3 ~c:4) (fun c ->
+        float_of_int
+          (1
+          + (Dim.to_int (Vec6.get c Axis.H) * 12)
+          + (Dim.to_int (Vec6.get c Axis.W) * 4)
+          + Dim.to_int (Vec6.get c Axis.C)))
+  in
+  let a =
+    Tensor.materialize (Graph_fixtures.nhwc ~h:3 ~w:4 ~c:2) (fun c ->
+        float_of_int
+          (100
+          + (Dim.to_int (Vec6.get c Axis.H) * 8)
+          + (Dim.to_int (Vec6.get c Axis.W) * 2)
+          + Dim.to_int (Vec6.get c Axis.C)))
+  in
+  let same =
+    match
+      (output_tensor g [ x_pre; a ], rewritten g [ Reuse_permute.pass ])
+    with
+    | Some before, Some g' -> (
+        match output_tensor g' [ x_pre; a ] with
+        | Some after -> same_tensor before after
+        | None -> false)
+    | _ -> false
+  in
+  Format.printf "same: %b@." same;
+  [%expect {| same: true |}]
+
+(* ---- removing individual inverse consumers ------------------------------- *)
+
+let%expect_test "bypass_permute: one P, one inverse Q, nothing else" =
+  run (Graph_fixtures.bypass_permute_pair ()) [ Bypass_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
+      outputs: [t3 f32 [H=2 W=3 C=4]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t0
+      outputs: [t3 f32 [H=2 W=3 C=4]]
+    map:
+      values:
+        {t0, t2} -> {t0} identical
+        {t1} -> {} identical
+      nodes:
+        {n0} -> {}
+        {n1} -> {}
+      provenance:
+        none |}]
+
+let%expect_test "bypass_permute: one P, several inverse Q consumers" =
+  run (Graph_fixtures.bypass_permute_fanout ()) [ Bypass_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t2
+        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t3
+      outputs: [t4 f32 [H=2 W=3 C=4], t5 f32 [H=2 W=3 C=4]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
+        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t0
+      outputs: [t4 f32 [H=2 W=3 C=4], t5 f32 [H=2 W=3 C=4]]
+    map:
+      values:
+        {t0, t2, t3} -> {t0} identical
+        {t1} -> {} identical
+      nodes:
+        {n0} -> {}
+        {n1} -> {}
+        {n2} -> {}
+      provenance:
+        none |}]
+
+let%expect_test "bypass_permute: a shared P output stays, its inverse Q goes" =
+  run (Graph_fixtures.bypass_permute_shared ()) [ Bypass_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t2
+      outputs: [t4 f32 [H=2 W=3 C=4], t3 f32 [H=3 W=4 C=2]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
+        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
+      outputs: [t4 f32 [H=2 W=3 C=4], t3 f32 [H=3 W=4 C=2]]
+    map:
+      values:
+        {t0, t2} -> {t0} identical
+      nodes:
+        {n1} -> {}
+      provenance:
+        none |}]
+
+let%expect_test
+    "bypass_permute: incompatible and compatible inverse consumers together" =
+  (* Filtering, not an all-or-nothing guard: the compatible [q_ok] is
+     bypassed while the incompatible [q_bad] is left as an ordinary consumer
+     — which is exactly what keeps [P] alive, the same reason
+     [bypass_permute_shared] keeps it for an unrelated [Relu]. *)
+  run
+    (Graph_fixtures.bypass_permute_mixed_compatibility ())
+    [ Bypass_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f16 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t2
+        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t3
+      outputs: [t4 f32 [H=2 W=3 C=4], t5 f32 [H=2 W=3 C=4]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
+        n2: [t3 f16 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t3
+      outputs: [t4 f32 [H=2 W=3 C=4], t5 f32 [H=2 W=3 C=4]]
+    map:
+      values:
+        {t0, t2} -> {t0} identical
+      nodes:
+        {n1} -> {}
+      provenance:
+        none |}]
+
+let%expect_test "bypass_permute: P's output is itself a graph output" =
+  run (Graph_fixtures.bypass_permute_output ()) [ Bypass_permute.pass ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
+      outputs: [t1 f32 [H=3 W=4 C=2], t3 f32 [H=2 W=3 C=4]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t0
+      outputs: [t1 f32 [H=3 W=4 C=2], t3 f32 [H=2 W=3 C=4]]
+    map:
+      values:
+        {t0, t2} -> {t0} identical
+      nodes:
+        {n1} -> {}
+      provenance:
+        none |}]
+
+(* ---- why the relayout family needs an OUTER fixed point ------------------ *)
+
+(* The same list `bin/native_graph.ml`'s `relayout_pass` wraps in one more
+   [Pass.fixpoint]: each pass already fixpoints on its own, but the group as a
+   whole does not, because a later stage's rewrite can expose a match for an
+   EARLIER one. *)
+let relayout_sequence =
+  [
+    Pass.fixpoint Chain_permute.pass;
+    Pass.fixpoint Trim_permute.pass;
+    Pass.fixpoint Sink_permute.pass;
+    Pass.fixpoint Reuse_permute.pass;
+    Pass.fixpoint Sink_permute.pass;
+    Pass.fixpoint Bypass_permute.pass;
+    Pass.fixpoint Chain_permute.pass;
+    Pass.fixpoint Trim_permute.pass;
+  ]
+
+let%expect_test "relayout: one application of the sequence is not enough" =
+  (* [P]'s output is shared between an inverse [Q] (bypassable) and a plain
+     [Relu] — a UNARY consumer, so [Reuse_permute] can never help here, that
+     pass is binary-only. Both [Sink_permute] stages run BEFORE [Bypass_permute]
+     in the list, so the sweep that removes [Q] and makes [y] interior comes
+     too late for [P] to be sunk through the [Relu] in the SAME application:
+     it is still sitting there afterwards. *)
+  run (Graph_fixtures.bypass_unlocks_sink ()) relayout_sequence;
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [] = discard x=t2
+        n3: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
+      outputs: [t3 f32 [H=3 W=4 C=2]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n2: [] = discard x=t0
+        n3: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
+      outputs: [t3 f32 [H=3 W=4 C=2]]
+    map:
+      values:
+        {t0, t2} -> {t0} identical
+      nodes:
+        {n1} -> {}
+      provenance:
+        none |}]
+
+let%expect_test "relayout: a SECOND application sinks what the first exposed" =
+  (* Wrapping the very same list in one more [Pass.fixpoint] is what
+     `relayout_pass` does. The permute that survived the test above now has
+     only one consumer, so this second pass through the sequence sinks it
+     through the [Relu], leaving no permute at all. *)
+  run
+    (Graph_fixtures.bypass_unlocks_sink ())
+    [ Pass.fixpoint (Pass.sequence ~name:"relayout" relayout_sequence) ];
+  [%expect
+    {|
+    before:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [] = discard x=t2
+        n3: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
+      outputs: [t3 f32 [H=3 W=4 C=2]]
+    after:
+      graph
+      inputs: [t0 f32 [H=2 W=3 C=4]]
+      nodes:
+        n4: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
+        n2: [] = discard x=t0
+        n5: [t3 f32 [H=3 W=4 C=2]] = permute x=t4 perm=[H<-W, W<-C, C<-H]
+      outputs: [t3 f32 [H=3 W=4 C=2]]
+    map:
+      values:
+        {t0, t2} -> {t0} identical
+        {t1} -> {} identical
+        {} -> {t4} identical
+      nodes:
+        {n0} -> {n5}
+        {n1} -> {}
+        {n3} -> {n4}
+      provenance:
+        none |}]
 
 let%expect_test "reshape_to_permute feeds the permute passes" =
   (* The point of the conversion: a reshape is opaque to fusion, a permute is

@@ -14,7 +14,7 @@ to compute over, so the node count and constant provenance differ from
 the unfolded structural test.
 
   $ ../bin/native_graph.exe transform --fold --pt2 "$PT2_DATA/resnet18/resnet18.pt2"
-  nodes: 174 -> 92
+  nodes: 174 -> 52
   constants: 42, of which 41 folded
   graph
   inputs:
@@ -160,32 +160,19 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g2 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n6 {pt2=root[1] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t129 f32 [H=64
-                                                                      W=112
-                                                                      C=112] {pt2=root:getitem}] =
-        permute x=t337 {derived} perm=[H<-C, W<-H, C<-W]
-    n7 {pt2=root[2] torch.ops.aten.relu.default}: [t130 f32 [H=64 W=112 C=112] {pt2=root:relu}] =
-      relu x=t129 {pt2=root:getitem}
+    n175 {pt2=root[2] torch.ops.aten.relu.default}: [t338 f32 [H=112 W=112
+                                                               C=64] {derived}] =
+      relu x=t337 {derived}
     group g3 torch.ops.aten.max_pool2d_with_indices.default:
-      n8 {derived}: [t131 f32 [H=112 W=112 C=64] {derived}] =
-        permute x=t130 {pt2=root:relu} perm=[H<-W, W<-C, C<-H]
       n9 {derived}: [t132 f32 [H=56 W=56 C=64] {derived},
                      t133 f32 [H=56 W=56 C=64] {derived}] =
         max_pool2d_with_indices
-          x=t131 {derived}
+          x=t338 {derived}
           params={kernel={h=3; w=3}; stride={h=2; w=2}; pad={h=1; w=1}}
       n10 {derived}: [] = discard x=t133 {derived}
-      n11 {pt2=root[3] torch.ops.aten.max_pool2d_with_indices.default}: [t134 f32 [H=64
-                                                                      W=56
-                                                                      C=56] {pt2=root:getitem_3}] =
-        permute x=t132 {derived} perm=[H<-C, W<-H, C<-W]
-    group g4 torch.ops.aten.convolution.default:
-      n12 {derived}: [t135 f32 [H=56 W=56 C=64] {derived}] =
-        permute x=t134 {pt2=root:getitem_3} perm=[H<-W, W<-C, C<-H]
-    n175 {derived}: [t338 f32 [H=56 W=56 C=64] {derived}] =
+    n176 {derived}: [t339 f32 [H=56 W=56 C=64] {derived}] =
       convolution
-        x=t135 {derived}
+        x=t132 {derived}
         weight=t299 {folded from=[p_layer1_0_conv1_weight,
                                   p_layer1_0_bn1_weight,
                                   b_layer1_0_bn1_running_var]}
@@ -198,19 +185,11 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g5 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n18 {pt2=root[5] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t141 f32 [H=64
-                                                                      W=56
-                                                                      C=56] {pt2=root:getitem_5}] =
-        permute x=t338 {derived} perm=[H<-C, W<-H, C<-W]
-    n19 {pt2=root[6] torch.ops.aten.relu.default}: [t142 f32 [H=64 W=56 C=56] {pt2=root:relu_1}] =
-      relu x=t141 {pt2=root:getitem_5}
-    group g6 torch.ops.aten.convolution.default:
-      n20 {derived}: [t143 f32 [H=56 W=56 C=64] {derived}] =
-        permute x=t142 {pt2=root:relu_1} perm=[H<-W, W<-C, C<-H]
-    n176 {derived}: [t339 f32 [H=56 W=56 C=64] {derived}] =
+    n177 {pt2=root[6] torch.ops.aten.relu.default}: [t340 f32 [H=56 W=56 C=64] {derived}] =
+      relu x=t339 {derived}
+    n178 {derived}: [t341 f32 [H=56 W=56 C=64] {derived}] =
       convolution
-        x=t143 {derived}
+        x=t340 {derived}
         weight=t301 {folded from=[p_layer1_0_conv2_weight,
                                   p_layer1_0_bn2_weight,
                                   b_layer1_0_bn2_running_var]}
@@ -223,21 +202,13 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g7 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n26 {pt2=root[8] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t149 f32 [H=64
-                                                                      W=56
-                                                                      C=56] {pt2=root:getitem_8}] =
-        permute x=t339 {derived} perm=[H<-C, W<-H, C<-W]
-    n27 {pt2=root[9] torch.ops.aten.add.Tensor}: [t150 f32 [H=64 W=56 C=56] {pt2=root:add}] =
-      add a=t149 {pt2=root:getitem_8} b=t134 {pt2=root:getitem_3}
-    n28 {pt2=root[10] torch.ops.aten.relu.default}: [t151 f32 [H=64 W=56 C=56] {pt2=root:relu_2}] =
-      relu x=t150 {pt2=root:add}
-    group g8 torch.ops.aten.convolution.default:
-      n29 {derived}: [t152 f32 [H=56 W=56 C=64] {derived}] =
-        permute x=t151 {pt2=root:relu_2} perm=[H<-W, W<-C, C<-H]
-    n177 {derived}: [t340 f32 [H=56 W=56 C=64] {derived}] =
+    n179 {pt2=root[9] torch.ops.aten.add.Tensor}: [t342 f32 [H=56 W=56 C=64] {derived}] =
+      add a=t341 {derived} b=t132 {derived}
+    n180 {pt2=root[10] torch.ops.aten.relu.default}: [t343 f32 [H=56 W=56 C=64] {derived}] =
+      relu x=t342 {derived}
+    n181 {derived}: [t344 f32 [H=56 W=56 C=64] {derived}] =
       convolution
-        x=t152 {derived}
+        x=t343 {derived}
         weight=t303 {folded from=[p_layer1_1_conv1_weight,
                                   p_layer1_1_bn1_weight,
                                   b_layer1_1_bn1_running_var]}
@@ -250,19 +221,11 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g9 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n35 {pt2=root[12] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t158 f32 [H=64
-                                                                      W=56
-                                                                      C=56] {pt2=root:getitem_11}] =
-        permute x=t340 {derived} perm=[H<-C, W<-H, C<-W]
-    n36 {pt2=root[13] torch.ops.aten.relu.default}: [t159 f32 [H=64 W=56 C=56] {pt2=root:relu_3}] =
-      relu x=t158 {pt2=root:getitem_11}
-    group g10 torch.ops.aten.convolution.default:
-      n37 {derived}: [t160 f32 [H=56 W=56 C=64] {derived}] =
-        permute x=t159 {pt2=root:relu_3} perm=[H<-W, W<-C, C<-H]
-    n178 {derived}: [t341 f32 [H=56 W=56 C=64] {derived}] =
+    n182 {pt2=root[13] torch.ops.aten.relu.default}: [t345 f32 [H=56 W=56 C=64] {derived}] =
+      relu x=t344 {derived}
+    n183 {derived}: [t346 f32 [H=56 W=56 C=64] {derived}] =
       convolution
-        x=t160 {derived}
+        x=t345 {derived}
         weight=t305 {folded from=[p_layer1_1_conv2_weight,
                                   p_layer1_1_bn2_weight,
                                   b_layer1_1_bn2_running_var]}
@@ -275,24 +238,13 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g11 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n43 {pt2=root[15] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t166 f32 [H=64
-                                                                      W=56
-                                                                      C=56] {pt2=root:getitem_14}] =
-        permute x=t341 {derived} perm=[H<-C, W<-H, C<-W]
-    n44 {pt2=root[16] torch.ops.aten.add.Tensor}: [t167 f32 [H=64 W=56 C=56] {pt2=root:add_1}] =
-      add a=t166 {pt2=root:getitem_14} b=t151 {pt2=root:relu_2}
-    n45 {pt2=root[17] torch.ops.aten.relu.default}: [t168 f32 [H=64 W=56 C=56] {pt2=root:relu_4}] =
-      relu x=t167 {pt2=root:add_1}
-    group g12 torch.ops.aten.convolution.default:
-      n46 {derived}: [t169 f32 [H=56 W=56 C=64] {derived}] =
-        permute x=t168 {pt2=root:relu_4} perm=[H<-W, W<-C, C<-H]
-    group g16 torch.ops.aten.convolution.default:
-      n61 {derived}: [t184 f32 [H=56 W=56 C=64] {derived}] =
-        permute x=t168 {pt2=root:relu_4} perm=[H<-W, W<-C, C<-H]
-    n179 {derived}: [t342 f32 [H=28 W=28 C=128] {derived}] =
+    n184 {pt2=root[16] torch.ops.aten.add.Tensor}: [t347 f32 [H=56 W=56 C=64] {derived}] =
+      add a=t346 {derived} b=t343 {derived}
+    n185 {pt2=root[17] torch.ops.aten.relu.default}: [t348 f32 [H=56 W=56 C=64] {derived}] =
+      relu x=t347 {derived}
+    n186 {derived}: [t349 f32 [H=28 W=28 C=128] {derived}] =
       convolution
-        x=t169 {derived}
+        x=t348 {derived}
         weight=t307 {folded from=[p_layer2_0_conv1_weight,
                                   p_layer2_0_bn1_weight,
                                   b_layer2_0_bn1_running_var]}
@@ -305,9 +257,9 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n180 {derived}: [t343 f32 [H=28 W=28 C=128] {derived}] =
+    n187 {derived}: [t350 f32 [H=28 W=28 C=128] {derived}] =
       convolution
-        x=t184 {derived}
+        x=t348 {derived}
         weight=t309 {folded from=[p_layer2_0_downsample_0_weight,
                                   p_layer2_0_downsample_1_weight,
                                   b_layer2_0_downsample_1_running_var]}
@@ -321,24 +273,12 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g13 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n52 {pt2=root[19] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t175 f32 [H=128
-                                                                      W=28
-                                                                      C=28] {pt2=root:getitem_17}] =
-        permute x=t342 {derived} perm=[H<-C, W<-H, C<-W]
-    group g17 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n67 {pt2=root[24] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t190 f32 [H=128
-                                                                      W=28
-                                                                      C=28] {pt2=root:getitem_23}] =
-        permute x=t343 {derived} perm=[H<-C, W<-H, C<-W]
-    n53 {pt2=root[20] torch.ops.aten.relu.default}: [t176 f32 [H=128 W=28 C=28] {pt2=root:relu_5}] =
-      relu x=t175 {pt2=root:getitem_17}
-    group g14 torch.ops.aten.convolution.default:
-      n54 {derived}: [t177 f32 [H=28 W=28 C=128] {derived}] =
-        permute x=t176 {pt2=root:relu_5} perm=[H<-W, W<-C, C<-H]
-    n181 {derived}: [t344 f32 [H=28 W=28 C=128] {derived}] =
+    n188 {pt2=root[20] torch.ops.aten.relu.default}: [t351 f32 [H=28 W=28
+                                                                C=128] {derived}] =
+      relu x=t349 {derived}
+    n189 {derived}: [t352 f32 [H=28 W=28 C=128] {derived}] =
       convolution
-        x=t177 {derived}
+        x=t351 {derived}
         weight=t311 {folded from=[p_layer2_0_conv2_weight,
                                   p_layer2_0_bn2_weight,
                                   b_layer2_0_bn2_running_var]}
@@ -351,21 +291,14 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g15 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n60 {pt2=root[22] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t183 f32 [H=128
-                                                                      W=28
-                                                                      C=28] {pt2=root:getitem_20}] =
-        permute x=t344 {derived} perm=[H<-C, W<-H, C<-W]
-    n68 {pt2=root[25] torch.ops.aten.add.Tensor}: [t191 f32 [H=128 W=28 C=28] {pt2=root:add_2}] =
-      add a=t183 {pt2=root:getitem_20} b=t190 {pt2=root:getitem_23}
-    n69 {pt2=root[26] torch.ops.aten.relu.default}: [t192 f32 [H=128 W=28 C=28] {pt2=root:relu_6}] =
-      relu x=t191 {pt2=root:add_2}
-    group g18 torch.ops.aten.convolution.default:
-      n70 {derived}: [t193 f32 [H=28 W=28 C=128] {derived}] =
-        permute x=t192 {pt2=root:relu_6} perm=[H<-W, W<-C, C<-H]
-    n182 {derived}: [t345 f32 [H=28 W=28 C=128] {derived}] =
+    n190 {pt2=root[25] torch.ops.aten.add.Tensor}: [t353 f32 [H=28 W=28 C=128] {derived}] =
+      add a=t352 {derived} b=t350 {derived}
+    n191 {pt2=root[26] torch.ops.aten.relu.default}: [t354 f32 [H=28 W=28
+                                                                C=128] {derived}] =
+      relu x=t353 {derived}
+    n192 {derived}: [t355 f32 [H=28 W=28 C=128] {derived}] =
       convolution
-        x=t193 {derived}
+        x=t354 {derived}
         weight=t313 {folded from=[p_layer2_1_conv1_weight,
                                   p_layer2_1_bn1_weight,
                                   b_layer2_1_bn1_running_var]}
@@ -378,19 +311,12 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g19 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n76 {pt2=root[28] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t199 f32 [H=128
-                                                                      W=28
-                                                                      C=28] {pt2=root:getitem_26}] =
-        permute x=t345 {derived} perm=[H<-C, W<-H, C<-W]
-    n77 {pt2=root[29] torch.ops.aten.relu.default}: [t200 f32 [H=128 W=28 C=28] {pt2=root:relu_7}] =
-      relu x=t199 {pt2=root:getitem_26}
-    group g20 torch.ops.aten.convolution.default:
-      n78 {derived}: [t201 f32 [H=28 W=28 C=128] {derived}] =
-        permute x=t200 {pt2=root:relu_7} perm=[H<-W, W<-C, C<-H]
-    n183 {derived}: [t346 f32 [H=28 W=28 C=128] {derived}] =
+    n193 {pt2=root[29] torch.ops.aten.relu.default}: [t356 f32 [H=28 W=28
+                                                                C=128] {derived}] =
+      relu x=t355 {derived}
+    n194 {derived}: [t357 f32 [H=28 W=28 C=128] {derived}] =
       convolution
-        x=t201 {derived}
+        x=t356 {derived}
         weight=t315 {folded from=[p_layer2_1_conv2_weight,
                                   p_layer2_1_bn2_weight,
                                   b_layer2_1_bn2_running_var]}
@@ -403,24 +329,14 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g21 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n84 {pt2=root[31] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t207 f32 [H=128
-                                                                      W=28
-                                                                      C=28] {pt2=root:getitem_29}] =
-        permute x=t346 {derived} perm=[H<-C, W<-H, C<-W]
-    n85 {pt2=root[32] torch.ops.aten.add.Tensor}: [t208 f32 [H=128 W=28 C=28] {pt2=root:add_3}] =
-      add a=t207 {pt2=root:getitem_29} b=t192 {pt2=root:relu_6}
-    n86 {pt2=root[33] torch.ops.aten.relu.default}: [t209 f32 [H=128 W=28 C=28] {pt2=root:relu_8}] =
-      relu x=t208 {pt2=root:add_3}
-    group g22 torch.ops.aten.convolution.default:
-      n87 {derived}: [t210 f32 [H=28 W=28 C=128] {derived}] =
-        permute x=t209 {pt2=root:relu_8} perm=[H<-W, W<-C, C<-H]
-    group g26 torch.ops.aten.convolution.default:
-      n102 {derived}: [t225 f32 [H=28 W=28 C=128] {derived}] =
-        permute x=t209 {pt2=root:relu_8} perm=[H<-W, W<-C, C<-H]
-    n184 {derived}: [t347 f32 [H=14 W=14 C=256] {derived}] =
+    n195 {pt2=root[32] torch.ops.aten.add.Tensor}: [t358 f32 [H=28 W=28 C=128] {derived}] =
+      add a=t357 {derived} b=t354 {derived}
+    n196 {pt2=root[33] torch.ops.aten.relu.default}: [t359 f32 [H=28 W=28
+                                                                C=128] {derived}] =
+      relu x=t358 {derived}
+    n197 {derived}: [t360 f32 [H=14 W=14 C=256] {derived}] =
       convolution
-        x=t210 {derived}
+        x=t359 {derived}
         weight=t317 {folded from=[p_layer3_0_conv1_weight,
                                   p_layer3_0_bn1_weight,
                                   b_layer3_0_bn1_running_var]}
@@ -433,9 +349,9 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n185 {derived}: [t348 f32 [H=14 W=14 C=256] {derived}] =
+    n198 {derived}: [t361 f32 [H=14 W=14 C=256] {derived}] =
       convolution
-        x=t225 {derived}
+        x=t359 {derived}
         weight=t319 {folded from=[p_layer3_0_downsample_0_weight,
                                   p_layer3_0_downsample_1_weight,
                                   b_layer3_0_downsample_1_running_var]}
@@ -449,24 +365,12 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g23 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n93 {pt2=root[35] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t216 f32 [H=256
-                                                                      W=14
-                                                                      C=14] {pt2=root:getitem_32}] =
-        permute x=t347 {derived} perm=[H<-C, W<-H, C<-W]
-    group g27 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n108 {pt2=root[40] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t231 f32 [H=256
-                                                                      W=14
-                                                                      C=14] {pt2=root:getitem_38}] =
-        permute x=t348 {derived} perm=[H<-C, W<-H, C<-W]
-    n94 {pt2=root[36] torch.ops.aten.relu.default}: [t217 f32 [H=256 W=14 C=14] {pt2=root:relu_9}] =
-      relu x=t216 {pt2=root:getitem_32}
-    group g24 torch.ops.aten.convolution.default:
-      n95 {derived}: [t218 f32 [H=14 W=14 C=256] {derived}] =
-        permute x=t217 {pt2=root:relu_9} perm=[H<-W, W<-C, C<-H]
-    n186 {derived}: [t349 f32 [H=14 W=14 C=256] {derived}] =
+    n199 {pt2=root[36] torch.ops.aten.relu.default}: [t362 f32 [H=14 W=14
+                                                                C=256] {derived}] =
+      relu x=t360 {derived}
+    n200 {derived}: [t363 f32 [H=14 W=14 C=256] {derived}] =
       convolution
-        x=t218 {derived}
+        x=t362 {derived}
         weight=t321 {folded from=[p_layer3_0_conv2_weight,
                                   p_layer3_0_bn2_weight,
                                   b_layer3_0_bn2_running_var]}
@@ -479,22 +383,14 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g25 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n101 {pt2=root[38] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t224 f32 [H=256
-                                                                      W=14
-                                                                      C=14] {pt2=root:getitem_35}] =
-        permute x=t349 {derived} perm=[H<-C, W<-H, C<-W]
-    n109 {pt2=root[41] torch.ops.aten.add.Tensor}: [t232 f32 [H=256 W=14 C=14] {pt2=root:add_4}] =
-      add a=t224 {pt2=root:getitem_35} b=t231 {pt2=root:getitem_38}
-    n110 {pt2=root[42] torch.ops.aten.relu.default}: [t233 f32 [H=256 W=14
-                                                                C=14] {pt2=root:relu_10}] =
-      relu x=t232 {pt2=root:add_4}
-    group g28 torch.ops.aten.convolution.default:
-      n111 {derived}: [t234 f32 [H=14 W=14 C=256] {derived}] =
-        permute x=t233 {pt2=root:relu_10} perm=[H<-W, W<-C, C<-H]
-    n187 {derived}: [t350 f32 [H=14 W=14 C=256] {derived}] =
+    n201 {pt2=root[41] torch.ops.aten.add.Tensor}: [t364 f32 [H=14 W=14 C=256] {derived}] =
+      add a=t363 {derived} b=t361 {derived}
+    n202 {pt2=root[42] torch.ops.aten.relu.default}: [t365 f32 [H=14 W=14
+                                                                C=256] {derived}] =
+      relu x=t364 {derived}
+    n203 {derived}: [t366 f32 [H=14 W=14 C=256] {derived}] =
       convolution
-        x=t234 {derived}
+        x=t365 {derived}
         weight=t323 {folded from=[p_layer3_1_conv1_weight,
                                   p_layer3_1_bn1_weight,
                                   b_layer3_1_bn1_running_var]}
@@ -507,20 +403,12 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g29 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n117 {pt2=root[44] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t240 f32 [H=256
-                                                                      W=14
-                                                                      C=14] {pt2=root:getitem_41}] =
-        permute x=t350 {derived} perm=[H<-C, W<-H, C<-W]
-    n118 {pt2=root[45] torch.ops.aten.relu.default}: [t241 f32 [H=256 W=14
-                                                                C=14] {pt2=root:relu_11}] =
-      relu x=t240 {pt2=root:getitem_41}
-    group g30 torch.ops.aten.convolution.default:
-      n119 {derived}: [t242 f32 [H=14 W=14 C=256] {derived}] =
-        permute x=t241 {pt2=root:relu_11} perm=[H<-W, W<-C, C<-H]
-    n188 {derived}: [t351 f32 [H=14 W=14 C=256] {derived}] =
+    n204 {pt2=root[45] torch.ops.aten.relu.default}: [t367 f32 [H=14 W=14
+                                                                C=256] {derived}] =
+      relu x=t366 {derived}
+    n205 {derived}: [t368 f32 [H=14 W=14 C=256] {derived}] =
       convolution
-        x=t242 {derived}
+        x=t367 {derived}
         weight=t325 {folded from=[p_layer3_1_conv2_weight,
                                   p_layer3_1_bn2_weight,
                                   b_layer3_1_bn2_running_var]}
@@ -533,25 +421,14 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g31 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n125 {pt2=root[47] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t248 f32 [H=256
-                                                                      W=14
-                                                                      C=14] {pt2=root:getitem_44}] =
-        permute x=t351 {derived} perm=[H<-C, W<-H, C<-W]
-    n126 {pt2=root[48] torch.ops.aten.add.Tensor}: [t249 f32 [H=256 W=14 C=14] {pt2=root:add_5}] =
-      add a=t248 {pt2=root:getitem_44} b=t233 {pt2=root:relu_10}
-    n127 {pt2=root[49] torch.ops.aten.relu.default}: [t250 f32 [H=256 W=14
-                                                                C=14] {pt2=root:relu_12}] =
-      relu x=t249 {pt2=root:add_5}
-    group g32 torch.ops.aten.convolution.default:
-      n128 {derived}: [t251 f32 [H=14 W=14 C=256] {derived}] =
-        permute x=t250 {pt2=root:relu_12} perm=[H<-W, W<-C, C<-H]
-    group g36 torch.ops.aten.convolution.default:
-      n143 {derived}: [t266 f32 [H=14 W=14 C=256] {derived}] =
-        permute x=t250 {pt2=root:relu_12} perm=[H<-W, W<-C, C<-H]
-    n189 {derived}: [t352 f32 [H=7 W=7 C=512] {derived}] =
+    n206 {pt2=root[48] torch.ops.aten.add.Tensor}: [t369 f32 [H=14 W=14 C=256] {derived}] =
+      add a=t368 {derived} b=t365 {derived}
+    n207 {pt2=root[49] torch.ops.aten.relu.default}: [t370 f32 [H=14 W=14
+                                                                C=256] {derived}] =
+      relu x=t369 {derived}
+    n208 {derived}: [t371 f32 [H=7 W=7 C=512] {derived}] =
       convolution
-        x=t251 {derived}
+        x=t370 {derived}
         weight=t327 {folded from=[p_layer4_0_conv1_weight,
                                   p_layer4_0_bn1_weight,
                                   b_layer4_0_bn1_running_var]}
@@ -564,9 +441,9 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n190 {derived}: [t353 f32 [H=7 W=7 C=512] {derived}] =
+    n209 {derived}: [t372 f32 [H=7 W=7 C=512] {derived}] =
       convolution
-        x=t266 {derived}
+        x=t370 {derived}
         weight=t329 {folded from=[p_layer4_0_downsample_0_weight,
                                   p_layer4_0_downsample_1_weight,
                                   b_layer4_0_downsample_1_running_var]}
@@ -580,22 +457,11 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g33 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n134 {pt2=root[51] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t257 f32 [H=512
-                                                                      W=7 C=7] {pt2=root:getitem_47}] =
-        permute x=t352 {derived} perm=[H<-C, W<-H, C<-W]
-    group g37 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n149 {pt2=root[56] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t272 f32 [H=512
-                                                                      W=7 C=7] {pt2=root:getitem_53}] =
-        permute x=t353 {derived} perm=[H<-C, W<-H, C<-W]
-    n135 {pt2=root[52] torch.ops.aten.relu.default}: [t258 f32 [H=512 W=7 C=7] {pt2=root:relu_13}] =
-      relu x=t257 {pt2=root:getitem_47}
-    group g34 torch.ops.aten.convolution.default:
-      n136 {derived}: [t259 f32 [H=7 W=7 C=512] {derived}] =
-        permute x=t258 {pt2=root:relu_13} perm=[H<-W, W<-C, C<-H]
-    n191 {derived}: [t354 f32 [H=7 W=7 C=512] {derived}] =
+    n210 {pt2=root[52] torch.ops.aten.relu.default}: [t373 f32 [H=7 W=7 C=512] {derived}] =
+      relu x=t371 {derived}
+    n211 {derived}: [t374 f32 [H=7 W=7 C=512] {derived}] =
       convolution
-        x=t259 {derived}
+        x=t373 {derived}
         weight=t331 {folded from=[p_layer4_0_conv2_weight,
                                   p_layer4_0_bn2_weight,
                                   b_layer4_0_bn2_running_var]}
@@ -608,20 +474,13 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g35 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n142 {pt2=root[54] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t265 f32 [H=512
-                                                                      W=7 C=7] {pt2=root:getitem_50}] =
-        permute x=t354 {derived} perm=[H<-C, W<-H, C<-W]
-    n150 {pt2=root[57] torch.ops.aten.add.Tensor}: [t273 f32 [H=512 W=7 C=7] {pt2=root:add_6}] =
-      add a=t265 {pt2=root:getitem_50} b=t272 {pt2=root:getitem_53}
-    n151 {pt2=root[58] torch.ops.aten.relu.default}: [t274 f32 [H=512 W=7 C=7] {pt2=root:relu_14}] =
-      relu x=t273 {pt2=root:add_6}
-    group g38 torch.ops.aten.convolution.default:
-      n152 {derived}: [t275 f32 [H=7 W=7 C=512] {derived}] =
-        permute x=t274 {pt2=root:relu_14} perm=[H<-W, W<-C, C<-H]
-    n192 {derived}: [t355 f32 [H=7 W=7 C=512] {derived}] =
+    n212 {pt2=root[57] torch.ops.aten.add.Tensor}: [t375 f32 [H=7 W=7 C=512] {derived}] =
+      add a=t374 {derived} b=t372 {derived}
+    n213 {pt2=root[58] torch.ops.aten.relu.default}: [t376 f32 [H=7 W=7 C=512] {derived}] =
+      relu x=t375 {derived}
+    n214 {derived}: [t377 f32 [H=7 W=7 C=512] {derived}] =
       convolution
-        x=t275 {derived}
+        x=t376 {derived}
         weight=t333 {folded from=[p_layer4_1_conv1_weight,
                                   p_layer4_1_bn1_weight,
                                   b_layer4_1_bn1_running_var]}
@@ -634,18 +493,11 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g39 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n158 {pt2=root[60] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t281 f32 [H=512
-                                                                      W=7 C=7] {pt2=root:getitem_56}] =
-        permute x=t355 {derived} perm=[H<-C, W<-H, C<-W]
-    n159 {pt2=root[61] torch.ops.aten.relu.default}: [t282 f32 [H=512 W=7 C=7] {pt2=root:relu_15}] =
-      relu x=t281 {pt2=root:getitem_56}
-    group g40 torch.ops.aten.convolution.default:
-      n160 {derived}: [t283 f32 [H=7 W=7 C=512] {derived}] =
-        permute x=t282 {pt2=root:relu_15} perm=[H<-W, W<-C, C<-H]
-    n193 {derived}: [t356 f32 [H=7 W=7 C=512] {derived}] =
+    n215 {pt2=root[61] torch.ops.aten.relu.default}: [t378 f32 [H=7 W=7 C=512] {derived}] =
+      relu x=t377 {derived}
+    n216 {derived}: [t379 f32 [H=7 W=7 C=512] {derived}] =
       convolution
-        x=t283 {derived}
+        x=t378 {derived}
         weight=t335 {folded from=[p_layer4_1_conv2_weight,
                                   p_layer4_1_bn2_weight,
                                   b_layer4_1_bn2_running_var]}
@@ -658,17 +510,16 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    group g41 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n166 {pt2=root[63] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t289 f32 [H=512
-                                                                      W=7 C=7] {pt2=root:getitem_59}] =
-        permute x=t356 {derived} perm=[H<-C, W<-H, C<-W]
-    n167 {pt2=root[64] torch.ops.aten.add.Tensor}: [t290 f32 [H=512 W=7 C=7] {pt2=root:add_7}] =
-      add a=t289 {pt2=root:getitem_59} b=t274 {pt2=root:relu_14}
-    n168 {pt2=root[65] torch.ops.aten.relu.default}: [t291 f32 [H=512 W=7 C=7] {pt2=root:relu_16}] =
-      relu x=t290 {pt2=root:add_7}
+    n217 {pt2=root[64] torch.ops.aten.add.Tensor}: [t380 f32 [H=7 W=7 C=512] {derived}] =
+      add a=t379 {derived} b=t376 {derived}
+    n218 {pt2=root[65] torch.ops.aten.relu.default}: [t381 f32 [H=7 W=7 C=512] {derived}] =
+      relu x=t380 {derived}
+    n219 {pt2=root[63] torch.ops.aten._native_batch_norm_legit_no_training.default}: [t291 f32 [H=512
+                                                                      W=7 C=7] {pt2=root:relu_16}] =
+      permute x=t381 {derived} perm=[H<-C, W<-H, C<-W]
     n169 {pt2=root[66] torch.ops.aten.mean.dim}: [t292 f32 [H=512 W=1 C=1] {pt2=root:mean}] =
       mean x=t291 {pt2=root:relu_16} params={dims=[C, W]; keepdim=true}
-    n194 {pt2=root[67] torch.ops.aten.view.default}: [t293 f32 [C=512] {pt2=root:view}] =
+    n220 {pt2=root[67] torch.ops.aten.view.default}: [t293 f32 [C=512] {pt2=root:view}] =
       permute x=t292 {pt2=root:mean} perm=[H<-W, W<-C, C<-H]
     group g42 torch.ops.aten.addmm.default:
       n173 {pt2=root[69] torch.ops.aten.addmm.default}: [t296 f32 [C=1000] {pt2=root:addmm}] =
