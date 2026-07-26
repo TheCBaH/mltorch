@@ -123,6 +123,31 @@ let permute_identity_chain () =
       let* c = permute identity_perm b in
       relu c)
 
+(* A cancelling pair followed by a permute that does not cancel: only the run
+   ending at the middle edge is trimmable, so this pins that a match is looked
+   for at every edge rather than only at the end of a chain. *)
+let permute_partial_cancel () =
+  build "permute_partial_cancel"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute rotate_hwc x in
+      let* b = permute unrotate_hwc a in
+      let* c = permute swap_hw b in
+      relu c)
+
+(* The same cancelling pair, but the intermediate edge has a second consumer.
+   Trimming would leave that consumer without a producer, since the intermediate
+   value is a real rearrangement rather than a copy of the input. *)
+let permute_shared () =
+  build "permute_shared"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute rotate_hwc x in
+      let* b = permute unrotate_hwc a in
+      let* other = relu a in
+      let* () = discard other in
+      relu b)
+
 (* Two permutes that compose to something else, which chaining should fuse into
    one node rather than remove. *)
 let permute_pair () =
@@ -140,6 +165,15 @@ let reshape_relabel () =
     Graph_builder.(
       let* x = input ~shape:(s 1 1 1 1 1 6) () in
       let* r = reshape { Reshape.Reshape.shape = s 1 1 1 6 1 1 } x in
+      relu r)
+
+(* A reshape that genuinely mixes extents: H*W collapses onto C, which no axis
+   permutation can express. *)
+let reshape_flatten () =
+  build "reshape_flatten"
+    Graph_builder.(
+      let* x = input ~shape:(s 1 1 1 2 3 1) () in
+      let* r = reshape { Reshape.Reshape.shape = s 1 1 1 1 1 6 } x in
       relu r)
 
 (* THE motivating case: a constant weight behind a permute, re-permuted on every
@@ -202,7 +236,10 @@ let all =
     ("permute_identity_chain", permute_identity_chain);
     ("permute_noop", permute_noop);
     ("permute_pair", permute_pair);
+    ("permute_partial_cancel", permute_partial_cancel);
     ("permute_sequence", permute_sequence);
+    ("permute_shared", permute_shared);
+    ("reshape_flatten", reshape_flatten);
     ("reshape_relabel", reshape_relabel);
     ("residual", residual);
   ]

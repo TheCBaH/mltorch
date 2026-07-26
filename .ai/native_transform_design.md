@@ -11,10 +11,11 @@ The mapping is not a by-product. A future harness must be able to take
 symbolically that both sides compute the same values. That verifier is out of
 scope here; everything below is shaped so it can exist.
 
-Status: **in progress** — stages 1 to 5 have landed; the framework is complete
-and the transformations built on it are next.
+Status: **in progress** — stages 1 to 6 have landed: the framework is complete and
+the first transformations run on it. Constant folding, the ops batch-norm folding
+needs, that fold itself, packing and the PT2 lens remain.
 Each section below carries its own status marker, flipped by the commit that
-implements it; `## 12. Staging` tracks the whole sequence.
+implements it; `## 12. Staging and the transformations` tracks the whole sequence.
 
 ## 1. What it is for
 
@@ -676,7 +677,7 @@ claiming `{relu, add}` skips the `mul`, but the `mul` reads the graph input rath
 than the `relu`, so no path leaves the region and returns — it is convex. The
 non-convex case needs a claimed node feeding an unclaimed one that feeds back in.
 
-## 12. Staging
+## 12. Staging and the transformations
 
 Each stage is one commit carrying code, its expect tests, and this doc's status
 delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integration.
@@ -689,12 +690,83 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 | 3 | `native: add recipe and rewrite` | the state, `Recipe`, `apply`, `output_transfer` (+ its entry in `native_add_op.md`) | done |
 | 4 | `native: add graph match combinators` | `Pattern`, `run`, `scan` | done |
 | 5 | `native: add pass driver` | `Pass`, `fixpoint`, `run_all` | done |
-| 6 | `native: add permute simplification passes` | `trim_permute`, `chain_permute`, `reshape_to_permute` |
-| 7 | `native: add constant folding` | `fold_const` — the motivating permute-of-constant-weight case |
-| 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding |
-| 9 | `native: add batch-norm folding pass` | `fold_batch_norm` |
-| 10 | `native: add terminal id packing` | `Rewrite.pack` |
-| 11 | `native: resolve PT2 provenance through a transformation map` | the lens; `native_interp` payload order |
+| 6 | `native: add permute simplification passes` | `Trim_permute`, `Chain_permute`, `Reshape_to_permute`, perm algebra on `Permute.Permute` | done |
+| 7 | `native: add constant folding` | `fold_const` — the motivating permute-of-constant-weight case | |
+| 8 | `native: add Sub, Div and Sqrt ops` | prerequisite for bn folding | |
+| 9 | `native: add batch-norm folding pass` | `fold_batch_norm` | |
+| 10 | `native: add terminal id packing` | `Rewrite.pack` | |
+| 11 | `native: resolve PT2 provenance through a transformation map` | the lens; `native_interp` payload order | |
+
+### 12a. The permute simplifications
+
+Status: **implemented** — `lib/native/transform/passes/`, tests in
+`test/native/permute_passes_test.ml`.
+
+Perm algebra (`compose`, `identity`, `is_identity`, `lookup`, `of_fn`) lives on
+`Permute.Permute`, not in the transform layer: composing two permutations is a
+property of the op, and stage 9 needs to *build* one (the C→N permute of the
+batch-norm scale). `compose ~before ~after` reads in dataflow order —
+`y = before x`, `z = after y` — and `of_fn` emits pairs in `Axis.all` order so
+composing twice yields the same list, which keeps goldens stable.
+
+| Pass | Matches | Emits |
+|---|---|---|
+| `Trim_permute` | a maximal run of permutes ending at the anchor whose composition is the identity | `Recipe.trim`, tying each edge whose *prefix* already composes to the identity onto the run's input |
+| `Chain_permute` | two adjacent permutes with an interior edge between them | one `Permute` taking over the outer output id, `from` naming both removed nodes |
+| `Reshape_to_permute` | a contiguous `Reshape` that only relabels axes | one `Permute` taking over the reshape's output id |
+
+Three things they establish for every pass that follows.
+
+**Only the anchor may escape.** `Trim_permute` walks upstream with
+`Pattern.chain`, and every edge but the anchor must be `interior`. An
+intermediate value of a cancelling run is a genuine rearrangement of the run's
+input, *not* equal to it, so a second consumer would lose its producer.
+`Chain_permute` needs the same precondition for a different reason: with a shared
+intermediate the inner node has to stay, so "fusing" would duplicate work rather
+than remove it. Failing `interior` merely ends a chain — a shorter run may still
+cancel, which is exactly how the partially-cancelling fixture is handled.
+
+**A preserved id needs a claim even when the value is untouched.** `Chain_permute`
+and `Reshape_to_permute` both keep the anchor's id: same tensor, same shape, so §4
+is satisfied. Their *definition* changes, though, and `apply` never infers — so
+each emits `(out, out, Identical)` explicitly. `Recipe.replace` adds that
+automatically for ids taken over via `subst`; these two take the id over through
+the insertion's `outputs` instead, where nothing can infer it for them.
+
+**`Reshape_to_permute`'s legality condition.** A contiguous reshape sends element
+*k* of the row-major input to element *k* of the row-major output, and unit axes
+contribute nothing to a row-major offset. So when the **non-unit extents of the
+two shapes agree in axis order**, the reshape is exactly the bijection carrying
+the i-th non-unit input axis onto the i-th non-unit output axis; leftover unit
+axes pair up in canonical order, since a unit axis computes the same tensor
+whichever way it is matched. Anything else — a genuine flatten or split — mixes
+extents and no permutation of six axes expresses it. The conversion is worth doing
+because a permute *composes*: it fuses with its neighbours and cancels against
+them, where a reshape is opaque to both. This is the one pass here whose
+correctness rests on an argument about offsets rather than a syntactic identity,
+so it is pinned by a numeric test (`Eval_direct` over both graphs) on a case that
+moves two non-unit axes, where a plausible-but-wrong perm still yields the right
+shape.
+
+> **Found while implementing: mapping precision depends on the route taken.**
+> Collapsing an all-identity run with `fixpoint Trim_permute` yields
+> `{t0,t1,t2,t3} → {t0} Identical`; reaching the *same destination graph* via
+> `fixpoint Chain_permute` then `Trim_permute` yields `{t0,t3} → {t0}` plus
+> `{t1} → {}` and `{t2} → {}`. Both are sound — a deletion asserts nothing — and
+> the difference is honest rather than a defect: fusing two permutes genuinely
+> does not know that the intermediate equalled the input, and in general it does
+> not. A verifier gets fewer clusters to check on the second route, never a false
+> one. Worth stating because "the map is precise" is not a property a pipeline
+> preserves; "the map is sound" is.
+
+> **Found while implementing: greedy disjoint matching favours the shortest run.**
+> `Pattern.scan` anchors in node order and drops later matches that overlap an
+> accepted one, so on a three-permute chain the one-node run anchored at `t1` wins
+> and the two- and three-node runs are discarded. One sweep removes one node;
+> `Pass.fixpoint` is what collapses the chain. That follows from §11's specified
+> overlap rule rather than contradicting it, but it does mean a pass author cannot
+> assume a sweep takes the *largest* match, and any pass with nested matches wants
+> a fixed point.
 
 ## 13. Tests
 
@@ -707,10 +779,16 @@ one `[%expect]`.
 `test/native/graph_fixtures.ml` is the shared graph library this layer needs —
 there is none today, and `s`/`s1c`/`conv_axis` are copy-pasted across five test
 files. New tests use the fixtures; existing files are left alone. Fixtures:
-`chain` (conv→bn→relu), `residual`, `diamond`, `permute_noop`, `permute_sequence`,
-`reshape_relabel`, `const_permute` (the motivating fold), `const_arith`,
-`multi_output` (`Max_pool2d_with_indices` + `Discard`), `grouped` (two
-`Graph_builder.group` blocks with a rewrite spanning both).
+`chain` (conv→bn→relu), `residual`, `diamond`, `const_permute` (the motivating
+fold), `const_arith`, `multi_output` (`Max_pool2d_with_indices` + `Discard`),
+`grouped` (two `Graph_builder.group` blocks with a rewrite spanning both), and one
+per permute/reshape shape the passes have to tell apart — `permute_noop`,
+`permute_sequence` (cancels, neither node a no-op alone),
+`permute_identity_chain`, `permute_pair` (fuses, does not cancel),
+`permute_partial_cancel` (only a prefix cancels), `permute_shared` (a second
+consumer of the intermediate), `reshape_relabel` and `reshape_flatten`.
+A fixture is named after the *shape* it exercises, never after the pass that
+consumes it, so one graph can pin several passes.
 
 Each test prints the source graph, then whichever applies: the matched portion
 (`Region.extract` → `Graph_ir.pp`, plus `Region.pp`), the recipe
@@ -728,8 +806,11 @@ Beyond per-feature cases, three families are load-bearing:
   trimming's many-to-one cluster, and delete/create/repack staying two clusters.
 - **Cumulative constants** across a `fixpoint` fold over a multi-node constant
   sub-DAG.
-- **Numeric equivalence** for bn folding across all eight operand combinations
-  (conv bias × BN weight × BN bias, independently optional).
+- **Numeric equivalence** — `Eval_direct` over the source and destination graphs
+  on the same input — wherever a pass's legality rests on an argument rather than
+  a syntactic identity. That is `reshape_to_permute` (row-major offsets) and bn
+  folding, the latter across all eight operand combinations (conv bias × BN weight
+  × BN bias, independently optional).
 
 ## 14. Non-goals
 

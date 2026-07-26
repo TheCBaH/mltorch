@@ -47,7 +47,10 @@ let%expect_test "validation: a well-formed fixture is accepted" =
     permute_identity_chain: ok
     permute_noop: ok
     permute_pair: ok
+    permute_partial_cancel: ok
     permute_sequence: ok
+    permute_shared: ok
+    reshape_flatten: ok
     reshape_relabel: ok
     residual: ok |}]
 

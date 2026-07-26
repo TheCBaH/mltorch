@@ -29,6 +29,29 @@ module Permute = struct
          (fun (out_axis, in_axis) -> not (Axis.equal out_axis in_axis))
          perm)
 
+  (* Perm algebra, used by the simplification passes (and by any pass that has
+     to build a relayout). [output_shape] below rejects a perm that is not a
+     bijection over all six axes, so a perm reaching these from a validated
+     graph is total; the [default] keeps a partial one honest rather than
+     raising. *)
+
+  (* Which input axis feeds [out_axis]. *)
+  let lookup (perm : perm) out_axis =
+    Option.value (List.assoc_opt out_axis perm) ~default:out_axis
+
+  (* Always in [Axis.all] order, so composing twice gives the same list. *)
+  let of_fn f : perm = List.map (fun axis -> (axis, f axis)) Axis.all
+
+  (* [y = before x] then [z = after y]: z's axis [a] takes y's [after a], which
+     takes x's [before (after a)]. *)
+  let compose ~before ~after : perm =
+    of_fn (fun axis -> lookup before (lookup after axis))
+
+  let identity : perm = of_fn Fun.id
+
+  let is_identity (perm : perm) =
+    List.for_all (fun (out_axis, in_axis) -> Axis.equal out_axis in_axis) perm
+
   type t = { perm : perm; x : Tensor_ref.t }
 
   let name = "Permute"
