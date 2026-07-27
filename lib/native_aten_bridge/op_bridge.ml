@@ -122,6 +122,52 @@ let optional_tensor_present node name =
 
 let aten_rank t = Array.length (Aten_tensor.shape t)
 
+(* [D.scalar_arg_result]/[scalar_opt_arg_result] hand back an [Aten_scalar.t],
+   which also admits a Bool the native scalar domain has no meaning for — so the
+   narrowing to float is explicit and checked rather than assumed. *)
+let float_of_aten_scalar name = function
+  | Aten_scalar.Int i -> Core.return (Int64.to_float i)
+  | Aten_scalar.Float f -> Core.return f
+  | Aten_scalar.Bool _ ->
+      Core.fail (`Validation_failure (name ^ ": expected a numeric scalar"))
+
+let scalar_arg ~default node name =
+  let* s = decode_result (D.scalar_arg_result ~default node name) in
+  float_of_aten_scalar name s
+
+let scalar_opt_arg node name =
+  let* s = decode_result (D.scalar_opt_arg_result node name) in
+  match s with
+  | None -> return None
+  | Some s ->
+      let* f = float_of_aten_scalar name s in
+      return (Some f)
+
+(* [add.Tensor]/[sub.Tensor] compute [self + alpha * other]. No model in this zoo
+   serialises a non-default alpha, so it is unimplemented — but silently dropping
+   it would make the bridge claim semantics it does not deliver, and this arm is
+   the one an ATen-vs-native comparison runs through. Reject instead. *)
+let reject_alpha node =
+  let* alpha = scalar_opt_arg node "alpha" in
+  match alpha with
+  | None -> return ()
+  | Some a when Float.equal a 1. -> return ()
+  | Some a ->
+      fail
+        (`Validation_failure
+           (Printf.sprintf "alpha=%g is not supported (only 1)" a))
+
+(* A Tensor-typed argument the exporter serialised as a bare scalar — the
+   native twin of [Interp_decode.tensor_or_scalar_arg], except that the native
+   side routes the scalar into an op parameter instead of materialising it. *)
+let tensor_or_scalar aten_env node name =
+  match D.find_arg node name with
+  | Some (Argument.Int i) -> return (`Scalar (float_of_int i))
+  | Some (Argument.Float f) -> return (`Scalar f)
+  | _ ->
+      let* t = native_tensor_arg aten_env node name in
+      return (`Tensor t)
+
 (* --- Permutations for NCHW/NHWC relayout ---
    All are full 6-axis bijections; see .ai/native_aten_bridge_layout.md. *)
 
@@ -318,20 +364,26 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = permute perm_nhwc_to_nchw y' in
                [ y ]
            | _ -> assert false))
-  | "torch.ops.aten.add.Tensor" | "torch.ops.aten.add_.Tensor" -> (
-      match
-        ( native_tensor_arg aten_env node "self",
-          native_tensor_arg aten_env node "other" )
-      with
-      | Error e, _ | _, Error e -> Some (Error e)
-      | Ok a, Ok b ->
-          build_g ~name:"add" [ a; b ] (function
-            | [ a_id; b_id ] ->
-                let open Graph_builder in
-                let+ y = add a_id b_id in
-                [ y ]
-            | _ -> assert false)
-          |> some_graph)
+  | "torch.ops.aten.add.Tensor" | "torch.ops.aten.add_.Tensor" ->
+      Some
+        (let* () = reject_alpha node in
+         let* a = native_tensor_arg aten_env node "self" in
+         let* other = tensor_or_scalar aten_env node "other" in
+         match other with
+         | `Tensor b ->
+             build_g ~name:"add" [ a; b ] (function
+               | [ a_id; b_id ] ->
+                   let open Graph_builder in
+                   let+ y = add a_id b_id in
+                   [ y ]
+               | _ -> assert false)
+         | `Scalar scalar ->
+             build_g ~name:"add_scalar" [ a ] (function
+               | [ a_id ] ->
+                   let open Graph_builder in
+                   let+ y = add_scalar scalar a_id in
+                   [ y ]
+               | _ -> assert false))
   | "torch.ops.aten.addmm.default" ->
       Some
         ((* addmm(bias, mat1, mat2) = bias + mat1 @ mat2; alpha=beta=1 assumed. *)
@@ -371,6 +423,35 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
+  | "torch.ops.aten.clamp.default" | "torch.ops.aten.clamp_.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         let* min = scalar_opt_arg node "min" in
+         let* max = scalar_opt_arg node "max" in
+         (* The both-absent pair is rejected by [Graph_builder] via
+            [Clamp.output_shape], the same place ATen's meta function rejects
+            it, so no check is needed here. *)
+         build_g ~name:"clamp" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = clamp { Pointwise.Clamp.min; max } x_id in
+               [ y ]
+           | _ -> assert false))
+  | "torch.ops.aten.clone.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         (* A requested memory_format is a layout change this op does not
+            perform; rejecting beats silently ignoring it. *)
+         match D.find_arg node "memory_format" with
+         | Some (Argument.None _) | None ->
+             build_g ~name:"clone" [ x ] (function
+               | [ x_id ] ->
+                   let open Graph_builder in
+                   let+ y = clone x_id in
+                   [ y ]
+               | _ -> assert false)
+         | Some _ ->
+             fail (`Validation_failure "clone: memory_format is not supported"))
   | "torch.ops.aten.conv2d.default" ->
       Some
         (let* groups = int_arg ~default:1 node "groups" in
@@ -516,20 +597,42 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    [ y ]
                | _ -> assert false)
            with Invalid_argument msg -> fail (`Validation_failure msg))
-  | "torch.ops.aten.div.Tensor" | "torch.ops.aten.div_.Tensor" -> (
-      match
-        ( native_tensor_arg aten_env node "self",
-          native_tensor_arg aten_env node "other" )
-      with
-      | Error e, _ | _, Error e -> Some (Error e)
-      | Ok a, Ok b ->
-          build_g ~name:"div" [ a; b ] (function
-            | [ a_id; b_id ] ->
-                let open Graph_builder in
-                let+ y = div a_id b_id in
-                [ y ]
-            | _ -> assert false)
-          |> some_graph)
+  | "torch.ops.aten.div.Tensor" | "torch.ops.aten.div_.Tensor" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* other = tensor_or_scalar aten_env node "other" in
+         match other with
+         | `Tensor b ->
+             build_g ~name:"div" [ a; b ] (function
+               | [ a_id; b_id ] ->
+                   let open Graph_builder in
+                   let+ y = div a_id b_id in
+                   [ y ]
+               | _ -> assert false)
+         | `Scalar scalar ->
+             build_g ~name:"div_scalar" [ a ] (function
+               | [ a_id ] ->
+                   let open Graph_builder in
+                   let+ y = div_scalar scalar a_id in
+                   [ y ]
+               | _ -> assert false))
+  | "torch.ops.aten.hardtanh.default" | "torch.ops.aten.hardtanh_.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         (* Schema `Scalar min_val=-1, Scalar max_val=1`: both bounds may arrive
+            as Int or Float, and either may be absent. *)
+         let* min_val =
+           scalar_arg ~default:(Aten_scalar.Float (-1.)) node "min_val"
+         in
+         let* max_val =
+           scalar_arg ~default:(Aten_scalar.Float 1.) node "max_val"
+         in
+         build_g ~name:"hardtanh" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = hardtanh { Pointwise.Hardtanh.min_val; max_val } x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.linear.default" ->
       Some
         (let* aten_x = tensor_arg aten_env node "input" in
@@ -721,9 +824,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
             | _ -> assert false)
           |> some_graph)
   | "torch.ops.aten.sub.Tensor" | "torch.ops.aten.sub_.Tensor" -> (
-      (* alpha is assumed 1, as the add arm above assumes. *)
       match
-        ( native_tensor_arg aten_env node "self",
+        ( (let* () = reject_alpha node in
+           native_tensor_arg aten_env node "self"),
           native_tensor_arg aten_env node "other" )
       with
       | Error e, _ | _, Error e -> Some (Error e)

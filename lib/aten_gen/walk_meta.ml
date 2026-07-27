@@ -262,6 +262,56 @@ let adaptive_avg_pool2d =
       pcg )|};
   }
 
+(* clamp.default has no generated default walk: both its bounds default to None,
+   and that is precisely the pair ATen rejects, so the generator has nothing
+   valid to synthesise and leaves it in [needs_meta]. This entry supplies whole
+   valid bound pairs, which is what gets clamp compared against real ATen. *)
+let clamp =
+  {
+    module_name = "Clamp_walk";
+    target = "torch.ops.aten.clamp.default";
+    recipe = "Recipe_bounds";
+    initial =
+      "Aten_walk_recipes.Recipe_bounds.{ n = 1; c = 4; h = 8; w = 8; bounds = \
+       { min = Some (Aten_spec.Scalar_value.Int 0); max = Some \
+       (Aten_spec.Scalar_value.Int 6) } }";
+    axes =
+      "Aten_walk_recipes.Recipe_bounds.axes ~n:[ 1; 2 ] ~c:[ 3; 4; 8 ] ~h:[ 4; \
+       8 ] ~w:[ 4; 8 ] ~bounds:Aten_walk_recipes.Recipe_bounds.optional_pairs";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_bounds.self_shape c) in
+    ( Aten_op_spec.Op_clamp.(
+        spec
+          {
+            self;
+            min = Recipe_bounds.min c;
+            max = Recipe_bounds.max c;
+          }),
+      pcg )|};
+  }
+
+(* hardtanh.default DOES get a generated default walk, but that only ever
+   exercises the schema default (-1, 1). MobileNet-v2 uses (0, 6) exclusively,
+   so this override widens the bound pair to the configurations the importer
+   actually produces, plus a reversed pair. *)
+let hardtanh =
+  {
+    module_name = "Hardtanh_walk";
+    target = "torch.ops.aten.hardtanh.default";
+    recipe = "Recipe_bounds";
+    initial =
+      "Aten_walk_recipes.Recipe_bounds.{ n = 1; c = 4; h = 8; w = 8; bounds = \
+       { min = Some (Aten_spec.Scalar_value.Int 0); max = Some \
+       (Aten_spec.Scalar_value.Int 6) } }";
+    axes =
+      "Aten_walk_recipes.Recipe_bounds.axes ~n:[ 1; 2 ] ~c:[ 3; 4; 8 ] ~h:[ 4; \
+       8 ] ~w:[ 4; 8 ] ~bounds:Aten_walk_recipes.Recipe_bounds.required_pairs";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_bounds.self_shape c) in
+    let min_val, max_val = Recipe_bounds.required c in
+    ( Aten_op_spec.Op_hardtanh.(spec { self; min_val; max_val }), pcg )|};
+  }
+
 let entries =
   [
     conv2d;
@@ -272,6 +322,8 @@ let entries =
     avg_pool2d;
     adaptive_avg_pool2d;
     mean_dim;
+    clamp;
+    hardtanh;
   ]
 
 let find target = List.find_opt (fun e -> e.target = target) entries

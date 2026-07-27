@@ -810,6 +810,160 @@ let%expect_test "dispatch: permute.default identity — output equals input" =
     ~noutputs:1;
   [%expect {| tensor f32 [W=3 C=4] {0, 1, 2, 3, 4, 5, 6, 7, ...} |}]
 
+(* ---- ATen-vs-native on the serialized-scalar path ------------------------- *)
+
+(* The bridge arms above pin the native compute against hand-derived values, and
+   the generated walks (test/native_walk_test.ml) compare whole ops against real
+   ATen — but neither reaches THIS case. A compile-time scalar in a Tensor slot
+   (`aten.add.Tensor(x, 3)`, which is how MobileNet-v3's hardsigmoid is
+   serialised) is skipped by [bin/pt2_spec_gen] when it writes node fixtures,
+   because a Tensor-typed param holding an [Argument.Int] is not something an
+   op-spec can express; and the walk generator synthesises tensor arguments, so
+   it never produces one either.
+
+   [Interp_verify.dispatch ~verify:true] is the dual path: it runs the node
+   through [Interp_dispatch] (real ATen, which materialises the scalar with
+   [full_like]) AND through [Op_bridge] + [Eval_direct] (native, which routes it
+   into an op parameter), then compares element-wise with [Verify.verify_node].
+   Silence means the two agree. *)
+let verify_print ~target ~bindings ~inputs =
+  let env = List.fold_left (fun m (k, t) -> Sm.add k t m) Sm.empty bindings in
+  let node =
+    PT.Node.make target inputs [ targ "out0" ] Sm.empty None (Some "test")
+  in
+  match
+    Interp_verify.dispatch ~verify:true ~ppf:Format.std_formatter env node
+  with
+  | Error e ->
+      Format.printf "dispatch error: %a@." Interp_verify.pp_interp_error
+        e.Core.Error.kind
+  | Ok _ -> print_string "aten and native agree\n"
+
+let%expect_test "verify: add.Tensor with a serialized Int scalar" =
+  let a = float_tensor [ 2; 3 ] [ -4.; -3.; 0.; 3.; 4.; 10. ] in
+  verify_print ~target:"torch.ops.aten.add.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 3 ];
+  [%expect {| aten and native agree |}]
+
+let%expect_test "verify: div.Tensor with a serialized Int scalar" =
+  let a = float_tensor [ 2; 3 ] [ 0.; 1.; 3.; 6.; 9.; 12. ] in
+  verify_print ~target:"torch.ops.aten.div.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 6 ];
+  [%expect {| aten and native agree |}]
+
+let%expect_test "verify: div.Tensor with a serialized Float scalar" =
+  let a = float_tensor [ 2; 3 ] [ 0.; 1.; 3.; 6.; 9.; 12. ] in
+  verify_print ~target:"torch.ops.aten.div.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 0.1 ];
+  [%expect {| aten and native agree |}]
+
+(* The whole hardsigmoid chain, each node checked against ATen in turn: the
+   scalar add, both one-sided clamps, and the scalar divide. *)
+let%expect_test "verify: MobileNet-v3 hardsigmoid chain against ATen" =
+  let a = float_tensor [ 2; 3 ] [ -4.; -3.; 0.; 3.; 4.; 10. ] in
+  verify_print ~target:"torch.ops.aten.add.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 3 ];
+  verify_print ~target:"torch.ops.aten.clamp.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "min" 0 ];
+  verify_print ~target:"torch.ops.aten.clamp.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_none "min"; in_int "max" 6 ];
+  verify_print ~target:"torch.ops.aten.div.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 6 ];
+  [%expect
+    {|
+    aten and native agree
+    aten and native agree
+    aten and native agree
+    aten and native agree |}]
+
+(* alpha is neither implemented nor silently dropped: [self + alpha * other] is
+   not what the arm computes, so a non-default alpha must be refused on both the
+   tensor and the scalar path, and for sub as well as add. *)
+let%expect_test "dispatch: a non-default alpha is rejected, not ignored" =
+  let a = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let b = float_tensor [ 2; 3 ] [ 1.; 1.; 1.; 1.; 1.; 1. ] in
+  dispatch_print ~target:"torch.ops.aten.add.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other"; in_int "alpha" 2 ]
+    ~noutputs:1;
+  dispatch_print ~target:"torch.ops.aten.add.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 3; in_float "alpha" 2.5 ]
+    ~noutputs:1;
+  dispatch_print ~target:"torch.ops.aten.sub.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other"; in_int "alpha" 2 ]
+    ~noutputs:1;
+  (* alpha=1 is the default and must still go through *)
+  dispatch_print ~target:"torch.ops.aten.add.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other"; in_int "alpha" 1 ]
+    ~noutputs:1;
+  [%expect
+    {|
+    error: alpha=2 is not supported (only 1)
+    error: alpha=2.5 is not supported (only 1)
+    error: alpha=2 is not supported (only 1)
+    tensor f32 [W=2 C=3] {2, 3, 4, 5, 6, 7} |}]
+
+(* A requested memory_format is a layout change clone does not perform. *)
+let%expect_test "dispatch: clone with a memory_format is rejected" =
+  let a = float_tensor [ 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print ~target:"torch.ops.aten.clone.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "memory_format" 0 ]
+    ~noutputs:1;
+  dispatch_print ~target:"torch.ops.aten.clone.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_none "memory_format" ]
+    ~noutputs:1;
+  [%expect
+    {|
+    error: clone: memory_format is not supported
+    tensor f32 [W=2 C=2] {1, 2, 3, 4} |}]
+
+(* clamp with neither bound is refused where the node is built, mirroring
+   ATen's own meta-function check. *)
+let%expect_test "dispatch: clamp with no bounds is rejected" =
+  let a = float_tensor [ 2; 2 ] [ -1.; 0.; 3.; 9. ] in
+  dispatch_print ~target:"torch.ops.aten.clamp.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_none "min"; in_none "max" ]
+    ~noutputs:1;
+  [%expect {| error: clamp: at least one of 'min' or 'max' must be given |}]
+
+(* Hardtanh's bounds are schema Scalars with defaults: they may be omitted
+   entirely, or arrive as Int rather than Float. *)
+let%expect_test "dispatch: hardtanh bound spellings" =
+  let a = float_tensor [ 2; 3 ] [ -3.; -1.; 0.; 0.5; 2.5; 7. ] in
+  (* omitted -> schema defaults (-1, 1) *)
+  dispatch_print ~target:"torch.ops.aten.hardtanh.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  (* Int bounds, as MobileNet-v3-style graphs spell them *)
+  dispatch_print ~target:"torch.ops.aten.hardtanh.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "min_val" 0; in_int "max_val" 6 ]
+    ~noutputs:1;
+  (* Float bounds, as MobileNet-v2 spells them *)
+  dispatch_print ~target:"torch.ops.aten.hardtanh.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "min_val" 0.; in_float "max_val" 6. ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor f32 [W=2 C=3] {-1, -1, 0, 0.5, 1, 1}
+    tensor f32 [W=2 C=3] {0, 0, 0, 0.5, 2.5, 6}
+    tensor f32 [W=2 C=3] {0, 0, 0, 0.5, 2.5, 6} |}]
+
 let%expect_test "dispatch: view.default contiguous reshape (no permute)" =
   (* NCHW [1,1,2,3] (values 0..5) viewed as [3,2]. of_aten inputs are already
      ATen-row-major, so the graph is a single reshape (no surrounding permute);
