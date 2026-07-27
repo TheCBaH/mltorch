@@ -92,14 +92,14 @@ let rec alloc_inputs = function
 (* Build a graph from [tensors] (native packed args) and [body] mapping input
    ids to output ids.  Returns the graph and its input bindings [(id, packed)]. *)
 let build_g ~name tensors body =
-  match
+  let* g =
     Graph_builder.build ~name ~outputs:Fun.id
       (let open Graph_builder in
        let* ids = alloc_inputs tensors in
        body ids)
-  with
-  | Ok g -> Core.return (g, List.combine g.Graph_ir.Graph.inputs tensors)
-  | Error e -> Core.fail (`Build e.Core.Error.kind)
+    |> Core.map_error (fun e -> `Build e)
+  in
+  return (g, List.combine g.Graph_ir.Graph.inputs tensors)
 
 let some_graph = function Ok x -> Some (Ok x) | Error e -> Some (Error e)
 

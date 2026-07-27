@@ -539,8 +539,11 @@ let lower program =
       in
       return outputs
     in
-    match Graph_builder.build ~name:"pt2" ~outputs:Fun.id body with
-    | Error e -> Core.fail (`Build e.Core.Error.kind)
+    match
+      Graph_builder.build ~name:"pt2" ~outputs:Fun.id body
+      |> Core.map_error (fun e -> `Build e)
+    with
+    | Error _ as e -> e
     | Ok native_graph ->
         let node_origins =
           List.fold_left
