@@ -18,6 +18,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   namespaces instead. For mutually recursive records, use `module rec`; if a
   variant only references the others, parametrise it so it can stay outside the
   recursive group (see `lib/native/graph_ir.ml`: `'g gop`).
+- **Result/Option handling**: don't hand-roll `match ... Ok/Error`/
+  `Some/None` purely to print — compose through `Fmt.result`/`Fmt.option`/
+  `Core.Pretty` instead. Don't cross a `Core.result` into an exception
+  boundary with an open-coded `match ... | Error e -> failwith (...)` —
+  use `Core.or_raise`. Never rebuild an `Error` by hand-unwrapping
+  `e.Core.Error.kind` when `Core.map_error` applies — it preserves the
+  original detection backtrace; the hand-rolled form silently doesn't. See
+  `.ai/fmt_migration_plan.md`.
 
 ## Exploration & Planning — start in `.ai/`
 

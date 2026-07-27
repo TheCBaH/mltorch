@@ -47,26 +47,111 @@ main migration of runtime/value printers.
 
 ## Current state
 
-The tree is mixed:
+Stage 0/1 (infrastructure) are done: `Core.Pretty` lives in
+`lib/core/core.ml`/`.mli` (`to_string`, `option_or`, `result`, `error_kind`,
+`core_result`, `capture_to_string`), and `lib/core/dune` depends on `fmt`.
 
-- `lib/native/` already contains the best examples of the target style:
-  `Graph_ir`, most `native/ops/*`, and `Op_config` use `Fmt` composition.
-- many runtime printers still use ad hoc `Format`:
-  `lib/interp/*`, `lib/pt2/*`, `lib/native_aten_bridge/*`,
-  `lib/native/shape_error.ml`, `lib/native/expr.ml`, `lib/native/symint.ml`,
-  `lib/aten_spec_run/aten_spec_run.ml`
-- tests duplicate the same printer wrappers:
-  multiple `let pp_result = Fmt.result ...` forms and several local `capture`
-  helpers based on `Format.formatter_of_buffer`
-- cram tests still mostly demonstrate `Format.pp_print_result`
+Stage 2 (`lib/native`) and Stage 4 (`lib/pt2`, `lib/interp`) are **partial**,
+not complete — an earlier note in this doc claimed otherwise; correcting that
+here. What's actually migrated:
 
-There is also one architectural constraint:
+- Stage 2: `lib/native/{expr,payload,shape_error,symint,vec6}.ml`
+- Stage 4: `lib/pt2/{pt2_archive,pt2_dtype,pt2_pickle,pt2_tensor,pt2_zip}.ml`,
+  `lib/interp/{interp,interp_decode}.ml`
 
-- `lib/core/dune` currently documents `core` as stdlib-only with no external
-  deps
+Raw `Format` printers still remain in `lib/native/{tensor,eval_direct,
+graph_builder,ops/*}` and other Stage 4 CLI/report entry points
+(`bin/native_graph.ml` had several migrated as part of a Stage-3-adjacent
+fix, but not audited end-to-end for Stage 4 purposes).
 
-That means the shared helper story must be decided deliberately rather than by
-smuggling `Fmt` into `core` as part of an unrelated printer rewrite.
+Stage 3 (`lib/native_aten_bridge/*`, `lib/native_op_walk/*`,
+`lib/aten_walk_recipes/*`, `lib/aten_native_verify/*`,
+`lib/aten_spec_run/aten_spec_run.ml`) is now done — see "Stage 3 commits"
+below.
+
+There is also one architectural constraint that Stage 0/1 already resolved:
+
+- `lib/core/dune` depends on `fmt`; the shared-helper story went with
+  extending `lib/core` directly rather than a companion library.
+
+### A pitfall found doing Stage 3: `Fmt.brackets` and `Fmt.float` are not drop-in
+
+Two silent-but-real behavior changes surfaced migrating bracketed-list and
+float printers:
+
+- `Fmt.brackets pp` wraps its content in `box ~indent:1` — a **breakable**
+  box. A bare `Format.fprintf ppf "[%a]" (Format.pp_print_list ~pp_sep:...)
+  ...` (no box at all) never wraps regardless of line width; `Fmt.brackets`
+  can, once the rendered width crosses the formatter's margin. Prefer
+  `Fmt.pf ppf "[%a]" (Fmt.list ~sep:... ...) x` (no box) when the original
+  was unboxed and must stay a single line — this bit `aten_spec_run.ml`'s
+  `pp_op_call` (wrapped cram goldens) and `op_bridge.ml`'s `pp_int_list`.
+- `Fmt.float` prints with `%g` (6 significant digits). `Format.pp_print_float`
+  round-trips full precision (`string_of_float`-equivalent). These are not
+  interchangeable — use `Format.pp_print_float` (calling it from an
+  otherwise-`Fmt`-composed printer is fine; this migration targets ad hoc
+  *composition*, not every use of a `Format` primitive) wherever the
+  original value must survive exactly, e.g. scalar args round-tripped into
+  a cram golden.
+
+Also: `Fmt.comma` inserts a *breakable* `",@ "`, not a literal `", "` — safe
+inside a box that's expected to wrap, wrong for a separator that must never
+break. Use `Fmt.any ","`/`Fmt.any ", "` for a separator that must stay
+literal.
+
+### Stage 3 commits
+
+- `native: preserve error backtraces through Build/map_error` — not a Stage 3
+  printer migration, but the correctness bug (see "Result-crossing rules"
+  below) found while working the same files.
+- `core: add Core.or_raise, dedupe native_op_walk build failwiths`
+- `native bridge: migrate reports and errors to Fmt helpers` (op_bridge.ml,
+  tensor_bridge.ml, native_verify.ml, recipe_bounds.ml,
+  aten_native_verify/{interp_verify,verify}.ml)
+- `native bridge: avoid Fmt.brackets' breakable box in pp_int_list`
+- `aten_spec_run: migrate value printers to Fmt`
+- `native graph/tests: migrate remaining Option/Result printers`
+  (bin/native_graph.ml, test/native_bridge_test.ml, plus a real bug fix in
+  `pp_lens_printer` — see below)
+
+One correctness fix rode along with the printer migration:
+`bin/native_graph.ml`'s `pp_lens_printer` used `Result.value ~default` to
+silently treat `` `Unknown_destination_tensor``/`` `Unknown_destination_node``
+(an id outside the destination graph entirely — an invariant failure) the
+same as "recorded but empty" (a folded constant, legitimately absent). Now
+surfaced as `"provenance error: ..."` instead of silently rendering
+"derived"; covered by a new expect test in `test/native/lens_test.ml`.
+
+## Result-crossing rules (not just printing)
+
+The same audit surfaced a sibling family of anti-patterns around
+`Core.result` handling that this doc didn't originally scope (it covers
+printing only) but that belong in the same convention:
+
+- **Never hand-rebuild an `Error` by unwrapping `e.Core.Error.kind`** when
+  `Core.map_error` does exactly that while preserving the original detection
+  backtrace:
+  ```ocaml
+  (* wrong: discards the backtrace, captures a new one at the wrong site *)
+  | Error e -> Core.fail (`Build e.Core.Error.kind)
+  (* right *)
+  Graph_builder.build ... |> Core.map_error (fun e -> `Build e)
+  ```
+  `Stdlib.Result.map_error` is **not** a substitute for `Core.map_error` on a
+  `Core.result` — it would map the whole `Error.t` wrapper, not just
+  `.kind`, producing the wrong error shape.
+- **Never open-code `match r with Ok x -> x | Error e -> failwith (...)`** at
+  a boundary that can't consume `Core.result` (a fixed non-result signature,
+  e.g. the walk framework's `build : pcg -> c -> subject * pcg`). Use
+  `Core.or_raise : (Format.formatter -> 'e -> unit) -> ('a, 'e) result -> 'a`
+  instead — one call site, payload-only message (no backtrace dump; this is
+  meant to read like a normal exception, not a diagnostic). `Core.or_raise`
+  is deliberately scoped to `Core.result` only; a handful of one-off
+  `(string, string) result` boundaries (`lib/pt2_spec_gen/pt2_spec_gen.ml`,
+  a few `test/*.ml` decode/encode helpers) are left as plain
+  `match ... | Error e -> failwith e` — generalizing the helper for a
+  handful of call sites with no `Core.Error.t` wrapper would be speculative
+  abstraction.
 
 ## Stable patterns found
 
@@ -300,29 +385,43 @@ Commit target:
 
 - `native: migrate remaining printers to shared Fmt style`
 
-### Stage 3: native bridge and walk/report layers
+### Stage 3: native bridge and walk/report layers — done
 
-Migrate:
+See "Stage 3 commits" and "A pitfall found doing Stage 3" under "Current
+state" above for what actually shipped and the `Fmt.brackets`/`Fmt.float`
+exactness pitfalls hit along the way.
+
+Migrated:
 
 - `lib/native_aten_bridge/*`
-- `lib/native_op_walk/*`
-- `lib/native_walk/*`
-- `lib/aten_spec_run/aten_spec_run.ml`
+- `lib/native_op_walk/*` (all 17 `_nwalk.ml` walk builders, plus
+  `native_verify.ml`)
+- `lib/aten_walk_recipes/recipe_bounds.ml`
+- `lib/aten_spec_run/aten_spec_run.ml` (value printers only — see the
+  printer-vs-control-flow distinction it introduced, below)
 - `lib/aten_native_verify/*`
+- `lib/native_walk/op_walk.ml` — audited, nothing to migrate (a thin
+  `Walk_core.Walk.run` wrapper with no printer of its own)
 
-These modules are heavy users of report-style printers, list formatting, and
-stringification for failures. They should consume the Stage 1 helpers rather
-than inventing local variants.
+New distinction this stage established: not every `match` on `Option`/
+`Result` inside a "printer-adjacent" function is a value printer. Several
+functions here (`aten_spec_run.ml`'s `run`/`eval_print`/`eval_report`/
+`walk_eval`/`compare_report`, and `pp_aten`/`pp_tensor_summary`'s
+dtype-probing fallback) are operational control flow that also reports —
+converting their `match` to `Fmt.result`/`Fmt.option` would obscure the
+control flow for no benefit. Left as `match`; only the genuine value
+printers (`pp_arg_value`, `pp_int_list`, `pp_op_call`, `pp_shape`,
+`pp_source`, `pp_tensor_spec`, `pp_scalar_value`, `pp_native`,
+`pp_interp_error`) were converted.
 
 Update tests:
 
 - `test/native_bridge_test.ml`
-- `test/native_walk_test.ml`
-- `test/native/native_walk_test.ml`
-- `test/aten_spec_run_test.ml`
-- any affected cram coverage
+- any affected cram coverage (`test/pt2_node_bridge_cram.t` and similar)
 
-Commit target:
+Commit targets (see "Stage 3 commits" above for the full, corrected list —
+this stage ended up split into several smaller commits rather than one, per
+this doc's own commit-discipline rule):
 
 - `native bridge: migrate reports and errors to Fmt helpers`
 
