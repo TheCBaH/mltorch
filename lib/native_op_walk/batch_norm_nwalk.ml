@@ -25,7 +25,7 @@ module M = struct
           Float.abs (Tensor.read running_var0 coord) +. 1.)
     in
     let g =
-      match
+      Core.or_raise Graph_builder.pp_error
         Graph_builder.(
           build ~name:"batch_norm" ~outputs:(fun r -> [ r ])
           @@
@@ -36,11 +36,6 @@ module M = struct
           let* rvi = input ~shape:cshape ~name:"running_var" () in
           batch_norm ~name:"out" (W.params c) ~x:xi ~weight:wi ~bias:bi
             ~running_mean:rmi ~running_var:rvi ())
-      with
-      | Ok g -> g
-      | Error e ->
-          failwith
-            (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
     in
     let inputs =
       List.combine g.Graph_ir.Graph.inputs

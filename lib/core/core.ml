@@ -47,6 +47,10 @@ let map_error f = function
   | Ok x -> Ok x
   | Error e -> Error { e with Error.kind = f e.Error.kind }
 
+let or_raise pp = function
+  | Ok x -> x
+  | Error e -> failwith (Fmt.str "%a" pp e.Error.kind)
+
 module Syntax = struct
   let ( let* ) r f = match r with Ok x -> f x | Error e -> Error e
   let ( let+ ) r f = match r with Ok x -> Ok (f x) | Error e -> Error e

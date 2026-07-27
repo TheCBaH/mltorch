@@ -48,6 +48,12 @@ val return : 'a -> ('a, 'e) result
    preserving the original detection backtrace. *)
 val map_error : ('e -> 'f) -> ('a, 'e) result -> ('a, 'f) result
 
+(* Cross a [result] into a domain that can't consume one (a boundary with a
+   fixed non-result signature). [Ok x] returns [x]; [Error e] raises [Failure]
+   with [pp] applied to the payload only (no backtrace — this is meant to read
+   like a normal exception message, not a diagnostic dump). *)
+val or_raise : (Format.formatter -> 'e -> unit) -> ('a, 'e) result -> 'a
+
 module Syntax : sig
   val ( let* ) : ('a, 'e) result -> ('a -> ('b, 'e) result) -> ('b, 'e) result
   val ( let+ ) : ('a, 'e) result -> ('a -> 'b) -> ('b, 'e) result

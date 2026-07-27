@@ -32,6 +32,17 @@ let%expect_test "error_kind + core_result" =
     bad input
     bad input |}]
 
+let%expect_test "or_raise" =
+  let pp_msg ppf (`Msg msg) = Fmt.string ppf msg in
+  print_endline
+    (Core.or_raise pp_msg
+       (Core.return "ok" : (_, [> `Msg of string ]) Core.result));
+  (try ignore (Core.or_raise pp_msg (Core.fail (`Msg "bad input")))
+   with Failure msg -> print_endline msg);
+  [%expect {|
+    ok
+    bad input |}]
+
 let%expect_test "capture_to_string" =
   let rendered =
     Core.Pretty.capture_to_string (fun ppf -> Fmt.pf ppf "@[<v>alpha@,beta@]")

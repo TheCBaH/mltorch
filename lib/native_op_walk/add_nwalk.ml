@@ -14,18 +14,13 @@ module M = struct
     let a, pcg = Native_tensor.synth pcg shape in
     let b, pcg = Native_tensor.synth pcg shape in
     let g =
-      match
+      Core.or_raise Graph_builder.pp_error
         Graph_builder.(
           build ~name:"add" ~outputs:(fun r -> [ r ])
           @@
           let* ai = input ~shape ~name:"a" () in
           let* bi = input ~shape ~name:"b" () in
           add ~name:"out" ai bi)
-      with
-      | Ok g -> g
-      | Error e ->
-          failwith
-            (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
     in
     let inputs = List.combine g.Graph_ir.Graph.inputs [ a; b ] in
     ({ Native_subject.target; graph = g; inputs }, pcg)

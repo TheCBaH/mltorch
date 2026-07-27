@@ -14,7 +14,7 @@ module M = struct
     let weight, pcg = Native_tensor.synth pcg (Wk.weight_shape c) in
     let bias, pcg = Native_tensor.synth pcg (Wk.bias_shape c) in
     let g =
-      match
+      Core.or_raise Graph_builder.pp_error
         Graph_builder.(
           build ~name:"convolution" ~outputs:(fun r -> [ r ])
           @@
@@ -22,11 +22,6 @@ module M = struct
           let* wi = input ~shape:(Wk.weight_shape c) ~name:"weight" () in
           let* bi = input ~shape:(Wk.bias_shape c) ~name:"bias" () in
           convolution ~name:"out" (Wk.params c) ~x:xi ~weight:wi ~bias:bi ())
-      with
-      | Ok g -> g
-      | Error e ->
-          failwith
-            (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
     in
     let inputs = List.combine g.Graph_ir.Graph.inputs [ x; weight; bias ] in
     ({ Native_subject.target; graph = g; inputs }, pcg)

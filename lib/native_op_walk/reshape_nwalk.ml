@@ -14,17 +14,12 @@ module M = struct
     let shape = W.shape c in
     let x, pcg = Native_tensor.synth pcg shape in
     let g =
-      match
+      Core.or_raise Graph_builder.pp_error
         Graph_builder.(
           build ~name:"reshape" ~outputs:(fun r -> [ r ])
           @@
           let* xi = input ~shape ~name:"x" () in
           reshape ~name:"out" (W.params c) xi)
-      with
-      | Ok g -> g
-      | Error e ->
-          failwith
-            (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
     in
     let inputs = List.combine g.Graph_ir.Graph.inputs [ x ] in
     ({ Native_subject.target; graph = g; inputs }, pcg)
