@@ -30,11 +30,30 @@ PT2_MODELS_ALL := $(PT2_MODELS_RESNET) $(PT2_MODELS_EFFICIENTNET) \
 
 # The smallest/fastest model per architecture - exactly what
 # test/interp_*_cram.t run, and all `make pt2.runtest` needs on disk.
-PT2_MODELS_CRAM := resnet18 efficientnet_b0 mobilenet_v3_small vit_b_32
+# mobilenet_v2 is the one exception to "smallest per architecture": the native
+# graph/transform crams read it as well as v3_small, because v2 is the only
+# model in the zoo that uses hardtanh (relu6) and so the only whole-graph
+# coverage that constructor has. It is structural-only there, so the cost is the
+# download, not runtime.
+PT2_MODELS_CRAM := resnet18 efficientnet_b0 mobilenet_v2 mobilenet_v3_small \
+	vit_b_32
 
 # Whole-graph native verification is intentionally a small, explicit list:
 # native convolution is pure OCaml and much slower than the ATen reference.
-PT2_NATIVE_VERIFY_MODELS := resnet18
+# Both native-infer-verify and native-transform-verify expand this, so each
+# entry costs roughly five full native inferences.
+#
+# mobilenet_v3_small REPLACES resnet18: measured across both verify targets it
+# costs 40.9s of CPU against resnet18's 423.3s (0.10x), while covering the
+# importer arms resnet18 cannot reach — clamp, clone, mul, div and the
+# compile-time scalars the exporter writes into Tensor slots. resnet18's one
+# unique op, max_pool2d_with_indices, keeps its coverage in the targeted tests
+# (native/compute, graph, symbolic, native_bridge_test and the generated ATen
+# walks) rather than in a whole-model runtime job an order of magnitude more
+# expensive than the rest of this list. Run it by hand with
+# `make native-infer-verify.resnet18`. Measurements and the four-model
+# comparison are in .ai/native_inference_verify.md.
+PT2_NATIVE_VERIFY_MODELS := mobilenet_v3_small
 
 # Fetch the release zip (model .pt2 + sample input images) for the interpreter
 # tests, under data/pt2/<model>/. Gitignored and not part of the default build
@@ -45,7 +64,8 @@ pt2.download:
 	test -f $(PT2_ZIP) || curl -fsSL -o $(PT2_ZIP) $(PT2_URL)
 	cd $(PT2_MODEL_DIR) && unzip -o $(PT2_MODEL).release.zip
 
-# Download the models the cram tests need (cheap: 4 models, ~150 MB).
+# Download the models the cram tests need (cheap next to the full set: 5
+# models, ~410 MB).
 pt2.download-cram:
 	for m in $(PT2_MODELS_CRAM); do $(MAKE) pt2.download PT2_MODEL=$$m; done
 
@@ -57,11 +77,17 @@ pt2.download-all:
 # Emit the pt2 cache path/key as KEY=VALUE lines, so CI reads them from here
 # (the single source of truth) instead of re-deriving them in YAML. One cache
 # entry covers every model zip downloaded so far this release (glob path); the
-# key folds in a hash of PT2_MODELS_ALL so adding/removing a model creates a
+# key folds in a hash of the model lists so adding/removing a model creates a
 # fresh entry (a cache is immutable once saved under a given key) instead of
 # silently never picking up the change. restore-key drops the hash, so a
 # model-list change still warm-starts from the closest prior cache.
-PT2_MODELS_HASH := $(shell echo "$(PT2_MODELS_ALL)" | md5sum | cut -c1-8)
+#
+# Both lists are hashed, not just ALL: what CI actually populates the cache with
+# is PT2_MODELS_CRAM, so a model moving into that list has to invalidate the key
+# too. Hashing ALL alone would leave the pre-change cache — which lacks the new
+# model — valid forever, and every run would re-download it.
+PT2_MODELS_HASH := $(shell echo "$(PT2_MODELS_ALL) $(PT2_MODELS_CRAM)" \
+	| md5sum | cut -c1-8)
 pt2.vars:
 	@echo "pt2_zip_glob=$(PT2_DIR)/*/*.release.zip"
 	@echo "pt2_cache_key=pt2-$(PT2_RELEASE)-$(PT2_MODELS_HASH)"
