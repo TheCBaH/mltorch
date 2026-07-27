@@ -29,7 +29,12 @@ type error =
   | `Convolution_invalid_weight_rank of int array
   | `Linear_invalid_weight_rank of int array ]
 
-let pp_int_list = Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.int)
+(* Deliberately not [Fmt.brackets], which boxes its content and so may
+   line-wrap; the original bare "[%s]" (String.concat) never did, regardless
+   of width. *)
+let pp_int_list ppf xs =
+  Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Fmt.int) xs
+
 let pp_int_array ppf xs = pp_int_list ppf (Array.to_list xs)
 
 let pp_error ppf : [< error ] -> unit = function
