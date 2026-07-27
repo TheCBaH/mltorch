@@ -113,14 +113,29 @@ the bound `O.*` op.
   to one `Graph_ir.graph`, preserves source SSA metadata and captured payload
   targets in `Pt2_native_graph`, and covers ResNet-18's convolution, inference
   batch-norm, ReLU, max-pool-with-indices, add, mean, permute, view, and addmm
-  nodes. Non-trivial PT2 mappings are represented as structural native `Group`s:
+  nodes, plus the MobileNet set: clamp, clone, hardtanh, mul and div. Non-trivial
+  PT2 mappings are represented as structural native `Group`s:
   their relayout/decomposition stays grouped under the corresponding PT2 node,
   while one-to-one mappings remain flat. `Native_interp.run` materialises
   static float32 PT2 storage (including
   strides) into native tensors, binds constants through the sidecar, and calls
   `Eval_direct`; `native_graph print`/`eval` and `native_graph_cram.t` verify
   lowering of the real archive without the ATen bridge. Dynamic shape guards
-  and a full end-to-end ResNet comparison with `Interp.run` remain next.
+  remain next.
+
+  **Compile-time scalars.** MobileNet-v3's hardswish is serialised as
+  `add.Tensor(x, 3)` / `div.Tensor(x, 6)` — a bare `as_int` sitting in a
+  Tensor-typed slot. The ATen path materialises those with `full_like`
+  (`Interp_decode.tensor_or_scalar_arg`); the native path instead routes them to
+  scalar-parameter ops (`Add_scalar`, `Div_scalar`), so no edge needs a payload
+  and the symbolic form gets a `const` leaf rather than a load — which is what a
+  later fusion pass wants. `alpha` on add/sub is rejected rather than ignored:
+  nothing in this zoo serialises a non-default one, and silently dropping it
+  would compute `self + other` while claiming `self + alpha * other`.
+
+  All three MobileNets (v2, v3_small, v3_large) run end-to-end natively and
+  agree with `Interp.run` on the reference image (cosine similarity 1,
+  relative L2 ~1e-6); ResNet-18 likewise. See `native_inference_verify.md`.
 
 ## Non-goals
 

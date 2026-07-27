@@ -115,6 +115,52 @@ let float_arg ?(default = 0.) (node : Pytorch_types.Node.t) name =
   | Some { arg = Argument.Float f; _ } -> f
   | Some _ -> malformed "%s.%s is not a float" node.target name
 
+(* A schema [Scalar] argument crosses as either an Int or a Float — clamp's
+   bounds arrive as `as_int` in MobileNet-v3 and hardtanh's as `as_float` in v2,
+   for the same kind of parameter. Mirrors [Interp_decode.scalar_arg] /
+   [scalar_opt_arg], which the ATen path decodes with. *)
+let scalar_arg ~default (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> default
+  | Some { arg = Argument.Int i; _ } -> float_of_int i
+  | Some { arg = Argument.Float f; _ } -> f
+  | Some { arg = Argument.None _; _ } -> default
+  | Some _ -> malformed "%s.%s is not a scalar" node.target name
+
+let scalar_opt_arg (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> None
+  | Some { arg = Argument.Int i; _ } -> Some (float_of_int i)
+  | Some { arg = Argument.Float f; _ } -> Some f
+  | Some { arg = Argument.None _; _ } -> None
+  | Some _ -> malformed "%s.%s is not an optional scalar" node.target name
+
+(* [add.Tensor]/[sub.Tensor] carry `*, Scalar alpha=1` and compute
+   [self + alpha * other]. Nothing in this model zoo serialises a non-default
+   alpha, so it is not implemented — but it must not be silently dropped either,
+   since that would quietly compute the wrong thing. Reject instead. *)
+let reject_alpha (node : Pytorch_types.Node.t) =
+  match scalar_opt_arg node "alpha" with
+  | None -> ()
+  | Some a when Float.equal a 1. -> ()
+  | Some a -> malformed "%s: alpha=%g is not supported (only 1)" node.target a
+
+(* [clone] with a [memory_format] asks for a layout change this op does not
+   perform. The native IR has one layout per shape, so honouring the request is
+   impossible and ignoring it would misreport what was computed. *)
+let reject_memory_format (node : Pytorch_types.Node.t) =
+  match
+    List.find_opt
+      (fun (a : NamedArgument.t) -> a.name = "memory_format")
+      node.Node.inputs
+  with
+  | None | Some { arg = Argument.None _; _ } -> ()
+  | Some _ -> malformed "%s: memory_format is not supported" node.target
+
 let output_names (node : Pytorch_types.Node.t) =
   List.map
     (function
@@ -301,6 +347,18 @@ let lower program =
       in
       let lower_op env node =
         let get name = env_find env (tensor_name node name) in
+        (* A Tensor-typed argument the exporter serialised as a bare scalar.
+           MobileNet-v3's hardsigmoid is `add(x, 3)` / `div(x, 6)` with `as_int`
+           arguments; the ATen path materialises those through [full_like]
+           ([Interp_decode.tensor_or_scalar_arg]), and the native path routes
+           them to the scalar-parameter ops instead, so no edge needs binding. *)
+        let tensor_or_scalar name =
+          match find_arg node name with
+          | Argument.Tensor t -> `Tensor (env_find env t.TensorArgument.name)
+          | Argument.Int i -> `Scalar (float_of_int i)
+          | Argument.Float f -> `Scalar f
+          | _ -> malformed "%s.%s is not a tensor or scalar" node.target name
+        in
         match node.target with
         | "torch.ops.aten.convolution.default" ->
             let params, _, _, _ = conv_params graph node in
@@ -332,8 +390,48 @@ let lower program =
         | "torch.ops.aten.relu.default" ->
             let* y = relu (get "self") in
             return [ y ]
-        | "torch.ops.aten.add.Tensor" ->
-            let* y = add (get "self") (get "other") in
+        | "torch.ops.aten.add.Tensor" -> (
+            reject_alpha node;
+            match tensor_or_scalar "other" with
+            | `Tensor other ->
+                let* y = add (get "self") other in
+                return [ y ]
+            | `Scalar s ->
+                let* y = add_scalar s (get "self") in
+                return [ y ])
+        | "torch.ops.aten.clamp.default" ->
+            let params : Pointwise.Clamp.params =
+              {
+                min = scalar_opt_arg node "min";
+                max = scalar_opt_arg node "max";
+              }
+            in
+            let* y = clamp params (get "self") in
+            return [ y ]
+        | "torch.ops.aten.clone.default" ->
+            reject_memory_format node;
+            let* y = clone (get "self") in
+            return [ y ]
+        | "torch.ops.aten.div.Tensor" -> (
+            match tensor_or_scalar "other" with
+            | `Tensor other ->
+                let* y = div (get "self") other in
+                return [ y ]
+            | `Scalar s ->
+                let* y = div_scalar s (get "self") in
+                return [ y ])
+        | "torch.ops.aten.hardtanh.default" ->
+            (* Schema defaults are -1/1; MobileNet-v2 always serialises 0/6. *)
+            let params : Pointwise.Hardtanh.params =
+              {
+                min_val = scalar_arg ~default:(-1.) node "min_val";
+                max_val = scalar_arg ~default:1. node "max_val";
+              }
+            in
+            let* y = hardtanh params (get "self") in
+            return [ y ]
+        | "torch.ops.aten.mul.Tensor" ->
+            let* y = mul (get "self") (get "other") in
             return [ y ]
         | "torch.ops.aten.max_pool2d_with_indices.default" ->
             let* x = permute perm_nchw_to_nhwc (get "self") in
