@@ -256,6 +256,42 @@ let%expect_test "fold_const: a constant with no payload is left alone" =
       provenance:
         none |}]
 
+(* The scalar-parameter and clamping ops reach [Fold_const] through the generic
+   operand path, with no per-op arm anywhere in the pass — so a constant chain
+   through all five collapses to a single payload under a fixpoint. *)
+let%expect_test "fold_const: the scalar and clamping pointwise ops fold" =
+  run ~show_before:false
+    (Graph_fixtures.const_pointwise ())
+    ~constants:
+      [ (t_ 0, channel_ramp (Graph_fixtures.nhwc ~h:1 ~w:1 ~c:4) (-4.)) ]
+    [ Pass.fixpoint Fold_const.pass ]
+    ignore_result;
+  [%expect
+    {|
+    after:
+      graph
+      inputs: [t5 f32 [C=4] constant]
+      nodes:
+
+      outputs: [t5 f32 [C=4]]
+    payloads:
+      t5 = tensor f32 [C=4] {0, 0, 0.166667, 0.333333}
+    map:
+      values:
+        {t0} -> {} identical
+        {t1} -> {} identical
+        {t2} -> {} identical
+        {t3} -> {} identical
+        {t4} -> {} identical
+      nodes:
+        {n0} -> {}
+        {n1} -> {}
+        {n2} -> {}
+        {n3} -> {}
+        {n4} -> {}
+      provenance:
+        {t0} -> t5 |}]
+
 let%expect_test "fold_const: a multi-output node is out of scope" =
   (* Foldable in principle, but binding two outputs needs one recipe that says
      so, which [Recipe.fold_to_constant] does not express. *)

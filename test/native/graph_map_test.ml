@@ -53,6 +53,37 @@ let%expect_test "join: F32 -> BF16 -> F32 stays approximate at BF16" =
     approximate(bf16)
     approximate(bf16, f32) |}]
 
+(* ---- how an op transfers a claim ----------------------------------------- *)
+
+(* [Output_transfer] is what [Rewrite] consults per output when propagating a
+   claim across a node. The distinction that matters for [Clone]: reindexing
+   carries [Approximate] through, continuity does not — continuity gives no
+   error BOUND, so an approximate claim dies at any actual arithmetic. Clone
+   performs none, so classifying it as continuous would lose a claim the graph
+   really does still guarantee. *)
+let%expect_test "output_transfer: clone is reindexing and keeps Approximate" =
+  let show op =
+    let cls = Output_transfer.classify op ~output:0 in
+    Fmt.pf Fmt.stdout "%a: %a -> %a@." Output_transfer.pp cls C.pp_relation
+      (approx [ bf16 ]) C.pp_relation
+      (Output_transfer.transfer (approx [ bf16 ]) cls)
+  in
+  show (Clone { Pointwise.Clone.x = t 0 });
+  show (Relu { Pointwise.Relu.x = t 0 });
+  show (Add_scalar { Pointwise.Scalar_bin.x = t 0; scalar = 3. });
+  show
+    (Clamp { Pointwise.Clamp.params = { min = Some 0.; max = None }; x = t 0 });
+  show
+    (Hardtanh
+       { Pointwise.Hardtanh.params = { min_val = 0.; max_val = 6. }; x = t 0 });
+  [%expect
+    {|
+    reindexing: approximate(bf16) -> approximate(bf16)
+    continuous: approximate(bf16) -> unverifiable
+    continuous: approximate(bf16) -> unverifiable
+    continuous: approximate(bf16) -> unverifiable
+    continuous: approximate(bf16) -> unverifiable |}]
+
 (* ---- normalisation ------------------------------------------------------- *)
 
 let%expect_test

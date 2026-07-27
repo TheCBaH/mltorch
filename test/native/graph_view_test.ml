@@ -47,6 +47,7 @@ let%expect_test "validation: a well-formed fixture is accepted" =
     chain: ok
     const_arith: ok
     const_permute: ok
+    const_pointwise: ok
     const_pool: ok
     diamond: ok
     grouped: ok

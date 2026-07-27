@@ -20,8 +20,13 @@
 
 open Graph_ir
 
+(* The scalar-operand and clamped ops qualify for the same reason the rest do:
+   their parameters ([scalar], the clamp bounds) are per-op constants, not
+   per-axis data, so permuting the operand permutes the result identically. *)
 let elementwise = function
-  | (Add _ | Div _ | Mul _ | Relu _ | Sqrt _ | Sub _) as op -> Some op
+  | ( Add _ | Add_scalar _ | Clamp _ | Clone _ | Div _ | Div_scalar _
+    | Hardtanh _ | Mul _ | Relu _ | Sqrt _ | Sub _ ) as op ->
+      Some op
   | _ -> None
 
 let as_permute = function

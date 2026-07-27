@@ -302,10 +302,21 @@ let sink_permute_allowlist () =
         let+ b = permute rotate_hwc y in
         (a, b)
       in
-      let* single_relu = permute rotate_hwc x in
-      let* r_relu = relu single_relu in
-      let* single_sqrt = permute rotate_hwc x in
-      let* r_sqrt = sqrt single_sqrt in
+      let single op =
+        let* p = permute rotate_hwc x in
+        op p
+      in
+      let* r_relu = single relu in
+      let* r_sqrt = single sqrt in
+      let* r_clone = single clone in
+      let* r_add_scalar = single (add_scalar 3.) in
+      let* r_div_scalar = single (div_scalar 6.) in
+      let* r_clamp =
+        single (clamp { Pointwise.Clamp.min = Some 0.; max = Some 6. })
+      in
+      let* r_hardtanh =
+        single (hardtanh { Pointwise.Hardtanh.min_val = 0.; max_val = 6. })
+      in
       let* a1, b1 = pair () in
       let* r_add = add a1 b1 in
       let* a2, b2 = pair () in
@@ -318,7 +329,12 @@ let sink_permute_allowlist () =
       let* s2 = add r_mul r_div in
       let* s3 = add r_relu r_sqrt in
       let* s4 = add s1 s2 in
-      add s4 s3)
+      let* s5 = add r_clone r_add_scalar in
+      let* s6 = add r_div_scalar r_clamp in
+      let* s7 = add s5 s6 in
+      let* s8 = add s7 r_hardtanh in
+      let* s9 = add s4 s3 in
+      add s9 s8)
 
 (* ---- transporting a permute through a keepdim=true Mean ------------------ *)
 
@@ -630,6 +646,20 @@ let const_permute () =
       let* wp = permute swap_hw w in
       conv2d (conv_params ~in_channels:2) ~x ~weight:wp ())
 
+(* A constant behind each new pointwise op. [Fold_const] reaches these through
+   the generic [Graph_ir.operands] / [Region.extract] path rather than a per-op
+   arm, so this is the fixture that proves the generic path really does cover
+   them — the registry wiring alone would only imply it. *)
+let const_pointwise () =
+  build "const_pointwise"
+    Graph_builder.(
+      let* w = constant ~shape:(nhwc ~h:1 ~w:1 ~c:4) () in
+      let* a = add_scalar 3. w in
+      let* b = clamp { Pointwise.Clamp.min = Some 0.; max = Some 6. } a in
+      let* c = div_scalar 6. b in
+      let* d = hardtanh { Pointwise.Hardtanh.min_val = 0.; max_val = 1. } c in
+      clone d)
+
 (* A constant behind a multi-output op: foldable in principle, out of scope for
    [Fold_const], which binds one output per recipe. *)
 let const_pool () =
@@ -697,6 +727,7 @@ let all =
     ("chain", chain);
     ("const_arith", const_arith);
     ("const_permute", const_permute);
+    ("const_pointwise", const_pointwise);
     ("const_pool", const_pool);
     ("diamond", diamond);
     ("grouped", grouped);
