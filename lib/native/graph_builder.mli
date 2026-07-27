@@ -47,6 +47,11 @@ val constant :
 (* Op constructors in global alphabetical order (see graph_ir.mli). *)
 val add : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
+(* The scalar-parameter twins of [add]/[div], for a compile-time scalar the
+   exporter serialised into a Tensor slot. [scalar] is narrowed to its
+   f32-canonical value here, so callers need not. *)
+val add_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
+
 val avg_pool2d :
   ?name:string -> Pool.AvgPool2d.params -> tensor_ref -> Tensor_id.t t
 
@@ -62,6 +67,12 @@ val batch_norm :
   Tensor_id.t t
 
 val bmm : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+
+(* Errors with [`Clamp No_bounds] if neither bound is given, as ATen does. *)
+val clamp :
+  ?name:string -> Pointwise.Clamp.params -> tensor_ref -> Tensor_id.t t
+
+val clone : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val conv2d :
   ?name:string ->
@@ -91,10 +102,14 @@ val convolution :
   Tensor_id.t t
 
 val div : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+val div_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
 (* Route a dead edge into a [Discard] sink node (no output). Used to keep a
    multi-output op's full arity while marking an unused result for later pruning. *)
 val discard : tensor_ref -> unit t
+
+val hardtanh :
+  ?name:string -> Pointwise.Hardtanh.params -> tensor_ref -> Tensor_id.t t
 
 val linear :
   ?name:string ->

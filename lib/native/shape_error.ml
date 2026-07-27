@@ -33,6 +33,14 @@ module Window = struct
       Op_config.Pos.pp dilation
 end
 
+module Clamp = struct
+  type error = No_bounds
+
+  let pp_error ppf = function
+    | No_bounds ->
+        Fmt.string ppf "clamp: at least one of 'min' or 'max' must be given"
+end
+
 module Linear = struct
   type channels_mismatch = {
     actual : Dim.extent Dim.t;
@@ -181,6 +189,7 @@ end
 type t =
   [ `Broadcast of Broadcast.t
   | `Window of Window.t
+  | `Clamp of Clamp.error
   | `Linear of Linear.error
   | `Bmm of Bmm.error
   | `Permute of Permute.t
@@ -189,6 +198,7 @@ type t =
 let pp ppf = function
   | `Broadcast e -> Broadcast.pp ppf e
   | `Window e -> Window.pp ppf e
+  | `Clamp e -> Clamp.pp_error ppf e
   | `Linear e -> Linear.pp_error ppf e
   | `Bmm e -> Bmm.pp_error ppf e
   | `Permute e -> Permute.pp ppf e

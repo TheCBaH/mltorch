@@ -24,6 +24,9 @@ type op =
   | Bmm of Matmul.Bmm.t | Conv2d of Conv.Conv2d.t | Linear of Linear.Linear.t
   | Permute of Permute.Permute.t | Mean of Reduce.Mean.t | Rms_norm of Norm.RmsNorm.t
   | Max_pool2d of Pool.MaxPool2d.t | Avg_pool2d of Pool.AvgPool2d.t
+  | Clamp of Pointwise.Clamp.t | Clone of Pointwise.Clone.t
+  | Hardtanh of Pointwise.Hardtanh.t
+  | Add_scalar of Pointwise.Add_scalar.t | Div_scalar of Pointwise.Div_scalar.t
   (* each payload (params + typed operand refs) is a record `t` owned by that
      op's module, e.g. Conv.Conv2d.t = { params; x; weight; bias : _ option } *)
 

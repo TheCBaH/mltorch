@@ -32,8 +32,11 @@ alphabetical position at every site below; don't append.
    - `output_shape` and a `Compute (S : Semantics.SEMANTICS)` functor with a `pixel`
      function written against the abstract `S` value/index domain (so it runs
      unchanged under `Direct` and `Symbolic`).
-   Elementwise ops live in `pointwise.ml` (the two binary ops share the `Bin`
-   payload helper there); reductions in `reduce.ml`; etc. Reuse the value basis in
+   Elementwise ops live in `pointwise.ml`; reductions in `reduce.ml`; etc.
+   `pointwise.ml` has two shared payload helpers: `Bin` (`{ a; b }`, for the
+   binary ops) and `Scalar_bin` (`{ x; scalar }`, for the scalar-parameter twins
+   `Add_scalar`/`Div_scalar`). Reuse whichever fits rather than restating the
+   codec/dataflow/pp boilerplate. Reuse the value basis in
    `semantics.ml` — `mul`/`add`/`sub`/`div`/`select`/`lt`/… already exist, so a new
    pointwise op usually needs no new primitive.
    Keep the native graph surface one-to-one with ATen overloads when an overload
@@ -85,6 +88,23 @@ alphabetical position at every site below; don't append.
    asserting an equality the graph does not guarantee. See
    `.ai/native_transform_design.md` §8.
 
+5b. **Permute allowlists** — `lib/native/transform/passes/sink_permute.ml` and
+   `reuse_permute.ml`
+   Both match an explicit list of ops rather than reaching for
+   `Graph_ir.operands`, because only an op with no axis-specific semantics
+   commutes with a permutation. If your op reads and writes each output slot
+   independently — every pointwise op, whatever its parameters — add it to
+   `Sink_permute.elementwise`, and to `Reuse_permute.binary_elementwise` too if
+   it has more than one tensor operand. Unlike the `Output_transfer` match these
+   have a default arm, so omitting an op is silent: nothing breaks, but the op
+   becomes a barrier that strands a permute at every occurrence, which for an
+   activation means one per layer. `permute_passes_test.ml`'s
+   `sink_permute_allowlist` fixture is the regression — extend it, and the
+   whole graph should collapse to a single trailing permute.
+
+   Scalar op *parameters* (a clamp bound, an `Add_scalar` scalar) do not disturb
+   this: they are per-op constants, not per-axis data.
+
 6. **Builder** — `lib/native/graph_builder.ml` and `graph_builder.mli`
    Add the constructor function (alphabetical) in both. It just appends a node via
    `op1 ?name ~kind:"<op>" (<Op> { … })` (first label qualified); output shapes are
@@ -105,6 +125,23 @@ alphabetical position at every site below; don't append.
    - Bridge only when operand/result layouts already line up under `of_aten`'s
      right-aligned positional mapping. Ops needing NCHW↔NHWC relayout are the
      deferred class documented in `native_aten_bridge_layout.md`.
+   - A schema `Scalar` arg crosses as either `Argument.Int` or `Argument.Float`
+     — never assume one. Decode with `D.scalar_arg_result` /
+     `D.scalar_opt_arg_result` (importer side: the local `scalar_arg` /
+     `scalar_opt_arg` in `native_interp.ml`), not `float_arg`, which rejects
+     the integer spelling. Both hand back an `Aten_scalar.t`, which also admits
+     `Bool`, so narrowing to a native float is an explicit checked step.
+   - A **Tensor-typed arg may hold a bare scalar**: the exporter writes
+     `add.Tensor(x, 3)` with `as_int` rather than lifting a constant tensor.
+     The ATen path materialises those via `full_like`
+     (`Interp_decode.tensor_or_scalar_arg`); the native path routes them to a
+     scalar-parameter op instead. Any binary arm whose ATen counterpart accepts
+     a Number needs the tensor-vs-scalar branch, or it will fail to decode a
+     real graph.
+   - Decode every argument the schema declares, including the ones you do not
+     implement. `alpha` on add/sub is the cautionary case: ignoring it computes
+     `self + other` while the schema says `self + alpha * other`. Reject with
+     `Validation_failure` rather than dropping it.
 
 8. **Random-walk fuzzing** (optional) — `lib/native_op_walk/`
    A `<op>_nwalk.ml` assembling the op's `Walk` config space into a subject, plus
@@ -136,12 +173,51 @@ Most ops produce one output; a few ATen ops return a tuple. If yours does:
 - `test/native/graph_symbolic_test.ml` — `Symbolic graph: <op> …`: print the
   `Stage_program` DAG and assert `ground` matches `Eval_direct` for the same
   inputs (covers the Symbolic path through the shared `Eval_op` functor).
+- `test/native/graph_json_test.ml` — a codec round-trip, if the payload
+  introduces a JSON shape the other ops do not already have (a bare number, an
+  independently-optional field). Use a value that is not f32-exact (0.1) so the
+  test distinguishes a narrowed scalar from an unnarrowed one — printing alone
+  does not.
+- `test/native/permute_passes_test.ml` — extend the `sink_permute_allowlist`
+  fixture (site 5b).
 - `test/native_bridge_test.ml` — `dispatch: <op>…`: drive `Op_bridge.dispatch`
   through `dispatch_print` with hand-derived expected values (independent of ATen
   as oracle). Needs the `aten` C++ build.
 
-The first three suites are pure OCaml (`dune runtest test/native`); the bridge
-test needs the libtorch-backed `aten` library.
+The first suites are pure OCaml (`dune runtest test/native`); the bridge test
+needs the libtorch-backed `aten` library.
+
+### Getting a real ATen oracle — which harness actually compares
+
+Three harnesses look like they compare against ATen; only some do, so pick
+deliberately rather than assuming coverage:
+
+- **`lib/native_op_walk`** compares `Direct` against `Symbolic`. Both instantiate
+  the *same* `Compute` functor, so it validates staging, scheduling and shape
+  machinery — **not** the pixel math. A wrong definition passes it.
+- **The generated ATen walks** (`test/native_walk_test.ml`,
+  `test/pt2_op_native_walk_cram.t`) are the real oracle. Most ops get one for
+  free: once your bridge arm exists, the op flips from `skipped (no native
+  impl)` to `matched`. Check whether yours is in the `needs_meta` list at the
+  end of `native_walk_test.ml` — if it is, the generator could not synthesise a
+  valid config (clamp's schema defaults are the both-`None` pair ATen rejects),
+  and you must add a `Walk_meta` entry in `lib/aten_gen/walk_meta.ml` plus a
+  recipe under `lib/aten_walk_recipes/`. Even when a default walk exists it may
+  only exercise the schema defaults — hardtanh's are `(-1, 1)`, never
+  MobileNet's `(0, 6)` — so an override is worth it when the parameters you
+  care about lie outside them.
+  - Make correlated parameters **one** axis, not several. Independent axes can
+    step into a combination the op rejects, which the walk then reports as a
+    spurious mismatch; a candidate list of whole valid configurations makes the
+    invalid state unreachable instead.
+- **`test/pt2_node_bridge_cram.t`** is ATen-vs-native over real serialised nodes,
+  but only over `test/data/resnet18/`. Note that `bin/pt2_spec_gen` **skips** any
+  node whose Tensor-typed argument holds a bare scalar, so the tensor-or-scalar
+  path is unreachable from fixtures. Cover that with a dual-path expect test in
+  `test/native_bridge_test.ml`: `Interp_verify.dispatch ~verify:true` runs the
+  node through real ATen *and* through `Op_bridge` + `Eval_direct` and compares
+  with `Verify.verify_node`. Silence means agreement — so confirm the test can
+  fail before trusting it.
 
 ## Verify and commit
 

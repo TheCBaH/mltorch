@@ -428,6 +428,84 @@ let%expect_test "op Permute: encode → decode" =
       n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
     outputs: [t1 f32 [H=3 W=4 C=2]] |}]
 
+(* The scalar-parameter and clamp ops carry JSON shapes the other ops do not: a
+   bare [scalar] number, and two INDEPENDENTLY optional bounds. Round-tripping
+   the whole hardsigmoid chain covers a present/absent bound in each position at
+   once. The 0.1 scalar is not f32-exact, so this also pins that the builder's
+   narrowing and [f32_jsont] agree — a double-precision 0.1 would come back as a
+   different literal. *)
+let%expect_test "ops Add_scalar/Clamp/Div_scalar: encode → decode" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"hardsigmoid" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 3) ~name:"x" () in
+          let* s = add_scalar 0.1 x in
+          let* lo = clamp { Pointwise.Clamp.min = Some 0.; max = None } s in
+          let* hi = clamp { Pointwise.Clamp.min = None; max = Some 6. } lo in
+          div_scalar ~name:"out" 6. hi)
+    in
+    let* node = first_node g in
+    let* op_json = encode_op node.Node.op in
+    let* json = encode_graph g in
+    let+ decoded = decode_graph json in
+    (op_json, decoded)
+  in
+  Format.printf "%a@."
+    (pp_result (fun ppf (op_json, decoded) ->
+         Format.fprintf ppf "add_scalar op JSON:@.%s@.%a" op_json
+           pp_decoded_graph decoded))
+    result;
+  [%expect
+    {|
+    add_scalar op JSON:
+    {
+      "Add_scalar": {
+        "x": 0,
+        "scalar": 0.10000000149011612
+      }
+    }
+    decoded graph:
+    graph
+    inputs: [t0 f32 [C=3]]
+    nodes:
+      n0: [t1 f32 [C=3]] = add_scalar x=t0 scalar=0.1
+      n1: [t2 f32 [C=3]] = clamp x=t1 params={min=0; max=none}
+      n2: [t3 f32 [C=3]] = clamp x=t2 params={min=none; max=6}
+      n3: [t4 f32 [C=3]] = div_scalar x=t3 scalar=6
+    outputs: [t4 f32 [C=3]] |}]
+
+let%expect_test "ops Hardtanh/Clone: encode → decode" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"hardtanh_clone" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 3) ~name:"x" () in
+          let* h =
+            hardtanh { Pointwise.Hardtanh.min_val = -1.; max_val = 1. } x
+          in
+          clone ~name:"out" h)
+    in
+    let* json = encode_graph g in
+    decode_graph json
+  in
+  Format.printf "%a@." (pp_result pp_decoded_graph) result;
+  [%expect
+    {|
+    decoded graph:
+    graph
+    inputs: [t0 f32 [C=3]]
+    nodes:
+      n0: [t1 f32 [C=3]] = hardtanh x=t0 params={min_val=-1; max_val=1}
+      n1: [t2 f32 [C=3]] = clone x=t1
+    outputs: [t2 f32 [C=3]] |}]
+
 let%expect_test "graph with Mean op: encode → decode → pretty-print" =
   let result =
     let open Core.Syntax in

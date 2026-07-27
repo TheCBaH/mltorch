@@ -20,6 +20,15 @@ module Window : sig
   val pp : Format.formatter -> t -> unit
 end
 
+module Clamp : sig
+  (* [clamp] with neither bound is rejected, as ATen's meta function rejects it
+     ("At least one of 'min' or 'max' must not be None"). Without this the op
+     would silently degrade to the identity. *)
+  type error = No_bounds
+
+  val pp_error : Format.formatter -> error -> unit
+end
+
 module Linear : sig
   type channels_mismatch = {
     actual : Dim.extent Dim.t;
@@ -104,6 +113,7 @@ end
 type t =
   [ `Broadcast of Broadcast.t
   | `Window of Window.t
+  | `Clamp of Clamp.error
   | `Linear of Linear.error
   | `Bmm of Bmm.error
   | `Permute of Permute.t

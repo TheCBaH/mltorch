@@ -141,6 +141,88 @@ let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
     ground = tensor f32 [C=3] {-3, -5, 4}
     ground matches direct: true |}]
 
+(* MobileNet-v3's hardsigmoid, through the same shared [Eval_op] functor. The
+   stage DAG is what shows the scalars really are [const] leaves in the symbolic
+   expression rather than loads of a materialised operand, and that clamp lowers
+   to nested selects. *)
+let%expect_test "Symbolic graph: hardsigmoid stage DAG + ground matches Direct"
+    =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"hardsigmoid" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 5) ~name:"a" () in
+          let* s = add_scalar 3. a in
+          let* c = clamp { Pointwise.Clamp.min = Some 0.; max = Some 6. } s in
+          div_scalar ~name:"out" 6. c)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a =
+      Tensor.materialize (s1c 5) (fun c -> [| -4.; -3.; 0.; 3.; 4. |].(chan c))
+    in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = (t0[N,T,D,H,W,C] + 3)
+    t2 = select((6 < select((t1[N,T,D,H,W,C] < 0), 0, t1[N,T,D,H,W,C])), 6, select((t1[N,T,D,H,W,C] < 0), 0, t1[N,T,D,H,W,C]))
+    t3 = (t2[N,T,D,H,W,C] / 6)
+    outputs: t3 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=5] {0, 0, 0.5, 1, 1}
+    ground matches direct: true |}]
+
+(* Hardtanh delegates to clamp's [Compute], so the symbolic form must be the
+   same nested selects with both bounds present; clone must stage as a bare
+   load. Grounding checks both against Direct. *)
+let%expect_test "Symbolic graph: hardtanh/clone ground matches Direct" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"hardtanh_clone" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          let* h =
+            hardtanh { Pointwise.Hardtanh.min_val = 0.; max_val = 6. } a
+          in
+          clone ~name:"out" h)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -3.; 0.; 2.5; 7. |].(chan c))
+    in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = select((6 < select((t0[N,T,D,H,W,C] < 0), 0, t0[N,T,D,H,W,C])), 6, select((t0[N,T,D,H,W,C] < 0), 0, t0[N,T,D,H,W,C]))
+    t2 = t1[N,T,D,H,W,C]
+    outputs: t2 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=4] {0, 0, 2.5, 6}
+    ground matches direct: true |}]
+
 (* The three ops batch-norm folding is written in terms of, through the shared
    [Eval_op] functor: one graph exercising sub, div and sqrt at once, so the
    stage DAG shows how they compose and grounding checks all three against

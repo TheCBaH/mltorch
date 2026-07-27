@@ -22,15 +22,21 @@ let pp fmt = function
    branches agree at the boundary — so only a genuine argmax is discontinuous. *)
 let classify (op : op) ~output =
   match op with
-  | Permute _ | Reshape _ -> Reindexing
+  (* [Clone] is the identity, and identity is the degenerate permutation — so it
+     is reindexing, not merely continuous. The difference is real: continuity
+     downgrades an incoming [Approximate] claim to [Unverifiable], while
+     reindexing carries it across unchanged, which is the right answer for an op
+     that moves no value at all. *)
+  | Clone _ | Permute _ | Reshape _ -> Reindexing
   | Max_pool2d_with_indices _ ->
       if output = 0 then Continuous else Discontinuous
   (* No outputs at all, so this is unreachable from propagation; answer
      conservatively rather than inventing a guarantee. *)
   | Discard _ -> Discontinuous
-  | Add _ | Avg_pool2d _ | Batch_norm _ | Bmm _ | Conv2d _ | Conv2d_padding _
-  | Convolution _ | Div _ | Linear _ | Max_pool2d _ | Mean _ | Mul _ | Relu _
-  | Rms_norm _ | Sqrt _ | Sub _ ->
+  | Add _ | Add_scalar _ | Avg_pool2d _ | Batch_norm _ | Bmm _ | Clamp _
+  | Conv2d _ | Conv2d_padding _ | Convolution _ | Div _ | Div_scalar _
+  | Hardtanh _ | Linear _ | Max_pool2d _ | Mean _ | Mul _ | Relu _ | Rms_norm _
+  | Sqrt _ | Sub _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

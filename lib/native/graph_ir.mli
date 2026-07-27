@@ -46,19 +46,24 @@ type op =
      [Eval_op]/[Graph_shape] still match per op, since they need shape/semantics
      context the payload can't carry. *)
   | Add of Pointwise.Add.t
+  | Add_scalar of Pointwise.Add_scalar.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
   | Bmm of Matmul.Bmm.t
+  | Clamp of Pointwise.Clamp.t
+  | Clone of Pointwise.Clone.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t
   | Div of Pointwise.Div.t
+  | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
     (* A sink: consumes one edge and produces NO output (its [Node.outputs] is
        empty). Used to route a dead op output — e.g. the argmax indices of
        [Max_pool2d_with_indices] — so the op keeps its full ATen arity while the
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
+  | Hardtanh of Pointwise.Hardtanh.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t

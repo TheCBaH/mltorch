@@ -122,6 +122,18 @@ let op1 ?name ~kind op : Tensor_id.t t =
    op module each belongs to (the [node.Node.outputs] convention). *)
 let add ?name a b = op1 ?name ~kind:"add" (Add { Pointwise.Bin.a; b })
 
+(* Narrow every scalar op parameter to its f32-canonical value here, at the one
+   entry point both the PT2 importer and hand-built graphs go through, rather
+   than trusting each caller to remember. The engine's tensors are F32, so an
+   unnarrowed float64 literal would compute in a precision the payload cannot
+   hold and would disagree with its own JSON round-trip (the codec is
+   [Json_util.f32_jsont], whose [f32_to_f32] this mirrors). *)
+let f32_scalar = Json_util.f32_to_f32
+
+let add_scalar ?name scalar x =
+  op1 ?name ~kind:"add_scalar"
+    (Add_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
 let avg_pool2d ?name params x =
   op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { Pool.AvgPool2d.params; x })
 
@@ -132,6 +144,20 @@ let batch_norm ?name params ~x ?weight ?bias ~running_mean ~running_var () =
 
 let bmm ?name input mat2 =
   op1 ?name ~kind:"bmm" (Bmm { Matmul.Bmm.input; mat2 })
+
+let clamp ?name (params : Pointwise.Clamp.params) x =
+  op1 ?name ~kind:"clamp"
+    (Clamp
+       {
+         Pointwise.Clamp.params =
+           {
+             min = Option.map f32_scalar params.min;
+             max = Option.map f32_scalar params.max;
+           };
+         x;
+       })
+
+let clone ?name x = op1 ?name ~kind:"clone" (Clone { Pointwise.Clone.x })
 
 let conv2d ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"conv2d" (Conv2d { Conv.Conv2d.params; x; weight; bias })
@@ -146,6 +172,18 @@ let convolution ?name params ~x ~weight ?bias () =
 
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
+
+let hardtanh ?name (params : Pointwise.Hardtanh.params) x =
+  op1 ?name ~kind:"hardtanh"
+    (Hardtanh
+       {
+         Pointwise.Hardtanh.params =
+           {
+             min_val = f32_scalar params.min_val;
+             max_val = f32_scalar params.max_val;
+           };
+         x;
+       })
 
 let linear ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"linear" (Linear { Linear.Linear.params; x; weight; bias })
@@ -178,6 +216,10 @@ let max_pool2d_with_indices ?name params x =
           s )
 
 let div ?name a b = op1 ?name ~kind:"div" (Div { Pointwise.Bin.a; b })
+
+let div_scalar ?name scalar x =
+  op1 ?name ~kind:"div_scalar"
+    (Div_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
 
 let mean ?name params x =
   op1 ?name ~kind:"mean" (Mean { Reduce.Mean.params; x })

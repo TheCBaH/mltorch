@@ -31,6 +31,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Add.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Add_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Add_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Avg_pool2d { Pool.AvgPool2d.params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
@@ -52,6 +55,12 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Matmul.Bmm.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~input:(operand input)
           ~mat2:(operand mat2) out
+    | Clamp { Pointwise.Clamp.params; x } ->
+        let module C = Pointwise.Clamp.Compute (S) in
+        C.pixel params (operand x) out
+    | Clone { Pointwise.Clone.x } ->
+        let module C = Pointwise.Clone.Compute (S) in
+        C.pixel (operand x) out
     | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
         let module C = Conv.Conv2d.Compute (S) in
         let bias =
@@ -82,6 +91,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Hardtanh { Pointwise.Hardtanh.params; x } ->
+        let module C = Pointwise.Hardtanh.Compute (S) in
+        C.pixel params (operand x) out
     | Linear { Linear.Linear.params; x; weight; bias } ->
         let module C = Linear.Linear.Compute (S) in
         let bias =
@@ -104,6 +116,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Div.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Div_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Div_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Mul { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Mul.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)

@@ -28,6 +28,10 @@ let output_shape (op : op)
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Add.output_shape a_shape b_shape) in
       [ out ]
+  | Add_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Add_scalar.output_shape x_shape) in
+      [ out ]
   | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Pool.AvgPool2d.output_shape ~x_shape params) in
@@ -40,6 +44,14 @@ let output_shape (op : op)
       let* input_shape = shape input in
       let* mat2_shape = shape mat2 in
       let+ out = widen (Matmul.Bmm.output_shape ~input_shape ~mat2_shape) in
+      [ out ]
+  | Clamp { Pointwise.Clamp.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Clamp.output_shape params x_shape) in
+      [ out ]
+  | Clone { Pointwise.Clone.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Clone.output_shape x_shape) in
       [ out ]
   | Conv2d { Conv.Conv2d.params; x; weight; _ } ->
       let* x_shape = shape x in
@@ -63,6 +75,10 @@ let output_shape (op : op)
       in
       [ out ]
   | Discard _ -> Core.return []
+  | Hardtanh { Pointwise.Hardtanh.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Hardtanh.output_shape x_shape) in
+      [ out ]
   | Linear { Linear.Linear.params; x; weight; _ } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
@@ -89,6 +105,10 @@ let output_shape (op : op)
       let* a_shape = shape a in
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Div.output_shape a_shape b_shape) in
+      [ out ]
+  | Div_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Div_scalar.output_shape x_shape) in
       [ out ]
   | Mul { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in

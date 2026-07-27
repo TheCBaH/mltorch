@@ -41,14 +41,19 @@ type op =
      defined in that op's module; the shared serialise / dataflow / pp logic is
      driven from [op_registry] below, not a per-constructor match. *)
   | Add of Pointwise.Add.t
+  | Add_scalar of Pointwise.Add_scalar.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
   | Bmm of Matmul.Bmm.t
+  | Clamp of Pointwise.Clamp.t
+  | Clone of Pointwise.Clone.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t
   | Div of Pointwise.Div.t
+  | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
+  | Hardtanh of Pointwise.Hardtanh.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
@@ -144,6 +149,12 @@ let op_registry : (module OP) list =
       let project = function Add t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Add_scalar
+
+      let inject t = Add_scalar t
+      let project = function Add_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pool.AvgPool2d
 
       let inject t = Avg_pool2d t
@@ -160,6 +171,18 @@ let op_registry : (module OP) list =
 
       let inject t = Bmm t
       let project = function Bmm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Clamp
+
+      let inject t = Clamp t
+      let project = function Clamp t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Clone
+
+      let inject t = Clone t
+      let project = function Clone t -> Some t | _ -> None
     end : OP);
     (module struct
       include Conv.Conv2d
@@ -184,6 +207,18 @@ let op_registry : (module OP) list =
 
       let inject t = Div t
       let project = function Div t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Div_scalar
+
+      let inject t = Div_scalar t
+      let project = function Div_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Hardtanh
+
+      let inject t = Hardtanh t
+      let project = function Hardtanh t -> Some t | _ -> None
     end : OP);
     (module struct
       include Linear.Linear
