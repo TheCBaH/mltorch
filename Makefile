@@ -99,7 +99,8 @@ pt2.runtest:
 		test/pt2_load_cram.t test/interp_resnet_cram.t \
 		test/interp_efficientnet_cram.t test/interp_mobilenet_cram.t \
 		test/interp_vit_cram.t test/native_graph_cram.t \
-		test/native_transform_cram.t test/native_transform_fold_cram.t
+		test/native_transform_cram.t test/native_transform_fold_cram.t \
+		--auto-promote
 
 # Shared argument list for every interp_run.exe invocation below, so
 # inference-run and benchmark.inference can't drift apart.

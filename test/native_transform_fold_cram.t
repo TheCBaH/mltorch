@@ -21,128 +21,46 @@ the unfolded structural test.
     [t61 f32 [C=1000] {pt2=root:p_fc_bias target=fc.bias} constant,
      t122 f32 [H=3 W=224 C=224] {pt2=root:x},
      t295 f32 [N=1000 T=1 D=1 H=1 W=1 C=512] {folded from=[p_fc_weight]} constant,
-     t297 f32 [N=64 T=1 D=1 H=7 W=7 C=3] {folded from=[p_conv1_weight,
-                                                       p_bn1_weight,
-                                                       b_bn1_running_var]} constant,
-     t298 f32 [C=64] {folded from=[p_bn1_weight, p_bn1_bias,
-                                   b_bn1_running_mean, b_bn1_running_var]} constant,
-     t299 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv1_weight,
-                                                        p_layer1_0_bn1_weight,
-                                                        b_layer1_0_bn1_running_var]} constant,
-     t300 f32 [C=64] {folded from=[p_layer1_0_bn1_weight, p_layer1_0_bn1_bias,
-                                   b_layer1_0_bn1_running_mean,
-                                   b_layer1_0_bn1_running_var]} constant,
-     t301 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv2_weight,
-                                                        p_layer1_0_bn2_weight,
-                                                        b_layer1_0_bn2_running_var]} constant,
-     t302 f32 [C=64] {folded from=[p_layer1_0_bn2_weight, p_layer1_0_bn2_bias,
-                                   b_layer1_0_bn2_running_mean,
-                                   b_layer1_0_bn2_running_var]} constant,
-     t303 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv1_weight,
-                                                        p_layer1_1_bn1_weight,
-                                                        b_layer1_1_bn1_running_var]} constant,
-     t304 f32 [C=64] {folded from=[p_layer1_1_bn1_weight, p_layer1_1_bn1_bias,
-                                   b_layer1_1_bn1_running_mean,
-                                   b_layer1_1_bn1_running_var]} constant,
-     t305 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv2_weight,
-                                                        p_layer1_1_bn2_weight,
-                                                        b_layer1_1_bn2_running_var]} constant,
-     t306 f32 [C=64] {folded from=[p_layer1_1_bn2_weight, p_layer1_1_bn2_bias,
-                                   b_layer1_1_bn2_running_mean,
-                                   b_layer1_1_bn2_running_var]} constant,
-     t307 f32 [N=128 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer2_0_conv1_weight,
-                                                         p_layer2_0_bn1_weight,
-                                                         b_layer2_0_bn1_running_var]} constant,
-     t308 f32 [C=128] {folded from=[p_layer2_0_bn1_weight, p_layer2_0_bn1_bias,
-                                    b_layer2_0_bn1_running_mean,
-                                    b_layer2_0_bn1_running_var]} constant,
-     t309 f32 [N=128 T=1 D=1 H=1 W=1 C=64] {folded from=[p_layer2_0_downsample_0_weight,
-                                                         p_layer2_0_downsample_1_weight,
-                                                         b_layer2_0_downsample_1_running_var]} constant,
-     t310 f32 [C=128] {folded from=[p_layer2_0_downsample_1_weight,
-                                    p_layer2_0_downsample_1_bias,
-                                    b_layer2_0_downsample_1_running_mean,
-                                    b_layer2_0_downsample_1_running_var]} constant,
-     t311 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_0_conv2_weight,
-                                                          p_layer2_0_bn2_weight,
-                                                          b_layer2_0_bn2_running_var]} constant,
-     t312 f32 [C=128] {folded from=[p_layer2_0_bn2_weight, p_layer2_0_bn2_bias,
-                                    b_layer2_0_bn2_running_mean,
-                                    b_layer2_0_bn2_running_var]} constant,
-     t313 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv1_weight,
-                                                          p_layer2_1_bn1_weight,
-                                                          b_layer2_1_bn1_running_var]} constant,
-     t314 f32 [C=128] {folded from=[p_layer2_1_bn1_weight, p_layer2_1_bn1_bias,
-                                    b_layer2_1_bn1_running_mean,
-                                    b_layer2_1_bn1_running_var]} constant,
-     t315 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv2_weight,
-                                                          p_layer2_1_bn2_weight,
-                                                          b_layer2_1_bn2_running_var]} constant,
-     t316 f32 [C=128] {folded from=[p_layer2_1_bn2_weight, p_layer2_1_bn2_bias,
-                                    b_layer2_1_bn2_running_mean,
-                                    b_layer2_1_bn2_running_var]} constant,
-     t317 f32 [N=256 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer3_0_conv1_weight,
-                                                          p_layer3_0_bn1_weight,
-                                                          b_layer3_0_bn1_running_var]} constant,
-     t318 f32 [C=256] {folded from=[p_layer3_0_bn1_weight, p_layer3_0_bn1_bias,
-                                    b_layer3_0_bn1_running_mean,
-                                    b_layer3_0_bn1_running_var]} constant,
-     t319 f32 [N=256 T=1 D=1 H=1 W=1 C=128] {folded from=[p_layer3_0_downsample_0_weight,
-                                                          p_layer3_0_downsample_1_weight,
-                                                          b_layer3_0_downsample_1_running_var]} constant,
-     t320 f32 [C=256] {folded from=[p_layer3_0_downsample_1_weight,
-                                    p_layer3_0_downsample_1_bias,
-                                    b_layer3_0_downsample_1_running_mean,
-                                    b_layer3_0_downsample_1_running_var]} constant,
-     t321 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_0_conv2_weight,
-                                                          p_layer3_0_bn2_weight,
-                                                          b_layer3_0_bn2_running_var]} constant,
-     t322 f32 [C=256] {folded from=[p_layer3_0_bn2_weight, p_layer3_0_bn2_bias,
-                                    b_layer3_0_bn2_running_mean,
-                                    b_layer3_0_bn2_running_var]} constant,
-     t323 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv1_weight,
-                                                          p_layer3_1_bn1_weight,
-                                                          b_layer3_1_bn1_running_var]} constant,
-     t324 f32 [C=256] {folded from=[p_layer3_1_bn1_weight, p_layer3_1_bn1_bias,
-                                    b_layer3_1_bn1_running_mean,
-                                    b_layer3_1_bn1_running_var]} constant,
-     t325 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv2_weight,
-                                                          p_layer3_1_bn2_weight,
-                                                          b_layer3_1_bn2_running_var]} constant,
-     t326 f32 [C=256] {folded from=[p_layer3_1_bn2_weight, p_layer3_1_bn2_bias,
-                                    b_layer3_1_bn2_running_mean,
-                                    b_layer3_1_bn2_running_var]} constant,
-     t327 f32 [N=512 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer4_0_conv1_weight,
-                                                          p_layer4_0_bn1_weight,
-                                                          b_layer4_0_bn1_running_var]} constant,
-     t328 f32 [C=512] {folded from=[p_layer4_0_bn1_weight, p_layer4_0_bn1_bias,
-                                    b_layer4_0_bn1_running_mean,
-                                    b_layer4_0_bn1_running_var]} constant,
-     t329 f32 [N=512 T=1 D=1 H=1 W=1 C=256] {folded from=[p_layer4_0_downsample_0_weight,
-                                                          p_layer4_0_downsample_1_weight,
-                                                          b_layer4_0_downsample_1_running_var]} constant,
-     t330 f32 [C=512] {folded from=[p_layer4_0_downsample_1_weight,
-                                    p_layer4_0_downsample_1_bias,
-                                    b_layer4_0_downsample_1_running_mean,
-                                    b_layer4_0_downsample_1_running_var]} constant,
-     t331 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_0_conv2_weight,
-                                                          p_layer4_0_bn2_weight,
-                                                          b_layer4_0_bn2_running_var]} constant,
-     t332 f32 [C=512] {folded from=[p_layer4_0_bn2_weight, p_layer4_0_bn2_bias,
-                                    b_layer4_0_bn2_running_mean,
-                                    b_layer4_0_bn2_running_var]} constant,
-     t333 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv1_weight,
-                                                          p_layer4_1_bn1_weight,
-                                                          b_layer4_1_bn1_running_var]} constant,
-     t334 f32 [C=512] {folded from=[p_layer4_1_bn1_weight, p_layer4_1_bn1_bias,
-                                    b_layer4_1_bn1_running_mean,
-                                    b_layer4_1_bn1_running_var]} constant,
-     t335 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv2_weight,
-                                                          p_layer4_1_bn2_weight,
-                                                          b_layer4_1_bn2_running_var]} constant,
-     t336 f32 [C=512] {folded from=[p_layer4_1_bn2_weight, p_layer4_1_bn2_bias,
-                                    b_layer4_1_bn2_running_mean,
-                                    b_layer4_1_bn2_running_var]} constant]
+     t297 f32 [N=64 T=1 D=1 H=7 W=7 C=3] {folded from=[p_conv1_weight,p_bn1_weight,b_bn1_running_var]} constant,
+     t298 f32 [C=64] {folded from=[p_bn1_weight,p_bn1_bias,b_bn1_running_mean,b_bn1_running_var]} constant,
+     t299 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var]} constant,
+     t300 f32 [C=64] {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var]} constant,
+     t301 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var]} constant,
+     t302 f32 [C=64] {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var]} constant,
+     t303 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var]} constant,
+     t304 f32 [C=64] {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var]} constant,
+     t305 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var]} constant,
+     t306 f32 [C=64] {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var]} constant,
+     t307 f32 [N=128 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var]} constant,
+     t308 f32 [C=128] {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var]} constant,
+     t309 f32 [N=128 T=1 D=1 H=1 W=1 C=64] {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var]} constant,
+     t310 f32 [C=128] {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var]} constant,
+     t311 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var]} constant,
+     t312 f32 [C=128] {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var]} constant,
+     t313 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var]} constant,
+     t314 f32 [C=128] {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var]} constant,
+     t315 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var]} constant,
+     t316 f32 [C=128] {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var]} constant,
+     t317 f32 [N=256 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var]} constant,
+     t318 f32 [C=256] {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var]} constant,
+     t319 f32 [N=256 T=1 D=1 H=1 W=1 C=128] {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var]} constant,
+     t320 f32 [C=256] {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var]} constant,
+     t321 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var]} constant,
+     t322 f32 [C=256] {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var]} constant,
+     t323 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var]} constant,
+     t324 f32 [C=256] {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var]} constant,
+     t325 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var]} constant,
+     t326 f32 [C=256] {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var]} constant,
+     t327 f32 [N=512 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var]} constant,
+     t328 f32 [C=512] {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var]} constant,
+     t329 f32 [N=512 T=1 D=1 H=1 W=1 C=256] {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var]} constant,
+     t330 f32 [C=512] {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var]} constant,
+     t331 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var]} constant,
+     t332 f32 [C=512] {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var]} constant,
+     t333 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var]} constant,
+     t334 f32 [C=512] {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var]} constant,
+     t335 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var]} constant,
+     t336 f32 [C=512] {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var]} constant]
   nodes:
     group g1 torch.ops.aten.convolution.default:
       n0 {derived}: [t123 f32 [H=224 W=224 C=3] {derived}] =
@@ -150,10 +68,8 @@ the unfolded structural test.
     n174 {derived}: [t337 f32 [H=112 W=112 C=64] {derived}] =
       convolution
         x=t123 {derived}
-        weight=t297 {folded from=[p_conv1_weight, p_bn1_weight,
-                                  b_bn1_running_var]}
-        bias=t298 {folded from=[p_bn1_weight, p_bn1_bias, b_bn1_running_mean,
-                                b_bn1_running_var]}
+        weight=t297 {folded from=[p_conv1_weight,p_bn1_weight,b_bn1_running_var]}
+        bias=t298 {folded from=[p_bn1_weight,p_bn1_bias,b_bn1_running_mean,b_bn1_running_var]}
         params={stride={h=2; w=2};
                padding={h=3; w=3};
                dilation={h=1; w=1};
@@ -173,12 +89,8 @@ the unfolded structural test.
     n176 {derived}: [t339 f32 [H=56 W=56 C=64] {derived}] =
       convolution
         x=t132 {derived}
-        weight=t299 {folded from=[p_layer1_0_conv1_weight,
-                                  p_layer1_0_bn1_weight,
-                                  b_layer1_0_bn1_running_var]}
-        bias=t300 {folded from=[p_layer1_0_bn1_weight, p_layer1_0_bn1_bias,
-                                b_layer1_0_bn1_running_mean,
-                                b_layer1_0_bn1_running_var]}
+        weight=t299 {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var]}
+        bias=t300 {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -190,12 +102,8 @@ the unfolded structural test.
     n178 {derived}: [t341 f32 [H=56 W=56 C=64] {derived}] =
       convolution
         x=t340 {derived}
-        weight=t301 {folded from=[p_layer1_0_conv2_weight,
-                                  p_layer1_0_bn2_weight,
-                                  b_layer1_0_bn2_running_var]}
-        bias=t302 {folded from=[p_layer1_0_bn2_weight, p_layer1_0_bn2_bias,
-                                b_layer1_0_bn2_running_mean,
-                                b_layer1_0_bn2_running_var]}
+        weight=t301 {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var]}
+        bias=t302 {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -209,12 +117,8 @@ the unfolded structural test.
     n181 {derived}: [t344 f32 [H=56 W=56 C=64] {derived}] =
       convolution
         x=t343 {derived}
-        weight=t303 {folded from=[p_layer1_1_conv1_weight,
-                                  p_layer1_1_bn1_weight,
-                                  b_layer1_1_bn1_running_var]}
-        bias=t304 {folded from=[p_layer1_1_bn1_weight, p_layer1_1_bn1_bias,
-                                b_layer1_1_bn1_running_mean,
-                                b_layer1_1_bn1_running_var]}
+        weight=t303 {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var]}
+        bias=t304 {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -226,12 +130,8 @@ the unfolded structural test.
     n183 {derived}: [t346 f32 [H=56 W=56 C=64] {derived}] =
       convolution
         x=t345 {derived}
-        weight=t305 {folded from=[p_layer1_1_conv2_weight,
-                                  p_layer1_1_bn2_weight,
-                                  b_layer1_1_bn2_running_var]}
-        bias=t306 {folded from=[p_layer1_1_bn2_weight, p_layer1_1_bn2_bias,
-                                b_layer1_1_bn2_running_mean,
-                                b_layer1_1_bn2_running_var]}
+        weight=t305 {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var]}
+        bias=t306 {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -245,12 +145,8 @@ the unfolded structural test.
     n186 {derived}: [t349 f32 [H=28 W=28 C=128] {derived}] =
       convolution
         x=t348 {derived}
-        weight=t307 {folded from=[p_layer2_0_conv1_weight,
-                                  p_layer2_0_bn1_weight,
-                                  b_layer2_0_bn1_running_var]}
-        bias=t308 {folded from=[p_layer2_0_bn1_weight, p_layer2_0_bn1_bias,
-                                b_layer2_0_bn1_running_mean,
-                                b_layer2_0_bn1_running_var]}
+        weight=t307 {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var]}
+        bias=t308 {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -260,13 +156,8 @@ the unfolded structural test.
     n187 {derived}: [t350 f32 [H=28 W=28 C=128] {derived}] =
       convolution
         x=t348 {derived}
-        weight=t309 {folded from=[p_layer2_0_downsample_0_weight,
-                                  p_layer2_0_downsample_1_weight,
-                                  b_layer2_0_downsample_1_running_var]}
-        bias=t310 {folded from=[p_layer2_0_downsample_1_weight,
-                                p_layer2_0_downsample_1_bias,
-                                b_layer2_0_downsample_1_running_mean,
-                                b_layer2_0_downsample_1_running_var]}
+        weight=t309 {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var]}
+        bias=t310 {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -279,12 +170,8 @@ the unfolded structural test.
     n189 {derived}: [t352 f32 [H=28 W=28 C=128] {derived}] =
       convolution
         x=t351 {derived}
-        weight=t311 {folded from=[p_layer2_0_conv2_weight,
-                                  p_layer2_0_bn2_weight,
-                                  b_layer2_0_bn2_running_var]}
-        bias=t312 {folded from=[p_layer2_0_bn2_weight, p_layer2_0_bn2_bias,
-                                b_layer2_0_bn2_running_mean,
-                                b_layer2_0_bn2_running_var]}
+        weight=t311 {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var]}
+        bias=t312 {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -299,12 +186,8 @@ the unfolded structural test.
     n192 {derived}: [t355 f32 [H=28 W=28 C=128] {derived}] =
       convolution
         x=t354 {derived}
-        weight=t313 {folded from=[p_layer2_1_conv1_weight,
-                                  p_layer2_1_bn1_weight,
-                                  b_layer2_1_bn1_running_var]}
-        bias=t314 {folded from=[p_layer2_1_bn1_weight, p_layer2_1_bn1_bias,
-                                b_layer2_1_bn1_running_mean,
-                                b_layer2_1_bn1_running_var]}
+        weight=t313 {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var]}
+        bias=t314 {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -317,12 +200,8 @@ the unfolded structural test.
     n194 {derived}: [t357 f32 [H=28 W=28 C=128] {derived}] =
       convolution
         x=t356 {derived}
-        weight=t315 {folded from=[p_layer2_1_conv2_weight,
-                                  p_layer2_1_bn2_weight,
-                                  b_layer2_1_bn2_running_var]}
-        bias=t316 {folded from=[p_layer2_1_bn2_weight, p_layer2_1_bn2_bias,
-                                b_layer2_1_bn2_running_mean,
-                                b_layer2_1_bn2_running_var]}
+        weight=t315 {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var]}
+        bias=t316 {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -337,12 +216,8 @@ the unfolded structural test.
     n197 {derived}: [t360 f32 [H=14 W=14 C=256] {derived}] =
       convolution
         x=t359 {derived}
-        weight=t317 {folded from=[p_layer3_0_conv1_weight,
-                                  p_layer3_0_bn1_weight,
-                                  b_layer3_0_bn1_running_var]}
-        bias=t318 {folded from=[p_layer3_0_bn1_weight, p_layer3_0_bn1_bias,
-                                b_layer3_0_bn1_running_mean,
-                                b_layer3_0_bn1_running_var]}
+        weight=t317 {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var]}
+        bias=t318 {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -352,13 +227,8 @@ the unfolded structural test.
     n198 {derived}: [t361 f32 [H=14 W=14 C=256] {derived}] =
       convolution
         x=t359 {derived}
-        weight=t319 {folded from=[p_layer3_0_downsample_0_weight,
-                                  p_layer3_0_downsample_1_weight,
-                                  b_layer3_0_downsample_1_running_var]}
-        bias=t320 {folded from=[p_layer3_0_downsample_1_weight,
-                                p_layer3_0_downsample_1_bias,
-                                b_layer3_0_downsample_1_running_mean,
-                                b_layer3_0_downsample_1_running_var]}
+        weight=t319 {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var]}
+        bias=t320 {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -371,12 +241,8 @@ the unfolded structural test.
     n200 {derived}: [t363 f32 [H=14 W=14 C=256] {derived}] =
       convolution
         x=t362 {derived}
-        weight=t321 {folded from=[p_layer3_0_conv2_weight,
-                                  p_layer3_0_bn2_weight,
-                                  b_layer3_0_bn2_running_var]}
-        bias=t322 {folded from=[p_layer3_0_bn2_weight, p_layer3_0_bn2_bias,
-                                b_layer3_0_bn2_running_mean,
-                                b_layer3_0_bn2_running_var]}
+        weight=t321 {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var]}
+        bias=t322 {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -391,12 +257,8 @@ the unfolded structural test.
     n203 {derived}: [t366 f32 [H=14 W=14 C=256] {derived}] =
       convolution
         x=t365 {derived}
-        weight=t323 {folded from=[p_layer3_1_conv1_weight,
-                                  p_layer3_1_bn1_weight,
-                                  b_layer3_1_bn1_running_var]}
-        bias=t324 {folded from=[p_layer3_1_bn1_weight, p_layer3_1_bn1_bias,
-                                b_layer3_1_bn1_running_mean,
-                                b_layer3_1_bn1_running_var]}
+        weight=t323 {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var]}
+        bias=t324 {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -409,12 +271,8 @@ the unfolded structural test.
     n205 {derived}: [t368 f32 [H=14 W=14 C=256] {derived}] =
       convolution
         x=t367 {derived}
-        weight=t325 {folded from=[p_layer3_1_conv2_weight,
-                                  p_layer3_1_bn2_weight,
-                                  b_layer3_1_bn2_running_var]}
-        bias=t326 {folded from=[p_layer3_1_bn2_weight, p_layer3_1_bn2_bias,
-                                b_layer3_1_bn2_running_mean,
-                                b_layer3_1_bn2_running_var]}
+        weight=t325 {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var]}
+        bias=t326 {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -429,12 +287,8 @@ the unfolded structural test.
     n208 {derived}: [t371 f32 [H=7 W=7 C=512] {derived}] =
       convolution
         x=t370 {derived}
-        weight=t327 {folded from=[p_layer4_0_conv1_weight,
-                                  p_layer4_0_bn1_weight,
-                                  b_layer4_0_bn1_running_var]}
-        bias=t328 {folded from=[p_layer4_0_bn1_weight, p_layer4_0_bn1_bias,
-                                b_layer4_0_bn1_running_mean,
-                                b_layer4_0_bn1_running_var]}
+        weight=t327 {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var]}
+        bias=t328 {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -444,13 +298,8 @@ the unfolded structural test.
     n209 {derived}: [t372 f32 [H=7 W=7 C=512] {derived}] =
       convolution
         x=t370 {derived}
-        weight=t329 {folded from=[p_layer4_0_downsample_0_weight,
-                                  p_layer4_0_downsample_1_weight,
-                                  b_layer4_0_downsample_1_running_var]}
-        bias=t330 {folded from=[p_layer4_0_downsample_1_weight,
-                                p_layer4_0_downsample_1_bias,
-                                b_layer4_0_downsample_1_running_mean,
-                                b_layer4_0_downsample_1_running_var]}
+        weight=t329 {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var]}
+        bias=t330 {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -462,12 +311,8 @@ the unfolded structural test.
     n211 {derived}: [t374 f32 [H=7 W=7 C=512] {derived}] =
       convolution
         x=t373 {derived}
-        weight=t331 {folded from=[p_layer4_0_conv2_weight,
-                                  p_layer4_0_bn2_weight,
-                                  b_layer4_0_bn2_running_var]}
-        bias=t332 {folded from=[p_layer4_0_bn2_weight, p_layer4_0_bn2_bias,
-                                b_layer4_0_bn2_running_mean,
-                                b_layer4_0_bn2_running_var]}
+        weight=t331 {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var]}
+        bias=t332 {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -481,12 +326,8 @@ the unfolded structural test.
     n214 {derived}: [t377 f32 [H=7 W=7 C=512] {derived}] =
       convolution
         x=t376 {derived}
-        weight=t333 {folded from=[p_layer4_1_conv1_weight,
-                                  p_layer4_1_bn1_weight,
-                                  b_layer4_1_bn1_running_var]}
-        bias=t334 {folded from=[p_layer4_1_bn1_weight, p_layer4_1_bn1_bias,
-                                b_layer4_1_bn1_running_mean,
-                                b_layer4_1_bn1_running_var]}
+        weight=t333 {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var]}
+        bias=t334 {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -498,12 +339,8 @@ the unfolded structural test.
     n216 {derived}: [t379 f32 [H=7 W=7 C=512] {derived}] =
       convolution
         x=t378 {derived}
-        weight=t335 {folded from=[p_layer4_1_conv2_weight,
-                                  p_layer4_1_bn2_weight,
-                                  b_layer4_1_bn2_running_var]}
-        bias=t336 {folded from=[p_layer4_1_bn2_weight, p_layer4_1_bn2_bias,
-                                b_layer4_1_bn2_running_mean,
-                                b_layer4_1_bn2_running_var]}
+        weight=t335 {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var]}
+        bias=t336 {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -580,243 +417,74 @@ activations, not on constants.
      t691 f32 [N=576 T=1 D=1 H=1 W=1 C=144] {folded from=[p_features_11_block_2_fc2_weight]} constant,
      t722 f32 [N=1024 T=1 D=1 H=1 W=1 C=576] {folded from=[p_classifier_0_weight]} constant,
      t731 f32 [N=1000 T=1 D=1 H=1 W=1 C=1024] {folded from=[p_classifier_3_weight]} constant,
-     t733 f32 [N=16 T=1 D=1 H=3 W=3 C=3] {folded from=[p_features_0_0_weight,
-                                                       p_features_0_1_weight,
-                                                       b_features_0_1_running_var]} constant,
-     t734 f32 [C=16] {folded from=[p_features_0_1_weight, p_features_0_1_bias,
-                                   b_features_0_1_running_mean,
-                                   b_features_0_1_running_var]} constant,
-     t735 f32 [N=16 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_1_block_0_0_weight,
-                                                       p_features_1_block_0_1_weight,
-                                                       b_features_1_block_0_1_running_var]} constant,
-     t736 f32 [C=16] {folded from=[p_features_1_block_0_1_weight,
-                                   p_features_1_block_0_1_bias,
-                                   b_features_1_block_0_1_running_mean,
-                                   b_features_1_block_0_1_running_var]} constant,
-     t737 f32 [N=16 T=1 D=1 H=1 W=1 C=16] {folded from=[p_features_1_block_2_0_weight,
-                                                        p_features_1_block_2_1_weight,
-                                                        b_features_1_block_2_1_running_var]} constant,
-     t738 f32 [C=16] {folded from=[p_features_1_block_2_1_weight,
-                                   p_features_1_block_2_1_bias,
-                                   b_features_1_block_2_1_running_mean,
-                                   b_features_1_block_2_1_running_var]} constant,
-     t739 f32 [N=72 T=1 D=1 H=1 W=1 C=16] {folded from=[p_features_2_block_0_0_weight,
-                                                        p_features_2_block_0_1_weight,
-                                                        b_features_2_block_0_1_running_var]} constant,
-     t740 f32 [C=72] {folded from=[p_features_2_block_0_1_weight,
-                                   p_features_2_block_0_1_bias,
-                                   b_features_2_block_0_1_running_mean,
-                                   b_features_2_block_0_1_running_var]} constant,
-     t741 f32 [N=72 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_2_block_1_0_weight,
-                                                       p_features_2_block_1_1_weight,
-                                                       b_features_2_block_1_1_running_var]} constant,
-     t742 f32 [C=72] {folded from=[p_features_2_block_1_1_weight,
-                                   p_features_2_block_1_1_bias,
-                                   b_features_2_block_1_1_running_mean,
-                                   b_features_2_block_1_1_running_var]} constant,
-     t743 f32 [N=24 T=1 D=1 H=1 W=1 C=72] {folded from=[p_features_2_block_2_0_weight,
-                                                        p_features_2_block_2_1_weight,
-                                                        b_features_2_block_2_1_running_var]} constant,
-     t744 f32 [C=24] {folded from=[p_features_2_block_2_1_weight,
-                                   p_features_2_block_2_1_bias,
-                                   b_features_2_block_2_1_running_mean,
-                                   b_features_2_block_2_1_running_var]} constant,
-     t745 f32 [N=88 T=1 D=1 H=1 W=1 C=24] {folded from=[p_features_3_block_0_0_weight,
-                                                        p_features_3_block_0_1_weight,
-                                                        b_features_3_block_0_1_running_var]} constant,
-     t746 f32 [C=88] {folded from=[p_features_3_block_0_1_weight,
-                                   p_features_3_block_0_1_bias,
-                                   b_features_3_block_0_1_running_mean,
-                                   b_features_3_block_0_1_running_var]} constant,
-     t747 f32 [N=88 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_3_block_1_0_weight,
-                                                       p_features_3_block_1_1_weight,
-                                                       b_features_3_block_1_1_running_var]} constant,
-     t748 f32 [C=88] {folded from=[p_features_3_block_1_1_weight,
-                                   p_features_3_block_1_1_bias,
-                                   b_features_3_block_1_1_running_mean,
-                                   b_features_3_block_1_1_running_var]} constant,
-     t749 f32 [N=24 T=1 D=1 H=1 W=1 C=88] {folded from=[p_features_3_block_2_0_weight,
-                                                        p_features_3_block_2_1_weight,
-                                                        b_features_3_block_2_1_running_var]} constant,
-     t750 f32 [C=24] {folded from=[p_features_3_block_2_1_weight,
-                                   p_features_3_block_2_1_bias,
-                                   b_features_3_block_2_1_running_mean,
-                                   b_features_3_block_2_1_running_var]} constant,
-     t751 f32 [N=96 T=1 D=1 H=1 W=1 C=24] {folded from=[p_features_4_block_0_0_weight,
-                                                        p_features_4_block_0_1_weight,
-                                                        b_features_4_block_0_1_running_var]} constant,
-     t752 f32 [C=96] {folded from=[p_features_4_block_0_1_weight,
-                                   p_features_4_block_0_1_bias,
-                                   b_features_4_block_0_1_running_mean,
-                                   b_features_4_block_0_1_running_var]} constant,
-     t753 f32 [N=96 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_4_block_1_0_weight,
-                                                       p_features_4_block_1_1_weight,
-                                                       b_features_4_block_1_1_running_var]} constant,
-     t754 f32 [C=96] {folded from=[p_features_4_block_1_1_weight,
-                                   p_features_4_block_1_1_bias,
-                                   b_features_4_block_1_1_running_mean,
-                                   b_features_4_block_1_1_running_var]} constant,
-     t755 f32 [N=40 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_4_block_3_0_weight,
-                                                        p_features_4_block_3_1_weight,
-                                                        b_features_4_block_3_1_running_var]} constant,
-     t756 f32 [C=40] {folded from=[p_features_4_block_3_1_weight,
-                                   p_features_4_block_3_1_bias,
-                                   b_features_4_block_3_1_running_mean,
-                                   b_features_4_block_3_1_running_var]} constant,
-     t757 f32 [N=240 T=1 D=1 H=1 W=1 C=40] {folded from=[p_features_5_block_0_0_weight,
-                                                         p_features_5_block_0_1_weight,
-                                                         b_features_5_block_0_1_running_var]} constant,
-     t758 f32 [C=240] {folded from=[p_features_5_block_0_1_weight,
-                                    p_features_5_block_0_1_bias,
-                                    b_features_5_block_0_1_running_mean,
-                                    b_features_5_block_0_1_running_var]} constant,
-     t759 f32 [N=240 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_5_block_1_0_weight,
-                                                        p_features_5_block_1_1_weight,
-                                                        b_features_5_block_1_1_running_var]} constant,
-     t760 f32 [C=240] {folded from=[p_features_5_block_1_1_weight,
-                                    p_features_5_block_1_1_bias,
-                                    b_features_5_block_1_1_running_mean,
-                                    b_features_5_block_1_1_running_var]} constant,
-     t761 f32 [N=40 T=1 D=1 H=1 W=1 C=240] {folded from=[p_features_5_block_3_0_weight,
-                                                         p_features_5_block_3_1_weight,
-                                                         b_features_5_block_3_1_running_var]} constant,
-     t762 f32 [C=40] {folded from=[p_features_5_block_3_1_weight,
-                                   p_features_5_block_3_1_bias,
-                                   b_features_5_block_3_1_running_mean,
-                                   b_features_5_block_3_1_running_var]} constant,
-     t763 f32 [N=240 T=1 D=1 H=1 W=1 C=40] {folded from=[p_features_6_block_0_0_weight,
-                                                         p_features_6_block_0_1_weight,
-                                                         b_features_6_block_0_1_running_var]} constant,
-     t764 f32 [C=240] {folded from=[p_features_6_block_0_1_weight,
-                                    p_features_6_block_0_1_bias,
-                                    b_features_6_block_0_1_running_mean,
-                                    b_features_6_block_0_1_running_var]} constant,
-     t765 f32 [N=240 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_6_block_1_0_weight,
-                                                        p_features_6_block_1_1_weight,
-                                                        b_features_6_block_1_1_running_var]} constant,
-     t766 f32 [C=240] {folded from=[p_features_6_block_1_1_weight,
-                                    p_features_6_block_1_1_bias,
-                                    b_features_6_block_1_1_running_mean,
-                                    b_features_6_block_1_1_running_var]} constant,
-     t767 f32 [N=40 T=1 D=1 H=1 W=1 C=240] {folded from=[p_features_6_block_3_0_weight,
-                                                         p_features_6_block_3_1_weight,
-                                                         b_features_6_block_3_1_running_var]} constant,
-     t768 f32 [C=40] {folded from=[p_features_6_block_3_1_weight,
-                                   p_features_6_block_3_1_bias,
-                                   b_features_6_block_3_1_running_mean,
-                                   b_features_6_block_3_1_running_var]} constant,
-     t769 f32 [N=120 T=1 D=1 H=1 W=1 C=40] {folded from=[p_features_7_block_0_0_weight,
-                                                         p_features_7_block_0_1_weight,
-                                                         b_features_7_block_0_1_running_var]} constant,
-     t770 f32 [C=120] {folded from=[p_features_7_block_0_1_weight,
-                                    p_features_7_block_0_1_bias,
-                                    b_features_7_block_0_1_running_mean,
-                                    b_features_7_block_0_1_running_var]} constant,
-     t771 f32 [N=120 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_7_block_1_0_weight,
-                                                        p_features_7_block_1_1_weight,
-                                                        b_features_7_block_1_1_running_var]} constant,
-     t772 f32 [C=120] {folded from=[p_features_7_block_1_1_weight,
-                                    p_features_7_block_1_1_bias,
-                                    b_features_7_block_1_1_running_mean,
-                                    b_features_7_block_1_1_running_var]} constant,
-     t773 f32 [N=48 T=1 D=1 H=1 W=1 C=120] {folded from=[p_features_7_block_3_0_weight,
-                                                         p_features_7_block_3_1_weight,
-                                                         b_features_7_block_3_1_running_var]} constant,
-     t774 f32 [C=48] {folded from=[p_features_7_block_3_1_weight,
-                                   p_features_7_block_3_1_bias,
-                                   b_features_7_block_3_1_running_mean,
-                                   b_features_7_block_3_1_running_var]} constant,
-     t775 f32 [N=144 T=1 D=1 H=1 W=1 C=48] {folded from=[p_features_8_block_0_0_weight,
-                                                         p_features_8_block_0_1_weight,
-                                                         b_features_8_block_0_1_running_var]} constant,
-     t776 f32 [C=144] {folded from=[p_features_8_block_0_1_weight,
-                                    p_features_8_block_0_1_bias,
-                                    b_features_8_block_0_1_running_mean,
-                                    b_features_8_block_0_1_running_var]} constant,
-     t777 f32 [N=144 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_8_block_1_0_weight,
-                                                        p_features_8_block_1_1_weight,
-                                                        b_features_8_block_1_1_running_var]} constant,
-     t778 f32 [C=144] {folded from=[p_features_8_block_1_1_weight,
-                                    p_features_8_block_1_1_bias,
-                                    b_features_8_block_1_1_running_mean,
-                                    b_features_8_block_1_1_running_var]} constant,
-     t779 f32 [N=48 T=1 D=1 H=1 W=1 C=144] {folded from=[p_features_8_block_3_0_weight,
-                                                         p_features_8_block_3_1_weight,
-                                                         b_features_8_block_3_1_running_var]} constant,
-     t780 f32 [C=48] {folded from=[p_features_8_block_3_1_weight,
-                                   p_features_8_block_3_1_bias,
-                                   b_features_8_block_3_1_running_mean,
-                                   b_features_8_block_3_1_running_var]} constant,
-     t781 f32 [N=288 T=1 D=1 H=1 W=1 C=48] {folded from=[p_features_9_block_0_0_weight,
-                                                         p_features_9_block_0_1_weight,
-                                                         b_features_9_block_0_1_running_var]} constant,
-     t782 f32 [C=288] {folded from=[p_features_9_block_0_1_weight,
-                                    p_features_9_block_0_1_bias,
-                                    b_features_9_block_0_1_running_mean,
-                                    b_features_9_block_0_1_running_var]} constant,
-     t783 f32 [N=288 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_9_block_1_0_weight,
-                                                        p_features_9_block_1_1_weight,
-                                                        b_features_9_block_1_1_running_var]} constant,
-     t784 f32 [C=288] {folded from=[p_features_9_block_1_1_weight,
-                                    p_features_9_block_1_1_bias,
-                                    b_features_9_block_1_1_running_mean,
-                                    b_features_9_block_1_1_running_var]} constant,
-     t785 f32 [N=96 T=1 D=1 H=1 W=1 C=288] {folded from=[p_features_9_block_3_0_weight,
-                                                         p_features_9_block_3_1_weight,
-                                                         b_features_9_block_3_1_running_var]} constant,
-     t786 f32 [C=96] {folded from=[p_features_9_block_3_1_weight,
-                                   p_features_9_block_3_1_bias,
-                                   b_features_9_block_3_1_running_mean,
-                                   b_features_9_block_3_1_running_var]} constant,
-     t787 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_10_block_0_0_weight,
-                                                         p_features_10_block_0_1_weight,
-                                                         b_features_10_block_0_1_running_var]} constant,
-     t788 f32 [C=576] {folded from=[p_features_10_block_0_1_weight,
-                                    p_features_10_block_0_1_bias,
-                                    b_features_10_block_0_1_running_mean,
-                                    b_features_10_block_0_1_running_var]} constant,
-     t789 f32 [N=576 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_10_block_1_0_weight,
-                                                        p_features_10_block_1_1_weight,
-                                                        b_features_10_block_1_1_running_var]} constant,
-     t790 f32 [C=576] {folded from=[p_features_10_block_1_1_weight,
-                                    p_features_10_block_1_1_bias,
-                                    b_features_10_block_1_1_running_mean,
-                                    b_features_10_block_1_1_running_var]} constant,
-     t791 f32 [N=96 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_10_block_3_0_weight,
-                                                         p_features_10_block_3_1_weight,
-                                                         b_features_10_block_3_1_running_var]} constant,
-     t792 f32 [C=96] {folded from=[p_features_10_block_3_1_weight,
-                                   p_features_10_block_3_1_bias,
-                                   b_features_10_block_3_1_running_mean,
-                                   b_features_10_block_3_1_running_var]} constant,
-     t793 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_11_block_0_0_weight,
-                                                         p_features_11_block_0_1_weight,
-                                                         b_features_11_block_0_1_running_var]} constant,
-     t794 f32 [C=576] {folded from=[p_features_11_block_0_1_weight,
-                                    p_features_11_block_0_1_bias,
-                                    b_features_11_block_0_1_running_mean,
-                                    b_features_11_block_0_1_running_var]} constant,
-     t795 f32 [N=576 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_11_block_1_0_weight,
-                                                        p_features_11_block_1_1_weight,
-                                                        b_features_11_block_1_1_running_var]} constant,
-     t796 f32 [C=576] {folded from=[p_features_11_block_1_1_weight,
-                                    p_features_11_block_1_1_bias,
-                                    b_features_11_block_1_1_running_mean,
-                                    b_features_11_block_1_1_running_var]} constant,
-     t797 f32 [N=96 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_11_block_3_0_weight,
-                                                         p_features_11_block_3_1_weight,
-                                                         b_features_11_block_3_1_running_var]} constant,
-     t798 f32 [C=96] {folded from=[p_features_11_block_3_1_weight,
-                                   p_features_11_block_3_1_bias,
-                                   b_features_11_block_3_1_running_mean,
-                                   b_features_11_block_3_1_running_var]} constant,
-     t799 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_12_0_weight,
-                                                         p_features_12_1_weight,
-                                                         b_features_12_1_running_var]} constant,
-     t800 f32 [C=576] {folded from=[p_features_12_1_weight,
-                                    p_features_12_1_bias,
-                                    b_features_12_1_running_mean,
-                                    b_features_12_1_running_var]} constant]
+     t733 f32 [N=16 T=1 D=1 H=3 W=3 C=3] {folded from=[p_features_0_0_weight,p_features_0_1_weight,b_features_0_1_running_var]} constant,
+     t734 f32 [C=16] {folded from=[p_features_0_1_weight,p_features_0_1_bias,b_features_0_1_running_mean,b_features_0_1_running_var]} constant,
+     t735 f32 [N=16 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_1_block_0_0_weight,p_features_1_block_0_1_weight,b_features_1_block_0_1_running_var]} constant,
+     t736 f32 [C=16] {folded from=[p_features_1_block_0_1_weight,p_features_1_block_0_1_bias,b_features_1_block_0_1_running_mean,b_features_1_block_0_1_running_var]} constant,
+     t737 f32 [N=16 T=1 D=1 H=1 W=1 C=16] {folded from=[p_features_1_block_2_0_weight,p_features_1_block_2_1_weight,b_features_1_block_2_1_running_var]} constant,
+     t738 f32 [C=16] {folded from=[p_features_1_block_2_1_weight,p_features_1_block_2_1_bias,b_features_1_block_2_1_running_mean,b_features_1_block_2_1_running_var]} constant,
+     t739 f32 [N=72 T=1 D=1 H=1 W=1 C=16] {folded from=[p_features_2_block_0_0_weight,p_features_2_block_0_1_weight,b_features_2_block_0_1_running_var]} constant,
+     t740 f32 [C=72] {folded from=[p_features_2_block_0_1_weight,p_features_2_block_0_1_bias,b_features_2_block_0_1_running_mean,b_features_2_block_0_1_running_var]} constant,
+     t741 f32 [N=72 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_2_block_1_0_weight,p_features_2_block_1_1_weight,b_features_2_block_1_1_running_var]} constant,
+     t742 f32 [C=72] {folded from=[p_features_2_block_1_1_weight,p_features_2_block_1_1_bias,b_features_2_block_1_1_running_mean,b_features_2_block_1_1_running_var]} constant,
+     t743 f32 [N=24 T=1 D=1 H=1 W=1 C=72] {folded from=[p_features_2_block_2_0_weight,p_features_2_block_2_1_weight,b_features_2_block_2_1_running_var]} constant,
+     t744 f32 [C=24] {folded from=[p_features_2_block_2_1_weight,p_features_2_block_2_1_bias,b_features_2_block_2_1_running_mean,b_features_2_block_2_1_running_var]} constant,
+     t745 f32 [N=88 T=1 D=1 H=1 W=1 C=24] {folded from=[p_features_3_block_0_0_weight,p_features_3_block_0_1_weight,b_features_3_block_0_1_running_var]} constant,
+     t746 f32 [C=88] {folded from=[p_features_3_block_0_1_weight,p_features_3_block_0_1_bias,b_features_3_block_0_1_running_mean,b_features_3_block_0_1_running_var]} constant,
+     t747 f32 [N=88 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_3_block_1_0_weight,p_features_3_block_1_1_weight,b_features_3_block_1_1_running_var]} constant,
+     t748 f32 [C=88] {folded from=[p_features_3_block_1_1_weight,p_features_3_block_1_1_bias,b_features_3_block_1_1_running_mean,b_features_3_block_1_1_running_var]} constant,
+     t749 f32 [N=24 T=1 D=1 H=1 W=1 C=88] {folded from=[p_features_3_block_2_0_weight,p_features_3_block_2_1_weight,b_features_3_block_2_1_running_var]} constant,
+     t750 f32 [C=24] {folded from=[p_features_3_block_2_1_weight,p_features_3_block_2_1_bias,b_features_3_block_2_1_running_mean,b_features_3_block_2_1_running_var]} constant,
+     t751 f32 [N=96 T=1 D=1 H=1 W=1 C=24] {folded from=[p_features_4_block_0_0_weight,p_features_4_block_0_1_weight,b_features_4_block_0_1_running_var]} constant,
+     t752 f32 [C=96] {folded from=[p_features_4_block_0_1_weight,p_features_4_block_0_1_bias,b_features_4_block_0_1_running_mean,b_features_4_block_0_1_running_var]} constant,
+     t753 f32 [N=96 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_4_block_1_0_weight,p_features_4_block_1_1_weight,b_features_4_block_1_1_running_var]} constant,
+     t754 f32 [C=96] {folded from=[p_features_4_block_1_1_weight,p_features_4_block_1_1_bias,b_features_4_block_1_1_running_mean,b_features_4_block_1_1_running_var]} constant,
+     t755 f32 [N=40 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_4_block_3_0_weight,p_features_4_block_3_1_weight,b_features_4_block_3_1_running_var]} constant,
+     t756 f32 [C=40] {folded from=[p_features_4_block_3_1_weight,p_features_4_block_3_1_bias,b_features_4_block_3_1_running_mean,b_features_4_block_3_1_running_var]} constant,
+     t757 f32 [N=240 T=1 D=1 H=1 W=1 C=40] {folded from=[p_features_5_block_0_0_weight,p_features_5_block_0_1_weight,b_features_5_block_0_1_running_var]} constant,
+     t758 f32 [C=240] {folded from=[p_features_5_block_0_1_weight,p_features_5_block_0_1_bias,b_features_5_block_0_1_running_mean,b_features_5_block_0_1_running_var]} constant,
+     t759 f32 [N=240 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_5_block_1_0_weight,p_features_5_block_1_1_weight,b_features_5_block_1_1_running_var]} constant,
+     t760 f32 [C=240] {folded from=[p_features_5_block_1_1_weight,p_features_5_block_1_1_bias,b_features_5_block_1_1_running_mean,b_features_5_block_1_1_running_var]} constant,
+     t761 f32 [N=40 T=1 D=1 H=1 W=1 C=240] {folded from=[p_features_5_block_3_0_weight,p_features_5_block_3_1_weight,b_features_5_block_3_1_running_var]} constant,
+     t762 f32 [C=40] {folded from=[p_features_5_block_3_1_weight,p_features_5_block_3_1_bias,b_features_5_block_3_1_running_mean,b_features_5_block_3_1_running_var]} constant,
+     t763 f32 [N=240 T=1 D=1 H=1 W=1 C=40] {folded from=[p_features_6_block_0_0_weight,p_features_6_block_0_1_weight,b_features_6_block_0_1_running_var]} constant,
+     t764 f32 [C=240] {folded from=[p_features_6_block_0_1_weight,p_features_6_block_0_1_bias,b_features_6_block_0_1_running_mean,b_features_6_block_0_1_running_var]} constant,
+     t765 f32 [N=240 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_6_block_1_0_weight,p_features_6_block_1_1_weight,b_features_6_block_1_1_running_var]} constant,
+     t766 f32 [C=240] {folded from=[p_features_6_block_1_1_weight,p_features_6_block_1_1_bias,b_features_6_block_1_1_running_mean,b_features_6_block_1_1_running_var]} constant,
+     t767 f32 [N=40 T=1 D=1 H=1 W=1 C=240] {folded from=[p_features_6_block_3_0_weight,p_features_6_block_3_1_weight,b_features_6_block_3_1_running_var]} constant,
+     t768 f32 [C=40] {folded from=[p_features_6_block_3_1_weight,p_features_6_block_3_1_bias,b_features_6_block_3_1_running_mean,b_features_6_block_3_1_running_var]} constant,
+     t769 f32 [N=120 T=1 D=1 H=1 W=1 C=40] {folded from=[p_features_7_block_0_0_weight,p_features_7_block_0_1_weight,b_features_7_block_0_1_running_var]} constant,
+     t770 f32 [C=120] {folded from=[p_features_7_block_0_1_weight,p_features_7_block_0_1_bias,b_features_7_block_0_1_running_mean,b_features_7_block_0_1_running_var]} constant,
+     t771 f32 [N=120 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_7_block_1_0_weight,p_features_7_block_1_1_weight,b_features_7_block_1_1_running_var]} constant,
+     t772 f32 [C=120] {folded from=[p_features_7_block_1_1_weight,p_features_7_block_1_1_bias,b_features_7_block_1_1_running_mean,b_features_7_block_1_1_running_var]} constant,
+     t773 f32 [N=48 T=1 D=1 H=1 W=1 C=120] {folded from=[p_features_7_block_3_0_weight,p_features_7_block_3_1_weight,b_features_7_block_3_1_running_var]} constant,
+     t774 f32 [C=48] {folded from=[p_features_7_block_3_1_weight,p_features_7_block_3_1_bias,b_features_7_block_3_1_running_mean,b_features_7_block_3_1_running_var]} constant,
+     t775 f32 [N=144 T=1 D=1 H=1 W=1 C=48] {folded from=[p_features_8_block_0_0_weight,p_features_8_block_0_1_weight,b_features_8_block_0_1_running_var]} constant,
+     t776 f32 [C=144] {folded from=[p_features_8_block_0_1_weight,p_features_8_block_0_1_bias,b_features_8_block_0_1_running_mean,b_features_8_block_0_1_running_var]} constant,
+     t777 f32 [N=144 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_8_block_1_0_weight,p_features_8_block_1_1_weight,b_features_8_block_1_1_running_var]} constant,
+     t778 f32 [C=144] {folded from=[p_features_8_block_1_1_weight,p_features_8_block_1_1_bias,b_features_8_block_1_1_running_mean,b_features_8_block_1_1_running_var]} constant,
+     t779 f32 [N=48 T=1 D=1 H=1 W=1 C=144] {folded from=[p_features_8_block_3_0_weight,p_features_8_block_3_1_weight,b_features_8_block_3_1_running_var]} constant,
+     t780 f32 [C=48] {folded from=[p_features_8_block_3_1_weight,p_features_8_block_3_1_bias,b_features_8_block_3_1_running_mean,b_features_8_block_3_1_running_var]} constant,
+     t781 f32 [N=288 T=1 D=1 H=1 W=1 C=48] {folded from=[p_features_9_block_0_0_weight,p_features_9_block_0_1_weight,b_features_9_block_0_1_running_var]} constant,
+     t782 f32 [C=288] {folded from=[p_features_9_block_0_1_weight,p_features_9_block_0_1_bias,b_features_9_block_0_1_running_mean,b_features_9_block_0_1_running_var]} constant,
+     t783 f32 [N=288 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_9_block_1_0_weight,p_features_9_block_1_1_weight,b_features_9_block_1_1_running_var]} constant,
+     t784 f32 [C=288] {folded from=[p_features_9_block_1_1_weight,p_features_9_block_1_1_bias,b_features_9_block_1_1_running_mean,b_features_9_block_1_1_running_var]} constant,
+     t785 f32 [N=96 T=1 D=1 H=1 W=1 C=288] {folded from=[p_features_9_block_3_0_weight,p_features_9_block_3_1_weight,b_features_9_block_3_1_running_var]} constant,
+     t786 f32 [C=96] {folded from=[p_features_9_block_3_1_weight,p_features_9_block_3_1_bias,b_features_9_block_3_1_running_mean,b_features_9_block_3_1_running_var]} constant,
+     t787 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_10_block_0_0_weight,p_features_10_block_0_1_weight,b_features_10_block_0_1_running_var]} constant,
+     t788 f32 [C=576] {folded from=[p_features_10_block_0_1_weight,p_features_10_block_0_1_bias,b_features_10_block_0_1_running_mean,b_features_10_block_0_1_running_var]} constant,
+     t789 f32 [N=576 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_10_block_1_0_weight,p_features_10_block_1_1_weight,b_features_10_block_1_1_running_var]} constant,
+     t790 f32 [C=576] {folded from=[p_features_10_block_1_1_weight,p_features_10_block_1_1_bias,b_features_10_block_1_1_running_mean,b_features_10_block_1_1_running_var]} constant,
+     t791 f32 [N=96 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_10_block_3_0_weight,p_features_10_block_3_1_weight,b_features_10_block_3_1_running_var]} constant,
+     t792 f32 [C=96] {folded from=[p_features_10_block_3_1_weight,p_features_10_block_3_1_bias,b_features_10_block_3_1_running_mean,b_features_10_block_3_1_running_var]} constant,
+     t793 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_11_block_0_0_weight,p_features_11_block_0_1_weight,b_features_11_block_0_1_running_var]} constant,
+     t794 f32 [C=576] {folded from=[p_features_11_block_0_1_weight,p_features_11_block_0_1_bias,b_features_11_block_0_1_running_mean,b_features_11_block_0_1_running_var]} constant,
+     t795 f32 [N=576 T=1 D=1 H=5 W=5 C=1] {folded from=[p_features_11_block_1_0_weight,p_features_11_block_1_1_weight,b_features_11_block_1_1_running_var]} constant,
+     t796 f32 [C=576] {folded from=[p_features_11_block_1_1_weight,p_features_11_block_1_1_bias,b_features_11_block_1_1_running_mean,b_features_11_block_1_1_running_var]} constant,
+     t797 f32 [N=96 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_11_block_3_0_weight,p_features_11_block_3_1_weight,b_features_11_block_3_1_running_var]} constant,
+     t798 f32 [C=96] {folded from=[p_features_11_block_3_1_weight,p_features_11_block_3_1_bias,b_features_11_block_3_1_running_mean,b_features_11_block_3_1_running_var]} constant,
+     t799 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_12_0_weight,p_features_12_1_weight,b_features_12_1_running_var]} constant,
+     t800 f32 [C=576] {folded from=[p_features_12_1_weight,p_features_12_1_bias,b_features_12_1_running_mean,b_features_12_1_running_var]} constant]
   nodes:
     group g1 torch.ops.aten.convolution.default:
       n0 {derived}: [t245 f32 [H=224 W=224 C=3] {derived}] =
@@ -824,11 +492,8 @@ activations, not on constants.
     n488 {derived}: [t801 f32 [H=112 W=112 C=16] {derived}] =
       convolution
         x=t245 {derived}
-        weight=t733 {folded from=[p_features_0_0_weight, p_features_0_1_weight,
-                                  b_features_0_1_running_var]}
-        bias=t734 {folded from=[p_features_0_1_weight, p_features_0_1_bias,
-                                b_features_0_1_running_mean,
-                                b_features_0_1_running_var]}
+        weight=t733 {folded from=[p_features_0_0_weight,p_features_0_1_weight,b_features_0_1_running_var]}
+        bias=t734 {folded from=[p_features_0_1_weight,p_features_0_1_bias,b_features_0_1_running_mean,b_features_0_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -856,13 +521,8 @@ activations, not on constants.
     n489 {derived}: [t802 f32 [H=56 W=56 C=16] {derived}] =
       convolution
         x=t257 {derived}
-        weight=t735 {folded from=[p_features_1_block_0_0_weight,
-                                  p_features_1_block_0_1_weight,
-                                  b_features_1_block_0_1_running_var]}
-        bias=t736 {folded from=[p_features_1_block_0_1_weight,
-                                p_features_1_block_0_1_bias,
-                                b_features_1_block_0_1_running_mean,
-                                b_features_1_block_0_1_running_var]}
+        weight=t735 {folded from=[p_features_1_block_0_0_weight,p_features_1_block_0_1_weight,b_features_1_block_0_1_running_var]}
+        bias=t736 {folded from=[p_features_1_block_0_1_weight,p_features_1_block_0_1_bias,b_features_1_block_0_1_running_mean,b_features_1_block_0_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -924,13 +584,8 @@ activations, not on constants.
     n498 {derived}: [t809 f32 [H=56 W=56 C=16] {derived}] =
       convolution
         x=t280 {derived}
-        weight=t737 {folded from=[p_features_1_block_2_0_weight,
-                                  p_features_1_block_2_1_weight,
-                                  b_features_1_block_2_1_running_var]}
-        bias=t738 {folded from=[p_features_1_block_2_1_weight,
-                                p_features_1_block_2_1_bias,
-                                b_features_1_block_2_1_running_mean,
-                                b_features_1_block_2_1_running_var]}
+        weight=t737 {folded from=[p_features_1_block_2_0_weight,p_features_1_block_2_1_weight,b_features_1_block_2_1_running_var]}
+        bias=t738 {folded from=[p_features_1_block_2_1_weight,p_features_1_block_2_1_bias,b_features_1_block_2_1_running_mean,b_features_1_block_2_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -940,13 +595,8 @@ activations, not on constants.
     n499 {derived}: [t810 f32 [H=56 W=56 C=72] {derived}] =
       convolution
         x=t809 {derived}
-        weight=t739 {folded from=[p_features_2_block_0_0_weight,
-                                  p_features_2_block_0_1_weight,
-                                  b_features_2_block_0_1_running_var]}
-        bias=t740 {folded from=[p_features_2_block_0_1_weight,
-                                p_features_2_block_0_1_bias,
-                                b_features_2_block_0_1_running_mean,
-                                b_features_2_block_0_1_running_var]}
+        weight=t739 {folded from=[p_features_2_block_0_0_weight,p_features_2_block_0_1_weight,b_features_2_block_0_1_running_var]}
+        bias=t740 {folded from=[p_features_2_block_0_1_weight,p_features_2_block_0_1_bias,b_features_2_block_0_1_running_mean,b_features_2_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -958,13 +608,8 @@ activations, not on constants.
     n501 {derived}: [t812 f32 [H=28 W=28 C=72] {derived}] =
       convolution
         x=t811 {derived}
-        weight=t741 {folded from=[p_features_2_block_1_0_weight,
-                                  p_features_2_block_1_1_weight,
-                                  b_features_2_block_1_1_running_var]}
-        bias=t742 {folded from=[p_features_2_block_1_1_weight,
-                                p_features_2_block_1_1_bias,
-                                b_features_2_block_1_1_running_mean,
-                                b_features_2_block_1_1_running_var]}
+        weight=t741 {folded from=[p_features_2_block_1_0_weight,p_features_2_block_1_1_weight,b_features_2_block_1_1_running_var]}
+        bias=t742 {folded from=[p_features_2_block_1_1_weight,p_features_2_block_1_1_bias,b_features_2_block_1_1_running_mean,b_features_2_block_1_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -976,13 +621,8 @@ activations, not on constants.
     n503 {derived}: [t814 f32 [H=28 W=28 C=24] {derived}] =
       convolution
         x=t813 {derived}
-        weight=t743 {folded from=[p_features_2_block_2_0_weight,
-                                  p_features_2_block_2_1_weight,
-                                  b_features_2_block_2_1_running_var]}
-        bias=t744 {folded from=[p_features_2_block_2_1_weight,
-                                p_features_2_block_2_1_bias,
-                                b_features_2_block_2_1_running_mean,
-                                b_features_2_block_2_1_running_var]}
+        weight=t743 {folded from=[p_features_2_block_2_0_weight,p_features_2_block_2_1_weight,b_features_2_block_2_1_running_var]}
+        bias=t744 {folded from=[p_features_2_block_2_1_weight,p_features_2_block_2_1_bias,b_features_2_block_2_1_running_mean,b_features_2_block_2_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -992,13 +632,8 @@ activations, not on constants.
     n504 {derived}: [t815 f32 [H=28 W=28 C=88] {derived}] =
       convolution
         x=t814 {derived}
-        weight=t745 {folded from=[p_features_3_block_0_0_weight,
-                                  p_features_3_block_0_1_weight,
-                                  b_features_3_block_0_1_running_var]}
-        bias=t746 {folded from=[p_features_3_block_0_1_weight,
-                                p_features_3_block_0_1_bias,
-                                b_features_3_block_0_1_running_mean,
-                                b_features_3_block_0_1_running_var]}
+        weight=t745 {folded from=[p_features_3_block_0_0_weight,p_features_3_block_0_1_weight,b_features_3_block_0_1_running_var]}
+        bias=t746 {folded from=[p_features_3_block_0_1_weight,p_features_3_block_0_1_bias,b_features_3_block_0_1_running_mean,b_features_3_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1010,13 +645,8 @@ activations, not on constants.
     n506 {derived}: [t817 f32 [H=28 W=28 C=88] {derived}] =
       convolution
         x=t816 {derived}
-        weight=t747 {folded from=[p_features_3_block_1_0_weight,
-                                  p_features_3_block_1_1_weight,
-                                  b_features_3_block_1_1_running_var]}
-        bias=t748 {folded from=[p_features_3_block_1_1_weight,
-                                p_features_3_block_1_1_bias,
-                                b_features_3_block_1_1_running_mean,
-                                b_features_3_block_1_1_running_var]}
+        weight=t747 {folded from=[p_features_3_block_1_0_weight,p_features_3_block_1_1_weight,b_features_3_block_1_1_running_var]}
+        bias=t748 {folded from=[p_features_3_block_1_1_weight,p_features_3_block_1_1_bias,b_features_3_block_1_1_running_mean,b_features_3_block_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -1028,13 +658,8 @@ activations, not on constants.
     n508 {derived}: [t819 f32 [H=28 W=28 C=24] {derived}] =
       convolution
         x=t818 {derived}
-        weight=t749 {folded from=[p_features_3_block_2_0_weight,
-                                  p_features_3_block_2_1_weight,
-                                  b_features_3_block_2_1_running_var]}
-        bias=t750 {folded from=[p_features_3_block_2_1_weight,
-                                p_features_3_block_2_1_bias,
-                                b_features_3_block_2_1_running_mean,
-                                b_features_3_block_2_1_running_var]}
+        weight=t749 {folded from=[p_features_3_block_2_0_weight,p_features_3_block_2_1_weight,b_features_3_block_2_1_running_var]}
+        bias=t750 {folded from=[p_features_3_block_2_1_weight,p_features_3_block_2_1_bias,b_features_3_block_2_1_running_mean,b_features_3_block_2_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1046,13 +671,8 @@ activations, not on constants.
     n510 {derived}: [t821 f32 [H=28 W=28 C=96] {derived}] =
       convolution
         x=t820 {derived}
-        weight=t751 {folded from=[p_features_4_block_0_0_weight,
-                                  p_features_4_block_0_1_weight,
-                                  b_features_4_block_0_1_running_var]}
-        bias=t752 {folded from=[p_features_4_block_0_1_weight,
-                                p_features_4_block_0_1_bias,
-                                b_features_4_block_0_1_running_mean,
-                                b_features_4_block_0_1_running_var]}
+        weight=t751 {folded from=[p_features_4_block_0_0_weight,p_features_4_block_0_1_weight,b_features_4_block_0_1_running_var]}
+        bias=t752 {folded from=[p_features_4_block_0_1_weight,p_features_4_block_0_1_bias,b_features_4_block_0_1_running_mean,b_features_4_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1080,13 +700,8 @@ activations, not on constants.
     n511 {derived}: [t822 f32 [H=14 W=14 C=96] {derived}] =
       convolution
         x=t346 {derived}
-        weight=t753 {folded from=[p_features_4_block_1_0_weight,
-                                  p_features_4_block_1_1_weight,
-                                  b_features_4_block_1_1_running_var]}
-        bias=t754 {folded from=[p_features_4_block_1_1_weight,
-                                p_features_4_block_1_1_bias,
-                                b_features_4_block_1_1_running_mean,
-                                b_features_4_block_1_1_running_var]}
+        weight=t753 {folded from=[p_features_4_block_1_0_weight,p_features_4_block_1_1_weight,b_features_4_block_1_1_running_var]}
+        bias=t754 {folded from=[p_features_4_block_1_1_weight,p_features_4_block_1_1_bias,b_features_4_block_1_1_running_mean,b_features_4_block_1_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=2; w=2};
                dilation={h=1; w=1};
@@ -1159,13 +774,8 @@ activations, not on constants.
     n518 {derived}: [t828 f32 [H=14 W=14 C=40] {derived}] =
       convolution
         x=t373 {derived}
-        weight=t755 {folded from=[p_features_4_block_3_0_weight,
-                                  p_features_4_block_3_1_weight,
-                                  b_features_4_block_3_1_running_var]}
-        bias=t756 {folded from=[p_features_4_block_3_1_weight,
-                                p_features_4_block_3_1_bias,
-                                b_features_4_block_3_1_running_mean,
-                                b_features_4_block_3_1_running_var]}
+        weight=t755 {folded from=[p_features_4_block_3_0_weight,p_features_4_block_3_1_weight,b_features_4_block_3_1_running_var]}
+        bias=t756 {folded from=[p_features_4_block_3_1_weight,p_features_4_block_3_1_bias,b_features_4_block_3_1_running_mean,b_features_4_block_3_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1175,13 +785,8 @@ activations, not on constants.
     n519 {derived}: [t829 f32 [H=14 W=14 C=240] {derived}] =
       convolution
         x=t828 {derived}
-        weight=t757 {folded from=[p_features_5_block_0_0_weight,
-                                  p_features_5_block_0_1_weight,
-                                  b_features_5_block_0_1_running_var]}
-        bias=t758 {folded from=[p_features_5_block_0_1_weight,
-                                p_features_5_block_0_1_bias,
-                                b_features_5_block_0_1_running_mean,
-                                b_features_5_block_0_1_running_var]}
+        weight=t757 {folded from=[p_features_5_block_0_0_weight,p_features_5_block_0_1_weight,b_features_5_block_0_1_running_var]}
+        bias=t758 {folded from=[p_features_5_block_0_1_weight,p_features_5_block_0_1_bias,b_features_5_block_0_1_running_mean,b_features_5_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1211,13 +816,8 @@ activations, not on constants.
     n520 {derived}: [t830 f32 [H=14 W=14 C=240] {derived}] =
       convolution
         x=t392 {derived}
-        weight=t759 {folded from=[p_features_5_block_1_0_weight,
-                                  p_features_5_block_1_1_weight,
-                                  b_features_5_block_1_1_running_var]}
-        bias=t760 {folded from=[p_features_5_block_1_1_weight,
-                                p_features_5_block_1_1_bias,
-                                b_features_5_block_1_1_running_mean,
-                                b_features_5_block_1_1_running_var]}
+        weight=t759 {folded from=[p_features_5_block_1_0_weight,p_features_5_block_1_1_weight,b_features_5_block_1_1_running_var]}
+        bias=t760 {folded from=[p_features_5_block_1_1_weight,p_features_5_block_1_1_bias,b_features_5_block_1_1_running_mean,b_features_5_block_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=2; w=2};
                dilation={h=1; w=1};
@@ -1290,13 +890,8 @@ activations, not on constants.
     n527 {derived}: [t836 f32 [H=14 W=14 C=40] {derived}] =
       convolution
         x=t419 {derived}
-        weight=t761 {folded from=[p_features_5_block_3_0_weight,
-                                  p_features_5_block_3_1_weight,
-                                  b_features_5_block_3_1_running_var]}
-        bias=t762 {folded from=[p_features_5_block_3_1_weight,
-                                p_features_5_block_3_1_bias,
-                                b_features_5_block_3_1_running_mean,
-                                b_features_5_block_3_1_running_var]}
+        weight=t761 {folded from=[p_features_5_block_3_0_weight,p_features_5_block_3_1_weight,b_features_5_block_3_1_running_var]}
+        bias=t762 {folded from=[p_features_5_block_3_1_weight,p_features_5_block_3_1_bias,b_features_5_block_3_1_running_mean,b_features_5_block_3_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1308,13 +903,8 @@ activations, not on constants.
     n529 {derived}: [t838 f32 [H=14 W=14 C=240] {derived}] =
       convolution
         x=t837 {derived}
-        weight=t763 {folded from=[p_features_6_block_0_0_weight,
-                                  p_features_6_block_0_1_weight,
-                                  b_features_6_block_0_1_running_var]}
-        bias=t764 {folded from=[p_features_6_block_0_1_weight,
-                                p_features_6_block_0_1_bias,
-                                b_features_6_block_0_1_running_mean,
-                                b_features_6_block_0_1_running_var]}
+        weight=t763 {folded from=[p_features_6_block_0_0_weight,p_features_6_block_0_1_weight,b_features_6_block_0_1_running_var]}
+        bias=t764 {folded from=[p_features_6_block_0_1_weight,p_features_6_block_0_1_bias,b_features_6_block_0_1_running_mean,b_features_6_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1344,13 +934,8 @@ activations, not on constants.
     n530 {derived}: [t839 f32 [H=14 W=14 C=240] {derived}] =
       convolution
         x=t439 {derived}
-        weight=t765 {folded from=[p_features_6_block_1_0_weight,
-                                  p_features_6_block_1_1_weight,
-                                  b_features_6_block_1_1_running_var]}
-        bias=t766 {folded from=[p_features_6_block_1_1_weight,
-                                p_features_6_block_1_1_bias,
-                                b_features_6_block_1_1_running_mean,
-                                b_features_6_block_1_1_running_var]}
+        weight=t765 {folded from=[p_features_6_block_1_0_weight,p_features_6_block_1_1_weight,b_features_6_block_1_1_running_var]}
+        bias=t766 {folded from=[p_features_6_block_1_1_weight,p_features_6_block_1_1_bias,b_features_6_block_1_1_running_mean,b_features_6_block_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=2; w=2};
                dilation={h=1; w=1};
@@ -1423,13 +1008,8 @@ activations, not on constants.
     n537 {derived}: [t845 f32 [H=14 W=14 C=40] {derived}] =
       convolution
         x=t466 {derived}
-        weight=t767 {folded from=[p_features_6_block_3_0_weight,
-                                  p_features_6_block_3_1_weight,
-                                  b_features_6_block_3_1_running_var]}
-        bias=t768 {folded from=[p_features_6_block_3_1_weight,
-                                p_features_6_block_3_1_bias,
-                                b_features_6_block_3_1_running_mean,
-                                b_features_6_block_3_1_running_var]}
+        weight=t767 {folded from=[p_features_6_block_3_0_weight,p_features_6_block_3_1_weight,b_features_6_block_3_1_running_var]}
+        bias=t768 {folded from=[p_features_6_block_3_1_weight,p_features_6_block_3_1_bias,b_features_6_block_3_1_running_mean,b_features_6_block_3_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1441,13 +1021,8 @@ activations, not on constants.
     n539 {derived}: [t847 f32 [H=14 W=14 C=120] {derived}] =
       convolution
         x=t846 {derived}
-        weight=t769 {folded from=[p_features_7_block_0_0_weight,
-                                  p_features_7_block_0_1_weight,
-                                  b_features_7_block_0_1_running_var]}
-        bias=t770 {folded from=[p_features_7_block_0_1_weight,
-                                p_features_7_block_0_1_bias,
-                                b_features_7_block_0_1_running_mean,
-                                b_features_7_block_0_1_running_var]}
+        weight=t769 {folded from=[p_features_7_block_0_0_weight,p_features_7_block_0_1_weight,b_features_7_block_0_1_running_var]}
+        bias=t770 {folded from=[p_features_7_block_0_1_weight,p_features_7_block_0_1_bias,b_features_7_block_0_1_running_mean,b_features_7_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1477,13 +1052,8 @@ activations, not on constants.
     n540 {derived}: [t848 f32 [H=14 W=14 C=120] {derived}] =
       convolution
         x=t486 {derived}
-        weight=t771 {folded from=[p_features_7_block_1_0_weight,
-                                  p_features_7_block_1_1_weight,
-                                  b_features_7_block_1_1_running_var]}
-        bias=t772 {folded from=[p_features_7_block_1_1_weight,
-                                p_features_7_block_1_1_bias,
-                                b_features_7_block_1_1_running_mean,
-                                b_features_7_block_1_1_running_var]}
+        weight=t771 {folded from=[p_features_7_block_1_0_weight,p_features_7_block_1_1_weight,b_features_7_block_1_1_running_var]}
+        bias=t772 {folded from=[p_features_7_block_1_1_weight,p_features_7_block_1_1_bias,b_features_7_block_1_1_running_mean,b_features_7_block_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=2; w=2};
                dilation={h=1; w=1};
@@ -1556,13 +1126,8 @@ activations, not on constants.
     n547 {derived}: [t854 f32 [H=14 W=14 C=48] {derived}] =
       convolution
         x=t513 {derived}
-        weight=t773 {folded from=[p_features_7_block_3_0_weight,
-                                  p_features_7_block_3_1_weight,
-                                  b_features_7_block_3_1_running_var]}
-        bias=t774 {folded from=[p_features_7_block_3_1_weight,
-                                p_features_7_block_3_1_bias,
-                                b_features_7_block_3_1_running_mean,
-                                b_features_7_block_3_1_running_var]}
+        weight=t773 {folded from=[p_features_7_block_3_0_weight,p_features_7_block_3_1_weight,b_features_7_block_3_1_running_var]}
+        bias=t774 {folded from=[p_features_7_block_3_1_weight,p_features_7_block_3_1_bias,b_features_7_block_3_1_running_mean,b_features_7_block_3_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1572,13 +1137,8 @@ activations, not on constants.
     n548 {derived}: [t855 f32 [H=14 W=14 C=144] {derived}] =
       convolution
         x=t854 {derived}
-        weight=t775 {folded from=[p_features_8_block_0_0_weight,
-                                  p_features_8_block_0_1_weight,
-                                  b_features_8_block_0_1_running_var]}
-        bias=t776 {folded from=[p_features_8_block_0_1_weight,
-                                p_features_8_block_0_1_bias,
-                                b_features_8_block_0_1_running_mean,
-                                b_features_8_block_0_1_running_var]}
+        weight=t775 {folded from=[p_features_8_block_0_0_weight,p_features_8_block_0_1_weight,b_features_8_block_0_1_running_var]}
+        bias=t776 {folded from=[p_features_8_block_0_1_weight,p_features_8_block_0_1_bias,b_features_8_block_0_1_running_mean,b_features_8_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1608,13 +1168,8 @@ activations, not on constants.
     n549 {derived}: [t856 f32 [H=14 W=14 C=144] {derived}] =
       convolution
         x=t532 {derived}
-        weight=t777 {folded from=[p_features_8_block_1_0_weight,
-                                  p_features_8_block_1_1_weight,
-                                  b_features_8_block_1_1_running_var]}
-        bias=t778 {folded from=[p_features_8_block_1_1_weight,
-                                p_features_8_block_1_1_bias,
-                                b_features_8_block_1_1_running_mean,
-                                b_features_8_block_1_1_running_var]}
+        weight=t777 {folded from=[p_features_8_block_1_0_weight,p_features_8_block_1_1_weight,b_features_8_block_1_1_running_var]}
+        bias=t778 {folded from=[p_features_8_block_1_1_weight,p_features_8_block_1_1_bias,b_features_8_block_1_1_running_mean,b_features_8_block_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=2; w=2};
                dilation={h=1; w=1};
@@ -1687,13 +1242,8 @@ activations, not on constants.
     n556 {derived}: [t862 f32 [H=14 W=14 C=48] {derived}] =
       convolution
         x=t559 {derived}
-        weight=t779 {folded from=[p_features_8_block_3_0_weight,
-                                  p_features_8_block_3_1_weight,
-                                  b_features_8_block_3_1_running_var]}
-        bias=t780 {folded from=[p_features_8_block_3_1_weight,
-                                p_features_8_block_3_1_bias,
-                                b_features_8_block_3_1_running_mean,
-                                b_features_8_block_3_1_running_var]}
+        weight=t779 {folded from=[p_features_8_block_3_0_weight,p_features_8_block_3_1_weight,b_features_8_block_3_1_running_var]}
+        bias=t780 {folded from=[p_features_8_block_3_1_weight,p_features_8_block_3_1_bias,b_features_8_block_3_1_running_mean,b_features_8_block_3_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1705,13 +1255,8 @@ activations, not on constants.
     n558 {derived}: [t864 f32 [H=14 W=14 C=288] {derived}] =
       convolution
         x=t863 {derived}
-        weight=t781 {folded from=[p_features_9_block_0_0_weight,
-                                  p_features_9_block_0_1_weight,
-                                  b_features_9_block_0_1_running_var]}
-        bias=t782 {folded from=[p_features_9_block_0_1_weight,
-                                p_features_9_block_0_1_bias,
-                                b_features_9_block_0_1_running_mean,
-                                b_features_9_block_0_1_running_var]}
+        weight=t781 {folded from=[p_features_9_block_0_0_weight,p_features_9_block_0_1_weight,b_features_9_block_0_1_running_var]}
+        bias=t782 {folded from=[p_features_9_block_0_1_weight,p_features_9_block_0_1_bias,b_features_9_block_0_1_running_mean,b_features_9_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1741,13 +1286,8 @@ activations, not on constants.
     n559 {derived}: [t865 f32 [H=7 W=7 C=288] {derived}] =
       convolution
         x=t579 {derived}
-        weight=t783 {folded from=[p_features_9_block_1_0_weight,
-                                  p_features_9_block_1_1_weight,
-                                  b_features_9_block_1_1_running_var]}
-        bias=t784 {folded from=[p_features_9_block_1_1_weight,
-                                p_features_9_block_1_1_bias,
-                                b_features_9_block_1_1_running_mean,
-                                b_features_9_block_1_1_running_var]}
+        weight=t783 {folded from=[p_features_9_block_1_0_weight,p_features_9_block_1_1_weight,b_features_9_block_1_1_running_var]}
+        bias=t784 {folded from=[p_features_9_block_1_1_weight,p_features_9_block_1_1_bias,b_features_9_block_1_1_running_mean,b_features_9_block_1_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=2; w=2};
                dilation={h=1; w=1};
@@ -1819,13 +1359,8 @@ activations, not on constants.
     n566 {derived}: [t871 f32 [H=7 W=7 C=96] {derived}] =
       convolution
         x=t606 {derived}
-        weight=t785 {folded from=[p_features_9_block_3_0_weight,
-                                  p_features_9_block_3_1_weight,
-                                  b_features_9_block_3_1_running_var]}
-        bias=t786 {folded from=[p_features_9_block_3_1_weight,
-                                p_features_9_block_3_1_bias,
-                                b_features_9_block_3_1_running_mean,
-                                b_features_9_block_3_1_running_var]}
+        weight=t785 {folded from=[p_features_9_block_3_0_weight,p_features_9_block_3_1_weight,b_features_9_block_3_1_running_var]}
+        bias=t786 {folded from=[p_features_9_block_3_1_weight,p_features_9_block_3_1_bias,b_features_9_block_3_1_running_mean,b_features_9_block_3_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1835,13 +1370,8 @@ activations, not on constants.
     n567 {derived}: [t872 f32 [H=7 W=7 C=576] {derived}] =
       convolution
         x=t871 {derived}
-        weight=t787 {folded from=[p_features_10_block_0_0_weight,
-                                  p_features_10_block_0_1_weight,
-                                  b_features_10_block_0_1_running_var]}
-        bias=t788 {folded from=[p_features_10_block_0_1_weight,
-                                p_features_10_block_0_1_bias,
-                                b_features_10_block_0_1_running_mean,
-                                b_features_10_block_0_1_running_var]}
+        weight=t787 {folded from=[p_features_10_block_0_0_weight,p_features_10_block_0_1_weight,b_features_10_block_0_1_running_var]}
+        bias=t788 {folded from=[p_features_10_block_0_1_weight,p_features_10_block_0_1_bias,b_features_10_block_0_1_running_mean,b_features_10_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1870,13 +1400,8 @@ activations, not on constants.
     n568 {derived}: [t873 f32 [H=7 W=7 C=576] {derived}] =
       convolution
         x=t625 {derived}
-        weight=t789 {folded from=[p_features_10_block_1_0_weight,
-                                  p_features_10_block_1_1_weight,
-                                  b_features_10_block_1_1_running_var]}
-        bias=t790 {folded from=[p_features_10_block_1_1_weight,
-                                p_features_10_block_1_1_bias,
-                                b_features_10_block_1_1_running_mean,
-                                b_features_10_block_1_1_running_var]}
+        weight=t789 {folded from=[p_features_10_block_1_0_weight,p_features_10_block_1_1_weight,b_features_10_block_1_1_running_var]}
+        bias=t790 {folded from=[p_features_10_block_1_1_weight,p_features_10_block_1_1_bias,b_features_10_block_1_1_running_mean,b_features_10_block_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=2; w=2};
                dilation={h=1; w=1};
@@ -1948,13 +1473,8 @@ activations, not on constants.
     n575 {derived}: [t879 f32 [H=7 W=7 C=96] {derived}] =
       convolution
         x=t652 {derived}
-        weight=t791 {folded from=[p_features_10_block_3_0_weight,
-                                  p_features_10_block_3_1_weight,
-                                  b_features_10_block_3_1_running_var]}
-        bias=t792 {folded from=[p_features_10_block_3_1_weight,
-                                p_features_10_block_3_1_bias,
-                                b_features_10_block_3_1_running_mean,
-                                b_features_10_block_3_1_running_var]}
+        weight=t791 {folded from=[p_features_10_block_3_0_weight,p_features_10_block_3_1_weight,b_features_10_block_3_1_running_var]}
+        bias=t792 {folded from=[p_features_10_block_3_1_weight,p_features_10_block_3_1_bias,b_features_10_block_3_1_running_mean,b_features_10_block_3_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -1966,13 +1486,8 @@ activations, not on constants.
     n577 {derived}: [t881 f32 [H=7 W=7 C=576] {derived}] =
       convolution
         x=t880 {derived}
-        weight=t793 {folded from=[p_features_11_block_0_0_weight,
-                                  p_features_11_block_0_1_weight,
-                                  b_features_11_block_0_1_running_var]}
-        bias=t794 {folded from=[p_features_11_block_0_1_weight,
-                                p_features_11_block_0_1_bias,
-                                b_features_11_block_0_1_running_mean,
-                                b_features_11_block_0_1_running_var]}
+        weight=t793 {folded from=[p_features_11_block_0_0_weight,p_features_11_block_0_1_weight,b_features_11_block_0_1_running_var]}
+        bias=t794 {folded from=[p_features_11_block_0_1_weight,p_features_11_block_0_1_bias,b_features_11_block_0_1_running_mean,b_features_11_block_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2001,13 +1516,8 @@ activations, not on constants.
     n578 {derived}: [t882 f32 [H=7 W=7 C=576] {derived}] =
       convolution
         x=t672 {derived}
-        weight=t795 {folded from=[p_features_11_block_1_0_weight,
-                                  p_features_11_block_1_1_weight,
-                                  b_features_11_block_1_1_running_var]}
-        bias=t796 {folded from=[p_features_11_block_1_1_weight,
-                                p_features_11_block_1_1_bias,
-                                b_features_11_block_1_1_running_mean,
-                                b_features_11_block_1_1_running_var]}
+        weight=t795 {folded from=[p_features_11_block_1_0_weight,p_features_11_block_1_1_weight,b_features_11_block_1_1_running_var]}
+        bias=t796 {folded from=[p_features_11_block_1_1_weight,p_features_11_block_1_1_bias,b_features_11_block_1_1_running_mean,b_features_11_block_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=2; w=2};
                dilation={h=1; w=1};
@@ -2079,13 +1589,8 @@ activations, not on constants.
     n585 {derived}: [t888 f32 [H=7 W=7 C=96] {derived}] =
       convolution
         x=t699 {derived}
-        weight=t797 {folded from=[p_features_11_block_3_0_weight,
-                                  p_features_11_block_3_1_weight,
-                                  b_features_11_block_3_1_running_var]}
-        bias=t798 {folded from=[p_features_11_block_3_1_weight,
-                                p_features_11_block_3_1_bias,
-                                b_features_11_block_3_1_running_mean,
-                                b_features_11_block_3_1_running_var]}
+        weight=t797 {folded from=[p_features_11_block_3_0_weight,p_features_11_block_3_1_weight,b_features_11_block_3_1_running_var]}
+        bias=t798 {folded from=[p_features_11_block_3_1_weight,p_features_11_block_3_1_bias,b_features_11_block_3_1_running_mean,b_features_11_block_3_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2097,12 +1602,8 @@ activations, not on constants.
     n587 {derived}: [t890 f32 [H=7 W=7 C=576] {derived}] =
       convolution
         x=t889 {derived}
-        weight=t799 {folded from=[p_features_12_0_weight,
-                                  p_features_12_1_weight,
-                                  b_features_12_1_running_var]}
-        bias=t800 {folded from=[p_features_12_1_weight, p_features_12_1_bias,
-                                b_features_12_1_running_mean,
-                                b_features_12_1_running_var]}
+        weight=t799 {folded from=[p_features_12_0_weight,p_features_12_1_weight,b_features_12_1_running_var]}
+        bias=t800 {folded from=[p_features_12_1_weight,p_features_12_1_bias,b_features_12_1_running_mean,b_features_12_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2170,369 +1671,110 @@ is real per-activation work, not something folding can hoist.
     [t157 f32 [C=1000] {pt2=root:p_classifier_1_bias target=classifier.1.bias} constant,
      t314 f32 [H=3 W=224 C=224] {pt2=root:x},
      t728 f32 [N=1000 T=1 D=1 H=1 W=1 C=1280] {folded from=[p_classifier_1_weight]} constant,
-     t730 f32 [N=32 T=1 D=1 H=3 W=3 C=3] {folded from=[p_features_0_0_weight,
-                                                       p_features_0_1_weight,
-                                                       b_features_0_1_running_var]} constant,
-     t731 f32 [C=32] {folded from=[p_features_0_1_weight, p_features_0_1_bias,
-                                   b_features_0_1_running_mean,
-                                   b_features_0_1_running_var]} constant,
-     t732 f32 [N=32 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_1_conv_0_0_weight,
-                                                       p_features_1_conv_0_1_weight,
-                                                       b_features_1_conv_0_1_running_var]} constant,
-     t733 f32 [C=32] {folded from=[p_features_1_conv_0_1_weight,
-                                   p_features_1_conv_0_1_bias,
-                                   b_features_1_conv_0_1_running_mean,
-                                   b_features_1_conv_0_1_running_var]} constant,
-     t734 f32 [N=16 T=1 D=1 H=1 W=1 C=32] {folded from=[p_features_1_conv_1_weight,
-                                                        p_features_1_conv_2_weight,
-                                                        b_features_1_conv_2_running_var]} constant,
-     t735 f32 [C=16] {folded from=[p_features_1_conv_2_weight,
-                                   p_features_1_conv_2_bias,
-                                   b_features_1_conv_2_running_mean,
-                                   b_features_1_conv_2_running_var]} constant,
-     t736 f32 [N=96 T=1 D=1 H=1 W=1 C=16] {folded from=[p_features_2_conv_0_0_weight,
-                                                        p_features_2_conv_0_1_weight,
-                                                        b_features_2_conv_0_1_running_var]} constant,
-     t737 f32 [C=96] {folded from=[p_features_2_conv_0_1_weight,
-                                   p_features_2_conv_0_1_bias,
-                                   b_features_2_conv_0_1_running_mean,
-                                   b_features_2_conv_0_1_running_var]} constant,
-     t738 f32 [N=96 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_2_conv_1_0_weight,
-                                                       p_features_2_conv_1_1_weight,
-                                                       b_features_2_conv_1_1_running_var]} constant,
-     t739 f32 [C=96] {folded from=[p_features_2_conv_1_1_weight,
-                                   p_features_2_conv_1_1_bias,
-                                   b_features_2_conv_1_1_running_mean,
-                                   b_features_2_conv_1_1_running_var]} constant,
-     t740 f32 [N=24 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_2_conv_2_weight,
-                                                        p_features_2_conv_3_weight,
-                                                        b_features_2_conv_3_running_var]} constant,
-     t741 f32 [C=24] {folded from=[p_features_2_conv_3_weight,
-                                   p_features_2_conv_3_bias,
-                                   b_features_2_conv_3_running_mean,
-                                   b_features_2_conv_3_running_var]} constant,
-     t742 f32 [N=144 T=1 D=1 H=1 W=1 C=24] {folded from=[p_features_3_conv_0_0_weight,
-                                                         p_features_3_conv_0_1_weight,
-                                                         b_features_3_conv_0_1_running_var]} constant,
-     t743 f32 [C=144] {folded from=[p_features_3_conv_0_1_weight,
-                                    p_features_3_conv_0_1_bias,
-                                    b_features_3_conv_0_1_running_mean,
-                                    b_features_3_conv_0_1_running_var]} constant,
-     t744 f32 [N=144 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_3_conv_1_0_weight,
-                                                        p_features_3_conv_1_1_weight,
-                                                        b_features_3_conv_1_1_running_var]} constant,
-     t745 f32 [C=144] {folded from=[p_features_3_conv_1_1_weight,
-                                    p_features_3_conv_1_1_bias,
-                                    b_features_3_conv_1_1_running_mean,
-                                    b_features_3_conv_1_1_running_var]} constant,
-     t746 f32 [N=24 T=1 D=1 H=1 W=1 C=144] {folded from=[p_features_3_conv_2_weight,
-                                                         p_features_3_conv_3_weight,
-                                                         b_features_3_conv_3_running_var]} constant,
-     t747 f32 [C=24] {folded from=[p_features_3_conv_3_weight,
-                                   p_features_3_conv_3_bias,
-                                   b_features_3_conv_3_running_mean,
-                                   b_features_3_conv_3_running_var]} constant,
-     t748 f32 [N=144 T=1 D=1 H=1 W=1 C=24] {folded from=[p_features_4_conv_0_0_weight,
-                                                         p_features_4_conv_0_1_weight,
-                                                         b_features_4_conv_0_1_running_var]} constant,
-     t749 f32 [C=144] {folded from=[p_features_4_conv_0_1_weight,
-                                    p_features_4_conv_0_1_bias,
-                                    b_features_4_conv_0_1_running_mean,
-                                    b_features_4_conv_0_1_running_var]} constant,
-     t750 f32 [N=144 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_4_conv_1_0_weight,
-                                                        p_features_4_conv_1_1_weight,
-                                                        b_features_4_conv_1_1_running_var]} constant,
-     t751 f32 [C=144] {folded from=[p_features_4_conv_1_1_weight,
-                                    p_features_4_conv_1_1_bias,
-                                    b_features_4_conv_1_1_running_mean,
-                                    b_features_4_conv_1_1_running_var]} constant,
-     t752 f32 [N=32 T=1 D=1 H=1 W=1 C=144] {folded from=[p_features_4_conv_2_weight,
-                                                         p_features_4_conv_3_weight,
-                                                         b_features_4_conv_3_running_var]} constant,
-     t753 f32 [C=32] {folded from=[p_features_4_conv_3_weight,
-                                   p_features_4_conv_3_bias,
-                                   b_features_4_conv_3_running_mean,
-                                   b_features_4_conv_3_running_var]} constant,
-     t754 f32 [N=192 T=1 D=1 H=1 W=1 C=32] {folded from=[p_features_5_conv_0_0_weight,
-                                                         p_features_5_conv_0_1_weight,
-                                                         b_features_5_conv_0_1_running_var]} constant,
-     t755 f32 [C=192] {folded from=[p_features_5_conv_0_1_weight,
-                                    p_features_5_conv_0_1_bias,
-                                    b_features_5_conv_0_1_running_mean,
-                                    b_features_5_conv_0_1_running_var]} constant,
-     t756 f32 [N=192 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_5_conv_1_0_weight,
-                                                        p_features_5_conv_1_1_weight,
-                                                        b_features_5_conv_1_1_running_var]} constant,
-     t757 f32 [C=192] {folded from=[p_features_5_conv_1_1_weight,
-                                    p_features_5_conv_1_1_bias,
-                                    b_features_5_conv_1_1_running_mean,
-                                    b_features_5_conv_1_1_running_var]} constant,
-     t758 f32 [N=32 T=1 D=1 H=1 W=1 C=192] {folded from=[p_features_5_conv_2_weight,
-                                                         p_features_5_conv_3_weight,
-                                                         b_features_5_conv_3_running_var]} constant,
-     t759 f32 [C=32] {folded from=[p_features_5_conv_3_weight,
-                                   p_features_5_conv_3_bias,
-                                   b_features_5_conv_3_running_mean,
-                                   b_features_5_conv_3_running_var]} constant,
-     t760 f32 [N=192 T=1 D=1 H=1 W=1 C=32] {folded from=[p_features_6_conv_0_0_weight,
-                                                         p_features_6_conv_0_1_weight,
-                                                         b_features_6_conv_0_1_running_var]} constant,
-     t761 f32 [C=192] {folded from=[p_features_6_conv_0_1_weight,
-                                    p_features_6_conv_0_1_bias,
-                                    b_features_6_conv_0_1_running_mean,
-                                    b_features_6_conv_0_1_running_var]} constant,
-     t762 f32 [N=192 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_6_conv_1_0_weight,
-                                                        p_features_6_conv_1_1_weight,
-                                                        b_features_6_conv_1_1_running_var]} constant,
-     t763 f32 [C=192] {folded from=[p_features_6_conv_1_1_weight,
-                                    p_features_6_conv_1_1_bias,
-                                    b_features_6_conv_1_1_running_mean,
-                                    b_features_6_conv_1_1_running_var]} constant,
-     t764 f32 [N=32 T=1 D=1 H=1 W=1 C=192] {folded from=[p_features_6_conv_2_weight,
-                                                         p_features_6_conv_3_weight,
-                                                         b_features_6_conv_3_running_var]} constant,
-     t765 f32 [C=32] {folded from=[p_features_6_conv_3_weight,
-                                   p_features_6_conv_3_bias,
-                                   b_features_6_conv_3_running_mean,
-                                   b_features_6_conv_3_running_var]} constant,
-     t766 f32 [N=192 T=1 D=1 H=1 W=1 C=32] {folded from=[p_features_7_conv_0_0_weight,
-                                                         p_features_7_conv_0_1_weight,
-                                                         b_features_7_conv_0_1_running_var]} constant,
-     t767 f32 [C=192] {folded from=[p_features_7_conv_0_1_weight,
-                                    p_features_7_conv_0_1_bias,
-                                    b_features_7_conv_0_1_running_mean,
-                                    b_features_7_conv_0_1_running_var]} constant,
-     t768 f32 [N=192 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_7_conv_1_0_weight,
-                                                        p_features_7_conv_1_1_weight,
-                                                        b_features_7_conv_1_1_running_var]} constant,
-     t769 f32 [C=192] {folded from=[p_features_7_conv_1_1_weight,
-                                    p_features_7_conv_1_1_bias,
-                                    b_features_7_conv_1_1_running_mean,
-                                    b_features_7_conv_1_1_running_var]} constant,
-     t770 f32 [N=64 T=1 D=1 H=1 W=1 C=192] {folded from=[p_features_7_conv_2_weight,
-                                                         p_features_7_conv_3_weight,
-                                                         b_features_7_conv_3_running_var]} constant,
-     t771 f32 [C=64] {folded from=[p_features_7_conv_3_weight,
-                                   p_features_7_conv_3_bias,
-                                   b_features_7_conv_3_running_mean,
-                                   b_features_7_conv_3_running_var]} constant,
-     t772 f32 [N=384 T=1 D=1 H=1 W=1 C=64] {folded from=[p_features_8_conv_0_0_weight,
-                                                         p_features_8_conv_0_1_weight,
-                                                         b_features_8_conv_0_1_running_var]} constant,
-     t773 f32 [C=384] {folded from=[p_features_8_conv_0_1_weight,
-                                    p_features_8_conv_0_1_bias,
-                                    b_features_8_conv_0_1_running_mean,
-                                    b_features_8_conv_0_1_running_var]} constant,
-     t774 f32 [N=384 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_8_conv_1_0_weight,
-                                                        p_features_8_conv_1_1_weight,
-                                                        b_features_8_conv_1_1_running_var]} constant,
-     t775 f32 [C=384] {folded from=[p_features_8_conv_1_1_weight,
-                                    p_features_8_conv_1_1_bias,
-                                    b_features_8_conv_1_1_running_mean,
-                                    b_features_8_conv_1_1_running_var]} constant,
-     t776 f32 [N=64 T=1 D=1 H=1 W=1 C=384] {folded from=[p_features_8_conv_2_weight,
-                                                         p_features_8_conv_3_weight,
-                                                         b_features_8_conv_3_running_var]} constant,
-     t777 f32 [C=64] {folded from=[p_features_8_conv_3_weight,
-                                   p_features_8_conv_3_bias,
-                                   b_features_8_conv_3_running_mean,
-                                   b_features_8_conv_3_running_var]} constant,
-     t778 f32 [N=384 T=1 D=1 H=1 W=1 C=64] {folded from=[p_features_9_conv_0_0_weight,
-                                                         p_features_9_conv_0_1_weight,
-                                                         b_features_9_conv_0_1_running_var]} constant,
-     t779 f32 [C=384] {folded from=[p_features_9_conv_0_1_weight,
-                                    p_features_9_conv_0_1_bias,
-                                    b_features_9_conv_0_1_running_mean,
-                                    b_features_9_conv_0_1_running_var]} constant,
-     t780 f32 [N=384 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_9_conv_1_0_weight,
-                                                        p_features_9_conv_1_1_weight,
-                                                        b_features_9_conv_1_1_running_var]} constant,
-     t781 f32 [C=384] {folded from=[p_features_9_conv_1_1_weight,
-                                    p_features_9_conv_1_1_bias,
-                                    b_features_9_conv_1_1_running_mean,
-                                    b_features_9_conv_1_1_running_var]} constant,
-     t782 f32 [N=64 T=1 D=1 H=1 W=1 C=384] {folded from=[p_features_9_conv_2_weight,
-                                                         p_features_9_conv_3_weight,
-                                                         b_features_9_conv_3_running_var]} constant,
-     t783 f32 [C=64] {folded from=[p_features_9_conv_3_weight,
-                                   p_features_9_conv_3_bias,
-                                   b_features_9_conv_3_running_mean,
-                                   b_features_9_conv_3_running_var]} constant,
-     t784 f32 [N=384 T=1 D=1 H=1 W=1 C=64] {folded from=[p_features_10_conv_0_0_weight,
-                                                         p_features_10_conv_0_1_weight,
-                                                         b_features_10_conv_0_1_running_var]} constant,
-     t785 f32 [C=384] {folded from=[p_features_10_conv_0_1_weight,
-                                    p_features_10_conv_0_1_bias,
-                                    b_features_10_conv_0_1_running_mean,
-                                    b_features_10_conv_0_1_running_var]} constant,
-     t786 f32 [N=384 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_10_conv_1_0_weight,
-                                                        p_features_10_conv_1_1_weight,
-                                                        b_features_10_conv_1_1_running_var]} constant,
-     t787 f32 [C=384] {folded from=[p_features_10_conv_1_1_weight,
-                                    p_features_10_conv_1_1_bias,
-                                    b_features_10_conv_1_1_running_mean,
-                                    b_features_10_conv_1_1_running_var]} constant,
-     t788 f32 [N=64 T=1 D=1 H=1 W=1 C=384] {folded from=[p_features_10_conv_2_weight,
-                                                         p_features_10_conv_3_weight,
-                                                         b_features_10_conv_3_running_var]} constant,
-     t789 f32 [C=64] {folded from=[p_features_10_conv_3_weight,
-                                   p_features_10_conv_3_bias,
-                                   b_features_10_conv_3_running_mean,
-                                   b_features_10_conv_3_running_var]} constant,
-     t790 f32 [N=384 T=1 D=1 H=1 W=1 C=64] {folded from=[p_features_11_conv_0_0_weight,
-                                                         p_features_11_conv_0_1_weight,
-                                                         b_features_11_conv_0_1_running_var]} constant,
-     t791 f32 [C=384] {folded from=[p_features_11_conv_0_1_weight,
-                                    p_features_11_conv_0_1_bias,
-                                    b_features_11_conv_0_1_running_mean,
-                                    b_features_11_conv_0_1_running_var]} constant,
-     t792 f32 [N=384 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_11_conv_1_0_weight,
-                                                        p_features_11_conv_1_1_weight,
-                                                        b_features_11_conv_1_1_running_var]} constant,
-     t793 f32 [C=384] {folded from=[p_features_11_conv_1_1_weight,
-                                    p_features_11_conv_1_1_bias,
-                                    b_features_11_conv_1_1_running_mean,
-                                    b_features_11_conv_1_1_running_var]} constant,
-     t794 f32 [N=96 T=1 D=1 H=1 W=1 C=384] {folded from=[p_features_11_conv_2_weight,
-                                                         p_features_11_conv_3_weight,
-                                                         b_features_11_conv_3_running_var]} constant,
-     t795 f32 [C=96] {folded from=[p_features_11_conv_3_weight,
-                                   p_features_11_conv_3_bias,
-                                   b_features_11_conv_3_running_mean,
-                                   b_features_11_conv_3_running_var]} constant,
-     t796 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_12_conv_0_0_weight,
-                                                         p_features_12_conv_0_1_weight,
-                                                         b_features_12_conv_0_1_running_var]} constant,
-     t797 f32 [C=576] {folded from=[p_features_12_conv_0_1_weight,
-                                    p_features_12_conv_0_1_bias,
-                                    b_features_12_conv_0_1_running_mean,
-                                    b_features_12_conv_0_1_running_var]} constant,
-     t798 f32 [N=576 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_12_conv_1_0_weight,
-                                                        p_features_12_conv_1_1_weight,
-                                                        b_features_12_conv_1_1_running_var]} constant,
-     t799 f32 [C=576] {folded from=[p_features_12_conv_1_1_weight,
-                                    p_features_12_conv_1_1_bias,
-                                    b_features_12_conv_1_1_running_mean,
-                                    b_features_12_conv_1_1_running_var]} constant,
-     t800 f32 [N=96 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_12_conv_2_weight,
-                                                         p_features_12_conv_3_weight,
-                                                         b_features_12_conv_3_running_var]} constant,
-     t801 f32 [C=96] {folded from=[p_features_12_conv_3_weight,
-                                   p_features_12_conv_3_bias,
-                                   b_features_12_conv_3_running_mean,
-                                   b_features_12_conv_3_running_var]} constant,
-     t802 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_13_conv_0_0_weight,
-                                                         p_features_13_conv_0_1_weight,
-                                                         b_features_13_conv_0_1_running_var]} constant,
-     t803 f32 [C=576] {folded from=[p_features_13_conv_0_1_weight,
-                                    p_features_13_conv_0_1_bias,
-                                    b_features_13_conv_0_1_running_mean,
-                                    b_features_13_conv_0_1_running_var]} constant,
-     t804 f32 [N=576 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_13_conv_1_0_weight,
-                                                        p_features_13_conv_1_1_weight,
-                                                        b_features_13_conv_1_1_running_var]} constant,
-     t805 f32 [C=576] {folded from=[p_features_13_conv_1_1_weight,
-                                    p_features_13_conv_1_1_bias,
-                                    b_features_13_conv_1_1_running_mean,
-                                    b_features_13_conv_1_1_running_var]} constant,
-     t806 f32 [N=96 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_13_conv_2_weight,
-                                                         p_features_13_conv_3_weight,
-                                                         b_features_13_conv_3_running_var]} constant,
-     t807 f32 [C=96] {folded from=[p_features_13_conv_3_weight,
-                                   p_features_13_conv_3_bias,
-                                   b_features_13_conv_3_running_mean,
-                                   b_features_13_conv_3_running_var]} constant,
-     t808 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_14_conv_0_0_weight,
-                                                         p_features_14_conv_0_1_weight,
-                                                         b_features_14_conv_0_1_running_var]} constant,
-     t809 f32 [C=576] {folded from=[p_features_14_conv_0_1_weight,
-                                    p_features_14_conv_0_1_bias,
-                                    b_features_14_conv_0_1_running_mean,
-                                    b_features_14_conv_0_1_running_var]} constant,
-     t810 f32 [N=576 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_14_conv_1_0_weight,
-                                                        p_features_14_conv_1_1_weight,
-                                                        b_features_14_conv_1_1_running_var]} constant,
-     t811 f32 [C=576] {folded from=[p_features_14_conv_1_1_weight,
-                                    p_features_14_conv_1_1_bias,
-                                    b_features_14_conv_1_1_running_mean,
-                                    b_features_14_conv_1_1_running_var]} constant,
-     t812 f32 [N=160 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_14_conv_2_weight,
-                                                          p_features_14_conv_3_weight,
-                                                          b_features_14_conv_3_running_var]} constant,
-     t813 f32 [C=160] {folded from=[p_features_14_conv_3_weight,
-                                    p_features_14_conv_3_bias,
-                                    b_features_14_conv_3_running_mean,
-                                    b_features_14_conv_3_running_var]} constant,
-     t814 f32 [N=960 T=1 D=1 H=1 W=1 C=160] {folded from=[p_features_15_conv_0_0_weight,
-                                                          p_features_15_conv_0_1_weight,
-                                                          b_features_15_conv_0_1_running_var]} constant,
-     t815 f32 [C=960] {folded from=[p_features_15_conv_0_1_weight,
-                                    p_features_15_conv_0_1_bias,
-                                    b_features_15_conv_0_1_running_mean,
-                                    b_features_15_conv_0_1_running_var]} constant,
-     t816 f32 [N=960 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_15_conv_1_0_weight,
-                                                        p_features_15_conv_1_1_weight,
-                                                        b_features_15_conv_1_1_running_var]} constant,
-     t817 f32 [C=960] {folded from=[p_features_15_conv_1_1_weight,
-                                    p_features_15_conv_1_1_bias,
-                                    b_features_15_conv_1_1_running_mean,
-                                    b_features_15_conv_1_1_running_var]} constant,
-     t818 f32 [N=160 T=1 D=1 H=1 W=1 C=960] {folded from=[p_features_15_conv_2_weight,
-                                                          p_features_15_conv_3_weight,
-                                                          b_features_15_conv_3_running_var]} constant,
-     t819 f32 [C=160] {folded from=[p_features_15_conv_3_weight,
-                                    p_features_15_conv_3_bias,
-                                    b_features_15_conv_3_running_mean,
-                                    b_features_15_conv_3_running_var]} constant,
-     t820 f32 [N=960 T=1 D=1 H=1 W=1 C=160] {folded from=[p_features_16_conv_0_0_weight,
-                                                          p_features_16_conv_0_1_weight,
-                                                          b_features_16_conv_0_1_running_var]} constant,
-     t821 f32 [C=960] {folded from=[p_features_16_conv_0_1_weight,
-                                    p_features_16_conv_0_1_bias,
-                                    b_features_16_conv_0_1_running_mean,
-                                    b_features_16_conv_0_1_running_var]} constant,
-     t822 f32 [N=960 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_16_conv_1_0_weight,
-                                                        p_features_16_conv_1_1_weight,
-                                                        b_features_16_conv_1_1_running_var]} constant,
-     t823 f32 [C=960] {folded from=[p_features_16_conv_1_1_weight,
-                                    p_features_16_conv_1_1_bias,
-                                    b_features_16_conv_1_1_running_mean,
-                                    b_features_16_conv_1_1_running_var]} constant,
-     t824 f32 [N=160 T=1 D=1 H=1 W=1 C=960] {folded from=[p_features_16_conv_2_weight,
-                                                          p_features_16_conv_3_weight,
-                                                          b_features_16_conv_3_running_var]} constant,
-     t825 f32 [C=160] {folded from=[p_features_16_conv_3_weight,
-                                    p_features_16_conv_3_bias,
-                                    b_features_16_conv_3_running_mean,
-                                    b_features_16_conv_3_running_var]} constant,
-     t826 f32 [N=960 T=1 D=1 H=1 W=1 C=160] {folded from=[p_features_17_conv_0_0_weight,
-                                                          p_features_17_conv_0_1_weight,
-                                                          b_features_17_conv_0_1_running_var]} constant,
-     t827 f32 [C=960] {folded from=[p_features_17_conv_0_1_weight,
-                                    p_features_17_conv_0_1_bias,
-                                    b_features_17_conv_0_1_running_mean,
-                                    b_features_17_conv_0_1_running_var]} constant,
-     t828 f32 [N=960 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_17_conv_1_0_weight,
-                                                        p_features_17_conv_1_1_weight,
-                                                        b_features_17_conv_1_1_running_var]} constant,
-     t829 f32 [C=960] {folded from=[p_features_17_conv_1_1_weight,
-                                    p_features_17_conv_1_1_bias,
-                                    b_features_17_conv_1_1_running_mean,
-                                    b_features_17_conv_1_1_running_var]} constant,
-     t830 f32 [N=320 T=1 D=1 H=1 W=1 C=960] {folded from=[p_features_17_conv_2_weight,
-                                                          p_features_17_conv_3_weight,
-                                                          b_features_17_conv_3_running_var]} constant,
-     t831 f32 [C=320] {folded from=[p_features_17_conv_3_weight,
-                                    p_features_17_conv_3_bias,
-                                    b_features_17_conv_3_running_mean,
-                                    b_features_17_conv_3_running_var]} constant,
-     t832 f32 [N=1280 T=1 D=1 H=1 W=1 C=320] {folded from=[p_features_18_0_weight,
-                                                           p_features_18_1_weight,
-                                                           b_features_18_1_running_var]} constant,
-     t833 f32 [C=1280] {folded from=[p_features_18_1_weight,
-                                     p_features_18_1_bias,
-                                     b_features_18_1_running_mean,
-                                     b_features_18_1_running_var]} constant]
+     t730 f32 [N=32 T=1 D=1 H=3 W=3 C=3] {folded from=[p_features_0_0_weight,p_features_0_1_weight,b_features_0_1_running_var]} constant,
+     t731 f32 [C=32] {folded from=[p_features_0_1_weight,p_features_0_1_bias,b_features_0_1_running_mean,b_features_0_1_running_var]} constant,
+     t732 f32 [N=32 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_1_conv_0_0_weight,p_features_1_conv_0_1_weight,b_features_1_conv_0_1_running_var]} constant,
+     t733 f32 [C=32] {folded from=[p_features_1_conv_0_1_weight,p_features_1_conv_0_1_bias,b_features_1_conv_0_1_running_mean,b_features_1_conv_0_1_running_var]} constant,
+     t734 f32 [N=16 T=1 D=1 H=1 W=1 C=32] {folded from=[p_features_1_conv_1_weight,p_features_1_conv_2_weight,b_features_1_conv_2_running_var]} constant,
+     t735 f32 [C=16] {folded from=[p_features_1_conv_2_weight,p_features_1_conv_2_bias,b_features_1_conv_2_running_mean,b_features_1_conv_2_running_var]} constant,
+     t736 f32 [N=96 T=1 D=1 H=1 W=1 C=16] {folded from=[p_features_2_conv_0_0_weight,p_features_2_conv_0_1_weight,b_features_2_conv_0_1_running_var]} constant,
+     t737 f32 [C=96] {folded from=[p_features_2_conv_0_1_weight,p_features_2_conv_0_1_bias,b_features_2_conv_0_1_running_mean,b_features_2_conv_0_1_running_var]} constant,
+     t738 f32 [N=96 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_2_conv_1_0_weight,p_features_2_conv_1_1_weight,b_features_2_conv_1_1_running_var]} constant,
+     t739 f32 [C=96] {folded from=[p_features_2_conv_1_1_weight,p_features_2_conv_1_1_bias,b_features_2_conv_1_1_running_mean,b_features_2_conv_1_1_running_var]} constant,
+     t740 f32 [N=24 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_2_conv_2_weight,p_features_2_conv_3_weight,b_features_2_conv_3_running_var]} constant,
+     t741 f32 [C=24] {folded from=[p_features_2_conv_3_weight,p_features_2_conv_3_bias,b_features_2_conv_3_running_mean,b_features_2_conv_3_running_var]} constant,
+     t742 f32 [N=144 T=1 D=1 H=1 W=1 C=24] {folded from=[p_features_3_conv_0_0_weight,p_features_3_conv_0_1_weight,b_features_3_conv_0_1_running_var]} constant,
+     t743 f32 [C=144] {folded from=[p_features_3_conv_0_1_weight,p_features_3_conv_0_1_bias,b_features_3_conv_0_1_running_mean,b_features_3_conv_0_1_running_var]} constant,
+     t744 f32 [N=144 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_3_conv_1_0_weight,p_features_3_conv_1_1_weight,b_features_3_conv_1_1_running_var]} constant,
+     t745 f32 [C=144] {folded from=[p_features_3_conv_1_1_weight,p_features_3_conv_1_1_bias,b_features_3_conv_1_1_running_mean,b_features_3_conv_1_1_running_var]} constant,
+     t746 f32 [N=24 T=1 D=1 H=1 W=1 C=144] {folded from=[p_features_3_conv_2_weight,p_features_3_conv_3_weight,b_features_3_conv_3_running_var]} constant,
+     t747 f32 [C=24] {folded from=[p_features_3_conv_3_weight,p_features_3_conv_3_bias,b_features_3_conv_3_running_mean,b_features_3_conv_3_running_var]} constant,
+     t748 f32 [N=144 T=1 D=1 H=1 W=1 C=24] {folded from=[p_features_4_conv_0_0_weight,p_features_4_conv_0_1_weight,b_features_4_conv_0_1_running_var]} constant,
+     t749 f32 [C=144] {folded from=[p_features_4_conv_0_1_weight,p_features_4_conv_0_1_bias,b_features_4_conv_0_1_running_mean,b_features_4_conv_0_1_running_var]} constant,
+     t750 f32 [N=144 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_4_conv_1_0_weight,p_features_4_conv_1_1_weight,b_features_4_conv_1_1_running_var]} constant,
+     t751 f32 [C=144] {folded from=[p_features_4_conv_1_1_weight,p_features_4_conv_1_1_bias,b_features_4_conv_1_1_running_mean,b_features_4_conv_1_1_running_var]} constant,
+     t752 f32 [N=32 T=1 D=1 H=1 W=1 C=144] {folded from=[p_features_4_conv_2_weight,p_features_4_conv_3_weight,b_features_4_conv_3_running_var]} constant,
+     t753 f32 [C=32] {folded from=[p_features_4_conv_3_weight,p_features_4_conv_3_bias,b_features_4_conv_3_running_mean,b_features_4_conv_3_running_var]} constant,
+     t754 f32 [N=192 T=1 D=1 H=1 W=1 C=32] {folded from=[p_features_5_conv_0_0_weight,p_features_5_conv_0_1_weight,b_features_5_conv_0_1_running_var]} constant,
+     t755 f32 [C=192] {folded from=[p_features_5_conv_0_1_weight,p_features_5_conv_0_1_bias,b_features_5_conv_0_1_running_mean,b_features_5_conv_0_1_running_var]} constant,
+     t756 f32 [N=192 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_5_conv_1_0_weight,p_features_5_conv_1_1_weight,b_features_5_conv_1_1_running_var]} constant,
+     t757 f32 [C=192] {folded from=[p_features_5_conv_1_1_weight,p_features_5_conv_1_1_bias,b_features_5_conv_1_1_running_mean,b_features_5_conv_1_1_running_var]} constant,
+     t758 f32 [N=32 T=1 D=1 H=1 W=1 C=192] {folded from=[p_features_5_conv_2_weight,p_features_5_conv_3_weight,b_features_5_conv_3_running_var]} constant,
+     t759 f32 [C=32] {folded from=[p_features_5_conv_3_weight,p_features_5_conv_3_bias,b_features_5_conv_3_running_mean,b_features_5_conv_3_running_var]} constant,
+     t760 f32 [N=192 T=1 D=1 H=1 W=1 C=32] {folded from=[p_features_6_conv_0_0_weight,p_features_6_conv_0_1_weight,b_features_6_conv_0_1_running_var]} constant,
+     t761 f32 [C=192] {folded from=[p_features_6_conv_0_1_weight,p_features_6_conv_0_1_bias,b_features_6_conv_0_1_running_mean,b_features_6_conv_0_1_running_var]} constant,
+     t762 f32 [N=192 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_6_conv_1_0_weight,p_features_6_conv_1_1_weight,b_features_6_conv_1_1_running_var]} constant,
+     t763 f32 [C=192] {folded from=[p_features_6_conv_1_1_weight,p_features_6_conv_1_1_bias,b_features_6_conv_1_1_running_mean,b_features_6_conv_1_1_running_var]} constant,
+     t764 f32 [N=32 T=1 D=1 H=1 W=1 C=192] {folded from=[p_features_6_conv_2_weight,p_features_6_conv_3_weight,b_features_6_conv_3_running_var]} constant,
+     t765 f32 [C=32] {folded from=[p_features_6_conv_3_weight,p_features_6_conv_3_bias,b_features_6_conv_3_running_mean,b_features_6_conv_3_running_var]} constant,
+     t766 f32 [N=192 T=1 D=1 H=1 W=1 C=32] {folded from=[p_features_7_conv_0_0_weight,p_features_7_conv_0_1_weight,b_features_7_conv_0_1_running_var]} constant,
+     t767 f32 [C=192] {folded from=[p_features_7_conv_0_1_weight,p_features_7_conv_0_1_bias,b_features_7_conv_0_1_running_mean,b_features_7_conv_0_1_running_var]} constant,
+     t768 f32 [N=192 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_7_conv_1_0_weight,p_features_7_conv_1_1_weight,b_features_7_conv_1_1_running_var]} constant,
+     t769 f32 [C=192] {folded from=[p_features_7_conv_1_1_weight,p_features_7_conv_1_1_bias,b_features_7_conv_1_1_running_mean,b_features_7_conv_1_1_running_var]} constant,
+     t770 f32 [N=64 T=1 D=1 H=1 W=1 C=192] {folded from=[p_features_7_conv_2_weight,p_features_7_conv_3_weight,b_features_7_conv_3_running_var]} constant,
+     t771 f32 [C=64] {folded from=[p_features_7_conv_3_weight,p_features_7_conv_3_bias,b_features_7_conv_3_running_mean,b_features_7_conv_3_running_var]} constant,
+     t772 f32 [N=384 T=1 D=1 H=1 W=1 C=64] {folded from=[p_features_8_conv_0_0_weight,p_features_8_conv_0_1_weight,b_features_8_conv_0_1_running_var]} constant,
+     t773 f32 [C=384] {folded from=[p_features_8_conv_0_1_weight,p_features_8_conv_0_1_bias,b_features_8_conv_0_1_running_mean,b_features_8_conv_0_1_running_var]} constant,
+     t774 f32 [N=384 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_8_conv_1_0_weight,p_features_8_conv_1_1_weight,b_features_8_conv_1_1_running_var]} constant,
+     t775 f32 [C=384] {folded from=[p_features_8_conv_1_1_weight,p_features_8_conv_1_1_bias,b_features_8_conv_1_1_running_mean,b_features_8_conv_1_1_running_var]} constant,
+     t776 f32 [N=64 T=1 D=1 H=1 W=1 C=384] {folded from=[p_features_8_conv_2_weight,p_features_8_conv_3_weight,b_features_8_conv_3_running_var]} constant,
+     t777 f32 [C=64] {folded from=[p_features_8_conv_3_weight,p_features_8_conv_3_bias,b_features_8_conv_3_running_mean,b_features_8_conv_3_running_var]} constant,
+     t778 f32 [N=384 T=1 D=1 H=1 W=1 C=64] {folded from=[p_features_9_conv_0_0_weight,p_features_9_conv_0_1_weight,b_features_9_conv_0_1_running_var]} constant,
+     t779 f32 [C=384] {folded from=[p_features_9_conv_0_1_weight,p_features_9_conv_0_1_bias,b_features_9_conv_0_1_running_mean,b_features_9_conv_0_1_running_var]} constant,
+     t780 f32 [N=384 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_9_conv_1_0_weight,p_features_9_conv_1_1_weight,b_features_9_conv_1_1_running_var]} constant,
+     t781 f32 [C=384] {folded from=[p_features_9_conv_1_1_weight,p_features_9_conv_1_1_bias,b_features_9_conv_1_1_running_mean,b_features_9_conv_1_1_running_var]} constant,
+     t782 f32 [N=64 T=1 D=1 H=1 W=1 C=384] {folded from=[p_features_9_conv_2_weight,p_features_9_conv_3_weight,b_features_9_conv_3_running_var]} constant,
+     t783 f32 [C=64] {folded from=[p_features_9_conv_3_weight,p_features_9_conv_3_bias,b_features_9_conv_3_running_mean,b_features_9_conv_3_running_var]} constant,
+     t784 f32 [N=384 T=1 D=1 H=1 W=1 C=64] {folded from=[p_features_10_conv_0_0_weight,p_features_10_conv_0_1_weight,b_features_10_conv_0_1_running_var]} constant,
+     t785 f32 [C=384] {folded from=[p_features_10_conv_0_1_weight,p_features_10_conv_0_1_bias,b_features_10_conv_0_1_running_mean,b_features_10_conv_0_1_running_var]} constant,
+     t786 f32 [N=384 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_10_conv_1_0_weight,p_features_10_conv_1_1_weight,b_features_10_conv_1_1_running_var]} constant,
+     t787 f32 [C=384] {folded from=[p_features_10_conv_1_1_weight,p_features_10_conv_1_1_bias,b_features_10_conv_1_1_running_mean,b_features_10_conv_1_1_running_var]} constant,
+     t788 f32 [N=64 T=1 D=1 H=1 W=1 C=384] {folded from=[p_features_10_conv_2_weight,p_features_10_conv_3_weight,b_features_10_conv_3_running_var]} constant,
+     t789 f32 [C=64] {folded from=[p_features_10_conv_3_weight,p_features_10_conv_3_bias,b_features_10_conv_3_running_mean,b_features_10_conv_3_running_var]} constant,
+     t790 f32 [N=384 T=1 D=1 H=1 W=1 C=64] {folded from=[p_features_11_conv_0_0_weight,p_features_11_conv_0_1_weight,b_features_11_conv_0_1_running_var]} constant,
+     t791 f32 [C=384] {folded from=[p_features_11_conv_0_1_weight,p_features_11_conv_0_1_bias,b_features_11_conv_0_1_running_mean,b_features_11_conv_0_1_running_var]} constant,
+     t792 f32 [N=384 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_11_conv_1_0_weight,p_features_11_conv_1_1_weight,b_features_11_conv_1_1_running_var]} constant,
+     t793 f32 [C=384] {folded from=[p_features_11_conv_1_1_weight,p_features_11_conv_1_1_bias,b_features_11_conv_1_1_running_mean,b_features_11_conv_1_1_running_var]} constant,
+     t794 f32 [N=96 T=1 D=1 H=1 W=1 C=384] {folded from=[p_features_11_conv_2_weight,p_features_11_conv_3_weight,b_features_11_conv_3_running_var]} constant,
+     t795 f32 [C=96] {folded from=[p_features_11_conv_3_weight,p_features_11_conv_3_bias,b_features_11_conv_3_running_mean,b_features_11_conv_3_running_var]} constant,
+     t796 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_12_conv_0_0_weight,p_features_12_conv_0_1_weight,b_features_12_conv_0_1_running_var]} constant,
+     t797 f32 [C=576] {folded from=[p_features_12_conv_0_1_weight,p_features_12_conv_0_1_bias,b_features_12_conv_0_1_running_mean,b_features_12_conv_0_1_running_var]} constant,
+     t798 f32 [N=576 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_12_conv_1_0_weight,p_features_12_conv_1_1_weight,b_features_12_conv_1_1_running_var]} constant,
+     t799 f32 [C=576] {folded from=[p_features_12_conv_1_1_weight,p_features_12_conv_1_1_bias,b_features_12_conv_1_1_running_mean,b_features_12_conv_1_1_running_var]} constant,
+     t800 f32 [N=96 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_12_conv_2_weight,p_features_12_conv_3_weight,b_features_12_conv_3_running_var]} constant,
+     t801 f32 [C=96] {folded from=[p_features_12_conv_3_weight,p_features_12_conv_3_bias,b_features_12_conv_3_running_mean,b_features_12_conv_3_running_var]} constant,
+     t802 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_13_conv_0_0_weight,p_features_13_conv_0_1_weight,b_features_13_conv_0_1_running_var]} constant,
+     t803 f32 [C=576] {folded from=[p_features_13_conv_0_1_weight,p_features_13_conv_0_1_bias,b_features_13_conv_0_1_running_mean,b_features_13_conv_0_1_running_var]} constant,
+     t804 f32 [N=576 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_13_conv_1_0_weight,p_features_13_conv_1_1_weight,b_features_13_conv_1_1_running_var]} constant,
+     t805 f32 [C=576] {folded from=[p_features_13_conv_1_1_weight,p_features_13_conv_1_1_bias,b_features_13_conv_1_1_running_mean,b_features_13_conv_1_1_running_var]} constant,
+     t806 f32 [N=96 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_13_conv_2_weight,p_features_13_conv_3_weight,b_features_13_conv_3_running_var]} constant,
+     t807 f32 [C=96] {folded from=[p_features_13_conv_3_weight,p_features_13_conv_3_bias,b_features_13_conv_3_running_mean,b_features_13_conv_3_running_var]} constant,
+     t808 f32 [N=576 T=1 D=1 H=1 W=1 C=96] {folded from=[p_features_14_conv_0_0_weight,p_features_14_conv_0_1_weight,b_features_14_conv_0_1_running_var]} constant,
+     t809 f32 [C=576] {folded from=[p_features_14_conv_0_1_weight,p_features_14_conv_0_1_bias,b_features_14_conv_0_1_running_mean,b_features_14_conv_0_1_running_var]} constant,
+     t810 f32 [N=576 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_14_conv_1_0_weight,p_features_14_conv_1_1_weight,b_features_14_conv_1_1_running_var]} constant,
+     t811 f32 [C=576] {folded from=[p_features_14_conv_1_1_weight,p_features_14_conv_1_1_bias,b_features_14_conv_1_1_running_mean,b_features_14_conv_1_1_running_var]} constant,
+     t812 f32 [N=160 T=1 D=1 H=1 W=1 C=576] {folded from=[p_features_14_conv_2_weight,p_features_14_conv_3_weight,b_features_14_conv_3_running_var]} constant,
+     t813 f32 [C=160] {folded from=[p_features_14_conv_3_weight,p_features_14_conv_3_bias,b_features_14_conv_3_running_mean,b_features_14_conv_3_running_var]} constant,
+     t814 f32 [N=960 T=1 D=1 H=1 W=1 C=160] {folded from=[p_features_15_conv_0_0_weight,p_features_15_conv_0_1_weight,b_features_15_conv_0_1_running_var]} constant,
+     t815 f32 [C=960] {folded from=[p_features_15_conv_0_1_weight,p_features_15_conv_0_1_bias,b_features_15_conv_0_1_running_mean,b_features_15_conv_0_1_running_var]} constant,
+     t816 f32 [N=960 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_15_conv_1_0_weight,p_features_15_conv_1_1_weight,b_features_15_conv_1_1_running_var]} constant,
+     t817 f32 [C=960] {folded from=[p_features_15_conv_1_1_weight,p_features_15_conv_1_1_bias,b_features_15_conv_1_1_running_mean,b_features_15_conv_1_1_running_var]} constant,
+     t818 f32 [N=160 T=1 D=1 H=1 W=1 C=960] {folded from=[p_features_15_conv_2_weight,p_features_15_conv_3_weight,b_features_15_conv_3_running_var]} constant,
+     t819 f32 [C=160] {folded from=[p_features_15_conv_3_weight,p_features_15_conv_3_bias,b_features_15_conv_3_running_mean,b_features_15_conv_3_running_var]} constant,
+     t820 f32 [N=960 T=1 D=1 H=1 W=1 C=160] {folded from=[p_features_16_conv_0_0_weight,p_features_16_conv_0_1_weight,b_features_16_conv_0_1_running_var]} constant,
+     t821 f32 [C=960] {folded from=[p_features_16_conv_0_1_weight,p_features_16_conv_0_1_bias,b_features_16_conv_0_1_running_mean,b_features_16_conv_0_1_running_var]} constant,
+     t822 f32 [N=960 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_16_conv_1_0_weight,p_features_16_conv_1_1_weight,b_features_16_conv_1_1_running_var]} constant,
+     t823 f32 [C=960] {folded from=[p_features_16_conv_1_1_weight,p_features_16_conv_1_1_bias,b_features_16_conv_1_1_running_mean,b_features_16_conv_1_1_running_var]} constant,
+     t824 f32 [N=160 T=1 D=1 H=1 W=1 C=960] {folded from=[p_features_16_conv_2_weight,p_features_16_conv_3_weight,b_features_16_conv_3_running_var]} constant,
+     t825 f32 [C=160] {folded from=[p_features_16_conv_3_weight,p_features_16_conv_3_bias,b_features_16_conv_3_running_mean,b_features_16_conv_3_running_var]} constant,
+     t826 f32 [N=960 T=1 D=1 H=1 W=1 C=160] {folded from=[p_features_17_conv_0_0_weight,p_features_17_conv_0_1_weight,b_features_17_conv_0_1_running_var]} constant,
+     t827 f32 [C=960] {folded from=[p_features_17_conv_0_1_weight,p_features_17_conv_0_1_bias,b_features_17_conv_0_1_running_mean,b_features_17_conv_0_1_running_var]} constant,
+     t828 f32 [N=960 T=1 D=1 H=3 W=3 C=1] {folded from=[p_features_17_conv_1_0_weight,p_features_17_conv_1_1_weight,b_features_17_conv_1_1_running_var]} constant,
+     t829 f32 [C=960] {folded from=[p_features_17_conv_1_1_weight,p_features_17_conv_1_1_bias,b_features_17_conv_1_1_running_mean,b_features_17_conv_1_1_running_var]} constant,
+     t830 f32 [N=320 T=1 D=1 H=1 W=1 C=960] {folded from=[p_features_17_conv_2_weight,p_features_17_conv_3_weight,b_features_17_conv_3_running_var]} constant,
+     t831 f32 [C=320] {folded from=[p_features_17_conv_3_weight,p_features_17_conv_3_bias,b_features_17_conv_3_running_mean,b_features_17_conv_3_running_var]} constant,
+     t832 f32 [N=1280 T=1 D=1 H=1 W=1 C=320] {folded from=[p_features_18_0_weight,p_features_18_1_weight,b_features_18_1_running_var]} constant,
+     t833 f32 [C=1280] {folded from=[p_features_18_1_weight,p_features_18_1_bias,b_features_18_1_running_mean,b_features_18_1_running_var]} constant]
   nodes:
     group g1 torch.ops.aten.convolution.default:
       n0 {derived}: [t315 f32 [H=224 W=224 C=3] {derived}] =
@@ -2540,11 +1782,8 @@ is real per-activation work, not something folding can hoist.
     n415 {derived}: [t834 f32 [H=112 W=112 C=32] {derived}] =
       convolution
         x=t315 {derived}
-        weight=t730 {folded from=[p_features_0_0_weight, p_features_0_1_weight,
-                                  b_features_0_1_running_var]}
-        bias=t731 {folded from=[p_features_0_1_weight, p_features_0_1_bias,
-                                b_features_0_1_running_mean,
-                                b_features_0_1_running_var]}
+        weight=t730 {folded from=[p_features_0_0_weight,p_features_0_1_weight,b_features_0_1_running_var]}
+        bias=t731 {folded from=[p_features_0_1_weight,p_features_0_1_bias,b_features_0_1_running_mean,b_features_0_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -2557,13 +1796,8 @@ is real per-activation work, not something folding can hoist.
     n417 {derived}: [t836 f32 [H=112 W=112 C=32] {derived}] =
       convolution
         x=t835 {derived}
-        weight=t732 {folded from=[p_features_1_conv_0_0_weight,
-                                  p_features_1_conv_0_1_weight,
-                                  b_features_1_conv_0_1_running_var]}
-        bias=t733 {folded from=[p_features_1_conv_0_1_weight,
-                                p_features_1_conv_0_1_bias,
-                                b_features_1_conv_0_1_running_mean,
-                                b_features_1_conv_0_1_running_var]}
+        weight=t732 {folded from=[p_features_1_conv_0_0_weight,p_features_1_conv_0_1_weight,b_features_1_conv_0_1_running_var]}
+        bias=t733 {folded from=[p_features_1_conv_0_1_weight,p_features_1_conv_0_1_bias,b_features_1_conv_0_1_running_mean,b_features_1_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -2576,13 +1810,8 @@ is real per-activation work, not something folding can hoist.
     n419 {derived}: [t838 f32 [H=112 W=112 C=16] {derived}] =
       convolution
         x=t837 {derived}
-        weight=t734 {folded from=[p_features_1_conv_1_weight,
-                                  p_features_1_conv_2_weight,
-                                  b_features_1_conv_2_running_var]}
-        bias=t735 {folded from=[p_features_1_conv_2_weight,
-                                p_features_1_conv_2_bias,
-                                b_features_1_conv_2_running_mean,
-                                b_features_1_conv_2_running_var]}
+        weight=t734 {folded from=[p_features_1_conv_1_weight,p_features_1_conv_2_weight,b_features_1_conv_2_running_var]}
+        bias=t735 {folded from=[p_features_1_conv_2_weight,p_features_1_conv_2_bias,b_features_1_conv_2_running_mean,b_features_1_conv_2_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2592,13 +1821,8 @@ is real per-activation work, not something folding can hoist.
     n420 {derived}: [t839 f32 [H=112 W=112 C=96] {derived}] =
       convolution
         x=t838 {derived}
-        weight=t736 {folded from=[p_features_2_conv_0_0_weight,
-                                  p_features_2_conv_0_1_weight,
-                                  b_features_2_conv_0_1_running_var]}
-        bias=t737 {folded from=[p_features_2_conv_0_1_weight,
-                                p_features_2_conv_0_1_bias,
-                                b_features_2_conv_0_1_running_mean,
-                                b_features_2_conv_0_1_running_var]}
+        weight=t736 {folded from=[p_features_2_conv_0_0_weight,p_features_2_conv_0_1_weight,b_features_2_conv_0_1_running_var]}
+        bias=t737 {folded from=[p_features_2_conv_0_1_weight,p_features_2_conv_0_1_bias,b_features_2_conv_0_1_running_mean,b_features_2_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2611,13 +1835,8 @@ is real per-activation work, not something folding can hoist.
     n422 {derived}: [t841 f32 [H=56 W=56 C=96] {derived}] =
       convolution
         x=t840 {derived}
-        weight=t738 {folded from=[p_features_2_conv_1_0_weight,
-                                  p_features_2_conv_1_1_weight,
-                                  b_features_2_conv_1_1_running_var]}
-        bias=t739 {folded from=[p_features_2_conv_1_1_weight,
-                                p_features_2_conv_1_1_bias,
-                                b_features_2_conv_1_1_running_mean,
-                                b_features_2_conv_1_1_running_var]}
+        weight=t738 {folded from=[p_features_2_conv_1_0_weight,p_features_2_conv_1_1_weight,b_features_2_conv_1_1_running_var]}
+        bias=t739 {folded from=[p_features_2_conv_1_1_weight,p_features_2_conv_1_1_bias,b_features_2_conv_1_1_running_mean,b_features_2_conv_1_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -2630,13 +1849,8 @@ is real per-activation work, not something folding can hoist.
     n424 {derived}: [t843 f32 [H=56 W=56 C=24] {derived}] =
       convolution
         x=t842 {derived}
-        weight=t740 {folded from=[p_features_2_conv_2_weight,
-                                  p_features_2_conv_3_weight,
-                                  b_features_2_conv_3_running_var]}
-        bias=t741 {folded from=[p_features_2_conv_3_weight,
-                                p_features_2_conv_3_bias,
-                                b_features_2_conv_3_running_mean,
-                                b_features_2_conv_3_running_var]}
+        weight=t740 {folded from=[p_features_2_conv_2_weight,p_features_2_conv_3_weight,b_features_2_conv_3_running_var]}
+        bias=t741 {folded from=[p_features_2_conv_3_weight,p_features_2_conv_3_bias,b_features_2_conv_3_running_mean,b_features_2_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2646,13 +1860,8 @@ is real per-activation work, not something folding can hoist.
     n425 {derived}: [t844 f32 [H=56 W=56 C=144] {derived}] =
       convolution
         x=t843 {derived}
-        weight=t742 {folded from=[p_features_3_conv_0_0_weight,
-                                  p_features_3_conv_0_1_weight,
-                                  b_features_3_conv_0_1_running_var]}
-        bias=t743 {folded from=[p_features_3_conv_0_1_weight,
-                                p_features_3_conv_0_1_bias,
-                                b_features_3_conv_0_1_running_mean,
-                                b_features_3_conv_0_1_running_var]}
+        weight=t742 {folded from=[p_features_3_conv_0_0_weight,p_features_3_conv_0_1_weight,b_features_3_conv_0_1_running_var]}
+        bias=t743 {folded from=[p_features_3_conv_0_1_weight,p_features_3_conv_0_1_bias,b_features_3_conv_0_1_running_mean,b_features_3_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2665,13 +1874,8 @@ is real per-activation work, not something folding can hoist.
     n427 {derived}: [t846 f32 [H=56 W=56 C=144] {derived}] =
       convolution
         x=t845 {derived}
-        weight=t744 {folded from=[p_features_3_conv_1_0_weight,
-                                  p_features_3_conv_1_1_weight,
-                                  b_features_3_conv_1_1_running_var]}
-        bias=t745 {folded from=[p_features_3_conv_1_1_weight,
-                                p_features_3_conv_1_1_bias,
-                                b_features_3_conv_1_1_running_mean,
-                                b_features_3_conv_1_1_running_var]}
+        weight=t744 {folded from=[p_features_3_conv_1_0_weight,p_features_3_conv_1_1_weight,b_features_3_conv_1_1_running_var]}
+        bias=t745 {folded from=[p_features_3_conv_1_1_weight,p_features_3_conv_1_1_bias,b_features_3_conv_1_1_running_mean,b_features_3_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -2684,13 +1888,8 @@ is real per-activation work, not something folding can hoist.
     n429 {derived}: [t848 f32 [H=56 W=56 C=24] {derived}] =
       convolution
         x=t847 {derived}
-        weight=t746 {folded from=[p_features_3_conv_2_weight,
-                                  p_features_3_conv_3_weight,
-                                  b_features_3_conv_3_running_var]}
-        bias=t747 {folded from=[p_features_3_conv_3_weight,
-                                p_features_3_conv_3_bias,
-                                b_features_3_conv_3_running_mean,
-                                b_features_3_conv_3_running_var]}
+        weight=t746 {folded from=[p_features_3_conv_2_weight,p_features_3_conv_3_weight,b_features_3_conv_3_running_var]}
+        bias=t747 {folded from=[p_features_3_conv_3_weight,p_features_3_conv_3_bias,b_features_3_conv_3_running_mean,b_features_3_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2702,13 +1901,8 @@ is real per-activation work, not something folding can hoist.
     n431 {derived}: [t850 f32 [H=56 W=56 C=144] {derived}] =
       convolution
         x=t849 {derived}
-        weight=t748 {folded from=[p_features_4_conv_0_0_weight,
-                                  p_features_4_conv_0_1_weight,
-                                  b_features_4_conv_0_1_running_var]}
-        bias=t749 {folded from=[p_features_4_conv_0_1_weight,
-                                p_features_4_conv_0_1_bias,
-                                b_features_4_conv_0_1_running_mean,
-                                b_features_4_conv_0_1_running_var]}
+        weight=t748 {folded from=[p_features_4_conv_0_0_weight,p_features_4_conv_0_1_weight,b_features_4_conv_0_1_running_var]}
+        bias=t749 {folded from=[p_features_4_conv_0_1_weight,p_features_4_conv_0_1_bias,b_features_4_conv_0_1_running_mean,b_features_4_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2721,13 +1915,8 @@ is real per-activation work, not something folding can hoist.
     n433 {derived}: [t852 f32 [H=28 W=28 C=144] {derived}] =
       convolution
         x=t851 {derived}
-        weight=t750 {folded from=[p_features_4_conv_1_0_weight,
-                                  p_features_4_conv_1_1_weight,
-                                  b_features_4_conv_1_1_running_var]}
-        bias=t751 {folded from=[p_features_4_conv_1_1_weight,
-                                p_features_4_conv_1_1_bias,
-                                b_features_4_conv_1_1_running_mean,
-                                b_features_4_conv_1_1_running_var]}
+        weight=t750 {folded from=[p_features_4_conv_1_0_weight,p_features_4_conv_1_1_weight,b_features_4_conv_1_1_running_var]}
+        bias=t751 {folded from=[p_features_4_conv_1_1_weight,p_features_4_conv_1_1_bias,b_features_4_conv_1_1_running_mean,b_features_4_conv_1_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -2740,13 +1929,8 @@ is real per-activation work, not something folding can hoist.
     n435 {derived}: [t854 f32 [H=28 W=28 C=32] {derived}] =
       convolution
         x=t853 {derived}
-        weight=t752 {folded from=[p_features_4_conv_2_weight,
-                                  p_features_4_conv_3_weight,
-                                  b_features_4_conv_3_running_var]}
-        bias=t753 {folded from=[p_features_4_conv_3_weight,
-                                p_features_4_conv_3_bias,
-                                b_features_4_conv_3_running_mean,
-                                b_features_4_conv_3_running_var]}
+        weight=t752 {folded from=[p_features_4_conv_2_weight,p_features_4_conv_3_weight,b_features_4_conv_3_running_var]}
+        bias=t753 {folded from=[p_features_4_conv_3_weight,p_features_4_conv_3_bias,b_features_4_conv_3_running_mean,b_features_4_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2756,13 +1940,8 @@ is real per-activation work, not something folding can hoist.
     n436 {derived}: [t855 f32 [H=28 W=28 C=192] {derived}] =
       convolution
         x=t854 {derived}
-        weight=t754 {folded from=[p_features_5_conv_0_0_weight,
-                                  p_features_5_conv_0_1_weight,
-                                  b_features_5_conv_0_1_running_var]}
-        bias=t755 {folded from=[p_features_5_conv_0_1_weight,
-                                p_features_5_conv_0_1_bias,
-                                b_features_5_conv_0_1_running_mean,
-                                b_features_5_conv_0_1_running_var]}
+        weight=t754 {folded from=[p_features_5_conv_0_0_weight,p_features_5_conv_0_1_weight,b_features_5_conv_0_1_running_var]}
+        bias=t755 {folded from=[p_features_5_conv_0_1_weight,p_features_5_conv_0_1_bias,b_features_5_conv_0_1_running_mean,b_features_5_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2775,13 +1954,8 @@ is real per-activation work, not something folding can hoist.
     n438 {derived}: [t857 f32 [H=28 W=28 C=192] {derived}] =
       convolution
         x=t856 {derived}
-        weight=t756 {folded from=[p_features_5_conv_1_0_weight,
-                                  p_features_5_conv_1_1_weight,
-                                  b_features_5_conv_1_1_running_var]}
-        bias=t757 {folded from=[p_features_5_conv_1_1_weight,
-                                p_features_5_conv_1_1_bias,
-                                b_features_5_conv_1_1_running_mean,
-                                b_features_5_conv_1_1_running_var]}
+        weight=t756 {folded from=[p_features_5_conv_1_0_weight,p_features_5_conv_1_1_weight,b_features_5_conv_1_1_running_var]}
+        bias=t757 {folded from=[p_features_5_conv_1_1_weight,p_features_5_conv_1_1_bias,b_features_5_conv_1_1_running_mean,b_features_5_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -2794,13 +1968,8 @@ is real per-activation work, not something folding can hoist.
     n440 {derived}: [t859 f32 [H=28 W=28 C=32] {derived}] =
       convolution
         x=t858 {derived}
-        weight=t758 {folded from=[p_features_5_conv_2_weight,
-                                  p_features_5_conv_3_weight,
-                                  b_features_5_conv_3_running_var]}
-        bias=t759 {folded from=[p_features_5_conv_3_weight,
-                                p_features_5_conv_3_bias,
-                                b_features_5_conv_3_running_mean,
-                                b_features_5_conv_3_running_var]}
+        weight=t758 {folded from=[p_features_5_conv_2_weight,p_features_5_conv_3_weight,b_features_5_conv_3_running_var]}
+        bias=t759 {folded from=[p_features_5_conv_3_weight,p_features_5_conv_3_bias,b_features_5_conv_3_running_mean,b_features_5_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2812,13 +1981,8 @@ is real per-activation work, not something folding can hoist.
     n442 {derived}: [t861 f32 [H=28 W=28 C=192] {derived}] =
       convolution
         x=t860 {derived}
-        weight=t760 {folded from=[p_features_6_conv_0_0_weight,
-                                  p_features_6_conv_0_1_weight,
-                                  b_features_6_conv_0_1_running_var]}
-        bias=t761 {folded from=[p_features_6_conv_0_1_weight,
-                                p_features_6_conv_0_1_bias,
-                                b_features_6_conv_0_1_running_mean,
-                                b_features_6_conv_0_1_running_var]}
+        weight=t760 {folded from=[p_features_6_conv_0_0_weight,p_features_6_conv_0_1_weight,b_features_6_conv_0_1_running_var]}
+        bias=t761 {folded from=[p_features_6_conv_0_1_weight,p_features_6_conv_0_1_bias,b_features_6_conv_0_1_running_mean,b_features_6_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2831,13 +1995,8 @@ is real per-activation work, not something folding can hoist.
     n444 {derived}: [t863 f32 [H=28 W=28 C=192] {derived}] =
       convolution
         x=t862 {derived}
-        weight=t762 {folded from=[p_features_6_conv_1_0_weight,
-                                  p_features_6_conv_1_1_weight,
-                                  b_features_6_conv_1_1_running_var]}
-        bias=t763 {folded from=[p_features_6_conv_1_1_weight,
-                                p_features_6_conv_1_1_bias,
-                                b_features_6_conv_1_1_running_mean,
-                                b_features_6_conv_1_1_running_var]}
+        weight=t762 {folded from=[p_features_6_conv_1_0_weight,p_features_6_conv_1_1_weight,b_features_6_conv_1_1_running_var]}
+        bias=t763 {folded from=[p_features_6_conv_1_1_weight,p_features_6_conv_1_1_bias,b_features_6_conv_1_1_running_mean,b_features_6_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -2850,13 +2009,8 @@ is real per-activation work, not something folding can hoist.
     n446 {derived}: [t865 f32 [H=28 W=28 C=32] {derived}] =
       convolution
         x=t864 {derived}
-        weight=t764 {folded from=[p_features_6_conv_2_weight,
-                                  p_features_6_conv_3_weight,
-                                  b_features_6_conv_3_running_var]}
-        bias=t765 {folded from=[p_features_6_conv_3_weight,
-                                p_features_6_conv_3_bias,
-                                b_features_6_conv_3_running_mean,
-                                b_features_6_conv_3_running_var]}
+        weight=t764 {folded from=[p_features_6_conv_2_weight,p_features_6_conv_3_weight,b_features_6_conv_3_running_var]}
+        bias=t765 {folded from=[p_features_6_conv_3_weight,p_features_6_conv_3_bias,b_features_6_conv_3_running_mean,b_features_6_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2868,13 +2022,8 @@ is real per-activation work, not something folding can hoist.
     n448 {derived}: [t867 f32 [H=28 W=28 C=192] {derived}] =
       convolution
         x=t866 {derived}
-        weight=t766 {folded from=[p_features_7_conv_0_0_weight,
-                                  p_features_7_conv_0_1_weight,
-                                  b_features_7_conv_0_1_running_var]}
-        bias=t767 {folded from=[p_features_7_conv_0_1_weight,
-                                p_features_7_conv_0_1_bias,
-                                b_features_7_conv_0_1_running_mean,
-                                b_features_7_conv_0_1_running_var]}
+        weight=t766 {folded from=[p_features_7_conv_0_0_weight,p_features_7_conv_0_1_weight,b_features_7_conv_0_1_running_var]}
+        bias=t767 {folded from=[p_features_7_conv_0_1_weight,p_features_7_conv_0_1_bias,b_features_7_conv_0_1_running_mean,b_features_7_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2887,13 +2036,8 @@ is real per-activation work, not something folding can hoist.
     n450 {derived}: [t869 f32 [H=14 W=14 C=192] {derived}] =
       convolution
         x=t868 {derived}
-        weight=t768 {folded from=[p_features_7_conv_1_0_weight,
-                                  p_features_7_conv_1_1_weight,
-                                  b_features_7_conv_1_1_running_var]}
-        bias=t769 {folded from=[p_features_7_conv_1_1_weight,
-                                p_features_7_conv_1_1_bias,
-                                b_features_7_conv_1_1_running_mean,
-                                b_features_7_conv_1_1_running_var]}
+        weight=t768 {folded from=[p_features_7_conv_1_0_weight,p_features_7_conv_1_1_weight,b_features_7_conv_1_1_running_var]}
+        bias=t769 {folded from=[p_features_7_conv_1_1_weight,p_features_7_conv_1_1_bias,b_features_7_conv_1_1_running_mean,b_features_7_conv_1_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -2906,13 +2050,8 @@ is real per-activation work, not something folding can hoist.
     n452 {derived}: [t871 f32 [H=14 W=14 C=64] {derived}] =
       convolution
         x=t870 {derived}
-        weight=t770 {folded from=[p_features_7_conv_2_weight,
-                                  p_features_7_conv_3_weight,
-                                  b_features_7_conv_3_running_var]}
-        bias=t771 {folded from=[p_features_7_conv_3_weight,
-                                p_features_7_conv_3_bias,
-                                b_features_7_conv_3_running_mean,
-                                b_features_7_conv_3_running_var]}
+        weight=t770 {folded from=[p_features_7_conv_2_weight,p_features_7_conv_3_weight,b_features_7_conv_3_running_var]}
+        bias=t771 {folded from=[p_features_7_conv_3_weight,p_features_7_conv_3_bias,b_features_7_conv_3_running_mean,b_features_7_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2922,13 +2061,8 @@ is real per-activation work, not something folding can hoist.
     n453 {derived}: [t872 f32 [H=14 W=14 C=384] {derived}] =
       convolution
         x=t871 {derived}
-        weight=t772 {folded from=[p_features_8_conv_0_0_weight,
-                                  p_features_8_conv_0_1_weight,
-                                  b_features_8_conv_0_1_running_var]}
-        bias=t773 {folded from=[p_features_8_conv_0_1_weight,
-                                p_features_8_conv_0_1_bias,
-                                b_features_8_conv_0_1_running_mean,
-                                b_features_8_conv_0_1_running_var]}
+        weight=t772 {folded from=[p_features_8_conv_0_0_weight,p_features_8_conv_0_1_weight,b_features_8_conv_0_1_running_var]}
+        bias=t773 {folded from=[p_features_8_conv_0_1_weight,p_features_8_conv_0_1_bias,b_features_8_conv_0_1_running_mean,b_features_8_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2941,13 +2075,8 @@ is real per-activation work, not something folding can hoist.
     n455 {derived}: [t874 f32 [H=14 W=14 C=384] {derived}] =
       convolution
         x=t873 {derived}
-        weight=t774 {folded from=[p_features_8_conv_1_0_weight,
-                                  p_features_8_conv_1_1_weight,
-                                  b_features_8_conv_1_1_running_var]}
-        bias=t775 {folded from=[p_features_8_conv_1_1_weight,
-                                p_features_8_conv_1_1_bias,
-                                b_features_8_conv_1_1_running_mean,
-                                b_features_8_conv_1_1_running_var]}
+        weight=t774 {folded from=[p_features_8_conv_1_0_weight,p_features_8_conv_1_1_weight,b_features_8_conv_1_1_running_var]}
+        bias=t775 {folded from=[p_features_8_conv_1_1_weight,p_features_8_conv_1_1_bias,b_features_8_conv_1_1_running_mean,b_features_8_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -2960,13 +2089,8 @@ is real per-activation work, not something folding can hoist.
     n457 {derived}: [t876 f32 [H=14 W=14 C=64] {derived}] =
       convolution
         x=t875 {derived}
-        weight=t776 {folded from=[p_features_8_conv_2_weight,
-                                  p_features_8_conv_3_weight,
-                                  b_features_8_conv_3_running_var]}
-        bias=t777 {folded from=[p_features_8_conv_3_weight,
-                                p_features_8_conv_3_bias,
-                                b_features_8_conv_3_running_mean,
-                                b_features_8_conv_3_running_var]}
+        weight=t776 {folded from=[p_features_8_conv_2_weight,p_features_8_conv_3_weight,b_features_8_conv_3_running_var]}
+        bias=t777 {folded from=[p_features_8_conv_3_weight,p_features_8_conv_3_bias,b_features_8_conv_3_running_mean,b_features_8_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2978,13 +2102,8 @@ is real per-activation work, not something folding can hoist.
     n459 {derived}: [t878 f32 [H=14 W=14 C=384] {derived}] =
       convolution
         x=t877 {derived}
-        weight=t778 {folded from=[p_features_9_conv_0_0_weight,
-                                  p_features_9_conv_0_1_weight,
-                                  b_features_9_conv_0_1_running_var]}
-        bias=t779 {folded from=[p_features_9_conv_0_1_weight,
-                                p_features_9_conv_0_1_bias,
-                                b_features_9_conv_0_1_running_mean,
-                                b_features_9_conv_0_1_running_var]}
+        weight=t778 {folded from=[p_features_9_conv_0_0_weight,p_features_9_conv_0_1_weight,b_features_9_conv_0_1_running_var]}
+        bias=t779 {folded from=[p_features_9_conv_0_1_weight,p_features_9_conv_0_1_bias,b_features_9_conv_0_1_running_mean,b_features_9_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -2997,13 +2116,8 @@ is real per-activation work, not something folding can hoist.
     n461 {derived}: [t880 f32 [H=14 W=14 C=384] {derived}] =
       convolution
         x=t879 {derived}
-        weight=t780 {folded from=[p_features_9_conv_1_0_weight,
-                                  p_features_9_conv_1_1_weight,
-                                  b_features_9_conv_1_1_running_var]}
-        bias=t781 {folded from=[p_features_9_conv_1_1_weight,
-                                p_features_9_conv_1_1_bias,
-                                b_features_9_conv_1_1_running_mean,
-                                b_features_9_conv_1_1_running_var]}
+        weight=t780 {folded from=[p_features_9_conv_1_0_weight,p_features_9_conv_1_1_weight,b_features_9_conv_1_1_running_var]}
+        bias=t781 {folded from=[p_features_9_conv_1_1_weight,p_features_9_conv_1_1_bias,b_features_9_conv_1_1_running_mean,b_features_9_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -3016,13 +2130,8 @@ is real per-activation work, not something folding can hoist.
     n463 {derived}: [t882 f32 [H=14 W=14 C=64] {derived}] =
       convolution
         x=t881 {derived}
-        weight=t782 {folded from=[p_features_9_conv_2_weight,
-                                  p_features_9_conv_3_weight,
-                                  b_features_9_conv_3_running_var]}
-        bias=t783 {folded from=[p_features_9_conv_3_weight,
-                                p_features_9_conv_3_bias,
-                                b_features_9_conv_3_running_mean,
-                                b_features_9_conv_3_running_var]}
+        weight=t782 {folded from=[p_features_9_conv_2_weight,p_features_9_conv_3_weight,b_features_9_conv_3_running_var]}
+        bias=t783 {folded from=[p_features_9_conv_3_weight,p_features_9_conv_3_bias,b_features_9_conv_3_running_mean,b_features_9_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3034,13 +2143,8 @@ is real per-activation work, not something folding can hoist.
     n465 {derived}: [t884 f32 [H=14 W=14 C=384] {derived}] =
       convolution
         x=t883 {derived}
-        weight=t784 {folded from=[p_features_10_conv_0_0_weight,
-                                  p_features_10_conv_0_1_weight,
-                                  b_features_10_conv_0_1_running_var]}
-        bias=t785 {folded from=[p_features_10_conv_0_1_weight,
-                                p_features_10_conv_0_1_bias,
-                                b_features_10_conv_0_1_running_mean,
-                                b_features_10_conv_0_1_running_var]}
+        weight=t784 {folded from=[p_features_10_conv_0_0_weight,p_features_10_conv_0_1_weight,b_features_10_conv_0_1_running_var]}
+        bias=t785 {folded from=[p_features_10_conv_0_1_weight,p_features_10_conv_0_1_bias,b_features_10_conv_0_1_running_mean,b_features_10_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3053,13 +2157,8 @@ is real per-activation work, not something folding can hoist.
     n467 {derived}: [t886 f32 [H=14 W=14 C=384] {derived}] =
       convolution
         x=t885 {derived}
-        weight=t786 {folded from=[p_features_10_conv_1_0_weight,
-                                  p_features_10_conv_1_1_weight,
-                                  b_features_10_conv_1_1_running_var]}
-        bias=t787 {folded from=[p_features_10_conv_1_1_weight,
-                                p_features_10_conv_1_1_bias,
-                                b_features_10_conv_1_1_running_mean,
-                                b_features_10_conv_1_1_running_var]}
+        weight=t786 {folded from=[p_features_10_conv_1_0_weight,p_features_10_conv_1_1_weight,b_features_10_conv_1_1_running_var]}
+        bias=t787 {folded from=[p_features_10_conv_1_1_weight,p_features_10_conv_1_1_bias,b_features_10_conv_1_1_running_mean,b_features_10_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -3072,13 +2171,8 @@ is real per-activation work, not something folding can hoist.
     n469 {derived}: [t888 f32 [H=14 W=14 C=64] {derived}] =
       convolution
         x=t887 {derived}
-        weight=t788 {folded from=[p_features_10_conv_2_weight,
-                                  p_features_10_conv_3_weight,
-                                  b_features_10_conv_3_running_var]}
-        bias=t789 {folded from=[p_features_10_conv_3_weight,
-                                p_features_10_conv_3_bias,
-                                b_features_10_conv_3_running_mean,
-                                b_features_10_conv_3_running_var]}
+        weight=t788 {folded from=[p_features_10_conv_2_weight,p_features_10_conv_3_weight,b_features_10_conv_3_running_var]}
+        bias=t789 {folded from=[p_features_10_conv_3_weight,p_features_10_conv_3_bias,b_features_10_conv_3_running_mean,b_features_10_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3090,13 +2184,8 @@ is real per-activation work, not something folding can hoist.
     n471 {derived}: [t890 f32 [H=14 W=14 C=384] {derived}] =
       convolution
         x=t889 {derived}
-        weight=t790 {folded from=[p_features_11_conv_0_0_weight,
-                                  p_features_11_conv_0_1_weight,
-                                  b_features_11_conv_0_1_running_var]}
-        bias=t791 {folded from=[p_features_11_conv_0_1_weight,
-                                p_features_11_conv_0_1_bias,
-                                b_features_11_conv_0_1_running_mean,
-                                b_features_11_conv_0_1_running_var]}
+        weight=t790 {folded from=[p_features_11_conv_0_0_weight,p_features_11_conv_0_1_weight,b_features_11_conv_0_1_running_var]}
+        bias=t791 {folded from=[p_features_11_conv_0_1_weight,p_features_11_conv_0_1_bias,b_features_11_conv_0_1_running_mean,b_features_11_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3109,13 +2198,8 @@ is real per-activation work, not something folding can hoist.
     n473 {derived}: [t892 f32 [H=14 W=14 C=384] {derived}] =
       convolution
         x=t891 {derived}
-        weight=t792 {folded from=[p_features_11_conv_1_0_weight,
-                                  p_features_11_conv_1_1_weight,
-                                  b_features_11_conv_1_1_running_var]}
-        bias=t793 {folded from=[p_features_11_conv_1_1_weight,
-                                p_features_11_conv_1_1_bias,
-                                b_features_11_conv_1_1_running_mean,
-                                b_features_11_conv_1_1_running_var]}
+        weight=t792 {folded from=[p_features_11_conv_1_0_weight,p_features_11_conv_1_1_weight,b_features_11_conv_1_1_running_var]}
+        bias=t793 {folded from=[p_features_11_conv_1_1_weight,p_features_11_conv_1_1_bias,b_features_11_conv_1_1_running_mean,b_features_11_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -3128,13 +2212,8 @@ is real per-activation work, not something folding can hoist.
     n475 {derived}: [t894 f32 [H=14 W=14 C=96] {derived}] =
       convolution
         x=t893 {derived}
-        weight=t794 {folded from=[p_features_11_conv_2_weight,
-                                  p_features_11_conv_3_weight,
-                                  b_features_11_conv_3_running_var]}
-        bias=t795 {folded from=[p_features_11_conv_3_weight,
-                                p_features_11_conv_3_bias,
-                                b_features_11_conv_3_running_mean,
-                                b_features_11_conv_3_running_var]}
+        weight=t794 {folded from=[p_features_11_conv_2_weight,p_features_11_conv_3_weight,b_features_11_conv_3_running_var]}
+        bias=t795 {folded from=[p_features_11_conv_3_weight,p_features_11_conv_3_bias,b_features_11_conv_3_running_mean,b_features_11_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3144,13 +2223,8 @@ is real per-activation work, not something folding can hoist.
     n476 {derived}: [t895 f32 [H=14 W=14 C=576] {derived}] =
       convolution
         x=t894 {derived}
-        weight=t796 {folded from=[p_features_12_conv_0_0_weight,
-                                  p_features_12_conv_0_1_weight,
-                                  b_features_12_conv_0_1_running_var]}
-        bias=t797 {folded from=[p_features_12_conv_0_1_weight,
-                                p_features_12_conv_0_1_bias,
-                                b_features_12_conv_0_1_running_mean,
-                                b_features_12_conv_0_1_running_var]}
+        weight=t796 {folded from=[p_features_12_conv_0_0_weight,p_features_12_conv_0_1_weight,b_features_12_conv_0_1_running_var]}
+        bias=t797 {folded from=[p_features_12_conv_0_1_weight,p_features_12_conv_0_1_bias,b_features_12_conv_0_1_running_mean,b_features_12_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3163,13 +2237,8 @@ is real per-activation work, not something folding can hoist.
     n478 {derived}: [t897 f32 [H=14 W=14 C=576] {derived}] =
       convolution
         x=t896 {derived}
-        weight=t798 {folded from=[p_features_12_conv_1_0_weight,
-                                  p_features_12_conv_1_1_weight,
-                                  b_features_12_conv_1_1_running_var]}
-        bias=t799 {folded from=[p_features_12_conv_1_1_weight,
-                                p_features_12_conv_1_1_bias,
-                                b_features_12_conv_1_1_running_mean,
-                                b_features_12_conv_1_1_running_var]}
+        weight=t798 {folded from=[p_features_12_conv_1_0_weight,p_features_12_conv_1_1_weight,b_features_12_conv_1_1_running_var]}
+        bias=t799 {folded from=[p_features_12_conv_1_1_weight,p_features_12_conv_1_1_bias,b_features_12_conv_1_1_running_mean,b_features_12_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -3182,13 +2251,8 @@ is real per-activation work, not something folding can hoist.
     n480 {derived}: [t899 f32 [H=14 W=14 C=96] {derived}] =
       convolution
         x=t898 {derived}
-        weight=t800 {folded from=[p_features_12_conv_2_weight,
-                                  p_features_12_conv_3_weight,
-                                  b_features_12_conv_3_running_var]}
-        bias=t801 {folded from=[p_features_12_conv_3_weight,
-                                p_features_12_conv_3_bias,
-                                b_features_12_conv_3_running_mean,
-                                b_features_12_conv_3_running_var]}
+        weight=t800 {folded from=[p_features_12_conv_2_weight,p_features_12_conv_3_weight,b_features_12_conv_3_running_var]}
+        bias=t801 {folded from=[p_features_12_conv_3_weight,p_features_12_conv_3_bias,b_features_12_conv_3_running_mean,b_features_12_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3200,13 +2264,8 @@ is real per-activation work, not something folding can hoist.
     n482 {derived}: [t901 f32 [H=14 W=14 C=576] {derived}] =
       convolution
         x=t900 {derived}
-        weight=t802 {folded from=[p_features_13_conv_0_0_weight,
-                                  p_features_13_conv_0_1_weight,
-                                  b_features_13_conv_0_1_running_var]}
-        bias=t803 {folded from=[p_features_13_conv_0_1_weight,
-                                p_features_13_conv_0_1_bias,
-                                b_features_13_conv_0_1_running_mean,
-                                b_features_13_conv_0_1_running_var]}
+        weight=t802 {folded from=[p_features_13_conv_0_0_weight,p_features_13_conv_0_1_weight,b_features_13_conv_0_1_running_var]}
+        bias=t803 {folded from=[p_features_13_conv_0_1_weight,p_features_13_conv_0_1_bias,b_features_13_conv_0_1_running_mean,b_features_13_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3219,13 +2278,8 @@ is real per-activation work, not something folding can hoist.
     n484 {derived}: [t903 f32 [H=14 W=14 C=576] {derived}] =
       convolution
         x=t902 {derived}
-        weight=t804 {folded from=[p_features_13_conv_1_0_weight,
-                                  p_features_13_conv_1_1_weight,
-                                  b_features_13_conv_1_1_running_var]}
-        bias=t805 {folded from=[p_features_13_conv_1_1_weight,
-                                p_features_13_conv_1_1_bias,
-                                b_features_13_conv_1_1_running_mean,
-                                b_features_13_conv_1_1_running_var]}
+        weight=t804 {folded from=[p_features_13_conv_1_0_weight,p_features_13_conv_1_1_weight,b_features_13_conv_1_1_running_var]}
+        bias=t805 {folded from=[p_features_13_conv_1_1_weight,p_features_13_conv_1_1_bias,b_features_13_conv_1_1_running_mean,b_features_13_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -3238,13 +2292,8 @@ is real per-activation work, not something folding can hoist.
     n486 {derived}: [t905 f32 [H=14 W=14 C=96] {derived}] =
       convolution
         x=t904 {derived}
-        weight=t806 {folded from=[p_features_13_conv_2_weight,
-                                  p_features_13_conv_3_weight,
-                                  b_features_13_conv_3_running_var]}
-        bias=t807 {folded from=[p_features_13_conv_3_weight,
-                                p_features_13_conv_3_bias,
-                                b_features_13_conv_3_running_mean,
-                                b_features_13_conv_3_running_var]}
+        weight=t806 {folded from=[p_features_13_conv_2_weight,p_features_13_conv_3_weight,b_features_13_conv_3_running_var]}
+        bias=t807 {folded from=[p_features_13_conv_3_weight,p_features_13_conv_3_bias,b_features_13_conv_3_running_mean,b_features_13_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3256,13 +2305,8 @@ is real per-activation work, not something folding can hoist.
     n488 {derived}: [t907 f32 [H=14 W=14 C=576] {derived}] =
       convolution
         x=t906 {derived}
-        weight=t808 {folded from=[p_features_14_conv_0_0_weight,
-                                  p_features_14_conv_0_1_weight,
-                                  b_features_14_conv_0_1_running_var]}
-        bias=t809 {folded from=[p_features_14_conv_0_1_weight,
-                                p_features_14_conv_0_1_bias,
-                                b_features_14_conv_0_1_running_mean,
-                                b_features_14_conv_0_1_running_var]}
+        weight=t808 {folded from=[p_features_14_conv_0_0_weight,p_features_14_conv_0_1_weight,b_features_14_conv_0_1_running_var]}
+        bias=t809 {folded from=[p_features_14_conv_0_1_weight,p_features_14_conv_0_1_bias,b_features_14_conv_0_1_running_mean,b_features_14_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3275,13 +2319,8 @@ is real per-activation work, not something folding can hoist.
     n490 {derived}: [t909 f32 [H=7 W=7 C=576] {derived}] =
       convolution
         x=t908 {derived}
-        weight=t810 {folded from=[p_features_14_conv_1_0_weight,
-                                  p_features_14_conv_1_1_weight,
-                                  b_features_14_conv_1_1_running_var]}
-        bias=t811 {folded from=[p_features_14_conv_1_1_weight,
-                                p_features_14_conv_1_1_bias,
-                                b_features_14_conv_1_1_running_mean,
-                                b_features_14_conv_1_1_running_var]}
+        weight=t810 {folded from=[p_features_14_conv_1_0_weight,p_features_14_conv_1_1_weight,b_features_14_conv_1_1_running_var]}
+        bias=t811 {folded from=[p_features_14_conv_1_1_weight,p_features_14_conv_1_1_bias,b_features_14_conv_1_1_running_mean,b_features_14_conv_1_1_running_var]}
         params={stride={h=2; w=2};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -3294,13 +2333,8 @@ is real per-activation work, not something folding can hoist.
     n492 {derived}: [t911 f32 [H=7 W=7 C=160] {derived}] =
       convolution
         x=t910 {derived}
-        weight=t812 {folded from=[p_features_14_conv_2_weight,
-                                  p_features_14_conv_3_weight,
-                                  b_features_14_conv_3_running_var]}
-        bias=t813 {folded from=[p_features_14_conv_3_weight,
-                                p_features_14_conv_3_bias,
-                                b_features_14_conv_3_running_mean,
-                                b_features_14_conv_3_running_var]}
+        weight=t812 {folded from=[p_features_14_conv_2_weight,p_features_14_conv_3_weight,b_features_14_conv_3_running_var]}
+        bias=t813 {folded from=[p_features_14_conv_3_weight,p_features_14_conv_3_bias,b_features_14_conv_3_running_mean,b_features_14_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3310,13 +2344,8 @@ is real per-activation work, not something folding can hoist.
     n493 {derived}: [t912 f32 [H=7 W=7 C=960] {derived}] =
       convolution
         x=t911 {derived}
-        weight=t814 {folded from=[p_features_15_conv_0_0_weight,
-                                  p_features_15_conv_0_1_weight,
-                                  b_features_15_conv_0_1_running_var]}
-        bias=t815 {folded from=[p_features_15_conv_0_1_weight,
-                                p_features_15_conv_0_1_bias,
-                                b_features_15_conv_0_1_running_mean,
-                                b_features_15_conv_0_1_running_var]}
+        weight=t814 {folded from=[p_features_15_conv_0_0_weight,p_features_15_conv_0_1_weight,b_features_15_conv_0_1_running_var]}
+        bias=t815 {folded from=[p_features_15_conv_0_1_weight,p_features_15_conv_0_1_bias,b_features_15_conv_0_1_running_mean,b_features_15_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3329,13 +2358,8 @@ is real per-activation work, not something folding can hoist.
     n495 {derived}: [t914 f32 [H=7 W=7 C=960] {derived}] =
       convolution
         x=t913 {derived}
-        weight=t816 {folded from=[p_features_15_conv_1_0_weight,
-                                  p_features_15_conv_1_1_weight,
-                                  b_features_15_conv_1_1_running_var]}
-        bias=t817 {folded from=[p_features_15_conv_1_1_weight,
-                                p_features_15_conv_1_1_bias,
-                                b_features_15_conv_1_1_running_mean,
-                                b_features_15_conv_1_1_running_var]}
+        weight=t816 {folded from=[p_features_15_conv_1_0_weight,p_features_15_conv_1_1_weight,b_features_15_conv_1_1_running_var]}
+        bias=t817 {folded from=[p_features_15_conv_1_1_weight,p_features_15_conv_1_1_bias,b_features_15_conv_1_1_running_mean,b_features_15_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -3348,13 +2372,8 @@ is real per-activation work, not something folding can hoist.
     n497 {derived}: [t916 f32 [H=7 W=7 C=160] {derived}] =
       convolution
         x=t915 {derived}
-        weight=t818 {folded from=[p_features_15_conv_2_weight,
-                                  p_features_15_conv_3_weight,
-                                  b_features_15_conv_3_running_var]}
-        bias=t819 {folded from=[p_features_15_conv_3_weight,
-                                p_features_15_conv_3_bias,
-                                b_features_15_conv_3_running_mean,
-                                b_features_15_conv_3_running_var]}
+        weight=t818 {folded from=[p_features_15_conv_2_weight,p_features_15_conv_3_weight,b_features_15_conv_3_running_var]}
+        bias=t819 {folded from=[p_features_15_conv_3_weight,p_features_15_conv_3_bias,b_features_15_conv_3_running_mean,b_features_15_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3366,13 +2385,8 @@ is real per-activation work, not something folding can hoist.
     n499 {derived}: [t918 f32 [H=7 W=7 C=960] {derived}] =
       convolution
         x=t917 {derived}
-        weight=t820 {folded from=[p_features_16_conv_0_0_weight,
-                                  p_features_16_conv_0_1_weight,
-                                  b_features_16_conv_0_1_running_var]}
-        bias=t821 {folded from=[p_features_16_conv_0_1_weight,
-                                p_features_16_conv_0_1_bias,
-                                b_features_16_conv_0_1_running_mean,
-                                b_features_16_conv_0_1_running_var]}
+        weight=t820 {folded from=[p_features_16_conv_0_0_weight,p_features_16_conv_0_1_weight,b_features_16_conv_0_1_running_var]}
+        bias=t821 {folded from=[p_features_16_conv_0_1_weight,p_features_16_conv_0_1_bias,b_features_16_conv_0_1_running_mean,b_features_16_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3385,13 +2399,8 @@ is real per-activation work, not something folding can hoist.
     n501 {derived}: [t920 f32 [H=7 W=7 C=960] {derived}] =
       convolution
         x=t919 {derived}
-        weight=t822 {folded from=[p_features_16_conv_1_0_weight,
-                                  p_features_16_conv_1_1_weight,
-                                  b_features_16_conv_1_1_running_var]}
-        bias=t823 {folded from=[p_features_16_conv_1_1_weight,
-                                p_features_16_conv_1_1_bias,
-                                b_features_16_conv_1_1_running_mean,
-                                b_features_16_conv_1_1_running_var]}
+        weight=t822 {folded from=[p_features_16_conv_1_0_weight,p_features_16_conv_1_1_weight,b_features_16_conv_1_1_running_var]}
+        bias=t823 {folded from=[p_features_16_conv_1_1_weight,p_features_16_conv_1_1_bias,b_features_16_conv_1_1_running_mean,b_features_16_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -3404,13 +2413,8 @@ is real per-activation work, not something folding can hoist.
     n503 {derived}: [t922 f32 [H=7 W=7 C=160] {derived}] =
       convolution
         x=t921 {derived}
-        weight=t824 {folded from=[p_features_16_conv_2_weight,
-                                  p_features_16_conv_3_weight,
-                                  b_features_16_conv_3_running_var]}
-        bias=t825 {folded from=[p_features_16_conv_3_weight,
-                                p_features_16_conv_3_bias,
-                                b_features_16_conv_3_running_mean,
-                                b_features_16_conv_3_running_var]}
+        weight=t824 {folded from=[p_features_16_conv_2_weight,p_features_16_conv_3_weight,b_features_16_conv_3_running_var]}
+        bias=t825 {folded from=[p_features_16_conv_3_weight,p_features_16_conv_3_bias,b_features_16_conv_3_running_mean,b_features_16_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3422,13 +2426,8 @@ is real per-activation work, not something folding can hoist.
     n505 {derived}: [t924 f32 [H=7 W=7 C=960] {derived}] =
       convolution
         x=t923 {derived}
-        weight=t826 {folded from=[p_features_17_conv_0_0_weight,
-                                  p_features_17_conv_0_1_weight,
-                                  b_features_17_conv_0_1_running_var]}
-        bias=t827 {folded from=[p_features_17_conv_0_1_weight,
-                                p_features_17_conv_0_1_bias,
-                                b_features_17_conv_0_1_running_mean,
-                                b_features_17_conv_0_1_running_var]}
+        weight=t826 {folded from=[p_features_17_conv_0_0_weight,p_features_17_conv_0_1_weight,b_features_17_conv_0_1_running_var]}
+        bias=t827 {folded from=[p_features_17_conv_0_1_weight,p_features_17_conv_0_1_bias,b_features_17_conv_0_1_running_mean,b_features_17_conv_0_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3441,13 +2440,8 @@ is real per-activation work, not something folding can hoist.
     n507 {derived}: [t926 f32 [H=7 W=7 C=960] {derived}] =
       convolution
         x=t925 {derived}
-        weight=t828 {folded from=[p_features_17_conv_1_0_weight,
-                                  p_features_17_conv_1_1_weight,
-                                  b_features_17_conv_1_1_running_var]}
-        bias=t829 {folded from=[p_features_17_conv_1_1_weight,
-                                p_features_17_conv_1_1_bias,
-                                b_features_17_conv_1_1_running_mean,
-                                b_features_17_conv_1_1_running_var]}
+        weight=t828 {folded from=[p_features_17_conv_1_0_weight,p_features_17_conv_1_1_weight,b_features_17_conv_1_1_running_var]}
+        bias=t829 {folded from=[p_features_17_conv_1_1_weight,p_features_17_conv_1_1_bias,b_features_17_conv_1_1_running_mean,b_features_17_conv_1_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=1; w=1};
                dilation={h=1; w=1};
@@ -3460,13 +2454,8 @@ is real per-activation work, not something folding can hoist.
     n509 {derived}: [t928 f32 [H=7 W=7 C=320] {derived}] =
       convolution
         x=t927 {derived}
-        weight=t830 {folded from=[p_features_17_conv_2_weight,
-                                  p_features_17_conv_3_weight,
-                                  b_features_17_conv_3_running_var]}
-        bias=t831 {folded from=[p_features_17_conv_3_weight,
-                                p_features_17_conv_3_bias,
-                                b_features_17_conv_3_running_mean,
-                                b_features_17_conv_3_running_var]}
+        weight=t830 {folded from=[p_features_17_conv_2_weight,p_features_17_conv_3_weight,b_features_17_conv_3_running_var]}
+        bias=t831 {folded from=[p_features_17_conv_3_weight,p_features_17_conv_3_bias,b_features_17_conv_3_running_mean,b_features_17_conv_3_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};
@@ -3476,12 +2465,8 @@ is real per-activation work, not something folding can hoist.
     n510 {derived}: [t929 f32 [H=7 W=7 C=1280] {derived}] =
       convolution
         x=t928 {derived}
-        weight=t832 {folded from=[p_features_18_0_weight,
-                                  p_features_18_1_weight,
-                                  b_features_18_1_running_var]}
-        bias=t833 {folded from=[p_features_18_1_weight, p_features_18_1_bias,
-                                b_features_18_1_running_mean,
-                                b_features_18_1_running_var]}
+        weight=t832 {folded from=[p_features_18_0_weight,p_features_18_1_weight,b_features_18_1_running_var]}
+        bias=t833 {folded from=[p_features_18_1_weight,p_features_18_1_bias,b_features_18_1_running_mean,b_features_18_1_running_var]}
         params={stride={h=1; w=1};
                padding={h=0; w=0};
                dilation={h=1; w=1};

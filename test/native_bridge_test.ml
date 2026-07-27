@@ -56,34 +56,41 @@ let pp_result =
   Core.Pretty.core_result ~ok:(Fmt.any "Ok") ~error:(fun ppf e ->
       Fmt.pf ppf "Error: %a" Verify.pp_error e)
 
+(* [Tensor_bridge.of_aten] returns a plain (not [Core.result]) error, so this
+   composes with [Core.Pretty.result] rather than [core_result]; [~ok] varies
+   by test (the tensor itself, just its shape, or a surprise-success marker). *)
+let pp_of_aten_result ~ok =
+  Core.Pretty.result ~ok ~error:(fun ppf msg -> Fmt.pf ppf "Error: %s" msg)
+
 (* ---- of_aten: ATen -> Native conversion --------------------------------- *)
 
 let%expect_test "of_aten: float32 round-trip preserves values" =
   let t = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
-  (match Tensor_bridge.of_aten t with
-  | Error msg -> Printf.printf "Error: %s\n" msg
-  | Ok native -> Format.printf "%a@." Tensor.pp native);
+  Format.printf "%a@."
+    (pp_of_aten_result ~ok:Tensor.pp)
+    (Tensor_bridge.of_aten t);
   [%expect {| tensor f32 [W=2 C=3] {1, 2, 3, 4, 5, 6} |}]
 
 let%expect_test "of_aten: int64 round-trip preserves values" =
   let t = i64_tensor [ 4 ] [ 10L; 20L; 30L; 40L ] in
-  (match Tensor_bridge.of_aten t with
-  | Error msg -> Printf.printf "Error: %s\n" msg
-  | Ok native -> Format.printf "%a@." Tensor.pp native);
+  Format.printf "%a@."
+    (pp_of_aten_result ~ok:Tensor.pp)
+    (Tensor_bridge.of_aten t);
   [%expect {| tensor i64 [C=4] {10, 20, 30, 40} |}]
 
 let%expect_test "of_aten: unsupported dtype returns Error" =
   let t = T.create ~dtype:Stype.Double [ 2 ] in
-  (match Tensor_bridge.of_aten t with
-  | Error msg -> Printf.printf "Error: %s\n" msg
-  | Ok _ -> print_string "unexpected Ok");
+  Format.printf "%a@."
+    (pp_of_aten_result ~ok:(Fmt.any "unexpected Ok"))
+    (Tensor_bridge.of_aten t);
   [%expect {| Error: unsupported ATen dtype (code 7) |}]
 
 let%expect_test "of_aten: shape is right-aligned to 6D" =
   let t = float_tensor [ 3; 4 ] (List.init 12 float_of_int) in
-  (match Tensor_bridge.of_aten t with
-  | Error msg -> Printf.printf "Error: %s\n" msg
-  | Ok (Tensor.Tensor r) -> Format.printf "shape=%a@." Vec6.pp_shape r.shape);
+  Format.printf "%a@."
+    (pp_of_aten_result ~ok:(fun ppf (Tensor.Tensor r) ->
+         Fmt.pf ppf "shape=%a" Vec6.pp_shape r.shape))
+    (Tensor_bridge.of_aten t);
   [%expect {| shape=[W=3 C=4] |}]
 
 (* A non-contiguous ATen tensor (here a permute view) is materialized contiguous
@@ -95,9 +102,9 @@ let%expect_test "of_aten: materializes a non-contiguous permute view" =
     Aten_tensor.manage
       (Aten_c.Aten_operations.permute x (Interp_decode.arr [ 1; 0 ]) 2)
   in
-  (match Tensor_bridge.of_aten aten with
-  | Error msg -> Printf.printf "Error: %s\n" msg
-  | Ok native -> Format.printf "%a@." Tensor.pp native);
+  Format.printf "%a@."
+    (pp_of_aten_result ~ok:Tensor.pp)
+    (Tensor_bridge.of_aten aten);
   [%expect {| tensor f32 [W=3 C=2] {0, 3, 1, 4, 2, 5} |}]
 
 (* ---- compare_tensors: shape/type/payload checks ------------------------- *)

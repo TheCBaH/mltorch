@@ -339,3 +339,27 @@ let%expect_test "lens: a weaker claim never yields an archive path" =
     identical -> conv.weight
     equivalent -> none
     unverifiable -> none |}]
+
+let%expect_test
+    "lens: an id outside the destination graph is a distinct error, not absent \
+     provenance" =
+  (* t999/n999 aren't in the destination graph at all — a caller bug, not "no
+     provenance recorded" (which is t10 above: present, just empty). The lens
+     must say so via Unknown_destination_tensor/_node rather than silently
+     answering as if the id were merely unrecorded. *)
+  over_chain folded
+    {
+      probe =
+        (fun lens _ ->
+          report lens (t_ 999);
+          match P.node_origins lens (n_ 999) with
+          | Error e -> fail e
+          | Ok _ -> print_string "unexpected Ok\n");
+    };
+  [%expect
+    {|
+    t999:
+      t999 is not an edge of the destination graph
+    t999 is not an edge of the destination graph
+    provenance: []
+    n999 is not a node of the destination graph |}]

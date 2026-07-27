@@ -61,12 +61,11 @@ type distance_acc = {
   first : (Vec6.coord * float * float) option;
 }
 
-let pp_optional_float ppf = function
-  | Some x -> Format.fprintf ppf "%g" x
-  | None -> Format.pp_print_string ppf "n/a"
+let pp_optional_float =
+  Core.Pretty.option_or ~none:"n/a" (fun ppf x -> Fmt.pf ppf "%g" x)
 
 let pp_distance ppf d =
-  Format.fprintf ppf
+  Fmt.pf ppf
     "count=%d max_abs=%g bias=%g mean_abs=%g rmse=%g stddev=%g relative_l2=%a \
      cosine_similarity=%a cosine_distance=%a"
     d.count d.max_abs d.bias d.mean_abs d.rmse d.stddev pp_optional_float
@@ -163,36 +162,36 @@ let compare_tensor ~atol expected actual =
    [Core.Error.pp], which is meant for developer-facing diagnostics). *)
 let pp_tensor_origin ppf = function
   | Pt2_native_graph.Source { graph_path; ssa_name; _ } ->
-      Format.fprintf ppf "%a:%s" Pt2_native_graph.Graph_path.pp graph_path
-        ssa_name
-  | Derived -> Format.pp_print_string ppf "derived"
+      Fmt.pf ppf "%a:%s" Pt2_native_graph.Graph_path.pp graph_path ssa_name
+  | Derived -> Fmt.string ppf "derived"
 
 let pp_inline_printer (lowered : Pt2_native_graph.t) : Graph_ir.Printer.t =
   {
     tensor =
       (fun ppf id ->
-        match Graph_ir.Tensor_id.Map.find_opt id lowered.tensor_origins with
-        | None -> Format.pp_print_string ppf "derived"
-        | Some origin ->
-            Format.fprintf ppf "pt2=%a" pp_tensor_origin origin;
-            Option.iter
-              (fun target -> Format.fprintf ppf " target=%s" target)
-              (Graph_ir.Tensor_id.Map.find_opt id lowered.captured_targets));
+        let pp_origin ppf origin =
+          Fmt.pf ppf "pt2=%a" pp_tensor_origin origin;
+          Option.iter
+            (fun target -> Fmt.pf ppf " target=%s" target)
+            (Graph_ir.Tensor_id.Map.find_opt id lowered.captured_targets)
+        in
+        Fmt.option ~none:(Fmt.any "derived") pp_origin ppf
+          (Graph_ir.Tensor_id.Map.find_opt id lowered.tensor_origins));
     node =
       (fun ppf id ->
-        match Graph_ir.Node_id.Map.find_opt id lowered.node_origins with
-        | None -> Format.pp_print_string ppf "derived"
-        | Some origins ->
-            List.iteri
-              (fun i (origin : Pt2_native_graph.Node_origin.t) ->
-                if i > 0 then Format.pp_print_string ppf "; ";
-                Format.fprintf ppf "pt2=%a[%d] %s%s"
-                  Pt2_native_graph.Graph_path.pp origin.graph_path origin.index
-                  origin.target
-                  (match origin.name with
-                  | None -> ""
-                  | Some name -> " (" ^ name ^ ")"))
-              origins);
+        let pp_origins ppf origins =
+          List.iteri
+            (fun i (origin : Pt2_native_graph.Node_origin.t) ->
+              if i > 0 then Fmt.string ppf "; ";
+              Fmt.pf ppf "pt2=%a[%d] %s%s" Pt2_native_graph.Graph_path.pp
+                origin.graph_path origin.index origin.target
+                (match origin.name with
+                | None -> ""
+                | Some name -> " (" ^ name ^ ")"))
+            origins
+        in
+        Fmt.option ~none:(Fmt.any "derived") pp_origins ppf
+          (Graph_ir.Node_id.Map.find_opt id lowered.node_origins));
   }
 
 let pp_provenance ppf (lowered : Pt2_native_graph.t) =
@@ -386,36 +385,41 @@ let pp_lens_printer lens derived : Graph_ir.Printer.t =
   {
     tensor =
       (fun ppf id ->
-        let origins =
-          Result.value ~default:[] (Pt2_native_graph.tensor_origins lens id)
-        in
-        let target =
-          Result.value ~default:None (Pt2_native_graph.captured_target lens id)
-        in
-        match (origins, target, List.assoc_opt id derived) with
-        | [], _, Some names ->
-            Format.fprintf ppf "folded from=%a"
-              (Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.string))
-              names
-        | [], _, None -> Format.pp_print_string ppf "derived"
-        | origins, target, _ ->
-            Format.fprintf ppf "pt2=%a"
-              (Fmt.list ~sep:(Fmt.any ";")
-                 (fun ppf (o : Pt2_native_graph.Tensor_origin.t) ->
-                   Format.fprintf ppf "%a:%s" Pt2_native_graph.Graph_path.pp
-                     o.graph_path o.ssa_name))
-              origins;
-            Option.iter (Format.fprintf ppf " target=%s") target);
+        match
+          ( Pt2_native_graph.tensor_origins lens id,
+            Pt2_native_graph.captured_target lens id )
+        with
+        | Error e, _ | _, Error e ->
+            Fmt.pf ppf "provenance error: %a" Pt2_native_graph.pp_lens_error
+              e.Core.Error.kind
+        | Ok origins, Ok target -> (
+            match (origins, target, List.assoc_opt id derived) with
+            | [], _, Some names ->
+                Fmt.pf ppf "folded from=[%a]"
+                  (Fmt.list ~sep:(Fmt.any ",") Fmt.string)
+                  names
+            | [], _, None -> Fmt.string ppf "derived"
+            | origins, target, _ ->
+                Fmt.pf ppf "pt2=%a"
+                  (Fmt.list ~sep:(Fmt.any ";")
+                     (fun ppf (o : Pt2_native_graph.Tensor_origin.t) ->
+                       Fmt.pf ppf "%a:%s" Pt2_native_graph.Graph_path.pp
+                         o.graph_path o.ssa_name))
+                  origins;
+                Option.iter (Fmt.pf ppf " target=%s") target));
     node =
       (fun ppf id ->
         match Pt2_native_graph.node_origins lens id with
-        | Error _ | Ok [] -> Format.pp_print_string ppf "derived"
+        | Error e ->
+            Fmt.pf ppf "provenance error: %a" Pt2_native_graph.pp_lens_error
+              e.Core.Error.kind
+        | Ok [] -> Fmt.string ppf "derived"
         | Ok origins ->
             List.iteri
               (fun i (o : Pt2_native_graph.Node_origin.t) ->
-                if i > 0 then Format.pp_print_string ppf "; ";
-                Format.fprintf ppf "pt2=%a[%d] %s"
-                  Pt2_native_graph.Graph_path.pp o.graph_path o.index o.target)
+                if i > 0 then Fmt.string ppf "; ";
+                Fmt.pf ppf "pt2=%a[%d] %s" Pt2_native_graph.Graph_path.pp
+                  o.graph_path o.index o.target)
               origins);
   }
 
