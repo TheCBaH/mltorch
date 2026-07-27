@@ -30,6 +30,19 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Reshape_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Clamp_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (module Clone_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (module Hardtanh_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (module Add_scalar_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (* Registered, unlike [Div]: [Div]'s hazard is a random TENSOR divisor
+       hitting zero, whereas this op's divisor comes from a fixed candidate list
+       that omits zero, so the walk stays informative rather than flaky. *)
+    (module Div_scalar_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
   ]
 
 let run (m : op) ~ppf ~pcg ~steps =
