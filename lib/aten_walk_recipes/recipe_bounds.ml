@@ -60,12 +60,13 @@ let axes ~n ~c ~h ~w ~bounds =
       field_axis "bounds" bounds (fun c v -> { c with bounds = v });
     ]
 
-let pp_bound ppf = function
-  | None -> Format.pp_print_string ppf "none"
-  | Some (Sv.Int i) -> Format.fprintf ppf "%d" i
-  | Some (Sv.Float f) -> Format.fprintf ppf "%g" f
-  | Some (Sv.Bool b) -> Format.fprintf ppf "%b" b
+let pp_bound_value ppf = function
+  | Sv.Int i -> Fmt.int ppf i
+  | Sv.Float f -> Fmt.pf ppf "%g" f
+  | Sv.Bool b -> Fmt.bool ppf b
+
+let pp_bound = Fmt.option ~none:(Fmt.any "none") pp_bound_value
 
 let pp ppf c =
-  Format.fprintf ppf "{shape=[%d,%d,%d,%d] min=%a max=%a}" c.n c.c c.h c.w
-    pp_bound c.bounds.min pp_bound c.bounds.max
+  Fmt.pf ppf "{shape=[%d,%d,%d,%d] min=%a max=%a}" c.n c.c c.h c.w pp_bound
+    c.bounds.min pp_bound c.bounds.max

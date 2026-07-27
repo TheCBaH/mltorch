@@ -29,35 +29,30 @@ type error =
   | `Convolution_invalid_weight_rank of int array
   | `Linear_invalid_weight_rank of int array ]
 
-let pp_int_list ppf xs =
-  Format.fprintf ppf "[%s]" (String.concat ", " (List.map string_of_int xs))
-
+let pp_int_list = Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.int)
 let pp_int_array ppf xs = pp_int_list ppf (Array.to_list xs)
 
 let pp_error ppf : [< error ] -> unit = function
   | `Decode e -> Interp_decode.pp_error ppf e
-  | `Tensor_bridge { arg_name; message } ->
-      Format.fprintf ppf "%s: %s" arg_name message
+  | `Tensor_bridge { arg_name; message } -> Fmt.pf ppf "%s: %s" arg_name message
   | `Build e -> Graph_builder.pp_error ppf e
   | `Invalid_hw_arg { name; values } ->
-      Format.fprintf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list
-        values
-  | `Validation_failure msg -> Format.pp_print_string ppf msg
+      Fmt.pf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list values
+  | `Validation_failure msg -> Fmt.string ppf msg
   | `Addmm_invalid_weight_rank shape ->
-      Format.fprintf ppf "addmm: mat2 must be rank-2, got shape %a" pp_int_array
-        shape
+      Fmt.pf ppf "addmm: mat2 must be rank-2, got shape %a" pp_int_array shape
   | `Conv2d_invalid_weight_rank shape ->
-      Format.fprintf ppf "conv2d: weight must be rank-4, got shape %a"
-        pp_int_array shape
+      Fmt.pf ppf "conv2d: weight must be rank-4, got shape %a" pp_int_array
+        shape
   | `Conv2d_padding_invalid_weight_rank shape ->
-      Format.fprintf ppf "conv2d.padding: weight must be rank-4, got shape %a"
+      Fmt.pf ppf "conv2d.padding: weight must be rank-4, got shape %a"
         pp_int_array shape
   | `Convolution_invalid_weight_rank shape ->
-      Format.fprintf ppf "convolution: weight must be rank-4, got shape %a"
-        pp_int_array shape
+      Fmt.pf ppf "convolution: weight must be rank-4, got shape %a" pp_int_array
+        shape
   | `Linear_invalid_weight_rank shape ->
-      Format.fprintf ppf "linear: weight must be rank-2, got shape %a"
-        pp_int_array shape
+      Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
+        shape
 
 let ( let* ) = Core.Syntax.( let* )
 let return = Core.return
@@ -853,8 +848,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          | Error e ->
              fail
                (`Validation_failure
-                  (Format.asprintf "view: %a" Aten_shape.pp_error
-                     e.Core.Error.kind))
+                  (Fmt.str "view: %a" Aten_shape.pp_error e.Core.Error.kind))
          | Ok target ->
              let params = { Reshape.Reshape.shape = target } in
              build_g ~name:"view" [ x ] (function

@@ -51,25 +51,26 @@ let scalar_type_name = function
   | Aten_scalar_type.Bool -> "bool"
 
 let pp_point ppf p =
-  Format.fprintf ppf "%a aten=%g native=%g" Vec6.pp_coord p.coord p.aten_val
+  Fmt.pf ppf "%a aten=%g native=%g" Vec6.pp_coord p.coord p.aten_val
     p.native_val
+
+let pp_dims = Fmt.list ~sep:(Fmt.any "x") Fmt.int
 
 let pp_error ppf = function
   | Output_count { expected; got } ->
-      Format.fprintf ppf "output count: expected %d got %d" expected got
-  | Missing_output { name } -> Format.fprintf ppf "missing ATen output %S" name
+      Fmt.pf ppf "output count: expected %d got %d" expected got
+  | Missing_output { name } -> Fmt.pf ppf "missing ATen output %S" name
   | Shape_mismatch { output; aten; native } ->
-      Format.fprintf ppf "%s: shape mismatch: aten [%s] native %a" output
-        (String.concat "x" (List.map string_of_int (Array.to_list aten)))
-        Vec6.pp_shape native
+      Fmt.pf ppf "%s: shape mismatch: aten [%a] native %a" output pp_dims
+        (Array.to_list aten) Vec6.pp_shape native
   | Fmt_mismatch { output; aten_dtype; native_fmt } ->
-      Format.fprintf ppf "%s: type mismatch: aten %s native %s" output
+      Fmt.pf ppf "%s: type mismatch: aten %s native %s" output
         (scalar_type_name aten_dtype)
         native_fmt
   | Payload_mismatch { output; total; points } ->
-      Format.fprintf ppf "%s: payload mismatch (%d/%d shown):@ @[<v>%a@]" output
+      Fmt.pf ppf "%s: payload mismatch (%d/%d shown):@ @[<v>%a@]" output
         (List.length points) total
-        (Format.pp_print_list ~pp_sep:Format.pp_print_cut pp_point)
+        (Fmt.list ~sep:Fmt.cut pp_point)
         points
 
 (* Scan the 6D shape calling [f coord i] at every element; collect up to
@@ -225,6 +226,5 @@ let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
 
 let report ppf op errors =
   List.iter
-    (fun e ->
-      Format.fprintf ppf "[verify] %s: %a@." op pp_error e.Core.Error.kind)
+    (fun e -> Fmt.pf ppf "[verify] %s: %a@." op pp_error e.Core.Error.kind)
     errors

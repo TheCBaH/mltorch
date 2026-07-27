@@ -18,7 +18,7 @@ let run ppf (s : Native_subject.t) : bool =
   in
   match Eval_direct.run g ~inputs:s.Native_subject.inputs with
   | Error e ->
-      Format.fprintf ppf "[native] %s: eval error: %a@." s.Native_subject.target
+      Fmt.pf ppf "[native] %s: eval error: %a@." s.Native_subject.target
         Eval_direct.pp_error e.Core.Error.kind;
       false
   | Ok direct ->
@@ -31,10 +31,9 @@ let run ppf (s : Native_subject.t) : bool =
         tensors_match (shape_of oid) d gr
       in
       if List.for_all agree g.Graph_ir.Graph.outputs then (
-        Format.fprintf ppf "[native] %s: direct==symbolic@."
-          s.Native_subject.target;
+        Fmt.pf ppf "[native] %s: direct==symbolic@." s.Native_subject.target;
         true)
       else (
-        Format.fprintf ppf "[native] %s: MISMATCH direct vs symbolic@."
+        Fmt.pf ppf "[native] %s: MISMATCH direct vs symbolic@."
           s.Native_subject.target;
         false)
