@@ -186,8 +186,8 @@ let to_node ?(pcg0 = Pcg.default) (spec : Aten_spec.Op_spec.t) =
 let pp_interp_error ppf = function
   | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
   | `Aten_runtime_failure (op, st) ->
-      Format.fprintf ppf "ATen op %s failed with status %d" op st
-  | `Unhandled_op target -> Format.fprintf ppf "unhandled op %S" target
+      Fmt.pf ppf "ATen op %s failed with status %d" op st
+  | `Unhandled_op target -> Fmt.pf ppf "unhandled op %S" target
 
 (* Execute the spec on both paths and report. Returns [true] if the native and
    ATen outputs agreed (or the op has no native impl, which is reported and
@@ -247,9 +247,10 @@ let pp_aten ppf t =
    element order, see native_aten_bridge_design) so it prints with the same
    formatter as the ATen output. *)
 let pp_native ppf packed =
-  match Tensor_bridge.to_aten_flat packed with
-  | Ok t -> pp_aten ppf t
-  | Error e -> Format.fprintf ppf "<error: %s>" e
+  Core.Pretty.result ~ok:pp_aten
+    ~error:(fun ppf e -> Fmt.pf ppf "<error: %s>" e)
+    ppf
+    (Tensor_bridge.to_aten_flat packed)
 
 (* Evaluate the spec on both paths and print each output tensor, ATen above
    native, so the two can be compared by eye. *)
@@ -304,12 +305,11 @@ let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
               | None -> Format.fprintf ppf "  native %s = <missing>@." name))
         out_names
 
+(* Deliberately not [Fmt.brackets], which boxes its content and so may
+   line-wrap; the promoted cram goldens this feeds assume a single line
+   regardless of width, matching the original [Format.fprintf "[%a]" ...]. *)
 let pp_shape ppf shape =
-  Format.fprintf ppf "[%a]"
-    (Format.pp_print_list
-       ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ",")
-       Format.pp_print_int)
-    shape
+  Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ",") Fmt.int) shape
 
 (* The payload/distribution a tensor arg's contents are synthesized from —
    shown alongside its dtype/shape so a reader can see that a walk step's
@@ -317,30 +317,28 @@ let pp_shape ppf shape =
    the concrete draw from it differs. *)
 let pp_source ppf (s : Tspec.source) =
   match s with
-  | Tspec.Values _ -> Format.pp_print_string ppf "values"
+  | Tspec.Values _ -> Fmt.string ppf "values"
   | Tspec.Sequence { start; step } ->
-      Format.fprintf ppf "sequence(start=%g,step=%g)" start step
+      Fmt.pf ppf "sequence(start=%g,step=%g)" start step
   | Tspec.Random (Uniform { low; high }) ->
-      Format.fprintf ppf "uniform(low=%g,high=%g)" low high
+      Fmt.pf ppf "uniform(low=%g,high=%g)" low high
   | Tspec.Random (Normal { mean; variance }) ->
-      Format.fprintf ppf "normal(mean=%g,variance=%g)" mean variance
+      Fmt.pf ppf "normal(mean=%g,variance=%g)" mean variance
 
 let pp_tensor_spec ppf (ts : Tspec.t) =
-  Format.fprintf ppf "%s%a~%a"
+  Fmt.pf ppf "%s%a~%a"
     (Aten_spec.Dtype.to_string ts.dtype)
     pp_shape ts.shape pp_source ts.source
 
 let pp_scalar_value ppf = function
-  | Sv.Int i -> Format.pp_print_int ppf i
+  | Sv.Int i -> Fmt.int ppf i
   | Sv.Float f -> Format.pp_print_float ppf f
-  | Sv.Bool b -> Format.pp_print_bool ppf b
+  | Sv.Bool b -> Fmt.bool ppf b
 
 let pp_int_list ppf xs =
-  Format.fprintf ppf "[%a]"
-    (Format.pp_print_list
-       ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ",")
-       Format.pp_print_int)
-    xs
+  Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ",") Fmt.int) xs
+
+let pp_opt_none pp ppf opt = Core.Pretty.option_or ~none:"none" pp ppf opt
 
 (* One arg's value, for the "pretty print" of an op call: tensors show
    dtype+shape (never their synthesized contents), everything else shows its
@@ -348,36 +346,25 @@ let pp_int_list ppf xs =
 let pp_arg_value ppf (av : Av.t) =
   match av with
   | Av.Tensor ts -> pp_tensor_spec ppf ts
-  | Av.Tensor_opt None -> Format.pp_print_string ppf "none"
-  | Av.Tensor_opt (Some ts) -> pp_tensor_spec ppf ts
+  | Av.Tensor_opt opt -> pp_opt_none pp_tensor_spec ppf opt
   | Av.Tensor_list ts ->
-      Format.fprintf ppf "[%a]"
-        (Format.pp_print_list
-           ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ")
-           pp_tensor_spec)
-        ts
-  | Av.Int i -> Format.pp_print_int ppf i
-  | Av.Int_opt None -> Format.pp_print_string ppf "none"
-  | Av.Int_opt (Some i) -> Format.pp_print_int ppf i
+      Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any "; ") pp_tensor_spec) ts
+  | Av.Int i -> Fmt.int ppf i
+  | Av.Int_opt opt -> pp_opt_none Fmt.int ppf opt
   | Av.Int_list xs -> pp_int_list ppf xs
-  | Av.Int_list_opt None -> Format.pp_print_string ppf "none"
-  | Av.Int_list_opt (Some xs) -> pp_int_list ppf xs
+  | Av.Int_list_opt opt -> pp_opt_none pp_int_list ppf opt
   | Av.Float f -> Format.pp_print_float ppf f
-  | Av.Float_opt None -> Format.pp_print_string ppf "none"
-  | Av.Float_opt (Some f) -> Format.pp_print_float ppf f
-  | Av.Bool b -> Format.pp_print_bool ppf b
-  | Av.Bool_opt None -> Format.pp_print_string ppf "none"
-  | Av.Bool_opt (Some b) -> Format.pp_print_bool ppf b
+  | Av.Float_opt opt -> pp_opt_none Format.pp_print_float ppf opt
+  | Av.Bool b -> Fmt.bool ppf b
+  | Av.Bool_opt opt -> pp_opt_none Fmt.bool ppf opt
   | Av.Scalar sv -> pp_scalar_value ppf sv
-  | Av.Scalar_opt None -> Format.pp_print_string ppf "none"
-  | Av.Scalar_opt (Some sv) -> pp_scalar_value ppf sv
-  | Av.Str s -> Format.fprintf ppf "%S" s
+  | Av.Scalar_opt opt -> pp_opt_none pp_scalar_value ppf opt
+  | Av.Str s -> Fmt.pf ppf "%S" s
 
 let pp_op_call ppf (spec : Aten_spec.Op_spec.t) =
-  Format.fprintf ppf "%s(%a)" spec.target
-    (Format.pp_print_list
-       ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ", ")
-       (fun ppf (name, av) -> Format.fprintf ppf "%s=%a" name pp_arg_value av))
+  Fmt.pf ppf "%s(%a)" spec.target
+    (Fmt.list ~sep:(Fmt.any ", ") (fun ppf (name, av) ->
+         Fmt.pf ppf "%s=%a" name pp_arg_value av))
     spec.args
 
 (* ATen-only: no native-engine comparison at all (unlike [run]/[eval_print]).
