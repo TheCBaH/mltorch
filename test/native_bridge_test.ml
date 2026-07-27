@@ -126,6 +126,61 @@ let%expect_test "compare_tensors: F32 mismatch reports coordinates" =
     Error: y: payload mismatch (1/1 shown):
     (2) aten=3 native=99 |}]
 
+(* NaN-ness is compared as an exact property before the tolerance test. The
+   tolerance test alone cannot do it: [nan -. x] is [nan] and [nan > atol] is
+   false, so every NaN disagreement used to read as agreement — which would make
+   any NaN test built on this comparator vacuous. Both directions are covered
+   because they are separate bugs: native losing a NaN ATen produced, and native
+   inventing one ATen did not. *)
+let%expect_test "compare_tensors: native NaN where ATen is finite -> Error" =
+  let aten = float_tensor [ 3 ] [ 1.; 2.; 3. ] in
+  let native = native_f32 [ 3 ] [ 1.; Float.nan; 3. ] in
+  Format.printf "%a@." pp_result
+    (Verify.compare_tensors ~atol:1e-6 ~output:"y" aten native);
+  [%expect
+    {|
+    Error: y: payload mismatch (1/1 shown):
+    (1) aten=2 native=nan |}]
+
+let%expect_test "compare_tensors: ATen NaN where native is finite -> Error" =
+  let aten = float_tensor [ 3 ] [ 1.; Float.nan; 3. ] in
+  let native = native_f32 [ 3 ] [ 1.; 2.; 3. ] in
+  Format.printf "%a@." pp_result
+    (Verify.compare_tensors ~atol:1e-6 ~output:"y" aten native);
+  [%expect
+    {|
+    Error: y: payload mismatch (1/1 shown):
+    (1) aten=nan native=2 |}]
+
+(* Both NaN is agreement: ATen produces NaN deliberately in cases the native
+   side must reproduce (a clamp with a NaN bound fills its whole result), and
+   the engine draws no distinction between NaN bit patterns. *)
+let%expect_test "compare_tensors: NaN on both sides -> Ok" =
+  let aten = float_tensor [ 3 ] [ 1.; Float.nan; 3. ] in
+  let native = native_f32 [ 3 ] [ 1.; Float.nan; 3. ] in
+  Format.printf "%a@." pp_result
+    (Verify.compare_tensors ~atol:1e-6 ~output:"y" aten native);
+  [%expect {| Ok |}]
+
+(* Infinities compare by equality for the same reason: [inf -. inf] is [nan], so
+   the tolerance test would have passed two infinities of opposite sign. *)
+let%expect_test "compare_tensors: opposite-sign infinities -> Error" =
+  let aten = float_tensor [ 2 ] [ Float.infinity; 1. ] in
+  let native = native_f32 [ 2 ] [ Float.neg_infinity; 1. ] in
+  Format.printf "%a@." pp_result
+    (Verify.compare_tensors ~atol:1e-6 ~output:"y" aten native);
+  [%expect
+    {|
+    Error: y: payload mismatch (1/1 shown):
+    (0) aten=inf native=-inf |}]
+
+let%expect_test "compare_tensors: same-sign infinities -> Ok" =
+  let aten = float_tensor [ 2 ] [ Float.infinity; 1. ] in
+  let native = native_f32 [ 2 ] [ Float.infinity; 1. ] in
+  Format.printf "%a@." pp_result
+    (Verify.compare_tensors ~atol:1e-6 ~output:"y" aten native);
+  [%expect {| Ok |}]
+
 let%expect_test "compare_tensors: shape mismatch" =
   let aten = float_tensor [ 2; 3 ] (List.init 6 float_of_int) in
   let native = native_f32 [ 3; 2 ] (List.init 6 float_of_int) in

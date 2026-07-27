@@ -85,6 +85,29 @@ let scan shape f =
           if !total <= max_points then points := pt :: !points);
   (List.rev !points, !total)
 
+(* Do two f32 elements disagree?
+
+   The tolerance test alone silently passes every NaN: [nan -. x] is [nan] and
+   [nan > atol] is false, so a native NaN where ATen produced a finite value —
+   or the reverse — read as agreement, and any test relying on this comparator
+   to check NaN behaviour proved nothing. NaN-ness is therefore compared first,
+   as an exact property, and only two finite values reach the tolerance.
+
+   Both-NaN counts as agreement: NaN has no payload to compare here (the engine
+   does not distinguish quiet NaN bit patterns), and ATen itself produces NaN
+   deliberately in cases the native side must reproduce — a clamp with a NaN
+   bound fills its whole result with NaN. Infinities compare by equality for the
+   same reason: [inf -. inf] is [nan], so the tolerance test would pass two
+   infinities of OPPOSITE sign. *)
+let float_differs ~atol av nv =
+  match (Float.is_nan av, Float.is_nan nv) with
+  | true, true -> false
+  | true, false | false, true -> true
+  | false, false ->
+      if Float.is_finite av && Float.is_finite nv then
+        Float.abs (av -. nv) > atol
+      else not (Float.equal av nv)
+
 (* Some ATen ops (notably permute/view/expand/select) return non-contiguous
    views. [Aten_tensor.data] exposes a flat buffer and therefore only reflects
    logical element order for contiguous tensors, so verification materializes
@@ -115,7 +138,7 @@ let compare_tensors ~atol ~output aten_t native_t =
       let points, total =
         scan native_r.shape (fun coord i ->
             let av = aten_ba.{i} and nv = native_ba.{i} in
-            if Float.abs (av -. nv) > atol then
+            if float_differs ~atol av nv then
               Some { coord; aten_val = av; native_val = nv }
             else None)
       in
