@@ -213,14 +213,15 @@ let%expect_test "index: group ownership and the nearest common ancestor" =
   [%expect
     {|
     graph
-    inputs: [t0 f32 [H=2 W=3 C=4]]
+    inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
     nodes:
       group g1 first:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
       group g2 second:
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-      n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
-    outputs: [t3 f32 [H=2 W=3 C=4]]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+      n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2 <-n1
+    outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     n0 in g1
     n1 in g2
     n2 in g0
@@ -269,8 +270,9 @@ let%expect_test "region: the boundary is derived, not declared" =
     extracted:
     graph
     inputs:
-      [t0 f32 [H=4 W=4 C=2], t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant,
-       t2 f32 [C=3] constant]
+      [t0 f32 [H=4 W=4 C=2] ->[n0],
+       t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n0] constant,
+       t2 f32 [C=3] ->[n0] constant]
     nodes:
       n0: [t7 f32 [H=3 W=3 C=3]] =
         conv2d
@@ -281,7 +283,7 @@ let%expect_test "region: the boundary is derived, not declared" =
                  w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=2;
                  groups=1}
-    outputs: [t7 f32 [H=3 W=3 C=3]]
+    outputs: [t7 f32 [H=3 W=3 C=3] <-n0]
     |}]
 
 let%expect_test "region: an interior edge is one used only inside" =

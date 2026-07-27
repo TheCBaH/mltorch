@@ -333,7 +333,8 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
     decoded graph:
     graph
     inputs:
-      [t0 f32 [H=4 W=4 C=8], t1 f32 [N=16 T=1 D=1 H=3 W=3 C=8], t2 f32 [C=16]]
+      [t0 f32 [H=4 W=4 C=8] ->[n0], t1 f32 [N=16 T=1 D=1 H=3 W=3 C=8] ->[n0],
+       t2 f32 [C=16] ->[n0]]
     nodes:
       n0: [t3 f32 [H=4 W=4 C=16]] =
         conv2d
@@ -344,7 +345,7 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
                  w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
                  in_channels=8;
                  groups=1}
-    outputs: [t3 f32 [H=4 W=4 C=16]] |}]
+    outputs: [t3 f32 [H=4 W=4 C=16] <-n0] |}]
 
 let%expect_test "op Conv2d no bias: optional field absent in JSON" =
   let conv_params =
@@ -376,7 +377,7 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
     {|
     original:
     graph
-    inputs: [t0 f32 [C=4], t1 f32 [N=4 T=1 D=1 H=1 W=1 C=4]]
+    inputs: [t0 f32 [C=4] ->[n0], t1 f32 [N=4 T=1 D=1 H=1 W=1 C=4] ->[n0]]
     nodes:
       n0: [t2 f32 [C=4]] =
         conv2d
@@ -387,10 +388,10 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
                  w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=4;
                  groups=1}
-    outputs: [t2 f32 [C=4]]
+    outputs: [t2 f32 [C=4] <-n0]
     decoded:
     graph
-    inputs: [t0 f32 [C=4], t1 f32 [N=4 T=1 D=1 H=1 W=1 C=4]]
+    inputs: [t0 f32 [C=4] ->[n0], t1 f32 [N=4 T=1 D=1 H=1 W=1 C=4] ->[n0]]
     nodes:
       n0: [t2 f32 [C=4]] =
         conv2d
@@ -401,7 +402,7 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
                  w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
                  in_channels=4;
                  groups=1}
-    outputs: [t2 f32 [C=4]] |}]
+    outputs: [t2 f32 [C=4] <-n0] |}]
 
 let%expect_test "op Permute: encode → decode" =
   let perm = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ] in
@@ -423,10 +424,10 @@ let%expect_test "op Permute: encode → decode" =
     {|
     decoded graph:
     graph
-    inputs: [t0 f32 [H=2 W=3 C=4]]
+    inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
     nodes:
       n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-    outputs: [t1 f32 [H=3 W=4 C=2]] |}]
+    outputs: [t1 f32 [H=3 W=4 C=2] <-n0] |}]
 
 (* The scalar-parameter and clamp ops carry JSON shapes the other ops do not: a
    bare [scalar] number, and two INDEPENDENTLY optional bounds. Round-tripping
@@ -470,13 +471,13 @@ let%expect_test "ops Add_scalar/Clamp/Div_scalar: encode → decode" =
     }
     decoded graph:
     graph
-    inputs: [t0 f32 [C=3]]
+    inputs: [t0 f32 [C=3] ->[n0]]
     nodes:
-      n0: [t1 f32 [C=3]] = add_scalar x=t0 scalar=0.1
-      n1: [t2 f32 [C=3]] = clamp x=t1 params={min=0; max=none}
-      n2: [t3 f32 [C=3]] = clamp x=t2 params={min=none; max=6}
-      n3: [t4 f32 [C=3]] = div_scalar x=t3 scalar=6
-    outputs: [t4 f32 [C=3]] |}]
+      n0: [t1 f32 [C=3] ->[n1]] = add_scalar x=t0 scalar=0.1
+      n1: [t2 f32 [C=3] ->[n2]] = clamp x=t1 <-n0 params={min=0; max=none}
+      n2: [t3 f32 [C=3] ->[n3]] = clamp x=t2 <-n1 params={min=none; max=6}
+      n3: [t4 f32 [C=3]] = div_scalar x=t3 <-n2 scalar=6
+    outputs: [t4 f32 [C=3] <-n3] |}]
 
 let%expect_test "ops Hardtanh/Clone: encode → decode" =
   let result =
@@ -500,11 +501,11 @@ let%expect_test "ops Hardtanh/Clone: encode → decode" =
     {|
     decoded graph:
     graph
-    inputs: [t0 f32 [C=3]]
+    inputs: [t0 f32 [C=3] ->[n0]]
     nodes:
-      n0: [t1 f32 [C=3]] = hardtanh x=t0 params={min_val=-1; max_val=1}
-      n1: [t2 f32 [C=3]] = clone x=t1
-    outputs: [t2 f32 [C=3]] |}]
+      n0: [t1 f32 [C=3] ->[n1]] = hardtanh x=t0 params={min_val=-1; max_val=1}
+      n1: [t2 f32 [C=3]] = clone x=t1 <-n0
+    outputs: [t2 f32 [C=3] <-n1] |}]
 
 let%expect_test "graph with Mean op: encode → decode → pretty-print" =
   let result =
@@ -527,10 +528,10 @@ let%expect_test "graph with Mean op: encode → decode → pretty-print" =
     {|
     decoded:
     graph
-    inputs: [t0 f32 [H=7 W=7 C=64]]
+    inputs: [t0 f32 [H=7 W=7 C=64] ->[n0]]
     nodes:
       n0: [t1 f32 [C=64]] = mean x=t0 params={dims=[H, W]; keepdim=false}
-    outputs: [t1 f32 [C=64]] |}]
+    outputs: [t1 f32 [C=64] <-n0] |}]
 
 let%expect_test "nested group: encode → decode → pretty-print" =
   let result =
@@ -556,20 +557,20 @@ let%expect_test "nested group: encode → decode → pretty-print" =
     {|
     original:
     graph
-    inputs: [t0 f32 [C=4], t1 f32 [C=4]]
+    inputs: [t0 f32 [C=4] ->[n0], t1 f32 [C=4] ->[n0]]
     nodes:
       group g1 add_relu:
-        n0: [t2 f32 [C=4]] = add a=t0 b=t1
-        n1: [t3 f32 [C=4]] = relu x=t2
-    outputs: [t3 f32 [C=4]]
+        n0: [t2 f32 [C=4] ->[n1]] = add a=t0 b=t1
+        n1: [t3 f32 [C=4]] = relu x=t2 <-n0
+    outputs: [t3 f32 [C=4] <-n1]
     decoded:
     graph
-    inputs: [t0 f32 [C=4], t1 f32 [C=4]]
+    inputs: [t0 f32 [C=4] ->[n0], t1 f32 [C=4] ->[n0]]
     nodes:
       group g1 add_relu:
-        n0: [t2 f32 [C=4]] = add a=t0 b=t1
-        n1: [t3 f32 [C=4]] = relu x=t2
-    outputs: [t3 f32 [C=4]] |}]
+        n0: [t2 f32 [C=4] ->[n1]] = add a=t0 b=t1
+        n1: [t3 f32 [C=4]] = relu x=t2 <-n0
+    outputs: [t3 f32 [C=4] <-n1] |}]
 
 (* ---- tensor payload ------------------------------------------------------- *)
 

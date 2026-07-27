@@ -50,11 +50,11 @@ let%expect_test "trim: removing a no-op permute ties its output to its input" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=2 W=3 C=4]] = permute x=t0 perm=[]
-        n1: [t2 f32 [H=2 W=3 C=4]] = relu x=t1
-      outputs: [t2 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=2 W=3 C=4] ->[n1]] = permute x=t0 perm=[]
+        n1: [t2 f32 [H=2 W=3 C=4]] = relu x=t1 <-n0
+      outputs: [t2 f32 [H=2 W=3 C=4] <-n1]
     recipe:
       remove: [n0]
       subst:
@@ -63,10 +63,10 @@ let%expect_test "trim: removing a no-op permute ties its output to its input" =
         t1 -> t0 identical
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n1]]
       nodes:
         n1: [t2 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t2 f32 [H=2 W=3 C=4]]
+      outputs: [t2 f32 [H=2 W=3 C=4] <-n1]
     map:
       values:
         {t0, t1} -> {t0} identical
@@ -99,10 +99,10 @@ let%expect_test "trim: a chain of two permutes collapses into one cluster" =
         t2 -> t1 identical
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n2]]
       nodes:
         n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     map:
       values:
         {t0, t1, t2} -> {t0} identical
@@ -143,12 +143,12 @@ let%expect_test "decompose: one node becomes two, the output id is preserved" =
         t2 -> t2 identical
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=2 W=3 C=4]] = permute x=t0 perm=[]
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t1
-        n3: [t2 f32 [H=2 W=3 C=4]] = relu x=t3
-      outputs: [t2 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=2 W=3 C=4] ->[n2]] = permute x=t0 perm=[]
+        n2: [t3 f32 [H=2 W=3 C=4] ->[n3]] = relu x=t1 <-n0
+        n3: [t2 f32 [H=2 W=3 C=4]] = relu x=t3 <-n2
+      outputs: [t2 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {} -> {t3} identical
@@ -186,11 +186,11 @@ let%expect_test "fuse: two nodes become one" =
         t2 -> t2 identical
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
-        n3: [t2 f32 [H=2 W=3 C=4]] = permute x=t0 perm=[]
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+        n3: [t2 f32 [H=2 W=3 C=4] ->[n2]] = permute x=t0 perm=[]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2 <-n3
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     map:
       values:
         {t1} -> {} identical
@@ -223,14 +223,16 @@ let%expect_test "placement: a rewrite spanning two groups lands in their parent"
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
         group g1 first:
-          n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+          n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] =
+            permute x=t0 perm=[H<-W, W<-C, C<-H]
         group g2 second:
-          n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+          n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] =
+            permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2 <-n1
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     recipe:
       remove: [n0, n1]
       insert:
@@ -241,11 +243,11 @@ let%expect_test "placement: a rewrite spanning two groups lands in their parent"
         t2 -> t2 identical
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
-        n3: [t2 f32 [H=2 W=3 C=4]] = permute x=t0 perm=[]
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+        n3: [t2 f32 [H=2 W=3 C=4] ->[n2]] = permute x=t0 perm=[]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2 <-n3
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     map:
       values:
         {t1} -> {} identical
@@ -283,14 +285,16 @@ let%expect_test "placement: a replacement inside one group stays there" =
         t1 -> t1 identical
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
         group g1 first:
-          n3: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+          n3: [t1 f32 [H=3 W=4 C=2] ->[n1]] =
+            permute x=t0 perm=[H<-W, W<-C, C<-H]
         group g2 second:
-          n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+          n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] =
+            permute x=t1 <-n3 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2 <-n1
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     map:
       values:
         identity
@@ -328,12 +332,12 @@ let%expect_test "placement: New_group wraps the insertions in a fresh child" =
         t2 -> t2 identical
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
         group g1 fused:
-          n3: [t2 f32 [H=2 W=3 C=4]] = permute x=t0 perm=[]
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+          n3: [t2 f32 [H=2 W=3 C=4] ->[n2]] = permute x=t0 perm=[]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2 <-n3
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     map:
       values:
         {t1} -> {} identical

@@ -244,6 +244,18 @@ let eval model input expect verbose : (unit, string) result =
       | Ok input -> (
           let hooks =
             if verbose then
+              (* [on_end] fires once per evaluated node against the same
+                 [lowered], so build the pp index once (it's an O(nodes)
+                 rescan otherwise) and reuse it across the whole run. *)
+              let index = ref None in
+              let index_for (lowered : Pt2_native_graph.t) =
+                match !index with
+                | Some (graph, idx) when graph == lowered.graph -> idx
+                | _ ->
+                    let idx = Graph_ir.Index.make lowered.graph in
+                    index := Some (lowered.graph, idx);
+                    idx
+              in
               Some
                 (Native_interp.Hooks
                    {
@@ -253,7 +265,7 @@ let eval model input expect verbose : (unit, string) result =
                          Format.eprintf "%a@,[eval] n%d compute: %.3f ms@."
                            (Graph_ir.pp_node
                               ~printer:(pp_inline_printer lowered)
-                              lowered.graph)
+                              ~index:(index_for lowered) lowered.graph)
                            node
                            (Graph_ir.Node_id.to_int node.Graph_ir.Node.id)
                            ((Sys.time () -. started) *. 1000.));

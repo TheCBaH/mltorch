@@ -57,11 +57,13 @@ let%expect_test "a linear chain is a let* sequence up the operand edges" =
     matched:
       graph
       inputs:
-        [t0 f32 [H=4 W=4 C=2], t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant,
-         t2 f32 [C=3] constant, t3 f32 [C=3] constant, t4 f32 [C=3] constant,
-         t5 f32 [C=3] constant, t6 f32 [C=3] constant]
+        [t0 f32 [H=4 W=4 C=2] ->[n0],
+         t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n0] constant,
+         t2 f32 [C=3] ->[n0] constant, t3 f32 [C=3] ->[n1] constant,
+         t4 f32 [C=3] ->[n1] constant, t5 f32 [C=3] ->[n1] constant,
+         t6 f32 [C=3] ->[n1] constant]
       nodes:
-        n0: [t7 f32 [H=3 W=3 C=3]] =
+        n0: [t7 f32 [H=3 W=3 C=3] ->[n1]] =
           conv2d
             x=t0
             weight=t1
@@ -70,16 +72,16 @@ let%expect_test "a linear chain is a let* sequence up the operand edges" =
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-        n1: [t8 f32 [H=3 W=3 C=3]] =
+        n1: [t8 f32 [H=3 W=3 C=3] ->[n2]] =
           batch_norm
-            x=t7
+            x=t7 <-n0
             weight=t3
             bias=t4
             running_mean=t5
             running_var=t6
             params={channel=C; eps=1e-05}
-        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t8
-      outputs: [t9 f32 [H=3 W=3 C=3]] |}]
+        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t8 <-n1
+      outputs: [t9 f32 [H=3 W=3 C=3] <-n2] |}]
 
 let%expect_test "a union is two def calls on two operand fields" =
   let g = Graph_fixtures.diamond () in
@@ -100,12 +102,12 @@ let%expect_test "a union is two def calls on two operand fields" =
     convex: true
     matched:
       graph
-      inputs: [t0 f32 [C=4]]
+      inputs: [t0 f32 [C=4] ->[n0, n1]]
       nodes:
-        n0: [t1 f32 [C=4]] = relu x=t0
-        n1: [t2 f32 [C=4]] = mul a=t0 b=t0
-        n2: [t3 f32 [C=4]] = add a=t1 b=t2
-      outputs: [t3 f32 [C=4]] |}]
+        n0: [t1 f32 [C=4] ->[n2]] = relu x=t0
+        n1: [t2 f32 [C=4] ->[n2]] = mul a=t0 b=t0
+        n2: [t3 f32 [C=4]] = add a=t1 <-n0 b=t2 <-n1
+      outputs: [t3 f32 [C=4] <-n2] |}]
 
 let%expect_test "re-claiming a node inside one match is idempotent" =
   (* Both arms of the diamond reach the same producer of t0; if claiming twice
@@ -131,12 +133,12 @@ let%expect_test "re-claiming a node inside one match is idempotent" =
     convex: true
     matched:
       graph
-      inputs: [t0 f32 [C=4]]
+      inputs: [t0 f32 [C=4] ->[n0, n1]]
       nodes:
-        n0: [t1 f32 [C=4]] = relu x=t0
-        n1: [t2 f32 [C=4]] = mul a=t0 b=t0
-        n2: [t3 f32 [C=4]] = add a=t1 b=t2
-      outputs: [t3 f32 [C=4]] |}]
+        n0: [t1 f32 [C=4] ->[n2]] = relu x=t0
+        n1: [t2 f32 [C=4] ->[n2]] = mul a=t0 b=t0
+        n2: [t3 f32 [C=4]] = add a=t1 <-n0 b=t2 <-n1
+      outputs: [t3 f32 [C=4] <-n2] |}]
 
 (* ---- fan-out ------------------------------------------------------------- *)
 
@@ -227,10 +229,10 @@ let%expect_test "a failed branch discards its claims" =
     convex: true
     matched:
       graph
-      inputs: [t1 f32 [H=2 W=3 C=4]]
+      inputs: [t1 f32 [H=2 W=3 C=4] ->[n1]]
       nodes:
         n1: [t2 f32 [H=2 W=3 C=4]] = relu x=t1
-      outputs: [t2 f32 [H=2 W=3 C=4]] |}]
+      outputs: [t2 f32 [H=2 W=3 C=4] <-n1] |}]
 
 let%expect_test "optional yields None without failing the match" =
   let g = Graph_fixtures.permute_noop () in
@@ -250,10 +252,10 @@ let%expect_test "optional yields None without failing the match" =
     convex: true
     matched:
       graph
-      inputs: [t1 f32 [H=2 W=3 C=4]]
+      inputs: [t1 f32 [H=2 W=3 C=4] ->[n1]]
       nodes:
         n1: [t2 f32 [H=2 W=3 C=4]] = relu x=t1
-      outputs: [t2 f32 [H=2 W=3 C=4]] |}]
+      outputs: [t2 f32 [H=2 W=3 C=4] <-n1] |}]
 
 (* ---- repetition ---------------------------------------------------------- *)
 

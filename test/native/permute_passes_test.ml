@@ -92,17 +92,17 @@ let%expect_test "trim_permute: a single identity permute" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=2 W=3 C=4]] = permute x=t0 perm=[]
-        n1: [t2 f32 [H=2 W=3 C=4]] = relu x=t1
-      outputs: [t2 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=2 W=3 C=4] ->[n1]] = permute x=t0 perm=[]
+        n1: [t2 f32 [H=2 W=3 C=4]] = relu x=t1 <-n0
+      outputs: [t2 f32 [H=2 W=3 C=4] <-n1]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n1]]
       nodes:
         n1: [t2 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t2 f32 [H=2 W=3 C=4]]
+      outputs: [t2 f32 [H=2 W=3 C=4] <-n1]
     map:
       values:
         {t0, t1} -> {t0} identical
@@ -120,18 +120,19 @@ let%expect_test "trim_permute: a pair composing to the identity" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2 <-n1
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n2]]
       nodes:
         n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     map:
       values:
         {t0, t2} -> {t0} identical
@@ -155,11 +156,11 @@ let%expect_test "trim_permute: what a partially cancelling chain matches" =
             interior: [t1]
             convex: true:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-      outputs: [t2 f32 [H=2 W=3 C=4]] |}]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+      outputs: [t2 f32 [H=2 W=3 C=4] <-n1] |}]
 
 let%expect_test "trim_permute: the run cancelling is looked for at every edge" =
   run (Graph_fixtures.permute_partial_cancel ()) [ Trim_permute.pass ];
@@ -167,20 +168,21 @@ let%expect_test "trim_permute: the run cancelling is looked for at every edge" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f32 [H=3 W=2 C=4]] = permute x=t2 perm=[H<-W, W<-H]
-        n3: [t4 f32 [H=3 W=2 C=4]] = relu x=t3
-      outputs: [t4 f32 [H=3 W=2 C=4]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=3 W=2 C=4] ->[n3]] = permute x=t2 <-n1 perm=[H<-W, W<-H]
+        n3: [t4 f32 [H=3 W=2 C=4]] = relu x=t3 <-n2
+      outputs: [t4 f32 [H=3 W=2 C=4] <-n3]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n2]]
       nodes:
-        n2: [t3 f32 [H=3 W=2 C=4]] = permute x=t0 perm=[H<-W, W<-H]
-        n3: [t4 f32 [H=3 W=2 C=4]] = relu x=t3
-      outputs: [t4 f32 [H=3 W=2 C=4]]
+        n2: [t3 f32 [H=3 W=2 C=4] ->[n3]] = permute x=t0 perm=[H<-W, W<-H]
+        n3: [t4 f32 [H=3 W=2 C=4]] = relu x=t3 <-n2
+      outputs: [t4 f32 [H=3 W=2 C=4] <-n3]
     map:
       values:
         {t0, t2} -> {t0} identical
@@ -213,12 +215,12 @@ let%expect_test "trim_permute: one sweep takes only the shortest run" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n1]]
       nodes:
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t0 perm=[]
-        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 perm=[]
-        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t3
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] = permute x=t0 perm=[]
+        n2: [t3 f32 [H=2 W=3 C=4] ->[n3]] = permute x=t2 <-n1 perm=[]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t3 <-n2
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {t0, t1} -> {t0} identical
@@ -235,10 +237,10 @@ let%expect_test "trim_permute: under a fixpoint the whole chain goes" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {t0, t1, t2, t3} -> {t0} identical
@@ -260,19 +262,19 @@ let%expect_test "chain_permute: two permutes become one" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=2 C=4]] = permute x=t0 perm=[H<-W, W<-H]
-        n1: [t2 f32 [H=3 W=4 C=2]] = permute x=t1 perm=[W<-C, C<-W]
-        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t2
-      outputs: [t3 f32 [H=3 W=4 C=2]]
+        n0: [t1 f32 [H=3 W=2 C=4] ->[n1]] = permute x=t0 perm=[H<-W, W<-H]
+        n1: [t2 f32 [H=3 W=4 C=2] ->[n2]] = permute x=t1 <-n0 perm=[W<-C, C<-W]
+        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t2 <-n1
+      outputs: [t3 f32 [H=3 W=4 C=2] <-n2]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
-        n3: [t2 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t2
-      outputs: [t3 f32 [H=3 W=4 C=2]]
+        n3: [t2 f32 [H=3 W=4 C=2] ->[n2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t2 <-n3
+      outputs: [t3 f32 [H=3 W=4 C=2] <-n2]
     map:
       values:
         {t1} -> {} identical
@@ -301,10 +303,10 @@ let%expect_test "chain_permute then trim_permute collapse a whole run" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {t0, t3} -> {t0} identical
@@ -323,20 +325,21 @@ let%expect_test "sink_permute: through relu, one sweep is enough" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=3 W=4 C=2]] = relu x=t1
-        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 perm=[H<-C, W<-H, C<-W]
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=4 C=2] ->[n2]] = relu x=t1 <-n0
+        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
-        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-        n4: [t2 f32 [H=3 W=4 C=2]] = permute x=t4 perm=[H<-W, W<-C, C<-H]
-        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 perm=[H<-C, W<-H, C<-W]
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+        n3: [t4 f32 [H=2 W=3 C=4] ->[n4]] = relu x=t0
+        n4: [t2 f32 [H=3 W=4 C=2] ->[n2]] =
+          permute x=t4 <-n3 perm=[H<-W, W<-C, C<-H]
+        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 <-n4 perm=[H<-C, W<-H, C<-W]
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     map:
       values:
         {t1} -> {} identical
@@ -357,23 +360,24 @@ let%expect_test "sink_permute: through add, one sweep only reaches the add" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0], t1 f32 [H=2 W=3 C=4] ->[n1]]
       nodes:
-        n0: [t2 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t3 f32 [H=3 W=4 C=2]] = permute x=t1 perm=[H<-W, W<-C, C<-H]
-        n2: [t4 f32 [H=3 W=4 C=2]] = add a=t2 b=t3
-        n3: [t5 f32 [H=3 W=4 C=2]] = relu x=t4
-        n4: [t6 f32 [H=2 W=3 C=4]] = permute x=t5 perm=[H<-C, W<-H, C<-W]
-      outputs: [t6 f32 [H=2 W=3 C=4]]
+        n0: [t2 f32 [H=3 W=4 C=2] ->[n2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t3 f32 [H=3 W=4 C=2] ->[n2]] = permute x=t1 perm=[H<-W, W<-C, C<-H]
+        n2: [t4 f32 [H=3 W=4 C=2] ->[n3]] = add a=t2 <-n0 b=t3 <-n1
+        n3: [t5 f32 [H=3 W=4 C=2] ->[n4]] = relu x=t4 <-n2
+        n4: [t6 f32 [H=2 W=3 C=4]] = permute x=t5 <-n3 perm=[H<-C, W<-H, C<-W]
+      outputs: [t6 f32 [H=2 W=3 C=4] <-n4]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n5], t1 f32 [H=2 W=3 C=4] ->[n5]]
       nodes:
-        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t0 b=t1
-        n6: [t4 f32 [H=3 W=4 C=2]] = permute x=t7 perm=[H<-W, W<-C, C<-H]
-        n3: [t5 f32 [H=3 W=4 C=2]] = relu x=t4
-        n4: [t6 f32 [H=2 W=3 C=4]] = permute x=t5 perm=[H<-C, W<-H, C<-W]
-      outputs: [t6 f32 [H=2 W=3 C=4]]
+        n5: [t7 f32 [H=2 W=3 C=4] ->[n6]] = add a=t0 b=t1
+        n6: [t4 f32 [H=3 W=4 C=2] ->[n3]] =
+          permute x=t7 <-n5 perm=[H<-W, W<-C, C<-H]
+        n3: [t5 f32 [H=3 W=4 C=2] ->[n4]] = relu x=t4 <-n6
+        n4: [t6 f32 [H=2 W=3 C=4]] = permute x=t5 <-n3 perm=[H<-C, W<-H, C<-W]
+      outputs: [t6 f32 [H=2 W=3 C=4] <-n4]
     map:
       values:
         {t2} -> {} identical
@@ -405,32 +409,36 @@ let%expect_test "sink_permute: every accepted op sinks" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=2 W=3 C=4]]
+      inputs:
+        [t0 f32 [H=2 W=3 C=4] ->[n36, n38, n40, n42, n44, n46, n48, n50, n52,
+                                 n54, n56],
+         t1 f32 [H=2 W=3 C=4] ->[n50, n52, n54, n56]]
       nodes:
-        n36: [t38 f32 [H=2 W=3 C=4]] = relu x=t0
-        n38: [t39 f32 [H=2 W=3 C=4]] = sqrt x=t0
-        n40: [t40 f32 [H=2 W=3 C=4]] = clone x=t0
-        n42: [t41 f32 [H=2 W=3 C=4]] = add_scalar x=t0 scalar=3
-        n44: [t42 f32 [H=2 W=3 C=4]] = div_scalar x=t0 scalar=6
-        n46: [t43 f32 [H=2 W=3 C=4]] = clamp x=t0 params={min=0; max=6}
-        n48: [t44 f32 [H=2 W=3 C=4]] =
+        n36: [t38 f32 [H=2 W=3 C=4] ->[n62]] = relu x=t0
+        n38: [t39 f32 [H=2 W=3 C=4] ->[n62]] = sqrt x=t0
+        n40: [t40 f32 [H=2 W=3 C=4] ->[n64]] = clone x=t0
+        n42: [t41 f32 [H=2 W=3 C=4] ->[n64]] = add_scalar x=t0 scalar=3
+        n44: [t42 f32 [H=2 W=3 C=4] ->[n66]] = div_scalar x=t0 scalar=6
+        n46: [t43 f32 [H=2 W=3 C=4] ->[n66]] = clamp x=t0 params={min=0; max=6}
+        n48: [t44 f32 [H=2 W=3 C=4] ->[n72]] =
           hardtanh x=t0 params={min_val=0; max_val=6}
-        n50: [t45 f32 [H=2 W=3 C=4]] = add a=t0 b=t1
-        n52: [t46 f32 [H=2 W=3 C=4]] = sub a=t0 b=t1
-        n54: [t47 f32 [H=2 W=3 C=4]] = mul a=t0 b=t1
-        n56: [t48 f32 [H=2 W=3 C=4]] = div a=t0 b=t1
-        n62: [t51 f32 [H=2 W=3 C=4]] = add a=t38 b=t39
-        n64: [t52 f32 [H=2 W=3 C=4]] = add a=t40 b=t41
-        n66: [t53 f32 [H=2 W=3 C=4]] = add a=t42 b=t43
-        n58: [t49 f32 [H=2 W=3 C=4]] = add a=t45 b=t46
-        n60: [t50 f32 [H=2 W=3 C=4]] = add a=t47 b=t48
-        n70: [t55 f32 [H=2 W=3 C=4]] = add a=t52 b=t53
-        n68: [t54 f32 [H=2 W=3 C=4]] = add a=t49 b=t50
-        n72: [t56 f32 [H=2 W=3 C=4]] = add a=t55 b=t44
-        n74: [t57 f32 [H=2 W=3 C=4]] = add a=t54 b=t51
-        n76: [t58 f32 [H=2 W=3 C=4]] = add a=t57 b=t56
-        n77: [t37 f32 [H=3 W=4 C=2]] = permute x=t58 perm=[H<-W, W<-C, C<-H]
-      outputs: [t37 f32 [H=3 W=4 C=2]]
+        n50: [t45 f32 [H=2 W=3 C=4] ->[n58]] = add a=t0 b=t1
+        n52: [t46 f32 [H=2 W=3 C=4] ->[n58]] = sub a=t0 b=t1
+        n54: [t47 f32 [H=2 W=3 C=4] ->[n60]] = mul a=t0 b=t1
+        n56: [t48 f32 [H=2 W=3 C=4] ->[n60]] = div a=t0 b=t1
+        n62: [t51 f32 [H=2 W=3 C=4] ->[n74]] = add a=t38 <-n36 b=t39 <-n38
+        n64: [t52 f32 [H=2 W=3 C=4] ->[n70]] = add a=t40 <-n40 b=t41 <-n42
+        n66: [t53 f32 [H=2 W=3 C=4] ->[n70]] = add a=t42 <-n44 b=t43 <-n46
+        n58: [t49 f32 [H=2 W=3 C=4] ->[n68]] = add a=t45 <-n50 b=t46 <-n52
+        n60: [t50 f32 [H=2 W=3 C=4] ->[n68]] = add a=t47 <-n54 b=t48 <-n56
+        n70: [t55 f32 [H=2 W=3 C=4] ->[n72]] = add a=t52 <-n64 b=t53 <-n66
+        n68: [t54 f32 [H=2 W=3 C=4] ->[n74]] = add a=t49 <-n58 b=t50 <-n60
+        n72: [t56 f32 [H=2 W=3 C=4] ->[n76]] = add a=t55 <-n70 b=t44 <-n48
+        n74: [t57 f32 [H=2 W=3 C=4] ->[n76]] = add a=t54 <-n68 b=t51 <-n62
+        n76: [t58 f32 [H=2 W=3 C=4] ->[n77]] = add a=t57 <-n74 b=t56 <-n72
+        n77: [t37 f32 [H=3 W=4 C=2]] =
+          permute x=t58 <-n76 perm=[H<-W, W<-C, C<-H]
+      outputs: [t37 f32 [H=3 W=4 C=2] <-n77]
     map:
       values:
         {t2} -> {} identical
@@ -523,18 +531,18 @@ let%expect_test "sink_permute then chain/trim: unary case fully cancels" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=3 W=4 C=2]] = relu x=t1
-        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 perm=[H<-C, W<-H, C<-W]
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=4 C=2] ->[n2]] = relu x=t1 <-n0
+        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {t1} -> {} identical
@@ -560,19 +568,19 @@ let%expect_test "sink_permute then chain/trim: a non-cancelling pair fuses" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=3 W=4 C=2]] = relu x=t1
-        n2: [t3 f32 [H=4 W=3 C=2]] = permute x=t2 perm=[H<-W, W<-H]
-      outputs: [t3 f32 [H=4 W=3 C=2]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=4 C=2] ->[n2]] = relu x=t1 <-n0
+        n2: [t3 f32 [H=4 W=3 C=2]] = permute x=t2 <-n1 perm=[H<-W, W<-H]
+      outputs: [t3 f32 [H=4 W=3 C=2] <-n2]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
-        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-        n5: [t3 f32 [H=4 W=3 C=2]] = permute x=t4 perm=[H<-C, C<-H]
-      outputs: [t3 f32 [H=4 W=3 C=2]]
+        n3: [t4 f32 [H=2 W=3 C=4] ->[n5]] = relu x=t0
+        n5: [t3 f32 [H=4 W=3 C=2]] = permute x=t4 <-n3 perm=[H<-C, C<-H]
+      outputs: [t3 f32 [H=4 W=3 C=2] <-n5]
     map:
       values:
         {t1} -> {} identical
@@ -594,11 +602,11 @@ let%expect_test "sink_permute then chain/trim: binary case fully cancels" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n5], t1 f32 [H=2 W=3 C=4] ->[n5]]
       nodes:
-        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t0 b=t1
-        n7: [t8 f32 [H=2 W=3 C=4]] = relu x=t7
-      outputs: [t8 f32 [H=2 W=3 C=4]]
+        n5: [t7 f32 [H=2 W=3 C=4] ->[n7]] = add a=t0 b=t1
+        n7: [t8 f32 [H=2 W=3 C=4]] = relu x=t7 <-n5
+      outputs: [t8 f32 [H=2 W=3 C=4] <-n7]
     map:
       values:
         {t2} -> {} identical
@@ -660,18 +668,20 @@ let%expect_test "sink_permute_mean: no downstream inverse" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=3 W=1 C=1]] = mean x=t1 params={dims=[W, C]; keepdim=true}
-      outputs: [t2 f32 [H=3 W=1 C=1]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=1 C=1]] =
+          mean x=t1 <-n0 params={dims=[W, C]; keepdim=true}
+      outputs: [t2 f32 [H=3 W=1 C=1] <-n1]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n2]]
       nodes:
-        n2: [t3 f32 [W=3 C=1]] = mean x=t0 params={dims=[C, H]; keepdim=true}
-        n3: [t2 f32 [H=3 W=1 C=1]] = permute x=t3 perm=[H<-W, W<-C, C<-H]
-      outputs: [t2 f32 [H=3 W=1 C=1]]
+        n2: [t3 f32 [W=3 C=1] ->[n3]] =
+          mean x=t0 params={dims=[C, H]; keepdim=true}
+        n3: [t2 f32 [H=3 W=1 C=1]] = permute x=t3 <-n2 perm=[H<-W, W<-C, C<-H]
+      outputs: [t2 f32 [H=3 W=1 C=1] <-n3]
     map:
       values:
         {t1} -> {} identical
@@ -694,20 +704,22 @@ let%expect_test "sink_permute_mean: the motivating cycle collapses" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=3 W=1 C=1]] = mean x=t1 params={dims=[W, C]; keepdim=true}
-        n2: [t3 f32 [W=3 C=1]] = permute x=t2 perm=[H<-C, W<-H, C<-W]
-        n3: [t4 f32 [W=3 C=1]] = relu x=t3
-      outputs: [t4 f32 [W=3 C=1]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=1 C=1] ->[n2]] =
+          mean x=t1 <-n0 params={dims=[W, C]; keepdim=true}
+        n2: [t3 f32 [W=3 C=1] ->[n3]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+        n3: [t4 f32 [W=3 C=1]] = relu x=t3 <-n2
+      outputs: [t4 f32 [W=3 C=1] <-n3]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n4]]
       nodes:
-        n4: [t5 f32 [W=3 C=1]] = mean x=t0 params={dims=[C, H]; keepdim=true}
-        n3: [t4 f32 [W=3 C=1]] = relu x=t5
-      outputs: [t4 f32 [W=3 C=1]]
+        n4: [t5 f32 [W=3 C=1] ->[n3]] =
+          mean x=t0 params={dims=[C, H]; keepdim=true}
+        n3: [t4 f32 [W=3 C=1]] = relu x=t5 <-n4
+      outputs: [t4 f32 [W=3 C=1] <-n3]
     map:
       values:
         {t1} -> {} identical
@@ -768,18 +780,19 @@ let%expect_test "reshape_to_permute: a pure relabelling" =
     {|
     before:
       graph
-      inputs: [t0 f32 [C=6]]
+      inputs: [t0 f32 [C=6] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=6 W=1 C=1]] = reshape x=t0 params={shape=[H=6 W=1 C=1]}
-        n1: [t2 f32 [H=6 W=1 C=1]] = relu x=t1
-      outputs: [t2 f32 [H=6 W=1 C=1]]
+        n0: [t1 f32 [H=6 W=1 C=1] ->[n1]] =
+          reshape x=t0 params={shape=[H=6 W=1 C=1]}
+        n1: [t2 f32 [H=6 W=1 C=1]] = relu x=t1 <-n0
+      outputs: [t2 f32 [H=6 W=1 C=1] <-n1]
     after:
       graph
-      inputs: [t0 f32 [C=6]]
+      inputs: [t0 f32 [C=6] ->[n2]]
       nodes:
-        n2: [t1 f32 [H=6 W=1 C=1]] = permute x=t0 perm=[H<-C, W<-H, C<-W]
-        n1: [t2 f32 [H=6 W=1 C=1]] = relu x=t1
-      outputs: [t2 f32 [H=6 W=1 C=1]]
+        n2: [t1 f32 [H=6 W=1 C=1] ->[n1]] = permute x=t0 perm=[H<-C, W<-H, C<-W]
+        n1: [t2 f32 [H=6 W=1 C=1]] = relu x=t1 <-n2
+      outputs: [t2 f32 [H=6 W=1 C=1] <-n1]
     map:
       values:
         identity
@@ -831,10 +844,10 @@ let%expect_test "reshape_to_permute: the permute computes the same tensor" =
     reshape:  tensor f32 [H=2 W=3 C=1] {0, 1, 2, 3, 4, 5}
     as permute:
       graph
-      inputs: [t0 f32 [W=2 C=3]]
+      inputs: [t0 f32 [W=2 C=3] ->[n1]]
       nodes:
         n1: [t1 f32 [H=2 W=3 C=1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-      outputs: [t1 f32 [H=2 W=3 C=1]]
+      outputs: [t1 f32 [H=2 W=3 C=1] <-n1]
     permute:  tensor f32 [H=2 W=3 C=1] {0, 1, 2, 3, 4, 5}
     same:     true |}]
 
@@ -846,22 +859,23 @@ let%expect_test "reuse_permute: unwrap one operand, reuse the other" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0], t1 f32 [H=3 W=4 C=2] ->[n1, n3]]
       nodes:
-        n0: [t2 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [] = discard x=t3
-        n3: [t4 f32 [H=3 W=4 C=2]] = add a=t2 b=t1
-      outputs: [t4 f32 [H=3 W=4 C=2]]
+        n0: [t2 f32 [H=3 W=4 C=2] ->[n3]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t3 f32 [H=2 W=3 C=4] ->[n2]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [] = discard x=t3 <-n1
+        n3: [t4 f32 [H=3 W=4 C=2]] = add a=t2 <-n0 b=t1
+      outputs: [t4 f32 [H=3 W=4 C=2] <-n3]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n4], t1 f32 [H=3 W=4 C=2] ->[n1]]
       nodes:
-        n1: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n4: [t5 f32 [H=2 W=3 C=4]] = add a=t0 b=t3
-        n2: [] = discard x=t3
-        n5: [t4 f32 [H=3 W=4 C=2]] = permute x=t5 perm=[H<-W, W<-C, C<-H]
-      outputs: [t4 f32 [H=3 W=4 C=2]]
+        n1: [t3 f32 [H=2 W=3 C=4] ->[n2, n4]] =
+          permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n4: [t5 f32 [H=2 W=3 C=4] ->[n5]] = add a=t0 b=t3 <-n1
+        n2: [] = discard x=t3 <-n1
+        n5: [t4 f32 [H=3 W=4 C=2]] = permute x=t5 <-n4 perm=[H<-W, W<-C, C<-H]
+      outputs: [t4 f32 [H=3 W=4 C=2] <-n5]
     map:
       values:
         {t2} -> {} identical
@@ -890,26 +904,31 @@ let%expect_test "reuse_permute: two matches competing over one producer" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2], t2 f32 [H=2 W=3 C=4]]
+      inputs:
+        [t0 f32 [H=2 W=3 C=4] ->[n0], t1 f32 [H=3 W=4 C=2] ->[n1, n4],
+         t2 f32 [H=2 W=3 C=4] ->[n2, n5]]
       nodes:
-        n0: [t3 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t4 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t5 f32 [H=3 W=4 C=2]] = permute x=t2 perm=[H<-W, W<-C, C<-H]
-        n3: [] = discard x=t5
-        n4: [t6 f32 [H=3 W=4 C=2]] = add a=t3 b=t1
-        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t4 b=t2
-      outputs: [t6 f32 [H=3 W=4 C=2], t7 f32 [H=2 W=3 C=4]]
+        n0: [t3 f32 [H=3 W=4 C=2] ->[n4]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t4 f32 [H=2 W=3 C=4] ->[n5]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t5 f32 [H=3 W=4 C=2] ->[n3]] = permute x=t2 perm=[H<-W, W<-C, C<-H]
+        n3: [] = discard x=t5 <-n2
+        n4: [t6 f32 [H=3 W=4 C=2]] = add a=t3 <-n0 b=t1
+        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t4 <-n1 b=t2
+      outputs: [t6 f32 [H=3 W=4 C=2] <-n4, t7 f32 [H=2 W=3 C=4] <-n5]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2], t2 f32 [H=2 W=3 C=4]]
+      inputs:
+        [t0 f32 [H=2 W=3 C=4] ->[n6], t1 f32 [H=3 W=4 C=2] ->[n1],
+         t2 f32 [H=2 W=3 C=4] ->[n2, n5]]
       nodes:
-        n1: [t4 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t5 f32 [H=3 W=4 C=2]] = permute x=t2 perm=[H<-W, W<-C, C<-H]
-        n6: [t8 f32 [H=2 W=3 C=4]] = add a=t0 b=t4
-        n3: [] = discard x=t5
-        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t4 b=t2
-        n7: [t6 f32 [H=3 W=4 C=2]] = permute x=t8 perm=[H<-W, W<-C, C<-H]
-      outputs: [t6 f32 [H=3 W=4 C=2], t7 f32 [H=2 W=3 C=4]]
+        n1: [t4 f32 [H=2 W=3 C=4] ->[n5, n6]] =
+          permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t5 f32 [H=3 W=4 C=2] ->[n3]] = permute x=t2 perm=[H<-W, W<-C, C<-H]
+        n6: [t8 f32 [H=2 W=3 C=4] ->[n7]] = add a=t0 b=t4 <-n1
+        n3: [] = discard x=t5 <-n2
+        n5: [t7 f32 [H=2 W=3 C=4]] = add a=t4 <-n1 b=t2
+        n7: [t6 f32 [H=3 W=4 C=2]] = permute x=t8 <-n6 perm=[H<-W, W<-C, C<-H]
+      outputs: [t6 f32 [H=3 W=4 C=2] <-n7, t7 f32 [H=2 W=3 C=4] <-n5]
     map:
       values:
         {t3} -> {} identical
@@ -959,26 +978,27 @@ let%expect_test
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n4], t1 f32 [H=3 W=4 C=2] ->[n0, n2, n5]]
       nodes:
-        n0: [t2 f16 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n1: [] = discard x=t2
-        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n3: [] = discard x=t3
-        n4: [t4 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n5: [t5 f32 [H=3 W=4 C=2]] = add a=t4 b=t1
-      outputs: [t5 f32 [H=3 W=4 C=2]]
+        n0: [t2 f16 [H=2 W=3 C=4] ->[n1]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2 <-n0
+        n2: [t3 f32 [H=2 W=3 C=4] ->[n3]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n3: [] = discard x=t3 <-n2
+        n4: [t4 f32 [H=3 W=4 C=2] ->[n5]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n5: [t5 f32 [H=3 W=4 C=2]] = add a=t4 <-n4 b=t1
+      outputs: [t5 f32 [H=3 W=4 C=2] <-n5]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n6], t1 f32 [H=3 W=4 C=2] ->[n0, n2]]
       nodes:
-        n0: [t2 f16 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n1: [] = discard x=t2
-        n3: [] = discard x=t3
-        n6: [t6 f32 [H=2 W=3 C=4]] = add a=t0 b=t3
-        n7: [t5 f32 [H=3 W=4 C=2]] = permute x=t6 perm=[H<-W, W<-C, C<-H]
-      outputs: [t5 f32 [H=3 W=4 C=2]]
+        n0: [t2 f16 [H=2 W=3 C=4] ->[n1]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4] ->[n3, n6]] =
+          permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2 <-n0
+        n3: [] = discard x=t3 <-n2
+        n6: [t6 f32 [H=2 W=3 C=4] ->[n7]] = add a=t0 b=t3 <-n2
+        n7: [t5 f32 [H=3 W=4 C=2]] = permute x=t6 <-n6 perm=[H<-W, W<-C, C<-H]
+      outputs: [t5 f32 [H=3 W=4 C=2] <-n7]
     map:
       values:
         {t4} -> {} identical
@@ -1007,18 +1027,18 @@ let%expect_test
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=2 C=4]]
+      inputs: [t0 f32 [H=2 W=2 C=4] ->[n0, n1]]
       nodes:
-        n0: [t1 f32 [H=2 W=2 C=4]] = permute x=t0 perm=[H<-W, W<-H]
-        n1: [t2 f32 [H=2 W=2 C=4]] = add a=t1 b=t0
-      outputs: [t2 f32 [H=2 W=2 C=4]]
+        n0: [t1 f32 [H=2 W=2 C=4] ->[n1]] = permute x=t0 perm=[H<-W, W<-H]
+        n1: [t2 f32 [H=2 W=2 C=4]] = add a=t1 <-n0 b=t0
+      outputs: [t2 f32 [H=2 W=2 C=4] <-n1]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=2 C=4]]
+      inputs: [t0 f32 [H=2 W=2 C=4] ->[n0, n1]]
       nodes:
-        n0: [t1 f32 [H=2 W=2 C=4]] = permute x=t0 perm=[H<-W, W<-H]
-        n1: [t2 f32 [H=2 W=2 C=4]] = add a=t1 b=t0
-      outputs: [t2 f32 [H=2 W=2 C=4]]
+        n0: [t1 f32 [H=2 W=2 C=4] ->[n1]] = permute x=t0 perm=[H<-W, W<-H]
+        n1: [t2 f32 [H=2 W=2 C=4]] = add a=t1 <-n0 b=t0
+      outputs: [t2 f32 [H=2 W=2 C=4] <-n1]
     map:
       values:
         identity
@@ -1033,22 +1053,23 @@ let%expect_test "reuse_permute: sub keeps operand order (reuse first)" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n2], t1 f32 [H=3 W=4 C=2] ->[n0, n3]]
       nodes:
-        n0: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n1: [] = discard x=t2
-        n2: [t3 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n3: [t4 f32 [H=3 W=4 C=2]] = sub a=t1 b=t3
-      outputs: [t4 f32 [H=3 W=4 C=2]]
+        n0: [t2 f32 [H=2 W=3 C=4] ->[n1]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2 <-n0
+        n2: [t3 f32 [H=3 W=4 C=2] ->[n3]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n3: [t4 f32 [H=3 W=4 C=2]] = sub a=t1 b=t3 <-n2
+      outputs: [t4 f32 [H=3 W=4 C=2] <-n3]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n4], t1 f32 [H=3 W=4 C=2] ->[n0]]
       nodes:
-        n0: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n1: [] = discard x=t2
-        n4: [t5 f32 [H=2 W=3 C=4]] = sub a=t2 b=t0
-        n5: [t4 f32 [H=3 W=4 C=2]] = permute x=t5 perm=[H<-W, W<-C, C<-H]
-      outputs: [t4 f32 [H=3 W=4 C=2]]
+        n0: [t2 f32 [H=2 W=3 C=4] ->[n1, n4]] =
+          permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2 <-n0
+        n4: [t5 f32 [H=2 W=3 C=4] ->[n5]] = sub a=t2 <-n0 b=t0
+        n5: [t4 f32 [H=3 W=4 C=2]] = permute x=t5 <-n4 perm=[H<-W, W<-C, C<-H]
+      outputs: [t4 f32 [H=3 W=4 C=2] <-n5]
     map:
       values:
         {t3} -> {} identical
@@ -1097,22 +1118,23 @@ let%expect_test "reuse_permute: div keeps operand order (reuse first)" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n2], t1 f32 [H=3 W=4 C=2] ->[n0, n3]]
       nodes:
-        n0: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n1: [] = discard x=t2
-        n2: [t3 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n3: [t4 f32 [H=3 W=4 C=2]] = div a=t1 b=t3
-      outputs: [t4 f32 [H=3 W=4 C=2]]
+        n0: [t2 f32 [H=2 W=3 C=4] ->[n1]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2 <-n0
+        n2: [t3 f32 [H=3 W=4 C=2] ->[n3]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n3: [t4 f32 [H=3 W=4 C=2]] = div a=t1 b=t3 <-n2
+      outputs: [t4 f32 [H=3 W=4 C=2] <-n3]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4], t1 f32 [H=3 W=4 C=2]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n4], t1 f32 [H=3 W=4 C=2] ->[n0]]
       nodes:
-        n0: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n1: [] = discard x=t2
-        n4: [t5 f32 [H=2 W=3 C=4]] = div a=t2 b=t0
-        n5: [t4 f32 [H=3 W=4 C=2]] = permute x=t5 perm=[H<-W, W<-C, C<-H]
-      outputs: [t4 f32 [H=3 W=4 C=2]]
+        n0: [t2 f32 [H=2 W=3 C=4] ->[n1, n4]] =
+          permute x=t1 perm=[H<-C, W<-H, C<-W]
+        n1: [] = discard x=t2 <-n0
+        n4: [t5 f32 [H=2 W=3 C=4] ->[n5]] = div a=t2 <-n0 b=t0
+        n5: [t4 f32 [H=3 W=4 C=2]] = permute x=t5 <-n4 perm=[H<-W, W<-C, C<-H]
+      outputs: [t4 f32 [H=3 W=4 C=2] <-n5]
     map:
       values:
         {t3} -> {} identical
@@ -1165,18 +1187,19 @@ let%expect_test "bypass_permute: one P, one inverse Q, nothing else" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2 <-n1
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n2]]
       nodes:
         n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t3 f32 [H=2 W=3 C=4]]
+      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
     map:
       values:
         {t0, t2} -> {t0} identical
@@ -1193,21 +1216,24 @@ let%expect_test "bypass_permute: one P, several inverse Q consumers" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t2
-        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t3
-      outputs: [t4 f32 [H=2 W=3 C=4], t5 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1, n2]] =
+          permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n3]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4] ->[n4]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t2 <-n1
+        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t3 <-n2
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3, t5 f32 [H=2 W=3 C=4] <-n4]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3, n4]]
       nodes:
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
         n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t4 f32 [H=2 W=3 C=4], t5 f32 [H=2 W=3 C=4]]
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3, t5 f32 [H=2 W=3 C=4] <-n4]
     map:
       values:
         {t0, t2, t3} -> {t0} identical
@@ -1225,21 +1251,23 @@ let%expect_test "bypass_permute: a shared P output stays, its inverse Q goes" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
-        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t2
-      outputs: [t4 f32 [H=2 W=3 C=4], t3 f32 [H=3 W=4 C=2]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1, n2]] =
+          permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n3]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t1 <-n0
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t2 <-n1
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3, t3 f32 [H=3 W=4 C=2] <-n2]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0, n3]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
-      outputs: [t4 f32 [H=2 W=3 C=4], t3 f32 [H=3 W=4 C=2]]
+        n2: [t3 f32 [H=3 W=4 C=2]] = relu x=t1 <-n0
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3, t3 f32 [H=3 W=4 C=2] <-n2]
     map:
       values:
         {t0, t2} -> {t0} identical
@@ -1261,23 +1289,27 @@ let%expect_test
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f16 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t2
-        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t3
-      outputs: [t4 f32 [H=2 W=3 C=4], t5 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1, n2]] =
+          permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n3]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f16 [H=2 W=3 C=4] ->[n4]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t2 <-n1
+        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t3 <-n2
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3, t5 f32 [H=2 W=3 C=4] <-n4]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0, n3]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-        n2: [t3 f16 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t3
-      outputs: [t4 f32 [H=2 W=3 C=4], t5 f32 [H=2 W=3 C=4]]
+        n2: [t3 f16 [H=2 W=3 C=4] ->[n4]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n4: [t5 f32 [H=2 W=3 C=4]] = relu x=t3 <-n2
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3, t5 f32 [H=2 W=3 C=4] <-n4]
     map:
       values:
         {t0, t2} -> {t0} identical
@@ -1292,19 +1324,20 @@ let%expect_test "bypass_permute: P's output is itself a graph output" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2
-      outputs: [t1 f32 [H=3 W=4 C=2], t3 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t2 <-n1
+      outputs: [t1 f32 [H=3 W=4 C=2] ->[n1] <-n0, t3 f32 [H=2 W=3 C=4] <-n2]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0, n2]]
       nodes:
         n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
         n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t1 f32 [H=3 W=4 C=2], t3 f32 [H=2 W=3 C=4]]
+      outputs: [t1 f32 [H=3 W=4 C=2] <-n0, t3 f32 [H=2 W=3 C=4] <-n2]
     map:
       values:
         {t0, t2} -> {t0} identical
@@ -1343,21 +1376,23 @@ let%expect_test "relayout: one application of the sequence is not enough" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [] = discard x=t2
-        n3: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
-      outputs: [t3 f32 [H=3 W=4 C=2]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1, n3]] =
+          permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [] = discard x=t2 <-n1
+        n3: [t3 f32 [H=3 W=4 C=2]] = relu x=t1 <-n0
+      outputs: [t3 f32 [H=3 W=4 C=2] <-n3]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0, n2]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n3]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
         n2: [] = discard x=t0
-        n3: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
-      outputs: [t3 f32 [H=3 W=4 C=2]]
+        n3: [t3 f32 [H=3 W=4 C=2]] = relu x=t1 <-n0
+      outputs: [t3 f32 [H=3 W=4 C=2] <-n3]
     map:
       values:
         {t0, t2} -> {t0} identical
@@ -1378,21 +1413,23 @@ let%expect_test "relayout: a SECOND application sinks what the first exposed" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=3 W=4 C=2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[H<-C, W<-H, C<-W]
-        n2: [] = discard x=t2
-        n3: [t3 f32 [H=3 W=4 C=2]] = relu x=t1
-      outputs: [t3 f32 [H=3 W=4 C=2]]
+        n0: [t1 f32 [H=3 W=4 C=2] ->[n1, n3]] =
+          permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] =
+          permute x=t1 <-n0 perm=[H<-C, W<-H, C<-W]
+        n2: [] = discard x=t2 <-n1
+        n3: [t3 f32 [H=3 W=4 C=2]] = relu x=t1 <-n0
+      outputs: [t3 f32 [H=3 W=4 C=2] <-n3]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n2, n4]]
       nodes:
-        n4: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
+        n4: [t4 f32 [H=2 W=3 C=4] ->[n5]] = relu x=t0
         n2: [] = discard x=t0
-        n5: [t3 f32 [H=3 W=4 C=2]] = permute x=t4 perm=[H<-W, W<-C, C<-H]
-      outputs: [t3 f32 [H=3 W=4 C=2]]
+        n5: [t3 f32 [H=3 W=4 C=2]] = permute x=t4 <-n4 perm=[H<-W, W<-C, C<-H]
+      outputs: [t3 f32 [H=3 W=4 C=2] <-n5]
     map:
       values:
         {t0, t2} -> {t0} identical
@@ -1438,18 +1475,19 @@ let%expect_test "reshape_to_permute feeds the permute passes" =
     {|
     before:
       graph
-      inputs: [t0 f32 [C=6]]
+      inputs: [t0 f32 [C=6] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=6 W=1 C=1]] = reshape x=t0 params={shape=[H=6 W=1 C=1]}
-        n1: [t2 f32 [C=6]] = permute x=t1 perm=[H<-W, W<-C, C<-H]
-        n2: [t3 f32 [C=6]] = relu x=t2
-      outputs: [t3 f32 [C=6]]
+        n0: [t1 f32 [H=6 W=1 C=1] ->[n1]] =
+          reshape x=t0 params={shape=[H=6 W=1 C=1]}
+        n1: [t2 f32 [C=6] ->[n2]] = permute x=t1 <-n0 perm=[H<-W, W<-C, C<-H]
+        n2: [t3 f32 [C=6]] = relu x=t2 <-n1
+      outputs: [t3 f32 [C=6] <-n2]
     after:
       graph
-      inputs: [t0 f32 [C=6]]
+      inputs: [t0 f32 [C=6] ->[n2]]
       nodes:
         n2: [t3 f32 [C=6]] = relu x=t0
-      outputs: [t3 f32 [C=6]]
+      outputs: [t3 f32 [C=6] <-n2]
     map:
       values:
         {t0, t2} -> {t0} identical

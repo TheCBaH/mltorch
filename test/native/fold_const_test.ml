@@ -76,24 +76,29 @@ let%expect_test "fold_const: a permuted constant weight becomes data" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=3 W=3 C=2], t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant]
+      inputs:
+        [t0 f32 [H=3 W=3 C=2] ->[n1],
+         t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n0] constant]
       nodes:
-        n0: [t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2]] = permute x=t1 perm=[H<-W, W<-H]
+        n0: [t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n1]] =
+          permute x=t1 perm=[H<-W, W<-H]
         n1: [t3 f32 [H=2 W=2 C=3]] =
           conv2d
             x=t0
-            weight=t2
+            weight=t2 <-n0
             bias=none
             params={h={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-      outputs: [t3 f32 [H=2 W=2 C=3]]
+      outputs: [t3 f32 [H=2 W=2 C=3] <-n1]
     payloads:
       t1 = tensor f32 [N=3 T=1 D=1 H=2 W=2 C=2] {0, 0, 1, 1, 10, 10, 11, 11, ...}
     after:
       graph
-      inputs: [t0 f32 [H=3 W=3 C=2], t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant]
+      inputs:
+        [t0 f32 [H=3 W=3 C=2] ->[n1],
+         t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n1] constant]
       nodes:
         n1: [t3 f32 [H=2 W=2 C=3]] =
           conv2d
@@ -104,7 +109,7 @@ let%expect_test "fold_const: a permuted constant weight becomes data" =
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-      outputs: [t3 f32 [H=2 W=2 C=3]]
+      outputs: [t3 f32 [H=2 W=2 C=3] <-n1]
     payloads:
       t2 = tensor f32 [N=3 T=1 D=1 H=2 W=2 C=2] {0, 0, 10, 10, 1, 1, 11, 11, ...}
     map:
@@ -144,7 +149,9 @@ let%expect_test "fold_const: the folded graph computes the same output" =
     before: tensor f32 [H=2 W=2 C=3] {282, 282, 282, 326, 326, 326, 722, 722, ...}
     after:
       graph
-      inputs: [t0 f32 [H=3 W=3 C=2], t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant]
+      inputs:
+        [t0 f32 [H=3 W=3 C=2] ->[n1],
+         t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n1] constant]
       nodes:
         n1: [t3 f32 [H=2 W=2 C=3]] =
           conv2d
@@ -155,7 +162,7 @@ let%expect_test "fold_const: the folded graph computes the same output" =
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-      outputs: [t3 f32 [H=2 W=2 C=3]]
+      outputs: [t3 f32 [H=2 W=2 C=3] <-n1]
     payloads:
       t2 = tensor f32 [N=3 T=1 D=1 H=2 W=2 C=2] {0, 0, 10, 10, 1, 1, 11, 11, ...}
     map:
@@ -190,23 +197,23 @@ let%expect_test "fold_const: a constant sub-DAG collapses under a fixpoint" =
     before:
       graph
       inputs:
-        [t0 f32 [C=3], t1 f32 [C=3] constant, t2 f32 [C=3] constant,
-         t3 f32 [C=3] constant]
+        [t0 f32 [C=3] ->[n2], t1 f32 [C=3] ->[n0] constant,
+         t2 f32 [C=3] ->[n0] constant, t3 f32 [C=3] ->[n1] constant]
       nodes:
-        n0: [t4 f32 [C=3]] = mul a=t1 b=t2
-        n1: [t5 f32 [C=3]] = mul a=t4 b=t3
-        n2: [t6 f32 [C=3]] = add a=t0 b=t5
-      outputs: [t6 f32 [C=3]]
+        n0: [t4 f32 [C=3] ->[n1]] = mul a=t1 b=t2
+        n1: [t5 f32 [C=3] ->[n2]] = mul a=t4 <-n0 b=t3
+        n2: [t6 f32 [C=3]] = add a=t0 b=t5 <-n1
+      outputs: [t6 f32 [C=3] <-n2]
     payloads:
       t1 = tensor f32 [C=3] {1, 2, 3}
       t2 = tensor f32 [C=3] {10, 11, 12}
       t3 = tensor f32 [C=3] {100, 101, 102}
     after:
       graph
-      inputs: [t0 f32 [C=3], t5 f32 [C=3] constant]
+      inputs: [t0 f32 [C=3] ->[n2], t5 f32 [C=3] ->[n2] constant]
       nodes:
         n2: [t6 f32 [C=3]] = add a=t0 b=t5
-      outputs: [t6 f32 [C=3]]
+      outputs: [t6 f32 [C=3] <-n2]
     payloads:
       t5 = tensor f32 [C=3] {1000, 2222, 3672}
     map:
@@ -233,19 +240,22 @@ let%expect_test "fold_const: a constant with no payload is left alone" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=3 W=3 C=2], t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant]
+      inputs:
+        [t0 f32 [H=3 W=3 C=2] ->[n1],
+         t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n0] constant]
       nodes:
-        n0: [t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2]] = permute x=t1 perm=[H<-W, W<-H]
+        n0: [t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n1]] =
+          permute x=t1 perm=[H<-W, W<-H]
         n1: [t3 f32 [H=2 W=2 C=3]] =
           conv2d
             x=t0
-            weight=t2
+            weight=t2 <-n0
             bias=none
             params={h={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-      outputs: [t3 f32 [H=2 W=2 C=3]]
+      outputs: [t3 f32 [H=2 W=2 C=3] <-n1]
     payloads:
 
     map:
@@ -304,15 +314,15 @@ let%expect_test "fold_const: a multi-output node is out of scope" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=4 W=4 C=2] constant]
+      inputs: [t0 f32 [H=4 W=4 C=2] ->[n0] constant]
       nodes:
-        n0: [t1 f32 [H=2 W=2 C=2], t2 f32 [H=2 W=2 C=2]] =
+        n0: [t1 f32 [H=2 W=2 C=2] ->[n2], t2 f32 [H=2 W=2 C=2] ->[n1]] =
           max_pool2d_with_indices
             x=t0
             params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
-        n1: [] = discard x=t2
-        n2: [t3 f32 [H=2 W=2 C=2]] = relu x=t1
-      outputs: [t3 f32 [H=2 W=2 C=2]]
+        n1: [] = discard x=t2 <-n0
+        n2: [t3 f32 [H=2 W=2 C=2]] = relu x=t1 <-n0
+      outputs: [t3 f32 [H=2 W=2 C=2] <-n2]
     payloads:
       t0 = tensor f32 [H=4 W=4 C=2] {0, 0, 1, 1, 2, 2, 3, 3, ...}
     map:
@@ -356,25 +366,31 @@ let%expect_test "chain_permute then fold_const hoist a two-permute weight" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=3 W=3 C=2], t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant]
+      inputs:
+        [t0 f32 [H=3 W=3 C=2] ->[n2],
+         t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n0] constant]
       nodes:
-        n0: [t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2]] = permute x=t1 perm=[H<-W, W<-H]
-        n1: [t3 f32 [N=3 T=1 D=1 H=2 W=2 C=2]] = permute x=t2 perm=[W<-C, C<-W]
+        n0: [t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n1]] =
+          permute x=t1 perm=[H<-W, W<-H]
+        n1: [t3 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n2]] =
+          permute x=t2 <-n0 perm=[W<-C, C<-W]
         n2: [t4 f32 [H=2 W=2 C=3]] =
           conv2d
             x=t0
-            weight=t3
+            weight=t3 <-n1
             bias=none
             params={h={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-      outputs: [t4 f32 [H=2 W=2 C=3]]
+      outputs: [t4 f32 [H=2 W=2 C=3] <-n2]
     payloads:
       t1 = tensor f32 [N=3 T=1 D=1 H=2 W=2 C=2] {0, 0, 1, 1, 10, 10, 11, 11, ...}
     after:
       graph
-      inputs: [t0 f32 [H=3 W=3 C=2], t3 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant]
+      inputs:
+        [t0 f32 [H=3 W=3 C=2] ->[n2],
+         t3 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n2] constant]
       nodes:
         n2: [t4 f32 [H=2 W=2 C=3]] =
           conv2d
@@ -385,7 +401,7 @@ let%expect_test "chain_permute then fold_const hoist a two-permute weight" =
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-      outputs: [t4 f32 [H=2 W=2 C=3]]
+      outputs: [t4 f32 [H=2 W=2 C=3] <-n2]
     payloads:
       t3 = tensor f32 [N=3 T=1 D=1 H=2 W=2 C=2] {0, 10, 0, 10, 1, 11, 1, 11, ...}
     map:

@@ -390,12 +390,12 @@ let%expect_test "Direct graph: Discard sink (dead edge still materialised)" =
   [%expect
     {|
     graph
-    inputs: [t0 f32 [C=3], t1 f32 [C=3]]
+    inputs: [t0 f32 [C=3] ->[n0, n1], t1 f32 [C=3] ->[n0, n1]]
     nodes:
       n0: [t2 f32 [C=3]] = add a=t0 b=t1
-      n1: [t3 f32 [C=3]] = mul a=t0 b=t1
-      n2: [] = discard x=t3
-    outputs: [t2 f32 [C=3]]
+      n1: [t3 f32 [C=3] ->[n2]] = mul a=t0 b=t1
+      n2: [] = discard x=t3 <-n1
+    outputs: [t2 f32 [C=3] <-n0]
     out = tensor f32 [C=3] {10, 11, 12}
     dead = tensor f32 [C=3] {0, 10, 20} |}]
 

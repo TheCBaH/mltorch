@@ -69,19 +69,19 @@ let%expect_test "one sweep merges every match into a single step" =
     {|
     before:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
       nodes:
-        n0: [t1 f32 [H=2 W=3 C=4]] = permute x=t0 perm=[]
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t1 perm=[]
-        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 perm=[]
-        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t3
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+        n0: [t1 f32 [H=2 W=3 C=4] ->[n1]] = permute x=t0 perm=[]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] = permute x=t1 <-n0 perm=[]
+        n2: [t3 f32 [H=2 W=3 C=4] ->[n3]] = permute x=t2 <-n1 perm=[]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t3 <-n2
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {t0, t1, t2, t3} -> {t0} identical
@@ -98,12 +98,12 @@ let%expect_test "a pass that matches nothing is the identity step" =
     {|
     after:
       graph
-      inputs: [t0 f32 [C=4]]
+      inputs: [t0 f32 [C=4] ->[n0, n1]]
       nodes:
-        n0: [t1 f32 [C=4]] = relu x=t0
-        n1: [t2 f32 [C=4]] = mul a=t0 b=t0
-        n2: [t3 f32 [C=4]] = add a=t1 b=t2
-      outputs: [t3 f32 [C=4]]
+        n0: [t1 f32 [C=4] ->[n2]] = relu x=t0
+        n1: [t2 f32 [C=4] ->[n2]] = mul a=t0 b=t0
+        n2: [t3 f32 [C=4]] = add a=t1 <-n0 b=t2 <-n1
+      outputs: [t3 f32 [C=4] <-n2]
     map:
       values:
         identity
@@ -124,10 +124,10 @@ let%expect_test "fixpoint keeps sweeping and composes into one mapping" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {t0, t1, t2, t3} -> {t0} identical
@@ -146,12 +146,12 @@ let%expect_test "a single sweep of the same pass removes only one node" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n1]]
       nodes:
-        n1: [t2 f32 [H=2 W=3 C=4]] = permute x=t0 perm=[]
-        n2: [t3 f32 [H=2 W=3 C=4]] = permute x=t2 perm=[]
-        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t3
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+        n1: [t2 f32 [H=2 W=3 C=4] ->[n2]] = permute x=t0 perm=[]
+        n2: [t3 f32 [H=2 W=3 C=4] ->[n3]] = permute x=t2 <-n1 perm=[]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t3 <-n2
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {t0, t1} -> {t0} identical
@@ -202,10 +202,10 @@ let%expect_test "run_all composes the passes into one SRC to DST mapping" =
     {|
     after:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {t0, t1, t2, t3} -> {t0} identical
@@ -261,19 +261,19 @@ let%expect_test "constant payloads accumulate across a pipeline" =
     before:
       graph
       inputs:
-        [t0 f32 [C=3], t1 f32 [C=3] constant, t2 f32 [C=3] constant,
-         t3 f32 [C=3] constant]
+        [t0 f32 [C=3] ->[n2], t1 f32 [C=3] ->[n0] constant,
+         t2 f32 [C=3] ->[n0] constant, t3 f32 [C=3] ->[n1] constant]
       nodes:
-        n0: [t4 f32 [C=3]] = mul a=t1 b=t2
-        n1: [t5 f32 [C=3]] = mul a=t4 b=t3
-        n2: [t6 f32 [C=3]] = add a=t0 b=t5
-      outputs: [t6 f32 [C=3]]
+        n0: [t4 f32 [C=3] ->[n1]] = mul a=t1 b=t2
+        n1: [t5 f32 [C=3] ->[n2]] = mul a=t4 <-n0 b=t3
+        n2: [t6 f32 [C=3]] = add a=t0 b=t5 <-n1
+      outputs: [t6 f32 [C=3] <-n2]
     after:
       graph
-      inputs: [t0 f32 [C=3], t5 f32 [C=3] constant]
+      inputs: [t0 f32 [C=3] ->[n2], t5 f32 [C=3] ->[n2] constant]
       nodes:
         n2: [t6 f32 [C=3]] = add a=t0 b=t5
-      outputs: [t6 f32 [C=3]]
+      outputs: [t6 f32 [C=3] <-n2]
     payloads: [t5]
     map:
       values:

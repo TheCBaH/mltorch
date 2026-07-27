@@ -79,10 +79,11 @@ let%expect_test "pack: origin ids stay put, post-origin ids compact" =
     folded:
       graph
       inputs:
-        [t0 f32 [H=4 W=4 C=2], t15 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant,
-         t18 f32 [C=3] constant]
+        [t0 f32 [H=4 W=4 C=2] ->[n11],
+         t15 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n11] constant,
+         t18 f32 [C=3] ->[n11] constant]
       nodes:
-        n11: [t19 f32 [H=3 W=3 C=3]] =
+        n11: [t19 f32 [H=3 W=3 C=3] ->[n2]] =
           conv2d
             x=t0
             weight=t15
@@ -91,15 +92,16 @@ let%expect_test "pack: origin ids stay put, post-origin ids compact" =
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t19
-      outputs: [t9 f32 [H=3 W=3 C=3]]
+        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t19 <-n11
+      outputs: [t9 f32 [H=3 W=3 C=3] <-n2]
     packed:
       graph
       inputs:
-        [t0 f32 [H=4 W=4 C=2], t10 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant,
-         t11 f32 [C=3] constant]
+        [t0 f32 [H=4 W=4 C=2] ->[n3],
+         t10 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n3] constant,
+         t11 f32 [C=3] ->[n3] constant]
       nodes:
-        n3: [t12 f32 [H=3 W=3 C=3]] =
+        n3: [t12 f32 [H=3 W=3 C=3] ->[n2]] =
           conv2d
             x=t0
             weight=t10
@@ -108,8 +110,8 @@ let%expect_test "pack: origin ids stay put, post-origin ids compact" =
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t12
-      outputs: [t9 f32 [H=3 W=3 C=3]]
+        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t12 <-n3
+      outputs: [t9 f32 [H=3 W=3 C=3] <-n2]
     pack map:
       values:
         {t15} -> {t10} identical
@@ -158,10 +160,10 @@ let%expect_test "pack: a graph with nothing post-origin is left alone" =
     {|
     packed:
       graph
-      inputs: [t0 f32 [H=2 W=3 C=4]]
+      inputs: [t0 f32 [H=2 W=3 C=4] ->[n3]]
       nodes:
         n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t4 f32 [H=2 W=3 C=4]]
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     pack map:
       values:
         identity

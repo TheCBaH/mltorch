@@ -133,13 +133,34 @@ val operands : op -> tensor_ref list
 val map_operands : (tensor_ref -> tensor_ref) -> op -> op
 val nodes : graph -> node list
 
+(* Precomputed producer/consumer lookup for the pretty-printer, so a caller
+   dumping many nodes from the same graph (e.g. one [pp_node] per evaluated
+   node) can build it once instead of paying an O(nodes) rescan per printed
+   tensor id on every call. *)
+module Index : sig
+  type t
+
+  val make : graph -> t
+end
+
 (* Deterministic graph dump — used by tests and by bin/native_graph. It
    prints graph inputs, its structural group hierarchy, op operands/parameters,
    and outputs. [pp_with] adds importer-side metadata inline after tensor
    definitions and node ids. *)
 val pp_with : printer:Printer.t -> Format.formatter -> graph -> unit
 val pp : Format.formatter -> graph -> unit
-val pp_node : ?printer:Printer.t -> graph -> Format.formatter -> node -> unit
+
+(* [index], if omitted, is built fresh from [graph]. Pass a precomputed one
+   (see [Index.make]) when calling this repeatedly against the same graph —
+   e.g. once per evaluated node — to avoid rebuilding it every call. *)
+val pp_node :
+  ?printer:Printer.t ->
+  ?index:Index.t ->
+  graph ->
+  Format.formatter ->
+  node ->
+  unit
+
 val pp_op : ?printer:Printer.t -> graph -> Format.formatter -> op -> unit
 
 (* Op printing given only a way to render an operand reference — for callers

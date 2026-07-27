@@ -191,11 +191,13 @@ let%expect_test "fold_batch_norm: the normalisation moves into the conv" =
     before:
       graph
       inputs:
-        [t0 f32 [H=4 W=4 C=2], t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant,
-         t2 f32 [C=3] constant, t3 f32 [C=3] constant, t4 f32 [C=3] constant,
-         t5 f32 [C=3] constant, t6 f32 [C=3] constant]
+        [t0 f32 [H=4 W=4 C=2] ->[n0],
+         t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n0] constant,
+         t2 f32 [C=3] ->[n0] constant, t3 f32 [C=3] ->[n1] constant,
+         t4 f32 [C=3] ->[n1] constant, t5 f32 [C=3] ->[n1] constant,
+         t6 f32 [C=3] ->[n1] constant]
       nodes:
-        n0: [t7 f32 [H=3 W=3 C=3]] =
+        n0: [t7 f32 [H=3 W=3 C=3] ->[n1]] =
           conv2d
             x=t0
             weight=t1
@@ -204,42 +206,45 @@ let%expect_test "fold_batch_norm: the normalisation moves into the conv" =
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-        n1: [t8 f32 [H=3 W=3 C=3]] =
+        n1: [t8 f32 [H=3 W=3 C=3] ->[n2]] =
           batch_norm
-            x=t7
+            x=t7 <-n0
             weight=t3
             bias=t4
             running_mean=t5
             running_var=t6
             params={channel=C; eps=1e-05}
-        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t8
-      outputs: [t9 f32 [H=3 W=3 C=3]]
+        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t8 <-n1
+      outputs: [t9 f32 [H=3 W=3 C=3] <-n2]
     after:
       graph
       inputs:
-        [t0 f32 [H=4 W=4 C=2], t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant,
-         t2 f32 [C=3] constant, t3 f32 [C=3] constant, t4 f32 [C=3] constant,
-         t5 f32 [C=3] constant, t6 f32 [C=3] constant, t10 f32 [C=1] constant]
+        [t0 f32 [H=4 W=4 C=2] ->[n11],
+         t1 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n7] constant,
+         t2 f32 [C=3] ->[n8] constant, t3 f32 [C=3] ->[n5] constant,
+         t4 f32 [C=3] ->[n10] constant, t5 f32 [C=3] ->[n8] constant,
+         t6 f32 [C=3] ->[n3] constant, t10 f32 [C=1] ->[n3] constant]
       nodes:
-        n3: [t11 f32 [C=3]] = add a=t6 b=t10
-        n8: [t16 f32 [C=3]] = sub a=t2 b=t5
-        n4: [t12 f32 [C=3]] = sqrt x=t11
-        n5: [t13 f32 [C=3]] = div a=t3 b=t12
-        n6: [t14 f32 [N=3 T=1 D=1 H=1 W=1 C=1]] = permute x=t13 perm=[N<-C, C<-N]
-        n9: [t17 f32 [C=3]] = mul a=t16 b=t13
-        n7: [t15 f32 [N=3 T=1 D=1 H=2 W=2 C=2]] = mul a=t1 b=t14
-        n10: [t18 f32 [C=3]] = add a=t17 b=t4
-        n11: [t19 f32 [H=3 W=3 C=3]] =
+        n3: [t11 f32 [C=3] ->[n4]] = add a=t6 b=t10
+        n8: [t16 f32 [C=3] ->[n9]] = sub a=t2 b=t5
+        n4: [t12 f32 [C=3] ->[n5]] = sqrt x=t11 <-n3
+        n5: [t13 f32 [C=3] ->[n6, n9]] = div a=t3 b=t12 <-n4
+        n6: [t14 f32 [N=3 T=1 D=1 H=1 W=1 C=1] ->[n7]] =
+          permute x=t13 <-n5 perm=[N<-C, C<-N]
+        n9: [t17 f32 [C=3] ->[n10]] = mul a=t16 <-n8 b=t13 <-n5
+        n7: [t15 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n11]] = mul a=t1 b=t14 <-n6
+        n10: [t18 f32 [C=3] ->[n11]] = add a=t17 <-n9 b=t4
+        n11: [t19 f32 [H=3 W=3 C=3] ->[n2]] =
           conv2d
             x=t0
-            weight=t15
-            bias=t18
+            weight=t15 <-n7
+            bias=t18 <-n10
             params={h={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t19
-      outputs: [t9 f32 [H=3 W=3 C=3]]
+        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t19 <-n11
+      outputs: [t9 f32 [H=3 W=3 C=3] <-n2]
     map:
       values:
         {t7} -> {} identical
@@ -272,10 +277,11 @@ let%expect_test "fold_batch_norm then fold_const leave two constants" =
     after:
       graph
       inputs:
-        [t0 f32 [H=4 W=4 C=2], t15 f32 [N=3 T=1 D=1 H=2 W=2 C=2] constant,
-         t18 f32 [C=3] constant]
+        [t0 f32 [H=4 W=4 C=2] ->[n11],
+         t15 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n11] constant,
+         t18 f32 [C=3] ->[n11] constant]
       nodes:
-        n11: [t19 f32 [H=3 W=3 C=3]] =
+        n11: [t19 f32 [H=3 W=3 C=3] ->[n2]] =
           conv2d
             x=t0
             weight=t15
@@ -284,8 +290,8 @@ let%expect_test "fold_batch_norm then fold_const leave two constants" =
                    w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
                    in_channels=2;
                    groups=1}
-        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t19
-      outputs: [t9 f32 [H=3 W=3 C=3]]
+        n2: [t9 f32 [H=3 W=3 C=3]] = relu x=t19 <-n11
+      outputs: [t9 f32 [H=3 W=3 C=3] <-n2]
     map:
       values:
         {t1} -> {} identical

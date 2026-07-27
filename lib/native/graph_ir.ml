@@ -304,6 +304,68 @@ let map_operands (f : tensor_ref -> tensor_ref) : op -> op = function
       registry_pick (fun (module M : OP) ->
           Option.map (fun t -> M.inject (M.map_operands f t)) (M.project op))
 
+(* Producer/consumer/id lookup for the pretty-printer, precomputed once per
+   dump instead of rescanning [g.Graph.nodes] for every operand/output/group
+   item printed — that rescan is O(nodes) per lookup, so an unindexed dump (or
+   repeated single-node dumps, e.g. one per evaluated node in `native_graph
+   eval --verbose`) is quadratic in graph size. [source] pins the index to the
+   graph it was built from ([==], since ids are only unique within one graph
+   and restart from zero in another), so a caller that reuses a stale index
+   against a different graph fails loudly instead of printing plausible but
+   wrong producer/consumer annotations. *)
+module Index = struct
+  type t = {
+    source : graph;
+    producers : Node_id.t Tensor_id.Map.t;
+    consumers : Node_id.t list Tensor_id.Map.t;
+    by_id : node Node_id.Map.t;
+  }
+
+  let add_consumer node_id id consumers =
+    Tensor_id.Map.update id
+      (function None -> Some [ node_id ] | Some ids -> Some (node_id :: ids))
+      consumers
+
+  let make (g : graph) : t =
+    let producers, consumers, by_id =
+      List.fold_left
+        (fun (producers, consumers, by_id) (node : node) ->
+          let producers =
+            List.fold_left
+              (fun m id -> Tensor_id.Map.add id node.Node.id m)
+              producers node.Node.outputs
+          in
+          let consumers =
+            List.fold_left
+              (fun m id -> add_consumer node.Node.id id m)
+              consumers (operands node.Node.op)
+          in
+          let by_id = Node_id.Map.add node.Node.id node by_id in
+          (producers, consumers, by_id))
+        (Tensor_id.Map.empty, Tensor_id.Map.empty, Node_id.Map.empty)
+        g.Graph.nodes
+    in
+    {
+      source = g;
+      producers;
+      consumers = Tensor_id.Map.map (List.sort_uniq Node_id.compare) consumers;
+      by_id;
+    }
+
+  let producer_of t id = Tensor_id.Map.find_opt id t.producers
+
+  let consumers_of t id =
+    Option.value (Tensor_id.Map.find_opt id t.consumers) ~default:[]
+
+  let node_by_id t id = Node_id.Map.find_opt id t.by_id
+
+  let assert_matches t (g : graph) =
+    if t.source != g then
+      invalid_arg
+        "Graph_ir.Index: index was built from a different graph (ids are only \
+         unique within one graph)"
+end
+
 (* ---- deterministic pretty-printer -------------------------------------- *)
 
 let pp_list pp = Fmt.brackets (Fmt.list ~sep:Fmt.comma pp)
@@ -332,27 +394,56 @@ let pp_node_annotation printer fmt id =
   | Some (printer : Printer.t) ->
       Fmt.pf fmt " @[<h>{%a}@]" (fun fmt () -> printer.node fmt id) ()
 
-let pp_tensor_ref ?printer (g : graph) fmt id =
+let pp_producer_annotation (index : Index.t) fmt id =
+  match Index.producer_of index id with
+  | None -> ()
+  | Some node_id -> Fmt.pf fmt " <-%a" Node_id.pp node_id
+
+let pp_consumers_annotation (index : Index.t) fmt id =
+  match Index.consumers_of index id with
+  | [] -> ()
+  | ids -> Fmt.pf fmt " ->%a" (pp_list Node_id.pp) ids
+
+let pp_tensor_ref ?printer ~index (g : graph) fmt id =
   match tensor_sig_opt g id with
   | None -> Tensor_id.pp fmt id
   | Some _ ->
-      Fmt.pf fmt "%a%a" Tensor_id.pp id (pp_tensor_annotation printer) id
+      Fmt.pf fmt "%a%a%a" Tensor_id.pp id
+        (pp_tensor_annotation printer)
+        id
+        (pp_producer_annotation index)
+        id
 
-let pp_tensor_def ?printer (g : graph) fmt id =
+let pp_tensor_def ?printer ~index (g : graph) fmt id =
   match tensor_sig_opt g id with
   | None -> Tensor_id.pp fmt id
   | Some sg ->
-      Fmt.pf fmt "@[<h>%a %a%a@]" Tensor_id.pp id pp_tensor_sig sg
+      Fmt.pf fmt "@[<h>%a %a%a%a@]" Tensor_id.pp id pp_tensor_sig sg
         (pp_tensor_annotation printer)
         id
+        (pp_consumers_annotation index)
+        id
 
-let pp_tensor_defs ?printer g = pp_list (pp_tensor_def ?printer g)
+let pp_tensor_defs ?printer ~index g = pp_list (pp_tensor_def ?printer ~index g)
 
-let pp_op_header ?printer g fmt (node : node) =
+(* Graph-level outputs aren't printed under the node that made them, so unlike
+   [pp_tensor_def] they also carry a producer backref (would be a redundant
+   self-reference on a node's own output list). *)
+let pp_graph_output_def ?printer ~index (g : graph) fmt id =
+  Fmt.pf fmt "%a%a"
+    (pp_tensor_def ?printer ~index g)
+    id
+    (pp_producer_annotation index)
+    id
+
+let pp_graph_output_defs ?printer ~index g =
+  pp_list (pp_graph_output_def ?printer ~index g)
+
+let pp_op_header ?printer ~index g fmt (node : node) =
   Fmt.pf fmt "@[<h>%a%a: %a =@]" Node_id.pp node.Node.id
     (pp_node_annotation printer)
     node.Node.id
-    (pp_tensor_defs ?printer g)
+    (pp_tensor_defs ?printer ~index g)
     node.outputs
 
 (* Op printing needs only a way to render an operand reference, so the primitive
@@ -364,58 +455,56 @@ let pp_op_with ~pp_ref fmt : op -> unit = function
       registry_pick (fun (module M : OP) ->
           Option.map (fun t -> M.pp pp_ref fmt t) (M.project op))
 
-let pp_op ?printer (g : graph) fmt op =
-  pp_op_with ~pp_ref:(pp_tensor_ref ?printer g) fmt op
+let pp_op ?printer ~index (g : graph) fmt op =
+  pp_op_with ~pp_ref:(pp_tensor_ref ?printer ~index g) fmt op
 
 let pp_graph_header fmt (_g : graph) = Fmt.pf fmt "graph"
 
-let pp_graph_inputs ?printer fmt (g : graph) =
+let pp_graph_inputs ?printer ~index fmt (g : graph) =
   let pp_input fmt id =
     match input_kind g id with
-    | Input.Input -> pp_tensor_def ?printer g fmt id
-    | Input.Constant -> Fmt.pf fmt "%a constant" (pp_tensor_def ?printer g) id
+    | Input.Input -> pp_tensor_def ?printer ~index g fmt id
+    | Input.Constant ->
+        Fmt.pf fmt "%a constant" (pp_tensor_def ?printer ~index g) id
   in
   Fmt.pf fmt "@[<hv 2>inputs:@ %a@]" (pp_list pp_input) g.Graph.inputs
 
-let pp_graph_outputs ?printer fmt (g : graph) =
+let pp_graph_outputs ?printer ~index fmt (g : graph) =
   Fmt.pf fmt "@[<hv 2>outputs:@ %a@]"
-    (pp_tensor_defs ?printer g)
+    (pp_graph_output_defs ?printer ~index g)
     g.Graph.outputs
 
-let pp_node_header ?printer g fmt node =
-  Fmt.pf fmt "@[<hv 2>%a@ %a@]" (pp_op_header ?printer g) node
-    (pp_op ?printer g) node.Node.op
+let pp_node_header ?printer ~index g fmt node =
+  Fmt.pf fmt "@[<hv 2>%a@ %a@]"
+    (pp_op_header ?printer ~index g)
+    node (pp_op ?printer ~index g) node.Node.op
 
-let pp_node = pp_node_header
-
-let node_by_id (g : graph) id =
-  List.find_opt
-    (fun (node : node) -> Node_id.equal node.Node.id id)
-    g.Graph.nodes
-
-let rec pp_graph ?printer fmt (g : graph) =
+let rec pp_graph ?printer ~index fmt (g : graph) =
   Fmt.pf fmt "@[<v>%a@,%a@,%a@,%a@]" pp_graph_header g
-    (pp_graph_inputs ?printer) g (pp_root ?printer g) g.Graph.root
-    (pp_graph_outputs ?printer)
+    (pp_graph_inputs ?printer ~index)
+    g
+    (pp_root ?printer ~index g)
+    g.Graph.root
+    (pp_graph_outputs ?printer ~index)
     g
 
-and pp_root ?printer g fmt (root : Group.t) =
+and pp_root ?printer ~index g fmt (root : Group.t) =
   let pp_item fmt = function
     | Group.Node id -> (
-        match node_by_id g id with
-        | Some node -> pp_node_header ?printer g fmt node
+        match Index.node_by_id index id with
+        | Some node -> pp_node_header ?printer ~index g fmt node
         | None -> Fmt.pf fmt "%a <missing>" Node_id.pp id)
-    | Group.Group child -> pp_group ?printer g fmt child
+    | Group.Group child -> pp_group ?printer ~index g fmt child
   in
   Fmt.pf fmt "@[<v 2>nodes:@,%a@]" (Fmt.list ~sep:Fmt.cut pp_item) root.items
 
-and pp_group ?printer g fmt (group : Group.t) =
+and pp_group ?printer ~index g fmt (group : Group.t) =
   let pp_item fmt = function
     | Group.Node id -> (
-        match node_by_id g id with
-        | Some node -> pp_node_header ?printer g fmt node
+        match Index.node_by_id index id with
+        | Some node -> pp_node_header ?printer ~index g fmt node
         | None -> Fmt.pf fmt "%a <missing>" Node_id.pp id)
-    | Group.Group child -> pp_group ?printer g fmt child
+    | Group.Group child -> pp_group ?printer ~index g fmt child
   in
   let label = Option.value group.label ~default:"" in
   Fmt.pf fmt "@[<v 2>group %a%s:@,%a@]" Group_id.pp group.id
@@ -423,8 +512,29 @@ and pp_group ?printer g fmt (group : Group.t) =
     (Fmt.list ~sep:Fmt.cut pp_item)
     group.items
 
-let pp_with ~printer = pp_graph ~printer
-let pp fmt graph = pp_graph fmt graph
+(* [pp], [pp_with] and [pp_op] dump a whole graph or a single detached op in
+   one call, so building the index on entry costs nothing extra; giving them
+   an optional [?index] too would leave a leading optional argument in their
+   type whenever they're used point-free (e.g. as a "%a" printer with only
+   [~printer] applied), which breaks that usage. [pp_node] is the one caller
+   that prints repeatedly against the same graph — one call per evaluated
+   node in `native_graph eval --verbose` — so it alone takes a precomputed
+   index to avoid rebuilding it on every call. *)
+let pp_node ?printer ?index g fmt node =
+  let index =
+    match index with
+    | Some index ->
+        Index.assert_matches index g;
+        index
+    | None -> Index.make g
+  in
+  pp_node_header ?printer ~index g fmt node
+
+let pp_op ?printer (g : graph) fmt op =
+  pp_op ?printer ~index:(Index.make g) g fmt op
+
+let pp_with ~printer fmt g = pp_graph ~printer ~index:(Index.make g) fmt g
+let pp fmt g = pp_graph ~index:(Index.make g) fmt g
 
 (* ---- JSON codecs ---------------------------------------------------------- *)
 (* Groups and graph records are serialised separately from ordinary operations. *)
