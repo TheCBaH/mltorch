@@ -10,13 +10,11 @@
    creation, yet proving its untouched output cluster needs the frontier to pass
    through an edge that IS present and corresponding in both graphs.
 
-   Both [at]'s traversal and [expand] are TOTAL, and neither meters itself. One
-   [at] builds a single op's body at a single coordinate, which is bounded by
-   the op (a conv's kernel x in-channels), not by the graph; the unbounded
-   direction is repeated [expand], and that loop belongs to the driver. So the
-   driver sizes the result with [Ground_expr.size] between rounds and checks
-   [out_of_bounds] once at the end, rather than either threading fuel through
-   the recursion or metering it with a counter.
+   Both [at]'s traversal and [expand] are TOTAL. [at] does not meter itself: it
+   builds a single op's body at a single coordinate, bounded by the op (a conv's
+   kernel x in-channels) rather than by the graph. [expand] does, because one
+   round is quadratic where a conv feeds a conv. [out_of_bounds] is checked once
+   by the driver at the end.
 
    See .ai/native_transform_verify.md. *)
 
@@ -73,8 +71,15 @@ val at :
   Env.t -> Tensor_id.t -> Vec6.coord -> (Ground_expr.t, error) Core.result
 
 (* Replace every [Cell] that has a stage by [Round (that stage's body at the
-   cell's coord)]. The [Round] lands exactly where the stored value was. *)
-val expand : Env.t -> Ground_expr.t -> Ground_expr.t
+   cell's coord)]. The [Round] lands exactly where the stored value was.
+
+   [budget] bounds ONE round, and has to: a single substitution step is
+   quadratic where a conv feeds a conv, so measuring only afterwards lets a term
+   reach tens of millions of nodes first. Running out leaves the remaining cells
+   unexpanded, which is sound rather than approximate — an unexpanded cell keeps
+   [expandable] true, so the driver reports a budget verdict and no probe may
+   run against a frontier that never reached the inputs. *)
+val expand : budget:int -> Env.t -> Ground_expr.t -> Ground_expr.t
 
 (* Whether any cell still has a stage below it. A probe may only run when this
    is [false] on both sides: cells left at a truncated frontier are internal

@@ -63,9 +63,20 @@ type transformed =
    weight — but [Fold_const] then declines every node, since it refuses a
    constant whose payload is not bound. [~preload:true] binds every captured
    payload a node reads, which is what lets folding hoist a permuted weight; it
-   reads the whole archive, so it is not the default. *)
+   reads the whole archive, so it is not the default.
+
+   [~verify] symbolically checks each pass's mapping as it is applied, against
+   the state it came from and WITHOUT payloads for the graph inputs — so it says
+   something about every input rather than the one this run happens to use. It
+   is a different check from the numeric one the CLI's [--verify] performs, and
+   complementary: that one runs the whole model twice and compares outputs,
+   which needs real weights and covers only the graph output; this one covers
+   every corresponding edge but is budget-capped and so leaves a real model's
+   activation-shaped clusters unexamined. See .ai/native_transform_verify.md. *)
 val transform :
   ?preload:bool ->
+  ?verify:Map_verify.Policy.t ->
+  ?verify_budget:Map_verify.Budget.t ->
   Pt2_archive.t ->
   passes:Pass.t list ->
   (transformed, error) Core.result

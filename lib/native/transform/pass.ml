@@ -31,9 +31,21 @@ let pp_error ppf : [< error ] -> unit = function
   | `Not_converged name -> Fmt.pf ppf "@[<h>pass %s did not converge@]" name
   | `Verification v -> Verification.pp ppf v
 
+(* What verification a run is under. Threaded THROUGH the pass tree rather than
+   applied at its boundary, because a composite verified only at the boundary is
+   barely verified: a [fixpoint] iteration or a [sequence] member can be wrong
+   and cancelled by a later one, and the error would name the composite rather
+   than the pass at fault. *)
+type ctx = {
+  budget : Map_verify.Budget.t option;
+  policy : Map_verify.Policy.t option;
+}
+
+let no_verification = { budget = None; policy = None }
+
 type t = {
   name : string;
-  run : 'v. 'v Rewrite.t -> ('v Rewrite.step, error) Core.result;
+  run : 'v. ctx -> 'v Rewrite.t -> ('v Rewrite.step, error) Core.result;
 }
 
 type env = { constants : Tensor.packed Tensor_id.Map.t; view : Graph_view.t }
@@ -70,17 +82,48 @@ let sweep state builders =
 
 let identity_step state = Rewrite.Step (state, Graph_map.identity)
 
+(* Verify one step against the state it came from, naming the pass. An identity
+   step is skipped: its map is empty, so there is nothing to check, and on a real
+   graph checking every cluster of a no-op sweep is the dominant cost. *)
+let verified name ctx state (Rewrite.Step (_, map) as step) =
+  match ctx.policy with
+  | None -> Core.return step
+  | Some _
+    when Correspondence.is_empty map.Graph_map.values
+         && Node_map.is_empty map.Graph_map.nodes ->
+      Core.return step
+  | Some policy -> (
+      match Map_verify.step ?budget:ctx.budget state step with
+      | Error e ->
+          Core.fail
+            (`Verification
+               {
+                 Verification.pass = name;
+                 problem = Verification.Error e.Core.Error.kind;
+               })
+      | Ok report ->
+          if Map_verify.Policy.accepts policy report then Core.return step
+          else
+            Core.fail
+              (`Verification
+                 {
+                   Verification.pass = name;
+                   problem = Verification.Rejected report;
+                 }))
+
 let of_sweep ~name collect =
   {
     name;
     run =
-      (fun state ->
+      (fun ctx state ->
         let env =
           { constants = Rewrite.constants state; view = Rewrite.view state }
         in
         let* result = sweep state (collect env) in
-        Core.return
-          (match result with None -> identity_step state | Some step -> step));
+        let step =
+          match result with None -> identity_step state | Some step -> step
+        in
+        verified name ctx state step);
   }
 
 let per_node ~name { on_node } =
@@ -109,13 +152,15 @@ let fixpoint ?(max_iters = 16) inner =
   {
     name = inner.name;
     run =
-      (fun state ->
+      (fun ctx state ->
         let rec go : type v.
             int -> v Rewrite.step -> (v Rewrite.step, error) Core.result =
          fun fuel (Rewrite.Step (state, acc)) ->
           if fuel <= 0 then Core.fail (`Not_converged inner.name)
           else
-            let* (Rewrite.Step (next, map)) = inner.run state in
+            (* [ctx], so EVERY iteration is verified rather than only the
+               composite the caller sees. *)
+            let* (Rewrite.Step (next, map)) = inner.run ctx state in
             if changed map then
               go (fuel - 1) (Rewrite.Step (next, Graph_map.compose acc map))
             else Core.return (Rewrite.Step (state, acc))
@@ -123,48 +168,27 @@ let fixpoint ?(max_iters = 16) inner =
         go max_iters (identity_step state));
   }
 
-(* Verify one step against the state it came from, and turn a rejection into an
-   error naming the pass. Runs BEFORE the next pass, so the first offender stops
-   the pipeline rather than a later composed map hiding which rewrite was
-   wrong. Reports for accepted steps are dropped; a caller wanting every report
-   calls [Map_verify.step] itself. *)
-let verify_step name policy state step =
-  match policy with
-  | None -> Core.return ()
-  | Some policy -> (
-      match Map_verify.step state step with
-      | Error e ->
-          Core.fail
-            (`Verification
-               {
-                 Verification.pass = name;
-                 problem = Verification.Error e.Core.Error.kind;
-               })
-      | Ok report ->
-          if Map_verify.Policy.accepts policy report then Core.return ()
-          else
-            Core.fail
-              (`Verification
-                 {
-                   Verification.pass = name;
-                   problem = Verification.Rejected report;
-                 }))
-
-let run_all ?verify state passes =
+(* Every pass verifies its own step, so this only threads the context. *)
+let run_with ctx state passes =
   let rec go : type v.
       v Rewrite.t -> t list -> (v Rewrite.step, error) Core.result =
    fun state passes ->
     match passes with
     | [] -> Core.return (identity_step state)
     | pass :: rest ->
-        let* (Rewrite.Step (next, map) as step) = pass.run state in
-        let* () = verify_step pass.name verify state step in
+        let* (Rewrite.Step (next, map)) = pass.run ctx state in
         let+ (Rewrite.Step (final, rest_map)) = go next rest in
         Rewrite.Step (final, Graph_map.compose map rest_map)
   in
   go state passes
 
+let run_all ?verify ?verify_budget state passes =
+  run_with { budget = verify_budget; policy = verify } state passes
+
 (* A fixed list of passes as one named pass, so a caller can [fixpoint] the
    whole group — needed when the passes unlock each other and no single
-   non-interleaved round through them all is enough. *)
-let sequence ~name passes = { name; run = (fun state -> run_all state passes) }
+   non-interleaved round through them all is enough. [ctx] is forwarded, so a
+   member is verified as it runs rather than only through the composite map the
+   sequence hands back. *)
+let sequence ~name passes =
+  { name; run = (fun ctx state -> run_with ctx state passes) }

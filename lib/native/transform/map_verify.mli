@@ -42,10 +42,20 @@ module Budget : sig
   (* Counted, never timed, so a verdict is deterministic and a golden is
      stable. [max_coords] is checked against [Vec6.numel] BEFORE any work,
      which is what stops this being pointed at a real model's activations. *)
-  type t = { max_coords : int; max_nodes : int; max_rounds : int }
+  type t = {
+    max_coords : int;
+    max_nodes : int;
+    max_rounds : int;
+    sample : int option;
+  }
 
   val cumulative : t (* composed maps: deeper frontier, more rounds *)
   val default : t (* one rewrite step *)
+
+  (* For a real model. [max_coords] still refuses whole activation tensors
+     outright, so what this widens is the constant-shaped clusters — folded
+     weights and biases, which is where fold_const and fold_batch_norm act. *)
+  val release : t
   val pp : Format.formatter -> t -> unit
 end
 
@@ -53,7 +63,7 @@ module Coverage : sig
   (* [Not_applicable] is the honest answer for a cluster that returns before any
      coordinate is examined. Keeping it a constructor rather than an option
      forces every early exit to say which it is. *)
-  type t = Exhaustive | Not_applicable
+  type t = Exhaustive | Not_applicable | Sampled of int
 
   val pp : Format.formatter -> t -> unit
 end
@@ -133,6 +143,14 @@ module Verdict : sig
     | Vacuous (* a creation or a deletion: the cluster claims nothing *)
 
   val pp : Format.formatter -> t -> unit
+
+  (* The WEAKER of two verdicts about the same cluster, since a cluster is only
+     as verified as its least-verified coordinate — so a coordinate that needed
+     bound constants is not overwritten by a later one that proved structurally.
+     [Refuted] dominates: one counterexample settles the cluster however many
+     other coordinates agreed. Ties keep the earlier verdict, so a report names
+     the first coordinate that failed rather than the last. *)
+  val join : t -> t -> t
 end
 
 module Outcome : sig

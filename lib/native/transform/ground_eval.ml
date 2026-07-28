@@ -211,26 +211,60 @@ let at env id coord =
             Core.fail (`Unknown_edge id)
           else Core.return (Ground_expr.Cell { Ground_expr.Cell.id; coord }))
 
-let rec expand env (e : Ground_expr.t) : Ground_expr.t =
-  let recur = expand env in
-  match e with
-  | Ground_expr.Cell c -> (
-      match Env.stage_of env c.Ground_expr.Cell.id with
-      | Some st -> Ground_expr.Round (body_at env st c.Ground_expr.Cell.coord)
-      | None -> e)
-  | Ground_expr.Const _ -> e
-  | Ground_expr.Binary (op, a, b) -> Ground_expr.Binary (op, recur a, recur b)
-  | Ground_expr.Max (op, a, b) -> Ground_expr.Max (op, recur a, recur b)
-  | Ground_expr.Round x -> Ground_expr.Round (recur x)
-  | Ground_expr.Unary (op, x) -> Ground_expr.Unary (op, recur x)
-  | Ground_expr.Select (g, a, b) ->
-      let g =
-        match g with
-        | Ground_expr.Lt (x, y) -> Ground_expr.Lt (recur x, recur y)
-        | Ground_expr.Pool_better { best; value } ->
-            Ground_expr.Pool_better { best = recur best; value = recur value }
-      in
-      Ground_expr.Select (g, recur a, recur b)
+(* [budget] bounds ONE round, and has to: a single substitution step is
+   quadratic where a conv feeds a conv, so a term can reach tens of millions of
+   nodes before anyone gets to measure it. Measuring afterwards made verifying a
+   real model cost 25x the transform it was checking.
+
+   Running out mid-round leaves the remaining cells unexpanded, which is sound
+   rather than approximate: an unexpanded cell keeps [expandable] true, so the
+   driver reports a budget verdict, and no probe may run against a frontier that
+   never reached the inputs. The node count is threaded, not counted in a ref. *)
+let expand ~budget env (e : Ground_expr.t) : Ground_expr.t =
+  let rec go n e =
+    if n >= budget then (n, e)
+    else
+      match e with
+      | Ground_expr.Cell c -> (
+          match Env.stage_of env c.Ground_expr.Cell.id with
+          | Some st ->
+              let body =
+                Ground_expr.Round (body_at env st c.Ground_expr.Cell.coord)
+              in
+              (n + Ground_expr.size body, body)
+          | None -> (n + 1, e))
+      | Ground_expr.Const _ -> (n + 1, e)
+      | Ground_expr.Binary (op, a, b) ->
+          let n, a = go (n + 1) a in
+          let n, b = go n b in
+          (n, Ground_expr.Binary (op, a, b))
+      | Ground_expr.Max (op, a, b) ->
+          let n, a = go (n + 1) a in
+          let n, b = go n b in
+          (n, Ground_expr.Max (op, a, b))
+      | Ground_expr.Round x ->
+          let n, x = go (n + 1) x in
+          (n, Ground_expr.Round x)
+      | Ground_expr.Unary (op, x) ->
+          let n, x = go (n + 1) x in
+          (n, Ground_expr.Unary (op, x))
+      | Ground_expr.Select (g, a, b) ->
+          let n, g =
+            match g with
+            | Ground_expr.Lt (x, y) ->
+                let n, x = go (n + 1) x in
+                let n, y = go n y in
+                (n, Ground_expr.Lt (x, y))
+            | Ground_expr.Pool_better { best; value } ->
+                let n, best = go (n + 1) best in
+                let n, value = go n value in
+                (n, Ground_expr.Pool_better { best; value })
+          in
+          let n, a = go n a in
+          let n, b = go n b in
+          (n, Ground_expr.Select (g, a, b))
+  in
+  snd (go 0 e)
 
 let expandable env e =
   Ground_expr.Cell.Set.exists

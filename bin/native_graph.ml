@@ -388,6 +388,21 @@ let verify_arg =
   in
   Arg.(value & flag & info [ "verify" ] ~doc)
 
+(* A different check from --verify, and complementary. That one runs the whole
+   model twice on real weights and compares the two OUTPUTS; this one checks
+   every corresponding edge of every pass's mapping symbolically, without
+   payloads for the graph inputs, so what it says holds for every input rather
+   than for the one tensor supplied. It is budget-capped, so a real model's
+   activation-shaped clusters come back "too large" and the useful coverage is
+   the constant-shaped ones — folded weights and biases, exactly where
+   fold_const and fold_batch_norm act. See .ai/native_transform_verify.md. *)
+let verify_symbolic_arg =
+  let doc =
+    "Symbolically verify each pass's mapping as it is applied. Needs no \
+     --input, and fails only on an actual counterexample."
+  in
+  Arg.(value & flag & info [ "verify-symbolic" ] ~doc)
+
 (* Annotates the TRANSFORMED graph with provenance recovered through the lens,
    which is the whole claim of §10 made visible: the sidecar still describes the
    imported graph, and every name here was recovered by walking the composed map
@@ -447,10 +462,16 @@ let pp_summary ppf (Native_interp.Transformed t) =
   Format.fprintf ppf "constants: %d, of which %d folded@." constants
     (List.length t.derived)
 
-let transform model input expect fold verify : (unit, string) result =
+let transform model input expect fold verify verify_symbolic :
+    (unit, string) result =
   with_archive model (fun archive ->
       match
-        Native_interp.transform ~preload:fold archive ~passes:(passes ~fold)
+        Native_interp.transform ~preload:fold
+          ?verify:
+            (if verify_symbolic then Some Map_verify.Policy.Reject_refuted
+             else None)
+          ~verify_budget:Map_verify.Budget.release archive
+          ~passes:(passes ~fold)
       with
       | Error e ->
           Error (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind)
@@ -536,7 +557,7 @@ let transform_cmd =
     (Cmd.info "transform" ~doc)
     Term.(
       const transform $ pt2_arg $ optional_input_arg $ expect_arg $ fold_arg
-      $ verify_arg)
+      $ verify_arg $ verify_symbolic_arg)
 
 let cmd =
   let doc = "Tools for the native inference engine's graph representation." in

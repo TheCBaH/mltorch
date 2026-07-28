@@ -22,9 +22,21 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+(* What verification a run is under. Threaded THROUGH the pass tree rather than
+   applied at its boundary, because a composite verified only at the boundary is
+   barely verified: a [fixpoint] iteration or a [sequence] member can be wrong
+   and cancelled by a later one, and the error would name the composite rather
+   than the pass at fault. *)
+type ctx = {
+  budget : Map_verify.Budget.t option;
+  policy : Map_verify.Policy.t option;
+}
+
+val no_verification : ctx
+
 type t = {
   name : string;
-  run : 'v. 'v Rewrite.t -> ('v Rewrite.step, error) Core.result;
+  run : 'v. ctx -> 'v Rewrite.t -> ('v Rewrite.step, error) Core.result;
 }
 
 (* What a pass sees. Both halves come from the state, and the payloads are the
@@ -61,12 +73,16 @@ val fixpoint : ?max_iters:int -> t -> t
    single non-interleaved round through them all is enough. *)
 val sequence : name:string -> t list -> t
 
-(* [verify] checks each step against the state it came from, as it is applied,
-   so the first offending pass stops the pipeline rather than a later composed
-   map hiding which rewrite was wrong. Reports for accepted steps are dropped;
-   a caller that wants every report calls [Map_verify.step] itself. *)
+(* [verify] checks each step against the state it came from, as it is applied —
+   including every [fixpoint] iteration and every [sequence] member, not just
+   the composite they hand back — so the first offending pass stops the pipeline
+   and the error names it. An identity step is skipped: its map is empty, and on
+   a real graph checking every cluster of a no-op sweep dominates the cost.
+   Reports for accepted steps are dropped; a caller that wants every report
+   calls [Map_verify.step] itself. *)
 val run_all :
   ?verify:Map_verify.Policy.t ->
+  ?verify_budget:Map_verify.Budget.t ->
   'v Rewrite.t ->
   t list ->
   ('v Rewrite.step, error) Core.result

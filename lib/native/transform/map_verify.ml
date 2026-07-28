@@ -20,24 +20,55 @@ module Member = struct
 end
 
 module Budget = struct
-  type t = { max_coords : int; max_nodes : int; max_rounds : int }
+  type t = {
+    max_coords : int;
+    max_nodes : int;
+    max_rounds : int;
+    sample : int option;
+  }
 
-  let default = { max_coords = 4096; max_nodes = 200_000; max_rounds = 32 }
+  let default =
+    { max_coords = 4096; max_nodes = 200_000; max_rounds = 32; sample = None }
 
   let cumulative =
-    { max_coords = 4096; max_nodes = 1_000_000; max_rounds = 256 }
+    {
+      max_coords = 4096;
+      max_nodes = 1_000_000;
+      max_rounds = 256;
+      sample = None;
+    }
+
+  (* For a real model, and shaped by what deep expansion is worth there: nothing.
+     The clusters a real graph makes checkable are the CONSTANT-shaped ones —
+     folded weights and biases, where fold_const and fold_batch_norm act — and
+     those close in one or two rounds. An activation-shaped cluster needs as many
+     rounds as the network is deep, and each round multiplies a conv's kernel x
+     channels into the previous one, so it is hopeless however much budget it
+     gets.
+
+     Widening [max_coords] alone is a trap, and measurably so: a late-layer
+     activation like [1,512,7,7] is only 25088 elements, so it passes a generous
+     coord budget and then expands the entire network behind it. Verification
+     ran over 25x the whole transform. Cutting [max_rounds] is what actually
+     bounds it — deep clusters give up after two cheap rounds while shallow
+     constant ones still close. *)
+  let release =
+    { max_coords = 65_536; max_nodes = 50_000; max_rounds = 2; sample = Some 8 }
 
   let pp fmt t =
-    Fmt.pf fmt "@[<h>{coords<=%d nodes<=%d rounds<=%d}@]" t.max_coords
+    Fmt.pf fmt "@[<h>{coords<=%d nodes<=%d rounds<=%d sample=%a}@]" t.max_coords
       t.max_nodes t.max_rounds
+      (Fmt.option ~none:(Fmt.any "none") Fmt.int)
+      t.sample
 end
 
 module Coverage = struct
-  type t = Exhaustive | Not_applicable
+  type t = Exhaustive | Not_applicable | Sampled of int
 
   let pp fmt = function
     | Exhaustive -> Fmt.string fmt "exhaustive"
     | Not_applicable -> Fmt.string fmt "n/a"
+    | Sampled n -> Fmt.pf fmt "sampled %d" n
 end
 
 module Strength = struct
@@ -131,7 +162,42 @@ module Verdict = struct
     | Tested t -> Fmt.pf fmt "tested: %a" Strength.pp_test t
     | Unproved u -> Fmt.pf fmt "unproved: %a" Unproved.pp u
     | Vacuous -> Fmt.string fmt "vacuous"
+
+  (* The WEAKER of two verdicts about the same cluster, since a cluster is only
+     as verified as its least-verified coordinate — so a coordinate that needed
+     bound constants is not overwritten by a later one that proved structurally.
+     [Refuted] dominates: one counterexample settles the cluster however many
+     other coordinates agreed. Ties keep the earlier verdict, so a report names
+     the first coordinate that failed rather than the last. *)
+  let join a b =
+    let rank = function
+      | Refuted _ -> 5
+      | Unproved _ -> 4
+      (* A witness outranks agreement: a cluster where one coordinate's
+         coefficients agree and another has a disagreeing valuation is NOT
+         "coefficients agree". Ranking them equal and keeping the earlier
+         verdict reported exactly that for a batch-norm cluster whose first
+         channel agreed. *)
+      | Tested (Strength.Disagrees _) -> 3
+      | Tested (Strength.Agrees _) -> 2
+      | Proved Strength.Constants -> 1
+      | Proved Strength.Structural -> 0
+      | Vacuous -> 0
+    in
+    if rank b > rank a then b else a
 end
+
+(* Whether anything further could change a cluster's answer. A counterexample is
+   final; so is running out of budget, because no later coordinate can be probed
+   either and re-deriving the same budget verdict at every remaining coordinate
+   is pure cost. Every other verdict keeps looking — a later coordinate may hold
+   the counterexample this one could not find. *)
+let settled = function
+  | Verdict.Refuted _ -> true
+  | Verdict.Unproved
+      (Unproved.Max_nodes _ | Unproved.Max_rounds | Unproved.Too_large _) ->
+      true
+  | _ -> false
 
 module Outcome = struct
   type t = { coverage : Coverage.t; verdict : Verdict.t }
@@ -139,7 +205,7 @@ module Outcome = struct
   let pp fmt t =
     match t.coverage with
     | Coverage.Not_applicable -> Verdict.pp fmt t.verdict
-    | Coverage.Exhaustive ->
+    | Coverage.Exhaustive | Coverage.Sampled _ ->
         Fmt.pf fmt "%a [%a]" Verdict.pp t.verdict Coverage.pp t.coverage
 end
 
@@ -274,8 +340,9 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
       if expandable && rounds >= budget.Budget.max_rounds then
         Verdict.Unproved Unproved.Max_rounds
       else if expandable then
-        let lhs = Ground_eval.expand lhs_env lhs
-        and rhs = Ground_eval.expand rhs_env rhs in
+        let cap = budget.Budget.max_nodes in
+        let lhs = Ground_eval.expand ~budget:cap lhs_env lhs
+        and rhs = Ground_eval.expand ~budget:cap rhs_env rhs in
         let size = Ground_expr.size lhs + Ground_expr.size rhs in
         if size > budget.Budget.max_nodes then
           Verdict.Unproved (Unproved.Max_nodes size)
@@ -393,29 +460,64 @@ let compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other coord =
    t1, which is the trimmed edge the map's claim is actually about. Stops at the
    first non-[Proved] verdict, so the report names the coordinate that failed
    rather than the last one examined. *)
+
+(* Exactly [min n numel] coordinates, spread evenly: position [i*numel/n] for
+   [i] in [0, n). Deterministic because a sampled verdict has to be reproducible
+   from a golden, and spread rather than clustered because the errors this looks
+   for are index-shaped.
+
+   Taking every [numel/n]-th coordinate instead would be off whenever [n] does
+   not divide [numel] — at [numel = 10, n = 8] the stride rounds to 1 and all
+   ten are selected while the report still says "sampled 8" — and divides by
+   zero at [n = 0]. *)
+let sampled_coords shape n =
+  let numel = (Vec6.numel shape :> int) in
+  let n = Stdlib.max 1 (Stdlib.min n numel) in
+  let wanted = List.init n (fun i -> i * numel / n) in
+  let _, _, picked =
+    Vec6.fold_coords shape ~init:(0, wanted, [])
+      ~f:(fun (i, wanted, acc) coord ->
+        match wanted with
+        | w :: rest when w = i -> (i + 1, rest, coord :: acc)
+        | _ -> (i + 1, wanted, acc))
+  in
+  (n, List.rev picked)
+
 let check_members ~budget ~probe ~tolerance ~label sides ~canonical ~others
     ~shape =
   let numel = (Vec6.numel shape :> int) in
   if numel > budget.Budget.max_coords then
     (Verdict.Unproved (Unproved.Too_large numel), Coverage.Not_applicable)
   else
+    let coverage, coords =
+      match budget.Budget.sample with
+      | Some n when n > 0 && numel > n ->
+          let taken, coords = sampled_coords shape n in
+          (Coverage.Sampled taken, Some coords)
+      | _ -> (Coverage.Exhaustive, None)
+    in
+    (* Keep looking past an inconclusive coordinate. Stopping at the first
+       non-[Proved] result would leave a later coordinate's counterexample
+       unexamined, and [Reject_refuted] would then accept a broken rewrite on
+       the strength of one coordinate it happened not to decide. *)
+    let step other v coord =
+      if settled v then v
+      else
+        Verdict.join v
+          (compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other
+             coord)
+    in
     let over_coords other verdict =
-      Vec6.fold_coords shape ~init:verdict ~f:(fun v coord ->
-          match v with
-          | Verdict.Proved _ ->
-              compare_at ~budget ~probe ~tolerance ~label sides ~canonical
-                ~other coord
-          | settled -> settled)
+      match coords with
+      | Some coords -> List.fold_left (step other) verdict coords
+      | None -> Vec6.fold_coords shape ~init:verdict ~f:(step other)
     in
     let verdict =
       List.fold_left
-        (fun v other ->
-          match v with
-          | Verdict.Proved _ -> over_coords other v
-          | settled -> settled)
+        (fun v other -> if settled v then v else over_coords other v)
         (Verdict.Proved Strength.Structural) others
     in
-    (verdict, Coverage.Exhaustive)
+    (verdict, coverage)
 
 let check_cluster ~budget ~probe ~tolerance sides (c : Correspondence.Cluster.t)
     =

@@ -733,7 +733,7 @@ let derivations lens sidecar (graph : Graph_ir.graph) =
             match names with [] -> acc | _ -> (id, names) :: acc))
     [] graph.Graph_ir.Graph.inputs
 
-let transform ?(preload = false) archive ~passes =
+let transform ?(preload = false) ?verify ?verify_budget archive ~passes =
   let open Core.Syntax in
   let* lowered = lower_archive archive in
   let source = lowered.Pt2_native_graph.graph in
@@ -762,7 +762,8 @@ let transform ?(preload = false) archive ~passes =
     Rewrite.origin ~constants:seeded source |> Core.map_error transform_error
   in
   let* (Rewrite.Step (rewritten, rewrite_map)) =
-    Pass.run_all origin passes |> Core.map_error (fun e -> `Transform e)
+    Pass.run_all ?verify ?verify_budget origin passes
+    |> Core.map_error (fun e -> `Transform e)
   in
   let* (Rewrite.Step (packed, pack_map)) =
     Rewrite.pack rewritten |> Core.map_error transform_error

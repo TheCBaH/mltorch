@@ -36,30 +36,40 @@ module Valuation = struct
            Fmt.pf fmt "%a=%h" Cell.pp cell v))
       (Cell.Map.bindings t)
 
-  (* A ramp over the flattened coordinate, offset per edge, so no two cells of
-     one tensor share a value and no two tensors line up. *)
-  let ramp (c : Cell.t) =
+  (* The whole cell, not a digest of it. A weighted sum of the coordinate
+     collides — with weights 7 on W and 1 on C, (W=1,C=0) and (W=0,C=7) land on
+     the same value — and an indexing error that swapped exactly those two cells
+     would then be invisible to every draw, since the later ones keyed off that
+     same sum. *)
+  let key (c : Cell.t) =
     let axis a = Dim.to_int (Vec6.get c.coord a) in
-    float_of_int
-      ((Tensor_id.to_int c.id * 101)
-      + (axis Axis.N * 10007)
-      + (axis Axis.T * 1009)
-      + (axis Axis.D * 503)
-      + (axis Axis.H * 53)
-      + (axis Axis.W * 7)
-      + axis Axis.C + 1)
+    ( Tensor_id.to_int c.id,
+      axis Axis.N,
+      axis Axis.T,
+      axis Axis.D,
+      axis Axis.H,
+      axis Axis.W,
+      axis Axis.C )
 
-  (* [ramp] already distinguishes every cell, so it is the whole key here. *)
   let pseudo_random n (c : Cell.t) =
-    let h = Hashtbl.hash (n, ramp c) in
+    let h = Hashtbl.hash (n, key c) in
     let v = float_of_int ((h mod 1999) - 999) /. 250. in
     if Float.equal v 0. then 1. else v
 
+  (* Draw 0 numbers the cells 1, 2, 3, … in [Cell.Set] order, which is
+     collision-free by construction rather than by choice of weights, and still
+     deterministic — the set order is [Cell.compare], not insertion order. A
+     distinct value per cell is what makes an index swap visible at all. *)
   let draw n cells =
-    Cell.Set.fold
-      (fun c acc ->
-        Cell.Map.add c (if n = 0 then ramp c else pseudo_random n c) acc)
-      cells Cell.Map.empty
+    if n = 0 then
+      snd
+        (Cell.Set.fold
+           (fun c (i, acc) -> (i + 1, Cell.Map.add c (float_of_int i) acc))
+           cells (1, Cell.Map.empty))
+    else
+      Cell.Set.fold
+        (fun c acc -> Cell.Map.add c (pseudo_random n c) acc)
+        cells Cell.Map.empty
 end
 
 type guard = Lt of t * t | Pool_better of { best : t; value : t }
@@ -260,15 +270,19 @@ let normalise ~stored_f32 e =
         | _ -> (blocked, Round inner))
     | Select (g, a, b) -> (
         let blocked, g = go_guard blocked g in
-        let blocked, a = go blocked a in
-        let blocked, b = go blocked b in
         (* A closed guard decides the branch outright, even when the branches
            themselves are open — which is what collapses a max-pool index chain
-           over known data. *)
+           over known data. Only the SELECTED branch is normalised: normalising
+           both would collect blocked cells from code that cannot run, and the
+           driver reports a blocked collapse before it probes, so a spurious one
+           would mask a real counterexample in the branch actually taken. *)
         match guard_value g with
-        | Some true -> (blocked, a)
-        | Some false -> (blocked, b)
-        | None -> (blocked, Select (g, a, b)))
+        | Some true -> go blocked a
+        | Some false -> go blocked b
+        | None ->
+            let blocked, a = go blocked a in
+            let blocked, b = go blocked b in
+            (blocked, Select (g, a, b)))
     | Unary (op, x) -> (
         let blocked, x = go blocked x in
         ( blocked,

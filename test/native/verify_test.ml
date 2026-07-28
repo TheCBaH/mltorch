@@ -165,7 +165,7 @@ let%expect_test "verify: an identity map over a changed operator is unproved" =
     {|
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: proved (structural) [exhaustive]
-    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {t0(0)=0x1p+0, t1(0)=0x1.98p+6} [exhaustive] |}]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {t0(0)=0x1p+0, t1(0)=0x1p+1} [exhaustive] |}]
 
 (* The cluster {t0, t1} <-> {t0} is the shape trimming an identity permute
    produces: the input and the trimmed output both correspond to the surviving
@@ -218,7 +218,7 @@ let%expect_test "verify: a false claim about a non-canonical cluster member" =
   verify_map map ~src ~dst;
   [%expect
     {|
-    {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t0(1,0)=0x1p+3, t0(1,0,0)=0x1.bp+5} [exhaustive]
+    {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t0(1,0)=0x1p+0, t0(1,0,0)=0x1p+1} [exhaustive]
     {t2} -> {t1} identical: proved (structural) [exhaustive] |}]
 
 (* ---- the rounding boundary ------------------------------------------------
@@ -581,8 +581,8 @@ let%expect_test "hook: a broken pass is caught, and named" =
     {|
     no policy: 1 nodes
     pass trim_any_permute rejected: 0 proved, 2 refuted, 0 tested, 0 unproved, 0 vacuous of 2
-      {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t0(1,0)=0x1p+3, t0(1,0,0)=0x1.bp+5} [exhaustive]
-      {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {t0(1,0)=0x1p+3, t0(1,0,0)=0x1.bp+5} [exhaustive] |}]
+      {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t0(1,0)=0x1p+0, t0(1,0,0)=0x1p+1} [exhaustive]
+      {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {t0(1,0)=0x1p+0, t0(1,0,0)=0x1p+1} [exhaustive] |}]
 
 (* The two policies exist because [Unproved] and [Refuted] are different
    answers. The i32 trim is genuinely unproven — and in fact false for a large
@@ -689,4 +689,33 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
   [%expect
     {|
     honest fold: tested: agrees (1e-05); proved (structural); proved (structural); proved (structural); proved (structural)
-    folded payloads doubled: tested: disagrees at {t0(0)=0x1p+0, t0(1)=0x1p+1, t0(1,0)=0x1p+3, t0(1,1)=0x1.2p+3, t0(1,0,0)=0x1.bp+5, t0(1,0,1)=0x1.b8p+5, t0(1,1,0)=0x1.e8p+5, t0(1,1,1)=0x1.fp+5}; proved (structural); proved (structural); proved (structural); proved (structural) |}]
+    folded payloads doubled: tested: disagrees at {t0(0)=0x1p+0, t0(1)=0x1p+1, t0(1,0)=0x1.8p+1, t0(1,1)=0x1p+2, t0(1,0,0)=0x1.4p+2, t0(1,0,1)=0x1.8p+2, t0(1,1,0)=0x1.cp+2, t0(1,1,1)=0x1p+3}; proved (structural); proved (structural); proved (structural); proved (structural) |}]
+
+(* ---- sampling -------------------------------------------------------------
+
+   Coverage is carried BESIDE the verdict, not folded into it, so a sampled
+   proof is visibly partial whatever the verdict is. [Report.proved] demands
+   [Exhaustive], while [Report.refuted] ignores coverage entirely — a
+   counterexample found at a sampled coordinate is still a counterexample. *)
+
+let%expect_test "sampling: a sampled proof does not satisfy Report.proved" =
+  let sampling = { Map_verify.Budget.default with sample = Some 4 } in
+  let result =
+    let open Core.Syntax in
+    let* (Rewrite.Origin state) =
+      lift_origin (Rewrite.origin (Graph_fixtures.permute_sequence ()))
+    in
+    let* step = lift_pass (Pass.run_all state [ Trim_permute.pass ]) in
+    let* sampled = lift_verify (Map_verify.step ~budget:sampling state step) in
+    let+ full = lift_verify (Map_verify.step state step) in
+    Printf.sprintf "sampled: %s / proved=%b\nexhaustive: %s / proved=%b"
+      (Map_verify.Report.summary sampled)
+      (Map_verify.Report.proved sampled)
+      (Map_verify.Report.summary full)
+      (Map_verify.Report.proved full)
+  in
+  Format.printf "%a@." (pp_result Fmt.string) result;
+  [%expect
+    {|
+    sampled: 2 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 3 / proved=false
+    exhaustive: 2 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 3 / proved=true |}]

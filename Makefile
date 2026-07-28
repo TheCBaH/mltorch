@@ -181,7 +181,9 @@ native-transform-verify.%: $(NATIVE_GRAPH)
 		--input $(PT2_MODEL_DIR)/images/000000000149.pt; \
 	$(NATIVE_GRAPH) transform --fold --verify \
 		--pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 \
-		--input $(PT2_MODEL_DIR)/images/000000000149.pt
+		--input $(PT2_MODEL_DIR)/images/000000000149.pt; \
+	$(NATIVE_GRAPH) transform --fold --verify-symbolic \
+		--pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2
 
 native-transform-verify: $(addprefix native-transform-verify., $(PT2_NATIVE_VERIFY_MODELS))
 

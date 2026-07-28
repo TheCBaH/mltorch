@@ -6,9 +6,8 @@ compute the same values, and its §14 lists **"the numerical/symbolic verifier
 itself"** as the one deliberate non-goal. This doc is that verifier:
 `lib/native/transform/ground_expr.ml`, `ground_eval.ml`, `map_verify.ml`.
 
-Status: **stage 5** — structural tier, constant payloads, the probe, cumulative
-verification, the pipeline hook, and the coefficient tier. The CLI is staged
-after it.
+Status: **complete** — structural tier, constant payloads, the probe, cumulative
+verification, the pipeline hook, the coefficient tier, sampling, and the CLI.
 
 ## 1. What it proves, and what it assumes
 
@@ -306,20 +305,44 @@ re-derives its constants numerically, and `eps` arrives as a constant *edge*
 with a payload against a source-side `Const`, so exact equality fails whatever
 the arithmetic.
 
-## 13. Budgets
+## 13. Budgets, and what a real model costs
 
 Counted, never timed, so a verdict is deterministic and a golden is stable.
-`max_coords` is checked against `Vec6.numel` **before any expansion** — O(1), and
-it alone refuses every real activation tensor. Then `max_nodes` on the expanded
-pair, then `max_rounds`. All three produce **verdicts**, not exceptions, so
-pointing the verifier at a real model yields a report full of `too_large` lines
-in bounded time rather than hanging.
+`max_coords` is checked against `Vec6.numel` **before any expansion** — O(1),
+and it alone refuses every whole activation tensor. Then `max_nodes`, then
+`max_rounds`. All three produce **verdicts**, not exceptions, so pointing the
+verifier at a real model yields a report full of `too_large` lines in bounded
+time rather than hanging.
 
-Neither `Ground_eval.at` nor `expand` meters itself: one `at` builds a single
-op's body at a single coordinate, bounded by the op (a conv's kernel × in
-channels) rather than by the graph. The unbounded direction is repeated
-expansion, and that loop belongs to the driver — so the driver sizes the result
-between rounds instead of threading fuel through the recursion.
+`Ground_eval.at` does not meter itself: it builds a single op's body at a single
+coordinate, bounded by the op (a conv's kernel × in-channels) rather than by the
+graph. **`expand` does**, and that turned out to matter more than anything else
+here. One substitution round is quadratic where a conv feeds a conv, so
+measuring only afterwards lets a term reach tens of millions of nodes first.
+Measured on resnet18: verification ran **over 25× the whole transform** before
+`expand` took a budget, and **0.3×** after. Running out mid-round leaves cells
+unexpanded, which is sound rather than approximate — an unexpanded cell keeps
+`expandable` true, so the driver reports a budget verdict and no probe may run
+against a frontier that never reached the inputs.
+
+`Budget.release` is shaped by what deep expansion is worth on a real model:
+nothing. The clusters a real graph makes checkable are the **constant-shaped**
+ones — folded weights and biases, where `fold_const` and `fold_batch_norm` act —
+and those close in one or two rounds. An activation-shaped cluster needs as many
+rounds as the network is deep and is hopeless however much budget it gets.
+
+Widening `max_coords` alone is a trap: a late-layer activation like `[1,512,7,7]`
+is only 25088 elements, so it passes a generous coord budget and then expands the
+entire network behind it. There is no coord threshold that separates the two —
+`[1,512,1,1]` after the average pool is 512 elements and just as deep. **Depth is
+the discriminator**, so `max_rounds = 2` is what actually bounds it.
+
+Timings, resnet18 and mobilenet_v3_small, `transform --fold`:
+
+| | baseline | `--verify-symbolic` |
+|---|---|---|
+| resnet18 | 4.7s | 6.4s |
+| mobilenet_v3_small | 1.5s | 2.5s |
 
 ## 14. Verdicts
 
@@ -332,13 +355,21 @@ Vacuous                         a creation or a deletion: the cluster claims not
 ```
 
 carried in `Outcome.t = { coverage; verdict }`. Coverage is **orthogonal** to the
-verdict rather than one more verdict constructor, so that when sampling arrives
-(stage 6) a sampled `Tested` is as visibly partial as a sampled `Proved`.
-`Report.proved` is strict — every outcome `Proved` and `Exhaustive`, or `Vacuous`
-— while `Report.refuted` ignores coverage, because a counterexample found at a
-sampled coordinate is still a counterexample.
+verdict rather than one more verdict constructor, which is what keeps a sampled
+`Tested` as visibly partial as a sampled `Proved` — folding sampling into the
+verdict would have weakened only `Proved` and let a sampled `Agrees` read as
+exhaustive. `Report.proved` is strict — every outcome `Proved` and `Exhaustive`,
+or `Vacuous` — while `Report.refuted` ignores coverage, because a counterexample
+found at a sampled coordinate is still a counterexample.
+
+Sampling picks every stride-th coordinate in `fold_coords` order: deterministic,
+because a sampled verdict has to be reproducible from a golden, and strided
+rather than random because the errors being looked for are index-shaped, so
+spreading over the space beats clustering.
 
 ## 15. Coverage today
+
+On the fixtures, exhaustively:
 
 Proved structurally, over all payloads: `trim_permute`, `chain_permute`,
 `bypass_permute`, `sink_permute`, `sink_permute_mean`, `reuse_permute` (including
@@ -356,3 +387,9 @@ Agreeing within tolerance, for every input, with these constants:
 - An exact-rational tier — see §12 for why it would close nothing.
 - An `Approximate` error model. Nothing emits `Approximate` yet.
 - Validating `compose`'s algebraic contract — see §10 for the boundary.
+- Renaming already-proved INTERNAL clusters through σ. It was planned as a
+  speed-up, and the measurement above retired it: the cost was never chain
+  DEPTH, which σ would shorten, but the breadth of a single conv-into-conv
+  round, which it would not touch. Bounding `expand` fixed that outright. It
+  would also need a topological order over the cluster DAG with a cycle
+  verdict, for a benefit nothing now demands.
