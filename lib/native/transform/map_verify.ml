@@ -181,6 +181,19 @@ module Report = struct
       t.clusters
 end
 
+module Policy = struct
+  type t = Reject_refuted | Require_proved
+
+  let accepts t report =
+    match t with
+    | Reject_refuted -> not (Report.refuted report)
+    | Require_proved -> Report.proved report
+
+  let pp fmt = function
+    | Reject_refuted -> Fmt.string fmt "reject_refuted"
+    | Require_proved -> Fmt.string fmt "require_proved"
+end
+
 type error = [ Graph_map.error | `Missing_signature of Tensor_id.t ]
 
 let pp_error fmt : [< error ] -> unit = function

@@ -3,11 +3,33 @@
 open Graph_ir
 open Core.Syntax
 
-type error = [ Rewrite.error | `Not_converged of string ]
+module Verification = struct
+  (* Two distinct failures, and the caller needs to tell them apart: the
+     verifier itself can error (a map that does not describe its two graphs, a
+     missing signature), or it can succeed and the policy reject what it found.
+     Both carry the pass name, since the point of verifying per step is to say
+     WHICH rewrite is at fault. *)
+  type problem = Error of Map_verify.error | Rejected of Map_verify.Report.t
+  type t = { pass : string; problem : problem }
+
+  let pp fmt t =
+    match t.problem with
+    | Error e ->
+        Fmt.pf fmt "@[<h>pass %s: verifier failed: %a@]" t.pass
+          Map_verify.pp_error e
+    | Rejected report ->
+        Fmt.pf fmt "@[<v 2>pass %s rejected: %s@,%a@]" t.pass
+          (Map_verify.Report.summary report)
+          Map_verify.Report.pp_verdicts report
+end
+
+type error =
+  [ Rewrite.error | `Not_converged of string | `Verification of Verification.t ]
 
 let pp_error ppf : [< error ] -> unit = function
   | #Rewrite.error as e -> Rewrite.pp_error ppf e
   | `Not_converged name -> Fmt.pf ppf "@[<h>pass %s did not converge@]" name
+  | `Verification v -> Verification.pp ppf v
 
 type t = {
   name : string;
@@ -101,14 +123,42 @@ let fixpoint ?(max_iters = 16) inner =
         go max_iters (identity_step state));
   }
 
-let run_all state passes =
+(* Verify one step against the state it came from, and turn a rejection into an
+   error naming the pass. Runs BEFORE the next pass, so the first offender stops
+   the pipeline rather than a later composed map hiding which rewrite was
+   wrong. Reports for accepted steps are dropped; a caller wanting every report
+   calls [Map_verify.step] itself. *)
+let verify_step name policy state step =
+  match policy with
+  | None -> Core.return ()
+  | Some policy -> (
+      match Map_verify.step state step with
+      | Error e ->
+          Core.fail
+            (`Verification
+               {
+                 Verification.pass = name;
+                 problem = Verification.Error e.Core.Error.kind;
+               })
+      | Ok report ->
+          if Map_verify.Policy.accepts policy report then Core.return ()
+          else
+            Core.fail
+              (`Verification
+                 {
+                   Verification.pass = name;
+                   problem = Verification.Rejected report;
+                 }))
+
+let run_all ?verify state passes =
   let rec go : type v.
       v Rewrite.t -> t list -> (v Rewrite.step, error) Core.result =
    fun state passes ->
     match passes with
     | [] -> Core.return (identity_step state)
     | pass :: rest ->
-        let* (Rewrite.Step (next, map)) = pass.run state in
+        let* (Rewrite.Step (next, map) as step) = pass.run state in
+        let* () = verify_step pass.name verify state step in
         let+ (Rewrite.Step (final, rest_map)) = go next rest in
         Rewrite.Step (final, Graph_map.compose map rest_map)
   in

@@ -7,7 +7,18 @@
 
 open Graph_ir
 
-type error = [ Rewrite.error | `Not_converged of string ]
+module Verification : sig
+  (* A verifier that errors and a verifier whose report the policy rejects are
+     different failures, and both name the pass, since verifying per step exists
+     to say WHICH rewrite is at fault. *)
+  type problem = Error of Map_verify.error | Rejected of Map_verify.Report.t
+  type t = { pass : string; problem : problem }
+
+  val pp : Format.formatter -> t -> unit
+end
+
+type error =
+  [ Rewrite.error | `Not_converged of string | `Verification of Verification.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -49,4 +60,13 @@ val fixpoint : ?max_iters:int -> t -> t
    whole group as a unit — needed when the passes unlock each other, and no
    single non-interleaved round through them all is enough. *)
 val sequence : name:string -> t list -> t
-val run_all : 'v Rewrite.t -> t list -> ('v Rewrite.step, error) Core.result
+
+(* [verify] checks each step against the state it came from, as it is applied,
+   so the first offending pass stops the pipeline rather than a later composed
+   map hiding which rewrite was wrong. Reports for accepted steps are dropped;
+   a caller that wants every report calls [Map_verify.step] itself. *)
+val run_all :
+  ?verify:Map_verify.Policy.t ->
+  'v Rewrite.t ->
+  t list ->
+  ('v Rewrite.step, error) Core.result

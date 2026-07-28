@@ -6,9 +6,9 @@ compute the same values, and its §14 lists **"the numerical/symbolic verifier
 itself"** as the one deliberate non-goal. This doc is that verifier:
 `lib/native/transform/ground_expr.ml`, `ground_eval.ml`, `map_verify.ml`.
 
-Status: **stage 3** — structural tier, constant payloads, the probe, and
-cumulative verification. The pipeline hook, the coefficient tier and the CLI are
-staged after it.
+Status: **stage 4** — structural tier, constant payloads, the probe, cumulative
+verification, and the pipeline hook. The coefficient tier and the CLI are staged
+after it.
 
 ## 1. What it proves, and what it assumes
 
@@ -243,7 +243,29 @@ The stress targets are `origin → passes → Rewrite.pack`, since packing is th
 warns about, and a `fixpoint` fold over a multi-node constant sub-DAG, where the
 composed map is a chain of per-iteration maps.
 
-## 11. Budgets
+## 11. The pipeline hook, and why two policies
+
+`Pass.run_all ?verify` checks each step against the state it came from **as it
+is applied**, so the first offending pass stops the pipeline and the error names
+it, rather than a later composed map hiding which rewrite was wrong. Reports for
+accepted steps are dropped; a caller wanting all of them calls
+`Map_verify.step` itself.
+
+`Pass.error` grows one variant carrying a `Verification.t`, which distinguishes
+the two ways verification fails — the verifier itself erroring (a map that does
+not describe its two graphs, a missing signature) versus succeeding and having
+its report rejected — and names the pass in both.
+
+`Policy.Reject_refuted` fails only on an actual counterexample;
+`Policy.Require_proved` fails on anything short of a proof. They are not
+redundant, and the i32 trim in `verify_test.ml` is the case that separates them:
+it is genuinely unproven — false, in fact, for a value above 2²⁴ — but the
+verifier has exhibited no counterexample, so the release bar tolerates it while
+the development bar does not. Shipping only `Reject_refuted` would let an
+unjustified rewrite land; shipping only `Require_proved` would fail a release
+build on every budget exhaustion.
+
+## 12. Budgets
 
 Counted, never timed, so a verdict is deterministic and a golden is stable.
 `max_coords` is checked against `Vec6.numel` **before any expansion** — O(1), and
@@ -258,7 +280,7 @@ channels) rather than by the graph. The unbounded direction is repeated
 expansion, and that loop belongs to the driver — so the driver sizes the result
 between rounds instead of threading fuel through the recursion.
 
-## 12. Verdicts
+## 13. Verdicts
 
 ```
 Proved of Strength.proof        Structural (every payload) | Constants (every input)
@@ -275,7 +297,7 @@ verdict rather than one more verdict constructor, so that when sampling arrives
 — while `Report.refuted` ignores coverage, because a counterexample found at a
 sampled coordinate is still a counterexample.
 
-## 13. Coverage today
+## 14. Coverage today
 
 Proved structurally, over all payloads: `trim_permute`, `chain_permute`,
 `bypass_permute`, `sink_permute`, `sink_permute_mean`, `reuse_permute` (including
@@ -289,7 +311,7 @@ the coefficient tier (stage 5) and lands at `Tested (Agrees tol)`, not `Proved` 
 tolerance is never a proof, since coefficients `1` and `1+ε` pass a tolerance
 while being neither exactly equal nor boundedly close for unbounded free input.
 
-## 14. Non-goals
+## 15. Non-goals
 
 - An exact-rational tier (`Proved Exact_algebra`). No current pass needs it:
   `fold_batch_norm` re-derives its constants numerically, so exact coefficient

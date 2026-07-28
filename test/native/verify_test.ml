@@ -534,3 +534,76 @@ let%expect_test "verify: origin -> passes -> pack, composed" =
     (pp_result Fmt.string) result;
   [%expect
     {| permute_identity_chain, passes then pack: 3 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 4 |}]
+
+(* ---- the pipeline hook ----------------------------------------------------
+
+   [Pass.run_all ~verify] checks each step as it is applied, so the first
+   offending pass stops the pipeline and the error names it. These live here
+   rather than in pass_test.ml because what is under test is the verifier's
+   effect on the driver, and the fixtures are already to hand. *)
+
+(* Deliberately wrong: trims EVERY permute, tying its output to its input, when
+   only an identity permute may be trimmed that way. The claim it leaves behind
+   is [Identical] between two edges that differ. *)
+let trim_any_permute =
+  Pass.per_node ~name:"trim_any_permute"
+    {
+      Pass.on_node =
+        (fun _env (n : node) ->
+          match (n.Node.op, n.Node.outputs) with
+          | Permute { x; _ }, [ out ] ->
+              Some (Recipe.trim ~remove:[ n.Node.id ] ~tie:[ (out, x) ])
+          | _ -> None);
+    }
+
+let piped ?verify g passes =
+  let open Core.Syntax in
+  let* (Rewrite.Origin state) = lift_origin (Rewrite.origin g) in
+  let+ (Rewrite.Step (final, _)) =
+    lift_pass (Pass.run_all ?verify state passes)
+  in
+  Format.asprintf "%d nodes" (List.length (Rewrite.graph final).Graph.nodes)
+
+let%expect_test "hook: a broken pass is caught, and named" =
+  let g () =
+    build "swap"
+      Graph_builder.(
+        let* a = input ~shape:s ~name:"a" () in
+        let* t1 = permute Graph_fixtures.swap_hw a in
+        relu t1)
+  in
+  (* unverified, the bad rewrite sails through *)
+  Format.printf "no policy: %a@." (pp_result Fmt.string)
+    (piped (g ()) [ trim_any_permute ]);
+  Format.printf "%a@." (pp_result Fmt.string)
+    (piped ~verify:Map_verify.Policy.Require_proved (g ()) [ trim_any_permute ]);
+  [%expect
+    {|
+    no policy: 1 nodes
+    pass trim_any_permute rejected: 0 proved, 2 refuted, 0 tested, 0 unproved, 0 vacuous of 2
+      {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t0(1,0)=0x1p+3, t0(1,0,0)=0x1.bp+5} [exhaustive]
+      {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {t0(1,0)=0x1p+3, t0(1,0,0)=0x1.bp+5} [exhaustive] |}]
+
+(* The two policies exist because [Unproved] and [Refuted] are different
+   answers. The i32 trim is genuinely unproven — and in fact false for a large
+   enough value — but the verifier has exhibited no counterexample, so the
+   release bar tolerates it while the development bar does not. *)
+let%expect_test
+    "hook: Reject_refuted tolerates unproved, Require_proved does not" =
+  let g () =
+    build "i32_permute"
+      Graph_builder.(
+        let* a = input ~shape:s ~name:"a" ~fmt:(Payload.Fmt Payload.I32) () in
+        let* t1 = permute Graph_fixtures.identity_perm a in
+        relu t1)
+  in
+  Format.printf "reject_refuted: %a@." (pp_result Fmt.string)
+    (piped ~verify:Map_verify.Policy.Reject_refuted (g ()) [ Trim_permute.pass ]);
+  Format.printf "require_proved: %a@." (pp_result Fmt.string)
+    (piped ~verify:Map_verify.Policy.Require_proved (g ()) [ Trim_permute.pass ]);
+  [%expect
+    {|
+    reject_refuted: 1 nodes
+    require_proved: pass trim_permute rejected: 0 proved, 0 refuted, 0 tested, 2 unproved, 0 vacuous of 2
+                      {t0, t1} -> {t0} identical: unproved: format blocks collapse: t0(0) in src.t1 [exhaustive]
+                      {t2} -> {t2} identical: unproved: format blocks collapse: t0(0) in src.t2 [exhaustive] |}]

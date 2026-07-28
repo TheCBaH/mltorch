@@ -147,6 +147,18 @@ module Report : sig
   val pp_verdicts : Format.formatter -> t -> unit
 end
 
+module Policy : sig
+  (* What a caller treats as failure. [Reject_refuted] is the release bar: only
+     an actual counterexample stops the build, so [Unproved] from a budget or a
+     tier that cannot reach a pass is tolerated. [Require_proved] is the
+     development bar, where an unproved rewrite is a rewrite nobody has
+     justified. *)
+  type t = Reject_refuted | Require_proved
+
+  val accepts : t -> Report.t -> bool
+  val pp : Format.formatter -> t -> unit
+end
+
 type error = [ Graph_map.error | `Missing_signature of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
