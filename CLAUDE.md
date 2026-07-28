@@ -43,6 +43,35 @@ grep `.ai/` by topic when you're unsure which file applies.
 When a design or plan changes materially, update the corresponding `.ai/*.md` doc — or
 add a new one — in the same change so this record stays the source of truth.
 
+## Handling review feedback
+
+Reviews arrive as a list of findings. Two rules do most of the work.
+
+**Check every finding against the source before acting on it.** A finding can be right,
+stale, or *understated*, and each needs a different response. Confirm with `file:line`,
+and say plainly when one does not hold — accepting a wrong finding is as costly as
+ignoring a right one. Worked examples from the symbolic-verifier reviews:
+
+**If a finding says a check is vacuous, prove the check can fail.** Revert the fix, watch
+the test go red, restore it. A test that has never failed is not evidence, and this is
+the one class of defect a passing suite cannot surface.
+
+**Verify the edit landed — a green build is not proof that it did.** Prefer the `Edit`
+tool, which fails when its pattern does not match. A scripted `str.replace` silently does
+nothing on a miss, and a formatter reflowing the target between writing the patch and
+running it is enough to cause one.
+
+Commit fixes as `fixup!` commits naming the commit that introduced the defect — one per
+defect, not one per review — so `git rebase --autosquash` lands each where it belongs and
+the history records what was wrong where. Group by defect rather than by file: a fix
+spanning three files is one commit, and three unrelated fixes inside one file are three.
+
+**Never amend a commit that already exists.** A second `fixup!` onto the same target is
+the right move even when the first `fixup!` was itself wrong; both squash together.
+
+Carry the `.ai/*.md` delta in the same commit as the fix it documents, exactly as for any
+other change.
+
 ## Commands
 
 ```sh

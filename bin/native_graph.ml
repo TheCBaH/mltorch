@@ -447,14 +447,79 @@ let pp_audits fmt audits =
    imported graph, and every name here was recovered by walking the composed map
    backwards. A folded constant has no PT2 name and no archive path of its own,
    so it shows what it was computed from instead. *)
-let pp_lens_printer lens derived : Graph_ir.Printer.t =
+(* Destination edge -> the one claim the whole pipeline makes about it, and how
+   many origin edges collapsed into it. A node several passes rewrote reads as
+   the claim they add up to rather than as a pile of intermediate ones, and the
+   origin count is what shows the rewriting happened at all: [origins=3] is
+   three source edges that became this one, [origins=0] an edge a pass created. *)
+let verdicts_by_edge (report : Map_verify.Report.t option) =
+  match report with
+  | None -> Graph_ir.Tensor_id.Map.empty
+  | Some report ->
+      List.fold_left
+        (fun acc (e : Map_verify.Entry.t) ->
+          Graph_ir.Tensor_id.Set.fold
+            (fun id acc ->
+              Graph_ir.Tensor_id.Map.add id
+                (e.outcome, Graph_ir.Tensor_id.Set.cardinal e.cluster.src)
+                acc)
+            e.cluster.dst acc)
+        Graph_ir.Tensor_id.Map.empty report.Map_verify.Report.entries
+
+(* A node's claim is the WEAKEST over its outputs, since the node is only as
+   verified as its least-verified result. Nodes are what a reader scans for, so
+   they carry the roll-up and the edges carry the detail. *)
+let verdicts_by_node graph verdicts =
+  List.fold_left
+    (fun acc (n : Graph_ir.node) ->
+      match
+        List.filter_map
+          (fun out ->
+            Option.map
+              (fun ((o : Map_verify.Outcome.t), _) -> o)
+              (Graph_ir.Tensor_id.Map.find_opt out verdicts))
+          n.Graph_ir.Node.outputs
+      with
+      | [] -> acc
+      | first :: rest ->
+          (* [Outcome.join], so the surviving verdict keeps ITS OWN coverage.
+             Joining the two fields separately let an [Unproved Too_large] —
+             which examined nothing, hence [Not_applicable] — come out marked
+             [sampled n] borrowed from a sibling output. *)
+          Graph_ir.Node_id.Map.add n.Graph_ir.Node.id
+            (List.fold_left Map_verify.Outcome.join first rest)
+            acc)
+    Graph_ir.Node_id.Map.empty (Graph_ir.nodes graph)
+
+(* No braces of its own: [Graph_ir.pp_with] already wraps the annotation, and
+   nesting reads as structure that is not there. *)
+(* Coverage is printed, not dropped. Under an effort that samples, a
+   [Proved Structural] is a proof about four coordinates, and rendering it as
+   plain "proved (structural)" is exactly the overstatement [Coverage] exists to
+   prevent. *)
+let pp_outcome ppf (o : Map_verify.Outcome.t) =
+  Fmt.pf ppf "verify=%s" (Map_verify.Verdict.label o.verdict);
+  match o.coverage with
+  | Map_verify.Coverage.Exhaustive | Map_verify.Coverage.Not_applicable -> ()
+  | Map_verify.Coverage.Sampled n -> Fmt.pf ppf " [sampled %d]" n
+
+let pp_verdict_annotation verdicts ppf id =
+  match Graph_ir.Tensor_id.Map.find_opt id verdicts with
+  | None -> ()
+  | Some (outcome, sources) ->
+      Fmt.pf ppf " %a" pp_outcome outcome;
+      if sources <> 1 then Fmt.pf ppf " origins=%d" sources
+
+let pp_lens_printer ?(verdicts = Graph_ir.Tensor_id.Map.empty)
+    ?(node_verdicts = Graph_ir.Node_id.Map.empty) lens derived :
+    Graph_ir.Printer.t =
   {
     tensor =
       (fun ppf id ->
-        match
-          ( Pt2_native_graph.tensor_origins lens id,
-            Pt2_native_graph.captured_target lens id )
-        with
+        (match
+           ( Pt2_native_graph.tensor_origins lens id,
+             Pt2_native_graph.captured_target lens id )
+         with
         | Error e, _ | _, Error e ->
             Fmt.pf ppf "provenance error: %a" Pt2_native_graph.pp_lens_error
               e.Core.Error.kind
@@ -473,9 +538,10 @@ let pp_lens_printer lens derived : Graph_ir.Printer.t =
                          o.graph_path o.ssa_name))
                   origins;
                 Option.iter (Fmt.pf ppf " target=%s") target));
+        pp_verdict_annotation verdicts ppf id);
     node =
       (fun ppf id ->
-        match Pt2_native_graph.node_origins lens id with
+        (match Pt2_native_graph.node_origins lens id with
         | Error e ->
             Fmt.pf ppf "provenance error: %a" Pt2_native_graph.pp_lens_error
               e.Core.Error.kind
@@ -487,6 +553,9 @@ let pp_lens_printer lens derived : Graph_ir.Printer.t =
                 Fmt.pf ppf "pt2=%a[%d] %s" Pt2_native_graph.Graph_path.pp
                   o.graph_path o.index o.target)
               origins);
+        Option.iter
+          (fun o -> Fmt.pf ppf " %a" pp_outcome o)
+          (Graph_ir.Node_id.Map.find_opt id node_verdicts));
   }
 
 let pp_summary ppf (Native_interp.Transformed t) =
@@ -511,6 +580,7 @@ let transform model input expect fold verify verify_symbolic :
                (fun _ -> Map_verify.Policy.Reject_refuted)
                verify_symbolic)
           ?verify_budget:(Option.map Map_verify.Effort.budget verify_symbolic)
+          ?verify_probe:(Option.map Map_verify.Effort.probe verify_symbolic)
           archive ~passes:(passes ~fold)
       with
       | Error e ->
@@ -523,7 +593,12 @@ let transform model input expect fold verify verify_symbolic :
           | None ->
               (* Structure only: deterministic, and no inference to wait for. *)
               Format.printf "%a@."
-                (Graph_ir.pp_with ~printer:(pp_lens_printer t.lens t.derived))
+                (let verdicts = verdicts_by_edge t.composed in
+                 Graph_ir.pp_with
+                   ~printer:
+                     (pp_lens_printer ~verdicts
+                        ~node_verdicts:(verdicts_by_node t.graph verdicts)
+                        t.lens t.derived))
                 t.graph;
               Ok ()
           | Some input -> (

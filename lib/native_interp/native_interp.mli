@@ -9,6 +9,7 @@ type error =
   | `Build of Graph_builder.error
   | `Provenance of Pt2_native_graph.error
   | `Transform of Pass.error
+  | `Verify of Map_verify.error
   | `Lens of Pt2_native_graph.lens_error ]
 
 type hooks =
@@ -58,6 +59,16 @@ type transformed =
           (* one per pass that rewrote something, in execution order, when
              [~verify] was given — empty otherwise. A pass whose sweep matched
              nothing produces an identity step, which has nothing to check. *)
+      composed : Map_verify.Report.t option;
+          (* what survived the WHOLE pipeline, over the composed origin-to-final
+             map, so its clusters are in this graph's ids and each destination
+             edge carries one verdict. That is what a printed node can be
+             annotated with; the per-pass audits cannot, since each speaks in
+             its own intermediate id space.
+
+             [~verify]'s policy is applied to this report as well as to each
+             pass's: composition and terminal packing are the two steps no
+             per-pass check covers. *)
     }
       -> transformed
 
@@ -81,6 +92,7 @@ val transform :
   ?preload:bool ->
   ?verify:Map_verify.Policy.t ->
   ?verify_budget:Map_verify.Budget.t ->
+  ?verify_probe:int ->
   Pt2_archive.t ->
   passes:Pass.t list ->
   (transformed, error) Core.result

@@ -30,6 +30,7 @@ val pp_error : Format.formatter -> [< error ] -> unit
 type ctx = {
   budget : Map_verify.Budget.t option;
   policy : Map_verify.Policy.t option;
+  probe : int option;
 }
 
 val no_verification : ctx
@@ -94,6 +95,7 @@ val sequence : name:string -> t list -> t
 val run_all :
   ?verify:Map_verify.Policy.t ->
   ?verify_budget:Map_verify.Budget.t ->
+  ?verify_probe:int ->
   'v Rewrite.t ->
   t list ->
   ('v Rewrite.step, error) Core.result
@@ -106,6 +108,7 @@ val run_all :
 val run_reporting :
   ?verify:Map_verify.Policy.t ->
   ?verify_budget:Map_verify.Budget.t ->
+  ?verify_probe:int ->
   'v Rewrite.t ->
   t list ->
   ('v outcome, error) Core.result

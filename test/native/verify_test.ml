@@ -165,7 +165,7 @@ let%expect_test "verify: an identity map over a changed operator is unproved" =
     {|
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: proved (structural) [exhaustive]
-    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {t0(0)=0x1p+0, t1(0)=0x1p+1} [exhaustive] |}]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {t3(0)=0x1p+0, t4(0)=0x1p+1} [exhaustive] |}]
 
 (* The cluster {t0, t1} <-> {t0} is the shape trimming an identity permute
    produces: the input and the trimmed output both correspond to the surviving
@@ -218,8 +218,48 @@ let%expect_test "verify: a false claim about a non-canonical cluster member" =
   verify_map map ~src ~dst;
   [%expect
     {|
-    {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t0(1,0)=0x1p+0, t0(1,0,0)=0x1p+1} [exhaustive]
+    {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t3(1,0)=0x1p+0, t3(1,0,0)=0x1p+1} [exhaustive]
     {t2} -> {t1} identical: proved (structural) [exhaustive] |}]
+
+(* Two graphs that compute the same thing, related by a map that swaps their
+   inputs: the destination then computes b - a where the source computes a - b.
+
+   Representatives for corresponding inputs have to be allocated fresh. Taking
+   the minimum id of the cluster looks natural and is unsound, because the two
+   graphs share one numeric namespace: the crossed pair {t0 <-> t1} and
+   {t1 <-> t0} both minimise to t0, every input on both sides collapses onto one
+   symbolic variable, and sub(a,b) grounds to the same term as sub(b,a). This
+   test reported all three clusters proved before that was fixed. *)
+let%expect_test "verify: crossed input clusters do not collapse to one variable"
+    =
+  let g () =
+    build "sub"
+      Graph_builder.(
+        let* a = input ~shape:s ~name:"a" () in
+        let* b = input ~shape:s ~name:"b" () in
+        sub a b)
+  in
+  let ids l = Tensor_id.Set.of_list (List.map Tensor_id.of_int l) in
+  let cluster src dst =
+    {
+      Correspondence.Cluster.src = ids src;
+      dst = ids dst;
+      label = Correspondence.Identical;
+    }
+  in
+  verify_map
+    {
+      Graph_map.values =
+        Correspondence.of_clusters [ cluster [ 0 ] [ 1 ]; cluster [ 1 ] [ 0 ] ];
+      nodes = Node_map.identity;
+      provenance = Provenance.empty;
+    }
+    ~src:(g ()) ~dst:(g ());
+  [%expect
+    {|
+    {t0} -> {t1} identical: proved (structural) [exhaustive]
+    {t1} -> {t0} identical: proved (structural) [exhaustive]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {t3(0)=0x1p+0, t4(0)=0x1p+1} [exhaustive] |}]
 
 (* ---- the rounding boundary ------------------------------------------------
 
@@ -288,8 +328,8 @@ let%expect_test "verify: trimming a permute off an i32 input is unproved" =
   [%expect
     {|
     i32 input [trim]:
-      {t0, t1} -> {t0} identical: unproved: format blocks collapse: t0(0) in src.t1 [exhaustive]
-      {t2} -> {t2} identical: unproved: format blocks collapse: t0(0) in src.t2 [exhaustive] |}]
+      {t0, t1} -> {t0} identical: unproved: format blocks collapse: t3(0) in src.t1 [exhaustive]
+      {t2} -> {t2} identical: unproved: format blocks collapse: t3(0) in src.t2 [exhaustive] |}]
 
 (* ---- constant payloads ----------------------------------------------------
 
@@ -330,7 +370,7 @@ let%expect_test "verify: fold_const needs the constants, and gets them" =
       {t1} -> {} identical: vacuous
       {t0} -> {t0} identical: proved (structural) [exhaustive]
       {t2} -> {t2} identical: proved (structural, for these constants) [exhaustive]
-      {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
+      {t3} -> {t3} identical: proved (structural, for these constants) [exhaustive] |}]
 
 (* Folding is only correct if the pass reproduced the source's arithmetic
    exactly, materialization included. Perturbing the DESTINATION payload is how
@@ -369,7 +409,7 @@ let%expect_test "verify: a fold that computed the wrong payload is refuted" =
       {t1} -> {} identical: vacuous
       {t0} -> {t0} identical: proved (structural) [exhaustive]
       {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {} [exhaustive]
-      {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
+      {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {t5(0)=0x1p+0, t5(1)=0x1p+1, t5(1,0)=0x1.8p+1, t5(1,1)=0x1p+2, t5(1,0,0)=0x1.4p+2, t5(1,0,1)=0x1.8p+2, t5(1,1,0)=0x1.cp+2, t5(1,1,1)=0x1p+3} [exhaustive] |}]
 
 (* A probe may only run once expansion has reached the graph inputs. Cells left
    at a truncated frontier are internal stage results constrained by their
@@ -502,8 +542,8 @@ let%expect_test "verify: a fixpoint over a constant sub-DAG" =
   [%expect
     {|
     const_arith [fixpoint fold_const]:
-      fold_const: 7 clusters: 1 proved (for these constants), 2 proved (structural), 4 vacuous
-      composed: 7 clusters: 1 proved (for these constants), 2 proved (structural), 4 vacuous
+      fold_const: 7 clusters: 2 proved (for these constants), 1 proved (structural), 4 vacuous
+      composed: 7 clusters: 2 proved (for these constants), 1 proved (structural), 4 vacuous
       law (every step proved => composed not refuted): true |}]
 
 (* Terminal id packing renumbers post-origin ids, including graph inputs, and
@@ -581,8 +621,8 @@ let%expect_test "hook: a broken pass is caught, and named" =
     {|
     no policy: 1 nodes
     pass trim_any_permute rejected: 2 clusters: 2 refuted (counterexample)
-      {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t0(1,0)=0x1p+0, t0(1,0,0)=0x1p+1} [exhaustive]
-      {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {t0(1,0)=0x1p+0, t0(1,0,0)=0x1p+1} [exhaustive] |}]
+      {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t3(1,0)=0x1p+0, t3(1,0,0)=0x1p+1} [exhaustive]
+      {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {t3(1,0)=0x1p+0, t3(1,0,0)=0x1p+1} [exhaustive] |}]
 
 (* The two policies exist because [Unproved] and [Refuted] are different
    answers. The i32 trim is genuinely unproven — and in fact false for a large
@@ -605,8 +645,8 @@ let%expect_test
     {|
     reject_refuted: 1 nodes
     require_proved: pass trim_permute rejected: 2 clusters: 2 unproved (format blocks collapse)
-                      {t0, t1} -> {t0} identical: unproved: format blocks collapse: t0(0) in src.t1 [exhaustive]
-                      {t2} -> {t2} identical: unproved: format blocks collapse: t0(0) in src.t2 [exhaustive] |}]
+                      {t0, t1} -> {t0} identical: unproved: format blocks collapse: t3(0) in src.t1 [exhaustive]
+                      {t2} -> {t2} identical: unproved: format blocks collapse: t3(0) in src.t2 [exhaustive] |}]
 
 (* ---- the coefficient tier -------------------------------------------------
 
@@ -689,7 +729,7 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
   [%expect
     {|
     honest fold: tested: agrees (1e-05); proved (structural); proved (structural); proved (structural); proved (structural)
-    folded payloads doubled: tested: disagrees at {t0(0)=0x1p+0, t0(1)=0x1p+1, t0(1,0)=0x1.8p+1, t0(1,1)=0x1p+2, t0(1,0,0)=0x1.4p+2, t0(1,0,1)=0x1.8p+2, t0(1,1,0)=0x1.cp+2, t0(1,1,1)=0x1p+3}; proved (structural); proved (structural); proved (structural); proved (structural) |}]
+    folded payloads doubled: tested: disagrees at {t33(0)=0x1p+0, t33(1)=0x1p+1, t33(1,0)=0x1.8p+1, t33(1,1)=0x1p+2, t33(1,0,0)=0x1.4p+2, t33(1,0,1)=0x1.8p+2, t33(1,1,0)=0x1.cp+2, t33(1,1,1)=0x1p+3}; proved (structural); proved (structural); proved (structural); proved (structural) |}]
 
 (* ---- sampling -------------------------------------------------------------
 

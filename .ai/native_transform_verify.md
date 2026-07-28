@@ -140,6 +140,17 @@ Relying on that keeps a cell's id usable both as a comparison key (renamed) and
 as a stage key (original), because the two coincide off the inputs, which have no
 stage.
 
+**Representatives are allocated fresh, above every id either graph uses.** Reusing
+an id from the cluster — the minimum, say — looks natural and is unsound, because
+the two graphs share one numeric namespace. The crossed pair `{src t0 ↔ dst t1}`
+and `{src t1 ↔ dst t0}` both minimise to `t0`, so every input on both sides
+collapses onto one symbolic variable and `sub(a,b)` grounds to the same term as
+`sub(b,a)`: a map that swaps a graph's two inputs was reported structurally
+proved, output included. That is a **false proof**, the one failure mode this
+whole design exists to avoid, and it was live until `verify_test.ml`'s crossed-
+cluster test pinned it. Allocating above both graphs also keeps a representative
+from colliding with an internal edge, which is never renamed.
+
 Internal σ is a later, purely performance-motivated addition: it shortens
 expansions, it never proves anything expansion could not.
 
@@ -156,6 +167,18 @@ Consequently:
 
 - a failed comparison is `Unproved` unless a witness was actually produced.
   Different normal forms only mean the incomplete prover failed;
+- only a refutation stops a cluster's traversal. A budget verdict must **not**:
+  `max_nodes` and `max_rounds` are spent per comparison and reset for the next,
+  so a deep coordinate exhausting its budget says nothing about a shallower one
+  that might still produce a witness. (`Too_large` is the one genuinely
+  cluster-global budget, and it is decided before the traversal starts.)
+  Verdicts are joined to the weakest, with a witness outranking agreement —
+  a cluster whose first channel's coefficients agree and whose later channel
+  disagrees is not "coefficients agree". The ranking is total, `Vacuous`
+  lowest, so a join is never order-dependent; and outcomes are joined ENTIRE
+  (`Outcome.join`) rather than field by field, or a surviving verdict picks up
+  coverage from a different one — an `Unproved Too_large` examined nothing and
+  must not print `[sampled n]` borrowed from a sibling;
 - `Refuted` carries either a shape mismatch or a `Valuation` — a concrete
   assignment to the free cells that replays through `Ground_expr.eval` and
   separates the two terms;
@@ -318,12 +341,12 @@ time rather than hanging.
 coordinate, bounded by the op (a conv's kernel × in-channels) rather than by the
 graph. **`expand` does**, and that turned out to matter more than anything else
 here. One substitution round is quadratic where a conv feeds a conv, so
-measuring only afterwards lets a term reach tens of millions of nodes first.
-Measured on resnet18: verification ran **over 25× the whole transform** before
-`expand` took a budget, and **0.3×** after. Running out mid-round leaves cells
-unexpanded, which is sound rather than approximate — an unexpanded cell keeps
-`expandable` true, so the driver reports a budget verdict and no probe may run
-against a frontier that never reached the inputs.
+measuring only afterwards lets a term reach tens of millions of nodes first. On
+resnet18 at the release budget, verification did not finish inside two minutes
+before `expand` took a budget, and takes under four seconds after. Running out
+mid-round leaves cells unexpanded, which is sound rather than approximate — an
+unexpanded cell keeps `expandable` true, so the driver reports a budget verdict
+and no probe may run against a frontier that never reached the inputs.
 
 `Budget.release` is shaped by what deep expansion is worth on a real model:
 nothing. The clusters a real graph makes checkable are the **constant-shaped**
@@ -337,12 +360,26 @@ entire network behind it. There is no coord threshold that separates the two —
 `[1,512,1,1]` after the average pool is 512 elements and just as deep. **Depth is
 the discriminator**, so `max_rounds = 2` is what actually bounds it.
 
-Timings, resnet18 and mobilenet_v3_small, `transform --fold`:
+Cost, resnet18, measured against the built binary — verification is seconds
+where the transform is milliseconds, which is what `Effort` exists to let a
+caller choose:
 
-| | baseline | `--verify-symbolic` |
-|---|---|---|
-| resnet18 | 4.7s | 6.4s |
-| mobilenet_v3_small | 1.5s | 2.5s |
+| `transform` | wall |
+|---|---|
+| (structural passes only) | 0.07s |
+| `--verify-symbolic quick` | 0.11s |
+| `--verify-symbolic standard` | 3.8s |
+| `--verify-symbolic thorough` | 17.0s |
+| `--fold` | 4.9s |
+| `--fold --verify-symbolic quick` | 4.9s |
+| `--fold --verify-symbolic standard` | 11.1s |
+
+> Measure `_build/default/bin/native_graph.exe` directly, not through
+> `dune exec`. An earlier version of this table was taken through `dune exec`
+> and reported a 4.7s baseline that was almost entirely dune's staleness check.
+> It made verification look like a 1.4x overhead where at `standard` effort it
+> is nearer 60x — the absolute numbers were the ones worth having, and they were
+> wrong.
 
 ## 14. Reporting: groups, effort, and why a count needs a reason
 
@@ -351,8 +388,13 @@ was covered, so a `Report` carries an `Entry` per cluster with the
 **`Group_path`** it belongs to — the destination graph's structural hierarchy,
 which for an imported model is the PT2 call sites the importer recorded
 (`torch.ops.aten.convolution.default`, and so on). A cluster is placed by its
-destination edges, since that is the graph the transformation produced; an edge
-with no producer is a graph input and lands at the root.
+**destination** edges only, since that is the graph whose group tree this is; an
+edge with no producer is a graph input and lands at the root, and so does a
+deletion. Falling back to the source ids would resolve them through the
+destination's producer map, a different id universe — a source id colliding
+numerically with an unrelated destination edge would file the cluster under that
+edge's group, and wrong attribution is worse than the root because it reads as a
+real answer.
 
 `Tally` counts by **outcome and reason together**. "40 unproved" is not
 actionable; "40 unproved (too large)" says the coordinate budget refused them
@@ -372,6 +414,32 @@ callback, so observing a run needs no mutable state. `run_all` drops them for
 the callers that do not want them. A pass whose sweep matched nothing produces
 an identity step, which has an empty map and so nothing to verify; skipping
 those is also what keeps a no-op sweep from dominating the cost on a real graph.
+
+Claims also print **inline in the graph dump**: every tensor and node carries
+its own `verify=`, with `[sampled n]` when the coverage was not exhaustive —
+rendering a four-coordinate proof as plain `proved (structural)` is the same
+overstatement `Coverage` exists to prevent. The dump therefore shows *which*
+nodes were verified rather than only how many. A node's verdict is the weakest over its outputs, since a node is
+only as verified as its least-verified result. `origins=n` marks an edge that
+several origin edges collapsed into — a node more than one pass rewrote — and
+`origins=0` an edge a pass created.
+
+The policy applies to the composed report as well as to each pass's, because
+composition and terminal packing are the two steps no per-pass check covers: a
+refutation introduced by `Graph_map.compose` or `Rewrite.pack` appears there and
+nowhere else.
+
+The inline claims come from the **composed** origin-to-final report, not the
+per-pass ones: those speak in intermediate id spaces that no longer exist in the
+printed graph, whereas the composed map's destination ids *are* that graph's.
+Reading a node therefore gives what the whole pipeline established about it.
+
+That has one limit worth stating, because it looks like a gap and is not. A
+folded constant is a **creation** in the composed map, and a creation claims
+nothing, so its inline verdict is `vacuous origins=0` — while the fold itself
+*was* checked, by the pass that performed it, and appears as
+`proved (for these constants)` in that pass's summary. The per-pass summaries
+and the inline annotation answer different questions, which is why both print.
 
 `test/native_transform_verify_cram.t` and its `--fold` companion pin all of this
 on ResNet-18. The contrast between them is the point of having both: without

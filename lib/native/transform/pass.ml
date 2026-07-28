@@ -39,9 +39,10 @@ let pp_error ppf : [< error ] -> unit = function
 type ctx = {
   budget : Map_verify.Budget.t option;
   policy : Map_verify.Policy.t option;
+  probe : int option;
 }
 
-let no_verification = { budget = None; policy = None }
+let no_verification = { budget = None; policy = None; probe = None }
 
 module Audit = struct
   type t = { pass : string; report : Map_verify.Report.t }
@@ -103,7 +104,7 @@ let verified name ctx state (Rewrite.Step (_, map) as step) =
          && Node_map.is_empty map.Graph_map.nodes ->
       Core.return { audits = []; step }
   | Some policy -> (
-      match Map_verify.step ?budget:ctx.budget state step with
+      match Map_verify.step ?budget:ctx.budget ?probe:ctx.probe state step with
       | Error e ->
           Core.fail
             (`Verification
@@ -204,11 +205,13 @@ let run_with ctx state passes =
   in
   go state passes
 
-let run_reporting ?verify ?verify_budget state passes =
-  run_with { budget = verify_budget; policy = verify } state passes
+let run_reporting ?verify ?verify_budget ?verify_probe state passes =
+  run_with
+    { budget = verify_budget; policy = verify; probe = verify_probe }
+    state passes
 
-let run_all ?verify ?verify_budget state passes =
-  let+ out = run_reporting ?verify ?verify_budget state passes in
+let run_all ?verify ?verify_budget ?verify_probe state passes =
+  let+ out = run_reporting ?verify ?verify_budget ?verify_probe state passes in
   out.step
 
 (* A fixed list of passes as one named pass, so a caller can [fixpoint] the

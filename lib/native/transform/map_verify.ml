@@ -233,22 +233,26 @@ module Verdict = struct
      everything: one counterexample settles the cluster however many other
      coordinates agreed. Ties keep the earlier verdict, so a report names the
      first coordinate that failed rather than the last. *)
-  let join a b =
-    let rank = function
-      | Refuted _ -> 5
-      | Unproved _ -> 4
-      (* A witness outranks agreement: a cluster where one coordinate's
-         coefficients agree and another has a disagreeing valuation is NOT
-         "coefficients agree". Ranking them equal and keeping the earlier
-         verdict reported exactly that for a batch-norm cluster whose first
-         channel agreed. *)
-      | Tested (Strength.Disagrees _) -> 3
-      | Tested (Strength.Agrees _) -> 2
-      | Proved Strength.Constants -> 1
-      | Proved Strength.Structural -> 0
-      | Vacuous -> 0
-    in
-    if rank b > rank a then b else a
+  (* How weak a verdict is; higher wins a join. Total, so a join is never
+     order-dependent — [Vacuous] and [Proved] used to tie, which made a node
+     whose outputs were one of each print whichever came first. [Vacuous] sits
+     lowest because it asserts nothing: a node with a vacuous output and a
+     proved one is better described as proved.
+
+     A witness outranks agreement: a cluster where one coordinate's coefficients
+     agree and another has a disagreeing valuation is NOT "coefficients agree",
+     which is what ranking them equal reported for a batch-norm cluster whose
+     first channel agreed. *)
+  let rank = function
+    | Refuted _ -> 6
+    | Unproved _ -> 5
+    | Tested (Strength.Disagrees _) -> 4
+    | Tested (Strength.Agrees _) -> 3
+    | Proved Strength.Constants -> 2
+    | Proved Strength.Structural -> 1
+    | Vacuous -> 0
+
+  let join a b = if rank b > rank a then b else a
 end
 
 (* Whether anything further could change a cluster's answer. Only a
@@ -265,6 +269,14 @@ let settled = function Verdict.Refuted _ -> true | _ -> false
 
 module Outcome = struct
   type t = { coverage : Coverage.t; verdict : Verdict.t }
+
+  (* The weaker outcome ENTIRE, verdict and coverage together. Joining the two
+     independently pairs a verdict with coverage from a different outcome — an
+     [Unproved Too_large], whose coverage is [Not_applicable] because nothing
+     was examined, could come out marked [sampled n] from a sibling. It also
+     leaves the result order-dependent wherever two verdicts rank equal. *)
+  let join a b =
+    if Verdict.rank b.verdict > Verdict.rank a.verdict then b else a
 
   let pp fmt t =
     match t.coverage with
@@ -313,24 +325,27 @@ module Group_path = struct
           acc n.Node.outputs)
       Tensor_id.Map.empty g.Graph.nodes
 
-  (* A cluster is placed by its destination edges — that is the graph the
-     transformation produced. An edge with no producer is a graph input, which
-     belongs to no group and lands at the root. *)
+  (* A cluster is placed by its DESTINATION edges only — that is the graph whose
+     group tree this is. An edge with no producer is a graph input, which belongs
+     to no group and lands at the root, and so does a cluster with no destination
+     edge at all (a deletion).
+
+     Falling back to the source ids would resolve them through the destination's
+     producer map, which is a different id universe: a source id that happens to
+     collide numerically with an unrelated destination edge would file the
+     cluster under that edge's group. Wrong attribution is worse than the root,
+     because it reads as a real answer. *)
   let of_cluster ~index ~producers (c : Correspondence.Cluster.t) =
-    let from ids =
-      Tensor_id.Set.fold
-        (fun id acc ->
-          match acc with
-          | Some _ -> acc
-          | None -> (
-              match Tensor_id.Map.find_opt id producers with
-              | None -> None
-              | Some node -> Node_id.Map.find_opt node index))
-        ids None
-    in
-    match from c.dst with
-    | Some p -> p
-    | None -> Option.value (from c.src) ~default:[]
+    Option.value ~default:[]
+      (Tensor_id.Set.fold
+         (fun id acc ->
+           match acc with
+           | Some _ -> acc
+           | None -> (
+               match Tensor_id.Map.find_opt id producers with
+               | None -> None
+               | Some node -> Node_id.Map.find_opt node index))
+         c.dst None)
 end
 
 module Entry = struct
@@ -464,22 +479,36 @@ let pp_error fmt : [< error ] -> unit = function
 let input_renames clusters ~src ~dst =
   let inputs g = Tensor_id.Set.of_list g.Graph.inputs in
   let src_inputs = inputs src and dst_inputs = inputs dst in
-  List.fold_left
-    (fun (smap, dmap) (c : Correspondence.Cluster.t) ->
-      let all = Tensor_id.Set.union c.src c.dst in
-      match Tensor_id.Set.min_elt_opt all with
-      | None -> (smap, dmap)
-      | Some rep ->
-          let add keep set map =
-            Tensor_id.Set.fold
-              (fun id map ->
-                if Tensor_id.Set.mem id keep then Tensor_id.Map.add id rep map
-                else map)
-              set map
-          in
-          (add src_inputs c.src smap, add dst_inputs c.dst dmap))
-    (Tensor_id.Map.empty, Tensor_id.Map.empty)
-    clusters
+  (* Representatives are allocated ABOVE every id either graph uses, one per
+     cluster. Reusing an id from the cluster itself — the minimum, say — is
+     unsound: the two graphs share one numeric namespace, so the crossed pair
+     {src t0 <-> dst t1} and {src t1 <-> dst t0} both minimise to t0 and every
+     input on both sides collapses onto ONE symbolic variable. sub(a,b) and
+     sub(b,a) then ground to the same term and the swap is proved identical.
+     Allocating fresh also keeps a representative from colliding with an
+     internal edge, which is never renamed. *)
+  let ceiling g =
+    Tensor_id.Map.fold
+      (fun id _ acc -> Stdlib.max acc (Tensor_id.to_int id + 1))
+      g.Graph.tensors 0
+  in
+  let base = Stdlib.max (ceiling src) (ceiling dst) in
+  let _, smap, dmap =
+    List.fold_left
+      (fun (next, smap, dmap) (c : Correspondence.Cluster.t) ->
+        let rep = Tensor_id.of_int next in
+        let add keep set map =
+          Tensor_id.Set.fold
+            (fun id map ->
+              if Tensor_id.Set.mem id keep then Tensor_id.Map.add id rep map
+              else map)
+            set map
+        in
+        (next + 1, add src_inputs c.src smap, add dst_inputs c.dst dmap))
+      (base, Tensor_id.Map.empty, Tensor_id.Map.empty)
+      clusters
+  in
+  (smap, dmap)
 
 let rename_with map id =
   match Tensor_id.Map.find_opt id map with Some rep -> rep | None -> id

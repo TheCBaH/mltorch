@@ -16,8 +16,21 @@ coefficients agree within a tolerance. Only `Identical` claims can be refuted
 outright, which is why a disagreement here would be reported as evidence rather
 than as a counterexample.
 
+As above, every tensor and node carries its claim inline — with one limit worth
+reading carefully. A folded constant is a CREATION in the composed
+origin-to-final map (`{} -> {t297}`), and a creation claims nothing, so its
+inline verdict is `vacuous origins=0` rather than the proof one might expect.
+
+That is not the verifier declining to check it. The fold IS checked, by the pass
+that performed it, and shows up as `proved (for these constants)` in the
+fold_const summaries above. What the inline annotation can show is bounded by
+what the composed map says, and end to end the composed map's honest statement
+about a folded weight is that the destination graph has an edge the source did
+not. The per-pass summary and the inline annotation answer different questions,
+which is why both are printed.
+
   $ ../bin/native_graph.exe transform --fold --verify-symbolic quick \
-  >   --pt2 "$PT2_DATA/resnet18/resnet18.pt2" | sed '/^graph$/,$d'
+  >   --pt2 "$PT2_DATA/resnet18/resnet18.pt2"
   nodes: 174 -> 50
   constants: 42, of which 41 folded
   symbolic verification: reshape_to_permute
@@ -159,7 +172,7 @@ than as a counterexample.
     torch.ops.aten._native_batch_norm_legit_no_training.default
          20  unproved (too large)
     torch.ops.aten.addmm.default
-          1  proved (structural) [sampled 4]
+          1  unproved (over max_nodes) [sampled 4]
     torch.ops.aten.convolution.default
          21  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
@@ -178,8 +191,8 @@ than as a counterexample.
           1  unproved (unsupported relation)
   symbolic verification: fold_const
     (root)
-         40  proved (for these constants) [sampled 4]
-        142  proved (structural) [sampled 4]
+         80  proved (for these constants) [sampled 4]
+        102  proved (structural) [sampled 4]
          87  unproved (too large)
          80  vacuous
     torch.ops.aten.addmm.default
@@ -190,8 +203,8 @@ than as a counterexample.
           2  unproved (too large)
   symbolic verification: fold_const
     (root)
-         20  proved (for these constants) [sampled 4]
-        142  proved (structural) [sampled 4]
+         40  proved (for these constants) [sampled 4]
+        122  proved (structural) [sampled 4]
          87  unproved (too large)
          20  vacuous
     torch.ops.aten.addmm.default
@@ -202,8 +215,8 @@ than as a counterexample.
           2  unproved (too large)
   symbolic verification: fold_const
     (root)
-         20  proved (for these constants) [sampled 4]
-        102  proved (structural) [sampled 4]
+         60  proved (for these constants) [sampled 4]
+         62  proved (structural) [sampled 4]
          87  unproved (too large)
          40  vacuous
     torch.ops.aten.addmm.default
@@ -214,8 +227,8 @@ than as a counterexample.
           2  unproved (too large)
   symbolic verification: fold_const
     (root)
-         40  proved (for these constants) [sampled 4]
-         42  proved (structural) [sampled 4]
+         60  proved (for these constants) [sampled 4]
+         22  proved (structural) [sampled 4]
          87  unproved (too large)
          40  vacuous
     torch.ops.aten.addmm.default
@@ -237,10 +250,426 @@ than as a counterexample.
     torch.ops.aten.max_pool2d_with_indices.default
           2  unproved (too large)
   symbolic verification: total
-      140  proved (for these constants) [sampled 4]
-     1438  proved (structural) [sampled 4]
-        1  unproved (over max_nodes) [sampled 4]
+      260  proved (for these constants) [sampled 4]
+     1317  proved (structural) [sampled 4]
+        2  unproved (over max_nodes) [sampled 4]
         1  unproved (over max_rounds) [sampled 4]
      2011  unproved (too large)
         1  unproved (unsupported relation)
       615  vacuous
+  graph
+  inputs:
+    [t61 f32 [C=1000] {pt2=root:p_fc_bias target=fc.bias verify=proved (structural) [sampled 4]} ->[n173] constant,
+     t122 f32 [H=3 W=224 C=224] {pt2=root:x verify=unproved (too large)} ->[n0],
+     t295 f32 [N=1000 T=1 D=1 H=1 W=1 C=512] {folded from=[p_fc_weight] verify=unproved (too large)} ->[n173] constant,
+     t297 f32 [N=64 T=1 D=1 H=7 W=7 C=3] {folded from=[p_conv1_weight,p_bn1_weight,b_bn1_running_var] verify=vacuous origins=0} ->[n174] constant,
+     t298 f32 [C=64] {folded from=[p_bn1_weight,p_bn1_bias,b_bn1_running_mean,b_bn1_running_var] verify=vacuous origins=0} ->[n174] constant,
+     t299 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var] verify=vacuous origins=0} ->[n176] constant,
+     t300 f32 [C=64] {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var] verify=vacuous origins=0} ->[n176] constant,
+     t301 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var] verify=vacuous origins=0} ->[n178] constant,
+     t302 f32 [C=64] {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var] verify=vacuous origins=0} ->[n178] constant,
+     t303 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var] verify=vacuous origins=0} ->[n181] constant,
+     t304 f32 [C=64] {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var] verify=vacuous origins=0} ->[n181] constant,
+     t305 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var] verify=vacuous origins=0} ->[n183] constant,
+     t306 f32 [C=64] {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var] verify=vacuous origins=0} ->[n183] constant,
+     t307 f32 [N=128 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var] verify=vacuous origins=0} ->[n186] constant,
+     t308 f32 [C=128] {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var] verify=vacuous origins=0} ->[n186] constant,
+     t309 f32 [N=128 T=1 D=1 H=1 W=1 C=64] {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var] verify=vacuous origins=0} ->[n187] constant,
+     t310 f32 [C=128] {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var] verify=vacuous origins=0} ->[n187] constant,
+     t311 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var] verify=vacuous origins=0} ->[n189] constant,
+     t312 f32 [C=128] {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var] verify=vacuous origins=0} ->[n189] constant,
+     t313 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var] verify=vacuous origins=0} ->[n192] constant,
+     t314 f32 [C=128] {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var] verify=vacuous origins=0} ->[n192] constant,
+     t315 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var] verify=vacuous origins=0} ->[n194] constant,
+     t316 f32 [C=128] {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var] verify=vacuous origins=0} ->[n194] constant,
+     t317 f32 [N=256 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var] verify=vacuous origins=0} ->[n197] constant,
+     t318 f32 [C=256] {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var] verify=vacuous origins=0} ->[n197] constant,
+     t319 f32 [N=256 T=1 D=1 H=1 W=1 C=128] {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var] verify=vacuous origins=0} ->[n198] constant,
+     t320 f32 [C=256] {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var] verify=vacuous origins=0} ->[n198] constant,
+     t321 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var] verify=vacuous origins=0} ->[n200] constant,
+     t322 f32 [C=256] {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var] verify=vacuous origins=0} ->[n200] constant,
+     t323 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var] verify=vacuous origins=0} ->[n203] constant,
+     t324 f32 [C=256] {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var] verify=vacuous origins=0} ->[n203] constant,
+     t325 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var] verify=vacuous origins=0} ->[n205] constant,
+     t326 f32 [C=256] {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var] verify=vacuous origins=0} ->[n205] constant,
+     t327 f32 [N=512 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var] verify=vacuous origins=0} ->[n208] constant,
+     t328 f32 [C=512] {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var] verify=vacuous origins=0} ->[n208] constant,
+     t329 f32 [N=512 T=1 D=1 H=1 W=1 C=256] {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var] verify=vacuous origins=0} ->[n209] constant,
+     t330 f32 [C=512] {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var] verify=vacuous origins=0} ->[n209] constant,
+     t331 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var] verify=vacuous origins=0} ->[n211] constant,
+     t332 f32 [C=512] {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var] verify=vacuous origins=0} ->[n211] constant,
+     t333 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var] verify=vacuous origins=0} ->[n214] constant,
+     t334 f32 [C=512] {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var] verify=vacuous origins=0} ->[n214] constant,
+     t335 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var] verify=vacuous origins=0} ->[n216] constant,
+     t336 f32 [C=512] {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var] verify=vacuous origins=0} ->[n216] constant]
+  nodes:
+    group g1 torch.ops.aten.convolution.default:
+      n0 {derived verify=unproved (too large)}: [t123 f32 [H=224 W=224 C=3] {derived verify=unproved (too large)} ->[n174]] =
+        permute
+          x=t122 {pt2=root:x verify=unproved (too large)}
+          perm=[H<-W, W<-C, C<-H]
+    n174 {derived verify=unproved (too large)}: [t337 f32 [H=112 W=112 C=64] {derived verify=unproved (too large)} ->[n175]] =
+      convolution
+        x=t123 {derived verify=unproved (too large)} <-n0
+        weight=t297 {folded from=[p_conv1_weight,p_bn1_weight,b_bn1_running_var] verify=vacuous origins=0}
+        bias=t298 {folded from=[p_bn1_weight,p_bn1_bias,b_bn1_running_mean,b_bn1_running_var] verify=vacuous origins=0}
+        params={stride={h=2; w=2};
+               padding={h=3; w=3};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n175 {pt2=root[2] torch.ops.aten.relu.default verify=unproved (too large)}: [t338 f32 [H=112
+                                                                      W=112
+                                                                      C=64] {derived verify=unproved (too large)} ->[n9]] =
+      relu x=t337 {derived verify=unproved (too large)} <-n174
+    group g3 torch.ops.aten.max_pool2d_with_indices.default:
+      n9 {derived verify=unproved (too large)}: [t132 f32 [H=56 W=56 C=64] {derived verify=unproved (too large) origins=2} ->[n176,
+                                                                      n179],
+                                                 t133 f32 [H=56 W=56 C=64] {derived verify=unproved (unsupported relation)} ->[n10]] =
+        max_pool2d_with_indices
+          x=t338 {derived verify=unproved (too large)} <-n175
+          params={kernel={h=3; w=3}; stride={h=2; w=2}; pad={h=1; w=1}}
+      n10 {derived}: [] =
+        discard x=t133 {derived verify=unproved (unsupported relation)} <-n9
+    n176 {derived verify=unproved (too large)}: [t339 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n177]] =
+      convolution
+        x=t132 {derived verify=unproved (too large) origins=2} <-n9
+        weight=t299 {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var] verify=vacuous origins=0}
+        bias=t300 {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n177 {pt2=root[6] torch.ops.aten.relu.default verify=unproved (too large)}: [t340 f32 [H=56
+                                                                      W=56
+                                                                      C=64] {derived verify=unproved (too large)} ->[n178]] =
+      relu x=t339 {derived verify=unproved (too large)} <-n176
+    n178 {derived verify=unproved (too large)}: [t341 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n179]] =
+      convolution
+        x=t340 {derived verify=unproved (too large)} <-n177
+        weight=t301 {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var] verify=vacuous origins=0}
+        bias=t302 {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n179 {pt2=root[9] torch.ops.aten.add.Tensor verify=vacuous}: [t342 f32 [H=56
+                                                                      W=56
+                                                                      C=64] {derived verify=vacuous origins=0} ->[n180]] =
+      add
+        a=t341 {derived verify=unproved (too large)} <-n178
+        b=t132 {derived verify=unproved (too large) origins=2} <-n9
+    n180 {pt2=root[10] torch.ops.aten.relu.default verify=unproved (too large)}: [t343 f32 [H=56
+                                                                      W=56
+                                                                      C=64] {derived verify=unproved (too large)} ->[n181,
+                                                                      n184]] =
+      relu x=t342 {derived verify=vacuous origins=0} <-n179
+    n181 {derived verify=unproved (too large)}: [t344 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n182]] =
+      convolution
+        x=t343 {derived verify=unproved (too large)} <-n180
+        weight=t303 {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var] verify=vacuous origins=0}
+        bias=t304 {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n182 {pt2=root[13] torch.ops.aten.relu.default verify=unproved (too large)}: [t345 f32 [H=56
+                                                                      W=56
+                                                                      C=64] {derived verify=unproved (too large)} ->[n183]] =
+      relu x=t344 {derived verify=unproved (too large)} <-n181
+    n183 {derived verify=unproved (too large)}: [t346 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n184]] =
+      convolution
+        x=t345 {derived verify=unproved (too large)} <-n182
+        weight=t305 {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var] verify=vacuous origins=0}
+        bias=t306 {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n184 {pt2=root[16] torch.ops.aten.add.Tensor verify=vacuous}: [t347 f32 [H=56
+                                                                      W=56
+                                                                      C=64] {derived verify=vacuous origins=0} ->[n185]] =
+      add
+        a=t346 {derived verify=unproved (too large)} <-n183
+        b=t343 {derived verify=unproved (too large)} <-n180
+    n185 {pt2=root[17] torch.ops.aten.relu.default verify=unproved (too large)}: [t348 f32 [H=56
+                                                                      W=56
+                                                                      C=64] {derived verify=unproved (too large) origins=2} ->[n186,
+                                                                      n187]] =
+      relu x=t347 {derived verify=vacuous origins=0} <-n184
+    n186 {derived verify=unproved (too large)}: [t349 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n188]] =
+      convolution
+        x=t348 {derived verify=unproved (too large) origins=2} <-n185
+        weight=t307 {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var] verify=vacuous origins=0}
+        bias=t308 {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var] verify=vacuous origins=0}
+        params={stride={h=2; w=2};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n187 {derived verify=unproved (too large)}: [t350 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n190]] =
+      convolution
+        x=t348 {derived verify=unproved (too large) origins=2} <-n185
+        weight=t309 {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var] verify=vacuous origins=0}
+        bias=t310 {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var] verify=vacuous origins=0}
+        params={stride={h=2; w=2};
+               padding={h=0; w=0};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n188 {pt2=root[20] torch.ops.aten.relu.default verify=unproved (too large)}: [t351 f32 [H=28
+                                                                      W=28
+                                                                      C=128] {derived verify=unproved (too large)} ->[n189]] =
+      relu x=t349 {derived verify=unproved (too large)} <-n186
+    n189 {derived verify=unproved (too large)}: [t352 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n190]] =
+      convolution
+        x=t351 {derived verify=unproved (too large)} <-n188
+        weight=t311 {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var] verify=vacuous origins=0}
+        bias=t312 {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n190 {pt2=root[25] torch.ops.aten.add.Tensor verify=vacuous}: [t353 f32 [H=28
+                                                                      W=28
+                                                                      C=128] {derived verify=vacuous origins=0} ->[n191]] =
+      add
+        a=t352 {derived verify=unproved (too large)} <-n189
+        b=t350 {derived verify=unproved (too large)} <-n187
+    n191 {pt2=root[26] torch.ops.aten.relu.default verify=unproved (too large)}: [t354 f32 [H=28
+                                                                      W=28
+                                                                      C=128] {derived verify=unproved (too large)} ->[n192,
+                                                                      n195]] =
+      relu x=t353 {derived verify=vacuous origins=0} <-n190
+    n192 {derived verify=unproved (too large)}: [t355 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n193]] =
+      convolution
+        x=t354 {derived verify=unproved (too large)} <-n191
+        weight=t313 {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var] verify=vacuous origins=0}
+        bias=t314 {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n193 {pt2=root[29] torch.ops.aten.relu.default verify=unproved (too large)}: [t356 f32 [H=28
+                                                                      W=28
+                                                                      C=128] {derived verify=unproved (too large)} ->[n194]] =
+      relu x=t355 {derived verify=unproved (too large)} <-n192
+    n194 {derived verify=unproved (too large)}: [t357 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n195]] =
+      convolution
+        x=t356 {derived verify=unproved (too large)} <-n193
+        weight=t315 {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var] verify=vacuous origins=0}
+        bias=t316 {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n195 {pt2=root[32] torch.ops.aten.add.Tensor verify=vacuous}: [t358 f32 [H=28
+                                                                      W=28
+                                                                      C=128] {derived verify=vacuous origins=0} ->[n196]] =
+      add
+        a=t357 {derived verify=unproved (too large)} <-n194
+        b=t354 {derived verify=unproved (too large)} <-n191
+    n196 {pt2=root[33] torch.ops.aten.relu.default verify=unproved (too large)}: [t359 f32 [H=28
+                                                                      W=28
+                                                                      C=128] {derived verify=unproved (too large) origins=2} ->[n197,
+                                                                      n198]] =
+      relu x=t358 {derived verify=vacuous origins=0} <-n195
+    n197 {derived verify=unproved (too large)}: [t360 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n199]] =
+      convolution
+        x=t359 {derived verify=unproved (too large) origins=2} <-n196
+        weight=t317 {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var] verify=vacuous origins=0}
+        bias=t318 {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var] verify=vacuous origins=0}
+        params={stride={h=2; w=2};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n198 {derived verify=unproved (too large)}: [t361 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n201]] =
+      convolution
+        x=t359 {derived verify=unproved (too large) origins=2} <-n196
+        weight=t319 {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var] verify=vacuous origins=0}
+        bias=t320 {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var] verify=vacuous origins=0}
+        params={stride={h=2; w=2};
+               padding={h=0; w=0};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n199 {pt2=root[36] torch.ops.aten.relu.default verify=unproved (too large)}: [t362 f32 [H=14
+                                                                      W=14
+                                                                      C=256] {derived verify=unproved (too large)} ->[n200]] =
+      relu x=t360 {derived verify=unproved (too large)} <-n197
+    n200 {derived verify=unproved (too large)}: [t363 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n201]] =
+      convolution
+        x=t362 {derived verify=unproved (too large)} <-n199
+        weight=t321 {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var] verify=vacuous origins=0}
+        bias=t322 {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n201 {pt2=root[41] torch.ops.aten.add.Tensor verify=vacuous}: [t364 f32 [H=14
+                                                                      W=14
+                                                                      C=256] {derived verify=vacuous origins=0} ->[n202]] =
+      add
+        a=t363 {derived verify=unproved (too large)} <-n200
+        b=t361 {derived verify=unproved (too large)} <-n198
+    n202 {pt2=root[42] torch.ops.aten.relu.default verify=unproved (too large)}: [t365 f32 [H=14
+                                                                      W=14
+                                                                      C=256] {derived verify=unproved (too large)} ->[n203,
+                                                                      n206]] =
+      relu x=t364 {derived verify=vacuous origins=0} <-n201
+    n203 {derived verify=unproved (too large)}: [t366 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n204]] =
+      convolution
+        x=t365 {derived verify=unproved (too large)} <-n202
+        weight=t323 {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var] verify=vacuous origins=0}
+        bias=t324 {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n204 {pt2=root[45] torch.ops.aten.relu.default verify=unproved (too large)}: [t367 f32 [H=14
+                                                                      W=14
+                                                                      C=256] {derived verify=unproved (too large)} ->[n205]] =
+      relu x=t366 {derived verify=unproved (too large)} <-n203
+    n205 {derived verify=unproved (too large)}: [t368 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n206]] =
+      convolution
+        x=t367 {derived verify=unproved (too large)} <-n204
+        weight=t325 {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var] verify=vacuous origins=0}
+        bias=t326 {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n206 {pt2=root[48] torch.ops.aten.add.Tensor verify=vacuous}: [t369 f32 [H=14
+                                                                      W=14
+                                                                      C=256] {derived verify=vacuous origins=0} ->[n207]] =
+      add
+        a=t368 {derived verify=unproved (too large)} <-n205
+        b=t365 {derived verify=unproved (too large)} <-n202
+    n207 {pt2=root[49] torch.ops.aten.relu.default verify=unproved (too large)}: [t370 f32 [H=14
+                                                                      W=14
+                                                                      C=256] {derived verify=unproved (too large) origins=2} ->[n208,
+                                                                      n209]] =
+      relu x=t369 {derived verify=vacuous origins=0} <-n206
+    n208 {derived verify=unproved (too large)}: [t371 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n210]] =
+      convolution
+        x=t370 {derived verify=unproved (too large) origins=2} <-n207
+        weight=t327 {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var] verify=vacuous origins=0}
+        bias=t328 {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var] verify=vacuous origins=0}
+        params={stride={h=2; w=2};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n209 {derived verify=unproved (too large)}: [t372 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n212]] =
+      convolution
+        x=t370 {derived verify=unproved (too large) origins=2} <-n207
+        weight=t329 {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var] verify=vacuous origins=0}
+        bias=t330 {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var] verify=vacuous origins=0}
+        params={stride={h=2; w=2};
+               padding={h=0; w=0};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n210 {pt2=root[52] torch.ops.aten.relu.default verify=unproved (too large)}: [t373 f32 [H=7
+                                                                      W=7
+                                                                      C=512] {derived verify=unproved (too large)} ->[n211]] =
+      relu x=t371 {derived verify=unproved (too large)} <-n208
+    n211 {derived verify=unproved (too large)}: [t374 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n212]] =
+      convolution
+        x=t373 {derived verify=unproved (too large)} <-n210
+        weight=t331 {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var] verify=vacuous origins=0}
+        bias=t332 {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n212 {pt2=root[57] torch.ops.aten.add.Tensor verify=vacuous}: [t375 f32 [H=7
+                                                                      W=7
+                                                                      C=512] {derived verify=vacuous origins=0} ->[n213]] =
+      add
+        a=t374 {derived verify=unproved (too large)} <-n211
+        b=t372 {derived verify=unproved (too large)} <-n209
+    n213 {pt2=root[58] torch.ops.aten.relu.default verify=unproved (too large)}: [t376 f32 [H=7
+                                                                      W=7
+                                                                      C=512] {derived verify=unproved (too large)} ->[n214,
+                                                                      n217]] =
+      relu x=t375 {derived verify=vacuous origins=0} <-n212
+    n214 {derived verify=unproved (too large)}: [t377 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n215]] =
+      convolution
+        x=t376 {derived verify=unproved (too large)} <-n213
+        weight=t333 {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var] verify=vacuous origins=0}
+        bias=t334 {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n215 {pt2=root[61] torch.ops.aten.relu.default verify=unproved (too large)}: [t378 f32 [H=7
+                                                                      W=7
+                                                                      C=512] {derived verify=unproved (too large)} ->[n216]] =
+      relu x=t377 {derived verify=unproved (too large)} <-n214
+    n216 {derived verify=unproved (too large)}: [t379 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n217]] =
+      convolution
+        x=t378 {derived verify=unproved (too large)} <-n215
+        weight=t335 {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var] verify=vacuous origins=0}
+        bias=t336 {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var] verify=vacuous origins=0}
+        params={stride={h=1; w=1};
+               padding={h=1; w=1};
+               dilation={h=1; w=1};
+               transposed=false;
+               output_padding={h=0; w=0};
+               groups=1}
+    n217 {pt2=root[64] torch.ops.aten.add.Tensor verify=vacuous}: [t380 f32 [H=7
+                                                                      W=7
+                                                                      C=512] {derived verify=vacuous origins=0} ->[n218]] =
+      add
+        a=t379 {derived verify=unproved (too large)} <-n216
+        b=t376 {derived verify=unproved (too large)} <-n213
+    n218 {pt2=root[65] torch.ops.aten.relu.default verify=vacuous}: [t381 f32 [H=7
+                                                                      W=7
+                                                                      C=512] {derived verify=vacuous origins=0} ->[n219]] =
+      relu x=t380 {derived verify=vacuous origins=0} <-n217
+    n219 {pt2=root[66] torch.ops.aten.mean.dim verify=unproved (over max_rounds) [sampled 4]}: [t382 f32 [C=512] {pt2=root:view verify=unproved (over max_rounds) [sampled 4]} ->[n173]] =
+      mean
+        x=t381 {derived verify=vacuous origins=0} <-n218
+        params={dims=[W, H]; keepdim=true}
+    group g42 torch.ops.aten.addmm.default:
+      n173 {pt2=root[69] torch.ops.aten.addmm.default verify=unproved (over max_nodes) [sampled 4]}: [t296 f32 [C=1000] {pt2=root:addmm verify=unproved (over max_nodes) [sampled 4]}] =
+        linear
+          x=t382 {pt2=root:view verify=unproved (over max_rounds) [sampled 4]} <-n219
+          weight=t295 {folded from=[p_fc_weight] verify=unproved (too large)}
+          bias=t61 {pt2=root:p_fc_bias target=fc.bias verify=proved (structural) [sampled 4]}
+          params={in_features=512}
+  outputs:
+    [t296 f32 [C=1000] {pt2=root:addmm verify=unproved (over max_nodes) [sampled 4]} <-n173]

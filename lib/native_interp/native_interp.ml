@@ -12,6 +12,7 @@ type error =
   | `Build of Graph_builder.error
   | `Provenance of Pt2_native_graph.error
   | `Transform of Pass.error
+  | `Verify of Map_verify.error
   | `Lens of Pt2_native_graph.lens_error ]
 
 type hooks =
@@ -30,6 +31,7 @@ let pp_error ppf : [< error ] -> unit = function
   | `Build e -> Graph_builder.pp_error ppf e
   | `Provenance e -> Pt2_native_graph.pp_error ppf e
   | `Transform e -> Pass.pp_error ppf e
+  | `Verify e -> Map_verify.pp_error ppf e
   | `Lens e -> Pt2_native_graph.pp_lens_error ppf e
 
 exception Lower_error of error
@@ -687,6 +689,7 @@ type transformed =
       lens : 'b Pt2_native_graph.lens;
       nodes_before : int;
       audits : Pass.Audit.t list;
+      composed : Map_verify.Report.t option;
     }
       -> transformed
 
@@ -734,7 +737,8 @@ let derivations lens sidecar (graph : Graph_ir.graph) =
             match names with [] -> acc | _ -> (id, names) :: acc))
     [] graph.Graph_ir.Graph.inputs
 
-let transform ?(preload = false) ?verify ?verify_budget archive ~passes =
+let transform ?(preload = false) ?verify ?verify_budget ?verify_probe archive
+    ~passes =
   let open Core.Syntax in
   let* lowered = lower_archive archive in
   let source = lowered.Pt2_native_graph.graph in
@@ -763,22 +767,55 @@ let transform ?(preload = false) ?verify ?verify_budget archive ~passes =
     Rewrite.origin ~constants:seeded source |> Core.map_error transform_error
   in
   let* { Pass.audits; step = Rewrite.Step (rewritten, rewrite_map) } =
-    Pass.run_reporting ?verify ?verify_budget origin passes
+    Pass.run_reporting ?verify ?verify_budget ?verify_probe origin passes
     |> Core.map_error (fun e -> `Transform e)
   in
   let* (Rewrite.Step (packed, pack_map)) =
     Rewrite.pack rewritten |> Core.map_error transform_error
   in
   let graph = Rewrite.graph packed in
+  let composed_map = Graph_map.compose rewrite_map pack_map in
   let* lens =
-    Pt2_native_graph.lens lowered ~src:origin
-      (Graph_map.compose rewrite_map pack_map)
-      ~dst:packed
+    Pt2_native_graph.lens lowered ~src:origin composed_map ~dst:packed
     |> Core.map_error (fun e -> `Lens e)
+  in
+  (* The per-pass audits say what each rewrite established; this says what
+     survived all of them, in the FINAL graph's ids — which is what lets a
+     printed node carry its own verdict. A cluster here also names every origin
+     edge that collapsed into one destination edge, so a node several passes
+     rewrote reads as the one claim they add up to rather than as a pile of
+     intermediate ones. *)
+  let* composed =
+    match verify with
+    | None -> Core.return None
+    | Some policy ->
+        let* report =
+          Map_verify.run ?budget:verify_budget ?probe:verify_probe composed_map
+            ~src:(Rewrite.graph origin)
+            ~src_constants:(Rewrite.constants origin) ~dst:graph
+            ~dst_constants:(Rewrite.constants packed)
+          |> Core.map_error (fun e -> `Verify e)
+        in
+        (* The policy applies here too. Composition and terminal packing are the
+           two steps no per-pass check covers — a refutation introduced by
+           [Graph_map.compose] or [Rewrite.pack] appears in this report and
+           nowhere else — so computing it and not judging it would print the
+           failure inline and still exit successfully. *)
+        if Map_verify.Policy.accepts policy report then
+          Core.return (Some report)
+        else
+          Core.fail
+            (`Transform
+               (`Verification
+                  {
+                    Pass.Verification.pass = "compose+pack";
+                    problem = Pass.Verification.Rejected report;
+                  }))
   in
   let+ derived = derivations lens lowered graph in
   Transformed
     {
+      composed;
       constants = Rewrite.constants packed;
       derived = List.rev derived;
       graph;

@@ -166,6 +166,12 @@ module Verdict : sig
      the first coordinate that failed rather than the last. *)
   val join : t -> t -> t
 
+  (* How weak a verdict is; higher wins a join. Exposed so a caller aggregating
+     OUTCOMES can pick the whole weaker one — verdict and coverage together —
+     rather than joining the two independently and pairing a verdict with
+     coverage from a different outcome. *)
+  val rank : t -> int
+
   (* Outcome and reason, with ids, coordinates and valuations dropped, so
      verdicts can be counted. The payloads belong in [Report.pp_verdicts]. *)
   val label : t -> string
@@ -174,6 +180,11 @@ end
 module Outcome : sig
   type t = { coverage : Coverage.t; verdict : Verdict.t }
 
+  (* The weaker outcome ENTIRE. Joining verdict and coverage independently pairs
+     a verdict with coverage from a different outcome — an [Unproved Too_large],
+     whose coverage is [Not_applicable] because nothing was examined, could come
+     out marked [sampled n] from a sibling edge. *)
+  val join : t -> t -> t
   val pp : Format.formatter -> t -> unit
 end
 
