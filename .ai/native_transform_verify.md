@@ -6,9 +6,9 @@ compute the same values, and its §14 lists **"the numerical/symbolic verifier
 itself"** as the one deliberate non-goal. This doc is that verifier:
 `lib/native/transform/ground_expr.ml`, `ground_eval.ml`, `map_verify.ml`.
 
-Status: **stage 2** — structural tier, constant payloads and the probe, per
-rewrite step. Cumulative verification, the pipeline hook, the coefficient tier
-and the CLI are staged after it.
+Status: **stage 3** — structural tier, constant payloads, the probe, and
+cumulative verification. The pipeline hook, the coefficient tier and the CLI are
+staged after it.
 
 ## 1. What it proves, and what it assumes
 
@@ -178,7 +178,13 @@ witness is reproducible and does not depend on the order cells were visited.
 
 ## 9. Constants narrow what a proof quantifies over
 
-Binding the model's constant payloads turns those cells into `Const` leaves. It
+Binding the model's constant payloads turns those cells into `Const` leaves, and
+`normalise` then folds the closed arithmetic over them — substitution alone is
+not enough, since a multi-node constant sub-DAG has to collapse to the single
+number the destination edge carries. Folding goes through `eval`, so it
+reproduces the engine's arithmetic including `Round`'s f32 step. Because every
+subtree is folded bottom-up, "closed" is exactly "came back a `Const`", and a
+closed `Select` guard picks its branch even when the branches stay open. This
 is what makes `fold_const` checkable at all — the destination edge *is* a
 payload the pass computed — but it weakens the statement from "for every
 payload" to "for every input, with these constants". So the driver keeps two
@@ -199,7 +205,45 @@ payload map to live destination ids, so one that a fold consumed and deleted
 survives only in the before-state. `Map_verify.step` reads
 `Rewrite.constants` from each side separately.
 
-## 10. Budgets
+## 10. Cumulative verification
+
+`Pass.run_all` already threads `Graph_map.compose`, and `Map_verify.step` takes
+the before-state and a step, so verifying a **composed** origin-to-final map
+needs no extra API — handing `run_all` more than one pass already does it. What
+the cumulative stage adds is the other half: applying passes one at a time and
+verifying each step against the state it started from, so a failure names the
+pass that caused it.
+
+The two answer different questions. The per-step chain is already a proof of the
+end-to-end claim *provided composition is sound*; the composed check is what
+tests that proviso, and it is what the PT2 provenance lens actually resolves
+through.
+
+**What composed verification catches, and what it cannot.** It catches a
+composition error that makes a composed value claim **false at the endpoints**.
+It does not validate `compose`'s algebraic contract in general: an
+over-conservative (too weak) label is legal and therefore unverifiable,
+provenance edges carry no value claim at all, and a cluster set that is wrong but
+endpoint-consistent still passes. Associativity, identity-extension and the
+created/deleted guard remain `graph_map_test.ml`'s job.
+
+**One law, pinned in `verify_test.ml`:** if every step verifies `Proved`, the
+composed verification must not be `Refuted`.
+
+Its converse is **not** a law. A composed `Unproved` with every step `Proved` is
+an acceptable outcome — the composed frontier spans the whole pipeline and can
+exhaust its budget where a single step does not — which is why
+`Budget.cumulative` exists and why the acceptance criterion is "composed never
+refuted", not "composed always proved". Nor is verification strength monotone
+under composition: two `Equivalent` steps whose roundings cancel can compose to a
+bit-identical pair that the composed check proves outright.
+
+The stress targets are `origin → passes → Rewrite.pack`, since packing is the
+`{t11} ↔ {}` then `{t12} ↔ {t11}` hazard §9 of `native_transform_design.md`
+warns about, and a `fixpoint` fold over a multi-node constant sub-DAG, where the
+composed map is a chain of per-iteration maps.
+
+## 11. Budgets
 
 Counted, never timed, so a verdict is deterministic and a golden is stable.
 `max_coords` is checked against `Vec6.numel` **before any expansion** — O(1), and
@@ -214,7 +258,7 @@ channels) rather than by the graph. The unbounded direction is repeated
 expansion, and that loop belongs to the driver — so the driver sizes the result
 between rounds instead of threading fuel through the recursion.
 
-## 11. Verdicts
+## 12. Verdicts
 
 ```
 Proved of Strength.proof        Structural (every payload) | Constants (every input)
@@ -231,7 +275,7 @@ verdict rather than one more verdict constructor, so that when sampling arrives
 — while `Report.refuted` ignores coverage, because a counterexample found at a
 sampled coordinate is still a counterexample.
 
-## 12. Coverage today
+## 13. Coverage today
 
 Proved structurally, over all payloads: `trim_permute`, `chain_permute`,
 `bypass_permute`, `sink_permute`, `sink_permute_mean`, `reuse_permute` (including
@@ -245,14 +289,10 @@ the coefficient tier (stage 5) and lands at `Tested (Agrees tol)`, not `Proved` 
 tolerance is never a proof, since coefficients `1` and `1+ε` pass a tolerance
 while being neither exactly equal nor boundedly close for unbounded free input.
 
-## 13. Non-goals
+## 14. Non-goals
 
 - An exact-rational tier (`Proved Exact_algebra`). No current pass needs it:
   `fold_batch_norm` re-derives its constants numerically, so exact coefficient
   equality fails regardless.
 - An `Approximate` error model. Nothing emits `Approximate` yet.
-- Validating `compose`'s algebraic contract. Cumulative verification (stage 3)
-  catches composition errors that make a composed claim **false at the
-  endpoints**; it cannot see an over-conservative label, provenance carries no
-  value claim, and a cluster set that is wrong but endpoint-consistent still
-  passes. `graph_map_test.ml` keeps that job.
+- Validating `compose`'s algebraic contract — see §10 for the boundary.

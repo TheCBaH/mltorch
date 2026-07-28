@@ -219,19 +219,36 @@ and pp_guard fmt = function
 
 type normalised = { blocked : Cell.Set.t; expr : t }
 
-(* Collapses the three [Round] rules, threading the set of cells whose [Round]
-   the first rule's side condition refused. *)
+(* Collapses the three [Round] rules AND folds closed arithmetic, threading the
+   set of cells whose [Round] the first rule's side condition refused.
+
+   Folding is what a bound constant is for: substituting payloads turns a
+   constant sub-DAG's leaves into [Const], but only folding turns the arithmetic
+   over them into the single number the destination edge carries. Because every
+   subtree is folded bottom-up, "this subtree is closed" is exactly "it came
+   back a [Const]", so no separate closedness analysis is needed.
+
+   Folding evaluates through [eval], so it reproduces the engine's arithmetic
+   including [Round]'s f32 step rather than an idealised real-arithmetic
+   value. *)
 let normalise ~stored_f32 e =
+  let closed = function Const v -> Some v | _ -> None in
+  let fold2 build op a b =
+    match (closed a, closed b) with
+    | Some x, Some y -> Const (op x y)
+    | _ -> build a b
+  in
   let rec go blocked = function
     | Binary (op, a, b) ->
         let blocked, a = go blocked a in
         let blocked, b = go blocked b in
-        (blocked, Binary (op, a, b))
+        ( blocked,
+          fold2 (fun a b -> Binary (op, a, b)) (Expr.apply_binary_op op) a b )
     | (Cell _ | Const _) as leaf -> (blocked, leaf)
     | Max (op, a, b) ->
         let blocked, a = go blocked a in
         let blocked, b = go blocked b in
-        (blocked, Max (op, a, b))
+        (blocked, fold2 (fun a b -> Max (op, a, b)) (Max_op.apply op) a b)
     | Round x -> (
         let blocked, inner = go blocked x in
         match inner with
@@ -241,14 +258,23 @@ let normalise ~stored_f32 e =
         | Const v -> (blocked, Const (to_f32 v))
         | Round _ -> (blocked, inner)
         | _ -> (blocked, Round inner))
-    | Select (g, a, b) ->
+    | Select (g, a, b) -> (
         let blocked, g = go_guard blocked g in
         let blocked, a = go blocked a in
         let blocked, b = go blocked b in
-        (blocked, Select (g, a, b))
-    | Unary (op, x) ->
+        (* A closed guard decides the branch outright, even when the branches
+           themselves are open — which is what collapses a max-pool index chain
+           over known data. *)
+        match guard_value g with
+        | Some true -> (blocked, a)
+        | Some false -> (blocked, b)
+        | None -> (blocked, Select (g, a, b)))
+    | Unary (op, x) -> (
         let blocked, x = go blocked x in
-        (blocked, Unary (op, x))
+        ( blocked,
+          match closed x with
+          | Some v -> Const (Expr.apply_unary_op op v)
+          | None -> Unary (op, x) ))
   and go_guard blocked = function
     | Lt (a, b) ->
         let blocked, a = go blocked a in
@@ -258,6 +284,15 @@ let normalise ~stored_f32 e =
         let blocked, best = go blocked best in
         let blocked, value = go blocked value in
         (blocked, Pool_better { best; value })
+  and guard_value = function
+    | Lt (a, b) -> (
+        match (closed a, closed b) with
+        | Some x, Some y -> Some (Expr.apply_compare_op Expr.Lt x y)
+        | _ -> None)
+    | Pool_better { best; value } -> (
+        match (closed best, closed value) with
+        | Some best, Some value -> Some (Max_op.pool_better ~best ~value)
+        | _ -> None)
   in
   let blocked, expr = go Cell.Set.empty e in
   { blocked; expr }
