@@ -1449,8 +1449,20 @@ Beyond per-feature cases, three families are load-bearing:
 
 ## 14. Non-goals
 
-- The numerical/symbolic verifier itself. This doc defines the mapping it will
-  consume and nothing more.
+- ~~The numerical/symbolic verifier itself.~~ **Landed** — see
+  `.ai/native_transform_verify.md`. This doc still defines only the mapping it
+  consumes. The verifier confirmed the mapping was shaped for it: `clusters_over`
+  is exactly the obligation list, the id-identity rule (§4) is what makes
+  implicit identity checkable, and §3's decision to keep clusters as *sets*
+  turned out to matter — a checker comparing one representative per side would
+  say nothing about a trimmed edge, which is the whole content of a
+  `{t0,t1} ↔ {t0}` claim.
+
+  Two things the mapping does not carry, found while building it: a cluster does
+  not require its members to share a shape (so the verifier checks that itself,
+  and a mismatch is its one stage-1 refutation), and an over-conservative label
+  is legal and therefore unverifiable, which bounds what composed verification
+  can ever catch.
 - Re-nesting or interval-preserving groups (§7 limitation).
 - An op-specific `Approximate` error-transfer policy (§8 limitation).
 - Precision and quantization passes. Nothing here emits `Approximate`; the label
