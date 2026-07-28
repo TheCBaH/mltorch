@@ -66,7 +66,14 @@ module Strength : sig
            [Structural], which is why it is only attempted when that fails. *)
     | Structural (* structural over free cells: holds for every payload *)
 
-  type test = Disagrees of Ground_expr.Valuation.t
+  type test =
+    | Agrees of float
+      (* the two sides have the same polynomial in their free cells, with
+           coefficients within this tolerance: evidence that they differ only by
+           rounding, and never a proof — coefficients [1] and [1 + eps] pass a
+           tolerance while being neither exactly equal nor boundedly close for
+           an unbounded free cell *)
+    | Disagrees of Ground_expr.Valuation.t
   (* a probe found an assignment the two sides evaluate differently, but
            the claim is not [Identical], so rounding alone could explain it and
            this is evidence rather than a refutation *)
@@ -185,8 +192,18 @@ val pp_error : Format.formatter -> [< error ] -> unit
    Constants are PER-GRAPH: [Rewrite.apply] filters payloads to live
    destination ids, so one a fold consumed and deleted exists only on the
    source side. *)
+(* The tolerance [Coeff_form] runs at when no caller supplies one. 1e-5, the
+   same number fold_batch_norm_test.ml's output-level check uses — shared for
+   familiarity, NOT because the two are the same bar. Per-coefficient and
+   whole-tensor agreement are incomparable in general, which is why the verifier
+   is adopted alongside that check rather than in place of it. The tolerance
+   actually used is recorded in [Tested (Agrees _)], so a golden always shows
+   which bar produced the verdict. *)
+val default_coefficient_tolerance : float
+
 val run :
   ?budget:Budget.t ->
+  ?coefficient_tolerance:float ->
   ?probe:int ->
   ?src_constants:Tensor.packed Tensor_id.Map.t ->
   ?dst_constants:Tensor.packed Tensor_id.Map.t ->
@@ -200,6 +217,7 @@ val run :
    verification free at the API level. *)
 val step :
   ?budget:Budget.t ->
+  ?coefficient_tolerance:float ->
   ?probe:int ->
   'v Rewrite.t ->
   'v Rewrite.step ->

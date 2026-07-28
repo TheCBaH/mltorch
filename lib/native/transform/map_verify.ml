@@ -42,7 +42,7 @@ end
 
 module Strength = struct
   type proof = Constants | Structural
-  type test = Disagrees of Ground_expr.Valuation.t
+  type test = Agrees of float | Disagrees of Ground_expr.Valuation.t
 
   (* Structural equality of the ground terms — [Round]s included, constants
      compared bitwise — means the two edges compute the same bits, which
@@ -59,6 +59,7 @@ module Strength = struct
     | Structural -> Fmt.string fmt "structural"
 
   let pp_test fmt = function
+    | Agrees tol -> Fmt.pf fmt "agrees (%g)" tol
     | Disagrees v ->
         Fmt.pf fmt "@[<h>disagrees at %a@]" Ground_expr.Valuation.pp v
 end
@@ -255,8 +256,8 @@ let side_of sides member =
    or no rounds left. Structural equality is tried BEFORE normalising and again
    after: two identical terms carrying the same uncollapsible [Round (Cell _)]
    are equal and must be proved, not rejected for the blocked collapse. *)
-let rec settle ~budget ~probe ~label ~proof ~rounds ~lhs ~rhs ~lhs_env ~rhs_env
-    ~coord ~members =
+let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
+    ~lhs_env ~rhs_env ~coord ~members =
   let lhs_member, rhs_member = members in
   if Ground_expr.equal lhs rhs then Verdict.Proved proof
   else
@@ -279,8 +280,8 @@ let rec settle ~budget ~probe ~label ~proof ~rounds ~lhs ~rhs ~lhs_env ~rhs_env
         if size > budget.Budget.max_nodes then
           Verdict.Unproved (Unproved.Max_nodes size)
         else
-          settle ~budget ~probe ~label ~proof ~rounds:(rounds + 1) ~lhs ~rhs
-            ~lhs_env ~rhs_env ~coord ~members
+          settle ~budget ~probe ~tolerance ~label ~proof ~rounds:(rounds + 1)
+            ~lhs ~rhs ~lhs_env ~rhs_env ~coord ~members
       else
         (* Frontier is at the graph inputs and the terms still differ. That is
            the prover failing, not a counterexample: no assignment has been
@@ -296,21 +297,43 @@ let rec settle ~budget ~probe ~label ~proof ~rounds ~lhs ~rhs ~lhs_env ~rhs_env
         | None, Some blocked ->
             Verdict.Unproved
               (Unproved.Unsupported_format { blocked; member = rhs_member })
-        | None, None -> (
+        | None, None ->
             (* The frontier is at the graph inputs, so every remaining cell is
                genuinely free and a disagreeing assignment is realisable. This
                is the only place a value counterexample may be built. *)
-            match counterexample ~probe ~lhs ~rhs with
-            | None ->
-                Verdict.Unproved
-                  (Unproved.Exhausted
-                     { coord; lhs = lhs_member; rhs = rhs_member })
-            | Some valuation ->
-                if label = Correspondence.Identical then
-                  Verdict.Refuted
-                    (Refutation.Value
-                       { coord; lhs = lhs_member; rhs = rhs_member; valuation })
-                else Verdict.Tested (Strength.Disagrees valuation))
+            let witness () =
+              match counterexample ~probe ~lhs ~rhs with
+              | None ->
+                  Verdict.Unproved
+                    (Unproved.Exhausted
+                       { coord; lhs = lhs_member; rhs = rhs_member })
+              | Some valuation ->
+                  if label = Correspondence.Identical then
+                    Verdict.Refuted
+                      (Refutation.Value
+                         {
+                           coord;
+                           lhs = lhs_member;
+                           rhs = rhs_member;
+                           valuation;
+                         })
+                  else Verdict.Tested (Strength.Disagrees valuation)
+            in
+            (* The NORMALISED terms, not the raw ones: folding is what turns
+               [sqrt (Const _)] — batch norm's normaliser — into a coefficient
+               rather than an opaque generator the polynomial view cannot see
+               through. *)
+            if Coeff_form.agree ~tolerance ln.expr rn.expr then
+              (* Coefficient agreement is never a proof, and for [Identical] it
+                 is not even the right question — that claim is about bits, so a
+                 probe still gets to refute it. *)
+              if label = Correspondence.Identical then
+                match witness () with
+                | Verdict.Unproved _ ->
+                    Verdict.Tested (Strength.Agrees tolerance)
+                | refuted -> refuted
+              else Verdict.Tested (Strength.Agrees tolerance)
+            else witness ()
 
 (* Try [probe] draws over the union of both terms' free cells, bitwise because
    [Identical] is about bits. Returns the first assignment that separates them. *)
@@ -329,7 +352,7 @@ and counterexample ~probe ~lhs ~rhs =
 
 (* A grounding failure is a verdict ABOUT this cluster, not an error for the
    caller, so it is converted here rather than short-circuiting [run]. *)
-let compare_at ~budget ~probe ~label sides ~canonical ~other coord =
+let compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other coord =
   let lhs_side = side_of sides canonical and rhs_side = side_of sides other in
   let attempt proof lhs_env rhs_env =
     match
@@ -347,8 +370,8 @@ let compare_at ~budget ~probe ~label sides ~canonical ~other coord =
         match out_of_bounds with
         | Some c -> Verdict.Unproved (Unproved.Out_of_bounds c)
         | None ->
-            settle ~budget ~probe ~label ~proof ~rounds:0 ~lhs ~rhs ~lhs_env
-              ~rhs_env ~coord ~members:(canonical, other))
+            settle ~budget ~probe ~tolerance ~label ~proof ~rounds:0 ~lhs ~rhs
+              ~lhs_env ~rhs_env ~coord ~members:(canonical, other))
   in
   (* Unqualified first, purely to STRENGTHEN: a proof with the constants left
      free is a statement about every payload, and binding them would silently
@@ -370,7 +393,8 @@ let compare_at ~budget ~probe ~label sides ~canonical ~other coord =
    t1, which is the trimmed edge the map's claim is actually about. Stops at the
    first non-[Proved] verdict, so the report names the coordinate that failed
    rather than the last one examined. *)
-let check_members ~budget ~probe ~label sides ~canonical ~others ~shape =
+let check_members ~budget ~probe ~tolerance ~label sides ~canonical ~others
+    ~shape =
   let numel = (Vec6.numel shape :> int) in
   if numel > budget.Budget.max_coords then
     (Verdict.Unproved (Unproved.Too_large numel), Coverage.Not_applicable)
@@ -379,7 +403,8 @@ let check_members ~budget ~probe ~label sides ~canonical ~others ~shape =
       Vec6.fold_coords shape ~init:verdict ~f:(fun v coord ->
           match v with
           | Verdict.Proved _ ->
-              compare_at ~budget ~probe ~label sides ~canonical ~other coord
+              compare_at ~budget ~probe ~tolerance ~label sides ~canonical
+                ~other coord
           | settled -> settled)
     in
     let verdict =
@@ -392,7 +417,8 @@ let check_members ~budget ~probe ~label sides ~canonical ~others ~shape =
     in
     (verdict, Coverage.Exhaustive)
 
-let check_cluster ~budget ~probe sides (c : Correspondence.Cluster.t) =
+let check_cluster ~budget ~probe ~tolerance sides (c : Correspondence.Cluster.t)
+    =
   let members =
     List.map (fun id -> Member.Src id) (Tensor_id.Set.elements c.src)
     @ List.map (fun id -> Member.Dst id) (Tensor_id.Set.elements c.dst)
@@ -436,14 +462,17 @@ let check_cluster ~budget ~probe sides (c : Correspondence.Cluster.t) =
               Coverage.Not_applicable
         | None ->
             let verdict, coverage =
-              check_members ~budget ~probe ~label:c.label sides ~canonical
-                ~others ~shape
+              check_members ~budget ~probe ~tolerance ~label:c.label sides
+                ~canonical ~others ~shape
             in
             outcome verdict coverage)
 
 (* ---- entry points --------------------------------------------------------- *)
 
-let run ?(budget = Budget.default) ?(probe = 4)
+let default_coefficient_tolerance = 1e-5
+
+let run ?(budget = Budget.default)
+    ?(coefficient_tolerance = default_coefficient_tolerance) ?(probe = 4)
     ?(src_constants = Tensor_id.Map.empty)
     ?(dst_constants = Tensor_id.Map.empty) map ~src ~dst =
   let open Core.Syntax in
@@ -461,10 +490,15 @@ let run ?(budget = Budget.default) ?(probe = 4)
   let sides =
     (side src src_map src_constants, side dst dst_map dst_constants)
   in
-  let* outcomes = Core.List.map (check_cluster ~budget ~probe sides) clusters in
+  let* outcomes =
+    Core.List.map
+      (check_cluster ~budget ~probe ~tolerance:coefficient_tolerance sides)
+      clusters
+  in
   Core.return { Report.clusters = List.combine clusters outcomes }
 
-let step ?budget ?probe before (Rewrite.Step (after, map)) =
-  run ?budget ?probe map ~src:(Rewrite.graph before)
+let step ?budget ?coefficient_tolerance ?probe before
+    (Rewrite.Step (after, map)) =
+  run ?budget ?coefficient_tolerance ?probe map ~src:(Rewrite.graph before)
     ~src_constants:(Rewrite.constants before) ~dst:(Rewrite.graph after)
     ~dst_constants:(Rewrite.constants after)

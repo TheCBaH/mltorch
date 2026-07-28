@@ -6,8 +6,8 @@ compute the same values, and its §14 lists **"the numerical/symbolic verifier
 itself"** as the one deliberate non-goal. This doc is that verifier:
 `lib/native/transform/ground_expr.ml`, `ground_eval.ml`, `map_verify.ml`.
 
-Status: **stage 4** — structural tier, constant payloads, the probe, cumulative
-verification, and the pipeline hook. The coefficient tier and the CLI are staged
+Status: **stage 5** — structural tier, constant payloads, the probe, cumulative
+verification, the pipeline hook, and the coefficient tier. The CLI is staged
 after it.
 
 ## 1. What it proves, and what it assumes
@@ -265,7 +265,48 @@ the development bar does not. Shipping only `Reject_refuted` would let an
 unjustified rewrite land; shipping only `Require_proved` would fail a release
 build on every budget exhaustion.
 
-## 12. Budgets
+## 12. The coefficient tier
+
+Batch-norm folding re-associates: `(Σ xₖ·Wₖ)·s` becomes `Σ xₖ·(Wₖ·s)`. No
+structural comparison reaches that. `Coeff_form` compares the two as
+polynomials in their free cells — which is exactly what distribution and
+re-association look like — with `Round` erased, since that is the `Equivalent`
+reading.
+
+**It never yields a proof.** Coefficients `1` and `1 + ε` pass a tolerance while
+being neither exactly equal nor boundedly close for an unbounded free cell. So
+agreement is `Tested (Agrees tol)`, and for an `Identical` claim a probe still
+gets to refute — bits are the question there, and coefficients do not answer it.
+
+Two details that are not incidental:
+
+- The tier runs on the **normalised** terms, not the raw ones. Folding is what
+  turns `sqrt (Const _)` — batch norm's normaliser — into a coefficient rather
+  than an opaque generator the polynomial view cannot see through. Running it on
+  raw terms reports disagreement on a correct fold.
+- `agree` recurses through **matching non-arithmetic heads** rather than
+  reducing the whole term to one polynomial. Without that, a relu wrapping the
+  fold — `select(E < 0, 0, E)` on both sides with `E` differing only by rounding
+  — compares two unequal opaque generators and disagrees. The gap this leaves:
+  an arithmetic *combination* of structurally-different non-polynomial subterms
+  still compares those exactly. Closing it needs matching atoms up to the same
+  relation, a matching problem no current pass poses.
+
+The tolerance is `|a − b| ≤ tol · max(1, |a|, |b|)` per coefficient, defaulting
+to `default_coefficient_tolerance = 1e-5`. That is the same number
+`fold_batch_norm_test.ml`'s output-level check uses, shared for familiarity and
+**not** because the two are the same bar: per-coefficient and whole-tensor
+agreement are incomparable in general, since many small coefficient errors can
+sum while one large error on a near-zero activation may never surface. That is
+precisely why the verifier was added alongside that check rather than replacing
+it, and why both verdicts print on the same line there.
+
+No exact-rational tier is planned. It would close nothing: `fold_batch_norm`
+re-derives its constants numerically, and `eps` arrives as a constant *edge*
+with a payload against a source-side `Const`, so exact equality fails whatever
+the arithmetic.
+
+## 13. Budgets
 
 Counted, never timed, so a verdict is deterministic and a golden is stable.
 `max_coords` is checked against `Vec6.numel` **before any expansion** — O(1), and
@@ -280,7 +321,7 @@ channels) rather than by the graph. The unbounded direction is repeated
 expansion, and that loop belongs to the driver — so the driver sizes the result
 between rounds instead of threading fuel through the recursion.
 
-## 13. Verdicts
+## 14. Verdicts
 
 ```
 Proved of Strength.proof        Structural (every payload) | Constants (every input)
@@ -297,7 +338,7 @@ verdict rather than one more verdict constructor, so that when sampling arrives
 — while `Report.refuted` ignores coverage, because a counterexample found at a
 sampled coordinate is still a counterexample.
 
-## 14. Coverage today
+## 15. Coverage today
 
 Proved structurally, over all payloads: `trim_permute`, `chain_permute`,
 `bypass_permute`, `sink_permute`, `sink_permute_mean`, `reuse_permute` (including
@@ -306,15 +347,12 @@ the non-commutative `Sub`/`Div` orderings), `reshape_to_permute`.
 Proved with the model's constants substituted, for every input:
 `fold_const`.
 
-Pending: `fold_batch_norm` needs
-the coefficient tier (stage 5) and lands at `Tested (Agrees tol)`, not `Proved` —
-tolerance is never a proof, since coefficients `1` and `1+ε` pass a tolerance
-while being neither exactly equal nor boundedly close for unbounded free input.
+Agreeing within tolerance, for every input, with these constants:
+`fold_batch_norm` — all eight operand combinations, through both `Conv2d` and
+`Convolution`. Not `Proved`, and deliberately so (§12).
 
-## 15. Non-goals
+## 16. Non-goals
 
-- An exact-rational tier (`Proved Exact_algebra`). No current pass needs it:
-  `fold_batch_norm` re-derives its constants numerically, so exact coefficient
-  equality fails regardless.
+- An exact-rational tier — see §12 for why it would close nothing.
 - An `Approximate` error model. Nothing emits `Approximate` yet.
 - Validating `compose`'s algebraic contract — see §10 for the boundary.

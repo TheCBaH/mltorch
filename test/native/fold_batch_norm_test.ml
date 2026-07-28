@@ -325,6 +325,59 @@ let combinations =
     (true, true, true);
   ]
 
+(* The symbolic verdict, alongside [agrees]. The two are NOT the same check and
+   neither subsumes the other: [agrees] compares whole output tensors for ONE
+   input, while the verifier compares per-coefficient polynomials over a
+   SYMBOLIC input — so it holds for every input, but per-coefficient and
+   whole-tensor tolerances are incomparable in general (many small coefficient
+   errors can sum; one large error on a near-zero activation may never surface).
+   Hence both. See .ai/native_transform_verify.md. *)
+let verified g ~constants =
+  match Rewrite.origin ~constants g with
+  | Error _ -> "origin failed"
+  | Ok (Rewrite.Origin state) -> (
+      match
+        Pass.run_all state
+          [ Fold_batch_norm.pass; Pass.fixpoint Fold_const.pass ]
+      with
+      | Error _ -> "pass failed"
+      | Ok step -> (
+          match
+            Map_verify.step ~budget:Map_verify.Budget.cumulative state step
+          with
+          | Error _ -> "verifier failed"
+          | Ok report ->
+              (* [Report.summary] lumps [Agrees] and [Disagrees] together as
+                 "tested", and here that is the whole question — the fold is
+                 claimed [Equivalent], so a disagreement would not be a
+                 refutation and would slip past a refuted-count check. *)
+              let count p =
+                List.length
+                  (List.filter
+                     (fun (_, (o : Map_verify.Outcome.t)) -> p o.verdict)
+                     report.Map_verify.Report.clusters)
+              in
+              Printf.sprintf
+                "proved=%d agree=%d disagree=%d unproved=%d refuted=%d"
+                (count (function
+                  | Map_verify.Verdict.Proved _ -> true
+                  | _ -> false))
+                (count (function
+                  | Map_verify.Verdict.Tested (Map_verify.Strength.Agrees _) ->
+                      true
+                  | _ -> false))
+                (count (function
+                  | Map_verify.Verdict.Tested (Map_verify.Strength.Disagrees _)
+                    ->
+                      true
+                  | _ -> false))
+                (count (function
+                  | Map_verify.Verdict.Unproved _ -> true
+                  | _ -> false))
+                (count (function
+                  | Map_verify.Verdict.Refuted _ -> true
+                  | _ -> false))))
+
 let check_combinations flavour =
   let x = hw_ramp x_shape in
   List.iter
@@ -337,8 +390,9 @@ let check_combinations flavour =
         (fun g' constants' ->
           let after = output g' ~constants:constants' ~inputs:[ x ] in
           Format.printf
-            "conv_bias=%-5b bn_weight=%-5b bn_bias=%-5b  agrees=%b@." conv_bias
-            bn_weight bn_bias (agrees before after)))
+            "conv_bias=%-5b bn_weight=%-5b bn_bias=%-5b agrees=%b %s@."
+            conv_bias bn_weight bn_bias (agrees before after)
+            (verified g ~constants)))
     combinations
 
 let%expect_test "fold_batch_norm: every operand combination agrees numerically"
@@ -346,14 +400,14 @@ let%expect_test "fold_batch_norm: every operand combination agrees numerically"
   check_combinations As_conv2d;
   [%expect
     {|
-    conv_bias=false bn_weight=false bn_bias=false  agrees=true
-    conv_bias=false bn_weight=false bn_bias=true   agrees=true
-    conv_bias=false bn_weight=true  bn_bias=false  agrees=true
-    conv_bias=false bn_weight=true  bn_bias=true   agrees=true
-    conv_bias=true  bn_weight=false bn_bias=false  agrees=true
-    conv_bias=true  bn_weight=false bn_bias=true   agrees=true
-    conv_bias=true  bn_weight=true  bn_bias=false  agrees=true
-    conv_bias=true  bn_weight=true  bn_bias=true   agrees=true |}]
+    conv_bias=false bn_weight=false bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=false bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=true  bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=true  bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=false bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=false bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=true  bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=true  bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0 |}]
 
 let%expect_test "fold_batch_norm: the same, through aten.convolution" =
   (* Same rewrite, same eight combinations, the op the importer emits. A forward
@@ -362,14 +416,14 @@ let%expect_test "fold_batch_norm: the same, through aten.convolution" =
   check_combinations As_convolution;
   [%expect
     {|
-    conv_bias=false bn_weight=false bn_bias=false  agrees=true
-    conv_bias=false bn_weight=false bn_bias=true   agrees=true
-    conv_bias=false bn_weight=true  bn_bias=false  agrees=true
-    conv_bias=false bn_weight=true  bn_bias=true   agrees=true
-    conv_bias=true  bn_weight=false bn_bias=false  agrees=true
-    conv_bias=true  bn_weight=false bn_bias=true   agrees=true
-    conv_bias=true  bn_weight=true  bn_bias=false  agrees=true
-    conv_bias=true  bn_weight=true  bn_bias=true   agrees=true |}]
+    conv_bias=false bn_weight=false bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=false bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=true  bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=true  bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=false bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=false bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=true  bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=true  bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0 |}]
 
 (* ---- what it refuses ------------------------------------------------------ *)
 
