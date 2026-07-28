@@ -344,7 +344,43 @@ Timings, resnet18 and mobilenet_v3_small, `transform --fold`:
 | resnet18 | 4.7s | 6.4s |
 | mobilenet_v3_small | 1.5s | 2.5s |
 
-## 14. Verdicts
+## 14. Reporting: groups, effort, and why a count needs a reason
+
+A flat count over a real model's ~1600 clusters says nothing about which part
+was covered, so a `Report` carries an `Entry` per cluster with the
+**`Group_path`** it belongs to — the destination graph's structural hierarchy,
+which for an imported model is the PT2 call sites the importer recorded
+(`torch.ops.aten.convolution.default`, and so on). A cluster is placed by its
+destination edges, since that is the graph the transformation produced; an edge
+with no producer is a graph input and lands at the root.
+
+`Tally` counts by **outcome and reason together**. "40 unproved" is not
+actionable; "40 unproved (too large)" says the coordinate budget refused them
+before any expansion, which is a very different statement from "40 unproved
+(frontier exhausted)". A sampled verdict gets its own label rather than being
+folded in with the exhaustive ones — counting a sampled proof as "proved" is
+precisely the overstatement `Coverage` exists to prevent.
+
+`Effort` (`Quick | Standard | Thorough`) is a named point on the cost/coverage
+curve, so a caller picks how hard to look without knowing what a coord or a
+round is. It drives the probe count as well as the budget, since a deeper
+frontier is worth more draws.
+
+Audits reach the caller by being **carried through the pass tree** —
+`Pass.run_reporting` returns them alongside the step — rather than pushed to a
+callback, so observing a run needs no mutable state. `run_all` drops them for
+the callers that do not want them. A pass whose sweep matched nothing produces
+an identity step, which has an empty map and so nothing to verify; skipping
+those is also what keeps a no-op sweep from dominating the cost on a real graph.
+
+`test/native_transform_verify_cram.t` and its `--fold` companion pin all of this
+on ResNet-18. The contrast between them is the point of having both: without
+folding everything provable is `proved (structural)`, and with it the
+constant-shaped clusters become `proved (for these constants)` — a weaker claim,
+labelled apart, that holds for every input but only for the weights this model
+carries.
+
+## 15. Verdicts
 
 ```
 Proved of Strength.proof        Structural (every payload) | Constants (every input)
@@ -367,7 +403,7 @@ because a sampled verdict has to be reproducible from a golden, and strided
 rather than random because the errors being looked for are index-shaped, so
 spreading over the space beats clustering.
 
-## 15. Coverage today
+## 16. Coverage today
 
 On the fixtures, exhaustively:
 
@@ -382,7 +418,7 @@ Agreeing within tolerance, for every input, with these constants:
 `fold_batch_norm` — all eight operand combinations, through both `Conv2d` and
 `Convolution`. Not `Proved`, and deliberately so (§12).
 
-## 16. Non-goals
+## 17. Non-goals
 
 - An exact-rational tier — see §12 for why it would close nothing.
 - An `Approximate` error model. Nothing emits `Approximate` yet.

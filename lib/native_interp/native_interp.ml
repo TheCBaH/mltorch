@@ -686,6 +686,7 @@ type transformed =
       graph : Graph_ir.graph;
       lens : 'b Pt2_native_graph.lens;
       nodes_before : int;
+      audits : Pass.Audit.t list;
     }
       -> transformed
 
@@ -761,8 +762,8 @@ let transform ?(preload = false) ?verify ?verify_budget archive ~passes =
   let* (Rewrite.Origin origin) =
     Rewrite.origin ~constants:seeded source |> Core.map_error transform_error
   in
-  let* (Rewrite.Step (rewritten, rewrite_map)) =
-    Pass.run_all ?verify ?verify_budget origin passes
+  let* { Pass.audits; step = Rewrite.Step (rewritten, rewrite_map) } =
+    Pass.run_reporting ?verify ?verify_budget origin passes
     |> Core.map_error (fun e -> `Transform e)
   in
   let* (Rewrite.Step (packed, pack_map)) =
@@ -783,6 +784,7 @@ let transform ?(preload = false) ?verify ?verify_budget archive ~passes =
       graph;
       lens;
       nodes_before = List.length source.Graph_ir.Graph.nodes;
+      audits;
     }
 
 (* Payloads for the constants the graph actually reads, state before archive.

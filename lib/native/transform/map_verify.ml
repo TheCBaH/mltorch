@@ -62,6 +62,47 @@ module Budget = struct
       t.sample
 end
 
+(* A named point on the cost/coverage curve, so a caller picks how hard to look
+   without knowing what a coord or a round is. Effort drives the probe count as
+   well as the budget: a deeper frontier is worth more draws. *)
+module Effort = struct
+  type t = Quick | Standard | Thorough
+
+  let all = [ Quick; Standard; Thorough ]
+
+  let to_string = function
+    | Quick -> "quick"
+    | Standard -> "standard"
+    | Thorough -> "thorough"
+
+  let of_string s =
+    match String.lowercase_ascii s with
+    | "quick" -> Ok Quick
+    | "standard" -> Ok Standard
+    | "thorough" -> Ok Thorough
+    | other -> Error (`Unknown_effort other)
+
+  let budget = function
+    | Quick ->
+        {
+          Budget.max_coords = 4096;
+          max_nodes = 20_000;
+          max_rounds = 1;
+          sample = Some 4;
+        }
+    | Standard -> Budget.release
+    | Thorough ->
+        {
+          Budget.max_coords = 65_536;
+          max_nodes = 200_000;
+          max_rounds = 6;
+          sample = Some 32;
+        }
+
+  let probe = function Quick -> 2 | Standard -> 4 | Thorough -> 8
+  let pp fmt t = Fmt.string fmt (to_string t)
+end
+
 module Coverage = struct
   type t = Exhaustive | Not_applicable | Sampled of int
 
@@ -146,6 +187,17 @@ module Unproved = struct
     | Unsupported_relation r ->
         Fmt.pf fmt "@[<h>unsupported relation: %a@]" Correspondence.pp_relation
           r
+
+  (* Why, with the payload dropped, so verdicts can be counted by reason. *)
+  let reason = function
+    | Eval _ -> "grounding failed"
+    | Exhausted _ -> "frontier exhausted"
+    | Max_nodes _ -> "over max_nodes"
+    | Max_rounds -> "over max_rounds"
+    | Out_of_bounds _ -> "out of bounds"
+    | Too_large _ -> "too large"
+    | Unsupported_format _ -> "format blocks collapse"
+    | Unsupported_relation _ -> "unsupported relation"
 end
 
 module Verdict = struct
@@ -163,12 +215,24 @@ module Verdict = struct
     | Unproved u -> Fmt.pf fmt "unproved: %a" Unproved.pp u
     | Vacuous -> Fmt.string fmt "vacuous"
 
+  (* A payload-free label: the outcome and its reason, with ids, coordinates and
+     valuations dropped so verdicts can be counted. Those belong in
+     [pp_verdicts], which shows the individual cluster. *)
+  let label = function
+    | Proved Strength.Constants -> "proved (for these constants)"
+    | Proved Strength.Structural -> "proved (structural)"
+    | Refuted (Refutation.Shape _) -> "refuted (shape)"
+    | Refuted (Refutation.Value _) -> "refuted (counterexample)"
+    | Tested (Strength.Agrees _) -> "tested (coefficients agree)"
+    | Tested (Strength.Disagrees _) -> "tested (disagrees)"
+    | Unproved u -> "unproved (" ^ Unproved.reason u ^ ")"
+    | Vacuous -> "vacuous"
+
   (* The WEAKER of two verdicts about the same cluster, since a cluster is only
-     as verified as its least-verified coordinate — so a coordinate that needed
-     bound constants is not overwritten by a later one that proved structurally.
-     [Refuted] dominates: one counterexample settles the cluster however many
-     other coordinates agreed. Ties keep the earlier verdict, so a report names
-     the first coordinate that failed rather than the last. *)
+     as verified as its least-verified coordinate. [Refuted] dominates
+     everything: one counterexample settles the cluster however many other
+     coordinates agreed. Ties keep the earlier verdict, so a report names the
+     first coordinate that failed rather than the last. *)
   let join a b =
     let rank = function
       | Refuted _ -> 5
@@ -187,17 +251,17 @@ module Verdict = struct
     if rank b > rank a then b else a
 end
 
-(* Whether anything further could change a cluster's answer. A counterexample is
-   final; so is running out of budget, because no later coordinate can be probed
-   either and re-deriving the same budget verdict at every remaining coordinate
-   is pure cost. Every other verdict keeps looking — a later coordinate may hold
-   the counterexample this one could not find. *)
-let settled = function
-  | Verdict.Refuted _ -> true
-  | Verdict.Unproved
-      (Unproved.Max_nodes _ | Unproved.Max_rounds | Unproved.Too_large _) ->
-      true
-  | _ -> false
+(* Whether anything further could change a cluster's answer. Only a
+   counterexample can settle it, and only because it is already the weakest
+   verdict there is.
+
+   A budget verdict deliberately does NOT stop the traversal, though it is
+   tempting: [max_nodes] and [max_rounds] are spent per COMPARISON and reset for
+   the next one, so a deep member or coordinate exhausting its budget says
+   nothing about a shallower one that might still produce a witness. (The one
+   genuinely cluster-global budget, [Too_large], is decided before the traversal
+   starts and never reaches here.) *)
+let settled = function Verdict.Refuted _ -> true | _ -> false
 
 module Outcome = struct
   type t = { coverage : Coverage.t; verdict : Verdict.t }
@@ -209,43 +273,164 @@ module Outcome = struct
         Fmt.pf fmt "%a [%a]" Verdict.pp t.verdict Coverage.pp t.coverage
 end
 
+(* Where a cluster sits in the destination's structural hierarchy. The IR's
+   groups are what a reader recognises — "layer1.0", "features.3" — so a report
+   over a real model is only legible when its clusters are attributed to them.
+   The root is [[]]. *)
+module Group_path = struct
+  type t = string list
+
+  let compare = List.compare String.compare
+  let to_string = function [] -> "(root)" | path -> String.concat "/" path
+  let pp fmt t = Fmt.string fmt (to_string t)
+
+  (* Node -> path, from the group tree. An unlabelled group is named by its id,
+     so a path is always printable. *)
+  let index (g : graph) =
+    let rec walk path (group : Graph_ir.Group.t) acc =
+      let path =
+        match group.Graph_ir.Group.label with
+        | Some l -> path @ [ l ]
+        | None ->
+            if group.Graph_ir.Group.id = g.Graph.root.Graph_ir.Group.id then
+              path
+            else path @ [ Fmt.str "g%a" Group_id.pp group.Graph_ir.Group.id ]
+      in
+      List.fold_left
+        (fun acc -> function
+          | Graph_ir.Group.Node id -> Node_id.Map.add id path acc
+          | Graph_ir.Group.Group sub -> walk path sub acc)
+        acc group.Graph_ir.Group.items
+    in
+    walk [] g.Graph.root Node_id.Map.empty
+
+  (* Which node produced an edge, so a cluster can be placed. *)
+  let producers (g : graph) =
+    List.fold_left
+      (fun acc (n : node) ->
+        List.fold_left
+          (fun acc out -> Tensor_id.Map.add out n.Node.id acc)
+          acc n.Node.outputs)
+      Tensor_id.Map.empty g.Graph.nodes
+
+  (* A cluster is placed by its destination edges — that is the graph the
+     transformation produced. An edge with no producer is a graph input, which
+     belongs to no group and lands at the root. *)
+  let of_cluster ~index ~producers (c : Correspondence.Cluster.t) =
+    let from ids =
+      Tensor_id.Set.fold
+        (fun id acc ->
+          match acc with
+          | Some _ -> acc
+          | None -> (
+              match Tensor_id.Map.find_opt id producers with
+              | None -> None
+              | Some node -> Node_id.Map.find_opt node index))
+        ids None
+    in
+    match from c.dst with
+    | Some p -> p
+    | None -> Option.value (from c.src) ~default:[]
+end
+
+module Entry = struct
+  type t = {
+    cluster : Correspondence.Cluster.t;
+    group : Group_path.t;
+    outcome : Outcome.t;
+  }
+end
+
+(* Counts by outcome label, in a deterministic order. What a summary is FOR:
+   "which of these came back proved, and for the rest, why". *)
+module Tally = struct
+  module By_label = Map.Make (String)
+
+  type t = int By_label.t
+
+  let of_entries entries =
+    List.fold_left
+      (fun acc (e : Entry.t) ->
+        let key =
+          match e.outcome.Outcome.coverage with
+          | Coverage.Sampled n ->
+              Fmt.str "%s [sampled %d]"
+                (Verdict.label e.outcome.Outcome.verdict)
+                n
+          | Coverage.Exhaustive | Coverage.Not_applicable ->
+              Verdict.label e.outcome.Outcome.verdict
+        in
+        By_label.update key
+          (function None -> Some 1 | Some n -> Some (n + 1))
+          acc)
+      By_label.empty entries
+
+  let bindings t = By_label.bindings t
+  let total t = By_label.fold (fun _ n acc -> acc + n) t 0
+
+  let pp fmt t =
+    Fmt.pf fmt "@[<v>%a@]"
+      (Fmt.list ~sep:Fmt.cut (fun fmt (label, n) ->
+           Fmt.pf fmt "%5d  %s" n label))
+      (bindings t)
+end
+
 module Report = struct
-  type t = { clusters : (Correspondence.Cluster.t * Outcome.t) list }
+  type t = { entries : Entry.t list }
 
   let proved t =
     List.for_all
-      (fun (_, (o : Outcome.t)) ->
-        match (o.verdict, o.coverage) with
+      (fun (e : Entry.t) ->
+        match (e.outcome.Outcome.verdict, e.outcome.Outcome.coverage) with
         | Verdict.Proved _, Coverage.Exhaustive -> true
         | Verdict.Vacuous, _ -> true
         | _ -> false)
-      t.clusters
+      t.entries
 
   let refuted t =
     List.exists
-      (fun (_, (o : Outcome.t)) ->
-        match o.verdict with Verdict.Refuted _ -> true | _ -> false)
-      t.clusters
+      (fun (e : Entry.t) ->
+        match e.outcome.Outcome.verdict with
+        | Verdict.Refuted _ -> true
+        | _ -> false)
+      t.entries
+
+  let tally t = Tally.of_entries t.entries
+
+  (* Grouped, in [Group_path] order so a golden is stable. *)
+  let by_group t =
+    let module M = Map.Make (Group_path) in
+    List.fold_left
+      (fun acc (e : Entry.t) ->
+        M.update e.Entry.group
+          (function None -> Some [ e ] | Some es -> Some (e :: es))
+          acc)
+      M.empty t.entries
+    |> M.bindings
+    |> List.map (fun (path, es) -> (path, Tally.of_entries (List.rev es)))
 
   let summary t =
-    let count f = List.length (List.filter f t.clusters) in
-    let is p (_, (o : Outcome.t)) = p o.verdict in
-    Printf.sprintf
-      "%d proved, %d refuted, %d tested, %d unproved, %d vacuous of %d"
-      (count (is (function Verdict.Proved _ -> true | _ -> false)))
-      (count (is (function Verdict.Refuted _ -> true | _ -> false)))
-      (count (is (function Verdict.Tested _ -> true | _ -> false)))
-      (count (is (function Verdict.Unproved _ -> true | _ -> false)))
-      (count (is (function Verdict.Vacuous -> true | _ -> false)))
-      (List.length t.clusters)
+    let tally = tally t in
+    Fmt.str "@[<h>%d clusters: %a@]" (Tally.total tally)
+      (Fmt.list ~sep:(Fmt.any ", ") (fun fmt (label, n) ->
+           Fmt.pf fmt "%d %s" n label))
+      (Tally.bindings tally)
 
   let pp fmt t = Fmt.string fmt (summary t)
+  let pp_summary fmt t = Tally.pp fmt (tally t)
+
+  let pp_groups fmt t =
+    Fmt.pf fmt "@[<v>%a@]"
+      (Fmt.list ~sep:Fmt.cut (fun fmt (path, tally) ->
+           Fmt.pf fmt "@[<v 2>%a@,%a@]" Group_path.pp path Tally.pp tally))
+      (by_group t)
 
   let pp_verdicts fmt t =
     Fmt.pf fmt "@[<v>%a@]"
-      (Fmt.list ~sep:Fmt.cut (fun fmt (c, o) ->
-           Fmt.pf fmt "%a: %a" Correspondence.Cluster.pp c Outcome.pp o))
-      t.clusters
+      (Fmt.list ~sep:Fmt.cut (fun fmt (e : Entry.t) ->
+           Fmt.pf fmt "%a: %a" Correspondence.Cluster.pp e.Entry.cluster
+             Outcome.pp e.Entry.outcome))
+      t.entries
 end
 
 module Policy = struct
@@ -468,8 +653,7 @@ let compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other coord =
 
    Taking every [numel/n]-th coordinate instead would be off whenever [n] does
    not divide [numel] — at [numel = 10, n = 8] the stride rounds to 1 and all
-   ten are selected while the report still says "sampled 8" — and divides by
-   zero at [n = 0]. *)
+   ten are selected while the report still says "sampled 8". *)
 let sampled_coords shape n =
   let numel = (Vec6.numel shape :> int) in
   let n = Stdlib.max 1 (Stdlib.min n numel) in
@@ -597,7 +781,19 @@ let run ?(budget = Budget.default)
       (check_cluster ~budget ~probe ~tolerance:coefficient_tolerance sides)
       clusters
   in
-  Core.return { Report.clusters = List.combine clusters outcomes }
+  let index = Group_path.index dst and producers = Group_path.producers dst in
+  Core.return
+    {
+      Report.entries =
+        List.map2
+          (fun cluster outcome ->
+            {
+              Entry.cluster;
+              group = Group_path.of_cluster ~index ~producers cluster;
+              outcome;
+            })
+          clusters outcomes;
+    }
 
 let step ?budget ?coefficient_tolerance ?probe before
     (Rewrite.Step (after, map)) =

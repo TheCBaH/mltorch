@@ -34,9 +34,20 @@ type ctx = {
 
 val no_verification : ctx
 
+module Audit : sig
+  (* What verifying one pass's step found. Only produced for an ACCEPTED
+     report — a rejected one becomes a [`Verification] error instead. *)
+  type t = { pass : string; report : Map_verify.Report.t }
+end
+
+(* A step plus its audits. They are carried through the pass tree rather than
+   pushed to a callback, so observing a run needs no mutable state; [run_all]
+   drops them for the callers that do not want them. *)
+type 'v outcome = { audits : Audit.t list; step : 'v Rewrite.step }
+
 type t = {
   name : string;
-  run : 'v. ctx -> 'v Rewrite.t -> ('v Rewrite.step, error) Core.result;
+  run : 'v. ctx -> 'v Rewrite.t -> ('v outcome, error) Core.result;
 }
 
 (* What a pass sees. Both halves come from the state, and the payloads are the
@@ -86,3 +97,15 @@ val run_all :
   'v Rewrite.t ->
   t list ->
   ('v Rewrite.step, error) Core.result
+
+(* [run_all] keeping the audits, one per pass that actually rewrote something —
+   a pass whose sweep matched nothing produces an identity step, which has
+   nothing to verify. Order follows execution, and a [fixpoint] contributes one
+   per iteration, so a caller can show where verification did and did not
+   reach. *)
+val run_reporting :
+  ?verify:Map_verify.Policy.t ->
+  ?verify_budget:Map_verify.Budget.t ->
+  'v Rewrite.t ->
+  t list ->
+  ('v outcome, error) Core.result

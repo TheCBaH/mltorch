@@ -354,8 +354,8 @@ let verified g ~constants =
               let count p =
                 List.length
                   (List.filter
-                     (fun (_, (o : Map_verify.Outcome.t)) -> p o.verdict)
-                     report.Map_verify.Report.clusters)
+                     (fun (e : Map_verify.Entry.t) -> p e.outcome.verdict)
+                     report.Map_verify.Report.entries)
               in
               Printf.sprintf
                 "proved=%d agree=%d disagree=%d unproved=%d refuted=%d"

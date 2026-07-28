@@ -73,12 +73,12 @@ let%expect_test "verify: trim / chain permute" =
     [ Chain_permute.pass ];
   [%expect
     {|
-    permute_noop [trim]: 2 proved, 0 refuted, 0 tested, 0 unproved, 0 vacuous of 2
-    permute_sequence [trim]: 2 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 3
-    permute_identity_chain [chain;trim]: 3 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 4
-    permute_pair [chain]: 3 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 4
-    permute_partial_cancel [chain;trim]: 3 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 4
-    permute_shared [chain]: 5 proved, 0 refuted, 0 tested, 0 unproved, 0 vacuous of 5 |}]
+    permute_noop [trim]: 2 clusters: 2 proved (structural)
+    permute_sequence [trim]: 3 clusters: 2 proved (structural), 1 vacuous
+    permute_identity_chain [chain;trim]: 4 clusters: 3 proved (structural), 1 vacuous
+    permute_pair [chain]: 4 clusters: 3 proved (structural), 1 vacuous
+    permute_partial_cancel [chain;trim]: 4 clusters: 3 proved (structural), 1 vacuous
+    permute_shared [chain]: 5 clusters: 5 proved (structural) |}]
 
 let%expect_test "verify: bypass / sink permute" =
   check "sink_permute_unary [sink]"
@@ -95,10 +95,10 @@ let%expect_test "verify: bypass / sink permute" =
     [ Sink_permute_mean.pass ];
   [%expect
     {|
-    sink_permute_unary [sink]: 3 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 5
-    sink_permute_binary [sink]: 5 proved, 0 refuted, 0 tested, 0 unproved, 3 vacuous of 8
-    sink_permute_broadcast [sink]: 5 proved, 0 refuted, 0 tested, 0 unproved, 3 vacuous of 8
-    sink_permute_mean_basic [sink_mean]: 2 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 4 |}]
+    sink_permute_unary [sink]: 5 clusters: 3 proved (structural), 2 vacuous
+    sink_permute_binary [sink]: 8 clusters: 5 proved (structural), 3 vacuous
+    sink_permute_broadcast [sink]: 8 clusters: 5 proved (structural), 3 vacuous
+    sink_permute_mean_basic [sink_mean]: 4 clusters: 2 proved (structural), 2 vacuous |}]
 
 (* [reuse_permute] is the case that forces the frontier to cross CORRESPONDING
    edges: its map mentions only a deletion and a creation, so proving the
@@ -121,10 +121,10 @@ let%expect_test "verify: reuse_permute, including the non-commutative ops" =
     [ Reuse_permute.pass ];
   [%expect
     {|
-    reuse_permute_basic: 4 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 6
-    reuse_permute_sub_order: 4 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 6
-    reuse_permute_div_order: 4 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 6
-    reuse_permute_self_inverse: 3 proved, 0 refuted, 0 tested, 0 unproved, 0 vacuous of 3 |}]
+    reuse_permute_basic: 6 clusters: 4 proved (structural), 2 vacuous
+    reuse_permute_sub_order: 6 clusters: 4 proved (structural), 2 vacuous
+    reuse_permute_div_order: 6 clusters: 4 proved (structural), 2 vacuous
+    reuse_permute_self_inverse: 3 clusters: 3 proved (structural) |}]
 
 (* ---- what the verifier must NOT prove -------------------------------------
 
@@ -475,9 +475,9 @@ let%expect_test "verify: each step and their composition agree" =
   [%expect
     {|
     permute_identity_chain:
-      chain_permute: 4 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 5
-      trim_permute: 3 proved, 0 refuted, 0 tested, 0 unproved, 0 vacuous of 3
-      composed: 3 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 4
+      chain_permute: 5 clusters: 4 proved (structural), 1 vacuous
+      trim_permute: 3 clusters: 3 proved (structural)
+      composed: 4 clusters: 3 proved (structural), 1 vacuous
       law (every step proved => composed not refuted): true |}]
 
 (* Cross-iteration composition: a fixpoint fold collapses a multi-node constant
@@ -502,8 +502,8 @@ let%expect_test "verify: a fixpoint over a constant sub-DAG" =
   [%expect
     {|
     const_arith [fixpoint fold_const]:
-      fold_const: 3 proved, 0 refuted, 0 tested, 0 unproved, 4 vacuous of 7
-      composed: 3 proved, 0 refuted, 0 tested, 0 unproved, 4 vacuous of 7
+      fold_const: 7 clusters: 1 proved (for these constants), 2 proved (structural), 4 vacuous
+      composed: 7 clusters: 1 proved (for these constants), 2 proved (structural), 4 vacuous
       law (every step proved => composed not refuted): true |}]
 
 (* Terminal id packing renumbers post-origin ids, including graph inputs, and
@@ -533,7 +533,7 @@ let%expect_test "verify: origin -> passes -> pack, composed" =
   Format.printf "permute_identity_chain, passes then pack: %a@."
     (pp_result Fmt.string) result;
   [%expect
-    {| permute_identity_chain, passes then pack: 3 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 4 |}]
+    {| permute_identity_chain, passes then pack: 4 clusters: 3 proved (structural), 1 vacuous |}]
 
 (* ---- the pipeline hook ----------------------------------------------------
 
@@ -580,7 +580,7 @@ let%expect_test "hook: a broken pass is caught, and named" =
   [%expect
     {|
     no policy: 1 nodes
-    pass trim_any_permute rejected: 0 proved, 2 refuted, 0 tested, 0 unproved, 0 vacuous of 2
+    pass trim_any_permute rejected: 2 clusters: 2 refuted (counterexample)
       {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t0(1,0)=0x1p+0, t0(1,0,0)=0x1p+1} [exhaustive]
       {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {t0(1,0)=0x1p+0, t0(1,0,0)=0x1p+1} [exhaustive] |}]
 
@@ -604,7 +604,7 @@ let%expect_test
   [%expect
     {|
     reject_refuted: 1 nodes
-    require_proved: pass trim_permute rejected: 0 proved, 0 refuted, 0 tested, 2 unproved, 0 vacuous of 2
+    require_proved: pass trim_permute rejected: 2 clusters: 2 unproved (format blocks collapse)
                       {t0, t1} -> {t0} identical: unproved: format blocks collapse: t0(0) in src.t1 [exhaustive]
                       {t2} -> {t2} identical: unproved: format blocks collapse: t0(0) in src.t2 [exhaustive] |}]
 
@@ -673,15 +673,15 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
     Format.printf "%s: %a@." name
       (pp_result (fun ppf r ->
            Fmt.list ~sep:(Fmt.any "; ")
-             (fun ppf (_, (o : Map_verify.Outcome.t)) ->
-               Map_verify.Verdict.pp ppf o.verdict)
+             (fun ppf (e : Map_verify.Entry.t) ->
+               Map_verify.Verdict.pp ppf e.outcome.verdict)
              ppf
              (List.filter
-                (fun (_, (o : Map_verify.Outcome.t)) ->
-                  match o.verdict with
+                (fun (e : Map_verify.Entry.t) ->
+                  match e.outcome.verdict with
                   | Map_verify.Verdict.Vacuous -> false
                   | _ -> true)
-                r.Map_verify.Report.clusters)))
+                r.Map_verify.Report.entries)))
       result
   in
   report ~dst_constants:Fun.id "honest fold";
@@ -717,5 +717,5 @@ let%expect_test "sampling: a sampled proof does not satisfy Report.proved" =
   Format.printf "%a@." (pp_result Fmt.string) result;
   [%expect
     {|
-    sampled: 2 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 3 / proved=false
-    exhaustive: 2 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 3 / proved=true |}]
+    sampled: 3 clusters: 2 proved (structural) [sampled 4], 1 vacuous / proved=false
+    exhaustive: 3 clusters: 2 proved (structural), 1 vacuous / proved=true |}]

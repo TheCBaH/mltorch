@@ -749,6 +749,23 @@
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
+; The same two pipelines under symbolic verification, per pass and per group
+; (see .ai/native_transform_verify.md). Separate from the two above because
+; those pin the resulting GRAPH and these pin what verification found; sharing
+; a golden would mean a 300-line dump in both.
+
+(cram
+ (applies_to native_transform_verify_cram)
+ (deps %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+(cram
+ (applies_to native_transform_verify_fold_cram)
+ (deps %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
 (cram
  (applies_to aten_gen_coverage_cram)
  (deps %{exe:aten_gen_coverage.exe} native_functions.yaml))

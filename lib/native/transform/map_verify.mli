@@ -59,6 +59,20 @@ module Budget : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* A named point on the cost/coverage curve, so a caller can pick how hard to
+   look without knowing what a coord or a round is. Effort drives the probe
+   count as well as the budget: a deeper frontier is worth more draws. *)
+module Effort : sig
+  type t = Quick | Standard | Thorough
+
+  val all : t list
+  val budget : t -> Budget.t
+  val of_string : string -> (t, [> `Unknown_effort of string ]) Stdlib.result
+  val probe : t -> int
+  val to_string : t -> string
+  val pp : Format.formatter -> t -> unit
+end
+
 module Coverage : sig
   (* [Not_applicable] is the honest answer for a cluster that returns before any
      coordinate is examined. Keeping it a constructor rather than an option
@@ -151,6 +165,10 @@ module Verdict : sig
      other coordinates agreed. Ties keep the earlier verdict, so a report names
      the first coordinate that failed rather than the last. *)
   val join : t -> t -> t
+
+  (* Outcome and reason, with ids, coordinates and valuations dropped, so
+     verdicts can be counted. The payloads belong in [Report.pp_verdicts]. *)
+  val label : t -> string
 end
 
 module Outcome : sig
@@ -159,16 +177,54 @@ module Outcome : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* Where a cluster sits in the destination's structural hierarchy. The IR's
+   groups are what a reader recognises — "layer1.0", "features.3" — so a report
+   over a real model is only legible when its clusters are attributed to them.
+   The root is the empty path. *)
+module Group_path : sig
+  type t = string list
+
+  val compare : t -> t -> int
+  val to_string : t -> string
+  val pp : Format.formatter -> t -> unit
+end
+
+module Entry : sig
+  type t = {
+    cluster : Correspondence.Cluster.t;
+    group : Group_path.t;
+    outcome : Outcome.t;
+  }
+end
+
+(* Counts by outcome label, deterministically ordered. What a summary is for:
+   which clusters came back proved, and for the rest, WHY. A sampled verdict
+   gets its own label rather than being folded in with the exhaustive ones —
+   counting a sampled proof as "proved" is exactly the overstatement coverage
+   exists to prevent. *)
+module Tally : sig
+  type t
+
+  val bindings : t -> (string * int) list
+  val of_entries : Entry.t list -> t
+  val total : t -> int
+  val pp : Format.formatter -> t -> unit
+end
+
 module Report : sig
-  type t = { clusters : (Correspondence.Cluster.t * Outcome.t) list }
+  type t = { entries : Entry.t list }
 
   (* Strict: every outcome is [Proved] with [Exhaustive] coverage, or [Vacuous]
      (whose coverage is [Not_applicable] — it claims nothing, so there is
      nothing to cover). *)
   val proved : t -> bool
   val refuted : t -> bool
+  val by_group : t -> (Group_path.t * Tally.t) list
+  val tally : t -> Tally.t
   val summary : t -> string
   val pp : Format.formatter -> t -> unit
+  val pp_groups : Format.formatter -> t -> unit
+  val pp_summary : Format.formatter -> t -> unit
   val pp_verdicts : Format.formatter -> t -> unit
 end
 

@@ -396,12 +396,51 @@ let verify_arg =
    activation-shaped clusters come back "too large" and the useful coverage is
    the constant-shaped ones — folded weights and biases, exactly where
    fold_const and fold_batch_norm act. See .ai/native_transform_verify.md. *)
+let effort_conv =
+  let parse s =
+    match Map_verify.Effort.of_string s with
+    | Ok e -> Ok e
+    | Error (`Unknown_effort other) ->
+        Error (`Msg (Printf.sprintf "unknown effort %S" other))
+  in
+  Arg.conv (parse, fun fmt e -> Map_verify.Effort.pp fmt e)
+
 let verify_symbolic_arg =
   let doc =
-    "Symbolically verify each pass's mapping as it is applied. Needs no \
-     --input, and fails only on an actual counterexample."
+    Printf.sprintf
+      "Symbolically verify each pass's mapping as it is applied, at EFFORT \
+       (%s). Needs no --input, and fails only on an actual counterexample."
+      (String.concat ", "
+         (List.map Map_verify.Effort.to_string Map_verify.Effort.all))
   in
-  Arg.(value & flag & info [ "verify-symbolic" ] ~doc)
+  Arg.(
+    value
+    & opt (some effort_conv) None
+    & info [ "verify-symbolic" ] ~docv:"EFFORT" ~doc)
+
+(* Per group, then the roll-up. Groups are what a reader recognises in a real
+   model — "layer1.0", "features.3" — so a report over 170 clusters is only
+   legible attributed to them. The roll-up counts by outcome AND reason, since
+   "40 unproved" says nothing without "because too large". *)
+let pp_audits fmt audits =
+  let reports =
+    List.map (fun (a : Pass.Audit.t) -> (a.Pass.Audit.pass, a.report)) audits
+  in
+  match reports with
+  | [] -> Format.fprintf fmt "symbolic verification: nothing to check@."
+  | _ ->
+      List.iter
+        (fun (pass, report) ->
+          Format.fprintf fmt "@[<v 2>symbolic verification: %s@,%a@]@." pass
+            Map_verify.Report.pp_groups report)
+        reports;
+      Format.fprintf fmt "@[<v 2>symbolic verification: total@,%a@]@."
+        Map_verify.Tally.pp
+        (Map_verify.Tally.of_entries
+           (List.concat_map
+              (fun (_, (r : Map_verify.Report.t)) ->
+                r.Map_verify.Report.entries)
+              reports))
 
 (* Annotates the TRANSFORMED graph with provenance recovered through the lens,
    which is the whole claim of §10 made visible: the sidecar still describes the
@@ -468,15 +507,18 @@ let transform model input expect fold verify verify_symbolic :
       match
         Native_interp.transform ~preload:fold
           ?verify:
-            (if verify_symbolic then Some Map_verify.Policy.Reject_refuted
-             else None)
-          ~verify_budget:Map_verify.Budget.release archive
-          ~passes:(passes ~fold)
+            (Option.map
+               (fun _ -> Map_verify.Policy.Reject_refuted)
+               verify_symbolic)
+          ?verify_budget:(Option.map Map_verify.Effort.budget verify_symbolic)
+          archive ~passes:(passes ~fold)
       with
       | Error e ->
           Error (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind)
       | Ok (Native_interp.Transformed t as transformed) -> (
           pp_summary Format.std_formatter transformed;
+          if Option.is_some verify_symbolic then
+            pp_audits Format.std_formatter t.audits;
           match input with
           | None ->
               (* Structure only: deterministic, and no inference to wait for. *)

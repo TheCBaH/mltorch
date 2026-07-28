@@ -54,6 +54,10 @@ type transformed =
       graph : Graph_ir.graph;
       lens : 'b Pt2_native_graph.lens;
       nodes_before : int;
+      audits : Pass.Audit.t list;
+          (* one per pass that rewrote something, in execution order, when
+             [~verify] was given — empty otherwise. A pass whose sweep matched
+             nothing produces an identity step, which has nothing to check. *)
     }
       -> transformed
 
