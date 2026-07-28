@@ -6,10 +6,9 @@ compute the same values, and its §14 lists **"the numerical/symbolic verifier
 itself"** as the one deliberate non-goal. This doc is that verifier:
 `lib/native/transform/ground_expr.ml`, `ground_eval.ml`, `map_verify.ml`.
 
-Status: **stage 1** — the structural tier, per rewrite step. Constants, the
-probe, cumulative verification, the pipeline hook, the coefficient tier and the
-CLI are staged after it; each section below says what it does and does not yet
-cover.
+Status: **stage 2** — structural tier, constant payloads and the probe, per
+rewrite step. Cumulative verification, the pipeline hook, the coefficient tier
+and the CLI are staged after it.
 
 ## 1. What it proves, and what it assumes
 
@@ -156,18 +155,51 @@ constrained by their producers, so assigning them independently can manufacture 
 
 Consequently:
 
-- a failed comparison is `Unproved`, **never** `Refuted`. Different normal forms
-  only mean the incomplete prover failed;
-- `Refuted` requires an actual witness. In stage 1 the only one available is a
-  shape mismatch; the value case waits for the probe, which is a *refutation
-  engine*, not a weak proof, and may only run once `Ground_eval.expandable` is
-  false on both sides;
-- a probe will formally refute only `Identical`. `Equivalent` explicitly permits
-  rounding differences, so a rounded-term disagreement cannot refute it, and
+- a failed comparison is `Unproved` unless a witness was actually produced.
+  Different normal forms only mean the incomplete prover failed;
+- `Refuted` carries either a shape mismatch or a `Valuation` — a concrete
+  assignment to the free cells that replays through `Ground_expr.eval` and
+  separates the two terms;
+- the probe is a **refutation engine**, not a weak proof: no number of agreeing
+  draws yields `Proved`. It may only run once `Ground_eval.expandable` is false
+  on both sides, because cells left at a truncated frontier are internal stage
+  results constrained by their producers;
+- it formally refutes only `Identical`. `Equivalent` explicitly permits rounding
+  differences, so a rounded-term disagreement cannot refute it, and
   `Approximate` needs declared input ranges and an error model that
-  `Precision.Set.t` alone cannot supply.
+  `Precision.Set.t` alone cannot supply. Those get `Tested (Disagrees v)` —
+  evidence loud enough to fail a strict policy, without claiming a proof.
 
-## 9. Budgets
+Draw 0 is a coordinate ramp rather than noise: the errors this looks for are
+permutation and indexing mistakes, and a ramp separates every cell of a tensor
+where a constant would not. Later draws are pseudo-random and non-zero, and
+every draw is a pure function of `(cell, n)` — no RNG state, so a printed
+witness is reproducible and does not depend on the order cells were visited.
+
+## 9. Constants narrow what a proof quantifies over
+
+Binding the model's constant payloads turns those cells into `Const` leaves. It
+is what makes `fold_const` checkable at all — the destination edge *is* a
+payload the pass computed — but it weakens the statement from "for every
+payload" to "for every input, with these constants". So the driver keeps two
+envs per graph and tries the unqualified one first, reporting
+`Proved Structural` when that succeeds and `Proved Constants` when only the
+bound one does.
+
+**The unqualified attempt may only prove, never refute**, and that is a
+soundness requirement rather than a preference. With constants left free the
+probe could assign a known weight any value it liked and "refute" a fold that is
+perfectly correct for the weight the model actually carries — the same
+manufactured counterexample that probing a truncated frontier would produce.
+Every verdict other than `Proved` therefore comes from the constant-bound
+attempt, where the cells still free really are free inputs.
+
+Constants are also **per-graph**, not shared: `Rewrite.apply` filters the
+payload map to live destination ids, so one that a fold consumed and deleted
+survives only in the before-state. `Map_verify.step` reads
+`Rewrite.constants` from each side separately.
+
+## 10. Budgets
 
 Counted, never timed, so a verdict is deterministic and a golden is stable.
 `max_coords` is checked against `Vec6.numel` **before any expansion** — O(1), and
@@ -182,11 +214,12 @@ channels) rather than by the graph. The unbounded direction is repeated
 expansion, and that loop belongs to the driver — so the driver sizes the result
 between rounds instead of threading fuel through the recursion.
 
-## 10. Verdicts
+## 11. Verdicts
 
 ```
-Proved of Strength.proof        structural equality of the ground terms
-Refuted of Refutation.t         a shape mismatch (stage 1) or a valuation (stage 2)
+Proved of Strength.proof        Structural (every payload) | Constants (every input)
+Refuted of Refutation.t         a shape mismatch, or a reproducible valuation
+Tested of Strength.test         evidence, never a proof
 Unproved of Unproved.t          the prover failed; nothing is asserted
 Vacuous                         a creation or a deletion: the cluster claims nothing
 ```
@@ -198,18 +231,21 @@ verdict rather than one more verdict constructor, so that when sampling arrives
 — while `Report.refuted` ignores coverage, because a counterexample found at a
 sampled coordinate is still a counterexample.
 
-## 11. Coverage today
+## 12. Coverage today
 
 Proved structurally, over all payloads: `trim_permute`, `chain_permute`,
 `bypass_permute`, `sink_permute`, `sink_permute_mean`, `reuse_permute` (including
 the non-commutative `Sub`/`Div` orderings), `reshape_to_permute`.
 
-Pending: `fold_const` needs constant payloads (stage 2); `fold_batch_norm` needs
+Proved with the model's constants substituted, for every input:
+`fold_const`.
+
+Pending: `fold_batch_norm` needs
 the coefficient tier (stage 5) and lands at `Tested (Agrees tol)`, not `Proved` —
 tolerance is never a proof, since coefficients `1` and `1+ε` pass a tolerance
 while being neither exactly equal nor boundedly close for unbounded free input.
 
-## 12. Non-goals
+## 13. Non-goals
 
 - An exact-rational tier (`Proved Exact_algebra`). No current pass needs it:
   `fold_batch_norm` re-derives its constants numerically, so exact coefficient

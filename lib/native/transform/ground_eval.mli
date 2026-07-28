@@ -33,8 +33,19 @@ module Env : sig
      stand-ins for absent optional operands, whose ids differ between the two
      graphs being compared — are always bound to their fill value. Without that
      the two sides could never match where one has a bias and the other does
-     not. *)
-  val of_program : Stage_program.t -> rename:(Tensor_id.t -> Tensor_id.t) -> t
+     not.
+     [constants] binds this graph's model constants (from [Rewrite.constants])
+     to their payloads, turning those cells into [Const] leaves. It is
+     PER-GRAPH, not shared: [Rewrite.apply] filters the payload map to live
+     destination ids, so a constant a fold consumed and deleted survives only in
+     the before-state. Binding narrows what a proof quantifies over — every
+     input, for these constants, rather than every payload — which is why the
+     driver tries without it first. *)
+  val of_program :
+    ?constants:Tensor.packed Tensor_id.Map.t ->
+    Stage_program.t ->
+    rename:(Tensor_id.t -> Tensor_id.t) ->
+    t
 
   (* Keyed by RENAMED id, so it answers questions about cells. Use [rename] to
      get there from an id named by a graph or a correspondence cluster. *)

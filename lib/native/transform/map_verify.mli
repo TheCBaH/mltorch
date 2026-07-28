@@ -59,11 +59,22 @@ module Coverage : sig
 end
 
 module Strength : sig
-  type proof = Structural
+  type proof =
+    | Constants
+      (* structural once the graph's own constant payloads are substituted:
+           holds for every INPUT, for these constants. Strictly weaker than
+           [Structural], which is why it is only attempted when that fails. *)
+    | Structural (* structural over free cells: holds for every payload *)
+
+  type test = Disagrees of Ground_expr.Valuation.t
+  (* a probe found an assignment the two sides evaluate differently, but
+           the claim is not [Identical], so rounding alone could explain it and
+           this is evidence rather than a refutation *)
 
   (* Whether a proof of this strength discharges a claim of that relation. *)
   val proves : proof -> Correspondence.relation -> bool
   val pp_proof : Format.formatter -> proof -> unit
+  val pp_test : Format.formatter -> test -> unit
 end
 
 module Refutation : sig
@@ -77,6 +88,15 @@ module Refutation : sig
         rhs : Member.t;
         rhs_shape : Vec6.shape;
       }
+    | Value of {
+        coord : Vec6.coord;
+        lhs : Member.t;
+        rhs : Member.t;
+        valuation : Ground_expr.Valuation.t;
+      }
+  (* A reproducible counterexample: replaying [valuation] through
+           [Ground_expr.eval] on both terms gives different bits. Only ever
+           built for an [Identical] claim — see the note on [run]. *)
 
   val pp : Format.formatter -> t -> unit
 end
@@ -101,6 +121,7 @@ module Verdict : sig
   type t =
     | Proved of Strength.proof
     | Refuted of Refutation.t
+    | Tested of Strength.test (* evidence, never a proof *)
     | Unproved of Unproved.t
     | Vacuous (* a creation or a deletion: the cluster claims nothing *)
 
@@ -132,18 +153,42 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 (* [Graph_map.validate] runs first and is not optional: the phantom tags cannot
    tie a map to two PARTICULAR graphs, so a well-typed map may name ids that
-   exist in neither. *)
+   exist in neither.
+
+   [probe] is the number of valuations tried when the terms differ, and it is a
+   REFUTATION engine, not a weak proof: no number of agreeing draws produces a
+   [Proved]. Two conditions bound it.
+
+   It runs only once the frontier has reached the graph inputs on both sides
+   ([Ground_eval.expandable] false). Cells left at a truncated frontier are
+   internal stage results constrained by their producers, so assigning them
+   independently could manufacture a counterexample no input can realise.
+
+   And it formally refutes only [Identical]. [Equivalent] permits rounding to
+   differ, so a disagreement between rounded terms cannot contradict it, and
+   [Approximate] would need declared input ranges and an error model that
+   [Precision.Set.t] does not carry. For those, a disagreement is reported as
+   [Tested (Disagrees _)].
+
+   Constants are PER-GRAPH: [Rewrite.apply] filters payloads to live
+   destination ids, so one a fold consumed and deleted exists only on the
+   source side. *)
 val run :
   ?budget:Budget.t ->
+  ?probe:int ->
+  ?src_constants:Tensor.packed Tensor_id.Map.t ->
+  ?dst_constants:Tensor.packed Tensor_id.Map.t ->
   ('a, 'b) Graph_map.t ->
   src:graph ->
   dst:graph ->
   (Report.t, error) Core.result
 
-(* Works unchanged on a composed pipeline step, which is what makes cumulative
+(* Reads [Rewrite.constants] from each state separately, for the reason above.
+   Works unchanged on a composed pipeline step, which is what makes cumulative
    verification free at the API level. *)
 val step :
   ?budget:Budget.t ->
+  ?probe:int ->
   'v Rewrite.t ->
   'v Rewrite.step ->
   (Report.t, error) Core.result

@@ -4,6 +4,7 @@ open Graph_ir
 
 module Env = struct
   type t = {
+    constants : Tensor.packed Tensor_id.Map.t;
     consts : float Tensor_id.Map.t;
     fmts : Payload.packed_fmt Tensor_id.Map.t;
     shapes : Vec6.shape Tensor_id.Map.t;
@@ -11,7 +12,8 @@ module Env = struct
     stages : Stage_program.Stage.t Tensor_id.Map.t;
   }
 
-  let of_program (p : Stage_program.t) ~rename =
+  let of_program ?(constants = Tensor_id.Map.empty) (p : Stage_program.t)
+      ~rename =
     let add_sig (sg : Tensor_sig.t) (fmts, shapes) =
       let id = rename sg.Tensor_sig.id in
       ( Tensor_id.Map.add id sg.Tensor_sig.fmt fmts,
@@ -45,7 +47,7 @@ module Env = struct
           Tensor_id.Map.add st.Stage_program.Stage.id st acc)
         Tensor_id.Map.empty p.Stage_program.stages
     in
-    { consts; fmts; rename; shapes; stages }
+    { constants; consts; fmts; rename; shapes; stages }
 
   let shape_of t id = Tensor_id.Map.find_opt id t.shapes
 
@@ -65,6 +67,7 @@ module Env = struct
     | None -> false
 
   let const_of t id = Tensor_id.Map.find_opt id t.consts
+  let constant_of t id = Tensor_id.Map.find_opt id t.constants
   let rename t id = t.rename id
   let stage_of t id = Tensor_id.Map.find_opt id t.stages
 end
@@ -121,15 +124,18 @@ let rec ground ~env ~coord ~rvars (e : Expr.t) : Ground_expr.t =
       in
       fold lo seed
 
-(* A [Load] of a synthetic constant fill is that constant; anything else is a
-   free cell. *)
+(* A [Load] of a synthetic constant fill is that constant; a [Load] of a bound
+   model constant is its stored element, read exactly the way [Expr.eval] reads
+   it; anything else is a free cell. *)
 and leaf ~env (sg : Tensor_sig.t) at_axis : Ground_expr.t =
-  match Env.const_of env sg.Tensor_sig.id with
-  | Some v -> Ground_expr.Const v
-  | None ->
+  let id = sg.Tensor_sig.id in
+  match (Env.const_of env id, Env.constant_of env id) with
+  | Some v, _ -> Ground_expr.Const v
+  | None, Some payload -> Ground_expr.Const (Tensor.read_at_raw payload at_axis)
+  | None, None ->
       Ground_expr.Cell
         {
-          Ground_expr.Cell.id = Env.rename env sg.Tensor_sig.id;
+          Ground_expr.Cell.id = Env.rename env id;
           coord =
             Vec6.coord ~n:(at_axis Axis.N) ~t:(at_axis Axis.T)
               ~d:(at_axis Axis.D) ~h:(at_axis Axis.H) ~w:(at_axis Axis.W)
@@ -188,10 +194,22 @@ let body_at env (st : Stage_program.Stage.t) coord =
 let at env id coord =
   match Env.stage_of env id with
   | Some st -> Core.return (Ground_expr.Round (body_at env st coord))
-  | None ->
-      let id = Env.rename env id in
-      if Option.is_none (Env.shape_of env id) then Core.fail (`Unknown_edge id)
-      else Core.return (Ground_expr.Cell { Ground_expr.Cell.id; coord })
+  | None -> (
+      (* An input edge can itself be a bound constant — [fold_const]'s whole
+         output is one — so the same binding [leaf] applies inside a body has to
+         apply here too, not just to [Load]s. *)
+      match (Env.const_of env id, Env.constant_of env id) with
+      | Some v, _ -> Core.return (Ground_expr.Const v)
+      | None, Some payload ->
+          Core.return
+            (Ground_expr.Const
+               (Tensor.read_at_raw payload (fun a ->
+                    Dim.to_int (Vec6.get coord a))))
+      | None, None ->
+          let id = Env.rename env id in
+          if Option.is_none (Env.shape_of env id) then
+            Core.fail (`Unknown_edge id)
+          else Core.return (Ground_expr.Cell { Ground_expr.Cell.id; coord }))
 
 let rec expand env (e : Ground_expr.t) : Ground_expr.t =
   let recur = expand env in

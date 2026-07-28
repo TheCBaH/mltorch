@@ -41,19 +41,26 @@ module Coverage = struct
 end
 
 module Strength = struct
-  type proof = Structural
+  type proof = Constants | Structural
+  type test = Disagrees of Ground_expr.Valuation.t
 
   (* Structural equality of the ground terms — [Round]s included, constants
      compared bitwise — means the two edges compute the same bits, which
      discharges every relation in the lattice. [Unverifiable] is excluded
      earlier, as it asserts nothing to discharge. *)
-  let proves Structural = function
+  let proves _ = function
     | Correspondence.Unverifiable -> false
     | Correspondence.Approximate _ | Correspondence.Equivalent
     | Correspondence.Identical ->
         true
 
-  let pp_proof fmt Structural = Fmt.string fmt "structural"
+  let pp_proof fmt = function
+    | Constants -> Fmt.string fmt "structural, for these constants"
+    | Structural -> Fmt.string fmt "structural"
+
+  let pp_test fmt = function
+    | Disagrees v ->
+        Fmt.pf fmt "@[<h>disagrees at %a@]" Ground_expr.Valuation.pp v
 end
 
 module Refutation = struct
@@ -64,10 +71,20 @@ module Refutation = struct
         rhs : Member.t;
         rhs_shape : Vec6.shape;
       }
+    | Value of {
+        coord : Vec6.coord;
+        lhs : Member.t;
+        rhs : Member.t;
+        valuation : Ground_expr.Valuation.t;
+      }
 
-  let pp fmt (Shape s) =
-    Fmt.pf fmt "@[<h>shape %a:%a vs %a:%a@]" Member.pp s.lhs Vec6.pp_shape
-      s.lhs_shape Member.pp s.rhs Vec6.pp_shape s.rhs_shape
+  let pp fmt = function
+    | Shape s ->
+        Fmt.pf fmt "@[<h>shape %a:%a vs %a:%a@]" Member.pp s.lhs Vec6.pp_shape
+          s.lhs_shape Member.pp s.rhs Vec6.pp_shape s.rhs_shape
+    | Value v ->
+        Fmt.pf fmt "@[<h>value at %a: %a vs %a under %a@]" Vec6.pp_coord v.coord
+          Member.pp v.lhs Member.pp v.rhs Ground_expr.Valuation.pp v.valuation
 end
 
 module Unproved = struct
@@ -103,12 +120,14 @@ module Verdict = struct
   type t =
     | Proved of Strength.proof
     | Refuted of Refutation.t
+    | Tested of Strength.test
     | Unproved of Unproved.t
     | Vacuous
 
   let pp fmt = function
     | Proved p -> Fmt.pf fmt "proved (%a)" Strength.pp_proof p
     | Refuted r -> Fmt.pf fmt "refuted: %a" Refutation.pp r
+    | Tested t -> Fmt.pf fmt "tested: %a" Strength.pp_test t
     | Unproved u -> Fmt.pf fmt "unproved: %a" Unproved.pp u
     | Vacuous -> Fmt.string fmt "vacuous"
 end
@@ -144,9 +163,11 @@ module Report = struct
   let summary t =
     let count f = List.length (List.filter f t.clusters) in
     let is p (_, (o : Outcome.t)) = p o.verdict in
-    Printf.sprintf "%d proved, %d refuted, %d unproved, %d vacuous of %d"
+    Printf.sprintf
+      "%d proved, %d refuted, %d tested, %d unproved, %d vacuous of %d"
       (count (is (function Verdict.Proved _ -> true | _ -> false)))
       (count (is (function Verdict.Refuted _ -> true | _ -> false)))
+      (count (is (function Verdict.Tested _ -> true | _ -> false)))
       (count (is (function Verdict.Unproved _ -> true | _ -> false)))
       (count (is (function Verdict.Vacuous -> true | _ -> false)))
       (List.length t.clusters)
@@ -200,7 +221,14 @@ let rename_with map id =
 
 (* ---- one cluster ---------------------------------------------------------- *)
 
-type side = { env : Ground_eval.Env.t; graph : graph }
+(* Two envs per graph. [env] leaves model constants as free cells, so a proof
+   through it quantifies over every payload; [with_constants] substitutes them,
+   which is strictly weaker and therefore only tried when the first fails. *)
+type side = {
+  env : Ground_eval.Env.t;
+  graph : graph;
+  with_constants : Ground_eval.Env.t;
+}
 
 let shape_of side id =
   match Tensor_id.Map.find_opt id side.graph.Graph.tensors with
@@ -214,36 +242,32 @@ let side_of sides member =
    or no rounds left. Structural equality is tried BEFORE normalising and again
    after: two identical terms carrying the same uncollapsible [Round (Cell _)]
    are equal and must be proved, not rejected for the blocked collapse. *)
-let rec settle ~budget ~rounds ~lhs ~rhs ~lhs_side ~rhs_side ~coord ~members =
+let rec settle ~budget ~probe ~label ~proof ~rounds ~lhs ~rhs ~lhs_env ~rhs_env
+    ~coord ~members =
   let lhs_member, rhs_member = members in
-  if Ground_expr.equal lhs rhs then Verdict.Proved Strength.Structural
+  if Ground_expr.equal lhs rhs then Verdict.Proved proof
   else
     let ln =
-      Ground_expr.normalise
-        ~stored_f32:(Ground_eval.Env.stored_f32 lhs_side.env)
-        lhs
+      Ground_expr.normalise ~stored_f32:(Ground_eval.Env.stored_f32 lhs_env) lhs
     and rn =
-      Ground_expr.normalise
-        ~stored_f32:(Ground_eval.Env.stored_f32 rhs_side.env)
-        rhs
+      Ground_expr.normalise ~stored_f32:(Ground_eval.Env.stored_f32 rhs_env) rhs
     in
-    if Ground_expr.equal ln.expr rn.expr then Verdict.Proved Strength.Structural
+    if Ground_expr.equal ln.expr rn.expr then Verdict.Proved proof
     else
       let expandable =
-        Ground_eval.expandable lhs_side.env lhs
-        || Ground_eval.expandable rhs_side.env rhs
+        Ground_eval.expandable lhs_env lhs || Ground_eval.expandable rhs_env rhs
       in
       if expandable && rounds >= budget.Budget.max_rounds then
         Verdict.Unproved Unproved.Max_rounds
       else if expandable then
-        let lhs = Ground_eval.expand lhs_side.env lhs
-        and rhs = Ground_eval.expand rhs_side.env rhs in
+        let lhs = Ground_eval.expand lhs_env lhs
+        and rhs = Ground_eval.expand rhs_env rhs in
         let size = Ground_expr.size lhs + Ground_expr.size rhs in
         if size > budget.Budget.max_nodes then
           Verdict.Unproved (Unproved.Max_nodes size)
         else
-          settle ~budget ~rounds:(rounds + 1) ~lhs ~rhs ~lhs_side ~rhs_side
-            ~coord ~members
+          settle ~budget ~probe ~label ~proof ~rounds:(rounds + 1) ~lhs ~rhs
+            ~lhs_env ~rhs_env ~coord ~members
       else
         (* Frontier is at the graph inputs and the terms still differ. That is
            the prover failing, not a counterexample: no assignment has been
@@ -259,37 +283,81 @@ let rec settle ~budget ~rounds ~lhs ~rhs ~lhs_side ~rhs_side ~coord ~members =
         | None, Some blocked ->
             Verdict.Unproved
               (Unproved.Unsupported_format { blocked; member = rhs_member })
-        | None, None ->
-            Verdict.Unproved
-              (Unproved.Exhausted { coord; lhs = lhs_member; rhs = rhs_member })
+        | None, None -> (
+            (* The frontier is at the graph inputs, so every remaining cell is
+               genuinely free and a disagreeing assignment is realisable. This
+               is the only place a value counterexample may be built. *)
+            match counterexample ~probe ~lhs ~rhs with
+            | None ->
+                Verdict.Unproved
+                  (Unproved.Exhausted
+                     { coord; lhs = lhs_member; rhs = rhs_member })
+            | Some valuation ->
+                if label = Correspondence.Identical then
+                  Verdict.Refuted
+                    (Refutation.Value
+                       { coord; lhs = lhs_member; rhs = rhs_member; valuation })
+                else Verdict.Tested (Strength.Disagrees valuation))
+
+(* Try [probe] draws over the union of both terms' free cells, bitwise because
+   [Identical] is about bits. Returns the first assignment that separates them. *)
+and counterexample ~probe ~lhs ~rhs =
+  let cells =
+    Ground_expr.Cell.Set.union (Ground_expr.cells lhs) (Ground_expr.cells rhs)
+  in
+  let rec draw n =
+    if n >= probe then None
+    else
+      let v = Ground_expr.Valuation.draw n cells in
+      let bits e = Int64.bits_of_float (Ground_expr.eval e v) in
+      if Int64.equal (bits lhs) (bits rhs) then draw (n + 1) else Some v
+  in
+  draw 0
 
 (* A grounding failure is a verdict ABOUT this cluster, not an error for the
    caller, so it is converted here rather than short-circuiting [run]. *)
-let compare_at ~budget sides ~canonical ~other coord =
+let compare_at ~budget ~probe ~label sides ~canonical ~other coord =
   let lhs_side = side_of sides canonical and rhs_side = side_of sides other in
-  match
-    ( Ground_eval.at lhs_side.env (Member.id canonical) coord,
-      Ground_eval.at rhs_side.env (Member.id other) coord )
-  with
-  | Error e, _ | Ok _, Error e ->
-      Verdict.Unproved (Unproved.Eval e.Core.Error.kind)
-  | Ok lhs, Ok rhs -> (
-      let out_of_bounds =
-        match Ground_eval.out_of_bounds lhs_side.env lhs with
-        | Some c -> Some c
-        | None -> Ground_eval.out_of_bounds rhs_side.env rhs
-      in
-      match out_of_bounds with
-      | Some c -> Verdict.Unproved (Unproved.Out_of_bounds c)
-      | None ->
-          settle ~budget ~rounds:0 ~lhs ~rhs ~lhs_side ~rhs_side ~coord
-            ~members:(canonical, other))
+  let attempt proof lhs_env rhs_env =
+    match
+      ( Ground_eval.at lhs_env (Member.id canonical) coord,
+        Ground_eval.at rhs_env (Member.id other) coord )
+    with
+    | Error e, _ | Ok _, Error e ->
+        Verdict.Unproved (Unproved.Eval e.Core.Error.kind)
+    | Ok lhs, Ok rhs -> (
+        let out_of_bounds =
+          match Ground_eval.out_of_bounds lhs_env lhs with
+          | Some c -> Some c
+          | None -> Ground_eval.out_of_bounds rhs_env rhs
+        in
+        match out_of_bounds with
+        | Some c -> Verdict.Unproved (Unproved.Out_of_bounds c)
+        | None ->
+            settle ~budget ~probe ~label ~proof ~rounds:0 ~lhs ~rhs ~lhs_env
+              ~rhs_env ~coord ~members:(canonical, other))
+  in
+  (* Unqualified first, purely to STRENGTHEN: a proof with the constants left
+     free is a statement about every payload, and binding them would silently
+     narrow it to the model's own.
+
+     Its failures are discarded, and that is a soundness requirement, not a
+     preference. With constants unbound the probe would be free to assign a
+     known weight any value it likes and "refute" a fold that is perfectly
+     correct for the weight the model actually carries — the same manufactured
+     counterexample that expanding a truncated frontier would produce. So every
+     verdict other than [Proved] comes from the constant-bound attempt, where
+     the cells still free really are free inputs. *)
+  match attempt Strength.Structural lhs_side.env rhs_side.env with
+  | Verdict.Proved _ as proved -> proved
+  | _ ->
+      attempt Strength.Constants lhs_side.with_constants rhs_side.with_constants
 
 (* Compare every member against a canonical one. [{t0,t1} -> {t0}] must check
    t1, which is the trimmed edge the map's claim is actually about. Stops at the
    first non-[Proved] verdict, so the report names the coordinate that failed
    rather than the last one examined. *)
-let check_members ~budget sides ~canonical ~others ~shape =
+let check_members ~budget ~probe ~label sides ~canonical ~others ~shape =
   let numel = (Vec6.numel shape :> int) in
   if numel > budget.Budget.max_coords then
     (Verdict.Unproved (Unproved.Too_large numel), Coverage.Not_applicable)
@@ -297,7 +365,8 @@ let check_members ~budget sides ~canonical ~others ~shape =
     let over_coords other verdict =
       Vec6.fold_coords shape ~init:verdict ~f:(fun v coord ->
           match v with
-          | Verdict.Proved _ -> compare_at ~budget sides ~canonical ~other coord
+          | Verdict.Proved _ ->
+              compare_at ~budget ~probe ~label sides ~canonical ~other coord
           | settled -> settled)
     in
     let verdict =
@@ -310,7 +379,7 @@ let check_members ~budget sides ~canonical ~others ~shape =
     in
     (verdict, Coverage.Exhaustive)
 
-let check_cluster ~budget sides (c : Correspondence.Cluster.t) =
+let check_cluster ~budget ~probe sides (c : Correspondence.Cluster.t) =
   let members =
     List.map (fun id -> Member.Src id) (Tensor_id.Set.elements c.src)
     @ List.map (fun id -> Member.Dst id) (Tensor_id.Set.elements c.dst)
@@ -354,28 +423,35 @@ let check_cluster ~budget sides (c : Correspondence.Cluster.t) =
               Coverage.Not_applicable
         | None ->
             let verdict, coverage =
-              check_members ~budget sides ~canonical ~others ~shape
+              check_members ~budget ~probe ~label:c.label sides ~canonical
+                ~others ~shape
             in
             outcome verdict coverage)
 
 (* ---- entry points --------------------------------------------------------- *)
 
-let run ?(budget = Budget.default) map ~src ~dst =
+let run ?(budget = Budget.default) ?(probe = 4)
+    ?(src_constants = Tensor_id.Map.empty)
+    ?(dst_constants = Tensor_id.Map.empty) map ~src ~dst =
   let open Core.Syntax in
   let* () = (Graph_map.validate map ~src ~dst :> (unit, error) Core.result) in
   let clusters = Graph_map.clusters_over map ~src ~dst in
   let src_map, dst_map = input_renames clusters ~src ~dst in
-  let side graph rename =
+  let side graph rename constants =
+    let program = Eval_symbolic.run graph and rename = rename_with rename in
     {
-      env =
-        Ground_eval.Env.of_program (Eval_symbolic.run graph)
-          ~rename:(rename_with rename);
+      env = Ground_eval.Env.of_program program ~rename;
       graph;
+      with_constants = Ground_eval.Env.of_program ~constants program ~rename;
     }
   in
-  let sides = (side src src_map, side dst dst_map) in
-  let* outcomes = Core.List.map (check_cluster ~budget sides) clusters in
+  let sides =
+    (side src src_map src_constants, side dst dst_map dst_constants)
+  in
+  let* outcomes = Core.List.map (check_cluster ~budget ~probe sides) clusters in
   Core.return { Report.clusters = List.combine clusters outcomes }
 
-let step ?budget before (Rewrite.Step (after, map)) =
-  run ?budget map ~src:(Rewrite.graph before) ~dst:(Rewrite.graph after)
+let step ?budget ?probe before (Rewrite.Step (after, map)) =
+  run ?budget ?probe map ~src:(Rewrite.graph before)
+    ~src_constants:(Rewrite.constants before) ~dst:(Rewrite.graph after)
+    ~dst_constants:(Rewrite.constants after)

@@ -73,12 +73,12 @@ let%expect_test "verify: trim / chain permute" =
     [ Chain_permute.pass ];
   [%expect
     {|
-    permute_noop [trim]: 2 proved, 0 refuted, 0 unproved, 0 vacuous of 2
-    permute_sequence [trim]: 2 proved, 0 refuted, 0 unproved, 1 vacuous of 3
-    permute_identity_chain [chain;trim]: 3 proved, 0 refuted, 0 unproved, 1 vacuous of 4
-    permute_pair [chain]: 3 proved, 0 refuted, 0 unproved, 1 vacuous of 4
-    permute_partial_cancel [chain;trim]: 3 proved, 0 refuted, 0 unproved, 1 vacuous of 4
-    permute_shared [chain]: 5 proved, 0 refuted, 0 unproved, 0 vacuous of 5 |}]
+    permute_noop [trim]: 2 proved, 0 refuted, 0 tested, 0 unproved, 0 vacuous of 2
+    permute_sequence [trim]: 2 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 3
+    permute_identity_chain [chain;trim]: 3 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 4
+    permute_pair [chain]: 3 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 4
+    permute_partial_cancel [chain;trim]: 3 proved, 0 refuted, 0 tested, 0 unproved, 1 vacuous of 4
+    permute_shared [chain]: 5 proved, 0 refuted, 0 tested, 0 unproved, 0 vacuous of 5 |}]
 
 let%expect_test "verify: bypass / sink permute" =
   check "sink_permute_unary [sink]"
@@ -95,10 +95,10 @@ let%expect_test "verify: bypass / sink permute" =
     [ Sink_permute_mean.pass ];
   [%expect
     {|
-    sink_permute_unary [sink]: 3 proved, 0 refuted, 0 unproved, 2 vacuous of 5
-    sink_permute_binary [sink]: 5 proved, 0 refuted, 0 unproved, 3 vacuous of 8
-    sink_permute_broadcast [sink]: 5 proved, 0 refuted, 0 unproved, 3 vacuous of 8
-    sink_permute_mean_basic [sink_mean]: 2 proved, 0 refuted, 0 unproved, 2 vacuous of 4 |}]
+    sink_permute_unary [sink]: 3 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 5
+    sink_permute_binary [sink]: 5 proved, 0 refuted, 0 tested, 0 unproved, 3 vacuous of 8
+    sink_permute_broadcast [sink]: 5 proved, 0 refuted, 0 tested, 0 unproved, 3 vacuous of 8
+    sink_permute_mean_basic [sink_mean]: 2 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 4 |}]
 
 (* [reuse_permute] is the case that forces the frontier to cross CORRESPONDING
    edges: its map mentions only a deletion and a creation, so proving the
@@ -121,10 +121,10 @@ let%expect_test "verify: reuse_permute, including the non-commutative ops" =
     [ Reuse_permute.pass ];
   [%expect
     {|
-    reuse_permute_basic: 4 proved, 0 refuted, 0 unproved, 2 vacuous of 6
-    reuse_permute_sub_order: 4 proved, 0 refuted, 0 unproved, 2 vacuous of 6
-    reuse_permute_div_order: 4 proved, 0 refuted, 0 unproved, 2 vacuous of 6
-    reuse_permute_self_inverse: 3 proved, 0 refuted, 0 unproved, 0 vacuous of 3 |}]
+    reuse_permute_basic: 4 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 6
+    reuse_permute_sub_order: 4 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 6
+    reuse_permute_div_order: 4 proved, 0 refuted, 0 tested, 0 unproved, 2 vacuous of 6
+    reuse_permute_self_inverse: 3 proved, 0 refuted, 0 tested, 0 unproved, 0 vacuous of 3 |}]
 
 (* ---- what the verifier must NOT prove -------------------------------------
 
@@ -165,7 +165,7 @@ let%expect_test "verify: an identity map over a changed operator is unproved" =
     {|
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: proved (structural) [exhaustive]
-    {t2} -> {t2} identical: unproved: exhausted at (0): src.t2 vs dst.t2 [exhaustive] |}]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {t0(0)=0x1p+0, t1(0)=0x1.98p+6} [exhaustive] |}]
 
 (* The cluster {t0, t1} <-> {t0} is the shape trimming an identity permute
    produces: the input and the trimmed output both correspond to the surviving
@@ -218,7 +218,7 @@ let%expect_test "verify: a false claim about a non-canonical cluster member" =
   verify_map map ~src ~dst;
   [%expect
     {|
-    {t0, t1} -> {t0} identical: unproved: exhausted at (1,0): src.t0 vs src.t1 [exhaustive]
+    {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t0(1,0)=0x1p+3, t0(1,0,0)=0x1.bp+5} [exhaustive]
     {t2} -> {t1} identical: proved (structural) [exhaustive] |}]
 
 (* ---- the rounding boundary ------------------------------------------------
@@ -290,3 +290,104 @@ let%expect_test "verify: trimming a permute off an i32 input is unproved" =
     i32 input [trim]:
       {t0, t1} -> {t0} identical: unproved: format blocks collapse: t0(0) in src.t1 [exhaustive]
       {t2} -> {t2} identical: unproved: format blocks collapse: t0(0) in src.t2 [exhaustive] |}]
+
+(* ---- constant payloads ----------------------------------------------------
+
+   Binding the model's constants narrows what a proof quantifies over — every
+   INPUT, for these constants, rather than every payload — so it is only
+   attempted when the unqualified comparison fails. The permute passes above
+   stay at plain [structural] because they never need it; [fold_const] cannot
+   be proved without it, since the destination edge IS a payload the pass
+   computed. *)
+
+let verified_with ?budget ?probe ~constants g passes =
+  let open Core.Syntax in
+  let* (Rewrite.Origin state) = lift_origin (Rewrite.origin ~constants g) in
+  let* step = lift_pass (Pass.run_all state passes) in
+  lift_verify (Map_verify.step ?budget ?probe state step)
+
+let check_with ?budget ?probe ~constants name g passes =
+  Format.printf "@[<v 2>%s:@,%a@]@." name
+    (pp_result Map_verify.Report.pp_verdicts)
+    (verified_with ?budget ?probe ~constants g passes)
+
+let w_shape = Graph_fixtures.s 3 1 1 2 2 2
+
+let hw_ramp shape =
+  Tensor.materialize shape (fun c ->
+      float_of_int
+        ((Dim.to_int (Vec6.get c Axis.H) * 10) + Dim.to_int (Vec6.get c Axis.W)))
+
+let%expect_test "verify: fold_const needs the constants, and gets them" =
+  check_with
+    ~constants:[ (Tensor_id.of_int 1, hw_ramp w_shape) ]
+    "const_permute [fold_const]"
+    (Graph_fixtures.const_permute ())
+    [ Fold_const.pass ];
+  [%expect
+    {|
+    const_permute [fold_const]:
+      {t1} -> {} identical: vacuous
+      {t0} -> {t0} identical: proved (structural) [exhaustive]
+      {t2} -> {t2} identical: proved (structural, for these constants) [exhaustive]
+      {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
+
+(* Folding is only correct if the pass reproduced the source's arithmetic
+   exactly, materialization included. Perturbing the DESTINATION payload is how
+   to simulate a fold that computed the wrong number — perturbing the source
+   constant instead would just be folded faithfully and prove.
+
+   The refuted terms here are closed (both sides are constants), so the witness
+   is the empty valuation: two closed terms that differ need no assignment to
+   separate them. *)
+let%expect_test "verify: a fold that computed the wrong payload is refuted" =
+  let bump (Tensor.Tensor t as packed) =
+    Tensor.materialize t.Tensor.shape (fun c -> Tensor.read packed c +. 1.)
+  in
+  let result =
+    let open Core.Syntax in
+    let* (Rewrite.Origin state) =
+      lift_origin
+        (Rewrite.origin
+           ~constants:[ (Tensor_id.of_int 1, hw_ramp w_shape) ]
+           (Graph_fixtures.const_permute ()))
+    in
+    let* (Rewrite.Step (final, map)) =
+      lift_pass (Pass.run_all state [ Fold_const.pass ])
+    in
+    lift_verify
+      (Map_verify.run map ~src:(Rewrite.graph state)
+         ~src_constants:(Rewrite.constants state) ~dst:(Rewrite.graph final)
+         ~dst_constants:(Tensor_id.Map.map bump (Rewrite.constants final)))
+  in
+  Format.printf "@[<v 2>const_permute, folded payload off by one:@,%a@]@."
+    (pp_result Map_verify.Report.pp_verdicts)
+    result;
+  [%expect
+    {|
+    const_permute, folded payload off by one:
+      {t1} -> {} identical: vacuous
+      {t0} -> {t0} identical: proved (structural) [exhaustive]
+      {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {} [exhaustive]
+      {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
+
+(* A probe may only run once expansion has reached the graph inputs. Cells left
+   at a truncated frontier are internal stage results constrained by their
+   producers, so assigning them independently could manufacture a
+   "counterexample" no input can realise. Starve the rounds and the verdict must
+   be [max_rounds] — never a refutation. *)
+let%expect_test "verify: a truncated frontier never refutes" =
+  let starved = { Map_verify.Budget.default with max_rounds = 0 } in
+  check_with ~budget:starved ~constants:[]
+    "reuse_permute_sub_order, no expansion allowed"
+    (Graph_fixtures.reuse_permute_sub_order ())
+    [ Reuse_permute.pass ];
+  [%expect
+    {|
+    reuse_permute_sub_order, no expansion allowed:
+      {t3} -> {} identical: vacuous
+      {} -> {t5} identical: vacuous
+      {t0} -> {t0} identical: proved (structural) [exhaustive]
+      {t1} -> {t1} identical: proved (structural) [exhaustive]
+      {t2} -> {t2} identical: proved (structural) [exhaustive]
+      {t4} -> {t4} identical: unproved: over max_rounds [exhaustive] |}]

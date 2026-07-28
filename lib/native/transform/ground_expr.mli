@@ -36,6 +36,16 @@ module Valuation : sig
   val find : t -> Cell.t -> float
   val of_list : (Cell.t * float) list -> t
   val pp : Format.formatter -> t -> unit
+
+  (* Draw [n] over the given cells. Deterministic in [(cell, n)] alone — no RNG
+     state, so the same draw is reproducible from a printed verdict and does not
+     depend on the order cells are visited.
+
+     Draw 0 is a coordinate ramp rather than noise, because the errors this is
+     looking for are permutation and indexing mistakes, and a ramp separates
+     every cell of a tensor where a constant would not. Later draws are
+     pseudo-random and non-zero, so a [Div] does not degenerate. *)
+  val draw : int -> Cell.Set.t -> t
 end
 
 type guard = Lt of t * t | Pool_better of { best : t; value : t }

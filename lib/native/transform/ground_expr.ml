@@ -35,6 +35,31 @@ module Valuation = struct
       (Fmt.list ~sep:Fmt.comma (fun fmt (cell, v) ->
            Fmt.pf fmt "%a=%h" Cell.pp cell v))
       (Cell.Map.bindings t)
+
+  (* A ramp over the flattened coordinate, offset per edge, so no two cells of
+     one tensor share a value and no two tensors line up. *)
+  let ramp (c : Cell.t) =
+    let axis a = Dim.to_int (Vec6.get c.coord a) in
+    float_of_int
+      ((Tensor_id.to_int c.id * 101)
+      + (axis Axis.N * 10007)
+      + (axis Axis.T * 1009)
+      + (axis Axis.D * 503)
+      + (axis Axis.H * 53)
+      + (axis Axis.W * 7)
+      + axis Axis.C + 1)
+
+  (* [ramp] already distinguishes every cell, so it is the whole key here. *)
+  let pseudo_random n (c : Cell.t) =
+    let h = Hashtbl.hash (n, ramp c) in
+    let v = float_of_int ((h mod 1999) - 999) /. 250. in
+    if Float.equal v 0. then 1. else v
+
+  let draw n cells =
+    Cell.Set.fold
+      (fun c acc ->
+        Cell.Map.add c (if n = 0 then ramp c else pseudo_random n c) acc)
+      cells Cell.Map.empty
 end
 
 type guard = Lt of t * t | Pool_better of { best : t; value : t }
