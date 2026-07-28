@@ -66,12 +66,6 @@ let tensor_of_name (g : graph) env name =
   | Some tensor -> Core.return tensor
   | None -> Core.fail (`Missing_named_tensor name)
 
-let tensors_match shape a b =
-  let ok = ref true in
-  Vec6.iter shape (fun c ->
-      if not (Float.equal (Tensor.read a c) (Tensor.read b c)) then ok := false);
-  !ok
-
 let pp_named_tensor name ppf tensor =
   Format.fprintf ppf "%s = %a" name Tensor.pp tensor
 
@@ -570,7 +564,7 @@ let%expect_test
         (Cv.pixel conv_params ~x_shape:r.shape ~weight_shape:(s 1 1 1 2 2 2)
            ~x:x_nhwc ~weight:w ~bias:b)
     in
-    Core.return (x_nhwc, y_nhwc, y_nchw, tensors_match ref_shape ref_y y_nhwc)
+    Core.return (x_nhwc, y_nhwc, y_nchw, Tensor.equal_bits ref_y y_nhwc)
   in
   Format.printf "%a@." (pp_result pp_conv_decomp) result;
   [%expect
@@ -617,8 +611,7 @@ let%expect_test "Direct graph: conv with optional bias omitted (None -> zeros)"
     in
     let* y_no = tensor_of_name g_no env_no "y" in
     let* y_yes = tensor_of_name g_yes env_yes "y" in
-    let (Tensor.Tensor r) = y_no in
-    Core.return (y_no, tensors_match r.shape y_no y_yes)
+    Core.return (y_no, Tensor.equal_bits y_no y_yes)
   in
   Format.printf "%a@." (pp_result pp_bias_compare) result;
   [%expect
@@ -711,7 +704,7 @@ let%expect_test "Direct graph: grouped evaluation" =
     in
     let* out_n = tensor_of_name nested env_n "nested_out" in
     let* out_f = tensor_of_name flat env_f "out" in
-    Core.return (out_n, tensors_match (s1c 4) out_n out_f)
+    Core.return (out_n, Tensor.equal_bits out_n out_f)
   in
   Format.printf "%a@." (pp_result pp_nested_compare) result;
   [%expect

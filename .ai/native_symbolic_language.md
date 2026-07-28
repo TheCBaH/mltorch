@@ -332,7 +332,45 @@ coordinate, and `Value` or `Index` result kind. The configuration retains the
 validated domain types (`Dim.extent`, `Op_config.Pos`, and `Op_config.Nonneg`),
 rather than untyped integers. The geometry is retained rather than expanded
 into nested generic reductions, letting a footprint pass recognize the clipped
-2D stencil directly. Max-index evaluation chooses the first (smallest flattened
-input-plane) index on ties. `AvgPool2d` remains a generic clipped sum and
+2D stencil directly. `AvgPool2d` remains a generic clipped sum and
 divide: unlike max pooling, it has neither a padding-as-zero hazard nor an
 index-output contract.
+
+### The selection predicate lives in `Max_op` (added 2026-07-28)
+
+Pool selection is ATen's, transcribed from
+`aten/src/ATen/native/cpu/MaxPoolKernel.cpp:215` (and matching the vectorised
+path at `:116`, which blends on the same mask, so ATen has one well-defined
+answer here):
+
+```cpp
+bool mask   = (val > maxval) || is_nan(val);
+out_data[d2] = mask ? val   : maxval;
+ind[d2]      = mask ? index : maxindex;
+```
+
+Two consequences. A NaN anywhere in the window propagates, and since every NaN
+re-satisfies the predicate the **last** NaN wins together with its index. An
+ordinary tie leaves the incumbent in place, which is what preserves the
+first/smallest-flattened-index contract stated above. Value and index must be
+updated **together** under this one predicate.
+
+It lives in `lib/native/max_op.ml` rather than open-coded at each site because
+three interpreters have to agree bit-for-bit — `Direct` runs the computation,
+`Expr.eval` grounds the symbolic form against it, and the transformation
+verifier (`.ai/native_transform_verify.md`) probes against both. Before the
+module existed they did not: `Direct` pooled with `Float.max` while `Expr.eval`
+pooled with a strict `>`, so the two disagreed on `-0.` vs `+0.` and on NaN, and
+`Direct`'s own value and index paths disagreed with each other (the value
+propagated a NaN, the index did not). `test/native/compute_test.ml` pins the
+ATen answer in f32 bits; `test/native/symbolic_test.ml` pins Direct == Symbolic.
+
+`Max_op.Float_max` — generic `Reduce Max_reduce` — is a **different** operator
+and deliberately still `Float.max`. It does not match ATen's `amax`, but there
+is nothing to match: `max_values_kernel_impl`
+(`ReduceOpsKernel.cpp:370`) dispatches a scalar reducer (`zmath.h:210`: first
+operand on a signed-zero tie, a canonical `quiet_NaN`) *and* a vector one
+(`vec_base.h:862`: second operand on a tie, the operand's own NaN bits), and
+which runs depends on shape and vector width. Fixing it needs an empirical study
+against real ATen across both zero orders and several vector widths. Until then
+the tests assert only that the two interpreters agree, not what the answer is.

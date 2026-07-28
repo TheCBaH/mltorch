@@ -458,6 +458,78 @@ let%expect_test
        (M.index_pixel p ~x_shape ~x));
   [%expect {| tensor f32 [C=1] {0} |}]
 
+(* ---- max-pool signed zero / NaN, against ATen -----------------------------
+
+   [Tensor.pp] renders -0. as "-0" but every NaN as "nan", so it cannot show
+   WHICH NaN survived — and these tests turn on exactly those bits. Print the
+   f32 storage pattern instead. *)
+
+let bits_of tensor =
+  let (Tensor.Tensor t) = tensor in
+  Vec6.fold_coords t.Tensor.shape ~init:[] ~f:(fun acc c ->
+      Printf.sprintf "%08lx" (Int32.bits_of_float (Tensor.read tensor c)) :: acc)
+  |> List.rev |> String.concat " "
+
+let pp_bits ppf tensor = Format.pp_print_string ppf (bits_of tensor)
+
+(* A 1xN window, so one output pixel reduces the whole row. *)
+let row_pool n =
+  {
+    Pool.MaxPool2d.kernel = Op_config.Hw.{ h = Dim.extent 1; w = Dim.extent n };
+    stride =
+      Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int n };
+    pad =
+      Op_config.Hw.
+        { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+  }
+
+let row_input values =
+  let n = Array.length values in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:n ~c:1 in
+  (x_shape, Tensor.materialize x_shape (fun c -> values.(col c)))
+
+(* Two NaNs the same class but distinct payloads: identical payloads would make
+   "the last NaN wins" unobservable. *)
+let nan1 = Int32.float_of_bits 0x7FC00001l
+let nan2 = Int32.float_of_bits 0x7FC00002l
+
+let%expect_test "Direct: max_pool2d keeps the incumbent on a signed-zero tie" =
+  (* ATen selects on [(val > maxval) || isnan(val)] (MaxPoolKernel.cpp:215), and
+     [-0. > +0.] and [+0. > -0.] are both false, so a signed-zero tie keeps
+     whichever came first. [Float.max] would answer +0. either way, which is the
+     bug this pins. *)
+  let module P = Pool.MaxPool2d.Compute (Direct) in
+  List.iter
+    (fun (name, values) ->
+      let x_shape, x = row_input values in
+      let p = row_pool 2 in
+      Format.printf "%s: %a@." name (pp_result pp_bits)
+        (eval_tensor
+           (Pool.MaxPool2d.output_shape ~x_shape p)
+           (P.pixel p ~x_shape ~x)))
+    [ ("-0 then +0", [| -0.; 0. |]); ("+0 then -0", [| 0.; -0. |]) ];
+  [%expect {|
+    -0 then +0: 80000000
+    +0 then -0: 00000000 |}]
+
+let%expect_test
+    "Direct: max_pool2d_with_indices — the last NaN wins, with its index" =
+  (* Every NaN re-satisfies the predicate, so the last one in iteration order
+     ends up in both the value and the index. Before [Max_op] the value
+     propagated a NaN (via [Float.max]) while the index did not (strict [>]),
+     so the two disagreed about which element won. *)
+  let module M = Pool.MaxPool2dWithIndices.Compute (Direct) in
+  let x_shape, x = row_input [| nan1; 5.; nan2; 7. |] in
+  let p = row_pool 4 in
+  let shape = Pool.MaxPool2dWithIndices.output_shape ~x_shape p in
+  Format.printf "value: %a@." (pp_result pp_bits)
+    (eval_tensor shape (M.value_pixel p ~x_shape ~x));
+  Format.printf "index: %a@." (pp_result Tensor.pp)
+    (eval_tensor shape (M.index_pixel p ~x_shape ~x));
+  [%expect {|
+    value: 7fc00002
+    index: tensor f32 [C=1] {2} |}]
+
 let%expect_test "Direct: reshape [H=2 W=3 C=1] -> [W=3 C=2] (contiguous)" =
   let module R = Reshape.Reshape.Compute (Direct) in
   (* row-major elements 0..5; a contiguous reshape reinterprets the same flat

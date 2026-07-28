@@ -43,12 +43,6 @@ let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
     dilation = Op_config.Pos.of_int 1;
   }
 
-let tensors_match shape a b =
-  let ok = ref true in
-  Vec6.iter shape (fun c ->
-      if not (Float.equal (Tensor.read a c) (Tensor.read b c)) then ok := false);
-  !ok
-
 let output_id (g : graph) =
   match g.Graph.outputs with
   | [ id ] -> Core.return id
@@ -65,8 +59,7 @@ let compare_output g grounded direct =
   let* id = output_id g in
   let* grounded_out = find_tensor grounded id in
   let* direct_out = find_tensor direct id in
-  let (Tensor.Tensor r) = grounded_out in
-  Core.return (grounded_out, tensors_match r.shape grounded_out direct_out)
+  Core.return (grounded_out, Tensor.equal_bits grounded_out direct_out)
 
 let pp_ground_result name ppf (tensor, matches) =
   Format.fprintf ppf "%s = %a@.ground matches direct: %b" name Tensor.pp tensor
@@ -397,8 +390,7 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
          (fun oid ->
            let d = Tensor_id.Map.find oid direct in
            let gr = Tensor_id.Map.find oid grounded in
-           let (Tensor.Tensor r) = d in
-           (d, tensors_match r.shape d gr))
+           (d, Tensor.equal_bits d gr))
          g.Graph.outputs)
   in
   (match result with

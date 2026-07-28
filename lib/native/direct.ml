@@ -99,7 +99,7 @@ let max_pool2d inp ~(x_shape : Vec6.shape)
         load6 inp ~n:out.n ~t:out.t ~d:out.d ~h:(Dim.index ih) ~w:(Dim.index iw)
           ~c:out.c
       in
-      loop_w ih (iw + 1) (Float.max best v)
+      loop_w ih (iw + 1) (Max_op.apply Pool_max best v)
   and loop_h ih best = if ih >= hhi then best else loop_w ih wlo best in
   loop_h hlo neg_infinity
 
@@ -127,9 +127,12 @@ let max_pool2d_index inp ~(x_shape : Vec6.shape)
         load6 inp ~n:out.n ~t:out.t ~d:out.d ~h:(Dim.index ih) ~w:(Dim.index iw)
           ~c:out.c
       in
-      (* Strict comparison preserves the first (smallest flat) index on ties. *)
+      (* One predicate updates value and index together, so they cannot fall out
+         of step (a NaN taken as the value but not as the index). Ties keep the
+         incumbent, preserving the first (smallest flat) index. *)
       let best, best_index =
-        if v > best then (v, (ih * w) + iw) else (best, best_index)
+        if Max_op.pool_better ~best ~value:v then (v, (ih * w) + iw)
+        else (best, best_index)
       in
       loop_w ih (iw + 1) best best_index
   and loop_h ih best best_index =
@@ -148,6 +151,6 @@ let max_reduce ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
     (f : Semantics.position index -> t) =
   let rec loop (i : Semantics.position index) acc =
     if (i :> int) >= (hi :> int) then acc
-    else loop (Dim.succ i) (Float.max acc (f i))
+    else loop (Dim.succ i) (Max_op.apply Float_max acc (f i))
   in
   loop lo neg_infinity

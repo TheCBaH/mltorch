@@ -15,11 +15,15 @@ let compare_symbolic out_shape_result ~iter_shape ~eval_direct ~eval_symbolic =
   let open Core.Syntax in
   let* out_shape = out_shape_result in
   let outs = ref [] and ok = ref true in
+  (* Bitwise, not [Float.equal]: the latter equates -0. with +0. and any NaN
+     with any other, which is precisely what the max-pool tests below have to
+     tell apart. See [Tensor.equal_bits]. *)
+  let same a b = Int64.equal (Int64.bits_of_float a) (Int64.bits_of_float b) in
   Vec6.iter iter_shape (fun c ->
       let d = eval_direct c in
       let s = eval_symbolic c in
       outs := s :: !outs;
-      if not (Float.equal d s) then ok := false);
+      if not (same d s) then ok := false);
   Core.return
     ( String.concat "," (List.map (Printf.sprintf "%g") (List.rev !outs)),
       !ok,
@@ -45,18 +49,12 @@ let conv_params ?(groups = 1) ?(pad = (0, 0)) ~kernel ~stride ~in_channels () =
     groups = Op_config.Pos.of_int groups;
   }
 
-let tensors_match shape a b =
-  let ok = ref true in
-  Vec6.iter shape (fun c ->
-      if not (Float.equal (Tensor.read a c) (Tensor.read b c)) then ok := false);
-  !ok
-
 let compare_grounded out_shape_result ~binding ~expr ~eval_direct =
   let open Core.Syntax in
   let* out_shape = out_shape_result in
   let direct = Schedule.evaluate out_shape eval_direct in
   let grounded = Schedule.ground out_shape ~binding expr in
-  Core.return (grounded, tensors_match out_shape direct grounded)
+  Core.return (grounded, Tensor.equal_bits direct grounded)
 
 let%expect_test "Symbolic: pointwise expr pp" =
   let module S = Symbolic.Make () in
@@ -640,3 +638,101 @@ let%expect_test
     grounded=tensor f32 [H=2 W=2 C=2] {0, 0, 0, 0, 0, 0, 0, 0} match=true
     grounded=tensor f32 [H=2 W=2 C=2] {3, 3, 3, 3, 3, 3, 3, 3} match=true
     |}]
+
+(* ---- max semantics: Direct and Symbolic must agree bit-for-bit -------------
+
+   These are the agreement half of the ATen conformance tests in
+   compute_test.ml. They exist because the two interpreters used to pool with
+   DIFFERENT predicates ([Float.max] in Direct, a strict [>] in Expr.eval), so
+   they disagreed on -0. vs +0. and on NaN. Both now route through [Max_op];
+   these lock that in, and would fail again if a site reached for [Float.max]
+   directly. *)
+
+let nan1 = Int32.float_of_bits 0x7FC00001l
+let nan2 = Int32.float_of_bits 0x7FC00002l
+
+let row_pool n =
+  {
+    Pool.MaxPool2d.kernel = Op_config.Hw.{ h = Dim.extent 1; w = Dim.extent n };
+    stride =
+      Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int n };
+    pad =
+      Op_config.Hw.
+        { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+  }
+
+let%expect_test "Symbolic max_pool2d: agrees with Direct on signed zero and NaN"
+    =
+  let module S = Symbolic.Make () in
+  let module Pd = Pool.MaxPool2d.Compute (Direct) in
+  let module Ps = Pool.MaxPool2d.Compute (S) in
+  List.iter
+    (fun (name, values) ->
+      let n = Array.length values in
+      let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:n ~c:1 in
+      let x = Tensor.materialize x_shape (fun c -> values.(col c)) in
+      let xs =
+        Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape
+          ~fmt:f32 ()
+      in
+      let p = row_pool n in
+      let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
+      let binding (s : Tensor_sig.t) =
+        if s.id = xs.id then x else assert false
+      in
+      Format.printf "%s: %a@." name
+        (pp_result (fun ppf (_, ok) -> Format.fprintf ppf "match=%b" ok))
+        (compare_grounded
+           (Pool.MaxPool2d.output_shape ~x_shape p)
+           ~binding ~expr:e ~eval_direct:(Pd.pixel p ~x_shape ~x)))
+    [
+      ("-0 then +0", [| -0.; 0. |]);
+      ("+0 then -0", [| 0.; -0. |]);
+      ("two NaN payloads", [| nan1; 5.; nan2; 7. |]);
+    ];
+  [%expect
+    {|
+    -0 then +0: match=true
+    +0 then -0: match=true
+    two NaN payloads: match=true |}]
+
+let%expect_test "Symbolic max_reduce: agrees with Direct on signed zero and NaN"
+    =
+  (* The generic reduction, which no op reaches today, so it is exercised
+     directly. Both sides go through [Max_op.apply Float_max]; the test asserts
+     they AGREE, deliberately not what the answer is — [Float_max] does not
+     match ATen's [amax], whose scalar and vector reducers disagree with each
+     other, so there is no answer to pin. See max_op.mli. *)
+  let module S = Symbolic.Make () in
+  List.iter
+    (fun (name, values) ->
+      let n = Array.length values in
+      let shape = s1c n in
+      let x = Tensor.materialize shape (fun c -> values.(chan c)) in
+      let xs =
+        Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape ~fmt:f32 ()
+      in
+      let at zero i = Vec6.of_fn (fun a -> if a = Axis.C then i else zero) in
+      let direct =
+        Direct.max_reduce ~lo:Direct.index_zero ~hi:(Direct.index_const n)
+          (fun i -> Direct.load x (at Direct.index_zero i))
+      in
+      let e =
+        S.max_reduce ~lo:S.index_zero ~hi:(S.index_const n) (fun i ->
+            S.load xs (at S.index_zero i))
+      in
+      let symbolic = Expr.eval ~binding:(fun _ -> x) ~coord:(fun _ -> 0) e in
+      Format.printf "%s: direct==symbolic=%b@." name
+        (Int64.equal
+           (Int64.bits_of_float direct)
+           (Int64.bits_of_float symbolic)))
+    [
+      ("-0 then +0", [| -0.; 0. |]);
+      ("+0 then -0", [| 0.; -0. |]);
+      ("two NaN payloads", [| nan1; 5.; nan2; 7. |]);
+    ];
+  [%expect
+    {|
+    -0 then +0: direct==symbolic=true
+    +0 then -0: direct==symbolic=true
+    two NaN payloads: direct==symbolic=true |}]

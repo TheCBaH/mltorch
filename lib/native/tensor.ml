@@ -93,6 +93,25 @@ let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) =
       Payload.set_float payload ~c:(channel c) ~i (f c));
   Tensor { shape; payload }
 
+(* Bit-for-bit equality — the only correct notion when the engine claims two
+   computations are *identical* rather than merely close.
+
+   [Float.equal] is unfit for that and was silently in use across the tests:
+   [Float.equal (-0.) 0.] is [true], and so is [Float.equal] on two NaNs with
+   different payloads. Both are exactly the distinctions the max-pool semantics
+   turn on (see [Max_op]), so a test built on [Float.equal] cannot observe the
+   bug it is meant to pin.
+
+   Compares [Int64] bits of the *decoded* element rather than [Int32] bits of the
+   stored one: decoding is what every consumer sees, the widening is exact for
+   every storage format (so no case analysis on [Payload.fmt] is needed), and it
+   still separates signed zeros and distinct NaN payloads. *)
+let equal_bits (Tensor a as ta) (Tensor b as tb) =
+  let bits x = Int64.bits_of_float x in
+  Stdlib.( = ) a.shape b.shape
+  && Vec6.fold_coords a.shape ~init:true ~f:(fun ok coord ->
+      ok && Int64.equal (bits (read ta coord)) (bits (read tb coord)))
+
 (* ---- JSON codec ----------------------------------------------------------- *)
 
 (* Encodes a packed tensor as
