@@ -31,11 +31,20 @@ open Graph_ir
 module Member : sig
   (* Side-tagged, because [{src=t0} <-> {dst=t0}] holds two distinct members
      that share a raw id, and because a comparison can legitimately run between
-     two SOURCE members. *)
-  type t = Dst of Tensor_id.t | Src of Tensor_id.t
+     two SOURCE members.
 
-  val compare : t -> t -> int
-  val pp : Format.formatter -> t -> unit
+     Only the ERASED form is public. During checking a member carries its graph
+     version and there is no [id] accessor at all — reaching an id means going
+     through the eliminator that pairs a member with its own side, which is the
+     mistake fixed by hand at map_verify.ml:316. Reports drop the version: the
+     hierarchy below is unparameterized and escapes into [Pass.outcome] and the
+     interpreter's result record, and a report is read, not computed with. *)
+  module Erased : sig
+    type t = { id : Tensor_id.t; side : [ `Dst | `Src ] }
+
+    val compare : t -> t -> int
+    val pp : Format.formatter -> t -> unit
+  end
 end
 
 module Budget : sig
@@ -114,15 +123,15 @@ module Refutation : sig
      source member. *)
   type t =
     | Shape of {
-        lhs : Member.t;
+        lhs : Member.Erased.t;
         lhs_shape : Vec6.shape;
-        rhs : Member.t;
+        rhs : Member.Erased.t;
         rhs_shape : Vec6.shape;
       }
     | Value of {
         coord : Vec6.coord;
-        lhs : Member.t;
-        rhs : Member.t;
+        lhs : Member.Erased.t;
+        rhs : Member.Erased.t;
         valuation : Ground_expr.Valuation.t;
       }
   (* A reproducible counterexample: replaying [valuation] through
@@ -135,14 +144,21 @@ end
 module Unproved : sig
   type t =
     | Eval of Ground_eval.error
-    | Exhausted of { coord : Vec6.coord; lhs : Member.t; rhs : Member.t }
+    | Exhausted of {
+        coord : Vec6.coord;
+        lhs : Member.Erased.t;
+        rhs : Member.Erased.t;
+      }
       (* frontier fully expanded, terms still differ *)
     | Max_nodes of int
     | Max_rounds
       (* cells still expandable: the frontier never reached the inputs *)
     | Out_of_bounds of Ground_expr.Cell.t
     | Too_large of int
-    | Unsupported_format of { blocked : Ground_expr.Cell.t; member : Member.t }
+    | Unsupported_format of {
+        blocked : Ground_expr.Cell.t;
+        member : Member.Erased.t;
+      }
     | Unsupported_relation of Correspondence.relation
 
   val pp : Format.formatter -> t -> unit

@@ -3,20 +3,38 @@
 open Graph_ir
 
 module Member = struct
-  type t = Dst of Tensor_id.t | Src of Tensor_id.t
+  (* A GADT rather than a pair of [Tensor_id.t]s, which DELETES the [id]
+     accessor instead of typing it: [id] erased exactly the distinction this
+     type exists to keep, and map_verify.ml:316 was a source id resolved in the
+     destination's producer map. Reaching an id now means going through
+     [resolve] below, which pairs a member with its own side. *)
+  type ('src, 'dst) t =
+    | Dst : 'dst Snapshot.edge -> ('src, 'dst) t
+    | Src : 'src Snapshot.edge -> ('src, 'dst) t
 
-  let id = function Dst id -> id | Src id -> id
-  let tag = function Dst _ -> 0 | Src _ -> 1
+  (* What a report shows. The report hierarchy is unparameterized and escapes
+     into [Pass.outcome] and the interpreter's result record, so the version is
+     dropped once graph lookup is done — checking is typed, diagnostics are
+     read. The printed form is unchanged. *)
+  module Erased = struct
+    type t = { id : Tensor_id.t; side : [ `Dst | `Src ] }
 
-  let compare a b =
-    match Stdlib.compare (tag a) (tag b) with
-    | 0 -> Tensor_id.compare (id a) (id b)
-    | n -> n
+    let rank t = match t.side with `Dst -> 0 | `Src -> 1
 
-  let pp fmt m =
-    Fmt.pf fmt "%s%a"
-      (match m with Dst _ -> "dst." | Src _ -> "src.")
-      Tensor_id.pp (id m)
+    let compare a b =
+      match Stdlib.compare (rank a) (rank b) with
+      | 0 -> Tensor_id.compare a.id b.id
+      | n -> n
+
+    let pp fmt t =
+      Fmt.pf fmt "%s%a"
+        (match t.side with `Dst -> "dst." | `Src -> "src.")
+        Tensor_id.pp t.id
+  end
+
+  let erase : type s d. (s, d) t -> Erased.t = function
+    | Dst e -> { Erased.id = Correspondence.raw e; side = `Dst }
+    | Src e -> { Erased.id = Correspondence.raw e; side = `Src }
 end
 
 module Budget = struct
@@ -139,43 +157,52 @@ end
 module Refutation = struct
   type t =
     | Shape of {
-        lhs : Member.t;
+        lhs : Member.Erased.t;
         lhs_shape : Vec6.shape;
-        rhs : Member.t;
+        rhs : Member.Erased.t;
         rhs_shape : Vec6.shape;
       }
     | Value of {
         coord : Vec6.coord;
-        lhs : Member.t;
-        rhs : Member.t;
+        lhs : Member.Erased.t;
+        rhs : Member.Erased.t;
         valuation : Ground_expr.Valuation.t;
       }
 
   let pp fmt = function
     | Shape s ->
-        Fmt.pf fmt "@[<h>shape %a:%a vs %a:%a@]" Member.pp s.lhs Vec6.pp_shape
-          s.lhs_shape Member.pp s.rhs Vec6.pp_shape s.rhs_shape
+        Fmt.pf fmt "@[<h>shape %a:%a vs %a:%a@]" Member.Erased.pp s.lhs
+          Vec6.pp_shape s.lhs_shape Member.Erased.pp s.rhs Vec6.pp_shape
+          s.rhs_shape
     | Value v ->
         Fmt.pf fmt "@[<h>value at %a: %a vs %a under %a@]" Vec6.pp_coord v.coord
-          Member.pp v.lhs Member.pp v.rhs Ground_expr.Valuation.pp v.valuation
+          Member.Erased.pp v.lhs Member.Erased.pp v.rhs Ground_expr.Valuation.pp
+          v.valuation
 end
 
 module Unproved = struct
   type t =
     | Eval of Ground_eval.error
-    | Exhausted of { coord : Vec6.coord; lhs : Member.t; rhs : Member.t }
+    | Exhausted of {
+        coord : Vec6.coord;
+        lhs : Member.Erased.t;
+        rhs : Member.Erased.t;
+      }
     | Max_nodes of int
     | Max_rounds
     | Out_of_bounds of Ground_expr.Cell.t
     | Too_large of int
-    | Unsupported_format of { blocked : Ground_expr.Cell.t; member : Member.t }
+    | Unsupported_format of {
+        blocked : Ground_expr.Cell.t;
+        member : Member.Erased.t;
+      }
     | Unsupported_relation of Correspondence.relation
 
   let pp fmt = function
     | Eval e -> Fmt.pf fmt "@[<h>eval: %a@]" Ground_eval.pp_error e
     | Exhausted e ->
         Fmt.pf fmt "@[<h>exhausted at %a: %a vs %a@]" Vec6.pp_coord e.coord
-          Member.pp e.lhs Member.pp e.rhs
+          Member.Erased.pp e.lhs Member.Erased.pp e.rhs
     | Max_nodes n -> Fmt.pf fmt "over max_nodes (%d)" n
     | Max_rounds -> Fmt.string fmt "over max_rounds"
     | Out_of_bounds c ->
@@ -183,7 +210,7 @@ module Unproved = struct
     | Too_large n -> Fmt.pf fmt "too large (%d coords)" n
     | Unsupported_format f ->
         Fmt.pf fmt "@[<h>format blocks collapse: %a in %a@]" Ground_expr.Cell.pp
-          f.blocked Member.pp f.member
+          f.blocked Member.Erased.pp f.member
     | Unsupported_relation r ->
         Fmt.pf fmt "@[<h>unsupported relation: %a@]" Correspondence.pp_relation
           r
@@ -316,14 +343,18 @@ module Group_path = struct
     in
     walk [] g.Graph.root Node_id.Map.empty
 
-  (* Which node produced an edge, so a cluster can be placed. *)
-  let producers (g : graph) =
+  (* Which node produced an edge, so a cluster can be placed. Keyed by
+     DESTINATION edge, so the rule below is a type rather than a comment. *)
+  let producers (dst : 'dst Snapshot.t) =
     List.fold_left
       (fun acc (n : node) ->
         List.fold_left
-          (fun acc out -> Tensor_id.Map.add out n.Node.id acc)
+          (fun acc out ->
+            match Snapshot.edge dst out with
+            | Some e -> Correspondence.Map.update e n.Node.id acc
+            | None -> acc)
           acc n.Node.outputs)
-      Tensor_id.Map.empty g.Graph.nodes
+      Correspondence.Map.empty (Snapshot.graph dst).Graph.nodes
 
   (* A cluster is placed by its DESTINATION edges only — that is the graph whose
      group tree this is. An edge with no producer is a graph input, which belongs
@@ -334,15 +365,16 @@ module Group_path = struct
      producer map, which is a different id universe: a source id that happens to
      collide numerically with an unrelated destination edge would file the
      cluster under that edge's group. Wrong attribution is worse than the root,
-     because it reads as a real answer. *)
-  let of_cluster ~index ~producers (c : Correspondence.Cluster.Erased.t) =
+     because it reads as a real answer. [producers] is keyed by ['dst] edge, so
+     that fallback no longer type-checks. *)
+  let of_cluster ~index ~producers (c : ('src, 'dst) Correspondence.Cluster.t) =
     Option.value ~default:[]
-      (Tensor_id.Set.fold
-         (fun id acc ->
+      (Correspondence.Set.fold
+         (fun e acc ->
            match acc with
            | Some _ -> acc
            | None -> (
-               match Tensor_id.Map.find_opt id producers with
+               match Correspondence.Map.find_opt e producers with
                | None -> None
                | Some node -> Node_id.Map.find_opt node index))
          c.dst None)
@@ -517,20 +549,63 @@ let rename_with map id =
 
 (* Two envs per graph. [env] leaves model constants as free cells, so a proof
    through it quantifies over every payload; [with_constants] substitutes them,
-   which is strictly weaker and therefore only tried when the first fails. *)
-type side = {
+   which is strictly weaker and therefore only tried when the first fails.
+
+   Indexed by the version it belongs to, which is what lets [resolve] below
+   insist that a member and the side it is looked up in agree. *)
+type 'v side = {
   env : Ground_eval.Env.t;
-  graph : graph;
+  snapshot : 'v Snapshot.t;
   with_constants : Ground_eval.Env.t;
 }
 
-let shape_of side id =
-  match Tensor_id.Map.find_opt id side.graph.Graph.tensors with
-  | Some (sg : Tensor_sig.t) -> Core.return sg.Tensor_sig.shape
-  | None -> Core.fail (`Missing_signature id)
+type ('src, 'dst) sides = { dst : 'dst side; src : 'src side }
 
-let side_of sides member =
-  match member with Member.Src _ -> fst sides | Member.Dst _ -> snd sides
+(* RANK-2 on purpose. [f] is polymorphic in the version, so it can only be
+   applied to a side and an edge that agree — which makes pairing [Dst] with the
+   source side a type error rather than the bug at map_verify.ml:316 written
+   again. The result is version-free, so nothing leaks back out.
+
+   [side_of] cannot exist in its place: "the side this member belongs to" has a
+   constructor-dependent type, and a function returning it would have to pick one
+   version for both arms. *)
+type 'a resolve = { f : 'v. 'v side -> 'v Snapshot.edge -> 'a }
+
+let resolve : type s d. (s, d) sides -> (s, d) Member.t -> 'a resolve -> 'a =
+ fun sides member r ->
+  match member with
+  | Member.Dst e -> r.f sides.dst e
+  | Member.Src e -> r.f sides.src e
+
+(* Everything a comparison needs from a member, with the version discharged. *)
+type located = {
+  loc_env : Ground_eval.Env.t;
+  loc_id : Tensor_id.t;
+  loc_with_constants : Ground_eval.Env.t;
+}
+
+let locate sides member =
+  resolve sides member
+    {
+      f =
+        (fun side e ->
+          {
+            loc_env = side.env;
+            loc_id = Correspondence.raw e;
+            loc_with_constants = side.with_constants;
+          });
+    }
+
+let shape_for sides member =
+  resolve sides member
+    {
+      f =
+        (fun side e ->
+          let id = Correspondence.raw e in
+          match Graph_view.sig_of (Snapshot.view side.snapshot) id with
+          | Some (sg : Tensor_sig.t) -> Core.return sg.Tensor_sig.shape
+          | None -> Core.fail (`Missing_signature id));
+    }
 
 (* Deepen until the two terms agree, or until there is nothing left to expand
    or no rounds left. Structural equality is tried BEFORE normalising and again
@@ -634,11 +709,13 @@ and counterexample ~probe ~lhs ~rhs =
 (* A grounding failure is a verdict ABOUT this cluster, not an error for the
    caller, so it is converted here rather than short-circuiting [run]. *)
 let compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other coord =
-  let lhs_side = side_of sides canonical and rhs_side = side_of sides other in
+  let lhs = locate sides canonical and rhs = locate sides other in
+  (* Erased once, here: [settle] only ever REPORTS these. *)
+  let members = (Member.erase canonical, Member.erase other) in
   let attempt proof lhs_env rhs_env =
     match
-      ( Ground_eval.at lhs_env (Member.id canonical) coord,
-        Ground_eval.at rhs_env (Member.id other) coord )
+      ( Ground_eval.at lhs_env lhs.loc_id coord,
+        Ground_eval.at rhs_env rhs.loc_id coord )
     with
     | Error e, _ | Ok _, Error e ->
         Verdict.Unproved (Unproved.Eval e.Core.Error.kind)
@@ -652,7 +729,7 @@ let compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other coord =
         | Some c -> Verdict.Unproved (Unproved.Out_of_bounds c)
         | None ->
             settle ~budget ~probe ~tolerance ~label ~proof ~rounds:0 ~lhs ~rhs
-              ~lhs_env ~rhs_env ~coord ~members:(canonical, other))
+              ~lhs_env ~rhs_env ~coord ~members)
   in
   (* Unqualified first, purely to STRENGTHEN: a proof with the constants left
      free is a statement about every payload, and binding them would silently
@@ -665,10 +742,10 @@ let compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other coord =
      counterexample that expanding a truncated frontier would produce. So every
      verdict other than [Proved] comes from the constant-bound attempt, where
      the cells still free really are free inputs. *)
-  match attempt Strength.Structural lhs_side.env rhs_side.env with
+  match attempt Strength.Structural lhs.loc_env rhs.loc_env with
   | Verdict.Proved _ as proved -> proved
   | _ ->
-      attempt Strength.Constants lhs_side.with_constants rhs_side.with_constants
+      attempt Strength.Constants lhs.loc_with_constants rhs.loc_with_constants
 
 (* Compare every member against a canonical one. [{t0,t1} -> {t0}] must check
    t1, which is the trimmed edge the map's claim is actually about. Stops at the
@@ -733,13 +810,13 @@ let check_members ~budget ~probe ~tolerance ~label sides ~canonical ~others
     (verdict, coverage)
 
 let check_cluster ~budget ~probe ~tolerance sides
-    (c : Correspondence.Cluster.Erased.t) =
+    (c : ('src, 'dst) Correspondence.Cluster.t) =
   let members =
-    List.map (fun id -> Member.Src id) (Tensor_id.Set.elements c.src)
-    @ List.map (fun id -> Member.Dst id) (Tensor_id.Set.elements c.dst)
+    List.map (fun e -> Member.Src e) (Correspondence.Set.elements c.src)
+    @ List.map (fun e -> Member.Dst e) (Correspondence.Set.elements c.dst)
   in
   let outcome verdict coverage = Core.return { Outcome.coverage; verdict } in
-  if Tensor_id.Set.is_empty c.src || Tensor_id.Set.is_empty c.dst then
+  if Correspondence.Set.is_empty c.src || Correspondence.Set.is_empty c.dst then
     outcome Verdict.Vacuous Coverage.Not_applicable
   else if c.label = Correspondence.Unverifiable then
     outcome (Verdict.Unproved (Unproved.Unsupported_relation c.label))
@@ -749,7 +826,7 @@ let check_cluster ~budget ~probe ~tolerance sides
     match members with
     | [] -> outcome Verdict.Vacuous Coverage.Not_applicable
     | canonical :: others -> (
-        let shape_for m = shape_of (side_of sides m) (Member.id m) in
+        let shape_for m = shape_for sides m in
         let* shape = shape_for canonical in
         (* Shapes are checked BEFORE the coordinate budget, since [numel] is
            ambiguous when the members disagree on shape. *)
@@ -769,9 +846,9 @@ let check_cluster ~budget ~probe ~tolerance sides
               (Verdict.Refuted
                  (Refutation.Shape
                     {
-                      lhs = canonical;
+                      lhs = Member.erase canonical;
                       lhs_shape = shape;
-                      rhs = m;
+                      rhs = Member.erase m;
                       rhs_shape = s;
                     }))
               Coverage.Not_applicable
@@ -797,36 +874,44 @@ let run ?(budget = Budget.default)
   let* () =
     (Graph_map.check_claim_closure map ~src ~dst :> (unit, error) Core.result)
   in
-  let clusters =
-    Graph_map.clusters_over map ~src ~dst
-    |> List.map Correspondence.Cluster.erase
+  let clusters = Graph_map.clusters_over map ~src ~dst in
+  (* The representative allocation works on raw ids across both graphs at once,
+     which is the one thing here that genuinely has no version. *)
+  let src_map, dst_map =
+    input_renames
+      (List.map Correspondence.Cluster.erase clusters)
+      ~src:(Snapshot.graph src) ~dst:(Snapshot.graph dst)
   in
-  let src = Snapshot.graph src and dst = Snapshot.graph dst in
-  let src_map, dst_map = input_renames clusters ~src ~dst in
-  let side graph rename constants =
-    let program = Eval_symbolic.run graph and rename = rename_with rename in
+  let side : type v. v Snapshot.t -> _ -> _ -> v side =
+   fun snapshot rename constants ->
+    let program = Eval_symbolic.run (Snapshot.graph snapshot)
+    and rename = rename_with rename in
     {
       env = Ground_eval.Env.of_program program ~rename;
-      graph;
+      snapshot;
       with_constants = Ground_eval.Env.of_program ~constants program ~rename;
     }
   in
   let sides =
-    (side src src_map src_constants, side dst dst_map dst_constants)
+    {
+      dst = side dst dst_map dst_constants;
+      src = side src src_map src_constants;
+    }
   in
   let* outcomes =
     Core.List.map
       (check_cluster ~budget ~probe ~tolerance:coefficient_tolerance sides)
       clusters
   in
-  let index = Group_path.index dst and producers = Group_path.producers dst in
+  let index = Group_path.index (Snapshot.graph dst)
+  and producers = Group_path.producers dst in
   Core.return
     {
       Report.entries =
         List.map2
           (fun cluster outcome ->
             {
-              Entry.cluster;
+              Entry.cluster = Correspondence.Cluster.erase cluster;
               group = Group_path.of_cluster ~index ~producers cluster;
               outcome;
             })

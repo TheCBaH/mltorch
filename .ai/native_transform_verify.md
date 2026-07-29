@@ -104,10 +104,42 @@ representative per side proves nothing about the others: for `{t0,t1} → {t0}`,
 member is chosen and **every other member is compared against it** —
 `|src| + |dst| − 1` comparisons.
 
-Members are side-tagged (`Member.t = Dst of _ | Src of _`) for two reasons:
-`{src=t0} ↔ {dst=t0}` holds two distinct members sharing a raw id, and a
-comparison can legitimately run **source against source**. `verify_test.ml`'s
-non-canonical-member test reports exactly that: `src.t0 vs src.t1`.
+Members are side-tagged for two reasons: `{src=t0} ↔ {dst=t0}` holds two distinct
+members sharing a raw id, and a comparison can legitimately run **source against
+source**. `verify_test.ml`'s non-canonical-member test reports exactly that:
+`src.t0 vs src.t1`.
+
+The tag is a GADT over the two graph versions, which **deletes** the old
+`Member.id : t -> Tensor_id.t` rather than typing it — that accessor erased
+exactly the distinction the type exists to keep, and `map_verify.ml:316` was a
+source id resolved in the destination's producer map:
+
+```ocaml
+type ('src, 'dst) t =
+  | Dst : 'dst Snapshot.edge -> ('src, 'dst) t
+  | Src : 'src Snapshot.edge -> ('src, 'dst) t
+
+type 'a resolve = { f : 'v. 'v side -> 'v Snapshot.edge -> 'a }
+val resolve : ('src, 'dst) sides -> ('src, 'dst) t -> 'a resolve -> 'a
+```
+
+`resolve` is **rank-2 on purpose**. "The side this member belongs to" has a
+constructor-dependent type, so a `side_of` returning it would have to pick one
+version for both arms; making `f` polymorphic instead forces the side and the
+edge to agree, and the result is version-free so nothing leaks back out. Pairing
+`Dst` with the source side is then a type error, which is the whole point —
+verified by making that edit and watching it fail.
+
+`Group_path.producers` is keyed by `'dst` edge for the same reason. The rule that
+a cluster is placed by its destination edges only used to be a comment; reading
+`c.src` there now forces `'src = 'dst` and does not compile.
+
+**Reports erase the version.** `Refutation`, `Unproved`, `Verdict`, `Entry`,
+`Report` and `Tally` are unparameterized and escape into `Pass.outcome`
+(`pass.mli`) and the interpreter's result record, so parameterizing that hierarchy
+would push `'src, 'dst` through both for something a reader cannot use. Members
+become `{ id : Tensor_id.t; side : [`Dst | `Src] }` once graph lookup is done. The
+protection lands where the bug was; the printed form is unchanged.
 
 ## 6. Iterative deepening, and why it crosses corresponding edges
 

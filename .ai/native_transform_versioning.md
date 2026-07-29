@@ -4,11 +4,11 @@ Deepens `native_transform_design.md` §3-§5, §7-§8 and `native_transform_veri
 §7. Covers `lib/native/transform/brand.ml`, `snapshot.ml`, the indexed layer
 inside `cluster_relation.ml`, and `graph_map.ml`'s `create`.
 
-Status: **stages 1-2 of 5 implemented** — `Brand`, `Snapshot`, version-indexed ids
-throughout the relations, `Graph_map.create` as the only constructor, and the
-negative-compile harness (`test/native/version_safety.t`). Stages 3-5 (the
-verifier's `Member`, `Input_var`, typed recipes) are designed in §6 and not yet
-built.
+Status: **stages 1-3 of 5 implemented** — `Brand`, `Snapshot`, version-indexed ids
+throughout the relations, `Graph_map.create` as the only constructor, the
+verifier's `Member` as a GADT, and the negative-compile harness
+(`test/native/version_safety.t`). Stages 4-5 (`Input_var`, typed recipes) are
+designed in §6 and not yet built.
 
 ## 1. The problem the phantoms did not solve
 
@@ -200,13 +200,31 @@ Three plumbing facts worth keeping:
 Verified non-vacuous by mutation: relaxing `forward` to `'a id -> 'dst set` flips
 exactly one line to `COMPILES` and leaves the other six untouched.
 
+## 5a. Where the evidence is mutation, not a test
+
+Stage 3's protection is entirely inside `map_verify.ml`: `Member`'s constructors
+are not public — only `Member.Erased` is — so the cram harness cannot reach them,
+and there is nothing for a runtime test to observe either, since the printed form
+is deliberately unchanged. The evidence is that the two crossings do not compile,
+checked by making them:
+
+| edit | result |
+|---|---|
+| `resolve` pairing `Dst` with `sides.src` | `Type d is not compatible with type s` |
+| `Group_path.of_cluster` reading `c.src` | rejected — the constraint `'src = 'dst` propagates out to `Map_verify.step`'s call site |
+
+The second is worth noting for its shape: the error surfaces at the caller, not at
+the fallback, because forcing the two versions equal only becomes contradictory
+where a genuinely two-version map is supplied. It still does not build, which is
+the property.
+
 ## 6. Staging
 
 | stage | content | status |
 |---|---|---|
 | 1 | `Brand`, `Snapshot`, `Cluster_relation.Tagged`, harness — additive | done |
 | 2 | raw API deleted, indexing promoted; typed endpoints through `Rewrite`, `Map_verify`, the PT2 lens; `Graph_map` abstract with `create ~src ~dst`, claim closure, cluster metadata validation | done |
-| 3 | `Map_verify.Member` as a GADT, tag erased at the report boundary | planned |
+| 3 | `Map_verify.Member` as a GADT, tag erased at the report boundary | done |
 | 4 | `Input_var`, and `Ground_expr.Cell.origin` with `Shared` earned structurally | planned |
 | 5 | typed recipes: `'v source`, `'v target`, `'v fresh` | planned |
 
