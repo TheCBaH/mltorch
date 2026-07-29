@@ -3,15 +3,15 @@
 open Graph_ir
 
 type 'v t = {
-  edges : 'v Correspondence.Tagged.Universe.t;
+  edges : 'v Correspondence.Universe.t;
   graph : graph;
-  nodes : 'v Node_map.Tagged.Universe.t;
+  nodes : 'v Node_map.Universe.t;
   view : Graph_view.t;
 }
 
 type packed = Pack : 'v t -> packed
-type 'v edge = 'v Correspondence.Tagged.id
-type 'v node = 'v Node_map.Tagged.id
+type 'v edge = 'v Correspondence.id
+type 'v node = 'v Node_map.id
 
 let tensor_ids (g : graph) =
   Tensor_id.Map.fold
@@ -30,14 +30,14 @@ let create g =
   let (Brand.Pack brand) = Brand.fresh () in
   Pack
     {
-      edges = Correspondence.Tagged.Universe.create brand (tensor_ids g);
+      edges = Correspondence.Universe.create brand (tensor_ids g);
       graph = g;
-      nodes = Node_map.Tagged.Universe.create brand (node_ids g);
+      nodes = Node_map.Universe.create brand (node_ids g);
       view;
     }
 
-let edge t id = Correspondence.Tagged.Universe.find t.edges id
-let node t id = Node_map.Tagged.Universe.find t.nodes id
+let edge t id = Correspondence.Universe.find t.edges id
+let node t id = Node_map.Universe.find t.nodes id
 let edges t = t.edges
 let nodes t = t.nodes
 let graph t = t.graph

@@ -69,22 +69,40 @@ Both cluster relations are one functor, `Cluster_relation.Make (Id) (Label)`, ov
 an id space and a label with a `join` and an `identity`:
 
 ```ocaml
+type 'v id                                       (* an id OF graph version 'v *)
+type 'v set
+val raw  : 'v id -> Id.t                         (* one-way; see below *)
+
+module Universe : sig
+  type 'v t
+  val create : 'v Brand.t -> Id.Set.t -> 'v t
+  val find   : 'v t -> Id.t -> 'v id option      (* the only lift *)
+end
+
 module Cluster : sig
-  type t = { src : Id.Set.t; dst : Id.Set.t; label : Label.t }
+  type ('src, 'dst) t = { src : 'src set; dst : 'dst set; label : Label.t }
 end
 
 type ('src, 'dst) t
 val identity    : ('v, 'v) t
-val of_clusters : Cluster.t list -> ('a, 'b) t   (* normalises *)
+val of_clusters : src:'src Universe.t -> dst:'dst Universe.t ->
+                  ('src, 'dst) Cluster.t list ->
+                  (('src, 'dst) t, Id.t issue) Stdlib.result
 val compose     : ('a, 'b) t -> ('b, 'c) t -> ('a, 'c) t
 val invert      : ('a, 'b) t -> ('b, 'a) t
-val forward     : ('a, 'b) t -> Id.t -> Id.Set.t
-val backward    : ('a, 'b) t -> Id.t -> Id.Set.t
-val created     : ('a, 'b) t -> Id.Set.t         (* clusters with an empty src *)
-val deleted     : ('a, 'b) t -> Id.Set.t
-val validate    : ('a, 'b) t -> src:Id.Set.t -> dst:Id.Set.t ->
-                  (unit, Id.t issue) Stdlib.result
+val forward     : ('src, 'dst) t -> 'src id -> 'dst set
+val backward    : ('src, 'dst) t -> 'dst id -> 'src set
+val created     : ('src, 'dst) t -> 'dst set     (* clusters with an empty src *)
+val deleted     : ('src, 'dst) t -> 'src set
 ```
+
+> **Ids are version-indexed, and `validate` is no longer a separate call.**
+> `native_transform_versioning.md` records why. In short: the tags above used to
+> be phantom on both sides, `of_clusters` was polymorphic in them, and a source id
+> could be looked up on the destination side. Taking both universes is what pins
+> `'src` and `'dst` to particular graphs, and it fuses validation with tagging —
+> the universes are the id sets `validate` needed anyway. Tags are erased at
+> runtime; the raw id stays the serialization and execution identity.
 
 `of_clusters` is what makes the representation canonical: clusters sharing an id
 on either side are merged and their labels joined, `{x} ↔ {x}` at the identity
@@ -182,23 +200,32 @@ val compose : ('a,'b) t -> ('b,'c) t ->
 val sources_of : ('a,'b) t -> Tensor_id.t -> Tensor_id.Set.t
 ```
 
-**Endpoint validation.** Phantoms tag a map but cannot tie it to two particular
-graphs — `Correspondence.of_clusters` is polymorphic in its tags, so a caller can
-hand out a well-typed map full of ids that exist in neither endpoint, and
-`identity` type-checks between unrelated graphs. Maps built by `Rewrite` are
-validated at construction; any consumer taking a map from elsewhere must call:
+**Endpoint validation, now on the way in.** `Graph_map.t` is abstract and
+`create` is the only constructor:
 
 ```ocaml
-val validate : ('a,'b) t -> src:graph -> dst:graph -> (unit, error) Core.result
+val create :
+  src:'src Snapshot.t -> dst:'dst Snapshot.t ->
+  values:('src, 'dst) Correspondence.Cluster.t list ->
+  nodes:('src, 'dst) Node_map.Cluster.t list ->
+  provenance:('src, 'dst) Provenance.t ->
+  (('src, 'dst) t, error) Core.result
 ```
 
-which checks explicit endpoints, that creations exist only in `dst` and deletions
+It checks explicit endpoints, that creations exist only in `dst` and deletions
 only in `src`, node and provenance endpoints, and — the check that actually pins a
 map to a *pair* of graphs — **implicit-identity coverage**: every `src` id neither
 mentioned nor deleted must exist in `dst`, and symmetrically. That last check is
 the one with teeth: an `identity` map between two *differing* graphs passes every
 endpoint check trivially, because it names no endpoints at all, and is caught only
 by coverage.
+
+`create` also establishes two map-level invariants no consumer can recover on its
+own — **cluster metadata** (§7 step 9, which used to be specified for `apply` and
+implemented nowhere) and **claim closure** (§8). Both are about the map as a data
+structure rather than about a proof, which is why they sit here and not in the
+verifier: `Pt2_native_graph` never goes near a symbolic expression and is wrong in
+exactly the same way without them.
 
 Failures are one `issue` variant shared by both instantiations —
 `Dangling_src`/`Dangling_dst` for an endpoint absent from its own side,
@@ -210,15 +237,16 @@ both — which `Graph_map` wraps per relation into `` `Value_endpoint ``,
 **The composite.** What a pipeline actually threads is the record of all three:
 
 ```ocaml
-type ('src, 'dst) t = {
-  values     : ('src, 'dst) Correspondence.t;
-  nodes      : ('src, 'dst) Node_map.t;
-  provenance : ('src, 'dst) Provenance.t;
-}
+type ('src, 'dst) t                                (* abstract; [create] only *)
 
-val clusters      : ('a,'b) t -> Correspondence.Cluster.t list
-val clusters_over : ('a,'b) t -> src:graph -> dst:graph ->
-                    Correspondence.Cluster.t list
+val values     : ('src,'dst) t -> ('src, 'dst) Correspondence.t
+val nodes      : ('src,'dst) t -> ('src, 'dst) Node_map.t
+val provenance : ('src,'dst) t -> ('src, 'dst) Provenance.t
+
+val clusters      : ('src,'dst) t -> ('src, 'dst) Correspondence.Cluster.t list
+val clusters_over : ('src,'dst) t ->
+                    src:'src Snapshot.t -> dst:'dst Snapshot.t ->
+                    ('src, 'dst) Correspondence.Cluster.t list
 ```
 
 `clusters` returns only what is explicit; `clusters_over` synthesises the
@@ -421,10 +449,19 @@ Status: **implemented** — `rewrite.ml`. In order:
    `Graph_shape.output_shape`; re-run `Graph_view.validate`.
 7. **Enforce the id-identity rule** on every preserved id (§4).
 8. **Propagate claims** in topological order (§8).
-9. **Validate the mapping metadata**: claim and provenance endpoints resolve on
-   their own sides, corresponding shapes agree, `Identical` endpoints have
-   compatible `fmt`/`quant` — an `Identical` claim across F32 and BF16 is a
+9. **Validate the mapping metadata** — done by `Graph_map.create` (§3), not by
+   `apply`, and no longer aspirational. Claim and provenance endpoints resolve on
+   their own sides, corresponding shapes agree, and `Identical` endpoints have
+   compatible `fmt`/`quant`: an `Identical` claim across F32 and BF16 is a
    contradiction, it is `Approximate`.
+
+   > Moving it here found a real one. A permute's output is materialized as f32,
+   > so `Trim_permute` on a **non-f32 input** produced the cluster
+   > `{t0(i32), t1(f32)} ↔ {t0}` labelled `Identical` — which is false, as
+   > `verify_test.ml`'s own comment already said. That rewrite is now rejected
+   > rather than left unprovable. `check_signatures` does not cover this: it
+   > compares an id against *itself* across versions, which is §4's preserved-id
+   > rule, not a statement about two different ids in one cluster.
 10. **Build the map**, closing each cluster over identity: for every terminal
     target surviving in both graphs, merge in its implicit `A.t ↔ B.t` identity.
     Trimming `t0 →noop→ t1 →noop→ t2` yields `A.{t0,t1,t2} ↔ B.{t0}`, not
@@ -467,7 +504,8 @@ their first node.
 
 ## 8. Claim propagation
 
-Status: **implemented** — `rewrite.ml`'s `propagate`, over `output_transfer.ml`.
+Status: **implemented** — `output_transfer.ml`'s `propagate`, called from
+`rewrite.ml` and from `graph_map.ml`.
 
 A node whose op is unchanged *modulo cluster representatives* (so a consumer whose
 operand was merely rewired to an equal edge counts as unchanged) gives its outputs
@@ -476,6 +514,28 @@ requirement, not an optimisation: after a bn fold declares `bn_out ↔ fresh` is
 `Equivalent`, every downstream edge is `Equivalent` too, and leaving them
 implicitly `Identical` would have a verifier assert bit-equality on the model's
 final output and fail.
+
+**Claim closure is the same propagation read as a check.** `Rewrite.apply` runs it
+to *label* the map it is building; `Graph_map.create` runs it to *reject* a map
+whose labels are not closed — an edge left implicitly `Identical` that would have
+received something weaker. One implementation, because the two have to agree.
+
+Only a map that never went through `apply` can be unclosed, which is exactly the
+kind `Graph_map.create` now receives. The harm is not confined to the verifier.
+Take source `t2 = add(a,b); t3 = relu(t2)` against destination
+`t2 = sub(a,b); t3 = relu(t2)`, with `t2 ↔ t2` claimed `Unverifiable` and `t3`
+unmentioned. `pt2_native_graph.ml`'s `sources_of` resolves an unmentioned dst id to
+`([id], Identical)` and `captured_target` gates on `Identical`, so the lens hands
+back the *source's* archived bytes for an edge whose value differs — the data
+corruption `provenance.mli` warns about, reached without going near a proof. And
+with the check disabled the verifier reports `t3` **proved (structural)
+identical**: both sides ground to `relu(cell t2)`, and t2 carries the same raw
+number on either side. (That last hazard is what §7 of `native_transform_verify.md`
+addresses independently — closure is not a substitute for it, and vice versa.)
+
+`compose` takes no snapshots and so cannot re-establish closure, which is why
+`check_claim_closure` is exported and why `Map_verify.run` and the PT2 lens each
+call it on the composed map they are handed.
 
 Propagation is per output, driven by an exhaustive classifier with **no default** —
 a defaulting classifier would silently mis-transfer the next op someone adds:
@@ -586,7 +646,7 @@ unmentioned id to itself, so without `dst` a bogus destination id would silently
 "resolve" to the same-numbered source. The lens stores destination membership sets
 and rejects unknown ids. It validates once at construction: the sidecar's graph
 against `Rewrite.graph src` by comparing canonical `graph_jsont` encoded bytes
-(§2), plus `Graph_map.validate ~src ~dst` (§3) — the byte comparison ties the
+(§2), plus `Graph_map.check_claim_closure ~src ~dst` (§8) — the byte comparison ties the
 sidecar to the source, the map validation ties the *map* to both graphs.
 
 An id-set fingerprint would be worthless: builders start at zero, so unrelated
@@ -698,7 +758,9 @@ fixtures in `test/native/graph_fixtures.ml`.
 > lapsed. The forgeability turned on `of_graph` returning a bare `'v t`; returning
 > a `packed` removes the choice. And `Pass.t.run` is already a rank-2 record, so
 > that cost is sunk. `Snapshot` is the versioned view this note declined to build,
-> and it carries the `Graph_view.t` rather than replacing it.
+> and it carries the `Graph_view.t` rather than replacing it. `Rewrite.t` holds a
+> `'v Snapshot.t` now, and `graph`/`view` are projections of it — the state IS the
+> version. `Graph_view.t` itself stays plain, so matchers are unaffected.
 
 A state+error monad over `{ view; claimed; shared }`. **No cursor** — every
 primitive names the edge it operates on, which is the honest formulation for a
@@ -1012,7 +1074,7 @@ the numeric test runs all eight rather than a representative few.
 > constructor substitutes a fresh output *onto* an existing id, so that was
 > enough. A value-changing rewrite substitutes the other way — old output onto a
 > fresh id — and the invented self-claim then named an edge absent from the
-> source graph, which `Graph_map.validate` rightly rejects. The test is now
+> source graph, which the map's endpoint checks rightly reject. The test is now
 > "does the recipe already speak about this edge", on either side of a claim.
 >
 > `apply` never validated a recipe-bound payload against the signature the recipe

@@ -78,9 +78,14 @@ let%expect_test "trim: removing a no-op permute ties its output to its input" =
 let%expect_test "trim: a chain of two permutes collapses into one cluster" =
   (* Two independently matched no-ops give t2 := t1 and t1 := t0; normalisation
      has to resolve t2 all the way to t0, and the mapping has to close over the
-     surviving source so the cluster is {t0,t1,t2} rather than {t1,t2}. *)
+     surviving source so the cluster is {t0,t1,t2} rather than {t1,t2}.
+
+     IDENTITY permutes, not a cancelling pair: [permute_sequence]'s intermediate
+     is a real rearrangement with a rotated shape, and tying it to the input is
+     a claim [Graph_map.create] now rejects outright — corresponding shapes must
+     agree. That rejection is correct, and it is not what this test is about. *)
   rewrite
-    (Graph_fixtures.permute_sequence ())
+    (Graph_fixtures.permute_identity_chain ())
     Recipe.(
       let* () = trim ~remove:[ n_ 0 ] ~tie:[ (t_ 1, t_ 0) ] in
       trim ~remove:[ n_ 1 ] ~tie:[ (t_ 2, t_ 1) ]);
@@ -101,8 +106,9 @@ let%expect_test "trim: a chain of two permutes collapses into one cluster" =
       graph
       inputs: [t0 f32 [H=2 W=3 C=4] ->[n2]]
       nodes:
-        n2: [t3 f32 [H=2 W=3 C=4]] = relu x=t0
-      outputs: [t3 f32 [H=2 W=3 C=4] <-n2]
+        n2: [t3 f32 [H=2 W=3 C=4] ->[n3]] = permute x=t0 perm=[]
+        n3: [t4 f32 [H=2 W=3 C=4]] = relu x=t3 <-n2
+      outputs: [t4 f32 [H=2 W=3 C=4] <-n3]
     map:
       values:
         {t0, t1, t2} -> {t0} identical

@@ -8,10 +8,34 @@ open Graph_ir
 module C = Correspondence
 
 let t n = Tensor_id.of_int n
-let n_ n = Node_id.of_int n
-let set ids = Tensor_id.Set.of_list (List.map t ids)
+
+(* The algebra below relates a version to ITSELF: normalisation, composition and
+   inversion are statements about ids, and minting graphs to state them would
+   obscure what is under test. One tag, wide enough for every id used here. *)
+module I = (val Version_fixture.ids 32)
+
+let set ids = C.Set.of_list (List.map I.edge ids)
 let cluster ~src ~dst label = { C.Cluster.src = set src; dst = set dst; label }
-let of_ l = C.of_clusters l
+
+(* The universes are read off the clusters: the smallest pair of versions the
+   relation could describe. Endpoint validation is then vacuous by construction,
+   which is right — normalisation and composition are what these cases are
+   about, and the checks have their own tests below, against real graphs. *)
+let of_ l =
+  let side get =
+    List.fold_left
+      (fun acc c -> Tensor_id.Set.union acc (C.raws (get c)))
+      Tensor_id.Set.empty l
+  in
+  Core.or_raise
+    (Cluster_relation.pp_issue Tensor_id.pp)
+    (Result.map_error Core.Error.make
+       (C.of_clusters
+          ~src:(I.edges (side (fun (c : (_, _) C.Cluster.t) -> c.src)))
+          ~dst:(I.edges (side (fun (c : (_, _) C.Cluster.t) -> c.dst)))
+          l))
+
+let raws s = Tensor_id.Set.elements (C.raws s)
 let show pp v = Fmt.pf Fmt.stdout "@[<v>%a@]@." pp v
 
 (* ---- the claim lattice --------------------------------------------------- *)
@@ -122,7 +146,7 @@ let%expect_test "trimming an identity permute: source input joins the cluster" =
   show C.pp m;
   Fmt.pf Fmt.stdout "forward t1 = %a@."
     (Fmt.braces (Fmt.list ~sep:Fmt.comma Tensor_id.pp))
-    (Tensor_id.Set.elements (C.forward m (t 1)));
+    (raws (C.forward m (I.edge 1)));
   [%expect {|
     {t0, t1} -> {t0} identical
     forward t1 = {t0} |}]
@@ -172,8 +196,8 @@ let%expect_test "compose is associative over renames" =
 (* ---- creation, deletion, and the packing hazard -------------------------- *)
 
 let%expect_test "created then deleted vanishes" =
-  let create = of_ [ C.create (t 11) ] in
-  let delete = of_ [ C.delete (t 11) ] in
+  let create = of_ [ C.create (I.edge 11) ] in
+  let delete = of_ [ C.delete (I.edge 11) ] in
   show C.pp (C.compose create delete);
   [%expect {| identity |}]
 
@@ -184,8 +208,8 @@ let%expect_test "created then deleted vanishes" =
    assumed. See .ai/native_transform_design.md §3, §9. *)
 let%expect_test "delete, create, repack: the dead id never fuses with its reuse"
     =
-  let m12 = of_ [ C.delete (t 11) ] in
-  let m23 = of_ [ C.create (t 12) ] in
+  let m12 = of_ [ C.delete (I.edge 11) ] in
+  let m23 = of_ [ C.create (I.edge 12) ] in
   let m34 = of_ [ cluster ~src:[ 12 ] ~dst:[ 11 ] C.Identical ] in
   let left = C.compose (C.compose m12 m23) m34 in
   let right = C.compose m12 (C.compose m23 m34) in
@@ -204,15 +228,15 @@ let%expect_test "created and deleted report the unpaired ids" =
   let m =
     of_
       [
-        C.create (t 5);
-        C.delete (t 3);
+        C.create (I.edge 5);
+        C.delete (I.edge 3);
         cluster ~src:[ 1 ] ~dst:[ 2 ] C.Identical;
       ]
   in
   let show name s =
     Fmt.pf Fmt.stdout "%s = %a@." name
       (Fmt.braces (Fmt.list ~sep:Fmt.comma Tensor_id.pp))
-      (Tensor_id.Set.elements s)
+      (raws s)
   in
   show "created" (C.created m);
   show "deleted" (C.deleted m);
@@ -224,17 +248,25 @@ let%expect_test "created and deleted report the unpaired ids" =
 
 let%expect_test "node map: fusion, creation, deletion and reverse lookup" =
   let m =
-    Node_map.of_clusters
-      [
-        Node_map.fused ~from:[ n_ 1; n_ 2 ] (n_ 7);
-        Node_map.fused ~from:[] (n_ 8);
-        Node_map.delete (n_ 3);
-      ]
+    Core.or_raise
+      (Cluster_relation.pp_issue Node_id.pp)
+      (Result.map_error Core.Error.make
+         (Node_map.of_clusters
+            ~src:
+              (I.nodes
+                 (Node_id.Set.of_list (List.map Node_id.of_int [ 1; 2; 3 ])))
+            ~dst:
+              (I.nodes (Node_id.Set.of_list (List.map Node_id.of_int [ 7; 8 ])))
+            [
+              Node_map.fused ~from:[ I.node 1; I.node 2 ] (I.node 7);
+              Node_map.fused ~from:[] (I.node 8);
+              Node_map.delete (I.node 3);
+            ]))
   in
   Fmt.pf Fmt.stdout "@[<v>%a@]@." Node_map.pp m;
   Fmt.pf Fmt.stdout "backward n7 = %a@."
     (Fmt.braces (Fmt.list ~sep:Fmt.comma Node_id.pp))
-    (Node_id.Set.elements (Node_map.backward m (n_ 7)));
+    (Node_id.Set.elements (Node_map.raws (Node_map.backward m (I.node 7))));
   [%expect
     {|
     {n1, n2} -> {n7}
@@ -242,12 +274,12 @@ let%expect_test "node map: fusion, creation, deletion and reverse lookup" =
     {} -> {n8}
     backward n7 = {n1, n2} |}]
 
-(* ---- validation against a pair of graphs --------------------------------- *)
+(* ---- construction, which is where a map is checked ----------------------- *)
 
-(* Phantoms cannot tie a map to two PARTICULAR graphs — [of_clusters] is
-   polymorphic in them — so a well-typed map can name ids that exist in neither
-   endpoint, and [identity] type-checks between unrelated graphs. Anything
-   consuming a map from outside the rewrite path must call [validate]. *)
+(* Version-indexed ids stop a source id being written into a destination side,
+   but they cannot say the two graphs are the intended pair, nor that the labels
+   mean anything. [Graph_map.create] is where that is established, and it is the
+   only constructor. *)
 
 let s1c n = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:n
 
@@ -268,51 +300,217 @@ let one_input_graph () =
     relu a)
   |> Result.get_ok
 
-let check map ~src ~dst =
-  match Graph_map.validate map ~src ~dst with
-  | Ok () -> Fmt.pf Fmt.stdout "ok@."
+(* [t2 = add(a,b); t3 = relu(t2)] against [t2 = sub(a,b); t3 = relu(t2)]: same
+   ids on both sides, and t3's definition is untouched, so t3 is implicitly
+   identical unless the map says otherwise. *)
+let relu_of op () =
+  Graph_builder.(
+    build ~name:"g" ~outputs:(fun o -> [ o ])
+    @@
+    let* a = input ~shape:(s1c 3) () in
+    let* b = input ~shape:(s1c 3) () in
+    let* c = op a b in
+    relu c)
+  |> Result.get_ok
+
+let show_create r =
+  match r with
+  | Ok _ -> Fmt.pf Fmt.stdout "ok@."
   | Error e -> Fmt.pf Fmt.stdout "%a@." Graph_map.pp_error e.Core.Error.kind
 
-let value_map clusters = { Graph_map.identity with values = of_ clusters }
-
-let%expect_test "validate: a map of the graph onto itself passes" =
-  let g = two_input_graph () in
-  check Graph_map.identity ~src:g ~dst:g;
+let%expect_test "create: a map of the graph onto itself passes" =
+  let module A = (val Version_fixture.of_graph (two_input_graph ())) in
+  let module B = (val Version_fixture.of_graph (two_input_graph ())) in
+  show_create
+    (Graph_map.create ~src:A.snapshot ~dst:B.snapshot ~values:[] ~nodes:[]
+       ~provenance:Provenance.empty);
   [%expect {| ok |}]
 
-let%expect_test "validate: an endpoint absent from its own side is rejected" =
-  let g = two_input_graph () in
-  check (value_map [ cluster ~src:[ 0 ] ~dst:[ 99 ] C.Identical ]) ~src:g ~dst:g;
-  [%expect {| value map: dst t99 is not in the destination |}]
-
-let%expect_test "validate: identity between differing graphs is rejected" =
+let%expect_test "create: identity between differing graphs is rejected" =
   (* Both graphs exist and are well formed; nothing about the map is
      type-incorrect. Only implicit-identity coverage catches it. *)
-  let src = two_input_graph () and dst = one_input_graph () in
-  check Graph_map.identity ~src ~dst;
+  let module A = (val Version_fixture.of_graph (two_input_graph ())) in
+  let module B = (val Version_fixture.of_graph (one_input_graph ())) in
+  show_create
+    (Graph_map.create ~src:A.snapshot ~dst:B.snapshot ~values:[] ~nodes:[]
+       ~provenance:Provenance.empty);
   [%expect
     {| value map: t2 is implicitly identity but absent from the destination |}]
 
-let%expect_test "validate: creating an id the source already has is rejected" =
-  let g = two_input_graph () in
-  check (value_map [ C.create (t 0) ]) ~src:g ~dst:g;
+let%expect_test "create: creating an id the source already has is rejected" =
+  let module A = (val Version_fixture.of_graph (two_input_graph ())) in
+  let module B = (val Version_fixture.of_graph (two_input_graph ())) in
+  let e id = Option.get (Snapshot.edge B.snapshot (t id)) in
+  show_create
+    (Graph_map.create ~src:A.snapshot ~dst:B.snapshot
+       ~values:[ C.create (e 0) ]
+       ~nodes:[] ~provenance:Provenance.empty);
   [%expect {| value map: t0 is mapped to but unmentioned as a source |}]
 
+(* The claim-closure rule. t2 is claimed [Unverifiable]; t3 = relu(t2) is left
+   unmentioned, hence implicitly [Identical] — and every consumer is then wrong
+   about t3, not just the symbolic verifier. [Pt2_native_graph] resolves an
+   unmentioned dst id to [Identical] and hands back captured SOURCE bytes for
+   it, which is data corruption rather than imprecision. *)
+let%expect_test "create: a claim not closed over the destination is rejected" =
+  let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let module B = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
+  in
+  let src id = Option.get (Snapshot.edge A.snapshot (t id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (t id)) in
+  show_create
+    (Graph_map.create ~src:A.snapshot ~dst:B.snapshot
+       ~values:[ C.pair (src 2) (dst 2) C.Unverifiable ]
+       ~nodes:[] ~provenance:Provenance.empty);
+  [%expect
+    {| value map: t3 is implicitly identical but downstream of a weaker claim |}]
+
+let%expect_test "create: the same map with t3 spoken for is accepted" =
+  let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let module B = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
+  in
+  let src id = Option.get (Snapshot.edge A.snapshot (t id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (t id)) in
+  show_create
+    (Graph_map.create ~src:A.snapshot ~dst:B.snapshot
+       ~values:
+         [
+           C.pair (src 2) (dst 2) C.Unverifiable;
+           C.pair (src 3) (dst 3) C.Unverifiable;
+         ]
+       ~nodes:[] ~provenance:Provenance.empty);
+  [%expect {| ok |}]
+
+(* Step 9 of .ai/native_transform_design.md §7. An [Identical] claim across two
+   formats is a contradiction — it is [Approximate] — and it is the claim the PT2
+   lens reads to decide it may return the source's captured bytes. *)
+let bf16_graph () =
+  Graph_builder.(
+    build ~name:"g" ~outputs:(fun o -> [ o ])
+    @@
+    let* a = input ~shape:(s1c 3) ~fmt:(Payload.Fmt Payload.BF16) () in
+    relu a)
+  |> Result.get_ok
+
+let%expect_test "create: Identical across two formats is rejected" =
+  let module A = (val Version_fixture.of_graph (one_input_graph ())) in
+  let module B = (val Version_fixture.of_graph (bf16_graph ())) in
+  let src id = Option.get (Snapshot.edge A.snapshot (t id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (t id)) in
+  show_create
+    (Graph_map.create ~src:A.snapshot ~dst:B.snapshot
+       ~values:
+         [
+           C.pair (src 0) (dst 0) C.Identical;
+           C.pair (src 1) (dst 1) C.Identical;
+         ]
+       ~nodes:[] ~provenance:Provenance.empty);
+  [%expect
+    {| value map: t0 and t0 are claimed identical across different formats |}]
+
+(* The shape half of the same check, which is why [permute_sequence] is not the
+   fixture for rewrite_test's chain trim: its intermediate is a real
+   rearrangement, and tying it to the input claims two shapes correspond. *)
+let wide_graph () =
+  Graph_builder.(
+    build ~name:"g" ~outputs:(fun o -> [ o ])
+    @@
+    let* a = input ~shape:(s1c 4) () in
+    relu a)
+  |> Result.get_ok
+
+let%expect_test "create: a cluster spanning two shapes is rejected" =
+  let module A = (val Version_fixture.of_graph (one_input_graph ())) in
+  let module B = (val Version_fixture.of_graph (wide_graph ())) in
+  let src id = Option.get (Snapshot.edge A.snapshot (t id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (t id)) in
+  show_create
+    (Graph_map.create ~src:A.snapshot ~dst:B.snapshot
+       ~values:
+         [
+           C.pair (src 0) (dst 0) C.Identical;
+           C.pair (src 1) (dst 1) C.Identical;
+         ]
+       ~nodes:[] ~provenance:Provenance.empty);
+  [%expect {| value map: t0 and t0 correspond but differ in shape |}]
+
+let%expect_test "create: the same pair claimed Approximate is accepted" =
+  let module A = (val Version_fixture.of_graph (one_input_graph ())) in
+  let module B = (val Version_fixture.of_graph (bf16_graph ())) in
+  let src id = Option.get (Snapshot.edge A.snapshot (t id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (t id)) in
+  let a = approx [ bf16 ] in
+  show_create
+    (Graph_map.create ~src:A.snapshot ~dst:B.snapshot
+       ~values:[ C.pair (src 0) (dst 0) a; C.pair (src 1) (dst 1) a ]
+       ~nodes:[] ~provenance:Provenance.empty);
+  [%expect {| ok |}]
+
+(* [compose] takes no snapshots, so it cannot re-run the checks. Closure has to
+   survive it anyway, which is why the property is stated here and why both
+   consumers of a composed map re-check it. *)
+let%expect_test "compose: two closed maps compose to a closed one" =
+  let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let module B = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
+  in
+  let module C_ = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
+  in
+  let edge : type v. v Snapshot.t -> int -> v C.id =
+   fun s id -> Option.get (Snapshot.edge s (t id))
+  in
+  let weakened : type a b. a Snapshot.t -> b Snapshot.t -> (a, b) Graph_map.t =
+   fun src dst ->
+    Graph_map.create ~src ~dst
+      ~values:
+        [
+          C.pair (edge src 2) (edge dst 2) C.Unverifiable;
+          C.pair (edge src 3) (edge dst 3) C.Unverifiable;
+        ]
+      ~nodes:[] ~provenance:Provenance.empty
+    |> Result.get_ok
+  in
+  let ab = weakened A.snapshot B.snapshot in
+  let bc = weakened B.snapshot C_.snapshot in
+  show_create
+    (Graph_map.check_claim_closure (Graph_map.compose ab bc) ~src:A.snapshot
+       ~dst:C_.snapshot);
+  [%expect {| ok |}]
+
 let%expect_test "clusters_over adds the untouched identities" =
-  let g = two_input_graph () in
-  let map = value_map [ cluster ~src:[ 0 ] ~dst:[ 0 ] (approx [ bf16 ]) ] in
-  Fmt.pf Fmt.stdout "@[<v>explicit:@,%a@]@." C.pp map.Graph_map.values;
+  let module A = (val Version_fixture.of_graph (two_input_graph ())) in
+  let module B = (val Version_fixture.of_graph (two_input_graph ())) in
+  let src id = Option.get (Snapshot.edge A.snapshot (t id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (t id)) in
+  let map =
+    Graph_map.create ~src:A.snapshot
+      ~dst:B.snapshot
+        (* t2 = add(t0,t1) is downstream of the weakened t0, so closure requires
+         the map to speak about it — [Approximate] through a continuous op is
+         [Unverifiable]. t1 is the one edge left implicit. *)
+      ~values:
+        [
+          C.pair (src 0) (dst 0) (approx [ bf16 ]);
+          C.pair (src 2) (dst 2) C.Unverifiable;
+        ]
+      ~nodes:[] ~provenance:Provenance.empty
+    |> Result.get_ok
+  in
+  Fmt.pf Fmt.stdout "@[<v>explicit:@,%a@]@." C.pp (Graph_map.values map);
   Fmt.pf Fmt.stdout "@[<v>over the graphs:@,%a@]@."
     Fmt.(list ~sep:cut C.Cluster.pp)
-    (Graph_map.clusters_over map ~src:g ~dst:g);
+    (Graph_map.clusters_over map ~src:A.snapshot ~dst:B.snapshot);
   [%expect
     {|
     explicit:
     {t0} -> {t0} approximate(bf16)
+    {t2} -> {t2} unverifiable
     over the graphs:
     {t0} -> {t0} approximate(bf16)
-    {t1} -> {t1} identical
-    {t2} -> {t2} identical |}]
+    {t2} -> {t2} unverifiable
+    {t1} -> {t1} identical |}]
 
 (* ---- id supply ----------------------------------------------------------- *)
 
@@ -342,17 +540,38 @@ let%expect_test "id supply: seeded past every id, monotone, origin frozen" =
 
 (* ---- provenance ---------------------------------------------------------- *)
 
+(* Found by typing the endpoints, not by reading: [compose] pulled an already-
+   derived middle id's sources back through the A->B correspondence a SECOND
+   time. Those are already source-side ids, and [backward] reads its argument as
+   a middle id — silent while a source id happens not to occur as a middle
+   destination, wrong the moment it does. Here t5 is both: the derivation's
+   source, and the edge t7 was renamed onto.
+
+   The guard against a regression is the SIGNATURE, not this case: writing the
+   old form again collapses ['a] and ['b] and provenance.mli rejects it. What
+   this pins is the answer, which no type can state. *)
+let%expect_test "provenance: a derived middle id's sources are not pulled back"
+    =
+  let a = Provenance.of_list [ (set [ 5 ], I.edge 9) ] in
+  let b = Provenance.of_list [ (set [ 9 ], I.edge 12) ] in
+  let ab = of_ [ cluster ~src:[ 7 ] ~dst:[ 5 ] C.Identical ] in
+  let composed = Provenance.compose a b ~values:(ab, C.identity) in
+  Fmt.pf Fmt.stdout "@[<v>%a@]@." Provenance.pp composed;
+  [%expect {|
+    {t5} -> t9
+    {t5} -> t12 |}]
+
 let%expect_test "provenance is directional and survives a later rename" =
   (* w -Permute-> wp folds: w is deleted, wp derives from it. A later pass
      renames wp, and the derivation must follow. *)
-  let p01 = Provenance.of_list [ ([ t 0 ], t 5) ] in
-  let m01 = of_ [ C.delete (t 0) ] in
+  let p01 = Provenance.of_list [ (set [ 0 ], I.edge 5) ] in
+  let m01 = of_ [ C.delete (I.edge 0) ] in
   let m12 = of_ [ cluster ~src:[ 5 ] ~dst:[ 6 ] C.Identical ] in
   let composed = Provenance.compose p01 Provenance.empty ~values:(m01, m12) in
   Fmt.pf Fmt.stdout "@[<v>%a@]@." Provenance.pp composed;
   Fmt.pf Fmt.stdout "sources_of t6 = %a@."
     (Fmt.braces (Fmt.list ~sep:Fmt.comma Tensor_id.pp))
-    (Tensor_id.Set.elements (Provenance.sources_of composed (t 6)));
+    (raws (Provenance.sources_of composed (I.edge 6)));
   [%expect {|
     {t0} -> t6
     sources_of t6 = {t0} |}]

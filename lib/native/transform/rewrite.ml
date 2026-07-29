@@ -53,11 +53,13 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "%a is substituted away without a value claim" Tensor_id.pp id
   | `Unknown_node id -> Fmt.pf ppf "unknown node %a" Node_id.pp id
 
+(* The snapshot IS the version: it carries the validated view and the two id
+   universes, so a state and the maps into and out of it are indexed by the same
+   ['v] and the graph is reachable through it rather than stored twice. *)
 type 'v t = {
-  graph : graph;
   constants : Tensor.packed Tensor_id.Map.t;
   ids : Id_supply.t;
-  view : Graph_view.t;
+  snapshot : 'v Snapshot.t;
 }
 
 type origin = Origin : 'v t -> origin
@@ -70,9 +72,10 @@ type 'v recipe = {
   finish : Id_supply.t;
 }
 
-let graph t = t.graph
 let constants t = t.constants
-let view t = t.view
+let graph t = Snapshot.graph t.snapshot
+let snapshot t = t.snapshot
+let view t = Snapshot.view t.snapshot
 let allocator t = Allocator t.ids
 
 let fold_result f init l =
@@ -115,7 +118,9 @@ let check_payloads g pairs =
   ()
 
 let origin ?(constants = []) g =
-  let* view = (Graph_view.of_graph g :> (Graph_view.t, error) Core.result) in
+  let* (Snapshot.Pack snapshot) =
+    (Snapshot.create g :> (Snapshot.packed, error) Core.result)
+  in
   let* () = check_payloads g constants in
   let table =
     List.fold_left
@@ -123,7 +128,7 @@ let origin ?(constants = []) g =
       Tensor_id.Map.empty constants
   in
   Core.return
-    (Origin { graph = g; constants = table; ids = Id_supply.of_graph g; view })
+    (Origin { constants = table; ids = Id_supply.of_graph g; snapshot })
 
 (* ---- planning ------------------------------------------------------------ *)
 
@@ -385,52 +390,11 @@ let check_preserved ~rep ~claimed old_view new_view =
     ()
     (Tensor_id.Map.bindings old_g.Graph.tensors)
 
-(* ---- claim propagation --------------------------------------------------- *)
-
-(* After a fold declares its boundary [Equivalent], every edge downstream is
-   too; leaving them implicitly [Identical] would have a verifier assert
-   bit-equality on the model's final output. *)
-let propagate ~explicit ~old_tensors (new_g : graph) =
-  List.fold_left
-    (fun acc (n : node) ->
-      let operand_claim id =
-        Option.value
-          (Tensor_id.Map.find_opt id acc)
-          ~default:Correspondence.Identical
-      in
-      let incoming =
-        List.fold_left
-          (fun c id -> Correspondence.join c (operand_claim id))
-          Correspondence.Identical
-          (Graph_ir.operands n.Node.op)
-      in
-      List.fold_left
-        (fun (acc, i) out ->
-          let acc =
-            if Tensor_id.Map.mem out acc then acc
-            else if not (Tensor_id.Map.mem out old_tensors) then acc
-            else
-              let claim =
-                Output_transfer.transfer incoming
-                  (Output_transfer.classify n.Node.op ~output:i)
-              in
-              if claim = Correspondence.Identical then acc
-              else Tensor_id.Map.add out claim acc
-          in
-          (acc, i + 1))
-        (acc, 0) n.Node.outputs
-      |> fst)
-    explicit new_g.Graph.nodes
-
 (* ---- apply --------------------------------------------------------------- *)
 
-let tensor_ids (g : graph) =
-  Tensor_id.Map.fold
-    (fun id _ acc -> Tensor_id.Set.add id acc)
-    g.Graph.tensors Tensor_id.Set.empty
-
 let apply state recipe =
-  let old_g = state.graph and old_view = state.view in
+  let old_snap = state.snapshot in
+  let old_g = Snapshot.graph old_snap and old_view = Snapshot.view old_snap in
   (* 1. the recipe must have been planned against exactly this state *)
   let* () =
     if Id_supply.equal recipe.start state.ids then Core.return ()
@@ -576,9 +540,33 @@ let apply state recipe =
   let ids, placements = placements old_view ids stamped in
   let root = rebuild_groups old_g.Graph.root ~removed ~placements ~position in
   let new_g = { Graph.nodes; root; tensors; inputs; input_kinds; outputs } in
-  (* 7. the result must itself be a graph we would accept *)
-  let* new_view =
-    (Graph_view.of_graph new_g :> (Graph_view.t, error) Core.result)
+  (* 7. the result must itself be a graph we would accept. The snapshot mints the
+     destination version ['w], and every id below enters the map by being found
+     in one of the two snapshots — which is how a source id can no longer be
+     written into a destination side. *)
+  let* (Snapshot.Pack new_snap) =
+    (Snapshot.create new_g :> (Snapshot.packed, error) Core.result)
+  in
+  let new_view = Snapshot.view new_snap in
+  let src_edge id =
+    match Snapshot.edge old_snap id with
+    | Some e -> Core.return e
+    | None -> Core.fail (`Value_endpoint (Cluster_relation.Dangling_src id))
+  in
+  let dst_edge id =
+    match Snapshot.edge new_snap id with
+    | Some e -> Core.return e
+    | None -> Core.fail (`Value_endpoint (Cluster_relation.Dangling_dst id))
+  in
+  let src_node id =
+    match Snapshot.node old_snap id with
+    | Some n -> Core.return n
+    | None -> Core.fail (`Node_endpoint (Cluster_relation.Dangling_src id))
+  in
+  let dst_node id =
+    match Snapshot.node new_snap id with
+    | Some n -> Core.return n
+    | None -> Core.fail (`Node_endpoint (Cluster_relation.Dangling_dst id))
   in
   (* 8. preserved ids: same tensor, or an explicit claim.
 
@@ -591,38 +579,46 @@ let apply state recipe =
      equivalence rather than leaving t0 both explicitly mapped to and implicitly
      identical. *)
   let explicit_pairs = claims in
-  let base_values =
-    Correspondence.of_clusters
-      (List.map
-         (fun (src, dst, rel) ->
-           (* The claim names the edge the recipe wired to; where that edge was
-              itself substituted away, the surviving one is its normal form. *)
-           let dst = sub dst in
-           let closure =
-             if Tensor_id.Map.mem dst old_g.Graph.tensors then
-               Tensor_id.Set.of_list [ src; dst ]
-             else Tensor_id.Set.singleton src
-           in
-           {
-             Correspondence.Cluster.src = closure;
-             dst = Tensor_id.Set.singleton dst;
-             label = rel;
-           })
-         explicit_pairs)
+  let* base_clusters =
+    Core.List.map
+      (fun (src, dst, rel) ->
+        (* The claim names the edge the recipe wired to; where that edge was
+           itself substituted away, the surviving one is its normal form. *)
+        let dst = sub dst in
+        let* s = src_edge src in
+        let+ d = dst_edge dst in
+        (* A surviving target is its own predecessor too, which is what turns
+           [{t1} -> {t0}] into [{t0,t1} -> {t0}]. The old runtime test "is dst
+           an id the source graph has" IS this lift. *)
+        let closure =
+          match Snapshot.edge old_snap dst with
+          | Some kept -> Correspondence.Set.of_list [ s; kept ]
+          | None -> Correspondence.Set.singleton s
+        in
+        {
+          Correspondence.Cluster.src = closure;
+          dst = Correspondence.Set.singleton d;
+          label = rel;
+        })
+      explicit_pairs
   in
+  let pair_clusters = Correspondence.normalise base_clusters in
   let rep =
     let table =
       List.fold_left
-        (fun acc (c : Correspondence.Cluster.t) ->
-          let members = Tensor_id.Set.union c.src c.dst in
+        (fun acc (c : (_, _) Correspondence.Cluster.t) ->
+          let members =
+            Tensor_id.Set.union
+              (Correspondence.raws c.src)
+              (Correspondence.raws c.dst)
+          in
           match Tensor_id.Set.min_elt_opt members with
           | None -> acc
           | Some canonical ->
               Tensor_id.Set.fold
                 (fun id acc -> Tensor_id.Map.add id canonical acc)
                 members acc)
-        Tensor_id.Map.empty
-        (Correspondence.clusters base_values)
+        Tensor_id.Map.empty pair_clusters
     in
     fun id -> Option.value (Tensor_id.Map.find_opt id table) ~default:id
   in
@@ -633,70 +629,86 @@ let apply state recipe =
       (fun acc (_, dst, rel) -> Tensor_id.Map.add dst rel acc)
       Tensor_id.Map.empty explicit_pairs
   in
-  let propagated = propagate ~explicit ~old_tensors:old_g.Graph.tensors new_g in
+  let propagated =
+    Output_transfer.propagate ~explicit
+      ~preserved:(fun id -> Tensor_id.Map.mem id old_g.Graph.tensors)
+      new_g
+  in
   (* 10. the mapping *)
-  let old_ids = tensor_ids old_g and new_ids = tensor_ids new_g in
-  let pair_clusters = Correspondence.clusters base_values in
   (* Propagation only ever weakens a claim, so an edge the recipe already spoke
      about keeps the recipe's cluster. *)
-  let propagated_clusters =
+  let* propagated_clusters =
     Tensor_id.Map.fold
       (fun id rel acc ->
-        if Tensor_id.Set.mem id old_ids && not (Tensor_id.Map.mem id explicit)
-        then Correspondence.pair id id rel :: acc
-        else acc)
-      propagated []
+        let* acc = acc in
+        if Tensor_id.Map.mem id explicit then Core.return acc
+        else
+          match (Snapshot.edge old_snap id, Snapshot.edge new_snap id) with
+          | Some s, Some d -> Core.return (Correspondence.pair s d rel :: acc)
+          | _ -> Core.return acc)
+      propagated (Core.return [])
   in
   let mentioned id =
     List.exists
-      (fun (c : Correspondence.Cluster.t) ->
-        Tensor_id.Set.mem id c.src || Tensor_id.Set.mem id c.dst)
+      (fun (c : (_, _) Correspondence.Cluster.t) ->
+        Tensor_id.Set.mem id (Correspondence.raws c.src)
+        || Tensor_id.Set.mem id (Correspondence.raws c.dst))
       pair_clusters
   in
   let deleted =
-    Tensor_id.Set.fold
-      (fun id acc ->
-        if Tensor_id.Set.mem id new_ids || mentioned id then acc
-        else Correspondence.delete id :: acc)
-      old_ids []
+    Correspondence.Universe.elements (Snapshot.edges old_snap)
+    |> List.filter_map (fun s ->
+        let id = Correspondence.raw s in
+        if Snapshot.edge new_snap id <> None || mentioned id then None
+        else Some (Correspondence.delete s))
   in
   let created =
-    Tensor_id.Set.fold
-      (fun id acc ->
-        if Tensor_id.Set.mem id old_ids || mentioned id then acc
-        else Correspondence.create id :: acc)
-      new_ids []
+    Correspondence.Universe.elements (Snapshot.edges new_snap)
+    |> List.filter_map (fun d ->
+        let id = Correspondence.raw d in
+        if Snapshot.edge old_snap id <> None || mentioned id then None
+        else Some (Correspondence.create d))
   in
-  let node_clusters =
-    List.concat_map
-      (fun ((r : Recipe.replacement), nodes) ->
+  let* node_clusters =
+    Core.List.fold_left
+      (fun acc ((r : Recipe.replacement), nodes) ->
         let accounted =
           List.concat_map (fun (_, from) -> from) nodes |> Node_id.Set.of_list
         in
-        List.map
-          (fun ((n : node), from) -> Node_map.fused ~from n.Node.id)
-          nodes
-        @ (Node_id.Set.diff r.remove accounted
-          |> Node_id.Set.elements |> List.map Node_map.delete))
-      stamped
+        let* fused =
+          Core.List.map
+            (fun ((n : node), from) ->
+              let* from = Core.List.map src_node from in
+              let+ d = dst_node n.Node.id in
+              Node_map.fused ~from d)
+            nodes
+        in
+        let+ dropped =
+          Core.List.map
+            (fun id ->
+              let+ s = src_node id in
+              Node_map.delete s)
+            (Node_id.Set.diff r.remove accounted |> Node_id.Set.elements)
+        in
+        acc @ fused @ dropped)
+      [] stamped
   in
-  let provenance =
-    List.concat_map
-      (fun (r : Recipe.replacement) -> r.provenance)
-      recipe.replacements
-    |> Provenance.of_list
+  let* provenance =
+    Core.List.fold_left
+      (fun acc (sources, dst) ->
+        let* sources = Core.List.map src_edge sources in
+        let+ d = dst_edge dst in
+        Provenance.add ~sources:(Correspondence.Set.of_list sources) d acc)
+      Provenance.empty
+      (List.concat_map
+         (fun (r : Recipe.replacement) -> r.provenance)
+         recipe.replacements)
   in
-  let map =
-    {
-      Graph_map.values =
-        Correspondence.of_clusters
-          (pair_clusters @ propagated_clusters @ deleted @ created);
-      nodes = Node_map.of_clusters node_clusters;
-      provenance;
-    }
-  in
-  let* () =
-    (Graph_map.validate map ~src:old_g ~dst:new_g :> (unit, error) Core.result)
+  let* map =
+    Graph_map.create ~src:old_snap ~dst:new_snap
+      ~values:(pair_clusters @ propagated_clusters @ deleted @ created)
+      ~nodes:node_clusters ~provenance
+    |> Core.map_error (fun e -> (e :> error))
   in
   let constants =
     List.fold_left
@@ -706,7 +718,7 @@ let apply state recipe =
   let constants =
     Tensor_id.Map.filter (fun id _ -> Tensor_id.Set.mem id live) constants
   in
-  Core.return (Step ({ graph = new_g; constants; ids; view = new_view }, map))
+  Core.return (Step ({ constants; ids; snapshot = new_snap }, map))
 
 (* ---- terminal packing ----------------------------------------------------- *)
 
@@ -765,7 +777,8 @@ let rec rename_group ~node_id ~group_id (grp : Group.t) =
   }
 
 let pack state =
-  let g = state.graph in
+  let old_snap = state.snapshot in
+  let g = Snapshot.graph old_snap in
   let t_mark, n_mark, g_mark = Id_supply.origin_marks state.ids in
   let tensor_id, tensor_next =
     renaming
@@ -814,8 +827,8 @@ let pack state =
   (* A bulk renaming is exactly the kind of edit that can silently produce a
      graph nobody would accept, so the result goes through the trust boundary
      like any other. *)
-  let* view =
-    (Graph_view.of_graph new_g :> (Graph_view.t, error) Core.result)
+  let* (Snapshot.Pack new_snap) =
+    (Snapshot.create new_g :> (Snapshot.packed, error) Core.result)
   in
   let constants =
     Tensor_id.Map.fold
@@ -824,34 +837,47 @@ let pack state =
   in
   (* Only ids that actually moved are mentioned; the untouched bulk stays
      implicit, which is the whole point of leaving origin ids alone. *)
-  let moved_values =
-    Tensor_id.Map.fold
-      (fun id _ acc ->
+  let* moved_values =
+    Core.List.fold_left
+      (fun acc (id, _) ->
         let packed = tensor_id id in
-        if Tensor_id.equal id packed then acc
-        else Correspondence.pair id packed Correspondence.Identical :: acc)
-      g.Graph.tensors []
+        if Tensor_id.equal id packed then Core.return acc
+        else
+          match (Snapshot.edge old_snap id, Snapshot.edge new_snap packed) with
+          | Some s, Some d ->
+              Core.return
+                (Correspondence.pair s d Correspondence.Identical :: acc)
+          | None, _ ->
+              Core.fail (`Value_endpoint (Cluster_relation.Dangling_src id))
+          | _, None ->
+              Core.fail (`Value_endpoint (Cluster_relation.Dangling_dst packed)))
+      []
+      (Tensor_id.Map.bindings g.Graph.tensors)
   in
-  let moved_nodes =
-    List.filter_map
-      (fun (n : node) ->
+  let* moved_nodes =
+    Core.List.fold_left
+      (fun acc (n : node) ->
         let packed = node_id n.Node.id in
-        if Node_id.equal n.Node.id packed then None
-        else Some (Node_map.pair n.Node.id packed))
-      g.Graph.nodes
+        if Node_id.equal n.Node.id packed then Core.return acc
+        else
+          match
+            (Snapshot.node old_snap n.Node.id, Snapshot.node new_snap packed)
+          with
+          | Some s, Some d -> Core.return (Node_map.pair s d :: acc)
+          | None, _ ->
+              Core.fail
+                (`Node_endpoint (Cluster_relation.Dangling_src n.Node.id))
+          | _, None ->
+              Core.fail (`Node_endpoint (Cluster_relation.Dangling_dst packed)))
+      [] g.Graph.nodes
   in
-  let map =
-    {
-      Graph_map.values = Correspondence.of_clusters moved_values;
-      nodes = Node_map.of_clusters moved_nodes;
-      provenance = Provenance.empty;
-    }
-  in
-  let* () =
-    (Graph_map.validate map ~src:g ~dst:new_g :> (unit, error) Core.result)
+  let* map =
+    Graph_map.create ~src:old_snap ~dst:new_snap ~values:moved_values
+      ~nodes:moved_nodes ~provenance:Provenance.empty
+    |> Core.map_error (fun e -> (e :> error))
   in
   let ids =
     Id_supply.repack state.ids ~tensor:tensor_next ~node:node_next
       ~group:group_next
   in
-  Core.return (Step ({ graph = new_g; constants; ids; view }, map))
+  Core.return (Step ({ constants; ids; snapshot = new_snap }, map))

@@ -1,36 +1,33 @@
 (* See provenance.mli. Keyed by destination id, since every query is "where did
-   this come from" and a destination has exactly one derivation. *)
+   this come from" and a destination has exactly one derivation. Key and payload
+   sit at different versions, which is what [Correspondence.Map] keeps apart. *)
 
-open Graph_ir
+module Set = Correspondence.Set
+module Map = Correspondence.Map
 
-type ('src, 'dst) t = { edges : Tensor_id.Set.t Tensor_id.Map.t }
+type ('src, 'dst) t = { edges : ('dst, 'src Correspondence.set) Map.t }
 
-let empty = { edges = Tensor_id.Map.empty }
+let empty = { edges = Map.empty }
 
 let add ~sources dst t =
-  let incoming = Tensor_id.Set.of_list sources in
   let merged =
-    match Tensor_id.Map.find_opt dst t.edges with
-    | None -> incoming
-    | Some existing -> Tensor_id.Set.union existing incoming
+    match Map.find_opt dst t.edges with
+    | None -> sources
+    | Some existing -> Set.union existing sources
   in
-  if Tensor_id.Set.is_empty merged then t
-  else { edges = Tensor_id.Map.add dst merged t.edges }
+  if Set.is_empty merged then t else { edges = Map.update dst merged t.edges }
 
 let of_list l =
   List.fold_left (fun acc (sources, dst) -> add ~sources dst acc) empty l
 
-let is_empty t = Tensor_id.Map.is_empty t.edges
-let edges t = Tensor_id.Map.bindings t.edges |> List.map (fun (d, s) -> (s, d))
-
-let sources_of t id =
-  Option.value (Tensor_id.Map.find_opt id t.edges) ~default:Tensor_id.Set.empty
+let is_empty t = Map.is_empty t.edges
+let edges t = Map.bindings t.edges |> List.map (fun (d, s) -> (s, d))
+let sources_of t id = Option.value (Map.find_opt id t.edges) ~default:Set.empty
 
 let targets_of t id =
-  Tensor_id.Map.fold
-    (fun dst sources acc ->
-      if Tensor_id.Set.mem id sources then Tensor_id.Set.add dst acc else acc)
-    t.edges Tensor_id.Set.empty
+  Map.fold
+    (fun dst sources acc -> if Set.mem id sources then Set.add dst acc else acc)
+    t.edges Set.empty
 
 (* An A->C edge exists when an A->B edge feeds something that a B->C edge (or the
    B->C value correspondence) carries forward. Sources are pulled back through
@@ -38,54 +35,58 @@ let targets_of t id =
 let compose a b ~values =
   let ab, bc = values in
   let pull_back set =
-    Tensor_id.Set.fold
-      (fun id acc -> Tensor_id.Set.union acc (Correspondence.backward ab id))
-      set Tensor_id.Set.empty
+    Set.fold
+      (fun id acc -> Set.union acc (Correspondence.backward ab id))
+      set Set.empty
   in
   let push_forward id = Correspondence.forward bc id in
   (* Direct A->B edges, with their destination carried into C. *)
   let from_a =
-    Tensor_id.Map.fold
+    Map.fold
       (fun mid sources acc ->
-        Tensor_id.Set.fold
-          (fun dst acc -> add ~sources:(Tensor_id.Set.elements sources) dst acc)
-          (push_forward mid) acc)
+        Set.fold (fun dst acc -> add ~sources dst acc) (push_forward mid) acc)
       a.edges empty
   in
   (* B->C edges, with their sources pulled back into A. *)
-  Tensor_id.Map.fold
+  Map.fold
     (fun dst mids acc ->
       let sources =
-        Tensor_id.Set.fold
+        Set.fold
           (fun mid acc ->
             (* A middle id that is itself derived contributes its own sources,
-               so derivation chains stay transitive. *)
+               so derivation chains stay transitive. Those are ALREADY source-
+               side ids and must not be pulled back again: [backward ab] reads
+               its argument as a middle id, and while an unmentioned one comes
+               back unchanged, a source id that also occurs as a middle
+               destination is silently replaced by that cluster's sources. Only
+               [mid] itself is a middle id. *)
             let via = sources_of a mid in
             let direct =
-              if Tensor_id.Set.is_empty via then
-                pull_back (Tensor_id.Set.singleton mid)
-              else pull_back via
+              if Set.is_empty via then pull_back (Set.singleton mid) else via
             in
-            Tensor_id.Set.union acc direct)
-          mids Tensor_id.Set.empty
+            Set.union acc direct)
+          mids Set.empty
       in
-      add ~sources:(Tensor_id.Set.elements sources) dst acc)
+      add ~sources dst acc)
     b.edges from_a
 
 let validate t ~src ~dst =
   let ( let* ) = Result.bind in
-  Tensor_id.Map.fold
+  let resolves universe id =
+    Correspondence.Universe.find universe (Correspondence.raw id) <> None
+  in
+  Map.fold
     (fun target sources acc ->
       let* () = acc in
       let* () =
-        if Tensor_id.Set.mem target dst then Ok ()
-        else Error (Cluster_relation.Dangling_dst target)
+        if resolves dst target then Ok ()
+        else Error (Cluster_relation.Dangling_dst (Correspondence.raw target))
       in
-      Tensor_id.Set.fold
+      Set.fold
         (fun source acc ->
           let* () = acc in
-          if Tensor_id.Set.mem source src then Ok ()
-          else Error (Cluster_relation.Dangling_src source))
+          if resolves src source then Ok ()
+          else Error (Cluster_relation.Dangling_src (Correspondence.raw source)))
         sources (Ok ()))
     t.edges (Ok ())
 
@@ -94,8 +95,8 @@ let pp fmt t =
   else
     let pp_edge fmt (sources, dst) =
       Fmt.pf fmt "@[<h>%a -> %a@]"
-        (Fmt.braces (Fmt.list ~sep:Fmt.comma Tensor_id.pp))
-        (Tensor_id.Set.elements sources)
-        Tensor_id.pp dst
+        (Fmt.braces (Fmt.list ~sep:Fmt.comma Graph_ir.Tensor_id.pp))
+        (Correspondence.raws sources |> Graph_ir.Tensor_id.Set.elements)
+        Graph_ir.Tensor_id.pp (Correspondence.raw dst)
     in
     Fmt.(list ~sep:cut pp_edge) fmt (edges t)

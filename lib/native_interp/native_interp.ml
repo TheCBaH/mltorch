@@ -791,8 +791,9 @@ let transform ?(preload = false) ?verify ?verify_budget ?verify_probe archive
     | Some policy ->
         let* report =
           Map_verify.run ?budget:verify_budget ?probe:verify_probe composed_map
-            ~src:(Rewrite.graph origin)
-            ~src_constants:(Rewrite.constants origin) ~dst:graph
+            ~src:(Rewrite.snapshot origin)
+            ~src_constants:(Rewrite.constants origin)
+            ~dst:(Rewrite.snapshot packed)
             ~dst_constants:(Rewrite.constants packed)
           |> Core.map_error (fun e -> `Verify e)
         in

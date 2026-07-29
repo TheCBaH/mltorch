@@ -7,13 +7,18 @@
    would silently misbehave on a malformed graph. See
    .ai/native_transform_design.md §11.
 
-   Unversioned, deliberately. A phantom tag here would only be forgeable —
-   [of_graph] is polymorphic in it — and it would force every [Pass] callback to
-   be a rank-2 record. Version safety comes from [Rewrite.plan], which stamps a
-   recipe from the state it is given, plus the id-identity rule: an id is never
-   reused within a pipeline, so an id present in two versions denotes the same
-   tensor and a stale match is either caught by [apply] (the id is gone) or
-   harmless (it still means what it meant). *)
+   Unversioned, deliberately, and it stays that way: a matcher reads structure,
+   and a tag here would buy it nothing. The version lives one layer up, in
+   [Snapshot], which carries a view together with the id universes at that
+   version — see .ai/native_transform_versioning.md. What made a versioned view
+   itself unworkable was [of_graph : graph -> ('v t, _)] letting the caller pick
+   ['v]; [Snapshot.create] answers with an existential instead.
+
+   Version safety for matching does not depend on either. It comes from
+   [Rewrite.plan], which stamps a recipe from the state it is given, plus the
+   id-identity rule: an id is never reused within a pipeline, so an id present in
+   two versions denotes the same tensor and a stale match is either caught by
+   [apply] (the id is gone) or harmless (it still means what it meant). *)
 
 open Graph_ir
 

@@ -1,27 +1,28 @@
 # Version-indexed ids — making a graph version part of an id's type
 
-Deepens `native_transform_design.md` §3-§5 and `native_transform_verify.md` §7.
-Covers `lib/native/transform/brand.ml`, `snapshot.ml`, and the `Tagged` layer
-inside `cluster_relation.ml`.
+Deepens `native_transform_design.md` §3-§5, §7-§8 and `native_transform_verify.md`
+§7. Covers `lib/native/transform/brand.ml`, `snapshot.ml`, the indexed layer
+inside `cluster_relation.ml`, and `graph_map.ml`'s `create`.
 
-Status: **stage 1 of 5 implemented** — `Brand`, `Snapshot`, `Cluster_relation.Tagged`,
-and the negative-compile harness (`test/native/version_safety.t`). Stages 2-5
-(typed endpoints, the verifier's `Member`, `Input_var`, typed recipes) are
-designed in §6 and not yet built.
+Status: **stages 1-2 of 5 implemented** — `Brand`, `Snapshot`, version-indexed ids
+throughout the relations, `Graph_map.create` as the only constructor, and the
+negative-compile harness (`test/native/version_safety.t`). Stages 3-5 (the
+verifier's `Member`, `Input_var`, typed recipes) are designed in §6 and not yet
+built.
 
 ## 1. The problem the phantoms did not solve
 
 `native_transform_design.md` §3 already tags a map `('src, 'dst)`. The tags
 order a composition, but the *contents* erase them: `Cluster.t` holds plain
-`Id.Set.t`, and `forward`/`backward`/`sources_of` take and return raw ids. The
-`.mli` says so itself (`cluster_relation.mli:58-62`): they "cannot tie a map to
-two PARTICULAR graphs — `of_clusters` is polymorphic in them — which is why
-`validate` exists".
+`Id.Set.t`, and `forward`/`backward`/`sources_of` took and returned raw ids. The
+`.mli` said so itself: they "cannot tie a map to two PARTICULAR graphs —
+`of_clusters` is polymorphic in them — which is why `validate` exists".
 
-The cost is on record twice. `map_verify.ml:316` fixed a source id looked up in
-the destination producer map. `symbol-impl-2.md` records a **false proof**: a map
-swapping a graph's two inputs was reported structurally proved, output included,
-because src and dst share one numeric namespace.
+The cost is on record three times. `map_verify.ml:316` fixed a source id looked up
+in the destination producer map. `symbol-impl-2.md` records a **false proof**: a
+map swapping a graph's two inputs was reported structurally proved, output
+included, because src and dst share one numeric namespace. And the third was found
+by the types themselves, in stage 2 — see §3a.
 
 Goal: an id carries which graph version it belongs to, so those are compile
 errors. Raw `Tensor_id.t` stays the serialization and execution identity — the
@@ -42,6 +43,11 @@ snapshot's version would need that snapshot's brand, and nothing hands it out.
 Minting your own is harmless, because its tag corresponds to no other value in
 the program.
 
+One consequence worth stating: a `'v id` witnesses membership of *some* universe
+at `'v`, not of the one a given call was passed — two universes can be minted from
+one unpacked brand. So the endpoint checks inside `of_clusters` still have work to
+do, and are not vacuous.
+
 > **This reverses two recorded decisions, deliberately.** `native_transform_design.md`
 > §5 (`:326-328`) and §11 (`:675-689`) rejected a versioned `Graph_view` because
 > `of_graph : graph -> ('v t, error) result` lets the caller pick `'v`.
@@ -51,7 +57,7 @@ the program.
 
 ## 3. Where the tagged layer lives, and why
 
-`Tagged` is a submodule of `Cluster_relation.Make`, not a module beside
+The indexing lives *inside* `Cluster_relation.Make`, not in a module beside
 `Snapshot`. The reason is the implicit-identity rule: `forward` answers an
 *unmentioned* source id with itself on the destination side, which is a retag
 across versions. Only a body that owns the erasure (`type 'v id = Id.t`) can do
@@ -59,9 +65,46 @@ that. Keeping it inside the functor is what lets the retag exist without a
 `retag : 'a id -> 'b id` appearing in any signature — where it would be exactly
 as forgeable as the raw ids it replaces.
 
+Everything above the functor lifts through `Universe.find`, which is a membership
+test: a raw id enters the typed world only by being found in a version that has
+it. So the runtime guards that used to precede a raw pairing *become* the lift.
+`rewrite.ml`'s identity closure is the clearest case — `Tensor_id.Map.mem dst
+old_g.Graph.tensors` is now `Snapshot.edge old_snap dst`, and the answer is the
+tagged id it needed anyway.
+
 `Snapshot` binds one `Brand.t` to both id spaces plus the validated view, so a
 snapshot's tensors and nodes share a version and a `Graph_map` can be indexed by
 one tag rather than one per id space.
+
+## 3a. What the types found: `Provenance.compose`
+
+Typing the endpoints turned a latent bug into a compile error, which is the whole
+argument for this work stated once, concretely.
+
+`compose (a : A→B) (b : B→C)` walks each C-edge's middle ids and pulls them back
+through the A→B correspondence. For a middle id that is *itself* derived, the code
+took its own sources — already A-side ids — and pulled those back a second time:
+
+```ocaml
+let via = sources_of a mid in
+if Set.is_empty via then pull_back (Set.singleton mid) else pull_back via
+```
+
+`pull_back` is `Correspondence.backward ab`, which reads its argument as a middle
+id. Under raw ids both sides were `Tensor_id.Set.t` and it compiled; typed, `via`
+is an `'a set` where a `'b set` is required, and unification collapsed the two
+versions — the signature check in `provenance.mli` is what refused it.
+
+It was silent because `backward` answers an unmentioned id with itself, so a
+source id absent from `ab`'s destination side came back unchanged. It breaks when
+a source id *also* occurs as a middle destination — a rename and a fold in one
+step is enough — and the derivation then names the wrong origin. Fixed to `else
+via`; only `mid` is a middle id.
+
+Worth noting what the regression test is. Writing the old form again does not
+produce a wrong answer, it produces a **build failure**: the two versions unify
+and `provenance.mli` refuses the collapsed signature. The expect test next to it
+pins the answer, which no type can state, but the guard is the signature.
 
 ## 4. Tagging alone is not enough: the constructor must consume both universes
 
@@ -84,9 +127,40 @@ val of_clusters :
 ```
 
 which also fuses validation with tagging — the universes are the id sets
-`validate` needed anyway. From stage 2, `Graph_map.validate` therefore stops
-being a separate call a consumer must remember, and `create ~src ~dst` becomes
-the only way to assemble a map.
+`validate` needed anyway. `Graph_map.validate` therefore no longer exists as a
+separate call a consumer must remember: `Graph_map.t` is abstract and
+`create ~src ~dst` is the only way to assemble one.
+
+## 4a. What `create` establishes beyond the endpoints
+
+Two map-level invariants, both from `native_transform_design.md` (§7 step 9 and
+§8) and both previously unenforced. They belong on the map rather than in the
+verifier because `Pt2_native_graph` is wrong in the same way without them and
+never goes near a proof.
+
+**Cluster metadata.** Corresponding shapes agree; an `Identical` cluster's
+endpoints agree on format and quantization. Step 9 specified this for `apply` and
+nothing implemented it — `check_signatures` compares an id against *itself* across
+versions, which is §4's preserved-id rule, not a statement about two ids in one
+cluster. Enforcing it found a real contradiction in the suite: a permute's output
+is materialized as f32, so `Trim_permute` on a non-f32 input claimed an i32 edge
+`Identical` to an f32 one. `verify_test.ml`'s own comment already said that claim
+was false; it is now rejected rather than merely unproven.
+
+**Claim closure.** The same propagation §8 uses to *label* a map, re-run to
+*reject* one whose labels are not closed. Verified by mutation, and the harm is
+concrete: with the check removed, the `add`/`sub` map in `graph_map_test.ml`
+constructs, and `Map_verify` reports `t3` — `relu(add(a,b))` against
+`relu(sub(a,b))` — **proved (structural) identical**, because both sides ground to
+`relu(cell t2)` and t2 carries the same raw number on either side. That last
+failure is stage 4's problem, not closure's; closure is what keeps it out of reach
+today.
+
+Neither subsumes the other, and neither subsumes stage 4. Closure guards the map
+as a data structure and is what stops `pt2_native_graph.ml:170` resolving an
+unmentioned id to `Identical` and fetching the wrong bytes — which never goes near
+a cell. It also says nothing about a map with no explicit claims at all: an empty
+map between structurally unrelated graphs passes closure by construction.
 
 ## 5. The negative-compile harness
 
@@ -120,7 +194,7 @@ Three plumbing facts worth keeping:
 - **Acceptance is read from `val check :` in the output, not from an exit code.**
   A toplevel reports a type error and carries on, exiting 0 either way.
 - The outcome is asserted, not the diagnostic. Messages name types like
-  `Cluster_relation.Make(Correspondence.Id)(Correspondence.Label).Tagged.t` and
+  `Cluster_relation.Make(Correspondence.Id)(Correspondence.Label).t` and
   existentials like `$Pack_'v1`, whose spelling is a compiler detail.
 
 Verified non-vacuous by mutation: relaxing `forward` to `'a id -> 'dst set` flips
@@ -131,16 +205,40 @@ exactly one line to `COMPILES` and leaves the other six untouched.
 | stage | content | status |
 |---|---|---|
 | 1 | `Brand`, `Snapshot`, `Cluster_relation.Tagged`, harness — additive | done |
-| 2 | delete the raw API; typed endpoints through `Rewrite`, `Map_verify`, the PT2 lens; `Graph_map` abstract with `create ~src ~dst`, claim closure, cluster metadata validation | planned |
+| 2 | raw API deleted, indexing promoted; typed endpoints through `Rewrite`, `Map_verify`, the PT2 lens; `Graph_map` abstract with `create ~src ~dst`, claim closure, cluster metadata validation | done |
 | 3 | `Map_verify.Member` as a GADT, tag erased at the report boundary | planned |
 | 4 | `Input_var`, and `Ground_expr.Cell.origin` with `Shared` earned structurally | planned |
 | 5 | typed recipes: `'v source`, `'v target`, `'v fresh` | planned |
 
-Stage 2 cannot be subdivided: `map_verify.ml:794-795` and
-`pt2_native_graph.ml:145,166-167` consume `Graph_map.validate`,
-`clusters_over` and `Correspondence.Cluster.t` directly, so changing the
-relations without them in the same commit leaves the tree red or forces
-temporary raw escape hatches.
+Stage 2 could not be subdivided: `map_verify.ml` and `pt2_native_graph.ml`
+consumed `Graph_map.validate`, `clusters_over` and `Correspondence.Cluster.t`
+directly, so changing the relations without them in the same commit would have
+left the tree red or forced temporary raw escape hatches.
+
+Three things stage 2 needed that the plan did not anticipate, all small and all
+additive to the functor:
+
+- **`normalise`**, the merge step of `of_clusters` on its own. `Rewrite.apply`
+  decides whether a definition really changed by asking which cluster an id is in,
+  and it must do that *before* it knows the created and deleted sets — so it cannot
+  go through the validating constructor. Tag-polymorphic and safe to be: it yields
+  clusters, not a relation, so nothing reachable from it answers a question about
+  an id's version.
+- **`Map`**, an id-keyed map. `Provenance` keys by destination edge and stores
+  source edges, so its key and payload sit at different versions.
+- **`Cluster.Erased`**, the cluster with its indices dropped. `Map_verify.Report`
+  escapes into `Pass.outcome` and the interpreter's result record; parameterising
+  that hierarchy buys nothing a reader can use. This is stage 3's "reports erase
+  the tag" rule, arriving one stage early because `Cluster.t` gained parameters
+  here.
+
+**Testing an existential.** `Snapshot.create` and `Brand.fresh` return packed
+values, and an existential cannot be bound by a toplevel `let` — which would force
+every test through a rank-2 callback. `test/native/version_fixture.ml` carries the
+tag out in a first-class module instead (`Brand.Pack (type a) (b : a Brand.t)`),
+so a test writes `module A = (val Version_fixture.of_graph g)` and then names
+`A.v`. Nothing is weakened: `ids` mints its own brand, and `of_graph` re-exposes
+the tag `Snapshot.create` already chose.
 
 ## 7. Non-goals
 

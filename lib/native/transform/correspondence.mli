@@ -41,7 +41,9 @@ module Id :
 module Label : Cluster_relation.LABEL with type t = relation
 include module type of Cluster_relation.Make (Id) (Label)
 
-(* Convenience constructors for the common shapes; [of_clusters] normalises. *)
-val pair : Tensor_id.t -> Tensor_id.t -> relation -> Cluster.t
-val create : Tensor_id.t -> Cluster.t
-val delete : Tensor_id.t -> Cluster.t
+(* Convenience constructors for the common shapes; [of_clusters] normalises. The
+   ids are version-indexed, so a cluster cannot be built with its two sides the
+   wrong way round — obtain them from [Snapshot.edge]. *)
+val pair : 'src id -> 'dst id -> relation -> ('src, 'dst) Cluster.t
+val create : 'dst id -> ('src, 'dst) Cluster.t
+val delete : 'src id -> ('src, 'dst) Cluster.t

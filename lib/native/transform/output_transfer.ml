@@ -57,3 +57,47 @@ let transfer (claim : Correspondence.relation) = function
       match claim with
       | Correspondence.Identical -> Correspondence.Identical
       | _ -> Correspondence.Unverifiable)
+
+(* The forward closure of the table above over a graph: after a fold declares its
+   boundary [Equivalent], every edge downstream of it is too, and leaving those
+   implicitly [Identical] would have a verifier assert bit-equality on the
+   model's final output.
+
+   [explicit] seeds the claims a map states outright, keyed by destination id;
+   [preserved] answers "does the source graph have this id too", since an id
+   present in only one version has no counterpart to claim anything about.
+   Entries equal to [Identical] are omitted, so the result names exactly the
+   edges a map must mention. The graph must be in topological order, which is
+   what [Graph_view.of_graph] checks.
+
+   One implementation, two callers with opposite purposes: [Rewrite.apply] uses
+   it to LABEL the map it is building, [Graph_map.create] to REJECT a map whose
+   labels are not closed. They have to agree, and sharing the code is how. *)
+let propagate ~explicit ~preserved (g : graph) =
+  List.fold_left
+    (fun acc (n : node) ->
+      let operand_claim id =
+        Option.value
+          (Tensor_id.Map.find_opt id acc)
+          ~default:Correspondence.Identical
+      in
+      let incoming =
+        List.fold_left
+          (fun c id -> Correspondence.join c (operand_claim id))
+          Correspondence.Identical
+          (Graph_ir.operands n.Node.op)
+      in
+      List.fold_left
+        (fun (acc, i) out ->
+          let acc =
+            if Tensor_id.Map.mem out acc then acc
+            else if not (preserved out) then acc
+            else
+              let claim = transfer incoming (classify n.Node.op ~output:i) in
+              if claim = Correspondence.Identical then acc
+              else Tensor_id.Map.add out claim acc
+          in
+          (acc, i + 1))
+        (acc, 0) n.Node.outputs
+      |> fst)
+    explicit g.Graph.nodes

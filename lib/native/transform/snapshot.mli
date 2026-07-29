@@ -23,8 +23,8 @@ open Graph_ir
 
 type 'v t
 type packed = Pack : 'v t -> packed
-type 'v edge = 'v Correspondence.Tagged.id
-type 'v node = 'v Node_map.Tagged.id
+type 'v edge = 'v Correspondence.id
+type 'v node = 'v Node_map.id
 
 (* Validates the graph, so every accessor below is unambiguous for the same
    reason [Graph_view]'s are. *)
@@ -37,7 +37,7 @@ val node : 'v t -> Node_id.t -> 'v node option
 
 (* Needed by [Graph_map]: building a relation demands both universes, and they
    cannot be recovered from an abstract snapshot otherwise. *)
-val edges : 'v t -> 'v Correspondence.Tagged.Universe.t
-val nodes : 'v t -> 'v Node_map.Tagged.Universe.t
+val edges : 'v t -> 'v Correspondence.Universe.t
+val nodes : 'v t -> 'v Node_map.Universe.t
 val graph : 'v t -> graph
 val view : 'v t -> Graph_view.t

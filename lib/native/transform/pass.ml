@@ -100,8 +100,8 @@ let verified name ctx state (Rewrite.Step (_, map) as step) =
   match ctx.policy with
   | None -> Core.return { audits = []; step }
   | Some _
-    when Correspondence.is_empty map.Graph_map.values
-         && Node_map.is_empty map.Graph_map.nodes ->
+    when Correspondence.is_empty (Graph_map.values map)
+         && Node_map.is_empty (Graph_map.nodes map) ->
       Core.return { audits = []; step }
   | Some policy -> (
       match Map_verify.step ?budget:ctx.budget ?probe:ctx.probe state step with
@@ -152,8 +152,8 @@ let of_pattern ~name ~pattern ~build =
    identity map, which is exactly the signal. *)
 let changed (map : ('a, 'b) Graph_map.t) =
   not
-    (Correspondence.is_empty map.Graph_map.values
-    && Node_map.is_empty map.Graph_map.nodes)
+    (Correspondence.is_empty (Graph_map.values map)
+    && Node_map.is_empty (Graph_map.nodes map))
 
 (* The accumulated mapping's destination changes every iteration, so it cannot
    be carried as a [('v,'w) Graph_map.t] with 'w fixed. [Rewrite.step] already

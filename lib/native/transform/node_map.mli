@@ -16,8 +16,8 @@ module Id :
 module Label : Cluster_relation.LABEL with type t = unit
 include module type of Cluster_relation.Make (Id) (Label)
 
-val pair : Graph_ir.Node_id.t -> Graph_ir.Node_id.t -> Cluster.t
+val pair : 'src id -> 'dst id -> ('src, 'dst) Cluster.t
 
 (* [from] may be empty, which records the node as created. *)
-val fused : from:Graph_ir.Node_id.t list -> Graph_ir.Node_id.t -> Cluster.t
-val delete : Graph_ir.Node_id.t -> Cluster.t
+val fused : from:'src id list -> 'dst id -> ('src, 'dst) Cluster.t
+val delete : 'src id -> ('src, 'dst) Cluster.t

@@ -335,7 +335,7 @@ module Group_path = struct
      collide numerically with an unrelated destination edge would file the
      cluster under that edge's group. Wrong attribution is worse than the root,
      because it reads as a real answer. *)
-  let of_cluster ~index ~producers (c : Correspondence.Cluster.t) =
+  let of_cluster ~index ~producers (c : Correspondence.Cluster.Erased.t) =
     Option.value ~default:[]
       (Tensor_id.Set.fold
          (fun id acc ->
@@ -350,7 +350,7 @@ end
 
 module Entry = struct
   type t = {
-    cluster : Correspondence.Cluster.t;
+    cluster : Correspondence.Cluster.Erased.t;
     group : Group_path.t;
     outcome : Outcome.t;
   }
@@ -443,7 +443,7 @@ module Report = struct
   let pp_verdicts fmt t =
     Fmt.pf fmt "@[<v>%a@]"
       (Fmt.list ~sep:Fmt.cut (fun fmt (e : Entry.t) ->
-           Fmt.pf fmt "%a: %a" Correspondence.Cluster.pp e.Entry.cluster
+           Fmt.pf fmt "%a: %a" Correspondence.Cluster.Erased.pp e.Entry.cluster
              Outcome.pp e.Entry.outcome))
       t.entries
 end
@@ -495,7 +495,7 @@ let input_renames clusters ~src ~dst =
   let base = Stdlib.max (ceiling src) (ceiling dst) in
   let _, smap, dmap =
     List.fold_left
-      (fun (next, smap, dmap) (c : Correspondence.Cluster.t) ->
+      (fun (next, smap, dmap) (c : Correspondence.Cluster.Erased.t) ->
         let rep = Tensor_id.of_int next in
         let add keep set map =
           Tensor_id.Set.fold
@@ -732,8 +732,8 @@ let check_members ~budget ~probe ~tolerance ~label sides ~canonical ~others
     in
     (verdict, coverage)
 
-let check_cluster ~budget ~probe ~tolerance sides (c : Correspondence.Cluster.t)
-    =
+let check_cluster ~budget ~probe ~tolerance sides
+    (c : Correspondence.Cluster.Erased.t) =
   let members =
     List.map (fun id -> Member.Src id) (Tensor_id.Set.elements c.src)
     @ List.map (fun id -> Member.Dst id) (Tensor_id.Set.elements c.dst)
@@ -791,8 +791,17 @@ let run ?(budget = Budget.default)
     ?(src_constants = Tensor_id.Map.empty)
     ?(dst_constants = Tensor_id.Map.empty) map ~src ~dst =
   let open Core.Syntax in
-  let* () = (Graph_map.validate map ~src ~dst :> (unit, error) Core.result) in
-  let clusters = Graph_map.clusters_over map ~src ~dst in
+  (* Endpoint validation now happens in [Graph_map.create], but closure does not
+     survive [Graph_map.compose] — which takes no snapshots and so cannot
+     re-check — and a composed map is exactly what a cumulative run receives. *)
+  let* () =
+    (Graph_map.check_claim_closure map ~src ~dst :> (unit, error) Core.result)
+  in
+  let clusters =
+    Graph_map.clusters_over map ~src ~dst
+    |> List.map Correspondence.Cluster.erase
+  in
+  let src = Snapshot.graph src and dst = Snapshot.graph dst in
   let src_map, dst_map = input_renames clusters ~src ~dst in
   let side graph rename constants =
     let program = Eval_symbolic.run graph and rename = rename_with rename in
@@ -826,6 +835,6 @@ let run ?(budget = Budget.default)
 
 let step ?budget ?coefficient_tolerance ?probe before
     (Rewrite.Step (after, map)) =
-  run ?budget ?coefficient_tolerance ?probe map ~src:(Rewrite.graph before)
-    ~src_constants:(Rewrite.constants before) ~dst:(Rewrite.graph after)
+  run ?budget ?coefficient_tolerance ?probe map ~src:(Rewrite.snapshot before)
+    ~src_constants:(Rewrite.constants before) ~dst:(Rewrite.snapshot after)
     ~dst_constants:(Rewrite.constants after)

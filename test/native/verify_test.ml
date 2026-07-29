@@ -148,6 +148,13 @@ let verify_map map ~src ~dst =
     (pp_result Map_verify.Report.pp_verdicts)
     (lift_verify (Map_verify.run map ~src ~dst))
 
+(* A map assembled by hand, at the two graphs' own versions. [Graph_map.create]
+   is the only constructor, so a test states its clusters through the snapshots
+   exactly as production code does. *)
+let hand_map ~src ~dst values nodes =
+  Graph_map.create ~src ~dst ~values ~nodes ~provenance:Provenance.empty
+  |> Result.get_ok
+
 (* Two graphs with identical shapes and ids but a different operator. An
    identity map claims every edge is bit-identical; the output edge is not. *)
 let%expect_test "verify: an identity map over a changed operator is unproved" =
@@ -158,9 +165,15 @@ let%expect_test "verify: an identity map over a changed operator is unproved" =
         let* b = input ~shape:s ~name:"b" () in
         op a b)
   in
-  let src = binop (fun a b -> Graph_builder.add a b) in
-  let dst = binop (fun a b -> Graph_builder.sub a b) in
-  verify_map Graph_map.identity ~src ~dst;
+  (* The EMPTY map, not [Graph_map.identity]: identity is [('v, 'v)] and so
+     cannot relate two versions at all now. An empty map between two versions is
+     the same claim — everything implicitly identical — and it is what a
+     consumer could actually be handed. *)
+  let module A = (val Version_fixture.of_graph (binop Graph_builder.add)) in
+  let module B = (val Version_fixture.of_graph (binop Graph_builder.sub)) in
+  verify_map
+    (hand_map ~src:A.snapshot ~dst:B.snapshot [] [])
+    ~src:A.snapshot ~dst:B.snapshot;
   [%expect
     {|
     {t0} -> {t0} identical: proved (structural) [exhaustive]
@@ -192,30 +205,26 @@ let%expect_test "verify: a false claim about a non-canonical cluster member" =
         let* a = input ~shape:s ~name:"a" () in
         relu a)
   in
-  let ids l = Tensor_id.Set.of_list (List.map Tensor_id.of_int l) in
+  let module A = (val Version_fixture.of_graph src) in
+  let module B = (val Version_fixture.of_graph dst) in
+  let se i = Option.get (Snapshot.edge A.snapshot (Tensor_id.of_int i)) in
+  let de i = Option.get (Snapshot.edge B.snapshot (Tensor_id.of_int i)) in
+  let sn i = Option.get (Snapshot.node A.snapshot (Node_id.of_int i)) in
+  let dn i = Option.get (Snapshot.node B.snapshot (Node_id.of_int i)) in
   let cluster src dst =
     {
-      Correspondence.Cluster.src = ids src;
-      dst = ids dst;
+      Correspondence.Cluster.src = Correspondence.Set.of_list (List.map se src);
+      dst = Correspondence.Set.of_list (List.map de dst);
       label = Correspondence.Identical;
     }
   in
   let map =
-    {
-      Graph_map.values =
-        Correspondence.of_clusters
-          [ cluster [ 0; 1 ] [ 0 ]; cluster [ 2 ] [ 1 ] ];
+    hand_map ~src:A.snapshot ~dst:B.snapshot
+      [ cluster [ 0; 1 ] [ 0 ]; cluster [ 2 ] [ 1 ] ]
       (* the source's dead permute node goes away; the two relus pair up *)
-      nodes =
-        Node_map.of_clusters
-          [
-            Node_map.delete (Node_id.of_int 0);
-            Node_map.pair (Node_id.of_int 1) (Node_id.of_int 0);
-          ];
-      provenance = Provenance.empty;
-    }
+      [ Node_map.delete (sn 0); Node_map.pair (sn 1) (dn 0) ]
   in
-  verify_map map ~src ~dst;
+  verify_map map ~src:A.snapshot ~dst:B.snapshot;
   [%expect
     {|
     {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t3(1,0)=0x1p+0, t3(1,0,0)=0x1p+1} [exhaustive]
@@ -239,22 +248,30 @@ let%expect_test "verify: crossed input clusters do not collapse to one variable"
         let* b = input ~shape:s ~name:"b" () in
         sub a b)
   in
-  let ids l = Tensor_id.Set.of_list (List.map Tensor_id.of_int l) in
+  let module A = (val Version_fixture.of_graph (g ())) in
+  let module B = (val Version_fixture.of_graph (g ())) in
   let cluster src dst =
     {
-      Correspondence.Cluster.src = ids src;
-      dst = ids dst;
+      Correspondence.Cluster.src =
+        Correspondence.Set.of_list
+          (List.map
+             (fun i ->
+               Option.get (Snapshot.edge A.snapshot (Tensor_id.of_int i)))
+             src);
+      dst =
+        Correspondence.Set.of_list
+          (List.map
+             (fun i ->
+               Option.get (Snapshot.edge B.snapshot (Tensor_id.of_int i)))
+             dst);
       label = Correspondence.Identical;
     }
   in
   verify_map
-    {
-      Graph_map.values =
-        Correspondence.of_clusters [ cluster [ 0 ] [ 1 ]; cluster [ 1 ] [ 0 ] ];
-      nodes = Node_map.identity;
-      provenance = Provenance.empty;
-    }
-    ~src:(g ()) ~dst:(g ());
+    (hand_map ~src:A.snapshot ~dst:B.snapshot
+       [ cluster [ 0 ] [ 1 ]; cluster [ 1 ] [ 0 ] ]
+       [])
+    ~src:A.snapshot ~dst:B.snapshot;
   [%expect
     {|
     {t0} -> {t1} identical: proved (structural) [exhaustive]
@@ -314,9 +331,23 @@ let%expect_test "normalise: a non-f32 cell blocks the collapse" =
 
 (* End to end: trimming an identity permute off a non-F32 input is not merely
    unproven, it is FALSE for a large enough value — the permute's f32
-   materialization is what the source computes and the destination skips. The
-   verifier reports the blocked collapse rather than proving it. *)
-let%expect_test "verify: trimming a permute off an i32 input is unproved" =
+   materialization is what the source computes and the destination skips.
+
+   [Trim_permute] therefore DECLINES the match: a permute's output is
+   materialized as f32, so tying it to an i32 input would claim
+   [{t0(i32), t1(f32)} -> {t0}] identical, which is the contradiction step 9 of
+   native_transform_design.md §7 names. The graph is left alone and the three
+   untouched clusters verify, which is the right answer for "this rewrite does
+   not apply here".
+
+   Declining rather than applying-and-being-rejected matters because
+   [Graph_map.create]'s rejection is an ERROR: it stops [Pass.run_all] and every
+   later pass with it, so one unsupported match anywhere would take down a
+   pipeline that has nothing else wrong with it.
+
+   The blocked-collapse machinery itself is still covered, by "normalise: a
+   non-f32 cell blocks the collapse" above. *)
+let%expect_test "verify: trimming a permute off an i32 input is declined" =
   let g =
     build "i32_permute"
       Graph_builder.(
@@ -328,8 +359,9 @@ let%expect_test "verify: trimming a permute off an i32 input is unproved" =
   [%expect
     {|
     i32 input [trim]:
-      {t0, t1} -> {t0} identical: unproved: format blocks collapse: t3(0) in src.t1 [exhaustive]
-      {t2} -> {t2} identical: unproved: format blocks collapse: t3(0) in src.t2 [exhaustive] |}]
+      {t0} -> {t0} identical: proved (structural) [exhaustive]
+      {t1} -> {t1} identical: proved (structural) [exhaustive]
+      {t2} -> {t2} identical: proved (structural) [exhaustive] |}]
 
 (* ---- constant payloads ----------------------------------------------------
 
@@ -396,8 +428,8 @@ let%expect_test "verify: a fold that computed the wrong payload is refuted" =
       lift_pass (Pass.run_all state [ Fold_const.pass ])
     in
     lift_verify
-      (Map_verify.run map ~src:(Rewrite.graph state)
-         ~src_constants:(Rewrite.constants state) ~dst:(Rewrite.graph final)
+      (Map_verify.run map ~src:(Rewrite.snapshot state)
+         ~src_constants:(Rewrite.constants state) ~dst:(Rewrite.snapshot final)
          ~dst_constants:(Tensor_id.Map.map bump (Rewrite.constants final)))
   in
   Format.printf "@[<v 2>const_permute, folded payload off by one:@,%a@]@."
@@ -566,7 +598,7 @@ let%expect_test "verify: origin -> passes -> pack, composed" =
       lift_verify
         (Map_verify.run ~budget:Map_verify.Budget.cumulative
            (Graph_map.compose m01 m12)
-           ~src:(Rewrite.graph s0) ~dst:(Rewrite.graph s2))
+           ~src:(Rewrite.snapshot s0) ~dst:(Rewrite.snapshot s2))
     in
     Map_verify.Report.summary report
   in
@@ -625,15 +657,22 @@ let%expect_test "hook: a broken pass is caught, and named" =
       {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {t3(1,0)=0x1p+0, t3(1,0,0)=0x1p+1} [exhaustive] |}]
 
 (* The two policies exist because [Unproved] and [Refuted] are different
-   answers. The i32 trim is genuinely unproven — and in fact false for a large
-   enough value — but the verifier has exhibited no counterexample, so the
-   release bar tolerates it while the development bar does not. *)
+   answers. The trim below is genuinely unproven — an i32 cell upstream blocks
+   the collapse — but the verifier has exhibited no counterexample, so the
+   release bar tolerates it while the development bar does not.
+
+   The budget is what makes it unproven here, rather than a non-f32 cell. Tying
+   an i32 input to a permute's f32 output is a contradiction [Graph_map.create]
+   now rejects outright, and a rejected map produces no report at all for a
+   policy to judge. *)
 let%expect_test
     "hook: Reject_refuted tolerates unproved, Require_proved does not" =
   let g () =
-    build "i32_permute"
+    build "wide_permute"
       Graph_builder.(
-        let* a = input ~shape:s ~name:"a" ~fmt:(Payload.Fmt Payload.I32) () in
+        let* a =
+          input ~shape:(Graph_fixtures.nhwc ~h:64 ~w:64 ~c:2) ~name:"a" ()
+        in
         let* t1 = permute Graph_fixtures.identity_perm a in
         relu t1)
   in
@@ -644,9 +683,9 @@ let%expect_test
   [%expect
     {|
     reject_refuted: 1 nodes
-    require_proved: pass trim_permute rejected: 2 clusters: 2 unproved (format blocks collapse)
-                      {t0, t1} -> {t0} identical: unproved: format blocks collapse: t3(0) in src.t1 [exhaustive]
-                      {t2} -> {t2} identical: unproved: format blocks collapse: t3(0) in src.t2 [exhaustive] |}]
+    require_proved: pass trim_permute rejected: 2 clusters: 2 unproved (too large)
+                      {t0, t1} -> {t0} identical: unproved: too large (8192 coords)
+                      {t2} -> {t2} identical: unproved: too large (8192 coords) |}]
 
 (* ---- the coefficient tier -------------------------------------------------
 
@@ -706,8 +745,9 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
       in
       lift_verify
         (Map_verify.run ~budget:Map_verify.Budget.cumulative map
-           ~src:(Rewrite.graph state) ~src_constants:(Rewrite.constants state)
-           ~dst:(Rewrite.graph final)
+           ~src:(Rewrite.snapshot state)
+           ~src_constants:(Rewrite.constants state)
+           ~dst:(Rewrite.snapshot final)
            ~dst_constants:(dst_constants (Rewrite.constants final)))
     in
     Format.printf "%s: %a@." name

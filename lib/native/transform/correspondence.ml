@@ -81,22 +81,10 @@ end
 include Cluster_relation.Make (Id) (Label)
 
 let pair src dst label =
-  {
-    Cluster.src = Tensor_id.Set.singleton src;
-    dst = Tensor_id.Set.singleton dst;
-    label;
-  }
+  { Cluster.src = Set.singleton src; dst = Set.singleton dst; label }
 
 let create id =
-  {
-    Cluster.src = Tensor_id.Set.empty;
-    dst = Tensor_id.Set.singleton id;
-    label = Identical;
-  }
+  { Cluster.src = Set.empty; dst = Set.singleton id; label = Identical }
 
 let delete id =
-  {
-    Cluster.src = Tensor_id.Set.singleton id;
-    dst = Tensor_id.Set.empty;
-    label = Identical;
-  }
+  { Cluster.src = Set.singleton id; dst = Set.empty; label = Identical }

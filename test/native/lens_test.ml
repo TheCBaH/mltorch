@@ -310,14 +310,28 @@ let%expect_test "lens: a weaker claim never yields an archive path" =
   match Rewrite.origin ~constants:chain_constants g with
   | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
   | Ok (Rewrite.Origin s0) ->
-      (let claim rel =
-         {
-           Graph_map.values =
-             Correspondence.of_clusters
-               [ Correspondence.pair (t_ 1) (t_ 1) rel ];
-           nodes = Node_map.identity;
-           provenance = Provenance.empty;
-         }
+      (let snap = Rewrite.snapshot s0 in
+       let e id = Option.get (Snapshot.edge snap (t_ id)) in
+       (* Every node output carries the claim too. A weaker claim on t1 reaches
+          everything computed from it, and [Graph_map.create] will not accept a
+          map that says otherwise — which is the same rule that stops the lens
+          handing back source bytes for a downstream edge. *)
+       let downstream =
+         List.concat_map
+           (fun (n : Graph_ir.node) -> n.Graph_ir.Node.outputs)
+           (Snapshot.graph snap).Graph_ir.Graph.nodes
+       in
+       let claim rel =
+         Graph_map.create ~src:snap ~dst:snap
+           ~values:
+             (Correspondence.pair (e 1) (e 1) rel
+             :: List.map
+                  (fun id ->
+                    let x = Option.get (Snapshot.edge snap id) in
+                    Correspondence.pair x x rel)
+                  downstream)
+           ~nodes:[] ~provenance:Provenance.empty
+         |> Result.get_ok
        in
        let show rel =
          match P.lens sidecar ~src:s0 (claim rel) ~dst:s0 with

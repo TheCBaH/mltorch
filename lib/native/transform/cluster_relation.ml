@@ -46,24 +46,86 @@ module type LABEL = sig
 end
 
 module Make (Id : ID) (Label : LABEL) = struct
+  (* The version index is erased outright: a ['v id] IS an [Id.t] and a ['v set]
+     IS an [Id.Set.t], so everything below is the same code that ran before the
+     indexing existed. Retagging is therefore free in here, which is exactly why
+     this layer lives inside the functor — see the .mli. *)
+  type 'v id = Id.t
+  type 'v set = Id.Set.t
+
+  let raw id = id
+  let raws set = set
+
+  module Universe = struct
+    (* The brand is a type-level witness only (see brand.mli), so it is taken and
+       discarded rather than stored. *)
+    type 'v t = Id.Set.t
+
+    let create (_ : 'v Brand.t) ids = ids
+    let find u id = if Id.Set.mem id u then Some id else None
+    let elements u = Id.Set.elements u
+    let ids u = u
+  end
+
+  module Map = struct
+    (* [Stdlib.Map]: nothing shadows it here, but [Set] below shadows [Set]. *)
+    module M = Stdlib.Map.Make (Id)
+
+    type ('v, 'a) t = 'a M.t
+
+    let bindings = M.bindings
+    let empty = M.empty
+    let find_opt = M.find_opt
+    let fold = M.fold
+    let is_empty = M.is_empty
+    let update = M.add
+  end
+
+  module Set = struct
+    let add = Id.Set.add
+    let cardinal = Id.Set.cardinal
+    let disjoint = Id.Set.disjoint
+    let elements = Id.Set.elements
+    let empty = Id.Set.empty
+    let equal = Id.Set.equal
+    let fold = Id.Set.fold
+    let is_empty = Id.Set.is_empty
+    let mem = Id.Set.mem
+    let min_elt_opt = Id.Set.min_elt_opt
+    let of_list = Id.Set.of_list
+    let singleton = Id.Set.singleton
+    let union = Id.Set.union
+  end
+
   module Cluster = struct
-    type t = { src : Id.Set.t; dst : Id.Set.t; label : Label.t }
+    type ('src, 'dst) t = { src : 'src set; dst : 'dst set; label : Label.t }
 
     let pp_side fmt s =
       Fmt.braces (Fmt.list ~sep:Fmt.comma Id.pp) fmt (Id.Set.elements s)
 
     (* The label is omitted when it renders empty, so an unlabelled relation
        (nodes) does not print a trailing separator. *)
-    let pp fmt { src; dst; label } =
+    let render fmt (src, dst, label) =
       match Core.Pretty.to_string Label.pp label with
       | "" -> Fmt.pf fmt "@[<h>%a -> %a@]" pp_side src pp_side dst
       | _ ->
           Fmt.pf fmt "@[<h>%a -> %a %a@]" pp_side src pp_side dst Label.pp label
+
+    let pp fmt { src; dst; label } = render fmt (src, dst, label)
+
+    module Erased = struct
+      type t = { src : Id.Set.t; dst : Id.Set.t; label : Label.t }
+
+      let pp fmt { src; dst; label } = render fmt (src, dst, label)
+    end
+
+    let erase (c : ('src, 'dst) t) =
+      { Erased.src = c.src; dst = c.dst; label = c.label }
   end
 
   open Cluster
 
-  type ('src, 'dst) t = { clusters : Cluster.t list }
+  type ('src, 'dst) t = { clusters : ('src, 'dst) Cluster.t list }
 
   let union a b =
     {
@@ -107,7 +169,6 @@ module Make (Id : ID) (Label : LABEL) = struct
         | c -> c)
 
   let identity = { clusters = [] }
-  let of_clusters clusters = { clusters = normalise clusters }
   let clusters t = t.clusters
   let is_empty t = t.clusters = []
 
@@ -166,7 +227,8 @@ module Make (Id : ID) (Label : LABEL) = struct
       | _ -> Int.compare (rank a) (rank b)
   end
 
-  module Tset = Set.Make (Tag)
+  (* [Stdlib.Set]: the tagged [Set] above shadows it. *)
+  module Tset = Stdlib.Set.Make (Tag)
 
   let tagged f s = Id.Set.fold (fun id acc -> Tset.add (f id) acc) s Tset.empty
 
@@ -235,8 +297,12 @@ module Make (Id : ID) (Label : LABEL) = struct
     in
     { clusters = normalise (List.map of_group merged) }
 
-  (* ---- validation -------------------------------------------------------- *)
+  (* ---- construction, which is validation ---------------------------------- *)
 
+  (* Internal: [of_clusters] is the only way in, and it always runs this. A
+     ['v id] witnesses membership of SOME universe at ['v], which is not the same
+     as membership of the one passed to [of_clusters] — two universes can be
+     minted from one unpacked brand — so the endpoint checks stay live. *)
   let validate t ~src ~dst =
     let ( let* ) = Result.bind in
     let check_set s ~universe ~err =
@@ -272,85 +338,14 @@ module Make (Id : ID) (Label : LABEL) = struct
         else Ok ())
       dst (Ok ())
 
+  let of_clusters ~src ~dst cs =
+    let rel = { clusters = normalise cs } in
+    match validate rel ~src:(Universe.ids src) ~dst:(Universe.ids dst) with
+    | Ok () -> Ok rel
+    | Error e -> Error e
+
   let pp fmt t =
     match t.clusters with
     | [] -> Fmt.string fmt "identity"
     | clusters -> Fmt.(list ~sep:cut Cluster.pp) fmt clusters
-
-  (* ---- version-indexed view ------------------------------------------------
-
-     Everything below is the same relation with ids indexed by graph version.
-     The representation is shared outright — ['v id] is [Id.t], ['v set] is
-     [Id.Set.t], and a tagged relation IS a raw one — so this adds types and no
-     runtime cost. Retagging happens freely in here, which is exactly why it
-     lives inside the functor: see the note in the .mli. *)
-
-  (* Bound before [Tagged] shadows [t]. *)
-  type ('src, 'dst) erased = ('src, 'dst) t
-
-  module Tagged = struct
-    type 'v id = Id.t
-    type 'v set = Id.Set.t
-
-    let raw id = id
-    let raws set = set
-
-    module Universe = struct
-      (* The brand is a type-level witness only (see brand.mli), so it is taken
-         and discarded rather than stored. *)
-      type 'v t = Id.Set.t
-
-      let create (_ : 'v Brand.t) ids = ids
-      let ids u = u
-      let find u id = if Id.Set.mem id u then Some id else None
-    end
-
-    module Set = struct
-      let add = Id.Set.add
-      let cardinal = Id.Set.cardinal
-      let disjoint = Id.Set.disjoint
-      let elements = Id.Set.elements
-      let empty = Id.Set.empty
-      let equal = Id.Set.equal
-      let fold = Id.Set.fold
-      let is_empty = Id.Set.is_empty
-      let mem = Id.Set.mem
-      let min_elt_opt = Id.Set.min_elt_opt
-      let of_list = Id.Set.of_list
-      let singleton = Id.Set.singleton
-      let union = Id.Set.union
-    end
-
-    module Cluster = struct
-      type ('src, 'dst) t = { src : 'src set; dst : 'dst set; label : Label.t }
-
-      let erase c : Cluster.t =
-        { Cluster.src = c.src; dst = c.dst; label = c.label }
-
-      let tag (c : Cluster.t) =
-        { src = c.Cluster.src; dst = c.Cluster.dst; label = c.Cluster.label }
-
-      let pp fmt c = Cluster.pp fmt (erase c)
-    end
-
-    type ('src, 'dst) t = ('src, 'dst) erased
-
-    let identity = identity
-
-    let of_clusters ~src ~dst cs =
-      let rel = of_clusters (List.map Cluster.erase cs) in
-      match validate rel ~src:(Universe.ids src) ~dst:(Universe.ids dst) with
-      | Ok () -> Ok rel
-      | Error e -> Error e
-
-    let clusters rel = List.map Cluster.tag (clusters rel)
-    let is_empty = is_empty
-    let forward = forward
-    let backward = backward
-    let created = created
-    let deleted = deleted
-    let compose = compose
-    let invert = invert
-    let pp = pp
-  end
 end

@@ -80,17 +80,17 @@ type 'dst lens
 
 (* Both endpoint states are required. Correspondence is sparse, so an id in no
    cluster resolves to itself — without [dst] a bogus destination id would
-   silently "resolve" to the same-numbered source. The lens therefore stores the
-   destination's membership and rejects an id outside it.
+   silently "resolve" to the same-numbered source. The lens therefore keeps both
+   SNAPSHOTS and resolves every id through them: a query id is looked up in the
+   destination, an implicit identity in the source.
 
    Validated once, here: the sidecar's graph against [src]'s by canonical
-   [graph_jsont] bytes, and the map against both graphs. The byte comparison ties
-   the sidecar to the source; [Graph_map.validate] ties the *map* to the pair,
-   which nothing else does — a hand-built or [identity] map type-checks between
-   any two graphs. An id-set fingerprint would be worthless (builders start at
-   zero, so unrelated graphs routinely share ids) and structural equality is not
-   an option either, [graph] containing a [Tensor_id.Map] whose tree shape
-   depends on insertion order. *)
+   [graph_jsont] bytes, plus [Graph_map.check_claim_closure]. The byte comparison
+   ties the sidecar to the source. Endpoints no longer need re-checking —
+   [Graph_map.create] does that, and the ids in a map are version-indexed — but
+   closure does, because the map reaching a lens is composed and
+   [Graph_map.compose] takes no snapshots. An unclosed map is what would let
+   [captured_target] hand back source bytes for an edge whose value differs. *)
 val lens :
   t ->
   src:'a Rewrite.t ->

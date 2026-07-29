@@ -43,6 +43,11 @@ val graph : 'v t -> graph
 val constants : 'v t -> Tensor.packed Tensor_id.Map.t
 val view : 'v t -> Graph_view.t
 
+(* The version itself: the id universes a map into or out of this state is
+   indexed by, which is what a consumer needs to look an id up at the right
+   version. [graph] and [view] are projections of it. *)
+val snapshot : 'v t -> 'v Snapshot.t
+
 (* Fresh ids come only from here, and only as a version-bound, watermarked
    allocator: an unversioned supply would let a recipe allocate below the
    persistent watermark, where an id deleted from the current graph passes the

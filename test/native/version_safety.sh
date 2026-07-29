@@ -32,7 +32,7 @@ expr=$3
 
 out=$(
   cat <<EOF | "$top" -noprompt -no-version 2>&1
-open Correspondence.Tagged;;
+open Correspondence;;
 let check (g : Graph_ir.graph) =
   match (Snapshot.create g, Snapshot.create g) with
   | Ok (Snapshot.Pack sa), Ok (Snapshot.Pack sb) -> (

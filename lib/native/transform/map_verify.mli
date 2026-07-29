@@ -202,7 +202,10 @@ end
 
 module Entry : sig
   type t = {
-    cluster : Correspondence.Cluster.t;
+    (* Erased, deliberately: a report escapes into [Pass.outcome] and the
+       interpreter's result record, and parameterising the whole hierarchy by
+       ['src] and ['dst] would buy nothing a reader can use. *)
+    cluster : Correspondence.Cluster.Erased.t;
     group : Group_path.t;
     outcome : Outcome.t;
   }
@@ -255,9 +258,10 @@ type error = [ Graph_map.error | `Missing_signature of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
-(* [Graph_map.validate] runs first and is not optional: the phantom tags cannot
-   tie a map to two PARTICULAR graphs, so a well-typed map may name ids that
-   exist in neither.
+(* Endpoints are checked by [Graph_map.create], so nothing here re-validates
+   them. Claim closure is different: [Graph_map.compose] takes no snapshots and
+   so cannot re-establish it, and a cumulative run is handed exactly such a
+   composed map — so [check_claim_closure] runs first and is not optional.
 
    [probe] is the number of valuations tried when the terms differ, and it is a
    REFUTATION engine, not a weak proof: no number of agreeing draws produces a
@@ -292,9 +296,9 @@ val run :
   ?probe:int ->
   ?src_constants:Tensor.packed Tensor_id.Map.t ->
   ?dst_constants:Tensor.packed Tensor_id.Map.t ->
-  ('a, 'b) Graph_map.t ->
-  src:graph ->
-  dst:graph ->
+  ('src, 'dst) Graph_map.t ->
+  src:'src Snapshot.t ->
+  dst:'dst Snapshot.t ->
   (Report.t, error) Core.result
 
 (* Reads [Rewrite.constants] from each state separately, for the reason above.

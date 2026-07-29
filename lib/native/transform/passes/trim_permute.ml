@@ -44,6 +44,26 @@ let cancellations ~base inner_first =
     (Permute.Permute.identity, [])
     inner_first
 
+(* A tie claims the two edges are IDENTICAL, and that is false across a change of
+   format or quantization: a permute's output is materialized as f32, so trimming
+   one off a non-f32 edge drops a materialization the source really performs.
+   Declining the match leaves the graph alone, which is the right answer for
+   "this rewrite does not apply here" — applying it builds a map
+   [Graph_map.create] rejects, and a rejected map takes down [Pass.run_all] and
+   every later pass with it. *)
+let fmt_name (Payload.Fmt f) = Payload.fmt_name f
+
+let same_precision (a : Tensor_sig.t) (b : Tensor_sig.t) =
+  String.equal (fmt_name a.fmt) (fmt_name b.fmt) && a.quant = b.quant
+
+let rec ties_keep_precision ~base_sig = function
+  | [] -> Pattern.return true
+  | (out, _) :: rest ->
+      let open Pattern in
+      let* sg = sig_of out in
+      if same_precision sg base_sig then ties_keep_precision ~base_sig rest
+      else return false
+
 let pattern anchor =
   let open Pattern in
   let* links = chain (step ~anchor) anchor in
@@ -53,7 +73,10 @@ let pattern anchor =
   | innermost :: _ as inner_first ->
       let base = innermost.x in
       let composite, tied = cancellations ~base inner_first in
-      let+ () = guard (Permute.Permute.is_identity composite) in
+      let* () = guard (Permute.Permute.is_identity composite) in
+      let* base_sig = sig_of base in
+      let* ok = ties_keep_precision ~base_sig tied in
+      let+ () = guard ok in
       (List.map (fun link -> link.node) links, tied)
 
 let build (remove, tie) _region = Recipe.trim ~remove ~tie

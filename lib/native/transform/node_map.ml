@@ -23,22 +23,9 @@ end
 include Cluster_relation.Make (Id) (Label)
 
 let pair src dst =
-  {
-    Cluster.src = Node_id.Set.singleton src;
-    dst = Node_id.Set.singleton dst;
-    label = ();
-  }
+  { Cluster.src = Set.singleton src; dst = Set.singleton dst; label = () }
 
 let fused ~from dst =
-  {
-    Cluster.src = Node_id.Set.of_list from;
-    dst = Node_id.Set.singleton dst;
-    label = ();
-  }
+  { Cluster.src = Set.of_list from; dst = Set.singleton dst; label = () }
 
-let delete id =
-  {
-    Cluster.src = Node_id.Set.singleton id;
-    dst = Node_id.Set.empty;
-    label = ();
-  }
+let delete id = { Cluster.src = Set.singleton id; dst = Set.empty; label = () }

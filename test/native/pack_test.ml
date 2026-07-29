@@ -188,7 +188,7 @@ let%expect_test "pack: packing twice changes nothing" =
                   Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
               | Ok (Rewrite.Step (twice, map)) ->
                   Format.printf "second pack moves nothing: %b@."
-                    (Correspondence.is_empty map.Graph_map.values);
+                    (Correspondence.is_empty (Graph_map.values map));
                   Format.printf "same graph: %b@."
                     (String.equal
                        (Format.asprintf "%a" Graph_ir.pp (Rewrite.graph once))
@@ -216,12 +216,17 @@ let%expect_test "pack: the origin-to-packed map still resolves every origin id"
           | Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
           | Ok (Rewrite.Step (_, m12)) ->
               let composed = Graph_map.compose m01 m12 in
+              let snap = Rewrite.snapshot s0 in
               List.iter
                 (fun id ->
-                  let landed = Correspondence.forward composed.values id in
+                  let landed =
+                    Correspondence.forward
+                      (Graph_map.values composed)
+                      (Option.get (Snapshot.edge snap id))
+                  in
                   Format.printf "t%d -> %a@." (Tensor_id.to_int id)
                     (Fmt.braces (Fmt.list ~sep:Fmt.comma Tensor_id.pp))
-                    (Tensor_id.Set.elements landed))
+                    (Tensor_id.Set.elements (Correspondence.raws landed)))
                 (List.init 10 t_)));
       [%expect
         {|
