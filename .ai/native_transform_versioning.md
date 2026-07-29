@@ -225,7 +225,7 @@ the property.
 | 1 | `Brand`, `Snapshot`, `Cluster_relation.Tagged`, harness — additive | done |
 | 2 | raw API deleted, indexing promoted; typed endpoints through `Rewrite`, `Map_verify`, the PT2 lens; `Graph_map` abstract with `create ~src ~dst`, claim closure, cluster metadata validation | done |
 | 3 | `Map_verify.Member` as a GADT, tag erased at the report boundary | done |
-| 4 | `Input_var`, and `Ground_expr.Cell.origin` with `Shared` earned structurally | planned |
+| 4 | `Input_var`, and `Ground_expr.Cell.origin` with `Shared` earned structurally | built, PARKED — §6a |
 | 5 | typed recipes: `'v source`, `'v target`, `'v fresh` | planned |
 
 Stage 2 could not be subdivided: `map_verify.ml` and `pt2_native_graph.ml`
@@ -257,6 +257,51 @@ tag out in a first-class module instead (`Brand.Pack (type a) (b : a Brand.t)`),
 so a test writes `module A = (val Version_fixture.of_graph g)` and then names
 `A.v`. Nothing is weakened: `ids` mints its own brand, and `of_graph` re-exposes
 the tag `Snapshot.create` already chose.
+
+## 6a. Stage 4 is built and parked, on its own measurement
+
+Branch `native-transform-stage4-shared`. Complete, green, soundness covered
+component-wise — and not merged, because the stop condition the plan set for this
+stage fired.
+
+**The measurement.** ResNet-18, effort `standard`:
+
+| pipeline | wall clock | tallies |
+|---|---|---|
+| structural | 12.0s → 31.2s | 102 proved → 88; 14 more `max_rounds` |
+| `--fold` | 21.3s → 59.1s | 20 batch-norm clusters proved → `max_rounds`; 25 convolution proved → 7 |
+
+The bar was "any regression elsewhere, or a `Max_rounds`/`Max_nodes` blow-up,
+means the `Shared` classification is too narrow and the stage stops there".
+Losses were expected downstream of `fold_batch_norm`'s `Equivalent` boundary.
+They are not confined there: the structural pipeline claims only `Identical`, has
+no such boundary, and regresses just as much.
+
+**The diagnosis, which is the useful part.** The existing fast path stops
+expansion at any cell whose raw id matches on both sides. That is an INDUCTION
+over the cluster DAG — *assume the same-numbered edge is the same value, then
+prove this one* — discharged by every such edge having its own cluster, and sound
+only if that DAG is acyclic. It is exactly the assumption `map_verify.ml:473-475`
+declines to make, made silently by numbering rather than argued for.
+
+The structural rule refuses the assumption and then cascades: any edge downstream
+of any edit is side-tagged, so in a real pipeline — where every activation is
+downstream of some edit — the frontier runs to the graph inputs every time. The
+plan's expectation that "untouched prefixes keep short-circuiting" was wrong
+about which prefixes are untouched.
+
+**What parking it costs.** The proofs the rule removes are false ones, and that is
+demonstrable rather than theoretical: an EMPTY map between `relu(add a b)` and
+`relu(sub a b)` — which `Graph_map.create` accepts, closure having no explicit
+claim to propagate — reports the output *proved (structural) identical* today.
+The case is `verify_test.ml`'s "shared: an empty map over a changed operator
+proves nothing" on the branch.
+
+**What would unblock it.** Sequencing clusters in destination topological order
+and admitting only ALREADY-PROVED clusters as shared. That is a real induction
+rather than an assumption, and it recovers the fast path — but it is a verifier
+redesign, with verdicts feeding classification, and it was not in the approved
+plan.
 
 ## 7. Non-goals
 
