@@ -13,6 +13,7 @@ module Env = struct
      because the two sides' input ids differ, so each side records which of its
      own edges the variable stands for. *)
   type t = {
+    constant_ids : Tensor_id.Set.t;
     constants : Tensor.packed Tensor_id.Map.t;
     consts : float Tensor_id.Map.t;
     fmts : Payload.packed_fmt Tensor_id.Map.t;
@@ -67,7 +68,19 @@ module Env = struct
           | _ -> acc)
         Input_var.Map.empty p.Stage_program.inputs
     in
-    { constants; consts; fmts; origin; shapes; stages; var_edge }
+    (* Which of this graph's inputs are MODEL CONSTANTS. Membership in
+       [Stage_program.inputs] and the kind, both: [input_kinds] keys inputs only
+       and is sparse, so [None] means [Input] and an internal edge is absent
+       from it entirely. *)
+    let constant_ids =
+      List.fold_left
+        (fun acc ((id : Tensor_id.t), _) ->
+          match Tensor_id.Map.find_opt id p.Stage_program.input_kinds with
+          | Some Input.Constant -> Tensor_id.Set.add id acc
+          | None | Some Input.Input -> acc)
+        Tensor_id.Set.empty p.Stage_program.inputs
+    in
+    { constant_ids; constants; consts; fmts; origin; shapes; stages; var_edge }
 
   (* The edge of THIS graph an origin denotes, if any. *)
   let edge_of t (o : Origin.t) =
@@ -99,6 +112,18 @@ module Env = struct
   let const_of t id = Tensor_id.Map.find_opt id t.consts
   let constant_of t id = Tensor_id.Map.find_opt id t.constants
   let origin t id = t.origin id
+
+  (* A model constant whose payload was not supplied. Such a cell is free only
+     because nothing bound it, not because anything may vary over it, so the
+     value tiers must not run against one: a probe would separate two constants
+     that may well hold the same bytes. *)
+  let unbound_constant t (cell : Ground_expr.Cell.t) =
+    match edge_of t cell.Ground_expr.Cell.origin with
+    | None -> false
+    | Some id ->
+        Tensor_id.Set.mem id t.constant_ids
+        && Option.is_none (const_of t id)
+        && Option.is_none (constant_of t id)
 
   (* An [Input v] cell is a graph input on this side and so has no stage, which
      is why this goes through [Origin.edge] rather than [edge_of]. *)

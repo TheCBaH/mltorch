@@ -19,7 +19,20 @@ let tensor_ids (g : graph) =
    output contributes a variable on one side only, and the two sides then
    disagree, which is the correct answer. *)
 let input_vars ~src ~dst clusters =
-  let inputs (g : graph) = Tensor_id.Set.of_list g.Graph.inputs in
+  (* USER data only. A model constant is a graph input structurally — no
+     producer — but it is not what the hypothesis is about, and granting it a
+     variable assumes two payloads equal because they share a cluster, which is
+     the payload comparison's job. Both conditions are needed and
+     [Graph_ir.input_kind] supplies the second correctly: [input_kinds] is
+     sparse, keys inputs only, and defaults an absent entry to [Input]. Testing
+     the kind without the membership makes every internal edge a "user input"
+     and lets a cluster prove itself. *)
+  let inputs (g : graph) =
+    List.filter
+      (fun id -> Graph_ir.input_kind g id = Input.Input)
+      g.Graph.inputs
+    |> Tensor_id.Set.of_list
+  in
   let src_inputs = inputs (Snapshot.graph src)
   and dst_inputs = inputs (Snapshot.graph dst) in
   let _, s, d =

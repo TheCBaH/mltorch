@@ -309,6 +309,50 @@ payload map to live destination ids, so one that a fold consumed and deleted
 survives only in the before-state. `Map_verify.step` reads
 `Rewrite.constants` from each side separately.
 
+### 9a. A constant is an obligation, not the σ hypothesis
+
+σ is "corresponding graph **inputs** are fed the same data". A model constant is
+a graph input *structurally* — it has no producer — and every `Graph.inputs`
+member used to receive the hypothesis on that basis, constants included. That
+is a false proof, and a live one: two graphs with the same constant id and
+**different payloads** both ground to one variable, the cluster comes back
+`proved (structural)`, and a pass that rewrote a payload in place ships
+unnoticed. `verify_test.ml`'s "a payload change under one id is not assumed
+equal" is that case.
+
+σ is now gated on `Input.kind = Input`, so a constant is compared by its payload
+in the constant-bound attempt like any other obligation. Its own cluster entry
+is what discharges it; §7's `Shared` rule and, later, boundary projection are
+what let *other* clusters read it as a settled dependency.
+
+**The kind test is two conditions.** `input_kinds` is sparse — an absent entry
+means `Input`, which `Graph_ir.input_kind` supplies — and it keys graph inputs
+only, so an internal edge is absent from it as well. "User-data graph input"
+therefore means *in `Graph.inputs`* **and** *not `Some Constant`*, and dropping
+either half is a defect in its own direction:
+
+- reading it as `find_opt = Some Input` makes every omitted input a non-input,
+  σ stops applying, and two identical graphs refute at their own inputs;
+- testing the kind without the membership hands every internal edge a variable,
+  which is the cluster-proves-itself shape. `Env.var_edge` is built from the
+  program's actual inputs and independently catches that one with `unknown
+  edge`, but the membership test is what states the rule rather than tripping
+  over its absence.
+
+**Without payloads the answer is `Unproved`, never `Refuted`.** Two unbound
+constants are distinct cells only because nobody supplied them, so the value
+tiers — which read a free cell as "may take any value" — would separate a pair
+that may hold identical bytes. `Unproved.Unbound_constant` reports that instead,
+and it has to precede the **coefficient** tier as well as the probe, since
+coefficients over two unrelated variables disagree for the same non-reason.
+
+The cost is that a proof reaching a model constant now needs the constant-bound
+attempt, so it reads `proved (for these constants)` where it used to read
+`proved (structural)` — a payload-dependent statement where a payload-independent
+one used to stand, and on a real model that is most of the graph rather than
+just the constant clusters. That is the honest price of not assuming the
+payloads: the old strength rested on the hypothesis this section removes.
+
 ## 10. Cumulative verification
 
 `Pass.run_all` already threads `Graph_map.compose`, and `Map_verify.step` takes

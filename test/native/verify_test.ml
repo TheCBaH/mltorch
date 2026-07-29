@@ -741,6 +741,107 @@ let%expect_test "verify: a fold that computed the wrong payload is refuted" =
       {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {} [exhaustive]
       {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v1(0)=0x1p+0, v1(1)=0x1p+1, v1(1,0)=0x1.8p+1, v1(1,1)=0x1p+2, v1(1,0,0)=0x1.4p+2, v1(1,0,1)=0x1.8p+2, v1(1,1,0)=0x1.cp+2, v1(1,1,1)=0x1p+3} [exhaustive] |}]
 
+(* ---- constants are obligations, not the sigma hypothesis -------------------
+
+   Sigma is "corresponding graph INPUTS are fed the same data". A model constant
+   is a graph input structurally — it has no producer — but it is not user data,
+   and assuming two constants equal because they share a cluster assumes the
+   thing the payload comparison is there to establish. Every [Graph.inputs]
+   member used to get the hypothesis, constants included. *)
+
+let const_relu () =
+  build "const_relu"
+    Graph_builder.(
+      let* w = constant ~shape:s ~name:"w" () in
+      relu w)
+
+let flat v = Tensor.materialize s (fun _ -> v)
+let payloads id v = Tensor_id.Map.singleton (Tensor_id.of_int id) (flat v)
+
+let run_with_payloads ~src ~src_constants ~dst ~dst_constants =
+  Format.printf "%a@."
+    (pp_result Map_verify.Report.pp_verdicts)
+    (lift_verify
+       (Map_verify.run (hand_map ~src ~dst [] []) ~src ~src_constants ~dst
+          ~dst_constants))
+
+(* The false proof this rule is named after. Same graph twice, same ids, an
+   empty map — and two DIFFERENT payloads behind the constant. Under the sigma
+   hypothesis both sides ground to one variable, the cluster proves structurally,
+   and a pass that rewrote a payload in place would ship unnoticed. *)
+let%expect_test "constants: a payload change under one id is not assumed equal"
+    =
+  let module A = (val Version_fixture.of_graph (const_relu ())) in
+  let module B = (val Version_fixture.of_graph (const_relu ())) in
+  run_with_payloads ~src:A.snapshot ~src_constants:(payloads 0 1.)
+    ~dst:B.snapshot ~dst_constants:(payloads 0 2.);
+  [%expect
+    {|
+    {t0} -> {t0} identical: refuted: value at (0): src.t0 vs dst.t0 under {} [exhaustive]
+    {t1} -> {t1} identical: refuted: value at (0): src.t1 vs dst.t1 under {} [exhaustive] |}]
+
+(* Equal payloads still prove, or the rule would just break every model: the
+   proof is [for these constants] rather than [structural], because it is a
+   statement about the payloads this model carries and not about every payload.
+   That is exactly what the two attempts in [compare_at] are for. *)
+let%expect_test "constants: equal payloads prove, for those constants" =
+  let module A = (val Version_fixture.of_graph (const_relu ())) in
+  let module B = (val Version_fixture.of_graph (const_relu ())) in
+  run_with_payloads ~src:A.snapshot ~src_constants:(payloads 0 1.)
+    ~dst:B.snapshot ~dst_constants:(payloads 0 1.);
+  [%expect
+    {|
+    {t0} -> {t0} identical: proved (structural, for these constants) [exhaustive]
+    {t1} -> {t1} identical: proved (structural, for these constants) [exhaustive] |}]
+
+(* With no payloads at all there is nothing to compare, and the honest answer is
+   UNPROVED. Not refuted: the two constants are distinct cells only because
+   neither was supplied, so a probe assigning them different values would
+   manufacture a difference rather than find one. The guard has to precede the
+   coefficient tier as well as the probe, since coefficients over two unrelated
+   variables disagree for the same non-reason. *)
+let%expect_test "constants: with no payloads, a constant cluster is unproved" =
+  let module A = (val Version_fixture.of_graph (const_relu ())) in
+  let module B = (val Version_fixture.of_graph (const_relu ())) in
+  run_with_payloads ~src:A.snapshot ~src_constants:Tensor_id.Map.empty
+    ~dst:B.snapshot ~dst_constants:Tensor_id.Map.empty;
+  [%expect
+    {|
+    {t0} -> {t0} identical: unproved: unbound constant: src.t0(0) [exhaustive]
+    {t1} -> {t1} identical: unproved: unbound constant: src.t0(0) [exhaustive] |}]
+
+(* [input_kinds] is SPARSE: it keys graph inputs, need not cover them, and an
+   absent entry means [Input] ([Graph_ir.input_kind]). Reading it as
+   [find_opt = Some Input] therefore classifies an ordinary omitted input as a
+   non-input, sigma stops applying, and two identical graphs refute at their own
+   inputs.
+
+   The mirror mistake — testing the kind without testing graph-input membership —
+   hands every internal edge a variable, and "an identity map over a changed
+   operator is unproved" above is what goes red for it. Not by proving t2, as it
+   happens: [Env.var_edge] is built from the program's actual inputs, so nothing
+   binds the variable an internal edge would be given and grounding fails with
+   [unknown edge] instead. Two independent guards, and the membership test is
+   the one that states the rule rather than tripping over its absence. *)
+let%expect_test "sigma: an input absent from input_kinds is still a user input"
+    =
+  let strip (g : graph) = { g with Graph.input_kinds = Tensor_id.Map.empty } in
+  let module A =
+    (val Version_fixture.of_graph (strip (relu_of Graph_builder.add ())))
+  in
+  let module B =
+    (val Version_fixture.of_graph (strip (relu_of Graph_builder.add ())))
+  in
+  verify_map
+    (hand_map ~src:A.snapshot ~dst:B.snapshot [] [])
+    ~src:A.snapshot ~dst:B.snapshot;
+  [%expect
+    {|
+    {t0} -> {t0} identical: proved (structural) [exhaustive]
+    {t1} -> {t1} identical: proved (structural) [exhaustive]
+    {t2} -> {t2} identical: proved (structural) [exhaustive]
+    {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
+
 (* A probe may only run once expansion has reached the graph inputs. Cells left
    at a truncated frontier are internal stage results constrained by their
    producers, so assigning them independently could manufacture a
@@ -1034,9 +1135,21 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
       [ hw_ramp weight_shape; vec [| 0.5; 1.; 1.5 |]; vec [| 4.; 1.; 0.25 |] ]
   in
   (* Scaling every folded payload by two changes the coefficients, not just
-     their last bits, so tolerance cannot absorb it. *)
+     their last bits, so tolerance cannot absorb it.
+
+     Only the payloads the FOLD produced — the destination ids the source does
+     not have. Scaling the whole destination map would also corrupt the three
+     constants both graphs share, and those are obligations in their own right:
+     they would come back refuted, correctly and for an unrelated reason, which
+     is not what this test is about. *)
   let doubled (Tensor.Tensor t as packed) =
     Tensor.materialize t.Tensor.shape (fun c -> Tensor.read packed c *. 2.)
+  in
+  let folded_only ~src dst =
+    Tensor_id.Map.mapi
+      (fun id payload ->
+        if Tensor_id.Map.mem id src then payload else doubled payload)
+      dst
   in
   let report ~dst_constants name =
     let result =
@@ -1050,7 +1163,9 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
            ~src:(Rewrite.snapshot state)
            ~src_constants:(Rewrite.constants state)
            ~dst:(Rewrite.snapshot final)
-           ~dst_constants:(dst_constants (Rewrite.constants final)))
+           ~dst_constants:
+             (dst_constants ~src:(Rewrite.constants state)
+                (Rewrite.constants final)))
     in
     Format.printf "%s: %a@." name
       (pp_result (fun ppf r ->
@@ -1066,12 +1181,12 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
                 r.Map_verify.Report.entries)))
       result
   in
-  report ~dst_constants:Fun.id "honest fold";
-  report ~dst_constants:(Tensor_id.Map.map doubled) "folded payloads doubled";
+  report ~dst_constants:(fun ~src:_ dst -> dst) "honest fold";
+  report ~dst_constants:folded_only "folded payloads doubled";
   [%expect
     {|
-    honest fold: tested: agrees (1e-05); proved (structural); proved (structural); proved (structural); proved (structural)
-    folded payloads doubled: tested: disagrees at {v14(0)=0x1p+0, v14(1)=0x1p+1, v14(1,0)=0x1.8p+1, v14(1,1)=0x1p+2, v14(1,0,0)=0x1.4p+2, v14(1,0,1)=0x1.8p+2, v14(1,1,0)=0x1.cp+2, v14(1,1,1)=0x1p+3}; proved (structural); proved (structural); proved (structural); proved (structural) |}]
+    honest fold: tested: agrees (1e-05); proved (structural); proved (structural, for these constants); proved (structural, for these constants); proved (structural, for these constants)
+    folded payloads doubled: tested: disagrees at {v14(0)=0x1p+0, v14(1)=0x1p+1, v14(1,0)=0x1.8p+1, v14(1,1)=0x1p+2, v14(1,0,0)=0x1.4p+2, v14(1,0,1)=0x1.8p+2, v14(1,1,0)=0x1.cp+2, v14(1,1,1)=0x1p+3}; proved (structural); proved (structural, for these constants); proved (structural, for these constants); proved (structural, for these constants) |}]
 
 (* ---- sampling -------------------------------------------------------------
 

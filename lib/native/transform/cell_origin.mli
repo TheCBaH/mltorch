@@ -4,11 +4,19 @@
 
    Three answers, and which one an edge gets is the whole of this module:
 
-   - [Input v] for CORRESPONDING GRAPH INPUTS. This is the σ hypothesis — "the
-     two graphs are fed the same data" — and it is an assumption, not an
-     obligation. It is also the only place a renaming is sound: renaming both
-     sides of an internal cluster to one representative would assume the very
-     claim under verification.
+   - [Input v] for CORRESPONDING USER-DATA GRAPH INPUTS. This is the σ
+     hypothesis — "the two graphs are fed the same data" — and it is an
+     assumption, not an obligation. It is also the only place a renaming is
+     sound: renaming both sides of an internal cluster to one representative
+     would assume the very claim under verification.
+
+     MODEL CONSTANTS are excluded, though they are graph inputs structurally.
+     They are not user data, and a variable would assume two payloads equal
+     because they share a cluster — which is what the payload comparison is
+     for. The test is membership in [Graph.inputs] AND
+     [Graph_ir.input_kind = Input]: [input_kinds] is sparse and keys inputs
+     only, so the kind alone would make every internal edge a "user input".
+     See .ai/native_transform_verify.md §9a.
 
    - [Shared id] when the two graphs DEFINE the edge identically. Structural,
      computed from the graphs, never read off a label. An explicit [Identical]

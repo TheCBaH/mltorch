@@ -58,6 +58,15 @@ module Env : sig
      so whether [Ground_expr.normalise] may collapse its [Round]. Unknown cells
      answer [false]: refusing to collapse is the conservative direction. *)
   val stored_f32 : t -> Ground_expr.Cell.t -> bool
+
+  (* Whether this cell is a MODEL CONSTANT with no payload bound here. Sigma is
+     about user data, so a constant does not get a shared variable and the two
+     graphs' constants are distinct cells; without payloads there is then
+     nothing to compare them by. The driver must report that rather than let a
+     probe "separate" them, which would refute a pair that may hold identical
+     bytes. Synthetic optional-operand fills are not constants in this sense —
+     [leaf] resolves them to [Const] before a cell exists. *)
+  val unbound_constant : t -> Ground_expr.Cell.t -> bool
 end
 
 type error = [ `Unknown_edge of Tensor_id.t ]

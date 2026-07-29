@@ -159,6 +159,11 @@ module Unproved : sig
       (* cells still expandable: the frontier never reached the inputs *)
     | Out_of_bounds of Ground_expr.Cell.t
     | Too_large of int
+    | Unbound_constant of Ground_expr.Cell.t
+      (* a model constant whose payload nobody supplied. Not [Refuted]: the two
+           graphs' constants are distinct cells because sigma covers user data
+           only, so a probe would "separate" a pair that may hold identical
+           bytes *)
     | Unsupported_format of {
         blocked : Ground_expr.Cell.t;
         member : Member.Erased.t;

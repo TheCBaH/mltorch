@@ -182,6 +182,7 @@ module Unproved = struct
     | Max_rounds
     | Out_of_bounds of Ground_expr.Cell.t
     | Too_large of int
+    | Unbound_constant of Ground_expr.Cell.t
     | Unsupported_format of {
         blocked : Ground_expr.Cell.t;
         member : Member.Erased.t;
@@ -198,6 +199,8 @@ module Unproved = struct
     | Out_of_bounds c ->
         Fmt.pf fmt "@[<h>out of bounds: %a@]" Ground_expr.Cell.pp c
     | Too_large n -> Fmt.pf fmt "too large (%d coords)" n
+    | Unbound_constant c ->
+        Fmt.pf fmt "@[<h>unbound constant: %a@]" Ground_expr.Cell.pp c
     | Unsupported_format f ->
         Fmt.pf fmt "@[<h>format blocks collapse: %a in %a@]" Ground_expr.Cell.pp
           f.blocked Member.Erased.pp f.member
@@ -213,6 +216,7 @@ module Unproved = struct
     | Max_rounds -> "over max_rounds"
     | Out_of_bounds _ -> "out of bounds"
     | Too_large _ -> "too large"
+    | Unbound_constant _ -> "unbound constant"
     | Unsupported_format _ -> "format blocks collapse"
     | Unsupported_relation _ -> "unsupported relation"
 end
@@ -613,55 +617,71 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
         | None, Some blocked ->
             Verdict.Unproved
               (Unproved.Unsupported_format { blocked; member = rhs_member })
-        | None, None when label = Correspondence.Unverifiable ->
-            (* Structural equality was worth trying and did not close. Nothing
-               BELOW it is: coefficient agreement and the probe are evidence
-               about values, and this relation asserts nothing about values for
-               them to bear on. Refuting it is meaningless and "tested
-               (disagrees)" would be a numerical verdict on a claim that was
-               never made.
+        | None, None -> (
+            (* Two reasons the value tiers below — coefficient agreement and the
+               probe — must not run at all. Both are evidence ABOUT VALUES, so
+               each is about there being no value question to answer, and both
+               sit here rather than merely in front of the probe: coefficients
+               over two unrelated variables disagree for the same non-reason a
+               probe separates them.
 
-               The blocked-collapse arms above still run first. That is a
-               statement about normalisation, not about values, and it is the
-               more actionable diagnostic when it applies. *)
-            Verdict.Unproved (Unproved.Unsupported_relation label)
-        | None, None ->
-            (* The frontier is at the graph inputs, so every remaining cell is
-               genuinely free and a disagreeing assignment is realisable. This
-               is the only place a value counterexample may be built. *)
-            let witness () =
-              match counterexample ~probe ~lhs ~rhs with
-              | None ->
-                  Verdict.Unproved
-                    (Unproved.Exhausted
-                       { coord; lhs = lhs_member; rhs = rhs_member })
-              | Some valuation ->
-                  if label = Correspondence.Identical then
-                    Verdict.Refuted
-                      (Refutation.Value
-                         {
-                           coord;
-                           lhs = lhs_member;
-                           rhs = rhs_member;
-                           valuation;
-                         })
-                  else Verdict.Tested (Strength.Disagrees valuation)
-            in
-            (* The NORMALISED terms, not the raw ones: folding is what turns
-               [sqrt (Const _)] — batch norm's normaliser — into a coefficient
-               rather than an opaque generator the polynomial view cannot see
-               through. *)
-            if Coeff_form.agree ~tolerance ln.expr rn.expr then
-              (* Coefficient agreement is never a proof, and for [Identical] it
-                 is not even the right question — that claim is about bits, so a
-                 probe still gets to refute it. *)
-              if label = Correspondence.Identical then
-                match witness () with
-                | Verdict.Unproved _ ->
-                    Verdict.Tested (Strength.Agrees tolerance)
-                | refuted -> refuted
-              else Verdict.Tested (Strength.Agrees tolerance)
-            else witness ()
+               [Unverifiable] asserts nothing about values, so there is nothing
+               to gather evidence for or against; structural equality was still
+               worth trying, and did not close.
+
+               An unbound model constant is free only because nobody supplied
+               its payload. The tiers read a free cell as "may take any value",
+               which would refute two constants that may hold identical bytes. *)
+            match (label, unbound_constant_at ~lhs_env ~rhs_env ~lhs ~rhs) with
+            | Correspondence.Unverifiable, _ ->
+                Verdict.Unproved (Unproved.Unsupported_relation label)
+            | _, Some cell -> Verdict.Unproved (Unproved.Unbound_constant cell)
+            | _, None ->
+                value_tiers ~probe ~tolerance ~label ~coord ~members ~lhs ~rhs
+                  ~ln ~rn)
+
+(* The frontier is at the graph inputs, so every remaining cell is genuinely
+   free and a disagreeing assignment is realisable. This is the only place a
+   value counterexample may be built. *)
+and value_tiers ~probe ~tolerance ~label ~coord ~members ~lhs ~rhs ~ln ~rn =
+  let lhs_member, rhs_member = members in
+  let witness () =
+    match counterexample ~probe ~lhs ~rhs with
+    | None ->
+        Verdict.Unproved
+          (Unproved.Exhausted { coord; lhs = lhs_member; rhs = rhs_member })
+    | Some valuation ->
+        if label = Correspondence.Identical then
+          Verdict.Refuted
+            (Refutation.Value
+               { coord; lhs = lhs_member; rhs = rhs_member; valuation })
+        else Verdict.Tested (Strength.Disagrees valuation)
+  in
+  (* The NORMALISED terms, not the raw ones: folding is what turns
+     [sqrt (Const _)] — batch norm's normaliser — into a coefficient rather than
+     an opaque generator the polynomial view cannot see through. *)
+  if Coeff_form.agree ~tolerance ln.expr rn.expr then
+    (* Coefficient agreement is never a proof, and for [Identical] it is not even
+       the right question — that claim is about bits, so a probe still gets to
+       refute it. *)
+    if label = Correspondence.Identical then
+      match witness () with
+      | Verdict.Unproved _ -> Verdict.Tested (Strength.Agrees tolerance)
+      | refuted -> refuted
+    else Verdict.Tested (Strength.Agrees tolerance)
+  else witness ()
+
+(* A cell either side reads that is a model constant with no payload bound in
+   its OWN env — each side is asked about its own cells, since a payload map is
+   per-graph. [Set.find_first_opt] is not usable: it requires a monotone
+   predicate, the same reason [Ground_eval.out_of_bounds] goes through a list. *)
+and unbound_constant_at ~lhs_env ~rhs_env ~lhs ~rhs =
+  let first env e =
+    List.find_opt
+      (Ground_eval.Env.unbound_constant env)
+      (Ground_expr.Cell.Set.elements (Ground_expr.cells e))
+  in
+  match first lhs_env lhs with Some _ as c -> c | None -> first rhs_env rhs
 
 (* Try [probe] draws over the union of both terms' free cells, bitwise because
    [Identical] is about bits. Returns the first assignment that separates them. *)
