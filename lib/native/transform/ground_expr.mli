@@ -27,7 +27,7 @@
 module Origin : sig
   type t =
     | Dst of Tensor_id.t
-    | Input of Input_var.t
+    | Input of Cluster_var.t
     | Shared of Tensor_id.t
     | Src of Tensor_id.t
 

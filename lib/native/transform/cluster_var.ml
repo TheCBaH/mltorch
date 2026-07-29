@@ -1,4 +1,4 @@
-(* See input_var.mli. *)
+(* See cluster_var.mli. *)
 
 type t = int
 

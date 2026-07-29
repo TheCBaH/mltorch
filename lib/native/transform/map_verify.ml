@@ -506,7 +506,7 @@ let pp_error fmt : [< error ] -> unit = function
    That renaming, plus the decision of what an edge's raw id is entitled to mean
    anywhere else, is [Cell_origin]. It replaces representatives allocated above
    both graphs' highest id: the ceiling arithmetic existed only because the two
-   graphs shared one numeric namespace, and an [Input_var.t] is not a
+   graphs shared one numeric namespace, and an [Cluster_var.t] is not a
    [Tensor_id.t]. *)
 
 (* ---- one cluster ---------------------------------------------------------- *)

@@ -20,7 +20,7 @@ module Env = struct
     shapes : Vec6.shape Tensor_id.Map.t;
     origin : Tensor_id.t -> Origin.t;
     stages : Stage_program.Stage.t Tensor_id.Map.t;
-    var_edge : Tensor_id.t Input_var.Map.t;
+    var_edge : Tensor_id.t Cluster_var.Map.t;
   }
 
   let of_program ?(constants = Tensor_id.Map.empty) (p : Stage_program.t)
@@ -64,9 +64,9 @@ module Env = struct
       List.fold_left
         (fun acc (_, (sg : Tensor_sig.t)) ->
           match origin sg.Tensor_sig.id with
-          | Origin.Input v -> Input_var.Map.add v sg.Tensor_sig.id acc
+          | Origin.Input v -> Cluster_var.Map.add v sg.Tensor_sig.id acc
           | _ -> acc)
-        Input_var.Map.empty p.Stage_program.inputs
+        Cluster_var.Map.empty p.Stage_program.inputs
     in
     (* Which of this graph's inputs are MODEL CONSTANTS. Membership in
        [Stage_program.inputs] and the kind, both: [input_kinds] keys inputs only
@@ -86,7 +86,7 @@ module Env = struct
   let edge_of t (o : Origin.t) =
     match o with
     | Origin.Dst id | Origin.Shared id | Origin.Src id -> Some id
-    | Origin.Input v -> Input_var.Map.find_opt v t.var_edge
+    | Origin.Input v -> Cluster_var.Map.find_opt v t.var_edge
 
   let shape_of t o =
     Option.bind (edge_of t o) (fun id -> Tensor_id.Map.find_opt id t.shapes)

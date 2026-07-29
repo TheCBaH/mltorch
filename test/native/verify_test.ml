@@ -294,6 +294,100 @@ let relu_of op () =
       let* c = op a b in
       relu c)
 
+(* ---- Boundary_index: membership, and only membership ----------------------
+
+   The lookup underneath every variable the verifier hands out. It reads cluster
+   MEMBERSHIP and nothing else — no definitions, no operator categories, no
+   label, no raw-id equality — so these are unit tests of that and not of any
+   proof. What a variable then entitles a comparison to assume is the driver's
+   business, and is tested by everything below. *)
+
+let boundary_of clusters =
+  let index = Boundary_index.create clusters in
+  let var = Fmt.option ~none:(Fmt.any "-") Cluster_var.pp in
+  List.iter
+    (fun i ->
+      let id = Tensor_id.of_int i in
+      Format.printf "t%d: src=%a dst=%a@." i var
+        (Boundary_index.src index id)
+        var
+        (Boundary_index.dst index id))
+    [ 0; 1; 2; 3 ]
+
+let%expect_test "boundary: every member of one cluster gets the same variable" =
+  let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let module B = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let src id = Option.get (Snapshot.edge A.snapshot (Tensor_id.of_int id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (Tensor_id.of_int id)) in
+  (* {t0,t1} <-> {t0} is the shape a trim produces, and its whole point is that
+     the trimmed edge and the surviving one name ONE value. *)
+  boundary_of
+    [
+      {
+        Correspondence.Cluster.src = Correspondence.Set.of_list [ src 0; src 1 ];
+        dst = Correspondence.Set.singleton (dst 0);
+        label = Correspondence.Identical;
+      };
+      Correspondence.pair (src 2) (dst 2) Correspondence.Identical;
+    ];
+  [%expect
+    {|
+    t0: src=v0 dst=v0
+    t1: src=v0 dst=-
+    t2: src=v1 dst=v1
+    t3: src=- dst=- |}]
+
+(* Crossed clusters over the SAME raw ids. Two clusters, so two variables, and
+   the sides pair up across them rather than collapsing: src t0 and dst t1 are
+   one value, src t1 and dst t0 another. Anything coarser — "both operands are
+   some input" — reads [v0; v1] against [v0; v1] and proves sub(a,b) identical
+   to sub(b,a). *)
+let%expect_test "boundary: crossed clusters over one id stay distinct" =
+  let module A = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
+  in
+  let module B = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
+  in
+  let src id = Option.get (Snapshot.edge A.snapshot (Tensor_id.of_int id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (Tensor_id.of_int id)) in
+  boundary_of
+    [
+      Correspondence.pair (src 0) (dst 1) Correspondence.Identical;
+      Correspondence.pair (src 1) (dst 0) Correspondence.Identical;
+    ];
+  [%expect
+    {|
+    t0: src=v0 dst=v1
+    t1: src=v1 dst=v0
+    t2: src=- dst=-
+    t3: src=- dst=- |}]
+
+(* A creation or a deletion relates one side to nothing, so there is no shared
+   value to name and no variable to hand out. The numbering skips them too, so
+   the variables stay contiguous and countable against the non-vacuous clusters
+   in report order — t2 here is the SECOND such cluster and gets v1, not v2. *)
+let%expect_test "boundary: vacuous clusters have no variable, and no number" =
+  let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let module B = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let src id = Option.get (Snapshot.edge A.snapshot (Tensor_id.of_int id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (Tensor_id.of_int id)) in
+  boundary_of
+    [
+      Correspondence.pair (src 0) (dst 0) Correspondence.Identical;
+      Correspondence.delete (src 1);
+      Correspondence.create (dst 3);
+      Correspondence.pair (src 2) (dst 2) Correspondence.Identical;
+    ];
+  [%expect
+    {|
+    t0: src=v0 dst=v0
+    t1: src=- dst=-
+    t2: src=v1 dst=v1
+    t3: src=- dst=- |}]
+
 (* The case the structural rule exists for, and the one claim closure cannot
    reach: an EMPTY map, which has no explicit claim for propagation to carry, so
    Graph_map.create accepts it by construction. Both graphs number their edges
@@ -739,7 +833,7 @@ let%expect_test "verify: a fold that computed the wrong payload is refuted" =
       {t1} -> {} identical: vacuous
       {t0} -> {t0} identical: proved (structural) [exhaustive]
       {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {} [exhaustive]
-      {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v1(0)=0x1p+0, v1(1)=0x1p+1, v1(1,0)=0x1.8p+1, v1(1,1)=0x1p+2, v1(1,0,0)=0x1.4p+2, v1(1,0,1)=0x1.8p+2, v1(1,1,0)=0x1.cp+2, v1(1,1,1)=0x1p+3} [exhaustive] |}]
+      {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v0(1)=0x1p+1, v0(1,0)=0x1.8p+1, v0(1,1)=0x1p+2, v0(1,0,0)=0x1.4p+2, v0(1,0,1)=0x1.8p+2, v0(1,1,0)=0x1.cp+2, v0(1,1,1)=0x1p+3} [exhaustive] |}]
 
 (* ---- constants are obligations, not the sigma hypothesis -------------------
 
@@ -1186,7 +1280,7 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
   [%expect
     {|
     honest fold: tested: agrees (1e-05); proved (structural); proved (structural, for these constants); proved (structural, for these constants); proved (structural, for these constants)
-    folded payloads doubled: tested: disagrees at {v14(0)=0x1p+0, v14(1)=0x1p+1, v14(1,0)=0x1.8p+1, v14(1,1)=0x1p+2, v14(1,0,0)=0x1.4p+2, v14(1,0,1)=0x1.8p+2, v14(1,1,0)=0x1.cp+2, v14(1,1,1)=0x1p+3}; proved (structural); proved (structural, for these constants); proved (structural, for these constants); proved (structural, for these constants) |}]
+    folded payloads doubled: tested: disagrees at {v1(0)=0x1p+0, v1(1)=0x1p+1, v1(1,0)=0x1.8p+1, v1(1,1)=0x1p+2, v1(1,0,0)=0x1.4p+2, v1(1,0,1)=0x1.8p+2, v1(1,1,0)=0x1.cp+2, v1(1,1,1)=0x1p+3}; proved (structural); proved (structural, for these constants); proved (structural, for these constants); proved (structural, for these constants) |}]
 
 (* ---- sampling -------------------------------------------------------------
 

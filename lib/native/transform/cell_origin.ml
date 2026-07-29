@@ -14,43 +14,31 @@ let tensor_ids (g : graph) =
     (fun id _ acc -> Tensor_id.Set.add id acc)
     g.Graph.tensors Tensor_id.Set.empty
 
-(* One variable per cluster, in cluster order, restricted on each side to the
-   ids that really are graph inputs THERE. A cluster pairing an input with a node
-   output contributes a variable on one side only, and the two sides then
-   disagree, which is the correct answer. *)
+(* [Boundary_index] says which cluster an edge belongs to; σ is that lookup
+   RESTRICTED to the ids that really are user-data graph inputs on their own
+   side. A cluster pairing an input with a node output therefore contributes a
+   variable on one side only, and the two sides then disagree, which is the
+   correct answer.
+
+   USER data only. A model constant is a graph input structurally — no producer
+   — but it is not what the hypothesis is about, and granting it a variable
+   assumes two payloads equal because they share a cluster, which is the payload
+   comparison's job. Both conditions are needed and [Graph_ir.input_kind]
+   supplies the second correctly: [input_kinds] is sparse, keys inputs only, and
+   defaults an absent entry to [Input]. Testing the kind without the membership
+   makes every internal edge a "user input" and lets a cluster prove itself. *)
 let input_vars ~src ~dst clusters =
-  (* USER data only. A model constant is a graph input structurally — no
-     producer — but it is not what the hypothesis is about, and granting it a
-     variable assumes two payloads equal because they share a cluster, which is
-     the payload comparison's job. Both conditions are needed and
-     [Graph_ir.input_kind] supplies the second correctly: [input_kinds] is
-     sparse, keys inputs only, and defaults an absent entry to [Input]. Testing
-     the kind without the membership makes every internal edge a "user input"
-     and lets a cluster prove itself. *)
-  let inputs (g : graph) =
-    List.filter
-      (fun id -> Graph_ir.input_kind g id = Input.Input)
-      g.Graph.inputs
-    |> Tensor_id.Set.of_list
-  in
-  let src_inputs = inputs (Snapshot.graph src)
-  and dst_inputs = inputs (Snapshot.graph dst) in
-  let _, s, d =
+  let index = Boundary_index.create clusters in
+  let restrict (g : graph) lookup =
     List.fold_left
-      (fun (i, s, d) (c : ('src, 'dst) Correspondence.Cluster.t) ->
-        let v = Input_var.of_int i in
-        let add keep set m =
-          Correspondence.Set.fold
-            (fun e m ->
-              let id = Correspondence.raw e in
-              if Tensor_id.Set.mem id keep then Tensor_id.Map.add id v m else m)
-            set m
-        in
-        (i + 1, add src_inputs c.src s, add dst_inputs c.dst d))
-      (0, Tensor_id.Map.empty, Tensor_id.Map.empty)
-      clusters
+      (fun m id ->
+        match (Graph_ir.input_kind g id, lookup index id) with
+        | Input.Input, Some v -> Tensor_id.Map.add id v m
+        | Input.Input, None | Input.Constant, _ -> m)
+      Tensor_id.Map.empty g.Graph.inputs
   in
-  (s, d)
+  ( restrict (Snapshot.graph src) Boundary_index.src,
+    restrict (Snapshot.graph dst) Boundary_index.dst )
 
 let classify ~src ~dst clusters =
   let src_view = Snapshot.view src and dst_view = Snapshot.view dst in

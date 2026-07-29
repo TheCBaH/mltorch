@@ -3,7 +3,7 @@
 module Origin = struct
   type t =
     | Dst of Tensor_id.t
-    | Input of Input_var.t
+    | Input of Cluster_var.t
     | Shared of Tensor_id.t
     | Src of Tensor_id.t
 
@@ -12,7 +12,7 @@ module Origin = struct
   let compare a b =
     match (a, b) with
     | Dst x, Dst y | Shared x, Shared y | Src x, Src y -> Tensor_id.compare x y
-    | Input x, Input y -> Input_var.compare x y
+    | Input x, Input y -> Cluster_var.compare x y
     | _ -> Int.compare (rank a) (rank b)
 
   let equal a b = compare a b = 0
@@ -24,7 +24,7 @@ module Origin = struct
 
   let pp fmt = function
     | Dst id -> Fmt.pf fmt "dst.%a" Tensor_id.pp id
-    | Input v -> Input_var.pp fmt v
+    | Input v -> Cluster_var.pp fmt v
     | Shared id -> Tensor_id.pp fmt id
     | Src id -> Fmt.pf fmt "src.%a" Tensor_id.pp id
 
@@ -82,7 +82,7 @@ module Valuation = struct
   let origin_key (o : Origin.t) =
     match o with
     | Origin.Dst id -> (0, Tensor_id.to_int id)
-    | Origin.Input v -> (1, Input_var.to_int v)
+    | Origin.Input v -> (1, Cluster_var.to_int v)
     | Origin.Shared id -> (2, Tensor_id.to_int id)
     | Origin.Src id -> (3, Tensor_id.to_int id)
 
