@@ -327,6 +327,12 @@ forge an allocator or a versioned recipe.
 is `Rewrite.view`. A `val of_graph : graph -> ('v t, …)` would let the caller pick
 `'v` and present graph B under graph A's tag.
 
+> **Superseded in part — see `native_transform_versioning.md` §2.** The objection
+> is to *choosing* `'v`, not to minting one outside `Rewrite`. `Snapshot.create :
+> graph -> (packed, error) result` hands back an existential, so the caller cannot
+> choose, and it is safe for the same reason `origin` is. That is what lets the
+> version-bound abstractions live outside this module.
+
 **Watermarks.** Allocators are immutable and therefore copyable, so a watermark
 check alone permits a branched history (`a0 → plan r1 → a1` and `a0 → plan r2 → a2`
 both start at `a0` and allocate the same ids). `merge` requires **contiguous
@@ -687,6 +693,12 @@ fixtures in `test/native/graph_fixtures.ml`.
 > is never reused within a pipeline, so an id present in two versions denotes the
 > same tensor. A stale match is therefore either caught by `apply` (the id is gone)
 > or harmless (it still means what it meant).
+>
+> **Revisited — see `native_transform_versioning.md` §2.** Both reasons have since
+> lapsed. The forgeability turned on `of_graph` returning a bare `'v t`; returning
+> a `packed` removes the choice. And `Pass.t.run` is already a rank-2 record, so
+> that cost is sunk. `Snapshot` is the versioned view this note declined to build,
+> and it carries the `Graph_view.t` rather than replacing it.
 
 A state+error monad over `{ view; claimed; shared }`. **No cursor** — every
 primitive names the edge it operates on, which is the honest formulation for a

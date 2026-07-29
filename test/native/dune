@@ -16,3 +16,19 @@
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
+
+; Type-level regression tests: snippets that MUST NOT compile, each paired with
+; a control that must. The snippets are fed to a toplevel with `native` linked
+; in, built by dune's `(toplevel ...)` stanza. That keeps the dependency on the
+; library tracked — editing an .mli rebuilds the toplevel and reruns the cram —
+; and avoids pointing ocamlfind at `.native.objs/byte`, which would additionally
+; need every .cmi globbed into the cram sandbox: the sandbox is a PRUNED view of
+; the build tree, and `wrapped false` means that is the whole library.
+
+(toplevel
+ (name version_probe)
+ (libraries native))
+
+(cram
+ (applies_to version_safety)
+ (deps version_safety.sh version_probe.exe))

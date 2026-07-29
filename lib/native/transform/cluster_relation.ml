@@ -276,4 +276,81 @@ module Make (Id : ID) (Label : LABEL) = struct
     match t.clusters with
     | [] -> Fmt.string fmt "identity"
     | clusters -> Fmt.(list ~sep:cut Cluster.pp) fmt clusters
+
+  (* ---- version-indexed view ------------------------------------------------
+
+     Everything below is the same relation with ids indexed by graph version.
+     The representation is shared outright — ['v id] is [Id.t], ['v set] is
+     [Id.Set.t], and a tagged relation IS a raw one — so this adds types and no
+     runtime cost. Retagging happens freely in here, which is exactly why it
+     lives inside the functor: see the note in the .mli. *)
+
+  (* Bound before [Tagged] shadows [t]. *)
+  type ('src, 'dst) erased = ('src, 'dst) t
+
+  module Tagged = struct
+    type 'v id = Id.t
+    type 'v set = Id.Set.t
+
+    let raw id = id
+    let raws set = set
+
+    module Universe = struct
+      (* The brand is a type-level witness only (see brand.mli), so it is taken
+         and discarded rather than stored. *)
+      type 'v t = Id.Set.t
+
+      let create (_ : 'v Brand.t) ids = ids
+      let ids u = u
+      let find u id = if Id.Set.mem id u then Some id else None
+    end
+
+    module Set = struct
+      let add = Id.Set.add
+      let cardinal = Id.Set.cardinal
+      let disjoint = Id.Set.disjoint
+      let elements = Id.Set.elements
+      let empty = Id.Set.empty
+      let equal = Id.Set.equal
+      let fold = Id.Set.fold
+      let is_empty = Id.Set.is_empty
+      let mem = Id.Set.mem
+      let min_elt_opt = Id.Set.min_elt_opt
+      let of_list = Id.Set.of_list
+      let singleton = Id.Set.singleton
+      let union = Id.Set.union
+    end
+
+    module Cluster = struct
+      type ('src, 'dst) t = { src : 'src set; dst : 'dst set; label : Label.t }
+
+      let erase c : Cluster.t =
+        { Cluster.src = c.src; dst = c.dst; label = c.label }
+
+      let tag (c : Cluster.t) =
+        { src = c.Cluster.src; dst = c.Cluster.dst; label = c.Cluster.label }
+
+      let pp fmt c = Cluster.pp fmt (erase c)
+    end
+
+    type ('src, 'dst) t = ('src, 'dst) erased
+
+    let identity = identity
+
+    let of_clusters ~src ~dst cs =
+      let rel = of_clusters (List.map Cluster.erase cs) in
+      match validate rel ~src:(Universe.ids src) ~dst:(Universe.ids dst) with
+      | Ok () -> Ok rel
+      | Error e -> Error e
+
+    let clusters rel = List.map Cluster.tag (clusters rel)
+    let is_empty = is_empty
+    let forward = forward
+    let backward = backward
+    let created = created
+    let deleted = deleted
+    let compose = compose
+    let invert = invert
+    let pp = pp
+  end
 end
