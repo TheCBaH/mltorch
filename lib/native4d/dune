@@ -1,0 +1,22 @@
+; The Native4D dialect: a reduced native graph whose tensors occupy only the
+; N/H/W/C axes of the six-axis frame. See .ai/native4d_design.md and
+; .ai/native4d_plan.md.
+;
+; WRAPPED, unlike every other library here. The repo convention is `wrapped
+; false` so that modules inside a library name each other unqualified — and a
+; wrapped `native4d` still names `Vec6`, `Axis`, `Dim`, `Conv`, `Graph_ir`
+; unqualified, because those come from `native`, which stays unwrapped. What
+; `wrapped false` cannot do is host a SECOND dialect: `include_subdirs
+; unqualified` makes every module name globally visible, so a second `Op` /
+; `Graph` / `Eval_op` would need a prefix on every file. `Native4d.Op` says the
+; same thing with the qualification carrying information.
+;
+; The consequence to remember: a wrapped library compiles each unit with its
+; alias module opened, so a sibling here SHADOWS the same-named module from
+; `native`. No file in this directory may be named after one in `lib/native/`
+; — hence the `4` suffix on `graph_shape4`, `eval_op4`, `eval_direct4`,
+; `eval_symbolic4` and `dialect4`, and only on those.
+
+(library
+ (name native4d)
+ (libraries core fmt jsont native))

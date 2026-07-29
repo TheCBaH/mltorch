@@ -1,0 +1,9 @@
+; Expect tests for lib/native4d. Pure OCaml (no C++/ctypes), so this runs in
+; isolation: `dune runtest test/native4d`.
+
+(library
+ (name native4d_test)
+ (libraries native native4d core fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
