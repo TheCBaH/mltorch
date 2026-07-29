@@ -97,8 +97,13 @@ let pattern anchor =
 
 let build (m : Match.t) _region =
   let open Recipe in
-  let tie =
-    List.map (fun (c : Inverse_consumer.t) -> (c.out, m.Match.x)) m.consumers
+  let* tie =
+    Recipe.all
+      (fun (c : Inverse_consumer.t) ->
+        let* out = existing c.out in
+        let+ x = existing m.Match.x in
+        (out, x))
+      m.consumers
   in
   let remove =
     (if m.Match.remove_p then [ m.Match.p_node ] else [])
@@ -106,4 +111,4 @@ let build (m : Match.t) _region =
   in
   trim ~remove ~tie
 
-let pass = Pass.of_pattern ~name:"bypass_permute" ~pattern ~build
+let pass = Pass.of_pattern ~name:"bypass_permute" ~pattern ~build:{ Pass.build }

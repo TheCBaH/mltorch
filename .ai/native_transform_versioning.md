@@ -4,7 +4,7 @@ Deepens `native_transform_design.md` §3-§5, §7-§8 and `native_transform_veri
 §7. Covers `lib/native/transform/brand.ml`, `snapshot.ml`, the indexed layer
 inside `cluster_relation.ml`, and `graph_map.ml`'s `create`.
 
-Status: **stages 1-3 of 5 implemented** — `Brand`, `Snapshot`, version-indexed ids
+Status: **stages 1-3 and 5 implemented; stage 4 built and parked (§6a)** — `Brand`, `Snapshot`, version-indexed ids
 throughout the relations, `Graph_map.create` as the only constructor, the
 verifier's `Member` as a GADT, and the negative-compile harness
 (`test/native/version_safety.t`). Stages 4-5 (`Input_var`, typed recipes) are
@@ -226,7 +226,7 @@ the property.
 | 2 | raw API deleted, indexing promoted; typed endpoints through `Rewrite`, `Map_verify`, the PT2 lens; `Graph_map` abstract with `create ~src ~dst`, claim closure, cluster metadata validation | done |
 | 3 | `Map_verify.Member` as a GADT, tag erased at the report boundary | done |
 | 4 | `Input_var`, and `Ground_expr.Cell.origin` with `Shared` earned structurally | built, PARKED — §6a |
-| 5 | typed recipes: `'v source`, `'v target`, `'v fresh` | planned |
+| 5 | typed recipes: `'v source`, `'v target`, `'v fresh` | done |
 
 Stage 2 could not be subdivided: `map_verify.ml` and `pt2_native_graph.ml`
 consumed `Graph_map.validate`, `clusters_over` and `Correspondence.Cluster.t`
@@ -302,6 +302,31 @@ and admitting only ALREADY-PROVED clusters as shared. That is a real induction
 rather than an assumption, and it recovers the fast path — but it is a verifier
 redesign, with verdicts feeding classification, and it was not in the approved
 plan.
+
+## 6b. Stage 5: what the recipe types do and do not buy
+
+Three kinds of edge, and which one a field takes is the whole point: `'v source`
+(exists in the graph being rewritten, and only `existing` makes one, by finding
+the id there), `'v fresh` (allocated by this recipe), `'v target` (what an edit
+defines — fresh, or a source output taken over).
+
+**Only `subst` is a symmetric union**, and it earns it: `trim` substitutes
+existing onto existing, `fold_batch_norm` existing onto fresh. Every other field
+is directional. One union across all of them would let a claim be stated as
+`(fresh, source)` and give up the guarantee the stage exists for — which is the
+case `version_safety.t` now pins.
+
+Two things this does NOT do, stated because the gap is easy to misread:
+
+- **Edit construction is not side-safe.** `insertion.op` is a `Graph_ir.op` and
+  takes raw `tensor_ref`s, so `fold_batch_norm` still writes fresh and existing
+  ids side by side inside one payload, through `raw_fresh`/`raw_target`. Closing
+  that means parameterising the whole IR, which §7 rules out.
+- **`trim ~tie` stays unprotected.** Both ends are existing source edges, so the
+  types cannot tell them apart and reversal there remains well typed.
+
+`Pass`'s callbacks became rank-2 records to carry the version, joining `Pass.t`'s
+`run`. That is the cost the design record predicted and had already paid once.
 
 ## 7. Non-goals
 

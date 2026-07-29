@@ -60,19 +60,22 @@ type env = { constants : Tensor.packed Tensor_id.Map.t; view : Graph_view.t }
 (* Visit each node and offer a rewrite. The callback returns a BUILDER rather
    than a recipe, so the driver — not the pass — threads the allocator and keeps
    allocation sequential and contiguous across the matches it accepts. *)
-type per_node = { on_node : env -> node -> unit Recipe.t option }
+(* RANK-2, for the same reason [t.run] is: the version a recipe is planned at
+   comes from the state the driver holds, and a pass has to work at whichever one
+   that is. It is also what stops a pass from closing over a source edge resolved
+   against some other version. *)
+type per_node = { on_node : 'v. env -> node -> ('v, unit) Recipe.t option }
 
 val per_node : name:string -> per_node -> t
+
+type 'a builder = { build : 'v. 'a -> Region.t -> ('v, unit) Recipe.t }
 
 (* Match with a pattern anchored at each node output; [build] turns an accepted
    match into a builder. Neither takes the env: [Pattern] is defined over the
    view alone, and no pattern-based pass has needed payloads. One that does
    should grow the env here rather than reach around the driver. *)
 val of_pattern :
-  name:string ->
-  pattern:(Tensor_id.t -> 'a Pattern.t) ->
-  build:('a -> Region.t -> unit Recipe.t) ->
-  t
+  name:string -> pattern:(Tensor_id.t -> 'a Pattern.t) -> build:'a builder -> t
 
 (* Re-run until a sweep changes nothing. [max_iters] bounds a pass that keeps
    finding work — a rewrite that reintroduces its own match would otherwise spin

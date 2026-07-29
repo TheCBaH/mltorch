@@ -89,6 +89,7 @@ let build (m : Match.t) _region =
     fresh ~fmt:m.Match.z.Tensor_sig.fmt ?quant:m.Match.z.Tensor_sig.quant
       m.Match.mapped_shape
   in
+  let* out = existing m.Match.out in
   replace
     ~remove:[ m.Match.mean_node; m.Match.permute_node ]
     ~insert:
@@ -96,16 +97,17 @@ let build (m : Match.t) _region =
         {
           Recipe.op =
             Mean { Reduce.Mean.params = m.Match.mapped_params; x = m.Match.x };
-          outputs = [ pre ];
+          outputs = [ Fresh pre ];
           from = [ m.Match.mean_node ];
         };
         {
-          Recipe.op = Permute { perm = m.Match.perm; x = pre };
-          outputs = [ m.Match.out ];
+          Recipe.op = Permute { perm = m.Match.perm; x = raw_fresh pre };
+          outputs = [ Preserved out ];
           from = [ m.Match.permute_node ];
         };
       ]
-    ~claims:[ (m.Match.out, m.Match.out, Correspondence.Identical) ]
+    ~claims:[ (out, Preserved out, Correspondence.Identical) ]
     ()
 
-let pass = Pass.of_pattern ~name:"sink_permute_mean" ~pattern ~build
+let pass =
+  Pass.of_pattern ~name:"sink_permute_mean" ~pattern ~build:{ Pass.build }

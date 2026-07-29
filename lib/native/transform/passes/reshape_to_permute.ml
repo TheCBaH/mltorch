@@ -60,16 +60,19 @@ let pattern anchor =
 (* Same tensor, same shape, different definition — so the id is kept and the
    self-claim states why that is legal. *)
 let build m _region =
-  Recipe.replace ~remove:[ m.node ]
+  let open Recipe in
+  let* out = existing m.out in
+  replace ~remove:[ m.node ]
     ~insert:
       [
         {
           Recipe.op = Permute { perm = m.perm; x = m.x };
-          outputs = [ m.out ];
+          outputs = [ Preserved out ];
           from = [ m.node ];
         };
       ]
-    ~claims:[ (m.out, m.out, Correspondence.Identical) ]
+    ~claims:[ (out, Preserved out, Correspondence.Identical) ]
     ()
 
-let pass = Pass.of_pattern ~name:"reshape_to_permute" ~pattern ~build
+let pass =
+  Pass.of_pattern ~name:"reshape_to_permute" ~pattern ~build:{ Pass.build }

@@ -624,7 +624,11 @@ let trim_any_permute =
         (fun _env (n : node) ->
           match (n.Node.op, n.Node.outputs) with
           | Permute { x; _ }, [ out ] ->
-              Some (Recipe.trim ~remove:[ n.Node.id ] ~tie:[ (out, x) ])
+              Some
+                (let open Recipe in
+                 let* out = existing out in
+                 let* x = existing x in
+                 trim ~remove:[ n.Node.id ] ~tie:[ (out, x) ])
           | _ -> None);
     }
 

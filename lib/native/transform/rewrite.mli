@@ -8,6 +8,7 @@ open Graph_ir
 type error =
   [ Graph_map.error
   | Graph_view.error
+  | Recipe.error
   | `Bad_constant_payload of Tensor_id.t
   | `Constant_payload_overwrite of Tensor_id.t
   | `Cycle of Node_id.t
@@ -60,7 +61,7 @@ val allocator : 'v t -> 'v allocator
 val plan :
   'v t ->
   'v allocator ->
-  unit Recipe.t ->
+  ('v, unit) Recipe.t ->
   ('v recipe * 'v allocator, error) Core.result
 
 (* Allocators are immutable and so copyable, which a watermark check alone does

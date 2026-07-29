@@ -122,6 +122,9 @@ let build (m : Match.t) _region =
   let open Recipe in
   let shape = unpermuted_shape ~perm:m.perm m.y.Tensor_sig.shape in
   let* pre = fresh ~fmt:m.y.Tensor_sig.fmt ?quant:m.y.Tensor_sig.quant shape in
+  let* out = existing m.Match.out in
+  (* [op] is raw by construction: [Graph_ir.op] takes [tensor_ref]s, so the
+     rewiring happens on raw ids and the fresh edge is projected into it. *)
   let assoc =
     List.map (fun (l : Operand_link.t) -> (l.out, l.x)) m.Match.links
   in
@@ -133,14 +136,14 @@ let build (m : Match.t) _region =
     ~remove:(m.Match.op_node :: permute_nodes)
     ~insert:
       [
-        { Recipe.op; outputs = [ pre ]; from = [ m.Match.op_node ] };
+        { Recipe.op; outputs = [ Fresh pre ]; from = [ m.Match.op_node ] };
         {
-          Recipe.op = Permute { perm = m.perm; x = pre };
-          outputs = [ m.Match.out ];
+          Recipe.op = Permute { perm = m.perm; x = raw_fresh pre };
+          outputs = [ Preserved out ];
           from = permute_nodes;
         };
       ]
-    ~claims:[ (m.Match.out, m.Match.out, Correspondence.Identical) ]
+    ~claims:[ (out, Preserved out, Correspondence.Identical) ]
     ()
 
-let pass = Pass.of_pattern ~name:"sink_permute" ~pattern ~build
+let pass = Pass.of_pattern ~name:"sink_permute" ~pattern ~build:{ Pass.build }

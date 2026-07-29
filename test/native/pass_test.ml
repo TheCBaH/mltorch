@@ -22,7 +22,11 @@ let trim_identity =
         (fun _env (n : node) ->
           match (n.Node.op, n.Node.outputs) with
           | Permute { perm; x }, [ out ] when is_identity_perm perm ->
-              Some (Recipe.trim ~remove:[ n.Node.id ] ~tie:[ (out, x) ])
+              Some
+                (let open Recipe in
+                 let* out = existing out in
+                 let* x = existing x in
+                 trim ~remove:[ n.Node.id ] ~tie:[ (out, x) ])
           | _ -> None);
     }
 
@@ -42,8 +46,15 @@ let trim_identity_at_input =
         let* v_def = optional (peek p.x (fun _ -> Some ())) in
         let+ () = guard (v_def = None) in
         (n.Node.id, anchor, p.x)))
-    ~build:(fun (node, out, x) _region ->
-      Recipe.trim ~remove:[ node ] ~tie:[ (out, x) ])
+    ~build:
+      {
+        Pass.build =
+          (fun (node, out, x) _region ->
+            let open Recipe in
+            let* out = existing out in
+            let* x = existing x in
+            trim ~remove:[ node ] ~tie:[ (out, x) ]);
+      }
 
 let run_pipeline ?(show = true) g passes =
   match Rewrite.origin g with
@@ -173,12 +184,14 @@ let%expect_test "fixpoint reports a pass that will not converge" =
             | Relu { x }, [ out ] ->
                 (* Replace the relu with an identical one: always a change. *)
                 Some
-                  (Recipe.replace ~remove:[ n.Node.id ]
+                  (let open Recipe in
+                   let* out = existing out in
+                   replace ~remove:[ n.Node.id ]
                      ~insert:
                        [
                          {
-                           Recipe.op = Relu { x };
-                           outputs = [ out ];
+                           op = Relu { x };
+                           outputs = [ Preserved out ];
                            from = [ n.Node.id ];
                          };
                        ]
@@ -231,9 +244,12 @@ let%expect_test "constant payloads accumulate across a pipeline" =
           (fun _env (n : node) ->
             if Node_id.equal n.Node.id node then
               Some
-                (Recipe.fold_to_constant ~node ~output:out
+                (let open Recipe in
+                 let* output = existing out in
+                 let* sources = all existing (Graph_ir.operands n.Node.op) in
+                 fold_to_constant ~node ~output
                    ~value:(ones (Graph_fixtures.s1c 3))
-                   ~sources:(Graph_ir.operands n.Node.op))
+                   ~sources)
             else None);
       }
   in

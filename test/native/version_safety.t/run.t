@@ -32,6 +32,15 @@ therefore yields ids that unify with nothing the snapshots produced.
   $ check "universe forged at a foreign tag" "let Brand.Pack mine = Brand.fresh () in ignore (forward m (match Universe.find (Universe.create mine (raws (Set.singleton s))) (raw s) with Some x -> x | None -> s))"
   universe forged at a foreign tag: rejected
 
+A recipe's edit metadata is typed too. A value claim runs source-to-target and
+only substitution is symmetric, so stating a claim the other way round — a fresh
+edge where the source belongs — does not compile.
+
+  $ check "claim stated source-to-target" "ignore (Recipe.run Recipe.(let* x = existing (Tensor_id.of_int 0) in let* f = fresh (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) in replace ~remove:[] ~insert:[] ~claims:[ (x, Fresh f, Correspondence.Identical) ] ()) sa (Id_supply.of_graph g))"
+  claim stated source-to-target: COMPILES
+  $ check "claim stated backwards" "ignore (Recipe.run Recipe.(let* x = existing (Tensor_id.of_int 0) in let* f = fresh (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) in replace ~remove:[] ~insert:[] ~claims:[ (f, Preserved x, Correspondence.Identical) ] ()) sa (Id_supply.of_graph g))"
+  claim stated backwards: rejected
+
 Erasing a tag stays available: printers, the PT2 lens and Ground_eval all need
 raw ids. It is the other direction that has no entry point.
 

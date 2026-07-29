@@ -38,16 +38,18 @@ let pattern anchor =
    id-identity rule is satisfied. Its DEFINITION changes, though, and [apply]
    never infers a claim — hence the explicit self-claim. *)
 let build m _region =
-  Recipe.replace ~remove:m.remove
+  let open Recipe in
+  let* out = existing m.out in
+  replace ~remove:m.remove
     ~insert:
       [
         {
           Recipe.op = Permute { perm = m.perm; x = m.x };
-          outputs = [ m.out ];
+          outputs = [ Preserved out ];
           from = m.remove;
         };
       ]
-    ~claims:[ (m.out, m.out, Correspondence.Identical) ]
+    ~claims:[ (out, Preserved out, Correspondence.Identical) ]
     ()
 
-let pass = Pass.of_pattern ~name:"chain_permute" ~pattern ~build
+let pass = Pass.of_pattern ~name:"chain_permute" ~pattern ~build:{ Pass.build }

@@ -59,7 +59,12 @@ type t = {
 }
 
 type env = { constants : Tensor.packed Tensor_id.Map.t; view : Graph_view.t }
-type per_node = { on_node : env -> node -> unit Recipe.t option }
+type per_node = { on_node : 'v. env -> node -> ('v, unit) Recipe.t option }
+type 'a builder = { build : 'v. 'a -> Region.t -> ('v, unit) Recipe.t }
+
+(* The driver's own rank-2 hook: [of_sweep] runs [collect] at the version of the
+   state it is planning against. *)
+type collector = { collect : 'v. env -> ('v, unit) Recipe.t list }
 
 let lift r = (r :> ('a, error) Core.result)
 
@@ -123,7 +128,7 @@ let verified name ctx state (Rewrite.Step (_, map) as step) =
                    problem = Verification.Rejected report;
                  }))
 
-let of_sweep ~name collect =
+let of_sweep ~name { collect } =
   {
     name;
     run =
@@ -139,13 +144,22 @@ let of_sweep ~name collect =
   }
 
 let per_node ~name { on_node } =
-  of_sweep ~name (fun env ->
-      List.filter_map (on_node env) (Graph_ir.nodes (Graph_view.graph env.view)))
+  of_sweep ~name
+    {
+      collect =
+        (fun env ->
+          List.filter_map (on_node env)
+            (Graph_ir.nodes (Graph_view.graph env.view)));
+    }
 
-let of_pattern ~name ~pattern ~build =
-  of_sweep ~name (fun env ->
-      Pattern.scan pattern env.view
-      |> List.map (fun (value, region) -> build value region))
+let of_pattern ~name ~pattern ~build:{ build } =
+  of_sweep ~name
+    {
+      collect =
+        (fun env ->
+          Pattern.scan pattern env.view
+          |> List.map (fun (value, region) -> build value region));
+    }
 
 (* Convergence is "the graph stopped changing", read off the node and tensor
    counts plus the map being empty — a step that rewrote nothing produces the

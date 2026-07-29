@@ -143,13 +143,18 @@ let pattern anchor =
    edge, so the identities cost nothing extra. *)
 let literal value = Tensor.materialize scalar (fun _ -> value)
 
+(* Either the parameter the module already carries or a fresh stand-in, and the
+   caller needs the two to be interchangeable as an operand — so both come back
+   as a ['v target], which is also what [constants] is keyed by. *)
 let supplied ref_ identity =
   let open Recipe in
   match ref_ with
-  | Some id -> return (id, [])
+  | Some id ->
+      let+ e = existing id in
+      (Preserved e, [])
   | None ->
       let+ id = fresh scalar in
-      (id, [ (id, literal identity) ])
+      (Fresh id, [ (Fresh id, literal identity) ])
 
 let build m _region =
   let open Recipe in
@@ -172,29 +177,45 @@ let build m _region =
      tensor. So it gets a fresh id and the recipe claims [Equivalent], which
      propagation then carries to everything downstream. *)
   let* y' = fresh ~fmt:m.y.Tensor_sig.fmt m.y.Tensor_sig.shape in
+  let* out = existing m.out in
   let node op outputs from = { Recipe.op; outputs; from } in
   let from_bn = [ m.bn_node ] in
+  (* Op payloads are raw: [Graph_ir.op] takes [tensor_ref]s, and parameterising
+     the IR is a non-goal. This is the projection boundary — fresh ids and the
+     module's existing parameters go in side by side, exactly as
+     .ai/native_transform_versioning.md §7 says they will. *)
+  let f = raw_fresh and t = raw_target in
   emit
     {
       empty_replacement with
       remove = Node_id.Set.of_list [ m.conv_node; m.bn_node ];
       insert =
         [
-          node (Add { a = m.bn.running_var; b = eps }) [ shifted ] from_bn;
-          node (Sqrt { x = shifted }) [ denom ] from_bn;
-          node (Div { a = gamma; b = denom }) [ scale ] from_bn;
-          node (Permute { perm = c_to_n; x = scale }) [ scale_n ] from_bn;
-          node (Mul { a = m.conv.weight; b = scale_n }) [ weight' ] from_bn;
-          node (Sub { a = bias; b = m.bn.running_mean }) [ centred ] from_bn;
-          node (Mul { a = centred; b = scale }) [ scaled ] from_bn;
-          node (Add { a = scaled; b = beta }) [ bias' ] from_bn;
           node
-            (m.conv.rebuild ~weight:weight' ~bias:bias')
-            [ y' ] [ m.conv_node; m.bn_node ];
+            (Add { a = m.bn.running_var; b = f eps })
+            [ Fresh shifted ] from_bn;
+          node (Sqrt { x = f shifted }) [ Fresh denom ] from_bn;
+          node (Div { a = t gamma; b = f denom }) [ Fresh scale ] from_bn;
+          node
+            (Permute { perm = c_to_n; x = f scale })
+            [ Fresh scale_n ] from_bn;
+          node
+            (Mul { a = m.conv.weight; b = f scale_n })
+            [ Fresh weight' ] from_bn;
+          node
+            (Sub { a = t bias; b = m.bn.running_mean })
+            [ Fresh centred ] from_bn;
+          node (Mul { a = f centred; b = f scale }) [ Fresh scaled ] from_bn;
+          node (Add { a = f scaled; b = t beta }) [ Fresh bias' ] from_bn;
+          node
+            (m.conv.rebuild ~weight:(f weight') ~bias:(f bias'))
+            [ Fresh y' ] [ m.conv_node; m.bn_node ];
         ];
-      subst = Tensor_id.Map.singleton m.out y';
-      value_claims = [ (m.out, y', Correspondence.Equivalent) ];
-      constants = ((eps, literal m.bn.params.eps) :: gamma_c) @ beta_c @ bias_c;
+      subst = [ (Old out, New y') ];
+      value_claims = [ (out, Fresh y', Correspondence.Equivalent) ];
+      constants =
+        ((Fresh eps, literal m.bn.params.eps) :: gamma_c) @ beta_c @ bias_c;
     }
 
-let pass = Pass.of_pattern ~name:"fold_batch_norm" ~pattern ~build
+let pass =
+  Pass.of_pattern ~name:"fold_batch_norm" ~pattern ~build:{ Pass.build }

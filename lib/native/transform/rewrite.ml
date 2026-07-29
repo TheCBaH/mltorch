@@ -7,6 +7,7 @@ open Core.Syntax
 type error =
   [ Graph_map.error
   | Graph_view.error
+  | Recipe.error
   | `Bad_constant_payload of Tensor_id.t
   | `Constant_payload_overwrite of Tensor_id.t
   | `Cycle of Node_id.t
@@ -24,6 +25,7 @@ type error =
 let pp_error ppf : [< error ] -> unit = function
   | #Graph_map.error as e -> Graph_map.pp_error ppf e
   | #Graph_view.error as e -> Graph_view.pp_error ppf e
+  | #Recipe.error as e -> Recipe.pp_error ppf e
   | `Bad_constant_payload id ->
       Fmt.pf ppf "payload for %a does not match its signature" Tensor_id.pp id
   | `Constant_payload_overwrite id ->
@@ -67,7 +69,7 @@ type 'v step = Step : 'w t * ('v, 'w) Graph_map.t -> 'v step
 type 'v allocator = Allocator of Id_supply.t
 
 type 'v recipe = {
-  replacements : Recipe.replacement list;
+  replacements : 'v Recipe.replacement list;
   start : Id_supply.t;
   finish : Id_supply.t;
 }
@@ -132,8 +134,14 @@ let origin ?(constants = []) g =
 
 (* ---- planning ------------------------------------------------------------ *)
 
-let plan _state (Allocator ids) builder =
-  let (), replacements, finish = Recipe.run builder ids in
+(* The state is what makes a recipe version-bound, and now it is also what
+   [Recipe.existing] resolves against: a raw id from a matcher enters the typed
+   world here or not at all. *)
+let plan state (Allocator ids) builder =
+  let* (), replacements, finish =
+    (Recipe.run builder state.snapshot ids
+      :> (unit * 'v Recipe.replacement list * Id_supply.t, error) Core.result)
+  in
   Core.return ({ replacements; start = ids; finish }, Allocator finish)
 
 let merge a b =
@@ -143,12 +151,12 @@ let merge a b =
   in
   let a_nodes =
     List.fold_left
-      (fun acc (r : Recipe.replacement) -> Node_id.Set.union acc r.remove)
+      (fun acc (r : _ Recipe.replacement) -> Node_id.Set.union acc r.remove)
       Node_id.Set.empty a.replacements
   in
   let* () =
     fold_result
-      (fun () (r : Recipe.replacement) ->
+      (fun () (r : _ Recipe.replacement) ->
         match Node_id.Set.choose_opt (Node_id.Set.inter a_nodes r.remove) with
         | Some id -> Core.fail (`Overlapping_replacements id)
         | None -> Core.return ())
@@ -166,6 +174,34 @@ let pp_recipe fmt r =
     Fmt.(list ~sep:cut Recipe.pp_replacement)
     r.replacements
 
+(* ---- the typed edit meets the raw graph builder ---------------------------
+
+   Everything below rebuilds a [graph], and [Graph_ir.op] takes raw
+   [tensor_ref]s — parameterising the IR is a non-goal
+   (.ai/native_transform_versioning.md §7). So a replacement's metadata is
+   projected once, here, rather than threaded through the rebuild. Nothing is
+   lost by it: the ids that reach the MAP are re-lifted through the two
+   snapshots further down, which is where a side confusion would matter. *)
+
+let subst_pairs (r : _ Recipe.replacement) =
+  List.map
+    (fun (a, b) -> (Recipe.raw_edit_edge a, Recipe.raw_edit_edge b))
+    r.subst
+
+let claim_triples (r : _ Recipe.replacement) =
+  List.map
+    (fun (src, dst, rel) -> (Recipe.raw_source src, Recipe.raw_target dst, rel))
+    r.value_claims
+
+let constant_pairs (r : _ Recipe.replacement) =
+  List.map (fun (t, p) -> (Recipe.raw_target t, p)) r.constants
+
+let provenance_pairs (r : _ Recipe.replacement) =
+  List.map
+    (fun (sources, dst) ->
+      (List.map Recipe.raw_source sources, Recipe.raw_target dst))
+    r.provenance
+
 (* ---- substitution -------------------------------------------------------- *)
 
 (* Union every replacement's rewiring, then take the transitive normal form: two
@@ -174,15 +210,14 @@ let pp_recipe fmt r =
 let normalise_subst replacements =
   let* raw =
     fold_result
-      (fun acc (r : Recipe.replacement) ->
+      (fun acc (r : _ Recipe.replacement) ->
         fold_result
           (fun acc (from, onto) ->
             match Tensor_id.Map.find_opt from acc with
             | Some existing when not (Tensor_id.equal existing onto) ->
                 Core.fail (`Substitution_conflict from)
             | _ -> Core.return (Tensor_id.Map.add from onto acc))
-          acc
-          (Tensor_id.Map.bindings r.subst))
+          acc (subst_pairs r))
       Tensor_id.Map.empty replacements
   in
   let rec follow seen id =
@@ -205,19 +240,24 @@ let subst_of map id = Option.value (Tensor_id.Map.find_opt id map) ~default:id
 
 let removed_nodes replacements =
   List.fold_left
-    (fun acc (r : Recipe.replacement) -> Node_id.Set.union acc r.remove)
+    (fun acc (r : _ Recipe.replacement) -> Node_id.Set.union acc r.remove)
     Node_id.Set.empty replacements
 
 (* Inserted nodes get their ids here, which is why a recipe never names one. *)
 let stamp ids replacements =
   List.fold_left
-    (fun (ids, acc) (r : Recipe.replacement) ->
+    (fun (ids, acc) (r : _ Recipe.replacement) ->
       let ids, nodes =
         List.fold_left
-          (fun (ids, nodes) (ins : Recipe.insertion) ->
+          (fun (ids, nodes) (ins : _ Recipe.insertion) ->
             let id, ids = Id_supply.node ids in
             ( ids,
-              ({ Node.id; op = ins.op; outputs = ins.outputs }, ins.from)
+              ( {
+                  Node.id;
+                  op = ins.op;
+                  outputs = List.map Recipe.raw_target ins.outputs;
+                },
+                ins.from )
               :: nodes ))
           (ids, []) r.insert
       in
@@ -229,7 +269,7 @@ let stamp ids replacements =
    that removes nothing appends. Order is fixed up by the topological sort. *)
 let splice (g : graph) stamped =
   let removed = removed_nodes (List.map fst stamped) in
-  let first_of (r : Recipe.replacement) =
+  let first_of (r : _ Recipe.replacement) =
     List.find_opt
       (fun (n : node) -> Node_id.Set.mem n.Node.id r.remove)
       g.Graph.nodes
@@ -281,7 +321,7 @@ let dedup_ids l =
    it touched — the root when it spans siblings — or in a fresh child of it. *)
 let placements view ids stamped =
   List.fold_left
-    (fun (ids, acc) ((r : Recipe.replacement), nodes) ->
+    (fun (ids, acc) ((r : _ Recipe.replacement), nodes) ->
       let touched =
         Node_id.Set.elements r.remove
         @ List.concat_map (fun (_, from) -> from) nodes
@@ -402,7 +442,7 @@ let apply state recipe =
   in
   let* _claimed_nodes =
     fold_result
-      (fun seen (r : Recipe.replacement) ->
+      (fun seen (r : _ Recipe.replacement) ->
         fold_result
           (fun seen id ->
             if Graph_view.node old_view id = None then
@@ -416,22 +456,18 @@ let apply state recipe =
   in
   let* () =
     fold_result
-      (fun () (r : Recipe.replacement) ->
+      (fun () (r : _ Recipe.replacement) ->
         fold_result
           (fun () (id, _) ->
             if Graph_ir.input_kind old_g id = Input.Constant then
               Core.fail (`Constant_payload_overwrite id)
             else Core.return ())
-          () r.constants)
+          () (constant_pairs r))
       () recipe.replacements
   in
   (* 2. one normalised substitution, with every surviving source claimed *)
   let* subst = normalise_subst recipe.replacements in
-  let claims =
-    List.concat_map
-      (fun (r : Recipe.replacement) -> r.value_claims)
-      recipe.replacements
-  in
+  let claims = List.concat_map claim_triples recipe.replacements in
   let claimed id =
     List.exists (fun (src, _, _) -> Tensor_id.equal src id) claims
   in
@@ -462,7 +498,7 @@ let apply state recipe =
      the old signature and shipping a graph whose edge contradicts its op. *)
   let tensors =
     List.fold_left
-      (fun acc (r : Recipe.replacement) ->
+      (fun acc (r : _ Recipe.replacement) ->
         List.fold_left
           (fun acc (sg : Tensor_sig.t) ->
             let id = sub sg.id in
@@ -470,11 +506,7 @@ let apply state recipe =
           acc r.tensors)
       tensors recipe.replacements
   in
-  let new_constants =
-    List.concat_map
-      (fun (r : Recipe.replacement) -> r.constants)
-      recipe.replacements
-  in
+  let new_constants = List.concat_map constant_pairs recipe.replacements in
   let inputs =
     dedup_ids (List.map sub old_g.Graph.inputs @ List.map fst new_constants)
   in
@@ -671,7 +703,7 @@ let apply state recipe =
   in
   let* node_clusters =
     Core.List.fold_left
-      (fun acc ((r : Recipe.replacement), nodes) ->
+      (fun acc ((r : _ Recipe.replacement), nodes) ->
         let accounted =
           List.concat_map (fun (_, from) -> from) nodes |> Node_id.Set.of_list
         in
@@ -700,9 +732,7 @@ let apply state recipe =
         let+ d = dst_edge dst in
         Provenance.add ~sources:(Correspondence.Set.of_list sources) d acc)
       Provenance.empty
-      (List.concat_map
-         (fun (r : Recipe.replacement) -> r.provenance)
-         recipe.replacements)
+      (List.concat_map provenance_pairs recipe.replacements)
   in
   let* map =
     Graph_map.create ~src:old_snap ~dst:new_snap

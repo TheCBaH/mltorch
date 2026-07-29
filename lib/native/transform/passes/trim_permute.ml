@@ -79,5 +79,18 @@ let pattern anchor =
       let+ () = guard ok in
       (List.map (fun link -> link.node) links, tied)
 
-let build (remove, tie) _region = Recipe.trim ~remove ~tie
-let pass = Pass.of_pattern ~name:"trim_permute" ~pattern ~build
+(* Both ends of a tie are existing source edges, so this is where the pattern's
+   raw ids are resolved against the version being rewritten. *)
+let build (remove, tie) _region =
+  let open Recipe in
+  let* tie =
+    Recipe.all
+      (fun (from, onto) ->
+        let* from = existing from in
+        let+ onto = existing onto in
+        (from, onto))
+      tie
+  in
+  trim ~remove ~tie
+
+let pass = Pass.of_pattern ~name:"trim_permute" ~pattern ~build:{ Pass.build }

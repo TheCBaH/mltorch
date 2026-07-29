@@ -9,6 +9,27 @@ let t_ n = Tensor_id.of_int n
 let shape ~h ~w ~c = Vec6.shape ~n:1 ~t:1 ~d:1 ~h ~w ~c
 let fail_with e = Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
 
+(* RANK-2, because [Rewrite.origin] hands back an existential version and a
+   builder used inside that unpack has to work at whichever one it is — the same
+   shape as [Pass.builder]. *)
+type plan = { build : 'v. unit -> ('v, unit) Recipe.t }
+
+(* Every raw id a test names is an edge of the graph it is rewriting; these are
+   the [Recipe.existing] resolutions the typed fields now require. *)
+let ties l =
+  Recipe.all
+    (fun (a, b) ->
+      let open Recipe in
+      let* a = existing a in
+      let+ b = existing b in
+      (a, b))
+    l
+
+let onto id =
+  let open Recipe in
+  let+ e = existing id in
+  Old e
+
 (* The step's new state carries an existential version, so everything a test
    wants to see has to be consumed inside the branch that unpacks it. *)
 let rewrite ?constants ?(show_before = false) g builder =
@@ -17,7 +38,7 @@ let rewrite ?constants ?(show_before = false) g builder =
   | Ok (Rewrite.Origin state) -> (
       if show_before then
         Format.printf "@[<v 2>before:@,%a@]@." Graph_ir.pp (Rewrite.graph state);
-      match Rewrite.plan state (Rewrite.allocator state) builder with
+      match Rewrite.plan state (Rewrite.allocator state) (builder.build ()) with
       | Error e -> fail_with e
       | Ok (recipe, _) -> (
           Format.printf "@[<v 2>recipe:@,%a@]@." Rewrite.pp_recipe recipe;
@@ -33,7 +54,7 @@ let rejected g builder =
   match Rewrite.origin g with
   | Error e -> fail_with e
   | Ok (Rewrite.Origin state) -> (
-      match Rewrite.plan state (Rewrite.allocator state) builder with
+      match Rewrite.plan state (Rewrite.allocator state) (builder.build ()) with
       | Error e -> fail_with e
       | Ok (recipe, _) -> (
           match Rewrite.apply state recipe with
@@ -45,7 +66,13 @@ let rejected g builder =
 let%expect_test "trim: removing a no-op permute ties its output to its input" =
   rewrite ~show_before:true
     (Graph_fixtures.permute_noop ())
-    (Recipe.trim ~remove:[ n_ 0 ] ~tie:[ (t_ 1, t_ 0) ]);
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* tie = ties [ (t_ 1, t_ 0) ] in
+            trim ~remove:[ n_ 0 ] ~tie));
+    };
   [%expect
     {|
     before:
@@ -86,9 +113,15 @@ let%expect_test "trim: a chain of two permutes collapses into one cluster" =
      agree. That rejection is correct, and it is not what this test is about. *)
   rewrite
     (Graph_fixtures.permute_identity_chain ())
-    Recipe.(
-      let* () = trim ~remove:[ n_ 0 ] ~tie:[ (t_ 1, t_ 0) ] in
-      trim ~remove:[ n_ 1 ] ~tie:[ (t_ 2, t_ 1) ]);
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* first = ties [ (t_ 1, t_ 0) ] in
+            let* () = trim ~remove:[ n_ 0 ] ~tie:first in
+            let* second = ties [ (t_ 2, t_ 1) ] in
+            trim ~remove:[ n_ 1 ] ~tie:second));
+    };
   [%expect
     {|
     recipe:
@@ -123,19 +156,33 @@ let%expect_test "trim: a chain of two permutes collapses into one cluster" =
 let%expect_test "decompose: one node becomes two, the output id is preserved" =
   rewrite
     (Graph_fixtures.permute_noop ())
-    Recipe.(
-      (* relu -> relu(relu), an arbitrary 1:2 split keeping the final edge. *)
-      let* mid = fresh (shape ~h:2 ~w:3 ~c:4) in
-      let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
-      replace
-        ~remove:[ n_ 1 ]
-        ~insert:
-          [
-            { op = Relu { x = t_ 1 }; outputs = [ mid ]; from = [ n_ 1 ] };
-            { op = Relu { x = mid }; outputs = [ out ]; from = [ n_ 1 ] };
-          ]
-        ~subst:[ (out, t_ 2) ]
-        ());
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            (* relu -> relu(relu), an arbitrary 1:2 split keeping the final
+             edge. *)
+            let* mid = fresh (shape ~h:2 ~w:3 ~c:4) in
+            let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
+            let* t2 = onto (t_ 2) in
+            replace
+              ~remove:[ n_ 1 ]
+              ~insert:
+                [
+                  {
+                    op = Relu { x = t_ 1 };
+                    outputs = [ Fresh mid ];
+                    from = [ n_ 1 ];
+                  };
+                  {
+                    op = Relu { x = raw_fresh mid };
+                    outputs = [ Fresh out ];
+                    from = [ n_ 1 ];
+                  };
+                ]
+              ~subst:[ (New out, t2) ]
+              ()));
+    };
   [%expect
     {|
     recipe:
@@ -166,20 +213,26 @@ let%expect_test "decompose: one node becomes two, the output id is preserved" =
 let%expect_test "fuse: two nodes become one" =
   rewrite
     (Graph_fixtures.permute_sequence ())
-    Recipe.(
-      let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
-      replace
-        ~remove:[ n_ 0; n_ 1 ]
-        ~insert:
-          [
-            {
-              op = Permute { perm = Graph_fixtures.identity_perm; x = t_ 0 };
-              outputs = [ out ];
-              from = [ n_ 0; n_ 1 ];
-            };
-          ]
-        ~subst:[ (out, t_ 2) ]
-        ());
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
+            let* t2 = onto (t_ 2) in
+            replace
+              ~remove:[ n_ 0; n_ 1 ]
+              ~insert:
+                [
+                  {
+                    op =
+                      Permute { perm = Graph_fixtures.identity_perm; x = t_ 0 };
+                    outputs = [ Fresh out ];
+                    from = [ n_ 0; n_ 1 ];
+                  };
+                ]
+              ~subst:[ (New out, t2) ]
+              ()));
+    };
   [%expect
     {|
     recipe:
@@ -211,20 +264,26 @@ let%expect_test "placement: a rewrite spanning two groups lands in their parent"
     =
   rewrite ~show_before:true
     (Graph_fixtures.grouped ())
-    Recipe.(
-      let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
-      replace
-        ~remove:[ n_ 0; n_ 1 ]
-        ~insert:
-          [
-            {
-              op = Permute { perm = Graph_fixtures.identity_perm; x = t_ 0 };
-              outputs = [ out ];
-              from = [ n_ 0; n_ 1 ];
-            };
-          ]
-        ~subst:[ (out, t_ 2) ]
-        ());
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
+            let* t2 = onto (t_ 2) in
+            replace
+              ~remove:[ n_ 0; n_ 1 ]
+              ~insert:
+                [
+                  {
+                    op =
+                      Permute { perm = Graph_fixtures.identity_perm; x = t_ 0 };
+                    outputs = [ Fresh out ];
+                    from = [ n_ 0; n_ 1 ];
+                  };
+                ]
+              ~subst:[ (New out, t2) ]
+              ()));
+    };
   [%expect
     {|
     before:
@@ -265,20 +324,25 @@ let%expect_test "placement: a rewrite spanning two groups lands in their parent"
 let%expect_test "placement: a replacement inside one group stays there" =
   rewrite
     (Graph_fixtures.grouped ())
-    Recipe.(
-      let* out = fresh (shape ~h:3 ~w:4 ~c:2) in
-      replace
-        ~remove:[ n_ 0 ]
-        ~insert:
-          [
-            {
-              op = Permute { perm = Graph_fixtures.rotate_hwc; x = t_ 0 };
-              outputs = [ out ];
-              from = [ n_ 0 ];
-            };
-          ]
-        ~subst:[ (out, t_ 1) ]
-        ());
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* out = fresh (shape ~h:3 ~w:4 ~c:2) in
+            let* t1 = onto (t_ 1) in
+            replace
+              ~remove:[ n_ 0 ]
+              ~insert:
+                [
+                  {
+                    op = Permute { perm = Graph_fixtures.rotate_hwc; x = t_ 0 };
+                    outputs = [ Fresh out ];
+                    from = [ n_ 0 ];
+                  };
+                ]
+              ~subst:[ (New out, t1) ]
+              ()));
+    };
   [%expect
     {|
     recipe:
@@ -312,20 +376,26 @@ let%expect_test "placement: a replacement inside one group stays there" =
 let%expect_test "placement: New_group wraps the insertions in a fresh child" =
   rewrite
     (Graph_fixtures.permute_sequence ())
-    Recipe.(
-      let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
-      replace
-        ~remove:[ n_ 0; n_ 1 ]
-        ~insert:
-          [
-            {
-              op = Permute { perm = Graph_fixtures.identity_perm; x = t_ 0 };
-              outputs = [ out ];
-              from = [ n_ 0; n_ 1 ];
-            };
-          ]
-        ~subst:[ (out, t_ 2) ]
-        ~placement:(New_group (Some "fused")) ());
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
+            let* t2 = existing (t_ 2) in
+            replace
+              ~remove:[ n_ 0; n_ 1 ]
+              ~insert:
+                [
+                  {
+                    op =
+                      Permute { perm = Graph_fixtures.identity_perm; x = t_ 0 };
+                    outputs = [ Fresh out ];
+                    from = [ n_ 0; n_ 1 ];
+                  };
+                ]
+              ~subst:[ (New out, Old t2) ]
+              ~placement:(New_group (Some "fused")) ()));
+    };
   [%expect
     {|
     recipe:
@@ -354,17 +424,27 @@ let%expect_test "placement: New_group wraps the insertions in a fresh child" =
 
 (* ---- the guards ---------------------------------------------------------- *)
 
-let raw r = Recipe.emit { Recipe.empty_replacement with Recipe.remove = r }
+let raw r =
+  {
+    build = (fun () -> Recipe.emit { Recipe.empty_replacement with remove = r });
+  }
 
 let%expect_test "guard: a substitution whose source survives needs a claim" =
   rejected
     (Graph_fixtures.permute_noop ())
-    (Recipe.emit
-       {
-         Recipe.empty_replacement with
-         remove = Node_id.Set.singleton (n_ 0);
-         subst = Tensor_id.Map.singleton (t_ 1) (t_ 0);
-       });
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* from = existing (t_ 1) in
+            let* onto = existing (t_ 0) in
+            emit
+              {
+                empty_replacement with
+                remove = Node_id.Set.singleton (n_ 0);
+                subst = [ (Old from, Old onto) ];
+              }));
+    };
   [%expect {| t1 is substituted away without a value claim |}]
 
 let%expect_test "guard: a preserved id whose definition changed needs a claim" =
@@ -373,20 +453,27 @@ let%expect_test "guard: a preserved id whose definition changed needs a claim" =
      the redefinition check is what catches it. *)
   rejected
     (Graph_fixtures.permute_noop ())
-    (Recipe.emit
-       {
-         Recipe.empty_replacement with
-         remove = Node_id.Set.singleton (n_ 1);
-         insert =
-           [
-             {
-               Recipe.op =
-                 Permute { perm = Graph_fixtures.identity_perm; x = t_ 1 };
-               outputs = [ t_ 2 ];
-               from = [ n_ 1 ];
-             };
-           ];
-       });
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* out = existing (t_ 2) in
+            emit
+              {
+                empty_replacement with
+                remove = Node_id.Set.singleton (n_ 1);
+                insert =
+                  [
+                    {
+                      op =
+                        Permute
+                          { perm = Graph_fixtures.identity_perm; x = t_ 1 };
+                      outputs = [ Preserved out ];
+                      from = [ n_ 1 ];
+                    };
+                  ];
+              }));
+    };
   [%expect {| t2 is kept but redefined without a value claim |}]
 
 let%expect_test "guard: keeping an id whose signature changed is rejected" =
@@ -396,21 +483,26 @@ let%expect_test "guard: keeping an id whose signature changed is rejected" =
      and no claim excuses otherwise. *)
   rejected
     (Graph_fixtures.permute_noop ())
-    Recipe.(
-      let* out = fresh (shape ~h:3 ~w:4 ~c:2) in
-      replace
-        ~remove:[ n_ 1 ]
-        ~insert:
-          [
-            {
-              op = Permute { perm = Graph_fixtures.rotate_hwc; x = t_ 1 };
-              outputs = [ out ];
-              from = [ n_ 1 ];
-            };
-          ]
-        ~subst:[ (out, t_ 2) ]
-        ~claims:[ (t_ 2, t_ 2, Correspondence.Identical) ]
-        ());
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* out = fresh (shape ~h:3 ~w:4 ~c:2) in
+            let* t2 = existing (t_ 2) in
+            replace
+              ~remove:[ n_ 1 ]
+              ~insert:
+                [
+                  {
+                    op = Permute { perm = Graph_fixtures.rotate_hwc; x = t_ 1 };
+                    outputs = [ Fresh out ];
+                    from = [ n_ 1 ];
+                  };
+                ]
+              ~subst:[ (New out, Old t2) ]
+              ~claims:[ (t2, Preserved t2, Correspondence.Identical) ]
+              ()));
+    };
   [%expect {| t2 is kept but its signature changed; that needs a new id |}]
 
 let%expect_test "guard: an output signature contradicting its op is rejected" =
@@ -419,19 +511,24 @@ let%expect_test "guard: an output signature contradicting its op is rejected" =
      and the graph would only fail at evaluation. *)
   rejected
     (Graph_fixtures.permute_noop ())
-    Recipe.(
-      replace
-        ~remove:[ n_ 1 ]
-        ~insert:
-          [
-            {
-              op = Permute { perm = Graph_fixtures.rotate_hwc; x = t_ 1 };
-              outputs = [ t_ 2 ];
-              from = [ n_ 1 ];
-            };
-          ]
-        ~claims:[ (t_ 2, t_ 2, Correspondence.Identical) ]
-        ());
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* t2 = existing (t_ 2) in
+            replace
+              ~remove:[ n_ 1 ]
+              ~insert:
+                [
+                  {
+                    op = Permute { perm = Graph_fixtures.rotate_hwc; x = t_ 1 };
+                    outputs = [ Preserved t2 ];
+                    from = [ n_ 1 ];
+                  };
+                ]
+              ~claims:[ (t2, Preserved t2, Correspondence.Identical) ]
+              ()));
+    };
   [%expect {| t2's signature is not the shape its op produces |}]
 
 let%expect_test "guard: a bound payload must match the signature it declares" =
@@ -441,22 +538,34 @@ let%expect_test "guard: a bound payload must match the signature it declares" =
      caused it. The edge here is declared [C=3] and given a [C=4] tensor. *)
   rejected
     (Graph_fixtures.permute_noop ())
-    Recipe.(
-      let* id = fresh (shape ~h:1 ~w:1 ~c:3) in
-      emit
-        {
-          empty_replacement with
-          constants =
-            [ (id, Tensor.materialize (shape ~h:1 ~w:1 ~c:4) (fun _ -> 1.)) ];
-        });
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* id = fresh (shape ~h:1 ~w:1 ~c:3) in
+            emit
+              {
+                empty_replacement with
+                constants =
+                  [
+                    ( Fresh id,
+                      Tensor.materialize (shape ~h:1 ~w:1 ~c:4) (fun _ -> 1.) );
+                  ];
+              }));
+    };
   [%expect {| payload for t3 does not match its signature |}]
 
 let%expect_test "guard: two replacements claiming the same node is rejected" =
   rejected
     (Graph_fixtures.permute_sequence ())
-    Recipe.(
-      let* () = trim ~remove:[ n_ 0 ] ~tie:[ (t_ 1, t_ 0) ] in
-      trim ~remove:[ n_ 0 ] ~tie:[ (t_ 1, t_ 0) ]);
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* tie = ties [ (t_ 1, t_ 0) ] in
+            let* () = trim ~remove:[ n_ 0 ] ~tie in
+            trim ~remove:[ n_ 0 ] ~tie));
+    };
   [%expect {| two replacements both claim node n0 |}]
 
 let%expect_test "guard: an unknown node is rejected" =
@@ -468,9 +577,15 @@ let%expect_test "guard: an unknown node is rejected" =
 let%expect_test "guard: a substitution cycle is rejected" =
   rejected
     (Graph_fixtures.permute_sequence ())
-    Recipe.(
-      let* () = trim ~remove:[ n_ 0 ] ~tie:[ (t_ 1, t_ 2) ] in
-      trim ~remove:[ n_ 1 ] ~tie:[ (t_ 2, t_ 1) ]);
+    {
+      build =
+        (fun () ->
+          Recipe.(
+            let* first = ties [ (t_ 1, t_ 2) ] in
+            let* () = trim ~remove:[ n_ 0 ] ~tie:first in
+            let* second = ties [ (t_ 2, t_ 1) ] in
+            trim ~remove:[ n_ 1 ] ~tie:second));
+    };
   [%expect {| substitution of t2 is cyclic |}]
 
 let%expect_test "guard: a recipe planned past the state's watermark is rejected"
@@ -488,16 +603,17 @@ let%expect_test "guard: a recipe planned past the state's watermark is rejected"
       let relu_over ~out_shape ~node ~operand ~onto =
         Recipe.(
           let* out = fresh out_shape in
+          let* onto = existing onto in
           replace ~remove:[ node ]
             ~insert:
               [
                 {
                   op = Relu { x = operand };
-                  outputs = [ out ];
+                  outputs = [ Fresh out ];
                   from = [ node ];
                 };
               ]
-            ~subst:[ (out, onto) ]
+            ~subst:[ (New out, Old onto) ]
             ())
       in
       match
@@ -530,16 +646,17 @@ let%expect_test "guard: merging recipes from a branched allocator is rejected" =
       let relu_over ~node ~operand ~onto =
         Recipe.(
           let* out = fresh (shape ~h:2 ~w:3 ~c:4) in
+          let* onto = existing onto in
           replace ~remove:[ node ]
             ~insert:
               [
                 {
                   op = Relu { x = operand };
-                  outputs = [ out ];
+                  outputs = [ Fresh out ];
                   from = [ node ];
                 };
               ]
-            ~subst:[ (out, onto) ]
+            ~subst:[ (New out, Old onto) ]
             ())
       in
       match
