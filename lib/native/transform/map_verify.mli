@@ -111,8 +111,12 @@ module Strength : sig
            the claim is not [Identical], so rounding alone could explain it and
            this is evidence rather than a refutation *)
 
-  (* Whether a proof of this strength discharges a claim of that relation. *)
-  val proves : proof -> Correspondence.relation -> bool
+  (* No [proves : proof -> relation -> bool]. There used to be one, answering
+     [false] for [Unverifiable] and [true] for everything else; nothing ever
+     called it, and its answer is now wrong — structural equality discharges an
+     [Unverifiable] cluster too, because it is not a claim about values at all.
+     A predicate no caller consults cannot go stale visibly, which is what makes
+     dead API that states the wrong rule worse than none. *)
   val pp_proof : Format.formatter -> proof -> unit
   val pp_test : Format.formatter -> test -> unit
 end

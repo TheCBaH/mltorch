@@ -242,6 +242,44 @@ where a constant would not. Later draws are pseudo-random and non-zero, and
 every draw is a pure function of `(cell, n)` — no RNG state, so a printed
 witness is reproducible and does not depend on the order cells were visited.
 
+### 8a. `Unverifiable` gets the structural tier and nothing below it
+
+`Unverifiable` is the bottom of the lattice: the two edges correspond, and
+nothing may be asserted about their values. It used to short-circuit in
+`check_cluster` before any comparison ran. That conflated two different things.
+
+**Structural equality is not a claim about values.** It observes that the two
+sides compute the same *term*, and that observation is worth making wherever the
+value relation was destroyed upstream and a downstream transfer function was left
+alone — an unchanged `relu` is exactly as unchanged whether or not its input
+still corresponds bit-for-bit. So the structural tier runs, and a cluster that
+closes there is `Proved Structural` with `unverifiable` still printed beside it.
+The relation is not upgraded; §3's `Output_transfer.propagate` and
+`Graph_map.check_claim_closure` still carry the weaker end-to-end label
+downstream, and they are the only things that speak about values.
+
+**Every tier below it is a claim about values, and gets no run.** Coefficient
+agreement and the probe gather evidence for or against a value relation, and
+this relation asserts none, so a cluster that does not close structurally is
+`Unproved (Unsupported_relation Unverifiable)`. Removing the short-circuit
+without also giving `settle` this arm is a real defect, not a hypothetical: the
+comparison falls through to `Coeff_form.agree` and the probe, and since the label
+is not `Identical` the cluster is reported `tested: disagrees at …` — a numerical
+verdict on a claim nobody made. `verify_test.ml`'s "an unverifiable cluster is
+never numerically tested" is that mutation.
+
+Two consequences worth stating. `Coverage` for these clusters moves from
+`Not_applicable` to `Exhaustive`/`Sampled`, because coordinates are now actually
+examined. And `Policy.Require_proved` is **loosened**: a map whose `Unverifiable`
+clusters all close structurally can now satisfy it, where before any such cluster
+failed it outright. That is the intended reading — a relation that claims nothing
+has nothing for the policy to withhold — but it is a change in what the release
+bar accepts.
+
+`Strength.proves` was deleted here rather than repaired. It answered `false` for
+`Unverifiable`, which is now the wrong rule, and nothing in `lib/`, `bin/` or
+`test/` ever called it. A predicate no caller consults cannot go stale visibly.
+
 ## 9. Constants narrow what a proof quantifies over
 
 Binding the model's constant payloads turns those cells into `Const` leaves, and

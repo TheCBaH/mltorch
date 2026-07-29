@@ -134,16 +134,6 @@ module Strength = struct
   type proof = Constants | Structural
   type test = Agrees of float | Disagrees of Ground_expr.Valuation.t
 
-  (* Structural equality of the ground terms — [Round]s included, constants
-     compared bitwise — means the two edges compute the same bits, which
-     discharges every relation in the lattice. [Unverifiable] is excluded
-     earlier, as it asserts nothing to discharge. *)
-  let proves _ = function
-    | Correspondence.Unverifiable -> false
-    | Correspondence.Approximate _ | Correspondence.Equivalent
-    | Correspondence.Identical ->
-        true
-
   let pp_proof fmt = function
     | Constants -> Fmt.string fmt "structural, for these constants"
     | Structural -> Fmt.string fmt "structural"
@@ -623,6 +613,18 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
         | None, Some blocked ->
             Verdict.Unproved
               (Unproved.Unsupported_format { blocked; member = rhs_member })
+        | None, None when label = Correspondence.Unverifiable ->
+            (* Structural equality was worth trying and did not close. Nothing
+               BELOW it is: coefficient agreement and the probe are evidence
+               about values, and this relation asserts nothing about values for
+               them to bear on. Refuting it is meaningless and "tested
+               (disagrees)" would be a numerical verdict on a claim that was
+               never made.
+
+               The blocked-collapse arms above still run first. That is a
+               statement about normalisation, not about values, and it is the
+               more actionable diagnostic when it applies. *)
+            Verdict.Unproved (Unproved.Unsupported_relation label)
         | None, None ->
             (* The frontier is at the graph inputs, so every remaining cell is
                genuinely free and a disagreeing assignment is realisable. This
@@ -788,10 +790,13 @@ let check_cluster ~budget ~probe ~tolerance sides
   let outcome verdict coverage = Core.return { Outcome.coverage; verdict } in
   if Correspondence.Set.is_empty c.src || Correspondence.Set.is_empty c.dst then
     outcome Verdict.Vacuous Coverage.Not_applicable
-  else if c.label = Correspondence.Unverifiable then
-    outcome (Verdict.Unproved (Unproved.Unsupported_relation c.label))
-      Coverage.Not_applicable
   else
+    (* [Unverifiable] is NOT short-circuited here. It asserts nothing about
+       values, but structural equality is not a statement about values — it
+       observes that the two sides compute the same term, which is exactly what
+       an unchanged transfer function downstream of a value-destroying rewrite
+       has to say for itself. [settle] declines the tiers below structural; see
+       its [Unverifiable] arm. *)
     let open Core.Syntax in
     match members with
     | [] -> outcome Verdict.Vacuous Coverage.Not_applicable
