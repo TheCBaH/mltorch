@@ -1,14 +1,49 @@
 (* See ground_expr.mli. *)
 
-module Cell = struct
-  type t = { coord : Vec6.coord; id : Tensor_id.t }
+module Origin = struct
+  type t =
+    | Dst of Tensor_id.t
+    | Input of Input_var.t
+    | Shared of Tensor_id.t
+    | Src of Tensor_id.t
+
+  let rank = function Dst _ -> 0 | Input _ -> 1 | Shared _ -> 2 | Src _ -> 3
 
   let compare a b =
-    match Tensor_id.compare a.id b.id with
+    match (a, b) with
+    | Dst x, Dst y | Shared x, Shared y | Src x, Src y -> Tensor_id.compare x y
+    | Input x, Input y -> Input_var.compare x y
+    | _ -> Int.compare (rank a) (rank b)
+
+  let equal a b = compare a b = 0
+
+  (* The raw edge this stands for, where there is one. An input variable names
+     no edge in either graph, which is why it has no stage and why this is an
+     option rather than a total projection. *)
+  let edge = function Dst id | Shared id | Src id -> Some id | Input _ -> None
+
+  let pp fmt = function
+    | Dst id -> Fmt.pf fmt "dst.%a" Tensor_id.pp id
+    | Input v -> Input_var.pp fmt v
+    | Shared id -> Tensor_id.pp fmt id
+    | Src id -> Fmt.pf fmt "src.%a" Tensor_id.pp id
+
+  module Map = Map.Make (struct
+    type nonrec t = t
+
+    let compare = compare
+  end)
+end
+
+module Cell = struct
+  type t = { coord : Vec6.coord; origin : Origin.t }
+
+  let compare a b =
+    match Origin.compare a.origin b.origin with
     | 0 -> Stdlib.compare a.coord b.coord
     | n -> n
 
-  let pp fmt c = Fmt.pf fmt "%a%a" Tensor_id.pp c.id Vec6.pp_coord c.coord
+  let pp fmt c = Fmt.pf fmt "%a%a" Origin.pp c.origin Vec6.pp_coord c.coord
 
   module Set = Set.Make (struct
     type nonrec t = t
@@ -41,9 +76,19 @@ module Valuation = struct
      the same value — and an indexing error that swapped exactly those two cells
      would then be invisible to every draw, since the later ones keyed off that
      same sum. *)
+  (* The ORIGIN, not a raw id: an input variable and an edge that happen to
+     share a number are different cells, and keying off the number alone would
+     have them draw the same value. *)
+  let origin_key (o : Origin.t) =
+    match o with
+    | Origin.Dst id -> (0, Tensor_id.to_int id)
+    | Origin.Input v -> (1, Input_var.to_int v)
+    | Origin.Shared id -> (2, Tensor_id.to_int id)
+    | Origin.Src id -> (3, Tensor_id.to_int id)
+
   let key (c : Cell.t) =
     let axis a = Dim.to_int (Vec6.get c.coord a) in
-    ( Tensor_id.to_int c.id,
+    ( origin_key c.origin,
       axis Axis.N,
       axis Axis.T,
       axis Axis.D,

@@ -500,50 +500,20 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "missing signature for %a" Tensor_id.pp id
   | #Graph_map.error as e -> Graph_map.pp_error fmt e
 
-(* ---- sigma over graph inputs ---------------------------------------------
+(* ---- sigma over graph inputs, and what a raw id may mean -----------------
 
    Renaming both sides of an INTERNAL cluster to a representative would assume
    the very claim under verification; that is only sound under an induction
    over a topological order of the cluster DAG, which two graphs quotiented by
    a correspondence can in principle make cyclic. Graph inputs are different in
    kind: "corresponding inputs are fed the same data" is the hypothesis, not an
-   obligation. It matters because [Rewrite.pack] renumbers input ids. *)
-let input_renames clusters ~src ~dst =
-  let inputs g = Tensor_id.Set.of_list g.Graph.inputs in
-  let src_inputs = inputs src and dst_inputs = inputs dst in
-  (* Representatives are allocated ABOVE every id either graph uses, one per
-     cluster. Reusing an id from the cluster itself — the minimum, say — is
-     unsound: the two graphs share one numeric namespace, so the crossed pair
-     {src t0 <-> dst t1} and {src t1 <-> dst t0} both minimise to t0 and every
-     input on both sides collapses onto ONE symbolic variable. sub(a,b) and
-     sub(b,a) then ground to the same term and the swap is proved identical.
-     Allocating fresh also keeps a representative from colliding with an
-     internal edge, which is never renamed. *)
-  let ceiling g =
-    Tensor_id.Map.fold
-      (fun id _ acc -> Stdlib.max acc (Tensor_id.to_int id + 1))
-      g.Graph.tensors 0
-  in
-  let base = Stdlib.max (ceiling src) (ceiling dst) in
-  let _, smap, dmap =
-    List.fold_left
-      (fun (next, smap, dmap) (c : Correspondence.Cluster.Erased.t) ->
-        let rep = Tensor_id.of_int next in
-        let add keep set map =
-          Tensor_id.Set.fold
-            (fun id map ->
-              if Tensor_id.Set.mem id keep then Tensor_id.Map.add id rep map
-              else map)
-            set map
-        in
-        (next + 1, add src_inputs c.src smap, add dst_inputs c.dst dmap))
-      (base, Tensor_id.Map.empty, Tensor_id.Map.empty)
-      clusters
-  in
-  (smap, dmap)
+   obligation. It matters because [Rewrite.pack] renumbers input ids.
 
-let rename_with map id =
-  match Tensor_id.Map.find_opt id map with Some rep -> rep | None -> id
+   That renaming, plus the decision of what an edge's raw id is entitled to mean
+   anywhere else, is [Cell_origin]. It replaces representatives allocated above
+   both graphs' highest id: the ceiling arithmetic existed only because the two
+   graphs shared one numeric namespace, and an [Input_var.t] is not a
+   [Tensor_id.t]. *)
 
 (* ---- one cluster ---------------------------------------------------------- *)
 
@@ -875,33 +845,95 @@ let run ?(budget = Budget.default)
     (Graph_map.check_claim_closure map ~src ~dst :> (unit, error) Core.result)
   in
   let clusters = Graph_map.clusters_over map ~src ~dst in
-  (* The representative allocation works on raw ids across both graphs at once,
-     which is the one thing here that genuinely has no version. *)
-  let src_map, dst_map =
-    input_renames
-      (List.map Correspondence.Cluster.erase clusters)
-      ~src:(Snapshot.graph src) ~dst:(Snapshot.graph dst)
+  (* Two layers decide what a raw id may mean, and both are needed.
+
+     STATIC: [Cell_origin] compares the two graphs' DEFINITIONS. Coordinate-free,
+     so it holds whatever the coordinate budget is, and it is what keeps an
+     untouched prefix short-circuiting.
+
+     DYNAMIC: an edge also becomes shared once its OWN cluster has been proved.
+     That is a real induction — clusters are checked in destination-topological
+     order, so a proof only ever leans on conclusions established strictly
+     earlier — and it is what stops the static rule's cascade one step past each
+     edit instead of running to the graph inputs.
+
+     What the existing fast path did was neither: it treated every same-numbered
+     edge as one variable, all at once, with no argument for well-foundedness and
+     no regard for whether the cluster was proved. That is the false proof
+     recorded in .ai/native_transform_versioning.md §6a. *)
+  let statics = Cell_origin.classify ~src ~dst clusters in
+  let shared = ref Tensor_id.Set.empty in
+  let origins base id =
+    match base id with
+    | (Ground_expr.Origin.Input _ | Ground_expr.Origin.Shared _) as fixed ->
+        fixed
+    | side ->
+        if Tensor_id.Set.mem id !shared then Ground_expr.Origin.Shared id
+        else side
   in
   let side : type v. v Snapshot.t -> _ -> _ -> v side =
-   fun snapshot rename constants ->
-    let program = Eval_symbolic.run (Snapshot.graph snapshot)
-    and rename = rename_with rename in
+   fun snapshot origin constants ->
+    let program = Eval_symbolic.run (Snapshot.graph snapshot) in
     {
-      env = Ground_eval.Env.of_program program ~rename;
+      env = Ground_eval.Env.of_program program ~origin;
       snapshot;
-      with_constants = Ground_eval.Env.of_program ~constants program ~rename;
+      with_constants = Ground_eval.Env.of_program ~constants program ~origin;
     }
   in
   let sides =
     {
-      dst = side dst dst_map dst_constants;
-      src = side src src_map src_constants;
+      dst = side dst (origins statics.Cell_origin.dst) dst_constants;
+      src = side src (origins statics.Cell_origin.src) src_constants;
     }
   in
-  let* outcomes =
-    Core.List.map
-      (check_cluster ~budget ~probe ~tolerance:coefficient_tolerance sides)
-      clusters
+  (* Destination-topological, with graph inputs first: a cluster is ready once
+     every node producing one of its destination edges has run. Ties keep the
+     original order, so the traversal is deterministic. *)
+  let ready (c : ('a, 'b) Correspondence.Cluster.t) =
+    Correspondence.Set.fold
+      (fun e acc ->
+        let position =
+          match Graph_view.def (Snapshot.view dst) (Correspondence.raw e) with
+          | None -> -1
+          | Some (n : node) ->
+              Option.value
+                (Graph_view.topo_index (Snapshot.view dst) n.Node.id)
+                ~default:max_int
+        in
+        Stdlib.max acc position)
+      c.dst (-1)
+  in
+  let ordered =
+    List.mapi (fun i c -> (i, c)) clusters
+    |> List.stable_sort (fun (_, a) (_, b) -> Int.compare (ready a) (ready b))
+  in
+  let* checked =
+    Core.List.fold_left
+      (fun acc (i, c) ->
+        let+ outcome =
+          check_cluster ~budget ~probe ~tolerance:coefficient_tolerance sides c
+        in
+        (* PROVED licenses sharing, and nothing weaker does — an unproved cluster
+           is exactly the case that yields a false proof downstream today. The
+           coverage must be exhaustive too: a structural proof is per-coordinate,
+           so agreeing at eight sampled coordinates says nothing about the rest.
+           [Constants] is excluded as well, being a statement only about the
+           payloads this model happens to carry, while the driver's first attempt
+           leaves them free. *)
+        (match (outcome.Outcome.verdict, outcome.Outcome.coverage) with
+        | Verdict.Proved Strength.Structural, Coverage.Exhaustive ->
+            shared :=
+              Tensor_id.Set.union !shared
+                (Tensor_id.Set.inter
+                   (Correspondence.raws c.src)
+                   (Correspondence.raws c.dst))
+        | _ -> ());
+        (i, outcome) :: acc)
+      [] ordered
+  in
+  let outcomes =
+    List.stable_sort (fun (a, _) (b, _) -> Int.compare a b) checked
+    |> List.map snd
   in
   let index = Group_path.index (Snapshot.graph dst)
   and producers = Group_path.producers dst in

@@ -141,21 +141,17 @@ would push `'src, 'dst` through both for something a reader cannot use. Members
 become `{ id : Tensor_id.t; side : [`Dst | `Src] }` once graph lookup is done. The
 protection lands where the bug was; the printed form is unchanged.
 
-> **The fast path rests on an unstated induction.** Expansion stops at any cell
-> whose raw id matches on both sides, which assumes the same-numbered edge is the
-> same value. Every such edge does have its own cluster, so the assumption is
-> discharged — but only if the cluster DAG is acyclic, which is precisely what §7
-> declines to assume when it refuses to rename both sides of an internal cluster
-> to one representative. The same assumption is being made here, silently, by
-> numbering.
+> **The fast path used to rest on an unstated assumption, and no longer does.**
+> Expansion stopped at any cell whose raw id matched on both sides, which assumed
+> the same-numbered edge was the same value — the very assumption §7 declines to
+> make when it refuses to rename both sides of an internal cluster to one
+> representative, made silently by numbering rather than argued for.
 >
-> It is not harmless. An EMPTY map between `relu(add a b)` and `relu(sub a b)`
-> passes `Graph_map.create` — closure has no explicit claim to propagate — and the
-> output cluster reports *proved (structural) identical*, because both sides
-> ground to `relu(cell t2)`. Replacing the assumption with a structural test is
-> built and measured on branch `native-transform-stage4-shared`; it works and
-> costs the fast path outright (2.6x on ResNet-18's structural pipeline, proofs
-> lost). See `native_transform_versioning.md` §6a.
+> A cell now carries an ORIGIN, and `Shared` is earned two ways: structurally,
+> by the two graphs defining the edge identically, and inductively, by the edge's
+> own cluster having been proved earlier in destination-topological order. See
+> `native_transform_versioning.md` §6a for both layers, what each is for, and the
+> measured cost.
 
 ## 6. Iterative deepening, and why it crosses corresponding edges
 

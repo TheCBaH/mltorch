@@ -178,7 +178,7 @@ let%expect_test "verify: an identity map over a changed operator is unproved" =
     {|
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: proved (structural) [exhaustive]
-    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {t3(0)=0x1p+0, t4(0)=0x1p+1} [exhaustive] |}]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive] |}]
 
 (* The cluster {t0, t1} <-> {t0} is the shape trimming an identity permute
    produces: the input and the trimmed output both correspond to the surviving
@@ -227,7 +227,7 @@ let%expect_test "verify: a false claim about a non-canonical cluster member" =
   verify_map map ~src:A.snapshot ~dst:B.snapshot;
   [%expect
     {|
-    {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t3(1,0)=0x1p+0, t3(1,0,0)=0x1p+1} [exhaustive]
+    {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {v0(1,0)=0x1p+0, v0(1,0,0)=0x1p+1} [exhaustive]
     {t2} -> {t1} identical: proved (structural) [exhaustive] |}]
 
 (* Two graphs that compute the same thing, related by a map that swaps their
@@ -276,7 +276,231 @@ let%expect_test "verify: crossed input clusters do not collapse to one variable"
     {|
     {t0} -> {t1} identical: proved (structural) [exhaustive]
     {t1} -> {t0} identical: proved (structural) [exhaustive]
-    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {t3(0)=0x1p+0, t4(0)=0x1p+1} [exhaustive] |}]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive] |}]
+
+(* ---- what a shared raw id may mean ----------------------------------------
+
+   The clusters above are explicit. These are about the edges a map says nothing
+   about, where the verifier has to decide for itself whether the two graphs'
+   same-numbered edge is the same edge. Getting that wrong is a FALSE PROOF, not
+   a missed one, so each case below is paired with the mutation that must break
+   it. See .ai/native_transform_verify.md §7. *)
+
+let relu_of op () =
+  build "g"
+    Graph_builder.(
+      let* a = input ~shape:s ~name:"a" () in
+      let* b = input ~shape:s ~name:"b" () in
+      let* c = op a b in
+      relu c)
+
+(* The case the structural rule exists for, and the one claim closure cannot
+   reach: an EMPTY map, which has no explicit claim for propagation to carry, so
+   Graph_map.create accepts it by construction. Both graphs number their edges
+   the same and t3's definition is literally the same relu on both sides. If t2
+   were taken as shared, both sides would ground to relu(cell t2), compare equal
+   and report t3 PROVED — while the graphs compute relu(a+b) and relu(a-b). *)
+let%expect_test "shared: an empty map over a changed operator proves nothing" =
+  let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let module B = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
+  in
+  verify_map
+    (hand_map ~src:A.snapshot ~dst:B.snapshot [] [])
+    ~src:A.snapshot ~dst:B.snapshot;
+  [%expect
+    {|
+    {t0} -> {t0} identical: proved (structural) [exhaustive]
+    {t1} -> {t1} identical: proved (structural) [exhaustive]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive]
+    {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive] |}]
+
+(* An edge whose two sides are genuinely the same definition SHOULD be shared,
+   or the rule would be vacuous and every untouched prefix would expand. Same
+   graph twice, empty map: everything proves structurally, and t3 proves without
+   ever expanding through t2. *)
+let%expect_test "shared: identical graphs share their edges" =
+  let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let module B = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  verify_map
+    (hand_map ~src:A.snapshot ~dst:B.snapshot [] [])
+    ~src:A.snapshot ~dst:B.snapshot;
+  [%expect
+    {|
+    {t0} -> {t0} identical: proved (structural) [exhaustive]
+    {t1} -> {t1} identical: proved (structural) [exhaustive]
+    {t2} -> {t2} identical: proved (structural) [exhaustive]
+    {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
+
+(* A label is never evidence. Here t2 keeps its raw id while changing definition
+   — exactly what recipe.ml emits a self-claim for — and the map SAYS it is
+   identical. Reading that label to grant [Shared] would assume the obligation;
+   the edge stays side-tagged and the claim is refuted. *)
+let%expect_test "shared: an explicit Identical self-claim is not evidence" =
+  let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let module B = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
+  in
+  let src id = Option.get (Snapshot.edge A.snapshot (Tensor_id.of_int id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (Tensor_id.of_int id)) in
+  verify_map
+    (hand_map ~src:A.snapshot ~dst:B.snapshot
+       [
+         Correspondence.pair (src 2) (dst 2) Correspondence.Identical;
+         Correspondence.pair (src 3) (dst 3) Correspondence.Identical;
+       ]
+       [])
+    ~src:A.snapshot ~dst:B.snapshot;
+  [%expect
+    {|
+    {t0} -> {t0} identical: proved (structural) [exhaustive]
+    {t1} -> {t1} identical: proved (structural) [exhaustive]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive]
+    {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive] |}]
+
+(* The operand comparison is on resolved ORIGINS, pairwise — not on categories.
+   Both graphs are literally [relu (sub a b)] and the map crosses the inputs, so
+   raw operands are [t0; t1] on both sides and every operand is *some* [Input].
+   A category test grants [Shared t2], t3's two sides then both read one cell and
+   the cluster reports proved — reinstating the exact false proof this rule is
+   written to avoid. Under origin equality the source reads [v0; v1] and the
+   destination [v1; v0].
+
+   The downstream relu is what makes this observable: comparing t2 itself expands
+   each side to its own stage and differs regardless. *)
+let%expect_test "shared: crossed inputs do not make a downstream edge shared" =
+  let g () =
+    build "sub"
+      Graph_builder.(
+        let* a = input ~shape:s ~name:"a" () in
+        let* b = input ~shape:s ~name:"b" () in
+        let* c = sub a b in
+        relu c)
+  in
+  let module A = (val Version_fixture.of_graph (g ())) in
+  let module B = (val Version_fixture.of_graph (g ())) in
+  let src id = Option.get (Snapshot.edge A.snapshot (Tensor_id.of_int id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (Tensor_id.of_int id)) in
+  verify_map
+    (hand_map ~src:A.snapshot ~dst:B.snapshot
+       [
+         Correspondence.pair (src 0) (dst 1) Correspondence.Identical;
+         Correspondence.pair (src 1) (dst 0) Correspondence.Identical;
+       ]
+       [])
+    ~src:A.snapshot ~dst:B.snapshot;
+  [%expect
+    {|
+    {t0} -> {t1} identical: proved (structural) [exhaustive]
+    {t1} -> {t0} identical: proved (structural) [exhaustive]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive]
+    {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive] |}]
+
+(* The output ordinal in the key. [Max_pool2d_with_indices] produces a value and
+   an index from one node, and [Output_transfer] classifies them differently for
+   good reason — a rounding difference does not nudge an argmax, it selects a
+   different element. The two outputs share a shape and a format, so a graph
+   naming the same pair of raw ids in the OPPOSITE slots is well formed: t1 is
+   the pooled value in one and the index in the other. Without the ordinal their
+   keys are equal, t1 is taken as shared, both sides ground to the same cell and
+   the cluster reports proved. *)
+let%expect_test "shared: output slots are not interchangeable" =
+  let pool_shape = Graph_fixtures.nhwc ~h:4 ~w:4 ~c:1 in
+  let params : Pool.MaxPool2dWithIndices.params =
+    {
+      kernel = { h = Dim.extent 2; w = Dim.extent 2 };
+      stride = { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
+      pad = { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+    }
+  in
+  let g =
+    build "pool"
+      Graph_builder.(
+        let* a = input ~shape:pool_shape ~name:"a" () in
+        let* value, index = max_pool2d_with_indices params a in
+        let* () = discard index in
+        (* The relu is what makes this a test of the KEY: comparing t1 itself
+           would expand each side to its own stage and differ whatever the
+           classification says. It is t3, whose two sides both read t1 as a
+           frontier cell, that is proved outright when t1 is taken as shared. *)
+        relu value)
+  in
+  (* The same graph with the pooling node's two output slots exchanged, so t1
+     denotes the index there and the value here. *)
+  let swapped =
+    {
+      g with
+      Graph.nodes =
+        List.map
+          (fun (n : node) ->
+            match n.Node.outputs with
+            | [ a; b ] -> { n with Node.outputs = [ b; a ] }
+            | _ -> n)
+          g.Graph.nodes;
+    }
+  in
+  let module A = (val Version_fixture.of_graph g) in
+  let module B = (val Version_fixture.of_graph swapped) in
+  verify_map
+    (hand_map ~src:A.snapshot ~dst:B.snapshot [] [])
+    ~src:A.snapshot ~dst:B.snapshot;
+  [%expect
+    {|
+    {t0} -> {t0} identical: proved (structural) [exhaustive]
+    {t1} -> {t1} identical: refuted: value at (0): src.t1 vs dst.t1 under {v0(0)=0x1p+0, v0(1,0)=0x1p+1, v0(1,0,0)=0x1.8p+1, v0(1,1,0)=0x1p+2} [exhaustive]
+    {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v0(1,0)=0x1p+1, v0(1,0,0)=0x1.8p+1, v0(1,1,0)=0x1p+2} [exhaustive]
+    {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v0(1,0)=0x1p+1, v0(1,0,0)=0x1.8p+1, v0(1,1,0)=0x1p+2} [exhaustive] |}]
+
+(* The dynamic half of the rule: an edge also becomes shared once its OWN cluster
+   has been PROVED, which is a real induction — clusters are checked in
+   destination-topological order, so a proof leans only on conclusions
+   established strictly earlier.
+
+   Here t1 is a clone on one side and an identity permute on the other. The
+   definitions differ, so the structural rule alone will not share it, and every
+   edge downstream of it then has to be expanded through — which a small round
+   budget cannot afford. Once t1's own cluster is proved, its two sides are one
+   cell and the rest of the chain closes at round 0.
+
+   Without the induction, t3 and t4 come back over max_rounds. *)
+let%expect_test "shared: a proved cluster licenses the edges below it" =
+  let chain first =
+    build "chain"
+      Graph_builder.(
+        let* a = input ~shape:s ~name:"a" () in
+        let* t1 = first a in
+        let* t2 = relu t1 in
+        let* t3 = relu t2 in
+        relu t3)
+  in
+  let module A = (val Version_fixture.of_graph (chain Graph_builder.clone)) in
+  let module B =
+    (val Version_fixture.of_graph
+           (chain (Graph_builder.permute Graph_fixtures.identity_perm)))
+  in
+  let budget =
+    {
+      Map_verify.Budget.max_coords = 4096;
+      max_nodes = 200_000;
+      max_rounds = 1;
+      sample = None;
+    }
+  in
+  Format.printf "%a@."
+    (pp_result Map_verify.Report.pp_verdicts)
+    (lift_verify
+       (Map_verify.run ~budget
+          (hand_map ~src:A.snapshot ~dst:B.snapshot [] [])
+          ~src:A.snapshot ~dst:B.snapshot));
+  [%expect
+    {|
+    {t0} -> {t0} identical: proved (structural) [exhaustive]
+    {t1} -> {t1} identical: proved (structural) [exhaustive]
+    {t2} -> {t2} identical: proved (structural) [exhaustive]
+    {t3} -> {t3} identical: proved (structural) [exhaustive]
+    {t4} -> {t4} identical: proved (structural) [exhaustive] |}]
 
 (* ---- the rounding boundary ------------------------------------------------
 
@@ -286,7 +510,13 @@ let%expect_test "verify: crossed input clusters do not collapse to one variable"
    identical while changing bits. [Round] keeps the boundary in the term; these
    pin the three rules that may remove one. *)
 
-let cell n = { Ground_expr.Cell.id = Tensor_id.of_int n; coord = Vec6.origin }
+(* [Shared]: these are unit tests of normalisation, where the side an id belongs
+   to is not what is under test. *)
+let cell n =
+  {
+    Ground_expr.Cell.origin = Ground_expr.Origin.Shared (Tensor_id.of_int n);
+    coord = Vec6.origin;
+  }
 
 let show_norm ~stored_f32 e =
   let n = Ground_expr.normalise ~stored_f32 e in
@@ -441,7 +671,7 @@ let%expect_test "verify: a fold that computed the wrong payload is refuted" =
       {t1} -> {} identical: vacuous
       {t0} -> {t0} identical: proved (structural) [exhaustive]
       {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {} [exhaustive]
-      {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {t5(0)=0x1p+0, t5(1)=0x1p+1, t5(1,0)=0x1.8p+1, t5(1,1)=0x1p+2, t5(1,0,0)=0x1.4p+2, t5(1,0,1)=0x1.8p+2, t5(1,1,0)=0x1.cp+2, t5(1,1,1)=0x1p+3} [exhaustive] |}]
+      {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v1(0)=0x1p+0, v1(1)=0x1p+1, v1(1,0)=0x1.8p+1, v1(1,1)=0x1p+2, v1(1,0,0)=0x1.4p+2, v1(1,0,1)=0x1.8p+2, v1(1,1,0)=0x1.cp+2, v1(1,1,1)=0x1p+3} [exhaustive] |}]
 
 (* A probe may only run once expansion has reached the graph inputs. Cells left
    at a truncated frontier are internal stage results constrained by their
@@ -657,8 +887,8 @@ let%expect_test "hook: a broken pass is caught, and named" =
     {|
     no policy: 1 nodes
     pass trim_any_permute rejected: 2 clusters: 2 refuted (counterexample)
-      {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {t3(1,0)=0x1p+0, t3(1,0,0)=0x1p+1} [exhaustive]
-      {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {t3(1,0)=0x1p+0, t3(1,0,0)=0x1p+1} [exhaustive] |}]
+      {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {v0(1,0)=0x1p+0, v0(1,0,0)=0x1p+1} [exhaustive]
+      {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {v0(1,0)=0x1p+0, v0(1,0,0)=0x1p+1} [exhaustive] |}]
 
 (* The two policies exist because [Unproved] and [Refuted] are different
    answers. The trim below is genuinely unproven — an i32 cell upstream blocks
@@ -773,7 +1003,7 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
   [%expect
     {|
     honest fold: tested: agrees (1e-05); proved (structural); proved (structural); proved (structural); proved (structural)
-    folded payloads doubled: tested: disagrees at {t33(0)=0x1p+0, t33(1)=0x1p+1, t33(1,0)=0x1.8p+1, t33(1,1)=0x1p+2, t33(1,0,0)=0x1.4p+2, t33(1,0,1)=0x1.8p+2, t33(1,1,0)=0x1.cp+2, t33(1,1,1)=0x1p+3}; proved (structural); proved (structural); proved (structural); proved (structural) |}]
+    folded payloads doubled: tested: disagrees at {v14(0)=0x1p+0, v14(1)=0x1p+1, v14(1,0)=0x1.8p+1, v14(1,1)=0x1p+2, v14(1,0,0)=0x1.4p+2, v14(1,0,1)=0x1.8p+2, v14(1,1,0)=0x1.cp+2, v14(1,1,1)=0x1p+3}; proved (structural); proved (structural); proved (structural); proved (structural) |}]
 
 (* ---- sampling -------------------------------------------------------------
 

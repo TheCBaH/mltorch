@@ -4,7 +4,7 @@ Deepens `native_transform_design.md` §3-§5, §7-§8 and `native_transform_veri
 §7. Covers `lib/native/transform/brand.ml`, `snapshot.ml`, the indexed layer
 inside `cluster_relation.ml`, and `graph_map.ml`'s `create`.
 
-Status: **stages 1-3 and 5 implemented; stage 4 built and parked (§6a)** — `Brand`, `Snapshot`, version-indexed ids
+Status: **all five stages implemented** — `Brand`, `Snapshot`, version-indexed ids
 throughout the relations, `Graph_map.create` as the only constructor, the
 verifier's `Member` as a GADT, and the negative-compile harness
 (`test/native/version_safety.t`). Stages 4-5 (`Input_var`, typed recipes) are
@@ -225,7 +225,7 @@ the property.
 | 1 | `Brand`, `Snapshot`, `Cluster_relation.Tagged`, harness — additive | done |
 | 2 | raw API deleted, indexing promoted; typed endpoints through `Rewrite`, `Map_verify`, the PT2 lens; `Graph_map` abstract with `create ~src ~dst`, claim closure, cluster metadata validation | done |
 | 3 | `Map_verify.Member` as a GADT, tag erased at the report boundary | done |
-| 4 | `Input_var`, and `Ground_expr.Cell.origin` with `Shared` earned structurally | built, PARKED — §6a |
+| 4 | `Input_var`, and `Ground_expr.Cell.origin` with `Shared` earned structurally AND by induction | done — §6a |
 | 5 | typed recipes: `'v source`, `'v target`, `'v fresh` | done |
 
 Stage 2 could not be subdivided: `map_verify.ml` and `pt2_native_graph.ml`
@@ -258,50 +258,83 @@ so a test writes `module A = (val Version_fixture.of_graph g)` and then names
 `A.v`. Nothing is weakened: `ids` mints its own brand, and `of_graph` re-exposes
 the tag `Snapshot.create` already chose.
 
-## 6a. Stage 4 is built and parked, on its own measurement
+## 6a. Stage 4: what a raw id may mean, in two layers
 
-Branch `native-transform-stage4-shared`. Complete, green, soundness covered
-component-wise — and not merged, because the stop condition the plan set for this
-stage fired.
+The verifier's fast path stopped expansion at any cell whose raw id matched on
+both sides. That is not an induction, it is an **unchecked fixed-point
+assumption**: every same-numbered edge treated as one variable, all at once, with
+no argument for well-foundedness and no regard for whether the cluster was
+proved. It is the assumption `map_verify.ml`'s sigma note declines to make when
+it refuses to rename both sides of an internal cluster to one representative —
+made silently, by numbering.
 
-**The measurement.** ResNet-18, effort `standard`:
+**What it cost.** An empty map between `relu(add a b)` and `relu(sub a b)` passes
+`Graph_map.create` (closure has no explicit claim to propagate) and the output
+cluster comes back *proved (structural) identical*. Worse, and this is the part
+that makes it a shipping defect rather than a curiosity: when the differing
+upstream edge is merely BUDGET-LIMITED rather than refuted, nothing in the report
+is refuted, and `Policy.Reject_refuted` — the release bar — accepts the whole
+thing. Measured on `mean(a+b)` versus `mean(a−b)` at 8192 coords:
 
-| pipeline | wall clock | tallies |
-|---|---|---|
-| structural | 12.0s → 31.2s | 102 proved → 88; 14 more `max_rounds` |
-| `--fold` | 21.3s → 59.1s | 20 batch-norm clusters proved → `max_rounds`; 25 convolution proved → 7 |
+```
+{t2} -> {t2} identical: unproved: too large (8192 coords)
+{t3} -> {t3} identical: proved (structural) [exhaustive]
+refuted=false   Reject_refuted accepts=true
+```
 
-The bar was "any regression elsewhere, or a `Max_rounds`/`Max_nodes` blow-up,
-means the `Shared` classification is too narrow and the stage stops there".
-Losses were expected downstream of `fold_batch_norm`'s `Equivalent` boundary.
-They are not confined there: the structural pipeline claims only `Identical`, has
-no such boundary, and regresses just as much.
+**The replacement, and why it needs two layers.**
 
-**The diagnosis, which is the useful part.** The existing fast path stops
-expansion at any cell whose raw id matches on both sides. That is an INDUCTION
-over the cluster DAG — *assume the same-numbered edge is the same value, then
-prove this one* — discharged by every such edge having its own cluster, and sound
-only if that DAG is acyclic. It is exactly the assumption `map_verify.ml:473-475`
-declines to make, made silently by numbering rather than argued for.
+- **Static** (`Cell_origin`): compare the two graphs' DEFINITIONS — op constructor
+  and non-tensor parameters, operand ORIGINS pairwise, output ordinal, signature.
+  Coordinate-free, so it holds at any budget, and it is what keeps an untouched
+  prefix short-circuiting. On its own it is too narrow: any edge downstream of any
+  edit is side-tagged, and in a real pipeline every activation is downstream of
+  some edit, so the frontier runs to the graph inputs.
+- **Dynamic**: an edge also becomes shared once its OWN cluster has been proved.
+  Clusters are checked in destination-topological order, so a proof leans only on
+  conclusions established strictly earlier — a real induction. This stops the
+  static rule's cascade one step past each edit. Cycles need no special handling:
+  "already proved" is by construction a strictly-earlier property, so a cluster
+  whose source-side upstream lands later in destination order simply finds it
+  unshared and expands. Conservative, automatic, well-founded.
 
-The structural rule refuses the assumption and then cascades: any edge downstream
-of any edit is side-tagged, so in a real pipeline — where every activation is
-downstream of some edit — the frontier runs to the graph inputs every time. The
-plan's expectation that "untouched prefixes keep short-circuiting" was wrong
-about which prefixes are untouched.
+**Only `Proved Structural` with `Exhaustive` coverage licenses sharing**, and each
+half of that is load-bearing. Anything weaker than proved is exactly the case that
+yields the false proof above. `Constants` is a statement about the payloads this
+model carries, while the driver's first attempt leaves them free. And a structural
+proof is PER-COORDINATE: agreeing at eight sampled coordinates says nothing about
+the rest, and `map_verify.mli` already refuses to count a sampled verdict as
+proved — licensing further proofs from one would compound precisely that
+overstatement.
 
-**What parking it costs.** The proofs the rule removes are false ones, and that is
-demonstrable rather than theoretical: an EMPTY map between `relu(add a b)` and
-`relu(sub a b)` — which `Graph_map.create` accepts, closure having no explicit
-claim to propagate — reports the output *proved (structural) identical* today.
-The case is `verify_test.ml`'s "shared: an empty map over a changed operator
-proves nothing" on the branch.
+**What that means in practice, measured on ResNet-18.** Every `Effort` preset
+samples (`Quick` 4, `Standard` 8, `Thorough` 32) while `Budget.default` and
+`cumulative` do not. So the dynamic layer fires during per-pass verification and
+the composed check, and never on the `--verify-symbolic <effort>` CLI path:
 
-**What would unblock it.** Sequencing clusters in destination topological order
-and admitting only ALREADY-PROVED clusters as shared. That is a real induction
-rather than an assumption, and it recovers the fast path — but it is a verifier
-redesign, with verdicts feeding classification, and it was not in the approved
-plan.
+| pipeline | before | static only | + induction |
+|---|---|---|---|
+| structural | 12.0s, 102 proved | 31.2s, 88 proved | 29.9s, 88 proved |
+| `--fold` | 21.3s, 20 bn proved | 59.1s, 20 bn `max_rounds` | 57.0s, unchanged |
+
+The cost at sampled efforts is therefore real and is the honest price: the old
+speed there rested entirely on the unsound assumption, and no sound rule recovers
+it, because at a sampled budget there is nothing exhaustive to induct from. Where
+the budget does not sample, the induction is worth a great deal —
+`verify_test.ml`'s "a proved cluster licenses the edges below it" closes a
+four-node chain at `max_rounds = 1` that otherwise exhausts it.
+
+**Coverage.** Each component of the static key has a soundness case paired with
+the mutation that turns it red — output ordinal (swapped max-pool slots), operand
+identity (crossed inputs over `relu (sub a b)`, the false proof this rule is named
+after), input variables. The signature stays a conservative guard with no mutation
+case, as predicted: `Shared` only decides whether an edge expands, and an expanded
+edge with identical producers yields identical expressions either way. The
+induction has its own, above.
+
+**One refinement left on the table.** `Proved Constants` could license sharing in
+the constants-bound attempt only, where its premise holds. Not implemented; it
+would need two shared sets threaded through `compare_at`'s two attempts.
 
 ## 6b. Stage 5: what the recipe types do and do not buy
 

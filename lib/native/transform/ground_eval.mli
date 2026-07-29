@@ -21,11 +21,15 @@
 module Env : sig
   type t
 
-  (* [rename] carries the input correspondence, and is the identity on
-     everything else — see .ai/native_transform_verify.md on why sigma is
-     restricted to graph inputs. Relying on that keeps a cell's id usable both
-     as a comparison key (renamed) and as a stage key (original), because the
-     two coincide off the inputs, which have no stage.
+  (* [origin] classifies each of this graph's edges: which side it belongs to,
+     or that both graphs define it identically, or that it is a graph input
+     standing for a σ variable — see .ai/native_transform_verify.md §7.
+
+     It replaces a [rename : Tensor_id.t -> Tensor_id.t] whose correctness rested
+     on being the identity off the graph inputs, so that a cell's id worked both
+     as a comparison key (renamed) and as a stage key (original). The two keyings
+     are now separate types: cells are keyed by origin, stages by this graph's
+     raw id.
 
      The program's synthetic [Stage_program.consts] — fresh-id, constant-filled
      stand-ins for absent optional operands, whose ids differ between the two
@@ -42,13 +46,13 @@ module Env : sig
   val of_program :
     ?constants:Tensor.packed Tensor_id.Map.t ->
     Stage_program.t ->
-    rename:(Tensor_id.t -> Tensor_id.t) ->
+    origin:(Tensor_id.t -> Ground_expr.Origin.t) ->
     t
 
-  (* Keyed by RENAMED id, so it answers questions about cells. Use [rename] to
-     get there from an id named by a graph or a correspondence cluster. *)
-  val shape_of : t -> Tensor_id.t -> Vec6.shape option
-  val rename : t -> Tensor_id.t -> Tensor_id.t
+  (* Keyed by ORIGIN, so it answers questions about cells. Use [origin] to get
+     there from an id named by a graph or a correspondence cluster. *)
+  val shape_of : t -> Ground_expr.Origin.t -> Vec6.shape option
+  val origin : t -> Tensor_id.t -> Ground_expr.Origin.t
 
   (* Whether reading this cell yields a value already representable in f32, and
      so whether [Ground_expr.normalise] may collapse its [Round]. Unknown cells

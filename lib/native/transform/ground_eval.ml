@@ -1,21 +1,31 @@
 (* See ground_eval.mli. *)
 
 open Graph_ir
+module Origin = Ground_expr.Origin
 
 module Env = struct
+  (* Metadata is keyed by THIS SIDE's raw id, and only a cell's identity uses the
+     origin. The split matters because [origin] is dynamic — an edge becomes
+     [Shared] once its own cluster is proved (see [Map_verify]) — so keying the
+     maps by origin would strand every entry the moment its key changed.
+
+     [var_edge] closes the one gap that leaves: an [Input v] cell names no edge,
+     because the two sides' input ids differ, so each side records which of its
+     own edges the variable stands for. *)
   type t = {
     constants : Tensor.packed Tensor_id.Map.t;
     consts : float Tensor_id.Map.t;
     fmts : Payload.packed_fmt Tensor_id.Map.t;
     shapes : Vec6.shape Tensor_id.Map.t;
-    rename : Tensor_id.t -> Tensor_id.t;
+    origin : Tensor_id.t -> Origin.t;
     stages : Stage_program.Stage.t Tensor_id.Map.t;
+    var_edge : Tensor_id.t Input_var.Map.t;
   }
 
   let of_program ?(constants = Tensor_id.Map.empty) (p : Stage_program.t)
-      ~rename =
+      ~origin =
     let add_sig (sg : Tensor_sig.t) (fmts, shapes) =
-      let id = rename sg.Tensor_sig.id in
+      let id = sg.Tensor_sig.id in
       ( Tensor_id.Map.add id sg.Tensor_sig.fmt fmts,
         Tensor_id.Map.add id sg.Tensor_sig.shape shapes )
     in
@@ -38,7 +48,7 @@ module Env = struct
     let consts =
       List.fold_left
         (fun acc ((sg : Tensor_sig.t), v) ->
-          Tensor_id.Map.add (rename sg.Tensor_sig.id) v acc)
+          Tensor_id.Map.add sg.Tensor_sig.id v acc)
         Tensor_id.Map.empty p.Stage_program.consts
     in
     let stages =
@@ -47,9 +57,26 @@ module Env = struct
           Tensor_id.Map.add st.Stage_program.Stage.id st acc)
         Tensor_id.Map.empty p.Stage_program.stages
     in
-    { constants; consts; fmts; rename; shapes; stages }
+    (* Which of this graph's edges each sigma variable stands for. Read off the
+       inputs, whose classification is fixed before any cluster is checked. *)
+    let var_edge =
+      List.fold_left
+        (fun acc (_, (sg : Tensor_sig.t)) ->
+          match origin sg.Tensor_sig.id with
+          | Origin.Input v -> Input_var.Map.add v sg.Tensor_sig.id acc
+          | _ -> acc)
+        Input_var.Map.empty p.Stage_program.inputs
+    in
+    { constants; consts; fmts; origin; shapes; stages; var_edge }
 
-  let shape_of t id = Tensor_id.Map.find_opt id t.shapes
+  (* The edge of THIS graph an origin denotes, if any. *)
+  let edge_of t (o : Origin.t) =
+    match o with
+    | Origin.Dst id | Origin.Shared id | Origin.Src id -> Some id
+    | Origin.Input v -> Input_var.Map.find_opt v t.var_edge
+
+  let shape_of t o =
+    Option.bind (edge_of t o) (fun id -> Tensor_id.Map.find_opt id t.shapes)
 
   (* F32/F16/BF16 decode to a value already representable in f32 (they carry no
      more mantissa). I32/I64 go through [Int32.to_float]/[Int64.to_float], which
@@ -62,14 +89,23 @@ module Env = struct
     | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 -> false
 
   let stored_f32 t (cell : Ground_expr.Cell.t) =
-    match Tensor_id.Map.find_opt cell.Ground_expr.Cell.id t.fmts with
+    match
+      Option.bind (edge_of t cell.Ground_expr.Cell.origin) (fun id ->
+          Tensor_id.Map.find_opt id t.fmts)
+    with
     | Some fmt -> fmt_is_f32_exact fmt
     | None -> false
 
   let const_of t id = Tensor_id.Map.find_opt id t.consts
   let constant_of t id = Tensor_id.Map.find_opt id t.constants
-  let rename t id = t.rename id
-  let stage_of t id = Tensor_id.Map.find_opt id t.stages
+  let origin t id = t.origin id
+
+  (* An [Input v] cell is a graph input on this side and so has no stage, which
+     is why this goes through [Origin.edge] rather than [edge_of]. *)
+  let stage_of t o =
+    match Origin.edge o with
+    | Some id -> Tensor_id.Map.find_opt id t.stages
+    | None -> None
 end
 
 type error = [ `Unknown_edge of Tensor_id.t ]
@@ -135,7 +171,7 @@ and leaf ~env (sg : Tensor_sig.t) at_axis : Ground_expr.t =
   | None, None ->
       Ground_expr.Cell
         {
-          Ground_expr.Cell.id = Env.rename env id;
+          Ground_expr.Cell.origin = Env.origin env id;
           coord =
             Vec6.coord ~n:(at_axis Axis.N) ~t:(at_axis Axis.T)
               ~d:(at_axis Axis.D) ~h:(at_axis Axis.H) ~w:(at_axis Axis.W)
@@ -192,7 +228,9 @@ let body_at env (st : Stage_program.Stage.t) coord =
     ~rvars:[] st.Stage_program.Stage.body
 
 let at env id coord =
-  match Env.stage_of env id with
+  (* [id] names an edge of THIS graph, so the stage lookup goes through the
+     origin the same way expansion does. *)
+  match Env.stage_of env (Env.origin env id) with
   | Some st -> Core.return (Ground_expr.Round (body_at env st coord))
   | None -> (
       (* An input edge can itself be a bound constant — [fold_const]'s whole
@@ -206,10 +244,11 @@ let at env id coord =
                (Tensor.read_at_raw payload (fun a ->
                     Dim.to_int (Vec6.get coord a))))
       | None, None ->
-          let id = Env.rename env id in
-          if Option.is_none (Env.shape_of env id) then
+          let origin = Env.origin env id in
+          if Option.is_none (Env.shape_of env origin) then
             Core.fail (`Unknown_edge id)
-          else Core.return (Ground_expr.Cell { Ground_expr.Cell.id; coord }))
+          else Core.return (Ground_expr.Cell { Ground_expr.Cell.origin; coord })
+      )
 
 (* [budget] bounds ONE round, and has to: a single substitution step is
    quadratic where a conv feeds a conv, so a term can reach tens of millions of
@@ -226,7 +265,7 @@ let expand ~budget env (e : Ground_expr.t) : Ground_expr.t =
     else
       match e with
       | Ground_expr.Cell c -> (
-          match Env.stage_of env c.Ground_expr.Cell.id with
+          match Env.stage_of env c.Ground_expr.Cell.origin with
           | Some st ->
               let body =
                 Ground_expr.Round (body_at env st c.Ground_expr.Cell.coord)
@@ -269,7 +308,7 @@ let expand ~budget env (e : Ground_expr.t) : Ground_expr.t =
 let expandable env e =
   Ground_expr.Cell.Set.exists
     (fun (c : Ground_expr.Cell.t) ->
-      Option.is_some (Env.stage_of env c.Ground_expr.Cell.id))
+      Option.is_some (Env.stage_of env c.Ground_expr.Cell.origin))
     (Ground_expr.cells e)
 
 (* [Set.find_first_opt] is NOT usable here: it requires a monotone predicate and
@@ -277,7 +316,7 @@ let expandable env e =
 let out_of_bounds env e =
   List.find_opt
     (fun (c : Ground_expr.Cell.t) ->
-      match Env.shape_of env c.Ground_expr.Cell.id with
+      match Env.shape_of env c.Ground_expr.Cell.origin with
       | Some shape -> not (Vec6.in_bounds shape c.Ground_expr.Cell.coord)
       | None -> false)
     (Ground_expr.Cell.Set.elements (Ground_expr.cells e))

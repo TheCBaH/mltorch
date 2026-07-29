@@ -16,10 +16,33 @@
 
    See .ai/native_transform_verify.md. *)
 
+(* What a cell's raw id is ENTITLED to mean. The two graphs share one numeric
+   namespace, so a bare [Tensor_id.t] cannot say whether an edge is the source's,
+   the destination's, or genuinely the same in both — and the verifier's answer
+   turns on exactly that. See .ai/native_transform_verify.md §7.
+
+   [Shared] is a structural property of the two graphs, never a label the map
+   asserts: an explicit [Identical] claim is the obligation under verification,
+   not evidence for it. [Input] is the σ hypothesis, which IS an assumption. *)
+module Origin : sig
+  type t =
+    | Dst of Tensor_id.t
+    | Input of Input_var.t
+    | Shared of Tensor_id.t
+    | Src of Tensor_id.t
+
+  val compare : t -> t -> int
+  val edge : t -> Tensor_id.t option
+  val equal : t -> t -> bool
+  val pp : Format.formatter -> t -> unit
+
+  module Map : Map.S with type key = t
+end
+
 module Cell : sig
   (* One scalar element of one edge: the leaf that expansion stops at, and the
      free variable a payload-independent proof quantifies over. *)
-  type t = { coord : Vec6.coord; id : Tensor_id.t }
+  type t = { coord : Vec6.coord; origin : Origin.t }
 
   val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
