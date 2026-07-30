@@ -9,8 +9,8 @@ module Member = struct
      destination's producer map. Reaching an id now means going through
      [resolve] below, which pairs a member with its own side. *)
   type ('src, 'dst) t =
-    | Dst : 'dst Snapshot.edge -> ('src, 'dst) t
-    | Src : 'src Snapshot.edge -> ('src, 'dst) t
+    | Dst : 'dst Correspondence.id -> ('src, 'dst) t
+    | Src : 'src Correspondence.id -> ('src, 'dst) t
 
   (* What a report shows. The report hierarchy is unparameterized and escapes
      into [Pass.outcome] and the interpreter's result record, so the version is
@@ -319,7 +319,7 @@ module Group_path = struct
 
   (* Node -> path, from the group tree. An unlabelled group is named by its id,
      so a path is always printable. *)
-  let index (g : graph) =
+  let index (g : 'op Graph_common.Graph.t) =
     let rec walk path (group : Graph_ir.Group.t) acc =
       let path =
         match group.Graph_ir.Group.label with
@@ -339,16 +339,17 @@ module Group_path = struct
 
   (* Which node produced an edge, so a cluster can be placed. Keyed by
      DESTINATION edge, so the rule below is a type rather than a comment. *)
-  let producers (dst : 'dst Snapshot.t) =
+  let producers ~(edge : Tensor_id.t -> 'dst Correspondence.id option)
+      (g : 'op Graph_common.Graph.t) =
     List.fold_left
-      (fun acc (n : node) ->
+      (fun acc (n : 'op Graph_common.Node.t) ->
         List.fold_left
           (fun acc out ->
-            match Snapshot.edge dst out with
+            match edge out with
             | Some e -> Correspondence.Map.update e n.Node.id acc
             | None -> acc)
           acc n.Node.outputs)
-      Correspondence.Map.empty (Snapshot.graph dst).Graph.nodes
+      Correspondence.Map.empty g.Graph_common.Graph.nodes
 
   (* A cluster is placed by its DESTINATION edges only — that is the graph whose
      group tree this is. An edge with no producer is a graph input, which belongs
@@ -551,9 +552,20 @@ let boundary_of ~index ~under_test ~lookup ~env origin =
    insist that a member and the side it is looked up in agree. *)
 type 'v side = {
   env : Ground_eval.Env.t;
-  snapshot : 'v Snapshot.t;
+  (* The SIGNATURE LOOKUP, not the snapshot. That one substitution is what makes
+     this record dialect-free: [shape_for] was its only reader, and the two
+     dialects have different snapshot types but the same [Tensor_sig.t]. The
+     universe keeps ['v] a real parameter, so [resolve]'s rank-2 field still
+     refuses to pair a [Dst] member with the source side. *)
+  sig_of : Tensor_id.t -> Tensor_sig.t option;
+  edges : 'v Correspondence.Universe.t;
+      (* Never read. It is here to keep ['v] a real parameter of the record:
+         with the snapshot gone, nothing else mentions the version, and an
+         unparameterised [side] would let [resolve]'s rank-2 field pair a [Dst]
+         member with the source side — the bug the rank-2 exists to prevent. *)
   with_constants : Ground_eval.Env.t;
 }
+[@@warning "-69"]
 
 type ('src, 'dst) sides = { dst : 'dst side; src : 'src side }
 
@@ -565,7 +577,7 @@ type ('src, 'dst) sides = { dst : 'dst side; src : 'src side }
    [side_of] cannot exist in its place: "the side this member belongs to" has a
    constructor-dependent type, and a function returning it would have to pick one
    version for both arms. *)
-type 'a resolve = { f : 'v. 'v side -> 'v Snapshot.edge -> 'a }
+type 'a resolve = { f : 'v. 'v side -> 'v Correspondence.id -> 'a }
 
 let resolve : type s d. (s, d) sides -> (s, d) Member.t -> 'a resolve -> 'a =
  fun sides member r ->
@@ -611,7 +623,7 @@ let shape_for sides member =
       f =
         (fun side e ->
           let id = Correspondence.raw e in
-          match Graph_view.sig_of (Snapshot.view side.snapshot) id with
+          match side.sig_of id with
           | Some (sg : Tensor_sig.t) -> Core.return sg.Tensor_sig.shape
           | None -> Core.fail (`Missing_signature id));
     }
@@ -1006,75 +1018,107 @@ let check_cluster ~budget ~index ~probe ~tolerance sides
 
 let default_coefficient_tolerance = 1e-5
 
-let run ?(budget = Budget.default)
-    ?(coefficient_tolerance = default_coefficient_tolerance) ?(probe = 4)
-    ?(src_constants = Tensor_id.Map.empty)
-    ?(dst_constants = Tensor_id.Map.empty) map ~src ~dst =
-  let open Core.Syntax in
-  (* Endpoint validation now happens in [Graph_map.create], but closure does not
-     survive [Graph_map.compose] — which takes no snapshots and so cannot
-     re-check — and a composed map is exactly what a cumulative run receives. *)
-  let* () =
-    (Graph_map.check_claim_closure map ~src ~dst :> (unit, error) Core.result)
-  in
-  let clusters = Graph_map.clusters_over map ~src ~dst in
-  (* CLUSTER MEMBERSHIP decides what a raw id may mean, and nothing else does.
+(* Parameterised over a PAIR of [Side.S], which is what makes a cross-dialect
+   map checkable. Everything below the two [Stage_program.t]s is already
+   dialect-free — the term language, the grounding, the coefficient tier, the
+   probe — so the parameterisation reaches only as far as obtaining them.
 
-     The two layers this replaces — a static comparison of the graphs' own
-     definitions, plus a set of edges that became "shared" once their cluster was
-     proved — both let a proof about one cluster travel to another. The static
-     one keyed on raw-id equality, which is the false proof this line of work is
-     named after: [src: t2 = add(a,b)] and [dst: t2 = sub(a,b)] made {t3} ↔ {t3}
-     ground to [relu (cell t2)] on both sides and prove Identical. The dynamic
-     one needed the cluster DAG to be acyclic, which two graphs quotiented by a
-     correspondence need not be.
+   The one structural change this forced: [side] used to hold a [Snapshot.t],
+   and with two dialects that type differs per side, so [('src,'dst) sides]
+   would not typecheck. It holds a signature LOOKUP instead. [shape_for] was its
+   only reader, and a [Tensor_sig.t] is a [Tensor_sig.t] in either dialect. *)
+module Make_pair (Src : Side.S) (Dst : Side.S) = struct
+  module Map_pair = Graph_map.Make_pair (Src) (Dst)
 
-     Each cluster is now a LOCAL obligation whose dependencies are free
-     variables, so neither layer is needed and neither can mislead: no ordering
-     assumption, no cascade, and a cluster that fails cannot be papered over by
-     one that passed. See .ai/native_transform_local_verify_plan.md §5-6. *)
-  let index = Boundary_index.create clusters in
-  let side : type v. v Snapshot.t -> [ `Dst | `Src ] -> _ -> v side =
-   fun snapshot which constants ->
-    let program = Eval_symbolic.run (Snapshot.graph snapshot) in
-    {
-      env = Ground_eval.Env.of_program program ~side:which;
-      snapshot;
-      with_constants = Ground_eval.Env.of_program ~constants program ~side:which;
-    }
-  in
-  let sides =
-    { dst = side dst `Dst dst_constants; src = side src `Src src_constants }
-  in
-  (* Cluster order is free, and that is the point. The destination-topological
-     traversal this replaces existed so a cluster could lean on conclusions
-     reached strictly earlier; a local obligation leans on nothing, so the
-     clusters are checked in report order and each verdict stands alone. *)
-  let* checked =
-    Core.List.fold_left
-      (fun acc c ->
-        let+ outcome =
-          check_cluster ~budget ~index ~probe ~tolerance:coefficient_tolerance
-            sides c
-        in
-        outcome :: acc)
-      [] clusters
-  in
-  let outcomes = List.rev checked in
-  let index = Group_path.index (Snapshot.graph dst)
-  and producers = Group_path.producers dst in
-  Core.return
-    {
-      Report.entries =
-        List.map2
-          (fun cluster outcome ->
-            {
-              Entry.cluster = Correspondence.Cluster.erase cluster;
-              group = Group_path.of_cluster ~index ~producers cluster;
-              outcome;
-            })
-          clusters outcomes;
-    }
+  let run ?(budget = Budget.default)
+      ?(coefficient_tolerance = default_coefficient_tolerance) ?(probe = 4)
+      ?(src_constants = Tensor_id.Map.empty)
+      ?(dst_constants = Tensor_id.Map.empty) map ~(src : 'src Src.Snapshot.t)
+      ~(dst : 'dst Dst.Snapshot.t) : (Report.t, error) Core.result =
+    let open Core.Syntax in
+    (* Endpoint validation now happens in [Graph_map.create], but closure does not
+       survive [Graph_map.compose] — which takes no snapshots and so cannot
+       re-check — and a composed map is exactly what a cumulative run receives. *)
+    let* () =
+      (Map_pair.check_claim_closure map ~src ~dst :> (unit, error) Core.result)
+    in
+    let clusters = Map_pair.clusters_over map ~src ~dst in
+    (* CLUSTER MEMBERSHIP decides what a raw id may mean, and nothing else does.
+
+       The two layers this replaces — a static comparison of the graphs' own
+       definitions, plus a set of edges that became "shared" once their cluster was
+       proved — both let a proof about one cluster travel to another. The static
+       one keyed on raw-id equality, which is the false proof this line of work is
+       named after: [src: t2 = add(a,b)] and [dst: t2 = sub(a,b)] made {t3} ↔ {t3}
+       ground to [relu (cell t2)] on both sides and prove Identical. The dynamic
+       one needed the cluster DAG to be acyclic, which two graphs quotiented by a
+       correspondence need not be.
+
+       Each cluster is now a LOCAL obligation whose dependencies are free
+       variables, so neither layer is needed and neither can mislead: no ordering
+       assumption, no cascade, and a cluster that fails cannot be papered over by
+       one that passed. See .ai/native_transform_local_verify_plan.md §5-6. *)
+    let index = Boundary_index.create clusters in
+    (* One side, built from whatever that dialect supplies. The two dialects have
+       different snapshot types, so this cannot be one polymorphic function over
+       [Snapshot.t] the way it was — it is one per side, each closing over its own
+       [Side.S]. *)
+    let src_side =
+      let program = Src.symbolic src in
+      {
+        env = Ground_eval.Env.of_program program ~side:`Src;
+        sig_of = Src.sig_of src;
+        edges = Src.Snapshot.edges src;
+        with_constants =
+          Ground_eval.Env.of_program ~constants:src_constants program ~side:`Src;
+      }
+    and dst_side =
+      let program = Dst.symbolic dst in
+      {
+        env = Ground_eval.Env.of_program program ~side:`Dst;
+        sig_of = Dst.sig_of dst;
+        edges = Dst.Snapshot.edges dst;
+        with_constants =
+          Ground_eval.Env.of_program ~constants:dst_constants program ~side:`Dst;
+      }
+    in
+    let sides = { dst = dst_side; src = src_side } in
+    (* Cluster order is free, and that is the point. The destination-topological
+       traversal this replaces existed so a cluster could lean on conclusions
+       reached strictly earlier; a local obligation leans on nothing, so the
+       clusters are checked in report order and each verdict stands alone. *)
+    let* checked =
+      Core.List.fold_left
+        (fun acc c ->
+          let+ outcome =
+            check_cluster ~budget ~index ~probe ~tolerance:coefficient_tolerance
+              sides c
+          in
+          outcome :: acc)
+        [] clusters
+    in
+    let outcomes = List.rev checked in
+    let dst_graph = Dst.Snapshot.graph dst in
+    let index = Group_path.index dst_graph
+    and producers =
+      Group_path.producers ~edge:(Dst.Snapshot.edge dst) dst_graph
+    in
+    Core.return
+      {
+        Report.entries =
+          List.map2
+            (fun cluster outcome ->
+              {
+                Entry.cluster = Correspondence.Cluster.erase cluster;
+                group = Group_path.of_cluster ~index ~producers cluster;
+                outcome;
+              })
+            clusters outcomes;
+      }
+end
+
+(* The Native-to-Native specialization: what every existing caller uses. *)
+include Make_pair (Native_side) (Native_side)
 
 let step ?budget ?coefficient_tolerance ?probe before
     (Rewrite.Step (after, map)) =

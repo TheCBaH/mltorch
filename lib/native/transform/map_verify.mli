@@ -331,6 +331,28 @@ val pp_error : Format.formatter -> [< error ] -> unit
    which bar produced the verdict. *)
 val default_coefficient_tolerance : float
 
+(* Parameterised over a PAIR of [Side.S], which is what makes a CROSS-DIALECT
+   map checkable. Everything below the two [Stage_program.t]s is already
+   dialect-free — the term language, the grounding, the coefficient tier, the
+   probe — so the parameterisation reaches only as far as obtaining them.
+
+   Claim closure inside uses the DESTINATION dialect's transfer table, per
+   .ai/native4d_design.md §9.3: an [Equivalent] conversion's downstream edges
+   have to be weakened according to the ops that actually compute them. *)
+module Make_pair (Src : Side.S) (Dst : Side.S) : sig
+  val run :
+    ?budget:Budget.t ->
+    ?coefficient_tolerance:float ->
+    ?probe:int ->
+    ?src_constants:Tensor.packed Tensor_id.Map.t ->
+    ?dst_constants:Tensor.packed Tensor_id.Map.t ->
+    ('src, 'dst) Graph_map.t ->
+    src:'src Src.Snapshot.t ->
+    dst:'dst Dst.Snapshot.t ->
+    (Report.t, error) Core.result
+end
+
+(* The Native-to-Native specialization. *)
 val run :
   ?budget:Budget.t ->
   ?coefficient_tolerance:float ->

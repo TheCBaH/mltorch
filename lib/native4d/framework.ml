@@ -30,3 +30,10 @@ end
    itself and uses [Map4]. *)
 module Map_from_native = Graph_map.Make_pair (Native_side) (Side4)
 module Map4 = Graph_map.Make_pair (Side4) (Side4)
+
+(* The verifiers, in the same two directions. [Verify_from_native] checks the
+   conversion map; [Verify4] is what a same-dialect Native4D rewrite will use.
+   Claim closure inside each uses the DESTINATION's transfer table, which is why
+   [Side4.Transfer] had to exist. *)
+module Verify_from_native = Map_verify.Make_pair (Native_side) (Side4)
+module Verify4 = Map_verify.Make_pair (Side4) (Side4)

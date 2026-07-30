@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress. Stages 0-5 landed. This is the executable companion to
+In progress. Stages 0-6 landed. This is the executable companion to
 `.ai/native4d_design.md`, which holds the goal, the feasibility argument and the
 per-operation legalization rationale; this file holds the stage sequence, the
 decisions taken, the corrections found while planning, and the domain contract
@@ -211,7 +211,7 @@ in the source, so the unread-constant omission (which runs before the walk) does
 not see them. Harmless — evaluation skips unused constants — but stage 8's
 per-op counts will show them.
 
-### Stage 6 — cross-dialect map verification
+### Stage 6 — cross-dialect map verification *(done)*
 
 `Map_verify.Make_pair` over the `SIDE` bundles. **The one genuinely uncertain
 piece:** the verifier's internal side representation is monomorphic in the
@@ -222,6 +222,44 @@ generalizing: keep `Map_verify` monomorphic and add *two* explicit
 specializations — Native→Native4D and Native4D→Native4D, both, since Stage 7
 depends on the same-dialect one — sharing only the grounding and comparison
 helpers. Temporary if taken; it duplicates the deepening driver.
+
+**The feared restructuring did not happen.** `resolve` has exactly two users,
+and only one of them (`shape_for`) touched `side.snapshot` — so replacing that
+field with a signature LOOKUP makes the whole record dialect-free, and the
+rank-2 `resolve` survives untouched. A `Tensor_sig.t` is a `Tensor_sig.t` in
+either dialect. The version parameter is kept real by holding the edge
+universe, which nothing reads; that is documented at the field.
+
+`Group_path` also stayed outside the functor: it only touches shared structure,
+so `index` and `producers` went op-polymorphic instead, with `producers` taking
+the edge lookup rather than a snapshot.
+
+**Result: cross-dialect verification works.** `relu`, `add`+`relu`, clone
+removal, a lone permutation and `Mean keepdim=false` all prove *structurally* —
+holding for every input, not one sample. That is the third architectural claim
+§14 asks the milestone to prove.
+
+**A verifier defect, found by the `Bmm` legalization and fixed separately.** The
+output cluster refuted with an exhaustive counterexample while a numeric
+cross-check showed both graphs computing the same values. The cause was in
+`value_tiers`, not in the lowering: it handed the probe the *raw* projected
+terms while giving the coefficient tier the *normalised* ones, so a `Round` that
+`normalise` had legally collapsed was still in the term the probe evaluated —
+and `Valuation.draw` assigns arbitrary doubles, so for an f32-stored cell it
+drew a value f32 cannot hold and separated `f32(v)` from `v`.
+
+`Bmm` is the first rewrite in the tree where one side reads an operand directly
+and the other reads it through a *materialized stage* (a permuted convolution
+weight), which is why nothing had exposed it before. Fixed by probing the
+normalised terms; the ungated suite is unchanged and both gated ResNet-18 verify
+crams pass byte-identical.
+
+Residual: `Bmm` reports `tested (coefficients agree)` rather than `proved`,
+because structural equality still fails on association — the source sums
+`((0 + a) + b) + c` and the convolution `((((0+(0+(0+a))) + …) + 0)`. Those are
+the same float sequence, `0 + x` being exact, but `normalise` does not simplify
+additive identities. Teaching it to would upgrade this to a proof and is a
+separate change to proof semantics.
 
 Seven mutations, one per legalization family, each observed red first. Batch-norm
 precomputation is the only `Equivalent` family and so cannot be `Refuted` —
