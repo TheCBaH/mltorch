@@ -94,12 +94,19 @@ pt2.vars:
 	@echo "pt2_cache_restore_key=pt2-$(PT2_RELEASE)-"
 
 # Run the gated end-to-end tests (load + interpreter) against the downloaded data.
+#
+# The two native_transform_verify crams had dune stanzas but appeared in no make
+# target and no CI workflow, so nothing ran them and their goldens could drift
+# unnoticed. They are the only end-to-end evidence that the symbolic verifier
+# still proves what it proved, which the Native4D work is about to depend on.
 pt2.runtest:
 	PT2_DATA=$(abspath $(PT2_DIR)) opam exec -- dune runtest \
 		test/pt2_load_cram.t test/interp_resnet_cram.t \
 		test/interp_efficientnet_cram.t test/interp_mobilenet_cram.t \
 		test/interp_vit_cram.t test/native_graph_cram.t \
 		test/native_transform_cram.t test/native_transform_fold_cram.t \
+		test/native_transform_verify_cram.t \
+		test/native_transform_verify_fold_cram.t \
 		--auto-promote
 
 # Shared argument list for every interp_run.exe invocation below, so

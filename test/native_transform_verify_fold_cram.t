@@ -35,7 +35,8 @@ which is why both are printed.
   constants: 42, of which 41 folded
   symbolic verification: reshape_to_permute
     (root)
-         83  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          2  proved (structural) [sampled 4]
          48  unproved (too large)
          20  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
@@ -49,7 +50,8 @@ which is why both are printed.
           4  unproved (too large)
   symbolic verification: chain_permute
     (root)
-         83  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          2  proved (structural) [sampled 4]
          68  unproved (too large)
          21  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
@@ -62,7 +64,8 @@ which is why both are printed.
           4  unproved (too large)
   symbolic verification: trim_permute
     (root)
-         83  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          2  proved (structural) [sampled 4]
          48  unproved (too large)
     torch.ops.aten._native_batch_norm_legit_no_training.default
          40  unproved (too large)
@@ -74,7 +77,8 @@ which is why both are printed.
           4  unproved (too large)
   symbolic verification: sink_permute
     (root)
-         83  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          2  proved (structural) [sampled 4]
          48  unproved (too large)
          27  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
@@ -87,7 +91,8 @@ which is why both are printed.
           4  unproved (too large)
   symbolic verification: sink_permute
     (root)
-         83  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          2  proved (structural) [sampled 4]
          57  unproved (too large)
           6  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
@@ -100,7 +105,8 @@ which is why both are printed.
           4  unproved (too large)
   symbolic verification: reuse_permute
     (root)
-         83  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          2  proved (structural) [sampled 4]
          60  unproved (too large)
          10  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
@@ -113,7 +119,8 @@ which is why both are printed.
           4  unproved (too large)
   symbolic verification: sink_permute
     (root)
-         83  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          2  proved (structural) [sampled 4]
          60  unproved (too large)
          10  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
@@ -126,7 +133,8 @@ which is why both are printed.
           4  unproved (too large)
   symbolic verification: bypass_permute
     (root)
-         83  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          2  proved (structural) [sampled 4]
          49  unproved (too large)
          17  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
@@ -139,7 +147,8 @@ which is why both are printed.
           2  unproved (too large)
   symbolic verification: sink_permute_mean
     (root)
-         83  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          2  proved (structural) [sampled 4]
          48  unproved (too large)
           2  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
@@ -152,34 +161,36 @@ which is why both are printed.
           2  unproved (too large)
   symbolic verification: bypass_permute
     (root)
-         81  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
           1  unproved (over max_rounds) [sampled 4]
          48  unproved (too large)
           1  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          20  unproved (too large)
     torch.ops.aten.addmm.default
-          1  unproved (over max_nodes) [sampled 4]
+          1  proved (structural) [sampled 4]
     torch.ops.aten.convolution.default
          41  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           2  unproved (too large)
   symbolic verification: fold_const
     (root)
-         82  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          1  proved (structural) [sampled 4]
          47  unproved (too large)
          21  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          20  unproved (too large)
     torch.ops.aten.addmm.default
-          1  unproved (over max_nodes) [sampled 4]
+          1  proved (structural) [sampled 4]
     torch.ops.aten.convolution.default
          21  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           2  unproved (too large)
   symbolic verification: fold_batch_norm
     (root)
-         82  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+          1  proved (structural) [sampled 4]
          67  unproved (too large)
         220  vacuous
     torch.ops.aten.addmm.default
@@ -187,12 +198,11 @@ which is why both are printed.
     torch.ops.aten.convolution.default
           1  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
-          1  unproved (too large)
-          1  unproved (unsupported relation)
+          2  unproved (too large)
   symbolic verification: fold_const
     (root)
-         80  proved (for these constants) [sampled 4]
-        102  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+        101  proved (structural) [sampled 4]
          87  unproved (too large)
          80  vacuous
     torch.ops.aten.addmm.default
@@ -203,8 +213,8 @@ which is why both are printed.
           2  unproved (too large)
   symbolic verification: fold_const
     (root)
-         40  proved (for these constants) [sampled 4]
-        122  proved (structural) [sampled 4]
+         81  proved (for these constants) [sampled 4]
+         81  proved (structural) [sampled 4]
          87  unproved (too large)
          20  vacuous
     torch.ops.aten.addmm.default
@@ -215,8 +225,8 @@ which is why both are printed.
           2  unproved (too large)
   symbolic verification: fold_const
     (root)
-         60  proved (for these constants) [sampled 4]
-         62  proved (structural) [sampled 4]
+         61  proved (for these constants) [sampled 4]
+         61  proved (structural) [sampled 4]
          87  unproved (too large)
          40  vacuous
     torch.ops.aten.addmm.default
@@ -227,8 +237,8 @@ which is why both are printed.
           2  unproved (too large)
   symbolic verification: fold_const
     (root)
-         60  proved (for these constants) [sampled 4]
-         22  proved (structural) [sampled 4]
+         61  proved (for these constants) [sampled 4]
+         21  proved (structural) [sampled 4]
          87  unproved (too large)
          40  vacuous
     torch.ops.aten.addmm.default
@@ -239,8 +249,8 @@ which is why both are printed.
           2  unproved (too large)
   symbolic verification: fold_const
     (root)
-         20  proved (for these constants) [sampled 4]
-          2  proved (structural) [sampled 4]
+         21  proved (for these constants) [sampled 4]
+          1  proved (structural) [sampled 4]
          67  unproved (too large)
          80  vacuous
     torch.ops.aten.addmm.default
@@ -250,16 +260,14 @@ which is why both are printed.
     torch.ops.aten.max_pool2d_with_indices.default
           2  unproved (too large)
   symbolic verification: total
-      260  proved (for these constants) [sampled 4]
-     1317  proved (structural) [sampled 4]
-        2  unproved (over max_nodes) [sampled 4]
+     1277  proved (for these constants) [sampled 4]
+      302  proved (structural) [sampled 4]
         1  unproved (over max_rounds) [sampled 4]
-     2011  unproved (too large)
-        1  unproved (unsupported relation)
+     2012  unproved (too large)
       615  vacuous
   graph
   inputs:
-    [t61 f32 [C=1000] {pt2=root:p_fc_bias target=fc.bias verify=proved (structural) [sampled 4]} ->[n173] constant,
+    [t61 f32 [C=1000] {pt2=root:p_fc_bias target=fc.bias verify=proved (for these constants) [sampled 4]} ->[n173] constant,
      t122 f32 [H=3 W=224 C=224] {pt2=root:x verify=unproved (too large)} ->[n0],
      t295 f32 [N=1000 T=1 D=1 H=1 W=1 C=512] {folded from=[p_fc_weight] verify=unproved (too large)} ->[n173] constant,
      t297 f32 [N=64 T=1 D=1 H=7 W=7 C=3] {folded from=[p_conv1_weight,p_bn1_weight,b_bn1_running_var] verify=vacuous origins=0} ->[n174] constant,
@@ -326,12 +334,12 @@ which is why both are printed.
     group g3 torch.ops.aten.max_pool2d_with_indices.default:
       n9 {derived verify=unproved (too large)}: [t132 f32 [H=56 W=56 C=64] {derived verify=unproved (too large) origins=2} ->[n176,
                                                                       n179],
-                                                 t133 f32 [H=56 W=56 C=64] {derived verify=unproved (unsupported relation)} ->[n10]] =
+                                                 t133 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n10]] =
         max_pool2d_with_indices
           x=t338 {derived verify=unproved (too large)} <-n175
           params={kernel={h=3; w=3}; stride={h=2; w=2}; pad={h=1; w=1}}
       n10 {derived}: [] =
-        discard x=t133 {derived verify=unproved (unsupported relation)} <-n9
+        discard x=t133 {derived verify=unproved (too large)} <-n9
     n176 {derived verify=unproved (too large)}: [t339 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n177]] =
       convolution
         x=t132 {derived verify=unproved (too large) origins=2} <-n9
@@ -665,11 +673,11 @@ which is why both are printed.
         x=t381 {derived verify=vacuous origins=0} <-n218
         params={dims=[W, H]; keepdim=true}
     group g42 torch.ops.aten.addmm.default:
-      n173 {pt2=root[69] torch.ops.aten.addmm.default verify=unproved (over max_nodes) [sampled 4]}: [t296 f32 [C=1000] {pt2=root:addmm verify=unproved (over max_nodes) [sampled 4]}] =
+      n173 {pt2=root[69] torch.ops.aten.addmm.default verify=proved (structural) [sampled 4]}: [t296 f32 [C=1000] {pt2=root:addmm verify=proved (structural) [sampled 4]}] =
         linear
           x=t382 {pt2=root:view verify=unproved (over max_rounds) [sampled 4]} <-n219
           weight=t295 {folded from=[p_fc_weight] verify=unproved (too large)}
-          bias=t61 {pt2=root:p_fc_bias target=fc.bias verify=proved (structural) [sampled 4]}
+          bias=t61 {pt2=root:p_fc_bias target=fc.bias verify=proved (for these constants) [sampled 4]}
           params={in_features=512}
   outputs:
-    [t296 f32 [C=1000] {pt2=root:addmm verify=unproved (over max_nodes) [sampled 4]} <-n173]
+    [t296 f32 [C=1000] {pt2=root:addmm verify=proved (structural) [sampled 4]} <-n173]

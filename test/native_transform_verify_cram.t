@@ -40,8 +40,9 @@ so a group reads the same way in both.
   constants: 102, of which 0 folded
   symbolic verification: reshape_to_permute
     (root)
-         83  proved (structural) [sampled 4]
+          2  proved (structural) [sampled 4]
          48  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
          20  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          60  unproved (too large)
@@ -54,8 +55,9 @@ so a group reads the same way in both.
           4  unproved (too large)
   symbolic verification: chain_permute
     (root)
-         83  proved (structural) [sampled 4]
+          2  proved (structural) [sampled 4]
          68  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
          21  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          40  unproved (too large)
@@ -67,8 +69,9 @@ so a group reads the same way in both.
           4  unproved (too large)
   symbolic verification: trim_permute
     (root)
-         83  proved (structural) [sampled 4]
+          2  proved (structural) [sampled 4]
          48  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
     torch.ops.aten._native_batch_norm_legit_no_training.default
          40  unproved (too large)
     torch.ops.aten.addmm.default
@@ -79,8 +82,9 @@ so a group reads the same way in both.
           4  unproved (too large)
   symbolic verification: sink_permute
     (root)
-         83  proved (structural) [sampled 4]
+          2  proved (structural) [sampled 4]
          48  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
          27  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          25  unproved (too large)
@@ -92,8 +96,9 @@ so a group reads the same way in both.
           4  unproved (too large)
   symbolic verification: sink_permute
     (root)
-         83  proved (structural) [sampled 4]
+          2  proved (structural) [sampled 4]
          57  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
           6  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          25  unproved (too large)
@@ -105,8 +110,9 @@ so a group reads the same way in both.
           4  unproved (too large)
   symbolic verification: reuse_permute
     (root)
-         83  proved (structural) [sampled 4]
+          2  proved (structural) [sampled 4]
          60  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
          10  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          20  unproved (too large)
@@ -118,8 +124,9 @@ so a group reads the same way in both.
           4  unproved (too large)
   symbolic verification: sink_permute
     (root)
-         83  proved (structural) [sampled 4]
+          2  proved (structural) [sampled 4]
          60  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
          10  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          20  unproved (too large)
@@ -131,8 +138,9 @@ so a group reads the same way in both.
           4  unproved (too large)
   symbolic verification: bypass_permute
     (root)
-         83  proved (structural) [sampled 4]
+          2  proved (structural) [sampled 4]
          49  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
          17  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          20  unproved (too large)
@@ -144,8 +152,9 @@ so a group reads the same way in both.
           2  unproved (too large)
   symbolic verification: sink_permute_mean
     (root)
-         83  proved (structural) [sampled 4]
+          2  proved (structural) [sampled 4]
          48  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
           2  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          20  unproved (too large)
@@ -157,128 +166,128 @@ so a group reads the same way in both.
           2  unproved (too large)
   symbolic verification: bypass_permute
     (root)
-         81  proved (structural) [sampled 4]
           1  unproved (over max_rounds) [sampled 4]
          48  unproved (too large)
+         81  unproved (unbound constant) [sampled 4]
           1  vacuous
     torch.ops.aten._native_batch_norm_legit_no_training.default
          20  unproved (too large)
     torch.ops.aten.addmm.default
-          1  unproved (over max_nodes) [sampled 4]
+          1  proved (structural) [sampled 4]
     torch.ops.aten.convolution.default
          41  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           2  unproved (too large)
   symbolic verification: total
-      837  proved (structural) [sampled 4]
-        1  unproved (over max_nodes) [sampled 4]
+       28  proved (structural) [sampled 4]
         1  unproved (over max_rounds) [sampled 4]
      1422  unproved (too large)
+      810  unproved (unbound constant) [sampled 4]
       114  vacuous
   graph
   inputs:
     [t0 f32 [D=64 H=3 W=7 C=7] {pt2=root:p_conv1_weight target=conv1.weight verify=unproved (too large)} ->[n1] constant,
-     t1 f32 [C=64] {pt2=root:p_bn1_weight target=bn1.weight verify=proved (structural) [sampled 4]} ->[n5] constant,
-     t2 f32 [C=64] {pt2=root:p_bn1_bias target=bn1.bias verify=proved (structural) [sampled 4]} ->[n5] constant,
+     t1 f32 [C=64] {pt2=root:p_bn1_weight target=bn1.weight verify=unproved (unbound constant) [sampled 4]} ->[n5] constant,
+     t2 f32 [C=64] {pt2=root:p_bn1_bias target=bn1.bias verify=unproved (unbound constant) [sampled 4]} ->[n5] constant,
      t3 f32 [D=64 H=64 W=3 C=3] {pt2=root:p_layer1_0_conv1_weight target=layer1.0.conv1.weight verify=unproved (too large)} ->[n13] constant,
-     t4 f32 [C=64] {pt2=root:p_layer1_0_bn1_weight target=layer1.0.bn1.weight verify=proved (structural) [sampled 4]} ->[n17] constant,
-     t5 f32 [C=64] {pt2=root:p_layer1_0_bn1_bias target=layer1.0.bn1.bias verify=proved (structural) [sampled 4]} ->[n17] constant,
+     t4 f32 [C=64] {pt2=root:p_layer1_0_bn1_weight target=layer1.0.bn1.weight verify=unproved (unbound constant) [sampled 4]} ->[n17] constant,
+     t5 f32 [C=64] {pt2=root:p_layer1_0_bn1_bias target=layer1.0.bn1.bias verify=unproved (unbound constant) [sampled 4]} ->[n17] constant,
      t6 f32 [D=64 H=64 W=3 C=3] {pt2=root:p_layer1_0_conv2_weight target=layer1.0.conv2.weight verify=unproved (too large)} ->[n21] constant,
-     t7 f32 [C=64] {pt2=root:p_layer1_0_bn2_weight target=layer1.0.bn2.weight verify=proved (structural) [sampled 4]} ->[n25] constant,
-     t8 f32 [C=64] {pt2=root:p_layer1_0_bn2_bias target=layer1.0.bn2.bias verify=proved (structural) [sampled 4]} ->[n25] constant,
+     t7 f32 [C=64] {pt2=root:p_layer1_0_bn2_weight target=layer1.0.bn2.weight verify=unproved (unbound constant) [sampled 4]} ->[n25] constant,
+     t8 f32 [C=64] {pt2=root:p_layer1_0_bn2_bias target=layer1.0.bn2.bias verify=unproved (unbound constant) [sampled 4]} ->[n25] constant,
      t9 f32 [D=64 H=64 W=3 C=3] {pt2=root:p_layer1_1_conv1_weight target=layer1.1.conv1.weight verify=unproved (too large)} ->[n30] constant,
-     t10 f32 [C=64] {pt2=root:p_layer1_1_bn1_weight target=layer1.1.bn1.weight verify=proved (structural) [sampled 4]} ->[n34] constant,
-     t11 f32 [C=64] {pt2=root:p_layer1_1_bn1_bias target=layer1.1.bn1.bias verify=proved (structural) [sampled 4]} ->[n34] constant,
+     t10 f32 [C=64] {pt2=root:p_layer1_1_bn1_weight target=layer1.1.bn1.weight verify=unproved (unbound constant) [sampled 4]} ->[n34] constant,
+     t11 f32 [C=64] {pt2=root:p_layer1_1_bn1_bias target=layer1.1.bn1.bias verify=unproved (unbound constant) [sampled 4]} ->[n34] constant,
      t12 f32 [D=64 H=64 W=3 C=3] {pt2=root:p_layer1_1_conv2_weight target=layer1.1.conv2.weight verify=unproved (too large)} ->[n38] constant,
-     t13 f32 [C=64] {pt2=root:p_layer1_1_bn2_weight target=layer1.1.bn2.weight verify=proved (structural) [sampled 4]} ->[n42] constant,
-     t14 f32 [C=64] {pt2=root:p_layer1_1_bn2_bias target=layer1.1.bn2.bias verify=proved (structural) [sampled 4]} ->[n42] constant,
+     t13 f32 [C=64] {pt2=root:p_layer1_1_bn2_weight target=layer1.1.bn2.weight verify=unproved (unbound constant) [sampled 4]} ->[n42] constant,
+     t14 f32 [C=64] {pt2=root:p_layer1_1_bn2_bias target=layer1.1.bn2.bias verify=unproved (unbound constant) [sampled 4]} ->[n42] constant,
      t15 f32 [D=128 H=64 W=3 C=3] {pt2=root:p_layer2_0_conv1_weight target=layer2.0.conv1.weight verify=unproved (too large)} ->[n47] constant,
-     t16 f32 [C=128] {pt2=root:p_layer2_0_bn1_weight target=layer2.0.bn1.weight verify=proved (structural) [sampled 4]} ->[n51] constant,
-     t17 f32 [C=128] {pt2=root:p_layer2_0_bn1_bias target=layer2.0.bn1.bias verify=proved (structural) [sampled 4]} ->[n51] constant,
+     t16 f32 [C=128] {pt2=root:p_layer2_0_bn1_weight target=layer2.0.bn1.weight verify=unproved (unbound constant) [sampled 4]} ->[n51] constant,
+     t17 f32 [C=128] {pt2=root:p_layer2_0_bn1_bias target=layer2.0.bn1.bias verify=unproved (unbound constant) [sampled 4]} ->[n51] constant,
      t18 f32 [D=128 H=128 W=3 C=3] {pt2=root:p_layer2_0_conv2_weight target=layer2.0.conv2.weight verify=unproved (too large)} ->[n55] constant,
-     t19 f32 [C=128] {pt2=root:p_layer2_0_bn2_weight target=layer2.0.bn2.weight verify=proved (structural) [sampled 4]} ->[n59] constant,
-     t20 f32 [C=128] {pt2=root:p_layer2_0_bn2_bias target=layer2.0.bn2.bias verify=proved (structural) [sampled 4]} ->[n59] constant,
+     t19 f32 [C=128] {pt2=root:p_layer2_0_bn2_weight target=layer2.0.bn2.weight verify=unproved (unbound constant) [sampled 4]} ->[n59] constant,
+     t20 f32 [C=128] {pt2=root:p_layer2_0_bn2_bias target=layer2.0.bn2.bias verify=unproved (unbound constant) [sampled 4]} ->[n59] constant,
      t21 f32 [D=128 H=64 W=1 C=1] {pt2=root:p_layer2_0_downsample_0_weight target=layer2.0.downsample.0.weight verify=unproved (too large)} ->[n62] constant,
-     t22 f32 [C=128] {pt2=root:p_layer2_0_downsample_1_weight target=layer2.0.downsample.1.weight verify=proved (structural) [sampled 4]} ->[n66] constant,
-     t23 f32 [C=128] {pt2=root:p_layer2_0_downsample_1_bias target=layer2.0.downsample.1.bias verify=proved (structural) [sampled 4]} ->[n66] constant,
+     t22 f32 [C=128] {pt2=root:p_layer2_0_downsample_1_weight target=layer2.0.downsample.1.weight verify=unproved (unbound constant) [sampled 4]} ->[n66] constant,
+     t23 f32 [C=128] {pt2=root:p_layer2_0_downsample_1_bias target=layer2.0.downsample.1.bias verify=unproved (unbound constant) [sampled 4]} ->[n66] constant,
      t24 f32 [D=128 H=128 W=3 C=3] {pt2=root:p_layer2_1_conv1_weight target=layer2.1.conv1.weight verify=unproved (too large)} ->[n71] constant,
-     t25 f32 [C=128] {pt2=root:p_layer2_1_bn1_weight target=layer2.1.bn1.weight verify=proved (structural) [sampled 4]} ->[n75] constant,
-     t26 f32 [C=128] {pt2=root:p_layer2_1_bn1_bias target=layer2.1.bn1.bias verify=proved (structural) [sampled 4]} ->[n75] constant,
+     t25 f32 [C=128] {pt2=root:p_layer2_1_bn1_weight target=layer2.1.bn1.weight verify=unproved (unbound constant) [sampled 4]} ->[n75] constant,
+     t26 f32 [C=128] {pt2=root:p_layer2_1_bn1_bias target=layer2.1.bn1.bias verify=unproved (unbound constant) [sampled 4]} ->[n75] constant,
      t27 f32 [D=128 H=128 W=3 C=3] {pt2=root:p_layer2_1_conv2_weight target=layer2.1.conv2.weight verify=unproved (too large)} ->[n79] constant,
-     t28 f32 [C=128] {pt2=root:p_layer2_1_bn2_weight target=layer2.1.bn2.weight verify=proved (structural) [sampled 4]} ->[n83] constant,
-     t29 f32 [C=128] {pt2=root:p_layer2_1_bn2_bias target=layer2.1.bn2.bias verify=proved (structural) [sampled 4]} ->[n83] constant,
+     t28 f32 [C=128] {pt2=root:p_layer2_1_bn2_weight target=layer2.1.bn2.weight verify=unproved (unbound constant) [sampled 4]} ->[n83] constant,
+     t29 f32 [C=128] {pt2=root:p_layer2_1_bn2_bias target=layer2.1.bn2.bias verify=unproved (unbound constant) [sampled 4]} ->[n83] constant,
      t30 f32 [D=256 H=128 W=3 C=3] {pt2=root:p_layer3_0_conv1_weight target=layer3.0.conv1.weight verify=unproved (too large)} ->[n88] constant,
-     t31 f32 [C=256] {pt2=root:p_layer3_0_bn1_weight target=layer3.0.bn1.weight verify=proved (structural) [sampled 4]} ->[n92] constant,
-     t32 f32 [C=256] {pt2=root:p_layer3_0_bn1_bias target=layer3.0.bn1.bias verify=proved (structural) [sampled 4]} ->[n92] constant,
+     t31 f32 [C=256] {pt2=root:p_layer3_0_bn1_weight target=layer3.0.bn1.weight verify=unproved (unbound constant) [sampled 4]} ->[n92] constant,
+     t32 f32 [C=256] {pt2=root:p_layer3_0_bn1_bias target=layer3.0.bn1.bias verify=unproved (unbound constant) [sampled 4]} ->[n92] constant,
      t33 f32 [D=256 H=256 W=3 C=3] {pt2=root:p_layer3_0_conv2_weight target=layer3.0.conv2.weight verify=unproved (too large)} ->[n96] constant,
-     t34 f32 [C=256] {pt2=root:p_layer3_0_bn2_weight target=layer3.0.bn2.weight verify=proved (structural) [sampled 4]} ->[n100] constant,
-     t35 f32 [C=256] {pt2=root:p_layer3_0_bn2_bias target=layer3.0.bn2.bias verify=proved (structural) [sampled 4]} ->[n100] constant,
+     t34 f32 [C=256] {pt2=root:p_layer3_0_bn2_weight target=layer3.0.bn2.weight verify=unproved (unbound constant) [sampled 4]} ->[n100] constant,
+     t35 f32 [C=256] {pt2=root:p_layer3_0_bn2_bias target=layer3.0.bn2.bias verify=unproved (unbound constant) [sampled 4]} ->[n100] constant,
      t36 f32 [D=256 H=128 W=1 C=1] {pt2=root:p_layer3_0_downsample_0_weight target=layer3.0.downsample.0.weight verify=unproved (too large)} ->[n103] constant,
-     t37 f32 [C=256] {pt2=root:p_layer3_0_downsample_1_weight target=layer3.0.downsample.1.weight verify=proved (structural) [sampled 4]} ->[n107] constant,
-     t38 f32 [C=256] {pt2=root:p_layer3_0_downsample_1_bias target=layer3.0.downsample.1.bias verify=proved (structural) [sampled 4]} ->[n107] constant,
+     t37 f32 [C=256] {pt2=root:p_layer3_0_downsample_1_weight target=layer3.0.downsample.1.weight verify=unproved (unbound constant) [sampled 4]} ->[n107] constant,
+     t38 f32 [C=256] {pt2=root:p_layer3_0_downsample_1_bias target=layer3.0.downsample.1.bias verify=unproved (unbound constant) [sampled 4]} ->[n107] constant,
      t39 f32 [D=256 H=256 W=3 C=3] {pt2=root:p_layer3_1_conv1_weight target=layer3.1.conv1.weight verify=unproved (too large)} ->[n112] constant,
-     t40 f32 [C=256] {pt2=root:p_layer3_1_bn1_weight target=layer3.1.bn1.weight verify=proved (structural) [sampled 4]} ->[n116] constant,
-     t41 f32 [C=256] {pt2=root:p_layer3_1_bn1_bias target=layer3.1.bn1.bias verify=proved (structural) [sampled 4]} ->[n116] constant,
+     t40 f32 [C=256] {pt2=root:p_layer3_1_bn1_weight target=layer3.1.bn1.weight verify=unproved (unbound constant) [sampled 4]} ->[n116] constant,
+     t41 f32 [C=256] {pt2=root:p_layer3_1_bn1_bias target=layer3.1.bn1.bias verify=unproved (unbound constant) [sampled 4]} ->[n116] constant,
      t42 f32 [D=256 H=256 W=3 C=3] {pt2=root:p_layer3_1_conv2_weight target=layer3.1.conv2.weight verify=unproved (too large)} ->[n120] constant,
-     t43 f32 [C=256] {pt2=root:p_layer3_1_bn2_weight target=layer3.1.bn2.weight verify=proved (structural) [sampled 4]} ->[n124] constant,
-     t44 f32 [C=256] {pt2=root:p_layer3_1_bn2_bias target=layer3.1.bn2.bias verify=proved (structural) [sampled 4]} ->[n124] constant,
+     t43 f32 [C=256] {pt2=root:p_layer3_1_bn2_weight target=layer3.1.bn2.weight verify=unproved (unbound constant) [sampled 4]} ->[n124] constant,
+     t44 f32 [C=256] {pt2=root:p_layer3_1_bn2_bias target=layer3.1.bn2.bias verify=unproved (unbound constant) [sampled 4]} ->[n124] constant,
      t45 f32 [D=512 H=256 W=3 C=3] {pt2=root:p_layer4_0_conv1_weight target=layer4.0.conv1.weight verify=unproved (too large)} ->[n129] constant,
-     t46 f32 [C=512] {pt2=root:p_layer4_0_bn1_weight target=layer4.0.bn1.weight verify=proved (structural) [sampled 4]} ->[n133] constant,
-     t47 f32 [C=512] {pt2=root:p_layer4_0_bn1_bias target=layer4.0.bn1.bias verify=proved (structural) [sampled 4]} ->[n133] constant,
+     t46 f32 [C=512] {pt2=root:p_layer4_0_bn1_weight target=layer4.0.bn1.weight verify=unproved (unbound constant) [sampled 4]} ->[n133] constant,
+     t47 f32 [C=512] {pt2=root:p_layer4_0_bn1_bias target=layer4.0.bn1.bias verify=unproved (unbound constant) [sampled 4]} ->[n133] constant,
      t48 f32 [D=512 H=512 W=3 C=3] {pt2=root:p_layer4_0_conv2_weight target=layer4.0.conv2.weight verify=unproved (too large)} ->[n137] constant,
-     t49 f32 [C=512] {pt2=root:p_layer4_0_bn2_weight target=layer4.0.bn2.weight verify=proved (structural) [sampled 4]} ->[n141] constant,
-     t50 f32 [C=512] {pt2=root:p_layer4_0_bn2_bias target=layer4.0.bn2.bias verify=proved (structural) [sampled 4]} ->[n141] constant,
+     t49 f32 [C=512] {pt2=root:p_layer4_0_bn2_weight target=layer4.0.bn2.weight verify=unproved (unbound constant) [sampled 4]} ->[n141] constant,
+     t50 f32 [C=512] {pt2=root:p_layer4_0_bn2_bias target=layer4.0.bn2.bias verify=unproved (unbound constant) [sampled 4]} ->[n141] constant,
      t51 f32 [D=512 H=256 W=1 C=1] {pt2=root:p_layer4_0_downsample_0_weight target=layer4.0.downsample.0.weight verify=unproved (too large)} ->[n144] constant,
-     t52 f32 [C=512] {pt2=root:p_layer4_0_downsample_1_weight target=layer4.0.downsample.1.weight verify=proved (structural) [sampled 4]} ->[n148] constant,
-     t53 f32 [C=512] {pt2=root:p_layer4_0_downsample_1_bias target=layer4.0.downsample.1.bias verify=proved (structural) [sampled 4]} ->[n148] constant,
+     t52 f32 [C=512] {pt2=root:p_layer4_0_downsample_1_weight target=layer4.0.downsample.1.weight verify=unproved (unbound constant) [sampled 4]} ->[n148] constant,
+     t53 f32 [C=512] {pt2=root:p_layer4_0_downsample_1_bias target=layer4.0.downsample.1.bias verify=unproved (unbound constant) [sampled 4]} ->[n148] constant,
      t54 f32 [D=512 H=512 W=3 C=3] {pt2=root:p_layer4_1_conv1_weight target=layer4.1.conv1.weight verify=unproved (too large)} ->[n153] constant,
-     t55 f32 [C=512] {pt2=root:p_layer4_1_bn1_weight target=layer4.1.bn1.weight verify=proved (structural) [sampled 4]} ->[n157] constant,
-     t56 f32 [C=512] {pt2=root:p_layer4_1_bn1_bias target=layer4.1.bn1.bias verify=proved (structural) [sampled 4]} ->[n157] constant,
+     t55 f32 [C=512] {pt2=root:p_layer4_1_bn1_weight target=layer4.1.bn1.weight verify=unproved (unbound constant) [sampled 4]} ->[n157] constant,
+     t56 f32 [C=512] {pt2=root:p_layer4_1_bn1_bias target=layer4.1.bn1.bias verify=unproved (unbound constant) [sampled 4]} ->[n157] constant,
      t57 f32 [D=512 H=512 W=3 C=3] {pt2=root:p_layer4_1_conv2_weight target=layer4.1.conv2.weight verify=unproved (too large)} ->[n161] constant,
-     t58 f32 [C=512] {pt2=root:p_layer4_1_bn2_weight target=layer4.1.bn2.weight verify=proved (structural) [sampled 4]} ->[n165] constant,
-     t59 f32 [C=512] {pt2=root:p_layer4_1_bn2_bias target=layer4.1.bn2.bias verify=proved (structural) [sampled 4]} ->[n165] constant,
+     t58 f32 [C=512] {pt2=root:p_layer4_1_bn2_weight target=layer4.1.bn2.weight verify=unproved (unbound constant) [sampled 4]} ->[n165] constant,
+     t59 f32 [C=512] {pt2=root:p_layer4_1_bn2_bias target=layer4.1.bn2.bias verify=unproved (unbound constant) [sampled 4]} ->[n165] constant,
      t60 f32 [W=1000 C=512] {pt2=root:p_fc_weight target=fc.weight verify=unproved (too large)} ->[n174] constant,
-     t61 f32 [C=1000] {pt2=root:p_fc_bias target=fc.bias verify=proved (structural) [sampled 4]} ->[n173] constant,
-     t62 f32 [C=64] {pt2=root:b_bn1_running_mean target=bn1.running_mean verify=proved (structural) [sampled 4]} ->[n5] constant,
-     t63 f32 [C=64] {pt2=root:b_bn1_running_var target=bn1.running_var verify=proved (structural) [sampled 4]} ->[n5] constant,
-     t65 f32 [C=64] {pt2=root:b_layer1_0_bn1_running_mean target=layer1.0.bn1.running_mean verify=proved (structural) [sampled 4]} ->[n17] constant,
-     t66 f32 [C=64] {pt2=root:b_layer1_0_bn1_running_var target=layer1.0.bn1.running_var verify=proved (structural) [sampled 4]} ->[n17] constant,
-     t68 f32 [C=64] {pt2=root:b_layer1_0_bn2_running_mean target=layer1.0.bn2.running_mean verify=proved (structural) [sampled 4]} ->[n25] constant,
-     t69 f32 [C=64] {pt2=root:b_layer1_0_bn2_running_var target=layer1.0.bn2.running_var verify=proved (structural) [sampled 4]} ->[n25] constant,
-     t71 f32 [C=64] {pt2=root:b_layer1_1_bn1_running_mean target=layer1.1.bn1.running_mean verify=proved (structural) [sampled 4]} ->[n34] constant,
-     t72 f32 [C=64] {pt2=root:b_layer1_1_bn1_running_var target=layer1.1.bn1.running_var verify=proved (structural) [sampled 4]} ->[n34] constant,
-     t74 f32 [C=64] {pt2=root:b_layer1_1_bn2_running_mean target=layer1.1.bn2.running_mean verify=proved (structural) [sampled 4]} ->[n42] constant,
-     t75 f32 [C=64] {pt2=root:b_layer1_1_bn2_running_var target=layer1.1.bn2.running_var verify=proved (structural) [sampled 4]} ->[n42] constant,
-     t77 f32 [C=128] {pt2=root:b_layer2_0_bn1_running_mean target=layer2.0.bn1.running_mean verify=proved (structural) [sampled 4]} ->[n51] constant,
-     t78 f32 [C=128] {pt2=root:b_layer2_0_bn1_running_var target=layer2.0.bn1.running_var verify=proved (structural) [sampled 4]} ->[n51] constant,
-     t80 f32 [C=128] {pt2=root:b_layer2_0_bn2_running_mean target=layer2.0.bn2.running_mean verify=proved (structural) [sampled 4]} ->[n59] constant,
-     t81 f32 [C=128] {pt2=root:b_layer2_0_bn2_running_var target=layer2.0.bn2.running_var verify=proved (structural) [sampled 4]} ->[n59] constant,
-     t83 f32 [C=128] {pt2=root:b_layer2_0_downsample_1_running_mean target=layer2.0.downsample.1.running_mean verify=proved (structural) [sampled 4]} ->[n66] constant,
-     t84 f32 [C=128] {pt2=root:b_layer2_0_downsample_1_running_var target=layer2.0.downsample.1.running_var verify=proved (structural) [sampled 4]} ->[n66] constant,
-     t86 f32 [C=128] {pt2=root:b_layer2_1_bn1_running_mean target=layer2.1.bn1.running_mean verify=proved (structural) [sampled 4]} ->[n75] constant,
-     t87 f32 [C=128] {pt2=root:b_layer2_1_bn1_running_var target=layer2.1.bn1.running_var verify=proved (structural) [sampled 4]} ->[n75] constant,
-     t89 f32 [C=128] {pt2=root:b_layer2_1_bn2_running_mean target=layer2.1.bn2.running_mean verify=proved (structural) [sampled 4]} ->[n83] constant,
-     t90 f32 [C=128] {pt2=root:b_layer2_1_bn2_running_var target=layer2.1.bn2.running_var verify=proved (structural) [sampled 4]} ->[n83] constant,
-     t92 f32 [C=256] {pt2=root:b_layer3_0_bn1_running_mean target=layer3.0.bn1.running_mean verify=proved (structural) [sampled 4]} ->[n92] constant,
-     t93 f32 [C=256] {pt2=root:b_layer3_0_bn1_running_var target=layer3.0.bn1.running_var verify=proved (structural) [sampled 4]} ->[n92] constant,
-     t95 f32 [C=256] {pt2=root:b_layer3_0_bn2_running_mean target=layer3.0.bn2.running_mean verify=proved (structural) [sampled 4]} ->[n100] constant,
-     t96 f32 [C=256] {pt2=root:b_layer3_0_bn2_running_var target=layer3.0.bn2.running_var verify=proved (structural) [sampled 4]} ->[n100] constant,
-     t98 f32 [C=256] {pt2=root:b_layer3_0_downsample_1_running_mean target=layer3.0.downsample.1.running_mean verify=proved (structural) [sampled 4]} ->[n107] constant,
-     t99 f32 [C=256] {pt2=root:b_layer3_0_downsample_1_running_var target=layer3.0.downsample.1.running_var verify=proved (structural) [sampled 4]} ->[n107] constant,
-     t101 f32 [C=256] {pt2=root:b_layer3_1_bn1_running_mean target=layer3.1.bn1.running_mean verify=proved (structural) [sampled 4]} ->[n116] constant,
-     t102 f32 [C=256] {pt2=root:b_layer3_1_bn1_running_var target=layer3.1.bn1.running_var verify=proved (structural) [sampled 4]} ->[n116] constant,
-     t104 f32 [C=256] {pt2=root:b_layer3_1_bn2_running_mean target=layer3.1.bn2.running_mean verify=proved (structural) [sampled 4]} ->[n124] constant,
-     t105 f32 [C=256] {pt2=root:b_layer3_1_bn2_running_var target=layer3.1.bn2.running_var verify=proved (structural) [sampled 4]} ->[n124] constant,
-     t107 f32 [C=512] {pt2=root:b_layer4_0_bn1_running_mean target=layer4.0.bn1.running_mean verify=proved (structural) [sampled 4]} ->[n133] constant,
-     t108 f32 [C=512] {pt2=root:b_layer4_0_bn1_running_var target=layer4.0.bn1.running_var verify=proved (structural) [sampled 4]} ->[n133] constant,
-     t110 f32 [C=512] {pt2=root:b_layer4_0_bn2_running_mean target=layer4.0.bn2.running_mean verify=proved (structural) [sampled 4]} ->[n141] constant,
-     t111 f32 [C=512] {pt2=root:b_layer4_0_bn2_running_var target=layer4.0.bn2.running_var verify=proved (structural) [sampled 4]} ->[n141] constant,
-     t113 f32 [C=512] {pt2=root:b_layer4_0_downsample_1_running_mean target=layer4.0.downsample.1.running_mean verify=proved (structural) [sampled 4]} ->[n148] constant,
-     t114 f32 [C=512] {pt2=root:b_layer4_0_downsample_1_running_var target=layer4.0.downsample.1.running_var verify=proved (structural) [sampled 4]} ->[n148] constant,
-     t116 f32 [C=512] {pt2=root:b_layer4_1_bn1_running_mean target=layer4.1.bn1.running_mean verify=proved (structural) [sampled 4]} ->[n157] constant,
-     t117 f32 [C=512] {pt2=root:b_layer4_1_bn1_running_var target=layer4.1.bn1.running_var verify=proved (structural) [sampled 4]} ->[n157] constant,
-     t119 f32 [C=512] {pt2=root:b_layer4_1_bn2_running_mean target=layer4.1.bn2.running_mean verify=proved (structural) [sampled 4]} ->[n165] constant,
-     t120 f32 [C=512] {pt2=root:b_layer4_1_bn2_running_var target=layer4.1.bn2.running_var verify=proved (structural) [sampled 4]} ->[n165] constant,
+     t61 f32 [C=1000] {pt2=root:p_fc_bias target=fc.bias verify=unproved (unbound constant) [sampled 4]} ->[n173] constant,
+     t62 f32 [C=64] {pt2=root:b_bn1_running_mean target=bn1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n5] constant,
+     t63 f32 [C=64] {pt2=root:b_bn1_running_var target=bn1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n5] constant,
+     t65 f32 [C=64] {pt2=root:b_layer1_0_bn1_running_mean target=layer1.0.bn1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n17] constant,
+     t66 f32 [C=64] {pt2=root:b_layer1_0_bn1_running_var target=layer1.0.bn1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n17] constant,
+     t68 f32 [C=64] {pt2=root:b_layer1_0_bn2_running_mean target=layer1.0.bn2.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n25] constant,
+     t69 f32 [C=64] {pt2=root:b_layer1_0_bn2_running_var target=layer1.0.bn2.running_var verify=unproved (unbound constant) [sampled 4]} ->[n25] constant,
+     t71 f32 [C=64] {pt2=root:b_layer1_1_bn1_running_mean target=layer1.1.bn1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n34] constant,
+     t72 f32 [C=64] {pt2=root:b_layer1_1_bn1_running_var target=layer1.1.bn1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n34] constant,
+     t74 f32 [C=64] {pt2=root:b_layer1_1_bn2_running_mean target=layer1.1.bn2.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n42] constant,
+     t75 f32 [C=64] {pt2=root:b_layer1_1_bn2_running_var target=layer1.1.bn2.running_var verify=unproved (unbound constant) [sampled 4]} ->[n42] constant,
+     t77 f32 [C=128] {pt2=root:b_layer2_0_bn1_running_mean target=layer2.0.bn1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n51] constant,
+     t78 f32 [C=128] {pt2=root:b_layer2_0_bn1_running_var target=layer2.0.bn1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n51] constant,
+     t80 f32 [C=128] {pt2=root:b_layer2_0_bn2_running_mean target=layer2.0.bn2.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n59] constant,
+     t81 f32 [C=128] {pt2=root:b_layer2_0_bn2_running_var target=layer2.0.bn2.running_var verify=unproved (unbound constant) [sampled 4]} ->[n59] constant,
+     t83 f32 [C=128] {pt2=root:b_layer2_0_downsample_1_running_mean target=layer2.0.downsample.1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n66] constant,
+     t84 f32 [C=128] {pt2=root:b_layer2_0_downsample_1_running_var target=layer2.0.downsample.1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n66] constant,
+     t86 f32 [C=128] {pt2=root:b_layer2_1_bn1_running_mean target=layer2.1.bn1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n75] constant,
+     t87 f32 [C=128] {pt2=root:b_layer2_1_bn1_running_var target=layer2.1.bn1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n75] constant,
+     t89 f32 [C=128] {pt2=root:b_layer2_1_bn2_running_mean target=layer2.1.bn2.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n83] constant,
+     t90 f32 [C=128] {pt2=root:b_layer2_1_bn2_running_var target=layer2.1.bn2.running_var verify=unproved (unbound constant) [sampled 4]} ->[n83] constant,
+     t92 f32 [C=256] {pt2=root:b_layer3_0_bn1_running_mean target=layer3.0.bn1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n92] constant,
+     t93 f32 [C=256] {pt2=root:b_layer3_0_bn1_running_var target=layer3.0.bn1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n92] constant,
+     t95 f32 [C=256] {pt2=root:b_layer3_0_bn2_running_mean target=layer3.0.bn2.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n100] constant,
+     t96 f32 [C=256] {pt2=root:b_layer3_0_bn2_running_var target=layer3.0.bn2.running_var verify=unproved (unbound constant) [sampled 4]} ->[n100] constant,
+     t98 f32 [C=256] {pt2=root:b_layer3_0_downsample_1_running_mean target=layer3.0.downsample.1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n107] constant,
+     t99 f32 [C=256] {pt2=root:b_layer3_0_downsample_1_running_var target=layer3.0.downsample.1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n107] constant,
+     t101 f32 [C=256] {pt2=root:b_layer3_1_bn1_running_mean target=layer3.1.bn1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n116] constant,
+     t102 f32 [C=256] {pt2=root:b_layer3_1_bn1_running_var target=layer3.1.bn1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n116] constant,
+     t104 f32 [C=256] {pt2=root:b_layer3_1_bn2_running_mean target=layer3.1.bn2.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n124] constant,
+     t105 f32 [C=256] {pt2=root:b_layer3_1_bn2_running_var target=layer3.1.bn2.running_var verify=unproved (unbound constant) [sampled 4]} ->[n124] constant,
+     t107 f32 [C=512] {pt2=root:b_layer4_0_bn1_running_mean target=layer4.0.bn1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n133] constant,
+     t108 f32 [C=512] {pt2=root:b_layer4_0_bn1_running_var target=layer4.0.bn1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n133] constant,
+     t110 f32 [C=512] {pt2=root:b_layer4_0_bn2_running_mean target=layer4.0.bn2.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n141] constant,
+     t111 f32 [C=512] {pt2=root:b_layer4_0_bn2_running_var target=layer4.0.bn2.running_var verify=unproved (unbound constant) [sampled 4]} ->[n141] constant,
+     t113 f32 [C=512] {pt2=root:b_layer4_0_downsample_1_running_mean target=layer4.0.downsample.1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n148] constant,
+     t114 f32 [C=512] {pt2=root:b_layer4_0_downsample_1_running_var target=layer4.0.downsample.1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n148] constant,
+     t116 f32 [C=512] {pt2=root:b_layer4_1_bn1_running_mean target=layer4.1.bn1.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n157] constant,
+     t117 f32 [C=512] {pt2=root:b_layer4_1_bn1_running_var target=layer4.1.bn1.running_var verify=unproved (unbound constant) [sampled 4]} ->[n157] constant,
+     t119 f32 [C=512] {pt2=root:b_layer4_1_bn2_running_mean target=layer4.1.bn2.running_mean verify=unproved (unbound constant) [sampled 4]} ->[n165] constant,
+     t120 f32 [C=512] {pt2=root:b_layer4_1_bn2_running_var target=layer4.1.bn2.running_var verify=unproved (unbound constant) [sampled 4]} ->[n165] constant,
      t122 f32 [H=3 W=224 C=224] {pt2=root:x verify=unproved (too large)} ->[n0]]
   nodes:
     group g1 torch.ops.aten.convolution.default:
@@ -636,10 +645,10 @@ so a group reads the same way in both.
       n5 {derived verify=unproved (too large)}: [t128 f32 [H=112 W=112 C=64] {derived verify=unproved (too large)} ->[n175]] =
         batch_norm
           x=t125 {derived verify=unproved (too large) origins=2} <-n2
-          weight=t1 {pt2=root:p_bn1_weight target=bn1.weight verify=proved (structural) [sampled 4]}
-          bias=t2 {pt2=root:p_bn1_bias target=bn1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t62 {pt2=root:b_bn1_running_mean target=bn1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t63 {pt2=root:b_bn1_running_var target=bn1.running_var verify=proved (structural) [sampled 4]}
+          weight=t1 {pt2=root:p_bn1_weight target=bn1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t2 {pt2=root:p_bn1_bias target=bn1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t62 {pt2=root:b_bn1_running_mean target=bn1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t63 {pt2=root:b_bn1_running_var target=bn1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n175 {pt2=root[2] torch.ops.aten.relu.default verify=unproved (too large)}: [t297 f32 [H=112
                                                                       W=112
@@ -658,10 +667,10 @@ so a group reads the same way in both.
       n17 {derived verify=unproved (too large)}: [t140 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n176]] =
         batch_norm
           x=t137 {derived verify=unproved (too large) origins=2} <-n14
-          weight=t4 {pt2=root:p_layer1_0_bn1_weight target=layer1.0.bn1.weight verify=proved (structural) [sampled 4]}
-          bias=t5 {pt2=root:p_layer1_0_bn1_bias target=layer1.0.bn1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t65 {pt2=root:b_layer1_0_bn1_running_mean target=layer1.0.bn1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t66 {pt2=root:b_layer1_0_bn1_running_var target=layer1.0.bn1.running_var verify=proved (structural) [sampled 4]}
+          weight=t4 {pt2=root:p_layer1_0_bn1_weight target=layer1.0.bn1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t5 {pt2=root:p_layer1_0_bn1_bias target=layer1.0.bn1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t65 {pt2=root:b_layer1_0_bn1_running_mean target=layer1.0.bn1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t66 {pt2=root:b_layer1_0_bn1_running_var target=layer1.0.bn1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n176 {pt2=root[6] torch.ops.aten.relu.default verify=unproved (too large)}: [t298 f32 [H=56
                                                                       W=56
@@ -671,10 +680,10 @@ so a group reads the same way in both.
       n25 {derived verify=unproved (too large)}: [t148 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n177]] =
         batch_norm
           x=t145 {derived verify=unproved (too large) origins=2} <-n22
-          weight=t7 {pt2=root:p_layer1_0_bn2_weight target=layer1.0.bn2.weight verify=proved (structural) [sampled 4]}
-          bias=t8 {pt2=root:p_layer1_0_bn2_bias target=layer1.0.bn2.bias verify=proved (structural) [sampled 4]}
-          running_mean=t68 {pt2=root:b_layer1_0_bn2_running_mean target=layer1.0.bn2.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t69 {pt2=root:b_layer1_0_bn2_running_var target=layer1.0.bn2.running_var verify=proved (structural) [sampled 4]}
+          weight=t7 {pt2=root:p_layer1_0_bn2_weight target=layer1.0.bn2.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t8 {pt2=root:p_layer1_0_bn2_bias target=layer1.0.bn2.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t68 {pt2=root:b_layer1_0_bn2_running_mean target=layer1.0.bn2.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t69 {pt2=root:b_layer1_0_bn2_running_var target=layer1.0.bn2.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n177 {pt2=root[9] torch.ops.aten.add.Tensor verify=vacuous}: [t299 f32 [H=56
                                                                       W=56
@@ -691,10 +700,10 @@ so a group reads the same way in both.
       n34 {derived verify=unproved (too large)}: [t157 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n179]] =
         batch_norm
           x=t154 {derived verify=unproved (too large) origins=2} <-n31
-          weight=t10 {pt2=root:p_layer1_1_bn1_weight target=layer1.1.bn1.weight verify=proved (structural) [sampled 4]}
-          bias=t11 {pt2=root:p_layer1_1_bn1_bias target=layer1.1.bn1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t71 {pt2=root:b_layer1_1_bn1_running_mean target=layer1.1.bn1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t72 {pt2=root:b_layer1_1_bn1_running_var target=layer1.1.bn1.running_var verify=proved (structural) [sampled 4]}
+          weight=t10 {pt2=root:p_layer1_1_bn1_weight target=layer1.1.bn1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t11 {pt2=root:p_layer1_1_bn1_bias target=layer1.1.bn1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t71 {pt2=root:b_layer1_1_bn1_running_mean target=layer1.1.bn1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t72 {pt2=root:b_layer1_1_bn1_running_var target=layer1.1.bn1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n179 {pt2=root[13] torch.ops.aten.relu.default verify=unproved (too large)}: [t301 f32 [H=56
                                                                       W=56
@@ -704,10 +713,10 @@ so a group reads the same way in both.
       n42 {derived verify=unproved (too large)}: [t165 f32 [H=56 W=56 C=64] {derived verify=unproved (too large)} ->[n180]] =
         batch_norm
           x=t162 {derived verify=unproved (too large) origins=2} <-n39
-          weight=t13 {pt2=root:p_layer1_1_bn2_weight target=layer1.1.bn2.weight verify=proved (structural) [sampled 4]}
-          bias=t14 {pt2=root:p_layer1_1_bn2_bias target=layer1.1.bn2.bias verify=proved (structural) [sampled 4]}
-          running_mean=t74 {pt2=root:b_layer1_1_bn2_running_mean target=layer1.1.bn2.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t75 {pt2=root:b_layer1_1_bn2_running_var target=layer1.1.bn2.running_var verify=proved (structural) [sampled 4]}
+          weight=t13 {pt2=root:p_layer1_1_bn2_weight target=layer1.1.bn2.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t14 {pt2=root:p_layer1_1_bn2_bias target=layer1.1.bn2.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t74 {pt2=root:b_layer1_1_bn2_running_mean target=layer1.1.bn2.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t75 {pt2=root:b_layer1_1_bn2_running_var target=layer1.1.bn2.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n180 {pt2=root[16] torch.ops.aten.add.Tensor verify=vacuous}: [t302 f32 [H=56
                                                                       W=56
@@ -724,19 +733,19 @@ so a group reads the same way in both.
       n51 {derived verify=unproved (too large)}: [t174 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n182]] =
         batch_norm
           x=t171 {derived verify=unproved (too large) origins=2} <-n48
-          weight=t16 {pt2=root:p_layer2_0_bn1_weight target=layer2.0.bn1.weight verify=proved (structural) [sampled 4]}
-          bias=t17 {pt2=root:p_layer2_0_bn1_bias target=layer2.0.bn1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t77 {pt2=root:b_layer2_0_bn1_running_mean target=layer2.0.bn1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t78 {pt2=root:b_layer2_0_bn1_running_var target=layer2.0.bn1.running_var verify=proved (structural) [sampled 4]}
+          weight=t16 {pt2=root:p_layer2_0_bn1_weight target=layer2.0.bn1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t17 {pt2=root:p_layer2_0_bn1_bias target=layer2.0.bn1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t77 {pt2=root:b_layer2_0_bn1_running_mean target=layer2.0.bn1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t78 {pt2=root:b_layer2_0_bn1_running_var target=layer2.0.bn1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     group g17 torch.ops.aten._native_batch_norm_legit_no_training.default:
       n66 {derived verify=unproved (too large)}: [t189 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n183]] =
         batch_norm
           x=t186 {derived verify=unproved (too large) origins=2} <-n63
-          weight=t22 {pt2=root:p_layer2_0_downsample_1_weight target=layer2.0.downsample.1.weight verify=proved (structural) [sampled 4]}
-          bias=t23 {pt2=root:p_layer2_0_downsample_1_bias target=layer2.0.downsample.1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t83 {pt2=root:b_layer2_0_downsample_1_running_mean target=layer2.0.downsample.1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t84 {pt2=root:b_layer2_0_downsample_1_running_var target=layer2.0.downsample.1.running_var verify=proved (structural) [sampled 4]}
+          weight=t22 {pt2=root:p_layer2_0_downsample_1_weight target=layer2.0.downsample.1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t23 {pt2=root:p_layer2_0_downsample_1_bias target=layer2.0.downsample.1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t83 {pt2=root:b_layer2_0_downsample_1_running_mean target=layer2.0.downsample.1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t84 {pt2=root:b_layer2_0_downsample_1_running_var target=layer2.0.downsample.1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n182 {pt2=root[20] torch.ops.aten.relu.default verify=unproved (too large)}: [t304 f32 [H=28
                                                                       W=28
@@ -746,10 +755,10 @@ so a group reads the same way in both.
       n59 {derived verify=unproved (too large)}: [t182 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n183]] =
         batch_norm
           x=t179 {derived verify=unproved (too large) origins=2} <-n56
-          weight=t19 {pt2=root:p_layer2_0_bn2_weight target=layer2.0.bn2.weight verify=proved (structural) [sampled 4]}
-          bias=t20 {pt2=root:p_layer2_0_bn2_bias target=layer2.0.bn2.bias verify=proved (structural) [sampled 4]}
-          running_mean=t80 {pt2=root:b_layer2_0_bn2_running_mean target=layer2.0.bn2.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t81 {pt2=root:b_layer2_0_bn2_running_var target=layer2.0.bn2.running_var verify=proved (structural) [sampled 4]}
+          weight=t19 {pt2=root:p_layer2_0_bn2_weight target=layer2.0.bn2.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t20 {pt2=root:p_layer2_0_bn2_bias target=layer2.0.bn2.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t80 {pt2=root:b_layer2_0_bn2_running_mean target=layer2.0.bn2.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t81 {pt2=root:b_layer2_0_bn2_running_var target=layer2.0.bn2.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n183 {pt2=root[25] torch.ops.aten.add.Tensor verify=vacuous}: [t305 f32 [H=28
                                                                       W=28
@@ -766,10 +775,10 @@ so a group reads the same way in both.
       n75 {derived verify=unproved (too large)}: [t198 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n185]] =
         batch_norm
           x=t195 {derived verify=unproved (too large) origins=2} <-n72
-          weight=t25 {pt2=root:p_layer2_1_bn1_weight target=layer2.1.bn1.weight verify=proved (structural) [sampled 4]}
-          bias=t26 {pt2=root:p_layer2_1_bn1_bias target=layer2.1.bn1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t86 {pt2=root:b_layer2_1_bn1_running_mean target=layer2.1.bn1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t87 {pt2=root:b_layer2_1_bn1_running_var target=layer2.1.bn1.running_var verify=proved (structural) [sampled 4]}
+          weight=t25 {pt2=root:p_layer2_1_bn1_weight target=layer2.1.bn1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t26 {pt2=root:p_layer2_1_bn1_bias target=layer2.1.bn1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t86 {pt2=root:b_layer2_1_bn1_running_mean target=layer2.1.bn1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t87 {pt2=root:b_layer2_1_bn1_running_var target=layer2.1.bn1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n185 {pt2=root[29] torch.ops.aten.relu.default verify=unproved (too large)}: [t307 f32 [H=28
                                                                       W=28
@@ -779,10 +788,10 @@ so a group reads the same way in both.
       n83 {derived verify=unproved (too large)}: [t206 f32 [H=28 W=28 C=128] {derived verify=unproved (too large)} ->[n186]] =
         batch_norm
           x=t203 {derived verify=unproved (too large) origins=2} <-n80
-          weight=t28 {pt2=root:p_layer2_1_bn2_weight target=layer2.1.bn2.weight verify=proved (structural) [sampled 4]}
-          bias=t29 {pt2=root:p_layer2_1_bn2_bias target=layer2.1.bn2.bias verify=proved (structural) [sampled 4]}
-          running_mean=t89 {pt2=root:b_layer2_1_bn2_running_mean target=layer2.1.bn2.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t90 {pt2=root:b_layer2_1_bn2_running_var target=layer2.1.bn2.running_var verify=proved (structural) [sampled 4]}
+          weight=t28 {pt2=root:p_layer2_1_bn2_weight target=layer2.1.bn2.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t29 {pt2=root:p_layer2_1_bn2_bias target=layer2.1.bn2.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t89 {pt2=root:b_layer2_1_bn2_running_mean target=layer2.1.bn2.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t90 {pt2=root:b_layer2_1_bn2_running_var target=layer2.1.bn2.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n186 {pt2=root[32] torch.ops.aten.add.Tensor verify=vacuous}: [t308 f32 [H=28
                                                                       W=28
@@ -799,19 +808,19 @@ so a group reads the same way in both.
       n92 {derived verify=unproved (too large)}: [t215 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n188]] =
         batch_norm
           x=t212 {derived verify=unproved (too large) origins=2} <-n89
-          weight=t31 {pt2=root:p_layer3_0_bn1_weight target=layer3.0.bn1.weight verify=proved (structural) [sampled 4]}
-          bias=t32 {pt2=root:p_layer3_0_bn1_bias target=layer3.0.bn1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t92 {pt2=root:b_layer3_0_bn1_running_mean target=layer3.0.bn1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t93 {pt2=root:b_layer3_0_bn1_running_var target=layer3.0.bn1.running_var verify=proved (structural) [sampled 4]}
+          weight=t31 {pt2=root:p_layer3_0_bn1_weight target=layer3.0.bn1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t32 {pt2=root:p_layer3_0_bn1_bias target=layer3.0.bn1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t92 {pt2=root:b_layer3_0_bn1_running_mean target=layer3.0.bn1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t93 {pt2=root:b_layer3_0_bn1_running_var target=layer3.0.bn1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     group g27 torch.ops.aten._native_batch_norm_legit_no_training.default:
       n107 {derived verify=unproved (too large)}: [t230 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n189]] =
         batch_norm
           x=t227 {derived verify=unproved (too large) origins=2} <-n104
-          weight=t37 {pt2=root:p_layer3_0_downsample_1_weight target=layer3.0.downsample.1.weight verify=proved (structural) [sampled 4]}
-          bias=t38 {pt2=root:p_layer3_0_downsample_1_bias target=layer3.0.downsample.1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t98 {pt2=root:b_layer3_0_downsample_1_running_mean target=layer3.0.downsample.1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t99 {pt2=root:b_layer3_0_downsample_1_running_var target=layer3.0.downsample.1.running_var verify=proved (structural) [sampled 4]}
+          weight=t37 {pt2=root:p_layer3_0_downsample_1_weight target=layer3.0.downsample.1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t38 {pt2=root:p_layer3_0_downsample_1_bias target=layer3.0.downsample.1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t98 {pt2=root:b_layer3_0_downsample_1_running_mean target=layer3.0.downsample.1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t99 {pt2=root:b_layer3_0_downsample_1_running_var target=layer3.0.downsample.1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n188 {pt2=root[36] torch.ops.aten.relu.default verify=unproved (too large)}: [t310 f32 [H=14
                                                                       W=14
@@ -821,10 +830,10 @@ so a group reads the same way in both.
       n100 {derived verify=unproved (too large)}: [t223 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n189]] =
         batch_norm
           x=t220 {derived verify=unproved (too large) origins=2} <-n97
-          weight=t34 {pt2=root:p_layer3_0_bn2_weight target=layer3.0.bn2.weight verify=proved (structural) [sampled 4]}
-          bias=t35 {pt2=root:p_layer3_0_bn2_bias target=layer3.0.bn2.bias verify=proved (structural) [sampled 4]}
-          running_mean=t95 {pt2=root:b_layer3_0_bn2_running_mean target=layer3.0.bn2.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t96 {pt2=root:b_layer3_0_bn2_running_var target=layer3.0.bn2.running_var verify=proved (structural) [sampled 4]}
+          weight=t34 {pt2=root:p_layer3_0_bn2_weight target=layer3.0.bn2.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t35 {pt2=root:p_layer3_0_bn2_bias target=layer3.0.bn2.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t95 {pt2=root:b_layer3_0_bn2_running_mean target=layer3.0.bn2.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t96 {pt2=root:b_layer3_0_bn2_running_var target=layer3.0.bn2.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n189 {pt2=root[41] torch.ops.aten.add.Tensor verify=vacuous}: [t311 f32 [H=14
                                                                       W=14
@@ -841,10 +850,10 @@ so a group reads the same way in both.
       n116 {derived verify=unproved (too large)}: [t239 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n191]] =
         batch_norm
           x=t236 {derived verify=unproved (too large) origins=2} <-n113
-          weight=t40 {pt2=root:p_layer3_1_bn1_weight target=layer3.1.bn1.weight verify=proved (structural) [sampled 4]}
-          bias=t41 {pt2=root:p_layer3_1_bn1_bias target=layer3.1.bn1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t101 {pt2=root:b_layer3_1_bn1_running_mean target=layer3.1.bn1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t102 {pt2=root:b_layer3_1_bn1_running_var target=layer3.1.bn1.running_var verify=proved (structural) [sampled 4]}
+          weight=t40 {pt2=root:p_layer3_1_bn1_weight target=layer3.1.bn1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t41 {pt2=root:p_layer3_1_bn1_bias target=layer3.1.bn1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t101 {pt2=root:b_layer3_1_bn1_running_mean target=layer3.1.bn1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t102 {pt2=root:b_layer3_1_bn1_running_var target=layer3.1.bn1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n191 {pt2=root[45] torch.ops.aten.relu.default verify=unproved (too large)}: [t313 f32 [H=14
                                                                       W=14
@@ -854,10 +863,10 @@ so a group reads the same way in both.
       n124 {derived verify=unproved (too large)}: [t247 f32 [H=14 W=14 C=256] {derived verify=unproved (too large)} ->[n192]] =
         batch_norm
           x=t244 {derived verify=unproved (too large) origins=2} <-n121
-          weight=t43 {pt2=root:p_layer3_1_bn2_weight target=layer3.1.bn2.weight verify=proved (structural) [sampled 4]}
-          bias=t44 {pt2=root:p_layer3_1_bn2_bias target=layer3.1.bn2.bias verify=proved (structural) [sampled 4]}
-          running_mean=t104 {pt2=root:b_layer3_1_bn2_running_mean target=layer3.1.bn2.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t105 {pt2=root:b_layer3_1_bn2_running_var target=layer3.1.bn2.running_var verify=proved (structural) [sampled 4]}
+          weight=t43 {pt2=root:p_layer3_1_bn2_weight target=layer3.1.bn2.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t44 {pt2=root:p_layer3_1_bn2_bias target=layer3.1.bn2.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t104 {pt2=root:b_layer3_1_bn2_running_mean target=layer3.1.bn2.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t105 {pt2=root:b_layer3_1_bn2_running_var target=layer3.1.bn2.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n192 {pt2=root[48] torch.ops.aten.add.Tensor verify=vacuous}: [t314 f32 [H=14
                                                                       W=14
@@ -874,19 +883,19 @@ so a group reads the same way in both.
       n133 {derived verify=unproved (too large)}: [t256 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n194]] =
         batch_norm
           x=t253 {derived verify=unproved (too large) origins=2} <-n130
-          weight=t46 {pt2=root:p_layer4_0_bn1_weight target=layer4.0.bn1.weight verify=proved (structural) [sampled 4]}
-          bias=t47 {pt2=root:p_layer4_0_bn1_bias target=layer4.0.bn1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t107 {pt2=root:b_layer4_0_bn1_running_mean target=layer4.0.bn1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t108 {pt2=root:b_layer4_0_bn1_running_var target=layer4.0.bn1.running_var verify=proved (structural) [sampled 4]}
+          weight=t46 {pt2=root:p_layer4_0_bn1_weight target=layer4.0.bn1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t47 {pt2=root:p_layer4_0_bn1_bias target=layer4.0.bn1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t107 {pt2=root:b_layer4_0_bn1_running_mean target=layer4.0.bn1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t108 {pt2=root:b_layer4_0_bn1_running_var target=layer4.0.bn1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     group g37 torch.ops.aten._native_batch_norm_legit_no_training.default:
       n148 {derived verify=unproved (too large)}: [t271 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n195]] =
         batch_norm
           x=t268 {derived verify=unproved (too large) origins=2} <-n145
-          weight=t52 {pt2=root:p_layer4_0_downsample_1_weight target=layer4.0.downsample.1.weight verify=proved (structural) [sampled 4]}
-          bias=t53 {pt2=root:p_layer4_0_downsample_1_bias target=layer4.0.downsample.1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t113 {pt2=root:b_layer4_0_downsample_1_running_mean target=layer4.0.downsample.1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t114 {pt2=root:b_layer4_0_downsample_1_running_var target=layer4.0.downsample.1.running_var verify=proved (structural) [sampled 4]}
+          weight=t52 {pt2=root:p_layer4_0_downsample_1_weight target=layer4.0.downsample.1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t53 {pt2=root:p_layer4_0_downsample_1_bias target=layer4.0.downsample.1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t113 {pt2=root:b_layer4_0_downsample_1_running_mean target=layer4.0.downsample.1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t114 {pt2=root:b_layer4_0_downsample_1_running_var target=layer4.0.downsample.1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n194 {pt2=root[52] torch.ops.aten.relu.default verify=unproved (too large)}: [t316 f32 [H=7
                                                                       W=7
@@ -896,10 +905,10 @@ so a group reads the same way in both.
       n141 {derived verify=unproved (too large)}: [t264 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n195]] =
         batch_norm
           x=t261 {derived verify=unproved (too large) origins=2} <-n138
-          weight=t49 {pt2=root:p_layer4_0_bn2_weight target=layer4.0.bn2.weight verify=proved (structural) [sampled 4]}
-          bias=t50 {pt2=root:p_layer4_0_bn2_bias target=layer4.0.bn2.bias verify=proved (structural) [sampled 4]}
-          running_mean=t110 {pt2=root:b_layer4_0_bn2_running_mean target=layer4.0.bn2.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t111 {pt2=root:b_layer4_0_bn2_running_var target=layer4.0.bn2.running_var verify=proved (structural) [sampled 4]}
+          weight=t49 {pt2=root:p_layer4_0_bn2_weight target=layer4.0.bn2.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t50 {pt2=root:p_layer4_0_bn2_bias target=layer4.0.bn2.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t110 {pt2=root:b_layer4_0_bn2_running_mean target=layer4.0.bn2.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t111 {pt2=root:b_layer4_0_bn2_running_var target=layer4.0.bn2.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n195 {pt2=root[57] torch.ops.aten.add.Tensor verify=vacuous}: [t317 f32 [H=7
                                                                       W=7
@@ -916,10 +925,10 @@ so a group reads the same way in both.
       n157 {derived verify=unproved (too large)}: [t280 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n197]] =
         batch_norm
           x=t277 {derived verify=unproved (too large) origins=2} <-n154
-          weight=t55 {pt2=root:p_layer4_1_bn1_weight target=layer4.1.bn1.weight verify=proved (structural) [sampled 4]}
-          bias=t56 {pt2=root:p_layer4_1_bn1_bias target=layer4.1.bn1.bias verify=proved (structural) [sampled 4]}
-          running_mean=t116 {pt2=root:b_layer4_1_bn1_running_mean target=layer4.1.bn1.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t117 {pt2=root:b_layer4_1_bn1_running_var target=layer4.1.bn1.running_var verify=proved (structural) [sampled 4]}
+          weight=t55 {pt2=root:p_layer4_1_bn1_weight target=layer4.1.bn1.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t56 {pt2=root:p_layer4_1_bn1_bias target=layer4.1.bn1.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t116 {pt2=root:b_layer4_1_bn1_running_mean target=layer4.1.bn1.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t117 {pt2=root:b_layer4_1_bn1_running_var target=layer4.1.bn1.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n197 {pt2=root[61] torch.ops.aten.relu.default verify=unproved (too large)}: [t319 f32 [H=7
                                                                       W=7
@@ -929,10 +938,10 @@ so a group reads the same way in both.
       n165 {derived verify=unproved (too large)}: [t288 f32 [H=7 W=7 C=512] {derived verify=unproved (too large)} ->[n198]] =
         batch_norm
           x=t285 {derived verify=unproved (too large) origins=2} <-n162
-          weight=t58 {pt2=root:p_layer4_1_bn2_weight target=layer4.1.bn2.weight verify=proved (structural) [sampled 4]}
-          bias=t59 {pt2=root:p_layer4_1_bn2_bias target=layer4.1.bn2.bias verify=proved (structural) [sampled 4]}
-          running_mean=t119 {pt2=root:b_layer4_1_bn2_running_mean target=layer4.1.bn2.running_mean verify=proved (structural) [sampled 4]}
-          running_var=t120 {pt2=root:b_layer4_1_bn2_running_var target=layer4.1.bn2.running_var verify=proved (structural) [sampled 4]}
+          weight=t58 {pt2=root:p_layer4_1_bn2_weight target=layer4.1.bn2.weight verify=unproved (unbound constant) [sampled 4]}
+          bias=t59 {pt2=root:p_layer4_1_bn2_bias target=layer4.1.bn2.bias verify=unproved (unbound constant) [sampled 4]}
+          running_mean=t119 {pt2=root:b_layer4_1_bn2_running_mean target=layer4.1.bn2.running_mean verify=unproved (unbound constant) [sampled 4]}
+          running_var=t120 {pt2=root:b_layer4_1_bn2_running_var target=layer4.1.bn2.running_var verify=unproved (unbound constant) [sampled 4]}
           params={channel=C; eps=1e-05}
     n198 {pt2=root[64] torch.ops.aten.add.Tensor verify=vacuous}: [t320 f32 [H=7
                                                                       W=7
@@ -949,11 +958,11 @@ so a group reads the same way in both.
         x=t321 {derived verify=vacuous origins=0} <-n199
         params={dims=[W, H]; keepdim=true}
     group g42 torch.ops.aten.addmm.default:
-      n173 {pt2=root[69] torch.ops.aten.addmm.default verify=unproved (over max_nodes) [sampled 4]}: [t296 f32 [C=1000] {pt2=root:addmm verify=unproved (over max_nodes) [sampled 4]}] =
+      n173 {pt2=root[69] torch.ops.aten.addmm.default verify=proved (structural) [sampled 4]}: [t296 f32 [C=1000] {pt2=root:addmm verify=proved (structural) [sampled 4]}] =
         linear
           x=t322 {pt2=root:view verify=unproved (over max_rounds) [sampled 4]} <-n200
           weight=t295 {derived verify=unproved (too large)} <-n174
-          bias=t61 {pt2=root:p_fc_bias target=fc.bias verify=proved (structural) [sampled 4]}
+          bias=t61 {pt2=root:p_fc_bias target=fc.bias verify=unproved (unbound constant) [sampled 4]}
           params={in_features=512}
   outputs:
-    [t296 f32 [C=1000] {pt2=root:addmm verify=unproved (over max_nodes) [sampled 4]} <-n173]
+    [t296 f32 [C=1000] {pt2=root:addmm verify=proved (structural) [sampled 4]} <-n173]
