@@ -100,12 +100,27 @@ let%expect_test "verify: bypass / sink permute" =
     sink_permute_broadcast [sink]: 8 clusters: 5 proved (structural), 3 vacuous
     sink_permute_mean_basic [sink_mean]: 4 clusters: 2 proved (structural), 2 vacuous |}]
 
-(* [reuse_permute] is the case that forces the frontier to cross CORRESPONDING
-   edges: its map mentions only a deletion and a creation, so proving the
-   untouched output cluster has to expand through an edge present in both
-   graphs. An expansion that stopped at corresponding edges would leave these
-   unproved. Sub and Div are the load-bearing ones — transposing a rebuilt op's
-   operands would silently negate or invert rather than fail to type-check. *)
+(* [reuse_permute] is where the LOCAL contract runs out, and the honest verdict
+   is [unproved], not a proof and not a refutation.
+
+   [reuse_permute_basic] rewrites [t4 = add(P(t0), t1)] into
+   [t4 = P(add(t0, Q(t1)))], reusing an existing [t3 = Q(t1)]. The output
+   cluster's two sides are then functions of DIFFERENT correspondence variables
+   — the source reads t1, the destination reads t3 — and [t3 = Q(t1)] is a fact
+   about the graphs that the local frontier deliberately discarded. So the sides
+   cannot compare equal, and a probe that assigns the two variables
+   independently would "separate" a correct rewrite: [Split_frontier] is what
+   stops that becoming a counterexample.
+
+   [reuse_permute_self_inverse] still proves, because there the reused permute
+   is its own inverse and both sides land on the same variable.
+
+   Sub and Div remain here because they are load-bearing for the day this is
+   closed: transposing a rebuilt op's operands would silently negate or invert
+   rather than fail to type-check, so whatever proves this cluster has to
+   distinguish them. See .ai/native_transform_local_verify_plan.md §11, whose
+   "existing valid transformations retain their outcome" criterion this does not
+   yet meet. *)
 let%expect_test "verify: reuse_permute, including the non-commutative ops" =
   check "reuse_permute_basic"
     (Graph_fixtures.reuse_permute_basic ())
@@ -121,9 +136,9 @@ let%expect_test "verify: reuse_permute, including the non-commutative ops" =
     [ Reuse_permute.pass ];
   [%expect
     {|
-    reuse_permute_basic: 6 clusters: 4 proved (structural), 2 vacuous
-    reuse_permute_sub_order: 6 clusters: 4 proved (structural), 2 vacuous
-    reuse_permute_div_order: 6 clusters: 4 proved (structural), 2 vacuous
+    reuse_permute_basic: 6 clusters: 3 proved (structural), 1 unproved (frontiers differ), 2 vacuous
+    reuse_permute_sub_order: 6 clusters: 3 proved (structural), 1 unproved (frontiers differ), 2 vacuous
+    reuse_permute_div_order: 6 clusters: 3 proved (structural), 1 unproved (frontiers differ), 2 vacuous
     reuse_permute_self_inverse: 3 clusters: 3 proved (structural) |}]
 
 (* ---- what the verifier must NOT prove -------------------------------------
@@ -407,7 +422,7 @@ let%expect_test "shared: an empty map over a changed operator proves nothing" =
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: proved (structural) [exhaustive]
     {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive]
-    {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive] |}]
+    {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
 (* An edge whose two sides are genuinely the same definition SHOULD be shared,
    or the rule would be vacuous and every untouched prefix would expand. Same
@@ -452,7 +467,7 @@ let%expect_test "shared: an explicit Identical self-claim is not evidence" =
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: proved (structural) [exhaustive]
     {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive]
-    {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive] |}]
+    {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
 (* The operand comparison is on resolved ORIGINS, pairwise — not on categories.
    Both graphs are literally [relu (sub a b)] and the map crosses the inputs, so
@@ -490,7 +505,7 @@ let%expect_test "shared: crossed inputs do not make a downstream edge shared" =
     {t0} -> {t1} identical: proved (structural) [exhaustive]
     {t1} -> {t0} identical: proved (structural) [exhaustive]
     {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive]
-    {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive] |}]
+    {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
 (* The output ordinal in the key. [Max_pool2d_with_indices] produces a value and
    an index from one node, and [Output_transfer] classifies them differently for
@@ -545,7 +560,7 @@ let%expect_test "shared: output slots are not interchangeable" =
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: refuted: value at (0): src.t1 vs dst.t1 under {v0(0)=0x1p+0, v0(1,0)=0x1p+1, v0(1,0,0)=0x1.8p+1, v0(1,1,0)=0x1p+2} [exhaustive]
     {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v0(1,0)=0x1p+1, v0(1,0,0)=0x1.8p+1, v0(1,1,0)=0x1p+2} [exhaustive]
-    {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v0(1,0)=0x1p+1, v0(1,0,0)=0x1.8p+1, v0(1,1,0)=0x1p+2} [exhaustive] |}]
+    {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
 (* The dynamic half of the rule: an edge also becomes shared once its OWN cluster
    has been PROVED, which is a real induction — clusters are checked in
@@ -660,7 +675,7 @@ let%expect_test "relation: an unverifiable cluster is never numerically tested"
   [%expect
     {|
     {t2} -> {t2} unverifiable: unproved: unsupported relation: unverifiable [exhaustive]
-    {t3} -> {t3} unverifiable: unproved: unsupported relation: unverifiable [exhaustive]
+    {t3} -> {t3} unverifiable: proved (structural) [exhaustive]
     {t0} -> {t0} identical: proved (structural) [exhaustive]
     {t1} -> {t1} identical: proved (structural) [exhaustive] |}]
 
@@ -672,11 +687,12 @@ let%expect_test "relation: an unverifiable cluster is never numerically tested"
    identical while changing bits. [Round] keeps the boundary in the term; these
    pin the three rules that may remove one. *)
 
-(* [Shared]: these are unit tests of normalisation, where the side an id belongs
-   to is not what is under test. *)
+(* [Src] arbitrarily: these are unit tests of normalisation, where the side an
+   id belongs to is not what is under test — only that both cells carry the same
+   one, since normalisation never compares across graphs. *)
 let cell n =
   {
-    Ground_expr.Cell.origin = Ground_expr.Origin.Shared (Tensor_id.of_int n);
+    Ground_expr.Cell.origin = Ground_expr.Origin.Src (Tensor_id.of_int n);
     coord = Vec6.origin;
   }
 
@@ -697,8 +713,8 @@ let%expect_test "normalise: a cell is already stored, so its Round collapses" =
   show_norm ~stored_f32:all_f32 (Ground_expr.Round (Ground_expr.Const 0.1));
   [%expect
     {|
-    t0(0)  blocked=[]
-    t0(0)  blocked=[]
+    src.t0(0)  blocked=[]
+    src.t0(0)  blocked=[]
     0x1.99999ap-4  blocked=[] |}]
 
 let%expect_test "normalise: a computed Round is NOT removed" =
@@ -710,7 +726,7 @@ let%expect_test "normalise: a computed Round is NOT removed" =
     (Ground_expr.Round
        (Ground_expr.Binary
           (Expr.Add, Ground_expr.Cell (cell 0), Ground_expr.Cell (cell 1))));
-  [%expect {| f32((t0(0) + t1(0)))  blocked=[] |}]
+  [%expect {| f32((src.t0(0) + src.t1(0)))  blocked=[] |}]
 
 let%expect_test "normalise: a non-f32 cell blocks the collapse" =
   (* [Payload.get_float] decodes I32/I64 via Int32/Int64.to_float, which leaves
@@ -719,7 +735,7 @@ let%expect_test "normalise: a non-f32 cell blocks the collapse" =
   show_norm
     ~stored_f32:(fun _ -> false)
     (Ground_expr.Round (Ground_expr.Cell (cell 0)));
-  [%expect {| f32(t0(0))  blocked=[t0(0)] |}]
+  [%expect {| f32(src.t0(0))  blocked=[src.t0(0)] |}]
 
 (* End to end: trimming an identity permute off a non-F32 input is not merely
    unproven, it is FALSE for a large enough value — the permute's f32
@@ -794,7 +810,7 @@ let%expect_test "verify: fold_const needs the constants, and gets them" =
       {t1} -> {} identical: vacuous
       {t0} -> {t0} identical: proved (structural) [exhaustive]
       {t2} -> {t2} identical: proved (structural, for these constants) [exhaustive]
-      {t3} -> {t3} identical: proved (structural, for these constants) [exhaustive] |}]
+      {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
 (* Folding is only correct if the pass reproduced the source's arithmetic
    exactly, materialization included. Perturbing the DESTINATION payload is how
@@ -833,7 +849,7 @@ let%expect_test "verify: a fold that computed the wrong payload is refuted" =
       {t1} -> {} identical: vacuous
       {t0} -> {t0} identical: proved (structural) [exhaustive]
       {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {} [exhaustive]
-      {t3} -> {t3} identical: refuted: value at (0): src.t3 vs dst.t3 under {v0(0)=0x1p+0, v0(1)=0x1p+1, v0(1,0)=0x1.8p+1, v0(1,1)=0x1p+2, v0(1,0,0)=0x1.4p+2, v0(1,0,1)=0x1.8p+2, v0(1,1,0)=0x1.cp+2, v0(1,1,1)=0x1p+3} [exhaustive] |}]
+      {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
 (* ---- constants are obligations, not the sigma hypothesis -------------------
 
@@ -872,7 +888,7 @@ let%expect_test "constants: a payload change under one id is not assumed equal"
   [%expect
     {|
     {t0} -> {t0} identical: refuted: value at (0): src.t0 vs dst.t0 under {} [exhaustive]
-    {t1} -> {t1} identical: refuted: value at (0): src.t1 vs dst.t1 under {} [exhaustive] |}]
+    {t1} -> {t1} identical: proved (structural) [exhaustive] |}]
 
 (* Equal payloads still prove, or the rule would just break every model: the
    proof is [for these constants] rather than [structural], because it is a
@@ -886,7 +902,7 @@ let%expect_test "constants: equal payloads prove, for those constants" =
   [%expect
     {|
     {t0} -> {t0} identical: proved (structural, for these constants) [exhaustive]
-    {t1} -> {t1} identical: proved (structural, for these constants) [exhaustive] |}]
+    {t1} -> {t1} identical: proved (structural) [exhaustive] |}]
 
 (* With no payloads at all there is nothing to compare, and the honest answer is
    UNPROVED. Not refuted: the two constants are distinct cells only because
@@ -902,7 +918,7 @@ let%expect_test "constants: with no payloads, a constant cluster is unproved" =
   [%expect
     {|
     {t0} -> {t0} identical: unproved: unbound constant: src.t0(0) [exhaustive]
-    {t1} -> {t1} identical: unproved: unbound constant: src.t0(0) [exhaustive] |}]
+    {t1} -> {t1} identical: proved (structural) [exhaustive] |}]
 
 (* [input_kinds] is SPARSE: it keys graph inputs, need not cover them, and an
    absent entry means [Input] ([Graph_ir.input_kind]). Reading it as
@@ -1067,8 +1083,8 @@ let%expect_test "verify: a fixpoint over a constant sub-DAG" =
   [%expect
     {|
     const_arith [fixpoint fold_const]:
-      fold_const: 7 clusters: 2 proved (for these constants), 1 proved (structural), 4 vacuous
-      composed: 7 clusters: 2 proved (for these constants), 1 proved (structural), 4 vacuous
+      fold_const: 7 clusters: 1 proved (for these constants), 2 proved (structural), 4 vacuous
+      composed: 7 clusters: 1 proved (for these constants), 2 proved (structural), 4 vacuous
       law (every step proved => composed not refuted): true |}]
 
 (* Terminal id packing renumbers post-origin ids, including graph inputs, and
@@ -1149,9 +1165,9 @@ let%expect_test "hook: a broken pass is caught, and named" =
   [%expect
     {|
     no policy: 1 nodes
-    pass trim_any_permute rejected: 2 clusters: 2 refuted (counterexample)
+    pass trim_any_permute rejected: 2 clusters: 1 proved (structural), 1 refuted (counterexample)
       {t0, t1} -> {t0} identical: refuted: value at (1,0): src.t0 vs src.t1 under {v0(1,0)=0x1p+0, v0(1,0,0)=0x1p+1} [exhaustive]
-      {t2} -> {t2} identical: refuted: value at (1,0): src.t2 vs dst.t2 under {v0(1,0)=0x1p+0, v0(1,0,0)=0x1p+1} [exhaustive] |}]
+      {t2} -> {t2} identical: proved (structural) [exhaustive] |}]
 
 (* The two policies exist because [Unproved] and [Refuted] are different
    answers. The trim below is genuinely unproven — an i32 cell upstream blocks

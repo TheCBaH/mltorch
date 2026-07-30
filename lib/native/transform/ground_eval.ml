@@ -4,27 +4,29 @@ open Graph_ir
 module Origin = Ground_expr.Origin
 
 module Env = struct
-  (* Metadata is keyed by THIS SIDE's raw id, and only a cell's identity uses the
-     origin. The split matters because [origin] is dynamic — an edge becomes
-     [Shared] once its own cluster is proved (see [Map_verify]) — so keying the
-     maps by origin would strand every entry the moment its key changed.
+  (* EVERYTHING is keyed by this graph's raw id, and the only thing [side] does
+     is tag the cells grounding emits so the two graphs' [t2]s are distinguish-
+     able. That split is the point: a correspondence variable is a claim about
+     the map, and every question this module answers — which stage produces an
+     edge, what format it is stored in, whether a payload is bound — is a
+     question about one graph that the claim must not be able to reach.
 
-     [var_edge] closes the one gap that leaves: an [Input v] cell names no edge,
-     because the two sides' input ids differ, so each side records which of its
-     own edges the variable stands for. *)
+     It replaces an [origin : Tensor_id.t -> Origin.t] that could rewrite an id
+     into a variable before those lookups ran, and a [var_edge] map that existed
+     only to undo that. *)
   type t = {
     constant_ids : Tensor_id.Set.t;
     constants : Tensor.packed Tensor_id.Map.t;
     consts : float Tensor_id.Map.t;
     fmts : Payload.packed_fmt Tensor_id.Map.t;
+    inputs : Tensor_id.Set.t;
     shapes : Vec6.shape Tensor_id.Map.t;
-    origin : Tensor_id.t -> Origin.t;
+    side : [ `Dst | `Src ];
     stages : Stage_program.Stage.t Tensor_id.Map.t;
-    var_edge : Tensor_id.t Cluster_var.Map.t;
   }
 
-  let of_program ?(constants = Tensor_id.Map.empty) (p : Stage_program.t)
-      ~origin =
+  let of_program ?(constants = Tensor_id.Map.empty) (p : Stage_program.t) ~side
+      =
     let add_sig (sg : Tensor_sig.t) (fmts, shapes) =
       let id = sg.Tensor_sig.id in
       ( Tensor_id.Map.add id sg.Tensor_sig.fmt fmts,
@@ -58,15 +60,10 @@ module Env = struct
           Tensor_id.Map.add st.Stage_program.Stage.id st acc)
         Tensor_id.Map.empty p.Stage_program.stages
     in
-    (* Which of this graph's edges each sigma variable stands for. Read off the
-       inputs, whose classification is fixed before any cluster is checked. *)
-    let var_edge =
+    let inputs =
       List.fold_left
-        (fun acc (_, (sg : Tensor_sig.t)) ->
-          match origin sg.Tensor_sig.id with
-          | Origin.Input v -> Cluster_var.Map.add v sg.Tensor_sig.id acc
-          | _ -> acc)
-        Cluster_var.Map.empty p.Stage_program.inputs
+        (fun acc ((id : Tensor_id.t), _) -> Tensor_id.Set.add id acc)
+        Tensor_id.Set.empty p.Stage_program.inputs
     in
     (* Which of this graph's inputs are MODEL CONSTANTS. Membership in
        [Stage_program.inputs] and the kind, both: [input_kinds] keys inputs only
@@ -80,13 +77,19 @@ module Env = struct
           | None | Some Input.Input -> acc)
         Tensor_id.Set.empty p.Stage_program.inputs
     in
-    { constant_ids; constants; consts; fmts; origin; shapes; stages; var_edge }
+    { constant_ids; constants; consts; fmts; inputs; shapes; side; stages }
 
-  (* The edge of THIS graph an origin denotes, if any. *)
-  let edge_of t (o : Origin.t) =
-    match o with
-    | Origin.Dst id | Origin.Shared id | Origin.Src id -> Some id
-    | Origin.Input v -> Cluster_var.Map.find_opt v t.var_edge
+  (* The cell this graph's [id] reads as. Side-qualified, always: turning it
+     into a correspondence variable is [Ground_expr.project]'s business, and
+     happens on a copy at comparison time. *)
+  let origin t id =
+    match t.side with `Dst -> Origin.Dst id | `Src -> Origin.Src id
+
+  (* The edge of THIS graph an origin denotes, if any. A [Boundary] names none —
+     it stands for a value both graphs hold, not for one edge — so every lookup
+     below answers conservatively for one, which is what keeps a projected term
+     from being normalised or expanded by accident. *)
+  let edge_of _t (o : Origin.t) = Origin.edge o
 
   let shape_of t o =
     Option.bind (edge_of t o) (fun id -> Tensor_id.Map.find_opt id t.shapes)
@@ -111,7 +114,13 @@ module Env = struct
 
   let const_of t id = Tensor_id.Map.find_opt id t.consts
   let constant_of t id = Tensor_id.Map.find_opt id t.constants
-  let origin t id = t.origin id
+
+  (* USER data, so both conditions: a graph input of this program AND not a
+     model constant. [input_kinds] is sparse and keys inputs only, so [None]
+     means [Input] — and an internal edge, absent from it entirely, would answer
+     yes to the kind alone. See .ai/native_transform_verify.md §9a. *)
+  let is_user_input t id =
+    Tensor_id.Set.mem id t.inputs && not (Tensor_id.Set.mem id t.constant_ids)
 
   (* A model constant whose payload was not supplied. Such a cell is free only
      because nothing bound it, not because anything may vary over it, so the
@@ -125,12 +134,12 @@ module Env = struct
         && Option.is_none (const_of t id)
         && Option.is_none (constant_of t id)
 
-  (* An [Input v] cell is a graph input on this side and so has no stage, which
-     is why this goes through [Origin.edge] rather than [edge_of]. *)
   let stage_of t o =
     match Origin.edge o with
     | Some id -> Tensor_id.Map.find_opt id t.stages
     | None -> None
+
+  let stage_of_id t id = Tensor_id.Map.find_opt id t.stages
 end
 
 type error = [ `Unknown_edge of Tensor_id.t ]
@@ -253,9 +262,13 @@ let body_at env (st : Stage_program.Stage.t) coord =
     ~rvars:[] st.Stage_program.Stage.body
 
 let at env id coord =
-  (* [id] names an edge of THIS graph, so the stage lookup goes through the
-     origin the same way expansion does. *)
-  match Env.stage_of env (Env.origin env id) with
+  (* [id] names an edge of THIS graph, so the stage is looked up by that raw id
+     DIRECTLY. A root is never replaced by a correspondence variable, whatever
+     cluster it is in: doing so would let the cluster under test discharge
+     itself by naming both its sides the same thing before either definition was
+     looked at. Expanding the root is what puts a real definition on each side;
+     projection then applies to what that reads. *)
+  match Env.stage_of_id env id with
   | Some st -> Core.return (Ground_expr.Round (body_at env st coord))
   | None -> (
       (* An input edge can itself be a bound constant — [fold_const]'s whole
@@ -283,12 +296,21 @@ let at env id coord =
    Running out mid-round leaves the remaining cells unexpanded, which is sound
    rather than approximate: an unexpanded cell keeps [expandable] true, so the
    driver reports a budget verdict, and no probe may run against a frontier that
-   never reached the inputs. The node count is threaded, not counted in a ref. *)
-let expand ~budget env (e : Ground_expr.t) : Ground_expr.t =
+   never reached the inputs. The node count is threaded, not counted in a ref.
+
+   [boundary] stops it at the LOCAL frontier: a cell whose cluster gives it a
+   variable is a free variable of this obligation, so expanding through it would
+   be re-proving someone else's. That is the difference between a budget
+   truncation and a completed frontier, and the two must not be confused —
+   which is why [expandable] below asks the same question. *)
+let expand ~boundary ~budget env (e : Ground_expr.t) : Ground_expr.t =
   let rec go n e =
     if n >= budget then (n, e)
     else
       match e with
+      | Ground_expr.Cell c
+        when Option.is_some (boundary c.Ground_expr.Cell.origin) ->
+          (n + 1, e)
       | Ground_expr.Cell c -> (
           match Env.stage_of env c.Ground_expr.Cell.origin with
           | Some st ->
@@ -330,10 +352,11 @@ let expand ~budget env (e : Ground_expr.t) : Ground_expr.t =
   in
   snd (go 0 e)
 
-let expandable env e =
+let expandable ~boundary env e =
   Ground_expr.Cell.Set.exists
     (fun (c : Ground_expr.Cell.t) ->
-      Option.is_some (Env.stage_of env c.Ground_expr.Cell.origin))
+      Option.is_none (boundary c.Ground_expr.Cell.origin)
+      && Option.is_some (Env.stage_of env c.Ground_expr.Cell.origin))
     (Ground_expr.cells e)
 
 (* [Set.find_first_opt] is NOT usable here: it requires a monotone predicate and

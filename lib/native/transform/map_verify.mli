@@ -158,6 +158,15 @@ module Unproved : sig
     | Max_rounds
       (* cells still expandable: the frontier never reached the inputs *)
     | Out_of_bounds of Ground_expr.Cell.t
+    | Split_frontier of {
+        coord : Vec6.coord;
+        lhs : Member.Erased.t;
+        rhs : Member.Erased.t;
+      }
+      (* the two sides are functions of DIFFERENT correspondence variables, so
+           no assignment is a counterexample and none is built. [reuse_permute]:
+           the source reads t1 where the destination reads t3, and the graphs
+           constrain t3 = Q(t1), which the local view cannot see *)
     | Too_large of int
     | Unbound_constant of Ground_expr.Cell.t
       (* a model constant whose payload nobody supplied. Not [Refuted]: the two

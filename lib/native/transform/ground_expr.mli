@@ -16,20 +16,18 @@
 
    See .ai/native_transform_verify.md. *)
 
-(* What a cell's raw id is ENTITLED to mean. The two graphs share one numeric
-   namespace, so a bare [Tensor_id.t] cannot say whether an edge is the source's,
-   the destination's, or genuinely the same in both — and the verifier's answer
-   turns on exactly that. See .ai/native_transform_verify.md §7.
+(* Which graph a cell's raw id belongs to — the two graphs share one numeric
+   namespace, so a bare [Tensor_id.t] cannot say whether [t2] is the source's or
+   the destination's, and the verifier's answer turns on exactly that.
 
-   [Shared] is a structural property of the two graphs, never a label the map
-   asserts: an explicit [Identical] claim is the obligation under verification,
-   not evidence for it. [Input] is the σ hypothesis, which IS an assumption. *)
+   Grounding emits [Src] and [Dst] only. [Boundary] is introduced by [project]
+   and nowhere else: it is a comparison-time claim that two side-qualified cells
+   name ONE value, which is a hypothesis about the map and not a fact about
+   either graph. Keeping it out of grounding is what stops that claim leaking
+   into [stored_f32], [expand] or a stage lookup, all of which need the real
+   storage edge. See .ai/native_transform_verify.md §7. *)
 module Origin : sig
-  type t =
-    | Dst of Tensor_id.t
-    | Input of Cluster_var.t
-    | Shared of Tensor_id.t
-    | Src of Tensor_id.t
+  type t = Boundary of Cluster_var.t | Dst of Tensor_id.t | Src of Tensor_id.t
 
   val compare : t -> t -> int
   val edge : t -> Tensor_id.t option
@@ -92,6 +90,18 @@ val cells : t -> Cell.Set.t
    comparisons equate -0. with +0. and every NaN with every other. *)
 val compare : t -> t -> int
 val equal : t -> t -> bool
+
+(* Rewrite every cell [boundary] gives a variable for into a [Boundary] cell at
+   the same coordinate, leaving the rest side-qualified. This is what makes two
+   graphs' differently-numbered edges compare equal, and it is a claim about the
+   MAP rather than about either graph — so it is applied to a copy, at
+   comparison time, and never fed back into grounding.
+
+   NEVER normalise a projected term: projection discards the storage edge that
+   [Ground_eval.Env.stored_f32] needs to decide whether a [Round] may collapse,
+   and an unknown cell answers [false], so normalising afterwards silently
+   blocks collapses that are sound. Normalise the raw term, then project. *)
+val project : boundary:(Origin.t -> Cluster_var.t option) -> t -> t
 
 (* Drop every [Round]. This is exactly the [Equivalent] reading of a term —
    "equal in exact arithmetic; rounding may differ" — and it must NOT be applied

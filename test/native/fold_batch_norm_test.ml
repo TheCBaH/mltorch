@@ -400,14 +400,14 @@ let%expect_test "fold_batch_norm: every operand combination agrees numerically"
   check_combinations As_conv2d;
   [%expect
     {|
-    conv_bias=false bn_weight=false bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=false bn_weight=false bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=false bn_weight=true  bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=false bn_weight=true  bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=true  bn_weight=false bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=true  bn_weight=false bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=true  bn_weight=true  bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=true  bn_weight=true  bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0 |}]
+    conv_bias=false bn_weight=false bn_bias=false agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=false bn_bias=true  agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=true  bn_bias=false agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=true  bn_bias=true  agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=false bn_bias=false agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=false bn_bias=true  agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=true  bn_bias=false agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=true  bn_bias=true  agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0 |}]
 
 let%expect_test "fold_batch_norm: the same, through aten.convolution" =
   (* Same rewrite, same eight combinations, the op the importer emits. A forward
@@ -416,14 +416,14 @@ let%expect_test "fold_batch_norm: the same, through aten.convolution" =
   check_combinations As_convolution;
   [%expect
     {|
-    conv_bias=false bn_weight=false bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=false bn_weight=false bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=false bn_weight=true  bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=false bn_weight=true  bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=true  bn_weight=false bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=true  bn_weight=false bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=true  bn_weight=true  bn_bias=false agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0
-    conv_bias=true  bn_weight=true  bn_bias=true  agrees=true proved=1 agree=2 disagree=0 unproved=0 refuted=0 |}]
+    conv_bias=false bn_weight=false bn_bias=false agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=false bn_bias=true  agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=true  bn_bias=false agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=false bn_weight=true  bn_bias=true  agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=false bn_bias=false agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=false bn_bias=true  agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=true  bn_bias=false agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0
+    conv_bias=true  bn_weight=true  bn_bias=true  agrees=true proved=2 agree=1 disagree=0 unproved=0 refuted=0 |}]
 
 (* ---- what it refuses ------------------------------------------------------ *)
 

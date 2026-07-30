@@ -181,6 +181,11 @@ module Unproved = struct
     | Max_nodes of int
     | Max_rounds
     | Out_of_bounds of Ground_expr.Cell.t
+    | Split_frontier of {
+        coord : Vec6.coord;
+        lhs : Member.Erased.t;
+        rhs : Member.Erased.t;
+      }
     | Too_large of int
     | Unbound_constant of Ground_expr.Cell.t
     | Unsupported_format of {
@@ -198,6 +203,9 @@ module Unproved = struct
     | Max_rounds -> Fmt.string fmt "over max_rounds"
     | Out_of_bounds c ->
         Fmt.pf fmt "@[<h>out of bounds: %a@]" Ground_expr.Cell.pp c
+    | Split_frontier e ->
+        Fmt.pf fmt "@[<h>frontiers differ at %a: %a vs %a@]" Vec6.pp_coord
+          e.coord Member.Erased.pp e.lhs Member.Erased.pp e.rhs
     | Too_large n -> Fmt.pf fmt "too large (%d coords)" n
     | Unbound_constant c ->
         Fmt.pf fmt "@[<h>unbound constant: %a@]" Ground_expr.Cell.pp c
@@ -215,6 +223,7 @@ module Unproved = struct
     | Max_nodes _ -> "over max_nodes"
     | Max_rounds -> "over max_rounds"
     | Out_of_bounds _ -> "out of bounds"
+    | Split_frontier _ -> "frontiers differ"
     | Too_large _ -> "too large"
     | Unbound_constant _ -> "unbound constant"
     | Unsupported_format _ -> "format blocks collapse"
@@ -494,20 +503,52 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "missing signature for %a" Tensor_id.pp id
   | #Graph_map.error as e -> Graph_map.pp_error fmt e
 
-(* ---- sigma over graph inputs, and what a raw id may mean -----------------
+(* ---- the local frontier ---------------------------------------------------
 
-   Renaming both sides of an INTERNAL cluster to a representative would assume
-   the very claim under verification; that is only sound under an induction
-   over a topological order of the cluster DAG, which two graphs quotiented by
-   a correspondence can in principle make cyclic. Graph inputs are different in
-   kind: "corresponding inputs are fed the same data" is the hypothesis, not an
-   obligation. It matters because [Rewrite.pack] renumbers input ids.
+   Each cluster is a LOCAL obligation: does this transformation compute the same
+   function of its dependencies, given that those dependencies correspond? So a
+   cell is replaced by its cluster's variable — the two graphs' names for one
+   value become one name — and the obligation is then universally quantified
+   over the variables that remain.
 
-   That renaming, plus the decision of what an edge's raw id is entitled to mean
-   anywhere else, is [Cell_origin]. It replaces representatives allocated above
-   both graphs' highest id: the ceiling arithmetic existed only because the two
-   graphs shared one numeric namespace, and an [Cluster_var.t] is not a
-   [Tensor_id.t]. *)
+   Two edges do not get one:
+
+   - a member of the cluster UNDER TEST, unless it is a user-data graph input.
+     Otherwise the cluster names both its sides the same thing and discharges
+     itself. Its non-input members keep expanding through their producers
+     instead;
+   - an edge of a vacuous cluster — a creation or a deletion — which relates one
+     side to nothing and so names no shared value. Those are expanded through,
+     which is how a rewrite's own scratch edges are crossed.
+
+   The exception for user inputs is σ, "corresponding inputs are fed the same
+   data": a hypothesis rather than an obligation, and the only one here. It is
+   also what keeps a trim provable — {t0,t1} -> {t0} needs src.t0 and dst.t0 to
+   be one variable while src.t1 expands through its load of t0.
+
+   .ai/native_transform_verify.md §7a has the soundness argument: local proofs
+   compose because structural equality forces both sides to mention the same
+   variables, so the quotient dependency relation embeds in each graph's own DAG
+   order and the induction over it is well-founded. *)
+
+let boundary_of ~index ~under_test ~lookup ~env origin =
+  match Ground_expr.Origin.edge origin with
+  | None -> None (* already projected; nothing to decide *)
+  | Some id -> (
+      match lookup index id with
+      | None -> None
+      | Some v ->
+          (* [under_test] is [None] only for a VACUOUS cluster, and
+             [Boundary_index] records no member of one — so [lookup] has already
+             answered [None] above and this arm cannot then grant a variable. *)
+          let discharges_itself =
+            match under_test with
+            | None -> false
+            | Some u -> Cluster_var.equal v u
+          in
+          if discharges_itself && not (Ground_eval.Env.is_user_input env id)
+          then None
+          else Some v)
 
 (* ---- one cluster ---------------------------------------------------------- *)
 
@@ -543,17 +584,30 @@ let resolve : type s d. (s, d) sides -> (s, d) Member.t -> 'a resolve -> 'a =
 
 (* Everything a comparison needs from a member, with the version discharged. *)
 type located = {
+  loc_boundary : Ground_expr.Origin.t -> Cluster_var.t option;
   loc_env : Ground_eval.Env.t;
   loc_id : Tensor_id.t;
   loc_with_constants : Ground_eval.Env.t;
 }
 
-let locate sides member =
+(* [under_test] is this cluster's own variable, which its non-input members are
+   denied. The side picks which half of the index to read — a comparison can
+   legitimately run between two SOURCE members, so this is not "lhs vs rhs". *)
+let locate ~index ~under_test sides member =
+  let lookup =
+    match (Member.erase member).Member.Erased.side with
+    | `Dst -> Boundary_index.dst
+    | `Src -> Boundary_index.src
+  in
   resolve sides member
     {
       f =
         (fun side e ->
           {
+            (* [side.env] and [side.with_constants] agree on which ids are user
+               inputs — binding payloads changes what a constant grounds to, not
+               what kind it is — so either serves here. *)
+            loc_boundary = boundary_of ~index ~under_test ~lookup ~env:side.env;
             loc_env = side.env;
             loc_id = Correspondence.raw e;
             loc_with_constants = side.with_constants;
@@ -571,42 +625,76 @@ let shape_for sides member =
           | None -> Core.fail (`Missing_signature id));
     }
 
+(* The correspondence variables a PROJECTED term is a function of. Sorted and
+   deduplicated so two sides can be compared as lists; there are a handful per
+   obligation, so a set type of its own would not earn the module. *)
+let frontier_vars e =
+  Ground_expr.Cell.Set.fold
+    (fun (c : Ground_expr.Cell.t) acc ->
+      match c.Ground_expr.Cell.origin with
+      | Ground_expr.Origin.Boundary v -> v :: acc
+      | Ground_expr.Origin.Dst _ | Ground_expr.Origin.Src _ -> acc)
+    (Ground_expr.cells e) []
+  |> List.sort_uniq Cluster_var.compare
+
 (* Deepen until the two terms agree, or until there is nothing left to expand
    or no rounds left. Structural equality is tried BEFORE normalising and again
    after: two identical terms carrying the same uncollapsible [Round (Cell _)]
-   are equal and must be proved, not rejected for the blocked collapse. *)
+   are equal and must be proved, not rejected for the blocked collapse.
+
+   TWO REPRESENTATIONS, and keeping them apart is the whole of it. The RAW terms
+   are side-qualified, and everything that asks a question about one graph reads
+   them: [normalise], because [stored_f32] needs the real storage edge;
+   [expand], because a stage belongs to a graph. The PROJECTED terms carry the
+   map's claim that two edges name one value, and only comparison reads them.
+   Projecting before normalising would strand every [Round] on a boundary cell,
+   since an unknown cell is [stored_f32 = false] and refuses to collapse. *)
 let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
-    ~lhs_env ~rhs_env ~coord ~members =
+    ~lhs_env ~rhs_env ~lhs_boundary ~rhs_boundary ~coord ~members =
   let lhs_member, rhs_member = members in
-  if Ground_expr.equal lhs rhs then Verdict.Proved proof
+  let seen () =
+    ( Ground_expr.project ~boundary:lhs_boundary lhs,
+      Ground_expr.project ~boundary:rhs_boundary rhs )
+  in
+  let projected_lhs, projected_rhs = seen () in
+  if Ground_expr.equal projected_lhs projected_rhs then Verdict.Proved proof
   else
     let ln =
       Ground_expr.normalise ~stored_f32:(Ground_eval.Env.stored_f32 lhs_env) lhs
     and rn =
       Ground_expr.normalise ~stored_f32:(Ground_eval.Env.stored_f32 rhs_env) rhs
     in
-    if Ground_expr.equal ln.expr rn.expr then Verdict.Proved proof
+    let projected_ln = Ground_expr.project ~boundary:lhs_boundary ln.expr
+    and projected_rn = Ground_expr.project ~boundary:rhs_boundary rn.expr in
+    if Ground_expr.equal projected_ln projected_rn then Verdict.Proved proof
     else
       let expandable =
-        Ground_eval.expandable lhs_env lhs || Ground_eval.expandable rhs_env rhs
+        Ground_eval.expandable ~boundary:lhs_boundary lhs_env lhs
+        || Ground_eval.expandable ~boundary:rhs_boundary rhs_env rhs
       in
       if expandable && rounds >= budget.Budget.max_rounds then
         Verdict.Unproved Unproved.Max_rounds
       else if expandable then
         let cap = budget.Budget.max_nodes in
-        let lhs = Ground_eval.expand ~budget:cap lhs_env lhs
-        and rhs = Ground_eval.expand ~budget:cap rhs_env rhs in
+        let lhs =
+          Ground_eval.expand ~boundary:lhs_boundary ~budget:cap lhs_env lhs
+        and rhs =
+          Ground_eval.expand ~boundary:rhs_boundary ~budget:cap rhs_env rhs
+        in
         let size = Ground_expr.size lhs + Ground_expr.size rhs in
         if size > budget.Budget.max_nodes then
           Verdict.Unproved (Unproved.Max_nodes size)
         else
           settle ~budget ~probe ~tolerance ~label ~proof ~rounds:(rounds + 1)
-            ~lhs ~rhs ~lhs_env ~rhs_env ~coord ~members
+            ~lhs ~rhs ~lhs_env ~rhs_env ~lhs_boundary ~rhs_boundary ~coord
+            ~members
       else
-        (* Frontier is at the graph inputs and the terms still differ. That is
+        (* The LOCAL frontier is complete and the terms still differ. That is
            the prover failing, not a counterexample: no assignment has been
            exhibited. A blocked collapse is a likelier explanation than a real
-           difference, so report it when one is present. *)
+           difference, so report it when one is present — and report the RAW
+           cell, which names an edge a reader can go and look at, where the
+           projected one would name a variable. *)
         match
           ( Ground_expr.Cell.Set.min_elt_opt ln.blocked,
             Ground_expr.Cell.Set.min_elt_opt rn.blocked )
@@ -637,12 +725,30 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
                 Verdict.Unproved (Unproved.Unsupported_relation label)
             | _, Some cell -> Verdict.Unproved (Unproved.Unbound_constant cell)
             | _, None ->
-                value_tiers ~probe ~tolerance ~label ~coord ~members ~lhs ~rhs
-                  ~ln ~rn)
+                (* PROJECTED, so the two sides' names for one dependency are one
+                   variable and a draw gives it one value. Over the raw terms a
+                   probe would assign src.t2 and dst.t2 independently and
+                   "separate" every corresponding pair there is. *)
+                value_tiers ~probe ~tolerance ~label ~coord ~members
+                  ~lhs:projected_lhs ~rhs:projected_rhs ~ln:projected_ln
+                  ~rn:projected_rn)
 
-(* The frontier is at the graph inputs, so every remaining cell is genuinely
-   free and a disagreeing assignment is realisable. This is the only place a
-   value counterexample may be built. *)
+(* The local frontier is complete, so every remaining cell is a free variable of
+   this obligation and a disagreeing assignment refutes it. This is the only
+   place a counterexample may be built — and it is a counterexample to the local
+   TRANSFER FUNCTION, not to the two graphs' values: an upstream cluster may
+   confine the variable to a range where the two sides agree. See
+   .ai/native_transform_verify.md §8b.
+
+   UNLESS THE TWO SIDES ARE FUNCTIONS OF DIFFERENT VARIABLES, in which case no
+   assignment is a counterexample and none may be built. [reuse_permute] is the
+   case: the source reads t1 where the destination reads t3, its own cluster and
+   so its own variable, and the graphs constrain t3 = Q(t1). A draw that gives
+   the two independent values "separates" a correct rewrite. §3 says
+   [Report.refuted] holds only for a VALID counterexample, and over mismatched
+   frontiers there is none — so the honest verdict is unproved. The coefficient
+   tier is skipped for the same reason: it would compare polynomials in
+   different generators. *)
 and value_tiers ~probe ~tolerance ~label ~coord ~members ~lhs ~rhs ~ln ~rn =
   let lhs_member, rhs_member = members in
   let witness () =
@@ -657,10 +763,14 @@ and value_tiers ~probe ~tolerance ~label ~coord ~members ~lhs ~rhs ~ln ~rn =
                { coord; lhs = lhs_member; rhs = rhs_member; valuation })
         else Verdict.Tested (Strength.Disagrees valuation)
   in
-  (* The NORMALISED terms, not the raw ones: folding is what turns
-     [sqrt (Const _)] — batch norm's normaliser — into a coefficient rather than
-     an opaque generator the polynomial view cannot see through. *)
-  if Coeff_form.agree ~tolerance ln.expr rn.expr then
+  if not (List.equal Cluster_var.equal (frontier_vars lhs) (frontier_vars rhs))
+  then
+    Verdict.Unproved
+      (Unproved.Split_frontier { coord; lhs = lhs_member; rhs = rhs_member })
+    (* The NORMALISED terms, not the raw ones: folding is what turns
+       [sqrt (Const _)] — batch norm's normaliser — into a coefficient rather
+       than an opaque generator the polynomial view cannot see through. *)
+  else if Coeff_form.agree ~tolerance ln rn then
     (* Coefficient agreement is never a proof, and for [Identical] it is not even
        the right question — that claim is about bits, so a probe still gets to
        refute it. *)
@@ -700,14 +810,16 @@ and counterexample ~probe ~lhs ~rhs =
 
 (* A grounding failure is a verdict ABOUT this cluster, not an error for the
    caller, so it is converted here rather than short-circuiting [run]. *)
-let compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other coord =
-  let lhs = locate sides canonical and rhs = locate sides other in
+let compare_at ~budget ~index ~probe ~tolerance ~label ~under_test sides
+    ~canonical ~other coord =
+  let lhs_at = locate ~index ~under_test sides canonical
+  and rhs_at = locate ~index ~under_test sides other in
   (* Erased once, here: [settle] only ever REPORTS these. *)
   let members = (Member.erase canonical, Member.erase other) in
   let attempt proof lhs_env rhs_env =
     match
-      ( Ground_eval.at lhs_env lhs.loc_id coord,
-        Ground_eval.at rhs_env rhs.loc_id coord )
+      ( Ground_eval.at lhs_env lhs_at.loc_id coord,
+        Ground_eval.at rhs_env rhs_at.loc_id coord )
     with
     | Error e, _ | Ok _, Error e ->
         Verdict.Unproved (Unproved.Eval e.Core.Error.kind)
@@ -721,7 +833,8 @@ let compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other coord =
         | Some c -> Verdict.Unproved (Unproved.Out_of_bounds c)
         | None ->
             settle ~budget ~probe ~tolerance ~label ~proof ~rounds:0 ~lhs ~rhs
-              ~lhs_env ~rhs_env ~coord ~members)
+              ~lhs_env ~rhs_env ~lhs_boundary:lhs_at.loc_boundary
+              ~rhs_boundary:rhs_at.loc_boundary ~coord ~members)
   in
   (* Unqualified first, purely to STRENGTHEN: a proof with the constants left
      free is a statement about every payload, and binding them would silently
@@ -734,10 +847,11 @@ let compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other coord =
      counterexample that expanding a truncated frontier would produce. So every
      verdict other than [Proved] comes from the constant-bound attempt, where
      the cells still free really are free inputs. *)
-  match attempt Strength.Structural lhs.loc_env rhs.loc_env with
+  match attempt Strength.Structural lhs_at.loc_env rhs_at.loc_env with
   | Verdict.Proved _ as proved -> proved
   | _ ->
-      attempt Strength.Constants lhs.loc_with_constants rhs.loc_with_constants
+      attempt Strength.Constants lhs_at.loc_with_constants
+        rhs_at.loc_with_constants
 
 (* Compare every member against a canonical one. [{t0,t1} -> {t0}] must check
    t1, which is the trimmed edge the map's claim is actually about. Stops at the
@@ -765,8 +879,8 @@ let sampled_coords shape n =
   in
   (n, List.rev picked)
 
-let check_members ~budget ~probe ~tolerance ~label sides ~canonical ~others
-    ~shape =
+let check_members ~budget ~index ~probe ~tolerance ~label ~under_test sides
+    ~canonical ~others ~shape =
   let numel = (Vec6.numel shape :> int) in
   if numel > budget.Budget.max_coords then
     (Verdict.Unproved (Unproved.Too_large numel), Coverage.Not_applicable)
@@ -786,8 +900,8 @@ let check_members ~budget ~probe ~tolerance ~label sides ~canonical ~others
       if settled v then v
       else
         Verdict.join v
-          (compare_at ~budget ~probe ~tolerance ~label sides ~canonical ~other
-             coord)
+          (compare_at ~budget ~index ~probe ~tolerance ~label ~under_test sides
+             ~canonical ~other coord)
     in
     let over_coords other verdict =
       match coords with
@@ -801,7 +915,7 @@ let check_members ~budget ~probe ~tolerance ~label sides ~canonical ~others
     in
     (verdict, coverage)
 
-let check_cluster ~budget ~probe ~tolerance sides
+let check_cluster ~budget ~index ~probe ~tolerance sides
     (c : ('src, 'dst) Correspondence.Cluster.t) =
   let members =
     List.map (fun e -> Member.Src e) (Correspondence.Set.elements c.src)
@@ -821,6 +935,15 @@ let check_cluster ~budget ~probe ~tolerance sides
     match members with
     | [] -> outcome Verdict.Vacuous Coverage.Not_applicable
     | canonical :: others -> (
+        (* This cluster's own variable — the one its non-input members are
+           denied. Any member resolves it, since [Boundary_index] gives every
+           member of a cluster the same one. *)
+        let under_test =
+          let e = Member.erase canonical in
+          match e.Member.Erased.side with
+          | `Dst -> Boundary_index.dst index e.Member.Erased.id
+          | `Src -> Boundary_index.src index e.Member.Erased.id
+        in
         let shape_for m = shape_for sides m in
         let* shape = shape_for canonical in
         (* Shapes are checked BEFORE the coordinate budget, since [numel] is
@@ -849,8 +972,8 @@ let check_cluster ~budget ~probe ~tolerance sides
               Coverage.Not_applicable
         | None ->
             let verdict, coverage =
-              check_members ~budget ~probe ~tolerance ~label:c.label sides
-                ~canonical ~others ~shape
+              check_members ~budget ~index ~probe ~tolerance ~label:c.label
+                ~under_test sides ~canonical ~others ~shape
             in
             outcome verdict coverage)
 
@@ -870,96 +993,49 @@ let run ?(budget = Budget.default)
     (Graph_map.check_claim_closure map ~src ~dst :> (unit, error) Core.result)
   in
   let clusters = Graph_map.clusters_over map ~src ~dst in
-  (* Two layers decide what a raw id may mean, and both are needed.
+  (* CLUSTER MEMBERSHIP decides what a raw id may mean, and nothing else does.
 
-     STATIC: [Cell_origin] compares the two graphs' DEFINITIONS. Coordinate-free,
-     so it holds whatever the coordinate budget is, and it is what keeps an
-     untouched prefix short-circuiting.
+     The two layers this replaces — a static comparison of the graphs' own
+     definitions, plus a set of edges that became "shared" once their cluster was
+     proved — both let a proof about one cluster travel to another. The static
+     one keyed on raw-id equality, which is the false proof this line of work is
+     named after: [src: t2 = add(a,b)] and [dst: t2 = sub(a,b)] made {t3} ↔ {t3}
+     ground to [relu (cell t2)] on both sides and prove Identical. The dynamic
+     one needed the cluster DAG to be acyclic, which two graphs quotiented by a
+     correspondence need not be.
 
-     DYNAMIC: an edge also becomes shared once its OWN cluster has been proved.
-     That is a real induction — clusters are checked in destination-topological
-     order, so a proof only ever leans on conclusions established strictly
-     earlier — and it is what stops the static rule's cascade one step past each
-     edit instead of running to the graph inputs.
-
-     What the existing fast path did was neither: it treated every same-numbered
-     edge as one variable, all at once, with no argument for well-foundedness and
-     no regard for whether the cluster was proved. That is the false proof
-     recorded in .ai/native_transform_versioning.md §6a. *)
-  let statics = Cell_origin.classify ~src ~dst clusters in
-  let shared = ref Tensor_id.Set.empty in
-  let origins base id =
-    match base id with
-    | (Ground_expr.Origin.Input _ | Ground_expr.Origin.Shared _) as fixed ->
-        fixed
-    | side ->
-        if Tensor_id.Set.mem id !shared then Ground_expr.Origin.Shared id
-        else side
-  in
-  let side : type v. v Snapshot.t -> _ -> _ -> v side =
-   fun snapshot origin constants ->
+     Each cluster is now a LOCAL obligation whose dependencies are free
+     variables, so neither layer is needed and neither can mislead: no ordering
+     assumption, no cascade, and a cluster that fails cannot be papered over by
+     one that passed. See .ai/native_transform_local_verify_plan.md §5-6. *)
+  let index = Boundary_index.create clusters in
+  let side : type v. v Snapshot.t -> [ `Dst | `Src ] -> _ -> v side =
+   fun snapshot which constants ->
     let program = Eval_symbolic.run (Snapshot.graph snapshot) in
     {
-      env = Ground_eval.Env.of_program program ~origin;
+      env = Ground_eval.Env.of_program program ~side:which;
       snapshot;
-      with_constants = Ground_eval.Env.of_program ~constants program ~origin;
+      with_constants = Ground_eval.Env.of_program ~constants program ~side:which;
     }
   in
   let sides =
-    {
-      dst = side dst (origins statics.Cell_origin.dst) dst_constants;
-      src = side src (origins statics.Cell_origin.src) src_constants;
-    }
+    { dst = side dst `Dst dst_constants; src = side src `Src src_constants }
   in
-  (* Destination-topological, with graph inputs first: a cluster is ready once
-     every node producing one of its destination edges has run. Ties keep the
-     original order, so the traversal is deterministic. *)
-  let ready (c : ('a, 'b) Correspondence.Cluster.t) =
-    Correspondence.Set.fold
-      (fun e acc ->
-        let position =
-          match Graph_view.def (Snapshot.view dst) (Correspondence.raw e) with
-          | None -> -1
-          | Some (n : node) ->
-              Option.value
-                (Graph_view.topo_index (Snapshot.view dst) n.Node.id)
-                ~default:max_int
-        in
-        Stdlib.max acc position)
-      c.dst (-1)
-  in
-  let ordered =
-    List.mapi (fun i c -> (i, c)) clusters
-    |> List.stable_sort (fun (_, a) (_, b) -> Int.compare (ready a) (ready b))
-  in
+  (* Cluster order is free, and that is the point. The destination-topological
+     traversal this replaces existed so a cluster could lean on conclusions
+     reached strictly earlier; a local obligation leans on nothing, so the
+     clusters are checked in report order and each verdict stands alone. *)
   let* checked =
     Core.List.fold_left
-      (fun acc (i, c) ->
+      (fun acc c ->
         let+ outcome =
-          check_cluster ~budget ~probe ~tolerance:coefficient_tolerance sides c
+          check_cluster ~budget ~index ~probe ~tolerance:coefficient_tolerance
+            sides c
         in
-        (* PROVED licenses sharing, and nothing weaker does — an unproved cluster
-           is exactly the case that yields a false proof downstream today. The
-           coverage must be exhaustive too: a structural proof is per-coordinate,
-           so agreeing at eight sampled coordinates says nothing about the rest.
-           [Constants] is excluded as well, being a statement only about the
-           payloads this model happens to carry, while the driver's first attempt
-           leaves them free. *)
-        (match (outcome.Outcome.verdict, outcome.Outcome.coverage) with
-        | Verdict.Proved Strength.Structural, Coverage.Exhaustive ->
-            shared :=
-              Tensor_id.Set.union !shared
-                (Tensor_id.Set.inter
-                   (Correspondence.raws c.src)
-                   (Correspondence.raws c.dst))
-        | _ -> ());
-        (i, outcome) :: acc)
-      [] ordered
+        outcome :: acc)
+      [] clusters
   in
-  let outcomes =
-    List.stable_sort (fun (a, _) (b, _) -> Int.compare a b) checked
-    |> List.map snd
-  in
+  let outcomes = List.rev checked in
   let index = Group_path.index (Snapshot.graph dst)
   and producers = Group_path.producers dst in
   Core.return

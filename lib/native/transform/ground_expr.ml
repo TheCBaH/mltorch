@@ -1,31 +1,27 @@
 (* See ground_expr.mli. *)
 
 module Origin = struct
-  type t =
-    | Dst of Tensor_id.t
-    | Input of Cluster_var.t
-    | Shared of Tensor_id.t
-    | Src of Tensor_id.t
+  type t = Boundary of Cluster_var.t | Dst of Tensor_id.t | Src of Tensor_id.t
 
-  let rank = function Dst _ -> 0 | Input _ -> 1 | Shared _ -> 2 | Src _ -> 3
+  let rank = function Boundary _ -> 0 | Dst _ -> 1 | Src _ -> 2
 
   let compare a b =
     match (a, b) with
-    | Dst x, Dst y | Shared x, Shared y | Src x, Src y -> Tensor_id.compare x y
-    | Input x, Input y -> Cluster_var.compare x y
+    | Boundary x, Boundary y -> Cluster_var.compare x y
+    | Dst x, Dst y | Src x, Src y -> Tensor_id.compare x y
     | _ -> Int.compare (rank a) (rank b)
 
   let equal a b = compare a b = 0
 
-  (* The raw edge this stands for, where there is one. An input variable names
-     no edge in either graph, which is why it has no stage and why this is an
-     option rather than a total projection. *)
-  let edge = function Dst id | Shared id | Src id -> Some id | Input _ -> None
+  (* The raw edge this stands for, where there is one. A boundary variable names
+     no single edge — that is the point of it, since the two graphs number the
+     one value differently — which is why this is an option rather than a total
+     projection, and why a boundary cell has no stage to expand. *)
+  let edge = function Dst id | Src id -> Some id | Boundary _ -> None
 
   let pp fmt = function
+    | Boundary v -> Cluster_var.pp fmt v
     | Dst id -> Fmt.pf fmt "dst.%a" Tensor_id.pp id
-    | Input v -> Cluster_var.pp fmt v
-    | Shared id -> Tensor_id.pp fmt id
     | Src id -> Fmt.pf fmt "src.%a" Tensor_id.pp id
 
   module Map = Map.Make (struct
@@ -76,15 +72,14 @@ module Valuation = struct
      the same value — and an indexing error that swapped exactly those two cells
      would then be invisible to every draw, since the later ones keyed off that
      same sum. *)
-  (* The ORIGIN, not a raw id: an input variable and an edge that happen to
-     share a number are different cells, and keying off the number alone would
-     have them draw the same value. *)
+  (* The ORIGIN, not a raw id: a boundary variable and an edge that happen to
+     share a number are different cells, and so are the two graphs' edges that
+     do, and keying off the number alone would have them draw the same value. *)
   let origin_key (o : Origin.t) =
     match o with
-    | Origin.Dst id -> (0, Tensor_id.to_int id)
-    | Origin.Input v -> (1, Cluster_var.to_int v)
-    | Origin.Shared id -> (2, Tensor_id.to_int id)
-    | Origin.Src id -> (3, Tensor_id.to_int id)
+    | Origin.Boundary v -> (0, Cluster_var.to_int v)
+    | Origin.Dst id -> (1, Tensor_id.to_int id)
+    | Origin.Src id -> (2, Tensor_id.to_int id)
 
   let key (c : Cell.t) =
     let axis a = Dim.to_int (Vec6.get c.coord a) in
@@ -218,6 +213,26 @@ let rec size = function
 and size_guard = function
   | Lt (a, b) -> size a + size b
   | Pool_better { best; value } -> size best + size value
+
+let rec project ~boundary = function
+  | Binary (op, a, b) -> Binary (op, project ~boundary a, project ~boundary b)
+  | Cell c -> (
+      match boundary c.Cell.origin with
+      | Some v -> Cell { c with Cell.origin = Origin.Boundary v }
+      | None -> Cell c)
+  | Const _ as leaf -> leaf
+  | Max (op, a, b) -> Max (op, project ~boundary a, project ~boundary b)
+  | Round x -> Round (project ~boundary x)
+  | Select (g, a, b) ->
+      Select
+        (project_guard ~boundary g, project ~boundary a, project ~boundary b)
+  | Unary (op, x) -> Unary (op, project ~boundary x)
+
+and project_guard ~boundary = function
+  | Lt (a, b) -> Lt (project ~boundary a, project ~boundary b)
+  | Pool_better { best; value } ->
+      Pool_better
+        { best = project ~boundary best; value = project ~boundary value }
 
 let rec erase_rounds = function
   | Binary (op, a, b) -> Binary (op, erase_rounds a, erase_rounds b)

@@ -21,15 +21,16 @@
 module Env : sig
   type t
 
-  (* [origin] classifies each of this graph's edges: which side it belongs to,
-     or that both graphs define it identically, or that it is a graph input
-     standing for a σ variable — see .ai/native_transform_verify.md §7.
+  (* [side] tags the cells grounding emits, so the two graphs' [t2]s are
+     distinguishable — they share one numeric namespace. It is the ONLY thing
+     the side is used for: every lookup here is about one graph and is keyed by
+     that graph's raw id.
 
-     It replaces a [rename : Tensor_id.t -> Tensor_id.t] whose correctness rested
-     on being the identity off the graph inputs, so that a cell's id worked both
-     as a comparison key (renamed) and as a stage key (original). The two keyings
-     are now separate types: cells are keyed by origin, stages by this graph's
-     raw id.
+     Deciding that two side-qualified cells name one value is a claim about the
+     MAP, and it lives in [Ground_expr.project], applied to a copy at comparison
+     time. Keeping it out of here is what stops it reaching [stored_f32],
+     [expand] or a stage lookup, none of which have any business believing it.
+     See .ai/native_transform_verify.md §7.
 
      The program's synthetic [Stage_program.consts] — fresh-id, constant-filled
      stand-ins for absent optional operands, whose ids differ between the two
@@ -46,13 +47,23 @@ module Env : sig
   val of_program :
     ?constants:Tensor.packed Tensor_id.Map.t ->
     Stage_program.t ->
-    origin:(Tensor_id.t -> Ground_expr.Origin.t) ->
+    side:[ `Dst | `Src ] ->
     t
 
-  (* Keyed by ORIGIN, so it answers questions about cells. Use [origin] to get
-     there from an id named by a graph or a correspondence cluster. *)
+  (* Keyed by ORIGIN, so it answers questions about cells. A [Boundary] cell
+     names no single edge and so answers [None]/[false] throughout: a projected
+     term must never be normalised or expanded, and answering conservatively is
+     what makes that a wrong answer rather than an unsound one. *)
   val shape_of : t -> Ground_expr.Origin.t -> Vec6.shape option
+
+  (* This graph's [id] as a cell origin: [Src id] or [Dst id], never a variable. *)
   val origin : t -> Tensor_id.t -> Ground_expr.Origin.t
+
+  (* USER data: a graph input of this program that is not a model constant. The
+     σ hypothesis is granted on this and nothing else, so it is also what lets a
+     member of the cluster under test project — see
+     .ai/native_transform_verify.md §7a. *)
+  val is_user_input : t -> Tensor_id.t -> bool
 
   (* Whether reading this cell yields a value already representable in f32, and
      so whether [Ground_expr.normalise] may collapse its [Round]. Unknown cells
@@ -78,27 +89,55 @@ val pp_error : Format.formatter -> [< error ] -> unit
    constant folding depends on that outermost rounding. A graph input has no
    stage and yields a bare [Cell] — this graph does not materialize it.
 
+   The stage is found by [id] DIRECTLY, so a root is always expanded and never
+   replaced by a correspondence variable. That is what stops a cluster
+   discharging itself: naming both its sides the same thing before either
+   definition is looked at proves nothing about either. Projection applies to
+   what the expanded root reads, not to the root.
+
    The only failure is [id] belonging to neither, which is checked once here
    rather than inside the traversal. *)
 val at :
   Env.t -> Tensor_id.t -> Vec6.coord -> (Ground_expr.t, error) Core.result
 
-(* Replace every [Cell] that has a stage by [Round (that stage's body at the
-   cell's coord)]. The [Round] lands exactly where the stored value was.
+(* Replace every [Cell] that has a stage AND no boundary variable by
+   [Round (that stage's body at the cell's coord)]. The [Round] lands exactly
+   where the stored value was.
+
+   [boundary] is the local frontier. A cell it gives a variable for is a free
+   variable of this obligation — its own cluster is a separate entry — so
+   expanding through it would re-prove someone else's obligation inside this
+   one, which is the cascade this design exists to stop.
 
    [budget] bounds ONE round, and has to: a single substitution step is
    quadratic where a conv feeds a conv, so measuring only afterwards lets a term
    reach tens of millions of nodes first. Running out leaves the remaining cells
    unexpanded, which is sound rather than approximate — an unexpanded cell keeps
    [expandable] true, so the driver reports a budget verdict and no probe may
-   run against a frontier that never reached the inputs. *)
-val expand : budget:int -> Env.t -> Ground_expr.t -> Ground_expr.t
+   run against a truncated frontier. *)
+val expand :
+  boundary:(Ground_expr.Origin.t -> Cluster_var.t option) ->
+  budget:int ->
+  Env.t ->
+  Ground_expr.t ->
+  Ground_expr.t
 
-(* Whether any cell still has a stage below it. A probe may only run when this
-   is [false] on both sides: cells left at a truncated frontier are internal
-   stage results constrained by their producers, so assigning them
-   independently can manufacture a counterexample no graph input can realise. *)
-val expandable : Env.t -> Ground_expr.t -> bool
+(* Whether any NON-BOUNDARY cell still has a stage below it. A probe may only
+   run when this is [false] on both sides: a cell left at a budget-truncated
+   frontier is an internal stage result constrained by its producer, so
+   assigning it independently manufactures a counterexample nothing can realise.
+
+   A boundary cell is different in kind — it is a free variable of the local
+   obligation, quantified over — so it does not keep this true, and a probe at a
+   completed local frontier is a counterexample to the LOCAL transfer function.
+   Not to the two graphs' values: an upstream cluster may constrain the variable
+   to a range in which the two sides agree. See
+   .ai/native_transform_verify.md §8b. *)
+val expandable :
+  boundary:(Ground_expr.Origin.t -> Cluster_var.t option) ->
+  Env.t ->
+  Ground_expr.t ->
+  bool
 
 (* A cell whose coordinate falls outside its edge's extents, if any. Grounding
    cannot produce one from a well-formed graph — the ops clamp their windows —
