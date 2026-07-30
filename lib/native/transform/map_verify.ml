@@ -769,7 +769,7 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
                    probe would assign src.t2 and dst.t2 independently and
                    "separate" every corresponding pair there is. *)
                 value_tiers ~probe ~tolerance ~label ~coord ~members
-                  ~lhs:projected_lhs ~rhs:projected_rhs ~ln:projected_ln
+                  ~lhs:projected_ln ~rhs:projected_rn ~ln:projected_ln
                   ~rn:projected_rn)
 
 (* The local frontier is complete, so every remaining cell is a free variable of
