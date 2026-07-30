@@ -16,6 +16,7 @@ module Snapshot4 = Snapshot.Make (Dialect4)
 module Side4 = struct
   type op = Op.t
 
+  module Dialect = Dialect4
   module Snapshot = Snapshot4
   module Transfer = Output_transfer4.Transfer
 
@@ -37,3 +38,13 @@ module Map4 = Graph_map.Make_pair (Side4) (Side4)
    [Side4.Transfer] had to exist. *)
 module Verify_from_native = Map_verify.Make_pair (Native_side) (Side4)
 module Verify4 = Map_verify.Make_pair (Side4) (Side4)
+
+(* The same-dialect transform framework, at this dialect. Stage 7's point: a
+   Native4D rewrite runs through the machinery Native's passes run through, with
+   no second implementation of recipes, planning, id discipline or claim
+   propagation. *)
+module Rewrite4 = Rewrite.Make (Side4)
+module Recipe4 = Recipe.Make (Side4)
+module Pattern4 = Pattern.Make (Dialect4)
+module Region4 = Region.Make (Dialect4)
+module Pass4 = Pass.Make (Side4)

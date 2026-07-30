@@ -8,6 +8,7 @@
 
 type op = Graph_ir.op
 
+module Dialect = Native_dialect
 module Snapshot = Snapshot
 module Transfer = Output_transfer
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress. Stages 0-6 landed. This is the executable companion to
+In progress. Stages 0-7 landed. This is the executable companion to
 `.ai/native4d_design.md`, which holds the goal, the feasibility argument and the
 per-operation legalization rationale; this file holds the stage sequence, the
 decisions taken, the corrections found while planning, and the domain contract
@@ -269,11 +269,43 @@ a small fixture; "`Disagrees` or `Unproved`" would be a mutation test that canno
 go red, since `Unproved` is also what a correct lowering returns when the budget
 stops the frontier settling.
 
-### Stage 7 — Native4D transforms through shared functors
+### Stage 7 — Native4D transforms through shared functors *(done)*
 
 `Pattern.Make`, `Region.Make`, `Recipe.Make`, `Rewrite.Make`, `Pass.Make`, Native
 passes as specializations, one Native4D pass to prove the abstraction. Carries
 nothing else: `rewrite.ml` holds the version-safety discipline.
+
+Much lighter than the line counts suggest. `rewrite.ml` is 913 lines but its ten
+dialect references are four distinct functions, and `input_kind` was already
+op-polymorphic from stage 4. Pattern, Region and Recipe have one apiece.
+
+**Two things the plan did not anticipate, both forced by the module system:**
+
+`Recipe` and `Rewrite` take a **`Side.S`, not a `Dialect.S`** — `Rewrite.apply`
+both rebuilds a graph (needing the operation table) and builds a map (needing
+the snapshot and transfer table), and two separate arguments could disagree
+about `op`. `Side.S` therefore gained a `Dialect` submodule, and declares its
+`Snapshot` as `Snapshot.Make (Dialect)` rather than as something merely
+signature-compatible: `Recipe` names that application too, and an abstract
+snapshot would not be known equal to it.
+
+**Do not alias the dialect inside a functor.** Writing `module D = S.Dialect`
+and then `Graph_view.Make (D)` breaks applicative path equality against
+`Graph_view.Make (S.Dialect)` written elsewhere — the two stop being the same
+type. Use `S.Dialect` directly. This cost most of the debugging time and the
+symptom (`Graph_view.Make(S.Dialect).t` vs `View.t`) does not name the cause.
+
+`Id_supply.of_graph` and `Group_path.index`/`producers` went op-polymorphic
+rather than into a functor: watermarks and group trees are about ids and shared
+structure, neither of which is dialect-specific.
+
+**Acceptance met**: `Trim_permute4` — a Native4D pass written against the same
+`Recipe`/`Pattern`/`Pass` the nine Native passes use, its only dialect-specific
+line being the op projector — trims an identity `Permute4`, produces the
+`{t0, t1} -> {t0}` cluster §3 describes for a trim, and reports
+`audit trim_permute4: 2 clusters: 2 proved (structural)` under
+`Require_proved`. A Native4D rewrite is not merely expressible in the shared
+framework; it is held to the same bar.
 
 ### Stage 8 — representative model gates
 

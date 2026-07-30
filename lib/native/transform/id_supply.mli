@@ -13,7 +13,7 @@ type t
    the highest id the graph mentions anywhere — tensor signature keys, node ids,
    and every group id in the tree — so a fresh id differs from every id the graph
    used, including ids of edges a later step deletes. *)
-val of_graph : graph -> t
+val of_graph : 'op Graph_common.Graph.t -> t
 
 (* The origin's watermark, frozen at [of_graph] and carried unchanged through
    every advance. Packing compacts post-origin ids upward from here, which is what

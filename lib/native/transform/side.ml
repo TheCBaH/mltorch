@@ -21,14 +21,28 @@
 module type S = sig
   type op
 
+  (* The dialect itself, so a consumer that needs both the operation table and
+     the snapshot — [Rewrite], which rebuilds graphs AND builds maps — can take
+     one argument instead of two that might disagree about [op]. *)
+  module Dialect : Dialect.S with type op = op
+
   module Snapshot : sig
     type 'v t
+    type packed = Pack : 'v t -> packed
 
     val edge : 'v t -> Tensor_id.t -> 'v Correspondence.id option
     val node : 'v t -> Graph_common.Node_id.t -> 'v Node_map.id option
     val edges : 'v t -> 'v Correspondence.Universe.t
     val nodes : 'v t -> 'v Node_map.Universe.t
     val graph : 'v t -> op Graph_common.Graph.t
+
+    (* [Rewrite] re-validates the graph it produces, so it needs the view a
+       snapshot already holds rather than building a second one. *)
+    val view : 'v t -> Graph_view.Make(Dialect).t
+
+    val create :
+      op Graph_common.Graph.t ->
+      (packed, Graph_view.Make(Dialect).error) Core.result
   end
 
   module Transfer : sig
