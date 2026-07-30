@@ -103,13 +103,44 @@ let check_transposed node ~groups =
   if groups = 1 then Core.return ()
   else Core.fail (`Unsupported_grouped_transposed_conv (node, groups))
 
-let check_bmm view node ~input =
-  match Graph_view.sig_of view input with
+(* Whether a value read from this format is already f32-representable. F32, F16
+   and BF16 carry no more mantissa than f32; I32/I64 exceed its exact range
+   above 2^24, and I8/I16 dequantize through a scale multiply whose product need
+   not land on an f32. The same distinction [Ground_eval] draws for the Round
+   collapse, and for the same underlying reason. *)
+let fmt_is_f32_exact (Payload.Fmt fmt) =
+  match fmt with
+  | Payload.F32 | Payload.F16 | Payload.BF16 -> true
+  | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 -> false
+
+(* Two preconditions, and the second is not about shape at all.
+
+   BATCH: only one legalizes. For batch > 1 mat2 varies with the output's H
+   coordinate while convolution weights are shared across spatial positions.
+
+   MAT2'S FORMAT: the legalization inserts a [Permute4] that MATERIALIZES mat2
+   before the convolution reads it, where Native's Bmm reads it directly. Every
+   op output in this engine is f32 (graph_builder, and .ai/native_transform_design.md
+   §14), so if mat2's own format holds values f32 cannot, that extra
+   materialization silently rounds them — 2^24+1 becomes 2^24 — while the map
+   still claims [Identical]. Rejecting is the honest answer: the legalization is
+   sound exactly when the materialization is lossless, and the dialect is
+   allowed to be partial. *)
+let check_bmm view node ~input ~mat2 =
+  let open Core.Syntax in
+  let* () =
+    match Graph_view.sig_of view input with
+    | None -> Core.return ()
+    | Some sg ->
+        let batch = Vec6.get sg.Tensor_sig.shape Axis.H in
+        if Dim.to_int batch = 1 then Core.return ()
+        else Core.fail (`Unsupported_bmm_batch (node, batch))
+  in
+  match Graph_view.sig_of view mat2 with
   | None -> Core.return ()
   | Some sg ->
-      let batch = Vec6.get sg.Tensor_sig.shape Axis.H in
-      if Dim.to_int batch = 1 then Core.return ()
-      else Core.fail (`Unsupported_bmm_batch (node, batch))
+      if fmt_is_f32_exact sg.Tensor_sig.fmt then Core.return ()
+      else Core.fail (`Lossy_bmm_operand (node, mat2))
 
 (* The two running statistics are required operands; [weight] and [bias] are
    optional, and absent means the identity, which is not a dynamic parameter.
@@ -122,6 +153,35 @@ let check_batch_norm view node (bn : Norm.BatchNorm.t) =
     let channel = bn.Norm.BatchNorm.params.Norm.BatchNorm.channel in
     if Axis.equal channel Axis.C then Core.return ()
     else Core.fail (`Axis_outside_dialect (node, channel))
+  in
+  (* Every parameter must be as long as the axis it scales. The lowerer reads
+     one value per channel to precompute the depthwise weight, so a shorter
+     vector reads out of bounds — and an out-of-bounds read raises, where this
+     module's whole contract is to answer with a typed error.
+
+     Nothing upstream rejects it because nothing VALIDATES it:
+     [Norm.BatchNorm.output_shape] is a function of the input shape alone, so
+     the parameters' extents are never compared against the normalized axis.
+     Native's evaluation does not survive such a graph either — [Compute] reads
+     each parameter at the OUTPUT's channel index and [Tensor.read] is strict —
+     so this check does not make Native4D stricter than Native, it makes the
+     failure arrive as a typed error instead of an exception. *)
+  let* () =
+    match Graph_view.sig_of view bn.Norm.BatchNorm.x with
+    | None -> Core.return ()
+    | Some x_sig ->
+        let channels = Vec6.get x_sig.Tensor_sig.shape Axis.C in
+        Core.List.iter
+          (fun id ->
+            match Graph_view.sig_of view id with
+            | None -> Core.return ()
+            | Some sg ->
+                let extent = Vec6.get sg.Tensor_sig.shape Axis.C in
+                if Dim.equal extent channels then Core.return ()
+                else Core.fail (`Batch_norm_extent (node, id, extent, channels)))
+          (bn.Norm.BatchNorm.running_mean :: bn.Norm.BatchNorm.running_var
+          :: List.filter_map Fun.id
+               [ bn.Norm.BatchNorm.weight; bn.Norm.BatchNorm.bias ])
   in
   Core.List.iter
     (fun id ->
@@ -158,7 +218,7 @@ let check_node view (n : node) =
   | Reshape _ | Sqrt _ | Sub _ ->
       Core.return ()
   | Batch_norm bn -> check_batch_norm view node bn
-  | Bmm { Matmul.Bmm.input; _ } -> check_bmm view node ~input
+  | Bmm { Matmul.Bmm.input; mat2 } -> check_bmm view node ~input ~mat2
   | Conv2d { Conv.Conv2d.params; weight; _ } ->
       check_groups view node ~weight ~groups:params.Conv.Conv2d.groups
   | Conv2d_padding { Conv.Conv2d_padding.params; weight; _ } ->

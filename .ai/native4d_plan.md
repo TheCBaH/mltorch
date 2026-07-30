@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress. Stages 0-4 landed. This is the executable companion to
+In progress. Stages 0-5 landed. This is the executable companion to
 `.ai/native4d_design.md`, which holds the goal, the feasibility argument and the
 per-operation legalization rationale; this file holds the stage sequence, the
 decisions taken, the corrections found while planning, and the domain contract
@@ -175,7 +175,7 @@ module qualification, except `graph_view_test.ml` (the `` `Graph_shape `` wrappe
 and `graph_map_test.ml` (item 9's regressions); `version_safety.t`'s eight
 negative compilations still fail *for their original reasons*.
 
-### Stage 5 — the partial lowerer
+### Stage 5 — the partial lowerer *(done)*
 
 Returns the destination snapshot (C6), the map and the constants. Ids: an edge
 whose value is preserved keeps its **source raw id**, which is forced rather than
@@ -196,6 +196,20 @@ supplied map up front, against `Rewrite.origin`'s contract.
 **Acceptance**: every produced graph passes Native4D view validation; output
 completeness holds; conversion is deterministic in ids, node order and
 diagnostics.
+
+**NODE ids follow the same policy as edge ids**, which the plan did not say and
+the implementation forced. Allocating destination nodes densely from zero makes
+destination node 0 a *different node* from source node 0 the moment anything is
+removed — the raw-id collision the design forbids for edges, reappearing for
+nodes, and `Graph_map.create` catches it as `Unpaired_src`. So the first
+destination node of a source node keeps that node's id and any extra takes a
+fresh id above the source watermark.
+
+**Known refinement, not a defect**: a batch-norm fold leaves the original mean
+and variance constants declared in the destination graph, unread. They were read
+in the source, so the unread-constant omission (which runs before the walk) does
+not see them. Harmless — evaluation skips unused constants — but stage 8's
+per-op counts will show them.
 
 ### Stage 6 — cross-dialect map verification
 
@@ -250,6 +264,7 @@ pipeline runs ahead of the check.
 | `Batch_norm` on `C`, constant params | in the dialect |
 | `Batch_norm` on `H` | `Axis_outside_dialect` |
 | `Batch_norm` with a dynamic parameter | `Dynamic_batch_norm` |
+| `Batch_norm` whose parameter is shorter than the normalized axis | `Batch_norm_extent` |
 | `Mean keepdim=false`, `N=1` | in the dialect |
 | `Mean keepdim=false`, `N=2` | `Non_four_dimensional_tensor` (C1) |
 | conv `groups=1` / depthwise | in the dialect |
@@ -257,12 +272,36 @@ pipeline runs ahead of the check.
 | transposed conv `groups=1` | in the dialect |
 | transposed conv `groups=2` | `Unsupported_grouped_transposed_conv` |
 | `Bmm` batch 1 / batch 2 | in the dialect / `Unsupported_bmm_batch` |
+| `Bmm` whose `mat2` is not f32-exact (I8/I16/I32/I64) | `Lossy_bmm_operand` |
 | max-pool indices discarded | `Unsupported_op` † |
 | max-pool indices live | `Live_max_pool_indices` |
 | `Linear` | in the dialect |
 
-Two properties of this table are worth stating, because both were nearly got
-wrong:
+**Two rows are about neither the four-axis frame nor an op's own output shape**,
+and both were added after a review found the legalization unsound without them.
+
+`Lossy_bmm_operand` is not about shape at all. The legalization *materializes*
+the permuted `mat2`, where Native's `Bmm` reads it directly, and every op output
+in this engine is f32 — so an I64 operand holding 2^24+1 is silently rounded
+while the map still claims `Identical`.
+
+`Batch_norm_extent` *is* about shape, just not about a shape anything else
+checks: `Norm.BatchNorm.output_shape` is a function of the input alone, so a
+parameter's extent is never compared against the normalized axis and
+`Graph_view` has nothing to validate. Native's own evaluation does not survive
+such a graph either — `BatchNorm.Compute` reads each parameter at the *output's*
+channel index and `Tensor.read` is strict — so this check does not make Native4D
+stricter than Native; it makes the failure arrive as a typed error rather than
+as an exception during evaluation.
+
+The general shape: a legalization is sound only under a precondition, and the
+precondition belongs in the domain check whether it concerns an operand's
+*format*, an operand's *extent*, or the frame — the common thread is that none
+of them is implied by the op's own output shape, which is all shape inference
+looks at.
+
+Two more properties of this table are worth stating, because both were nearly
+got wrong:
 
 - **`Mean keepdim=false` needs no special case in the node predicates.** The
   packed output shape *is* the reachable output tensor, so the shape rule catches

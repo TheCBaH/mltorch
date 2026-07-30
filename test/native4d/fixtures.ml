@@ -153,6 +153,24 @@ let batch_norm_on ?(dynamic = false) channel () =
        { Norm.BatchNorm.channel; eps = 1e-5 }
        ~x ~running_mean ~running_var ())
 
+(* A parameter vector shorter than the axis it scales. Nothing upstream rejects
+   it because nothing VALIDATES it: [Norm.BatchNorm.output_shape] is a function
+   of the input shape alone, so the parameters' extents are never compared
+   against the normalized axis and [Graph_view] has nothing to check. Native's
+   own evaluation does not survive it either — [BatchNorm.Compute] reads each
+   parameter at the OUTPUT's channel index and [Tensor.read] is strict — so the
+   graph is broken for both dialects; the difference is only that conversion
+   discovers it earlier. *)
+let batch_norm_short_stats () =
+  build "batch_norm_short_stats"
+    (let open Graph_builder in
+     let* x = input ~shape:(nhwc ~n:1 ~h:1 ~w:1 ~c:2) () in
+     let* running_mean = constant ~shape:(chan 1) () in
+     let* running_var = constant ~shape:(chan 1) () in
+     batch_norm
+       { Norm.BatchNorm.channel = Axis.C; eps = 1e-5 }
+       ~x ~running_mean ~running_var ())
+
 (* ---- convolution --------------------------------------------------------- *)
 
 let conv2d_grouped ~groups ~in_channels ~out_channels () =
@@ -180,6 +198,17 @@ let convolution_grouped ~transposed ~groups ~channels () =
      convolution (convolution_params ~transposed ~groups) ~x ~weight:w ())
 
 (* ---- bmm ----------------------------------------------------------------- *)
+
+(* mat2 in a format f32 cannot hold exactly. The legalization MATERIALIZES the
+   permuted mat2 before the convolution reads it, where Native's Bmm reads it
+   directly, and every op output in this engine is f32 — so those values would
+   be silently rounded while the map still claimed Identical. *)
+let bmm_lossy_operand () =
+  build "bmm_lossy_operand"
+    (let open Graph_builder in
+     let* a = input ~shape:(s 1 1 1 1 2 3) () in
+     let* b = input ~shape:(s 1 1 1 1 3 4) ~fmt:(Payload.Fmt Payload.I64) () in
+     bmm a b)
 
 let bmm_batch batch () =
   build "bmm_batch"
