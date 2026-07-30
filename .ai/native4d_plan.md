@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress. Stages 0-2 landed. This is the executable companion to
+In progress. Stages 0-3 landed. This is the executable companion to
 `.ai/native4d_design.md`, which holds the goal, the feasibility argument and the
 per-operation legalization rationale; this file holds the stage sequence, the
 decisions taken, the corrections found while planning, and the domain contract
@@ -120,7 +120,7 @@ Reuses `Graph_ir.{Node_id, Group_id, Group, Input}`, `Tensor_id` and
 **Acceptance**: no non-4D `Shape4.t` constructible through the public API; every
 `output_shape` arm returns `Shape4.t`; JSON round-trips per op.
 
-### Stage 3 — evaluation through Native's compute
+### Stage 3 — evaluation through Native's compute *(done)*
 
 `eval_op4` translates parameters and calls the *existing* `Compute (S)` functors:
 `Conv2d` with `groups=1`, `Depthwise_conv2d` with `groups=in_channels`,
