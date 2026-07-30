@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress. Stage 0 landed. This is the executable companion to
+In progress. Stages 0 and 1 landed. This is the executable companion to
 `.ai/native4d_design.md`, which holds the goal, the feasibility argument and the
 per-operation legalization rationale; this file holds the stage sequence, the
 decisions taken, the corrections found while planning, and the domain contract
@@ -69,7 +69,7 @@ op-level diagnostic is the actionable one.
 **Acceptance**: every row of the table below pinned by `[%expect]`; the op match
 exhaustive with no default arm.
 
-### Stage 1 — DCE, index-dropping, one canonical pipeline
+### Stage 1 — DCE, index-dropping, one canonical pipeline *(done)*
 
 `passes/dce.ml`, `passes/drop_pool_indices.ml`, `transform/pipeline.ml`.
 

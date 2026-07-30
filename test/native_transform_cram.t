@@ -15,7 +15,7 @@ each op boundary and the permute passes cancel them — one of the three cases
 every name resolves exactly as the importer recorded it.
 
   $ ../bin/native_graph.exe transform --pt2 "$PT2_DATA/resnet18/resnet18.pt2"
-  nodes: 174 -> 91
+  nodes: 174 -> 90
   constants: 102, of which 0 folded
   graph
   inputs:
@@ -148,7 +148,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n14 {derived}: [t137 f32 [H=56 W=56 C=64] {derived} ->[n17]] =
         convolution
-          x=t132 {derived} <-n9
+          x=t132 {derived} <-n176
           weight=t136 {derived} <-n13
           bias=none
           params={stride={h=1; w=1};
@@ -164,7 +164,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n22 {derived}: [t145 f32 [H=56 W=56 C=64] {derived} ->[n25]] =
         convolution
-          x=t298 {derived} <-n176
+          x=t298 {derived} <-n177
           weight=t144 {derived} <-n21
           bias=none
           params={stride={h=1; w=1};
@@ -180,7 +180,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n31 {derived}: [t154 f32 [H=56 W=56 C=64] {derived} ->[n34]] =
         convolution
-          x=t300 {derived} <-n178
+          x=t300 {derived} <-n179
           weight=t153 {derived} <-n30
           bias=none
           params={stride={h=1; w=1};
@@ -196,7 +196,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n39 {derived}: [t162 f32 [H=56 W=56 C=64] {derived} ->[n42]] =
         convolution
-          x=t301 {derived} <-n179
+          x=t301 {derived} <-n180
           weight=t161 {derived} <-n38
           bias=none
           params={stride={h=1; w=1};
@@ -212,7 +212,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n48 {derived}: [t171 f32 [H=28 W=28 C=128] {derived} ->[n51]] =
         convolution
-          x=t303 {derived} <-n181
+          x=t303 {derived} <-n182
           weight=t170 {derived} <-n47
           bias=none
           params={stride={h=2; w=2};
@@ -228,7 +228,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n56 {derived}: [t179 f32 [H=28 W=28 C=128] {derived} ->[n59]] =
         convolution
-          x=t304 {derived} <-n182
+          x=t304 {derived} <-n183
           weight=t178 {derived} <-n55
           bias=none
           params={stride={h=1; w=1};
@@ -244,7 +244,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n63 {derived}: [t186 f32 [H=28 W=28 C=128] {derived} ->[n66]] =
         convolution
-          x=t303 {derived} <-n181
+          x=t303 {derived} <-n182
           weight=t185 {derived} <-n62
           bias=none
           params={stride={h=2; w=2};
@@ -260,7 +260,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n72 {derived}: [t195 f32 [H=28 W=28 C=128] {derived} ->[n75]] =
         convolution
-          x=t306 {derived} <-n184
+          x=t306 {derived} <-n185
           weight=t194 {derived} <-n71
           bias=none
           params={stride={h=1; w=1};
@@ -276,7 +276,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n80 {derived}: [t203 f32 [H=28 W=28 C=128] {derived} ->[n83]] =
         convolution
-          x=t307 {derived} <-n185
+          x=t307 {derived} <-n186
           weight=t202 {derived} <-n79
           bias=none
           params={stride={h=1; w=1};
@@ -292,7 +292,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n89 {derived}: [t212 f32 [H=14 W=14 C=256] {derived} ->[n92]] =
         convolution
-          x=t309 {derived} <-n187
+          x=t309 {derived} <-n188
           weight=t211 {derived} <-n88
           bias=none
           params={stride={h=2; w=2};
@@ -308,7 +308,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n97 {derived}: [t220 f32 [H=14 W=14 C=256] {derived} ->[n100]] =
         convolution
-          x=t310 {derived} <-n188
+          x=t310 {derived} <-n189
           weight=t219 {derived} <-n96
           bias=none
           params={stride={h=1; w=1};
@@ -324,7 +324,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n104 {derived}: [t227 f32 [H=14 W=14 C=256] {derived} ->[n107]] =
         convolution
-          x=t309 {derived} <-n187
+          x=t309 {derived} <-n188
           weight=t226 {derived} <-n103
           bias=none
           params={stride={h=2; w=2};
@@ -340,7 +340,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n113 {derived}: [t236 f32 [H=14 W=14 C=256] {derived} ->[n116]] =
         convolution
-          x=t312 {derived} <-n190
+          x=t312 {derived} <-n191
           weight=t235 {derived} <-n112
           bias=none
           params={stride={h=1; w=1};
@@ -356,7 +356,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n121 {derived}: [t244 f32 [H=14 W=14 C=256] {derived} ->[n124]] =
         convolution
-          x=t313 {derived} <-n191
+          x=t313 {derived} <-n192
           weight=t243 {derived} <-n120
           bias=none
           params={stride={h=1; w=1};
@@ -372,7 +372,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n130 {derived}: [t253 f32 [H=7 W=7 C=512] {derived} ->[n133]] =
         convolution
-          x=t315 {derived} <-n193
+          x=t315 {derived} <-n194
           weight=t252 {derived} <-n129
           bias=none
           params={stride={h=2; w=2};
@@ -388,7 +388,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n138 {derived}: [t261 f32 [H=7 W=7 C=512] {derived} ->[n141]] =
         convolution
-          x=t316 {derived} <-n194
+          x=t316 {derived} <-n195
           weight=t260 {derived} <-n137
           bias=none
           params={stride={h=1; w=1};
@@ -404,7 +404,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n145 {derived}: [t268 f32 [H=7 W=7 C=512] {derived} ->[n148]] =
         convolution
-          x=t315 {derived} <-n193
+          x=t315 {derived} <-n194
           weight=t267 {derived} <-n144
           bias=none
           params={stride={h=2; w=2};
@@ -420,7 +420,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n154 {derived}: [t277 f32 [H=7 W=7 C=512] {derived} ->[n157]] =
         convolution
-          x=t318 {derived} <-n196
+          x=t318 {derived} <-n197
           weight=t276 {derived} <-n153
           bias=none
           params={stride={h=1; w=1};
@@ -436,7 +436,7 @@ every name resolves exactly as the importer recorded it.
           perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
       n162 {derived}: [t285 f32 [H=7 W=7 C=512] {derived} ->[n165]] =
         convolution
-          x=t319 {derived} <-n197
+          x=t319 {derived} <-n198
           weight=t284 {derived} <-n161
           bias=none
           params={stride={h=1; w=1};
@@ -459,17 +459,15 @@ every name resolves exactly as the importer recorded it.
           running_var=t63 {pt2=root:b_bn1_running_var target=bn1.running_var}
           params={channel=C; eps=1e-05}
     n175 {pt2=root[2] torch.ops.aten.relu.default}: [t297 f32 [H=112 W=112
-                                                               C=64] {derived} ->[n9]] =
+                                                               C=64] {derived} ->[n176]] =
       relu x=t128 {derived} <-n5
     group g3 torch.ops.aten.max_pool2d_with_indices.default:
-      n9 {derived}: [t132 f32 [H=56 W=56 C=64] {derived} ->[n14, n177],
-                     t133 f32 [H=56 W=56 C=64] {derived} ->[n10]] =
-        max_pool2d_with_indices
+      n176 {derived}: [t132 f32 [H=56 W=56 C=64] {derived} ->[n14, n178]] =
+        max_pool2d
           x=t297 {derived} <-n175
           params={kernel={h=3; w=3}; stride={h=2; w=2}; pad={h=1; w=1}}
-      n10 {derived}: [] = discard x=t133 {derived} <-n9
     group g5 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n17 {derived}: [t140 f32 [H=56 W=56 C=64] {derived} ->[n176]] =
+      n17 {derived}: [t140 f32 [H=56 W=56 C=64] {derived} ->[n177]] =
         batch_norm
           x=t137 {derived} <-n14
           weight=t4 {pt2=root:p_layer1_0_bn1_weight target=layer1.0.bn1.weight}
@@ -477,10 +475,10 @@ every name resolves exactly as the importer recorded it.
           running_mean=t65 {pt2=root:b_layer1_0_bn1_running_mean target=layer1.0.bn1.running_mean}
           running_var=t66 {pt2=root:b_layer1_0_bn1_running_var target=layer1.0.bn1.running_var}
           params={channel=C; eps=1e-05}
-    n176 {pt2=root[6] torch.ops.aten.relu.default}: [t298 f32 [H=56 W=56 C=64] {derived} ->[n22]] =
+    n177 {pt2=root[6] torch.ops.aten.relu.default}: [t298 f32 [H=56 W=56 C=64] {derived} ->[n22]] =
       relu x=t140 {derived} <-n17
     group g7 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n25 {derived}: [t148 f32 [H=56 W=56 C=64] {derived} ->[n177]] =
+      n25 {derived}: [t148 f32 [H=56 W=56 C=64] {derived} ->[n178]] =
         batch_norm
           x=t145 {derived} <-n22
           weight=t7 {pt2=root:p_layer1_0_bn2_weight target=layer1.0.bn2.weight}
@@ -488,13 +486,13 @@ every name resolves exactly as the importer recorded it.
           running_mean=t68 {pt2=root:b_layer1_0_bn2_running_mean target=layer1.0.bn2.running_mean}
           running_var=t69 {pt2=root:b_layer1_0_bn2_running_var target=layer1.0.bn2.running_var}
           params={channel=C; eps=1e-05}
-    n177 {pt2=root[9] torch.ops.aten.add.Tensor}: [t299 f32 [H=56 W=56 C=64] {derived} ->[n178]] =
-      add a=t148 {derived} <-n25 b=t132 {derived} <-n9
-    n178 {pt2=root[10] torch.ops.aten.relu.default}: [t300 f32 [H=56 W=56 C=64] {derived} ->[n31,
-                                                                      n180]] =
-      relu x=t299 {derived} <-n177
+    n178 {pt2=root[9] torch.ops.aten.add.Tensor}: [t299 f32 [H=56 W=56 C=64] {derived} ->[n179]] =
+      add a=t148 {derived} <-n25 b=t132 {derived} <-n176
+    n179 {pt2=root[10] torch.ops.aten.relu.default}: [t300 f32 [H=56 W=56 C=64] {derived} ->[n31,
+                                                                      n181]] =
+      relu x=t299 {derived} <-n178
     group g9 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n34 {derived}: [t157 f32 [H=56 W=56 C=64] {derived} ->[n179]] =
+      n34 {derived}: [t157 f32 [H=56 W=56 C=64] {derived} ->[n180]] =
         batch_norm
           x=t154 {derived} <-n31
           weight=t10 {pt2=root:p_layer1_1_bn1_weight target=layer1.1.bn1.weight}
@@ -502,10 +500,10 @@ every name resolves exactly as the importer recorded it.
           running_mean=t71 {pt2=root:b_layer1_1_bn1_running_mean target=layer1.1.bn1.running_mean}
           running_var=t72 {pt2=root:b_layer1_1_bn1_running_var target=layer1.1.bn1.running_var}
           params={channel=C; eps=1e-05}
-    n179 {pt2=root[13] torch.ops.aten.relu.default}: [t301 f32 [H=56 W=56 C=64] {derived} ->[n39]] =
+    n180 {pt2=root[13] torch.ops.aten.relu.default}: [t301 f32 [H=56 W=56 C=64] {derived} ->[n39]] =
       relu x=t157 {derived} <-n34
     group g11 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n42 {derived}: [t165 f32 [H=56 W=56 C=64] {derived} ->[n180]] =
+      n42 {derived}: [t165 f32 [H=56 W=56 C=64] {derived} ->[n181]] =
         batch_norm
           x=t162 {derived} <-n39
           weight=t13 {pt2=root:p_layer1_1_bn2_weight target=layer1.1.bn2.weight}
@@ -513,13 +511,13 @@ every name resolves exactly as the importer recorded it.
           running_mean=t74 {pt2=root:b_layer1_1_bn2_running_mean target=layer1.1.bn2.running_mean}
           running_var=t75 {pt2=root:b_layer1_1_bn2_running_var target=layer1.1.bn2.running_var}
           params={channel=C; eps=1e-05}
-    n180 {pt2=root[16] torch.ops.aten.add.Tensor}: [t302 f32 [H=56 W=56 C=64] {derived} ->[n181]] =
-      add a=t165 {derived} <-n42 b=t300 {derived} <-n178
-    n181 {pt2=root[17] torch.ops.aten.relu.default}: [t303 f32 [H=56 W=56 C=64] {derived} ->[n48,
+    n181 {pt2=root[16] torch.ops.aten.add.Tensor}: [t302 f32 [H=56 W=56 C=64] {derived} ->[n182]] =
+      add a=t165 {derived} <-n42 b=t300 {derived} <-n179
+    n182 {pt2=root[17] torch.ops.aten.relu.default}: [t303 f32 [H=56 W=56 C=64] {derived} ->[n48,
                                                                       n63]] =
-      relu x=t302 {derived} <-n180
+      relu x=t302 {derived} <-n181
     group g13 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n51 {derived}: [t174 f32 [H=28 W=28 C=128] {derived} ->[n182]] =
+      n51 {derived}: [t174 f32 [H=28 W=28 C=128] {derived} ->[n183]] =
         batch_norm
           x=t171 {derived} <-n48
           weight=t16 {pt2=root:p_layer2_0_bn1_weight target=layer2.0.bn1.weight}
@@ -528,7 +526,7 @@ every name resolves exactly as the importer recorded it.
           running_var=t78 {pt2=root:b_layer2_0_bn1_running_var target=layer2.0.bn1.running_var}
           params={channel=C; eps=1e-05}
     group g17 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n66 {derived}: [t189 f32 [H=28 W=28 C=128] {derived} ->[n183]] =
+      n66 {derived}: [t189 f32 [H=28 W=28 C=128] {derived} ->[n184]] =
         batch_norm
           x=t186 {derived} <-n63
           weight=t22 {pt2=root:p_layer2_0_downsample_1_weight target=layer2.0.downsample.1.weight}
@@ -536,11 +534,11 @@ every name resolves exactly as the importer recorded it.
           running_mean=t83 {pt2=root:b_layer2_0_downsample_1_running_mean target=layer2.0.downsample.1.running_mean}
           running_var=t84 {pt2=root:b_layer2_0_downsample_1_running_var target=layer2.0.downsample.1.running_var}
           params={channel=C; eps=1e-05}
-    n182 {pt2=root[20] torch.ops.aten.relu.default}: [t304 f32 [H=28 W=28
+    n183 {pt2=root[20] torch.ops.aten.relu.default}: [t304 f32 [H=28 W=28
                                                                 C=128] {derived} ->[n56]] =
       relu x=t174 {derived} <-n51
     group g15 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n59 {derived}: [t182 f32 [H=28 W=28 C=128] {derived} ->[n183]] =
+      n59 {derived}: [t182 f32 [H=28 W=28 C=128] {derived} ->[n184]] =
         batch_norm
           x=t179 {derived} <-n56
           weight=t19 {pt2=root:p_layer2_0_bn2_weight target=layer2.0.bn2.weight}
@@ -548,14 +546,14 @@ every name resolves exactly as the importer recorded it.
           running_mean=t80 {pt2=root:b_layer2_0_bn2_running_mean target=layer2.0.bn2.running_mean}
           running_var=t81 {pt2=root:b_layer2_0_bn2_running_var target=layer2.0.bn2.running_var}
           params={channel=C; eps=1e-05}
-    n183 {pt2=root[25] torch.ops.aten.add.Tensor}: [t305 f32 [H=28 W=28 C=128] {derived} ->[n184]] =
+    n184 {pt2=root[25] torch.ops.aten.add.Tensor}: [t305 f32 [H=28 W=28 C=128] {derived} ->[n185]] =
       add a=t182 {derived} <-n59 b=t189 {derived} <-n66
-    n184 {pt2=root[26] torch.ops.aten.relu.default}: [t306 f32 [H=28 W=28
+    n185 {pt2=root[26] torch.ops.aten.relu.default}: [t306 f32 [H=28 W=28
                                                                 C=128] {derived} ->[n72,
-                                                                      n186]] =
-      relu x=t305 {derived} <-n183
+                                                                      n187]] =
+      relu x=t305 {derived} <-n184
     group g19 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n75 {derived}: [t198 f32 [H=28 W=28 C=128] {derived} ->[n185]] =
+      n75 {derived}: [t198 f32 [H=28 W=28 C=128] {derived} ->[n186]] =
         batch_norm
           x=t195 {derived} <-n72
           weight=t25 {pt2=root:p_layer2_1_bn1_weight target=layer2.1.bn1.weight}
@@ -563,11 +561,11 @@ every name resolves exactly as the importer recorded it.
           running_mean=t86 {pt2=root:b_layer2_1_bn1_running_mean target=layer2.1.bn1.running_mean}
           running_var=t87 {pt2=root:b_layer2_1_bn1_running_var target=layer2.1.bn1.running_var}
           params={channel=C; eps=1e-05}
-    n185 {pt2=root[29] torch.ops.aten.relu.default}: [t307 f32 [H=28 W=28
+    n186 {pt2=root[29] torch.ops.aten.relu.default}: [t307 f32 [H=28 W=28
                                                                 C=128] {derived} ->[n80]] =
       relu x=t198 {derived} <-n75
     group g21 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n83 {derived}: [t206 f32 [H=28 W=28 C=128] {derived} ->[n186]] =
+      n83 {derived}: [t206 f32 [H=28 W=28 C=128] {derived} ->[n187]] =
         batch_norm
           x=t203 {derived} <-n80
           weight=t28 {pt2=root:p_layer2_1_bn2_weight target=layer2.1.bn2.weight}
@@ -575,14 +573,14 @@ every name resolves exactly as the importer recorded it.
           running_mean=t89 {pt2=root:b_layer2_1_bn2_running_mean target=layer2.1.bn2.running_mean}
           running_var=t90 {pt2=root:b_layer2_1_bn2_running_var target=layer2.1.bn2.running_var}
           params={channel=C; eps=1e-05}
-    n186 {pt2=root[32] torch.ops.aten.add.Tensor}: [t308 f32 [H=28 W=28 C=128] {derived} ->[n187]] =
-      add a=t206 {derived} <-n83 b=t306 {derived} <-n184
-    n187 {pt2=root[33] torch.ops.aten.relu.default}: [t309 f32 [H=28 W=28
+    n187 {pt2=root[32] torch.ops.aten.add.Tensor}: [t308 f32 [H=28 W=28 C=128] {derived} ->[n188]] =
+      add a=t206 {derived} <-n83 b=t306 {derived} <-n185
+    n188 {pt2=root[33] torch.ops.aten.relu.default}: [t309 f32 [H=28 W=28
                                                                 C=128] {derived} ->[n89,
                                                                       n104]] =
-      relu x=t308 {derived} <-n186
+      relu x=t308 {derived} <-n187
     group g23 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n92 {derived}: [t215 f32 [H=14 W=14 C=256] {derived} ->[n188]] =
+      n92 {derived}: [t215 f32 [H=14 W=14 C=256] {derived} ->[n189]] =
         batch_norm
           x=t212 {derived} <-n89
           weight=t31 {pt2=root:p_layer3_0_bn1_weight target=layer3.0.bn1.weight}
@@ -591,7 +589,7 @@ every name resolves exactly as the importer recorded it.
           running_var=t93 {pt2=root:b_layer3_0_bn1_running_var target=layer3.0.bn1.running_var}
           params={channel=C; eps=1e-05}
     group g27 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n107 {derived}: [t230 f32 [H=14 W=14 C=256] {derived} ->[n189]] =
+      n107 {derived}: [t230 f32 [H=14 W=14 C=256] {derived} ->[n190]] =
         batch_norm
           x=t227 {derived} <-n104
           weight=t37 {pt2=root:p_layer3_0_downsample_1_weight target=layer3.0.downsample.1.weight}
@@ -599,11 +597,11 @@ every name resolves exactly as the importer recorded it.
           running_mean=t98 {pt2=root:b_layer3_0_downsample_1_running_mean target=layer3.0.downsample.1.running_mean}
           running_var=t99 {pt2=root:b_layer3_0_downsample_1_running_var target=layer3.0.downsample.1.running_var}
           params={channel=C; eps=1e-05}
-    n188 {pt2=root[36] torch.ops.aten.relu.default}: [t310 f32 [H=14 W=14
+    n189 {pt2=root[36] torch.ops.aten.relu.default}: [t310 f32 [H=14 W=14
                                                                 C=256] {derived} ->[n97]] =
       relu x=t215 {derived} <-n92
     group g25 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n100 {derived}: [t223 f32 [H=14 W=14 C=256] {derived} ->[n189]] =
+      n100 {derived}: [t223 f32 [H=14 W=14 C=256] {derived} ->[n190]] =
         batch_norm
           x=t220 {derived} <-n97
           weight=t34 {pt2=root:p_layer3_0_bn2_weight target=layer3.0.bn2.weight}
@@ -611,14 +609,14 @@ every name resolves exactly as the importer recorded it.
           running_mean=t95 {pt2=root:b_layer3_0_bn2_running_mean target=layer3.0.bn2.running_mean}
           running_var=t96 {pt2=root:b_layer3_0_bn2_running_var target=layer3.0.bn2.running_var}
           params={channel=C; eps=1e-05}
-    n189 {pt2=root[41] torch.ops.aten.add.Tensor}: [t311 f32 [H=14 W=14 C=256] {derived} ->[n190]] =
+    n190 {pt2=root[41] torch.ops.aten.add.Tensor}: [t311 f32 [H=14 W=14 C=256] {derived} ->[n191]] =
       add a=t223 {derived} <-n100 b=t230 {derived} <-n107
-    n190 {pt2=root[42] torch.ops.aten.relu.default}: [t312 f32 [H=14 W=14
+    n191 {pt2=root[42] torch.ops.aten.relu.default}: [t312 f32 [H=14 W=14
                                                                 C=256] {derived} ->[n113,
-                                                                      n192]] =
-      relu x=t311 {derived} <-n189
+                                                                      n193]] =
+      relu x=t311 {derived} <-n190
     group g29 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n116 {derived}: [t239 f32 [H=14 W=14 C=256] {derived} ->[n191]] =
+      n116 {derived}: [t239 f32 [H=14 W=14 C=256] {derived} ->[n192]] =
         batch_norm
           x=t236 {derived} <-n113
           weight=t40 {pt2=root:p_layer3_1_bn1_weight target=layer3.1.bn1.weight}
@@ -626,11 +624,11 @@ every name resolves exactly as the importer recorded it.
           running_mean=t101 {pt2=root:b_layer3_1_bn1_running_mean target=layer3.1.bn1.running_mean}
           running_var=t102 {pt2=root:b_layer3_1_bn1_running_var target=layer3.1.bn1.running_var}
           params={channel=C; eps=1e-05}
-    n191 {pt2=root[45] torch.ops.aten.relu.default}: [t313 f32 [H=14 W=14
+    n192 {pt2=root[45] torch.ops.aten.relu.default}: [t313 f32 [H=14 W=14
                                                                 C=256] {derived} ->[n121]] =
       relu x=t239 {derived} <-n116
     group g31 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n124 {derived}: [t247 f32 [H=14 W=14 C=256] {derived} ->[n192]] =
+      n124 {derived}: [t247 f32 [H=14 W=14 C=256] {derived} ->[n193]] =
         batch_norm
           x=t244 {derived} <-n121
           weight=t43 {pt2=root:p_layer3_1_bn2_weight target=layer3.1.bn2.weight}
@@ -638,14 +636,14 @@ every name resolves exactly as the importer recorded it.
           running_mean=t104 {pt2=root:b_layer3_1_bn2_running_mean target=layer3.1.bn2.running_mean}
           running_var=t105 {pt2=root:b_layer3_1_bn2_running_var target=layer3.1.bn2.running_var}
           params={channel=C; eps=1e-05}
-    n192 {pt2=root[48] torch.ops.aten.add.Tensor}: [t314 f32 [H=14 W=14 C=256] {derived} ->[n193]] =
-      add a=t247 {derived} <-n124 b=t312 {derived} <-n190
-    n193 {pt2=root[49] torch.ops.aten.relu.default}: [t315 f32 [H=14 W=14
+    n193 {pt2=root[48] torch.ops.aten.add.Tensor}: [t314 f32 [H=14 W=14 C=256] {derived} ->[n194]] =
+      add a=t247 {derived} <-n124 b=t312 {derived} <-n191
+    n194 {pt2=root[49] torch.ops.aten.relu.default}: [t315 f32 [H=14 W=14
                                                                 C=256] {derived} ->[n130,
                                                                       n145]] =
-      relu x=t314 {derived} <-n192
+      relu x=t314 {derived} <-n193
     group g33 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n133 {derived}: [t256 f32 [H=7 W=7 C=512] {derived} ->[n194]] =
+      n133 {derived}: [t256 f32 [H=7 W=7 C=512] {derived} ->[n195]] =
         batch_norm
           x=t253 {derived} <-n130
           weight=t46 {pt2=root:p_layer4_0_bn1_weight target=layer4.0.bn1.weight}
@@ -654,7 +652,7 @@ every name resolves exactly as the importer recorded it.
           running_var=t108 {pt2=root:b_layer4_0_bn1_running_var target=layer4.0.bn1.running_var}
           params={channel=C; eps=1e-05}
     group g37 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n148 {derived}: [t271 f32 [H=7 W=7 C=512] {derived} ->[n195]] =
+      n148 {derived}: [t271 f32 [H=7 W=7 C=512] {derived} ->[n196]] =
         batch_norm
           x=t268 {derived} <-n145
           weight=t52 {pt2=root:p_layer4_0_downsample_1_weight target=layer4.0.downsample.1.weight}
@@ -662,10 +660,10 @@ every name resolves exactly as the importer recorded it.
           running_mean=t113 {pt2=root:b_layer4_0_downsample_1_running_mean target=layer4.0.downsample.1.running_mean}
           running_var=t114 {pt2=root:b_layer4_0_downsample_1_running_var target=layer4.0.downsample.1.running_var}
           params={channel=C; eps=1e-05}
-    n194 {pt2=root[52] torch.ops.aten.relu.default}: [t316 f32 [H=7 W=7 C=512] {derived} ->[n138]] =
+    n195 {pt2=root[52] torch.ops.aten.relu.default}: [t316 f32 [H=7 W=7 C=512] {derived} ->[n138]] =
       relu x=t256 {derived} <-n133
     group g35 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n141 {derived}: [t264 f32 [H=7 W=7 C=512] {derived} ->[n195]] =
+      n141 {derived}: [t264 f32 [H=7 W=7 C=512] {derived} ->[n196]] =
         batch_norm
           x=t261 {derived} <-n138
           weight=t49 {pt2=root:p_layer4_0_bn2_weight target=layer4.0.bn2.weight}
@@ -673,13 +671,13 @@ every name resolves exactly as the importer recorded it.
           running_mean=t110 {pt2=root:b_layer4_0_bn2_running_mean target=layer4.0.bn2.running_mean}
           running_var=t111 {pt2=root:b_layer4_0_bn2_running_var target=layer4.0.bn2.running_var}
           params={channel=C; eps=1e-05}
-    n195 {pt2=root[57] torch.ops.aten.add.Tensor}: [t317 f32 [H=7 W=7 C=512] {derived} ->[n196]] =
+    n196 {pt2=root[57] torch.ops.aten.add.Tensor}: [t317 f32 [H=7 W=7 C=512] {derived} ->[n197]] =
       add a=t264 {derived} <-n141 b=t271 {derived} <-n148
-    n196 {pt2=root[58] torch.ops.aten.relu.default}: [t318 f32 [H=7 W=7 C=512] {derived} ->[n154,
-                                                                      n198]] =
-      relu x=t317 {derived} <-n195
+    n197 {pt2=root[58] torch.ops.aten.relu.default}: [t318 f32 [H=7 W=7 C=512] {derived} ->[n154,
+                                                                      n199]] =
+      relu x=t317 {derived} <-n196
     group g39 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n157 {derived}: [t280 f32 [H=7 W=7 C=512] {derived} ->[n197]] =
+      n157 {derived}: [t280 f32 [H=7 W=7 C=512] {derived} ->[n198]] =
         batch_norm
           x=t277 {derived} <-n154
           weight=t55 {pt2=root:p_layer4_1_bn1_weight target=layer4.1.bn1.weight}
@@ -687,10 +685,10 @@ every name resolves exactly as the importer recorded it.
           running_mean=t116 {pt2=root:b_layer4_1_bn1_running_mean target=layer4.1.bn1.running_mean}
           running_var=t117 {pt2=root:b_layer4_1_bn1_running_var target=layer4.1.bn1.running_var}
           params={channel=C; eps=1e-05}
-    n197 {pt2=root[61] torch.ops.aten.relu.default}: [t319 f32 [H=7 W=7 C=512] {derived} ->[n162]] =
+    n198 {pt2=root[61] torch.ops.aten.relu.default}: [t319 f32 [H=7 W=7 C=512] {derived} ->[n162]] =
       relu x=t280 {derived} <-n157
     group g41 torch.ops.aten._native_batch_norm_legit_no_training.default:
-      n165 {derived}: [t288 f32 [H=7 W=7 C=512] {derived} ->[n198]] =
+      n165 {derived}: [t288 f32 [H=7 W=7 C=512] {derived} ->[n199]] =
         batch_norm
           x=t285 {derived} <-n162
           weight=t58 {pt2=root:p_layer4_1_bn2_weight target=layer4.1.bn2.weight}
@@ -698,16 +696,16 @@ every name resolves exactly as the importer recorded it.
           running_mean=t119 {pt2=root:b_layer4_1_bn2_running_mean target=layer4.1.bn2.running_mean}
           running_var=t120 {pt2=root:b_layer4_1_bn2_running_var target=layer4.1.bn2.running_var}
           params={channel=C; eps=1e-05}
-    n198 {pt2=root[64] torch.ops.aten.add.Tensor}: [t320 f32 [H=7 W=7 C=512] {derived} ->[n199]] =
-      add a=t288 {derived} <-n165 b=t318 {derived} <-n196
-    n199 {pt2=root[65] torch.ops.aten.relu.default}: [t321 f32 [H=7 W=7 C=512] {derived} ->[n200]] =
-      relu x=t320 {derived} <-n198
-    n200 {pt2=root[66] torch.ops.aten.mean.dim}: [t322 f32 [C=512] {pt2=root:view} ->[n173]] =
-      mean x=t321 {derived} <-n199 params={dims=[W, H]; keepdim=true}
+    n199 {pt2=root[64] torch.ops.aten.add.Tensor}: [t320 f32 [H=7 W=7 C=512] {derived} ->[n200]] =
+      add a=t288 {derived} <-n165 b=t318 {derived} <-n197
+    n200 {pt2=root[65] torch.ops.aten.relu.default}: [t321 f32 [H=7 W=7 C=512] {derived} ->[n201]] =
+      relu x=t320 {derived} <-n199
+    n201 {pt2=root[66] torch.ops.aten.mean.dim}: [t322 f32 [C=512] {pt2=root:view} ->[n173]] =
+      mean x=t321 {derived} <-n200 params={dims=[W, H]; keepdim=true}
     group g42 torch.ops.aten.addmm.default:
       n173 {pt2=root[69] torch.ops.aten.addmm.default}: [t296 f32 [C=1000] {pt2=root:addmm}] =
         linear
-          x=t322 {pt2=root:view} <-n200
+          x=t322 {pt2=root:view} <-n201
           weight=t295 {derived} <-n174
           bias=t61 {pt2=root:p_fc_bias target=fc.bias}
           params={in_features=512}
@@ -727,7 +725,7 @@ prints as `folded from=[...]` — provenance answering the question value
 correspondence must not.
 
   $ ../bin/native_graph.exe transform --fold --pt2 "$PT2_DATA/resnet18/resnet18.pt2"
-  nodes: 174 -> 50
+  nodes: 174 -> 49
   constants: 42, of which 41 folded
   graph
   inputs:
@@ -736,44 +734,44 @@ correspondence must not.
      t295 f32 [N=1000 T=1 D=1 H=1 W=1 C=512] {folded from=[p_fc_weight]} ->[n173] constant,
      t297 f32 [N=64 T=1 D=1 H=7 W=7 C=3] {folded from=[p_conv1_weight,p_bn1_weight,b_bn1_running_var]} ->[n174] constant,
      t298 f32 [C=64] {folded from=[p_bn1_weight,p_bn1_bias,b_bn1_running_mean,b_bn1_running_var]} ->[n174] constant,
-     t299 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var]} ->[n176] constant,
-     t300 f32 [C=64] {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var]} ->[n176] constant,
-     t301 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var]} ->[n178] constant,
-     t302 f32 [C=64] {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var]} ->[n178] constant,
-     t303 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var]} ->[n181] constant,
-     t304 f32 [C=64] {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var]} ->[n181] constant,
-     t305 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var]} ->[n183] constant,
-     t306 f32 [C=64] {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var]} ->[n183] constant,
-     t307 f32 [N=128 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var]} ->[n186] constant,
-     t308 f32 [C=128] {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var]} ->[n186] constant,
-     t309 f32 [N=128 T=1 D=1 H=1 W=1 C=64] {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var]} ->[n187] constant,
-     t310 f32 [C=128] {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var]} ->[n187] constant,
-     t311 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var]} ->[n189] constant,
-     t312 f32 [C=128] {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var]} ->[n189] constant,
-     t313 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var]} ->[n192] constant,
-     t314 f32 [C=128] {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var]} ->[n192] constant,
-     t315 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var]} ->[n194] constant,
-     t316 f32 [C=128] {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var]} ->[n194] constant,
-     t317 f32 [N=256 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var]} ->[n197] constant,
-     t318 f32 [C=256] {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var]} ->[n197] constant,
-     t319 f32 [N=256 T=1 D=1 H=1 W=1 C=128] {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var]} ->[n198] constant,
-     t320 f32 [C=256] {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var]} ->[n198] constant,
-     t321 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var]} ->[n200] constant,
-     t322 f32 [C=256] {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var]} ->[n200] constant,
-     t323 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var]} ->[n203] constant,
-     t324 f32 [C=256] {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var]} ->[n203] constant,
-     t325 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var]} ->[n205] constant,
-     t326 f32 [C=256] {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var]} ->[n205] constant,
-     t327 f32 [N=512 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var]} ->[n208] constant,
-     t328 f32 [C=512] {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var]} ->[n208] constant,
-     t329 f32 [N=512 T=1 D=1 H=1 W=1 C=256] {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var]} ->[n209] constant,
-     t330 f32 [C=512] {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var]} ->[n209] constant,
-     t331 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var]} ->[n211] constant,
-     t332 f32 [C=512] {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var]} ->[n211] constant,
-     t333 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var]} ->[n214] constant,
-     t334 f32 [C=512] {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var]} ->[n214] constant,
-     t335 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var]} ->[n216] constant,
-     t336 f32 [C=512] {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var]} ->[n216] constant]
+     t299 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var]} ->[n177] constant,
+     t300 f32 [C=64] {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var]} ->[n177] constant,
+     t301 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var]} ->[n179] constant,
+     t302 f32 [C=64] {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var]} ->[n179] constant,
+     t303 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var]} ->[n182] constant,
+     t304 f32 [C=64] {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var]} ->[n182] constant,
+     t305 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var]} ->[n184] constant,
+     t306 f32 [C=64] {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var]} ->[n184] constant,
+     t307 f32 [N=128 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var]} ->[n187] constant,
+     t308 f32 [C=128] {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var]} ->[n187] constant,
+     t309 f32 [N=128 T=1 D=1 H=1 W=1 C=64] {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var]} ->[n188] constant,
+     t310 f32 [C=128] {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var]} ->[n188] constant,
+     t311 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var]} ->[n190] constant,
+     t312 f32 [C=128] {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var]} ->[n190] constant,
+     t313 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var]} ->[n193] constant,
+     t314 f32 [C=128] {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var]} ->[n193] constant,
+     t315 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var]} ->[n195] constant,
+     t316 f32 [C=128] {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var]} ->[n195] constant,
+     t317 f32 [N=256 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var]} ->[n198] constant,
+     t318 f32 [C=256] {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var]} ->[n198] constant,
+     t319 f32 [N=256 T=1 D=1 H=1 W=1 C=128] {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var]} ->[n199] constant,
+     t320 f32 [C=256] {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var]} ->[n199] constant,
+     t321 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var]} ->[n201] constant,
+     t322 f32 [C=256] {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var]} ->[n201] constant,
+     t323 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var]} ->[n204] constant,
+     t324 f32 [C=256] {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var]} ->[n204] constant,
+     t325 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var]} ->[n206] constant,
+     t326 f32 [C=256] {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var]} ->[n206] constant,
+     t327 f32 [N=512 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var]} ->[n209] constant,
+     t328 f32 [C=512] {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var]} ->[n209] constant,
+     t329 f32 [N=512 T=1 D=1 H=1 W=1 C=256] {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var]} ->[n210] constant,
+     t330 f32 [C=512] {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var]} ->[n210] constant,
+     t331 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var]} ->[n212] constant,
+     t332 f32 [C=512] {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var]} ->[n212] constant,
+     t333 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var]} ->[n215] constant,
+     t334 f32 [C=512] {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var]} ->[n215] constant,
+     t335 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var]} ->[n217] constant,
+     t336 f32 [C=512] {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var]} ->[n217] constant]
   nodes:
     group g1 torch.ops.aten.convolution.default:
       n0 {derived}: [t123 f32 [H=224 W=224 C=3] {derived} ->[n174]] =
@@ -790,18 +788,16 @@ correspondence must not.
                output_padding={h=0; w=0};
                groups=1}
     n175 {pt2=root[2] torch.ops.aten.relu.default}: [t338 f32 [H=112 W=112
-                                                               C=64] {derived} ->[n9]] =
+                                                               C=64] {derived} ->[n176]] =
       relu x=t337 {derived} <-n174
     group g3 torch.ops.aten.max_pool2d_with_indices.default:
-      n9 {derived}: [t132 f32 [H=56 W=56 C=64] {derived} ->[n176, n179],
-                     t133 f32 [H=56 W=56 C=64] {derived} ->[n10]] =
-        max_pool2d_with_indices
+      n176 {derived}: [t132 f32 [H=56 W=56 C=64] {derived} ->[n177, n180]] =
+        max_pool2d
           x=t338 {derived} <-n175
           params={kernel={h=3; w=3}; stride={h=2; w=2}; pad={h=1; w=1}}
-      n10 {derived}: [] = discard x=t133 {derived} <-n9
-    n176 {derived}: [t339 f32 [H=56 W=56 C=64] {derived} ->[n177]] =
+    n177 {derived}: [t339 f32 [H=56 W=56 C=64] {derived} ->[n178]] =
       convolution
-        x=t132 {derived} <-n9
+        x=t132 {derived} <-n176
         weight=t299 {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var]}
         bias=t300 {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -810,11 +806,11 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n177 {pt2=root[6] torch.ops.aten.relu.default}: [t340 f32 [H=56 W=56 C=64] {derived} ->[n178]] =
-      relu x=t339 {derived} <-n176
-    n178 {derived}: [t341 f32 [H=56 W=56 C=64] {derived} ->[n179]] =
+    n178 {pt2=root[6] torch.ops.aten.relu.default}: [t340 f32 [H=56 W=56 C=64] {derived} ->[n179]] =
+      relu x=t339 {derived} <-n177
+    n179 {derived}: [t341 f32 [H=56 W=56 C=64] {derived} ->[n180]] =
       convolution
-        x=t340 {derived} <-n177
+        x=t340 {derived} <-n178
         weight=t301 {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var]}
         bias=t302 {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -823,14 +819,14 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n179 {pt2=root[9] torch.ops.aten.add.Tensor}: [t342 f32 [H=56 W=56 C=64] {derived} ->[n180]] =
-      add a=t341 {derived} <-n178 b=t132 {derived} <-n9
-    n180 {pt2=root[10] torch.ops.aten.relu.default}: [t343 f32 [H=56 W=56 C=64] {derived} ->[n181,
-                                                                      n184]] =
-      relu x=t342 {derived} <-n179
-    n181 {derived}: [t344 f32 [H=56 W=56 C=64] {derived} ->[n182]] =
+    n180 {pt2=root[9] torch.ops.aten.add.Tensor}: [t342 f32 [H=56 W=56 C=64] {derived} ->[n181]] =
+      add a=t341 {derived} <-n179 b=t132 {derived} <-n176
+    n181 {pt2=root[10] torch.ops.aten.relu.default}: [t343 f32 [H=56 W=56 C=64] {derived} ->[n182,
+                                                                      n185]] =
+      relu x=t342 {derived} <-n180
+    n182 {derived}: [t344 f32 [H=56 W=56 C=64] {derived} ->[n183]] =
       convolution
-        x=t343 {derived} <-n180
+        x=t343 {derived} <-n181
         weight=t303 {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var]}
         bias=t304 {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -839,11 +835,11 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n182 {pt2=root[13] torch.ops.aten.relu.default}: [t345 f32 [H=56 W=56 C=64] {derived} ->[n183]] =
-      relu x=t344 {derived} <-n181
-    n183 {derived}: [t346 f32 [H=56 W=56 C=64] {derived} ->[n184]] =
+    n183 {pt2=root[13] torch.ops.aten.relu.default}: [t345 f32 [H=56 W=56 C=64] {derived} ->[n184]] =
+      relu x=t344 {derived} <-n182
+    n184 {derived}: [t346 f32 [H=56 W=56 C=64] {derived} ->[n185]] =
       convolution
-        x=t345 {derived} <-n182
+        x=t345 {derived} <-n183
         weight=t305 {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var]}
         bias=t306 {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -852,14 +848,14 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n184 {pt2=root[16] torch.ops.aten.add.Tensor}: [t347 f32 [H=56 W=56 C=64] {derived} ->[n185]] =
-      add a=t346 {derived} <-n183 b=t343 {derived} <-n180
-    n185 {pt2=root[17] torch.ops.aten.relu.default}: [t348 f32 [H=56 W=56 C=64] {derived} ->[n186,
-                                                                      n187]] =
-      relu x=t347 {derived} <-n184
-    n186 {derived}: [t349 f32 [H=28 W=28 C=128] {derived} ->[n188]] =
+    n185 {pt2=root[16] torch.ops.aten.add.Tensor}: [t347 f32 [H=56 W=56 C=64] {derived} ->[n186]] =
+      add a=t346 {derived} <-n184 b=t343 {derived} <-n181
+    n186 {pt2=root[17] torch.ops.aten.relu.default}: [t348 f32 [H=56 W=56 C=64] {derived} ->[n187,
+                                                                      n188]] =
+      relu x=t347 {derived} <-n185
+    n187 {derived}: [t349 f32 [H=28 W=28 C=128] {derived} ->[n189]] =
       convolution
-        x=t348 {derived} <-n185
+        x=t348 {derived} <-n186
         weight=t307 {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var]}
         bias=t308 {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var]}
         params={stride={h=2; w=2};
@@ -868,9 +864,9 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n187 {derived}: [t350 f32 [H=28 W=28 C=128] {derived} ->[n190]] =
+    n188 {derived}: [t350 f32 [H=28 W=28 C=128] {derived} ->[n191]] =
       convolution
-        x=t348 {derived} <-n185
+        x=t348 {derived} <-n186
         weight=t309 {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var]}
         bias=t310 {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var]}
         params={stride={h=2; w=2};
@@ -879,12 +875,12 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n188 {pt2=root[20] torch.ops.aten.relu.default}: [t351 f32 [H=28 W=28
-                                                                C=128] {derived} ->[n189]] =
-      relu x=t349 {derived} <-n186
-    n189 {derived}: [t352 f32 [H=28 W=28 C=128] {derived} ->[n190]] =
+    n189 {pt2=root[20] torch.ops.aten.relu.default}: [t351 f32 [H=28 W=28
+                                                                C=128] {derived} ->[n190]] =
+      relu x=t349 {derived} <-n187
+    n190 {derived}: [t352 f32 [H=28 W=28 C=128] {derived} ->[n191]] =
       convolution
-        x=t351 {derived} <-n188
+        x=t351 {derived} <-n189
         weight=t311 {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var]}
         bias=t312 {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -893,15 +889,15 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n190 {pt2=root[25] torch.ops.aten.add.Tensor}: [t353 f32 [H=28 W=28 C=128] {derived} ->[n191]] =
-      add a=t352 {derived} <-n189 b=t350 {derived} <-n187
-    n191 {pt2=root[26] torch.ops.aten.relu.default}: [t354 f32 [H=28 W=28
-                                                                C=128] {derived} ->[n192,
-                                                                      n195]] =
-      relu x=t353 {derived} <-n190
-    n192 {derived}: [t355 f32 [H=28 W=28 C=128] {derived} ->[n193]] =
+    n191 {pt2=root[25] torch.ops.aten.add.Tensor}: [t353 f32 [H=28 W=28 C=128] {derived} ->[n192]] =
+      add a=t352 {derived} <-n190 b=t350 {derived} <-n188
+    n192 {pt2=root[26] torch.ops.aten.relu.default}: [t354 f32 [H=28 W=28
+                                                                C=128] {derived} ->[n193,
+                                                                      n196]] =
+      relu x=t353 {derived} <-n191
+    n193 {derived}: [t355 f32 [H=28 W=28 C=128] {derived} ->[n194]] =
       convolution
-        x=t354 {derived} <-n191
+        x=t354 {derived} <-n192
         weight=t313 {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var]}
         bias=t314 {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -910,12 +906,12 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n193 {pt2=root[29] torch.ops.aten.relu.default}: [t356 f32 [H=28 W=28
-                                                                C=128] {derived} ->[n194]] =
-      relu x=t355 {derived} <-n192
-    n194 {derived}: [t357 f32 [H=28 W=28 C=128] {derived} ->[n195]] =
+    n194 {pt2=root[29] torch.ops.aten.relu.default}: [t356 f32 [H=28 W=28
+                                                                C=128] {derived} ->[n195]] =
+      relu x=t355 {derived} <-n193
+    n195 {derived}: [t357 f32 [H=28 W=28 C=128] {derived} ->[n196]] =
       convolution
-        x=t356 {derived} <-n193
+        x=t356 {derived} <-n194
         weight=t315 {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var]}
         bias=t316 {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -924,15 +920,15 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n195 {pt2=root[32] torch.ops.aten.add.Tensor}: [t358 f32 [H=28 W=28 C=128] {derived} ->[n196]] =
-      add a=t357 {derived} <-n194 b=t354 {derived} <-n191
-    n196 {pt2=root[33] torch.ops.aten.relu.default}: [t359 f32 [H=28 W=28
-                                                                C=128] {derived} ->[n197,
-                                                                      n198]] =
-      relu x=t358 {derived} <-n195
-    n197 {derived}: [t360 f32 [H=14 W=14 C=256] {derived} ->[n199]] =
+    n196 {pt2=root[32] torch.ops.aten.add.Tensor}: [t358 f32 [H=28 W=28 C=128] {derived} ->[n197]] =
+      add a=t357 {derived} <-n195 b=t354 {derived} <-n192
+    n197 {pt2=root[33] torch.ops.aten.relu.default}: [t359 f32 [H=28 W=28
+                                                                C=128] {derived} ->[n198,
+                                                                      n199]] =
+      relu x=t358 {derived} <-n196
+    n198 {derived}: [t360 f32 [H=14 W=14 C=256] {derived} ->[n200]] =
       convolution
-        x=t359 {derived} <-n196
+        x=t359 {derived} <-n197
         weight=t317 {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var]}
         bias=t318 {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var]}
         params={stride={h=2; w=2};
@@ -941,9 +937,9 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n198 {derived}: [t361 f32 [H=14 W=14 C=256] {derived} ->[n201]] =
+    n199 {derived}: [t361 f32 [H=14 W=14 C=256] {derived} ->[n202]] =
       convolution
-        x=t359 {derived} <-n196
+        x=t359 {derived} <-n197
         weight=t319 {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var]}
         bias=t320 {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var]}
         params={stride={h=2; w=2};
@@ -952,12 +948,12 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n199 {pt2=root[36] torch.ops.aten.relu.default}: [t362 f32 [H=14 W=14
-                                                                C=256] {derived} ->[n200]] =
-      relu x=t360 {derived} <-n197
-    n200 {derived}: [t363 f32 [H=14 W=14 C=256] {derived} ->[n201]] =
+    n200 {pt2=root[36] torch.ops.aten.relu.default}: [t362 f32 [H=14 W=14
+                                                                C=256] {derived} ->[n201]] =
+      relu x=t360 {derived} <-n198
+    n201 {derived}: [t363 f32 [H=14 W=14 C=256] {derived} ->[n202]] =
       convolution
-        x=t362 {derived} <-n199
+        x=t362 {derived} <-n200
         weight=t321 {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var]}
         bias=t322 {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -966,15 +962,15 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n201 {pt2=root[41] torch.ops.aten.add.Tensor}: [t364 f32 [H=14 W=14 C=256] {derived} ->[n202]] =
-      add a=t363 {derived} <-n200 b=t361 {derived} <-n198
-    n202 {pt2=root[42] torch.ops.aten.relu.default}: [t365 f32 [H=14 W=14
-                                                                C=256] {derived} ->[n203,
-                                                                      n206]] =
-      relu x=t364 {derived} <-n201
-    n203 {derived}: [t366 f32 [H=14 W=14 C=256] {derived} ->[n204]] =
+    n202 {pt2=root[41] torch.ops.aten.add.Tensor}: [t364 f32 [H=14 W=14 C=256] {derived} ->[n203]] =
+      add a=t363 {derived} <-n201 b=t361 {derived} <-n199
+    n203 {pt2=root[42] torch.ops.aten.relu.default}: [t365 f32 [H=14 W=14
+                                                                C=256] {derived} ->[n204,
+                                                                      n207]] =
+      relu x=t364 {derived} <-n202
+    n204 {derived}: [t366 f32 [H=14 W=14 C=256] {derived} ->[n205]] =
       convolution
-        x=t365 {derived} <-n202
+        x=t365 {derived} <-n203
         weight=t323 {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var]}
         bias=t324 {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -983,12 +979,12 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n204 {pt2=root[45] torch.ops.aten.relu.default}: [t367 f32 [H=14 W=14
-                                                                C=256] {derived} ->[n205]] =
-      relu x=t366 {derived} <-n203
-    n205 {derived}: [t368 f32 [H=14 W=14 C=256] {derived} ->[n206]] =
+    n205 {pt2=root[45] torch.ops.aten.relu.default}: [t367 f32 [H=14 W=14
+                                                                C=256] {derived} ->[n206]] =
+      relu x=t366 {derived} <-n204
+    n206 {derived}: [t368 f32 [H=14 W=14 C=256] {derived} ->[n207]] =
       convolution
-        x=t367 {derived} <-n204
+        x=t367 {derived} <-n205
         weight=t325 {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var]}
         bias=t326 {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -997,15 +993,15 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n206 {pt2=root[48] torch.ops.aten.add.Tensor}: [t369 f32 [H=14 W=14 C=256] {derived} ->[n207]] =
-      add a=t368 {derived} <-n205 b=t365 {derived} <-n202
-    n207 {pt2=root[49] torch.ops.aten.relu.default}: [t370 f32 [H=14 W=14
-                                                                C=256] {derived} ->[n208,
-                                                                      n209]] =
-      relu x=t369 {derived} <-n206
-    n208 {derived}: [t371 f32 [H=7 W=7 C=512] {derived} ->[n210]] =
+    n207 {pt2=root[48] torch.ops.aten.add.Tensor}: [t369 f32 [H=14 W=14 C=256] {derived} ->[n208]] =
+      add a=t368 {derived} <-n206 b=t365 {derived} <-n203
+    n208 {pt2=root[49] torch.ops.aten.relu.default}: [t370 f32 [H=14 W=14
+                                                                C=256] {derived} ->[n209,
+                                                                      n210]] =
+      relu x=t369 {derived} <-n207
+    n209 {derived}: [t371 f32 [H=7 W=7 C=512] {derived} ->[n211]] =
       convolution
-        x=t370 {derived} <-n207
+        x=t370 {derived} <-n208
         weight=t327 {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var]}
         bias=t328 {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var]}
         params={stride={h=2; w=2};
@@ -1014,9 +1010,9 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n209 {derived}: [t372 f32 [H=7 W=7 C=512] {derived} ->[n212]] =
+    n210 {derived}: [t372 f32 [H=7 W=7 C=512] {derived} ->[n213]] =
       convolution
-        x=t370 {derived} <-n207
+        x=t370 {derived} <-n208
         weight=t329 {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var]}
         bias=t330 {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var]}
         params={stride={h=2; w=2};
@@ -1025,11 +1021,11 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n210 {pt2=root[52] torch.ops.aten.relu.default}: [t373 f32 [H=7 W=7 C=512] {derived} ->[n211]] =
-      relu x=t371 {derived} <-n208
-    n211 {derived}: [t374 f32 [H=7 W=7 C=512] {derived} ->[n212]] =
+    n211 {pt2=root[52] torch.ops.aten.relu.default}: [t373 f32 [H=7 W=7 C=512] {derived} ->[n212]] =
+      relu x=t371 {derived} <-n209
+    n212 {derived}: [t374 f32 [H=7 W=7 C=512] {derived} ->[n213]] =
       convolution
-        x=t373 {derived} <-n210
+        x=t373 {derived} <-n211
         weight=t331 {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var]}
         bias=t332 {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -1038,14 +1034,14 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n212 {pt2=root[57] torch.ops.aten.add.Tensor}: [t375 f32 [H=7 W=7 C=512] {derived} ->[n213]] =
-      add a=t374 {derived} <-n211 b=t372 {derived} <-n209
-    n213 {pt2=root[58] torch.ops.aten.relu.default}: [t376 f32 [H=7 W=7 C=512] {derived} ->[n214,
-                                                                      n217]] =
-      relu x=t375 {derived} <-n212
-    n214 {derived}: [t377 f32 [H=7 W=7 C=512] {derived} ->[n215]] =
+    n213 {pt2=root[57] torch.ops.aten.add.Tensor}: [t375 f32 [H=7 W=7 C=512] {derived} ->[n214]] =
+      add a=t374 {derived} <-n212 b=t372 {derived} <-n210
+    n214 {pt2=root[58] torch.ops.aten.relu.default}: [t376 f32 [H=7 W=7 C=512] {derived} ->[n215,
+                                                                      n218]] =
+      relu x=t375 {derived} <-n213
+    n215 {derived}: [t377 f32 [H=7 W=7 C=512] {derived} ->[n216]] =
       convolution
-        x=t376 {derived} <-n213
+        x=t376 {derived} <-n214
         weight=t333 {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var]}
         bias=t334 {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -1054,11 +1050,11 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n215 {pt2=root[61] torch.ops.aten.relu.default}: [t378 f32 [H=7 W=7 C=512] {derived} ->[n216]] =
-      relu x=t377 {derived} <-n214
-    n216 {derived}: [t379 f32 [H=7 W=7 C=512] {derived} ->[n217]] =
+    n216 {pt2=root[61] torch.ops.aten.relu.default}: [t378 f32 [H=7 W=7 C=512] {derived} ->[n217]] =
+      relu x=t377 {derived} <-n215
+    n217 {derived}: [t379 f32 [H=7 W=7 C=512] {derived} ->[n218]] =
       convolution
-        x=t378 {derived} <-n215
+        x=t378 {derived} <-n216
         weight=t335 {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var]}
         bias=t336 {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -1067,16 +1063,16 @@ correspondence must not.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n217 {pt2=root[64] torch.ops.aten.add.Tensor}: [t380 f32 [H=7 W=7 C=512] {derived} ->[n218]] =
-      add a=t379 {derived} <-n216 b=t376 {derived} <-n213
-    n218 {pt2=root[65] torch.ops.aten.relu.default}: [t381 f32 [H=7 W=7 C=512] {derived} ->[n219]] =
-      relu x=t380 {derived} <-n217
-    n219 {pt2=root[66] torch.ops.aten.mean.dim}: [t382 f32 [C=512] {pt2=root:view} ->[n173]] =
-      mean x=t381 {derived} <-n218 params={dims=[W, H]; keepdim=true}
+    n218 {pt2=root[64] torch.ops.aten.add.Tensor}: [t380 f32 [H=7 W=7 C=512] {derived} ->[n219]] =
+      add a=t379 {derived} <-n217 b=t376 {derived} <-n214
+    n219 {pt2=root[65] torch.ops.aten.relu.default}: [t381 f32 [H=7 W=7 C=512] {derived} ->[n220]] =
+      relu x=t380 {derived} <-n218
+    n220 {pt2=root[66] torch.ops.aten.mean.dim}: [t382 f32 [C=512] {pt2=root:view} ->[n173]] =
+      mean x=t381 {derived} <-n219 params={dims=[W, H]; keepdim=true}
     group g42 torch.ops.aten.addmm.default:
       n173 {pt2=root[69] torch.ops.aten.addmm.default}: [t296 f32 [C=1000] {pt2=root:addmm}] =
         linear
-          x=t382 {pt2=root:view} <-n219
+          x=t382 {pt2=root:view} <-n220
           weight=t295 {folded from=[p_fc_weight]}
           bias=t61 {pt2=root:p_fc_bias target=fc.bias}
           params={in_features=512}
