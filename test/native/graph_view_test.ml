@@ -28,6 +28,31 @@ let broken name f =
     (pp_result (fun fmt _ -> Fmt.string fmt "accepted"))
     (lift_view (Graph_view.of_graph g))
 
+(* A graph input used DIRECTLY as a graph output, with no signature recorded for
+   it. Nothing else catches this: validation checks only that an operand is
+   DEFINED, and the signature lookup that would notice lives inside per-node
+   shape inference — which never runs for an edge no node consumes. The live-set
+   check added with the dialect functor is what closes it. *)
+let%expect_test "validation: a live tensor with no signature is rejected" =
+  let g =
+    Graph_builder.build ~name:"passthrough"
+      ~outputs:(fun o -> [ o ])
+      (let open Graph_builder in
+       input ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:4) ())
+    |> Result.get_ok
+  in
+  let stripped = { g with Graph.tensors = Tensor_id.Map.empty } in
+  Format.printf "with signature:    %a@."
+    (pp_result (fun fmt _ -> Fmt.string fmt "accepted"))
+    (lift_view (Graph_view.of_graph g));
+  Format.printf "without signature: %a@."
+    (pp_result (fun fmt _ -> Fmt.string fmt "accepted"))
+    (lift_view (Graph_view.of_graph stripped));
+  [%expect
+    {|
+    with signature:    accepted
+    without signature: missing tensor sig t0 |}]
+
 let%expect_test "validation: a well-formed fixture is accepted" =
   List.iter
     (fun (name, build) ->

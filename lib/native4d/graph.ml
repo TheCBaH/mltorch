@@ -12,39 +12,18 @@
    Stage 4 re-points these at the shared [Graph_common] records; they are
    written out here so stage 2 does not block on that extraction. *)
 
-module Node = struct
-  type t = {
-    id : Graph_ir.Node_id.t;
-    op : Op.t;
-    outputs : Tensor_id.t list;
-        (* Singleton for every current op — the dialect has no multi-output
-           operation, which is why it needs no [Discard] either. A list, still,
-           because the shared framework indexes outputs positionally. *)
-  }
-end
+(* The SHARED records, instantiated at the Native4D op. Node outputs are a
+   singleton for every op — the dialect has no multi-output operation, which is
+   why it needs no [Discard] either — but the list stays because the shared
+   framework indexes outputs positionally. *)
+module Node = Graph_common.Node
+module Graph = Graph_common.Graph
 
-module Graph = struct
-  type t = {
-    nodes : Node.t list; (* globally topo-ordered by construction *)
-    root : Graph_ir.Group.t; (* authoritative structural hierarchy *)
-    tensors : Tensor_sig.t Tensor_id.Map.t;
-    inputs : Tensor_id.t list; (* ordered = the graph's signature *)
-    input_kinds : Graph_ir.Input.kind Tensor_id.Map.t;
-    outputs : Tensor_id.t list; (* ordered = the graph's signature *)
-  }
-end
+type node = Op.t Node.t
+type graph = Op.t Graph.t
 
-type node = Node.t
-type graph = Graph.t
-
-let nodes (g : graph) = g.Graph.nodes
-
-(* Sparse by design, exactly as [Graph_ir.input_kind] is: the effective
-   classification comes from here, not from map membership. *)
-let input_kind (g : graph) id =
-  Option.value
-    (Tensor_id.Map.find_opt id g.Graph.input_kinds)
-    ~default:Graph_ir.Input.Input
+let nodes = Graph_common.nodes
+let input_kind = Graph_common.input_kind
 
 let pp_node ?(pp_ref = Tensor_id.pp) fmt (n : node) =
   Fmt.pf fmt "@[<hv 2>%a: [%a] =@ %a@]" Graph_ir.Node_id.pp n.Node.id

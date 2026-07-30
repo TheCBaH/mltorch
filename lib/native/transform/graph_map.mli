@@ -24,8 +24,13 @@ type error =
   | `Cluster_shape of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t
   | `Node_endpoint of Graph_ir.Node_id.t Cluster_relation.issue
   | `Provenance_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue
+  | `Graph_output_arity of int * int
+  | `Graph_output_mismatch of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t
   | `Unclosed_claim of Graph_ir.Tensor_id.t
   | `Value_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue ]
+(* [`Graph_output_*], not [`Output_arity]: [Graph_view.error] already owns that
+   tag with a different payload, and [Rewrite.error] unions both rows, so
+   reusing the name would give one tag two payloads and fail to typecheck. *)
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -46,13 +51,45 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
    Both are about the map as a data structure, so both belong here rather than in
    the verifier — [Pt2_native_graph] never goes near a symbolic expression. *)
-val create :
-  src:'src Snapshot.t ->
-  dst:'dst Snapshot.t ->
-  values:('src, 'dst) Correspondence.Cluster.t list ->
-  nodes:('src, 'dst) Node_map.Cluster.t list ->
-  provenance:('src, 'dst) Provenance.t ->
-  (('src, 'dst) t, error) Core.result
+(* The snapshot-consuming half, over a PAIR of dialects. [t] itself stays
+   outside, so [compose] works ACROSS the boundary with no existential
+   packaging; only these need to know which dialects they are between. *)
+module Make_pair (Src : Side.S) (Dst : Side.S) : sig
+  val create :
+    src:'src Src.Snapshot.t ->
+    dst:'dst Dst.Snapshot.t ->
+    values:('src, 'dst) Correspondence.Cluster.t list ->
+    nodes:('src, 'dst) Node_map.Cluster.t list ->
+    provenance:('src, 'dst) Provenance.t ->
+    (('src, 'dst) t, error) Core.result
+
+  val clusters_over :
+    ('src, 'dst) t ->
+    src:'src Src.Snapshot.t ->
+    dst:'dst Dst.Snapshot.t ->
+    ('src, 'dst) Correspondence.Cluster.t list
+
+  val check_claim_closure :
+    ('src, 'dst) t ->
+    src:'src Src.Snapshot.t ->
+    dst:'dst Dst.Snapshot.t ->
+    (unit, error) Core.result
+
+  (* Positional and two-sided: equal output arity, and source output [i] sharing
+     a cluster with destination output [i]. Coverage alone is too weak — it
+     admits crossed outputs and an output paired with an internal tensor.
+
+     Called by [create], and deliberately NOT by [Map_verify.run]: unlike claim
+     closure this property is preserved by composition, and [identity] has it
+     trivially, so a check there could never fire. *)
+  val check_output_correspondence :
+    ('src, 'dst) t ->
+    src:'src Src.Snapshot.t ->
+    dst:'dst Dst.Snapshot.t ->
+    (unit, error) Core.result
+end
+
+include module type of Make_pair (Native_side) (Native_side)
 
 val nodes : ('src, 'dst) t -> ('src, 'dst) Node_map.t
 val provenance : ('src, 'dst) t -> ('src, 'dst) Provenance.t
@@ -68,11 +105,6 @@ val clusters : ('src, 'dst) t -> ('src, 'dst) Correspondence.Cluster.t list
 (* Every value cluster including the untouched implicit identities, synthesised
    from the two graphs. This is the equivalence-cluster extraction a verifier
    walks. *)
-val clusters_over :
-  ('src, 'dst) t ->
-  src:'src Snapshot.t ->
-  dst:'dst Snapshot.t ->
-  ('src, 'dst) Correspondence.Cluster.t list
 
 (* Recomputes claim propagation from the map's explicit clusters over the
    destination graph, and rejects when an edge left implicitly [Identical] would
@@ -90,10 +122,5 @@ val clusters_over :
    nothing about a map with no explicit claims at all — an empty map between
    structurally unrelated graphs passes. What guards the verifier there is a
    different mechanism entirely. *)
-val check_claim_closure :
-  ('src, 'dst) t ->
-  src:'src Snapshot.t ->
-  dst:'dst Snapshot.t ->
-  (unit, error) Core.result
 
 val pp : Format.formatter -> ('src, 'dst) t -> unit

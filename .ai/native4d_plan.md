@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress. Stages 0-3 landed. This is the executable companion to
+In progress. Stages 0-4 landed. This is the executable companion to
 `.ai/native4d_design.md`, which holds the goal, the feasibility argument and the
 per-operation legalization rationale; this file holds the stage sequence, the
 decisions taken, the corrections found while planning, and the domain contract
@@ -132,7 +132,7 @@ boundary.
 
 **Acceptance**: Direct and grounded Symbolic agree bitwise on every op.
 
-### Stage 4 — the minimal shared extraction
+### Stage 4 — the minimal shared extraction *(done)*
 
 1. `graph_common.ml` — `'op Node.t`/`'op Graph.t`, plus `Node_id`, `Group_id`,
    `Group`, `Input` and the op-polymorphic `nodes`/`input_kind`, all moved down
@@ -163,7 +163,9 @@ boundary.
    **non-generative**, so `compose` works across the dialect boundary with no
    existential packaging.
 9. `check_output_correspondence`, positional and two-sided per C8, in **`create`
-   only**. Not in `Map_verify.run`: unlike claim closure, positional
+   only**. Landed as `` `Graph_output_arity ``/`` `Graph_output_mismatch `` —
+   `` `Output_arity `` was unavailable, `Graph_view.error` already owning it with
+   a different payload. Not in `Map_verify.run`: unlike claim closure, positional
    correspondence *is* preserved by composition, and `identity` satisfies it
    trivially, so a check there could never fire — a vacuous check, which this
    codebase already judges worse than none.

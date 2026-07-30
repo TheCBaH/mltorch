@@ -5,33 +5,8 @@
    need the recursive module group. *)
 
 module Tensor_id = Tensor_id
-
-module Node_id = struct
-  type t = int
-
-  let of_int x = x
-  let to_int x = x
-  let equal = Int.equal
-  let compare = Int.compare
-  let pp fmt x = Format.fprintf fmt "n%d" x
-
-  module Ord = struct
-    type nonrec t = t
-
-    let compare = compare
-  end
-
-  module Map = Map.Make (Ord)
-  module Set = Set.Make (Ord)
-end
-
-module Input = struct
-  type kind = Input | Constant
-
-  let pp_kind fmt = function
-    | Input -> Format.pp_print_string fmt "input"
-    | Constant -> Format.pp_print_string fmt "constant"
-end
+module Node_id = Graph_common.Node_id
+module Input = Graph_common.Input
 
 type tensor_ref = Tensor_id.t
 
@@ -66,49 +41,20 @@ type op =
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
 
-module Node = struct
-  type t = { id : Node_id.t; op : op; outputs : Tensor_id.t list }
-end
+(* A module ALIAS, so field access [n.Node.outputs] still resolves — the fields
+   belong to the module this names. OCaml will not let a parameterised record be
+   re-exported at a specialised instance ("they have different arities"), so the
+   monomorphic form is [type node] below rather than [Node.t]. That costs
+   nothing: outside this file nothing names [Node.t] as a type. *)
+module Node = Graph_common.Node
+module Group_id = Graph_common.Group_id
+module Group = Graph_common.Group
+module Graph = Graph_common.Graph
 
-module Group_id = struct
-  type t = int
+type node = op Node.t
+type graph = op Graph.t
 
-  let of_int x = x
-  let to_int x = x
-  let equal = Int.equal
-  let compare = Int.compare
-  let pp fmt x = Format.fprintf fmt "g%d" x
-
-  module Ord = struct
-    type nonrec t = t
-
-    let compare = compare
-  end
-
-  module Map = Map.Make (Ord)
-  module Set = Set.Make (Ord)
-end
-
-module Group = struct
-  type item = Node of Node_id.t | Group of t
-  and t = { id : Group_id.t; label : string option; items : item list }
-end
-
-module Graph = struct
-  type t = {
-    nodes : Node.t list;
-    root : Group.t;
-    tensors : Tensor_sig.t Tensor_id.Map.t;
-    inputs : Tensor_id.t list;
-    input_kinds : Input.kind Tensor_id.Map.t;
-    outputs : Tensor_id.t list;
-  }
-end
-
-type node = Node.t
-type graph = Graph.t
-
-let nodes g = g.Graph.nodes
+let nodes = Graph_common.nodes
 
 module Printer = struct
   type t = {
@@ -117,10 +63,7 @@ module Printer = struct
   }
 end
 
-let input_kind g id =
-  Option.value
-    (Tensor_id.Map.find_opt id g.Graph.input_kinds)
-    ~default:Input.Input
+let input_kind = Graph_common.input_kind
 
 (* Per-op interface. Each op module supplies the name, codec, dataflow accessors
    and printer for its OWN payload; [inject]/[project] (added by the wrappers in

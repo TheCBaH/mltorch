@@ -8,28 +8,12 @@
    (CLAUDE.md). See .ai/native_graph_design.md. *)
 
 module Tensor_id = Tensor_id
-
-module Node_id : sig
-  type t = private int
-
-  val of_int : int -> t
-  val to_int : t -> int
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val pp : Format.formatter -> t -> unit
-
-  module Map : Map.S with type key = t
-  module Set : Set.S with type elt = t
-end
+module Node_id = Graph_common.Node_id
 
 (* Inference source classification. [Input] is supplied by the caller for each
    run; [Constant] is model-bound state. Payload lookup belongs to an importer
    sidecar, not to this generic native IR. *)
-module Input : sig
-  type kind = Input | Constant
-
-  val pp_kind : Format.formatter -> kind -> unit
-end
+module Input = Graph_common.Input
 
 (* A reference to a produced edge. Edges are single-assignment, so a reference is
    just the producing edge's id. *)
@@ -76,44 +60,22 @@ type op =
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
 
-module Node : sig
-  type t = { id : Node_id.t; op : op; outputs : Tensor_id.t list }
-  (* [outputs] is singleton for every current op; a list only to admit a future
-     multi-output op (split/topk). *)
-end
+(* Aliases to [Graph_common], which owns the dialect-agnostic vocabulary so a
+   second dialect can reuse it. The ID modules move with the records because
+   [Graph_common.Node.t] needs [Node_id.t] — leaving [Node_id] here would be a
+   compilation-unit cycle. [Tensor_id] already sets that precedent.
 
-module Group_id : sig
-  type t = private int
+   [Node.t] and [Graph.t] are therefore PARAMETERISED; [node] and [graph] below
+   are the monomorphic names, and are what every caller outside this file
+   already uses. Field access ([n.Node.outputs]) resolves through the alias
+   unchanged. *)
+module Node = Graph_common.Node
+module Group_id = Graph_common.Group_id
+module Group = Graph_common.Group
+module Graph = Graph_common.Graph
 
-  val of_int : int -> t
-  val to_int : t -> int
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val pp : Format.formatter -> t -> unit
-
-  module Map : Map.S with type key = t
-  module Set : Set.S with type elt = t
-end
-
-module Group : sig
-  type item = Node of Node_id.t | Group of t
-  and t = { id : Group_id.t; label : string option; items : item list }
-end
-
-module Graph : sig
-  type t = {
-    nodes : Node.t list; (* globally topo-ordered by construction *)
-    root : Group.t; (* authoritative structural hierarchy over [nodes] *)
-    tensors : Tensor_sig.t Tensor_id.Map.t; (* metadata for every edge id *)
-    inputs : Tensor_id.t list; (* ordered = the graph's signature *)
-    input_kinds : Input.kind Tensor_id.Map.t;
-        (* source classification for every [inputs] entry *)
-    outputs : Tensor_id.t list;
-  }
-end
-
-type node = Node.t
-type graph = Graph.t
+type node = op Node.t
+type graph = op Graph.t
 
 (* Optional, importer-owned annotations for a human-facing graph dump.  The
    generic IR deliberately has no names or foreign metadata; callers such as a

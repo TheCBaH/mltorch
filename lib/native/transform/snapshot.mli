@@ -21,23 +21,32 @@
 
 open Graph_ir
 
-type 'v t
-type packed = Pack : 'v t -> packed
-type 'v edge = 'v Correspondence.id
-type 'v node = 'v Node_map.id
+(* [Graph_view.Make] is applicative, so naming the application here and in the
+   implementation yields the same types — no [module View = ...] alias, which a
+   signature cannot express for a functor application anyway. *)
+module Make (D : Dialect.S) : sig
+  type 'v t
+  type packed = Pack : 'v t -> packed
+  type 'v edge = 'v Correspondence.id
+  type 'v node = 'v Node_map.id
 
-(* Validates the graph, so every accessor below is unambiguous for the same
+  (* Validates the graph, so every accessor below is unambiguous for the same
    reason [Graph_view]'s are. *)
-val create : graph -> (packed, Graph_view.error) Core.result
+  val create :
+    D.op Graph_common.Graph.t -> (packed, Graph_view.Make(D).error) Core.result
 
-(* [None] when the id is not in this version, which is the check that stops a
+  (* [None] when the id is not in this version, which is the check that stops a
    raw id from being tagged into a graph it does not belong to. *)
-val edge : 'v t -> Tensor_id.t -> 'v edge option
-val node : 'v t -> Node_id.t -> 'v node option
+  val edge : 'v t -> Tensor_id.t -> 'v edge option
+  val node : 'v t -> Node_id.t -> 'v node option
 
-(* Needed by [Graph_map]: building a relation demands both universes, and they
+  (* Needed by [Graph_map]: building a relation demands both universes, and they
    cannot be recovered from an abstract snapshot otherwise. *)
-val edges : 'v t -> 'v Correspondence.Universe.t
-val nodes : 'v t -> 'v Node_map.Universe.t
-val graph : 'v t -> graph
-val view : 'v t -> Graph_view.t
+  val edges : 'v t -> 'v Correspondence.Universe.t
+  val nodes : 'v t -> 'v Node_map.Universe.t
+  val graph : 'v t -> D.op Graph_common.Graph.t
+  val view : 'v t -> Graph_view.Make(D).t
+end
+
+(* The Native specialization: what every existing caller already uses. *)
+include module type of Make (Native_dialect)

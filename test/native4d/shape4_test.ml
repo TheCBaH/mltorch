@@ -98,3 +98,48 @@ let%expect_test "shape4: decoding rejects a non-four-axis document" =
     | exception Jsont.Error _ -> "rejected"
     | s4 -> Format.asprintf "accepted %a" Shape4.pp s4);
   [%expect {| rejected |}]
+
+(* ---- the dialect through the shared functors ------------------------------ *)
+
+(* [Dialect4.validate_sig] is the hook without which the four-axis invariant
+   leaks: shape inference constrains what OPS produce, and a graph input or a
+   captured constant is produced by no op. So a Native4D graph whose input is
+   directly its output would otherwise validate with extent on T or D.
+
+   Built by hand rather than through [Builder], which cannot express it —
+   [Shape4] guards construction, and that is the point: this is the hole a
+   hand-assembled or deserialised graph could still fall into. *)
+let%expect_test "view4: an input with a non-four-axis signature is rejected" =
+  let id = Tensor_id.of_int 0 in
+  let graph_with shape =
+    {
+      Graph_common.Graph.nodes = [];
+      root =
+        {
+          Graph_common.Group.id = Graph_common.Group_id.of_int 0;
+          label = None;
+          items = [];
+        };
+      tensors =
+        Tensor_id.Map.singleton id
+          (Tensor_sig.create ~id ~name:"" ~shape ~fmt:(Payload.Fmt Payload.F32)
+             ());
+      inputs = [ id ];
+      input_kinds = Tensor_id.Map.empty;
+      outputs = [ id ];
+    }
+  in
+  let check label shape =
+    Format.printf "%-14s %s@." label
+      (match Framework.View4.of_graph (graph_with shape) with
+      | Ok _ -> "accepted"
+      | Error e ->
+          Format.asprintf "%a" Framework.View4.pp_error e.Core.Error.kind)
+  in
+  check "four-axis" (s 1 1 1 4 4 3);
+  check "extent on D" (s 1 1 5 4 4 3);
+  [%expect
+    {|
+    four-axis      accepted
+    extent on D    tensor t0 is not a legal signature for this dialect: shape has extent on T or D:
+                                                         [D=5 H=4 W=4 C=3] |}]
