@@ -100,27 +100,19 @@ let%expect_test "verify: bypass / sink permute" =
     sink_permute_broadcast [sink]: 8 clusters: 5 proved (structural), 3 vacuous
     sink_permute_mean_basic [sink_mean]: 4 clusters: 2 proved (structural), 2 vacuous |}]
 
-(* [reuse_permute] is where the LOCAL contract runs out, and the honest verdict
-   is [unproved], not a proof and not a refutation.
+(* [reuse_permute] is what forces a boundary to be crossed when only ONE side
+   names it. [reuse_permute_basic] rewrites [t4 = add(P(t0), t1)] into
+   [t4 = P(add(t0, Q(t1)))], reusing an existing [t3 = Q(t1)], so the output
+   cluster's source side reads t1 where its destination side reads t3. Both are
+   non-vacuous clusters, so a rule that stopped at every correspondence variable
+   would leave the two sides as functions of DIFFERENT variables — unequal, and
+   a probe assigning them independently would "separate" a correct rewrite,
+   since [t3 = Q(t1)] is precisely the fact a local frontier drops. Crossing the
+   one-sided variable recovers it. See .ai/native_transform_local_verify_plan.md
+   §13.
 
-   [reuse_permute_basic] rewrites [t4 = add(P(t0), t1)] into
-   [t4 = P(add(t0, Q(t1)))], reusing an existing [t3 = Q(t1)]. The output
-   cluster's two sides are then functions of DIFFERENT correspondence variables
-   — the source reads t1, the destination reads t3 — and [t3 = Q(t1)] is a fact
-   about the graphs that the local frontier deliberately discarded. So the sides
-   cannot compare equal, and a probe that assigns the two variables
-   independently would "separate" a correct rewrite: [Split_frontier] is what
-   stops that becoming a counterexample.
-
-   [reuse_permute_self_inverse] still proves, because there the reused permute
-   is its own inverse and both sides land on the same variable.
-
-   Sub and Div remain here because they are load-bearing for the day this is
-   closed: transposing a rebuilt op's operands would silently negate or invert
-   rather than fail to type-check, so whatever proves this cluster has to
-   distinguish them. See .ai/native_transform_local_verify_plan.md §11, whose
-   "existing valid transformations retain their outcome" criterion this does not
-   yet meet. *)
+   Sub and Div are the load-bearing ones — transposing a rebuilt op's operands
+   would silently negate or invert rather than fail to type-check. *)
 let%expect_test "verify: reuse_permute, including the non-commutative ops" =
   check "reuse_permute_basic"
     (Graph_fixtures.reuse_permute_basic ())
@@ -136,9 +128,9 @@ let%expect_test "verify: reuse_permute, including the non-commutative ops" =
     [ Reuse_permute.pass ];
   [%expect
     {|
-    reuse_permute_basic: 6 clusters: 3 proved (structural), 1 unproved (frontiers differ), 2 vacuous
-    reuse_permute_sub_order: 6 clusters: 3 proved (structural), 1 unproved (frontiers differ), 2 vacuous
-    reuse_permute_div_order: 6 clusters: 3 proved (structural), 1 unproved (frontiers differ), 2 vacuous
+    reuse_permute_basic: 6 clusters: 4 proved (structural), 2 vacuous
+    reuse_permute_sub_order: 6 clusters: 4 proved (structural), 2 vacuous
+    reuse_permute_div_order: 6 clusters: 4 proved (structural), 2 vacuous
     reuse_permute_self_inverse: 3 clusters: 3 proved (structural) |}]
 
 (* ---- what the verifier must NOT prove -------------------------------------
@@ -293,13 +285,20 @@ let%expect_test "verify: crossed input clusters do not collapse to one variable"
     {t1} -> {t0} identical: proved (structural) [exhaustive]
     {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive] |}]
 
-(* ---- what a shared raw id may mean ----------------------------------------
+(* ---- what a raw id may mean, and what it may not --------------------------
 
    The clusters above are explicit. These are about the edges a map says nothing
-   about, where the verifier has to decide for itself whether the two graphs'
-   same-numbered edge is the same edge. Getting that wrong is a FALSE PROOF, not
-   a missed one, so each case below is paired with the mutation that must break
-   it. See .ai/native_transform_verify.md §7. *)
+   about, where the two graphs number an edge the same and the verifier must not
+   read that as "the same value". Getting it wrong is a FALSE PROOF, not a missed
+   one, so each case below is paired with the mutation that must break it.
+
+   Every one of them is now answered by cluster MEMBERSHIP alone: an edge is a
+   frontier variable because a correspondence relates it, never because the two
+   graphs happen to define it alike. Each test's first affected cluster is what
+   must fail; an unchanged downstream transfer function proving LOCALLY beside it
+   is the designed outcome, and "policy: a local proof beside a refutation
+   carries no report" is what stops that proof carrying the report.
+   See .ai/native_transform_local_verify_plan.md §§1-3. *)
 
 let relu_of op () =
   build "g"
@@ -407,9 +406,11 @@ let%expect_test "boundary: vacuous clusters have no variable, and no number" =
    reach: an EMPTY map, which has no explicit claim for propagation to carry, so
    Graph_map.create accepts it by construction. Both graphs number their edges
    the same and t3's definition is literally the same relu on both sides. If t2
-   were taken as shared, both sides would ground to relu(cell t2), compare equal
-   and report t3 PROVED — while the graphs compute relu(a+b) and relu(a-b). *)
-let%expect_test "shared: an empty map over a changed operator proves nothing" =
+   were read as one value on the strength of its number, t2 itself would compare
+   equal and report proved — while the graphs compute a+b and a-b. It is t2 that
+   has to fail. t3 proves, and should: its transfer function really is an
+   unchanged relu of whatever t2 holds. *)
+let%expect_test "local: an empty map over a changed operator refutes t2" =
   let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
   in
   let module B = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
@@ -424,11 +425,11 @@ let%expect_test "shared: an empty map over a changed operator proves nothing" =
     {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive]
     {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
-(* An edge whose two sides are genuinely the same definition SHOULD be shared,
-   or the rule would be vacuous and every untouched prefix would expand. Same
-   graph twice, empty map: everything proves structurally, and t3 proves without
-   ever expanding through t2. *)
-let%expect_test "shared: identical graphs share their edges" =
+(* The companion: nothing is broken, so nothing may fail. Same graph twice under
+   an empty map — every edge is its own singleton cluster, so every dependency is
+   a frontier variable and each cluster closes on its own definition without
+   expanding through anything. *)
+let%expect_test "local: identical graphs prove throughout" =
   let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
   in
   let module B = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
@@ -445,9 +446,9 @@ let%expect_test "shared: identical graphs share their edges" =
 
 (* A label is never evidence. Here t2 keeps its raw id while changing definition
    — exactly what recipe.ml emits a self-claim for — and the map SAYS it is
-   identical. Reading that label to grant [Shared] would assume the obligation;
-   the edge stays side-tagged and the claim is refuted. *)
-let%expect_test "shared: an explicit Identical self-claim is not evidence" =
+   identical. Reading that label as evidence would assume the very obligation
+   under test; t2 is compared on its definitions and the claim is refuted. *)
+let%expect_test "local: an explicit Identical self-claim is not evidence" =
   let module A = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
   in
   let module B = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
@@ -472,14 +473,11 @@ let%expect_test "shared: an explicit Identical self-claim is not evidence" =
 (* The operand comparison is on resolved ORIGINS, pairwise — not on categories.
    Both graphs are literally [relu (sub a b)] and the map crosses the inputs, so
    raw operands are [t0; t1] on both sides and every operand is *some* [Input].
-   A category test grants [Shared t2], t3's two sides then both read one cell and
-   the cluster reports proved — reinstating the exact false proof this rule is
-   written to avoid. Under origin equality the source reads [v0; v1] and the
-   destination [v1; v0].
-
-   The downstream relu is what makes this observable: comparing t2 itself expands
-   each side to its own stage and differs regardless. *)
-let%expect_test "shared: crossed inputs do not make a downstream edge shared" =
+   A rule keyed on the category — "both operands are some input" — would call the
+   two sides equal and prove sub(a,b) identical to sub(b,a). One variable per
+   CLUSTER makes it pairwise instead: the source reads [v0; v1], the destination
+   [v1; v0], and t2 is refuted. *)
+let%expect_test "local: crossed inputs are pairwise, not a category" =
   let g () =
     build "sub"
       Graph_builder.(
@@ -507,15 +505,68 @@ let%expect_test "shared: crossed inputs do not make a downstream edge shared" =
     {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v1(0)=0x1p+1} [exhaustive]
     {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
+(* §10's direct policy assertion, and the reason a local proof is safe to report
+   at all. In both cases above the downstream relu proves LOCALLY — its transfer
+   function really is unchanged — while the cluster that actually broke does not.
+   Whole-report success is the conjunction, so neither policy may be fooled by
+   the proved entry sitting next to the refuted one.
+
+   Without this, the summary's "1 proved" would be the only thing a reader sees
+   of a report that must be rejected. *)
+let policy_row name map ~src ~dst =
+  Format.printf "%s: %a@." name
+    (pp_result (fun ppf r ->
+         Format.fprintf ppf
+           "proved=%b refuted=%b require_proved=%b reject_refuted=%b"
+           (Map_verify.Report.proved r)
+           (Map_verify.Report.refuted r)
+           (Map_verify.Policy.accepts Map_verify.Policy.Require_proved r)
+           (Map_verify.Policy.accepts Map_verify.Policy.Reject_refuted r)))
+    (lift_verify (Map_verify.run map ~src ~dst))
+
+let%expect_test "policy: a local proof beside a refutation carries no report" =
+  let module Add = (val Version_fixture.of_graph (relu_of Graph_builder.add ()))
+  in
+  let module Sub = (val Version_fixture.of_graph (relu_of Graph_builder.sub ()))
+  in
+  policy_row "changed operator"
+    (hand_map ~src:Add.snapshot ~dst:Sub.snapshot [] [])
+    ~src:Add.snapshot ~dst:Sub.snapshot;
+  let g () =
+    build "sub"
+      Graph_builder.(
+        let* a = input ~shape:s ~name:"a" () in
+        let* b = input ~shape:s ~name:"b" () in
+        let* c = sub a b in
+        relu c)
+  in
+  let module A = (val Version_fixture.of_graph (g ())) in
+  let module B = (val Version_fixture.of_graph (g ())) in
+  let src id = Option.get (Snapshot.edge A.snapshot (Tensor_id.of_int id)) in
+  let dst id = Option.get (Snapshot.edge B.snapshot (Tensor_id.of_int id)) in
+  policy_row "crossed inputs"
+    (hand_map ~src:A.snapshot ~dst:B.snapshot
+       [
+         Correspondence.pair (src 0) (dst 1) Correspondence.Identical;
+         Correspondence.pair (src 1) (dst 0) Correspondence.Identical;
+       ]
+       [])
+    ~src:A.snapshot ~dst:B.snapshot;
+  [%expect
+    {|
+    changed operator: proved=false refuted=true require_proved=false reject_refuted=false
+    crossed inputs: proved=false refuted=true require_proved=false reject_refuted=false |}]
+
 (* The output ordinal in the key. [Max_pool2d_with_indices] produces a value and
    an index from one node, and [Output_transfer] classifies them differently for
    good reason — a rounding difference does not nudge an argmax, it selects a
    different element. The two outputs share a shape and a format, so a graph
    naming the same pair of raw ids in the OPPOSITE slots is well formed: t1 is
-   the pooled value in one and the index in the other. Without the ordinal their
-   keys are equal, t1 is taken as shared, both sides ground to the same cell and
-   the cluster reports proved. *)
-let%expect_test "shared: output slots are not interchangeable" =
+   the pooled value in one and the index in the other. Without the ordinal in the
+   key the two are one cluster, both sides ground to the same variable, and t1
+   reports proved though it holds a value on one side and an index on the
+   other. *)
+let%expect_test "local: output slots are not interchangeable" =
   let pool_shape = Graph_fixtures.nhwc ~h:4 ~w:4 ~c:1 in
   let params : Pool.MaxPool2dWithIndices.params =
     {
@@ -530,10 +581,9 @@ let%expect_test "shared: output slots are not interchangeable" =
         let* a = input ~shape:pool_shape ~name:"a" () in
         let* value, index = max_pool2d_with_indices params a in
         let* () = discard index in
-        (* The relu is what makes this a test of the KEY: comparing t1 itself
-           would expand each side to its own stage and differ whatever the
-           classification says. It is t3, whose two sides both read t1 as a
-           frontier cell, that is proved outright when t1 is taken as shared. *)
+        (* t1 is the cluster that must fail. t3 reads it as a frontier variable
+           and so proves locally either way, which is why the ordinal has to be
+           in the KEY rather than left for a downstream comparison to catch. *)
         relu value)
   in
   (* The same graph with the pooling node's two output slots exchanged, so t1
@@ -562,19 +612,23 @@ let%expect_test "shared: output slots are not interchangeable" =
     {t2} -> {t2} identical: refuted: value at (0): src.t2 vs dst.t2 under {v0(0)=0x1p+0, v0(1,0)=0x1p+1, v0(1,0,0)=0x1.8p+1, v0(1,1,0)=0x1p+2} [exhaustive]
     {t3} -> {t3} identical: proved (structural) [exhaustive] |}]
 
-(* The dynamic half of the rule: an edge also becomes shared once its OWN cluster
-   has been PROVED, which is a real induction — clusters are checked in
-   destination-topological order, so a proof leans only on conclusions
-   established strictly earlier.
+(* Why the local contract needs no induction, which is what let the
+   destination-topological ordering and the "proved cluster licenses the edges
+   below it" set both go.
 
-   Here t1 is a clone on one side and an identity permute on the other. The
-   definitions differ, so the structural rule alone will not share it, and every
-   edge downstream of it then has to be expanded through — which a small round
-   budget cannot afford. Once t1's own cluster is proved, its two sides are one
-   cell and the rest of the chain closes at round 0.
+   t1 is a clone on one side and an identity permute on the other: the same
+   value, by two different definitions. An earlier rule compared definitions to
+   decide whether an edge could be treated as one value, so t1 failed that test
+   and everything below it had to be expanded through — affordable only with the
+   rounds to reach the inputs. Membership does not care: t1 is one cluster, so it
+   is one variable, and t2..t4 each close on their own definition.
 
-   Without the induction, t3 and t4 come back over max_rounds. *)
-let%expect_test "shared: a proved cluster licenses the edges below it" =
+   [max_rounds = 0] is the assertion. Every cluster here settles before any
+   expansion at all, so a rule that reopened a corresponding edge — or an
+   induction that had to prove t1 before t2 could use it — would show up
+   immediately as [over max_rounds] rather than as a slower proof. *)
+let%expect_test "local: differing definitions still make one frontier variable"
+    =
   let chain first =
     build "chain"
       Graph_builder.(
@@ -593,7 +647,7 @@ let%expect_test "shared: a proved cluster licenses the edges below it" =
     {
       Map_verify.Budget.max_coords = 4096;
       max_nodes = 200_000;
-      max_rounds = 1;
+      max_rounds = 0;
       sample = None;
     }
   in

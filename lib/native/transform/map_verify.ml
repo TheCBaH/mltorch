@@ -181,11 +181,6 @@ module Unproved = struct
     | Max_nodes of int
     | Max_rounds
     | Out_of_bounds of Ground_expr.Cell.t
-    | Split_frontier of {
-        coord : Vec6.coord;
-        lhs : Member.Erased.t;
-        rhs : Member.Erased.t;
-      }
     | Too_large of int
     | Unbound_constant of Ground_expr.Cell.t
     | Unsupported_format of {
@@ -203,9 +198,6 @@ module Unproved = struct
     | Max_rounds -> Fmt.string fmt "over max_rounds"
     | Out_of_bounds c ->
         Fmt.pf fmt "@[<h>out of bounds: %a@]" Ground_expr.Cell.pp c
-    | Split_frontier e ->
-        Fmt.pf fmt "@[<h>frontiers differ at %a: %a vs %a@]" Vec6.pp_coord
-          e.coord Member.Erased.pp e.lhs Member.Erased.pp e.rhs
     | Too_large n -> Fmt.pf fmt "too large (%d coords)" n
     | Unbound_constant c ->
         Fmt.pf fmt "@[<h>unbound constant: %a@]" Ground_expr.Cell.pp c
@@ -223,7 +215,6 @@ module Unproved = struct
     | Max_nodes _ -> "over max_nodes"
     | Max_rounds -> "over max_rounds"
     | Out_of_bounds _ -> "out of bounds"
-    | Split_frontier _ -> "frontiers differ"
     | Too_large _ -> "too large"
     | Unbound_constant _ -> "unbound constant"
     | Unsupported_format _ -> "format blocks collapse"
@@ -668,18 +659,54 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
     and projected_rn = Ground_expr.project ~boundary:rhs_boundary rn.expr in
     if Ground_expr.equal projected_ln projected_rn then Verdict.Proved proof
     else
+      (* RECONCILE THE FRONTIERS. A variable naming a value only one side reads
+         is not a shared dependency at all: the obligation would read
+         [forall v0 v1 v2. f(v0,v1) = g(v0,v2)], false for almost any f and g,
+         and a probe assigning v1 and v2 independently separates a correct
+         rewrite. [reuse_permute] is the case — the source reads t1 where the
+         destination reads t3, and t3 = Q(t1) is exactly the fact a local
+         frontier drops. So a one-sided variable is denied for EXPANSION and the
+         cell is crossed instead, until both sides name the same variables or
+         one runs out of producers.
+
+         Denied for expansion only: [project] keeps the full boundary, or a
+         shared variable would stop being unified and nothing would ever match.
+         This terminates because each crossing strictly descends that graph's
+         own DAG, the same argument §7 makes for σ.
+
+         Once it settles, a variable still on one side alone belongs to a cell
+         with no producer — a graph input, since an unbound constant is caught
+         before the tiers. σ relates corresponding inputs, and these are in
+         DIFFERENT clusters, so nothing constrains them to agree and a probe
+         separating them is a genuine counterexample. That is why there is no
+         "frontiers differ" verdict guarding the tiers below: crossing removes
+         the case where a witness would have been spurious, and the case that
+         remains deserves the refutation.
+         See .ai/native_transform_local_verify_plan.md §13. *)
+      let common =
+        let lvars = frontier_vars projected_ln
+        and rvars = frontier_vars projected_rn in
+        fun v ->
+          List.exists (Cluster_var.equal v) lvars
+          && List.exists (Cluster_var.equal v) rvars
+      in
+      let crossing boundary o =
+        match boundary o with Some v when common v -> Some v | _ -> None
+      in
+      let lhs_crossing = crossing lhs_boundary
+      and rhs_crossing = crossing rhs_boundary in
       let expandable =
-        Ground_eval.expandable ~boundary:lhs_boundary lhs_env lhs
-        || Ground_eval.expandable ~boundary:rhs_boundary rhs_env rhs
+        Ground_eval.expandable ~boundary:lhs_crossing lhs_env lhs
+        || Ground_eval.expandable ~boundary:rhs_crossing rhs_env rhs
       in
       if expandable && rounds >= budget.Budget.max_rounds then
         Verdict.Unproved Unproved.Max_rounds
       else if expandable then
         let cap = budget.Budget.max_nodes in
         let lhs =
-          Ground_eval.expand ~boundary:lhs_boundary ~budget:cap lhs_env lhs
+          Ground_eval.expand ~boundary:lhs_crossing ~budget:cap lhs_env lhs
         and rhs =
-          Ground_eval.expand ~boundary:rhs_boundary ~budget:cap rhs_env rhs
+          Ground_eval.expand ~boundary:rhs_crossing ~budget:cap rhs_env rhs
         in
         let size = Ground_expr.size lhs + Ground_expr.size rhs in
         if size > budget.Budget.max_nodes then
@@ -740,15 +767,17 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
    confine the variable to a range where the two sides agree. See
    .ai/native_transform_verify.md §8b.
 
-   UNLESS THE TWO SIDES ARE FUNCTIONS OF DIFFERENT VARIABLES, in which case no
-   assignment is a counterexample and none may be built. [reuse_permute] is the
-   case: the source reads t1 where the destination reads t3, its own cluster and
-   so its own variable, and the graphs constrain t3 = Q(t1). A draw that gives
-   the two independent values "separates" a correct rewrite. §3 says
-   [Report.refuted] holds only for a VALID counterexample, and over mismatched
-   frontiers there is none — so the honest verdict is unproved. The coefficient
-   tier is skipped for the same reason: it would compare polynomials in
-   different generators. *)
+   The frontier being SETTLED is what licenses that. [settle] crosses a variable
+   only one side names (see its note), so by the time this runs the two sides are
+   functions of the same variables and every remaining cell has no producer — a
+   graph input, an unbound constant having been caught earlier. σ does not relate
+   inputs in different clusters, so nothing constrains them to agree and a draw
+   separating them is genuine.
+
+   An earlier revision guarded these tiers instead, reporting "frontiers differ"
+   rather than building a witness. That treated the symptom; crossing removes the
+   cause, and the guard was measurably unreachable. See
+   .ai/native_transform_local_verify_plan.md §13. *)
 and value_tiers ~probe ~tolerance ~label ~coord ~members ~lhs ~rhs ~ln ~rn =
   let lhs_member, rhs_member = members in
   let witness () =
@@ -763,14 +792,10 @@ and value_tiers ~probe ~tolerance ~label ~coord ~members ~lhs ~rhs ~ln ~rn =
                { coord; lhs = lhs_member; rhs = rhs_member; valuation })
         else Verdict.Tested (Strength.Disagrees valuation)
   in
-  if not (List.equal Cluster_var.equal (frontier_vars lhs) (frontier_vars rhs))
-  then
-    Verdict.Unproved
-      (Unproved.Split_frontier { coord; lhs = lhs_member; rhs = rhs_member })
-    (* The NORMALISED terms, not the raw ones: folding is what turns
-       [sqrt (Const _)] — batch norm's normaliser — into a coefficient rather
-       than an opaque generator the polynomial view cannot see through. *)
-  else if Coeff_form.agree ~tolerance ln rn then
+  (* The NORMALISED terms, not the raw ones: folding is what turns
+     [sqrt (Const _)] — batch norm's normaliser — into a coefficient rather than
+     an opaque generator the polynomial view cannot see through. *)
+  if Coeff_form.agree ~tolerance ln rn then
     (* Coefficient agreement is never a proof, and for [Identical] it is not even
        the right question — that claim is about bits, so a probe still gets to
        refute it. *)

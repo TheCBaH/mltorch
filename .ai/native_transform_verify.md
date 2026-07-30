@@ -9,6 +9,11 @@ itself"** as the one deliberate non-goal. This doc is that verifier:
 Status: **complete** — structural tier, constant payloads, the probe, cumulative
 verification, the pipeline hook, the coefficient tier, sampling, and the CLI.
 
+The proposition it checks was corrected after this doc was first written: a
+cluster is a **local** obligation over correspondence-frontier variables, not an
+origin-to-endpoint one. `.ai/native_transform_local_verify_plan.md` is the record
+of that change, and §§1, 5-8 below are stated in its terms.
+
 ## 1. What it proves, and what it assumes
 
 Given a source graph, a destination graph and the `Graph_map.t` between them, it
@@ -17,9 +22,37 @@ A `proved` verdict is therefore a statement about *every* input, not about one
 sample — which is the whole reason to do this symbolically rather than by
 running both graphs on a random tensor.
 
+Each cluster is a **local obligation**: does this transformation compute the same
+function of its dependencies, given that those dependencies correspond? A
+dependency lying in a correspondence cluster of its own is one free variable
+shared by both sides, and the obligation is universally quantified over the
+variables that remain.
+
+So `proved` says the local transfer function is unchanged; it does **not** say
+the frontier values were themselves equal. Those are separate entries, and a
+proved cluster sitting downstream of a refuted one is the designed outcome.
+`Report.proved` is the CONJUNCTION over every cluster, which is what `Policy`
+enforces. Local proofs compose because structural equality forces both sides to
+mention the same variables, so the quotient dependency relation embeds in each
+graph's own DAG order.
+
+**The conjunction is not output equality, and this is a real gap.**
+`Report.proved` counts a `Vacuous` cluster as satisfied, because a creation or a
+deletion claims nothing — so a map that deletes a source output and creates an
+unrelated destination output is two vacuous clusters and reports `proved` with no
+correspondence between the graphs' outputs at all. Nothing checks that the
+outputs are covered. In practice `Rewrite` produces maps whose outputs correspond
+and `Graph_map.validate`'s implicit-identity coverage constrains what a
+hand-built one may omit, but neither is the missing check: an output-completeness
+test — every graph output on each side belongs to a non-vacuous cluster — is
+still owed, and until it exists a `proved` report is a statement about the
+clusters that exist, not about the graphs' outputs.
+
 The one hypothesis is that **corresponding graph inputs are fed the same data**.
 That is not an obligation the verifier discharges; it is what "these two graphs
-compute the same thing" means. Everything else is an obligation.
+compute the same thing" means. Everything else is an obligation — a model
+constant included, which is why an unbound one yields `Unproved` rather than
+being assumed equal to its counterpart.
 
 What this replaces: nine passes whose legality rested on prose plus a handful of
 `Eval_direct` spot checks with one hand-made input (`fold_batch_norm_test.ml`,
@@ -143,26 +176,39 @@ protection lands where the bug was; the printed form is unchanged.
 
 > **The fast path used to rest on an unstated assumption, and no longer does.**
 > Expansion stopped at any cell whose raw id matched on both sides, which assumed
-> the same-numbered edge was the same value — the very assumption §7 declines to
-> make when it refuses to rename both sides of an internal cluster to one
-> representative, made silently by numbering rather than argued for.
+> the same-numbered edge was the same value. `src: t2 = add(a,b)` against
+> `dst: t2 = sub(a,b)` then made `{t3} → {t3}` ground to `relu(cell t2)` on both
+> sides and report Identical, while the graphs compute `relu(a+b)` and
+> `relu(a−b)`.
 >
-> A cell now carries an ORIGIN, and `Shared` is earned two ways: structurally,
-> by the two graphs defining the edge identically, and inductively, by the edge's
-> own cluster having been proved earlier in destination-topological order. See
-> `native_transform_versioning.md` §6a for both layers, what each is for, and the
-> measured cost.
+> Two layers were tried and both discarded: a static classification comparing the
+> graphs' definitions, and a dynamic set promoting an edge once its own cluster
+> had been proved in destination-topological order. The first validated a
+> different proposition; the second needed the cluster DAG to be acyclic. A cell
+> now carries a side-qualified ORIGIN, and `Ground_expr.project` turns it into a
+> `Boundary` variable at comparison time on the strength of cluster MEMBERSHIP
+> alone. See `native_transform_local_verify_plan.md` §§4-5.
 
-## 6. Iterative deepening, and why it crosses corresponding edges
+## 6. Iterative deepening, and which edges it crosses
 
 A cluster that does not close at round 0 has both sides expanded one level and is
-retried. Expansion crosses **all** cells, not only those without a counterpart.
+retried. Expansion crosses a cell unless it is a **boundary variable both sides
+name**: that is a free variable of this obligation, whose own cluster is a
+separate entry, so expanding through it would re-prove someone else's obligation
+inside this one — the cascade the local contract exists to stop.
 
-`reuse_permute_sub_order` is the counterexample to the narrower rule: its map
-mentions only `{t3} → {}` and `{} → {t5}`, yet proving the untouched output
-cluster requires expanding through `t2 = permute(t1)` — an edge present and
-*corresponding* in both graphs. A frontier that stopped at corresponding edges
-would leave it unproved.
+A variable only ONE side names is crossed. `reuse_permute` is the case: it
+rewrites `t4 = add(P(t0), t1)` into `t4 = P(add(t0, Q(t1)))`, so the source side
+reads `t1` where the destination reads `t3`. Stopping at both would leave the two
+sides as functions of different variables — unequal, and a probe assigning them
+independently would separate a correct rewrite, since `t3 = Q(t1)` is exactly the
+fact a local frontier drops. Crossing recovers it. See
+`native_transform_local_verify_plan.md` §13.
+
+A cluster is also denied its OWN variable, unless the edge is a user-data graph
+input; otherwise it would name both its sides the same thing before either
+definition was looked at and discharge itself. That exception is σ, and it is
+what keeps `trim_permute`'s `{t0,t1} → {t0}` provable.
 
 Structural equality is tried **before** normalising and again after. Two
 identical terms carrying the same uncollapsible `Round (Cell _)` are equal and
@@ -171,32 +217,46 @@ must be proved, not rejected for the blocked collapse.
 Termination: each round strictly lowers the maximum stage depth of the remaining
 cells, bounded by the stage count, and by `max_rounds`/`max_nodes` independently.
 
-## 7. σ is restricted to graph inputs
+## 7. Where a variable comes from, and what it entitles a comparison to
 
-Renaming both sides of an *internal* cluster to a representative assumes the very
-claim under verification. That is sound only under an induction over a
-topological order of the cluster DAG, which two graphs quotiented by a
-correspondence can in principle make cyclic. Graph inputs are different in kind —
-"corresponding inputs are fed the same data" is the hypothesis, not an obligation
-— and renaming them is what makes `Rewrite.pack`'s input renumbering verifiable.
+A cell becomes the free variable `(cluster, coordinate)` iff its edge lies in a
+non-vacuous normalized cluster `D`, and either `D` is not the cluster under test
+or the edge is a user-data graph input on its side. Nothing else participates: no
+graph definitions, no operator categories, no label, no raw-id equality.
+`Boundary_index` answers "same cluster?" and the driver decides what that
+entitles.
 
-Relying on that keeps a cell's id usable both as a comparison key (renamed) and
-as a stage key (original), because the two coincide off the inputs, which have no
-stage.
+**Pairwise by construction.** `{src t0 ↔ dst t1}` and `{src t1 ↔ dst t0}` are two
+clusters and so two variables; the source reads `[v0; v1]`, the destination
+`[v1; v0]`, and they do not match. A rule keyed on anything coarser — "both
+operands are some input" — proves `sub(a,b)` identical to `sub(b,a)`. That was a
+live false proof under an earlier scheme that allocated one representative per
+cluster by taking the minimum raw id, where both crossed pairs minimised to `t0`.
 
-**Representatives are allocated fresh, above every id either graph uses.** Reusing
-an id from the cluster — the minimum, say — looks natural and is unsound, because
-the two graphs share one numeric namespace. The crossed pair `{src t0 ↔ dst t1}`
-and `{src t1 ↔ dst t0}` both minimise to `t0`, so every input on both sides
-collapses onto one symbolic variable and `sub(a,b)` grounds to the same term as
-`sub(b,a)`: a map that swaps a graph's two inputs was reported structurally
-proved, output included. That is a **false proof**, the one failure mode this
-whole design exists to avoid, and it was live until `verify_test.ml`'s crossed-
-cluster test pinned it. Allocating above both graphs also keeps a representative
-from colliding with an internal edge, which is never renamed.
+**A variable is not a `Tensor_id.t`.** `Cluster_var.t` is its own namespace,
+which is what removes the arithmetic that used to allocate representatives above
+both graphs' highest id, and with it the chance of colliding with an internal
+edge or with `Eval_symbolic`'s synthetic fills.
 
-Internal σ is a later, purely performance-motivated addition: it shortens
-expansions, it never proves anything expansion could not.
+**Raw cells survive until comparison.** Grounding emits `Src`/`Dst` only.
+`Ground_expr.project` introduces `Boundary`, at comparison time, on a copy —
+because "these two cells name one value" is a claim about the MAP, and every
+question `Ground_eval` answers (which stage produces an edge, what format it is
+stored in, whether a payload is bound) is a question about ONE graph that the
+claim must not reach. Concretely: projection discards the storage edge
+`stored_f32` needs, and an unknown cell answers `false`, so normalising a
+projected term silently blocks collapses that are sound. Normalise the raw term,
+then project.
+
+**σ is the one hypothesis, and it covers user data only.** "Corresponding inputs
+are fed the same data" is what makes a comparison meaningful at all, and it is
+also what lets a member of the cluster under test project. A MODEL CONSTANT is
+excluded though it is structurally a graph input: a variable there would assume
+two payloads equal because they share a cluster, which is what the payload
+comparison is for. The test is membership in the program's input set AND not
+`Some Constant` — `input_kinds` is sparse and keys inputs only, so the kind alone
+answers yes for every internal edge, and `find_opt = Some Input` answers no for
+every omitted input.
 
 ## 8. Proof is sound under over-approximation; refutation is not
 
@@ -229,7 +289,13 @@ Consequently:
 - the probe is a **refutation engine**, not a weak proof: no number of agreeing
   draws yields `Proved`. It may only run once `Ground_eval.expandable` is false
   on both sides, because cells left at a truncated frontier are internal stage
-  results constrained by their producers;
+  results constrained by their producers. At a SETTLED local frontier every
+  remaining cell is either a variable both sides share or a graph input, so a
+  witness over them is genuine — but it refutes the local TRANSFER FUNCTION, not
+  the two graphs' values, since an upstream cluster may confine a variable to a
+  range where the sides agree. There is no separate "frontiers differ" verdict:
+  crossing a one-sided variable (§6) removes the case where a witness would have
+  been spurious, and the case that remains deserves the refutation;
 - it formally refutes only `Identical`. `Equivalent` explicitly permits rounding
   differences, so a rounded-term disagreement cannot refute it, and
   `Approximate` needs declared input ranges and an error model that
@@ -322,8 +388,8 @@ equal" is that case.
 
 σ is now gated on `Input.kind = Input`, so a constant is compared by its payload
 in the constant-bound attempt like any other obligation. Its own cluster entry
-is what discharges it; §7's `Shared` rule and, later, boundary projection are
-what let *other* clusters read it as a settled dependency.
+is what discharges it; boundary projection (§7) is what lets *other* clusters
+read it as a settled dependency.
 
 **The kind test is two conditions.** `input_kinds` is sparse — an absent entry
 means `Input`, which `Graph_ir.input_kind` supplies — and it keys graph inputs
@@ -334,10 +400,9 @@ either half is a defect in its own direction:
 - reading it as `find_opt = Some Input` makes every omitted input a non-input,
   σ stops applying, and two identical graphs refute at their own inputs;
 - testing the kind without the membership hands every internal edge a variable,
-  which is the cluster-proves-itself shape. `Env.var_edge` is built from the
-  program's actual inputs and independently catches that one with `unknown
-  edge`, but the membership test is what states the rule rather than tripping
-  over its absence.
+  which is the cluster-proves-itself shape. `Ground_eval.Env.is_user_input`
+  therefore tests both conditions in one place, rather than relying on some
+  later lookup to trip over the absence.
 
 **Without payloads the answer is `Unproved`, never `Refuted`.** Two unbound
 constants are distinct cells only because nobody supplied them, so the value
@@ -617,9 +682,15 @@ Agreeing within tolerance, for every input, with these constants:
 - An exact-rational tier — see §12 for why it would close nothing.
 - An `Approximate` error model. Nothing emits `Approximate` yet.
 - Validating `compose`'s algebraic contract — see §10 for the boundary.
-- Renaming already-proved INTERNAL clusters through σ. It was planned as a
-  speed-up, and the measurement above retired it: the cost was never chain
-  DEPTH, which σ would shorten, but the breadth of a single conv-into-conv
-  round, which it would not touch. Bounding `expand` fixed that outright. It
-  would also need a topological order over the cluster DAG with a cycle
-  verdict, for a benefit nothing now demands.
+- Proving a cluster from another cluster's conclusion. Two mechanisms for it
+  were built and both removed: a static classification comparing the graphs'
+  definitions, and a set promoting an edge once its own cluster had been proved.
+  The first validated origin-to-endpoint equality rather than the local
+  obligation §1 states; the second needed the cluster DAG to be acyclic, which
+  two graphs quotiented by a correspondence need not be. The measurement in §13
+  also retired the performance case for the second: the cost was never chain
+  DEPTH, which it would shorten, but the breadth of a single conv-into-conv
+  round, which it would not touch. Bounding `expand` fixed that outright.
+- Upgrading a correspondence label from a local structural proof. The label
+  comes from claim propagation and is printed beside the outcome, never derived
+  from it.

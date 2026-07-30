@@ -527,11 +527,17 @@ Take source `t2 = add(a,b); t3 = relu(t2)` against destination
 unmentioned. `pt2_native_graph.ml`'s `sources_of` resolves an unmentioned dst id to
 `([id], Identical)` and `captured_target` gates on `Identical`, so the lens hands
 back the *source's* archived bytes for an edge whose value differs — the data
-corruption `provenance.mli` warns about, reached without going near a proof. And
-with the check disabled the verifier reports `t3` **proved (structural)
-identical**: both sides ground to `relu(cell t2)`, and t2 carries the same raw
-number on either side. (That last hazard is what §7 of `native_transform_verify.md`
-addresses independently — closure is not a substitute for it, and vice versa.)
+corruption `provenance.mli` warns about, reached without going near a proof.
+
+The verifier reports `t3` **proved (structural)** here, and that is correct
+rather than a second hazard: a cluster is a LOCAL obligation, and `t3`'s transfer
+function really is an unchanged `relu` of whatever `t2` holds. `t2` is the
+obligation that fails, so the report as a whole is refuted and both policies
+reject it. What closure protects is the LENS, which reads a label rather than a
+verdict and has no conjunction to save it. (An earlier verifier did prove `t3`
+for the wrong reason — because `t2` carried the same raw number on either side —
+and §§6-7 of `native_transform_verify.md` address that independently; closure is
+not a substitute for it, and vice versa.)
 
 `compose` takes no snapshots and so cannot re-establish closure, which is why
 `check_claim_closure` is exported and why `Map_verify.run` and the PT2 lens each

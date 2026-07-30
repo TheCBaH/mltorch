@@ -3,10 +3,21 @@
    input, not about one sample.
 
    Every value cluster [Graph_map.clusters_over] synthesises is checked
-   independently: its members' per-pixel expressions are ground (indices
-   evaluated at a concrete coordinate, payloads left as free cells) and
-   compared structurally. Corresponding graph INPUTS are the hypothesis — they
-   are fed the same data — and everything else is an obligation.
+   independently, as a LOCAL obligation: does this transformation compute the
+   same function of its dependencies, given that those dependencies correspond?
+   Its members' per-pixel expressions are ground (indices evaluated at a
+   concrete coordinate, payloads left as free cells) and compared structurally,
+   with each dependency that lies in a correspondence cluster of its own
+   standing as one free variable shared by both sides.
+
+   [Proved] therefore says the local transfer function is unchanged under
+   corresponding frontier values. It does NOT say the frontier values were
+   themselves equal — those are separate entries, and a proved cluster
+   downstream of a refuted one is the designed outcome, not a contradiction.
+   Whole-report success is the conjunction, which is what [Policy] enforces.
+   Correspondingly, a local proof never upgrades a cluster's own relation label;
+   the label is printed beside every outcome and comes from claim propagation.
+   See .ai/native_transform_local_verify_plan.md §§1-3.
 
    Three properties shape the whole thing, and are why the verdicts are not
    simply pass/fail:
@@ -14,9 +25,8 @@
    - Proof is sound under over-approximation; refutation is not. Two terms equal
      as functions of their free cells are equal under every assignment,
      including the constrained ones a truncated frontier admits. A DISAGREEMENT
-     between them proves nothing, because internal cells are constrained by
-     their producers. So a failed comparison is [Unproved], never [Refuted]
-     (Stage 2 adds a probe that can produce a real counterexample).
+     between them proves nothing while cells remain constrained by their
+     producers, which is why the probe below runs only at a settled frontier.
    - [Identical] is about bits, so comparison is bitwise throughout and [Round]
      nodes — the f32 materialization every stage performs — are part of the
      term rather than an idealisation to be erased.
@@ -158,15 +168,6 @@ module Unproved : sig
     | Max_rounds
       (* cells still expandable: the frontier never reached the inputs *)
     | Out_of_bounds of Ground_expr.Cell.t
-    | Split_frontier of {
-        coord : Vec6.coord;
-        lhs : Member.Erased.t;
-        rhs : Member.Erased.t;
-      }
-      (* the two sides are functions of DIFFERENT correspondence variables, so
-           no assignment is a counterexample and none is built. [reuse_permute]:
-           the source reads t1 where the destination reads t3, and the graphs
-           constrain t3 = Q(t1), which the local view cannot see *)
     | Too_large of int
     | Unbound_constant of Ground_expr.Cell.t
       (* a model constant whose payload nobody supplied. Not [Refuted]: the two
@@ -301,10 +302,16 @@ val pp_error : Format.formatter -> [< error ] -> unit
    REFUTATION engine, not a weak proof: no number of agreeing draws produces a
    [Proved]. Two conditions bound it.
 
-   It runs only once the frontier has reached the graph inputs on both sides
-   ([Ground_eval.expandable] false). Cells left at a truncated frontier are
-   internal stage results constrained by their producers, so assigning them
-   independently could manufacture a counterexample no input can realise.
+   It runs only once the LOCAL frontier has settled on both sides
+   ([Ground_eval.expandable] false) — every remaining cell is either a
+   correspondence variable both sides share or a graph input, never an
+   unexpanded internal one. A cell left at a truncated frontier is a stage
+   result constrained by its producer, so assigning it independently could
+   manufacture a counterexample nothing can realise; a settled frontier's
+   variables are genuinely free, and a witness over them refutes the local
+   transfer function. That is weaker than refuting the two graphs' values: an
+   upstream cluster may confine a variable to a range where the sides agree.
+   See .ai/native_transform_verify.md §8b.
 
    And it formally refutes only [Identical]. [Equivalent] permits rounding to
    differ, so a disagreement between rounded terms cannot contradict it, and

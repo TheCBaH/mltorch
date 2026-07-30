@@ -392,10 +392,23 @@ let verify_arg =
    model twice on real weights and compares the two OUTPUTS; this one checks
    every corresponding edge of every pass's mapping symbolically, without
    payloads for the graph inputs, so what it says holds for every input rather
-   than for the one tensor supplied. It is budget-capped, so a real model's
-   activation-shaped clusters come back "too large" and the useful coverage is
-   the constant-shaped ones — folded weights and biases, exactly where
-   fold_const and fold_batch_norm act. See .ai/native_transform_verify.md. *)
+   than for the one tensor supplied.
+
+   Each edge is a LOCAL obligation: "proved" means the transformation computes
+   the same function of its corresponding dependencies, not that the whole graph
+   still computes the same values. The summary is the conjunction over every
+   cluster, which is what a [Policy] enforces — a proved edge downstream of a
+   refuted one is expected, not a contradiction.
+
+   The conjunction is still not output equality: a vacuous cluster counts as
+   satisfied, and nothing checks that the two graphs' OUTPUTS are covered by
+   non-vacuous clusters. See .ai/native_transform_verify.md §1.
+
+   It is budget-capped, so a real model's activation-shaped clusters come back
+   "too large" and the useful coverage is the constant-shaped ones — folded
+   weights and biases, exactly where fold_const and fold_batch_norm act.
+   See .ai/native_transform_verify.md and
+   .ai/native_transform_local_verify_plan.md §§1-3. *)
 let effort_conv =
   let parse s =
     match Map_verify.Effort.of_string s with

@@ -225,7 +225,7 @@ the property.
 | 1 | `Brand`, `Snapshot`, `Cluster_relation.Tagged`, harness — additive | done |
 | 2 | raw API deleted, indexing promoted; typed endpoints through `Rewrite`, `Map_verify`, the PT2 lens; `Graph_map` abstract with `create ~src ~dst`, claim closure, cluster metadata validation | done |
 | 3 | `Map_verify.Member` as a GADT, tag erased at the report boundary | done |
-| 4 | `Input_var`, and `Ground_expr.Cell.origin` with `Shared` earned structurally AND by induction | done — §6a |
+| 4 | `Input_var`, and `Ground_expr.Cell.origin` with `Shared` earned structurally AND by induction | done, then SUPERSEDED — §6a |
 | 5 | typed recipes: `'v source`, `'v target`, `'v fresh` | done |
 
 Stage 2 could not be subdivided: `map_verify.ml` and `pt2_native_graph.ml`
@@ -259,6 +259,18 @@ so a test writes `module A = (val Version_fixture.of_graph g)` and then names
 the tag `Snapshot.create` already chose.
 
 ## 6a. Stage 4: what a raw id may mean, in two layers
+
+> **Superseded.** The two layers below were both removed. The static one
+> validated origin-to-endpoint equality rather than the local obligation the
+> verifier is supposed to check, and the dynamic one needed the cluster DAG to be
+> acyclic, which two graphs quotiented by a correspondence need not be. What
+> replaced them is cluster MEMBERSHIP alone: `Cluster_var`, `Boundary_index` and
+> `Ground_expr.project`, with `Input_var` generalised to `Cluster_var` and
+> `Cell_origin` deleted. See `.ai/native_transform_local_verify_plan.md` — §4 for
+> the diagnosis, §§5-6 for the replacement, §13 for the one-sided-variable rule
+> that keeps `reuse_permute` provable. The section is kept because the false
+> proof it diagnoses is real and the tests that pin it are still in the suite;
+> only the cure changed.
 
 The verifier's fast path stopped expansion at any cell whose raw id matched on
 both sides. That is not an induction, it is an **unchecked fixed-point
