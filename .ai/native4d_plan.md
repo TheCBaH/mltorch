@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress. Stages 0 and 1 landed. This is the executable companion to
+In progress. Stages 0-2 landed. This is the executable companion to
 `.ai/native4d_design.md`, which holds the goal, the feasibility argument and the
 per-operation legalization rationale; this file holds the stage sequence, the
 decisions taken, the corrections found while planning, and the domain contract
@@ -101,7 +101,7 @@ locally-predicated implementation first; `run_reporting ~verify` returns a
 non-empty audit naming `dce`, observed failing against a hand-built `Pass.t`.
 The two verify crams join `pt2.runtest` — nothing runs them today.
 
-### Stage 2 — `Axis4`, `Shape4`, the closed op variant
+### Stage 2 — `Axis4`, `Shape4`, the closed op variant *(done)*
 
 `Axis4.t = C | H | N | W` is the enforcement §4.3 asks for, and is stronger than
 validation: `Mean_keepdims {dims : Axis4.t list}` and `Permute4 {perm :
