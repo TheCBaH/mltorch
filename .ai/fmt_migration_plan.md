@@ -126,7 +126,9 @@ surfaced as `"provenance error: ..."` instead of silently rendering
 
 The same audit surfaced a sibling family of anti-patterns around
 `Core.result` handling that this doc didn't originally scope (it covers
-printing only) but that belong in the same convention:
+printing only) but that belong in the same convention. The project-wide audit
+and prevention plan now lives in `.ai/result_option_migration_plan.md`; the
+rules below remain the printer migration's local summary:
 
 - **Never hand-rebuild an `Error` by unwrapping `e.Core.Error.kind`** when
   `Core.map_error` does exactly that while preserving the original detection
