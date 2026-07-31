@@ -261,13 +261,60 @@ the same float sequence, `0 + x` being exact, but `normalise` does not simplify
 additive identities. Teaching it to would upgrade this to a proof and is a
 separate change to proof semantics.
 
-Seven mutations, one per legalization family, each observed red first. Batch-norm
-precomputation is the only `Equivalent` family and so cannot be `Refuted` —
-`probe` formally refutes only `Identical`. Its test pins the
-`Agrees → Disagrees` transition, with the correct lowering driven to `Agrees` on
-a small fixture; "`Disagrees` or `Unproved`" would be a mutation test that cannot
-go red, since `Unproved` is also what a correct lowering returns when the budget
-stops the frontier settling.
+**The mutation matrix**, in `test/native4d/mutation_test.ml`. Each case keeps a
+deliberately wrong conversion in the tree rather than editing the lowerer and
+reverting — a mutation is only evidence if it has been seen to fail, and a
+permanent wrong conversion is how that stays true. Source and destination are
+built by hand with matching ids and given the map a real conversion of that
+shape would have produced. For most rows that is the empty map, which claims
+every edge implicitly `Identical`. Two rows need more, because the lowering they
+mutate produces more: batch-norm names its two parameter edges `Unverifiable`
+and its output `Equivalent`, since an empty map there would assert `Identical`
+of a re-association the legalization does not promise; and BMM builds its map
+outright, for the reason given with that row below.
+
+| mutation | verdict |
+|---|---|
+| baseline: `sub` → `sub`, `permute` → `permute4` | **proved (structural)** |
+| direct delegation: `sub` → `add` | refuted |
+| id policy: operands crossed under preserved ids | refuted |
+| shape-only: a permutation lowered to the identity | refuted |
+| scalar: `add_scalar 1` → `add_scalar 2` | refuted |
+| convolution: asymmetric padding applied to the wrong side | refuted |
+| reduction: `mean [H;W]` → `mean [H]` | **rejected by the map**, not refuted |
+| `Equivalent`: batch-norm scale without `eps` | agrees → **disagrees** |
+| BMM weight permutation transposed | refuted (correct case: coefficients agree) |
+
+The BMM row is the one design §11 stage 5 names specifically, and it earns the
+attention twice over: BMM is where the verifier's own Round-collapse defect
+surfaced, so pinning both the correct and the transposed permutation guards that
+fix from regressing as well as the legalization. It is shape-preserving because
+`mat2` is square in contract and columns — `N←C, W←N, C←W` against
+`N←W, W←N, C←C`, both giving `[N=2,H=1,W=1,C=2]`, only the values transposing.
+It does not go through the empty map: the legalization emits two destination
+nodes and a fresh edge, so the destination is built with the ids the lowerer
+would assign and the map states the creation and the node fusion explicitly.
+
+Three things the matrix taught that the plan had assumed otherwise.
+
+**Every mutation must be shape-preserving to reach the verifier at all.** A
+mutation that changes a shape is rejected by `Graph_view` or by
+`Graph_map.create`'s cluster-shape check first. That is a *stronger* guarantee,
+but it means several mutations the plan listed — a wrong convolution
+classification, `Linear` with its weight axes swapped, a wrong `Reshape4`
+target — are unreachable: they change a shape. The reduction row is kept
+precisely to record which check catches it (`t1 and t1 correspond but differ in
+shape`).
+
+**A shape-preserving reduction mutation is not a mutation.** Reducing over an
+axis of extent 1 preserves the shape but makes the two reductions *equal*; an
+earlier draft did that and reported `coefficients agree`, which was the right
+answer to a question nobody meant to ask.
+
+**The `Equivalent` mutation has to exceed the tolerance it is measured
+against.** With a realistic `eps` of 1e-5 the two scales differ by about 5e-6
+relative — inside the coefficient tolerance — so the mutation would report
+`agrees` and assert nothing. The fixture uses `eps = 0.5`.
 
 ### Stage 7 — Native4D transforms through shared functors *(done)*
 
