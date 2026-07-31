@@ -766,6 +766,17 @@
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
+; Native4D conversion of two real models, plus the conversion map's symbolic
+; verification. Separate from the native_transform crams because those pin what
+; the NATIVE pipeline produces and this pins what crossing the dialect boundary
+; produces; the two move for different reasons.
+
+(cram
+ (applies_to native4d_to4d_cram)
+ (deps %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
 (cram
  (applies_to aten_gen_coverage_cram)
  (deps %{exe:aten_gen_coverage.exe} native_functions.yaml))

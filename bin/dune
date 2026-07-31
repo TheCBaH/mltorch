@@ -59,7 +59,7 @@
 (executable
  (name native_graph)
  (modules native_graph)
- (libraries cmdliner pt2 core native_graph native_interp))
+ (libraries cmdliner pt2 core native_graph native_interp native4d))
 
 (executable
  (name aten_graph_ref)

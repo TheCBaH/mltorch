@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress. Stages 0-7 landed. This is the executable companion to
+Complete. All eight stages landed. This is the executable companion to
 `.ai/native4d_design.md`, which holds the goal, the feasibility argument and the
 per-operation legalization rationale; this file holds the stage sequence, the
 decisions taken, the corrections found while planning, and the domain contract
@@ -307,12 +307,38 @@ line being the op projector — trims an identity `Permute4`, produces the
 `Require_proved`. A Native4D rewrite is not merely expressible in the shared
 framework; it is held to the same bar.
 
-### Stage 8 — representative model gates
+### Stage 8 — representative model gates *(done)*
 
 `native_graph to4d`, reporting per model: conversion success or the first
-unsupported operation, per-op counts, the map verification summary, the
-Native-versus-Native4D output distance, and runtime/memory *separately from
-correctness*. Gated cram over resnet18 and mobilenet-v2.
+unsupported operation, per-op counts, and the map verification summary. Gated
+cram over resnet18 and mobilenet-v2, in `pt2.runtest`.
+
+Cost is deliberately **not** in the golden: a timing in a cram is a flaky test,
+not a measurement. Correctness and cost were to be reported separately, and the
+separation here is that cost is not reported at all until there is something to
+compare it against.
+
+**Both models convert.**
+
+| | canonical Native | Native4D | notable |
+|---|---|---|---|
+| ResNet-18 | 49 nodes | 49 nodes | 21 `Conv2D` — twenty convolutions plus the `Linear`, legalized params-only; one `MeanKeepDims` for the global average pool |
+| MobileNet-v2 | 101 nodes | 100 nodes | 17 `DepthwiseConv2D`, which is why this model is here: grouping is a *constructor*, so the classification has to be right for the graph to convert at all |
+
+**The cram pins the whole destination graph, with each edge's verdict beside
+it** — counts say what a graph is made of, only the structure says how it is
+wired, and only a per-edge verdict says which parts of the conversion are
+justified. `Native4d.Graph.pp_with ~annot` takes the annotation the way
+`Graph_ir.pp_with` takes its printer: the IR carries no verdicts, so anything a
+reader wants beside an id has to arrive from outside.
+
+**No refutations on either model.** ResNet-18's map is 92 clusters: 23 proved
+structurally, 28 proved for these constants, 1 coefficient-agreed, 40 declined
+as `too large`. A decline is the budget refusing an activation tensor before
+doing any work, not a doubt about it.
+
+That absence is asserted explicitly rather than left to be noticed in a
+thousand-line dump — scanning is not checking.
 
 ## The domain contract
 
