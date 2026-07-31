@@ -1,0 +1,603 @@
+bin/aten_graph_ref.ml	15	keep:other	| Error message -> Core.fail (`Tensor_bridge message)
+bin/aten_graph_ref.ml	18	keep:other	| Error message -> Core.fail (`Encode message)
+bin/aten_graph_ref.ml	35	keep:render	| Error e ->
+bin/aten_ops_gen.ml	102	keep:other	| Error e -> die "%s: parse error: %s" origin e
+bin/aten_ops_gen.ml	114	keep:other	| Error _ -> false
+bin/aten_ops_gen.ml	119	keep:other	| None ->
+bin/aten_ops_gen.ml	146	keep:other	| Error e -> die "dispatch: parse error: %s" e)
+bin/aten_ops_gen.ml	168	keep:other	| Error (`Msg e) -> die "YAML parse error: %s" e
+bin/aten_spec_verify.ml	32	keep:render	| Error e ->
+bin/aten_spec_verify.ml	43	keep:other	| None, Print ->
+bin/aten_spec_verify.ml	46	keep:other	| None, Eval ->
+bin/aten_spec_verify.ml	49	keep:other	| None, Verify -> Aten_spec_run.compare_report spec)
+bin/native_graph.ml	149	keep:other	| None -> Ok distance
+bin/native_graph.ml	189	keep:other	| None -> ""
+bin/native_graph.ml	219	exempt-lowering	| Error e ->
+bin/native_graph.ml	229	exempt-lowering	| Error e ->
+bin/native_graph.ml	242	exempt-lowering	| Error e ->
+bin/native_graph.ml	276	exempt-lowering	| Error e ->
+bin/native_graph.ml	281	keep:render	| None ->
+bin/native_graph.ml	297	keep:render	| Error (distance, message) ->
+bin/native_graph.ml	362	keep:other	| Error (`Unknown_effort other) ->
+bin/native_graph.ml	416	keep:other	| None -> Graph_ir.Tensor_id.Map.empty
+bin/native_graph.ml	467	keep:render	| None -> ()
+bin/native_graph.ml	482	keep:render	| Error e, _ | _, Error e ->
+bin/native_graph.ml	504	keep:render	| Error e ->
+bin/native_graph.ml	545	exempt-lowering	| Error e ->
+bin/native_graph.ml	552	keep:render	| None ->
+bin/native_graph.ml	565	exempt-lowering	| Error e ->
+bin/native_graph.ml	570	exempt-lowering	| Error e ->
+bin/native_graph.ml	582	exempt-lowering	| Error e ->
+bin/native_graph.ml	594	keep:other	| Error (_, message) -> Error message)
+bin/native_graph.ml	606	keep:other	| Error message ->
+bin/native_graph.ml	617	keep:render	| Error (distance, message) ->
+bin/native_graph.ml	662	exempt-lowering	| Error e ->
+bin/native_graph.ml	668	exempt-lowering	| Error e ->
+bin/native_graph.ml	672	keep:other	| Error e ->
+bin/native_graph.ml	694	keep:other	| None -> Graph_ir.Tensor_id.Map.empty
+bin/native_graph.ml	704	keep:render	| Error e ->
+bin/native_walk_run.ml	24	keep:other	| None -> Printf.printf "no walk recipe for %s (needs_meta)\n" target
+bin/pt2_spec_gen.ml	18	keep:other	| Error e ->
+bin/schema_gen.ml	8	keep:other	| Error (`Msg e) ->
+lib/aten/aten_function_description.ml	21	keep:other	| None -> Printf.ksprintf failwith "unknown ScalarType code %d" c)
+lib/aten/aten_tensor.ml	89	keep:raise-plain	| None -> raise (Error "of_bigarray: dtype mismatch"));
+lib/aten/aten_tensor.ml	163	keep:raise-plain	| None -> raise (Error (Option.value (F.last_error ()) ~default:"to_string"))
+lib/aten_gen/aten_config_gen.ml	15	keep:other	| None | Some "" -> op.name.base
+lib/aten_gen/aten_config_gen.ml	56	keep:other	| None -> "D_none"
+lib/aten_gen/aten_config_gen.ml	71	reduce:option-map	| None -> None
+lib/aten_gen/aten_config_gen.ml	75	keep:other	| None -> "None"
+lib/aten_gen/aten_config_gen.ml	100	reduce:option-map	| None -> None
+lib/aten_gen/aten_config_gen.ml	113	keep:other	| None | Some "" -> "None"
+lib/aten_gen/aten_config_gen.ml	205	emitted-text	| None -> ()
+lib/aten_gen/aten_config_gen.ml	225	reduce:option-map	| None -> None
+lib/aten_gen/aten_decode_gen.ml	40	keep:other	| None | Some "" -> op.name.base
+lib/aten_gen/aten_decode_gen.ml	88	keep:other	| None ->
+lib/aten_gen/aten_decode_gen.ml	185	reduce:option-map	| None -> None
+lib/aten_gen/aten_emit.ml	107	emitted-text	| None -> Printf.ksprintf failwith "unknown ScalarType code %%d" i)
+lib/aten_gen/aten_emit.ml	120	emitted-text	| None -> Printf.ksprintf failwith "unknown MemoryFormat code %%d" i)
+lib/aten_gen/aten_emit.ml	189	emitted-text	| None -> scalar_ptr Aten_scalar.Tag.None_ None
+lib/aten_gen/aten_emit.ml	206	emitted-text	| None -> Printf.ksprintf failwith "device view: unknown DeviceType code %%d" code
+lib/aten_gen/aten_emit.ml	222	emitted-text	| None -> device_ptr (-1) 0
+lib/aten_gen/aten_gen.ml	19	keep:other	| None | Some "" -> ("atg_" ^ op.name.base, op.name.base)
+lib/aten_gen/aten_gen.ml	36	keep:other	| None -> Skipped "unsupported return shape"
+lib/aten_gen/aten_gen.ml	51	keep:other	| None ->
+lib/aten_gen/aten_spec_gen.ml	21	keep:other	| None | Some "" -> op.name.base
+lib/aten_gen/aten_spec_gen.ml	36	keep:other	| None | Some "" -> op.name.base
+lib/aten_gen/aten_spec_gen.ml	247	reduce:option-map	| None -> None
+lib/aten_gen/aten_spec_gen.ml	271	keep:other	| None -> "")
+lib/aten_gen/aten_spec_gen.ml	272	keep:other	| None -> ""
+lib/aten_gen/aten_spec_gen.ml	362	emitted-text	| Error e -> Jsont.Error.msg Jsont.Meta.none e)
+lib/aten_gen/aten_spec_gen.ml	363	emitted-text	| None -> Jsont.Error.msgf Jsont.Meta.none "op spec: missing \"target\""
+lib/aten_gen/aten_spec_gen.ml	370	emitted-text	| None ->
+lib/aten_gen/aten_spec_gen.ml	376	emitted-text	| Error e -> Jsont.Error.msg Jsont.Meta.none e)
+lib/aten_gen/aten_spec_gen.ml	401	audit:option-fold	| None -> false
+lib/aten_gen/aten_walk_gen.ml	121	keep:other	| None -> () (* no generated spec to build on *)
+lib/aten_gen/aten_walk_gen.ml	129	keep:other	| None -> (
+lib/aten_gen/aten_walk_gen.ml	134	keep:other	| None -> needs_meta := target :: !needs_meta)))
+lib/aten_native_verify/interp_verify.ml	20	keep:render	| None -> ()
+lib/aten_native_verify/interp_verify.ml	26	keep:render	| Error e ->
+lib/aten_native_verify/verify.ml	83	keep:other	| None -> ()
+lib/aten_native_verify/verify.ml	220	keep:other	| None -> Some (Core.Error.make (Missing_output { name }))
+lib/aten_native_verify/verify.ml	224	keep:other	| Error e -> Some e))
+lib/aten_schema/aten_func_ast.ml	80	keep:other	| None
+lib/aten_schema/aten_func_ast.ml	89	keep:other	| None -> "None"
+lib/aten_schema/aten_func_ast.ml	111	keep:render	| None -> Type.pp fmt a.ty
+lib/aten_schema/aten_func_ast.ml	115	keep:render	| None -> ()
+lib/aten_schema/aten_func_ast.ml	128	keep:render	| None -> Type.pp fmt r.ty
+lib/aten_schema/aten_func_ast.ml	138	reduce:render	| None -> Format.pp_print_string fmt t.base
+lib/aten_schema/aten_raw.ml	245	keep:other	| None -> Jsont.Error.msgf m "unknown %s: %S" kind s)
+lib/aten_schema/aten_raw.ml	260	keep:other	| None -> Jsont.Error.msgf m "unknown variant: %S" p))
+lib/aten_schema/aten_raw.ml	272	keep:other	| None -> Jsont.Error.msgf m "unknown backend: %S" p)
+lib/aten_schema/aten_raw.ml	296	keep:other	| None -> Jsont.Error.msgf meta "unknown ufunc_inner_loop key: %S" k)
+lib/aten_spec/dtype.ml	27	keep:other	| None -> Jsont.Error.msgf Jsont.Meta.none "unknown dtype %S" s)
+lib/aten_spec/spec_util.ml	28	keep:other	| Error s -> Jsont.Error.msg meta s
+lib/aten_spec/spec_util.ml	34	keep:other	| Error s -> Jsont.Error.msg meta s
+lib/aten_spec/spec_util.ml	49	keep:other	| None ->
+lib/aten_spec/tensor_spec.ml	27	keep:other	| None -> Jsont.Error.msgf Jsont.Meta.none "tensor: expected an object"
+lib/aten_spec/tensor_spec.ml	32	keep:other	| None ->
+lib/aten_spec/tensor_spec.ml	38	keep:other	| None ->
+lib/aten_spec/tensor_spec.ml	49	keep:other	| None, Some v, None -> Random (Spec_util.dec Distribution.jsont v)
+lib/aten_spec/tensor_spec.ml	50	keep:other	| None, None, Some v -> Sequence (Spec_util.dec seq_payload v)
+lib/aten_spec/tensor_spec.ml	51	keep:other	| None, None, None ->
+lib/aten_spec_run/aten_spec_run.ml	166	keep:other	| None -> 1
+lib/aten_spec_run/aten_spec_run.ml	198	keep:render	| Error { Core.Error.kind = `Unhandled_op _; _ } ->
+lib/aten_spec_run/aten_spec_run.ml	202	keep:render	| Error e ->
+lib/aten_spec_run/aten_spec_run.ml	208	keep:render	| None ->
+lib/aten_spec_run/aten_spec_run.ml	217	keep:render	| Error e ->
+lib/aten_spec_run/aten_spec_run.ml	241	keep:render	| None -> (
+lib/aten_spec_run/aten_spec_run.ml	244	keep:render	| None -> Format.pp_print_string ppf "<unsupported dtype>")
+lib/aten_spec_run/aten_spec_run.ml	261	keep:render	| Error e ->
+lib/aten_spec_run/aten_spec_run.ml	273	keep:other	| None -> `None
+lib/aten_spec_run/aten_spec_run.ml	277	keep:other	| Error e -> `Eval_error e
+lib/aten_spec_run/aten_spec_run.ml	289	keep:render	| None -> Format.fprintf ppf "  aten   %s = <missing>@." name);
+lib/aten_spec_run/aten_spec_run.ml	305	keep:render	| None -> Format.fprintf ppf "  native %s = <missing>@." name))
+lib/aten_spec_run/aten_spec_run.ml	380	keep:render	| Error e ->
+lib/aten_spec_run/aten_spec_run.ml	396	keep:render	| None -> Format.fprintf ppf "  -> %s: <missing>@." name)
+lib/aten_spec_run/aten_spec_run.ml	446	keep:render	| None -> Format.pp_print_string ppf " <empty>"
+lib/aten_spec_run/aten_spec_run.ml	449	keep:render	| None -> (
+lib/aten_spec_run/aten_spec_run.ml	456	keep:render	| None -> Format.pp_print_string ppf " <empty>"
+lib/aten_spec_run/aten_spec_run.ml	459	keep:render	| None -> Format.pp_print_string ppf " <unsupported dtype>")
+lib/aten_spec_run/aten_spec_run.ml	488	keep:render	| Error e ->
+lib/aten_spec_run/aten_spec_run.ml	503	keep:render	| None -> Format.fprintf ppf "  -> %s: <missing>@." name)
+lib/aten_spec_run/aten_spec_run.ml	533	keep:render	| Error { Core.Error.kind = `Unhandled_op _; _ } ->
+lib/aten_spec_run/aten_spec_run.ml	536	keep:render	| Error e ->
+lib/aten_spec_run/aten_spec_run.ml	552	keep:render	| None -> Format.fprintf ppf "  -> %s: <missing>@." name)
+lib/aten_spec_run/aten_spec_run.ml	555	keep:render	| None ->
+lib/aten_spec_run/aten_spec_run.ml	564	keep:render	| Error e ->
+lib/core/core.ml	20	keep:render	| None ->
+lib/core/core.ml	48	keep:other	| Error e -> Error { e with Error.kind = f e.Error.kind }
+lib/core/core.ml	52	keep:raise-plain	| Error e -> failwith (Fmt.str "%a" pp e.Error.kind)
+lib/core/core.ml	82	keep:combinator-def	| Error e -> Error e
+lib/interp/interp.ml	113	keep:other	| None -> Core.return env)
+lib/interp/interp_decode.ml	100	reduce:of_option	| None -> Core.fail (`Undefined_value name)
+lib/interp/interp_decode.ml	114	keep:of_option-no	| None -> Core.fail (`Missing_argument name)
+lib/interp/interp_decode.ml	133	keep:of_option-no	| None -> Core.fail (`Missing_argument name)
+lib/interp/interp_decode.ml	143	reduce:of_option	| None -> Core.fail (`Missing_argument name)
+lib/interp/interp_decode.ml	148	keep:other	| None -> require name default
+lib/interp/interp_decode.ml	154	keep:other	| None -> Core.return default
+lib/interp/interp_decode.ml	160	keep:other	| None -> require name default
+lib/interp/interp_decode.ml	179	keep:other	| None -> require name default
+lib/interp/interp_decode.ml	199	keep:other	| None -> Core.return default
+lib/interp/interp_decode.ml	249	keep:of_option-no	| None -> Core.fail (`Missing_argument name)
+lib/interp/interp_decode.ml	263	keep:of_option-no	| None -> Core.fail (`Unexpected_output_kind (i, "missing"))
+lib/interp/interp_decode.ml	274	keep:other	| None -> Core.return env
+lib/interp/interp_decode.ml	285	keep:other	| None -> env
+lib/native/axis.ml	39	keep:other	| None -> Jsont.Error.msgf Jsont.Meta.none "axis: unknown %S" s)
+lib/native/eval_direct.ml	41	reduce:of_option	| None -> Core.fail (`Missing_tensor { context; id })
+lib/native/eval_direct.ml	71	keep:of_option-no	| None -> Core.fail (`Missing_constant id)))
+lib/native/eval_direct.ml	82	keep:other	| None -> eval_node g env node
+lib/native/eval_direct.ml	102	reduce:of_option	| None -> Core.fail (`Missing_tensor_sig r)))
+lib/native/eval_direct.ml	159	keep:of_option-no	| None -> Core.fail (`Missing_input id))
+lib/native/eval_op.ml	69	keep:other	| None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+lib/native/eval_op.ml	78	keep:other	| None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+lib/native/eval_op.ml	87	keep:other	| None ->
+lib/native/eval_op.ml	102	keep:other	| None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+lib/native/graph_builder.ml	105	reduce:of_option	| None -> Core.fail (`Missing_tensor_sig r)))
+lib/native/graph_builder.ml	204	reduce:of_option	| None -> Core.fail (`Missing_tensor_sig r)))
+lib/native/graph_builder.ml	249	keep:other	| Error e, _ -> (Error e, s)
+lib/native/graph_builder.ml	276	keep:other	| Error e, _ -> Error e
+lib/native/graph_ir.ml	319	keep:render	| None ->
+lib/native/graph_ir.ml	330	keep:render	| None -> ()
+lib/native/graph_ir.ml	336	keep:render	| None -> ()
+lib/native/graph_ir.ml	342	keep:render	| None -> ()
+lib/native/graph_ir.ml	352	keep:render	| None -> Tensor_id.pp fmt id
+lib/native/graph_ir.ml	362	keep:render	| None -> Tensor_id.pp fmt id
+lib/native/graph_ir.ml	439	keep:render	| None -> Fmt.pf fmt "%a <missing>" Node_id.pp id)
+lib/native/graph_ir.ml	449	keep:render	| None -> Fmt.pf fmt "%a <missing>" Node_id.pp id)
+lib/native/graph_ir.ml	472	keep:other	| None -> Index.make g
+lib/native/graph_ir.ml	574	keep:other	| None -> Tensor_id.Map.empty
+lib/native/graph_ir.ml	612	keep:other	| None -> []
+lib/native/json_util.ml	25	keep:other	| Error s -> Jsont.Error.msg meta s
+lib/native/json_util.ml	30	keep:other	| Error s -> Jsont.Error.msg meta s
+lib/native/json_util.ml	45	keep:other	| None -> Jsont.Error.msgf meta "%s: missing %S" ctx key
+lib/native/json_util.ml	51	keep:other	| None -> Jsont.Error.msgf meta "%s: expected object" ctx
+lib/native/json_util.ml	62	keep:other	| None -> Jsont.Error.msgf meta "%s: unknown variant %S" kind key)
+lib/native/json_util.ml	81	audit:option-fold	| None -> false
+lib/native/json_util.ml	93	keep:other	| None -> Jsont.Error.msgf meta "f32: invalid hex %S" s)
+lib/native/ops/conv.ml	15	reduce:or_raise	| Error e ->
+lib/native/ops/pointwise.ml	93	keep:of_option-no	| None, None -> Core.fail (`Clamp Shape_error.Clamp.No_bounds)
+lib/native/ops/pointwise.ml	120	keep:other	| None -> v
+lib/native/ops/pointwise.ml	125	keep:other	| None -> v
+lib/native/symint.ml	48	keep:other	| None -> add ()
+lib/native/tensor.ml	154	keep:other	| None -> Jsont.Error.msgf Jsont.Meta.none "tensor: missing \"data\""
+lib/native/tensor_sig.ml	41	keep:other	| None -> []
+lib/native/transform/cluster_relation.ml	156	keep:other	| None, None -> 0
+lib/native/transform/cluster_relation.ml	157	keep:other	| None, Some _ -> 1
+lib/native/transform/cluster_relation.ml	181	keep:other	| None -> Id.Set.singleton id
+lib/native/transform/cluster_relation.ml	186	keep:other	| None -> Id.Set.singleton id
+lib/native/transform/cluster_relation.ml	345	reduce:transparent	| Error e -> Error e
+lib/native/transform/correspondence.ml	20	keep:render	| None -> pp_packed fmt f
+lib/native/transform/graph_map.ml	122	keep:other	| Error issue -> Core.fail (wrap issue)
+lib/native/transform/graph_view.ml	109	keep:other	| None -> g :: acc
+lib/native/transform/graph_view.ml	153	keep:other	| None -> parents
+lib/native/transform/graph_view.ml	286	reduce:of_option	| None -> Core.fail (D.missing_sig id)
+lib/native/transform/graph_view.ml	318	keep:of_option-no	| None -> Core.fail (`Graph_shape (D.missing_sig id)))
+lib/native/transform/graph_view.ml	348	keep:of_option-no	| None -> Core.fail (`Graph_shape (D.missing_sig id))
+lib/native/transform/graph_view.ml	352	defect	| Error e -> Core.fail (`Invalid_sig (id, e.Core.Error.kind))))
+lib/native/transform/ground_eval.ml	77	keep:other	| None | Some Input.Input -> acc)
+lib/native/transform/ground_eval.ml	113	audit:option-fold	| None -> false
+lib/native/transform/ground_eval.ml	131	audit:option-fold	| None -> false
+lib/native/transform/ground_eval.ml	140	reduce:option-map	| None -> None
+lib/native/transform/ground_eval.ml	204	keep:other	| None, Some payload -> Ground_expr.Const (Tensor.read_at_raw payload at_axis)
+lib/native/transform/ground_eval.ml	205	keep:other	| None, None ->
+lib/native/transform/ground_eval.ml	273	keep:other	| None -> (
+lib/native/transform/ground_eval.ml	279	keep:other	| None, Some payload ->
+lib/native/transform/ground_eval.ml	284	keep:other	| None, None ->
+lib/native/transform/ground_eval.ml	321	keep:other	| None -> (n + 1, e))
+lib/native/transform/ground_eval.ml	369	audit:option-fold	| None -> false)
+lib/native/transform/ground_expr.ml	222	keep:other	| None -> Cell c)
+lib/native/transform/ground_expr.ml	342	keep:other	| None ->
+lib/native/transform/ground_expr.ml	351	keep:other	| None -> Unary (op, x) ))
+lib/native/transform/map_verify.ml	327	keep:other	| None ->
+lib/native/transform/map_verify.ml	350	keep:other	| None -> acc)
+lib/native/transform/map_verify.ml	371	keep:other	| None -> (
+lib/native/transform/map_verify.ml	373	reduce:option-map	| None -> None
+lib/native/transform/map_verify.ml	528	keep:other	| None -> None (* already projected; nothing to decide *)
+lib/native/transform/map_verify.ml	531	reduce:option-map	| None -> None
+lib/native/transform/map_verify.ml	538	audit:option-fold	| None -> false
+lib/native/transform/map_verify.ml	628	keep:of_option-no	| None -> Core.fail (`Missing_signature id));
+lib/native/transform/map_verify.ml	744	keep:other	| None, Some blocked ->
+lib/native/transform/map_verify.ml	747	keep:other	| None, None -> (
+lib/native/transform/map_verify.ml	797	keep:other	| None ->
+lib/native/transform/map_verify.ml	861	keep:kind-other	| Error e, _ | Ok _, Error e ->
+lib/native/transform/map_verify.ml	867	keep:other	| None -> Ground_eval.out_of_bounds rhs_env rhs
+lib/native/transform/map_verify.ml	871	keep:other	| None ->
+lib/native/transform/map_verify.ml	946	keep:other	| None -> Vec6.fold_coords shape ~init:verdict ~f:(step other)
+lib/native/transform/map_verify.ml	993	keep:other	| None ->
+lib/native/transform/map_verify.ml	1010	keep:other	| None ->
+lib/native/transform/pass.ml	28	reduce:render	| Error e ->
+lib/native/transform/pass.ml	117	keep:other	| None -> Core.return { audits = []; step }
+lib/native/transform/pass.ml	133	keep:other	| Error e ->
+lib/native/transform/passes/dce.ml	52	keep:other	| None -> rest
+lib/native/transform/passes/fold_batch_norm.ml	155	keep:other	| None ->
+lib/native/transform/passes/fold_const.ml	42	audit:error-to-none	| Error _ -> None
+lib/native/transform/passes/fold_const.ml	52	audit:error-to-none	| Error _ -> None
+lib/native/transform/passes/fold_const.ml	60	reduce:option-map	| None -> None
+lib/native/transform/passes/reshape_to_permute.ml	57	keep:other	| None -> fail Rejected
+lib/native/transform/passes/reuse_permute.ml	190	keep:other	| None -> tail)
+lib/native/transform/passes/sink_permute_mean.ml	66	keep:other	| Error _ -> fail Rejected
+lib/native/transform/passes/sink_permute_mean.ml	71	keep:other	| Error _ -> fail Rejected
+lib/native/transform/pattern.ml	75	keep:other	| Error (Invalid _ as e) -> Error e
+lib/native/transform/pattern.ml	76	keep:other	| Error (Mismatch _) -> b s
+lib/native/transform/pattern.ml	85	keep:other	| Error (Invalid _ as e) -> Error e
+lib/native/transform/pattern.ml	86	keep:other	| Error (Mismatch _) -> Ok (None, s)
+lib/native/transform/pattern.ml	104	keep:other	| None -> Error (Mismatch (Unproduced edge))
+lib/native/transform/pattern.ml	107	keep:other	| None -> Error (Mismatch (Wrong_op n.Node.id))
+lib/native/transform/pattern.ml	159	keep:other	| None -> fail (Unproduced edge)
+lib/native/transform/pattern.ml	164	exempt-lowering	| Error e -> Error (Invalid e.Core.Error.kind)
+lib/native/transform/pattern.ml	173	keep:other	| None -> -1
+lib/native/transform/pattern.ml	180	keep:other	| None -> return (List.rev acc)
+lib/native/transform/pattern.ml	195	reduce:transparent	| Error e -> Error e
+lib/native/transform/pattern.ml	199	exempt-lowering	| Error e -> Error (Invalid e.Core.Error.kind))
+lib/native/transform/pattern.ml	227	keep:other	| Error _ -> (acc_exclusive, acc_touched, found)
+lib/native/transform/pattern.ml	236	keep:other	| Error _ -> (acc_exclusive, acc_touched, found)
+lib/native/transform/provenance.ml	15	keep:other	| None -> sources
+lib/native/transform/recipe.ml	95	keep:of_option-no	| None -> Core.fail (`Unknown_source_edge id)
+lib/native/transform/region.ml	82	keep:of_option-no	| None -> Core.fail (`Unknown_node id))
+lib/native/transform/region.ml	90	audit:option-fold	| None -> false
+lib/native/transform/region.ml	122	keep:other	| None -> acc)
+lib/native/transform/rewrite.ml	186	keep:other	| None -> Core.return ())
+lib/native/transform/rewrite.ml	245	keep:other	| None -> Core.return id
+lib/native/transform/rewrite.ml	424	keep:other	| None, None ->
+lib/native/transform/rewrite.ml	610	reduce:of_option	| None -> Core.fail (`Value_endpoint (Cluster_relation.Dangling_src id))
+lib/native/transform/rewrite.ml	615	reduce:of_option	| None -> Core.fail (`Value_endpoint (Cluster_relation.Dangling_dst id))
+lib/native/transform/rewrite.ml	620	reduce:of_option	| None -> Core.fail (`Node_endpoint (Cluster_relation.Dangling_src id))
+lib/native/transform/rewrite.ml	625	reduce:of_option	| None -> Core.fail (`Node_endpoint (Cluster_relation.Dangling_dst id))
+lib/native/transform/rewrite.ml	652	keep:other	| None -> Correspondence.Set.singleton s
+lib/native/transform/rewrite.ml	672	keep:other	| None -> acc
+lib/native/transform/rewrite.ml	806	keep:other	| None -> id),
+lib/native/transform/rewrite.ml	906	keep:other	| None, _ ->
+lib/native/transform/rewrite.ml	922	keep:other	| None, _ ->
+lib/native4d/axis4.ml	43	keep:other	| None ->
+lib/native4d/builder.ml	105	reduce:of_option	| None -> Core.fail (`Missing_tensor_sig r)))
+lib/native4d/builder.ml	169	keep:other	| Error e, _ -> Error e
+lib/native4d/domain.ml	32	keep:other	| None -> rest (* a graph input: nothing upstream *)
+lib/native4d/domain.ml	51	keep:other	| None -> Core.return ()
+lib/native4d/domain.ml	95	keep:other	| None -> Core.return ()
+lib/native4d/domain.ml	133	keep:other	| None -> Core.return ()
+lib/native4d/domain.ml	140	keep:other	| None -> Core.return ()
+lib/native4d/domain.ml	171	keep:other	| None -> Core.return ()
+lib/native4d/domain.ml	177	keep:other	| None -> Core.return ()
+lib/native4d/eval_direct4.ml	43	reduce:of_option	| None -> Core.fail (`Missing_tensor { context; id })
+lib/native4d/eval_direct4.ml	75	keep:of_option-no	| None -> Core.fail (`Missing_constant id)))
+lib/native4d/eval_direct4.ml	87	reduce:of_option	| None -> Core.fail (`Missing_tensor_sig r)))
+lib/native4d/eval_direct4.ml	139	keep:of_option-no	| None -> Core.fail (`Missing_input id))
+lib/native4d/eval_op4.ml	49	keep:other	| None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+lib/native4d/eval_op4.ml	114	keep:other	| None ->
+lib/native4d/graph.ml	39	keep:render	| None -> Tensor_id.pp fmt id
+lib/native4d/graph.ml	45	keep:other	| None -> "?"
+lib/native4d/graph_shape4.ml	64	keep:other	| None -> axis (* T and D are fixed *)
+lib/native4d/lower.ml	137	keep:of_option-no	| None -> Core.fail (`Axis_outside_dialect (node, in_axis)))
+lib/native4d/lower.ml	145	reduce:of_option	| None -> Core.fail (`Axis_outside_dialect (node, axis)))
+lib/native4d/lower.ml	151	keep:other	| Error _ -> Core.fail (`Non_four_dimensional_tensor (id, shape))
+lib/native4d/lower.ml	170	keep:of_option-no	| None -> Core.fail (`Missing_constant_payload (node, id))
+lib/native4d/lower.ml	199	keep:other	| None, Some _, [ b ] -> ((fun _ -> 1.), b)
+lib/native4d/lower.ml	242	keep:other	| None ->
+lib/native4d/lower.ml	397	keep:other	| Error _ -> Core.fail (`Unsupported_op (node, n.Node.op))
+lib/native4d/lower.ml	530	keep:of_option-no	| None -> Core.fail (`Bad_constant_payload id)
+lib/native4d/lower.ml	718	keep:other	| None -> p
+lib/native4d/lower.ml	726	keep:other	| None -> s)
+lib/native4d/shape4.ml	50	keep:other	| Error _ ->
+lib/native_aten_bridge/op_bridge.ml	110	keep:other	| Error message -> Core.fail (`Tensor_bridge { arg_name; message })
+lib/native_aten_bridge/op_bridge.ml	141	keep:other	| None -> return None
+lib/native_aten_bridge/op_bridge.ml	153	keep:other	| None -> return ()
+lib/native_aten_bridge/op_bridge.ml	417	keep:other	| Error e, _ | _, Error e -> Some (Error e)
+lib/native_aten_bridge/op_bridge.ml	758	keep:other	| Error e, _ | _, Error e -> Some (Error e)
+lib/native_aten_bridge/op_bridge.ml	782	keep:other	| Error e -> Some (Error e)
+lib/native_aten_bridge/op_bridge.ml	817	keep:other	| Error e -> Some (Error e)
+lib/native_aten_bridge/op_bridge.ml	832	keep:other	| Error e, _ | _, Error e -> Some (Error e)
+lib/native_aten_bridge/op_bridge.ml	853	keep:kind-other	| Error e ->
+lib/native_aten_bridge/tensor_bridge.ml	34	exempt-lowering	| Error { Core.Error.kind = e; _ } ->
+lib/native_aten_bridge/tensor_bridge.ml	41	keep:other	| None -> Error "float32 data_ptr returned null"
+lib/native_aten_bridge/tensor_bridge.ml	58	keep:other	| None -> Error "int64 data_ptr returned null"
+lib/native_graph/pt2_native_graph.ml	157	reduce:of_option	| None -> Core.fail (`Unknown_destination_tensor id)
+lib/native_graph/pt2_native_graph.ml	162	reduce:of_option	| None -> Core.fail (`Unknown_destination_node id)
+lib/native_graph/pt2_native_graph.ml	177	keep:other	| None ->
+lib/native_graph/pt2_native_graph.ml	211	keep:other	| None -> (
+lib/native_graph/pt2_native_graph.ml	235	keep:other	| None -> []
+lib/native_interp/native_interp.ml	64	keep:other	| None -> malformed "no tensor metadata for %S" name
+lib/native_interp/native_interp.ml	71	keep:other	| None -> malformed "%s: missing argument %S" node.target name
+lib/native_interp/native_interp.ml	91	keep:other	| None -> default
+lib/native_interp/native_interp.ml	100	keep:other	| None -> default
+lib/native_interp/native_interp.ml	108	keep:other	| None -> default
+lib/native_interp/native_interp.ml	116	keep:other	| None -> default
+lib/native_interp/native_interp.ml	128	keep:other	| None -> default
+lib/native_interp/native_interp.ml	138	keep:multi-arm	| None -> None
+lib/native_interp/native_interp.ml	150	keep:other	| None -> ()
+lib/native_interp/native_interp.ml	163	keep:other	| None | Some { arg = Argument.None _; _ } -> ()
+lib/native_interp/native_interp.ml	198	keep:other	| None -> malformed "SSA tensor %S is not defined" name
+lib/native_interp/native_interp.ml	226	keep:other	| None -> malformed "no metadata for convolution weight %S" weight_name
+lib/native_interp/native_interp.ml	451	keep:other	| None -> malformed "no metadata for mean input"
+lib/native_interp/native_interp.ml	466	keep:other	| None -> malformed "no metadata for permute input"
+lib/native_interp/native_interp.ml	491	keep:other	| None -> malformed "no metadata for addmm weight"
+lib/native_interp/native_interp.ml	548	keep:other	| Error _ as e -> e
+lib/native_interp/native_interp.ml	628	reduce:option-map	| None -> None
+lib/native_interp/native_interp.ml	679	reduce:of_option	| None -> Core.fail (`Malformed_graph "native output was not evaluated"))
+lib/native_interp/native_interp.ml	724	keep:other	| None -> (
+lib/native_interp/native_interp.ml	790	keep:other	| None -> Core.return None
+lib/native_interp/native_interp.ml	846	keep:other	| None -> (
+lib/native_interp/native_interp.ml	852	keep:other	| None -> Core.return acc
+lib/native_interp/native_interp.ml	896	reduce:of_option	| None -> Core.fail (`Malformed_graph "native output was not evaluated"))
+lib/native_op_walk/native_verify.ml	20	keep:render	| Error e ->
+lib/pt2/pt2_archive.ml	71	keep:other	| Error e -> Core.fail (`Model_json_decode e)
+lib/pt2/pt2_archive.ml	79	keep:other	| Error e -> Core.fail (`Weights_config_decode e)
+lib/pt2/pt2_archive.ml	89	keep:other	| None -> Core.return { ModelWeightsConfig.config = String_map.empty }
+lib/pt2/pt2_archive.ml	93	keep:other	| Error e -> Core.fail (`Constants_config_decode e))
+lib/pt2/pt2_archive.ml	116	keep:of_option-no	| None -> Core.fail (`Missing_weight name)
+lib/pt2/pt2_archive.ml	125	keep:other	| None -> (
+lib/pt2/pt2_archive.ml	128	keep:of_option-no	| None -> Core.fail (`Missing_captured_tensor name))
+lib/pt2/pt2_pickle.ml	79	keep:other	| None -> (
+lib/pt2/pt2_pickle.ml	83	keep:other	| None -> find_in_dict rest))
+lib/pt2/pt2_pickle.ml	104	keep:other	| None -> (
+lib/pt2/pt2_pickle.ml	108	keep:other	| None, None -> Core.return None
+lib/pt2/pt2_pickle.ml	109	keep:other	| None, Some state -> find_tensor state))
+lib/pt2/pt2_pickle.ml	115	keep:other	| Error e -> Core.fail (`Malformed_pickle (Opickle.Error.to_string e))
+lib/pt2/pt2_pickle.ml	121	reduce:of_option	| None -> Core.fail `No_tensor_found)
+lib/pt2/pt2_zip.ml	25	keep:other	| None -> first rest)
+lib/pt2/pt2_zip.ml	38	keep:other	| Error e -> Core.fail (`Zip_parse_failed e)
+lib/pt2/pt2_zip.ml	45	keep:other	| None -> Core.return None
+lib/pt2/pt2_zip.ml	52	keep:other	| Error e -> Core.fail (`Zip_read_failed (name, e))))
+lib/pt2/pt2_zip.ml	59	reduce:of_option	| None -> Core.fail (`Zip_missing_entry name)
+lib/pt2_spec_gen/pt2_spec_gen.ml	150	keep:other	| None -> (
+lib/pt2_spec_gen/pt2_spec_gen.ml	161	keep:of_option-no	| None -> Core.fail (`No_tensor_meta name))
+lib/pt2_spec_gen/pt2_spec_gen.ml	202	keep:other	| None ->
+lib/pt2_spec_gen/pt2_spec_gen.ml	224	keep:other	| None, Some (Aten_op_config.D_int i) -> some (Av.Int i)
+lib/pt2_spec_gen/pt2_spec_gen.ml	225	keep:other	| None, _ -> missing ()
+lib/pt2_spec_gen/pt2_spec_gen.ml	236	keep:other	| None, Some (Aten_op_config.D_ints xs) -> some (Av.Int_list xs)
+lib/pt2_spec_gen/pt2_spec_gen.ml	237	keep:other	| None, Some (Aten_op_config.D_int i) -> some (Av.Int_list [ i ])
+lib/pt2_spec_gen/pt2_spec_gen.ml	238	keep:other	| None, _ -> missing ()
+lib/pt2_spec_gen/pt2_spec_gen.ml	248	keep:other	| None, Some (Aten_op_config.D_float f) -> some (Av.Float f)
+lib/pt2_spec_gen/pt2_spec_gen.ml	249	keep:other	| None, _ -> missing ()
+lib/pt2_spec_gen/pt2_spec_gen.ml	259	keep:other	| None, Some (Aten_op_config.D_bool b) -> some (Av.Bool b)
+lib/pt2_spec_gen/pt2_spec_gen.ml	260	keep:other	| None, _ -> missing ()
+lib/pt2_spec_gen/pt2_spec_gen.ml	272	keep:other	| None, Some (Aten_op_config.D_int i) -> some (Av.Scalar (Sv.Int i))
+lib/pt2_spec_gen/pt2_spec_gen.ml	273	keep:other	| None, Some (Aten_op_config.D_float f) -> some (Av.Scalar (Sv.Float f))
+lib/pt2_spec_gen/pt2_spec_gen.ml	274	keep:other	| None, _ -> missing ()
+lib/pt2_spec_gen/pt2_spec_gen.ml	285	keep:other	| None, Some (Aten_op_config.D_str s) -> some (Av.Str s)
+lib/pt2_spec_gen/pt2_spec_gen.ml	286	keep:other	| None, _ -> missing ()
+lib/pt2_spec_gen/pt2_spec_gen.ml	295	keep:of_option-no	| None -> Core.fail (`Unbound_op node.target)
+lib/pt2_spec_gen/pt2_spec_gen.ml	324	keep:raise-plain	| Error e -> failwith ("pt2_spec_gen: encode: " ^ e)
+lib/pt2_spec_gen/pt2_spec_gen.ml	342	keep:other	| Error e ->
+lib/pytorch_schema/pytorch_schema.ml	29	keep:other	| Error s -> Jsont.Error.msg Jsont.Meta.none s)
+lib/pytorch_schema/pytorch_schema.ml	53	keep:other	| Error s -> Jsont.Error.msg Jsont.Meta.none s)
+lib/pytorch_schema/pytorch_schema.ml	159	keep:other	| Error s -> Jsont.Error.msg Jsont.Meta.none s)
+lib/pytorch_schema/pytorch_schema.ml	167	keep:other	| Error s -> Jsont.Error.msg Jsont.Meta.none s))
+lib/pytorch_schema/schema_codegen.ml	178	keep:other	| None -> (
+lib/pytorch_schema/schema_codegen.ml	181	keep:other	| None -> Some (Printf.sprintf "\"%s\"" s)))
+lib/pytorch_schema/schema_codegen.ml	235	keep:other	| None -> Mem_required
+lib/pytorch_schema/schema_codegen.ml	238	keep:other	| None -> Mem_optional
+lib/pytorch_schema/schema_codegen.ml	401	keep:other	| Error s -> Jsont.Error.msg Jsont.Meta.none s)@]"
+lib/pytorch_schema/schema_codegen.ml	555	keep:other	| Error s -> Jsont.Error.msg Jsont.Meta.none s)@]"
+lib/walk_core/float32.ml	23	audit:option-fold	| None -> false
+lib/walk_core/float32.ml	41	keep:other	| None -> Jsont.Error.msgf Jsont.Meta.none "invalid float32 hex: %S" s
+test/aten_gen_coverage.ml	11	keep:other	| Error (`Msg e) ->
+test/aten_gen_coverage.ml	25	keep:other	| Error _ -> ()
+test/aten_gen_test.ml	6	keep:other	| Error e -> Printf.printf "PARSE ERROR: %s\n" e
+test/aten_schema_func_test.ml	8	keep:other	| Error (`Msg e) ->
+test/aten_schema_func_test.ml	18	keep:other	| Error msg ->
+test/aten_schema_raw_test.ml	11	keep:other	| Error (`Msg e) ->
+test/aten_schema_raw_test.ml	34	keep:other	| None -> Printf.printf "%-20s NOT FOUND\n" label
+test/aten_spec_run_test.ml	10	keep:raise-plain	| Error e -> failwith ("decode: " ^ e)
+test/aten_spec_test.ml	33	keep:raise-plain	| Error e -> failwith e
+test/aten_spec_test.ml	38	keep:raise-plain	| Error e -> failwith e
+test/aten_spec_test.ml	141	keep:other	| Error e -> pf "decode error: %s\n" e
+test/aten_spec_test.ml	147	keep:other	| Error e -> pf "encode error: %s\n" e
+test/aten_spec_test.ml	150	keep:other	| Error e -> pf "re-decode error: %s\n" e
+test/aten_spec_test.ml	166	keep:other	| Error e -> pf "decode error: %s\n" e
+test/aten_spec_test.ml	169	keep:other	| Error e -> pf "encode error: %s\n" e
+test/aten_spec_test.ml	172	keep:other	| Error e -> pf "re-decode error: %s\n" e
+test/codegen_test.ml	261	emitted-text	| Error s -> Jsont.Error.msg Jsont.Meta.none s)
+test/codegen_test.ml	265	emitted-text	| Error s -> Jsont.Error.msg Jsont.Meta.none s)
+test/codegen_test.ml	311	emitted-text	| Error s -> Jsont.Error.msg Jsont.Meta.none s)
+test/codegen_test.ml	315	emitted-text	| Error s -> Jsont.Error.msg Jsont.Meta.none s)
+test/codegen_test.ml	319	emitted-text	| Error s -> Jsont.Error.msg Jsont.Meta.none s)
+test/interp_run.ml	35	keep:other	| None -> List.rev acc
+test/interp_run.ml	47	keep:other	| None -> ())
+test/interp_run.ml	76	keep:other	| Error e -> Core.fail (`Results_decode e)
+test/interp_run.ml	142	reduce:of_option	| None -> Core.fail (`No_reference key)
+test/interp_run.ml	175	keep:render	| Error e ->
+test/native/aten_shape_test.ml	11	reduce:or_raise	| Error e ->
+test/native/compute_test.ml	253	keep:render	| Error e -> Format.printf "error: %a@." Shape_error.pp e.Core.Error.kind);
+test/native/core_test.ml	37	reduce:render	| Error e -> Format.printf "%a@." Dim.pp_error e.Core.Error.kind);
+test/native/core_test.ml	61	keep:render	| Error e ->
+test/native/core_test.ml	85	reduce:render	| Error e -> Format.printf "%a@." Aten_shape.pp_error e.Core.Error.kind
+test/native/core_test.ml	109	keep:kind-other	| Error e -> if e.Core.Error.kind = `Renamed then "Renamed" else "?"
+test/native/core_test.ml	116	keep:other	| Error _ -> true
+test/native/dce_test.ml	12	reduce:or_raise	| Error e ->
+test/native/dce_test.ml	19	keep:render	| Error e ->
+test/native/dce_test.ml	24	reduce:render	| Error e ->
+test/native/dce_test.ml	150	exempt-lowering	| Error e -> Error (e.Core.Error.kind :> Pass.error)
+test/native/dce_test.ml	153	exempt-lowering	| Error e -> Error e.Core.Error.kind
+test/native/dce_test.ml	158	keep:render	| Error kind -> Format.printf "%s: %a@." label Pass.pp_error kind
+test/native/dce_test.ml	186	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/dce_test.ml	192	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/drop_pool_indices_test.ml	15	reduce:or_raise	| Error e ->
+test/native/drop_pool_indices_test.ml	50	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/drop_pool_indices_test.ml	53	reduce:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/drop_pool_indices_test.ml	81	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/drop_pool_indices_test.ml	84	reduce:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/drop_pool_indices_test.ml	102	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/drop_pool_indices_test.ml	108	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/fold_batch_norm_test.ml	107	reduce:or_raise	| Error e ->
+test/native/fold_batch_norm_test.ml	128	reduce:or_raise	| Error e ->
+test/native/fold_batch_norm_test.ml	163	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/fold_batch_norm_test.ml	166	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/fold_batch_norm_test.ml	337	keep:other	| Error _ -> "origin failed"
+test/native/fold_batch_norm_test.ml	343	keep:other	| Error _ -> "pass failed"
+test/native/fold_batch_norm_test.ml	348	keep:other	| Error _ -> "verifier failed"
+test/native/fold_batch_norm_test.ml	432	keep:render	| Error e -> Format.printf "view: %a@." Graph_view.pp_error e.Core.Error.kind
+test/native/fold_batch_norm_test.ml	459	reduce:or_raise	| Error e ->
+test/native/fold_batch_norm_test.ml	486	reduce:or_raise	| Error e ->
+test/native/fold_batch_norm_test.ml	518	reduce:or_raise	| Error e ->
+test/native/fold_batch_norm_test.ml	552	reduce:or_raise	| Error e ->
+test/native/fold_const_test.ml	33	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/fold_const_test.ml	40	reduce:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/fold_const_test.ml	61	keep:kind-other	| Error e -> Format.asprintf "%a" Eval_direct.pp_error e.Core.Error.kind
+test/native/fold_const_test.ml	357	reduce:or_raise	| Error e ->
+test/native/graph_fixtures.ml	51	reduce:or_raise	| Error e ->
+test/native/graph_fixtures.ml	182	reduce:or_raise	| Error e ->
+test/native/graph_fixtures.ml	191	reduce:or_raise	| Error e ->
+test/native/graph_map_test.ml	319	keep:render	| Error e -> Fmt.pf Fmt.stdout "%a@." Graph_map.pp_error e.Core.Error.kind
+test/native/graph_symbolic_test.ml	55	reduce:of_option	| None -> Core.fail (`Missing_output_tensor id)
+test/native/graph_symbolic_test.ml	402	keep:render	| Error e -> Format.printf "%a@." pp_error e.Core.Error.kind);
+test/native/graph_test.ml	60	reduce:of_option	| None -> Core.fail (`Missing_named_tensor name)
+test/native/graph_test.ml	67	reduce:of_option	| None -> Core.fail (`Missing_named_tensor name)
+test/native/graph_view_test.ml	267	keep:render	| Error e -> (
+test/native/lens_test.ml	101	reduce:or_raise	| Error e -> invalid_arg (Format.asprintf "%a" P.pp_error e.Core.Error.kind)
+test/native/lens_test.ml	111	reduce:or_raise	| Error e -> invalid_arg (Format.asprintf "%a" P.pp_error e.Core.Error.kind)
+test/native/lens_test.ml	125	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/lens_test.ml	128	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/lens_test.ml	131	keep:render	| Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+test/native/lens_test.ml	135	keep:other	| Error e -> fail e
+test/native/lens_test.ml	144	keep:render	| Error e -> fail e
+test/native/lens_test.ml	152	keep:render	| Error e -> fail e
+test/native/lens_test.ml	248	keep:render	| Error e -> fail e
+test/native/lens_test.ml	295	keep:render	| Error e -> fail e
+test/native/lens_test.ml	311	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/lens_test.ml	338	keep:other	| Error e -> fail e
+test/native/lens_test.ml	341	keep:render	| Error e -> fail e
+test/native/lens_test.ml	370	keep:render	| Error e -> fail e
+test/native/pack_test.ml	52	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pack_test.ml	55	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/pack_test.ml	71	reduce:render	| Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pack_test.ml	133	reduce:render	| Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pack_test.ml	153	reduce:render	| Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pack_test.ml	184	keep:render	| Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pack_test.ml	187	reduce:render	| Error e ->
+test/native/pack_test.ml	210	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pack_test.ml	213	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/pack_test.ml	216	keep:render	| Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pack_test.ml	253	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pack_test.ml	256	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/pack_test.ml	259	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/pack_test.ml	264	keep:render	| Error e ->
+test/native/pass_test.ml	61	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pass_test.ml	64	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/pass_test.ml	257	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/pass_test.ml	267	reduce:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/pattern_test.ml	22	keep:render	| Error f -> Format.printf "no match: %a@." Pattern.pp_failure f
+test/native/pattern_test.ml	30	keep:render	| Error f -> Format.printf "%a@." Pattern.pp_failure f
+test/native/pattern_test.ml	276	keep:render	| Error f -> Format.printf "no match: %a@." Pattern.pp_failure f
+test/native/permute_passes_test.ml	11	keep:render	| Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+test/native/permute_passes_test.ml	16	reduce:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/permute_passes_test.ml	26	audit:error-to-none	| Error _ -> None
+test/native/permute_passes_test.ml	29	audit:error-to-none	| Error _ -> None
+test/native/permute_passes_test.ml	40	keep:kind-other	| Error e -> Format.asprintf "%a" Eval_direct.pp_error e.Core.Error.kind
+test/native/permute_passes_test.ml	52	audit:error-to-none	| Error _ -> None
+test/native/permute_passes_test.ml	75	keep:render	| Error e -> Format.printf "view: %a@." Graph_view.pp_error e.Core.Error.kind
+test/native/permute_passes_test.ml	645	keep:render	| None -> Format.printf "rewrite failed@."
+test/native/permute_passes_test.ml	758	keep:render	| None -> Format.printf "rewrite failed@."
+test/native/permute_passes_test.ml	824	reduce:or_raise	| Error e ->
+test/native/permute_passes_test.ml	836	keep:render	| None -> Format.printf "rewrite failed@."
+test/native/permute_passes_test.ml	954	keep:render	| None -> Format.printf "rewrite failed@."
+test/native/permute_passes_test.ml	1109	keep:render	| None -> false)
+test/native/permute_passes_test.ml	1176	keep:render	| None -> false)
+test/native/permute_passes_test.ml	1464	reduce:or_raise	| Error e ->
+test/native/pipeline_test.ml	16	reduce:or_raise	| Error e ->
+test/native/pipeline_test.ml	74	keep:render	| Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+test/native/pipeline_test.ml	100	keep:render	| Error _ -> "failed"
+test/native/rewrite_test.ml	37	keep:render	| Error e -> fail_with e
+test/native/rewrite_test.ml	42	keep:render	| Error e -> fail_with e
+test/native/rewrite_test.ml	46	keep:render	| Error e -> fail_with e
+test/native/rewrite_test.ml	55	keep:other	| Error e -> fail_with e
+test/native/rewrite_test.ml	58	keep:other	| Error e -> fail_with e
+test/native/rewrite_test.ml	61	keep:render	| Error e -> fail_with e
+test/native/rewrite_test.ml	599	keep:other	| Error e -> fail_with e
+test/native/rewrite_test.ml	624	keep:other	| Error e -> fail_with e
+test/native/rewrite_test.ml	631	keep:other	| Error e -> fail_with e
+test/native/rewrite_test.ml	634	keep:render	| Error e -> fail_with e
+test/native/rewrite_test.ml	642	keep:other	| Error e -> fail_with e
+test/native/rewrite_test.ml	668	keep:render	| Error e -> fail_with e
+test/native/rewrite_test.ml	670	keep:other	| Error e, _ | _, Error e -> fail_with e));
+test/native/symint_test.ml	10	reduce:or_raise	| Error e ->
+test/native/symint_test.ml	29	reduce:or_raise	| Error e ->
+test/native/tensor_test.ml	56	reduce:render	| None -> "pad"
+test/native/verify_test.ml	149	reduce:or_raise	| Error e ->
+test/native4d/compute_test.ml	36	reduce:or_raise	| Error e ->
+test/native4d/compute_test.ml	63	reduce:or_raise	| Error e ->
+test/native4d/compute_test.ml	183	keep:raise-plain	| None -> (
+test/native4d/compute_test.ml	186	keep:raise-plain	| None -> invalid_arg "unbound")
+test/native4d/compute_test.ml	192	keep:render	| None -> Format.printf "%-22s symbolic produced no stage@." name
+test/native4d/domain_test.ml	19	reduce:or_raise	| Error e ->
+test/native4d/domain_test.ml	217	keep:render	| Error e ->
+test/native4d/fixtures.ml	15	reduce:or_raise	| Error e ->
+test/native4d/fixtures4.ml	56	reduce:or_raise	| Error e ->
+test/native4d/lower_test.ml	11	reduce:or_raise	| Error e ->
+test/native4d/lower_test.ml	20	keep:kind-other	| Error e ->
+test/native4d/lower_test.ml	24	keep:kind-other	| Error e -> Format.asprintf "%a" Error.pp e.Core.Error.kind
+test/native4d/lower_test.ml	195	keep:kind-other	| Error e ->
+test/native4d/lower_test.ml	199	keep:kind-other	| Error e -> Format.asprintf "%a" Error.pp e.Core.Error.kind
+test/native4d/mutation_test.ml	38	reduce:or_raise	| Error e ->
+test/native4d/mutation_test.ml	45	reduce:or_raise	| Error e ->
+test/native4d/mutation_test.ml	58	keep:render	| Error e, _ ->
+test/native4d/mutation_test.ml	78	keep:render	| Error e ->
+test/native4d/mutation_test.ml	88	keep:render	| Error e ->
+test/native4d/mutation_test.ml	315	keep:render	| Error _ -> Format.printf "snapshot failed@."
+test/native4d/mutation_test.ml	318	keep:render	| Error e -> Format.printf "%a@." Error.pp e.Core.Error.kind
+test/native4d/mutation_test.ml	327	reduce:render	| Error e ->
+test/native4d/mutation_test.ml	503	keep:render	| Error _, _ | _, Error _ -> Format.printf "%-22s snapshot failed@." name
+test/native4d/mutation_test.ml	530	keep:render	| Error e ->
+test/native4d/mutation_test.ml	540	reduce:render	| Error e ->
+test/native4d/pass4_test.ml	14	reduce:or_raise	| Error e ->
+test/native4d/pass4_test.ml	30	keep:render	| Error e ->
+test/native4d/pass4_test.ml	36	reduce:render	| Error e ->
+test/native4d/shape4_test.ml	136	keep:kind-other	| Error e ->
+test/native4d/verify_test.ml	18	reduce:or_raise	| Error e ->
+test/native4d/verify_test.ml	28	keep:kind-other	| Error e ->
+test/native4d/verify_test.ml	32	keep:kind-other	| Error e -> Format.asprintf "%a" Error.pp e.Core.Error.kind
+test/native4d/verify_test.ml	41	keep:kind-other	| Error e ->
+test/native4d/verify_test.ml	134	keep:render	| Error _ -> Format.printf "snapshot failed@."
+test/native4d/verify_test.ml	137	keep:render	| Error e -> Format.printf "%a@." Error.pp e.Core.Error.kind
+test/native4d/verify_test.ml	144	reduce:render	| Error e ->
+test/native4d/verify_test.ml	176	keep:kind-other	| Error e ->
+test/native4d/verify_test.ml	184	keep:kind-other	| Error _ -> "snapshot failed"
+test/native4d/verify_test.ml	187	keep:kind-other	| Error e -> Format.asprintf "%a" Error.pp e.Core.Error.kind
+test/native4d/verify_test.ml	191	keep:kind-other	| Error e ->
+test/native4d/verify_test.ml	218	keep:render	| Error _ -> Format.printf "snapshot failed@."
+test/native4d/verify_test.ml	221	keep:render	| Error e -> Format.printf "%a@." Error.pp e.Core.Error.kind
+test/native4d/verify_test.ml	234	keep:render	| Error e ->
+test/native4d/verify_test.ml	254	keep:other	| Error _ -> Ground_expr.Const 0.
+test/native_bridge_test.ml	30	reduce:or_raise	| Error e ->
+test/native_bridge_test.ml	46	reduce:or_raise	| Error e ->
+test/native_bridge_test.ml	237	keep:render	| None -> print_string "not found"
+test/native_bridge_test.ml	245	reduce:render	| None -> print_string "not found"
+test/native_bridge_test.ml	276	keep:render	| None -> print_string "no native impl\n"
+test/native_bridge_test.ml	282	keep:render	| Error e ->
+test/native_bridge_test.ml	849	keep:render	| Error e ->
+test/native_bridge_test.ml	1010	keep:raise-plain	| Error _ -> assert false
+test/native_bridge_test.ml	1040	keep:render	| Error _ -> print_endline "unexpected error"
+test/parse_weights_config.ml	9	keep:other	| Error e ->
+test/pt2_load.ml	34	keep:render	| Error e ->
+test/pt2_test.ml	20	keep:raise-plain	| Error e -> failwith ("Zipc.File.stored_of_binary_string: " ^ e)
+test/pt2_test.ml	25	keep:raise-plain	| Error e -> failwith ("Zipc.Member.make: " ^ e)
+test/pt2_test.ml	31	keep:raise-plain	| Error e -> failwith ("Zipc.to_binary_string: " ^ e)
+test/pt2_test.ml	39	keep:render	| Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind
+test/pt2_test.ml	44	keep:render	| Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+test/pt2_test.ml	47	keep:render	| Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+test/pt2_test.ml	50	reduce:render	| Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+test/pt2_test.ml	61	keep:render	| Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind
+test/pt2_test.ml	65	keep:render	| Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+test/pt2_test.ml	95	keep:render	| Error e -> Format.printf "%a@." Pt2_dtype.pp_error e.Core.Error.kind);
+test/pt2_test.ml	101	reduce:render	| Error e -> Format.printf "%a@." Pt2_tensor.pp_error e.Core.Error.kind);
+test/pt2_test.ml	159	reduce:render	| Error e -> Format.printf "%a@." Pt2_pickle.pp_error e.Core.Error.kind
+test/pt2_test.ml	172	reduce:render	| Error e ->

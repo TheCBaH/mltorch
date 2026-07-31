@@ -46,6 +46,36 @@ The largest production concentrations are `lib/native`, `lib/aten_gen`,
 declaration and a reducible match both contribute to the raw grep, while an
 operational match may be exactly the right code.
 
+### Classified baseline (Stage 0, done)
+
+The raw figures above are preserved as measured. The semantic census that
+Stage 0 asks for now exists — `.ai/result_option_census.md` (readable) and
+`.ai/result_option_census.tsv` (603 rows, one per site, each in exactly one
+cluster). Reproducible arm-head count at `d4d7e1f`:
+
+```sh
+git grep -cE '^[[:space:]]*\|[[:space:]]*(Error|None)\b' -- '*.ml' '*.mli' \
+  | awk -F: '{s+=$2} END{print s}'      # 603, in 120 of 301 tracked files
+```
+
+| verdict | n |
+|---|---:|
+| `defect` — loses a detection backtrace | 1 |
+| `reduce:*` — mechanically reducible | 95 |
+| `audit:*` — needs a decision | 13 |
+| `exempt-lowering` — deliberate wrapper drop at a boundary | 15 |
+| `emitted-text` — generated OCaml inside `{\| … \|}` | 15 |
+| `keep:*` — real branching, error leaves, combinator definitions | 464 |
+
+**The migration is 96 sites**, not 615: 82% of the tree's `Error`/`None` arms
+are already correct, and the largest single cluster (160 printer arms) is 85%
+legitimate. Sizing this work from the raw grep overstates it roughly six-fold.
+
+The census also turned up one thing this plan's framing missed: the tree
+contains a **live instance of the backtrace-losing bug** that
+`.ai/fmt_migration_plan.md` documents as wrong — `lib/native/transform/
+graph_view.ml:352` — so this is not purely a style migration.
+
 ## Classification rule
 
 Check every match in context before changing it. Classify it by what the
@@ -103,7 +133,25 @@ distinction. Obvious domain branching does not need lint-directed ceremony.
 
 ## Rollout
 
-### Stage 0: produce a semantic census
+### Stage 0: produce a semantic census — **done**
+
+> **Found while implementing:** the census is `.ai/result_option_census.md` and
+> `.tsv`. Three things it changed about this plan's assumptions:
+>
+> - The reducible surface is **96 sites**, not ~615. Staging the work bottom-up
+>   by dependency layer (Stage 3 below) is the wrong shape: `lib/` holds ~40 of
+>   them, and two thirds sit in `test/native`, `test/native4d` and
+>   `bin/native_graph.ml`. `lib/native4d`, `lib/native_op_walk` and `lib/interp`
+>   are already at the target idiom.
+> - One site is an outright **defect**, not a style issue
+>   (`graph_view.ml:352`), and it is fixed first, as a `fixup!` onto `6ce482f`.
+> - A wrapper drop can be written by **destructuring in the pattern**
+>   (`lib/native_aten_bridge/tensor_bridge.ml:34`:
+>   `| Error { Core.Error.kind = e; _ } ->`), so it never contains the string
+>   `e.Core.Error.kind`. Any search — or future checker — keyed on that
+>   expression misses it.
+
+Original intent, kept for the record:
 
 Create an inventory grouped by the classification table rather than one flat
 grep dump. Record, per area:
