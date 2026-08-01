@@ -82,6 +82,11 @@ copy rule for it — dune handles source-tree files directly.
 
 ## Workflow
 
+Run Dune commands serially for a given checkout/build root. Do not keep a
+`dune build`, `dune runtest`, `dune promote`, `dune fmt`, or Makefile target that
+wraps Dune running while starting another one; they share `_build` state and
+promotion output.
+
 ```sh
 # Run all tests
 opam exec -- dune runtest

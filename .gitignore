@@ -4,5 +4,6 @@ _build/
 .devcontainer/devcontainer-lock.json
 .ai/*_plan.md
 .ai/*_census.*
+AGENTS.md
 data/pt2/
 .profile/
