@@ -99,7 +99,22 @@ pt2.vars:
 # target and no CI workflow, so nothing ran them and their goldens could drift
 # unnoticed. They are the only end-to-end evidence that the symbolic verifier
 # still proves what it proved, which the Native4D work is about to depend on.
+#
+# Deliberately does NOT depend on pt2.download-cram: that target's `unzip -o`
+# always re-extracts even when the zip is already present, which would refresh
+# every file's mtime (and momentarily remove it) on every runtest invocation.
+# Instead this checks the data is there and fails fast with a fix-it hint --
+# --auto-promote must never run against missing data, since dune would then
+# bake the resulting failure straight into the committed goldens (see
+# [[testing_strategy]] on the `(universe)` dep it also takes to guard against
+# a stale cached failure doing the same after the data reappears).
 pt2.runtest:
+	@for m in $(PT2_MODELS_CRAM); do \
+		test -f $(PT2_DIR)/$$m/$$m.pt2 || { \
+			echo "pt2.runtest: missing $(PT2_DIR)/$$m/$$m.pt2 -- run 'make pt2.download-cram' first" >&2; \
+			exit 1; \
+		}; \
+	done
 	PT2_DATA=$(abspath $(PT2_DIR)) opam exec -- dune runtest \
 		test/pt2_load_cram.t test/interp_resnet_cram.t \
 		test/interp_efficientnet_cram.t test/interp_mobilenet_cram.t \

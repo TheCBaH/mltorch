@@ -58,6 +58,28 @@ call + output shape + status as the golden reference — unlike `model_cram.t`/
 `pt2_load_cram.t`, this needs no `PT2_DATA` download to *run* (only to *generate* new
 fixtures), just the ATen C++ build.
 
+### PT2_DATA-gated crams: `(universe)` is required, not optional
+
+`pt2_load_cram.t`, `interp_*_cram.t`, `native_graph_cram.t`, `native_transform*_cram.t`
+and `native4d_to4d_cram.t` all read files under `$PT2_DATA` (set by `make pt2.runtest`)
+from inside their `$`-line shell commands, not from a dune-visible path — the `(cram
+(deps ...))` stanza only lists the exe being tested. Dune's incremental build treats a
+rule as up to date whenever its *declared* deps are unchanged, so without an explicit
+`(universe)` dep it cannot tell that `$PT2_DATA` content changed (or appeared) between
+runs: once one of these rules is executed while a model file is absent/incomplete, dune
+memoizes the failure and keeps replaying it — even across `--force` and
+`DUNE_CACHE=disabled` — until the failure is masked by declaring `(universe)`, or the
+build tree is wiped with `dune clean`. Combined with `make pt2.runtest`'s
+`--auto-promote`, a replayed stale failure gets written straight into the checked-in
+`.t` golden, destroying the real expected output. Every PT2_DATA-gated `(cram ...)`
+stanza in `test/dune` therefore lists `(deps (universe) %{exe:...})`, forcing a genuine
+re-check of `$PT2_DATA` on every run. `pt2.runtest` deliberately does *not* depend on
+`pt2.download-cram` — that target's `unzip -o` always re-extracts even when the zip is
+already present, which would churn every file's mtime (and briefly remove it) on every
+`pt2.runtest` invocation. Instead `pt2.runtest` checks each `PT2_MODELS_CRAM` model's
+`.pt2` file exists up front and fails fast with a `make pt2.download-cram` hint if not,
+so `--auto-promote` can never run against missing data in the first place.
+
 ## Shared Test Utilities: `model_test_utils.ml`
 
 `test/model_test_utils.ml` provides:
