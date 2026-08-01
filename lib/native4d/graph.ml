@@ -30,17 +30,32 @@ let pp_node ?(pp_ref = Tensor_id.pp) fmt (n : node) =
     (Fmt.list ~sep:Fmt.comma Tensor_id.pp)
     n.Node.outputs (Op.pp_with ~pp_ref) n.Node.op
 
-let pp fmt (g : graph) =
+(* [annot] adds importer- or verifier-owned text after an edge id, the way
+   [Graph_ir.pp_with]'s printer does. The IR itself carries no names and no
+   verdicts, so anything a reader wants beside an id has to arrive this way. *)
+let pp_with ?(annot = fun _ -> None) fmt (g : graph) =
+  let pp_ref fmt id =
+    match annot id with
+    | None -> Tensor_id.pp fmt id
+    | Some s -> Fmt.pf fmt "%a {%s}" Tensor_id.pp id s
+  in
   let sig_of id =
-    match Tensor_id.Map.find_opt id g.Graph.tensors with
-    | None -> Fmt.str "%a ?" Tensor_id.pp id
-    | Some sg ->
-        Fmt.str "%a %a" Tensor_id.pp id Vec6.pp_shape sg.Tensor_sig.shape
+    let shape =
+      match Tensor_id.Map.find_opt id g.Graph.tensors with
+      | None -> "?"
+      | Some sg -> Fmt.str "%a" Vec6.pp_shape sg.Tensor_sig.shape
+    in
+    Fmt.str "%a %s" pp_ref id shape
   in
   Fmt.pf fmt "@[<v>graph4@,inputs: [%a]@,@[<v 2>nodes:@,%a@]@,outputs: [%a]@]"
     (Fmt.list ~sep:Fmt.comma Fmt.string)
     (List.map sig_of g.Graph.inputs)
-    (Fmt.list ~sep:Fmt.cut (pp_node ?pp_ref:None))
+    (Fmt.list ~sep:Fmt.cut (fun fmt n ->
+         Fmt.pf fmt "@[<hv 2>%a: [%a] =@ %a@]" Graph_ir.Node_id.pp n.Node.id
+           (Fmt.list ~sep:Fmt.comma pp_ref)
+           n.Node.outputs (Op.pp_with ~pp_ref) n.Node.op))
     g.Graph.nodes
     (Fmt.list ~sep:Fmt.comma Fmt.string)
     (List.map sig_of g.Graph.outputs)
+
+let pp fmt g = pp_with fmt g

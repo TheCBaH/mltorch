@@ -635,10 +635,102 @@ let transform_cmd =
       const transform $ pt2_arg $ optional_input_arg $ expect_arg $ fold_arg
       $ verify_arg $ verify_symbolic_arg)
 
+(* ---- to4d ----------------------------------------------------------------
+
+   The Native4D conversion report .ai/native4d_plan.md stage 8 asks for. It
+   answers, per model: does the canonical graph lie in the four-axis dialect, and
+   if not which node puts it outside; what the destination is made of; and what
+   the conversion map is worth symbolically.
+
+   Correctness and cost are reported SEPARATELY, per §11 stage 6, and cost is
+   left out of the golden entirely — a timing in a cram is a flaky test, not a
+   measurement. *)
+let op_counts (g : Native4d.Graph.graph) =
+  List.fold_left
+    (fun acc (n : Native4d.Graph.node) ->
+      let name = Native4d.Op.name n.Graph_common.Node.op in
+      let seen = Option.value (List.assoc_opt name acc) ~default:0 in
+      (name, seen + 1) :: List.remove_assoc name acc)
+    [] g.Graph_common.Graph.nodes
+  |> List.sort (fun (a, _) (b, _) -> String.compare a b)
+
+let to4d model fold verify_symbolic : (unit, string) result =
+  with_archive model (fun archive ->
+      match
+        Native_interp.transform ~preload:fold archive ~passes:(passes ~fold)
+      with
+      | Error e ->
+          Error (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind)
+      | Ok (Native_interp.Transformed t) -> (
+          Format.printf "canonical native: nodes=%d@."
+            (List.length t.graph.Graph_common.Graph.nodes);
+          match Snapshot.create t.graph with
+          | Error e ->
+              Error (Format.asprintf "%a" Graph_view.pp_error e.Core.Error.kind)
+          | Ok (Snapshot.Pack src) -> (
+              match Native4d.Lower.convert ~constants:t.constants src with
+              | Error e ->
+                  (* Not a failure of the tool: a graph outside the dialect's
+                     domain is the partiality the design is explicit about, so
+                     the first unsupported node is the ANSWER, printed and
+                     exited zero. *)
+                  Format.printf "outside the dialect: %a@." Native4d.Error.pp
+                    e.Core.Error.kind;
+                  Ok ()
+              | Ok (Native4d.Lower.Pack r) ->
+                  let dst = Native4d.Lower.graph r in
+                  Format.printf "native4d: nodes=%d inputs=%d@."
+                    (List.length dst.Graph_common.Graph.nodes)
+                    (List.length dst.Graph_common.Graph.inputs);
+                  List.iter
+                    (fun (name, n) -> Format.printf "  %-18s %d@." name n)
+                    (op_counts dst);
+                  (* THE STRUCTURE, and each edge's verdict beside it. Counts
+                     say what the graph is made of; only the graph says how it is
+                     wired, and only a per-edge verdict says which parts of the
+                     conversion are actually justified. *)
+                  let verdicts =
+                    match verify_symbolic with
+                    | None -> Graph_ir.Tensor_id.Map.empty
+                    | Some effort -> (
+                        match
+                          Native4d.Framework.Verify_from_native.run
+                            ~budget:(Map_verify.Effort.budget effort)
+                            ~probe:(Map_verify.Effort.probe effort)
+                            ~src_constants:t.constants
+                            ~dst_constants:r.Native4d.Lower.constants
+                            r.Native4d.Lower.map ~src ~dst:r.Native4d.Lower.dst
+                        with
+                        | Error e ->
+                            Format.printf "map verification: %a@."
+                              Map_verify.pp_error e.Core.Error.kind;
+                            Graph_ir.Tensor_id.Map.empty
+                        | Ok report ->
+                            Format.printf "map verification: %s@."
+                              (Map_verify.Report.summary report);
+                            verdicts_by_edge (Some report))
+                  in
+                  let annot id =
+                    Option.map
+                      (fun (outcome, _) ->
+                        Format.asprintf "%a" Map_verify.Outcome.pp outcome)
+                      (Graph_ir.Tensor_id.Map.find_opt id verdicts)
+                  in
+                  Format.printf "%a@." (Native4d.Graph.pp_with ~annot) dst;
+                  Ok ())))
+
+let to4d_cmd =
+  let doc =
+    "Convert a canonical PT2-imported graph to the Native4D four-axis dialect, \
+     reporting what it converted to or which node put it outside the domain."
+  in
+  Cmd.v (Cmd.info "to4d" ~doc)
+    Term.(const to4d $ pt2_arg $ fold_arg $ verify_symbolic_arg)
+
 let cmd =
   let doc = "Tools for the native inference engine's graph representation." in
   Cmd.group
     (Cmd.info "native_graph" ~doc)
-    [ print_cmd; eval_cmd; transform_cmd ]
+    [ print_cmd; eval_cmd; transform_cmd; to4d_cmd ]
 
 let () = exit (Cmd.eval_result cmd)

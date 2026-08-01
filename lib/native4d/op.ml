@@ -190,6 +190,11 @@ let map_operands f (op : op) =
   registry_pick (fun (module M : OP) ->
       Option.map (fun t -> M.inject (M.map_operands f t)) (M.project op))
 
+(* The registry's own case tag, for reports that count ops by kind. *)
+let name (op : op) =
+  registry_pick (fun (module M : OP) ->
+      Option.map (fun _ -> M.name) (M.project op))
+
 let pp_with ~(pp_ref : Tensor_ref.t Fmt.t) fmt (op : op) =
   registry_pick (fun (module M : OP) ->
       Option.map (fun t -> M.pp pp_ref fmt t) (M.project op))

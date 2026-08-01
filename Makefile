@@ -107,6 +107,7 @@ pt2.runtest:
 		test/native_transform_cram.t test/native_transform_fold_cram.t \
 		test/native_transform_verify_cram.t \
 		test/native_transform_verify_fold_cram.t \
+		test/native4d_to4d_cram.t \
 		--auto-promote
 
 # Shared argument list for every interp_run.exe invocation below, so
