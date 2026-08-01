@@ -18,17 +18,10 @@
     "customizations": {
         "vscode": {
             "extensions": [
-                "ocamllabs.ocaml-platform",
-                "anthropic.claude-code",
-                "github.vscode-github-actions",
-                "github.vscode-pull-request-github"
+                "ocamllabs.ocaml-platform"
             ]
         }
     },
-    "mounts": [
-        "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
-        "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude.json,target=/home/vscode/.claude.json,type=bind,consistency=cached"
-    ],
     "remoteUser": "vscode",
     "postCreateCommand": {
         "submodules": "git submodule update --init --depth 1",

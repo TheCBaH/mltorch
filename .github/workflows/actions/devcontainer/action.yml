@@ -57,9 +57,6 @@ runs:
         if docker pull $IMAGE_ID:$TAG; then
           old_id=$(docker image inspect $IMAGE_ID:$TAG --format "{{.ID}}")
         fi
-        echo "::group::mounts"
-        mkdir -p ~/.claude
-        touch ~/.claude.json
         echo "::group::build"
         env BUILDKIT_PROGRESS=plain devcontainer build --image-name $IMAGE_ID --cache-from $IMAGE_ID:$TAG --workspace-folder .
         echo "::group::up"
