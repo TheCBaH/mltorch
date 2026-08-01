@@ -315,64 +315,10 @@ let eval_cmd =
   Cmd.v (Cmd.info "eval" ~doc)
     Term.(const eval $ pt2_arg $ input_arg $ expect_arg $ verbose_arg)
 
-(* The pipeline the transform subcommand runs. Structural only: no weight is
-   materialised, so [Fold_const] is deliberately absent — with no payload bound
-   it would decline every node, and including it would suggest otherwise. The
-   permute passes are here for the case .ai/native_transform_design.md §1 names
-   directly: the relayout lowering emits an inverse permute pair at every op
-   boundary, and cancelling them is the whole point. [Sink_permute] (§12d)
-   catches the case where an elementwise op (Relu, Add, ...) sits between the
-   pair — Chain/Trim only cancel ADJACENT permutes, so sinking has to make
-   them adjacent first; a second Chain/Trim round then collapses what it
-   exposes. *)
-(* [Sink_permute_mean] transports a permutation through a [keepdim=true]
-   [Mean] (§12f) rather than sinking it unchanged — [Mean] is intentionally
-   absent from [Sink_permute]'s allowlist, since reducing the same axis names
-   after removing its input permutation would reduce the wrong dimensions.
-   It runs right after the initial chain/trim cleanup: transport can expose
-   an adjacent permute pair on either side, which [Sink_permute] and a later
-   [Chain_permute]/[Trim_permute] round then pick up. *)
-(* [Reuse_permute] and [Bypass_permute] complement [Sink_permute]: see
-   .ai/native_layout_reuse_plan.md. [Reuse_permute] turns a mixed elementwise
-   operand set uniform by reusing an alternate-layout edge the graph already
-   computes, which [Sink_permute] can then move downstream; [Bypass_permute]
-   then removes the inverse consumers that move exposes, without requiring
-   the whole run to be interior the way [Trim_permute] does. These unlock one
-   another — bypassing one residual block's inverse permutes can make the
-   next block's skip edge interior, exposing another sink/trim opportunity —
-   so the whole group runs under one outer fixed point rather than a single
-   pass over each. *)
-let relayout_pass =
-  Pass.fixpoint
-    (Pass.sequence ~name:"relayout"
-       [
-         Pass.fixpoint Chain_permute.pass;
-         Pass.fixpoint Trim_permute.pass;
-         Pass.fixpoint Sink_permute_mean.pass;
-         Pass.fixpoint Sink_permute.pass;
-         Pass.fixpoint Reuse_permute.pass;
-         Pass.fixpoint Sink_permute.pass;
-         Pass.fixpoint Bypass_permute.pass;
-         Pass.fixpoint Chain_permute.pass;
-         Pass.fixpoint Trim_permute.pass;
-       ])
-
-(* Order is load-bearing. The importer emits every conv weight behind a relayout
-   permute, so the weight is a NODE OUTPUT until folding materialises it — and
-   batch-norm folding requires constant parameters. So constant folding runs
-   first to make the weights constant, then the batch-norm fold, then constant
-   folding again to collapse the parameter arithmetic that fold emits. Without
-   the first pass the batch-norm fold matches nothing at all. *)
-let passes ~fold =
-  [ Reshape_to_permute.pass; relayout_pass ]
-  @
-  if fold then
-    [
-      Pass.fixpoint Fold_const.pass;
-      Fold_batch_norm.pass;
-      Pass.fixpoint Fold_const.pass;
-    ]
-  else [ Fold_batch_norm.pass ]
+(* The canonical pipeline now lives in [Pipeline], because Native4D needs the
+   same definition of "canonical" and two callers agreeing by coincidence is not
+   a definition. The ordering rationale moved with it. *)
+let passes ~fold = [ Pipeline.canonical ~fold ]
 
 let fold_arg =
   let doc =

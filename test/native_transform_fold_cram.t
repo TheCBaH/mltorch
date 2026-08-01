@@ -14,7 +14,7 @@ to compute over, so the node count and constant provenance differ from
 the unfolded structural test.
 
   $ ../bin/native_graph.exe transform --fold --pt2 "$PT2_DATA/resnet18/resnet18.pt2"
-  nodes: 174 -> 50
+  nodes: 174 -> 49
   constants: 42, of which 41 folded
   graph
   inputs:
@@ -23,44 +23,44 @@ the unfolded structural test.
      t295 f32 [N=1000 T=1 D=1 H=1 W=1 C=512] {folded from=[p_fc_weight]} ->[n173] constant,
      t297 f32 [N=64 T=1 D=1 H=7 W=7 C=3] {folded from=[p_conv1_weight,p_bn1_weight,b_bn1_running_var]} ->[n174] constant,
      t298 f32 [C=64] {folded from=[p_bn1_weight,p_bn1_bias,b_bn1_running_mean,b_bn1_running_var]} ->[n174] constant,
-     t299 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var]} ->[n176] constant,
-     t300 f32 [C=64] {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var]} ->[n176] constant,
-     t301 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var]} ->[n178] constant,
-     t302 f32 [C=64] {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var]} ->[n178] constant,
-     t303 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var]} ->[n181] constant,
-     t304 f32 [C=64] {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var]} ->[n181] constant,
-     t305 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var]} ->[n183] constant,
-     t306 f32 [C=64] {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var]} ->[n183] constant,
-     t307 f32 [N=128 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var]} ->[n186] constant,
-     t308 f32 [C=128] {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var]} ->[n186] constant,
-     t309 f32 [N=128 T=1 D=1 H=1 W=1 C=64] {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var]} ->[n187] constant,
-     t310 f32 [C=128] {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var]} ->[n187] constant,
-     t311 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var]} ->[n189] constant,
-     t312 f32 [C=128] {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var]} ->[n189] constant,
-     t313 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var]} ->[n192] constant,
-     t314 f32 [C=128] {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var]} ->[n192] constant,
-     t315 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var]} ->[n194] constant,
-     t316 f32 [C=128] {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var]} ->[n194] constant,
-     t317 f32 [N=256 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var]} ->[n197] constant,
-     t318 f32 [C=256] {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var]} ->[n197] constant,
-     t319 f32 [N=256 T=1 D=1 H=1 W=1 C=128] {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var]} ->[n198] constant,
-     t320 f32 [C=256] {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var]} ->[n198] constant,
-     t321 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var]} ->[n200] constant,
-     t322 f32 [C=256] {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var]} ->[n200] constant,
-     t323 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var]} ->[n203] constant,
-     t324 f32 [C=256] {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var]} ->[n203] constant,
-     t325 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var]} ->[n205] constant,
-     t326 f32 [C=256] {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var]} ->[n205] constant,
-     t327 f32 [N=512 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var]} ->[n208] constant,
-     t328 f32 [C=512] {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var]} ->[n208] constant,
-     t329 f32 [N=512 T=1 D=1 H=1 W=1 C=256] {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var]} ->[n209] constant,
-     t330 f32 [C=512] {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var]} ->[n209] constant,
-     t331 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var]} ->[n211] constant,
-     t332 f32 [C=512] {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var]} ->[n211] constant,
-     t333 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var]} ->[n214] constant,
-     t334 f32 [C=512] {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var]} ->[n214] constant,
-     t335 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var]} ->[n216] constant,
-     t336 f32 [C=512] {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var]} ->[n216] constant]
+     t299 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var]} ->[n177] constant,
+     t300 f32 [C=64] {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var]} ->[n177] constant,
+     t301 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var]} ->[n179] constant,
+     t302 f32 [C=64] {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var]} ->[n179] constant,
+     t303 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var]} ->[n182] constant,
+     t304 f32 [C=64] {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var]} ->[n182] constant,
+     t305 f32 [N=64 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var]} ->[n184] constant,
+     t306 f32 [C=64] {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var]} ->[n184] constant,
+     t307 f32 [N=128 T=1 D=1 H=3 W=3 C=64] {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var]} ->[n187] constant,
+     t308 f32 [C=128] {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var]} ->[n187] constant,
+     t309 f32 [N=128 T=1 D=1 H=1 W=1 C=64] {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var]} ->[n188] constant,
+     t310 f32 [C=128] {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var]} ->[n188] constant,
+     t311 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var]} ->[n190] constant,
+     t312 f32 [C=128] {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var]} ->[n190] constant,
+     t313 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var]} ->[n193] constant,
+     t314 f32 [C=128] {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var]} ->[n193] constant,
+     t315 f32 [N=128 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var]} ->[n195] constant,
+     t316 f32 [C=128] {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var]} ->[n195] constant,
+     t317 f32 [N=256 T=1 D=1 H=3 W=3 C=128] {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var]} ->[n198] constant,
+     t318 f32 [C=256] {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var]} ->[n198] constant,
+     t319 f32 [N=256 T=1 D=1 H=1 W=1 C=128] {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var]} ->[n199] constant,
+     t320 f32 [C=256] {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var]} ->[n199] constant,
+     t321 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var]} ->[n201] constant,
+     t322 f32 [C=256] {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var]} ->[n201] constant,
+     t323 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var]} ->[n204] constant,
+     t324 f32 [C=256] {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var]} ->[n204] constant,
+     t325 f32 [N=256 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var]} ->[n206] constant,
+     t326 f32 [C=256] {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var]} ->[n206] constant,
+     t327 f32 [N=512 T=1 D=1 H=3 W=3 C=256] {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var]} ->[n209] constant,
+     t328 f32 [C=512] {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var]} ->[n209] constant,
+     t329 f32 [N=512 T=1 D=1 H=1 W=1 C=256] {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var]} ->[n210] constant,
+     t330 f32 [C=512] {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var]} ->[n210] constant,
+     t331 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var]} ->[n212] constant,
+     t332 f32 [C=512] {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var]} ->[n212] constant,
+     t333 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var]} ->[n215] constant,
+     t334 f32 [C=512] {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var]} ->[n215] constant,
+     t335 f32 [N=512 T=1 D=1 H=3 W=3 C=512] {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var]} ->[n217] constant,
+     t336 f32 [C=512] {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var]} ->[n217] constant]
   nodes:
     group g1 torch.ops.aten.convolution.default:
       n0 {derived}: [t123 f32 [H=224 W=224 C=3] {derived} ->[n174]] =
@@ -77,18 +77,16 @@ the unfolded structural test.
                output_padding={h=0; w=0};
                groups=1}
     n175 {pt2=root[2] torch.ops.aten.relu.default}: [t338 f32 [H=112 W=112
-                                                               C=64] {derived} ->[n9]] =
+                                                               C=64] {derived} ->[n176]] =
       relu x=t337 {derived} <-n174
     group g3 torch.ops.aten.max_pool2d_with_indices.default:
-      n9 {derived}: [t132 f32 [H=56 W=56 C=64] {derived} ->[n176, n179],
-                     t133 f32 [H=56 W=56 C=64] {derived} ->[n10]] =
-        max_pool2d_with_indices
+      n176 {derived}: [t132 f32 [H=56 W=56 C=64] {derived} ->[n177, n180]] =
+        max_pool2d
           x=t338 {derived} <-n175
           params={kernel={h=3; w=3}; stride={h=2; w=2}; pad={h=1; w=1}}
-      n10 {derived}: [] = discard x=t133 {derived} <-n9
-    n176 {derived}: [t339 f32 [H=56 W=56 C=64] {derived} ->[n177]] =
+    n177 {derived}: [t339 f32 [H=56 W=56 C=64] {derived} ->[n178]] =
       convolution
-        x=t132 {derived} <-n9
+        x=t132 {derived} <-n176
         weight=t299 {folded from=[p_layer1_0_conv1_weight,p_layer1_0_bn1_weight,b_layer1_0_bn1_running_var]}
         bias=t300 {folded from=[p_layer1_0_bn1_weight,p_layer1_0_bn1_bias,b_layer1_0_bn1_running_mean,b_layer1_0_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -97,11 +95,11 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n177 {pt2=root[6] torch.ops.aten.relu.default}: [t340 f32 [H=56 W=56 C=64] {derived} ->[n178]] =
-      relu x=t339 {derived} <-n176
-    n178 {derived}: [t341 f32 [H=56 W=56 C=64] {derived} ->[n179]] =
+    n178 {pt2=root[6] torch.ops.aten.relu.default}: [t340 f32 [H=56 W=56 C=64] {derived} ->[n179]] =
+      relu x=t339 {derived} <-n177
+    n179 {derived}: [t341 f32 [H=56 W=56 C=64] {derived} ->[n180]] =
       convolution
-        x=t340 {derived} <-n177
+        x=t340 {derived} <-n178
         weight=t301 {folded from=[p_layer1_0_conv2_weight,p_layer1_0_bn2_weight,b_layer1_0_bn2_running_var]}
         bias=t302 {folded from=[p_layer1_0_bn2_weight,p_layer1_0_bn2_bias,b_layer1_0_bn2_running_mean,b_layer1_0_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -110,14 +108,14 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n179 {pt2=root[9] torch.ops.aten.add.Tensor}: [t342 f32 [H=56 W=56 C=64] {derived} ->[n180]] =
-      add a=t341 {derived} <-n178 b=t132 {derived} <-n9
-    n180 {pt2=root[10] torch.ops.aten.relu.default}: [t343 f32 [H=56 W=56 C=64] {derived} ->[n181,
-                                                                      n184]] =
-      relu x=t342 {derived} <-n179
-    n181 {derived}: [t344 f32 [H=56 W=56 C=64] {derived} ->[n182]] =
+    n180 {pt2=root[9] torch.ops.aten.add.Tensor}: [t342 f32 [H=56 W=56 C=64] {derived} ->[n181]] =
+      add a=t341 {derived} <-n179 b=t132 {derived} <-n176
+    n181 {pt2=root[10] torch.ops.aten.relu.default}: [t343 f32 [H=56 W=56 C=64] {derived} ->[n182,
+                                                                      n185]] =
+      relu x=t342 {derived} <-n180
+    n182 {derived}: [t344 f32 [H=56 W=56 C=64] {derived} ->[n183]] =
       convolution
-        x=t343 {derived} <-n180
+        x=t343 {derived} <-n181
         weight=t303 {folded from=[p_layer1_1_conv1_weight,p_layer1_1_bn1_weight,b_layer1_1_bn1_running_var]}
         bias=t304 {folded from=[p_layer1_1_bn1_weight,p_layer1_1_bn1_bias,b_layer1_1_bn1_running_mean,b_layer1_1_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -126,11 +124,11 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n182 {pt2=root[13] torch.ops.aten.relu.default}: [t345 f32 [H=56 W=56 C=64] {derived} ->[n183]] =
-      relu x=t344 {derived} <-n181
-    n183 {derived}: [t346 f32 [H=56 W=56 C=64] {derived} ->[n184]] =
+    n183 {pt2=root[13] torch.ops.aten.relu.default}: [t345 f32 [H=56 W=56 C=64] {derived} ->[n184]] =
+      relu x=t344 {derived} <-n182
+    n184 {derived}: [t346 f32 [H=56 W=56 C=64] {derived} ->[n185]] =
       convolution
-        x=t345 {derived} <-n182
+        x=t345 {derived} <-n183
         weight=t305 {folded from=[p_layer1_1_conv2_weight,p_layer1_1_bn2_weight,b_layer1_1_bn2_running_var]}
         bias=t306 {folded from=[p_layer1_1_bn2_weight,p_layer1_1_bn2_bias,b_layer1_1_bn2_running_mean,b_layer1_1_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -139,14 +137,14 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n184 {pt2=root[16] torch.ops.aten.add.Tensor}: [t347 f32 [H=56 W=56 C=64] {derived} ->[n185]] =
-      add a=t346 {derived} <-n183 b=t343 {derived} <-n180
-    n185 {pt2=root[17] torch.ops.aten.relu.default}: [t348 f32 [H=56 W=56 C=64] {derived} ->[n186,
-                                                                      n187]] =
-      relu x=t347 {derived} <-n184
-    n186 {derived}: [t349 f32 [H=28 W=28 C=128] {derived} ->[n188]] =
+    n185 {pt2=root[16] torch.ops.aten.add.Tensor}: [t347 f32 [H=56 W=56 C=64] {derived} ->[n186]] =
+      add a=t346 {derived} <-n184 b=t343 {derived} <-n181
+    n186 {pt2=root[17] torch.ops.aten.relu.default}: [t348 f32 [H=56 W=56 C=64] {derived} ->[n187,
+                                                                      n188]] =
+      relu x=t347 {derived} <-n185
+    n187 {derived}: [t349 f32 [H=28 W=28 C=128] {derived} ->[n189]] =
       convolution
-        x=t348 {derived} <-n185
+        x=t348 {derived} <-n186
         weight=t307 {folded from=[p_layer2_0_conv1_weight,p_layer2_0_bn1_weight,b_layer2_0_bn1_running_var]}
         bias=t308 {folded from=[p_layer2_0_bn1_weight,p_layer2_0_bn1_bias,b_layer2_0_bn1_running_mean,b_layer2_0_bn1_running_var]}
         params={stride={h=2; w=2};
@@ -155,9 +153,9 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n187 {derived}: [t350 f32 [H=28 W=28 C=128] {derived} ->[n190]] =
+    n188 {derived}: [t350 f32 [H=28 W=28 C=128] {derived} ->[n191]] =
       convolution
-        x=t348 {derived} <-n185
+        x=t348 {derived} <-n186
         weight=t309 {folded from=[p_layer2_0_downsample_0_weight,p_layer2_0_downsample_1_weight,b_layer2_0_downsample_1_running_var]}
         bias=t310 {folded from=[p_layer2_0_downsample_1_weight,p_layer2_0_downsample_1_bias,b_layer2_0_downsample_1_running_mean,b_layer2_0_downsample_1_running_var]}
         params={stride={h=2; w=2};
@@ -166,12 +164,12 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n188 {pt2=root[20] torch.ops.aten.relu.default}: [t351 f32 [H=28 W=28
-                                                                C=128] {derived} ->[n189]] =
-      relu x=t349 {derived} <-n186
-    n189 {derived}: [t352 f32 [H=28 W=28 C=128] {derived} ->[n190]] =
+    n189 {pt2=root[20] torch.ops.aten.relu.default}: [t351 f32 [H=28 W=28
+                                                                C=128] {derived} ->[n190]] =
+      relu x=t349 {derived} <-n187
+    n190 {derived}: [t352 f32 [H=28 W=28 C=128] {derived} ->[n191]] =
       convolution
-        x=t351 {derived} <-n188
+        x=t351 {derived} <-n189
         weight=t311 {folded from=[p_layer2_0_conv2_weight,p_layer2_0_bn2_weight,b_layer2_0_bn2_running_var]}
         bias=t312 {folded from=[p_layer2_0_bn2_weight,p_layer2_0_bn2_bias,b_layer2_0_bn2_running_mean,b_layer2_0_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -180,15 +178,15 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n190 {pt2=root[25] torch.ops.aten.add.Tensor}: [t353 f32 [H=28 W=28 C=128] {derived} ->[n191]] =
-      add a=t352 {derived} <-n189 b=t350 {derived} <-n187
-    n191 {pt2=root[26] torch.ops.aten.relu.default}: [t354 f32 [H=28 W=28
-                                                                C=128] {derived} ->[n192,
-                                                                      n195]] =
-      relu x=t353 {derived} <-n190
-    n192 {derived}: [t355 f32 [H=28 W=28 C=128] {derived} ->[n193]] =
+    n191 {pt2=root[25] torch.ops.aten.add.Tensor}: [t353 f32 [H=28 W=28 C=128] {derived} ->[n192]] =
+      add a=t352 {derived} <-n190 b=t350 {derived} <-n188
+    n192 {pt2=root[26] torch.ops.aten.relu.default}: [t354 f32 [H=28 W=28
+                                                                C=128] {derived} ->[n193,
+                                                                      n196]] =
+      relu x=t353 {derived} <-n191
+    n193 {derived}: [t355 f32 [H=28 W=28 C=128] {derived} ->[n194]] =
       convolution
-        x=t354 {derived} <-n191
+        x=t354 {derived} <-n192
         weight=t313 {folded from=[p_layer2_1_conv1_weight,p_layer2_1_bn1_weight,b_layer2_1_bn1_running_var]}
         bias=t314 {folded from=[p_layer2_1_bn1_weight,p_layer2_1_bn1_bias,b_layer2_1_bn1_running_mean,b_layer2_1_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -197,12 +195,12 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n193 {pt2=root[29] torch.ops.aten.relu.default}: [t356 f32 [H=28 W=28
-                                                                C=128] {derived} ->[n194]] =
-      relu x=t355 {derived} <-n192
-    n194 {derived}: [t357 f32 [H=28 W=28 C=128] {derived} ->[n195]] =
+    n194 {pt2=root[29] torch.ops.aten.relu.default}: [t356 f32 [H=28 W=28
+                                                                C=128] {derived} ->[n195]] =
+      relu x=t355 {derived} <-n193
+    n195 {derived}: [t357 f32 [H=28 W=28 C=128] {derived} ->[n196]] =
       convolution
-        x=t356 {derived} <-n193
+        x=t356 {derived} <-n194
         weight=t315 {folded from=[p_layer2_1_conv2_weight,p_layer2_1_bn2_weight,b_layer2_1_bn2_running_var]}
         bias=t316 {folded from=[p_layer2_1_bn2_weight,p_layer2_1_bn2_bias,b_layer2_1_bn2_running_mean,b_layer2_1_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -211,15 +209,15 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n195 {pt2=root[32] torch.ops.aten.add.Tensor}: [t358 f32 [H=28 W=28 C=128] {derived} ->[n196]] =
-      add a=t357 {derived} <-n194 b=t354 {derived} <-n191
-    n196 {pt2=root[33] torch.ops.aten.relu.default}: [t359 f32 [H=28 W=28
-                                                                C=128] {derived} ->[n197,
-                                                                      n198]] =
-      relu x=t358 {derived} <-n195
-    n197 {derived}: [t360 f32 [H=14 W=14 C=256] {derived} ->[n199]] =
+    n196 {pt2=root[32] torch.ops.aten.add.Tensor}: [t358 f32 [H=28 W=28 C=128] {derived} ->[n197]] =
+      add a=t357 {derived} <-n195 b=t354 {derived} <-n192
+    n197 {pt2=root[33] torch.ops.aten.relu.default}: [t359 f32 [H=28 W=28
+                                                                C=128] {derived} ->[n198,
+                                                                      n199]] =
+      relu x=t358 {derived} <-n196
+    n198 {derived}: [t360 f32 [H=14 W=14 C=256] {derived} ->[n200]] =
       convolution
-        x=t359 {derived} <-n196
+        x=t359 {derived} <-n197
         weight=t317 {folded from=[p_layer3_0_conv1_weight,p_layer3_0_bn1_weight,b_layer3_0_bn1_running_var]}
         bias=t318 {folded from=[p_layer3_0_bn1_weight,p_layer3_0_bn1_bias,b_layer3_0_bn1_running_mean,b_layer3_0_bn1_running_var]}
         params={stride={h=2; w=2};
@@ -228,9 +226,9 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n198 {derived}: [t361 f32 [H=14 W=14 C=256] {derived} ->[n201]] =
+    n199 {derived}: [t361 f32 [H=14 W=14 C=256] {derived} ->[n202]] =
       convolution
-        x=t359 {derived} <-n196
+        x=t359 {derived} <-n197
         weight=t319 {folded from=[p_layer3_0_downsample_0_weight,p_layer3_0_downsample_1_weight,b_layer3_0_downsample_1_running_var]}
         bias=t320 {folded from=[p_layer3_0_downsample_1_weight,p_layer3_0_downsample_1_bias,b_layer3_0_downsample_1_running_mean,b_layer3_0_downsample_1_running_var]}
         params={stride={h=2; w=2};
@@ -239,12 +237,12 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n199 {pt2=root[36] torch.ops.aten.relu.default}: [t362 f32 [H=14 W=14
-                                                                C=256] {derived} ->[n200]] =
-      relu x=t360 {derived} <-n197
-    n200 {derived}: [t363 f32 [H=14 W=14 C=256] {derived} ->[n201]] =
+    n200 {pt2=root[36] torch.ops.aten.relu.default}: [t362 f32 [H=14 W=14
+                                                                C=256] {derived} ->[n201]] =
+      relu x=t360 {derived} <-n198
+    n201 {derived}: [t363 f32 [H=14 W=14 C=256] {derived} ->[n202]] =
       convolution
-        x=t362 {derived} <-n199
+        x=t362 {derived} <-n200
         weight=t321 {folded from=[p_layer3_0_conv2_weight,p_layer3_0_bn2_weight,b_layer3_0_bn2_running_var]}
         bias=t322 {folded from=[p_layer3_0_bn2_weight,p_layer3_0_bn2_bias,b_layer3_0_bn2_running_mean,b_layer3_0_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -253,15 +251,15 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n201 {pt2=root[41] torch.ops.aten.add.Tensor}: [t364 f32 [H=14 W=14 C=256] {derived} ->[n202]] =
-      add a=t363 {derived} <-n200 b=t361 {derived} <-n198
-    n202 {pt2=root[42] torch.ops.aten.relu.default}: [t365 f32 [H=14 W=14
-                                                                C=256] {derived} ->[n203,
-                                                                      n206]] =
-      relu x=t364 {derived} <-n201
-    n203 {derived}: [t366 f32 [H=14 W=14 C=256] {derived} ->[n204]] =
+    n202 {pt2=root[41] torch.ops.aten.add.Tensor}: [t364 f32 [H=14 W=14 C=256] {derived} ->[n203]] =
+      add a=t363 {derived} <-n201 b=t361 {derived} <-n199
+    n203 {pt2=root[42] torch.ops.aten.relu.default}: [t365 f32 [H=14 W=14
+                                                                C=256] {derived} ->[n204,
+                                                                      n207]] =
+      relu x=t364 {derived} <-n202
+    n204 {derived}: [t366 f32 [H=14 W=14 C=256] {derived} ->[n205]] =
       convolution
-        x=t365 {derived} <-n202
+        x=t365 {derived} <-n203
         weight=t323 {folded from=[p_layer3_1_conv1_weight,p_layer3_1_bn1_weight,b_layer3_1_bn1_running_var]}
         bias=t324 {folded from=[p_layer3_1_bn1_weight,p_layer3_1_bn1_bias,b_layer3_1_bn1_running_mean,b_layer3_1_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -270,12 +268,12 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n204 {pt2=root[45] torch.ops.aten.relu.default}: [t367 f32 [H=14 W=14
-                                                                C=256] {derived} ->[n205]] =
-      relu x=t366 {derived} <-n203
-    n205 {derived}: [t368 f32 [H=14 W=14 C=256] {derived} ->[n206]] =
+    n205 {pt2=root[45] torch.ops.aten.relu.default}: [t367 f32 [H=14 W=14
+                                                                C=256] {derived} ->[n206]] =
+      relu x=t366 {derived} <-n204
+    n206 {derived}: [t368 f32 [H=14 W=14 C=256] {derived} ->[n207]] =
       convolution
-        x=t367 {derived} <-n204
+        x=t367 {derived} <-n205
         weight=t325 {folded from=[p_layer3_1_conv2_weight,p_layer3_1_bn2_weight,b_layer3_1_bn2_running_var]}
         bias=t326 {folded from=[p_layer3_1_bn2_weight,p_layer3_1_bn2_bias,b_layer3_1_bn2_running_mean,b_layer3_1_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -284,15 +282,15 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n206 {pt2=root[48] torch.ops.aten.add.Tensor}: [t369 f32 [H=14 W=14 C=256] {derived} ->[n207]] =
-      add a=t368 {derived} <-n205 b=t365 {derived} <-n202
-    n207 {pt2=root[49] torch.ops.aten.relu.default}: [t370 f32 [H=14 W=14
-                                                                C=256] {derived} ->[n208,
-                                                                      n209]] =
-      relu x=t369 {derived} <-n206
-    n208 {derived}: [t371 f32 [H=7 W=7 C=512] {derived} ->[n210]] =
+    n207 {pt2=root[48] torch.ops.aten.add.Tensor}: [t369 f32 [H=14 W=14 C=256] {derived} ->[n208]] =
+      add a=t368 {derived} <-n206 b=t365 {derived} <-n203
+    n208 {pt2=root[49] torch.ops.aten.relu.default}: [t370 f32 [H=14 W=14
+                                                                C=256] {derived} ->[n209,
+                                                                      n210]] =
+      relu x=t369 {derived} <-n207
+    n209 {derived}: [t371 f32 [H=7 W=7 C=512] {derived} ->[n211]] =
       convolution
-        x=t370 {derived} <-n207
+        x=t370 {derived} <-n208
         weight=t327 {folded from=[p_layer4_0_conv1_weight,p_layer4_0_bn1_weight,b_layer4_0_bn1_running_var]}
         bias=t328 {folded from=[p_layer4_0_bn1_weight,p_layer4_0_bn1_bias,b_layer4_0_bn1_running_mean,b_layer4_0_bn1_running_var]}
         params={stride={h=2; w=2};
@@ -301,9 +299,9 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n209 {derived}: [t372 f32 [H=7 W=7 C=512] {derived} ->[n212]] =
+    n210 {derived}: [t372 f32 [H=7 W=7 C=512] {derived} ->[n213]] =
       convolution
-        x=t370 {derived} <-n207
+        x=t370 {derived} <-n208
         weight=t329 {folded from=[p_layer4_0_downsample_0_weight,p_layer4_0_downsample_1_weight,b_layer4_0_downsample_1_running_var]}
         bias=t330 {folded from=[p_layer4_0_downsample_1_weight,p_layer4_0_downsample_1_bias,b_layer4_0_downsample_1_running_mean,b_layer4_0_downsample_1_running_var]}
         params={stride={h=2; w=2};
@@ -312,11 +310,11 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n210 {pt2=root[52] torch.ops.aten.relu.default}: [t373 f32 [H=7 W=7 C=512] {derived} ->[n211]] =
-      relu x=t371 {derived} <-n208
-    n211 {derived}: [t374 f32 [H=7 W=7 C=512] {derived} ->[n212]] =
+    n211 {pt2=root[52] torch.ops.aten.relu.default}: [t373 f32 [H=7 W=7 C=512] {derived} ->[n212]] =
+      relu x=t371 {derived} <-n209
+    n212 {derived}: [t374 f32 [H=7 W=7 C=512] {derived} ->[n213]] =
       convolution
-        x=t373 {derived} <-n210
+        x=t373 {derived} <-n211
         weight=t331 {folded from=[p_layer4_0_conv2_weight,p_layer4_0_bn2_weight,b_layer4_0_bn2_running_var]}
         bias=t332 {folded from=[p_layer4_0_bn2_weight,p_layer4_0_bn2_bias,b_layer4_0_bn2_running_mean,b_layer4_0_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -325,14 +323,14 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n212 {pt2=root[57] torch.ops.aten.add.Tensor}: [t375 f32 [H=7 W=7 C=512] {derived} ->[n213]] =
-      add a=t374 {derived} <-n211 b=t372 {derived} <-n209
-    n213 {pt2=root[58] torch.ops.aten.relu.default}: [t376 f32 [H=7 W=7 C=512] {derived} ->[n214,
-                                                                      n217]] =
-      relu x=t375 {derived} <-n212
-    n214 {derived}: [t377 f32 [H=7 W=7 C=512] {derived} ->[n215]] =
+    n213 {pt2=root[57] torch.ops.aten.add.Tensor}: [t375 f32 [H=7 W=7 C=512] {derived} ->[n214]] =
+      add a=t374 {derived} <-n212 b=t372 {derived} <-n210
+    n214 {pt2=root[58] torch.ops.aten.relu.default}: [t376 f32 [H=7 W=7 C=512] {derived} ->[n215,
+                                                                      n218]] =
+      relu x=t375 {derived} <-n213
+    n215 {derived}: [t377 f32 [H=7 W=7 C=512] {derived} ->[n216]] =
       convolution
-        x=t376 {derived} <-n213
+        x=t376 {derived} <-n214
         weight=t333 {folded from=[p_layer4_1_conv1_weight,p_layer4_1_bn1_weight,b_layer4_1_bn1_running_var]}
         bias=t334 {folded from=[p_layer4_1_bn1_weight,p_layer4_1_bn1_bias,b_layer4_1_bn1_running_mean,b_layer4_1_bn1_running_var]}
         params={stride={h=1; w=1};
@@ -341,11 +339,11 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n215 {pt2=root[61] torch.ops.aten.relu.default}: [t378 f32 [H=7 W=7 C=512] {derived} ->[n216]] =
-      relu x=t377 {derived} <-n214
-    n216 {derived}: [t379 f32 [H=7 W=7 C=512] {derived} ->[n217]] =
+    n216 {pt2=root[61] torch.ops.aten.relu.default}: [t378 f32 [H=7 W=7 C=512] {derived} ->[n217]] =
+      relu x=t377 {derived} <-n215
+    n217 {derived}: [t379 f32 [H=7 W=7 C=512] {derived} ->[n218]] =
       convolution
-        x=t378 {derived} <-n215
+        x=t378 {derived} <-n216
         weight=t335 {folded from=[p_layer4_1_conv2_weight,p_layer4_1_bn2_weight,b_layer4_1_bn2_running_var]}
         bias=t336 {folded from=[p_layer4_1_bn2_weight,p_layer4_1_bn2_bias,b_layer4_1_bn2_running_mean,b_layer4_1_bn2_running_var]}
         params={stride={h=1; w=1};
@@ -354,16 +352,16 @@ the unfolded structural test.
                transposed=false;
                output_padding={h=0; w=0};
                groups=1}
-    n217 {pt2=root[64] torch.ops.aten.add.Tensor}: [t380 f32 [H=7 W=7 C=512] {derived} ->[n218]] =
-      add a=t379 {derived} <-n216 b=t376 {derived} <-n213
-    n218 {pt2=root[65] torch.ops.aten.relu.default}: [t381 f32 [H=7 W=7 C=512] {derived} ->[n219]] =
-      relu x=t380 {derived} <-n217
-    n219 {pt2=root[66] torch.ops.aten.mean.dim}: [t382 f32 [C=512] {pt2=root:view} ->[n173]] =
-      mean x=t381 {derived} <-n218 params={dims=[W, H]; keepdim=true}
+    n218 {pt2=root[64] torch.ops.aten.add.Tensor}: [t380 f32 [H=7 W=7 C=512] {derived} ->[n219]] =
+      add a=t379 {derived} <-n217 b=t376 {derived} <-n214
+    n219 {pt2=root[65] torch.ops.aten.relu.default}: [t381 f32 [H=7 W=7 C=512] {derived} ->[n220]] =
+      relu x=t380 {derived} <-n218
+    n220 {pt2=root[66] torch.ops.aten.mean.dim}: [t382 f32 [C=512] {pt2=root:view} ->[n173]] =
+      mean x=t381 {derived} <-n219 params={dims=[W, H]; keepdim=true}
     group g42 torch.ops.aten.addmm.default:
       n173 {pt2=root[69] torch.ops.aten.addmm.default}: [t296 f32 [C=1000] {pt2=root:addmm}] =
         linear
-          x=t382 {pt2=root:view} <-n219
+          x=t382 {pt2=root:view} <-n220
           weight=t295 {folded from=[p_fc_weight]}
           bias=t61 {pt2=root:p_fc_bias target=fc.bias}
           params={in_features=512}

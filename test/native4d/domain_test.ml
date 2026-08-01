@@ -167,6 +167,44 @@ let%expect_test "domain: max pool with indices" =
                                             pad={h=0; w=0}}
     indices live                 node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
 
+(* ---- the same graphs, after canonicalization ------------------------------ *)
+
+(* THE FLIP. The domain is a property of the CANONICAL graph, not of whatever the
+   importer emitted, and this is where that stops being a claim in a comment.
+   Discarded max-pool indices reject above and convert here, because
+   [Pipeline.canonical] removes the [Discard] sink and then narrows the op — the
+   two-pass sequence design §7.8 describes as one.
+
+   The live-index row does NOT flip, and must not: no pass can remove an edge
+   something reads, so it is outside the dialect however canonical the graph. *)
+let canonical name g =
+  let outcome =
+    let open Core.Syntax in
+    let* (Rewrite.Origin state) =
+      (Rewrite.origin g :> (Rewrite.origin, Pass.error) Core.result)
+    in
+    let+ (Rewrite.Step (final, _)) =
+      Pass.run_all state [ Pipeline.canonical ~fold:false ]
+    in
+    Rewrite.graph final
+  in
+  match outcome with
+  | Error e ->
+      Format.printf "%-28s pipeline: %a@." name Pass.pp_error e.Core.Error.kind
+  | Ok g -> check name g
+
+let%expect_test "domain: canonicalization is what makes a graph convertible" =
+  List.iter
+    (fun (name, g) -> canonical name (g ()))
+    [
+      ("indices discarded", Fixtures.maxpool_indices_discarded);
+      ("indices live", Fixtures.maxpool_indices_live);
+    ];
+  [%expect
+    {|
+    indices discarded            in the dialect
+    indices live                 node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
+
 (* ---- legalizations that need no domain constraint ------------------------- *)
 
 let%expect_test "domain: linear is in the dialect" =

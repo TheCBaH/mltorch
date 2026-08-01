@@ -1430,6 +1430,85 @@ three-node run to one `Mean` reducing the correctly-mapped dimensions, with no
 permute left around it at all — see the `Sink_permute_mean.pass` result quoted
 in `test/native_transform_cram.t` under `torch.ops.aten.mean.dim`.
 
+### 12g. Pruning: dead code, and narrowing a multi-output op
+
+Status: **implemented** — `lib/native/transform/passes/dce.ml` and
+`drop_pool_indices.ml`, tests in `test/native/dce_test.ml` and
+`drop_pool_indices_test.ml`.
+
+Two passes, not one. `.ai/native4d_design.md` §7.8 describes them as a single
+step — "DCE removes the sink and unused edge and the value output becomes
+ordinary MaxPool2D" — and that cannot be done in one, because SSA node outputs
+are all-or-nothing. `Dce` deletes a node with *no* live outputs; it cannot drop
+one dead edge from a node whose other output is live. Narrowing the arity is a
+node replacement, and it needs the sink gone first, so the order is `Dce` →
+`Drop_pool_indices` → `Dce`.
+
+**`Dce`'s predicate is global reachability, and it runs without a fixed point.**
+The obvious local predicate — "every output unused" — is a trap this document
+already records under §12e. On a dead *chain* only the terminal node satisfies
+it, since each predecessor still has a use, namely the node about to be removed;
+the chain peels one link per sweep, and `Pass.fixpoint`'s default
+`max_iters = 16` then fails with `` `Not_converged `` on a graph that was
+converging. That is the same arithmetic as the `Reuse_permute` review's "sixteen
+sweeps needed, which exactly exhausted `Pass.fixpoint`'s default max_iters = 16
+fuel … on a graph that was never actually stuck", and `dce_test.ml` asserts both
+halves: reachability clears a 20-link chain in one sweep, the local predicate
+reports `did not converge`.
+
+Reachability fixes it by construction rather than by raising the bound. A node
+is live iff one of its outputs is reachable backwards from `Graph.outputs`,
+which is a whole-graph property, so every dead node matches in the first sweep —
+and `Pass.per_node` collects them all and merges the recipes before one
+`Rewrite.apply`, since deletions allocate nothing and distinct nodes give
+disjoint regions. Deleting the unreachable set cannot expose new unreachable
+nodes, so one sweep converges.
+
+**It stays a `Pass.per_node` for a reason worth recording.** `Pass.verified` —
+which calls `Map_verify.step` and mints the `Audit` — is reachable only through
+the private `Pass.of_sweep`, and `Pass.run_with` does not wrap what a pass
+returns: "Every pass verifies its own step, so this only threads the context." A
+`Pass.t` built by hand and calling `Rewrite.apply` directly would therefore skip
+verification *silently*, under `run_all ~verify`, while still reporting success.
+`dce_test.ml` pins a non-empty audit list as the standing guard on that whole
+class.
+
+`Discard` needs no special case: a sink produces nothing, so it is never
+reachable, so it always goes. This is the pruning pass
+`.ai/native_multi_output_design.md` defers the sinks to.
+
+`Drop_pool_indices` claims `Identical` for the pooled value, and that is not a
+judgement call: `MaxPool2dWithIndices.Compute.value_pixel` and
+`MaxPool2d.Compute.pixel` are the same call to `S.max_pool2d` with the same
+parameters. On a real model the verifier cannot check it — resnet18's pooled
+tensor is 56×56×64, so the cram golden records `unproved (too large)` — so the
+claim is proved on a 4×4×2 fixture instead, under `Require_proved`. A claim only
+ever declined is a claim nobody has checked.
+
+### 12h. The canonical pipeline
+
+Status: **implemented** — `lib/native/transform/pipeline.ml`, tests in
+`test/native/pipeline_test.ml`.
+
+The ordering above lived in `bin/native_graph.ml` until Native4D needed it.
+Leaving the definition of "canonical" in a CLI would have meant two callers
+agreeing by coincidence, and the Native4D domain check is only meaningful on a
+canonical graph: the importer emits conv weights right-aligned from ATen's
+`[out, in, kh, kw]`, which lands on `D/H/W/C`, so an unpipelined ResNet-18 has a
+non-unit `D` on every conv weight and is outside the four-axis dialect entirely.
+
+`Pipeline.canonical ~fold` is `Reshape_to_permute` → `relayout` → `prune`, then
+either the folding tail or `Fold_batch_norm` alone. **`fold:false` is not a
+prefix of `fold:true`**: both fold batch norm, and they differ only in the
+`Fold_const` rounds around it, which a structural caller with no payloads bound
+would see decline every node anyway. Stating that explicitly is what stops the
+extraction from silently changing what `native_graph transform` does without
+`--fold`.
+
+Idempotence is the property that makes "canonical" mean anything, and
+`pipeline_test.ml` asserts it as "the second run produces an empty map" — the
+same signal `Pass.fixpoint` uses to detect convergence — on both branches.
+
 ## 13. Tests
 
 `test/native/` is `ppx_expect` inline tests in the `native_test` library. New tests
