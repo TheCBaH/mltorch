@@ -10,10 +10,11 @@ type ('src, 'dst) t = { edges : ('dst, 'src Correspondence.set) Map.t }
 let empty = { edges = Map.empty }
 
 let add ~sources dst t =
+  (* No entry and an empty entry agree: union's identity IS the absent case. *)
   let merged =
-    match Map.find_opt dst t.edges with
-    | None -> sources
-    | Some existing -> Set.union existing sources
+    Set.union
+      (Option.value ~default:Set.empty (Map.find_opt dst t.edges))
+      sources
   in
   if Set.is_empty merged then t else { edges = Map.update dst merged t.edges }
 
