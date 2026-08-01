@@ -111,7 +111,7 @@ let packed_fmt_jsont : packed_fmt Jsont.t =
    them in storage order.  If [max_elts] is [Some n] and numel > n, the None
    branch is taken. *)
 let enc_data_union ~(max_elts : int option) ~numel ~iter_floats : Jsont.json =
-  let omit = match max_elts with Some m -> numel > m | None -> false in
+  let omit = Option.fold ~none:false ~some:(fun m -> numel > m) max_elts in
   if omit then Json_util.single ~case:"None" Json_util.jnull
   else
     let buf = Array.make numel 0.0 in

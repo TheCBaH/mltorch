@@ -18,9 +18,9 @@ let to_hex (f : t) = Printf.sprintf "0x%08lx" (Int32.bits_of_float f)
 let of_hex s = Int32.float_of_bits (Int32.of_string s)
 
 let number_round_trips bits f =
-  match float_of_string_opt (Printf.sprintf "%.17g" f) with
-  | Some back -> Int32.equal (Int32.bits_of_float (to_f32 back)) bits
-  | None -> false
+  float_of_string_opt (Printf.sprintf "%.17g" f)
+  |> Option.fold ~none:false ~some:(fun back ->
+      Int32.equal (Int32.bits_of_float (to_f32 back)) bits)
 
 let enc_json f =
   let f = to_f32 f in

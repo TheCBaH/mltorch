@@ -110,7 +110,7 @@ module Clamp = struct
        Bound order is load-bearing: lower bound first, then upper, so a reversed
        [min > max] yields [max] everywhere exactly as the ATen kernel does. *)
     let pixel (p : params) x (out : Semantics.position S.index Vec6.t) =
-      let is_nan = function Some b -> Float.is_nan b | None -> false in
+      let is_nan = Option.fold ~none:false ~some:Float.is_nan in
       if is_nan p.min || is_nan p.max then S.const Float.nan
       else
         let v = S.load x out in

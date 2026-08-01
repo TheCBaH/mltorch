@@ -105,12 +105,9 @@ module Env = struct
     | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 -> false
 
   let stored_f32 t (cell : Ground_expr.Cell.t) =
-    match
-      Option.bind (edge_of t cell.Ground_expr.Cell.origin) (fun id ->
-          Tensor_id.Map.find_opt id t.fmts)
-    with
-    | Some fmt -> fmt_is_f32_exact fmt
-    | None -> false
+    Option.bind (edge_of t cell.Ground_expr.Cell.origin) (fun id ->
+        Tensor_id.Map.find_opt id t.fmts)
+    |> Option.fold ~none:false ~some:fmt_is_f32_exact
 
   let const_of t id = Tensor_id.Map.find_opt id t.consts
   let constant_of t id = Tensor_id.Map.find_opt id t.constants
@@ -127,12 +124,11 @@ module Env = struct
      value tiers must not run against one: a probe would separate two constants
      that may well hold the same bytes. *)
   let unbound_constant t (cell : Ground_expr.Cell.t) =
-    match edge_of t cell.Ground_expr.Cell.origin with
-    | None -> false
-    | Some id ->
+    edge_of t cell.Ground_expr.Cell.origin
+    |> Option.fold ~none:false ~some:(fun id ->
         Tensor_id.Set.mem id t.constant_ids
         && Option.is_none (const_of t id)
-        && Option.is_none (constant_of t id)
+        && Option.is_none (constant_of t id))
 
   let stage_of t o =
     Option.bind (Origin.edge o) (fun id -> Tensor_id.Map.find_opt id t.stages)
@@ -362,7 +358,7 @@ let expandable ~boundary env e =
 let out_of_bounds env e =
   List.find_opt
     (fun (c : Ground_expr.Cell.t) ->
-      match Env.shape_of env c.Ground_expr.Cell.origin with
-      | Some shape -> not (Vec6.in_bounds shape c.Ground_expr.Cell.coord)
-      | None -> false)
+      Env.shape_of env c.Ground_expr.Cell.origin
+      |> Option.fold ~none:false ~some:(fun shape ->
+          not (Vec6.in_bounds shape c.Ground_expr.Cell.coord)))
     (Ground_expr.Cell.Set.elements (Ground_expr.cells e))

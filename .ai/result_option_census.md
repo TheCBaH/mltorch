@@ -314,12 +314,24 @@ Decisions, not rewrites.
   there still fails the test — it flips a boolean equivalence check against a
   golden expecting `true` — so the loss is message quality, not detection. The
   comment says so.
-- `audit:option-fold` (8): `| None -> false` with a computing `Some` arm, i.e.
-  `Option.fold ~none:false ~some:f`, **not** `is_some`.
-  `lib/aten_gen/aten_spec_gen.ml:401` · `lib/native/json_util.ml:81` ·
-  `ground_eval.ml:113,131,369` · `map_verify.ml:538` · `region.ml:90` ·
-  `lib/walk_core/float32.ml:23`. Lowest-value item in the plan; convert only
-  where it reads better.
+- `audit:option-fold` — **converted** (all but one). `| None -> false` with a
+  computing `Some` arm is `Option.fold ~none:false ~some:f`, **not** `is_some`
+  and **not** `Option.value` (the `Some` arm applies a function).
+
+  Stage 8 dismissed this cluster as "reads fine as a match". That was wrong,
+  and incoherent besides: the same stage *introduced*
+  `Option.fold ~none:false ~some:(Cluster_var.equal v)` at `map_verify.ml:538`
+  while leaving seven identical siblings as matches. Converted on review:
+  `ground_eval.ml` ×3 (`stored_f32` is the clearest — its body already used
+  `Option.bind`, so the trailing `match` was pure wrapping), `region.ml:90`,
+  `json_util.ml:81`, `float32.ml:23`, plus two more inline instances the
+  arm-head census never saw (`pointwise.ml:113`, `payload.ml:114`).
+
+  Kept: `aten_gen/aten_spec_gen.ml:401`, whose `Some` arm calls `emit_module`
+  for its side effect and then returns `true`. Folding a side-effecting
+  predicate inside `List.filter` hides the effect; the match shows it.
+  Kept too: `permute_passes_test.ml:1111,1178`, nested inside a *tuple* match
+  where the fold clarifies nothing.
 
 Note the repo has **zero** `Some _ -> true | None -> false` predicates — it
 already uses `Option.is_some`.

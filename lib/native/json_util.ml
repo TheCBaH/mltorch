@@ -75,9 +75,9 @@ let enc_f32 f =
   let f = f32_to_f32 f in
   let bits = Int32.bits_of_float f in
   let round_trips =
-    match float_of_string_opt (Printf.sprintf "%.17g" f) with
-    | Some back -> Int32.equal (Int32.bits_of_float (f32_to_f32 back)) bits
-    | None -> false
+    float_of_string_opt (Printf.sprintf "%.17g" f)
+    |> Option.fold ~none:false ~some:(fun back ->
+        Int32.equal (Int32.bits_of_float (f32_to_f32 back)) bits)
   in
   if Float.is_finite f && bits <> Int32.min_int && round_trips then
     Jsont.Number (f, meta)
