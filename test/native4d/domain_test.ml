@@ -15,13 +15,13 @@ let pp_outcome =
    fails it is a broken fixture and should say so loudly rather than be reported
    as out-of-domain. *)
 let check name g =
-  match Graph_view.of_graph g with
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "fixture %s is not a valid graph: %a" name
-           Graph_view.pp_error e.Core.Error.kind)
-  | Ok view ->
-      Format.printf "%-28s %a@." name pp_outcome (Native4d.Domain.check view)
+  let view =
+    Graph_view.of_graph g
+    |> Core.or_raise (fun ppf e ->
+        Fmt.pf ppf "fixture %s is not a valid graph: %a" name
+          Graph_view.pp_error e)
+  in
+  Format.printf "%-28s %a@." name pp_outcome (Native4d.Domain.check view)
 
 let table rows = List.iter (fun (name, g) -> check name (g ())) rows
 

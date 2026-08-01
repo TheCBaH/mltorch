@@ -813,17 +813,12 @@ let%expect_test "reshape_to_permute: the permute computes the same tensor" =
      it — and this case moves TWO non-unit axes ([W=2 C=3] becoming [H=2 W=3]),
      where a plausible-but-wrong perm would still produce the right shape. *)
   let g =
-    match
-      Graph_builder.build ~name:"relabel2"
-        ~outputs:(fun o -> [ o ])
-        Graph_builder.(
-          let* x = input ~shape:(Graph_fixtures.s 1 1 1 1 2 3) () in
-          reshape { Reshape.Reshape.shape = Graph_fixtures.s 1 1 1 2 3 1 } x)
-    with
-    | Ok g -> g
-    | Error e ->
-        invalid_arg
-          (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+    Graph_builder.build ~name:"relabel2"
+      ~outputs:(fun o -> [ o ])
+      Graph_builder.(
+        let* x = input ~shape:(Graph_fixtures.s 1 1 1 1 2 3) () in
+        reshape { Reshape.Reshape.shape = Graph_fixtures.s 1 1 1 2 3 1 } x)
+    |> Core.or_raise Graph_builder.pp_error
   in
   let input =
     Tensor.materialize (Graph_fixtures.s 1 1 1 1 2 3) (fun c ->
@@ -1447,23 +1442,18 @@ let%expect_test "reshape_to_permute feeds the permute passes" =
      not. Here the relabelling cancels against the permute above it, and the
      pair disappears. *)
   let g =
-    match
-      Graph_builder.build ~name:"reshape_then_permute"
-        ~outputs:(fun o -> [ o ])
-        Graph_builder.(
-          let* x = input ~shape:(Graph_fixtures.s 1 1 1 1 1 6) () in
-          let* r =
-            reshape { Reshape.Reshape.shape = Graph_fixtures.s 1 1 1 6 1 1 } x
-          in
-          let* p =
-            permute Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ] r
-          in
-          relu p)
-    with
-    | Ok g -> g
-    | Error e ->
-        invalid_arg
-          (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+    Graph_builder.build ~name:"reshape_then_permute"
+      ~outputs:(fun o -> [ o ])
+      Graph_builder.(
+        let* x = input ~shape:(Graph_fixtures.s 1 1 1 1 1 6) () in
+        let* r =
+          reshape { Reshape.Reshape.shape = Graph_fixtures.s 1 1 1 6 1 1 } x
+        in
+        let* p =
+          permute Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ] r
+        in
+        relu p)
+    |> Core.or_raise Graph_builder.pp_error
   in
   run g
     [

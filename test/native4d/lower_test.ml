@@ -5,13 +5,9 @@
 
 open Native4d
 
-let build name m =
-  match Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "fixture %s: %a" name Graph_builder.pp_error
-           e.Core.Error.kind)
+(* Byte-identical to [Fixtures.build] and to verify_test.ml's former copy; one
+   definition, in the module that already owns the fixtures. *)
+let build = Fixtures.build
 
 (* The result is packed over the destination version, so it cannot escape the
    scope that unpacks it — every consumer below renders inside. *)

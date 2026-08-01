@@ -32,9 +32,10 @@ let%expect_test "extent floor is 1 (zero rejected)" =
   (match Dim.extent 0 with
   | _ -> print_string "no error\n"
   | exception Invalid_argument msg -> Printf.printf "raised: %s\n" msg);
-  (match Dim.extent_checked 0 with
-  | Ok _ -> print_string "ok\n"
-  | Error e -> Format.printf "%a@." Dim.pp_error e.Core.Error.kind);
+  Format.printf "%a"
+    (Core.Pretty.core_result ~ok:(Fmt.any "ok\n") ~error:(fun ppf e ->
+         Fmt.pf ppf "%a@." Dim.pp_error e))
+    (Dim.extent_checked 0);
   [%expect
     {|
     raised: Dim.extent: must be >= 1
@@ -116,9 +117,11 @@ let%expect_test "let* short-circuits and unifies the error row" =
     Core.return 99 (* unreached *)
   in
   let show ~rank_bad =
-    match chain ~rank_bad with
-    | Ok n -> Format.printf "ok %d@." n
-    | Error e -> Format.printf "%a@." Aten_shape.pp_error e.Core.Error.kind
+    Format.printf "%a"
+      (Core.Pretty.core_result
+         ~ok:(fun ppf n -> Fmt.pf ppf "ok %d@." n)
+         ~error:(fun ppf e -> Fmt.pf ppf "%a@." Aten_shape.pp_error e))
+      (chain ~rank_bad)
   in
   show ~rank_bad:true;
   show ~rank_bad:false;

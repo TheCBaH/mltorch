@@ -93,12 +93,12 @@ let%expect_test "dtype and tensor metadata failures are typed" =
   (match Pt2_dtype.of_scalar_type Pytorch_types.ScalarType.HALF with
   | Ok _ -> print_endline "unexpected success"
   | Error e -> Format.printf "%a@." Pt2_dtype.pp_error e.Core.Error.kind);
-  (match
-     Pt2_tensor.int_of_symint ~field:"sizes"
-       (Pytorch_types.SymInt.Expr (Pytorch_types.SymExpr.make "s0" None))
-   with
-  | Ok _ -> print_endline "unexpected success"
-  | Error e -> Format.printf "%a@." Pt2_tensor.pp_error e.Core.Error.kind);
+  Pt2_tensor.int_of_symint ~field:"sizes"
+    (Pytorch_types.SymInt.Expr (Pytorch_types.SymExpr.make "s0" None))
+  |> Format.printf "%a@."
+       (Core.Pretty.core_result
+          ~ok:(Fmt.any "unexpected success")
+          ~error:Pt2_tensor.pp_error);
   [%expect
     {|
     unsupported ScalarType HALF

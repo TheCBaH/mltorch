@@ -10,12 +10,9 @@ let nhwc ~n ~h ~w ~c = s n 1 1 h w c
 let chan c = s 1 1 1 1 1 c
 
 let build name m =
-  match Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "fixture %s: %a" name Graph_builder.pp_error
-           e.Core.Error.kind)
+  Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
+  |> Core.or_raise (fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
 let conv_axis ~kernel : Conv.Conv2d.axis_window =
   {

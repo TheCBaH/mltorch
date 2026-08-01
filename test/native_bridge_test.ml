@@ -25,10 +25,8 @@ let native_f32 shape vals =
   let data = Array1.create float32 c_layout n in
   List.iteri (fun i x -> data.{i} <- x) vals;
   let shape6 =
-    match Aten_shape.of_aten (Array.of_list shape) with
-    | Ok shape6 -> shape6
-    | Error e ->
-        failwith (Format.asprintf "%a" Aten_shape.pp_error e.Core.Error.kind)
+    Aten_shape.of_aten (Array.of_list shape)
+    |> Core.or_raise Aten_shape.pp_error
   in
   Tensor.Tensor
     {
@@ -41,10 +39,8 @@ let native_i64 shape vals =
   let data = Array1.create int64 c_layout n in
   List.iteri (fun i x -> data.{i} <- x) vals;
   let shape6 =
-    match Aten_shape.of_aten (Array.of_list shape) with
-    | Ok shape6 -> shape6
-    | Error e ->
-        failwith (Format.asprintf "%a" Aten_shape.pp_error e.Core.Error.kind)
+    Aten_shape.of_aten (Array.of_list shape)
+    |> Core.or_raise Aten_shape.pp_error
   in
   Tensor.Tensor
     {
@@ -233,17 +229,17 @@ let%expect_test "compare_tensors: I64 exact mismatch reports coordinates" =
 (* ---- aten_op_config: pretty printing ------------------------------------ *)
 
 let%expect_test "pp: add.Tensor config" =
-  (match Aten_op_config.find "torch.ops.aten.add.Tensor" with
-  | None -> print_string "not found"
-  | Some c -> Format.printf "%a@." Aten_op_config.pp c);
+  Aten_op_config.find "torch.ops.aten.add.Tensor"
+  |> Format.printf "%a@."
+       (Core.Pretty.option_or ~none:"not found" Aten_op_config.pp);
   [%expect
     {|
     torch.ops.aten.add.Tensor (Tensor self, Tensor other, Scalar alpha=1) -> T |}]
 
 let%expect_test "pp: relu.default config" =
-  (match Aten_op_config.find "torch.ops.aten.relu.default" with
-  | None -> print_string "not found"
-  | Some c -> Format.printf "%a@." Aten_op_config.pp c);
+  Aten_op_config.find "torch.ops.aten.relu.default"
+  |> Format.printf "%a@."
+       (Core.Pretty.option_or ~none:"not found" Aten_op_config.pp);
   [%expect {| torch.ops.aten.relu.default (Tensor self) -> T |}]
 
 (* ---- Op_bridge.dispatch: native compute, evaluated directly ------------- *)

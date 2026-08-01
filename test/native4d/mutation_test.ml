@@ -33,17 +33,12 @@
 open Native4d
 
 let nat name m =
-  match Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "%s: %a" name Graph_builder.pp_error e.Core.Error.kind)
+  Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
+  |> Core.or_raise (fun ppf e ->
+      Fmt.pf ppf "%s: %a" name Graph_builder.pp_error e)
 
 let four m =
-  match Builder.build ~outputs:(fun o -> [ o ]) m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg (Format.asprintf "%a" Builder.pp_error e.Core.Error.kind)
+  Builder.build ~outputs:(fun o -> [ o ]) m |> Core.or_raise Builder.pp_error
 
 (* Verify one hand-built pair against a map with no node clusters and only the
    [claims] the caller names explicitly — so every other id present in both

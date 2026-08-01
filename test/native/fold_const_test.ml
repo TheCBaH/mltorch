@@ -343,20 +343,15 @@ let%expect_test "chain_permute then fold_const hoist a two-permute weight" =
      there would be nothing left to fold. *)
   let w_shape = Graph_fixtures.s 3 1 1 2 2 2 in
   let g =
-    match
-      Graph_builder.build ~name:"twice_permuted_weight"
-        ~outputs:(fun o -> [ o ])
-        Graph_builder.(
-          let* x = input ~shape:(Graph_fixtures.nhwc ~h:3 ~w:3 ~c:2) () in
-          let* w = constant ~shape:w_shape () in
-          let* a = permute Graph_fixtures.swap_hw w in
-          let* b = permute Graph_fixtures.swap_wc a in
-          conv2d (Graph_fixtures.conv_params ~in_channels:2) ~x ~weight:b ())
-    with
-    | Ok g -> g
-    | Error e ->
-        invalid_arg
-          (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+    Graph_builder.build ~name:"twice_permuted_weight"
+      ~outputs:(fun o -> [ o ])
+      Graph_builder.(
+        let* x = input ~shape:(Graph_fixtures.nhwc ~h:3 ~w:3 ~c:2) () in
+        let* w = constant ~shape:w_shape () in
+        let* a = permute Graph_fixtures.swap_hw w in
+        let* b = permute Graph_fixtures.swap_wc a in
+        conv2d (Graph_fixtures.conv_params ~in_channels:2) ~x ~weight:b ())
+    |> Core.or_raise Graph_builder.pp_error
   in
   run g
     ~constants:[ (t_ 1, hw_ramp w_shape) ]

@@ -31,10 +31,7 @@ open Native4d
 let s4 ~n ~h ~w ~c = Shape4.of_ints ~n ~h ~w ~c
 
 let build ~outputs m =
-  match Builder.build ~outputs m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg (Format.asprintf "%a" Builder.pp_error e.Core.Error.kind)
+  Builder.build ~outputs m |> Core.or_raise Builder.pp_error
 
 (* Row-major fill, so every element is distinguishable in the output. *)
 let seq shape =
@@ -58,10 +55,7 @@ let pp_values fmt vs =
 (* ---- direct, against hand values ------------------------------------------ *)
 
 let run_direct ?(constants = []) g ~inputs =
-  match Eval_direct4.run g ~constants ~inputs with
-  | Ok env -> env
-  | Error e ->
-      invalid_arg (Format.asprintf "%a" Eval_direct4.pp_error e.Core.Error.kind)
+  Eval_direct4.run g ~constants ~inputs |> Core.or_raise Eval_direct4.pp_error
 
 let single g ~inputs ?(constants = []) () =
   let env = run_direct g ~constants ~inputs in

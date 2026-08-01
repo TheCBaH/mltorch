@@ -51,11 +51,8 @@ let transposed_params : Ops4.Transposed_conv2d.params =
   }
 
 let build ~outputs m =
-  match Builder.build ~outputs m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "fixture4: %a" Builder.pp_error e.Core.Error.kind)
+  Builder.build ~outputs m
+  |> Core.or_raise (fun ppf e -> Fmt.pf ppf "fixture4: %a" Builder.pp_error e)
 
 (* Distinct, non-degenerate values: a fill of zeros would make a wrong group
    count or a wrong axis map invisible. Kept small and exactly representable so
