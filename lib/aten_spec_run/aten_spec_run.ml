@@ -284,9 +284,9 @@ let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
       Format.fprintf ppf "[eval] %s@." node.target;
       List.iteri
         (fun i name ->
-          (match String_map.find_opt name env' with
-          | Some t -> Format.fprintf ppf "  aten   %s = %a@." name pp_aten t
-          | None -> Format.fprintf ppf "  aten   %s = <missing>@." name);
+          Format.fprintf ppf "  aten   %s = %a@." name
+            (Core.Pretty.option_or ~none:"<missing>" pp_aten)
+            (String_map.find_opt name env');
           match native with
           | `None ->
               if i = 0 then Format.fprintf ppf "  native = <no native impl>@."
@@ -298,11 +298,10 @@ let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
               if i = 0 then
                 Format.fprintf ppf "  native = <error: eval error: %a>@."
                   Eval_direct.pp_error e.Core.Error.kind
-          | `Ok outs -> (
-              match List.nth_opt outs i with
-              | Some packed ->
-                  Format.fprintf ppf "  native %s = %a@." name pp_native packed
-              | None -> Format.fprintf ppf "  native %s = <missing>@." name))
+          | `Ok outs ->
+              Format.fprintf ppf "  native %s = %a@." name
+                (Core.Pretty.option_or ~none:"<missing>" pp_native)
+                (List.nth_opt outs i))
         out_names
 
 (* Deliberately not [Fmt.brackets], which boxes its content and so may
@@ -389,11 +388,10 @@ let eval_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
       in
       List.iter
         (fun name ->
-          match String_map.find_opt name env' with
-          | Some t ->
-              Format.fprintf ppf "  -> %s: %a@." name pp_shape
-                (Array.to_list (Aten_tensor.shape t))
-          | None -> Format.fprintf ppf "  -> %s: <missing>@." name)
+          Format.fprintf ppf "  -> %s: %a@." name
+            (Core.Pretty.option_or ~none:"<missing>" (fun ppf t ->
+                 pp_shape ppf (Array.to_list (Aten_tensor.shape t))))
+            (String_map.find_opt name env'))
         out_names;
       Format.fprintf ppf "  status: ok@."
 
@@ -497,10 +495,9 @@ let walk_eval ?(ppf = Format.std_formatter) ~steps (spec : Aten_spec.Op_spec.t)
         in
         List.iter
           (fun name ->
-            match String_map.find_opt name env' with
-            | Some t ->
-                Format.fprintf ppf "  -> %s: %a@." name pp_tensor_summary t
-            | None -> Format.fprintf ppf "  -> %s: <missing>@." name)
+            Format.fprintf ppf "  -> %s: %a@." name
+              (Core.Pretty.option_or ~none:"<missing>" pp_tensor_summary)
+              (String_map.find_opt name env'))
           out_names;
         Format.fprintf ppf "  status: ok@."
   in
@@ -546,10 +543,9 @@ let compare_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
       in
       List.iter
         (fun name ->
-          match String_map.find_opt name env' with
-          | Some t ->
-              Format.fprintf ppf "  -> %s: %a@." name pp_tensor_summary t
-          | None -> Format.fprintf ppf "  -> %s: <missing>@." name)
+          Format.fprintf ppf "  -> %s: %a@." name
+            (Core.Pretty.option_or ~none:"<missing>" pp_tensor_summary)
+            (String_map.find_opt name env'))
         out_names;
       match Op_bridge.dispatch ~aten_env:env node with
       | None ->

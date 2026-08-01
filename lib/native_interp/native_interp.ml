@@ -624,15 +624,14 @@ let run ?hooks archive ~input =
   let* lowered = lower_archive archive in
   let graph = lowered.Pt2_native_graph.graph in
   let eval_hooks =
-    match hooks with
-    | None -> None
-    | Some (Hooks h) ->
-        Some
-          (Eval_direct.Hooks
-             {
-               on_start = (fun node -> h.on_start lowered node);
-               on_end = (fun node state -> h.on_end lowered node state);
-             })
+    Option.map
+      (fun (Hooks h) ->
+        Eval_direct.Hooks
+          {
+            on_start = (fun node -> h.on_start lowered node);
+            on_end = (fun node state -> h.on_end lowered node state);
+          })
+      hooks
   in
   let* input = tensor_of_pt2 input in
   let user_ids =

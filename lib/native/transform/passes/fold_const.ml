@@ -56,15 +56,13 @@ let evaluate ~constants ~view (n : node) out =
 
 let on_node : type v. Pass.env -> node -> (v, unit) Recipe.t option =
  fun { constants; view } n ->
-  match foldable ~constants ~view n with
-  | None -> None
-  | Some (out, operands) ->
+  Option.bind (foldable ~constants ~view n) (fun (out, operands) ->
       Option.map
         (fun value ->
           let open Recipe in
           let* out = existing out in
           let* sources = Recipe.all existing operands in
           fold_to_constant ~node:n.Node.id ~output:out ~value ~sources)
-        (evaluate ~constants ~view n out)
+        (evaluate ~constants ~view n out))
 
 let pass = Pass.per_node ~name:"fold_const" { Pass.on_node }

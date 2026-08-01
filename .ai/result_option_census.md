@@ -249,7 +249,28 @@ The `bin/native_graph.ml` line list supersedes an earlier draft that named
 >
 > Goldens did not move, which was the acceptance criterion.
 
-### `reduce:option-map` (10) — Stage 8
+### `reduce:option-map` (10) — Stage 8 — **done, 7 of 10**
+
+> **Found while implementing:** three are multi-arm matches the `| None -> None`
+> line cannot distinguish from a two-arm map — `aten_decode_gen.ml:185` (a
+> guarded `Some (Tensors_ret nret) when …` arm), `aten_spec_gen.ml:247` (a
+> `Some T_skip` arm), and `native_interp.ml:138`, which the do-not-touch
+> register had already caught. All three stay. This is the same false-positive
+> shape as `reduce:render`, and it is now the third cluster where a
+> single-line rule over-reports.
+>
+> The other seven converted to `Option.map`/`Option.bind`.
+> `map_verify.ml:531`'s two explanatory comments were preserved in place; its
+> inner `under_test` match also folded to `Option.fold ~none:false`.
+>
+> **The census under-reported here too.** `lib/aten_spec_run` :289 :305 :396
+> :503 :552 were classified `keep:render`, but reading them shows the printed
+> prefix repeats verbatim across both arms —
+> `"  aten   %s = %a"` against `"  aten   %s = <missing>"` — which is exactly
+> `Core.Pretty.option_or ~none:"<missing>"`, and the file already uses that
+> combinator at `:341`. All five converted. Where Stage 7 meant overruling the
+> classifier's *findings*, this meant overruling its *dismissals*; both need the
+> source read.
 
 `| None -> None` with a single mapping sibling → `Option.map`/`Option.bind`:
 `lib/aten_gen/aten_config_gen.ml` :71 :100 :225 · `aten_decode_gen.ml:185` ·
@@ -283,10 +304,16 @@ own `let*` at `:63`, which is a state-monad operator over
 
 Decisions, not rewrites.
 
-- `audit:error-to-none` (5): `lib/native/transform/passes/fold_const.ml:42,52`
-  already carry a comment justifying the discarded diagnostic and are the model
-  for the rest; `test/native/permute_passes_test.ml:26,29,52` need either that
-  comment or `Core.or_raise` if they are hiding a fixture failure.
+- `audit:error-to-none` (5) — **resolved**.
+  `lib/native/transform/passes/fold_const.ml:42,52` already carried a comment
+  justifying the discarded diagnostic and were the model.
+  `test/native/permute_passes_test.ml:26,29,52` now carry one too: the plan
+  offered `Core.or_raise` as the alternative, but these helpers return an
+  `option` that every caller pattern-matches, so raising would force a
+  restructure of each call site for a diagnostic none of them read. A failure
+  there still fails the test — it flips a boolean equivalence check against a
+  golden expecting `true` — so the loss is message quality, not detection. The
+  comment says so.
 - `audit:option-fold` (8): `| None -> false` with a computing `Some` arm, i.e.
   `Option.fold ~none:false ~some:f`, **not** `is_some`.
   `lib/aten_gen/aten_spec_gen.ml:401` · `lib/native/json_util.ml:81` ·

@@ -135,9 +135,7 @@ module Env = struct
         && Option.is_none (constant_of t id)
 
   let stage_of t o =
-    match Origin.edge o with
-    | Some id -> Tensor_id.Map.find_opt id t.stages
-    | None -> None
+    Option.bind (Origin.edge o) (fun id -> Tensor_id.Map.find_opt id t.stages)
 
   let stage_of_id t id = Tensor_id.Map.find_opt id t.stages
 end
