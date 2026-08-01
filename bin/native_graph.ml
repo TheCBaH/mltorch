@@ -4,6 +4,21 @@
 
 open Cmdliner
 
+(* Every command below returns Cmdliner's [(unit, string) result], so each step
+   has to leave the [Core.result] framework. [to_cli] is that boundary, named
+   once instead of open-coded at each of the ten crossings.
+
+   The detection backtrace is DELIBERATELY dropped: this string is a diagnostic
+   for whoever ran the command, not for whoever wrote the code. That is also why
+   [Core.map_error] is wrong here — it would keep the [Core.Error.t] wrapper,
+   which is precisely what Cmdliner cannot take. *)
+let to_cli pp =
+  Result.map_error (fun e -> Core.Pretty.to_string pp e.Core.Error.kind)
+
+(* Plain [Result.bind]: these are Cmdliner's bare results, already lowered by
+   [to_cli], so [Core.Syntax]'s operators do not apply. *)
+let ( let* ) = Result.bind
+
 (* An option (not a bare positional) since [print] is meant to grow other
    graph sources (e.g. a serialized native graph) as sibling options
    alongside this one. *)
@@ -215,19 +230,16 @@ let pp_provenance ppf (lowered : Pt2_native_graph.t) =
   Format.pp_print_flush ppf ()
 
 let with_archive model f =
-  match Pt2_archive.open_pt2 model with
-  | Error e ->
-      Error (Format.asprintf "%a" Pt2_archive.pp_error e.Core.Error.kind)
-  | Ok archive -> f archive
+  let* archive = to_cli Pt2_archive.pp_error (Pt2_archive.open_pt2 model) in
+  f archive
 
 let print_graph model : (unit, string) result =
   with_archive model (fun archive ->
-      match Native_interp.lower_archive archive with
-      | Ok lowered ->
-          pp_provenance Format.std_formatter lowered;
-          Ok ()
-      | Error e ->
-          Error (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind))
+      let* lowered =
+        to_cli Native_interp.pp_error (Native_interp.lower_archive archive)
+      in
+      pp_provenance Format.std_formatter lowered;
+      Ok ())
 
 let print_cmd =
   let doc =
@@ -238,74 +250,64 @@ let print_cmd =
 
 let eval model input expect verbose : (unit, string) result =
   with_archive model (fun archive ->
-      match Pt2_archive.load_pt input with
-      | Error e ->
-          Error (Format.asprintf "%a" Pt2_archive.pp_error e.Core.Error.kind)
-      | Ok input -> (
-          let hooks =
-            if verbose then
-              (* [on_end] fires once per evaluated node against the same
+      let* input = to_cli Pt2_archive.pp_error (Pt2_archive.load_pt input) in
+      let hooks =
+        if verbose then
+          (* [on_end] fires once per evaluated node against the same
                  [lowered], so build the pp index once (it's an O(nodes)
                  rescan otherwise) and reuse it across the whole run. *)
-              let index = ref None in
-              let index_for (lowered : Pt2_native_graph.t) =
-                match !index with
-                | Some (graph, idx) when graph == lowered.graph -> idx
-                | _ ->
-                    let idx = Graph_ir.Index.make lowered.graph in
-                    index := Some (lowered.graph, idx);
-                    idx
-              in
-              Some
-                (Native_interp.Hooks
-                   {
-                     on_start = (fun _ _ -> Sys.time ());
-                     on_end =
-                       (fun lowered node started ->
-                         Format.eprintf "%a@,[eval] n%d compute: %.3f ms@."
-                           (Graph_ir.pp_node
-                              ~printer:(pp_inline_printer lowered)
-                              ~index:(index_for lowered) lowered.graph)
-                           node
-                           (Graph_ir.Node_id.to_int node.Graph_ir.Node.id)
-                           ((Sys.time () -. started) *. 1000.));
-                   })
-            else None
+          let index = ref None in
+          let index_for (lowered : Pt2_native_graph.t) =
+            match !index with
+            | Some (graph, idx) when graph == lowered.graph -> idx
+            | _ ->
+                let idx = Graph_ir.Index.make lowered.graph in
+                index := Some (lowered.graph, idx);
+                idx
           in
-          match Native_interp.run ?hooks archive ~input with
-          | Error e ->
-              Error
-                (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind)
-          | Ok outputs -> (
-              match expect with
-              | None ->
-                  List.iteri
-                    (fun i output ->
-                      Format.printf "output[%d] = %a@." i Tensor.pp output)
-                    outputs;
+          Some
+            (Native_interp.Hooks
+               {
+                 on_start = (fun _ _ -> Sys.time ());
+                 on_end =
+                   (fun lowered node started ->
+                     Format.eprintf "%a@,[eval] n%d compute: %.3f ms@."
+                       (Graph_ir.pp_node
+                          ~printer:(pp_inline_printer lowered)
+                          ~index:(index_for lowered) lowered.graph)
+                       node
+                       (Graph_ir.Node_id.to_int node.Graph_ir.Node.id)
+                       ((Sys.time () -. started) *. 1000.));
+               })
+        else None
+      in
+      let* outputs =
+        to_cli Native_interp.pp_error (Native_interp.run ?hooks archive ~input)
+      in
+      match expect with
+      | None ->
+          List.iteri
+            (fun i output ->
+              Format.printf "output[%d] = %a@." i Tensor.pp output)
+            outputs;
+          Ok ()
+      | Some path -> (
+          match (outputs, Graph_json.decode_tensor (read_source path)) with
+          | [ output ], Ok expected -> (
+              match compare_tensor ~atol:1e-4 expected output with
+              | Ok distance ->
+                  Format.printf "output[0]: %a@." pp_distance distance;
+                  Format.printf "output[0]: matches %s@." path;
                   Ok ()
-              | Some path -> (
-                  match
-                    (outputs, Graph_json.decode_tensor (read_source path))
-                  with
-                  | [ output ], Ok expected -> (
-                      match compare_tensor ~atol:1e-4 expected output with
-                      | Ok distance ->
-                          Format.printf "output[0]: %a@." pp_distance distance;
-                          Format.printf "output[0]: matches %s@." path;
-                          Ok ()
-                      | Error (distance, message) ->
-                          Option.iter
-                            (fun distance ->
-                              Format.printf "output[0]: %a@." pp_distance
-                                distance)
-                            distance;
-                          Error message)
-                  | _ :: _ :: _, _ ->
-                      Error "expected exactly one native graph output"
-                  | [], _ -> Error "native graph produced no outputs"
-                  | _, Error message ->
-                      Error ("cannot decode reference: " ^ message)))))
+              | Error (distance, message) ->
+                  Option.iter
+                    (fun distance ->
+                      Format.printf "output[0]: %a@." pp_distance distance)
+                    distance;
+                  Error message)
+          | _ :: _ :: _, _ -> Error "expected exactly one native graph output"
+          | [], _ -> Error "native graph produced no outputs"
+          | _, Error message -> Error ("cannot decode reference: " ^ message)))
 
 let eval_cmd =
   let doc =
@@ -532,97 +534,80 @@ let pp_summary ppf (Native_interp.Transformed t) =
 let transform model input expect fold verify verify_symbolic :
     (unit, string) result =
   with_archive model (fun archive ->
-      match
-        Native_interp.transform ~preload:fold
-          ?verify:
-            (Option.map
-               (fun _ -> Map_verify.Policy.Reject_refuted)
-               verify_symbolic)
-          ?verify_budget:(Option.map Map_verify.Effort.budget verify_symbolic)
-          ?verify_probe:(Option.map Map_verify.Effort.probe verify_symbolic)
-          archive ~passes:(passes ~fold)
-      with
-      | Error e ->
-          Error (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind)
-      | Ok (Native_interp.Transformed t as transformed) -> (
-          pp_summary Format.std_formatter transformed;
-          if Option.is_some verify_symbolic then
-            pp_audits Format.std_formatter t.audits;
-          match input with
-          | None ->
-              (* Structure only: deterministic, and no inference to wait for. *)
-              Format.printf "%a@."
-                (let verdicts = verdicts_by_edge t.composed in
-                 Graph_ir.pp_with
-                   ~printer:
-                     (pp_lens_printer ~verdicts
-                        ~node_verdicts:(verdicts_by_node t.graph verdicts)
-                        t.lens t.derived))
-                t.graph;
-              Ok ()
-          | Some input -> (
-              match Pt2_archive.load_pt input with
-              | Error e ->
-                  Error
-                    (Format.asprintf "%a" Pt2_archive.pp_error e.Core.Error.kind)
-              | Ok input -> (
-                  match Native_interp.evaluate archive transformed ~input with
-                  | Error e ->
-                      Error
-                        (Format.asprintf "%a" Native_interp.pp_error
-                           e.Core.Error.kind)
-                  | Ok (outputs, loaded) -> (
-                      Format.printf
-                        "payloads: %d computed, %d from the archive@."
-                        loaded.from_state loaded.from_archive;
-                      let verified output =
-                        if not verify then Ok ()
-                        else
-                          match Native_interp.run archive ~input with
-                          | Error e ->
-                              Error
-                                (Format.asprintf "%a" Native_interp.pp_error
-                                   e.Core.Error.kind)
-                          | Ok [ reference ] -> (
-                              match
-                                compare_tensor ~atol:1e-4 reference output
-                              with
-                              | Ok distance ->
-                                  Format.printf "vs untransformed: %a@."
-                                    pp_distance distance;
-                                  Ok ()
-                              | Error (_, message) -> Error message)
-                          | Ok _ ->
-                              Error
-                                "untransformed graph produced unexpected \
-                                 outputs"
-                      in
-                      match (outputs, expect) with
-                      | [ output ], None ->
-                          Format.printf "output[0] = %a@." Tensor.pp output;
-                          verified output
-                      | [ output ], Some path -> (
-                          match Graph_json.decode_tensor (read_source path) with
-                          | Error message ->
-                              Error ("cannot decode reference: " ^ message)
-                          | Ok expected -> (
-                              match
-                                compare_tensor ~atol:1e-4 expected output
-                              with
-                              | Ok distance ->
-                                  Format.printf "output[0]: %a@." pp_distance
-                                    distance;
-                                  Format.printf "output[0]: matches %s@." path;
-                                  verified output
-                              | Error (distance, message) ->
-                                  Option.iter
-                                    (fun distance ->
-                                      Format.printf "output[0]: %a@."
-                                        pp_distance distance)
-                                    distance;
-                                  Error message))
-                      | _ -> Error "expected exactly one native graph output")))
-          ))
+      let* transformed =
+        to_cli Native_interp.pp_error
+          (Native_interp.transform ~preload:fold
+             ?verify:
+               (Option.map
+                  (fun _ -> Map_verify.Policy.Reject_refuted)
+                  verify_symbolic)
+             ?verify_budget:
+               (Option.map Map_verify.Effort.budget verify_symbolic)
+             ?verify_probe:(Option.map Map_verify.Effort.probe verify_symbolic)
+             archive ~passes:(passes ~fold))
+      in
+      let (Native_interp.Transformed t) = transformed in
+      pp_summary Format.std_formatter transformed;
+      if Option.is_some verify_symbolic then
+        pp_audits Format.std_formatter t.audits;
+      match input with
+      | None ->
+          (* Structure only: deterministic, and no inference to wait for. *)
+          Format.printf "%a@."
+            (let verdicts = verdicts_by_edge t.composed in
+             Graph_ir.pp_with
+               ~printer:
+                 (pp_lens_printer ~verdicts
+                    ~node_verdicts:(verdicts_by_node t.graph verdicts)
+                    t.lens t.derived))
+            t.graph;
+          Ok ()
+      | Some input -> (
+          let* input =
+            to_cli Pt2_archive.pp_error (Pt2_archive.load_pt input)
+          in
+          let* outputs, loaded =
+            to_cli Native_interp.pp_error
+              (Native_interp.evaluate archive transformed ~input)
+          in
+          Format.printf "payloads: %d computed, %d from the archive@."
+            loaded.from_state loaded.from_archive;
+          let verified output =
+            if not verify then Ok ()
+            else
+              let* reference =
+                to_cli Native_interp.pp_error (Native_interp.run archive ~input)
+              in
+              match reference with
+              | [ reference ] -> (
+                  match compare_tensor ~atol:1e-4 reference output with
+                  | Ok distance ->
+                      Format.printf "vs untransformed: %a@." pp_distance
+                        distance;
+                      Ok ()
+                  | Error (_, message) -> Error message)
+              | _ -> Error "untransformed graph produced unexpected outputs"
+          in
+          match (outputs, expect) with
+          | [ output ], None ->
+              Format.printf "output[0] = %a@." Tensor.pp output;
+              verified output
+          | [ output ], Some path -> (
+              match Graph_json.decode_tensor (read_source path) with
+              | Error message -> Error ("cannot decode reference: " ^ message)
+              | Ok expected -> (
+                  match compare_tensor ~atol:1e-4 expected output with
+                  | Ok distance ->
+                      Format.printf "output[0]: %a@." pp_distance distance;
+                      Format.printf "output[0]: matches %s@." path;
+                      verified output
+                  | Error (distance, message) ->
+                      Option.iter
+                        (fun distance ->
+                          Format.printf "output[0]: %a@." pp_distance distance)
+                        distance;
+                      Error message))
+          | _ -> Error "expected exactly one native graph output"))
 
 let transform_cmd =
   let doc =
@@ -656,68 +641,65 @@ let op_counts (g : Native4d.Graph.graph) =
 
 let to4d model fold verify_symbolic : (unit, string) result =
   with_archive model (fun archive ->
-      match
-        Native_interp.transform ~preload:fold archive ~passes:(passes ~fold)
-      with
+      let* transformed =
+        to_cli Native_interp.pp_error
+          (Native_interp.transform ~preload:fold archive ~passes:(passes ~fold))
+      in
+      let (Native_interp.Transformed t) = transformed in
+      Format.printf "canonical native: nodes=%d@."
+        (List.length t.graph.Graph_common.Graph.nodes);
+      let* snapshot = to_cli Graph_view.pp_error (Snapshot.create t.graph) in
+      let (Snapshot.Pack src) = snapshot in
+      match Native4d.Lower.convert ~constants:t.constants src with
       | Error e ->
-          Error (Format.asprintf "%a" Native_interp.pp_error e.Core.Error.kind)
-      | Ok (Native_interp.Transformed t) -> (
-          Format.printf "canonical native: nodes=%d@."
-            (List.length t.graph.Graph_common.Graph.nodes);
-          match Snapshot.create t.graph with
-          | Error e ->
-              Error (Format.asprintf "%a" Graph_view.pp_error e.Core.Error.kind)
-          | Ok (Snapshot.Pack src) -> (
-              match Native4d.Lower.convert ~constants:t.constants src with
-              | Error e ->
-                  (* Not a failure of the tool: a graph outside the dialect's
+          (* Not a failure of the tool: a graph outside the dialect's
                      domain is the partiality the design is explicit about, so
                      the first unsupported node is the ANSWER, printed and
                      exited zero. *)
-                  Format.printf "outside the dialect: %a@." Native4d.Error.pp
-                    e.Core.Error.kind;
-                  Ok ()
-              | Ok (Native4d.Lower.Pack r) ->
-                  let dst = Native4d.Lower.graph r in
-                  Format.printf "native4d: nodes=%d inputs=%d@."
-                    (List.length dst.Graph_common.Graph.nodes)
-                    (List.length dst.Graph_common.Graph.inputs);
-                  List.iter
-                    (fun (name, n) -> Format.printf "  %-18s %d@." name n)
-                    (op_counts dst);
-                  (* THE STRUCTURE, and each edge's verdict beside it. Counts
+          Format.printf "outside the dialect: %a@." Native4d.Error.pp
+            e.Core.Error.kind;
+          Ok ()
+      | Ok (Native4d.Lower.Pack r) ->
+          let dst = Native4d.Lower.graph r in
+          Format.printf "native4d: nodes=%d inputs=%d@."
+            (List.length dst.Graph_common.Graph.nodes)
+            (List.length dst.Graph_common.Graph.inputs);
+          List.iter
+            (fun (name, n) -> Format.printf "  %-18s %d@." name n)
+            (op_counts dst);
+          (* THE STRUCTURE, and each edge's verdict beside it. Counts
                      say what the graph is made of; only the graph says how it is
                      wired, and only a per-edge verdict says which parts of the
                      conversion are actually justified. *)
-                  let verdicts =
-                    match verify_symbolic with
-                    | None -> Graph_ir.Tensor_id.Map.empty
-                    | Some effort -> (
-                        match
-                          Native4d.Framework.Verify_from_native.run
-                            ~budget:(Map_verify.Effort.budget effort)
-                            ~probe:(Map_verify.Effort.probe effort)
-                            ~src_constants:t.constants
-                            ~dst_constants:r.Native4d.Lower.constants
-                            r.Native4d.Lower.map ~src ~dst:r.Native4d.Lower.dst
-                        with
-                        | Error e ->
-                            Format.printf "map verification: %a@."
-                              Map_verify.pp_error e.Core.Error.kind;
-                            Graph_ir.Tensor_id.Map.empty
-                        | Ok report ->
-                            Format.printf "map verification: %s@."
-                              (Map_verify.Report.summary report);
-                            verdicts_by_edge (Some report))
-                  in
-                  let annot id =
-                    Option.map
-                      (fun (outcome, _) ->
-                        Format.asprintf "%a" Map_verify.Outcome.pp outcome)
-                      (Graph_ir.Tensor_id.Map.find_opt id verdicts)
-                  in
-                  Format.printf "%a@." (Native4d.Graph.pp_with ~annot) dst;
-                  Ok ())))
+          let verdicts =
+            match verify_symbolic with
+            | None -> Graph_ir.Tensor_id.Map.empty
+            | Some effort -> (
+                match
+                  Native4d.Framework.Verify_from_native.run
+                    ~budget:(Map_verify.Effort.budget effort)
+                    ~probe:(Map_verify.Effort.probe effort)
+                    ~src_constants:t.constants
+                    ~dst_constants:r.Native4d.Lower.constants
+                    r.Native4d.Lower.map ~src ~dst:r.Native4d.Lower.dst
+                with
+                | Error e ->
+                    Format.printf "map verification: %a@." Map_verify.pp_error
+                      e.Core.Error.kind;
+                    Graph_ir.Tensor_id.Map.empty
+                | Ok report ->
+                    Format.printf "map verification: %s@."
+                      (Map_verify.Report.summary report);
+                    verdicts_by_edge (Some report))
+          in
+          let annot id =
+            Option.map
+              (fun (outcome, _) ->
+                Format.asprintf "%a" Map_verify.Outcome.pp outcome)
+              (Graph_ir.Tensor_id.Map.find_opt id verdicts)
+          in
+          Format.printf "%a@." (Native4d.Graph.pp_with ~annot) dst;
+          Ok ())
 
 let to4d_cmd =
   let doc =
