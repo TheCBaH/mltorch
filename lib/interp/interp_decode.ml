@@ -95,9 +95,7 @@ let find_arg (node : Node.t) name =
 (* Resolve a value name to a tensor: an earlier node result or a preloaded
    parameter/buffer, all carried by the environment. *)
 let resolve (env : env) name =
-  match String_map.find_opt name env with
-  | Some tensor -> Core.return tensor
-  | None -> Core.fail (`Undefined_value name)
+  String_map.find_opt name env |> Core.of_option (`Undefined_value name)
 
 let wrong_kind name expected arg =
   Core.fail (`Wrong_argument_kind (name, expected, argument_kind_name arg))
@@ -138,9 +136,7 @@ let ints_arg ?(default = []) node name =
   | Some (Argument.None _) | None -> Core.return default
   | Some arg -> wrong_kind name "int[]" arg
 
-let require name = function
-  | Some d -> Core.return d
-  | None -> Core.fail (`Missing_argument name)
+let require name = Core.of_option (`Missing_argument name)
 
 let int_arg ?default node name =
   match find_arg node name with
