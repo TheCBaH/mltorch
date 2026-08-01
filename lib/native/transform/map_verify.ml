@@ -343,12 +343,11 @@ module Group_path = struct
       (g : 'op Graph_common.Graph.t) =
     List.fold_left
       (fun acc (n : 'op Graph_common.Node.t) ->
-        List.fold_left
-          (fun acc out ->
-            match edge out with
-            | Some e -> Correspondence.Map.update e n.Node.id acc
-            | None -> acc)
-          acc n.Node.outputs)
+        (* An output with no destination edge contributes no producer. *)
+        List.filter_map edge n.Node.outputs
+        |> List.fold_left
+             (fun acc e -> Correspondence.Map.update e n.Node.id acc)
+             acc)
       Correspondence.Map.empty g.Graph_common.Graph.nodes
 
   (* A cluster is placed by its DESTINATION edges only — that is the graph whose
