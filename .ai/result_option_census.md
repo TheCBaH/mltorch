@@ -357,6 +357,38 @@ Every hand-rolled unwrap of the `Core.Error.t` wrapper in the tree: 1 defect
 (above), 15 deliberate lowerings (above). There are no others — this is the
 complete set, and it is the design input for the deferred checker.
 
+## Outcome
+
+All stages landed (`3d32481..03115e6`). **Arm heads 603 → 515.** Adoption:
+`Core.or_raise` 22 → 55, `Core.of_option` 0 → 23, `Core.map_error` 52 → 55,
+`Core.Pretty.*` 30 → 44. One real bug fixed (`graph_view.ml:352`). Goldens
+never moved.
+
+Final semantic sweep — the second pass this document argues for — is clean:
+zero raises over `Core.Error.kind`, and the one hand-rolled wrapper drop left
+(`dce_test.ml:147`) is the registered, commented one.
+`test/func_parser_test.ml:3`'s `Result.fold ~error:failwith` is over a plain
+`(_, string) result`, so `Core.or_raise` correctly does not apply.
+
+### The method, graded
+
+The census was wrong in both directions, and the corrections are the reusable
+part:
+
+| | |
+|---|---|
+| over-reported | `reduce:render` ~75% false positives; `reduce:option-map` 30% |
+| under-reported | wrapper drops written as pattern destructures; `Result.fold` |
+
+The single sharpest failure: `pass.ml:28` matches on a **local variant
+constructor named `Error`**. No token-level or arm-shape rule can distinguish
+that from `Stdlib.Error` — only types can, which is the strongest argument for
+the deferred typed checker.
+
+The single sharpest lesson about tooling: a scripted rewrite with an assertion
+on the replacement *count* still landed one edit in the wrong place. A right
+count is not a right match.
+
 ## What this changes in the plan
 
 - The migration is **96 sites**, and 82% of the tree is already correct. The

@@ -22,10 +22,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   `Some/None` purely to print — compose through `Fmt.result`/`Fmt.option`/
   `Core.Pretty` instead. Don't cross a `Core.result` into an exception
   boundary with an open-coded `match ... | Error e -> failwith (...)` —
-  use `Core.or_raise`. Never rebuild an `Error` by hand-unwrapping
-  `e.Core.Error.kind` when `Core.map_error` applies — it preserves the
-  original detection backtrace; the hand-rolled form silently doesn't. See
-  `.ai/fmt_migration_plan.md`.
+  use `Core.or_raise`. Bridge an option into the framework with
+  `Core.of_option`, not `Option.to_result` (which yields no `Core.Error.t`,
+  hence no backtrace); its payload is built eagerly, so keep a match where
+  building it raises, has effects, or costs something on the success path.
+  Never rebuild an `Error` by hand-unwrapping `e.Core.Error.kind` when
+  `Core.map_error` applies — it preserves the original detection backtrace;
+  the hand-rolled form silently doesn't, and `graph_view.ml:352` was a live
+  instance of exactly that bug. A deliberate drop of the wrapper (crossing out
+  of the framework, e.g. into Cmdliner's `(_, string) result`) is fine, but
+  give it a **named** helper — `to_cli`, `Pattern.of_core` — so it is
+  distinguishable from the defect. See `.ai/result_option_census.md` for the
+  full inventory and `.ai/fmt_migration_plan.md` for printer composition.
 
 ## Exploration & Planning — start in `.ai/`
 

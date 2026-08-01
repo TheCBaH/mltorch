@@ -130,6 +130,15 @@ printing only) but that belong in the same convention. The project-wide audit
 and prevention plan now lives in `.ai/result_option_migration_plan.md`; the
 rules below remain the printer migration's local summary:
 
+> **Found while implementing (result/option migration, Stage 1):** the bug this
+> section warns about had a **live instance** in the tree —
+> `lib/native/transform/graph_view.ml:352` rebuilt `D.validate_sig`'s
+> `Core.result` by hand, so `Error.make` captured a fresh callstack at the
+> re-raise and the dialect's detection site was lost. Fixed as a `fixup!` onto
+> `6ce482f`, with a test that reverting the fix alone turns red. Writing the
+> rule down was not enough to prevent it; see `.ai/result_option_census.md` for
+> the complete wrapper-drop register and the deferred checker that would.
+
 - **Never hand-rebuild an `Error` by unwrapping `e.Core.Error.kind`** when
   `Core.map_error` does exactly that while preserving the original detection
   backtrace:
@@ -154,6 +163,25 @@ rules below remain the printer migration's local summary:
   `match ... | Error e -> failwith e` — generalizing the helper for a
   handful of call sites with no `Core.Error.t` wrapper would be speculative
   abstraction.
+- **Bridge an option into the framework with `Core.of_option`**, not
+  `Stdlib.Option.to_result`: the latter yields a bare `Stdlib.result` with no
+  `Core.Error.t`, so a bridged absence carries no backtrace. Its payload is
+  built eagerly, before the option is inspected — keep an explicit match where
+  building it raises, has effects, or costs something on the success path. On
+  the ~20 graph-lookup sites it replaced, the cost is below measurement noise
+  (measured; see `.ai/result_option_census.md`).
+- **A deliberate drop of the wrapper needs a NAME.** Crossing out of the
+  framework is legitimate — Cmdliner wants `(_, string) result`, and the
+  pattern monad has its own `failure` type — but an anonymous
+  `| Error e -> Error (… e.Core.Error.kind …)` is textually indistinguishable
+  from the defect above. Two such boundaries are now named, commented helpers:
+  `to_cli` in `bin/native_graph.ml` and `Pattern.of_core` in
+  `lib/native/transform/pattern.ml`. `test/native/dce_test.ml:147` is a third,
+  left inline behind the comment that already explained it.
+- **`Option.value ~default:e` evaluates `e` eagerly.** Fine for a cheap total
+  constant; for a raising, expensive, or effectful fallback keep explicit
+  branching. The same caveat is why `Core.of_option`'s payload argument is
+  documented as eager.
 
 ## Stable patterns found
 

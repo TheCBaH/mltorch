@@ -254,6 +254,54 @@ fully-zero mechanical categories into a `make lint` target and CI. Any narrow
 suppression mechanism must require a reason adjacent to the match; do not keep a
 line-number allowlist.
 
+### Stages 1–5: **done.** Final audit
+
+Landed as `3d32481..03115e6`, one commit per stage. The per-site inventory is
+`.ai/result_option_census.md` / `.tsv`; what follows is the outcome.
+
+**Arm heads: 603 → 515.** Helper adoption, before → after:
+`Core.or_raise` 22 → 55, `Core.of_option` 0 → 23 (new),
+`Core.map_error` 52 → 55, `Core.Pretty.*` 30 → 44.
+
+The migration also **fixed one real bug**: `graph_view.ml:352` rebuilt a
+`Core.result` by hand and lost the detection backtrace — the exact defect
+`.ai/fmt_migration_plan.md` documents as wrong. It shipped as a `fixup!`, with
+a test that reverting the fix alone turns red.
+
+Two helpers were added to `lib/core`: `Core.of_option` (the one demonstrated
+gap; `Option.to_result` cannot serve, having no `Core.Error.t`). Nothing else —
+`Core.List.filter_map` and a `Core.Option` submodule were not demonstrated by
+the census and were not added.
+
+**Why the remaining 515 are legitimate**, by the census's own categories: 464
+`keep:*` (real branching, error-construction leaves, and the combinator
+definitions in `lib/core` and `Pattern` themselves), 15 `emitted-text` (arms
+inside `{| … |}` templates in the ATen generators), 15 `exempt-lowering`
+(deliberate wrapper drops, now behind named helpers), 13 `audit:*` resolved as
+documented decisions rather than rewrites, and 8 `option-fold` left as matches
+because `| None -> false` with a computing `Some` arm reads fine.
+
+#### What the census got wrong, in both directions
+
+Worth recording, because it is the reusable lesson rather than the code:
+
+- **Over-reporting.** Three clusters were substantially false positives.
+  `reduce:render` was ~75% wrong — most notably `pass.ml:28`, where `Error` is a
+  *local variant constructor*, not `Stdlib.Error`, which no token-level rule can
+  see. `reduce:option-map` was 30% wrong (multi-arm matches whose extra arms the
+  `| None -> None` line does not reveal).
+- **Under-reporting.** Two shapes are structurally invisible to an arm-head
+  census: a wrapper drop written as a *pattern destructure*
+  (`| Error { Core.Error.kind = e; _ }`, `tensor_bridge.ml:34`) never contains
+  the string `e.Core.Error.kind`; and `Result.fold ~error:(fun e -> failwith …)`
+  is not an arm at all. Both were found only by a **second pass grepping the
+  semantics** — `Core.Error.kind` near a raise or a rebuild. Any future audit
+  needs both passes; neither subsumes the other.
+
+The final semantic sweep is clean: zero raises over `Core.Error.kind`, and the
+single remaining hand-rolled wrapper drop (`dce_test.ml:147`) is the registered,
+commented one.
+
 ### Stage 5: final audit and documentation
 
 Repeat the original greps and review every remaining match-arm hit by category.
