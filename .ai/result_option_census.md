@@ -65,7 +65,7 @@ positives recorded below.
 
 ## Actionable sites
 
-### `defect` (1) — Stage 1
+### `defect` (1) — Stage 1 — **fixed**
 
 | site | shape |
 |---|---|
@@ -78,6 +78,23 @@ This is verbatim the wrong form documented in `.ai/fmt_migration_plan.md`
 136-140 — the bug that doc warns about had a live instance.
 
 Introduced by `6ce482f` (`git blame -L 352,352`), so the fix is a `fixup!`.
+
+> **Found while implementing:** the defect was confirmed by observation, not
+> inferred. Covered by `test/native4d/shape4_test.ml`, "view4: Invalid_sig keeps
+> the detection site of the dialect check"; reverting the fix alone turns it red
+> (`detected_in_dialect=false view_is_only_the_caller=false`).
+>
+> The first draft of that test asserted the wrong frames — that the trace would
+> name `shape4.ml` and *not* `graph_view.ml`. Both were wrong:
+> `Shape4.of_vec6` is **inlined** into `Dialect4.validate_sig`, so the detection
+> frame reads `dialect4.ml:32`; and `graph_view.ml` legitimately appears below
+> it as the caller, before and after the fix. The property that actually
+> discriminates is frame **order** — frames print innermost-first, so "detected
+> inside the dialect" is "dialect4 appears above graph_view".
+>
+> This is direct evidence for the migration plan's warning about `Core.of_option`
+> and frame indices: which frame survives inlining is not predictable in advance,
+> so Stage 2 must observe the compiled behaviour before documenting it.
 
 ### `reduce:of_option` (25) — Stages 2–3
 

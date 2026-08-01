@@ -346,10 +346,12 @@ module Make (D : Dialect.S) = struct
         (fun () id ->
           match Tensor_id.Map.find_opt id g.Graph.tensors with
           | None -> Core.fail (`Graph_shape (D.missing_sig id))
-          | Some sg -> (
-              match D.validate_sig sg with
-              | Ok () -> Core.return ()
-              | Error e -> Core.fail (`Invalid_sig (id, e.Core.Error.kind))))
+          (* [map_error], not a rebuilt [Core.fail]: the latter captures a fresh
+             callstack here and discards the one the dialect check took at the
+             point it actually detected the violation. *)
+          | Some sg ->
+              D.validate_sig sg
+              |> Core.map_error (fun e -> `Invalid_sig (id, e)))
         ()
         (Tensor_id.Set.elements live)
     in
