@@ -1,6 +1,6 @@
 # Native tensors — 6D NHWC layout, GADT payloads, quantization
 
-Pillars 1 & 2 of `native_inference_plan.md`. Covers the coordinate model, the
+Pillars 1 & 2 of `native_inference_design.md`. Covers the coordinate model, the
 typed payload, and quantization. No ops here — this is the data substrate the
 compute functors read and write.
 

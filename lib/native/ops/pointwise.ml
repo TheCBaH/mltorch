@@ -102,7 +102,7 @@ module Clamp = struct
        The NaN test reads only graph parameters, so it is loop-invariant, but
        [Eval_op] hands the whole pixel function one output coord at a time and
        so re-tests it per pixel. That is the same per-pixel granularity every op
-       here pays (see .ai/native_inference_plan.md's note on it); hoisting it
+       here pays (see .ai/native_inference_design.md's note on it); hoisting it
        would mean changing the calling convention for all ops, and the symbolic
        path folds the branch away anyway — it picks one arm while building the
        expression, so nothing reaches the staged program.

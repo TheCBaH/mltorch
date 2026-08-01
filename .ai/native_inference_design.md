@@ -49,8 +49,8 @@ producer with that producer's own pixel expression, and a chain like
 
 ## Proposed module layout (`lib/native/`)
 
-The bottom-up build order, tests, and printer discipline for these are in
-`native_impl_plan.md`.
+The build order is bottom-up: each module compiles and its expect test is green
+before the next starts.
 
 | Module | Role |
 |---|---|

@@ -2,5 +2,7 @@ _build/
 .ccache/
 .claude/
 .devcontainer/devcontainer-lock.json
+.ai/*_plan.md
+.ai/*_census.*
 data/pt2/
 .profile/

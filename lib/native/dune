@@ -1,5 +1,5 @@
 ; Pure-OCaml native inference engine (no libtorch / ctypes). Built bottom-up per
-; .ai/native_impl_plan.md; storage is Bigarray. `wrapped false` is the repo
+; .ai/native_inference_design.md; storage is Bigarray. `wrapped false` is the repo
 ; convention, so modules are referenced unqualified (Axis, Dim, Vec6, …).
 
 (include_subdirs unqualified)

@@ -25,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   use `Core.or_raise`. Never rebuild an `Error` by hand-unwrapping
   `e.Core.Error.kind` when `Core.map_error` applies — it preserves the
   original detection backtrace; the hand-rolled form silently doesn't. See
-  `.ai/fmt_migration_plan.md`.
+  `.ai/printer_conventions.md`.
 
 ## Exploration & Planning — start in `.ai/`
 
@@ -36,12 +36,19 @@ and tradeoffs that the source alone doesn't show, and the place to look for an e
 plan before writing a new one.
 
 The set of docs grows and changes over time, so discover them at the start of a task
-rather than relying on a fixed list. Filenames are descriptive (e.g. `*_design.md` for
-designs, `*_plan.md` for plans, area prefixes like `aten_*`, `native_*`, `schema_*`);
-grep `.ai/` by topic when you're unsure which file applies.
+rather than relying on a fixed list. Filenames are descriptive (`*_design.md` for
+designs, area prefixes like `aten_*`, `native_*`, `schema_*`); grep `.ai/` by topic when
+you're unsure which file applies.
 
-When a design or plan changes materially, update the corresponding `.ai/*.md` doc — or
-add a new one — in the same change so this record stays the source of truth.
+**Only the design record is tracked.** `*_plan.md` and `*_census.*` are working files —
+stage checklists, per-site inventories, progress markers — and are gitignored. Write
+them freely, never `git add -f` them, and expect them to be missing in a fresh clone:
+that is why some tracked docs cite plans that are not in the repo. When a plan or census
+yields a rule that outlives it, fold that rule into a tracked doc (or this file) in the
+same change — the plan is scaffolding, the design record is the deliverable.
+
+When a design changes materially, update the corresponding `.ai/*.md` doc — or add a new
+one — in the same change so this record stays the source of truth.
 
 ## Handling review feedback
 

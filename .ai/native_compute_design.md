@@ -1,6 +1,6 @@
 # Native compute — semantics functor, direct & symbolic, schedule
 
-Pillars 3 & 4 of `native_inference_plan.md`. An operation is the *algorithm* for
+Pillars 3 & 4 of `native_inference_design.md`. An operation is the *algorithm* for
 one output pixel; the *schedule* is how the output coordinate space is iterated.
 The algorithm is written once against an abstract numeric domain (`SEMANTICS`) and
 instantiated as a concrete evaluator (`Direct`) or a symbolic-expression builder
