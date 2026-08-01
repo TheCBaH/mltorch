@@ -465,11 +465,11 @@ let pp_outcome ppf (o : Map_verify.Outcome.t) =
   | Map_verify.Coverage.Sampled n -> Fmt.pf ppf " [sampled %d]" n
 
 let pp_verdict_annotation verdicts ppf id =
-  match Graph_ir.Tensor_id.Map.find_opt id verdicts with
-  | None -> ()
-  | Some (outcome, sources) ->
+  Option.iter
+    (fun (outcome, sources) ->
       Fmt.pf ppf " %a" pp_outcome outcome;
-      if sources <> 1 then Fmt.pf ppf " origins=%d" sources
+      if sources <> 1 then Fmt.pf ppf " origins=%d" sources)
+    (Graph_ir.Tensor_id.Map.find_opt id verdicts)
 
 let pp_lens_printer ?(verdicts = Graph_ir.Tensor_id.Map.empty)
     ?(node_verdicts = Graph_ir.Node_id.Map.empty) lens derived :

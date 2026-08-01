@@ -325,22 +325,22 @@ let pp_tensor_sig fmt (sg : Tensor_sig.t) =
 let tensor_sig_opt (g : graph) id =
   try Some (Tensor_id.Map.find id g.Graph.tensors) with Not_found -> None
 
+(* [p.tensor]/[p.node] already have a printer's shape, so they feed %a
+   directly — no unit-lambda needed to defer them. *)
 let pp_tensor_annotation printer fmt id =
-  match printer with
-  | None -> ()
-  | Some (printer : Printer.t) ->
-      Fmt.pf fmt " @[<h>{%a}@]" (fun fmt () -> printer.tensor fmt id) ()
+  Option.iter
+    (fun (p : Printer.t) -> Fmt.pf fmt " @[<h>{%a}@]" p.tensor id)
+    printer
 
 let pp_node_annotation printer fmt id =
-  match printer with
-  | None -> ()
-  | Some (printer : Printer.t) ->
-      Fmt.pf fmt " @[<h>{%a}@]" (fun fmt () -> printer.node fmt id) ()
+  Option.iter
+    (fun (p : Printer.t) -> Fmt.pf fmt " @[<h>{%a}@]" p.node id)
+    printer
 
 let pp_producer_annotation (index : Index.t) fmt id =
-  match Index.producer_of index id with
-  | None -> ()
-  | Some node_id -> Fmt.pf fmt " <-%a" Node_id.pp node_id
+  Option.iter
+    (fun node_id -> Fmt.pf fmt " <-%a" Node_id.pp node_id)
+    (Index.producer_of index id)
 
 let pp_consumers_annotation (index : Index.t) fmt id =
   match Index.consumers_of index id with

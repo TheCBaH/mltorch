@@ -392,6 +392,31 @@ part:
 | over-reported | `reduce:render` ~75% false positives; `reduce:option-map` 30% |
 | under-reported | wrapper drops written as pattern destructures; `Result.fold`; **inline arms** |
 
+**The fourth blind spot, and the least excusable: `Option.iter` was never
+checked for at all.** The high-level plan's classification table lists
+"apply a side effect only when present → `Option.iter`". The classifier has no
+rule for `| None -> ()`. Eleven sites, every one filed `keep:*` or
+`emitted-text`; eight were genuine:
+
+`lib/native/graph_ir.ml` ×3 (the `pp_*_annotation` family) ·
+`bin/native_graph.ml:467` · `lib/aten_schema/aten_func_ast.ml:115` ·
+`lib/aten_native_verify/verify.ml:83` · `lib/aten_gen/aten_walk_gen.ml:120` ·
+`test/interp_run.ml:47`.
+
+Converting `graph_ir`'s annotation printers also removed a superfluous
+unit-lambda: `Printer.t`'s fields already have a printer's shape, so
+`Fmt.pf fmt " {%a}" p.node id` replaces
+`Fmt.pf fmt " {%a}" (fun fmt () -> p.node fmt id) ()`. The match had been
+hiding that.
+
+Kept: `interp_verify.ml:20` (three arms — `None`, `Some (Error _)`,
+`Some (Ok _)`), `native_interp.ml:150` (three arms with a guard), and
+`aten_config_gen.ml:201` (emitted text).
+
+Unlike the other three, this is not a limit of syntactic analysis. The rule was
+written down in the plan and simply not implemented — which is its own lesson
+about auditing with a tool you also wrote.
+
 **The third blind spot, found after this document first claimed completeness.**
 An arm head has to start a line to be counted, so the whole
 `function None -> x | Some y -> f y` / `match o with None -> x | Some y -> f y`

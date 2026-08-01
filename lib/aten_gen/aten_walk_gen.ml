@@ -116,9 +116,9 @@ let file (ops : A.t list) =
   let meta_hits = ref [] in
   List.iter
     (fun op ->
-      match Sg.kept_args op with
-      | None -> () (* no generated spec to build on *)
-      | Some kept -> (
+      (* Skipped when there is no generated spec to build on. *)
+      Sg.kept_args op
+      |> Option.iter (fun kept ->
           let target = Sg.target op in
           match Walk_meta.find target with
           | Some m ->

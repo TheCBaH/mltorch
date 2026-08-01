@@ -111,9 +111,7 @@ module Argument = struct
     | None -> Type.pp fmt a.ty
     | Some ann -> Format.fprintf fmt "%a%a" Type.pp a.ty Annotation.pp ann);
     Format.fprintf fmt " %s" a.name;
-    match a.default with
-    | None -> ()
-    | Some d -> Format.fprintf fmt "=%a" Default.pp d
+    Option.iter (fun d -> Format.fprintf fmt "=%a" Default.pp d) a.default
 end
 
 module Return = struct
