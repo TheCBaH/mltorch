@@ -340,9 +340,8 @@ module Make (Id : ID) (Label : LABEL) = struct
 
   let of_clusters ~src ~dst cs =
     let rel = { clusters = normalise cs } in
-    match validate rel ~src:(Universe.ids src) ~dst:(Universe.ids dst) with
-    | Ok () -> Ok rel
-    | Error e -> Error e
+    validate rel ~src:(Universe.ids src) ~dst:(Universe.ids dst)
+    |> Result.map (fun () -> rel)
 
   let pp fmt t =
     match t.clusters with
