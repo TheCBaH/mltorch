@@ -175,7 +175,7 @@ exempt it by symbol rather than guess.
 | site(s) | target type | stage |
 |---|---|---|
 | `bin/native_graph.ml` :219 :229 :242 :276 :545 :565 :570 :582 :662 :668 | Cmdliner `(_, string) result` | 4 → `to_cli` |
-| `lib/native/transform/pattern.ml:164` (`region`), `:199` (`run`) | the pattern monad's `failure` | 5 → `of_core` |
+| `lib/native/transform/pattern.ml:164` (`region`), `:199` (`run`) | the pattern monad's `failure` | 5 → `of_core` (**done**) |
 | `lib/native_aten_bridge/tensor_bridge.ml:34` | `(_, string) result` | 5 |
 | `test/native/dce_test.ml:150` `:153` | one printer over two error rows | keep; comment at :146-147 already explains |
 
@@ -204,7 +204,18 @@ and `lib/native/transform/pass.ml:28`.
 `map_verify.ml:531` carries an explanatory comment that must survive the
 rewrite.
 
-### `reduce:transparent` (2) — Stage 5
+### `reduce:transparent` (2) — Stage 5 — **done**
+
+> **Found while implementing:** `region` and `run` were not two independent
+> crossings — both compute the same `Rgn.of_nodes s.view (claimed ∪ shared)`.
+> So one named crossing (`of_core`) plus one shared `region_of` collapses
+> `:164`, `:195` and `:199` together, and `Core.Error.kind` now appears exactly
+> once in the file. The transparent arm at `:195` fell out as `Result.bind`
+> without needing to be addressed separately.
+>
+> The `Error e -> Error e` arms remaining at `pattern.ml:63,66` are the monad's
+> own `let*`/`let+` definitions — the same `keep:combinator-def` category as
+> `lib/core/core.ml:82`, and equally out of scope.
 
 `lib/native/transform/cluster_relation.ml:345` is success *mapping*
 (`Ok () -> Ok rel`), so `Result.map (fun () -> rel)`.

@@ -158,10 +158,18 @@ module Make (D : Dialect.S) = struct
     | Some sg -> return sg
     | None -> fail (Unproduced edge)
 
-  let region s =
-    match Rgn.of_nodes s.view (Node_id.Set.union s.claimed s.shared) with
-    | Ok r -> Ok (r, s)
-    | Error e -> Error (Invalid e.Core.Error.kind)
+  (* THE one place a [Core.result] crosses into this monad's [failure]. The
+     detection backtrace is deliberately dropped: [failure] carries no
+     [Core.Error.t], and [Invalid] is a report that the graph is broken rather
+     than a developer diagnostic. Named so the crossing is auditable in one
+     place instead of open-coded at each use. *)
+  let of_core r = Result.map_error (fun e -> Invalid e.Core.Error.kind) r
+
+  (* [region] and [run] close over the same claimed-plus-shared set. *)
+  let region_of s =
+    of_core (Rgn.of_nodes s.view (Node_id.Set.union s.claimed s.shared))
+
+  let region s = region_of s |> Result.map (fun r -> (r, s))
 
   (* Progress is measured in topological position, which walking up operands
      always decreases; the check is here so a step that returns its own edge (or
@@ -191,12 +199,8 @@ module Make (D : Dialect.S) = struct
     m { view = v; claimed = Node_id.Set.empty; shared = Node_id.Set.empty }
 
   let run m v =
-    match run_state m v with
-    | Error e -> Error e
-    | Ok (value, s) -> (
-        match Rgn.of_nodes s.view (Node_id.Set.union s.claimed s.shared) with
-        | Ok r -> Ok (value, r)
-        | Error e -> Error (Invalid e.Core.Error.kind))
+    Result.bind (run_state m v) (fun (value, s) ->
+        region_of s |> Result.map (fun r -> (value, r)))
 
   let scan pattern v =
     let anchors =
