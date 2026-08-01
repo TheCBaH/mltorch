@@ -369,6 +369,41 @@ Every hand-rolled unwrap of the `Core.Error.t` wrapper in the tree: 1 defect
 (above), 15 deliberate lowerings (above). There are no others — this is the
 complete set, and it is the design input for the deferred checker.
 
+## The "accumulator in both arms" family — settled
+
+`match o with None -> acc | Some x -> f x acc` looks like one pattern and is
+five. Review walked the tree site by site; the deciding question is never the
+syntax but **what the option actually decides**:
+
+| what it decides | rewrite | sites |
+|---|---|---|
+| a value | `Option.fold ~none:d ~some:f` | `rewrite.ml:800` (the renaming) |
+| a *prefix* of a worklist | factor the tail out: `upstream @ rest` | `native4d/domain.ml`, `dce.ml` |
+| a *list to consume* | `Option.value ~default:[]`; the fold's identity is the absent case | `graph_ir.ml` (input_constants), `provenance.ml` (union) |
+| *membership* in a collection | `List.filter_map` — the fold disappears | `native4d/lower.ml`, `map_verify.ml` (producers) |
+| nothing; the fallback **raises** | leave it alone | `native_interp.ml:64` (`malformed`) |
+
+**Decided: keep the match** for a plain optional update of an accumulator —
+`graph_view.ml:153`, `interp_decode.ml:281`. Every combinator form either names
+the accumulator twice (no shorter than the match) or needs
+`Option.fold ~none:Fun.id ~some:(Map.add k) opt acc`, which is point-free, has
+no precedent in this tree, and juxtaposes `parent parents` at the call site.
+There is no restructuring here that reveals a simpler truth — no list to
+`filter_map`, no identity to absorb the absent case.
+
+Also verified and kept, each for its own reason: `native_interp.ml`
+:91 :100 :108 :116 :128 (multi-arm — the `Some` arm destructures the payload
+and a further arm raises, so not `Option.value` despite the `| None -> default`
+line); `pointwise.ml:120,125` (clamp bounds — `v` appears in the `Some` arm too,
+so a fold names it three times); `region.ml:121` (the map key comes from the
+input, not the option, so `filter_map` would have to rebuild the pair);
+`rewrite.ml:668` (the `Some` arm folds a *different* collection);
+`lower.ml:716` (a guard skipping a whole entry, not an accumulator update).
+
+The rule worth carrying: **`filter_map` wins when the option's payload is the
+whole thing you need, and loses when the payload must be re-paired with what
+produced it.**
+
 ## Outcome
 
 All stages landed (`3d32481..03115e6`). **Arm heads 603 → 515.** Adoption:
