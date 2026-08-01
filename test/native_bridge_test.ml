@@ -229,17 +229,17 @@ let%expect_test "compare_tensors: I64 exact mismatch reports coordinates" =
 (* ---- aten_op_config: pretty printing ------------------------------------ *)
 
 let%expect_test "pp: add.Tensor config" =
-  (match Aten_op_config.find "torch.ops.aten.add.Tensor" with
-  | None -> print_string "not found"
-  | Some c -> Format.printf "%a@." Aten_op_config.pp c);
+  Aten_op_config.find "torch.ops.aten.add.Tensor"
+  |> Format.printf "%a@."
+       (Core.Pretty.option_or ~none:"not found" Aten_op_config.pp);
   [%expect
     {|
     torch.ops.aten.add.Tensor (Tensor self, Tensor other, Scalar alpha=1) -> T |}]
 
 let%expect_test "pp: relu.default config" =
-  (match Aten_op_config.find "torch.ops.aten.relu.default" with
-  | None -> print_string "not found"
-  | Some c -> Format.printf "%a@." Aten_op_config.pp c);
+  Aten_op_config.find "torch.ops.aten.relu.default"
+  |> Format.printf "%a@."
+       (Core.Pretty.option_or ~none:"not found" Aten_op_config.pp);
   [%expect {| torch.ops.aten.relu.default (Tensor self) -> T |}]
 
 (* ---- Op_bridge.dispatch: native compute, evaluated directly ------------- *)

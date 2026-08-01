@@ -213,11 +213,41 @@ finds it. Any future checker must match the destructuring form too.
 The `bin/native_graph.ml` line list supersedes an earlier draft that named
 `:504` and `:672`; `:504` is `Fmt.pf ppf "provenance error: %a"`, a printer.
 
-### `reduce:render` (24) — Stages 7–8
+### `reduce:render` (24) — Stage 7 — **done, mostly as non-findings**
 
-Matches where both arms print, so the whole match is a value printer.
-22 in `test/` (Stage 7), 2 in `lib/`: `lib/aten_schema/aten_func_ast.ml:138`
-and `lib/native/transform/pass.ml:28`.
+> **Found while implementing: this cluster is ~75% false positives.** Checking
+> all 24 against the source, only 6 were value printers worth converting. The
+> heuristic ("every arm of the match calls a print function") is too weak, and
+> the reasons it fails are worth naming:
+>
+> - **`lib/native/transform/pass.ml:28` is not a result at all.** Its `problem`
+>   type is `Error of Map_verify.error | Rejected of …` — `Error` is a *local
+>   variant constructor*. A census keyed on the token `| Error` cannot tell that
+>   from `Stdlib.Error`, and no amount of arm-shape analysis would. Converting
+>   it would have been nonsense.
+> - **Arms that print *and* return a value** are control flow, not rendering:
+>   `dce_test.ml:24` prints then yields `None`/`Some g`.
+> - **The `Ok (Rewrite.Step (final, map)) -> <several prints>` family** (~14
+>   sites across pack_test, drop_pool_indices_test, fold_const_test,
+>   permute_passes_test, pass_test, mutation_test, verify_test, pass4_test)
+>   destructures a rich value and emits multiple lines. Routing that through
+>   `~ok:` puts the destructuring inside a lambda and reads worse than the match
+>   it replaces. These belong with the 136 `keep:render` sites, not against them.
+> - **`test/pt2_test.ml:50,159`** bind a value in the `Ok` arm and interleave
+>   `Printf` (stdout) with `Format` (std_formatter); converting risks reordering
+>   output between two buffers for no gain.
+>
+> **Converted (6):** `test/native/tensor_test.ml:56` → `Option.fold` (it
+> returns a string, so it was never a printer either);
+> `test/native_bridge_test.ml` ×2 → `Core.Pretty.option_or`;
+> `test/native/core_test.ml` ×2 and `test/pt2_test.ml:101` →
+> `Core.Pretty.core_result`.
+>
+> **Reverted:** `lib/aten_schema/aten_func_ast.ml:138`. `Fmt.option` would fit,
+> but `aten_schema` depends only on jsont/yamlt — adding `fmt` to a minimal
+> library for a cosmetic printer change is not a trade worth making.
+>
+> Goldens did not move, which was the acceptance criterion.
 
 ### `reduce:option-map` (10) — Stage 8
 

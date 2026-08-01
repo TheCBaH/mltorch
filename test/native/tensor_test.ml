@@ -51,9 +51,9 @@ let%expect_test "tensor: shift_in_bounds guards the pad region" =
   let base = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0 in
   let probe d =
     let deltas = Vec6.deltas ~n:0 ~t:0 ~d:0 ~h:d ~w:0 ~c:0 in
-    match Tensor.shift_in_bounds t base deltas with
-    | Some c -> Printf.sprintf "%g" (Tensor.read t c)
-    | None -> "pad"
+    Tensor.shift_in_bounds t base deltas
+    |> Option.fold ~none:"pad" ~some:(fun c ->
+        Printf.sprintf "%g" (Tensor.read t c))
   in
   Format.printf "%s %s %s %s@." (probe (-1)) (probe 0) (probe 2) (probe 3);
   [%expect {| pad 0 2 pad |}]

@@ -133,6 +133,8 @@ end
 module Op_name = struct
   type t = { base : string; overload : string option }
 
+  (* Kept as a match: [aten_schema] depends only on jsont/yamlt, and pulling in
+     [fmt] to spell this as [Fmt.option] would buy nothing. *)
   let pp fmt t =
     match t.overload with
     | None -> Format.pp_print_string fmt t.base
