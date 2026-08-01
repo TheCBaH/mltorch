@@ -414,18 +414,19 @@ let pp_audits fmt audits =
    origin count is what shows the rewriting happened at all: [origins=3] is
    three source edges that became this one, [origins=0] an edge a pass created. *)
 let verdicts_by_edge (report : Map_verify.Report.t option) =
-  match report with
-  | None -> Graph_ir.Tensor_id.Map.empty
-  | Some report ->
-      List.fold_left
-        (fun acc (e : Map_verify.Entry.t) ->
-          Graph_ir.Tensor_id.Set.fold
-            (fun id acc ->
-              Graph_ir.Tensor_id.Map.add id
-                (e.outcome, Graph_ir.Tensor_id.Set.cardinal e.cluster.src)
-                acc)
-            e.cluster.dst acc)
-        Graph_ir.Tensor_id.Map.empty report.Map_verify.Report.entries
+  (* No report and an empty report agree: the fold's seed IS the absent case. *)
+  report
+  |> Option.fold ~none:[] ~some:(fun (r : Map_verify.Report.t) ->
+      r.Map_verify.Report.entries)
+  |> List.fold_left
+       (fun acc (e : Map_verify.Entry.t) ->
+         Graph_ir.Tensor_id.Set.fold
+           (fun id acc ->
+             Graph_ir.Tensor_id.Map.add id
+               (e.outcome, Graph_ir.Tensor_id.Set.cardinal e.cluster.src)
+               acc)
+           e.cluster.dst acc)
+       Graph_ir.Tensor_id.Map.empty
 
 (* A node's claim is the WEAKEST over its outputs, since the node is only as
    verified as its least-verified result. Nodes are what a reader scans for, so

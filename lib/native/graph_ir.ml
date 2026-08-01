@@ -570,17 +570,18 @@ let dec_graph (json : Jsont.json) : graph =
       Tensor_id.Map.empty tensors_list
   in
   let input_kinds =
-    match Json_util.opt_field ms "input_constants" (Jsont.list Jsont.json) with
-    | None -> Tensor_id.Map.empty
-    | Some constants ->
-        List.fold_left
-          (fun kinds json ->
-            let cms = Json_util.req_obj json "input constant" in
-            let id =
-              Json_util.req_field cms "id" tensor_ref_jsont "input constant"
-            in
-            Tensor_id.Map.add id Input.Constant kinds)
-          Tensor_id.Map.empty constants
+    (* An absent field and an empty list agree here: the fold's seed IS the
+       absent case, so the option only has to supply a list. *)
+    Json_util.opt_field ms "input_constants" (Jsont.list Jsont.json)
+    |> Option.value ~default:[]
+    |> List.fold_left
+         (fun kinds json ->
+           let cms = Json_util.req_obj json "input constant" in
+           let id =
+             Json_util.req_field cms "id" tensor_ref_jsont "input constant"
+           in
+           Tensor_id.Map.add id Input.Constant kinds)
+         Tensor_id.Map.empty
   in
   Graph.
     {
