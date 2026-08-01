@@ -1,0 +1,216 @@
+(* The Native4D operation: a CLOSED variant, separate from [Graph_ir.op].
+
+   .ai/native4d_design.md §3 is emphatic about why this is not a flag on the
+   Native op: "Making it a flag on [Graph_ir.op] would allow mixed or invalid
+   graphs and would weaken exhaustiveness at every operation dispatch." A
+   dialect whose illegal states are unrepresentable is the whole value of the
+   exercise, and a shared variant gives that up on the first line.
+
+   Two absences are decisions, not omissions:
+
+   - NO [Discard]. No Native4D op is multi-output, and dead outputs are gone
+     before conversion — [Pipeline.canonical] removes the sinks. [Discard] is
+     the one Native op handled INLINE at every [op_registry] fold site
+     (operands, map_operands, pp, JSON), so not inheriting it is what keeps the
+     registry below free of special cases.
+   - NO general grouped convolution. Grouping is not a number the IR can hold:
+     one group is [Conv2d], one input channel per group is
+     [Depthwise_conv2d], and anything else was rejected at the domain check.
+
+   Constructors in global alphabetical order, per the repo rule. *)
+
+type op =
+  | Add of Pointwise.Add.t
+  | Add_scalar of Pointwise.Add_scalar.t
+  | Avg_pool2d of Pool.AvgPool2d.t
+  | Clamp of Pointwise.Clamp.t
+  | Conv2d of Ops4.Conv2d.t
+  | Depthwise_conv2d of Ops4.Depthwise_conv2d.t
+  | Div of Pointwise.Div.t
+  | Div_scalar of Pointwise.Div_scalar.t
+  | Hardtanh of Pointwise.Hardtanh.t
+  | Max_pool2d of Pool.MaxPool2d.t
+  | Mean_keepdims of Ops4.Mean_keepdims.t
+  | Mul of Pointwise.Mul.t
+  | Permute4 of Ops4.Permute4.t
+  | Relu of Pointwise.Relu.t
+  | Reshape4 of Ops4.Reshape4.t
+  | Rms_norm of Ops4.Rms_norm.t
+  | Sqrt of Pointwise.Sqrt.t
+  | Sub of Pointwise.Sub.t
+  | Transposed_conv2d of Ops4.Transposed_conv2d.t
+
+type t = op
+
+(* The same per-op interface [Graph_ir] uses, for the same reason: the shared
+   serialise / dataflow / pp logic folds a registry of payload modules instead
+   of matching every constructor, so adding an op is one module plus one entry.
+   Eleven of the nineteen entries are Native's payload modules UNCHANGED —
+   their parameters name no axis and carry no shape, so there is nothing
+   four-axis about them to restate. *)
+module type OP = sig
+  type t
+
+  val name : string
+  val jsont : t Jsont.t
+  val operands : t -> Tensor_ref.t list
+  val map_operands : (Tensor_ref.t -> Tensor_ref.t) -> t -> t
+  val pp : Tensor_ref.t Fmt.t -> Format.formatter -> t -> unit
+  val inject : t -> op
+  val project : op -> t option
+end
+
+let op_registry : (module OP) list =
+  [
+    (module struct
+      include Pointwise.Add
+
+      let inject t = Add t
+      let project = function Add t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Add_scalar
+
+      let inject t = Add_scalar t
+      let project = function Add_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pool.AvgPool2d
+
+      let inject t = Avg_pool2d t
+      let project = function Avg_pool2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Clamp
+
+      let inject t = Clamp t
+      let project = function Clamp t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Conv2d
+
+      let inject t = Conv2d t
+      let project = function Conv2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Depthwise_conv2d
+
+      let inject t = Depthwise_conv2d t
+      let project = function Depthwise_conv2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Div
+
+      let inject t = Div t
+      let project = function Div t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Div_scalar
+
+      let inject t = Div_scalar t
+      let project = function Div_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Hardtanh
+
+      let inject t = Hardtanh t
+      let project = function Hardtanh t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pool.MaxPool2d
+
+      let inject t = Max_pool2d t
+      let project = function Max_pool2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Mean_keepdims
+
+      let inject t = Mean_keepdims t
+      let project = function Mean_keepdims t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Mul
+
+      let inject t = Mul t
+      let project = function Mul t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Permute4
+
+      let inject t = Permute4 t
+      let project = function Permute4 t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Relu
+
+      let inject t = Relu t
+      let project = function Relu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Reshape4
+
+      let inject t = Reshape4 t
+      let project = function Reshape4 t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Rms_norm
+
+      let inject t = Rms_norm t
+      let project = function Rms_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Sqrt
+
+      let inject t = Sqrt t
+      let project = function Sqrt t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Sub
+
+      let inject t = Sub t
+      let project = function Sub t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Transposed_conv2d
+
+      let inject t = Transposed_conv2d t
+      let project = function Transposed_conv2d t -> Some t | _ -> None
+    end : OP);
+  ]
+
+let registry_pick (f : (module OP) -> 'a option) : 'a =
+  Option.get (List.find_map f op_registry)
+
+(* No [Discard] arm to write first, unlike [Graph_ir]'s: every op is in the
+   registry. *)
+let operands (op : op) =
+  registry_pick (fun (module M : OP) -> Option.map M.operands (M.project op))
+
+let map_operands f (op : op) =
+  registry_pick (fun (module M : OP) ->
+      Option.map (fun t -> M.inject (M.map_operands f t)) (M.project op))
+
+let pp_with ~(pp_ref : Tensor_ref.t Fmt.t) fmt (op : op) =
+  registry_pick (fun (module M : OP) ->
+      Option.map (fun t -> M.pp pp_ref fmt t) (M.project op))
+
+let pp fmt op = pp_with ~pp_ref:Tensor_id.pp fmt op
+
+(* One [(case, decoder)] per op, keyed by [name], through the same
+   [Json_util.union]/[single] pair [Graph_ir] uses — and with no [Discard] case
+   to prepend, which is the one place that special case shows up there. *)
+let op_decode_cases : (string * (Jsont.json -> op)) list =
+  List.map
+    (fun (module M : OP) ->
+      (M.name, fun v -> M.inject (Json_util.dec M.jsont v)))
+    op_registry
+
+let jsont : op Jsont.t =
+  Jsont.map ~kind:"native4d_op"
+    ~dec:(fun json -> Json_util.union ~kind:"native4d_op" op_decode_cases json)
+    ~enc:(fun op ->
+      registry_pick (fun (module M : OP) ->
+          Option.map
+            (fun t -> Json_util.single ~case:M.name (Json_util.enc M.jsont t))
+            (M.project op)))
+    Jsont.json
