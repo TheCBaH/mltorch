@@ -325,22 +325,22 @@ let pp_tensor_sig fmt (sg : Tensor_sig.t) =
 let tensor_sig_opt (g : graph) id =
   try Some (Tensor_id.Map.find id g.Graph.tensors) with Not_found -> None
 
+(* [p.tensor]/[p.node] already have a printer's shape, so they feed %a
+   directly — no unit-lambda needed to defer them. *)
 let pp_tensor_annotation printer fmt id =
-  match printer with
-  | None -> ()
-  | Some (printer : Printer.t) ->
-      Fmt.pf fmt " @[<h>{%a}@]" (fun fmt () -> printer.tensor fmt id) ()
+  Option.iter
+    (fun (p : Printer.t) -> Fmt.pf fmt " @[<h>{%a}@]" p.tensor id)
+    printer
 
 let pp_node_annotation printer fmt id =
-  match printer with
-  | None -> ()
-  | Some (printer : Printer.t) ->
-      Fmt.pf fmt " @[<h>{%a}@]" (fun fmt () -> printer.node fmt id) ()
+  Option.iter
+    (fun (p : Printer.t) -> Fmt.pf fmt " @[<h>{%a}@]" p.node id)
+    printer
 
 let pp_producer_annotation (index : Index.t) fmt id =
-  match Index.producer_of index id with
-  | None -> ()
-  | Some node_id -> Fmt.pf fmt " <-%a" Node_id.pp node_id
+  Option.iter
+    (fun node_id -> Fmt.pf fmt " <-%a" Node_id.pp node_id)
+    (Index.producer_of index id)
 
 let pp_consumers_annotation (index : Index.t) fmt id =
   match Index.consumers_of index id with
@@ -570,17 +570,18 @@ let dec_graph (json : Jsont.json) : graph =
       Tensor_id.Map.empty tensors_list
   in
   let input_kinds =
-    match Json_util.opt_field ms "input_constants" (Jsont.list Jsont.json) with
-    | None -> Tensor_id.Map.empty
-    | Some constants ->
-        List.fold_left
-          (fun kinds json ->
-            let cms = Json_util.req_obj json "input constant" in
-            let id =
-              Json_util.req_field cms "id" tensor_ref_jsont "input constant"
-            in
-            Tensor_id.Map.add id Input.Constant kinds)
-          Tensor_id.Map.empty constants
+    (* An absent field and an empty list agree here: the fold's seed IS the
+       absent case, so the option only has to supply a list. *)
+    Json_util.opt_field ms "input_constants" (Jsont.list Jsont.json)
+    |> Option.value ~default:[]
+    |> List.fold_left
+         (fun kinds json ->
+           let cms = Json_util.req_obj json "input constant" in
+           let id =
+             Json_util.req_field cms "id" tensor_ref_jsont "input constant"
+           in
+           Tensor_id.Map.add id Input.Constant kinds)
+         Tensor_id.Map.empty
   in
   Graph.
     {
@@ -607,10 +608,9 @@ let rec enc_group (group : Group.t) : Jsont.json =
        ("id", Json_util.jint (Group_id.to_int group.id));
        ("items", Json_util.jarr (List.map enc_item group.items));
      ]
-    @
-    match group.label with
-    | None -> []
-    | Some label -> [ ("label", Json_util.jstr label) ])
+    @ Option.fold ~none:[]
+        ~some:(fun label -> [ ("label", Json_util.jstr label) ])
+        group.label)
 
 let enc_graph (g : graph) : Jsont.json =
   let tensors_json =

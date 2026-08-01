@@ -177,10 +177,9 @@ module Make (D : Dialect.S) = struct
   let chain step start =
     let* v = view in
     let position id =
-      match View.def v id with
-      | None -> -1
-      | Some (n : node) ->
-          Option.value (View.topo_index v n.Node.id) ~default:(-1)
+      View.def v id
+      |> Option.fold ~none:(-1) ~some:(fun (n : node) ->
+          Option.value (View.topo_index v n.Node.id) ~default:(-1))
     in
     let rec go edge acc =
       let* result = optional (step edge) in

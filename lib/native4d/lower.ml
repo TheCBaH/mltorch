@@ -715,14 +715,11 @@ let convert ?(constants = Tensor_id.Map.empty) (src : 'src Snapshot.t) =
         match Framework.Snapshot4.edge dst target with
         | None -> p
         | Some target ->
+            (* Sources that still exist in the source snapshot; one that does
+               not simply contributes nothing. *)
             Provenance.add
               ~sources:
-                (List.fold_left
-                   (fun s id ->
-                     match edge_src id with
-                     | Some e -> Correspondence.Set.add e s
-                     | None -> s)
-                   Correspondence.Set.empty sources)
+                (Correspondence.Set.of_list (List.filter_map edge_src sources))
               target p)
       Provenance.empty acc.provenance
   in

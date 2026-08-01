@@ -20,7 +20,13 @@ let run ?(show_before = true) g passes =
           Format.printf "@[<v 2>map:@,%a@]@." Graph_map.pp map)
 
 (* Quiet form, for the numeric checks where the graphs are a means and the
-   values are the point. *)
+   values are the point.
+
+   The error payload is deliberately discarded: every caller feeds the result
+   into a boolean equivalence check, so a failure here surfaces as that check
+   reporting [false] against a golden that expects [true]. The test still fails,
+   loudly enough — turning these into [Core.or_raise] would restructure every
+   caller's [Some]/[None] match for a diagnostic they do not read. *)
 let rewritten g passes =
   match Rewrite.origin g with
   | Error _ -> None
@@ -44,7 +50,8 @@ let evaluated g inputs =
       | _ -> "expected exactly one output")
 
 (* The single-output tensor itself, for a comparison that isn't limited to
-   [Tensor.pp]'s abbreviated first-8-elements printout. *)
+   [Tensor.pp]'s abbreviated first-8-elements printout. Discards the evaluation
+   error for the same reason as [rewritten] above. *)
 let output_tensor g inputs =
   match
     Eval_direct.run g ~inputs:(List.combine g.Graph_ir.Graph.inputs inputs)

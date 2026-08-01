@@ -40,11 +40,11 @@ let names_of_metadata path =
   let tbl = Hashtbl.create 4096 in
   List.iter
     (fun line ->
-      match String.index_opt line '\t' with
-      | Some i ->
+      Option.iter
+        (fun i ->
           Hashtbl.replace tbl (String.sub line 0 i)
-            (String.sub line (i + 1) (String.length line - i - 1))
-      | None -> ())
+            (String.sub line (i + 1) (String.length line - i - 1)))
+        (String.index_opt line '\t'))
     (read_lines path);
   tbl
 

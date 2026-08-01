@@ -200,9 +200,9 @@ let pp_inline_printer (lowered : Pt2_native_graph.t) : Graph_ir.Printer.t =
               if i > 0 then Fmt.string ppf "; ";
               Fmt.pf ppf "pt2=%a[%d] %s%s" Pt2_native_graph.Graph_path.pp
                 origin.graph_path origin.index origin.target
-                (match origin.name with
-                | None -> ""
-                | Some name -> " (" ^ name ^ ")"))
+                (Option.fold ~none:""
+                   ~some:(fun name -> " (" ^ name ^ ")")
+                   origin.name))
             origins
         in
         Fmt.option ~none:(Fmt.any "derived") pp_origins ppf
@@ -414,18 +414,19 @@ let pp_audits fmt audits =
    origin count is what shows the rewriting happened at all: [origins=3] is
    three source edges that became this one, [origins=0] an edge a pass created. *)
 let verdicts_by_edge (report : Map_verify.Report.t option) =
-  match report with
-  | None -> Graph_ir.Tensor_id.Map.empty
-  | Some report ->
-      List.fold_left
-        (fun acc (e : Map_verify.Entry.t) ->
-          Graph_ir.Tensor_id.Set.fold
-            (fun id acc ->
-              Graph_ir.Tensor_id.Map.add id
-                (e.outcome, Graph_ir.Tensor_id.Set.cardinal e.cluster.src)
-                acc)
-            e.cluster.dst acc)
-        Graph_ir.Tensor_id.Map.empty report.Map_verify.Report.entries
+  (* No report and an empty report agree: the fold's seed IS the absent case. *)
+  report
+  |> Option.fold ~none:[] ~some:(fun (r : Map_verify.Report.t) ->
+      r.Map_verify.Report.entries)
+  |> List.fold_left
+       (fun acc (e : Map_verify.Entry.t) ->
+         Graph_ir.Tensor_id.Set.fold
+           (fun id acc ->
+             Graph_ir.Tensor_id.Map.add id
+               (e.outcome, Graph_ir.Tensor_id.Set.cardinal e.cluster.src)
+               acc)
+           e.cluster.dst acc)
+       Graph_ir.Tensor_id.Map.empty
 
 (* A node's claim is the WEAKEST over its outputs, since the node is only as
    verified as its least-verified result. Nodes are what a reader scans for, so
@@ -465,11 +466,11 @@ let pp_outcome ppf (o : Map_verify.Outcome.t) =
   | Map_verify.Coverage.Sampled n -> Fmt.pf ppf " [sampled %d]" n
 
 let pp_verdict_annotation verdicts ppf id =
-  match Graph_ir.Tensor_id.Map.find_opt id verdicts with
-  | None -> ()
-  | Some (outcome, sources) ->
+  Option.iter
+    (fun (outcome, sources) ->
       Fmt.pf ppf " %a" pp_outcome outcome;
-      if sources <> 1 then Fmt.pf ppf " origins=%d" sources
+      if sources <> 1 then Fmt.pf ppf " origins=%d" sources)
+    (Graph_ir.Tensor_id.Map.find_opt id verdicts)
 
 let pp_lens_printer ?(verdicts = Graph_ir.Tensor_id.Map.empty)
     ?(node_verdicts = Graph_ir.Node_id.Map.empty) lens derived :

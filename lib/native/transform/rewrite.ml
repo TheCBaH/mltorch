@@ -797,9 +797,7 @@ module Make (S : Side.S) = struct
         (Int_map.empty, mark) ordered
     in
     ( (fun id ->
-        match Int_map.find_opt (to_int id) table with
-        | Some packed -> of_int packed
-        | None -> id),
+        Int_map.find_opt (to_int id) table |> Option.fold ~none:id ~some:of_int),
       next )
 
   (* Canonical tensor order: graph inputs, then each node's outputs in topological

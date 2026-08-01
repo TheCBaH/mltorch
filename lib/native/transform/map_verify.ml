@@ -343,12 +343,11 @@ module Group_path = struct
       (g : 'op Graph_common.Graph.t) =
     List.fold_left
       (fun acc (n : 'op Graph_common.Node.t) ->
-        List.fold_left
-          (fun acc out ->
-            match edge out with
-            | Some e -> Correspondence.Map.update e n.Node.id acc
-            | None -> acc)
-          acc n.Node.outputs)
+        (* An output with no destination edge contributes no producer. *)
+        List.filter_map edge n.Node.outputs
+        |> List.fold_left
+             (fun acc e -> Correspondence.Map.update e n.Node.id acc)
+             acc)
       Correspondence.Map.empty g.Graph_common.Graph.nodes
 
   (* A cluster is placed by its DESTINATION edges only — that is the graph whose
@@ -368,10 +367,9 @@ module Group_path = struct
          (fun e acc ->
            match acc with
            | Some _ -> acc
-           | None -> (
-               match Correspondence.Map.find_opt e producers with
-               | None -> None
-               | Some node -> Node_id.Map.find_opt node index))
+           | None ->
+               Option.bind (Correspondence.Map.find_opt e producers)
+                 (fun node -> Node_id.Map.find_opt node index))
          c.dst None)
 end
 
@@ -526,17 +524,13 @@ let pp_error fmt : [< error ] -> unit = function
 let boundary_of ~index ~under_test ~lookup ~env origin =
   match Ground_expr.Origin.edge origin with
   | None -> None (* already projected; nothing to decide *)
-  | Some id -> (
-      match lookup index id with
-      | None -> None
-      | Some v ->
+  | Some id ->
+      Option.bind (lookup index id) (fun v ->
           (* [under_test] is [None] only for a VACUOUS cluster, and
              [Boundary_index] records no member of one — so [lookup] has already
              answered [None] above and this arm cannot then grant a variable. *)
           let discharges_itself =
-            match under_test with
-            | None -> false
-            | Some u -> Cluster_var.equal v u
+            Option.fold ~none:false ~some:(Cluster_var.equal v) under_test
           in
           if discharges_itself && not (Ground_eval.Env.is_user_input env id)
           then None

@@ -38,8 +38,7 @@ let default_module_name (op : A.t) = "Walk_" ^ Sg.ocaml_name op
    constraint no generic rule can see, so it belongs in walk_meta instead. *)
 let fill_non_tensor (k : Sg.kept) : string option =
   if Sg.is_opt k.Sg.sty then None
-  else
-    match k.Sg.default with Some d -> Sg.dec_absent k.Sg.sty d | None -> None
+  else Option.bind k.Sg.default (Sg.dec_absent k.Sg.sty)
 
 (* The bound value for the single tensor field. *)
 let tensor_binding (k : Sg.kept) =
@@ -117,9 +116,9 @@ let file (ops : A.t list) =
   let meta_hits = ref [] in
   List.iter
     (fun op ->
-      match Sg.kept_args op with
-      | None -> () (* no generated spec to build on *)
-      | Some kept -> (
+      (* Skipped when there is no generated spec to build on. *)
+      Sg.kept_args op
+      |> Option.iter (fun kept ->
           let target = Sg.target op in
           match Walk_meta.find target with
           | Some m ->

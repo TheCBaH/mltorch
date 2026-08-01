@@ -79,11 +79,11 @@ let scan shape f =
   let points = ref [] and total = ref 0 in
   Vec6.iter shape (fun coord ->
       let i = (Vec6.offset shape coord :> int) in
-      match f coord i with
-      | None -> ()
-      | Some pt ->
+      Option.iter
+        (fun pt ->
           incr total;
-          if !total <= max_points then points := pt :: !points);
+          if !total <= max_points then points := pt :: !points)
+        (f coord i));
   (List.rev !points, !total)
 
 (* Do two f32 elements disagree?

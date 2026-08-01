@@ -85,9 +85,8 @@ module Make (D : Dialect.S) = struct
     let claimed id = Node_id.Set.mem id nodes in
     let members = ordered view nodes in
     let produced_inside id =
-      match View.def view id with
-      | Some (p : node) -> claimed p.Node.id
-      | None -> false
+      View.def view id
+      |> Option.fold ~none:false ~some:(fun (p : node) -> claimed p.Node.id)
     in
     let inputs =
       List.concat_map (fun (n : node) -> D.operands n.Node.op) members

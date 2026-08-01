@@ -51,8 +51,7 @@ let req_obj json ctx =
   | None -> Jsont.Error.msgf meta "%s: expected object" ctx
 
 (* Optional field: [None] when the key is absent. *)
-let opt_field ms key codec =
-  match find_member ms key with Some v -> Some (dec codec v) | None -> None
+let opt_field ms key codec = Option.map (dec codec) (find_member ms key)
 
 (* Dispatch a single-key object { "<case>": payload } through [cases]. *)
 let union ~kind cases = function
@@ -76,9 +75,9 @@ let enc_f32 f =
   let f = f32_to_f32 f in
   let bits = Int32.bits_of_float f in
   let round_trips =
-    match float_of_string_opt (Printf.sprintf "%.17g" f) with
-    | Some back -> Int32.equal (Int32.bits_of_float (f32_to_f32 back)) bits
-    | None -> false
+    float_of_string_opt (Printf.sprintf "%.17g" f)
+    |> Option.fold ~none:false ~some:(fun back ->
+        Int32.equal (Int32.bits_of_float (f32_to_f32 back)) bits)
   in
   if Float.is_finite f && bits <> Int32.min_int && round_trips then
     Jsont.Number (f, meta)
