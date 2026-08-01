@@ -281,9 +281,8 @@ module Make (D : Dialect.S) = struct
     in
     (* declared output arity matches what the op actually produces *)
     let sig_of id =
-      match Tensor_id.Map.find_opt id g.Graph.tensors with
-      | Some sg -> Core.return sg
-      | None -> Core.fail (D.missing_sig id)
+      Tensor_id.Map.find_opt id g.Graph.tensors
+      |> Core.of_option (D.missing_sig id)
     in
     let* () =
       fold_result

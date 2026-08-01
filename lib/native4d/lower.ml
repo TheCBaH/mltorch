@@ -140,9 +140,7 @@ let perm4_of_native ~node (perm : Permute.Permute.perm) =
 let dims4 ~node dims =
   Core.List.map
     (fun axis ->
-      match Axis4.of_axis axis with
-      | Some a -> Core.return a
-      | None -> Core.fail (`Axis_outside_dialect (node, axis)))
+      Axis4.of_axis axis |> Core.of_option (`Axis_outside_dialect (node, axis)))
     dims
 
 let shape4 ~id shape =
