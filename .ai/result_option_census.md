@@ -203,7 +203,7 @@ exempt it by symbol rather than guess.
 | `bin/native_graph.ml` :219 :229 :242 :276 :545 :565 :570 :582 :662 :668 | Cmdliner `(_, string) result` | 4 → `to_cli` |
 | `lib/native/transform/pattern.ml:164` (`region`), `:199` (`run`) | the pattern monad's `failure` | 5 → `of_core` (**done**) |
 | `lib/native_aten_bridge/tensor_bridge.ml:34` | `(_, string) result` | 5 |
-| `test/native/dce_test.ml:150` `:153` | one printer over two error rows | keep; comment at :146-147 already explains |
+| `test/native/dce_test.ml:147` `:150` | one printer over two error rows | keep; the comment above `outcome` already explains |
 
 `tensor_bridge.ml:34` is worth singling out: it drops the wrapper by
 **destructuring in the pattern** — `| Error { Core.Error.kind = e; _ } ->` — so
@@ -369,6 +369,47 @@ Every hand-rolled unwrap of the `Core.Error.t` wrapper in the tree: 1 defect
 (above), 15 deliberate lowerings (above). There are no others — this is the
 complete set, and it is the design input for the deferred checker.
 
+## The checker, deferred
+
+**There is no `make lint`, and that is deliberate.** The migration shipped the
+cleanup half; the prevention half is postponed, and this section is the record
+so the absence is not mistaken for an oversight.
+
+The intended end state is **zanuda with project plugins**. It is compatible —
+`zanuda.2.1.0` (2026-07-04) constrains `ocaml >= 4.14.2 & < 5.0.0 | …`, our
+switch is 4.14.3, the solver adds 10 packages with no upgrade to anything
+present, and upstream CI ships `docker4.14.yml`. It ships `Dynamic_plugins.ml`
+and a public `zanuda.tast_pattern` typed-AST DSL.
+
+The obstacle is loading. `src/main.ml:252-265` resolves plugins through
+`Fl_dynload.load_packages` filtered by Findlib package-name suffix, so a
+project plugin must be an **installed Findlib package**. This repo declares no
+dune package at all — no `.opam`, no `(package …)`, no `_build/install` — and
+the tooling policy is that all installation belongs in `.devcontainer/`, never
+in a Makefile target or CI. Closing that gap is a package-metadata refactor
+larger than the migration it would guard.
+
+What the checker should do, when it happens:
+
+- Typed, not syntactic. The decisive case is `pass.ml:28`, which matches on a
+  **local variant constructor named `Error`**, and `aten_config_gen.ml:56`,
+  whose type's first constructor is literally named `None`. No token-level or
+  arm-shape rule can tell either from `Stdlib`'s; only types can.
+- **Report, do not autofix.** Three of the sites review surfaced had a
+  mechanical rewrite that typechecks, passes tests, and is worse code — see the
+  family table below. A rule that flags them would be right to flag and wrong
+  about the remedy.
+- Input from `dune build @check`'s `.cmt` files, scan set recovered from
+  `Cmt_format.cmt_infos.cmt_sourcefile` and filtered against `git ls-files`,
+  run from a clean `_build`.
+- Exclude `lib/core` by resolved symbol: checks describing `or_raise`,
+  `of_option` and `map_error` all match those definitions.
+- Exempt the named lowering boundaries — `to_cli`, `Pattern.of_core` — which
+  exist as named symbols precisely so a rule can exempt them.
+
+Until then the conventions are carried by this document, `CLAUDE.md`, and
+review.
+
 ## The "accumulator in both arms" family — settled
 
 `match o with None -> acc | Some x -> f x acc` looks like one pattern and is
@@ -406,10 +447,17 @@ produced it.**
 
 ## Outcome
 
-All stages landed (`3d32481..03115e6`). **Arm heads 603 → 515.** Adoption:
-`Core.or_raise` 22 → 55, `Core.of_option` 0 → 23, `Core.map_error` 52 → 55,
+All stages landed (`3d32481..HEAD`). **Arm heads 603 → 488.** Adoption:
+`Core.or_raise` 22 → 56, `Core.of_option` 0 → 23, `Core.map_error` 52 → 55,
 `Core.Pretty.*` 30 → 44. One real bug fixed (`graph_view.ml:352`). Goldens
 never moved.
+
+> **Corrected:** an earlier revision of this section quoted `603 → 515` over
+> the range `3d32481..03115e6`. Both were stale within the same branch —
+> review found four further categories after the "final" audit (inline arms,
+> `Option.iter`, the `option-fold` cluster, and the fold/filter_map family), and
+> those commits took the count to 488. Any figure quoted here is a snapshot;
+> the reproducible command in **Baseline** is the authority.
 
 Final semantic sweep — the second pass this document argues for — is clean:
 zero raises over `Core.Error.kind`, and the one hand-rolled wrapper drop left

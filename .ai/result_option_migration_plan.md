@@ -227,7 +227,14 @@ This ordering keeps backtrace/error-preservation changes separate from output
 layout changes. Use small commits per area/family, with tests and any promoted
 expect/cram output in the same commit.
 
-### Stage 4: add a narrow regression check
+### Stage 4: add a narrow regression check — **postponed, not done**
+
+> **Changed while implementing:** this stage did not ship. The intended form is
+> zanuda-with-plugins, which needs package metadata this repo does not have;
+> see "The checker, deferred" in `.ai/result_option_census.md`. Everything in
+> this stage — including the `make lint` target and CI wiring below — is a
+> **follow-up criterion**, not a requirement of the cleanup that is complete.
+> There is no `make lint` target, and no document should ask for one.
 
 Add a small syntax-aware checker for exact, semantics-preserving anti-patterns.
 It should inspect formatted OCaml syntax and reject only patterns for which the
@@ -256,11 +263,14 @@ line-number allowlist.
 
 ### Stages 1–5: **done.** Final audit
 
-Landed as `3d32481..03115e6`, one commit per stage. The per-site inventory is
-`.ai/result_option_census.md` / `.tsv`; what follows is the outcome.
+Landed from `3d32481` onward, one commit per stage, plus the follow-up commits
+review turned up after this section first claimed to be final. The per-site
+inventory is `.ai/result_option_census.md` / `.tsv`; what follows is the
+outcome. Figures here are a snapshot — the reproducible command under
+**Baseline** is the authority.
 
-**Arm heads: 603 → 515.** Helper adoption, before → after:
-`Core.or_raise` 22 → 55, `Core.of_option` 0 → 23 (new),
+**Arm heads: 603 → 488.** Helper adoption, before → after:
+`Core.or_raise` 22 → 56, `Core.of_option` 0 → 23 (new),
 `Core.map_error` 52 → 55, `Core.Pretty.*` 30 → 44.
 
 The migration also **fixed one real bug**: `graph_view.ml:352` rebuilt a
@@ -273,13 +283,16 @@ gap; `Option.to_result` cannot serve, having no `Core.Error.t`). Nothing else �
 `Core.List.filter_map` and a `Core.Option` submodule were not demonstrated by
 the census and were not added.
 
-**Why the remaining 515 are legitimate**, by the census's own categories: 464
-`keep:*` (real branching, error-construction leaves, and the combinator
-definitions in `lib/core` and `Pattern` themselves), 15 `emitted-text` (arms
-inside `{| … |}` templates in the ATen generators), 15 `exempt-lowering`
-(deliberate wrapper drops, now behind named helpers), 13 `audit:*` resolved as
-documented decisions rather than rewrites, and 8 `option-fold` left as matches
-because `| None -> false` with a computing `Some` arm reads fine.
+**Why the remaining 488 are legitimate.** The category totals in the classified
+baseline above are as-measured at `d4d7e1f` and are deliberately not restated
+here: the follow-up commits moved sites between categories (the `option-fold`
+cluster went to zero, `Option.iter` took eleven `keep:*` rows), so quoting them
+as an end state would be the same staleness this section already had to correct
+once. What holds is the shape: the residue is real branching, error-construction
+leaves, the combinator definitions in `lib/core` and `Pattern` themselves, arms
+inside `{| … |}` templates in the ATen generators, and the deliberate wrapper
+drops now behind named helpers. `.ai/result_option_census.md` carries the
+per-category reasoning and the decisions for every site that stayed.
 
 #### What the census got wrong, in both directions
 
@@ -329,9 +342,16 @@ At the end of each area, run its Dune test subtree. At the end of the rollout:
 ```sh
 make build
 make runtest
-make lint
 make format
 ```
+
+> **Changed while implementing:** `make lint` is deliberately **not** in this
+> list, and no such target exists. The checker (Stage 4 above) is deferred —
+> the intended form is zanuda-with-plugins, which needs package metadata this
+> repo does not have. Naming a target the tree does not provide made this
+> block fail as written. The checker is Stage 4 above; see "The checker,
+> deferred" in
+> `.ai/result_option_census.md`.
 
 For a finding about a vacuous check or swallowed error, prove the test can fail:
 temporarily restore the old behavior, observe the targeted test fail, then
@@ -348,6 +368,11 @@ The migration is complete when:
 - deliberate error-to-option/default conversions are named and tested
 - pure option/result rendering uses specialized printers
 - remaining explicit matches perform real branching and are clear in context
-- the syntax-aware lint has no unsuppressed findings and runs in CI
 - targeted tests, `make build`, `make runtest`, and `make format` pass
+
+Deferred to the follow-up that builds the checker (Stage 4 above), and **not**
+conditions on the cleanup already landed:
+
+- the typed lint has no unsuppressed findings and runs in CI
+- a `make lint` target exists and is wired into `.github/workflows/build.yml`
 
