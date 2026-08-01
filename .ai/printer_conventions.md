@@ -93,6 +93,14 @@ Three silent behaviour changes, each found by a cram golden that moved:
 
 ## Result-crossing rules (not just printing)
 
+> The first rule below had a **live instance** in the tree while the rule was
+> already written down: `lib/native/transform/graph_view.ml:352` rebuilt
+> `D.validate_sig`'s `Core.result` by hand, so `Error.make` captured a fresh
+> callstack at the re-raise and the dialect's detection site was lost. Fixed with
+> a test that reverting the fix alone turns red. Writing the rule down was not
+> enough to prevent it, which is the argument for the checker this project has
+> not yet built.
+
 - **Never hand-rebuild an `Error` by unwrapping `e.Core.Error.kind`** when
   `Core.map_error` does exactly that while preserving the original detection
   backtrace:
@@ -115,3 +123,21 @@ Three silent behaviour changes, each found by a cram golden that moved:
   (`lib/pt2_spec_gen/pt2_spec_gen.ml`, a few `test/*.ml` decode/encode helpers)
   stay plain `match ... | Error e -> failwith e` — generalising the helper for call
   sites with no `Core.Error.t` wrapper would be speculative abstraction.
+- **Bridge an option into the framework with `Core.of_option`**, not
+  `Stdlib.Option.to_result`: the latter yields a bare `Stdlib.result` with no
+  `Core.Error.t`, so a bridged absence carries no backtrace. Its payload is built
+  eagerly, before the option is inspected — keep an explicit match where building
+  it raises, has effects, or costs something on the success path. On the ~20
+  graph-lookup sites it replaced, the cost is below measurement noise (measured).
+- **A deliberate drop of the wrapper needs a NAME.** Crossing out of the framework
+  is legitimate — Cmdliner wants `(_, string) result`, and the pattern monad has
+  its own `failure` type — but an anonymous
+  `| Error e -> Error (… e.Core.Error.kind …)` is textually indistinguishable from
+  the defect above. Two such boundaries are named, commented helpers: `to_cli` in
+  `bin/native_graph.ml` and `Pattern.of_core` in
+  `lib/native/transform/pattern.ml`. `test/native/dce_test.ml:147` is a third,
+  left inline behind the comment that already explained it.
+- **`Option.value ~default:e` evaluates `e` eagerly.** Fine for a cheap total
+  constant; for a raising, expensive, or effectful fallback keep explicit
+  branching. The same caveat is why `Core.of_option`'s payload argument is
+  documented as eager.

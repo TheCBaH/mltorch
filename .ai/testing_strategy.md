@@ -73,6 +73,34 @@ val pp_model : Format.formatter -> ExportedProgram.t -> unit
 The file lives in the source tree and is listed in cram `(deps ...)`. There is no
 copy rule for it — dune handles source-tree files directly.
 
+## Fixture failures abort; they do not become absence
+
+A fixture that will not build is a broken test, not a test result. Unwrap it
+with `Core.or_raise`, which raises `Failure` carrying the error payload:
+
+```ocaml
+let build name m =
+  Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
+  |> Core.or_raise (fun ppf e ->
+         Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+```
+
+Do **not** turn a fixture failure into `None` or a default — the test then
+reports a wrong answer instead of a broken setup. Where a helper genuinely must
+return an `option` (because every caller pattern-matches it), say in a comment
+why the diagnostic is discarded and what still detects the failure;
+`test/native/permute_passes_test.ml` and
+`lib/native/transform/passes/fold_const.ml` are the models.
+
+Per-directory helpers are deliberately **not** consolidated: they cross
+different boundaries with different error types, and one shared "build or die"
+would have to be untyped or a functor. Only byte-identical copies were merged
+(`test/native4d/{lower,verify}_test.ml` now use `Fixtures.build`).
+
+`Core.or_raise` is scoped to `Core.result`. A plain `(_, string) result` from
+Zipc/Jsont has no `Core.Error.t` to unwrap, so those keep an explicit
+`match … | Error e -> failwith e`.
+
 ## When to Add a New Cram Test
 
 - After fixing a code generator bug: add a cram test that exercises the exact JSON
