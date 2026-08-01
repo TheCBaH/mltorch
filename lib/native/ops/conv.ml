@@ -10,7 +10,10 @@
    extent-1 axes still go through [load]'s ordinary broadcast). See
    .ai/native_compute_design.md §2. *)
 
-let or_invalid_arg r = Core.or_raise Shape_error.pp r
+let or_invalid_arg = function
+  | Ok x -> x
+  | Error e ->
+      invalid_arg (Format.asprintf "%a" Shape_error.pp e.Core.Error.kind)
 
 module Conv2d = struct
   (* [params]/[output_shape] are outside [Compute] so Direct/Symbolic share one
