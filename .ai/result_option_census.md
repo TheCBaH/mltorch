@@ -98,6 +98,27 @@ Introduced by `6ce482f` (`git blame -L 352,352`), so the fix is a `fixup!`.
 
 ### `reduce:of_option` (25) — Stages 2–3
 
+> **Found while implementing (Stage 2):** `Core.of_option` exists, and the frame
+> question the plan flagged as unpredictable is now measured rather than guessed.
+> Observed on 4.14.3:
+>
+> ```text
+> Raised by primitive operation at Core.Error.make   lib/core/core.ml:11
+> Called from Core.fail                              lib/core/core.ml:43 (inlined)
+> Called from Core.of_option                         lib/core/core.ml:45
+> Called from …lookup_missing                        <caller>          (inlined)
+> Called from …                                      <caller's caller>
+> ```
+>
+> `fail` inlines **into** `of_option`, while `of_option` keeps its own frame —
+> the opposite of the review's prediction that a tail-position `fail` would let
+> `of_option` be elided. Net effect: a bridged option sits one named frame deeper
+> than a direct `Core.fail`, and the caller stays visible either way.
+>
+> So the eager-payload caveat stands, but the provenance caveat is resolved: no
+> Stage 3 site needs to be skipped to protect frame-exactness. `core.ml`'s
+> comment now states the rule without indices.
+
 `Some x -> Core.return x | None -> Core.fail e`, two arms exactly.
 
 | area | n |
