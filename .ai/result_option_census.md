@@ -119,6 +119,29 @@ Introduced by `6ce482f` (`git blame -L 352,352`), so the fix is a `fixup!`.
 > Stage 3 site needs to be skipped to protect frame-exactness. `core.ml`'s
 > comment now states the rule without indices.
 
+> **Found while implementing (Stage 3):** all 21 `lib/` sites converted; none
+> was skipped, because every payload is a cheap constructor over values already
+> in scope — no `Fmt.str`/`asprintf` among them.
+>
+> The eager-payload cost was **measured, not assumed**. `of_option` allocates
+> the payload before inspecting the option, so `eval_direct.find_tensor` and the
+> `native_interp` output collection now allocate one small block per lookup on
+> the success path. resnet18 inference, 50 samples per variant, reverting only
+> the three hot-path files for the baseline:
+>
+> | variant | mean | min |
+> |---|---:|---:|
+> | with `of_option` | 269.7 ms | 254.2 ms |
+> | hand-rolled match | 264.3 ms | 257.5 ms |
+> | with `of_option`, repeated | 263.7 ms | 255.2 ms |
+>
+> The repeat is the point. A single paired run showed a ~4% regression, which
+> the control run shows is machine noise: the two `of_option` runs differ by
+> more than either differs from the baseline, and `of_option` holds the lowest
+> minimum. **No measurable cost.** These lookups are per-node, not per-element,
+> and the workload is dominated by conv2d — so this is the expected result, but
+> it is now observed rather than argued.
+
 `Some x -> Core.return x | None -> Core.fail e`, two arms exactly.
 
 | area | n |
