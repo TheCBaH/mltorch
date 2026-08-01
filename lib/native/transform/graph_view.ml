@@ -280,9 +280,15 @@ module Make (D : Dialect.S) = struct
         () g.Graph.nodes
     in
     (* declared output arity matches what the op actually produces *)
+    (* NOT [Core.of_option]: its payload argument is eager, and [D.missing_sig]
+       is an abstract functor callback. Both dialects implement it as a cheap
+       constructor application, but [Dialect.S] does not require that, so
+       folding here would run an unbounded callback on every successful
+       lookup. *)
     let sig_of id =
-      Tensor_id.Map.find_opt id g.Graph.tensors
-      |> Core.of_option (D.missing_sig id)
+      match Tensor_id.Map.find_opt id g.Graph.tensors with
+      | Some sg -> Core.return sg
+      | None -> Core.fail (D.missing_sig id)
     in
     let* () =
       fold_result
