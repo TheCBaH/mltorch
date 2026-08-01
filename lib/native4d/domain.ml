@@ -27,10 +27,12 @@ let reachable view =
         if Tensor_id.Set.mem id seen then go seen rest
         else
           let seen = Tensor_id.Set.add id seen in
-          go seen
-            (match Graph_view.def view id with
-            | None -> rest (* a graph input: nothing upstream *)
-            | Some n -> Graph_ir.operands n.Node.op @ rest)
+          (* A graph input is produced by no node, so it pushes nothing. *)
+          let upstream =
+            Graph_view.def view id
+            |> Option.fold ~none:[] ~some:(fun n -> Graph_ir.operands n.Node.op)
+          in
+          go seen (upstream @ rest)
   in
   go Tensor_id.Set.empty g.Graph.outputs
 
