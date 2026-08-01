@@ -41,9 +41,9 @@ let pp_with ?(annot = fun _ -> None) fmt (g : graph) =
   in
   let sig_of id =
     let shape =
-      match Tensor_id.Map.find_opt id g.Graph.tensors with
-      | None -> "?"
-      | Some sg -> Fmt.str "%a" Vec6.pp_shape sg.Tensor_sig.shape
+      Tensor_id.Map.find_opt id g.Graph.tensors
+      |> Option.fold ~none:"?" ~some:(fun sg ->
+          Fmt.str "%a" Vec6.pp_shape sg.Tensor_sig.shape)
     in
     Fmt.str "%a %s" pp_ref id shape
   in

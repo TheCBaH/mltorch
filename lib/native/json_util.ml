@@ -51,8 +51,7 @@ let req_obj json ctx =
   | None -> Jsont.Error.msgf meta "%s: expected object" ctx
 
 (* Optional field: [None] when the key is absent. *)
-let opt_field ms key codec =
-  match find_member ms key with Some v -> Some (dec codec v) | None -> None
+let opt_field ms key codec = Option.map (dec codec) (find_member ms key)
 
 (* Dispatch a single-key object { "<case>": payload } through [cases]. *)
 let union ~kind cases = function

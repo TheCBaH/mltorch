@@ -38,8 +38,7 @@ let default_module_name (op : A.t) = "Walk_" ^ Sg.ocaml_name op
    constraint no generic rule can see, so it belongs in walk_meta instead. *)
 let fill_non_tensor (k : Sg.kept) : string option =
   if Sg.is_opt k.Sg.sty then None
-  else
-    match k.Sg.default with Some d -> Sg.dec_absent k.Sg.sty d | None -> None
+  else Option.bind k.Sg.default (Sg.dec_absent k.Sg.sty)
 
 (* The bound value for the single tensor field. *)
 let tensor_binding (k : Sg.kept) =

@@ -378,7 +378,40 @@ part:
 | | |
 |---|---|
 | over-reported | `reduce:render` ~75% false positives; `reduce:option-map` 30% |
-| under-reported | wrapper drops written as pattern destructures; `Result.fold` |
+| under-reported | wrapper drops written as pattern destructures; `Result.fold`; **inline arms** |
+
+**The third blind spot, found after this document first claimed completeness.**
+An arm head has to start a line to be counted, so the whole
+`function None -> x | Some y -> f y` / `match o with None -> x | Some y -> f y`
+family — written on one line, or with the `None` arm trailing `function` — was
+invisible. Nine sites; eight are genuine `Option.fold`/`map`/`bind`:
+
+| site | form |
+|---|---|
+| `lib/native/json_util.ml:55` | `Option.map` |
+| `lib/aten_gen/aten_walk_gen.ml:42` | `Option.bind` |
+| `lib/native/graph_ir.ml:612`, `tensor_sig.ml:41` | `Option.fold ~none:[]` |
+| `lib/native_graph/pt2_native_graph.ml:231` | `Option.fold ~none:[]` |
+| `lib/native4d/graph.ml:45` | `Option.fold ~none:"?"` |
+| `bin/native_graph.ml:204` | `Option.fold ~none:""` |
+| `lib/native/transform/pattern.ml:181` | `Option.fold ~none:(-1)` |
+
+Note the shape is `Option.fold`, **not** `Option.value ~default`: the `Some`
+arm *applies a function*, so the default and the mapped value have different
+types before folding. `Option.value` fits only when the arm is `Some x -> x`.
+
+Not converted, and instructive: `lib/aten_gen/aten_config_gen.ml:56` matches
+`Aten_func_ast.Default.t`, whose **first constructor is literally named
+`None`** — a multi-arm variant match, not an option. It is the exact option
+analogue of `pass.ml:28`'s local `Error`, and the second proof in this audit
+that constructor *names* cannot be trusted without types.
+
+Four more (`lib/aten_gen/aten_emit.ml` :113 :126 :131 :138) are inside the
+`{|%s … |}` template spanning 84–232 — **emitted OCaml text**, so converting
+them would rewrite generated bindings rather than runtime code. They stay, per
+the do-not-touch register. The `Map.update` callbacks
+(`graph_ir.ml:269`, `coeff_form.ml:35`, `map_verify.ml:405,447`) return an
+option by contract and are already idiomatic; folding them reads worse.
 
 The single sharpest failure: `pass.ml:28` matches on a **local variant
 constructor named `Error`**. No token-level or arm-shape rule can distinguish

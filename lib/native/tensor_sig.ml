@@ -37,9 +37,9 @@ let jsont : t Jsont.t =
         ]
       in
       let quant_kv =
-        match sg.quant with
-        | None -> []
-        | Some q -> [ ("quant", Json_util.enc Quant.jsont q) ]
+        Option.fold ~none:[]
+          ~some:(fun q -> [ ("quant", Json_util.enc Quant.jsont q) ])
+          sg.quant
       in
       Json_util.jobj (base @ quant_kv))
     Jsont.json

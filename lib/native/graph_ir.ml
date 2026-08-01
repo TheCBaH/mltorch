@@ -607,10 +607,9 @@ let rec enc_group (group : Group.t) : Jsont.json =
        ("id", Json_util.jint (Group_id.to_int group.id));
        ("items", Json_util.jarr (List.map enc_item group.items));
      ]
-    @
-    match group.label with
-    | None -> []
-    | Some label -> [ ("label", Json_util.jstr label) ])
+    @ Option.fold ~none:[]
+        ~some:(fun label -> [ ("label", Json_util.jstr label) ])
+        group.label)
 
 let enc_graph (g : graph) : Jsont.json =
   let tensors_json =

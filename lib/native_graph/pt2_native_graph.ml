@@ -227,8 +227,7 @@ let captured_target (Lens l as lens) id =
   | _, _ -> None
 
 let provenance_sources (Lens l) id =
-  match Snapshot.edge l.dst id with
-  | None -> []
-  | Some d ->
+  Snapshot.edge l.dst id
+  |> Option.fold ~none:[] ~some:(fun d ->
       Provenance.sources_of (Graph_map.provenance l.map) d
-      |> Correspondence.raws |> Tensor_id.Set.elements
+      |> Correspondence.raws |> Tensor_id.Set.elements)

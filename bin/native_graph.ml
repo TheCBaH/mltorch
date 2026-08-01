@@ -200,9 +200,9 @@ let pp_inline_printer (lowered : Pt2_native_graph.t) : Graph_ir.Printer.t =
               if i > 0 then Fmt.string ppf "; ";
               Fmt.pf ppf "pt2=%a[%d] %s%s" Pt2_native_graph.Graph_path.pp
                 origin.graph_path origin.index origin.target
-                (match origin.name with
-                | None -> ""
-                | Some name -> " (" ^ name ^ ")"))
+                (Option.fold ~none:""
+                   ~some:(fun name -> " (" ^ name ^ ")")
+                   origin.name))
             origins
         in
         Fmt.option ~none:(Fmt.any "derived") pp_origins ppf
