@@ -13,92 +13,104 @@
 
 open Graph_ir
 
-type mismatch =
-  | Ambiguous_use of Tensor_id.t (* [use] found more than one candidate *)
-  | Escapes of Tensor_id.t (* used outside, or a graph output *)
-  | No_progress of Tensor_id.t (* a [chain] step failed to move upstream *)
-  | Not_constant of Tensor_id.t
-  | Rejected (* an explicit [fail] or a false [guard] *)
-  | Shared of Tensor_id.t (* more than one consumer *)
-  | Unproduced of Tensor_id.t (* a graph input where a node was wanted *)
-  | Wrong_op of Node_id.t
+module Make (D : Dialect.S) : sig
+  type node = D.op Graph_common.Node.t
 
-val pp_mismatch : Format.formatter -> mismatch -> unit
+  type mismatch =
+    | Ambiguous_use of Tensor_id.t (* [use] found more than one candidate *)
+    | Escapes of Tensor_id.t (* used outside, or a graph output *)
+    | No_progress of Tensor_id.t (* a [chain] step failed to move upstream *)
+    | Not_constant of Tensor_id.t
+    | Rejected (* an explicit [fail] or a false [guard] *)
+    | Shared of Tensor_id.t (* more than one consumer *)
+    | Unproduced of Tensor_id.t (* a graph input where a node was wanted *)
+    | Wrong_op of Node_id.t
 
-(* [Invalid] is a malformed region rather than a failed match, so it aborts a
-   scan instead of backtracking. *)
-type failure = Invalid of Region.error | Mismatch of mismatch
+  val pp_mismatch : Format.formatter -> mismatch -> unit
 
-val pp_failure : Format.formatter -> failure -> unit
+  (* [Invalid] is a malformed region rather than a failed match, so it aborts a
+     scan instead of backtracking. *)
+  type failure = Invalid of Region.Make(D).error | Mismatch of mismatch
 
-type 'a t
+  val pp_failure : Format.formatter -> failure -> unit
 
-val return : 'a -> 'a t
-val ( let* ) : 'a t -> ('a -> 'b t) -> 'b t
-val ( let+ ) : 'a t -> ('a -> 'b) -> 'b t
-val fail : mismatch -> 'a t
-val guard : bool -> unit t
+  type 'a t
 
-(* First success wins; a failed branch discards its state wholesale, claims
-   included, because the state is immutable. *)
-val ( <|> ) : 'a t -> 'a t -> 'a t
-val choice : 'a t list -> 'a t
-val optional : 'a t -> 'a option t
+  val return : 'a -> 'a t
+  val ( let* ) : 'a t -> ('a -> 'b t) -> 'b t
+  val ( let+ ) : 'a t -> ('a -> 'b) -> 'b t
+  val fail : mismatch -> 'a t
+  val guard : bool -> unit t
 
-(* The producing node of [edge], if the projector accepts it. Claims that node —
-   idempotently, so two paths of a diamond reaching one producer both succeed. *)
-val def : Tensor_id.t -> (op -> 'a option) -> ('a * node) t
+  (* First success wins; a failed branch discards its state wholesale, claims
+     included, because the state is immutable. *)
+  val ( <|> ) : 'a t -> 'a t -> 'a t
+  val choice : 'a t list -> 'a t
+  val optional : 'a t -> 'a option t
 
-(* Same, without claiming: for looking at context the rewrite will not touch. *)
-val peek : Tensor_id.t -> (op -> 'a option) -> ('a * node) t
-val uses : Tensor_id.t -> node list t
+  (* The producing node of [edge], if the projector accepts it. Claims that node —
+     idempotently, so two paths of a diamond reaching one producer both succeed. *)
+  val def : Tensor_id.t -> (D.op -> 'a option) -> ('a * node) t
 
-(* The single consumer of [edge] that the projector accepts, claimed. Fails when
-   several match, since a pattern that silently picked one would be arbitrary. *)
-val use : Tensor_id.t -> (op -> 'a option) -> ('a * node) t
+  (* Same, without claiming: for looking at context the rewrite will not touch. *)
+  val peek : Tensor_id.t -> (D.op -> 'a option) -> ('a * node) t
+  val uses : Tensor_id.t -> node list t
 
-(* Whether [edge] is a declared graph output, with no claim. A separate
-   question from [interior]'s combined check: removing a producer once every
-   consumer is accounted for depends on "not a graph output" alone, without
-   also requiring exactly one consumer. *)
-val is_graph_output : Tensor_id.t -> bool t
+  (* The single consumer of [edge] that the projector accepts, claimed. Fails when
+     several match, since a pattern that silently picked one would be arbitrary. *)
+  val use : Tensor_id.t -> (D.op -> 'a option) -> ('a * node) t
 
-(* Exactly one consumer and not a graph output — the precondition for consuming
-   an edge inside a fused region. *)
-val interior : Tensor_id.t -> unit t
-val constant : Tensor_id.t -> unit t
-val sig_of : Tensor_id.t -> Tensor_sig.t t
-val claim : node -> unit t
+  (* Whether [edge] is a declared graph output, with no claim. A separate
+     question from [interior]'s combined check: removing a producer once every
+     consumer is accounted for depends on "not a graph output" alone, without
+     also requiring exactly one consumer. *)
+  val is_graph_output : Tensor_id.t -> bool t
 
-(* A read-only reservation, distinct from [claim]: safe to overlap ANOTHER
-   match's own [claim_shared] of the same node in one [scan] sweep (neither
-   removes it, so several matches merely reading one preserved node can all
-   be accepted together), but still exclusive against a [claim] on it from
-   either side — an unwrap-and-remove must never collide with a read of the
-   same node, regardless of which match [scan] reaches first. Use this for a
-   node the match consumes but leaves standing. *)
-val claim_shared : node -> unit t
-val claimed : Node_id.Set.t t
+  (* Exactly one consumer and not a graph output — the precondition for consuming
+     an edge inside a fused region. *)
+  val interior : Tensor_id.t -> unit t
+  val constant : Tensor_id.t -> unit t
+  val sig_of : Tensor_id.t -> Tensor_sig.t t
+  val claim : node -> unit t
 
-(* The region claimed so far, for a guard that depends on the boundary. *)
-val region : Region.t t
+  (* A read-only reservation, distinct from [claim]: safe to overlap ANOTHER
+     match's own [claim_shared] of the same node in one [scan] sweep (neither
+     removes it, so several matches merely reading one preserved node can all
+     be accepted together), but still exclusive against a [claim] on it from
+     either side — an unwrap-and-remove must never collide with a read of the
+     same node, regardless of which match [scan] reaches first. Use this for a
+     node the match consumes but leaves standing. *)
+  val claim_shared : node -> unit t
+  val claimed : Node_id.Set.t t
 
-(* Repeat a step that consumes an edge and yields the next one upstream, until
-   it stops matching. Each step must move strictly earlier in topological order,
-   so a non-advancing parser cannot loop. *)
-val chain : (Tensor_id.t -> ('a * Tensor_id.t) t) -> Tensor_id.t -> 'a list t
+  (* The region claimed so far, for a guard that depends on the boundary. *)
+  val region : Region.Make(D).t t
 
-(* Runs a pattern and seals it: the region is derived from whatever the pattern
-   claimed, so a match cannot describe its own boundary wrongly or forget to. *)
-val run : 'a t -> Graph_view.t -> ('a * Region.t, failure) Stdlib.result
+  (* Repeat a step that consumes an edge and yields the next one upstream, until
+     it stops matching. Each step must move strictly earlier in topological order,
+     so a non-advancing parser cannot loop. *)
+  val chain : (Tensor_id.t -> ('a * Tensor_id.t) t) -> Tensor_id.t -> 'a list t
 
-(* Anchors on every node output edge in [Graph.nodes] order, each output of a
-   multi-output node separately. Greedy: the first match in that order wins,
-   and a later one is discarded rather than retried if it CONFLICTS with an
-   accepted one — where conflict is read/write, not a flat node-set
-   intersection: an exclusive ([claim]) reservation on either side conflicts
-   with anything the other touches (exclusive or [claim_shared]), but two
-   matches that only [claim_shared] the same node do not conflict with each
-   other. So the results are pairwise safe to apply together, not
-   node-disjoint. *)
-val scan : (Tensor_id.t -> 'a t) -> Graph_view.t -> ('a * Region.t) list
+  (* Runs a pattern and seals it: the region is derived from whatever the pattern
+     claimed, so a match cannot describe its own boundary wrongly or forget to. *)
+  val run :
+    'a t ->
+    Graph_view.Make(D).t ->
+    ('a * Region.Make(D).t, failure) Stdlib.result
+
+  (* Anchors on every node output edge in [Graph.nodes] order, each output of a
+     multi-output node separately. Greedy: the first match in that order wins,
+     and a later one is discarded rather than retried if it CONFLICTS with an
+     accepted one — where conflict is read/write, not a flat node-set
+     intersection: an exclusive ([claim]) reservation on either side conflicts
+     with anything the other touches (exclusive or [claim_shared]), but two
+     matches that only [claim_shared] the same node do not conflict with each
+     other. So the results are pairwise safe to apply together, not
+     node-disjoint. *)
+  val scan :
+    (Tensor_id.t -> 'a t) ->
+    Graph_view.Make(D).t ->
+    ('a * Region.Make(D).t) list
+end
+
+include module type of Make (Native_dialect)

@@ -73,31 +73,54 @@ let transfer (claim : Correspondence.relation) = function
    One implementation, two callers with opposite purposes: [Rewrite.apply] uses
    it to LABEL the map it is building, [Graph_map.create] to REJECT a map whose
    labels are not closed. They have to agree, and sharing the code is how. *)
-let propagate ~explicit ~preserved (g : graph) =
-  List.fold_left
-    (fun acc (n : node) ->
-      let operand_claim id =
-        Option.value
-          (Tensor_id.Map.find_opt id acc)
-          ~default:Correspondence.Identical
-      in
-      let incoming =
+(* PARAMETERISED over an inline reduced signature, deliberately NOT over
+   [Dialect.S]: [Dialect.S] names [Output_transfer.t] as [classify]'s return
+   type, so depending on it here would close a compilation-unit cycle. Any
+   [Dialect.S] satisfies this structurally, so the constraint costs nothing at
+   the use site and keeps the dependency running one way. *)
+module type OPS = sig
+  type op
+
+  val operands : op -> Tensor_id.t list
+  val classify : op -> output:int -> t
+end
+
+module Make (D : OPS) = struct
+  let propagate ~explicit ~preserved (g : D.op Graph_common.Graph.t) =
+    List.fold_left
+      (fun acc (n : D.op Graph_common.Node.t) ->
+        let operand_claim id =
+          Option.value
+            (Tensor_id.Map.find_opt id acc)
+            ~default:Correspondence.Identical
+        in
+        let incoming =
+          List.fold_left
+            (fun c id -> Correspondence.join c (operand_claim id))
+            Correspondence.Identical (D.operands n.Node.op)
+        in
         List.fold_left
-          (fun c id -> Correspondence.join c (operand_claim id))
-          Correspondence.Identical
-          (Graph_ir.operands n.Node.op)
-      in
-      List.fold_left
-        (fun (acc, i) out ->
-          let acc =
-            if Tensor_id.Map.mem out acc then acc
-            else if not (preserved out) then acc
-            else
-              let claim = transfer incoming (classify n.Node.op ~output:i) in
-              if claim = Correspondence.Identical then acc
-              else Tensor_id.Map.add out claim acc
-          in
-          (acc, i + 1))
-        (acc, 0) n.Node.outputs
-      |> fst)
-    explicit g.Graph.nodes
+          (fun (acc, i) out ->
+            let acc =
+              if Tensor_id.Map.mem out acc then acc
+              else if not (preserved out) then acc
+              else
+                let claim =
+                  transfer incoming (D.classify n.Node.op ~output:i)
+                in
+                if claim = Correspondence.Identical then acc
+                else Tensor_id.Map.add out claim acc
+            in
+            (acc, i + 1))
+          (acc, 0) n.Node.outputs
+        |> fst)
+      explicit g.Graph_common.Graph.nodes
+end
+
+(* The Native specialization, so every existing caller is unchanged. *)
+include Make (struct
+  type nonrec op = op
+
+  let operands = Graph_ir.operands
+  let classify = classify
+end)

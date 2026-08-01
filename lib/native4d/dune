@@ -17,6 +17,8 @@
 ; — hence the `4` suffix on `graph_shape4`, `eval_op4`, `eval_direct4`,
 ; `eval_symbolic4` and `dialect4`, and only on those.
 
+(include_subdirs unqualified)
+
 (library
  (name native4d)
  (libraries core fmt jsont native))

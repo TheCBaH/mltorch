@@ -8,6 +8,18 @@ let pp_shape_result =
 
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 
+(* Where a substring starts, if anywhere. Backtrace assertions are structural,
+   never golden (test/native/core_test.ml does the same); this returns the
+   offset rather than a bool so a test can compare frame ORDER. *)
+let index_of s sub =
+  let n = String.length s and m = String.length sub in
+  let rec go i =
+    if i + m > n then None
+    else if String.sub s i m = sub then Some i
+    else go (i + 1)
+  in
+  go 0
+
 (* ---- Axis4 ---------------------------------------------------------------- *)
 
 (* [of_axis] is partial, and that partiality is the design: a caller converting a
@@ -98,3 +110,102 @@ let%expect_test "shape4: decoding rejects a non-four-axis document" =
     | exception Jsont.Error _ -> "rejected"
     | s4 -> Format.asprintf "accepted %a" Shape4.pp s4);
   [%expect {| rejected |}]
+
+(* ---- the dialect through the shared functors ------------------------------ *)
+
+(* [Dialect4.validate_sig] is the hook without which the four-axis invariant
+   leaks: shape inference constrains what OPS produce, and a graph input or a
+   captured constant is produced by no op. So a Native4D graph whose input is
+   directly its output would otherwise validate with extent on T or D.
+
+   Built by hand rather than through [Builder], which cannot express it —
+   [Shape4] guards construction, and that is the point: this is the hole a
+   hand-assembled or deserialised graph could still fall into. *)
+let%expect_test "view4: an input with a non-four-axis signature is rejected" =
+  let id = Tensor_id.of_int 0 in
+  let graph_with shape =
+    {
+      Graph_common.Graph.nodes = [];
+      root =
+        {
+          Graph_common.Group.id = Graph_common.Group_id.of_int 0;
+          label = None;
+          items = [];
+        };
+      tensors =
+        Tensor_id.Map.singleton id
+          (Tensor_sig.create ~id ~name:"" ~shape ~fmt:(Payload.Fmt Payload.F32)
+             ());
+      inputs = [ id ];
+      input_kinds = Tensor_id.Map.empty;
+      outputs = [ id ];
+    }
+  in
+  let check label shape =
+    Format.printf "%-14s %s@." label
+      (match Framework.View4.of_graph (graph_with shape) with
+      | Ok _ -> "accepted"
+      | Error e ->
+          Format.asprintf "%a" Framework.View4.pp_error e.Core.Error.kind)
+  in
+  check "four-axis" (s 1 1 1 4 4 3);
+  check "extent on D" (s 1 1 5 4 4 3);
+  [%expect
+    {|
+    four-axis      accepted
+    extent on D    tensor t0 is not a legal signature for this dialect: shape has extent on T or D:
+                                                         [D=5 H=4 W=4 C=3] |}]
+
+(* The SAME rejection, asked a different question: where was it detected?
+
+   [`Invalid_sig] carries the dialect's payload out of [D.validate_sig], and the
+   [Core.Error.t] wrapping it must be the one [Shape4.of_vec6] built — not a
+   fresh one captured at the point the view re-raised. Rebuilding the error by
+   hand (Core.fail applied to e.Core.Error.kind) type-checks, prints the same
+   message, and passes the test above, while silently moving the detection site
+   to the caller. [Core.map_error] is what keeps it.
+
+   Asserts a property, not backtrace text: frame content shifts per build, so
+   this checks only which MODULE names the detection frame, and that the view
+   sits BELOW it. Frames print innermost-first, so "detected inside the dialect"
+   is exactly "dialect4 appears before graph_view".
+
+   Note what the frames actually say: [Shape4.of_vec6] is inlined into
+   [Dialect4.validate_sig], so the detection site is attributed to dialect4.ml,
+   not shape4.ml. Which frame survives inlining is not predictable in advance —
+   hence asserting the relationship between two frames rather than an index. *)
+let%expect_test
+    "view4: Invalid_sig keeps the detection site of the dialect check" =
+  let id = Tensor_id.of_int 0 in
+  let graph =
+    {
+      Graph_common.Graph.nodes = [];
+      root =
+        {
+          Graph_common.Group.id = Graph_common.Group_id.of_int 0;
+          label = None;
+          items = [];
+        };
+      tensors =
+        Tensor_id.Map.singleton id
+          (Tensor_sig.create ~id ~name:"" ~shape:(s 1 1 5 4 4 3)
+             ~fmt:(Payload.Fmt Payload.F32) ());
+      inputs = [ id ];
+      input_kinds = Tensor_id.Map.empty;
+      outputs = [ id ];
+    }
+  in
+  match Framework.View4.of_graph graph with
+  | Ok _ -> Format.printf "unexpected Ok@."
+  | Error e ->
+      let trace =
+        Core.Pretty.to_string (Core.Error.pp Framework.View4.pp_error) e
+      in
+      Format.printf "detected_in_dialect=%b view_is_only_the_caller=%b@."
+        (index_of trace "dialect4.ml" <> None)
+        (match
+           (index_of trace "dialect4.ml", index_of trace "graph_view.ml")
+         with
+        | Some d, Some v -> d < v
+        | _ -> false);
+      [%expect {| detected_in_dialect=true view_is_only_the_caller=true |}]

@@ -552,7 +552,7 @@ let lower program =
             (fun acc (source_index, ids) ->
               let origin_node = List.nth graph.nodes source_index in
               List.fold_left
-                (fun acc (node : Graph_ir.Node.t) ->
+                (fun acc (node : Graph_ir.node) ->
                   if
                     List.exists
                       (fun id -> List.mem id node.Graph_ir.Node.outputs)

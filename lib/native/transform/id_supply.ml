@@ -9,7 +9,9 @@ type t = { next : marks; origin : marks }
 
 (* One past the highest id in each space. Every group in the tree is visited, so
    a fresh group id cannot collide with a nested one. *)
-let marks_of_graph (g : graph) =
+(* Op-polymorphic: watermarks are about ids, and ids are dialect-free. *)
+let marks_of_graph : 'op. 'op Graph_common.Graph.t -> marks =
+ fun g ->
   let tensor =
     Tensor_id.Map.fold
       (fun id _ acc -> max acc (Tensor_id.to_int id + 1))
@@ -25,7 +27,7 @@ let marks_of_graph (g : graph) =
   in
   let tensor =
     List.fold_left
-      (fun acc (n : node) ->
+      (fun acc (n : _ Graph_common.Node.t) ->
         List.fold_left
           (fun acc id -> max acc (Tensor_id.to_int id + 1))
           acc n.Node.outputs)
@@ -33,7 +35,8 @@ let marks_of_graph (g : graph) =
   in
   let node =
     List.fold_left
-      (fun acc (n : node) -> max acc (Node_id.to_int n.Node.id + 1))
+      (fun acc (n : _ Graph_common.Node.t) ->
+        max acc (Node_id.to_int n.Node.id + 1))
       0 g.Graph.nodes
   in
   let rec group_marks acc (grp : Group.t) =
@@ -45,7 +48,8 @@ let marks_of_graph (g : graph) =
   in
   { tensor; node; group = group_marks 0 g.Graph.root }
 
-let of_graph g =
+let of_graph : 'op. 'op Graph_common.Graph.t -> t =
+ fun g ->
   let marks = marks_of_graph g in
   { next = marks; origin = marks }
 

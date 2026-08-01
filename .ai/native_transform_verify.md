@@ -36,17 +36,39 @@ enforces. Local proofs compose because structural equality forces both sides to
 mention the same variables, so the quotient dependency relation embeds in each
 graph's own DAG order.
 
-**The conjunction is not output equality, and this is a real gap.**
-`Report.proved` counts a `Vacuous` cluster as satisfied, because a creation or a
-deletion claims nothing — so a map that deletes a source output and creates an
-unrelated destination output is two vacuous clusters and reports `proved` with no
-correspondence between the graphs' outputs at all. Nothing checks that the
-outputs are covered. In practice `Rewrite` produces maps whose outputs correspond
-and `Graph_map.validate`'s implicit-identity coverage constrains what a
-hand-built one may omit, but neither is the missing check: an output-completeness
-test — every graph output on each side belongs to a non-vacuous cluster — is
-still owed, and until it exists a `proved` report is a statement about the
-clusters that exist, not about the graphs' outputs.
+**The conjunction is not output equality**, and it was a real gap until
+`Graph_map.check_output_correspondence` closed it. `Report.proved` counts a
+`Vacuous` cluster as satisfied, because a creation or a deletion claims nothing
+— so a map that deletes a source output and creates an unrelated destination
+output is two vacuous clusters and would report `proved` with no correspondence
+between the graphs' outputs at all.
+
+The check is in **`Graph_map.create`**, so no map is born output-incomplete and
+the verifier inherits the property rather than re-establishing it. Two things
+about its shape are worth stating, because the obvious version of each is wrong.
+
+**It is POSITIONAL, not coverage.** An earlier statement of this gap asked for
+"every graph output on each side belongs to a non-vacuous cluster". That is
+necessary and not sufficient: it admits crossed outputs — source `[a; b]`
+against destination `[b'; a']`, with clusters `{a}↔{a'}` and `{b}↔{b'}`, every
+output covered and the graphs returning their results in opposite order — and it
+admits a source output clustered with a destination *intermediate*.
+`Graph.outputs` is an ordered list, being the graph's signature, so the rule is
+equal arity plus index-wise membership of one cluster.
+
+**It is in `create` only, deliberately not in `Map_verify.run`.** Unlike claim
+closure, this property *is* preserved by composition: if `a` pairs `src[i]` with
+`mid[i]` and `b` pairs `mid[i]` with `dst[i]`, the composed clusters pair
+`src[i]` with `dst[i]`, and arity chains. `identity` has it trivially, and
+`create` is the only other constructor — so every map reaching the verifier
+already satisfies it and a check there could never fire. A predicate no caller
+can falsify is exactly the dead API stating the wrong rule that §8's note about
+`proves` warns against.
+
+It reads `clusters_over`, never `clusters`: the latter returns explicit clusters
+only and `normalise` drops identity pairs, so under an id-preserving conversion a
+directly translated output appears in no explicit cluster at all and reading
+`clusters` would reject precisely the cleanest maps.
 
 The one hypothesis is that **corresponding graph inputs are fed the same data**.
 That is not an obligation the verifier discharges; it is what "these two graphs

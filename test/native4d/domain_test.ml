@@ -135,6 +135,31 @@ let%expect_test "domain: convolution grouping" =
     transposed, groups=1         in the dialect
     transposed, groups=2         node n0: transposed convolution has 2 groups; only 1 legalizes |}]
 
+(* A legalization can be sound only under a precondition that SHAPE INFERENCE
+   does not imply. Neither of these is the four-axis frame, and they are not the
+   same kind of condition as each other either:
+
+   - [Lossy_bmm_operand] is not about shape at all. It is about the operand's
+     storage FORMAT, because the legalization materializes it.
+   - [Batch_norm_extent] is about shape — just not a shape anything else checks.
+     [Norm.BatchNorm.output_shape] is a function of the input alone, so a
+     parameter's extent is never compared against the normalized axis.
+
+   What they share is the useful predicate: neither is implied by the op's own
+   output shape, which is all shape inference looks at. Both passed every
+   structural check and then either computed the wrong answer or read out of
+   bounds, so both are the domain check's business rather than the lowerer's. *)
+let%expect_test "domain: preconditions shape inference does not imply" =
+  table
+    [
+      ("bmm, i64 mat2", Fixtures.bmm_lossy_operand);
+      ("batch_norm, short stats", Fixtures.batch_norm_short_stats);
+    ];
+  [%expect
+    {|
+    bmm, i64 mat2                node n0: bmm operand t1 is stored in a format f32 cannot hold exactly, and the legalization materializes it
+    batch_norm, short stats      node n0: batch norm parameter t1 has extent 1 on C, but the normalized axis has 2 |}]
+
 (* ---- bmm ------------------------------------------------------------------ *)
 
 (* Only a single batch legalizes: for batch > 1 mat2 varies with the output's H
