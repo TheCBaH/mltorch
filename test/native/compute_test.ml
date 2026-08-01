@@ -677,8 +677,7 @@ let%expect_test "windowed axis: output_extent and window agree" =
     let out_extent =
       Window_axis.output_extent ~kernel ~stride ~pad_before:pad ~pad_after:pad
         ~dilation:(Op_config.Pos.of_int 1) ~in_extent
-      |> Result.fold ~ok:Fun.id ~error:(fun e ->
-          failwith (Format.asprintf "%a" Shape_error.pp e.Core.Error.kind))
+      |> Core.or_raise Shape_error.pp
     in
     let non_empty out =
       let w =
@@ -735,8 +734,7 @@ let%expect_test
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:6 ~w:7 ~c:8 in
   let shape ~keepdim =
     Reduce.Mean.output_shape ~x_shape { Reduce.Mean.dims = [ Axis.W ]; keepdim }
-    |> Result.fold ~ok:Fun.id ~error:(fun e ->
-        failwith (Format.asprintf "%a" Shape_error.pp e.Core.Error.kind))
+    |> Core.or_raise Shape_error.pp
   in
   Format.printf "keepdim=true:  %a@." Vec6.pp_shape (shape ~keepdim:true);
   Format.printf "keepdim=false: %a@." Vec6.pp_shape (shape ~keepdim:false);

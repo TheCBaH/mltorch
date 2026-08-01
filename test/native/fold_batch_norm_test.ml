@@ -75,38 +75,33 @@ let convolution_params ~transposed : Conv.Convolution.params =
 type flavour = As_conv2d | As_convolution
 
 let case ?(flavour = As_conv2d) ~conv_bias ~bn_weight ~bn_bias () =
-  match
-    Graph_builder.build ~name:"conv_bn"
-      ~outputs:(fun o -> [ o ])
-      Graph_builder.(
-        let* x = input ~shape:x_shape () in
-        let* w = constant ~shape:weight_shape () in
-        let* b = optional conv_bias (s1c 3) in
-        let* gamma = optional bn_weight (s1c 3) in
-        let* beta = optional bn_bias (s1c 3) in
-        let* mean = constant ~shape:(s1c 3) () in
-        let* var = constant ~shape:(s1c 3) () in
-        let* y =
-          match flavour with
-          | As_conv2d ->
-              conv2d
-                (Graph_fixtures.conv_params ~in_channels:2)
-                ~x ~weight:w ?bias:b ()
-          | As_convolution ->
-              convolution
-                (convolution_params ~transposed:false)
-                ~x ~weight:w ?bias:b ()
-        in
-        let* n =
-          batch_norm Graph_fixtures.bn_params ~x:y ?weight:gamma ?bias:beta
-            ~running_mean:mean ~running_var:var ()
-        in
-        relu n)
-  with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+  Graph_builder.build ~name:"conv_bn"
+    ~outputs:(fun o -> [ o ])
+    Graph_builder.(
+      let* x = input ~shape:x_shape () in
+      let* w = constant ~shape:weight_shape () in
+      let* b = optional conv_bias (s1c 3) in
+      let* gamma = optional bn_weight (s1c 3) in
+      let* beta = optional bn_bias (s1c 3) in
+      let* mean = constant ~shape:(s1c 3) () in
+      let* var = constant ~shape:(s1c 3) () in
+      let* y =
+        match flavour with
+        | As_conv2d ->
+            conv2d
+              (Graph_fixtures.conv_params ~in_channels:2)
+              ~x ~weight:w ?bias:b ()
+        | As_convolution ->
+            convolution
+              (convolution_params ~transposed:false)
+              ~x ~weight:w ?bias:b ()
+      in
+      let* n =
+        batch_norm Graph_fixtures.bn_params ~x:y ?weight:gamma ?bias:beta
+          ~running_mean:mean ~running_var:var ()
+      in
+      relu n)
+  |> Core.or_raise Graph_builder.pp_error
 
 let constants_of g ~conv_bias ~bn_weight ~bn_bias =
   let ids =
@@ -122,15 +117,13 @@ let user_inputs g =
   List.filter (fun id -> Graph_ir.input_kind g id = Input.Input) g.Graph.inputs
 
 let output g ~constants ~inputs =
-  match
+  let env =
     Eval_direct.run g ~constants ~inputs:(List.combine (user_inputs g) inputs)
-  with
-  | Error e ->
-      invalid_arg (Format.asprintf "%a" Eval_direct.pp_error e.Core.Error.kind)
-  | Ok env -> (
-      match g.Graph.outputs with
-      | [ out ] -> Tensor_id.Map.find out env
-      | _ -> invalid_arg "expected exactly one output")
+    |> Core.or_raise Eval_direct.pp_error
+  in
+  match g.Graph.outputs with
+  | [ out ] -> Tensor_id.Map.find out env
+  | _ -> invalid_arg "expected exactly one output"
 
 let fold_over (Tensor.Tensor t) f init =
   Vec6.fold_coords t.Tensor.shape ~init ~f:(fun acc coord ->
@@ -439,26 +432,21 @@ let%expect_test "fold_batch_norm: channel counts must agree" =
      different length would broadcast against the wrong extent — caught here
      rather than by a shape error inside the rewrite. *)
   let g =
-    match
-      Graph_builder.build ~name:"mismatch"
-        ~outputs:(fun o -> [ o ])
-        Graph_builder.(
-          let* x = input ~shape:x_shape () in
-          let* w = constant ~shape:weight_shape () in
-          (* The conv's Cout is 3; give the statistics 2 channels so the
+    Graph_builder.build ~name:"mismatch"
+      ~outputs:(fun o -> [ o ])
+      Graph_builder.(
+        let* x = input ~shape:x_shape () in
+        let* w = constant ~shape:weight_shape () in
+        (* The conv's Cout is 3; give the statistics 2 channels so the
              weight's N and the parameters' C disagree. *)
-          let* mean = constant ~shape:(s1c 2) () in
-          let* var = constant ~shape:(s1c 2) () in
-          let* y =
-            conv2d (Graph_fixtures.conv_params ~in_channels:2) ~x ~weight:w ()
-          in
-          batch_norm Graph_fixtures.bn_params ~x:y ~running_mean:mean
-            ~running_var:var ())
-    with
-    | Ok g -> g
-    | Error e ->
-        invalid_arg
-          (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+        let* mean = constant ~shape:(s1c 2) () in
+        let* var = constant ~shape:(s1c 2) () in
+        let* y =
+          conv2d (Graph_fixtures.conv_params ~in_channels:2) ~x ~weight:w ()
+        in
+        batch_norm Graph_fixtures.bn_params ~x:y ~running_mean:mean
+          ~running_var:var ())
+    |> Core.or_raise Graph_builder.pp_error
   in
   matches g;
   [%expect {| matches: 0 |}]
@@ -467,25 +455,20 @@ let%expect_test "fold_batch_norm: a non-constant parameter is refused" =
   (* Folding a runtime parameter would move a per-channel scale of the output
      onto the whole weight tensor — more work per inference, not less. *)
   let g =
-    match
-      Graph_builder.build ~name:"runtime_gamma"
-        ~outputs:(fun o -> [ o ])
-        Graph_builder.(
-          let* x = input ~shape:x_shape () in
-          let* w = constant ~shape:weight_shape () in
-          let* gamma = input ~shape:(s1c 3) () in
-          let* mean = constant ~shape:(s1c 3) () in
-          let* var = constant ~shape:(s1c 3) () in
-          let* y =
-            conv2d (Graph_fixtures.conv_params ~in_channels:2) ~x ~weight:w ()
-          in
-          batch_norm Graph_fixtures.bn_params ~x:y ~weight:gamma
-            ~running_mean:mean ~running_var:var ())
-    with
-    | Ok g -> g
-    | Error e ->
-        invalid_arg
-          (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+    Graph_builder.build ~name:"runtime_gamma"
+      ~outputs:(fun o -> [ o ])
+      Graph_builder.(
+        let* x = input ~shape:x_shape () in
+        let* w = constant ~shape:weight_shape () in
+        let* gamma = input ~shape:(s1c 3) () in
+        let* mean = constant ~shape:(s1c 3) () in
+        let* var = constant ~shape:(s1c 3) () in
+        let* y =
+          conv2d (Graph_fixtures.conv_params ~in_channels:2) ~x ~weight:w ()
+        in
+        batch_norm Graph_fixtures.bn_params ~x:y ~weight:gamma
+          ~running_mean:mean ~running_var:var ())
+    |> Core.or_raise Graph_builder.pp_error
   in
   matches g;
   [%expect {| matches: 0 |}]
@@ -500,24 +483,17 @@ let%expect_test "fold_batch_norm: a transposed convolution is refused" =
      guard passes either way. Without the forward case there would be no evidence
      that [transposed] is what does the rejecting. *)
   let square ~transposed =
-    match
-      Graph_builder.build ~name:"transposed"
-        ~outputs:(fun o -> [ o ])
-        Graph_builder.(
-          let* x = input ~shape:(Graph_fixtures.nhwc ~h:4 ~w:4 ~c:3) () in
-          let* w = constant ~shape:(Graph_fixtures.s 3 1 1 2 2 3) () in
-          let* mean = constant ~shape:(s1c 3) () in
-          let* var = constant ~shape:(s1c 3) () in
-          let* y =
-            convolution (convolution_params ~transposed) ~x ~weight:w ()
-          in
-          batch_norm Graph_fixtures.bn_params ~x:y ~running_mean:mean
-            ~running_var:var ())
-    with
-    | Ok g -> g
-    | Error e ->
-        invalid_arg
-          (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+    Graph_builder.build ~name:"transposed"
+      ~outputs:(fun o -> [ o ])
+      Graph_builder.(
+        let* x = input ~shape:(Graph_fixtures.nhwc ~h:4 ~w:4 ~c:3) () in
+        let* w = constant ~shape:(Graph_fixtures.s 3 1 1 2 2 3) () in
+        let* mean = constant ~shape:(s1c 3) () in
+        let* var = constant ~shape:(s1c 3) () in
+        let* y = convolution (convolution_params ~transposed) ~x ~weight:w () in
+        batch_norm Graph_fixtures.bn_params ~x:y ~running_mean:mean
+          ~running_var:var ())
+    |> Core.or_raise Graph_builder.pp_error
   in
   Format.printf "forward:   ";
   matches (square ~transposed:false);
@@ -531,27 +507,22 @@ let%expect_test "fold_batch_norm: a shared conv output is refused" =
   (* Removing the conv would leave the second consumer without the
      unnormalised value. *)
   let g =
-    match
-      Graph_builder.build ~name:"shared_conv"
-        ~outputs:(fun o -> [ o ])
-        Graph_builder.(
-          let* x = input ~shape:x_shape () in
-          let* w = constant ~shape:weight_shape () in
-          let* mean = constant ~shape:(s1c 3) () in
-          let* var = constant ~shape:(s1c 3) () in
-          let* y =
-            conv2d (Graph_fixtures.conv_params ~in_channels:2) ~x ~weight:w ()
-          in
-          let* n =
-            batch_norm Graph_fixtures.bn_params ~x:y ~running_mean:mean
-              ~running_var:var ()
-          in
-          add n y)
-    with
-    | Ok g -> g
-    | Error e ->
-        invalid_arg
-          (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+    Graph_builder.build ~name:"shared_conv"
+      ~outputs:(fun o -> [ o ])
+      Graph_builder.(
+        let* x = input ~shape:x_shape () in
+        let* w = constant ~shape:weight_shape () in
+        let* mean = constant ~shape:(s1c 3) () in
+        let* var = constant ~shape:(s1c 3) () in
+        let* y =
+          conv2d (Graph_fixtures.conv_params ~in_channels:2) ~x ~weight:w ()
+        in
+        let* n =
+          batch_norm Graph_fixtures.bn_params ~x:y ~running_mean:mean
+            ~running_var:var ()
+        in
+        add n y)
+    |> Core.or_raise Graph_builder.pp_error
   in
   matches g;
   [%expect {| matches: 0 |}]

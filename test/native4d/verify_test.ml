@@ -12,13 +12,7 @@
 
 open Native4d
 
-let build name m =
-  match Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "fixture %s: %a" name Graph_builder.pp_error
-           e.Core.Error.kind)
+let build = Fixtures.build
 
 (* Convert, then check the map the conversion produced. Everything happens
    inside the scope that unpacks the destination version — the report is

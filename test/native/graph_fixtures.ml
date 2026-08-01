@@ -45,13 +45,14 @@ let unrotate_hwc = Axis.[ (N, N); (T, T); (D, D); (H, C); (W, H); (C, W) ]
 
 (* ---- fixtures ------------------------------------------------------------ *)
 
+(* Shared by every [build*] below: a fixture that will not build is a broken
+   test, so it aborts loudly rather than being reported as a failed assertion. *)
+let or_fixture name =
+  Core.or_raise (fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
 let build name m =
-  match Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "fixture %s: %a" name Graph_builder.pp_error
-           e.Core.Error.kind)
+  Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m |> or_fixture name
 
 (* [Graph_builder] hardcodes every op's OWN output to f32 (see
    .ai/native_transform_design.md §14), so two [permute]s reading the same
@@ -177,21 +178,12 @@ let permute_pair () =
    other fixture funnels its result through the shared [build]'s
    [~outputs:(fun o -> [ o ])], which only fits a single final edge. *)
 let build2 name m =
-  match Graph_builder.build ~name ~outputs:(fun (a, b) -> [ a; b ]) m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "fixture %s: %a" name Graph_builder.pp_error
-           e.Core.Error.kind)
+  Graph_builder.build ~name ~outputs:(fun (a, b) -> [ a; b ]) m
+  |> or_fixture name
 
 (* For a fixture whose final value IS already the list of output edges. *)
 let buildn name m =
-  match Graph_builder.build ~name ~outputs:Fun.id m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "fixture %s: %a" name Graph_builder.pp_error
-           e.Core.Error.kind)
+  Graph_builder.build ~name ~outputs:Fun.id m |> or_fixture name
 
 (* An elementwise op reading a permuted operand, with an inverse permute right
    after it: [Sink_permute]'s minimal case. One sweep (through [relu]) already

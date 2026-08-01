@@ -25,10 +25,8 @@ let native_f32 shape vals =
   let data = Array1.create float32 c_layout n in
   List.iteri (fun i x -> data.{i} <- x) vals;
   let shape6 =
-    match Aten_shape.of_aten (Array.of_list shape) with
-    | Ok shape6 -> shape6
-    | Error e ->
-        failwith (Format.asprintf "%a" Aten_shape.pp_error e.Core.Error.kind)
+    Aten_shape.of_aten (Array.of_list shape)
+    |> Core.or_raise Aten_shape.pp_error
   in
   Tensor.Tensor
     {
@@ -41,10 +39,8 @@ let native_i64 shape vals =
   let data = Array1.create int64 c_layout n in
   List.iteri (fun i x -> data.{i} <- x) vals;
   let shape6 =
-    match Aten_shape.of_aten (Array.of_list shape) with
-    | Ok shape6 -> shape6
-    | Error e ->
-        failwith (Format.asprintf "%a" Aten_shape.pp_error e.Core.Error.kind)
+    Aten_shape.of_aten (Array.of_list shape)
+    |> Core.or_raise Aten_shape.pp_error
   in
   Tensor.Tensor
     {

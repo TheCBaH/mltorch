@@ -9,10 +9,7 @@
 open Native4d
 
 let build ~outputs m =
-  match Builder.build ~outputs m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg (Format.asprintf "%a" Builder.pp_error e.Core.Error.kind)
+  Builder.build ~outputs m |> Core.or_raise Builder.pp_error
 
 let nhwc = Shape4.of_ints ~n:1 ~h:2 ~w:2 ~c:3
 

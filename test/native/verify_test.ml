@@ -144,11 +144,8 @@ let%expect_test "verify: reuse_permute, including the non-commutative ops" =
 let s = Graph_fixtures.nhwc ~h:3 ~w:3 ~c:2
 
 let build name m =
-  match Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "%a" Graph_builder.pp_error e.Core.Error.kind)
+  Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
+  |> Core.or_raise Graph_builder.pp_error
 
 let verify_map map ~src ~dst =
   Format.printf "%a@."

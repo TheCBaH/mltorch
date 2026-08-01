@@ -155,7 +155,7 @@ Introduced by `6ce482f` (`git blame -L 352,352`), so the fix is a `fixup!`.
 21 in `lib/`, 4 in `test/` — the plan scoped Stage 3 to `lib/` only; the four
 test sites ride along or are left, at implementation's discretion.
 
-### `reduce:or_raise` (34) — Stage 6
+### `reduce:or_raise` (34) — Stage 6 — **done**
 
 | area | n |
 |---|---:|
@@ -165,6 +165,32 @@ test sites ride along or are left, at implementation's discretion.
 | lib/native/ops/conv.ml:15 | 1 |
 
 The single `lib/` site is not a test fixture and needs its own judgement.
+
+> **Found while implementing:** two things worth carrying forward.
+>
+> **The census misses `Result.fold`.** `test/native/compute_test.ml:681,738`
+> have the same "unwrap or die" semantics, written as
+> `|> Result.fold ~ok:Fun.id ~error:(fun e -> failwith …)`. That is not an arm
+> head, so a census keyed on `^\s*\| (Error|None)` cannot see it — the second
+> blind spot of that kind, after `tensor_bridge.ml:34`'s pattern destructure.
+> Both were found only by grepping the *semantics* (`Core.Error.kind` near a
+> raise) once the arm-head work was done. Any future audit should run both
+> passes.
+>
+> **A correct replacement count does not prove a scripted edit was correct.**
+> Seven sites shared an identical trailing block, so they were rewritten by
+> regex with an assertion on the number of replacements. The assertion passed —
+> and one replacement in `permute_passes_test.ml` was still wrong: the
+> non-greedy body ran from one `match` to a *later* block's `with`, deleting a
+> `match` belonging to an unrelated expression 350 lines away and orphaning its
+> `with`. The count was right because the number of matches was right; the
+> matches themselves were not. The compiler caught it; reverted and redone with
+> `Edit`. CLAUDE.md's rule (prefer `Edit`, which fails loudly on a miss) covers
+> the miss; this is the adjacent failure — a hit in the wrong place.
+>
+> `or_invalid_arg` in `conv.ml` changes `Invalid_argument` to `Failure`, since
+> `Core.or_raise` raises the latter. It is `lib/`, not a test, but nothing
+> catches it: full suite green.
 
 ### `exempt-lowering` (15) — Stages 4–5
 

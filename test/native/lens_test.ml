@@ -75,40 +75,34 @@ let origin_of ssa =
     }
 
 let sidecar_for graph =
-  match
-    P.make ~graph
-      ~tensor_origins:
-        (map_of
-           (List.map (fun (id, ssa, _) -> (t_ id, origin_of ssa)) captured
-           @ List.map (fun (id, ssa) -> (t_ id, origin_of ssa)) plain))
-      ~node_origins:
-        (List.fold_left
-           (fun m (id, origin) -> Node_id.Map.add id origin m)
-           Node_id.Map.empty
-           [
-             (n_ 0, [ node_origin 0 "torch.ops.aten.conv2d.default" ]);
-             ( n_ 1,
-               [
-                 node_origin 1
-                   "torch.ops.aten._native_batch_norm_legit_no_training.default";
-               ] );
-             (n_ 2, [ node_origin 2 "torch.ops.aten.relu.default" ]);
-           ])
-      ~captured_targets:
-        (map_of (List.map (fun (id, _, target) -> (t_ id, target)) captured))
-  with
-  | Ok s -> s
-  | Error e -> invalid_arg (Format.asprintf "%a" P.pp_error e.Core.Error.kind)
+  P.make ~graph
+    ~tensor_origins:
+      (map_of
+         (List.map (fun (id, ssa, _) -> (t_ id, origin_of ssa)) captured
+         @ List.map (fun (id, ssa) -> (t_ id, origin_of ssa)) plain))
+    ~node_origins:
+      (List.fold_left
+         (fun m (id, origin) -> Node_id.Map.add id origin m)
+         Node_id.Map.empty
+         [
+           (n_ 0, [ node_origin 0 "torch.ops.aten.conv2d.default" ]);
+           ( n_ 1,
+             [
+               node_origin 1
+                 "torch.ops.aten._native_batch_norm_legit_no_training.default";
+             ] );
+           (n_ 2, [ node_origin 2 "torch.ops.aten.relu.default" ]);
+         ])
+    ~captured_targets:
+      (map_of (List.map (fun (id, _, target) -> (t_ id, target)) captured))
+  |> Core.or_raise P.pp_error
 
 (* A sidecar carrying nothing but its graph, for the case where the point is
    which graph it describes rather than what it says about it. *)
 let bare_sidecar graph =
-  match
-    P.make ~graph ~tensor_origins:Tensor_id.Map.empty
-      ~node_origins:Node_id.Map.empty ~captured_targets:Tensor_id.Map.empty
-  with
-  | Ok s -> s
-  | Error e -> invalid_arg (Format.asprintf "%a" P.pp_error e.Core.Error.kind)
+  P.make ~graph ~tensor_origins:Tensor_id.Map.empty
+    ~node_origins:Node_id.Map.empty ~captured_targets:Tensor_id.Map.empty
+  |> Core.or_raise P.pp_error
 
 (* ---- driving a pipeline and lensing the far end --------------------------- *)
 

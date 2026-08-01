@@ -7,12 +7,9 @@ open Graph_ir
 let s1c n = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:n
 
 let build name m =
-  match Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m with
-  | Ok g -> g
-  | Error e ->
-      invalid_arg
-        (Format.asprintf "fixture %s: %a" name Graph_builder.pp_error
-           e.Core.Error.kind)
+  Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
+  |> Core.or_raise (fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
 let run ?(pass = Dce.pass) g =
   match Rewrite.origin g with
