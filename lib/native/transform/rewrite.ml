@@ -605,24 +605,20 @@ module Make (S : Side.S) = struct
     in
     let new_view = Snap.view new_snap in
     let src_edge id =
-      match Snap.edge old_snap id with
-      | Some e -> Core.return e
-      | None -> Core.fail (`Value_endpoint (Cluster_relation.Dangling_src id))
+      Snap.edge old_snap id
+      |> Core.of_option (`Value_endpoint (Cluster_relation.Dangling_src id))
     in
     let dst_edge id =
-      match Snap.edge new_snap id with
-      | Some e -> Core.return e
-      | None -> Core.fail (`Value_endpoint (Cluster_relation.Dangling_dst id))
+      Snap.edge new_snap id
+      |> Core.of_option (`Value_endpoint (Cluster_relation.Dangling_dst id))
     in
     let src_node id =
-      match Snap.node old_snap id with
-      | Some n -> Core.return n
-      | None -> Core.fail (`Node_endpoint (Cluster_relation.Dangling_src id))
+      Snap.node old_snap id
+      |> Core.of_option (`Node_endpoint (Cluster_relation.Dangling_src id))
     in
     let dst_node id =
-      match Snap.node new_snap id with
-      | Some n -> Core.return n
-      | None -> Core.fail (`Node_endpoint (Cluster_relation.Dangling_dst id))
+      Snap.node new_snap id
+      |> Core.of_option (`Node_endpoint (Cluster_relation.Dangling_dst id))
     in
     (* 8. preserved ids: same tensor, or an explicit claim.
 

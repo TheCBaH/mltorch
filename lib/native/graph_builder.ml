@@ -100,9 +100,8 @@ let op1 ?name ~kind op : Tensor_id.t t =
   let* shapes =
     lift_result
       (Graph_shape.output_shape op ~sig_of:(fun r ->
-           match Tensor_id.Map.find_opt r s.tensors with
-           | Some sg -> Core.return sg
-           | None -> Core.fail (`Missing_tensor_sig r)))
+           Tensor_id.Map.find_opt r s.tensors
+           |> Core.of_option (`Missing_tensor_sig r)))
   in
   let* shape =
     match shapes with
@@ -199,9 +198,8 @@ let max_pool2d_with_indices ?name params x =
   let* shapes =
     lift_result
       (Graph_shape.output_shape op ~sig_of:(fun r ->
-           match Tensor_id.Map.find_opt r s.tensors with
-           | Some sg -> Core.return sg
-           | None -> Core.fail (`Missing_tensor_sig r)))
+           Tensor_id.Map.find_opt r s.tensors
+           |> Core.of_option (`Missing_tensor_sig r)))
   in
   match shapes with
   | [ vshape; ishape ] ->

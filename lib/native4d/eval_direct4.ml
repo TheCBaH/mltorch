@@ -38,9 +38,8 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "missing constant tensor %a" Tensor_id.pp id
 
 let find_tensor map id ~context =
-  match Tensor_id.Map.find_opt id map with
-  | Some x -> Core.return x
-  | None -> Core.fail (`Missing_tensor { context; id })
+  Tensor_id.Map.find_opt id map
+  |> Core.of_option (`Missing_tensor { context; id })
 
 let widen (r : ('a, [< error ]) Core.result) : ('a, error) Core.result =
   (r :> ('a, error) Core.result)
@@ -82,9 +81,8 @@ let eval_node (g : Graph.graph) env (node : Graph.node) =
   let* shapes =
     widen
       (Graph_shape4.output_shape op ~sig_of:(fun r ->
-           match Tensor_id.Map.find_opt r g.Graph.Graph.tensors with
-           | Some sg -> Core.return sg
-           | None -> Core.fail (`Missing_tensor_sig r)))
+           Tensor_id.Map.find_opt r g.Graph.Graph.tensors
+           |> Core.of_option (`Missing_tensor_sig r)))
   in
   let* operand_env =
     Core.List.fold_left

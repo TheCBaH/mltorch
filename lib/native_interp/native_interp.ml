@@ -674,9 +674,8 @@ let run ?hooks archive ~input =
   in
   Core.List.map
     (fun id ->
-      match Tensor_id.Map.find_opt id env with
-      | Some tensor -> Core.return tensor
-      | None -> Core.fail (`Malformed_graph "native output was not evaluated"))
+      Tensor_id.Map.find_opt id env
+      |> Core.of_option (`Malformed_graph "native output was not evaluated"))
     graph.Graph_ir.Graph.outputs
 
 (* ---- transforming, and running the result --------------------------------- *)
@@ -891,9 +890,8 @@ let evaluate archive (Transformed t) ~input =
   let+ outputs =
     Core.List.map
       (fun id ->
-        match Tensor_id.Map.find_opt id env with
-        | Some tensor -> Core.return tensor
-        | None -> Core.fail (`Malformed_graph "native output was not evaluated"))
+        Tensor_id.Map.find_opt id env
+        |> Core.of_option (`Malformed_graph "native output was not evaluated"))
       t.graph.Graph_ir.Graph.outputs
   in
   (outputs, loaded)

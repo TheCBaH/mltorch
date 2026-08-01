@@ -66,6 +66,42 @@ let%expect_test "fail captures backtrace; pp renders message + 'detected at:'" =
         (contains s "detected at:");
       [%expect {| msg=true provenance=true |}]
 
+(* [of_option] is the option-shaped [fail]: the point of it over
+   [Stdlib.Option.to_result] is that the failure carries a [Core.Error.t], so a
+   bridged absence has provenance like any other. *)
+let%expect_test "of_option bridges an option into the framework" =
+  let pp ppf (`Missing k) = Format.fprintf ppf "no binding for %s" k in
+  let show o =
+    Format.printf "%a@."
+      (Core.Pretty.core_result ~ok:Format.pp_print_int ~error:pp)
+      (Core.of_option (`Missing "k") o)
+  in
+  show (Some 7);
+  show None;
+  [%expect {|
+    7
+    no binding for k |}]
+
+(* The reason [of_option] is a [Core] helper and not [Option.to_result]: the
+   CALLER must stay visible in the backtrace. A version that built the [Error.t]
+   by hand with an empty backtrace would satisfy every assertion above and lose
+   exactly this.
+
+   Asserts that the calling file is named, not a frame index. [of_option] adds
+   its own frame between [make] and the caller, and inlining decides which of
+   those survives — on 4.14.3 [fail] inlines into [of_option] while [of_option]
+   itself does not. Naming an index here would encode one compiler's choices. *)
+let%expect_test "of_option keeps the caller in the backtrace" =
+  let pp ppf (`Missing k) = Format.fprintf ppf "no binding for %s" k in
+  match Core.of_option (`Missing "k") None with
+  | Ok () -> Format.printf "unexpected Ok@."
+  | Error e ->
+      let s = Core.Pretty.to_string (Core.Error.pp pp) e in
+      Format.printf "captured=%b caller_named=%b@."
+        (Printexc.raw_backtrace_length e.Core.Error.backtrace > 0)
+        (contains s "core_test.ml");
+      [%expect {| captured=true caller_named=true |}]
+
 (* let* stops at the first Error; the row unifies to the union of every tag the
    chain can raise (it only type-checks because Aten_shape.error holds both). *)
 let%expect_test "let* short-circuits and unifies the error row" =

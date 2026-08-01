@@ -113,9 +113,7 @@ and find_tensor (v : V.t) =
 let parse_tensor s =
   match Opickle.of_string s with
   | Error e -> Core.fail (`Malformed_pickle (Opickle.Error.to_string e))
-  | Ok v -> (
+  | Ok v ->
       let open Core.Syntax in
       let* rb = find_tensor v in
-      match rb with
-      | Some rb -> Core.return rb
-      | None -> Core.fail `No_tensor_found)
+      rb |> Core.of_option `No_tensor_found

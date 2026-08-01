@@ -54,9 +54,7 @@ let read t name =
 let read_required t name =
   let open Core.Syntax in
   let* data = read t name in
-  match data with
-  | Some data -> Core.return data
-  | None -> Core.fail (`Zip_missing_entry name)
+  data |> Core.of_option (`Zip_missing_entry name)
 
 let read_rel t rel = read t (t.prefix ^ "/" ^ rel)
 let read_rel_required t rel = read_required t (t.prefix ^ "/" ^ rel)

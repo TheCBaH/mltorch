@@ -12,9 +12,16 @@ module Error = struct
 
   (* Symbolize the captured stack with [Printexc.Slot.format] (the same text the
      runtime uses for exception backtraces) rather than reading [location]
-     fields, so this stays robust across compiler versions. Frame 0 is
-     [Core.fail] itself; the real detection site is frame 1. Capped for
-     readability. *)
+     fields, so this stays robust across compiler versions. Capped for
+     readability.
+
+     The innermost frames are this module's own — [make], then whichever of
+     [fail]/[of_option] was used — and the detection site is the first frame
+     below them. Do NOT count on a fixed index: inlining decides which of those
+     frames survives, and it varies. Observed on 4.14.3, [fail] inlines into
+     [of_option] but [of_option] keeps its frame, so a bridged option sits one
+     frame deeper than a direct [fail]. Assert relationships between frames,
+     never an index — see the two tests in test/native/core_test.ml. *)
   let pp_backtrace ppf bt =
     match Printexc.backtrace_slots bt with
     | None ->
@@ -42,6 +49,7 @@ type ('a, 'e) result = ('a, 'e Error.t) Stdlib.result
 
 let fail kind = Error (Error.make kind)
 let return x = Ok x
+let of_option kind = function Some x -> Ok x | None -> fail kind
 
 let map_error f = function
   | Ok x -> Ok x

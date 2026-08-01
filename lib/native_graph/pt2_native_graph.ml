@@ -152,14 +152,10 @@ let lens sidecar ~src map ~dst =
   Core.return (Lens { dst; map; sidecar; src })
 
 let dst_edge (Lens l) id =
-  match Snapshot.edge l.dst id with
-  | Some e -> Core.return e
-  | None -> Core.fail (`Unknown_destination_tensor id)
+  Snapshot.edge l.dst id |> Core.of_option (`Unknown_destination_tensor id)
 
 let dst_node (Lens l) id =
-  match Snapshot.node l.dst id with
-  | Some n -> Core.return n
-  | None -> Core.fail (`Unknown_destination_node id)
+  Snapshot.node l.dst id |> Core.of_option (`Unknown_destination_node id)
 
 (* The source ids a destination edge corresponds to, with the claim over them.
    An id in no cluster is implicitly [Identical] to itself (§3) — meaningful only

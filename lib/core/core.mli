@@ -44,6 +44,15 @@ val fail : 'e -> ('a, 'e) result
    destructuring. *)
 val return : 'a -> ('a, 'e) result
 
+(* Bridge an option into this framework, capturing the detection callstack the
+   way [fail] does. [Stdlib.Option.to_result] cannot serve: it yields a bare
+   [Stdlib.result] with no [Error.t], so there is nothing holding a backtrace.
+
+   The payload is built EAGERLY, before the option is inspected — keep an
+   explicit match wherever constructing it raises, has effects, or is expensive
+   enough to matter on the success path. *)
+val of_option : 'e -> 'a option -> ('a, 'e) result
+
 (* Rewrite the payload (e.g. to lift a sub-component's error into a wider row),
    preserving the original detection backtrace. *)
 val map_error : ('e -> 'f) -> ('a, 'e) result -> ('a, 'f) result
