@@ -8,4 +8,6 @@ val run :
   ppf:Format.formatter ->
   pcg:Walk_core.Pcg.t ->
   steps:int ->
-  unit
+  bool
+(** [true] when every step verified; [false] when one did not, in which case the
+    walk stopped there and the failing config is the last thing printed. *)

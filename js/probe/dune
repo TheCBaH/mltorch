@@ -1,0 +1,45 @@
+; The differential probe: one source set, built natively here as the golden and
+; mirrored into js/jsoo and js/melange. See .ai/js_backends_design.md.
+;
+; Two libraries rather than one, and two entry points rather than a flag,
+; because melange can only reach the pure half: walk_core needs jsont alone and
+; core needs fmt alone, while lib/native brings Bigarray (no melange support)
+; and Jsont_bytesrw. Recording that boundary here as [probes_pure] vs
+; [probes_native] lets js/melange copy a clean subset instead of excluding files
+; by hand -- and keeps a section from silently drifting to the wrong side.
+;
+; [wrapped false] matches the repo convention, so the mirrors refer to
+; [Probe_walk_core] etc. unqualified exactly as this directory does.
+
+(library
+ (name probes_pure)
+ (wrapped false)
+ (modules probe_walk_core probe_core)
+ (libraries walk_core core fmt jsont))
+
+(library
+ (name probes_native)
+ (wrapped false)
+ (modules probe_tensor_json probe_native)
+ (libraries probes_pure native native_op_walk walk_core core))
+
+; Separate stanzas with disjoint [modules]: two singular executables cannot both
+; own a module, and putting both names in one plural stanza would build each
+; entry against the other's module for no reason.
+
+; [byte] alongside [exe] is a triage tool, not an artifact anyone ships. When
+; the jsoo diff goes red, running native_probe.bc under ocamlrun says
+; immediately which side is at fault: js_of_ocaml compiles the BYTECODE, so a
+; difference that survives between .bc and .exe is ocamlopt's, not jsoo's.
+; That is how the FMA contraction described in probe_native.ml was pinned down.
+
+(executable
+ (name native_probe)
+ (modes exe byte)
+ (modules native_probe)
+ (libraries probes_pure probes_native))
+
+(executable
+ (name subset_probe)
+ (modules subset_probe)
+ (libraries probes_pure))

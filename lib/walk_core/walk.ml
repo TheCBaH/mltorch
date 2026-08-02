@@ -110,7 +110,13 @@ let shape_axis name (limits : Limits.t) ~get ~set =
 (* Drive the walk for one op. Step 0 is the cascaded initial config; each step
    picks an axis, mutates it freely, re-cascades to restore validity, builds the
    subject, and hands it to [verify]. Stops on the first [verify] = false so the
-   failing config is the last line printed. *)
+   failing config is the last line printed.
+
+   Returns whether every step verified. It used to return [unit], which made a
+   mismatch invisible to anything but a human reading the output: the loop
+   stopped early and said nothing, so a caller could not tell "all steps agreed"
+   from "step 2 disagreed and we gave up". Callers that only promote printed
+   output were unaffected, but any caller deciding an exit status needs this. *)
 let run (type s) (module M : Op with type subject = s)
     ~(verify : Format.formatter -> s -> bool) ~ppf ~pcg ~steps =
   let run_step cfg pcg =
@@ -120,15 +126,16 @@ let run (type s) (module M : Op with type subject = s)
   let initial = M.cascade M.initial in
   Format.fprintf ppf "step 0: %a@." M.pp initial;
   let ok, pcg = run_step initial pcg in
-  if ok then
+  if not ok then false
+  else
     let rec loop i cfg pcg =
-      if i > steps then ()
+      if i > steps then true
       else
         let axis, pcg = pick pcg M.axes in
         let cfg, pcg = axis.mutate pcg cfg in
         let cfg = M.cascade cfg in
         Format.fprintf ppf "step %d [%s]: %a@." i axis.name M.pp cfg;
         let ok, pcg = run_step cfg pcg in
-        if ok then loop (i + 1) cfg pcg
+        if ok then loop (i + 1) cfg pcg else false
     in
     loop 1 initial pcg

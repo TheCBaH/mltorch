@@ -1,0 +1,23 @@
+; The js_of_ocaml build of the probe.
+;
+; This directory mirrors nothing. A `(modes js)` executable links ordinary
+; bytecode libraries, so it reuses js/probe's [probes_pure] / [probes_native]
+; as-is -- redeclaring them here would be a duplicate-library error, and
+; renaming them to jsoo_* would duplicate source for no gain. Only the entry
+; module is copied, because a module must be owned by a stanza in the directory
+; that builds it.
+;
+; Deliberately NOT `*.ml`: copying subset_probe.ml too would pull melange's
+; entry point into this directory, where nothing builds it.
+;
+; No js_of_ocaml library dependency and no ppx: the probe only writes to stdout,
+; so it needs the compiler, not the bindings.
+
+(copy_files
+ (files %{workspace_root}/js/probe/native_probe.ml))
+
+(executable
+ (name native_probe)
+ (modes js)
+ (modules native_probe)
+ (libraries probes_pure probes_native))

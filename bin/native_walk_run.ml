@@ -23,11 +23,19 @@ let () =
       match find target with
       | None -> Printf.printf "no walk recipe for %s (needs_meta)\n" target
       | Some m ->
-          Aten_walk_recipes.Walk.run m
-            ~verify:(fun ppf spec -> Aten_spec_run.compare_report ~ppf spec)
-            ~ppf:Format.std_formatter
-            ~pcg:(Aten_spec.Pcg.seed ~seed:42L ~seq:1L)
-            ~steps:(int_of_string steps))
+          (* Exit non-zero when a step fails to verify. Previously the walk's
+             verdict was discarded and this exited 0 on a mismatch, so anything
+             driving it by exit status -- as opposed to reading the printed
+             output -- saw a clean run. *)
+          if
+            not
+              (Aten_walk_recipes.Walk.run m
+                 ~verify:(fun ppf spec ->
+                   Aten_spec_run.compare_report ~ppf spec)
+                 ~ppf:Format.std_formatter
+                 ~pcg:(Aten_spec.Pcg.seed ~seed:42L ~seq:1L)
+                 ~steps:(int_of_string steps))
+          then exit 1)
   | _ ->
       prerr_endline "usage: native_walk_run <target> <steps>";
       exit 1

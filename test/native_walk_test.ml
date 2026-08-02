@@ -12,12 +12,16 @@ module Pcg = Aten_spec.Pcg
 let capture f = print_string (Core.Pretty.capture_to_string f)
 
 let%expect_test "conv2d.default walk 5 steps" =
+  (* [assert]: a mismatch truncates the printed walk, so the golden catches it
+     too -- but as a diff that reads like a rewritten expectation rather than a
+     failure. Asserting distinguishes the two. *)
   capture (fun ppf ->
-      Op_walk.run
-        (module Aten_op_walk.Conv2d_walk)
-        ~ppf
-        ~pcg:(Pcg.seed ~seed:42L ~seq:1L)
-        ~steps:5);
+      assert (
+        Op_walk.run
+          (module Aten_op_walk.Conv2d_walk)
+          ~ppf
+          ~pcg:(Pcg.seed ~seed:42L ~seq:1L)
+          ~steps:5));
   [%expect
     {|
     step 0: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8}
@@ -35,11 +39,12 @@ let%expect_test "conv2d.default walk 5 steps" =
 
 let%expect_test "max_pool2d.default walk 5 steps" =
   capture (fun ppf ->
-      Op_walk.run
-        (module Aten_op_walk.Max_pool2d_walk)
-        ~ppf
-        ~pcg:(Pcg.seed ~seed:17L ~seq:3L)
-        ~steps:5);
+      assert (
+        Op_walk.run
+          (module Aten_op_walk.Max_pool2d_walk)
+          ~ppf
+          ~pcg:(Pcg.seed ~seed:17L ~seq:3L)
+          ~steps:5));
   [%expect
     {|
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
@@ -57,11 +62,12 @@ let%expect_test "max_pool2d.default walk 5 steps" =
 
 let%expect_test "mean.dim walk 5 steps" =
   capture (fun ppf ->
-      Op_walk.run
-        (module Aten_op_walk.Mean_dim_walk)
-        ~ppf
-        ~pcg:(Pcg.seed ~seed:99L ~seq:4L)
-        ~steps:5);
+      assert (
+        Op_walk.run
+          (module Aten_op_walk.Mean_dim_walk)
+          ~ppf
+          ~pcg:(Pcg.seed ~seed:99L ~seq:4L)
+          ~steps:5));
   [%expect
     {|
     step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
@@ -81,9 +87,10 @@ let%expect_test "bridge coverage" =
   capture (fun ppf ->
       List.iteri
         (fun i m ->
-          Op_walk.run m ~ppf
-            ~pcg:(Pcg.seed ~seed:(Int64.of_int i) ~seq:1L)
-            ~steps:3)
+          assert (
+            Op_walk.run m ~ppf
+              ~pcg:(Pcg.seed ~seed:(Int64.of_int i) ~seq:1L)
+              ~steps:3))
         Aten_op_walk.all_walks;
       Format.fprintf ppf "needs_meta:@.";
       List.iter (fun t -> Format.fprintf ppf "  %s@." t) Aten_op_walk.needs_meta);

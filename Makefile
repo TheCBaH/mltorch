@@ -1,4 +1,4 @@
-.PHONY: build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.%
+.PHONY: build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest js.runtest
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -282,6 +282,27 @@ test:
 
 runtest:
 	opam exec -- dune runtest --auto-promote
+
+# JavaScript backends. Deliberately outside `runtest`, same reasoning as
+# pt2.runtest: linking js_of_ocaml on every local test run is not worth it, and
+# these need node. See .ai/js_backends_design.md.
+#
+# The comparison is always between two runs of ONE program: native_probe.exe
+# against node's native_probe.bc.js. There is no golden file to promote -- the
+# native binary IS the golden, so the two cannot drift apart independently.
+
+JS_BUILD := _build/default/js
+
+jsoo.build:
+	opam exec -- dune build js/probe js/jsoo
+
+jsoo.runtest: jsoo.build
+	@$(JS_BUILD)/probe/native_probe.exe > $(JS_BUILD)/native.txt
+	@node $(JS_BUILD)/jsoo/native_probe.bc.js > $(JS_BUILD)/jsoo.txt
+	@diff -u $(JS_BUILD)/native.txt $(JS_BUILD)/jsoo.txt \
+	  && echo "jsoo: output matches native ($$(wc -l < $(JS_BUILD)/native.txt) lines)"
+
+js.runtest: jsoo.runtest
 
 clean:
 	opam exec -- dune clean

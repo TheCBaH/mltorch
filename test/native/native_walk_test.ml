@@ -7,12 +7,16 @@ module Pcg = Walk_core.Pcg
 let capture f = print_string (Core.Pretty.capture_to_string f)
 
 let%expect_test "native walk coverage" =
+  (* [assert], not [ignore]: a mismatch also truncates the printed walk, so the
+     golden would catch it -- but only by way of a diff that reads like a
+     rewritten expectation. Asserting says which of the two happened. *)
   capture (fun ppf ->
       List.iteri
         (fun i m ->
-          Native_op_walk.run m ~ppf
-            ~pcg:(Pcg.seed ~seed:(Int64.of_int i) ~seq:1L)
-            ~steps:5)
+          assert (
+            Native_op_walk.run m ~ppf
+              ~pcg:(Pcg.seed ~seed:(Int64.of_int i) ~seq:1L)
+              ~steps:5))
         Native_op_walk.all_walks);
   [%expect
     {|
