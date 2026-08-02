@@ -19,6 +19,7 @@ type error =
   [ Pt2_dtype.error
   | `Malformed_pickle of string
   | `Expected_int of string
+  | `Int_out_of_range of string * int64
   | `Unexpected_storage_persistent_id
   | `Unexpected_rebuild_args
   | `No_tensor_found ]
@@ -27,14 +28,28 @@ let pp_error ppf : error -> unit = function
   | #Pt2_dtype.error as e -> Pt2_dtype.pp_error ppf e
   | `Malformed_pickle msg -> Fmt.pf ppf "pickle decode failed: %s" msg
   | `Expected_int what -> Fmt.pf ppf "expected int for %s" what
+  | `Int_out_of_range (what, i) ->
+      Fmt.pf ppf "%s is %Ld, outside the representable int range [%d, %d]" what
+        i min_int max_int
   | `Unexpected_storage_persistent_id ->
       Fmt.string ppf "unexpected storage persistent id"
   | `Unexpected_rebuild_args ->
       Fmt.string ppf "unexpected _rebuild_tensor_v2 arguments"
   | `No_tensor_found -> Fmt.string ppf "pickle did not yield a tensor"
 
+(* A distinct tag from [`Expected_int]: the value here IS an integer, it just
+   does not fit this backend's [int]. Under js_of_ocaml that is 32 bits, so a
+   size or stride outside [min_int, max_int] would wrap silently -- and the
+   wrap is two-sided, because pickle integers are signed. Reporting "expected
+   an int" would send a reader hunting a type error in the pickle instead of a
+   width limit. See [[js_backends_design]]. *)
 let int_of what = function
-  | V.Int i -> Core.return (Int64.to_int i)
+  | V.Int i ->
+      if
+        Int64.compare i (Int64.of_int min_int) < 0
+        || Int64.compare i (Int64.of_int max_int) > 0
+      then Core.fail (`Int_out_of_range (what, i))
+      else Core.return (Int64.to_int i)
   | _ -> Core.fail (`Expected_int what)
 
 let ints_of what a = Core.List.map (int_of what) (Array.to_list a)

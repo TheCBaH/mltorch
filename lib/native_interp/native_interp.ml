@@ -605,14 +605,77 @@ let tensor_of_pt2 (tensor : Pt2_tensor.t) =
                tensor.strides)
         in
         let data_len = Bytes.length tensor.data in
-        try
-          Core.return
-            (Tensor.materialize shape (fun coord ->
-                 let offset = storage_index coord * 4 in
-                 if offset < 0 || offset + 4 > data_len then
-                   raise (Invalid_argument "storage offset is outside data");
-                 Int32.float_of_bits (Bytes.get_int32_le tensor.data offset)))
-        with Invalid_argument s -> Core.fail (`Tensor_bridge s))
+        (* Bound the WHOLE reachable index range once, in int64, before
+           materializing. [storage_index] itself runs per element in plain int,
+           where a product or sum of in-range factors can still overflow -- and
+           js_of_ocaml's int is 32 bits, so that wrap would be silent. Checking
+           the extremes up front proves every coordinate in between is in range,
+           so the inner loop stays int and stays fast. Strides may be negative
+           (PyTorch stores channels-last inputs non-contiguously), hence both
+           ends rather than just the maximum. See [[js_backends_design]]. *)
+        (* The arithmetic that computes the bound must itself be checked, or the
+           bound is decorative: [sizes=[2]] with [strides=[1 lsl 61]] makes
+           [hi * 4 + 4] wrap negative, sail past a naive comparison, and then the
+           per-element offset wraps to 0 and silently re-reads element 0. So each
+           multiply and add is overflow-tested, and the byte bound is checked by
+           DIVIDING the capacity rather than scaling [hi] up. *)
+        let exception Range_overflow in
+        let mul64 a b =
+          if Int64.equal b 0L then 0L
+          else
+            let r = Int64.mul a b in
+            if Int64.equal (Int64.div r b) a then r else raise Range_overflow
+        in
+        let add64 a b =
+          let r = Int64.add a b in
+          (* Overflow iff the operands agree in sign and the result does not. *)
+          if
+            Int64.compare (Int64.logxor a b) 0L >= 0
+            && Int64.compare (Int64.logxor a r) 0L < 0
+          then raise Range_overflow
+          else r
+        in
+        let range =
+          try
+            let o = Int64.of_int tensor.storage_offset in
+            Ok
+              (List.fold_left2
+                 (fun (lo, hi) size stride ->
+                   let span =
+                     mul64
+                       (Int64.of_int (max 0 (size - 1)))
+                       (Int64.of_int stride)
+                   in
+                   if Int64.compare span 0L < 0 then (add64 lo span, hi)
+                   else (lo, add64 hi span))
+                 (o, o) tensor.sizes tensor.strides)
+          with Range_overflow -> Error ()
+        in
+        let out_of_range (lo, hi) =
+          (* Every shape has extent >= 1, so at least one element is always read
+             and fewer than 4 bytes is always an error. [(data_len - 4) / 4] is
+             the largest admissible index, computed without scaling [hi]. *)
+          data_len < 4
+          || Int64.compare lo 0L < 0
+          || Int64.compare hi (Int64.of_int ((data_len - 4) / 4)) > 0
+        in
+        match range with
+        | Error () ->
+            Core.fail
+              (`Tensor_bridge "storage index range overflows a 64-bit integer")
+        | Ok (lo, hi) when out_of_range (lo, hi) ->
+            Core.fail
+              (`Tensor_bridge
+                 (Format.asprintf
+                    "storage index range [%Ld, %Ld] is outside %d bytes of data"
+                    lo hi data_len))
+        | Ok _ -> (
+            try
+              Core.return
+                (Tensor.materialize shape (fun coord ->
+                     let offset = storage_index coord * 4 in
+                     Int32.float_of_bits (Bytes.get_int32_le tensor.data offset)))
+            with Invalid_argument s -> Core.fail (`Tensor_bridge s)))
   | dtype ->
       Core.fail
         (`Tensor_bridge

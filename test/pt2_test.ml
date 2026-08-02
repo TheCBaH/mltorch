@@ -173,3 +173,28 @@ let%expect_test "pickle failures are typed" =
       Format.printf "%a@." Pt2_pickle.pp_error e.Core.Error.kind;
       [%expect
         {| pickle decode failed: pickle error at byte 1: unknown opcode 0x6e |}]
+
+(* An aggregate bound has to check the MULTIPLY, not just its result. Folding
+   [max_int; 4] in int64 wraps to -4, which passes any range test on the final
+   value and yields a nonsense numel -- so this asserts the raise, which is the
+   behaviour on both backends once the step itself is checked. The values are
+   written in terms of [max_int] rather than a literal so the case stays
+   meaningful where int is 32 bits and where it is 63. *)
+let raises_invalid_arg f =
+  match f () with exception Invalid_argument _ -> true | _ -> false
+
+let%expect_test "Pt2_tensor.numel rejects a product that overflows mid-fold" =
+  let mk sizes =
+    {
+      Pt2_tensor.dtype = Pt2_dtype.Float32;
+      sizes;
+      strides = List.map (fun _ -> 1) sizes;
+      storage_offset = 0;
+      data = Bytes.create 0;
+    }
+  in
+  Printf.printf "wraps=%b overflows-int=%b ok=%b\n"
+    (raises_invalid_arg (fun () -> Pt2_tensor.numel (mk [ max_int; 4 ])))
+    (raises_invalid_arg (fun () -> Pt2_tensor.numel (mk [ max_int; 2 ])))
+    (Pt2_tensor.numel (mk [ 2; 3; 4 ]) = 24);
+  [%expect {| wraps=true overflows-int=true ok=true |}]

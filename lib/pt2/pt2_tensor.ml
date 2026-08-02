@@ -15,14 +15,47 @@ type t = {
 
 type error = [ Pt2_dtype.error | `Symbolic_value of string ]
 
-let numel t = List.fold_left ( * ) 1 t.sizes
+(* Folded in int64, not int. Every size is individually bounded when it is
+   decoded ([Pt2_pickle.int_of]), but a product of in-range factors need not be
+   in range itself -- and js_of_ocaml's int is 32 bits, so the wrap would be
+   silent. Narrow only after proving the product fits; see [[js_backends_design]].
+
+   Checked at EVERY step, not only on the result. [Int64.mul] wraps silently
+   too, so validating the final value alone accepts a product that already
+   overflowed: sizes [max_int; 4] fold to -4, which passes any range test and is
+   nonsense. The division identity is the check -- if [r / d] does not recover
+   [acc], the multiply wrapped. [acc] can never be [Int64.min_int] (it is range
+   checked each step, so it stays within the narrower [int] bounds), which is the
+   one input that would make the division itself overflow.
+
+   [invalid_arg] rather than a result: every caller uses the answer to index
+   [data], so a product this large describes a tensor no [bytes] could hold.
+   The bound is here to make that unrepresentable rather than lucky. *)
+let product what dims =
+  let step acc d =
+    let d = Int64.of_int d in
+    if Int64.equal d 0L then 0L
+    else
+      let r = Int64.mul acc d in
+      if not (Int64.equal (Int64.div r d) acc) then
+        invalid_arg (Fmt.str "%s overflows a 64-bit intermediate" what)
+      else if
+        Int64.compare r (Int64.of_int min_int) < 0
+        || Int64.compare r (Int64.of_int max_int) > 0
+      then
+        invalid_arg (Fmt.str "%s is %Ld, which does not fit in an int" what r)
+      else r
+  in
+  Int64.to_int (List.fold_left step 1L dims)
+
+let numel t = product "tensor numel" t.sizes
 
 (* Row-major (C-contiguous) strides for a shape. *)
 let contiguous_strides sizes =
   let rec go acc = function
     | [] -> acc
     | _ :: rest ->
-        let s = List.fold_left ( * ) 1 rest in
+        let s = product "tensor stride" rest in
         go (s :: acc) rest
   in
   List.rev (go [] sizes)
