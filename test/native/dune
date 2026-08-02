@@ -13,7 +13,9 @@
   core
   jsont
   jsont.bytesrw)
- (inline_tests)
+ ; See test/native4d/dune for why [js] carries no `enabled_if`.
+ (inline_tests
+  (modes best js))
  (preprocess
   (pps ppx_expect)))
 

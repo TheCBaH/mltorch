@@ -72,11 +72,19 @@
 
 ; Pure-OCaml pt2 reader: zip, strided tensor, pickle (no libtorch dependency).
 
+; [opickle] is here for one reason: opickle's own test suite has no js mode, so
+; a 32-bit-int regression added there could never be observed. Its Src module is
+; re-exported publicly for exactly this ("unit-tested in isolation"), so the
+; backend-sensitive assertion lives in this JS-enabled suite instead. The fix
+; itself still belongs upstream. See .ai/js_backends_design.md.
+
 (library
  (name pt2_test)
  (modules pt2_test)
- (libraries core pt2 zipc)
- (inline_tests)
+ (libraries core pt2 zipc opickle bytesrw)
+ ; See test/native4d/dune for why [js] carries no `enabled_if`.
+ (inline_tests
+  (modes best js))
  (preprocess
   (pps ppx_expect)))
 

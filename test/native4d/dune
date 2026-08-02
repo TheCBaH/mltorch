@@ -1,9 +1,15 @@
 ; Expect tests for lib/native4d. Pure OCaml (no C++/ctypes), so this runs in
 ; isolation: `dune runtest test/native4d`.
 
+; [js] alongside [best]: the same expect blocks run under js_of_ocaml/node via
+; the `runtest-js` alias (see the root dune). Note there is deliberately no
+; `enabled_if` -- that field gates the whole stanza, so a node-less machine
+; would lose the NATIVE tests too, silently. The alias split is the gate.
+
 (library
  (name native4d_test)
  (libraries native native4d core fmt)
- (inline_tests)
+ (inline_tests
+  (modes best js))
  (preprocess
   (pps ppx_expect)))

@@ -174,6 +174,84 @@ let%expect_test "pickle failures are typed" =
       [%expect
         {| pickle decode failed: pickle error at byte 1: unknown opcode 0x6e |}]
 
+(* ---------------------------------------------------------------------------
+   32-bit int portability. These two blocks are the reason this suite carries
+   `(modes best js)`: each covers a narrowing whose CORRECT behaviour differs
+   between a 63-bit native int and js_of_ocaml's 32-bit one, so neither can be
+   pinned by a golden that spells out one backend's answer.
+
+   The shape used throughout: compute what the answer OUGHT to be on whichever
+   backend is running, compare the real answer to it, and print only whether
+   they agree. The golden reads `true` everywhere, and a regression on either
+   backend still flips it. See .ai/js_backends_design.md.
+   ------------------------------------------------------------------------- *)
+
+(* [Opickle.Src.uint4] reads an unsigned 32-bit word. [Int32.unsigned_to_int]
+   encodes exactly the right notion of "what should this word mean here",
+   including returning None where no int can hold the answer, so it is the
+   oracle.
+
+   The range above 2^31 is the interesting half, and it only became assertable
+   once opickle was fixed. It used to build the value with `land 0xFFFF_FFFF`,
+   a literal that IS -1 wherever int is 32 bits -- js_of_ocaml says so itself,
+   "integer 0xffffffff truncated to -1" -- so the mask became a no-op and a word
+   with the high bit set came back as a negative length. Natively the same word
+   was correctly 4294967295, and those two answers cannot both be a green
+   [%expect]: one golden, two backends, and there the difference WAS the bug.
+
+   Now that uint4 raises where the value is unrepresentable, the two backends
+   agree again -- by both matching the oracle rather than by returning the same
+   number -- so the boundary words belong here. They are the cases that would
+   regress first if the mask ever came back. See .ai/js_backends_design.md. *)
+let uint4_agrees word_le =
+  let expected = Int32.unsigned_to_int (String.get_int32_le word_le 0) in
+  match
+    Opickle.Src.uint4
+      (Opickle.Src.of_reader (Bytesrw.Bytes.Reader.of_string word_le))
+  with
+  | got -> ( match expected with Some e -> got = e | None -> false)
+  | exception _ -> expected = None
+
+let%expect_test
+    "Src.uint4 agrees with Int32.unsigned_to_int over the full range" =
+  Printf.printf
+    "zero=%b small=%b mid=%b max-signed=%b high-bit=%b all-ones=%b\n"
+    (uint4_agrees "\x00\x00\x00\x00")
+    (uint4_agrees "\x2a\x00\x00\x00")
+    (uint4_agrees "\x00\x00\x00\x40")
+    (uint4_agrees "\xff\xff\xff\x7f")
+    (uint4_agrees "\x00\x00\x00\x80")
+    (uint4_agrees "\xff\xff\xff\xff");
+  [%expect
+    {| zero=true small=true mid=true max-signed=true high-bit=true all-ones=true |}]
+
+(* [Pt2_pickle.int_of] narrows a signed pickle integer. Pickle ints are signed,
+   so the bound is two-sided -- a value below min_int wraps exactly as one above
+   max_int does, and only checking the top would leave half the defect in place. *)
+let int_of_agrees i64 =
+  let representable =
+    Int64.compare i64 (Int64.of_int min_int) >= 0
+    && Int64.compare i64 (Int64.of_int max_int) <= 0
+  in
+  match Pt2_pickle.int_of "size" (Opickle.Value.Int i64) with
+  | Ok v -> representable && Int64.equal (Int64.of_int v) i64
+  | Error _ -> not representable
+
+let%expect_test "Pt2_pickle.int_of bounds both ends" =
+  Printf.printf "zero=%b small=%b negative=%b max=%b min=%b\n"
+    (int_of_agrees 0L) (int_of_agrees 42L) (int_of_agrees (-42L))
+    (int_of_agrees Int64.max_int)
+    (int_of_agrees Int64.min_int);
+  (* 2^40 is representable natively and NOT under js_of_ocaml -- the one case
+     that actually differs between the two, and the reason for the oracle. *)
+  Printf.printf "2^40=%b -2^40=%b\n"
+    (int_of_agrees 1099511627776L)
+    (int_of_agrees (-1099511627776L));
+  [%expect
+    {|
+    zero=true small=true negative=true max=true min=true
+    2^40=true -2^40=true |}]
+
 (* An aggregate bound has to check the MULTIPLY, not just its result. Folding
    [max_int; 4] in int64 wraps to -4, which passes any range test on the final
    value and yields a nonsense numel -- so this asserts the raise, which is the

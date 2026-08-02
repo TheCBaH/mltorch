@@ -8,6 +8,31 @@ let contains s sub =
   let rec go i = i + m <= n && (String.sub s i m = sub || go (i + 1)) in
   go 0
 
+(* These tests run natively AND under js_of_ocaml (see the [modes] field in
+   test/native/dune), and the two backends legitimately disagree about
+   backtraces: native captures real frames, while js_of_ocaml drops the
+   callstack so [Printexc.backtrace_slots] returns None and
+   [Core.Error.pp_backtrace] takes its "unavailable" branch. Both are correct,
+   and one [%expect] golden cannot hold two spellings.
+
+   So assert that whichever branch was taken is WELL FORMED, rather than
+   asserting one backend's branch. Natively that still means real frames; on JS
+   it means the fallback notice actually rendered. A genuine regression -- an
+   empty slot array, or a missing notice -- still flips these to false. Same
+   technique as js/probe/probe_core.ml. *)
+let backtrace_path_valid bt rendered =
+  match Printexc.backtrace_slots bt with
+  | Some slots -> Array.length slots > 0
+  | None -> contains rendered "backtrace unavailable"
+
+(* Whether the calling file is named among the frames. Where there are no frames
+   at all the claim is unobservable rather than false, so the neutral form is:
+   when slots exist the caller must be named, otherwise the notice must be. *)
+let caller_named bt rendered file =
+  match Printexc.backtrace_slots bt with
+  | Some _ -> contains rendered file
+  | None -> contains rendered "backtrace unavailable"
+
 let pp_dim_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:Dim.pp_error
 
 (* Deterministic payload messages — the real regression guard. *)
@@ -60,8 +85,8 @@ let%expect_test "fail captures backtrace; pp renders message + 'detected at:'" =
   match Dim.extent_checked (-3) with
   | Ok _ -> Format.printf "unexpected Ok@."
   | Error e ->
-      assert (Printexc.raw_backtrace_length e.Core.Error.backtrace > 0);
       let s = Core.Pretty.to_string (Core.Error.pp Dim.pp_error) e in
+      assert (backtrace_path_valid e.Core.Error.backtrace s);
       Format.printf "msg=%b provenance=%b@."
         (contains s "extent must be >= 1, got -3")
         (contains s "detected at:");
@@ -99,8 +124,8 @@ let%expect_test "of_option keeps the caller in the backtrace" =
   | Error e ->
       let s = Core.Pretty.to_string (Core.Error.pp pp) e in
       Format.printf "captured=%b caller_named=%b@."
-        (Printexc.raw_backtrace_length e.Core.Error.backtrace > 0)
-        (contains s "core_test.ml");
+        (backtrace_path_valid e.Core.Error.backtrace s)
+        (caller_named e.Core.Error.backtrace s "core_test.ml");
       [%expect {| captured=true caller_named=true |}]
 
 (* let* stops at the first Error; the row unifies to the union of every tag the

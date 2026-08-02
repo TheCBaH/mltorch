@@ -201,11 +201,25 @@ let%expect_test
       let trace =
         Core.Pretty.to_string (Core.Error.pp Framework.View4.pp_error) e
       in
+      (* Both claims are about backtrace FRAMES, and js_of_ocaml captures none
+         (this suite runs under it too -- see the [modes] field in dune). Where
+         there are no frames the ordering is unobservable rather than false, so
+         assert instead that the "unavailable" branch rendered. Natively the
+         real ordering check is unchanged. Same technique as
+         test/native/core_test.ml. *)
+      let detected, ordered =
+        match Printexc.backtrace_slots e.Core.Error.backtrace with
+        | Some _ ->
+            ( index_of trace "dialect4.ml" <> None,
+              match
+                (index_of trace "dialect4.ml", index_of trace "graph_view.ml")
+              with
+              | Some d, Some v -> d < v
+              | _ -> false )
+        | None ->
+            let notice = index_of trace "backtrace unavailable" <> None in
+            (notice, notice)
+      in
       Format.printf "detected_in_dialect=%b view_is_only_the_caller=%b@."
-        (index_of trace "dialect4.ml" <> None)
-        (match
-           (index_of trace "dialect4.ml", index_of trace "graph_view.ml")
-         with
-        | Some d, Some v -> d < v
-        | _ -> false);
+        detected ordered;
       [%expect {| detected_in_dialect=true view_is_only_the_caller=true |}]
