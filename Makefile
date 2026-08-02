@@ -1,4 +1,4 @@
-.PHONY: build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest js.runtest
+.PHONY: melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest js.runtest
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -302,7 +302,35 @@ jsoo.runtest: jsoo.build
 	@diff -u $(JS_BUILD)/native.txt $(JS_BUILD)/jsoo.txt \
 	  && echo "jsoo: output matches native ($$(wc -l < $(JS_BUILD)/native.txt) lines)"
 
-js.runtest: jsoo.runtest
+# Melange lives behind `--profile melange` so that `dune build` and `make build`
+# never compile it -- a melange.emit stanza is otherwise attached to @all and
+# would drag the whole JS toolchain into every ordinary build.
+#
+# The melange probe covers only the pure half of the engine (walk_core + core);
+# Bigarray and Jsont_bytesrw are out of reach, so it is diffed against
+# subset_probe.exe rather than native_probe.exe. Both sides are still one
+# program built two ways.
+#
+# melange.build.scaffold is the floor: shim + fmt + jsont_base, no probe. It is
+# what to run when diagnosing whether a melange failure is in the vendored
+# libraries or in what sits on top of them.
+
+MEL_OUT := _build/default/js/melange/output/js/melange
+
+melange.build:
+	opam exec -- dune build --profile melange @melange
+
+melange.build.scaffold:
+	opam exec -- dune build --profile melange @melange-scaffold
+
+melange.runtest: melange.build
+	@opam exec -- dune build js/probe/subset_probe.exe
+	@_build/default/js/probe/subset_probe.exe > _build/default/js/subset_native.txt
+	@node $(MEL_OUT)/subset_probe.js > _build/default/js/subset_melange.txt
+	@diff -u _build/default/js/subset_native.txt _build/default/js/subset_melange.txt \
+	  && echo "melange: output matches native ($$(wc -l < _build/default/js/subset_native.txt) lines)"
+
+js.runtest: jsoo.runtest melange.runtest
 
 clean:
 	opam exec -- dune clean

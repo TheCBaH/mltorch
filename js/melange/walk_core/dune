@@ -1,0 +1,16 @@
+; lib/walk_core, rebuilt for Melange. The sources are copied, never forked:
+; anything that changes in lib/walk_core changes here on the next build, so the
+; melange run cannot silently test older code than the native golden.
+;
+; walk_core.ml is the one file that is NOT copied -- see its own comment.
+
+(copy_files
+ (files %{workspace_root}/lib/walk_core/*.ml))
+
+(library
+ (name walk_core_mel)
+ (wrapped false)
+ (modes melange)
+ (enabled_if
+  (= %{profile} melange))
+ (libraries jsont_mel))

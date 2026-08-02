@@ -1,0 +1,24 @@
+; The Melange build of the probe's pure half.
+;
+; The entry module is js/probe/subset_probe.ml itself, copied rather than
+; rewritten, so this runs the same source as the native subset_probe.exe it is
+; diffed against. A hand-written melange entry point would be a second thing
+; able to drift from the golden.
+;
+; Only probes_pure's modules are copied. probe_tensor_json and probe_native need
+; Bigarray semantics and Jsont_bytesrw and are out of reach -- see
+; .ai/js_backends_design.md.
+;
+; commonjs so plain `node` can run the output with no bundler.
+
+(copy_files
+ (files
+  %{workspace_root}/js/probe/{probe_walk_core,probe_core,subset_probe}.ml))
+
+(melange.emit
+ (target output)
+ (module_systems commonjs)
+ (enabled_if
+  (= %{profile} melange))
+ (modules probe_walk_core probe_core subset_probe)
+ (libraries walk_core_mel core_mel jsont_mel fmt_mel))

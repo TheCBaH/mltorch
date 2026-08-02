@@ -1,0 +1,23 @@
+; lib/core, rebuilt for Melange. Same copy-never-fork rule as the walk_core
+; mirror.
+;
+; No hand-written entry module is needed here: lib/core's own core.ml IS the
+; module consumers name, so [wrapped false] already yields [Core] (and [Monad],
+; which core.ml re-exports as [Core.Monad]).
+;
+; [Core.Error.make] calls [Printexc.get_callstack]. Melange's Printexc declares
+; it, and [backtrace_slots] returns [None] at runtime -- the same fallback
+; js_of_ocaml takes, and one [Core.Error.pp_backtrace] already handles. No shim
+; is required; the probe just must not print anything that differs between the
+; two branches.
+
+(copy_files
+ (files %{workspace_root}/lib/core/*.{ml,mli}))
+
+(library
+ (name core_mel)
+ (wrapped false)
+ (modes melange)
+ (enabled_if
+  (= %{profile} melange))
+ (libraries fmt_mel))

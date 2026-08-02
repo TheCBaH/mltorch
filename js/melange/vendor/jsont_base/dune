@@ -1,0 +1,32 @@
+; Jsont_base for Melange -- the half of jsont that builds today.
+;
+; Split into its own library rather than sitting alongside jsont.ml, because
+; jsont.ml needs a patch to compile at all (see ../jsont/dune) and a library is
+; all-or-nothing: one stanza containing both would leave nothing standing if
+; that patch ever stops applying. Separated, jsont_base keeps proving that the
+; Bigarray shim works -- Jsont_base.Bigbytes is a resizable Bigarray and is the
+; heaviest user of it -- and gives @melange-scaffold something real to build.
+
+(rule
+ (target jsont_base.ml)
+ (enabled_if
+  (= %{profile} melange))
+ (action
+  (copy %{lib:jsont:jsont_base.ml} %{target})))
+
+(rule
+ (target jsont_base.mli)
+ (enabled_if
+  (= %{profile} melange))
+ (action
+  (copy %{lib:jsont:jsont_base.mli} %{target})))
+
+(library
+ (name jsont_base_mel)
+ (wrapped false)
+ (modes melange)
+ (enabled_if
+  (= %{profile} melange))
+ (libraries bigarray_mel)
+ (flags
+  (:standard -w -a)))

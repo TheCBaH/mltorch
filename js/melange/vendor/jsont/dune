@@ -1,0 +1,79 @@
+; Jsont for Melange. The patch fixes two independent things, one a compile
+; error and one a runtime crash.
+;
+; 1. jsont.ml declares BOTH `exception Error of error` and `module Error`.
+;    Melange cannot emit a unit exporting one name twice and rejects the file:
+;
+;      Error: Error are exported as twice
+;
+;    Not a version to upgrade past -- melange 5.1.0-414 and 7.0.1-414 both
+;    refuse it, and it reproduces in a four-line module. The melange copy
+;    renames the exception to [Exn]. Nothing here is affected: the only site
+;    catching it is test/native4d/shape4_test.ml, which is native-only.
+;
+;    A recorded patch, not a regex. `Error` appears in three namespaces --
+;    exception constructor, module, result constructor -- textually identical.
+;    jsont.ml:2058 is `| Error e ->` on a *result*; a substitution over that
+;    form corrupts it and still compiles. The patch was made by renaming the
+;    unambiguous sites, then letting the compiler name the remaining eight
+;    exception-position arms one at a time. That is the only way to tell them
+;    apart, and the sha256 guard is what makes it safe to rely on afterwards.
+;
+; 2. `let rec elt = Repr.Rec any and ... and any = lazy ...` (jsont.ml:1727) is
+;    a recursive value definition. Melange emits it as a Caml_obj.update_dummy
+;    over a `const` declared later in the file, and JS's temporal dead zone
+;    makes that a hard runtime failure the moment anything requires jsont:
+;
+;      ReferenceError: Cannot access 'any$1' before initialization
+;
+;    It COMPILES cleanly, so only running the output catches it -- which is the
+;    argument for melange.runtest existing at all rather than stopping at a
+;    build check. Wrapping the reference in `lazy (Lazy.force any)` defers it
+;    past initialisation. Semantically a no-op: `Rec` is consumed through
+;    `Lazy.force`, so the extra lazy forces to the same value.
+;
+;    THIS HUNK IS A BACKPORT, not a permanent workaround. It is a melange
+;    codegen bug, fixed upstream by melange-re/melange#1735 and released in
+;    melange 7.0.0. Verified: on 7.0.1-414 the Error rename alone produces JS
+;    that runs and matches the native golden exactly. Drop this hunk when the
+;    pin can move to >= 7.0.0 -- which needs OCaml >= 5.1, see
+;    .ai/js_backends_design.md. Hunk 1 stays either way; 7.0.1-414 still
+;    rejects the duplicate export.
+
+(rule
+ (target jsont.ml)
+ (enabled_if
+  (= %{profile} melange))
+ (deps patch.sh jsont.ml.patch)
+ (action
+  (run
+   bash
+   patch.sh
+   %{lib:jsont:jsont.ml}
+   ab7808a381224bdf8a7d74967c79f65db40febb555871b651f37fde01495e112
+   jsont.ml.patch
+   %{target})))
+
+(rule
+ (target jsont.mli)
+ (enabled_if
+  (= %{profile} melange))
+ (deps patch.sh jsont.mli.patch)
+ (action
+  (run
+   bash
+   patch.sh
+   %{lib:jsont:jsont.mli}
+   ba0ffff8f5319584ed08bf9ec051cbbd622e9bbb763f3014dacc75a6c444a60a
+   jsont.mli.patch
+   %{target})))
+
+(library
+ (name jsont_mel)
+ (wrapped false)
+ (modes melange)
+ (enabled_if
+  (= %{profile} melange))
+ (libraries bigarray_mel jsont_base_mel)
+ (flags
+  (:standard -w -a)))

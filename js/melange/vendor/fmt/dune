@@ -1,0 +1,39 @@
+; Fmt for Melange.
+;
+; The opam `fmt` package has no melange mode, and a melange library may only
+; depend on melange libraries -- so it cannot be linked, only rebuilt. The
+; sources come straight out of the switch via `%{lib:...}`, which makes them a
+; tracked dependency rather than a copy that silently ages. Reproducibility is
+; the devcontainer's `fmt#0.11.0` pin, not this rule: `%{lib:...}` resolves to
+; whatever happens to be installed.
+;
+; No patching needed -- fmt.ml compiles under melange unmodified.
+;
+; [wrapped false] so the module is [Fmt], exactly as lib/core names it; the
+; library name differs from the opam one so the two never collide.
+
+(rule
+ (target fmt.ml)
+ (enabled_if
+  (= %{profile} melange))
+ (action
+  (copy %{lib:fmt:fmt.ml} %{target})))
+
+(rule
+ (target fmt.mli)
+ (enabled_if
+  (= %{profile} melange))
+ (action
+  (copy %{lib:fmt:fmt.mli} %{target})))
+
+; Vendored source: its warnings are upstream's business, not ours, and dev
+; profile would otherwise fail the build on them.
+
+(library
+ (name fmt_mel)
+ (wrapped false)
+ (modes melange)
+ (enabled_if
+  (= %{profile} melange))
+ (flags
+  (:standard -w -a)))

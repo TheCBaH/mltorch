@@ -1,0 +1,11 @@
+; The Melange Bigarray shim. Profile-gated like every stanza under js/melange:
+; `dune build` and `make build` must not compile any of this, so the JS work
+; costs nothing to anyone not doing it. Build with
+; `dune build --profile melange`.
+
+(library
+ (name bigarray_mel)
+ (wrapped false)
+ (modes melange)
+ (enabled_if
+  (= %{profile} melange)))

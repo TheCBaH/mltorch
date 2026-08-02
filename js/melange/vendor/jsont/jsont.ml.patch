@@ -1,0 +1,157 @@
+--- a/jsont.ml
++++ b/jsont.ml
+@@ -21,7 +21,7 @@
+ type context_index = string node * Path.index
+ type context = context_index list
+ type error = context * Meta.t * error_kind
+-exception Error of error
++exception Exn of error
+ 
+ module Error = struct
+ 
+@@ -61,17 +61,17 @@
+   type t = error
+ 
+   let make_msg ctx meta msg = ctx, meta, msg
+-  let raise ctx meta msg = raise_notrace (Error (ctx, meta, msg))
+-  let msg meta msg = raise_notrace (Error (Context.empty, meta, msg))
++  let raise ctx meta msg = raise_notrace (Exn (ctx, meta, msg))
++  let msg meta msg = raise_notrace (Exn (Context.empty, meta, msg))
+   let msgf meta fmt = Format.kasprintf (fun m -> msg meta m) fmt
+   let push_array kinded_sort n (ctx, meta, e) =
+-    raise_notrace (Error (Context.push_array kinded_sort n ctx, meta, e))
++    raise_notrace (Exn (Context.push_array kinded_sort n ctx, meta, e))
+ 
+   let push_object kinded_sort n (ctx, meta, e) =
+-    raise_notrace (Error (Context.push_object kinded_sort n ctx, meta, e))
++    raise_notrace (Exn (Context.push_object kinded_sort n ctx, meta, e))
+ 
+   let adjust_context ~first_byte ~first_line (ctx, meta, e) = match ctx with
+-  | [] -> raise_notrace (Error (ctx, meta, e))
++  | [] -> raise_notrace (Exn (ctx, meta, e))
+   | ((sort, smeta), idx) :: is ->
+       let textloc = Meta.textloc smeta in
+       let textloc =
+@@ -80,7 +80,7 @@
+       in
+       let smeta = Meta.with_textloc smeta textloc in
+       let ctx = ((sort, smeta), idx) :: is in
+-      raise_notrace (Error (ctx, meta, e))
++      raise_notrace (Exn (ctx, meta, e))
+ 
+   let pp ppf (ctx, m, msg) =
+     let pp_meta ppf m =
+@@ -1481,7 +1481,7 @@
+           try
+             if map.dec_skip i b then b else
+             map.dec_add i (decode map.elt v) b
+-          with Error e -> Repr.error_push_array meta map (i, get_meta v) e
++          with Exn e -> Repr.error_push_array meta map (i, get_meta v) e
+         in
+         next map meta b (i + 1) vs
+     in
+@@ -1530,7 +1530,7 @@
+       match String_map.find_opt n mem_decs with
+       | Some (Mem_dec m) ->
+           let dict = try Dict.add m.id (decode m.type' v) dict with
+-          | Error e -> Repr.error_push_object meta map nm e
++          | Exn e -> Repr.error_push_object meta map nm e
+           in
+           let mem_miss = String_map.remove n mem_miss in
+           decode_object_basic map meta umems umap mem_miss mem_decs dict mems
+@@ -1545,7 +1545,7 @@
+           | Unknown_keep (umap', _) ->
+               let umap =
+                 try umap'.dec_add nmeta n (decode umap'.mems_type v) umap with
+-                | Error e -> Repr.error_push_object meta map nm e
++                | Exn e -> Repr.error_push_object meta map nm e
+               in
+               decode_object_basic
+                 map meta umems umap mem_miss mem_decs dict mems
+@@ -1581,7 +1581,7 @@
+     | ((n, meta as nm), v as mem) :: mems ->
+         if n = cases.tag.name then
+           let tag = try decode cases.tag.type' v with
+-          | Error e -> Repr.error_push_object meta map nm e
++          | Exn e -> Repr.error_push_object meta map nm e
+           in
+           decode_case_tag map meta tag delay mems
+         else
+@@ -1592,7 +1592,7 @@
+               map meta umems cases mem_miss mem_decs dict delay mems
+         | Some (Mem_dec m) ->
+             let dict = try Dict.add m.id (decode m.type' v) dict with
+-            | Error e -> Repr.error_push_object meta map nm e
++            | Exn e -> Repr.error_push_object meta map nm e
+             in
+             let mem_miss = String_map.remove n mem_miss in
+             decode_object_cases
+@@ -1612,7 +1612,7 @@
+     | Object _ -> dec t map.dec_object j
+ 
+   let dec = decode
+-  let decode' t j = try Ok (decode t j) with Error e -> Result.Error e
++  let decode' t j = try Ok (decode t j) with Exn e -> Result.Error e
+   let decode t j = Result.map_error Error.to_string (decode' t j)
+ 
+   (* Encode *)
+@@ -1626,7 +1626,7 @@
+   | Array map ->
+       let enc map acc i elt =
+         try encode map.elt elt :: acc with
+-        | Error e -> Repr.error_push_array Meta.none map (i, Meta.none) e
++        | Exn e -> Repr.error_push_array Meta.none map (i, Meta.none) e
+       in
+       list ~meta:(map.enc_meta v) (List.rev (map.enc (enc map) [] v))
+   | Object map ->
+@@ -1646,7 +1646,7 @@
+         if mmap.enc_omit v then obj else
+         ((mmap.name, Meta.none), encode mmap.type' v) :: obj
+       with
+-      | Error e -> Repr.error_push_object Meta.none map (mmap.name, Meta.none) e
++      | Exn e -> Repr.error_push_object Meta.none map (mmap.name, Meta.none) e
+     in
+     let obj = List.fold_left (encode_mem map) obj map.mem_encs in
+     match map.shape with
+@@ -1661,7 +1661,7 @@
+             if cases.tag.enc_omit case.tag then obj else
+             (n, encode cases.tag.type' case.tag) :: obj
+           with
+-          | Error e -> Repr.error_push_object Meta.none map n e
++          | Exn e -> Repr.error_push_object Meta.none map n e
+         in
+         match u with
+         | Some (Unknown_keep (umap, enc)) ->
+@@ -1678,20 +1678,20 @@
+      let encode_mem map meta name v obj =
+        let n = (name, meta) in
+        let v = try encode umap.mems_type v with
+-       | Error e -> Repr.error_push_object Meta.none map n e
++       | Exn e -> Repr.error_push_object Meta.none map n e
+        in
+        (n, v) :: obj
+      in
+      (umap.enc (encode_mem map) mems obj)
+ 
+    let enc = encode
+-   let encode' t v = try Ok (encode t v) with Error e -> Result.Error e
++   let encode' t v = try Ok (encode t v) with Exn e -> Result.Error e
+    let encode t v = Result.map_error Error.to_string (encode' t v)
+ 
+    (* Recode *)
+ 
+    let update t v = enc t (dec t v)
+-   let recode' t v = try Ok (update t v) with Error e -> Result.Error e
++   let recode' t v = try Ok (update t v) with Exn e -> Result.Error e
+    let recode t v = Result.map_error Error.to_string (recode' t v)
+ end
+ 
+@@ -1724,7 +1724,7 @@
+   Repr.String (Base.map ~dec ~enc ~enc_meta:Json.meta ())
+ 
+ let json, json_array, mem_list, json_object =
+-  let rec elt = Repr.Rec any
++  let rec elt = Repr.Rec (lazy (Lazy.force any))
+   and array_map = lazy begin
+     let dec_empty () = [] in
+     let dec_add _i v a = v :: a in

@@ -1,0 +1,11 @@
+--- a/jsont.mli
++++ b/jsont.mli
+@@ -464,7 +464,7 @@
+   (**/**)
+ end
+ 
+-exception Error of Error.t
++exception Exn of Error.t
+ (** The exception raised on map errors. In general codec and query
+     functions turn that for you into a {!result} value. *)
+ 

@@ -1,0 +1,19 @@
+; The floor of the melange work, on its own alias.
+;
+; @melange builds the probe and needs the jsont patch to apply.
+; @melange-scaffold needs only the Bigarray shim, fmt, and jsont_base -- the
+; parts that hold regardless -- so there is always a melange target that
+; builds, and CI never has to point at something expected to fail.
+;
+; A real melange.emit rather than a bare alias with file dependencies: linking
+; through the normal stanza is what actually proves the libraries are usable,
+; and it avoids depending on dune's private .objs/melange layout.
+
+(melange.emit
+ (target output)
+ (alias melange-scaffold)
+ (module_systems commonjs)
+ (enabled_if
+  (= %{profile} melange))
+ (modules scaffold)
+ (libraries bigarray_mel fmt_mel jsont_base_mel))
