@@ -58,8 +58,12 @@ let read_member zip path =
   Pt2_zip.read_rel_required zip path
   |> Core.map_error (fun error -> `Read_archive_member (path, error))
 
-let open_pt2 path =
-  let* contents = read_file path in
+(* Decoding is separated from reading so an archive that is already in memory
+   never has to reach a filesystem: a JS build has no useful one, and a browser
+   receives the bytes from a fetch or a file picker. [~name] is only a label for
+   the error payloads -- nothing opens it. *)
+let of_string ~name contents =
+  let path = name in
   let* zip =
     Pt2_zip.of_string contents
     |> Core.map_error (fun error -> `Zip_open (path, error))
@@ -94,6 +98,10 @@ let open_pt2 path =
   in
   Core.return { zip; program; weights; constants }
 
+let open_pt2 path =
+  let* contents = read_file path in
+  of_string ~name:path contents
+
 let program t = t.program
 let weights_config t = t.weights
 let constants_config t = t.constants
@@ -127,10 +135,10 @@ let load_captured_tensor t name =
       | Some e -> load_entry t ~dir:"data/constants" name e
       | None -> Core.fail (`Missing_captured_tensor name))
 
-(* Load a standalone `.pt` tensor file (a sample input image, or the archive's
-   own data/sample_inputs/model.pt extracted to a path). *)
-let load_pt path =
-  let* contents = read_file path in
+(* A standalone `.pt` tensor (a sample input image, or the archive's own
+   data/sample_inputs/model.pt) already in memory. Same split as [of_string]. *)
+let pt_of_string ~name contents =
+  let path = name in
   let* zip =
     Pt2_zip.of_string contents
     |> Core.map_error (fun error -> `Zip_open (path, error))
@@ -149,3 +157,8 @@ let load_pt path =
       storage_offset = rb.Pt2_pickle.storage_offset;
       data = Bytes.of_string data;
     }
+
+(* Load a standalone `.pt` tensor file from disk. *)
+let load_pt path =
+  let* contents = read_file path in
+  pt_of_string ~name:path contents

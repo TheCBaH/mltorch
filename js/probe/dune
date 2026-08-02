@@ -23,6 +23,30 @@
  (modules probe_tensor_json probe_native)
  (libraries probes_pure native native_op_walk walk_core core))
 
+; A THIRD library, for the same reason there is a second one: it records a real
+; boundary rather than grouping by convenience. Everything here reaches PyTorch
+; -- pytorch_types is generated from the schema.yaml inside the modules/pytorch
+; submodule -- so this tier needs a submodule checkout that the two above do not,
+; and melange cannot reach any of it. Keeping it separate is what stops a
+; section drifting across that line unnoticed.
+
+(library
+ (name probes_pt2)
+ (wrapped false)
+ (modules probe_model_json probe_pt2)
+ (libraries
+  probes_pure
+  core
+  fmt
+  pt2
+  pytorch_types
+  schema_runtime
+  jsont
+  jsont.bytesrw
+  native
+  native_graph
+  native_interp))
+
 ; Separate stanzas with disjoint [modules]: two singular executables cannot both
 ; own a module, and putting both names in one plural stanza would build each
 ; entry against the other's module for no reason.
@@ -37,9 +61,35 @@
  (name native_probe)
  (modes exe byte)
  (modules native_probe)
- (libraries probes_pure probes_native))
+ (libraries probes_pure probes_native probes_pt2))
+
+; The golden for jsoo.pt2.runtest. Without a native build of this source there
+; is nothing for the .bc.js to be diffed against. [byte] for the same triage
+; reason as native_probe above -- and a new tier is exactly where a divergence
+; whose side is unclear is most likely to turn up.
+
+(executable
+ (name pt2_probe)
+ (modes exe byte)
+ (modules pt2_probe)
+ (libraries probes_pt2))
 
 (executable
  (name subset_probe)
  (modules subset_probe)
  (libraries probes_pure))
+
+; The tier-1 fixture: resnet18's committed model.json, the smallest of the 17
+; (224K). Same shell-copy idiom as data/dune and test/dune -- the submodule is
+; excluded from dune's scan, and %{project_root} reaches it only inside
+; (action ...), never (deps ...), so this carries no dep tracking. Touch this
+; file or `dune clean` if the submodule moves. See .ai/dune_cram_patterns.md.
+
+(rule
+ (target model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/pytorch.models.pt2/models/resnet18/models/model.json))))

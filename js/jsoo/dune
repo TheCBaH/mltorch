@@ -16,8 +16,20 @@
 (copy_files
  (files %{workspace_root}/js/probe/native_probe.ml))
 
+(copy_files
+ (files %{workspace_root}/js/probe/pt2_probe.ml))
+
 (executable
  (name native_probe)
  (modes js)
  (modules native_probe)
- (libraries probes_pure probes_native))
+ (libraries probes_pure probes_native probes_pt2))
+
+; Tier 2. Same shape as above; separate stanzas with disjoint [modules] for the
+; same reason js/probe/dune keeps them apart.
+
+(executable
+ (name pt2_probe)
+ (modes js)
+ (modules pt2_probe)
+ (libraries probes_pt2))

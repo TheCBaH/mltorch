@@ -1,4 +1,4 @@
-.PHONY: melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest js.runtest
+.PHONY: melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest js.build js.runtest
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -293,14 +293,57 @@ runtest:
 
 JS_BUILD := _build/default/js
 
+# The tier-1 fixture, copied out of the models submodule by a rule in
+# js/probe/dune. Both sides of the diff are handed the same path.
+JS_MODEL_JSON := $(JS_BUILD)/probe/model.json
+
 jsoo.build:
 	opam exec -- dune build js/probe js/jsoo
 
 jsoo.runtest: jsoo.build
-	@$(JS_BUILD)/probe/native_probe.exe > $(JS_BUILD)/native.txt
-	@node $(JS_BUILD)/jsoo/native_probe.bc.js > $(JS_BUILD)/jsoo.txt
+	@$(JS_BUILD)/probe/native_probe.exe $(JS_MODEL_JSON) > $(JS_BUILD)/native.txt
+	@node $(JS_BUILD)/jsoo/native_probe.bc.js $(JS_MODEL_JSON) > $(JS_BUILD)/jsoo.txt
 	@diff -u $(JS_BUILD)/native.txt $(JS_BUILD)/jsoo.txt \
 	  && echo "jsoo: output matches native ($$(wc -l < $(JS_BUILD)/native.txt) lines)"
+
+# Inline expect tests under node. Complementary to the probe above, not a
+# duplicate of it: the probe diffs two runs of one program, so it answers "do
+# the backends agree" but never "is the answer right", while these carry the
+# same committed goldens the native suites do. The runtest-js alias comes from
+# the root dune -- without it these would attach to `runtest` and every
+# `make runtest` would start linking js_of_ocaml.
+
+jsoo.inline-runtest:
+	opam exec -- dune build @runtest-js
+
+# Tier 2: open a real .pt2, lower it, run inference, diff native against node.
+# Outside js.runtest for the same reason as pt2.runtest -- it needs downloaded
+# weights. Guards BOTH inputs, because a partial extraction or a half-restored
+# cache would otherwise sail past the check and fail later as a bare filesystem
+# error, losing the fix-it hint that is the whole point of checking up front.
+#
+# mobilenet_v3_small rather than the resnet18 used elsewhere: measured natively
+# it is 10s and 99MB against resnet18's 86s and 241MB
+# (.ai/native_inference_verify.md), and node multiplies whatever the native cost
+# is -- ~4.9x when this was written.
+
+JS_PT2_MODEL := mobilenet_v3_small
+JS_PT2_ARCHIVE := $(PT2_DIR)/$(JS_PT2_MODEL)/$(JS_PT2_MODEL).pt2
+JS_PT2_INPUT := $(PT2_DIR)/$(JS_PT2_MODEL)/images/000000000149.pt
+
+jsoo.pt2.runtest: jsoo.build
+	@for f in $(JS_PT2_ARCHIVE) $(JS_PT2_INPUT); do \
+		test -f $$f || { \
+			echo "jsoo.pt2.runtest: missing $$f -- run 'make pt2.download PT2_MODEL=$(JS_PT2_MODEL)' first" >&2; \
+			exit 1; \
+		}; \
+	done
+	@$(JS_BUILD)/probe/pt2_probe.exe $(JS_PT2_ARCHIVE) $(JS_PT2_INPUT) \
+	  > $(JS_BUILD)/pt2_native.txt
+	@node $(JS_BUILD)/jsoo/pt2_probe.bc.js $(JS_PT2_ARCHIVE) $(JS_PT2_INPUT) \
+	  > $(JS_BUILD)/pt2_jsoo.txt
+	@diff -u $(JS_BUILD)/pt2_native.txt $(JS_BUILD)/pt2_jsoo.txt \
+	  && echo "jsoo: $(JS_PT2_MODEL) inference matches native ($$(wc -l < $(JS_BUILD)/pt2_native.txt) lines)"
 
 # Melange lives behind `--profile melange` so that `dune build` and `make build`
 # never compile it -- a melange.emit stanza is otherwise attached to @all and
@@ -330,7 +373,12 @@ melange.runtest: melange.build
 	@diff -u _build/default/js/subset_native.txt _build/default/js/subset_melange.txt \
 	  && echo "melange: output matches native ($$(wc -l < _build/default/js/subset_native.txt) lines)"
 
-js.runtest: jsoo.runtest melange.runtest
+# The build-side aggregate, mirroring js.runtest. Composed of the two existing
+# build targets rather than a bare `dune build js`, which would defeat the
+# profile gate that keeps melange.emit off @all.
+js.build: jsoo.build melange.build
+
+js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest
 
 clean:
 	opam exec -- dune clean
