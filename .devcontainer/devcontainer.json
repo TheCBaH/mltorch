@@ -12,8 +12,25 @@
             "userGid": "1000",
             "upgradePackages": "false"
         },
+        // melange and ppx_expect are pinned TOGETHER and must move together.
+        // Not because melange lacks 4.14 support -- melange.7.0.1-414 exists and
+        // installs fine -- but because melange 7 needs ppxlib >= 0.36, whose
+        // parsetree change the Jane Street v0.16 ppx set cannot compile against,
+        // and the ppx_inline_test that can needs OCaml >= 5.1. On this switch
+        // opam has no solution for the pair and resolves it by dropping
+        // ppx_expect, silently taking every inline test with it. 5.1.0-414 is
+        // what the solver picks anyway.
+        // fmt and jsont are pinned because js/melange/vendor copies their
+        // sources and the jsont patch is checksum-guarded against 0.2.0.
+        // bytesrw is pinned for plain reproducibility of the native build.
+        // Deliberately floating: ctypes, ctypes-foreign, landmarks,
+        // landmarks-ppx, memtrace, utop, yaml, zipc -- none is part of the JS
+        // build or that solve. See .ai/js_backends_design.md.
         "./features/ocaml": {
-            "packages": "bytesrw ctypes ctypes-foreign fmt jsont landmarks landmarks-ppx memtrace ppx_expect utop yaml zipc"        },
+            "packages": "bytesrw#0.3.0 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.2.0 landmarks landmarks-ppx melange#5.1.0-414 memtrace ppx_expect#v0.16.2 utop yaml zipc"        },
+        // node, for running the js_of_ocaml and melange output. Unpinned: the
+        // feature installs Debian's nodejs/npm.
+        "./features/npm": {},
     },
     "customizations": {
         "vscode": {
