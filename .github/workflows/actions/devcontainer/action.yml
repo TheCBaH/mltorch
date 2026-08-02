@@ -25,6 +25,21 @@ inputs:
     description: 'Password or token for Docker registry'
     required: false
     default: ''
+  post-create:
+    description: >-
+      Whether to run the devcontainer lifecycle commands (postCreateCommand and
+      friends). Set to false for jobs that must NOT initialise git submodules:
+      this repo runs `git submodule update --init` from postCreateCommand, so
+      checking out without submodules is not enough on its own -- `devcontainer
+      up` would fetch them anyway. Default true, so existing workflows are
+      unaffected.
+
+      Used by exactly one job today, js.yml's melange job, whose closure stops
+      at walk_core + core and so reaches no submodule. The jsoo job used to want
+      this too, but it now reads real PT2 models and therefore needs
+      modules/pytorch for schema.yaml.
+    required: false
+    default: 'true'
 
 outputs:
   exec:
@@ -39,7 +54,11 @@ runs:
       id: setup
       run: |
         echo "::group::cache"
-        npm install -g @devcontainers/cli
+        # Pinned: `post-create: false` below depends on `up --skip-post-create`,
+        # which this version documents. An unpinned CLI could drop or rename the
+        # flag and the submodule-free jobs would silently start initialising
+        # submodules again.
+        npm install -g @devcontainers/cli@0.88.0
         PLATFORM='${{ inputs.platform }}'
         if [ -n "$PLATFORM" ]; then
           ARCH=$(echo "$PLATFORM" | sed 's|linux/||; s|/||g')
@@ -60,7 +79,11 @@ runs:
         echo "::group::build"
         env BUILDKIT_PROGRESS=plain devcontainer build --image-name $IMAGE_ID --cache-from $IMAGE_ID:$TAG --workspace-folder .
         echo "::group::up"
-        env BUILDKIT_PROGRESS=plain devcontainer up --workspace-folder .
+        UP_ARGS=''
+        if [ '${{ inputs.post-create }}' = 'false' ]; then
+          UP_ARGS='--skip-post-create'
+        fi
+        env BUILDKIT_PROGRESS=plain devcontainer up --workspace-folder . $UP_ARGS
         echo "exec=devcontainer exec --workspace-folder ." >> $GITHUB_OUTPUT
         echo "::group::push"
         if [ -n '${{ inputs.password }}' ]; then

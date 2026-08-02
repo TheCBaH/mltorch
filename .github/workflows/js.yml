@@ -1,0 +1,120 @@
+name: javascript
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Two independent jobs so the backends verify in parallel rather than in series
+# behind each other, and so a melange failure names melange in the job list
+# instead of being buried in a combined log.
+#
+# The two jobs have DIFFERENT scopes, and that asymmetry is deliberate rather
+# than an oversight:
+#
+#   jsoo    reads and runs real PT2 models, so it needs pytorch_types, which is
+#           generated from the schema.yaml inside the modules/pytorch submodule.
+#           It therefore checks submodules out. Still no ccache and no model
+#           downloads -- it builds no C++ and its tier-1 fixture is committed.
+#   melange reaches only walk_core + core + vendored fmt/jsont. It touches
+#           nothing PyTorch, so it keeps the submodule-free path and asserts it.
+#
+# Both reuse the devcontainer image, which build.yml has usually already warmed
+# in ghcr.
+
+jobs:
+  jsoo:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7
+      with:
+        # Top level only, non-recursive. This job needs modules/pytorch for
+        # schema.yaml (pytorch_types), modules/pytorch.models.pt2 for the
+        # committed model.json fixture, and both vendored/ libraries. It does
+        # NOT need pytorch's third_party -- that is for the C++ archive, which
+        # nothing here builds.
+        submodules: true
+    - name: devcontainer
+      uses: ./.github/workflows/actions/devcontainer
+      id: devcontainer
+    - name: setup
+      run: |
+        echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    - name: jsoo differential test
+      run: |
+        ${{ env.EXEC }} make jsoo.runtest
+    # A separate step from the differential probe above, so a failure names the
+    # layer: the probe answers "do the backends agree", these answer "is the
+    # answer right".
+    - name: jsoo inline tests
+      run: |
+        ${{ env.EXEC }} make jsoo.inline-runtest
+    # Tier 2, the only step here that needs downloaded weights. It lives in this
+    # workflow rather than in build.yml -- which already has the models -- for
+    # two reasons. Attribution: left there it was the one JS verdict that could
+    # go red while `javascript` stayed green, the failure mode the jsoo/melange
+    # job split exists to prevent. Wall clock: node multiplies the native cost
+    # ~4.9x, making this the most expensive JS step, and it was 1m31s on a 13+
+    # minute serial job while this one finished its testing in 21s and idled.
+    #
+    # One model (~99MB), not PT2_MODELS_CRAM, under its OWN cache key -- see the
+    # jsoo.pt2.vars comment in the Makefile for why sharing build.yml's key
+    # would silently poison it.
+    - name: cache keys
+      id: cache_keys
+      run: |
+        make -s jsoo.pt2.vars >> $GITHUB_OUTPUT
+    - name: pt2 model cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.cache_keys.outputs.jsoo_pt2_zip_glob }}
+        key: ${{ steps.cache_keys.outputs.jsoo_pt2_cache_key }}
+        restore-keys: |
+          ${{ steps.cache_keys.outputs.jsoo_pt2_cache_restore_key }}
+    - name: pt2 model download
+      run: |
+        make jsoo.pt2.download
+    - name: jsoo pt2 inference test
+      run: |
+        ${{ env.EXEC }} make jsoo.pt2.runtest
+
+  melange:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7
+    - name: devcontainer
+      uses: ./.github/workflows/actions/devcontainer
+      id: devcontainer
+      with:
+        post-create: 'false'
+    - name: setup
+      run: |
+        echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    # AFTER the devcontainer step, not before: before it this passes trivially
+    # and proves nothing. Checks every gitlink rather than one path, so a new
+    # submodule is covered without anyone remembering to update this.
+    #
+    # This is now the melange job's alone, and it does more than assert a
+    # checkout flag: melange's reach is meant to stop at walk_core + core, and
+    # everything past that line goes through pytorch_types, which needs a
+    # submodule. If this ever goes red, the melange closure has grown -- most
+    # likely because a probe section drifted to the wrong library.
+    - name: assert no submodule was initialized
+      run: |
+        if git submodule status | grep -qv '^-'; then
+          echo "A submodule was initialized; this job is meant to run without any." >&2
+          git submodule status >&2
+          exit 1
+        fi
+        echo "no submodules initialized"
+    # The scaffold first, so a failure says which layer broke: if this passes
+    # and the next step fails, the vendored libraries are fine and the problem
+    # is the jsont patch or what sits on it.
+    - name: melange scaffold builds
+      run: |
+        ${{ env.EXEC }} make melange.build.scaffold
+    - name: melange differential test
+      run: |
+        ${{ env.EXEC }} make melange.runtest

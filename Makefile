@@ -1,4 +1,4 @@
-.PHONY: melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest js.build js.runtest
+.PHONY: melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -330,6 +330,24 @@ jsoo.inline-runtest:
 JS_PT2_MODEL := mobilenet_v3_small
 JS_PT2_ARCHIVE := $(PT2_DIR)/$(JS_PT2_MODEL)/$(JS_PT2_MODEL).pt2
 JS_PT2_INPUT := $(PT2_DIR)/$(JS_PT2_MODEL)/images/000000000149.pt
+
+jsoo.pt2.download:
+	$(MAKE) pt2.download PT2_MODEL=$(JS_PT2_MODEL)
+
+# Cache vars for the javascript workflow, deliberately a DIFFERENT key and a
+# DIFFERENT glob from pt2.vars. That one covers every model CI has downloaded
+# this release; this one covers a single model. Sharing the key would be a
+# silent, permanent regression rather than a failure: caches are immutable once
+# saved, so whichever workflow reached a cold key first would save its own
+# contents there, and a one-model archive stored under the all-models key makes
+# every later save a no-op and every build.yml run re-download the rest.
+#
+# No model-list hash here, unlike PT2_MODELS_HASH: the key names the one model
+# it holds, so changing JS_PT2_MODEL already changes the key.
+jsoo.pt2.vars:
+	@echo "jsoo_pt2_zip_glob=$(PT2_DIR)/$(JS_PT2_MODEL)/*.release.zip"
+	@echo "jsoo_pt2_cache_key=pt2-jsoo-$(PT2_RELEASE)-$(JS_PT2_MODEL)"
+	@echo "jsoo_pt2_cache_restore_key=pt2-jsoo-$(PT2_RELEASE)-"
 
 jsoo.pt2.runtest: jsoo.build
 	@for f in $(JS_PT2_ARCHIVE) $(JS_PT2_INPUT); do \

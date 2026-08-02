@@ -86,6 +86,14 @@ jobs:
     - name: pt2 load test
       run: |
         ${{ env.EXEC }} make pt2.runtest
+    # The JS half of the same claim -- open a real .pt2, lower it and run
+    # inference under node, diffed against native -- is js.yml's `jsoo pt2
+    # inference test`. It could run here for free, since this job has already
+    # fetched mobilenet_v3_small, but a JS regression would then redden `build`
+    # while the workflow named `javascript` stayed green; and node multiplies
+    # the native cost ~4.9x, so it was 1m31s of the longest job on the board
+    # while the jsoo job sat idle after 21s of testing.
+    #
     # Fast per-push latency signal for the smallest model (resnet18), so
     # regressions show up without waiting on the full 22-model "inference"
     # sweep below (20+ minutes). Reuses the resnet18 data already fetched by
