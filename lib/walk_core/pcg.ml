@@ -29,9 +29,15 @@ let seed ~seed ~seq =
    Random payload could override this. *)
 let default = seed ~seed:0x853c49e6748fea9bL ~seq:0xda3e39cb94b95bdbL
 
-(* The next 32-bit output as a non-negative OCaml int in [0, 2^32), plus the
-   advanced state. The XSH-RR output (xorshift then random rotate) is computed
-   in Int64 to stay within OCaml's 63-bit int after masking. *)
+(* The next 32-bit output in [0, 2^32) as an [int64], plus the advanced state.
+   The XSH-RR output (xorshift then random rotate) is computed in Int64 anyway.
+
+   [int64], not [int], because [0, 2^32) does not fit a non-negative OCaml [int]
+   on every runtime we target: js_of_ocaml's [int] is 32 bits ([Sys.int_size =
+   32]), so [Int64.to_int] here would hand back a NEGATIVE number for every draw
+   >= 2^31 — and [Walk.pick]'s [List.nth] then raises. Callers narrow to [int]
+   only after bounding the value ([lsr 8] below, [Int64.rem] in [Walk]); doing it
+   here would push an impossible contract onto them. *)
 let next t =
   let s = t.state in
   let xorshifted =
@@ -49,14 +55,19 @@ let next t =
          (Int64.shift_left xorshifted ((32 - rot) land 31)))
       0xFFFFFFFFL
   in
-  (Int64.to_int out, step t)
+  (out, step t)
 
 let two_pow_neg24 = 1.0 /. 16777216.0
+
+(* The top 24 bits of a draw, as an [int]. That is the f32 mantissa width, so the
+   result is < 2^24 and fits every runtime's [int] — this is the narrowing the
+   comment on [next] refers to. *)
+let top24 n = Int64.to_int (Int64.shift_right_logical n 8)
 
 (* A uniform in [0,1) at f32 mantissa precision (top 24 bits of the output). *)
 let uniform_unit t =
   let n, t = next t in
-  (float_of_int (n lsr 8) *. two_pow_neg24, t)
+  (float_of_int (top24 n) *. two_pow_neg24, t)
 
 let uniform ~low ~high t =
   let u, t = uniform_unit t in
@@ -69,6 +80,6 @@ let two_pi = 2.0 *. Float.pi
 let normal ~mean ~std t =
   let n1, t = next t in
   let u2, t = uniform_unit t in
-  let u1 = float_of_int ((n1 lsr 8) + 1) *. two_pow_neg24 in
+  let u1 = float_of_int (top24 n1 + 1) *. two_pow_neg24 in
   let z = sqrt (-2.0 *. log u1) *. cos (two_pi *. u2) in
   (Float32.to_f32 (mean +. (std *. z)), t)

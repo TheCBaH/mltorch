@@ -35,10 +35,16 @@ module type Op = sig
   val build : Pcg.t -> cfg -> subject * Pcg.t
 end
 
+(* Reduce a raw [Pcg.next] draw to an index in [0, m). The remainder is taken in
+   [Int64] because the draw spans [0, 2^32), which is not a non-negative [int] on
+   a 32-bit-[int] runtime such as js_of_ocaml; the result is < m, so narrowing it
+   afterwards is always safe. Identical to the former [n mod m] natively. *)
+let index_of pcg_out ~m = Int64.to_int (Int64.rem pcg_out (Int64.of_int m))
+
 (* Pick one element from a non-empty list using one [Pcg.next] step. *)
 let pick pcg lst =
   let n, pcg = Pcg.next pcg in
-  (List.nth lst (n mod List.length lst), pcg)
+  (List.nth lst (index_of n ~m:(List.length lst)), pcg)
 
 (* A field axis: pick a candidate value with the PCG and set it via [setter].
    No validity filtering -- the engine applies [cascade] after the mutation.
@@ -57,7 +63,7 @@ let field_axis name candidates setter =
 let int_in pcg ~lo ~hi =
   let hi = max lo hi in
   let n, pcg = Pcg.next pcg in
-  (lo + (n mod (hi - lo + 1)), pcg)
+  (lo + index_of n ~m:(hi - lo + 1), pcg)
 
 (* A numeric axis over a whole range [lo, hi] -- any int, not an enumerated set.
    The natural lower bound is the value's domain (1 for kernel/stride, 0 for
