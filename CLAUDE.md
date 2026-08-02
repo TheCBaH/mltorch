@@ -33,6 +33,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   of the framework, e.g. into Cmdliner's `(_, string) result`) is fine, but
   give it a **named** helper — `to_cli`, `Pattern.of_core` — so it is
   distinguishable from the defect. See `.ai/printer_conventions.md`.
+- **Never assume a 63-bit `int` in the JS-reachable libraries** — `lib/native`,
+  `lib/walk_core`, `lib/core`, `lib/native4d`, and now `lib/pt2`, `lib/native_graph`
+  and `lib/native_interp`, which js_of_ocaml reaches since the probe began reading
+  real `.pt2` models. js_of_ocaml's `int` is **32 bits** (`Sys.int_size = 32`), so a
+  value that can reach 2^31 must be `int32`/`int64`, and a literal like `0xFFFFFFFF`
+  silently truncates to `-1` there — which turns a mask into a no-op.
+  **Narrow to `int` only after bounding the value**, and bound *aggregates*
+  separately: a product or sum of individually-in-range factors can still overflow.
+  Six defects have turned on this — `Pcg.next`'s `[0, 2^32)` contract and
+  `Half.f32_bits`' mask (both live), `Pt2_pickle.int_of`, `Pt2_tensor.numel` /
+  `contiguous_strides` and `Native_interp`'s `storage_index` (all latent, now
+  bounded), and `Opickle.Src.uint4`'s `land 0xFFFF_FFFF` (live; fixed upstream in
+  the vendored submodule). **A check on a wrapped result is not a bound** — two of
+  those validated only the folded value, which a mid-fold wrap sails straight past.
+  **Two commands catch a regression, and they catch different things.**
+  `make jsoo.runtest` diffs the backends, so it sees only divergence;
+  `make jsoo.inline-runtest` runs the expect suites under node against their
+  committed goldens, so it sees a wrong answer that both backends agree on.
+  See `.ai/js_backends_design.md`.
 
 ## Exploration & Planning — start in `.ai/`
 
@@ -100,6 +119,31 @@ dune promote test/model_cram.t
 
 **Run `make format` before every commit.** Formatting is enforced; unformatted diffs are noise.
 
+### JavaScript backends (gated on node + the JS toolchain)
+
+```sh
+make js.build                # build everything: jsoo + melange
+make jsoo.runtest            # build the probe natively + via js_of_ocaml, run both, diff
+make jsoo.inline-runtest     # the expect suites under node (@runtest-js)
+make melange.runtest         # same for the pure half (walk_core + core)
+make js.runtest              # the three above
+make melange.build.scaffold  # shim + fmt + jsont_base only — the diagnostic floor
+
+# Gated on downloaded weights, so outside js.runtest — CI runs it in the jsoo job,
+# which fetches this one model under its own cache key (never build.yml's).
+make jsoo.pt2.download       # = pt2.download for the tier-2 model
+make jsoo.pt2.runtest        # open a real .pt2, lower it, run inference, diff
+```
+
+Not part of `make runtest` (they need node); CI runs jsoo and melange as two parallel
+jobs. Melange is behind `--profile melange`, so plain `dune build` never compiles it.
+Needs a devcontainer rebuild for `js_of_ocaml`/`melange`/`node`.
+
+**The two backends have different scopes, deliberately.** jsoo reaches the whole PT2
+path — so it needs `modules/pytorch` for `schema.yaml`, and its CI job checks submodules
+out. Melange stops at `walk_core` + `core` (no Bigarray in any release), reaches no
+submodule, and its job asserts that. See `.ai/js_backends_design.md`.
+
 ### Working in a git worktree
 
 If you work in a `.claude/worktrees/<name>` checkout, **read `.ai/worktree_setup.md`
@@ -115,7 +159,7 @@ opam exec -- dune runtest --root . test/native
 ### .pt2 / interpreter (gated on real model data)
 
 ```sh
-make pt2.download-cram   # fetch the 4 models the cram tests need (~150 MB)
+make pt2.download-cram   # fetch the 5 models in PT2_MODELS_CRAM (see the Makefile)
 make pt2.runtest         # run pt2_load_cram.t + interp_*_cram.t against them
 make inference           # timed smoke run over every model in PT2_MODELS_ALL
 ```

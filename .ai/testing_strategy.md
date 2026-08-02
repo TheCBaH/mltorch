@@ -1,6 +1,6 @@
 # Testing Strategy
 
-## Three Test Layers
+## Test Layers
 
 ### 1. Inline expect tests (`test/scc_test.ml`, `test/codegen_test.ml`, `test/type_expr_test.ml`)
 
@@ -57,6 +57,69 @@ through the ATen kernel only (`aten_spec_verify --eval`) and promotes the pretty
 call + output shape + status as the golden reference — unlike `model_cram.t`/
 `pt2_load_cram.t`, this needs no `PT2_DATA` download to *run* (only to *generate* new
 fixtures), just the ATen C++ build.
+
+### 5. Native-vs-JavaScript differential (`js/probe`, `make js.runtest`)
+
+The only layer with **no committed golden at all**. `js/probe` is one source set built
+natively and again for js_of_ocaml (and, for its pure half, for Melange); the harness
+runs both and diffs. The native binary *is* the reference, so the two sides cannot
+drift apart the way a promoted golden and its producer can — and a stale expectation
+cannot be promoted over a real regression.
+
+That property is also its constraint: a check here must produce the *same* text on
+every backend, so it cannot print anything backend-specific. `probe_core` prints
+`backtrace-path-valid=true` rather than a slot count, because native captures frames
+and both JS runtimes take `Core.Error.pp_backtrace`'s "unavailable" branch — a count
+would differ by design and the diff could never pass.
+
+**A differential harness is blind to any fault that reproduces on both sides.** Both
+executables run the same source, so a broken encoder, a failed evaluation or a
+Direct-vs-Symbolic mismatch prints *identical* text either side and diffs clean. The
+diff only ever answers "do the backends agree", never "is the answer right". Every
+correctness verdict in `js/probe` therefore has to reach the **exit status**: fixtures
+abort through `Core.or_raise`/`failwith` per the section below, boolean verdicts are
+asserted rather than printed, and `Walk_core.Walk.run` returns whether every step
+verified so the entry point can fail on it. Adding a check that only prints is adding
+nothing.
+
+Gated on node, outside `make runtest`, run as two parallel CI jobs. What it covers and
+what it has already caught is in [[js_backends_design]].
+
+### 6. Expect tests under js_of_ocaml (`make jsoo.inline-runtest`)
+
+Layer 5's blind spot is precise — it cannot see a fault both backends share — and this
+is what covers it. `(inline_tests (modes best js))` on `test/native`, `test/native4d`
+and `pt2_test` runs the *existing* expect blocks under node against the *same committed
+goldens* the native run uses. So unlike the probe, it does answer "is the answer right",
+and it costs no new test code.
+
+The two layers are complementary, not redundant, and the split is worth keeping straight:
+
+| | layer 5 (probe) | layer 6 (expect under node) |
+|---|---|---|
+| reference | the native binary, same source | a committed golden |
+| answers | "do the backends agree" | "is the answer right" |
+| blind to | anything reproducing on both | anything not covered by an expect block |
+| backend-specific text | forbidden | forbidden *for the same reason* |
+
+**One `[%expect]` cannot hold two backends' answers.** That constraint is layer 5's rule
+arriving in a new place, and it bites wherever a value is legitimately backend-dependent:
+`Printexc` backtraces (js_of_ocaml captures none) and anything int-width- or
+float-formatting-dependent. The fix is the same shape every time — assert against an
+*oracle* rather than a spelled-out answer, and print only whether they agree.
+`backtrace_path_valid` in `test/native/core_test.ml` and the
+`Int32.unsigned_to_int` comparison in `test/pt2_test.ml` are the worked examples.
+
+**Two dune traps**, both of which fail silently rather than loudly:
+
+- **Never put `enabled_if` on the `inline_tests` stanza to gate the js mode.** It gates
+  the whole stanza, not one mode, so on a machine without node it disables `best` too and
+  the native suites quietly become empty — a green run that tested nothing.
+- **The root `dune` must set `(js_of_ocaml (runtest_alias runtest-js))`.** Without it the
+  js runs attach to `runtest`, and every `make runtest` starts linking js_of_ocaml.
+
+When adding a `(modes best js)` stanza, verify the native side still runs — break one
+golden on purpose and confirm `dune runtest` catches it. An empty stanza exits 0.
 
 ### PT2_DATA-gated crams: `(universe)` is required, not optional
 
