@@ -45,7 +45,10 @@ let ground (p : t) ~(bind : Tensor_id.t -> Tensor.packed) :
   let _, result =
     List.fold_left
       (fun (binds, result) (st : Stage.t) ->
-        let binding (s : Tensor_sig.t) = Tensor_id.Map.find s.id binds in
+        (* [find_opt], not [find]: a missing binding must reach the evaluator as
+           a value it can report, not a [Not_found] raised out of a map lookup
+           before any error path exists. *)
+        let binding id = Tensor_id.Map.find_opt id binds in
         let t = Schedule.ground st.sg.shape ~binding st.body in
         (Tensor_id.Map.add st.sg.id t binds, Tensor_id.Map.add st.id t result))
       (seed, Tensor_id.Map.empty)

@@ -225,11 +225,16 @@ and max_pool ~env ~coord ~rvars ~input ~kernel ~stride ~pad ~out ~result =
   and hhi = Stdlib.min h ((out_h * sh) - ph + kh) in
   let wlo = Stdlib.max 0 ((out_w * sw) - pw)
   and whi = Stdlib.min w ((out_w * sw) - pw + kw) in
+  (* Hoisted out of the fold. [out]'s four non-H/W components do not depend on
+     the window position, so re-evaluating them once per window ELEMENT is pure
+     waste -- and this sits on the grounding path whose cost the budget comment
+     below is about. *)
+  let others =
+    Vec6.mapi (fun a i -> if a = Axis.H || a = Axis.W then 0 else index i) out
+  in
   let read ih iw =
     leaf ~env input (fun a ->
-        if a = Axis.H then ih
-        else if a = Axis.W then iw
-        else index (Vec6.get out a))
+        if a = Axis.H then ih else if a = Axis.W then iw else Vec6.get others a)
   in
   let rec fold_w ih iw (best, best_index) =
     if iw >= whi then fold_h (ih + 1) (best, best_index)

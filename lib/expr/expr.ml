@@ -642,6 +642,22 @@ module Builder = struct
     let v, s = fresh_reduce s in
     let b, s = body (Index.reduce v) s in
     (Value.reduce { Reduction.kind; var = v; lo; hi; body = b }, s)
+
+  (* Assembles a reduction around an ALREADY-MINTED variable. Prefer
+     [reduction], which is correct by construction.
+
+     This exists for an adapter conforming to a non-monadic interface --
+     [SEMANTICS.sum] is a plain function -- where the supply is held in a ref.
+     Such an adapter must mint the variable and PUBLISH the advanced supply
+     before it evaluates the body, because the body may itself contain a nested
+     reduction that reads the same ref; doing it the other way round hands both
+     the same ordinal. Splitting minting from assembly is what makes that
+     ordering explicit rather than accidental.
+
+     The caller owes that [var] came from its own supply and is not already in
+     scope. [Check.value] verifies it. *)
+  let reduction_of ~kind ~var ~lo ~hi ~body =
+    Value.reduce { Reduction.kind; var; lo; hi; body }
 end
 
 (* ---- traversals ----------------------------------------------------------- *)

@@ -30,12 +30,27 @@ let evaluate (shape : Vec6.shape) (pixel : Vec6.coord -> float) =
   Tensor.materialize shape pixel
 
 (* The Symbolic counterpart: an op's [pixel] built once at [Symbolic] is an
-   [Symbolic_expr.t] with no data of its own — [ground] is what turns that expression
-   back into a concrete tensor, by evaluating it at every output coord against
-   a [binding] that supplies real data for each [Tensor_sig.t] it was built
-   over. The same expression can be grounded against different bindings
-   without rebuilding it. *)
-let ground (shape : Vec6.shape) ~(binding : Tensor_sig.t -> Tensor.packed)
+   [Symbolic_expr.t] with no data of its own — [ground] is what turns that
+   expression back into a concrete tensor, by evaluating it at every output
+   coord against a [binding] that supplies real data for each edge it was built
+   over. The same expression can be grounded against different bindings without
+   rebuilding it.
+
+   [binding] is keyed by [Tensor_id.t] and OPTION-valued, and both matter for
+   what comes next: [Expr.Eval] reports a missing source as a structured
+   [`Unknown_source], while a total binding can only signal one by raising —
+   [Tensor_id.Map.find] does exactly that today, before any error path could
+   see it. Behaviour-preserving for now, since the old evaluator still wants a
+   total signature-keyed function: [None] becomes a named failure rather than a
+   [Not_found] escaping from inside a map lookup. *)
+let ground (shape : Vec6.shape) ~(binding : Tensor_id.t -> Tensor.packed option)
     (e : Symbolic_expr.t) =
+  let total (s : Tensor_sig.t) =
+    match binding s.Tensor_sig.id with
+    | Some t -> t
+    | None ->
+        Fmt.failwith "Schedule.ground: no binding for %a" Tensor_id.pp
+          s.Tensor_sig.id
+  in
   Tensor.materialize shape (fun c ->
-      Symbolic_expr.eval ~binding ~coord:(coord_index c) e)
+      Symbolic_expr.eval ~binding:total ~coord:(coord_index c) e)

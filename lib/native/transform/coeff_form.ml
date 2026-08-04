@@ -73,13 +73,10 @@ let rec of_ground (e : Ground_expr.t) : t =
   match e with
   | Ground_expr.Const v -> constant v
   | Ground_expr.Round x -> of_ground x (* the [Equivalent] reading *)
-  | Ground_expr.Binary (Symbolic_expr.Add, a, b) ->
-      add (of_ground a) (of_ground b)
-  | Ground_expr.Binary (Symbolic_expr.Sub, a, b) ->
-      sub (of_ground a) (of_ground b)
-  | Ground_expr.Binary (Symbolic_expr.Mul, a, b) ->
-      mul (of_ground a) (of_ground b)
-  | Ground_expr.Binary (Symbolic_expr.Div, a, b) -> (
+  | Ground_expr.Binary (Expr.Value.Add, a, b) -> add (of_ground a) (of_ground b)
+  | Ground_expr.Binary (Expr.Value.Sub, a, b) -> sub (of_ground a) (of_ground b)
+  | Ground_expr.Binary (Expr.Value.Mul, a, b) -> mul (of_ground a) (of_ground b)
+  | Ground_expr.Binary (Expr.Value.Div, a, b) -> (
       let bp = of_ground b in
       match as_constant bp with
       | Some c when not (Float.equal c 0.) -> scale (1. /. c) (of_ground a)

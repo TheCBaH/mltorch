@@ -6,8 +6,13 @@
    is how the Symbolic instance is checked to agree with Direct.
    See .ai/native_symbolic_language.md §2.3, §2.4. *)
 
-type binary_op = Add | Sub | Mul | Div
-type unary_op = Exp | Sqrt
+(* Manifest aliases of the expression library's operator payloads, so the ground
+   language can be repointed at [Expr.Value] one commit before the AST cutover:
+   the constructors are literally the same, so both spellings work and nothing
+   else has to move. [Ground_expr] STORES these, which is why they had to be
+   decoupled ahead of the switch rather than during it. *)
+type binary_op = Expr.Value.binary_op = Add | Sub | Mul | Div
+type unary_op = Expr.Value.unary_op = Exp | Sqrt
 type compare_op = Lt
 type reduction_kind = Sum | Max_reduce
 

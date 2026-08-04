@@ -274,6 +274,27 @@ module Builder : sig
       [Reduction.t] is what makes scope correct by construction: the body cannot
       name a variable that is not this reduction's, and the variable cannot
       escape into a sibling. *)
+
+  val reduction_of :
+    kind:Reduction.kind ->
+    var:Reduce_var.t ->
+    lo:Role.Position.t Index.t ->
+    hi:Role.Delta.t Index.t ->
+    body:Value.t ->
+    Value.t
+  (** Assembles a reduction around an already-minted variable. Prefer
+      [reduction].
+
+      This is for an adapter conforming to a non-monadic interface — Native's
+      [SEMANTICS.sum] is a plain function — which must hold its supply in a ref.
+      Such an adapter has to mint the variable and PUBLISH the advanced supply
+      *before* evaluating the body, since the body may contain a nested
+      reduction reading that same ref; the other order hands both the same
+      ordinal, and the reducers collapse. Separating minting from assembly makes
+      that ordering explicit instead of accidental.
+
+      The caller owes that [var] came from its own supply and is not already in
+      scope; [Check.value] verifies it. *)
 end
 
 module Fold : sig
@@ -455,7 +476,7 @@ module Pp : sig
       output cannot depend on allocation history. *)
 
   val value : Format.formatter -> Value.t -> unit
-  (** Assigns reducer display names r0, r1, ... in LEXICAL order, so two
+  (** Assigns reducer display names r1, r2, ... in LEXICAL order, so two
       structurally identical formulas built by independent supplies print
       identically. The naming environment is SCOPED, so sibling scopes binding
       the same identity — well-scoped, and accepted by [Check] — still get

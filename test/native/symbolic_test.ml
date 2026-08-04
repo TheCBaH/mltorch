@@ -49,6 +49,9 @@ let conv_params ?(groups = 1) ?(pad = (0, 0)) ~kernel ~stride ~in_channels () =
     groups = Op_config.Pos.of_int groups;
   }
 
+(* [~binding] is id-keyed and option-valued, matching [Schedule.ground]: a
+   missing binding is a value the evaluator can report rather than a [Not_found]
+   raised out of a map lookup. *)
 let compare_grounded out_shape_result ~binding ~expr ~eval_direct =
   let open Core.Syntax in
   let* out_shape = out_shape_result in
@@ -254,9 +257,7 @@ let%expect_test "Symbolic ground: relu over several different inputs" =
   List.iter
     (fun vals ->
       let x = Tensor.materialize x_shape (fun c -> vals.(chan c)) in
-      let binding (s : Tensor_sig.t) =
-        if s.id = xs.id then x else assert false
-      in
+      let binding id = if id = xs.id then Some x else None in
       Format.printf "%a@."
         (pp_result pp_ground_result)
         (compare_grounded
@@ -295,8 +296,8 @@ let%expect_test "Symbolic ground: add over several different input pairs" =
     (fun (xv, yv) ->
       let x = Tensor.materialize x_shape (fun c -> xv.(chan c)) in
       let y = Tensor.materialize y_shape (fun c -> yv.(chan c)) in
-      let binding (s : Tensor_sig.t) =
-        if s.id = xs.id then x else if s.id = ys.id then y else assert false
+      let binding id =
+        if id = xs.id then Some x else if id = ys.id then Some y else None
       in
       Format.printf "%a@."
         (pp_result pp_ground_result)
@@ -349,8 +350,10 @@ let%expect_test
       let x = Tensor.materialize x_shape fx in
       let weight = Tensor.materialize weight_shape fw in
       let bias = Tensor.materialize (s1c 1) fb in
-      let binding (s : Tensor_sig.t) =
-        if s.id = xs.id then x else if s.id = ws.id then weight else bias
+      let binding id =
+        if id = xs.id then Some x
+        else if id = ws.id then Some weight
+        else Some bias
       in
       Format.printf "%a@."
         (pp_result pp_ground_result)
@@ -397,9 +400,7 @@ let%expect_test "Symbolic ground: max_pool2d over several different inputs" =
   List.iter
     (fun fx ->
       let x = Tensor.materialize x_shape fx in
-      let binding (s : Tensor_sig.t) =
-        if s.id = xs.id then x else assert false
-      in
+      let binding id = if id = xs.id then Some x else None in
       Format.printf "%a@."
         (pp_result pp_ground_result)
         (compare_grounded
@@ -444,9 +445,7 @@ let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
   List.iter
     (fun fx ->
       let x = Tensor.materialize x_shape fx in
-      let binding (s : Tensor_sig.t) =
-        if s.id = xs.id then x else assert false
-      in
+      let binding id = if id = xs.id then Some x else None in
       Format.printf "%a@."
         (pp_result pp_ground_result)
         (compare_grounded
@@ -500,8 +499,10 @@ let%expect_test
       let x = Tensor.materialize x_shape (fun c -> xv.(chan c)) in
       let weight = Tensor.materialize weight_shape fw in
       let bias = Tensor.materialize bias_shape (fun c -> bv.(chan c)) in
-      let binding (s : Tensor_sig.t) =
-        if s.id = xs.id then x else if s.id = ws.id then weight else bias
+      let binding id =
+        if id = xs.id then Some x
+        else if id = ws.id then Some weight
+        else Some bias
       in
       Format.printf "%a@."
         (pp_result pp_ground_result)
@@ -538,9 +539,7 @@ let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
   List.iter
     (fun fx ->
       let x = Tensor.materialize x_shape fx in
-      let binding (s : Tensor_sig.t) =
-        if s.id = xs.id then x else assert false
-      in
+      let binding id = if id = xs.id then Some x else None in
       Format.printf "%a@."
         (pp_result pp_ground_result)
         (compare_grounded
@@ -620,10 +619,10 @@ let%expect_test
     (fun (fi, fm) ->
       let input = Tensor.materialize input_shape fi in
       let mat2 = Tensor.materialize mat2_shape fm in
-      let binding (s : Tensor_sig.t) =
-        if s.id = ins.id then input
-        else if s.id = m2s.id then mat2
-        else assert false
+      let binding id =
+        if id = ins.id then Some input
+        else if id = m2s.id then Some mat2
+        else None
       in
       Format.printf "%a@."
         (pp_result pp_ground_result)
@@ -677,9 +676,7 @@ let%expect_test "Symbolic max_pool2d: agrees with Direct on signed zero and NaN"
       in
       let p = row_pool n in
       let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
-      let binding (s : Tensor_sig.t) =
-        if s.id = xs.id then x else assert false
-      in
+      let binding id = if id = xs.id then Some x else None in
       Format.printf "%s: %a@." name
         (pp_result (fun ppf (_, ok) -> Format.fprintf ppf "match=%b" ok))
         (compare_grounded
