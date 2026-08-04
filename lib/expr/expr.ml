@@ -767,62 +767,93 @@ module Fold = struct
      and what counts as a level. *)
   exception Over of [ `Size | `Depth ]
 
+  (* The node budget is THREADED, not held in a ref: every traversal takes the
+     count still available and returns what it left, so a sibling is measured
+     against what its predecessor consumed rather than against a shared cell.
+     Each function returns [(depth, left)]. *)
   let measure ~max_size ~max_depth e =
-    let left = ref max_size in
     (* Charged once per node, before descending: that is what keeps the
        recursion inside the budget rather than merely reporting on it. *)
-    let node budget =
+    let node budget left =
       if budget <= 0 then raise_notrace (Over `Depth);
-      if !left <= 0 then raise_notrace (Over `Size);
-      decr left
+      if left <= 0 then raise_notrace (Over `Size);
+      left - 1
     in
-    let rec index : type r. int -> r Index.t -> int =
-     fun budget i ->
-      node budget;
+    let rec index : type r. int -> int -> r Index.t -> int * int =
+     fun budget left i ->
+      let left = node budget left in
       let sub = budget - 1 in
+      let one a =
+        let d, left = index sub left a in
+        (1 + d, left)
+      in
       match i with
-      | Index.Output _ | Index.Reduce _ | Index.Zero | Index.Const _ -> 1
+      | Index.Output _ | Index.Reduce _ | Index.Zero | Index.Const _ -> (1, left)
       (* Separate arm: [Of_position]'s operand is a position, the rest are
          deltas, and an or-pattern cannot bind [a] at both roles. *)
-      | Index.Of_position a -> 1 + index sub a
+      | Index.Of_position a -> one a
       | Index.Scale (_, a)
       | Index.Floor_div_pos (a, _)
       | Index.Ceil_div_pos (a, _)
       | Index.Clamp_low a
       | Index.Assume_position a ->
-          1 + index sub a
+          one a
       | Index.Add (a, b) | Index.Min (a, b) | Index.Max (a, b) ->
-          1 + Stdlib.max (index sub a) (index sub b)
+          let da, left = index sub left a in
+          let db, left = index sub left b in
+          (1 + Stdlib.max da db, left)
     in
-    let coord budget c =
-      Coord.fold (fun m i -> Stdlib.max m (index budget i)) 0 c
+    let coord budget left c =
+      Coord.fold
+        (fun (m, left) i ->
+          let d, left = index budget left i in
+          (Stdlib.max m d, left))
+        (0, left) c
     in
-    let rec value budget (e : Value.t) =
-      node budget;
+    let rec value budget left (e : Value.t) =
+      let left = node budget left in
       let sub = budget - 1 in
       match e with
-      | Value.Const _ -> 1
-      | Value.Value_of_index i -> 1 + index sub i
-      | Value.Load (_, c) -> 1 + coord sub c
-      | Value.Unary (_, a) | Value.Round_f32 a -> 1 + value sub a
-      | Value.Binary (_, a, b) -> 1 + Stdlib.max (value sub a) (value sub b)
+      | Value.Const _ -> (1, left)
+      | Value.Value_of_index i ->
+          let d, left = index sub left i in
+          (1 + d, left)
+      | Value.Load (_, c) ->
+          let d, left = coord sub left c in
+          (1 + d, left)
+      | Value.Unary (_, a) | Value.Round_f32 a ->
+          let d, left = value sub left a in
+          (1 + d, left)
+      | Value.Binary (_, a, b) ->
+          let da, left = value sub left a in
+          let db, left = value sub left b in
+          (1 + Stdlib.max da db, left)
       | Value.Select (c, a, b) ->
-          let g =
+          let g, left =
             match c with
-            | Bool.Value_lt (x, y) -> Stdlib.max (value sub x) (value sub y)
-            | Bool.Index_eq (x, y) -> Stdlib.max (index sub x) (index sub y)
+            | Bool.Value_lt (x, y) ->
+                let dx, left = value sub left x in
+                let dy, left = value sub left y in
+                (Stdlib.max dx dy, left)
+            | Bool.Index_eq (x, y) ->
+                let dx, left = index sub left x in
+                let dy, left = index sub left y in
+                (Stdlib.max dx dy, left)
           in
-          1 + Stdlib.max g (Stdlib.max (value sub a) (value sub b))
+          let da, left = value sub left a in
+          let db, left = value sub left b in
+          (1 + Stdlib.max g (Stdlib.max da db), left)
       | Value.Reduce r ->
-          1
-          + Stdlib.max
-              (Stdlib.max (index sub r.Reduction.lo) (index sub r.Reduction.hi))
-              (value sub r.Reduction.body)
+          let dlo, left = index sub left r.Reduction.lo in
+          let dhi, left = index sub left r.Reduction.hi in
+          let dbody, left = value sub left r.Reduction.body in
+          (1 + Stdlib.max (Stdlib.max dlo dhi) dbody, left)
       | Value.Intrinsic (Intrinsic.Max_pool d) ->
-          1 + coord sub d.Intrinsic.Max_pool.out
+          let dc, left = coord sub left d.Intrinsic.Max_pool.out in
+          (1 + dc, left)
     in
-    let d = value max_depth e in
-    (max_size - !left, d)
+    let d, left = value max_depth max_size e in
+    (max_size - left, d)
 
   let unmetered e = measure ~max_size:Stdlib.max_int ~max_depth:Stdlib.max_int e
   let size e = fst (unmetered e)
