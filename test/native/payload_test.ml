@@ -29,7 +29,7 @@ let%expect_test "decode f32 and bf16 (real, no metadata)" =
 
 let%expect_test
     "decode i8 (quantized: needs metadata) + round-trip via set_float" =
-  let q = Quant.Per_tensor { scale = 0.5; zero_point = 0 } in
+  let q = Quant.per_tensor ~scale:0.5 ~zero_point:0 in
   let p =
     {
       fmt = I8;

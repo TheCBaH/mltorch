@@ -91,6 +91,13 @@ let pp : type e b q. Format.formatter -> (e, b, q) payload -> unit =
 
 (* ---- JSON codecs ---------------------------------------------------------- *)
 
+(* Whether decoding a cell of this format needs quantization metadata. The
+   [`Real]/[`Quant] tag says so exactly, but [packed_fmt] hides it, so a holder
+   of a packed format — [Tensor_sig.t], whose [quant] field is a plain option
+   the record cannot constrain — has no other way to ask. *)
+let is_quantized (Fmt f) =
+  match f with I8 | I16 -> true | F32 | F16 | BF16 | I32 | I64 -> false
+
 let packed_fmt_jsont : packed_fmt Jsont.t =
   Jsont.map ~kind:"fmt"
     ~dec:(fun s ->

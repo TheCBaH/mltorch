@@ -331,10 +331,35 @@ Affine (asymmetric) quantization: `real = scale * (q - zero_point)`, the
 TFLite/PyTorch convention. Two granularities, chosen per tensor:
 
 ```ocaml
-type quant =
-  | Per_tensor  of { scale : float;       zero_point : int }
-  | Per_channel of { scale : float array; zero_point : int array }   (* length = C *)
+type t                                        (* ABSTRACT *)
+type error = [ `Quant_array_lengths of int * int ]
+
+val per_tensor  : scale:float -> zero_point:int -> t
+val per_channel : scale:float array -> zero_point:int array -> (t, error) Core.result
+val channel_count : t -> int option           (* None for per-tensor *)
+val equal : t -> t -> bool
 ```
+
+`t` is **abstract**, and the constructors **copy**. A public variant would hand
+out its `float array` and `int array` by reference, so a caller could reach a
+validated `Tensor_sig.t` — through `Kernel.inputs`, say — and mutate the
+semantic metadata after construction, or after a `Fusion_plan.t` had been built
+over it. Copying at the consumer would not help: the copy stays reachable and
+mutable. Nothing in the interface returns the stored arrays.
+
+`per_channel` is result-valued because copying establishes *ownership* but not
+the **equal-length invariant**, which is this module's own. That the common
+length equals a tensor's C extent is a different claim, belonging to whoever
+owns the shape — `channel_count` is what lets them check it, and it is the only
+way to ask about granularity once the variant is hidden. Probing with `params`
+is not a substitute: a per-tensor value accepts every channel, while a short
+per-channel array raises at exactly the boundary a caller is trying to make safe.
+
+`equal` compares granularity, array lengths, every zero point, and every scale
+by `Int64.bits_of_float` — never `Float.equal`, for the reason `Tensor.equal_bits`
+states. `jsont` decodes through `per_channel`, carrying the constructor's error
+into `Jsont.Error` through the named `of_core_for_jsont`, so a malformed
+document becomes an ordinary decode `Error` rather than an escaping exception.
 
 - **Per-tensor** — one (scale, zero_point) for the whole tensor (typical for activations).
 - **Per-channel** — one (scale, zero_point) per channel along **C**, indexed by `Vec6.get c C`

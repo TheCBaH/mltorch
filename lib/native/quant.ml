@@ -6,7 +6,48 @@
 type t =
   | Per_tensor of { scale : float; zero_point : int }
   | Per_channel of { scale : float array; zero_point : int array }
-(* length = C *)
+(* equal lengths, by construction *)
+
+type error = [ `Quant_array_lengths of int * int ]
+
+let pp_error fmt : [< error ] -> unit = function
+  | `Quant_array_lengths (s, z) ->
+      Fmt.pf fmt "quant scale/zero_point lengths differ: %d vs %d" s z
+
+let per_tensor ~scale ~zero_point = Per_tensor { scale; zero_point }
+
+(* [Array.copy] on both: the caller keeps its arrays and may mutate them, and
+   nothing below hands the stored ones back out. *)
+let per_channel ~scale ~zero_point =
+  let ls = Array.length scale and lz = Array.length zero_point in
+  if ls <> lz then Core.fail (`Quant_array_lengths (ls, lz))
+  else
+    Core.return
+      (Per_channel
+         { scale = Array.copy scale; zero_point = Array.copy zero_point })
+
+let channel_count = function
+  | Per_tensor _ -> None
+  | Per_channel { scale; _ } -> Some (Array.length scale)
+
+let equal a b =
+  let bits x = Int64.bits_of_float x in
+  match (a, b) with
+  | Per_tensor x, Per_tensor y ->
+      Int64.equal (bits x.scale) (bits y.scale) && x.zero_point = y.zero_point
+  | Per_channel x, Per_channel y ->
+      Array.length x.scale = Array.length y.scale
+      (* [for_all2] would raise on a length mismatch, which the guard above
+            already rules out; the explicit check keeps that local. *)
+      && Array.for_all2
+           (fun p q -> Int64.equal (bits p) (bits q))
+           x.scale y.scale
+      && Array.for_all2 ( = ) x.zero_point y.zero_point
+  | Per_tensor _, Per_channel _ | Per_channel _, Per_tensor _ -> false
+
+let of_core_for_jsont = function
+  | Ok v -> v
+  | Error e -> Jsont.Error.msgf Jsont.Meta.none "%a" pp_error e.Core.Error.kind
 
 let params t ~c =
   match t with
@@ -43,14 +84,16 @@ let jsont : t Jsont.t =
               let zero_point =
                 Array.of_list (get "zero_point" (Jsont.list Jsont.int))
               in
-              Per_channel { scale; zero_point } );
+              (* Through the constructor, so a document with mismatched arrays
+                 is rejected here rather than raising later out of [params]. *)
+              of_core_for_jsont (per_channel ~scale ~zero_point) );
           ( "Per_tensor",
             fun v ->
               let ms = Json_util.req_obj v "Per_tensor" in
               let get k c = Json_util.req_field ms k c "Per_tensor" in
               let scale = get "scale" Json_util.f32_jsont in
               let zero_point = get "zero_point" Jsont.int in
-              Per_tensor { scale; zero_point } );
+              per_tensor ~scale ~zero_point );
         ]
         json)
     ~enc:(fun q ->
