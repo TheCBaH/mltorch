@@ -73,7 +73,7 @@ end
 
 (* One parameter, not two: the tensor map stays [Tensor_sig.t], whose shape is a
    [Vec6.shape] in every dialect. Parametrising the signature by shape type
-   would drag [Stage_program], [Expr], [Symbolic] and [Ground_expr] through a
+   would drag [Stage_program], [Symbolic_expr], [Symbolic] and [Ground_expr] through a
    functor for no gain — the physical frame is identical across the dialect
    boundary. See .ai/native4d_plan.md, correction C3. *)
 module Graph = struct

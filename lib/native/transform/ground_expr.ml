@@ -115,13 +115,13 @@ end
 type guard = Lt of t * t | Pool_better of { best : t; value : t }
 
 and t =
-  | Binary of Expr.binary_op * t * t
+  | Binary of Symbolic_expr.binary_op * t * t
   | Cell of Cell.t
   | Const of float
   | Max of Max_op.t * t * t
   | Round of t
   | Select of guard * t * t
-  | Unary of Expr.unary_op * t
+  | Unary of Symbolic_expr.unary_op * t
 
 (* ---- f32 storage ---------------------------------------------------------- *)
 
@@ -252,17 +252,18 @@ and erase_rounds_guard = function
 
 let rec eval e v =
   match e with
-  | Binary (op, a, b) -> Expr.apply_binary_op op (eval a v) (eval b v)
+  | Binary (op, a, b) -> Symbolic_expr.apply_binary_op op (eval a v) (eval b v)
   | Cell c -> Valuation.find v c
   | Const x -> x
   | Max (op, a, b) -> Max_op.apply op (eval a v) (eval b v)
   | Round x -> to_f32 (eval x v)
   | Select (g, a, b) -> if eval_guard g v then eval a v else eval b v
-  | Unary (op, x) -> Expr.apply_unary_op op (eval x v)
+  | Unary (op, x) -> Symbolic_expr.apply_unary_op op (eval x v)
 
 and eval_guard g v =
   match g with
-  | Lt (a, b) -> Expr.apply_compare_op Expr.Lt (eval a v) (eval b v)
+  | Lt (a, b) ->
+      Symbolic_expr.apply_compare_op Symbolic_expr.Lt (eval a v) (eval b v)
   | Pool_better { best; value } ->
       Max_op.pool_better ~best:(eval best v) ~value:(eval value v)
 
@@ -270,7 +271,7 @@ and eval_guard g v =
 
 let rec pp fmt = function
   | Binary (op, a, b) ->
-      Fmt.pf fmt "(%a %s %a)" pp a (Expr.binary_op_sym op) pp b
+      Fmt.pf fmt "(%a %s %a)" pp a (Symbolic_expr.binary_op_sym op) pp b
   | Cell c -> Cell.pp fmt c
   | Const x -> Fmt.pf fmt "%h" x
   | Max (op, a, b) ->
@@ -279,7 +280,7 @@ let rec pp fmt = function
         pp a pp b
   | Round x -> Fmt.pf fmt "f32(%a)" pp x
   | Select (g, a, b) -> Fmt.pf fmt "select(%a, %a, %a)" pp_guard g pp a pp b
-  | Unary (op, x) -> Fmt.pf fmt "%s(%a)" (Expr.unary_op_name op) pp x
+  | Unary (op, x) -> Fmt.pf fmt "%s(%a)" (Symbolic_expr.unary_op_name op) pp x
 
 and pp_guard fmt = function
   | Lt (a, b) -> Fmt.pf fmt "(%a < %a)" pp a pp b
@@ -313,7 +314,10 @@ let normalise ~stored_f32 e =
         let blocked, a = go blocked a in
         let blocked, b = go blocked b in
         ( blocked,
-          fold2 (fun a b -> Binary (op, a, b)) (Expr.apply_binary_op op) a b )
+          fold2
+            (fun a b -> Binary (op, a, b))
+            (Symbolic_expr.apply_binary_op op)
+            a b )
     | (Cell _ | Const _) as leaf -> (blocked, leaf)
     | Max (op, a, b) ->
         let blocked, a = go blocked a in
@@ -347,7 +351,7 @@ let normalise ~stored_f32 e =
         let blocked, x = go blocked x in
         ( blocked,
           match closed x with
-          | Some v -> Const (Expr.apply_unary_op op v)
+          | Some v -> Const (Symbolic_expr.apply_unary_op op v)
           | None -> Unary (op, x) ))
   and go_guard blocked = function
     | Lt (a, b) ->
@@ -361,7 +365,8 @@ let normalise ~stored_f32 e =
   and guard_value = function
     | Lt (a, b) -> (
         match (closed a, closed b) with
-        | Some x, Some y -> Some (Expr.apply_compare_op Expr.Lt x y)
+        | Some x, Some y ->
+            Some (Symbolic_expr.apply_compare_op Symbolic_expr.Lt x y)
         | _ -> None)
     | Pool_better { best; value } -> (
         match (closed best, closed value) with

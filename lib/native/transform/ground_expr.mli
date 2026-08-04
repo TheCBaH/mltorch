@@ -1,4 +1,4 @@
-(* The per-coordinate ground form of a stage body: an [Expr.t] with every index
+(* The per-coordinate ground form of a stage body: an [Symbolic_expr.t] with every index
    expression evaluated at one concrete output coordinate, every [Reduce]
    unrolled at its now-concrete bounds, and every [Max_pool] window expanded.
    No binders survive, so two ground expressions denote the same value exactly
@@ -75,13 +75,13 @@ type guard = Lt of t * t | Pool_better of { best : t; value : t }
          constructor rather than an encoding as a comparison. *)
 
 and t =
-  | Binary of Expr.binary_op * t * t
+  | Binary of Symbolic_expr.binary_op * t * t
   | Cell of Cell.t
   | Const of float
   | Max of Max_op.t * t * t
   | Round of t (* A stage boundary: this value is stored, and storage is f32. *)
   | Select of guard * t * t
-  | Unary of Expr.unary_op * t
+  | Unary of Symbolic_expr.unary_op * t
 
 val cells : t -> Cell.Set.t
 

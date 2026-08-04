@@ -19,7 +19,7 @@ let for_each = Vec6.iter
 let coord_index_dim (c : Vec6.coord) (a : Axis.t) : Dim.index Dim.t =
   match a with N -> c.n | T -> c.t | D -> c.d | H -> c.h | W -> c.w | C -> c.c
 
-(* Raw-[int] counterpart, for [ground]/[Expr.eval] below: [Expr]'s own
+(* Raw-[int] counterpart, for [ground]/[Symbolic_expr.eval] below: [Symbolic_expr]'s own
    arithmetic is plain-int, unrelated to [Dim.t] (it interprets a [Symbolic]
    AST, not [Direct]'s index representation), so it needs the coercion
    [coord_index_dim] deliberately skips. *)
@@ -30,12 +30,12 @@ let evaluate (shape : Vec6.shape) (pixel : Vec6.coord -> float) =
   Tensor.materialize shape pixel
 
 (* The Symbolic counterpart: an op's [pixel] built once at [Symbolic] is an
-   [Expr.t] with no data of its own — [ground] is what turns that expression
+   [Symbolic_expr.t] with no data of its own — [ground] is what turns that expression
    back into a concrete tensor, by evaluating it at every output coord against
    a [binding] that supplies real data for each [Tensor_sig.t] it was built
    over. The same expression can be grounded against different bindings
    without rebuilding it. *)
 let ground (shape : Vec6.shape) ~(binding : Tensor_sig.t -> Tensor.packed)
-    (e : Expr.t) =
+    (e : Symbolic_expr.t) =
   Tensor.materialize shape (fun c ->
-      Expr.eval ~binding ~coord:(coord_index c) e)
+      Symbolic_expr.eval ~binding ~coord:(coord_index c) e)

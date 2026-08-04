@@ -146,38 +146,39 @@ let pp_error fmt : [< error ] -> unit = function
 (* [Load]s become leaves through [leaf]; every index is evaluated at [coord]
    (and at the enclosing reduction variables), which is what removes the
    binders. *)
-let rec ground ~env ~coord ~rvars (e : Expr.t) : Ground_expr.t =
+let rec ground ~env ~coord ~rvars (e : Symbolic_expr.t) : Ground_expr.t =
   let recur = ground ~env ~coord ~rvars in
-  let index i = Expr.eval_index_expr ~coord ~rvars i in
+  let index i = Symbolic_expr.eval_index_expr ~coord ~rvars i in
   match e with
-  | Expr.Const x -> Ground_expr.Const x
-  | Expr.Binary (op, a, b) -> Ground_expr.Binary (op, recur a, recur b)
-  | Expr.Unary (op, x) -> Ground_expr.Unary (op, recur x)
-  | Expr.Value_of_index i -> Ground_expr.Const (float_of_int (index i))
-  | Expr.Select (c, a, b) -> (
+  | Symbolic_expr.Const x -> Ground_expr.Const x
+  | Symbolic_expr.Binary (op, a, b) -> Ground_expr.Binary (op, recur a, recur b)
+  | Symbolic_expr.Unary (op, x) -> Ground_expr.Unary (op, recur x)
+  | Symbolic_expr.Value_of_index i -> Ground_expr.Const (float_of_int (index i))
+  | Symbolic_expr.Select (c, a, b) -> (
       match c with
       (* An index comparison is decided by the coordinate, so the [Select]
          collapses outright rather than surviving as a guard. *)
-      | Expr.Index_eq (x, y) ->
+      | Symbolic_expr.Index_eq (x, y) ->
           if Int.equal (index x) (index y) then recur a else recur b
-      | Expr.Cmp (Expr.Lt, x, y) ->
+      | Symbolic_expr.Cmp (Symbolic_expr.Lt, x, y) ->
           Ground_expr.Select
             (Ground_expr.Lt (recur x, recur y), recur a, recur b))
-  | Expr.Load (sg, idx) -> leaf ~env sg (fun a -> index (Vec6.get idx a))
-  | Expr.Max_pool { input; kernel; stride; pad; out; result } ->
+  | Symbolic_expr.Load (sg, idx) ->
+      leaf ~env sg (fun a -> index (Vec6.get idx a))
+  | Symbolic_expr.Max_pool { input; kernel; stride; pad; out; result } ->
       max_pool ~env ~coord ~rvars ~input ~kernel ~stride ~pad ~out ~result
-  | Expr.Reduce { kind; var; lo; hi; body } ->
+  | Symbolic_expr.Reduce { kind; var; lo; hi; body } ->
       let lo = index lo and hi = index hi in
       let combine, seed =
         match kind with
-        | Expr.Sum ->
-            ( (fun a b -> Ground_expr.Binary (Expr.Add, a, b)),
+        | Symbolic_expr.Sum ->
+            ( (fun a b -> Ground_expr.Binary (Symbolic_expr.Add, a, b)),
               Ground_expr.Const 0. )
-        | Expr.Max_reduce ->
+        | Symbolic_expr.Max_reduce ->
             ( (fun a b -> Ground_expr.Max (Max_op.Float_max, a, b)),
               Ground_expr.Const neg_infinity )
       in
-      (* Same left fold, same seed and same order as [Expr.eval]'s arm — the
+      (* Same left fold, same seed and same order as [Symbolic_expr.eval]'s arm — the
          ground form has to reproduce the engine's association, not merely its
          value. *)
       let rec fold i acc =
@@ -189,7 +190,7 @@ let rec ground ~env ~coord ~rvars (e : Expr.t) : Ground_expr.t =
       fold lo seed
 
 (* A [Load] of a synthetic constant fill is that constant; a [Load] of a bound
-   model constant is its stored element, read exactly the way [Expr.eval] reads
+   model constant is its stored element, read exactly the way [Symbolic_expr.eval] reads
    it; anything else is a free cell. *)
 and leaf ~env (sg : Tensor_sig.t) at_axis : Ground_expr.t =
   let id = sg.Tensor_sig.id in
@@ -207,12 +208,12 @@ and leaf ~env (sg : Tensor_sig.t) at_axis : Ground_expr.t =
         }
 
 (* The window is concrete, so the stencil expands into the same paired fold
-   [Direct]/[Expr.eval] run: one predicate advancing value and index together.
+   [Direct]/[Symbolic_expr.eval] run: one predicate advancing value and index together.
    The value accumulator is a binary [Max] node, so it is mentioned once and
    the fold stays linear in the window; the index accumulator has to name the
    running best inside its guard, which is why it is the larger of the two. *)
 and max_pool ~env ~coord ~rvars ~input ~kernel ~stride ~pad ~out ~result =
-  let index i = Expr.eval_index_expr ~coord ~rvars i in
+  let index i = Symbolic_expr.eval_index_expr ~coord ~rvars i in
   let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.Op_config.Hw.w :> int))
   and sh, sw = ((stride.Op_config.Hw.h :> int), (stride.Op_config.Hw.w :> int))
   and ph, pw = ((pad.Op_config.Hw.h :> int), (pad.Op_config.Hw.w :> int)) in
@@ -245,8 +246,8 @@ and max_pool ~env ~coord ~rvars ~input ~kernel ~stride ~pad ~out ~result =
     fold_h hlo (Ground_expr.Const neg_infinity, Ground_expr.Const 0.)
   in
   match result with
-  | Expr.Max_pool.Value -> best
-  | Expr.Max_pool.Index -> best_index
+  | Symbolic_expr.Max_pool.Value -> best
+  | Symbolic_expr.Max_pool.Index -> best_index
 
 (* ---- the interface -------------------------------------------------------- *)
 

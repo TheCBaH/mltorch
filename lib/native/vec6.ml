@@ -92,7 +92,7 @@ let of_fn (f : Axis.t -> 'd) : 'd t =
    constructor. [shape]/[coord]/[deltas] below are the checked, [Dim.t]-role
    form (going through [Dim.extent]/[Dim.index]/[Dim.delta]); a caller with a
    payload that isn't a [Dim.t] role at all (e.g. a symbolic sub-expression —
-   see [Expr.Load]) has nothing to check, so uses this directly. *)
+   see [Symbolic_expr.Load]) has nothing to check, so uses this directly. *)
 let make ~n ~t ~d ~h ~w ~c = { n; t; d; h; w; c }
 
 let shape ~n ~t ~d ~h ~w ~c =

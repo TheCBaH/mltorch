@@ -36,7 +36,7 @@ val origin : coord (* all zero *)
 
 (* Unchecked general-purpose constructor, for a payload that isn't a [Dim.t]
    role at all (so there's nothing for [shape]/[coord]/[deltas]'s checked
-   constructors to check) — e.g. [Expr.Load]'s 6 per-axis sub-expressions.
+   constructors to check) — e.g. [Symbolic_expr.Load]'s 6 per-axis sub-expressions.
    [shape]/[coord]/[deltas] are themselves built on this. *)
 val make : n:'d -> t:'d -> d:'d -> h:'d -> w:'d -> c:'d -> 'd t
 

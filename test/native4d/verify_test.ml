@@ -3,7 +3,7 @@
    compare two different closed operation types at the same coordinates.
 
    It can because nothing below the two [Stage_program.t]s knows about dialects.
-   Both sides ground to terms over the same [Expr], at the same [Vec6.coord],
+   Both sides ground to terms over the same [Symbolic_expr], at the same [Vec6.coord],
    because the conversion preserves physical shapes (§4.1) — so no axis map is
    needed in a cluster and the existing machinery applies unchanged.
 

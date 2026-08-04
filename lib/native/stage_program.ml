@@ -5,7 +5,7 @@
 open Graph_ir
 
 module Stage = struct
-  type t = { id : Tensor_id.t; sg : Tensor_sig.t; body : Expr.t }
+  type t = { id : Tensor_id.t; sg : Tensor_sig.t; body : Symbolic_expr.t }
 end
 
 type t = {
@@ -23,7 +23,7 @@ let pp fmt (p : t) =
     (comma (List.map (fun (id, _) -> name_of id) p.inputs));
   List.iter
     (fun (st : Stage.t) ->
-      Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Expr.pp st.body)
+      Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Symbolic_expr.pp st.body)
     p.stages;
   Format.fprintf fmt "outputs: %s@]" (comma (List.map name_of p.outputs))
 

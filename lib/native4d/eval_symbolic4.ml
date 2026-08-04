@@ -3,7 +3,7 @@
 
    That the result type is shared and unparameterised is what makes cross-dialect
    verification cheap: [Stage_program.t] is typed on [Tensor_id.t],
-   [Tensor_sig.t] and [Expr.t], none of which are dialect-specific, so the whole
+   [Tensor_sig.t] and [Symbolic_expr.t], none of which are dialect-specific, so the whole
    grounding and comparison machinery below [Map_verify] works on a Native4D
    program with no change at all. Design §9.3 assumes this; it holds only because
    Native4D reuses [Tensor_sig.t] verbatim (correction C3). *)

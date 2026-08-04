@@ -2,11 +2,11 @@
 
    They exist as a shared module rather than as open-coded [Float.max]/[>] at each
    site because THREE interpreters have to agree bit-for-bit: [Direct] runs the
-   computation, [Expr.eval] grounds the symbolic form against it, and (see
+   computation, [Symbolic_expr.eval] grounds the symbolic form against it, and (see
    .ai/native_transform_verify.md) the transformation verifier probes against both.
    A divergence between any two is a verifier that disagrees with the engine it
    verifies — which is exactly what happened before this module existed: [Direct]
-   pooled with [Float.max] while [Expr.eval] pooled with a strict [>], so the two
+   pooled with [Float.max] while [Symbolic_expr.eval] pooled with a strict [>], so the two
    disagreed on -0. vs +0. and on NaN.
 
    The two operators are genuinely different and must not be conflated:

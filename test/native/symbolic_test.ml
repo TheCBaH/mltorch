@@ -68,9 +68,9 @@ let%expect_test "Symbolic: pointwise expr pp" =
     Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"y" ~shape:(s1c 3) ~fmt:f32
       ()
   in
-  Format.printf "%a@." Expr.pp (R.pixel xs Symbolic.out_vec);
+  Format.printf "%a@." Symbolic_expr.pp (R.pixel xs Symbolic.out_vec);
   [%expect {| select((t0[N,T,D,H,W,C] < 0), 0, t0[N,T,D,H,W,C]) |}];
-  Format.printf "%a@." Expr.pp
+  Format.printf "%a@." Symbolic_expr.pp
     (A.pixel ~a_shape:(s1c 3) ~b_shape:(s1c 3) xs ys Symbolic.out_vec);
   (* the broadcast (extent-1) axes are read at index 0 — [load] is strict *)
   [%expect {| (t0[0,0,0,0,0,C] + t1[0,0,0,0,0,C]) |}]
@@ -103,7 +103,7 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
     Cs.pixel p ~x_shape ~weight_shape:w_shape ~x:xs ~weight:ws ~bias:bs
       Symbolic.out_vec
   in
-  Format.printf "%a@." Expr.pp e;
+  Format.printf "%a@." Symbolic_expr.pp e;
   [%expect
     {| (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (t0[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * t1[C,0,0,r2,r3,r1])))) + t2[0,0,0,0,0,C]) |}];
   let binding (s : Tensor_sig.t) =
@@ -115,7 +115,7 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
        ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1)
        ~eval_direct:(Cd.pixel p ~x_shape ~weight_shape:w_shape ~x ~weight ~bias)
        ~eval_symbolic:(fun c ->
-         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+         Symbolic_expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect {| eval=8,12,20,24 direct==symbolic=true |}]
 
@@ -145,14 +145,14 @@ let%expect_test
     }
   in
   let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
-  Format.printf "%a@." Expr.pp e;
+  Format.printf "%a@." Symbolic_expr.pp e;
   [%expect {| max_pool2d_value(t0; k=2x2 s=1x1 p=1x1; out=[N,T,D,H,W,C]) |}];
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else assert false in
   Format.printf "%a@." (pp_result pp_eval_result)
     (compare_symbolic (Pool.MaxPool2d.output_shape ~x_shape p)
        ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:4 ~w:4 ~c:1)
        ~eval_direct:(Pd.pixel p ~x_shape ~x) ~eval_symbolic:(fun c ->
-         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+         Symbolic_expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect
     {| eval=-1,-1,-2,-3,-1,-1,-2,-3,-4,-4,-5,-6,-7,-7,-8,-9 direct==symbolic=true |}]
@@ -185,7 +185,7 @@ let%expect_test
     (compare_symbolic (Pool.AvgPool2d.output_shape ~x_shape p)
        ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1)
        ~eval_direct:(Pd.pixel p ~x_shape ~x) ~eval_symbolic:(fun c ->
-         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+         Symbolic_expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect
     {| eval=0.25,0.5,0.25,0.5,1,0.5,0.25,0.5,0.25 direct==symbolic=true |}]
@@ -229,7 +229,7 @@ let%expect_test "Symbolic linear: eval matches Direct" =
     (compare_symbolic (Linear.Linear.output_shape p ~x_shape ~weight_shape)
        ~iter_shape:(s1c 2) ~eval_direct:(Ld.pixel p ~x ~weight ~bias)
        ~eval_symbolic:(fun c ->
-         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+         Symbolic_expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect {| eval=11,105 direct==symbolic=true |}]
 
@@ -571,14 +571,14 @@ let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
   in
   let p = { Norm.RmsNorm.dims = [ Axis.C ]; eps = 0. } in
   let e = Rs.pixel p ~x_shape ~x:xs ~weight:ws Symbolic.out_vec in
-  Format.printf "%a@." Expr.pp e;
+  Format.printf "%a@." Symbolic_expr.pp e;
   [%expect
     {| ((t0[N,T,D,H,W,C] * (1 / sqrt(((sum(r1=0..2: (t0[N,T,D,H,W,r1] * t0[N,T,D,H,W,r1])) / 2) + 0)))) * t1[0,0,0,0,0,C]) |}];
   let binding (s : Tensor_sig.t) = if s.id = xs.id then x else weight in
   Format.printf "%a@." (pp_result pp_eval_result)
     (compare_symbolic (Norm.RmsNorm.output_shape ~x_shape) ~iter_shape:(s1c 2)
        ~eval_direct:(Rd.pixel p ~x_shape ~x ~weight) ~eval_symbolic:(fun c ->
-         Expr.eval ~binding ~coord:(Schedule.coord_index c) e)
+         Symbolic_expr.eval ~binding ~coord:(Schedule.coord_index c) e)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect {| eval=0.2,1.4 direct==symbolic=true |}]
 
@@ -643,7 +643,7 @@ let%expect_test
 
    These are the agreement half of the ATen conformance tests in
    compute_test.ml. They exist because the two interpreters used to pool with
-   DIFFERENT predicates ([Float.max] in Direct, a strict [>] in Expr.eval), so
+   DIFFERENT predicates ([Float.max] in Direct, a strict [>] in Symbolic_expr.eval), so
    they disagreed on -0. vs +0. and on NaN. Both now route through [Max_op];
    these lock that in, and would fail again if a site reached for [Float.max]
    directly. *)
@@ -721,7 +721,9 @@ let%expect_test "Symbolic max_reduce: agrees with Direct on signed zero and NaN"
         S.max_reduce ~lo:S.index_zero ~hi:(S.index_const n) (fun i ->
             S.load xs (at S.index_zero i))
       in
-      let symbolic = Expr.eval ~binding:(fun _ -> x) ~coord:(fun _ -> 0) e in
+      let symbolic =
+        Symbolic_expr.eval ~binding:(fun _ -> x) ~coord:(fun _ -> 0) e
+      in
       Format.printf "%s: direct==symbolic=%b@." name
         (Int64.equal
            (Int64.bits_of_float direct)
