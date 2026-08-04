@@ -62,8 +62,8 @@ let read_at packed (idx : Axis.t -> Dim.index Dim.t) =
     ~c:(idx C)
 
 (* Same as [read_at], for a caller whose index function is naturally raw
-   [int] instead of [Dim.index Dim.t] — [Symbolic_expr.eval]'s grounding of a [Load]
-   node (Symbolic-expression interpretation, not [Direct]): [Symbolic_expr]'s own
+   [int] instead of [Dim.index Dim.t] — [Expr.Eval.value]'s grounding of a [Load]
+   node (Symbolic-expression interpretation, not [Direct]): [Expr]'s own
    arithmetic is untyped int, unrelated to [Dim.t]/[Direct]'s representation,
    so there's no pre-validated [Dim.index Dim.t] to hand [read_at] here. Not
    the hot path [read_at] is optimized for. *)

@@ -439,7 +439,7 @@ let%expect_test "Symbolic graph: reshape ground matches Direct" =
   [%expect
     {|
     inputs: t0
-    t1 = t0[floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6)+-1*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,6),floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3)+-2*floor_div(floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3),2),6*1*1*1*1*1*0+N+T+D+H+W+C+-3*floor_div(6*1*1*1*1*1*0+N+T+D+H+W+C,3),6*1*1*1*1*1*0+N+T+D+H+W+C+-1*6*1*1*1*1*1*0+N+T+D+H+W+C]
+    t1 = t0[floor_div(6*N+T+D+H+W+C,6)+-1*floor_div(6*N+T+D+H+W+C,6),floor_div(6*N+T+D+H+W+C,6)+-1*floor_div(6*N+T+D+H+W+C,6),floor_div(6*N+T+D+H+W+C,6)+-1*floor_div(6*N+T+D+H+W+C,6),floor_div(6*N+T+D+H+W+C,3)+-2*floor_div(floor_div(6*N+T+D+H+W+C,3),2),6*N+T+D+H+W+C+-3*floor_div(6*N+T+D+H+W+C,3),6*N+T+D+H+W+C+-1*6*N+T+D+H+W+C]
     outputs: t1 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
@@ -525,7 +525,7 @@ let%expect_test
     {|
     inputs: t0, t1, t2
     t3 = t0[N,T,D,C,H,W]
-    t4 = (sum(r1=0..2: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (t3[N,T,D,1*H+0+1*r2,1*W+0+1*r3,2*0+r1] * t1[C,0,0,r2,r3,r1])))) + t2[0,0,0,0,0,C])
+    t4 = (sum(r1=0..2: sum(r2=max(0,-1*H)..min(2,3+-1+-1*H+1): sum(r3=max(0,-1*W)..min(2,3+-1+-1*W+1): (t3[N,T,D,H+r2,W+r3,r1] * t1[C,0,0,r2,r3,r1])))) + t2[0,0,0,0,0,C])
     t5 = t4[N,T,D,W,C,H]
     outputs: t5 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground y_nchw")) result;
@@ -564,7 +564,7 @@ let%expect_test "Symbolic graph: conv2d_padding same ground matches Direct" =
   [%expect
     {|
     inputs: t0, t1
-    t2 = (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (t0[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * t1[C,0,0,r2,r3,r1])))) + t3[0,0,0,0,0,C])
+    t2 = (sum(r1=0..1: sum(r2=max(0,-1*H)..min(2,3+-1+-1*H+1): sum(r3=max(0,-1*W)..min(2,3+-1+-1*W+1): (t0[N,T,D,H+r2,W+r3,r1] * t1[C,0,0,r2,r3,r1])))) + t3[0,0,0,0,0,C])
     outputs: t2 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect
@@ -602,7 +602,7 @@ let%expect_test "Symbolic graph: convolution ground matches Direct" =
   [%expect
     {|
     inputs: t0, t1
-    t2 = (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (t0[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * t1[C,0,0,r2,r3,r1])))) + t3[0,0,0,0,0,C])
+    t2 = (sum(r1=0..1: sum(r2=max(0,-1*H)..min(2,3+-1+-1*H+1): sum(r3=max(0,-1*W)..min(2,3+-1+-1*W+1): (t0[N,T,D,H+r2,W+r3,r1] * t1[C,0,0,r2,r3,r1])))) + t3[0,0,0,0,0,C])
     outputs: t2 |}];
   Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
   [%expect

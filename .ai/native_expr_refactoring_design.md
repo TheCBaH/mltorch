@@ -1,9 +1,20 @@
 # Native `Expr` language refactoring
 
-Status: proposed high-level design, August 2026. This document defines only the
-`Expr` language refactoring: its library boundary, syntax, semantics,
-construction, interpretation, rewriting, migration, and validation. It is
-intended to provide enough stable decisions for a separate implementation plan.
+Status: **implemented**, August 2026. This document defines the `Expr` language:
+its library boundary, syntax, semantics, construction, interpretation,
+rewriting, migration, and validation. Written as a proposal; the sections marked
+**Resolved** record where building it changed the answer, and those decisions
+are the source of truth over the surrounding prose.
+
+The four that a reader should know up front:
+
+- the index domain is checked host `int`, not `int64`;
+- the public modules own their recursive types in one `module rec` group in a
+  main module, because every layout with one file per module fails to compile;
+- `Check` verifies only what composition can violate, since the rest is
+  unconstructable through the public API;
+- reducer display names are numbered from 1, matching the representation this
+  replaced, so the migration moved no goldens at all.
 
 The current behavior is described by `native_compute_design.md` and
 `native_symbolic_language.md`. Those remain the source of truth for operation
@@ -1272,7 +1283,29 @@ semantic requirement and with corresponding substitution laws.
 - The pretty-printer is deterministic but not a serialized language.
 - The old monolithic representation is removed after migration.
 
-## Open questions for the implementation plan
+## Open questions, as resolved
+
+Each was settled by building it; the details are in the sections above.
+
+1. **Private variants versus an internal view.** Neither, quite: the public
+   modules own their types directly and `expr.mli` re-declares them `private`.
+   An internal AST module cannot work — a `module rec` aliasing its recursive
+   types fails ascription mid-check.
+2. **Supply representation.** A flat `int` ordinal behind an abstract
+   `Builder.state`, with `initial`/`run_from` so a non-monadic adapter can
+   resume rather than restart, and `Supply_exhausted` checked before it wraps.
+3. **`Source.t` allocation.** A stateless bijection with `Tensor_id.t` through
+   the integer, so nothing depends on allocation order.
+4. **Private wrapper types inside `Intrinsic`.** No — Native already owns
+   `Op_config.Pos`/`Nonneg`, and the result-returning constructor validates.
+5. **Printer stability.** All of it. Every form renders as before, which is what
+   let the cutover land with zero golden movement.
+6. **Size/depth limits.** Optional arguments on `Check.value`, not a separate
+   `Fold` query.
+7. **Structured error variants.** Fixed in the checked-arithmetic and
+   interpretation sections, with one detection point and owner each.
+
+## Original open questions
 
 1. Whether private variants alone or additional internal view types provide the
    cleanest pattern-matching access for `Eval`, `Rewrite`, `Fold`, and `Pp`.

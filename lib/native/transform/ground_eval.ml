@@ -228,7 +228,7 @@ let rec ground ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
       fold lo seed
 
 (* A [Load] of a synthetic constant fill is that constant; a [Load] of a bound
-   model constant is its stored element, read exactly the way [Symbolic_expr.eval] reads
+   model constant is its stored element, read exactly the way [Expr.Eval.value] reads
    it; anything else is a free cell. *)
 and leaf ~env id at_axis : Ground_expr.t =
   match (Env.const_of env id, Env.constant_of env id) with
@@ -245,7 +245,7 @@ and leaf ~env id at_axis : Ground_expr.t =
         }
 
 (* The window is concrete, so the stencil expands into the same paired fold
-   [Direct]/[Symbolic_expr.eval] run: one predicate advancing value and index together.
+   [Direct]/[Expr.Eval.value] run: one predicate advancing value and index together.
    The value accumulator is a binary [Max] node, so it is mentioned once and
    the fold stays linear in the window; the index accumulator has to name the
    running best inside its guard, which is why it is the larger of the two. *)

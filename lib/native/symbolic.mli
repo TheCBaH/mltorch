@@ -1,24 +1,28 @@
-(* Symbolic interpretation: a value is an [Symbolic_expr.t] (a formula over the inputs), an
-   index is an [Symbolic_expr.index_expr], and an input is a [Tensor_sig.t] (no data). Running an
-   op functor at [Make()] with the output coord bound to [Index_var] yields the op's
-   per-pixel expression — used for codegen/fusion and the footprint analysis.
-   See .ai/native_symbolic_language.md §2.4.
+(* Symbolic interpretation over the [Expr] library: a value is an
+   [Expr.Value.t], an index is an ['role Expr.Index.t], and an input is a
+   [Tensor_sig.t]. Running an op functor at [Make()] with the output coord bound
+   to [out_vec] yields the op's per-pixel expression — used for codegen/fusion
+   and the footprint analysis. See .ai/native_expr_refactoring_design.md.
 
-   [Make] is a generative functor: each application [Make()] allocates a fresh,
-   independent reduction-variable counter. No global state, no reset needed. *)
+   The phantom role is NOT erased: ['role index] is ['role Expr.Index.t], so
+   position-versus-delta typing survives construction into the AST, where the
+   representation this replaced collapsed it to one untyped node. That is only
+   possible because [Dim.index]/[Dim.delta] are manifest aliases of
+   [Expr.Role.Position.t]/[Delta.t] — a phantom parameter cannot be bridged by
+   a conversion.
 
-(** [let module S = Make() in ...] produces a fresh Symbolic instance with its
-    own counter; reduction variables in [S] are numbered independently of any
-    other instance. *)
+   [input] stays [Tensor_sig.t] rather than becoming [Expr.Source.t]: it IS the
+   adapter-owned source descriptor the design calls for, and keeping it means
+   [Eval_op] and every op module are untouched. [load] projects the symbol. *)
+
+(** [let module S = Make() in ...] gives a fresh instance with its own reducer
+    supply, numbered independently of any other. *)
 module Make () :
   Semantics.SEMANTICS
-    with type t = Symbolic_expr.t
-     and type 'role index = Symbolic_expr.index_expr
+    with type t = Expr.Value.t
+     and type 'role index = 'role Expr.Index.t
      and type input = Tensor_sig.t
 
-val out_vec : Symbolic_expr.index_expr Vec6.t
-(** Pass [out_vec] as the [out] argument of an op's [pixel] to build its
-    symbolic formula. A single constant, not built per call: unlike [Direct]
-    (where [out] is a real per-pixel coordinate), every axis here is just an
-    [Index_var] placeholder, the same 6-field value regardless of which node is
-    being built. *)
+val out_vec : Semantics.position Expr.Index.t Vec6.t
+(** The output coordinate to pass as an op's [out], every axis an
+    [Expr.Index.output] placeholder. A single constant, not built per call. *)

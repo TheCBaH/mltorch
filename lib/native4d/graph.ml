@@ -4,7 +4,7 @@
    [Node_id], [Group_id], [Group], [Input], [Tensor_id] and — critically —
    [Tensor_sig.t] are REUSED verbatim rather than restated. Ids and grouping are
    not dialect-specific, and the signature keeps its [Vec6.shape] so the whole
-   symbolic stack ([Stage_program], [Symbolic_expr], [Symbolic], [Ground_expr]) works on
+   symbolic stack ([Stage_program], [Expr], [Symbolic], [Ground_expr]) works on
    a Native4D graph with no functor at all. [Shape4.t] guards op payloads and
    shape inference — the places that must not admit an invalid graph — not
    storage. See .ai/native4d_plan.md, correction C3.

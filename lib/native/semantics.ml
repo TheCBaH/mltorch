@@ -13,7 +13,7 @@
    Dim.t] directly, with zero coercion needed at [Tensor.read_at]/
    [Vec6.offset_of], the innermost per-element call sites. A semantics that
    doesn't use [Dim.t] at all (e.g. [Symbolic], whose index is an
-   [Symbolic_expr.index_expr] AST node) is unaffected — [position]/[delta] stay purely
+   [Expr.Index.t] AST node) is unaffected — [position]/[delta] stay purely
    phantom there either way. *)
 type position = Dim.index
 type delta = Dim.delta
@@ -24,7 +24,7 @@ module type SEMANTICS = sig
 
   (* value domain — minimal basis. [max]/[min]/[relu] are NOT here: they derive
      from [select]+[lt] at each call site (relu = select (lt x 0) 0 x), so a
-     new activation costs no new primitive, Symbolic_expr constructor, or eval/pp arm. *)
+     new activation costs no new primitive, Expr.Value constructor, or eval/pp arm. *)
   val const : float -> t
   val add : t -> t -> t
   val sub : t -> t -> t

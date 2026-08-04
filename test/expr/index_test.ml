@@ -255,3 +255,41 @@ let%expect_test "printed form matches the representation it replaces" =
        ~error:(Core.Pretty.error_kind Index.pp_error))
     (Index.floor_div_pos (Index.of_position (Index.output Axis.H)) 2);
   [%expect {| floor_div(H,2) |}]
+
+let%expect_test "smart constructors fold only exact integer identities" =
+  let names v = Fmt.str "r%d" (Reduce_var.hash v) in
+  let show e = Fmt.pr "%a@." (Pp.index ~names) e in
+  let h = Index.of_position (Index.output Axis.H) in
+  (* Deferred until after the migration on purpose: landing these earlier would
+     have mixed a readability change into the cutover's diff, whose whole point
+     was that nothing observable moved. *)
+  show (Index.scale 1 h);
+  show (Index.add h (Index.const 0));
+  show (Index.add (Index.const 0) h);
+  show (Index.scale 7 (Index.const 0));
+  show (Index.add (Index.scale 2 (Index.const 0)) h);
+  [%expect {|
+    H
+    H
+    H
+    0
+    H
+    |}];
+  (* And nothing else: a non-unit scale, a non-zero addend and a division all
+     survive, or the fold would be changing the expression rather than tidying
+     its spelling. *)
+  show (Index.scale 2 h);
+  show (Index.add h (Index.const 3));
+  show (Index.scale (-1) h);
+  [%expect {|
+    2*H
+    H+3
+    -1*H
+    |}];
+  (* Folding is exact at the extremes too -- [scale k 0] is 0 for every [k],
+     including ones whose product would otherwise overflow. *)
+  Fmt.pr "%a %a@." (Pp.index ~names)
+    (Index.scale Stdlib.min_int (Index.const 0))
+    pp_res
+    (ev (Index.scale Stdlib.min_int (Index.const 0)));
+  [%expect {| 0 0 |}]

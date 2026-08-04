@@ -70,8 +70,12 @@ module Index : sig
   val assume_position : Role.Delta.t t -> Role.Position.t t
 
   (* Result-returning: the divisor is a raw [int], and a zero or negative one
-     must never reach the AST. [d = 1] folds to the operand -- the one identity
-     kept from the start, because [Symbolic] already performs it. *)
+     must never reach the AST. [d = 1] folds to the operand.
+
+     [add] and [scale] fold too -- x+0, 0+x, 1*x, k*0 -- and only those: exact
+     integer identities, never a floating-point one, where dropping an addition
+     of zero or reassociating is observable through signed zero, NaN and
+     rounding. *)
   val floor_div_pos :
     Role.Delta.t t -> int -> (Role.Delta.t t, error) Core.result
 

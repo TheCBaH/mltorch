@@ -7,7 +7,7 @@
    reach the IR through the public API at all.
 
    What it does NOT replace is [Tensor_sig.t]. The stored signature keeps its
-   [Vec6.shape], so [Stage_program], [Symbolic_expr], [Symbolic], [Ground_expr] and the
+   [Vec6.shape], so [Stage_program], [Expr], [Symbolic], [Ground_expr] and the
    whole symbolic stack are reused verbatim — parameterising the tensor
    signature by shape type would functorise all of them for no gain, since §4.1
    says the physical shape is IDENTICAL across the dialect boundary. See

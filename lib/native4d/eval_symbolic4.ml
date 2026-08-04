@@ -3,7 +3,7 @@
 
    That the result type is shared and unparameterised is what makes cross-dialect
    verification cheap: [Stage_program.t] is typed on [Tensor_id.t],
-   [Tensor_sig.t] and [Symbolic_expr.t], none of which are dialect-specific, so the whole
+   [Tensor_sig.t] and [Expr.Value.t], none of which are dialect-specific, so the whole
    grounding and comparison machinery below [Map_verify] works on a Native4D
    program with no change at all. Design §9.3 assumes this; it holds only because
    Native4D reuses [Tensor_sig.t] verbatim (correction C3). *)
@@ -18,7 +18,7 @@ let first_free_tid (g : Graph.graph) =
 let run (g : Graph.graph) : Stage_program.t =
   (* A fresh [Symbolic] instance per graph, so its reduction-variable counter
      starts clean and the produced expressions are deterministic. *)
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module E = Eval_op4.Make (S) in
   let consts = ref [] in
   let next_const = ref (first_free_tid g) in
@@ -36,7 +36,7 @@ let run (g : Graph.graph) : Stage_program.t =
     List.fold_left
       (fun (env, stages) (output, oid) ->
         let body =
-          E.pixel op ~output ~operand ~shape_of ~fill Symbolic2.out_vec
+          E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec
         in
         let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
         let st = { Stage_program.Stage.id = oid; sg = out_sig; body } in

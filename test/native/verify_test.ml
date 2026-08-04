@@ -776,9 +776,7 @@ let%expect_test "normalise: a computed Round is NOT removed" =
     ~stored_f32:(fun _ -> true)
     (Ground_expr.Round
        (Ground_expr.Binary
-          ( Symbolic_expr.Add,
-            Ground_expr.Cell (cell 0),
-            Ground_expr.Cell (cell 1) )));
+          (Expr.Value.Add, Ground_expr.Cell (cell 0), Ground_expr.Cell (cell 1))));
   [%expect {| f32((src.t0(0) + src.t1(0)))  blocked=[] |}]
 
 let%expect_test "normalise: a non-f32 cell blocks the collapse" =

@@ -25,7 +25,7 @@
    syntax.
 
    Only the genuinely acyclic leaves stay separate compilation units: [Axis],
-   [Role], [Coord], [Source] (and later [Max_op], and private [Checked]).
+   [Role], [Coord], [Source], [Max_op], and private [Checked].
 
    ---- declaration order is load-bearing ----
 
@@ -38,8 +38,7 @@
 
    An explicit main module means dune synthesises NO aliases, so without these
    lines [Expr.Axis] simply does not exist. They must appear in expr.mli too.
-   [Max_op] joins them when the unit itself moves here; [Checked] never does --
-   it stays private. *)
+   [Checked] is deliberately absent -- it stays private. *)
 
 module Axis = Axis
 module Role = Role
@@ -57,7 +56,7 @@ module Reduce_var = struct
   let hash n = n
 
   (* Diagnostics only. The printed name a reader sees comes from [Pp], which
-     assigns r0, r1, ... in LEXICAL order, so output never depends on which
+     assigns r1, r2, ... in LEXICAL order, so output never depends on which
      internal ordinals a supply happened to hand out. *)
   let pp fmt n = Fmt.pf fmt "#%d" n
 
@@ -104,8 +103,23 @@ module Index = struct
   let zero = Zero
   let const n = Const n
   let of_position i = Of_position i
-  let add a b = Add (a, b)
-  let scale k a = Scale (k, a)
+
+  (* Small, unconditional identities. Deferred until after the migration on
+     purpose: landing them earlier would have mixed a readability change into
+     the cutover's diff, and the whole point of that commit was that nothing
+     observable moved.
+
+     Only integer identities, never floating-point ones -- these are exact for
+     every operand, where reassociating or dropping a float addition is not. *)
+  let add a b =
+    match (a, b) with Const 0, x | x, Const 0 -> x | _ -> Add (a, b)
+
+  let scale k a =
+    match (k, a) with
+    | 1, _ -> a
+    | _, Const 0 -> Const 0 (* exact whatever [k] is, including 0 and min_int *)
+    | _ -> Scale (k, a)
+
   let min a b = Min (a, b)
   let max a b = Max (a, b)
   let clamp_low a = Clamp_low a
@@ -113,9 +127,9 @@ module Index = struct
 
   (* Result-returning because the divisor arrives as a raw [int]: a zero or
      negative one must not reach the AST at all. The [d = 1] fold is the one
-     identity kept from the start -- [Symbolic] already performs it, so dropping
-     it would move goldens. Every other permitted fold is deferred, to keep the
-     migration's golden diff attributable to a single cause. *)
+     identity kept from the start -- the representation this replaced already
+     performed it, so dropping it would have moved goldens during the migration.
+     The others land in [add]/[scale] above, after the cutover. *)
   let floor_div_pos a d =
     if d <= 0 then Core.fail (`Non_positive_divisor d)
     else if d = 1 then Core.return a
@@ -148,8 +162,8 @@ module Intrinsic = struct
        a tensor signature or an [Op_config] type. [in_h]/[in_w] are carried
        explicitly because the old form recovered them from the embedded
        [Tensor_sig.t], and an opaque source cannot. They come from
-       [SEMANTICS.max_pool2d]'s [~x_shape], which the current [Symbolic] ignores
-       precisely because it stashed the signature instead. *)
+       [SEMANTICS.max_pool2d]'s [~x_shape], which the representation this
+       replaced ignored precisely because it stashed the signature instead. *)
     type t = {
       source : Source.t;
       in_h : int;

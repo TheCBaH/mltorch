@@ -22,7 +22,7 @@ let stage_sources (g : graph) =
 let run (g : graph) : Stage_program.t =
   (* a fresh Symbolic instance per graph: its reduction-var counter starts clean,
      so the produced expressions are deterministic. *)
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module E = Eval_op.Make (S) in
   let consts = ref [] in
   let next_const = ref (first_free_tid g) in
@@ -42,7 +42,7 @@ let run (g : graph) : Stage_program.t =
     List.fold_left
       (fun (env, stages) (output, oid) ->
         let body =
-          E.pixel op ~output ~operand ~shape_of ~fill Symbolic2.out_vec
+          E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec
         in
         let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
         let st = { Stage_program.Stage.id = oid; sg = out_sig; body } in

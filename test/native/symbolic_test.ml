@@ -69,7 +69,7 @@ let compare_grounded out_shape_result ~binding ~expr ~eval_direct =
   Core.return (grounded, Tensor.equal_bits direct grounded)
 
 let%expect_test "Symbolic: pointwise expr pp" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module R = Pointwise.Relu.Compute (S) in
   let module A = Pointwise.Add.Compute (S) in
   let xs =
@@ -80,15 +80,15 @@ let%expect_test "Symbolic: pointwise expr pp" =
     Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"y" ~shape:(s1c 3) ~fmt:f32
       ()
   in
-  Format.printf "%a@." Expr.Pp.value (R.pixel xs Symbolic2.out_vec);
+  Format.printf "%a@." Expr.Pp.value (R.pixel xs Symbolic.out_vec);
   [%expect {| select((t0[N,T,D,H,W,C] < 0), 0, t0[N,T,D,H,W,C]) |}];
   Format.printf "%a@." Expr.Pp.value
-    (A.pixel ~a_shape:(s1c 3) ~b_shape:(s1c 3) xs ys Symbolic2.out_vec);
+    (A.pixel ~a_shape:(s1c 3) ~b_shape:(s1c 3) xs ys Symbolic.out_vec);
   (* the broadcast (extent-1) axes are read at index 0 — [load] is strict *)
   [%expect {| (t0[0,0,0,0,0,C] + t1[0,0,0,0,0,C]) |}]
 
 let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Cd = Conv.Conv2d.Compute (Direct) in
   let module Cs = Conv.Conv2d.Compute (S) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1 in
@@ -113,11 +113,11 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
   let p = conv_params ~kernel:(2, 2) ~stride:(1, 1) ~in_channels:1 () in
   let e =
     Cs.pixel p ~x_shape ~weight_shape:w_shape ~x:xs ~weight:ws ~bias:bs
-      Symbolic2.out_vec
+      Symbolic.out_vec
   in
   Format.printf "%a@." Expr.Pp.value e;
   [%expect
-    {| (sum(r1=0..1: sum(r2=max(0,-1*1*H+0)..min(2,3+-1+-1*1*H+0+1): sum(r3=max(0,-1*1*W+0)..min(2,3+-1+-1*1*W+0+1): (t0[N,T,D,1*H+0+1*r2,1*W+0+1*r3,1*0+r1] * t1[C,0,0,r2,r3,r1])))) + t2[0,0,0,0,0,C]) |}];
+    {| (sum(r1=0..1: sum(r2=max(0,-1*H)..min(2,3+-1+-1*H+1): sum(r3=max(0,-1*W)..min(2,3+-1+-1*W+1): (t0[N,T,D,H+r2,W+r3,r1] * t1[C,0,0,r2,r3,r1])))) + t2[0,0,0,0,0,C]) |}];
   let binding id =
     if id = xs.id then Some x else if id = ws.id then Some weight else Some bias
   in
@@ -132,7 +132,7 @@ let%expect_test "Symbolic conv: expr structure + eval matches Direct" =
 
 let%expect_test
     "Symbolic max_pool2d: eval matches Direct (negative inputs, padded)" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Pd = Pool.MaxPool2d.Compute (Direct) in
   let module Ps = Pool.MaxPool2d.Compute (S) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1 in
@@ -155,7 +155,7 @@ let%expect_test
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let e = Ps.pixel p ~x_shape ~x:xs Symbolic2.out_vec in
+  let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
   Format.printf "%a@." Expr.Pp.value e;
   [%expect {| max_pool2d_value(t0; k=2x2 s=1x1 p=1x1; out=[N,T,D,H,W,C]) |}];
   let binding id = if id = xs.id then Some x else None in
@@ -170,7 +170,7 @@ let%expect_test
 
 let%expect_test
     "Symbolic avg_pool2d: eval matches Direct (padded, count_include_pad)" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Pd = Pool.AvgPool2d.Compute (Direct) in
   let module Ps = Pool.AvgPool2d.Compute (S) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
@@ -190,7 +190,7 @@ let%expect_test
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let e = Ps.pixel p ~x_shape ~x:xs Symbolic2.out_vec in
+  let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
   let binding id = if id = xs.id then Some x else None in
   Format.printf "%a@." (pp_result pp_eval_result)
     (compare_symbolic (Pool.AvgPool2d.output_shape ~x_shape p)
@@ -202,7 +202,7 @@ let%expect_test
     {| eval=0.25,0.5,0.25,0.5,1,0.5,0.25,0.5,0.25 direct==symbolic=true |}]
 
 let%expect_test "Symbolic linear: eval matches Direct" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Ld = Linear.Linear.Compute (Direct) in
   let module Ls = Linear.Linear.Compute (S) in
   let x_shape = s1c 3 in
@@ -232,7 +232,7 @@ let%expect_test "Symbolic linear: eval matches Direct" =
       ~fmt:f32 ()
   in
   let p = { Linear.Linear.in_features = Dim.extent 3 } in
-  let e = Ls.pixel p ~x:xs ~weight:ws ~bias:bs Symbolic2.out_vec in
+  let e = Ls.pixel p ~x:xs ~weight:ws ~bias:bs Symbolic.out_vec in
   let binding id =
     if id = xs.id then Some x else if id = ws.id then Some weight else Some bias
   in
@@ -249,7 +249,7 @@ let%expect_test "Symbolic linear: eval matches Direct" =
    reusable data, not a one-shot evaluation. *)
 
 let%expect_test "Symbolic ground: relu over several different inputs" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module R = Pointwise.Relu.Compute (S) in
   let module Rd = Pointwise.Relu.Compute (Direct) in
   let x_shape = s1c 4 in
@@ -257,7 +257,7 @@ let%expect_test "Symbolic ground: relu over several different inputs" =
     Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
       ()
   in
-  let e = R.pixel xs Symbolic2.out_vec in
+  let e = R.pixel xs Symbolic.out_vec in
   let inputs =
     [ [| -2.; -0.5; 1.; 3. |]; [| 0.; 0.; 0.; 0. |]; [| 5.; -5.; 2.; -2. |] ]
   in
@@ -279,7 +279,7 @@ let%expect_test "Symbolic ground: relu over several different inputs" =
     |}]
 
 let%expect_test "Symbolic ground: add over several different input pairs" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module A = Pointwise.Add.Compute (S) in
   let module Ad = Pointwise.Add.Compute (Direct) in
   let x_shape = s1c 3 and y_shape = s1c 3 in
@@ -291,7 +291,7 @@ let%expect_test "Symbolic ground: add over several different input pairs" =
     Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"y" ~shape:y_shape ~fmt:f32
       ()
   in
-  let e = A.pixel ~a_shape:x_shape ~b_shape:y_shape xs ys Symbolic2.out_vec in
+  let e = A.pixel ~a_shape:x_shape ~b_shape:y_shape xs ys Symbolic.out_vec in
   let cases =
     [
       ([| 1.; 2.; 3. |], [| 10.; 10.; 10. |]);
@@ -322,7 +322,7 @@ let%expect_test "Symbolic ground: add over several different input pairs" =
 
 let%expect_test
     "Symbolic ground: conv2d over several different (x, weight, bias)" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Cs = Conv.Conv2d.Compute (S) in
   let module Cd = Conv.Conv2d.Compute (Direct) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1 in
@@ -341,8 +341,7 @@ let%expect_test
   in
   let p = conv_params ~kernel:(2, 2) ~stride:(1, 1) ~in_channels:1 () in
   let e =
-    Cs.pixel p ~x_shape ~weight_shape ~x:xs ~weight:ws ~bias:bs
-      Symbolic2.out_vec
+    Cs.pixel p ~x_shape ~weight_shape ~x:xs ~weight:ws ~bias:bs Symbolic.out_vec
   in
   let cases =
     [
@@ -378,7 +377,7 @@ let%expect_test
     |}]
 
 let%expect_test "Symbolic ground: max_pool2d over several different inputs" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Ps = Pool.MaxPool2d.Compute (S) in
   let module Pd = Pool.MaxPool2d.Compute (Direct) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1 in
@@ -397,7 +396,7 @@ let%expect_test "Symbolic ground: max_pool2d over several different inputs" =
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let e = Ps.pixel p ~x_shape ~x:xs Symbolic2.out_vec in
+  let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
   let inputs =
     [
       (fun c -> float_of_int ((row c * 3) + col c));
@@ -423,7 +422,7 @@ let%expect_test "Symbolic ground: max_pool2d over several different inputs" =
     |}]
 
 let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Ps = Pool.AvgPool2d.Compute (S) in
   let module Pd = Pool.AvgPool2d.Compute (Direct) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1 in
@@ -442,7 +441,7 @@ let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
           { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
     }
   in
-  let e = Ps.pixel p ~x_shape ~x:xs Symbolic2.out_vec in
+  let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
   let inputs =
     [
       (fun _ -> 1.);
@@ -469,7 +468,7 @@ let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
 
 let%expect_test
     "Symbolic ground: linear over several different (x, weight, bias)" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Ls = Linear.Linear.Compute (S) in
   let module Ld = Linear.Linear.Compute (Direct) in
   let x_shape = s1c 3 in
@@ -488,7 +487,7 @@ let%expect_test
       ~fmt:f32 ()
   in
   let p = { Linear.Linear.in_features = Dim.extent 3 } in
-  let e = Ls.pixel p ~x:xs ~weight:ws ~bias:bs Symbolic2.out_vec in
+  let e = Ls.pixel p ~x:xs ~weight:ws ~bias:bs Symbolic.out_vec in
   let select_w c =
     match (Dim.to_int (Vec6.get c Axis.N), chan c) with
     | 0, 0 -> 1.
@@ -527,7 +526,7 @@ let%expect_test
     |}]
 
 let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Ms = Reduce.Mean.Compute (S) in
   let module Md = Reduce.Mean.Compute (Direct) in
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
@@ -536,7 +535,7 @@ let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
       ()
   in
   let p = { Reduce.Mean.dims = [ Axis.H; Axis.W ]; keepdim = true } in
-  let e = Ms.pixel p ~x_shape ~x:xs Symbolic2.out_vec in
+  let e = Ms.pixel p ~x_shape ~x:xs Symbolic.out_vec in
   let inputs =
     [
       (fun c -> [| 1.; 2.; 3.; 4. |].((row c * 2) + col c));
@@ -562,7 +561,7 @@ let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
 
 let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
     =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Rd = Norm.RmsNorm.Compute (Direct) in
   let module Rs = Norm.RmsNorm.Compute (S) in
   let x_shape = s1c 2 in
@@ -577,7 +576,7 @@ let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
       ()
   in
   let p = { Norm.RmsNorm.dims = [ Axis.C ]; eps = 0. } in
-  let e = Rs.pixel p ~x_shape ~x:xs ~weight:ws Symbolic2.out_vec in
+  let e = Rs.pixel p ~x_shape ~x:xs ~weight:ws Symbolic.out_vec in
   Format.printf "%a@." Expr.Pp.value e;
   [%expect
     {| ((t0[N,T,D,H,W,C] * (1 / sqrt(((sum(r1=0..2: (t0[N,T,D,H,W,r1] * t0[N,T,D,H,W,r1])) / 2) + 0)))) * t1[0,0,0,0,0,C]) |}];
@@ -591,7 +590,7 @@ let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
 
 let%expect_test
     "Symbolic ground: bmm over several different (input, mat2) pairs" =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Bs = Matmul.Bmm.Compute (S) in
   let module Bd = Matmul.Bmm.Compute (Direct) in
   (* B=2, 2×3 × 3×2 → 2×2 output per batch item *)
@@ -605,7 +604,7 @@ let%expect_test
     Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"mat2" ~shape:mat2_shape
       ~fmt:f32 ()
   in
-  let e = Bs.pixel ~input_shape ~input:ins ~mat2:m2s Symbolic2.out_vec in
+  let e = Bs.pixel ~input_shape ~input:ins ~mat2:m2s Symbolic.out_vec in
   let batch h = Dim.to_int (Vec6.get h Axis.H) in
   let cases =
     [
@@ -650,7 +649,7 @@ let%expect_test
 
    These are the agreement half of the ATen conformance tests in
    compute_test.ml. They exist because the two interpreters used to pool with
-   DIFFERENT predicates ([Float.max] in Direct, a strict [>] in Symbolic_expr.eval), so
+   DIFFERENT predicates ([Float.max] in Direct, a strict [>] in Expr.Eval.value), so
    they disagreed on -0. vs +0. and on NaN. Both now route through [Max_op];
    these lock that in, and would fail again if a site reached for [Float.max]
    directly. *)
@@ -670,7 +669,7 @@ let row_pool n =
 
 let%expect_test "Symbolic max_pool2d: agrees with Direct on signed zero and NaN"
     =
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   let module Pd = Pool.MaxPool2d.Compute (Direct) in
   let module Ps = Pool.MaxPool2d.Compute (S) in
   List.iter
@@ -683,7 +682,7 @@ let%expect_test "Symbolic max_pool2d: agrees with Direct on signed zero and NaN"
           ~fmt:f32 ()
       in
       let p = row_pool n in
-      let e = Ps.pixel p ~x_shape ~x:xs Symbolic2.out_vec in
+      let e = Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec in
       let binding id = if id = xs.id then Some x else None in
       Format.printf "%s: %a@." name
         (pp_result (fun ppf (_, ok) -> Format.fprintf ppf "match=%b" ok))
@@ -708,7 +707,7 @@ let%expect_test "Symbolic max_reduce: agrees with Direct on signed zero and NaN"
      they AGREE, deliberately not what the answer is — [Float_max] does not
      match ATen's [amax], whose scalar and vector reducers disagree with each
      other, so there is no answer to pin. See max_op.mli. *)
-  let module S = Symbolic2.Make () in
+  let module S = Symbolic.Make () in
   List.iter
     (fun (name, values) ->
       let n = Array.length values in
