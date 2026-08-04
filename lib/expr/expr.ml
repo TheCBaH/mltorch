@@ -1005,43 +1005,75 @@ module Rewrite = struct
      and returns its replacement plus the environment its body is rewritten
      under, which is what keeps scope handling in ONE place instead of repeated
      per rewrite. *)
-  let rec rebuild ~idx ~src ~on_reduce env (e : Value.t) : Value.t =
+  (* STATE-PASSING, with [Builder.state] last: [rebuild ~idx ~src ~on_reduce env
+     e] then has exactly the representation of a [Value.t Builder.t], since the
+     monad is [state -> 'a * state] and this is a section of the same unit. With
+     the state in the middle, partial application would leave
+     [state -> Value.t -> _], which is not a computation at all.
+
+     Written directly rather than with [let*]. A monadic tower would allocate a
+     closure per AST node and then walk that tree to produce the result -- two
+     passes plus allocation where there is one -- on the traversal fusion is
+     meant to use, where expression size is the budget.
+
+     The state threads LEFT TO RIGHT through every multi-child node: each child
+     continues from what its predecessor returned. Handing a sibling the incoming
+     state instead would let two freshened binders take the same identity,
+     silently, which is the collision this module exists to prevent. Index
+     rewriting does NOT thread, and cannot: [on_index] is pure, so no index
+     position can mint. *)
+  let rec rebuild ~idx ~src ~on_reduce env (e : Value.t) st =
     let go = rebuild ~idx ~src ~on_reduce env in
     let idxe i = idx.on_index env i in
+    let unary wrap a st =
+      let a, st = go a st in
+      (wrap a, st)
+    in
     match e with
-    | Value.Const _ -> e
-    | Value.Binary (op, a, b) -> Value.Binary (op, go a, go b)
-    | Value.Unary (op, a) -> Value.Unary (op, go a)
-    | Value.Round_f32 a -> Value.Round_f32 (go a)
+    | Value.Const _ -> (e, st)
+    | Value.Binary (op, a, b) ->
+        let a, st = go a st in
+        let b, st = go b st in
+        (Value.Binary (op, a, b), st)
+    | Value.Unary (op, a) -> unary (fun a -> Value.Unary (op, a)) a st
+    | Value.Round_f32 a -> unary (fun a -> Value.Round_f32 a) a st
     | Value.Select (c, a, b) ->
-        let c =
+        let c, st =
           match c with
-          | Bool.Value_lt (x, y) -> Bool.Value_lt (go x, go y)
-          | Bool.Index_eq (x, y) -> Bool.Index_eq (idxe x, idxe y)
+          | Bool.Value_lt (x, y) ->
+              let x, st = go x st in
+              let y, st = go y st in
+              (Bool.Value_lt (x, y), st)
+          | Bool.Index_eq (x, y) -> (Bool.Index_eq (idxe x, idxe y), st)
         in
-        Value.Select (c, go a, go b)
-    | Value.Value_of_index i -> Value.Value_of_index (idxe i)
-    | Value.Load (s, c) -> Value.Load (src s, Coord.map idxe c)
+        let a, st = go a st in
+        let b, st = go b st in
+        (Value.Select (c, a, b), st)
+    | Value.Value_of_index i -> (Value.Value_of_index (idxe i), st)
+    | Value.Load (s, c) -> (Value.Load (src s, Coord.map idxe c), st)
     | Value.Reduce r ->
-        let var, env' = on_reduce env r.Reduction.var in
-        Value.Reduce
-          {
-            Reduction.kind = r.Reduction.kind;
-            var;
-            (* Bounds sit OUTSIDE the binder: rewritten under the enclosing
-               environment, not the body's. *)
-            lo = idxe r.Reduction.lo;
-            hi = idxe r.Reduction.hi;
-            body = rebuild ~idx ~src ~on_reduce env' r.Reduction.body;
-          }
+        let var, env', st = on_reduce env r.Reduction.var st in
+        let body, st = rebuild ~idx ~src ~on_reduce env' r.Reduction.body st in
+        ( Value.Reduce
+            {
+              Reduction.kind = r.Reduction.kind;
+              var;
+              (* Bounds sit OUTSIDE the binder: rewritten under the enclosing
+                 environment, not the body's. *)
+              lo = idxe r.Reduction.lo;
+              hi = idxe r.Reduction.hi;
+              body;
+            },
+          st )
     | Value.Intrinsic (Intrinsic.Max_pool d) ->
-        Value.Intrinsic
-          (Intrinsic.Max_pool
-             {
-               d with
-               Intrinsic.Max_pool.source = src d.Intrinsic.Max_pool.source;
-               out = Coord.map idxe d.Intrinsic.Max_pool.out;
-             })
+        ( Value.Intrinsic
+            (Intrinsic.Max_pool
+               {
+                 d with
+                 Intrinsic.Max_pool.source = src d.Intrinsic.Max_pool.source;
+                 out = Coord.map idxe d.Intrinsic.Max_pool.out;
+               }),
+          st )
 
   let subst_env env v =
     match Reduce_var.Map.find_opt v env with Some w -> w | None -> v
@@ -1064,22 +1096,17 @@ module Rewrite = struct
        [alpha_normalize] makes that maximally likely, since it always starts
        from [initial]: any free ordinal near zero is directly in the way. *)
     let free = Fold.free_reducers e in
-    let supply = ref s in
-    let rec mint () =
-      let w, s' = Builder.run_from !supply Builder.fresh_reduce in
-      supply := s';
-      if Reduce_var.Set.mem w free then mint () else w
+    let rec mint st =
+      let w, st = Builder.run_from st Builder.fresh_reduce in
+      if Reduce_var.Set.mem w free then mint st else (w, st)
     in
-    let on_reduce env v =
-      let w = mint () in
-      (w, Reduce_var.Map.add v w env)
+    let on_reduce env v st =
+      let w, st = mint st in
+      (w, Reduce_var.Map.add v w env, st)
     in
-    let out =
-      rebuild
-        ~idx:{ on_index = (fun env i -> map_index_reducers (subst_env env) i) }
-        ~src:Fun.id ~on_reduce Reduce_var.Map.empty e
-    in
-    (out, !supply)
+    rebuild
+      ~idx:{ on_index = (fun env i -> map_index_reducers (subst_env env) i) }
+      ~src:Fun.id ~on_reduce Reduce_var.Map.empty e s
 
   (* Deterministic renaming by lexical traversal: running [freshen] from a fixed
      initial supply gives binders the LOWEST ORDINALS NOT FREE in the
@@ -1092,15 +1119,22 @@ module Rewrite = struct
   (* Replaces only output-axis variables, never reducers. If the result is
      placed beneath another reduction, the CALLER freshens it first -- this
      function cannot know that context. *)
+  (* Neither of these mints, so their [on_reduce] passes the state straight
+     through and the supply they are run from is immaterial. [Builder.initial]
+     is the arbitrary but fixed choice; the discarded final state is the proof
+     that nothing was allocated. *)
+  let keep_reducer () v st = (v, (), st)
+
   let substitute_output c e =
-    rebuild
-      ~idx:{ on_index = (fun _ i -> subst_index c i) }
-      ~src:Fun.id
-      ~on_reduce:(fun () v -> (v, ()))
-      () e
+    fst
+      (rebuild
+         ~idx:{ on_index = (fun _ i -> subst_index c i) }
+         ~src:Fun.id ~on_reduce:keep_reducer () e Builder.initial)
 
   let map_sources f e =
-    rebuild ~idx:keep_indices ~src:f ~on_reduce:(fun () v -> (v, ())) () e
+    fst
+      (rebuild ~idx:keep_indices ~src:f ~on_reduce:keep_reducer () e
+         Builder.initial)
 end
 
 (* ---- structural validation ------------------------------------------------ *)
