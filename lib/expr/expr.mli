@@ -242,10 +242,12 @@ and Value : sig
 end
 
 module Builder : sig
-  (* A threaded immutable supply, not a global counter. [run_from] exists
-     because [SEMANTICS.sum] is a plain function: an adapter holds a [state ref]
-     and advances it, without ever being able to construct a [Reduce_var.t]
-     itself. *)
+  (* A threaded immutable supply, not a global counter. [run] starts a fresh
+     identity namespace; [run_from] continues an existing one, for when several
+     computations must share a namespace instead of each restarting at ordinal
+     0. Two computations run from [initial] deliberately reuse ordinals —
+     identity is meaningful only within one expression, and composing across
+     that boundary is what [Rewrite.freshen] is for. *)
   type state
   type 'a t
 
@@ -278,27 +280,6 @@ module Builder : sig
       [Reduction.t] is what makes scope correct by construction: the body cannot
       name a variable that is not this reduction's, and the variable cannot
       escape into a sibling. *)
-
-  val reduction_of :
-    kind:Reduction.kind ->
-    var:Reduce_var.t ->
-    lo:Role.Position.t Index.t ->
-    hi:Role.Delta.t Index.t ->
-    body:Value.t ->
-    Value.t
-  (** Assembles a reduction around an already-minted variable. Prefer
-      [reduction].
-
-      This is for an adapter conforming to a non-monadic interface — Native's
-      [SEMANTICS.sum] is a plain function — which must hold its supply in a ref.
-      Such an adapter has to mint the variable and PUBLISH the advanced supply
-      *before* evaluating the body, since the body may contain a nested
-      reduction reading that same ref; the other order hands both the same
-      ordinal, and the reducers collapse. Separating minting from assembly makes
-      that ordering explicit instead of accidental.
-
-      The caller owes that [var] came from its own supply and is not already in
-      scope; [Check.value] verifies it. *)
 end
 
 module Fold : sig

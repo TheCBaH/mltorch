@@ -1,6 +1,6 @@
 (* The single Native4D op-dispatch point, functorised over the semantics [S] —
-   the Native4D twin of [Eval_op], applied once at [Direct] and once at a fresh
-   [Symbolic.Make ()] so the two execution modes cannot drift.
+   the Native4D twin of [Eval_op], applied once at [Direct] and once at
+   [Symbolic] so the two execution modes cannot drift.
 
    EVERY ARM CALLS NATIVE'S [Compute (S)]. .ai/native4d_design.md §2 lists
    "reimplementing numeric kernels already expressed by the Native [Compute (S)]

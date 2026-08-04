@@ -124,7 +124,7 @@ already composes (groups and future transform passes are builder computations).
 ## 3. The two per-op dispatch points
 
 - `Eval_op.Make (S)` (`eval_op.ml`) — the single value-dispatch, functorised over
-  `S`, applied once at `Direct` and once at a fresh `Symbolic.Make ()`. Each arm
+  `S`, applied once at `Direct` and once at `Symbolic`. Each arm
   reads the op's typed fields, resolving a `tensor_ref` to a data handle via
   `operand : tensor_ref -> S.input`, shapes via `shape_of`, and an absent optional
   via `fill : float -> Vec6.shape -> S.input`.
@@ -148,7 +148,11 @@ weight's `N`); rms-norm weight-`None` fills ones.
   `Schedule.evaluate out_shape (Eval_op.Make(Direct).pixel op ~operand ~shape_of
   ~fill)`. Returns **every** edge's tensor, so any intermediate is printable.
 - **Symbolic** (`eval_symbolic.ml` + `stage_program.ml`): `run : graph ->
-  Stage_program.t`. One `Symbolic.Make ()` for the whole graph; env maps each edge
+  Stage_program.t`. `Symbolic` is stateless, so there is no per-graph instance:
+  each stage body is an `Expr.Builder` computation run on its own, and stage
+  expressions therefore reuse reducer ordinals — correct, because an identity
+  means nothing outside the expression that binds it, and a consumer composing
+  two stages freshens the inserted one. Env maps each edge
   id to its `Tensor_sig.t` (the builder already created one per edge), so a node's
   per-pixel `Expr.t` loads its producers' signatures — i.e. the **stage DAG falls
   out automatically**: a downstream stage references an upstream one purely through

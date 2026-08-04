@@ -75,9 +75,11 @@ let%expect_test "Builder: one supply, resumed rather than restarted" =
   let (a, b), st = Builder.run_from Builder.initial two in
   Fmt.pr "distinct within one run: %b@." (not (Reduce_var.equal a b));
   [%expect {| distinct within one run: true |}];
-  (* The point of [run_from]: an adapter that holds the state can carry on
-     minting fresh identities. [run] restarts, which is exactly the collision
-     that would let two independently built reductions capture each other. *)
+  (* The point of [run_from]: a caller that keeps the state can carry on minting
+     fresh identities in the same namespace. Restarting from [initial] collides,
+     which is not a defect -- identity is local to one expression -- but it is
+     exactly why a fragment must be freshened before it is composed under
+     another's binder. *)
   let (c, _), _ = Builder.run_from st two in
   let d, _ = Builder.run_from Builder.initial Builder.fresh_reduce in
   Fmt.pr "resumed is fresh: %b   restarted collides: %b@."

@@ -276,10 +276,12 @@ compose with `bind`, so callers never mutate or manually synchronize a counter.
 `Rewrite.freshen` returns a builder computation for the same reason. This makes
 construction deterministic and referentially transparent.
 
-An adapter for an existing module interface may encapsulate a `ref` and call the
-same constructors. That is an implementation detail outside the expression
-model. Expressions produced by such an adapter are indistinguishable from those
-built with explicit supply threading.
+**Resolved: no adapter holds a `ref`.** An earlier revision permitted one, on
+the grounds that the mutation would be encapsulated. Native's `Symbolic` adapter
+instead makes its value type a builder computation
+(`Expr.Value.t Expr.Builder.t`), so the supply is threaded there too and the
+allocation state is gone rather than hidden. `SEMANTICS` leaves `t` abstract, so
+this costs the op functors and `Direct` nothing.
 
 ### Interpreter implementation
 
@@ -616,20 +618,32 @@ construction composes with `bind`. Convenience syntax may make this read like
 direct construction, but its meaning remains pure state passing and requires no
 global counter.
 
-### Compatibility adapter
+### The Native adapter threads too
 
-The existing symbolic operation interface does not thread builder state. Its
-adapter can remain a generative module and privately retain the current local
-counter or supply reference. This is acceptable because:
+This section formerly allowed the symbolic operation adapter to stay generative
+and privately retain a counter or supply reference, on the grounds that the
+mutation was encapsulated. **That is no longer the design**, and the argument
+was weaker than it looked: encapsulated or not, the read–advance–write is not
+atomic, so two concurrent calls through one instance could mint the same
+identity — capture waiting for the first parallel construction pass.
 
-- the mutation is encapsulated;
-- it affects only opaque identity allocation;
-- the resulting AST is immutable;
-- construction order is already fixed by operation evaluation;
-- combining results from independent adapters still goes through freshening.
+`Symbolic` instead sets `type t = Expr.Value.t Expr.Builder.t`, lifting its
+scalar combinators through the monad and implementing `sum`/`max_reduce` as
+`Builder.reduction`. It is a plain module with no state, and there is nothing to
+share, reset, or serialise. `SEMANTICS` leaves `t` abstract, so neither `Direct`
+nor any op functor changes.
 
-This is the only anticipated imperative implementation convenience. It is not
-an AST construct or a semantic assumption.
+The trade is that a symbolic value is a computation. Combining two threads the
+supply left to right; **using one twice runs it twice**, producing two
+structurally identical subtrees with distinct identities. Alpha-equivalent and
+equal under `Value.compare`, so no answer changes, but physical sharing is not
+preserved and no op may rely on it. `test/native/symbolic_test.ml` pins both
+halves of this.
+
+What is *not* claimed is global uniqueness: two computations run from
+`Builder.initial` reuse ordinals, exactly as two `run`s always did. Composition
+safety still comes from lexical scope plus freshening, per the central rule
+below.
 
 ## Scope and rewriting
 
@@ -1266,8 +1280,8 @@ semantic requirement and with corresponding substitution laws.
 - The library depends only on small shared support libraries, not Native.
 - The AST is immutable and purely functional.
 - No imperative construct is present in the syntax.
-- Pure supply threading is the reference binder-allocation model.
-- Encapsulated adapter mutation is permitted but not semantically observable.
+- Pure supply threading is the binder-allocation model everywhere, adapters
+  included — no construction path holds a mutable supply.
 - Axes, coordinates, roles, and source symbols are owned by `Expr`.
 - Native position/delta markers become manifest aliases of the Expr roles.
 - Sources are opaque; source-specific loading is an evaluator callback.
@@ -1292,8 +1306,9 @@ Each was settled by building it; the details are in the sections above.
    An internal AST module cannot work — a `module rec` aliasing its recursive
    types fails ascription mid-check.
 2. **Supply representation.** A flat `int` ordinal behind an abstract
-   `Builder.state`, with `initial`/`run_from` so a non-monadic adapter can
-   resume rather than restart, and `Supply_exhausted` checked before it wraps.
+   `Builder.state`, with `run` starting a fresh identity namespace and
+   `run_from` continuing an existing one, and `Supply_exhausted` checked before
+   it wraps.
 3. **`Source.t` allocation.** A stateless bijection with `Tensor_id.t` through
    the integer, so nothing depends on allocation order.
 4. **Private wrapper types inside `Intrinsic`.** No — Native already owns
@@ -1311,9 +1326,10 @@ Each was settled by building it; the details are in the sections above.
    cleanest pattern-matching access for `Eval`, `Rewrite`, `Fold`, and `Pp`.
 2. Exact immutable supply representation and whether internal reducer IDs use
    `int` or a structured namespace/ordinal pair. **Resolved:** a flat `int`
-   ordinal behind an abstract `Builder.state`, with `initial`/`run_from` so an
-   adapter can resume rather than restart the supply, and an
-   `exception Supply_exhausted` checked before the ordinal could wrap.
+   ordinal behind an abstract `Builder.state`, with `run` starting a fresh
+   identity namespace and `run_from` continuing an existing one when several
+   computations must share one, and an `exception Supply_exhausted` checked
+   before the ordinal could wrap.
 3. How deterministic `Expr.Source.t` allocation maps existing tensor IDs while
    preserving library independence.
 4. Whether positive/nonnegative window dimensions deserve small private wrapper

@@ -1,6 +1,6 @@
 (* The single op-dispatch point, functorised over the semantics [S]. Applied once
-   at [Direct] and once at a fresh [Symbolic.Make ()], so the per-op wiring lives
-   in exactly one place and cannot drift between the two execution modes.
+   at [Direct] and once at [Symbolic], so the per-op wiring lives in exactly one
+   place and cannot drift between the two execution modes.
 
    Each arm reads its operands off the op's TYPED FIELDS and resolves each
    [tensor_ref] to a data handle ([operand]) and shape ([shape_of]); an absent

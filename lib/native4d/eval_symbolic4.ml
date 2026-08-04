@@ -16,10 +16,11 @@ let first_free_tid (g : Graph.graph) =
     g.Graph.Graph.tensors 0
 
 let run (g : Graph.graph) : Stage_program.t =
-  (* A fresh [Symbolic] instance per graph, so its reduction-variable counter
-     starts clean and the produced expressions are deterministic. *)
-  let module S = Symbolic.Make () in
-  let module E = Eval_op4.Make (S) in
+  (* [Symbolic] is stateless, so there is no instance to create. Each stage body
+     is a construction computation, run below from [Expr.Builder.initial]: stage
+     expressions therefore reuse reducer ordinals, which is correct because a
+     reducer identity means nothing outside the expression that binds it. *)
+  let module E = Eval_op4.Make (Symbolic) in
   let consts = ref [] in
   let next_const = ref (first_free_tid g) in
   let fill v shape =
@@ -36,7 +37,8 @@ let run (g : Graph.graph) : Stage_program.t =
     List.fold_left
       (fun (env, stages) (output, oid) ->
         let body =
-          E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec
+          Expr.Builder.run
+            (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec)
         in
         let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
         let st = { Stage_program.Stage.id = oid; sg = out_sig; body } in

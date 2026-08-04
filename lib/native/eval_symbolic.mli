@@ -1,8 +1,13 @@
 (* Symbolic evaluation of a native graph: turns it into a whole-graph stage DAG
-   ([Stage_program.t]) using a single [Symbolic.Make ()] instance, so each node's
+   ([Stage_program.t]) through the stateless [Symbolic] adapter, so each node's
    per-pixel expression loads its operands' signatures and downstream stages
    reference upstream ones automatically. Structural groups are ignored by the
-   flat stage DAG. See .ai/native_graph_design.md. *)
+   flat stage DAG. See .ai/native_graph_design.md.
+
+   Each stage body is built as an [Expr.Builder] computation and run on its own,
+   so stages reuse reducer ordinals rather than sharing one namespace. That is
+   the Expr contract, not an accident: identity is local to an expression, and a
+   consumer that composes two stages freshens the inserted one. *)
 
 open Graph_ir
 

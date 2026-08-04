@@ -612,10 +612,12 @@ end
 
 module Builder = struct
   (* Reducer identities must be fresh during construction AND rewriting. The
-     supply is threaded, not global: [run_from] is what lets an adapter that
-     cannot itself mint a [Reduce_var.t] (because [SEMANTICS.sum] is a plain
-     function, not a monadic one) still advance it. With only [run], every
-     reduction would restart at ordinal 0 and nested reductions would capture. *)
+     supply is threaded, not global: [run] starts a fresh identity namespace,
+     and [run_from] CONTINUES an existing one, for when several computations
+     have to share a namespace rather than each restarting at ordinal 0. Two
+     computations run from [initial] deliberately reuse ordinals -- identity is
+     meaningful only within one expression, and composing across that boundary
+     is what [Rewrite.freshen] is for. *)
   type state = int
   type 'a t = state -> 'a * state
 
@@ -656,22 +658,6 @@ module Builder = struct
     let v, s = fresh_reduce s in
     let b, s = body (Index.reduce v) s in
     (Value.reduce { Reduction.kind; var = v; lo; hi; body = b }, s)
-
-  (* Assembles a reduction around an ALREADY-MINTED variable. Prefer
-     [reduction], which is correct by construction.
-
-     This exists for an adapter conforming to a non-monadic interface --
-     [SEMANTICS.sum] is a plain function -- where the supply is held in a ref.
-     Such an adapter must mint the variable and PUBLISH the advanced supply
-     before it evaluates the body, because the body may itself contain a nested
-     reduction that reads the same ref; doing it the other way round hands both
-     the same ordinal. Splitting minting from assembly is what makes that
-     ordering explicit rather than accidental.
-
-     The caller owes that [var] came from its own supply and is not already in
-     scope. [Check.value] verifies it. *)
-  let reduction_of ~kind ~var ~lo ~hi ~body =
-    Value.reduce { Reduction.kind; var; lo; hi; body }
 end
 
 (* ---- traversals ----------------------------------------------------------- *)

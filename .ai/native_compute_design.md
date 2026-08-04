@@ -257,9 +257,8 @@ decision holds up under this new requirement without needing revision.
 Instantiating chooses the world, with **no change to the op**:
 
 ```ocaml
-module Conv_direct = Conv2d.Compute (Direct)            (* pixel : ... -> coord -> float *)
-let module S = Symbolic.Make () in
-module Conv_sym    = Conv2d.Compute (S)                 (* pixel : ... -> coord -> Expr.t *)
+module Conv_direct = Conv2d.Compute (Direct)     (* pixel : ... -> coord -> float *)
+module Conv_sym    = Conv2d.Compute (Symbolic)   (* pixel : ... -> coord -> Expr.Value.t Expr.Builder.t *)
 ```
 
 ### 2c. `MaxPool2d` — the second windowed op, extracting `Window_axis`
@@ -354,36 +353,33 @@ end
 
 ## 4. `Symbolic` — an expression IR for codegen/fusion
 
-`t = Expr.t`, a pure formula over `Load`s. `Reduce` carries explicit bounds so the
-codegen can emit a loop; `Load` carries a symbolic index expression (affine in
-the loop and reduction variables) so reads survive lowering and fusion.
+`t = Expr.Value.t Expr.Builder.t` — a *construction computation* producing a pure
+formula over `Load`s. `Reduce` carries explicit bounds so the codegen can emit a
+loop; `Load` carries a symbolic index expression (affine in the loop and
+reduction variables) so reads survive lowering and fusion.
 
-`sum` and `max_reduce` mint fresh reduction-variable IDs — they need mutable state. Rather
-than a global counter with a `reset()` that callers must call before each use (fragile,
-non-reentrant, impossible to use correctly in two threads), `Symbolic` is a
-**generative functor**: each `Make()` application allocates its own independent counter.
-No global state, no reset, no hidden ordering dependency between tests.
+`sum` and `max_reduce` mint fresh reduction-variable identities, and the supply
+is **threaded, not mutable**. `Symbolic` is therefore a plain module, not a
+generative functor: there is no instance state to allocate, nothing to reset, no
+ordering dependency between tests, and no read-advance-write for concurrent
+callers to interleave. `Expr.Builder.reduction` mints and threads; the adapter
+never touches a `Reduce_var.t`.
+
+The consequence is that a symbolic value is a computation, so **combining two of
+them threads state left to right, and using one twice runs it twice**:
 
 ```ocaml
-module Make () = struct
-  type t = Expr.t
-  type 'role index = Expr.index_expr
-  type input = Tensor_sig.t
+type t = Expr.Value.t Expr.Builder.t
 
-  (* … all pure SEMANTICS ops unchanged … *)
+(* Combining threads: the right operand continues from the state the left
+   returned. Handing both the incoming state would give them one ordinal and
+   collapse two reductions onto one variable. *)
+let map2 f a b = let open Expr.Builder.Syntax in
+                 let* x = a in let+ y = b in f x y
 
-  let c = ref 0                      (* local counter, one per Make() application *)
+let sum ~lo ~hi f = Expr.Builder.reduction ~kind:Expr.Reduction.Sum ~lo ~hi f
 
-  let sum ~lo ~hi f =
-    incr c; let v = !c in
-    Expr.Reduce { kind = Sum; var = v; lo; hi; body = f (Expr.Reduce_var v) }
-
-  let max_reduce ~lo ~hi f =
-    incr c; let v = !c in
-    Expr.Reduce { kind = Max_reduce; var = v; lo; hi; body = f (Expr.Reduce_var v) }
-end
-
-(* pure: not inside Make; the same constant regardless of which node is being
+(* the same constant regardless of which node is being
    built — every axis is just a placeholder [Index_var], not a real per-pixel
    position (unlike [Direct]'s [out], which really is one), so this is built
    once, not per pixel or even per [pixel] call. *)
@@ -395,20 +391,31 @@ let out_vec : Expr.index_expr Vec6.t =
 Canonical usage at a call site (e.g. in a test):
 
 ```ocaml
-let module S = Symbolic.Make () in
-let module Cs = Conv.Conv2d.Compute (S) in
-let e = Cs.pixel p ~x_shape ~x:xs ~weight:ws ~bias:bs Symbolic.out_vec in
+module Cs = Conv.Conv2d.Compute (Symbolic)
+let e = Expr.Builder.run
+          (Cs.pixel p ~x_shape ~x:xs ~weight:ws ~bias:bs Symbolic.out_vec)
 ```
 
-The state monad alternative (threading a counter through every `SEMANTICS` value
-operation) was considered and rejected: it would force `Direct` into an identity
-monad wrapper with no benefit, adding verbosity to every call site while giving
-`Symbolic` nothing that `Make()` doesn't already provide cleanly.
+**Run the computation exactly once, at the boundary that consumes an
+`Expr.Value.t`.** That is the whole migration rule. Running it twice builds the
+expression twice, with two sets of reducer identities — alpha-equivalent, equal
+under `Expr.Value.equal`, same answer, but duplicated work. Nothing enforces
+sharing: an op that needs a value twice must bind the *built* value, not the
+computation. No current op does, because the values they reuse are `load`s,
+which carry no state.
 
-A singleton `module Symbolic = Make()` in the library would work for the common
-single-threaded case but breaks as soon as two independent subgraphs need separate
-expression numbering (e.g. parallel fusion passes) — the generative functor handles
-both cases identically.
+Threading the state monad through `SEMANTICS` was once rejected on the grounds
+that it would force `Direct` into an identity wrapper. It does not: `SEMANTICS`
+leaves `t` abstract, so `Direct` keeps `t = float` and every op functor is
+untouched. Only the `Symbolic` instance lifts.
+
+What the threaded supply gives up is any notion of a *global* identity: two
+computations run from `Expr.Builder.initial` reuse ordinals. That is the Expr
+contract, not a regression — a reducer identity means nothing outside the
+expression that binds it, and composing across that boundary is what
+`Expr.Rewrite.freshen` is for. A parallel fusion pass therefore needs no
+per-worker instance; it needs freshening before it inserts one fragment under
+another's binder, which it needs anyway.
 
 ### Bounds clipping — windowed reductions never produce out-of-range positions
 
