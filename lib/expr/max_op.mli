@@ -2,12 +2,17 @@
 
    They exist as a shared module rather than as open-coded [Float.max]/[>] at each
    site because THREE interpreters have to agree bit-for-bit: [Direct] runs the
-   computation, [Symbolic_expr.eval] grounds the symbolic form against it, and (see
-   .ai/native_transform_verify.md) the transformation verifier probes against both.
-   A divergence between any two is a verifier that disagrees with the engine it
+   computation, the expression evaluator grounds the symbolic form against it, and
+   (see .ai/native_transform_verify.md) the transformation verifier probes against
+   both. A divergence between any two is a verifier that disagrees with the engine it
    verifies — which is exactly what happened before this module existed: [Direct]
-   pooled with [Float.max] while [Symbolic_expr.eval] pooled with a strict [>], so the two
-   disagreed on -0. vs +0. and on NaN.
+   pooled with [Float.max] while the symbolic evaluator pooled with a strict [>], so
+   the two disagreed on -0. vs +0. and on NaN.
+
+   It lives in [lib/expr] rather than [lib/native] for that same reason. [Expr.Eval]
+   cannot depend on [native], so leaving it there would force a second copy — which
+   is precisely the duplication that produced the original divergence. [native]
+   reaches it as [Expr.Max_op].
 
    The two operators are genuinely different and must not be conflated:
    [Pool_max] takes the LAST NaN in iteration order, [Float_max] propagates

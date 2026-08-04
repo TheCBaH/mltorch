@@ -34,10 +34,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   give it a **named** helper — `to_cli`, `Pattern.of_core` — so it is
   distinguishable from the defect. See `.ai/printer_conventions.md`.
 - **Never assume a 63-bit `int` in the JS-reachable libraries** — `lib/native`,
-  `lib/walk_core`, `lib/core`, `lib/native4d`, and now `lib/pt2`, `lib/native_graph`
-  and `lib/native_interp`, which js_of_ocaml reaches since the probe began reading
-  real `.pt2` models. js_of_ocaml's `int` is **32 bits** (`Sys.int_size = 32`), so a
-  value that can reach 2^31 must be `int32`/`int64`, and a literal like `0xFFFFFFFF`
+  `lib/walk_core`, `lib/core`, `lib/native4d`, `lib/expr`, and now `lib/pt2`,
+  `lib/native_graph` and `lib/native_interp`, which js_of_ocaml reaches since the probe
+  began reading real `.pt2` models. js_of_ocaml's `int` is **32 bits**
+  (`Sys.int_size = 32`), so a value that can reach 2^31 must be `int32`/`int64` **or be
+  bounds-checked at every operation**, and a literal like `0xFFFFFFFF`
   silently truncates to `-1` there — which turns a mask into a no-op.
   **Narrow to `int` only after bounding the value**, and bound *aggregates*
   separately: a product or sum of individually-in-range factors can still overflow.
@@ -189,6 +190,7 @@ test/*_cram.t                                      ← cram tests decode real mo
 | `lib/schema_runtime/` | `schema_runtime` | Runtime: `String_map = Map.Make(String)` |
 | `lib/generated/` | `pytorch_types` | Generated decoder library |
 | `bin/schema_gen.ml` | `schema_gen` (exe) | CLI: reads YAML, calls generator |
+| `lib/expr/` | `expr` | The symbolic expression language: typed indices, values, reductions, intrinsics. Depends only on `core`+`fmt`, so it owns no tensor, storage or graph type — `native` consumes it, never the reverse |
 | `lib/pt2/` | `pt2` | Libtorch-free `.pt2` reader: ZIP (via `zipc`), pickle (via vendored `opickle`), model.json/weights-config decoding |
 | `lib/pt2_aten/` | `pt2_aten` | Bridges `pt2`'s raw strided tensors to runnable `Aten_tensor.t` (via `of_storage`), kept separate so `pt2`'s own tests need no C++ build |
 | `lib/interp/` | `interp` | Walks an `ExportedProgram` graph and dispatches each node to the bound ATen ops |

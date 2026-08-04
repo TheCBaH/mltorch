@@ -10,12 +10,17 @@
 
 type +'role t = private int
 
-(* phantom role tags (uninhabited) *)
+(* Phantom role tags (uninhabited). [index]/[delta] are manifest aliases of the
+   expression language's markers rather than fresh local types: [Symbolic]'s
+   associated type is ['role Expr.Index.t], and a phantom parameter cannot be
+   bridged by a conversion, so the two vocabularies must be the same types.
+   [extent]/[count]/[offset] are storage-layout roles [Expr] has no notion of
+   and stay local. See lib/expr/role.mli. *)
 type extent
-type index
+type index = Expr.Role.Position.t
 type count
 type offset
-type delta
+type delta = Expr.Role.Delta.t
 
 (* checked constructors for the per-axis roles. An [extent] is a size, valid from
    1 (the engine has no empty tensors — lower-rank tensors embed with size-1 axes,

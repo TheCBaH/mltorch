@@ -4,10 +4,19 @@
 
 type +'role t = int
 type extent
-type index
+
+(* [index]/[delta] are manifest aliases of the expression language's role
+   markers, not fresh local tags. They have to be: [Symbolic]'s associated type
+   becomes ['role Expr.Index.t], so the two role vocabularies must be the SAME
+   types for the [SEMANTICS] instantiation to typecheck at all — a runtime
+   conversion cannot bridge a phantom parameter. See role.mli.
+
+   [extent]/[count]/[offset] stay local: they are storage-layout roles the
+   expression language has no notion of. *)
+type index = Expr.Role.Position.t
+type delta = Expr.Role.Delta.t
 type count
 type offset
-type delta
 
 let extent n : extent t =
   if n < 1 then invalid_arg "Dim.extent: must be >= 1" else n

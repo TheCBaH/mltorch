@@ -118,7 +118,7 @@ and t =
   | Binary of Symbolic_expr.binary_op * t * t
   | Cell of Cell.t
   | Const of float
-  | Max of Max_op.t * t * t
+  | Max of Expr.Max_op.t * t * t
   | Round of t
   | Select of guard * t * t
   | Unary of Symbolic_expr.unary_op * t
@@ -255,7 +255,7 @@ let rec eval e v =
   | Binary (op, a, b) -> Symbolic_expr.apply_binary_op op (eval a v) (eval b v)
   | Cell c -> Valuation.find v c
   | Const x -> x
-  | Max (op, a, b) -> Max_op.apply op (eval a v) (eval b v)
+  | Max (op, a, b) -> Expr.Max_op.apply op (eval a v) (eval b v)
   | Round x -> to_f32 (eval x v)
   | Select (g, a, b) -> if eval_guard g v then eval a v else eval b v
   | Unary (op, x) -> Symbolic_expr.apply_unary_op op (eval x v)
@@ -265,7 +265,7 @@ and eval_guard g v =
   | Lt (a, b) ->
       Symbolic_expr.apply_compare_op Symbolic_expr.Lt (eval a v) (eval b v)
   | Pool_better { best; value } ->
-      Max_op.pool_better ~best:(eval best v) ~value:(eval value v)
+      Expr.Max_op.pool_better ~best:(eval best v) ~value:(eval value v)
 
 (* ---- printing ------------------------------------------------------------- *)
 
@@ -276,7 +276,9 @@ let rec pp fmt = function
   | Const x -> Fmt.pf fmt "%h" x
   | Max (op, a, b) ->
       Fmt.pf fmt "%s(%a, %a)"
-        (match op with Max_op.Float_max -> "fmax" | Max_op.Pool_max -> "pmax")
+        (match op with
+        | Expr.Max_op.Float_max -> "fmax"
+        | Expr.Max_op.Pool_max -> "pmax")
         pp a pp b
   | Round x -> Fmt.pf fmt "f32(%a)" pp x
   | Select (g, a, b) -> Fmt.pf fmt "select(%a, %a, %a)" pp_guard g pp a pp b
@@ -322,7 +324,7 @@ let normalise ~stored_f32 e =
     | Max (op, a, b) ->
         let blocked, a = go blocked a in
         let blocked, b = go blocked b in
-        (blocked, fold2 (fun a b -> Max (op, a, b)) (Max_op.apply op) a b)
+        (blocked, fold2 (fun a b -> Max (op, a, b)) (Expr.Max_op.apply op) a b)
     | Round x -> (
         let blocked, inner = go blocked x in
         match inner with
@@ -370,7 +372,7 @@ let normalise ~stored_f32 e =
         | _ -> None)
     | Pool_better { best; value } -> (
         match (closed best, closed value) with
-        | Some best, Some value -> Some (Max_op.pool_better ~best ~value)
+        | Some best, Some value -> Some (Expr.Max_op.pool_better ~best ~value)
         | _ -> None)
   in
   let blocked, expr = go Cell.Set.empty e in

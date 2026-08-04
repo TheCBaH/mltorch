@@ -70,7 +70,7 @@ module Valuation : sig
 end
 
 type guard = Lt of t * t | Pool_better of { best : t; value : t }
-(* [Max_op.pool_better], for max-pool's INDEX fold. A guard limited to
+(* [Expr.Max_op.pool_better], for max-pool's INDEX fold. A guard limited to
          [Lt] could not express the NaN branch at all, so this is a
          constructor rather than an encoding as a comparison. *)
 
@@ -78,7 +78,7 @@ and t =
   | Binary of Symbolic_expr.binary_op * t * t
   | Cell of Cell.t
   | Const of float
-  | Max of Max_op.t * t * t
+  | Max of Expr.Max_op.t * t * t
   | Round of t (* A stage boundary: this value is stored, and storage is f32. *)
   | Select of guard * t * t
   | Unary of Symbolic_expr.unary_op * t

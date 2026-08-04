@@ -46,3 +46,18 @@ raw ids. It is the other direction that has no entry point.
 
   $ check "raw projection off either side" "ignore (raw s : Tensor_id.t); ignore (raw d : Tensor_id.t)"
   raw projection off either side: COMPILES
+
+Dim's index/delta roles are manifest aliases of Expr.Role.Position.t/Delta.t, so
+that Symbolic's ['role Expr.Index.t] unifies at the SEMANTICS boundary. Aliasing
+two tags to the same type would collapse the roles and silently let a signed
+offset reach a load, so the separation is asserted here rather than assumed. The
+control is the sound widening every windowed op goes through.
+
+  $ check "an index used as a delta" "ignore (Dim.index 0 : Dim.delta Dim.t)"
+  an index used as a delta: rejected
+  $ check "a delta used as an index" "ignore (Dim.delta 0 : Dim.index Dim.t)"
+  a delta used as an index: rejected
+  $ check "an extent used as an index" "ignore (Dim.extent 1 : Dim.index Dim.t)"
+  an extent used as an index: rejected
+  $ check "widening index to delta" "ignore (Dim.to_delta (Dim.index 0) : Dim.delta Dim.t)"
+  widening index to delta: COMPILES

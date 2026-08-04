@@ -699,7 +699,7 @@ let%expect_test "Symbolic max_pool2d: agrees with Direct on signed zero and NaN"
 let%expect_test "Symbolic max_reduce: agrees with Direct on signed zero and NaN"
     =
   (* The generic reduction, which no op reaches today, so it is exercised
-     directly. Both sides go through [Max_op.apply Float_max]; the test asserts
+     directly. Both sides go through [Expr.Max_op.apply Float_max]; the test asserts
      they AGREE, deliberately not what the answer is — [Float_max] does not
      match ATen's [amax], whose scalar and vector reducers disagree with each
      other, so there is no answer to pin. See max_op.mli. *)

@@ -1,8 +1,20 @@
 (* The six fixed tensor axes, in their canonical order N T D H W C (C innermost /
    channels-last). Every tensor in the engine is logically 6D over these; lower-
-   rank tensors embed with size-1 axes. See .ai/native_tensor_design.md §1. *)
+   rank tensors embed with size-1 axes. See .ai/native_tensor_design.md §1.
 
-type t = N | T | D | H | W | C
+   A MANIFEST alias of [Expr.Axis.t], not a conversion. The expression language
+   owns its own frame (it must: it cannot depend on [native]), and the two have
+   to agree. An equation is checked by the compiler — adding, dropping or
+   reordering a constructor on either side fails to build — where a conversion
+   table can silently map D to H and every test still passes, because both
+   directions use the same wrong table. It also costs nothing on [Vec6.get]'s
+   innermost path, which is called once per axis per output coordinate.
+
+   [jsont], [of_string] and [to_string] stay HERE rather than moving: they are a
+   wire format, and pulling them into [lib/expr] would cost that library a
+   [jsont] dependency it has no other use for. *)
+
+type t = Expr.Axis.t = N | T | D | H | W | C
 
 let equal = ( = )
 

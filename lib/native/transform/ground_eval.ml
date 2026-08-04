@@ -175,7 +175,7 @@ let rec ground ~env ~coord ~rvars (e : Symbolic_expr.t) : Ground_expr.t =
             ( (fun a b -> Ground_expr.Binary (Symbolic_expr.Add, a, b)),
               Ground_expr.Const 0. )
         | Symbolic_expr.Max_reduce ->
-            ( (fun a b -> Ground_expr.Max (Max_op.Float_max, a, b)),
+            ( (fun a b -> Ground_expr.Max (Expr.Max_op.Float_max, a, b)),
               Ground_expr.Const neg_infinity )
       in
       (* Same left fold, same seed and same order as [Symbolic_expr.eval]'s arm — the
@@ -236,7 +236,7 @@ and max_pool ~env ~coord ~rvars ~input ~kernel ~stride ~pad ~out ~result =
     else
       let v = read ih iw in
       fold_w ih (iw + 1)
-        ( Ground_expr.Max (Max_op.Pool_max, best, v),
+        ( Ground_expr.Max (Expr.Max_op.Pool_max, best, v),
           Ground_expr.Select
             ( Ground_expr.Pool_better { best; value = v },
               Ground_expr.Const (float_of_int ((ih * w) + iw)),

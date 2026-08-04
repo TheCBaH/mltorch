@@ -1,0 +1,19 @@
+; The expression language, as an independent library. It must NOT depend on
+; [native]: [native] consumes [Expr.Value], so a dependency back would be a
+; cycle, and the point of the split is that the language owns no tensor,
+; storage or graph type. See .ai/native_expr_refactoring_design.md.
+;
+; Wrapped (dune's default), so consumers see [Expr.Axis], [Expr.Value], and
+; never a global [Axis] or [Value] -- which is the collision that keeps this
+; out of [native], where (wrapped false) puts every unit in one flat namespace.
+;
+; No ppx: nothing here is preprocessed, so `dune build lib/expr` really does
+; prove the [core]+[fmt] dependency boundary. Tests live in test/expr.
+;
+; [Checked] is private: overflow-checked arithmetic is reached through [Eval]
+; and [Intrinsic], never directly, so it has no place in the public namespace.
+
+(library
+ (name expr)
+ (private_modules checked)
+ (libraries core fmt))

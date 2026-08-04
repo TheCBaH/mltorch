@@ -199,7 +199,7 @@ and eval ~binding ~coord ?(rvars = []) e =
           (* Same predicate, same pairing as [Direct.max_pool2d_index]: both go
              through [Max_op] so the two interpreters cannot drift. *)
           let best, best_index =
-            if Max_op.pool_better ~best ~value:v then (v, (ih * w) + iw)
+            if Expr.Max_op.pool_better ~best ~value:v then (v, (ih * w) + iw)
             else (best, best_index)
           in
           loop_w ih (iw + 1) best best_index
@@ -212,7 +212,7 @@ and eval ~binding ~coord ?(rvars = []) e =
       let combine, init =
         match kind with
         | Sum -> (( +. ), 0.)
-        | Max_reduce -> (Max_op.apply Float_max, neg_infinity)
+        | Max_reduce -> (Expr.Max_op.apply Float_max, neg_infinity)
       in
       let lo = eval_index_expr ~coord ~rvars lo
       and hi = eval_index_expr ~coord ~rvars hi in

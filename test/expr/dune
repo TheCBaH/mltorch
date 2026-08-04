@@ -1,0 +1,26 @@
+; Tests for the [Expr] library. These may depend on more than [lib/expr] does
+; -- [walk_core] supplies the seedable PCG the property generators run on --
+; because the library's own dependency boundary is proved by
+; `dune build lib/expr`, not by what its tests link.
+;
+; (modes best js): the same expect blocks run under js_of_ocaml via node. The
+; root dune routes those to the @runtest-js alias, so plain `dune runtest`
+; stays native-only and `dune build @test/expr/runtest-js` is the JS entry
+; point. That coverage is not optional here -- js_of_ocaml's int is 32 bits,
+; and the checked index arithmetic is exactly what has to behave there.
+
+(library
+ (name expr_test)
+ (libraries expr core walk_core)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(toplevel
+ (name expr_probe)
+ (libraries expr))
+
+(cram
+ (applies_to namespace_safety)
+ (deps namespace_safety.sh expr_probe.exe))
