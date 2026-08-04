@@ -1477,44 +1477,90 @@ module Pp = struct
   (* Renders exactly as the representation being replaced, so the migration's
      golden diff stays attributable to a single cause. [Round_f32] is the one
      genuinely new form and has no old spelling to preserve. *)
+  (* The display counter is RETURNED, not held in a ref. A top-down environment
+     cannot number siblings lexically -- the left sibling's count has to reach
+     the right one -- so [at] hands back the next number, and every arm with
+     more than one value child sequences its children explicitly instead of
+     putting several [%a] in one format string.
+
+     That covers more than the reductions: [Binary]'s operands, [Select]'s guard
+     AND both branches, and inside the guard [Bool.Value_lt]'s two operands, any
+     of which can contain a binder. ([Bool.Index_eq] holds indices, which bind
+     nothing.) Dropping a hand-off is silent -- two binders would share a name
+     -- so the goldens are the guard. *)
   let value fmt e =
-    let next = ref 1 in
     let idx env fmt i = index ~names:(names_in env) fmt i in
-    let rec at env fmt (e : Value.t) =
-      let go fmt e = at env fmt e in
-      let idx fmt i = idx env fmt i in
-      let guard fmt c = guard_at env fmt c in
+    let rec at env n fmt (e : Value.t) =
+      (* Eta-expanded so it stays polymorphic in the role: a reduction's [lo] is
+         a position and its [hi] a delta. *)
+      let idxe fmt i = idx env fmt i in
       match e with
-      | Value.Const x -> Fmt.float fmt x
+      | Value.Const x ->
+          Fmt.float fmt x;
+          n
       | Value.Binary (op, a, b) ->
-          Fmt.pf fmt "(%a %s %a)" go a (Value.binary_sym op) go b
-      | Value.Unary (op, a) -> Fmt.pf fmt "%s(%a)" (Value.unary_name op) go a
+          Fmt.pf fmt "(";
+          let n = at env n fmt a in
+          Fmt.pf fmt " %s " (Value.binary_sym op);
+          let n = at env n fmt b in
+          Fmt.pf fmt ")";
+          n
+      | Value.Unary (op, a) ->
+          Fmt.pf fmt "%s(" (Value.unary_name op);
+          let n = at env n fmt a in
+          Fmt.pf fmt ")";
+          n
+      | Value.Round_f32 a ->
+          Fmt.pf fmt "f32(";
+          let n = at env n fmt a in
+          Fmt.pf fmt ")";
+          n
       | Value.Select (c, a, b) ->
-          Fmt.pf fmt "select(%a, %a, %a)" guard c go a go b
-      | Value.Value_of_index i -> Fmt.pf fmt "value_of_index(%a)" idx i
-      | Value.Load (s, c) -> Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idx) c
-      | Value.Round_f32 a -> Fmt.pf fmt "f32(%a)" go a
+          Fmt.pf fmt "select(";
+          let n = guard_at env n fmt c in
+          Fmt.pf fmt ", ";
+          let n = at env n fmt a in
+          Fmt.pf fmt ", ";
+          let n = at env n fmt b in
+          Fmt.pf fmt ")";
+          n
+      | Value.Value_of_index i ->
+          Fmt.pf fmt "value_of_index(%a)" idxe i;
+          n
+      | Value.Load (s, c) ->
+          Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idxe) c;
+          n
       | Value.Reduce r ->
           (* Named before descending, so the counter follows lexical order --
              and the bounds print under the OUTER environment, since they are
              evaluated outside the binder and cannot mention it. *)
-          let name = Fmt.str "r%d" !next in
-          incr next;
+          let name = Fmt.str "r%d" n in
           let inner = Reduce_var.Map.add r.Reduction.var name env in
-          Fmt.pf fmt "%s(%s=%a..%a: %a)"
+          Fmt.pf fmt "%s(%s=%a..%a: "
             (Reduction.kind_name r.Reduction.kind)
-            name idx r.Reduction.lo idx r.Reduction.hi (at inner)
-            r.Reduction.body
+            name idxe r.Reduction.lo idxe r.Reduction.hi;
+          let n = at inner (n + 1) fmt r.Reduction.body in
+          Fmt.pf fmt ")";
+          n
       | Value.Intrinsic (Intrinsic.Max_pool d) ->
           Fmt.pf fmt "max_pool2d_%s(%a; k=%dx%d s=%dx%d p=%dx%d; out=[%a])"
             (Intrinsic.Max_pool.result_name d.Intrinsic.Max_pool.result)
             Source.pp d.Intrinsic.Max_pool.source d.Intrinsic.Max_pool.kernel_h
             d.Intrinsic.Max_pool.kernel_w d.Intrinsic.Max_pool.stride_h
             d.Intrinsic.Max_pool.stride_w d.Intrinsic.Max_pool.pad_h
-            d.Intrinsic.Max_pool.pad_w (Coord.pp idx) d.Intrinsic.Max_pool.out
-    and guard_at env fmt = function
-      | Bool.Value_lt (a, b) -> Fmt.pf fmt "(%a < %a)" (at env) a (at env) b
-      | Bool.Index_eq (a, b) -> Fmt.pf fmt "(%a = %a)" (idx env) a (idx env) b
+            d.Intrinsic.Max_pool.pad_w (Coord.pp idxe) d.Intrinsic.Max_pool.out;
+          n
+    and guard_at env n fmt = function
+      | Bool.Value_lt (a, b) ->
+          Fmt.pf fmt "(";
+          let n = at env n fmt a in
+          Fmt.pf fmt " < ";
+          let n = at env n fmt b in
+          Fmt.pf fmt ")";
+          n
+      | Bool.Index_eq (a, b) ->
+          Fmt.pf fmt "(%a = %a)" (idx env) a (idx env) b;
+          n
     in
-    at Reduce_var.Map.empty fmt e
+    ignore (at Reduce_var.Map.empty 1 fmt e : int)
 end
