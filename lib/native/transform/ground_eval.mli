@@ -80,7 +80,9 @@ module Env : sig
   val unbound_constant : t -> Ground_expr.Cell.t -> bool
 end
 
-type error = [ `Unknown_edge of Tensor_id.t ]
+(* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
+   arithmetic can fail where it previously wrapped. *)
+type error = [ `Unknown_edge of Tensor_id.t | Expr.Eval.error ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -120,19 +122,12 @@ val expand :
   budget:int ->
   Env.t ->
   Ground_expr.t ->
-  Ground_expr.t
+  (Ground_expr.t, error) Core.result
+(* Result-valued because expansion evaluates indices, and checked arithmetic can
+   fail. The caller must convert a failure into a VERDICT about the cluster, the
+   way [at]'s failure already is -- not widen its own error row and abandon the
+   run. See [Map_verify.unproved_of_eval_error]. *)
 
-(* Whether any NON-BOUNDARY cell still has a stage below it. A probe may only
-   run when this is [false] on both sides: a cell left at a budget-truncated
-   frontier is an internal stage result constrained by its producer, so
-   assigning it independently manufactures a counterexample nothing can realise.
-
-   A boundary cell is different in kind — it is a free variable of the local
-   obligation, quantified over — so it does not keep this true, and a probe at a
-   completed local frontier is a counterexample to the LOCAL transfer function.
-   Not to the two graphs' values: an upstream cluster may constrain the variable
-   to a range in which the two sides agree. See
-   .ai/native_transform_verify.md §8b. *)
 val expandable :
   boundary:(Ground_expr.Origin.t -> Cluster_var.t option) ->
   Env.t ->

@@ -646,6 +646,16 @@ let frontier_vars e =
    map's claim that two edges name one value, and only comparison reads them.
    Projecting before normalising would strand every [Round] on a boundary cell,
    since an unknown cell is [stored_f32 = false] and refuses to collapse. *)
+(* A grounding failure is a verdict ABOUT this cluster, not an error for the
+   caller -- the rule [compare_at] already follows for [Ground_eval.at]. The
+   conversion drops the [Core.Error.t] wrapper, because a verdict stores only
+   the payload; that is a legitimate boundary, but it must not read like the
+   backtrace-destroying defect .ai/printer_conventions.md warns about, so it
+   gets ONE named helper used at both sites. [Core.map_error] is not it -- the
+   destination is a verdict, not another result. *)
+let unproved_of_eval_error (e : Ground_eval.error Core.Error.t) =
+  Verdict.Unproved (Unproved.Eval e.Core.Error.kind)
+
 let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
     ~lhs_env ~rhs_env ~lhs_boundary ~rhs_boundary ~coord ~members =
   let lhs_member, rhs_member = members in
@@ -709,18 +719,19 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
         Verdict.Unproved Unproved.Max_rounds
       else if expandable then
         let cap = budget.Budget.max_nodes in
-        let lhs =
-          Ground_eval.expand ~boundary:lhs_crossing ~budget:cap lhs_env lhs
-        and rhs =
-          Ground_eval.expand ~boundary:rhs_crossing ~budget:cap rhs_env rhs
-        in
-        let size = Ground_expr.size lhs + Ground_expr.size rhs in
-        if size > budget.Budget.max_nodes then
-          Verdict.Unproved (Unproved.Max_nodes size)
-        else
-          settle ~budget ~probe ~tolerance ~label ~proof ~rounds:(rounds + 1)
-            ~lhs ~rhs ~lhs_env ~rhs_env ~lhs_boundary ~rhs_boundary ~coord
-            ~members
+        match
+          ( Ground_eval.expand ~boundary:lhs_crossing ~budget:cap lhs_env lhs,
+            Ground_eval.expand ~boundary:rhs_crossing ~budget:cap rhs_env rhs )
+        with
+        | Error e, _ | Ok _, Error e -> unproved_of_eval_error e
+        | Ok lhs, Ok rhs ->
+            let size = Ground_expr.size lhs + Ground_expr.size rhs in
+            if size > budget.Budget.max_nodes then
+              Verdict.Unproved (Unproved.Max_nodes size)
+            else
+              settle ~budget ~probe ~tolerance ~label ~proof
+                ~rounds:(rounds + 1) ~lhs ~rhs ~lhs_env ~rhs_env ~lhs_boundary
+                ~rhs_boundary ~coord ~members
       else
         (* The LOCAL frontier is complete and the terms still differ. That is
            the prover failing, not a counterexample: no assignment has been
@@ -852,8 +863,7 @@ let compare_at ~budget ~index ~probe ~tolerance ~label ~under_test sides
       ( Ground_eval.at lhs_env lhs_at.loc_id coord,
         Ground_eval.at rhs_env rhs_at.loc_id coord )
     with
-    | Error e, _ | Ok _, Error e ->
-        Verdict.Unproved (Unproved.Eval e.Core.Error.kind)
+    | Error e, _ | Ok _, Error e -> unproved_of_eval_error e
     | Ok lhs, Ok rhs -> (
         let out_of_bounds =
           match Ground_eval.out_of_bounds lhs_env lhs with

@@ -237,21 +237,28 @@ let%expect_test "verify: bmm, the two terms" =
                     ~boundary:(fun _ -> None)
                     ~budget:100_000 env t
                 in
-                Format.printf "@[<v 2>%s:@,%a@]@." label Ground_expr.pp t
+                Format.printf "@[<v 2>%s:@,%a@]@." label
+                  (Core.Pretty.core_result ~ok:Ground_expr.pp
+                     ~error:Ground_eval.pp_error)
+                  t
           in
           show "src" src_env;
           show "dst" dst_env;
           (* NORMALISED, which is what the verifier actually compares: the
              Round-over-Cell collapse fires here if it fires at all. *)
           let term env =
-            match Ground_eval.at env out coord with
+            match
+              Core.Syntax.( >>= )
+                (Ground_eval.at env out coord)
+                (Ground_eval.expand
+                   ~boundary:(fun _ -> None)
+                   ~budget:100_000 env)
+            with
             | Error _ -> Ground_expr.Const 0.
             | Ok t ->
                 (Ground_expr.normalise
                    ~stored_f32:(Ground_eval.Env.stored_f32 env)
-                   (Ground_eval.expand
-                      ~boundary:(fun _ -> None)
-                      ~budget:100_000 env t))
+                   t)
                   .Ground_expr.expr
           in
           let ls = term src_env and rs = term dst_env in

@@ -13,7 +13,7 @@ module Stage : sig
   type t = {
     id : Tensor_id.t; (* the producing edge id (this stage's identity) *)
     sg : Tensor_sig.t; (* the stage's output signature *)
-    body : Symbolic_expr.t;
+    body : Expr.Value.t;
         (* per-pixel expression; its Loads carry producers' sigs *)
   }
 end

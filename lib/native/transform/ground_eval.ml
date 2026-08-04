@@ -136,64 +136,101 @@ module Env = struct
   let stage_of_id t id = Tensor_id.Map.find_opt id t.stages
 end
 
-type error = [ `Unknown_edge of Tensor_id.t ]
+(* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
+   arithmetic can now fail where it previously wrapped. *)
+type error = [ `Unknown_edge of Tensor_id.t | Expr.Eval.error ]
 
 let pp_error fmt : [< error ] -> unit = function
   | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
+  | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
+
+(* Index evaluation is result-returning, but [ground] and [expand] are
+   recursive rebuilds threading a node budget; converting at every step would
+   rewrite them monadically for a failure that cannot occur on a well-formed
+   graph. So the recursion raises and the module's PUBLIC entry points convert
+   once -- the same shape [Expr.Eval] uses internally, and for the same reason.
+   The exception carries an already-built [Core.Error.t], so the backtrace is
+   the one captured where the failure was detected. *)
+exception Eval_failed of error Core.Error.t
+
+let or_raise : ('a, [< error ]) Core.result -> 'a = function
+  | Ok v -> v
+  | Error e -> raise (Eval_failed (e :> error Core.Error.t))
+
+let caught f = try Core.return (f ()) with Eval_failed e -> Error e
 
 (* ---- grounding one stage body -------------------------------------------- *)
 
 (* [Load]s become leaves through [leaf]; every index is evaluated at [coord]
    (and at the enclosing reduction variables), which is what removes the
    binders. *)
-let rec ground ~env ~coord ~rvars (e : Symbolic_expr.t) : Ground_expr.t =
+let rec ground ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
   let recur = ground ~env ~coord ~rvars in
-  let index i = Symbolic_expr.eval_index_expr ~coord ~rvars i in
+  let index : type r. r Expr.Index.t -> int =
+   fun i ->
+    or_raise
+      (Expr.Eval.index ~output:coord
+         ~reducers:(fun v ->
+           List.find_map
+             (fun (w, n) -> if Expr.Reduce_var.equal v w then Some n else None)
+             rvars)
+         i)
+  in
   match e with
-  | Symbolic_expr.Const x -> Ground_expr.Const x
-  | Symbolic_expr.Binary (op, a, b) -> Ground_expr.Binary (op, recur a, recur b)
-  | Symbolic_expr.Unary (op, x) -> Ground_expr.Unary (op, recur x)
-  | Symbolic_expr.Value_of_index i -> Ground_expr.Const (float_of_int (index i))
-  | Symbolic_expr.Select (c, a, b) -> (
+  | Expr.Value.Const x -> Ground_expr.Const x
+  | Expr.Value.Binary (op, a, b) -> Ground_expr.Binary (op, recur a, recur b)
+  | Expr.Value.Unary (op, x) -> Ground_expr.Unary (op, recur x)
+  | Expr.Value.Value_of_index i ->
+      (* Through the shared conversion, not [float_of_int]: this is the second
+         interpreter, and a helper returning [int] does not make the conversion
+         that follows it exact. *)
+      Ground_expr.Const (or_raise (Expr.Eval.float_of_index (index i)))
+  | Expr.Value.Round_f32 x ->
+      (* A stage boundary in the value language maps onto the ground language's
+         own [Round], which already carries f32 semantics. *)
+      Ground_expr.Round (recur x)
+  | Expr.Value.Select (c, a, b) -> (
       match c with
       (* An index comparison is decided by the coordinate, so the [Select]
          collapses outright rather than surviving as a guard. *)
-      | Symbolic_expr.Index_eq (x, y) ->
+      | Expr.Bool.Index_eq (x, y) ->
           if Int.equal (index x) (index y) then recur a else recur b
-      | Symbolic_expr.Cmp (Symbolic_expr.Lt, x, y) ->
+      | Expr.Bool.Value_lt (x, y) ->
           Ground_expr.Select
             (Ground_expr.Lt (recur x, recur y), recur a, recur b))
-  | Symbolic_expr.Load (sg, idx) ->
-      leaf ~env sg (fun a -> index (Vec6.get idx a))
-  | Symbolic_expr.Max_pool { input; kernel; stride; pad; out; result } ->
-      max_pool ~env ~coord ~rvars ~input ~kernel ~stride ~pad ~out ~result
-  | Symbolic_expr.Reduce { kind; var; lo; hi; body } ->
-      let lo = index lo and hi = index hi in
+  | Expr.Value.Load (src, idx) ->
+      leaf ~env (Expr_bridge.id_of_source src) (fun a ->
+          index (Expr.Coord.get idx a))
+  | Expr.Value.Intrinsic i -> max_pool ~env ~coord ~rvars i
+  | Expr.Value.Reduce r ->
+      let lo = index r.Expr.Reduction.lo and hi = index r.Expr.Reduction.hi in
       let combine, seed =
-        match kind with
-        | Symbolic_expr.Sum ->
-            ( (fun a b -> Ground_expr.Binary (Symbolic_expr.Add, a, b)),
+        match r.Expr.Reduction.kind with
+        | Expr.Reduction.Sum ->
+            ( (fun a b -> Ground_expr.Binary (Expr.Value.Add, a, b)),
               Ground_expr.Const 0. )
-        | Symbolic_expr.Max_reduce ->
+        | Expr.Reduction.Max ->
             ( (fun a b -> Ground_expr.Max (Expr.Max_op.Float_max, a, b)),
               Ground_expr.Const neg_infinity )
       in
-      (* Same left fold, same seed and same order as [Symbolic_expr.eval]'s arm — the
+      (* Same left fold, same seed and same order as [Expr.Eval]'s arm — the
          ground form has to reproduce the engine's association, not merely its
          value. *)
       let rec fold i acc =
         if i >= hi then acc
         else
           fold (i + 1)
-            (combine acc (ground ~env ~coord ~rvars:((var, i) :: rvars) body))
+            (combine acc
+               (ground ~env ~coord
+                  ~rvars:((r.Expr.Reduction.var, i) :: rvars)
+                  r.Expr.Reduction.body))
       in
       fold lo seed
 
 (* A [Load] of a synthetic constant fill is that constant; a [Load] of a bound
    model constant is its stored element, read exactly the way [Symbolic_expr.eval] reads
    it; anything else is a free cell. *)
-and leaf ~env (sg : Tensor_sig.t) at_axis : Ground_expr.t =
-  let id = sg.Tensor_sig.id in
+and leaf ~env id at_axis : Ground_expr.t =
   match (Env.const_of env id, Env.constant_of env id) with
   | Some v, _ -> Ground_expr.Const v
   | None, Some payload -> Ground_expr.Const (Tensor.read_at_raw payload at_axis)
@@ -212,56 +249,82 @@ and leaf ~env (sg : Tensor_sig.t) at_axis : Ground_expr.t =
    The value accumulator is a binary [Max] node, so it is mentioned once and
    the fold stays linear in the window; the index accumulator has to name the
    running best inside its guard, which is why it is the larger of the two. *)
-and max_pool ~env ~coord ~rvars ~input ~kernel ~stride ~pad ~out ~result =
-  let index i = Symbolic_expr.eval_index_expr ~coord ~rvars i in
-  let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.Op_config.Hw.w :> int))
-  and sh, sw = ((stride.Op_config.Hw.h :> int), (stride.Op_config.Hw.w :> int))
-  and ph, pw = ((pad.Op_config.Hw.h :> int), (pad.Op_config.Hw.w :> int)) in
-  let h = (Vec6.get input.Tensor_sig.shape Axis.H :> int)
-  and w = (Vec6.get input.Tensor_sig.shape Axis.W :> int) in
-  let out_h = index (Vec6.get out Axis.H)
-  and out_w = index (Vec6.get out Axis.W) in
-  let hlo = Stdlib.max 0 ((out_h * sh) - ph)
-  and hhi = Stdlib.min h ((out_h * sh) - ph + kh) in
-  let wlo = Stdlib.max 0 ((out_w * sw) - pw)
-  and whi = Stdlib.min w ((out_w * sw) - pw + kw) in
+and max_pool ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
+  let open Expr.Intrinsic.Max_pool in
+  let index : type r. r Expr.Index.t -> int =
+   fun x ->
+    or_raise
+      (Expr.Eval.index ~output:coord
+         ~reducers:(fun v ->
+           List.find_map
+             (fun (w, n) -> if Expr.Reduce_var.equal v w then Some n else None)
+             rvars)
+         x)
+  in
+  (* Through the shared geometry helpers, not recomputed here. [out_h * stride]
+     and [ih * in_w] are aggregates of individually valid factors, so they need
+     their own bounds -- and a second copy of the arithmetic is exactly how this
+     interpreter and [Expr.Eval] would drift apart. *)
+  let w =
+    or_raise
+      (Expr.Intrinsic.window i
+         ~out_h:(index (Expr.Coord.get d.out Axis.H))
+         ~out_w:(index (Expr.Coord.get d.out Axis.W)))
+  in
   (* Hoisted out of the fold. [out]'s four non-H/W components do not depend on
      the window position, so re-evaluating them once per window ELEMENT is pure
      waste -- and this sits on the grounding path whose cost the budget comment
      below is about. *)
   let others =
-    Vec6.mapi (fun a i -> if a = Axis.H || a = Axis.W then 0 else index i) out
+    Expr.Coord.mapi
+      (fun a x -> if a = Axis.H || a = Axis.W then 0 else index x)
+      d.out
   in
   let read ih iw =
-    leaf ~env input (fun a ->
-        if a = Axis.H then ih else if a = Axis.W then iw else Vec6.get others a)
+    leaf ~env (Expr_bridge.id_of_source d.source) (fun a ->
+        if a = Axis.H then ih
+        else if a = Axis.W then iw
+        else Expr.Coord.get others a)
   in
   let rec fold_w ih iw (best, best_index) =
-    if iw >= whi then fold_h (ih + 1) (best, best_index)
+    if iw >= w.Expr.Intrinsic.Window.whi then fold_h (ih + 1) (best, best_index)
     else
       let v = read ih iw in
+      let flat =
+        or_raise
+          (Core.map_error
+             (fun e -> (e :> error))
+             (Expr.Eval.float_of_index
+                (or_raise (Expr.Intrinsic.flat_index i ~ih ~iw))))
+      in
       fold_w ih (iw + 1)
         ( Ground_expr.Max (Expr.Max_op.Pool_max, best, v),
           Ground_expr.Select
             ( Ground_expr.Pool_better { best; value = v },
-              Ground_expr.Const (float_of_int ((ih * w) + iw)),
+              Ground_expr.Const flat,
               best_index ) )
-  and fold_h ih acc = if ih >= hhi then acc else fold_w ih wlo acc in
-  let best, best_index =
-    fold_h hlo (Ground_expr.Const neg_infinity, Ground_expr.Const 0.)
+  and fold_h ih acc =
+    if ih >= w.Expr.Intrinsic.Window.hhi then acc
+    else fold_w ih w.Expr.Intrinsic.Window.wlo acc
   in
-  match result with
-  | Symbolic_expr.Max_pool.Value -> best
-  | Symbolic_expr.Max_pool.Index -> best_index
+  let best, best_index =
+    fold_h w.Expr.Intrinsic.Window.hlo
+      (Ground_expr.Const neg_infinity, Ground_expr.Const 0.)
+  in
+  match d.result with
+  | Expr.Intrinsic.Max_pool.Value -> best
+  | Expr.Intrinsic.Max_pool.Index -> best_index
 
 (* ---- the interface -------------------------------------------------------- *)
 
+(* Internal: raises through [Eval_failed]. The public entries below convert. *)
 let body_at env (st : Stage_program.Stage.t) coord =
   ground ~env
-    ~coord:(Schedule.coord_index coord)
+    ~coord:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int coord))
     ~rvars:[] st.Stage_program.Stage.body
 
 let at env id coord =
+  caught @@ fun () ->
   (* [id] names an edge of THIS graph, so the stage is looked up by that raw id
      DIRECTLY. A root is never replaced by a correspondence variable, whatever
      cluster it is in: doing so would let the cluster under test discharge
@@ -269,24 +332,21 @@ let at env id coord =
      looked at. Expanding the root is what puts a real definition on each side;
      projection then applies to what that reads. *)
   match Env.stage_of_id env id with
-  | Some st -> Core.return (Ground_expr.Round (body_at env st coord))
+  | Some st -> Ground_expr.Round (body_at env st coord)
   | None -> (
       (* An input edge can itself be a bound constant — [fold_const]'s whole
          output is one — so the same binding [leaf] applies inside a body has to
          apply here too, not just to [Load]s. *)
       match (Env.const_of env id, Env.constant_of env id) with
-      | Some v, _ -> Core.return (Ground_expr.Const v)
+      | Some v, _ -> Ground_expr.Const v
       | None, Some payload ->
-          Core.return
-            (Ground_expr.Const
-               (Tensor.read_at_raw payload (fun a ->
-                    Dim.to_int (Vec6.get coord a))))
+          Ground_expr.Const
+            (Tensor.read_at_raw payload (fun a -> Dim.to_int (Vec6.get coord a)))
       | None, None ->
           let origin = Env.origin env id in
           if Option.is_none (Env.shape_of env origin) then
-            Core.fail (`Unknown_edge id)
-          else Core.return (Ground_expr.Cell { Ground_expr.Cell.origin; coord })
-      )
+            or_raise (Core.fail (`Unknown_edge id))
+          else Ground_expr.Cell { Ground_expr.Cell.origin; coord })
 
 (* [budget] bounds ONE round, and has to: a single substitution step is
    quadratic where a conv feeds a conv, so a term can reach tens of millions of
@@ -303,7 +363,8 @@ let at env id coord =
    be re-proving someone else's. That is the difference between a budget
    truncation and a completed frontier, and the two must not be confused —
    which is why [expandable] below asks the same question. *)
-let expand ~boundary ~budget env (e : Ground_expr.t) : Ground_expr.t =
+let expand ~boundary ~budget env (e : Ground_expr.t) =
+  caught @@ fun () ->
   let rec go n e =
     if n >= budget then (n, e)
     else
@@ -352,6 +413,9 @@ let expand ~boundary ~budget env (e : Ground_expr.t) : Ground_expr.t =
   in
   snd (go 0 e)
 
+(* Stays TOTAL, deliberately: it only inspects existing cells and stage
+   availability, evaluating no index and no intrinsic, so it has nothing to
+   fail on. *)
 let expandable ~boundary env e =
   Ground_expr.Cell.Set.exists
     (fun (c : Ground_expr.Cell.t) ->
