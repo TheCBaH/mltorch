@@ -14,6 +14,20 @@
    producer live when its max-pool consumer sits outside the selection, letting
    a later fusion plan drop a store that consumer still needs. *)
 
+(* WHAT THE LIMITS BOUND: both the raw [Stage_program.t] lists and the derived
+   kernel interface, at two distinct points.
+
+   Raw first, before any list is traversed — [stages] against [max_values],
+   [inputs] + [consts] together against [max_inputs] (both become boundary
+   inputs), and [outputs] against [max_outputs]. Bounding only [stages] left the
+   adapter doing unbounded work on lists just as public as that one.
+
+   Derived second: [of_stage_program] through [Kernel.create], which counts
+   synthetic inputs the raw lists do not contain, and [required_outputs] against
+   [max_outputs] itself. The latter is not redundant — that entry point never
+   reaches [Kernel.create], so without it the same [limits] would mean different
+   things depending on which function a caller used. *)
+
 module Unknown_stage : sig
   type t = { at : Tensor_id.t; source : Expr.Source.t }
 end
@@ -30,6 +44,7 @@ type error =
   | `Output_not_selected of Tensor_id.t
   | `Unknown_selection of Tensor_id.t
   | `Passthrough_output of Tensor_id.t
+  | `Unknown_program_output of Tensor_id.t
   | `Program_invalid of Program_error.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit

@@ -300,3 +300,125 @@ let%expect_test "freshening must not capture a FREE reducer" =
      have made the renamed one succeed with a different answer. *)
   Fmt.pr "same value: %b@." (same_value (ev frag) (ev n));
   [%expect {| same value: true |}]
+
+(* ---- substitute_loads ------------------------------------------------------ *)
+
+let%expect_test "substitute_loads replaces a load with a subtree" =
+  let src = Source.create 3 in
+  let coord = Coord.of_fn (fun a -> Index.output a) in
+  let e = Value.add (Value.load src coord) (Value.const 1.0) in
+  let replaced =
+    Builder.run
+      (Rewrite.substitute_loads
+         (fun s _ ->
+           if Source.equal s src then Some (Builder.return (Value.const 7.0))
+           else None)
+         e)
+  in
+  Fmt.pr "before: %a@.after:  %a@." Pp.value e Pp.value replaced;
+  (* [None] keeps the load, so an unmatched source is untouched. *)
+  let untouched = Builder.run (Rewrite.substitute_loads (fun _ _ -> None) e) in
+  Fmt.pr "unmatched preserved: %b@." (Value.equal e untouched);
+  [%expect
+    {|
+    before: (t3[N,T,D,H,W,C] + 1)
+    after:  (7 + 1)
+    unmatched preserved: true |}]
+
+let%expect_test "substitute_loads leaves an intrinsic descriptor intact" =
+  (* A max-pool holds a source and geometry, not a load node — there is nothing
+     inside it one scalar subtree could stand in for. The callback must never
+     see it, and the descriptor must come through unchanged. *)
+  let src = Source.create 5 in
+  let e =
+    Value.intrinsic
+      (Core.or_raise Intrinsic.pp_error
+         (Intrinsic.max_pool ~source:src ~in_h:4 ~in_w:4 ~kernel_h:2 ~kernel_w:2
+            ~stride_h:2 ~stride_w:2 ~pad_h:0 ~pad_w:0
+            ~out:(Coord.of_fn (fun a -> Index.output a))
+            ~result:Intrinsic.Max_pool.Value))
+  in
+  let seen = ref [] in
+  let out =
+    Builder.run
+      (Rewrite.substitute_loads
+         (fun s _ ->
+           seen := s :: !seen;
+           Some (Builder.return (Value.const 0.0)))
+         e)
+  in
+  Fmt.pr "callback saw %d sources@.unchanged: %b@." (List.length !seen)
+    (Value.equal e out);
+  (* The dependency is still THERE — it is simply not substitutable, which is
+     exactly why [sources] and [loads] answer different questions. *)
+  Fmt.pr "sources %d, loads %d, intrinsic_sources %d@."
+    (Source.Set.cardinal (Fold.sources e))
+    (List.length (Fold.loads e))
+    (List.length (Fold.intrinsic_sources e));
+  [%expect
+    {|
+    callback saw 0 sources
+    unchanged: true
+    sources 1, loads 0, intrinsic_sources 1 |}]
+
+let%expect_test "substitute_loads mints in the destination's namespace" =
+  (* The composition rule the whole design rests on. Insert a reduction-bearing
+     fragment into a reduction-bearing destination, both built from [initial] so
+     both mint ordinal 0.
+
+     Threading ONE state through the freshening and the substitution keeps the
+     binders apart; freshening each fragment from [initial] instead reintroduces
+     the collision at the moment of composing, which is the mistake this API
+     exists to make hard. *)
+  let src = Source.create 1 in
+  let coord = Coord.of_fn (fun a -> Index.output a) in
+  let reduction leaf =
+    Builder.run
+      (Builder.reduction ~kind:Reduction.Sum ~lo:Index.zero ~hi:(Index.const 2)
+         (fun r ->
+           Builder.return
+             (Value.add leaf (Value.value_of_index (Index.of_position r)))))
+  in
+  let destination = reduction (Value.load src coord) in
+  let fragment = reduction (Value.const 1.0) in
+  let compose ~shared =
+    let open Builder.Syntax in
+    Builder.run
+      (let* d = Rewrite.freshen destination in
+       Rewrite.substitute_loads
+         (fun _ _ ->
+           Some
+             (if shared then Rewrite.freshen fragment
+              else Builder.return (Builder.run (Rewrite.freshen fragment))))
+         d)
+  in
+  let verdict =
+    Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
+  in
+  Fmt.pr "threaded state:  %a@." verdict (Check.value (compose ~shared:true));
+  Fmt.pr "fragment re-run from initial: %a@." verdict
+    (Check.value (compose ~shared:false));
+  [%expect
+    {|
+    threaded state:  ok
+    fragment re-run from initial: reducer #0 is bound twice on one path |}]
+
+let%expect_test "substitute_loads does not re-traverse what it inserted" =
+  (* Stated in the .mli, and depended on by the one-edge fusion rule: a chain
+     cannot be collapsed by a single pass, so a caller must either iterate or
+     restrict itself to non-overlapping edges. *)
+  let a = Source.create 1 and b = Source.create 2 in
+  let coord = Coord.of_fn (fun a -> Index.output a) in
+  let e = Value.load a coord in
+  let out =
+    Builder.run
+      (Rewrite.substitute_loads
+         (fun s _ ->
+           if Source.equal s a then Some (Builder.return (Value.load b coord))
+           else if Source.equal s b then
+             Some (Builder.return (Value.const 99.0))
+           else None)
+         e)
+  in
+  Fmt.pr "%a@." Pp.value out;
+  [%expect {| t2[N,T,D,H,W,C] |}]

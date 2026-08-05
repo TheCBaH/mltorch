@@ -21,6 +21,7 @@ type error =
   | `Output_not_selected of Tensor_id.t
   | `Unknown_selection of Tensor_id.t
   | `Passthrough_output of Tensor_id.t
+  | `Unknown_program_output of Tensor_id.t
   | `Program_invalid of Program_error.t ]
 
 let pp_error fmt : [< error ] -> unit = function
@@ -40,6 +41,9 @@ let pp_error fmt : [< error ] -> unit = function
   | `Passthrough_output id ->
       Fmt.pf fmt "graph output %a is a boundary input, not a stage result"
         Tensor_id.pp id
+  | `Unknown_program_output id ->
+      Fmt.pf fmt "graph output %a is neither a stage nor a boundary"
+        Tensor_id.pp id
   | `Program_invalid { Program_error.at; kind } ->
       Fmt.pf fmt "stage program invalid at %a: %s" Tensor_id.pp at
         (Program_error.kind_name kind)
@@ -52,7 +56,6 @@ let pp_error fmt : [< error ] -> unit = function
 
 type analysis = {
   select : Tensor_id.Set.t;
-  boundary : Tensor_sig.t Tensor_id.Map.t;  (** inputs + consts, by id *)
   kinds : Graph_common.Input.kind Tensor_id.Map.t;
   sources : Expr.Source.Set.t Tensor_id.Map.t;  (** per stage, memoised *)
   stage_sig : Tensor_sig.t Tensor_id.Map.t;
@@ -61,10 +64,38 @@ type analysis = {
 
 let analyse ~limits ~select (p : Stage_program.t) =
   let open Core.Syntax in
-  (* Stage count first, before the list is traversed at all. *)
+  (* Every untrusted raw list is bounded BEFORE it is traversed — not only the
+     stages. [inputs], [consts] and [outputs] are just as public, and leaving
+     them unbounded meant the adapter did unbounded work and only [Kernel.create]
+     noticed, on the DERIVED interface, after all analysis had run. Bounding the
+     raw lists here also makes the two entry points agree: [required_outputs]
+     never reaches [Kernel.create] at all.
+
+     Raw inputs and consts are both bounded by [max_inputs] because both become
+     boundary inputs; the derived interface is bounded again by [create], which
+     is the tighter statement and the one that counts synthetic entries. *)
+  (* [Kernel.over_limit], not [List.length]: an over-limit list must stop one
+     cell past the limit rather than be walked to its end, or the guard is
+     itself the unbounded work it exists to prevent. Inputs and consts are
+     counted TOGETHER by continuing the second from the first's remainder — the
+     sum of two counts is an unchecked [int] aggregate, and under js_of_ocaml a
+     wrapped negative would sail straight past a [> limit] test. *)
   let* () =
-    if List.length p.Stage_program.stages > limits.Kernel.Limits.max_values then
-      Core.fail (`Too_many_values limits.Kernel.Limits.max_values)
+    if Kernel.over_limit limits.Kernel.Limits.max_values p.Stage_program.stages
+    then Core.fail (`Too_many_values limits.Kernel.Limits.max_values)
+    else Core.return ()
+  in
+  let* () =
+    if
+      Kernel.over_limit_2 limits.Kernel.Limits.max_inputs p.Stage_program.inputs
+        p.Stage_program.consts
+    then Core.fail (`Too_many_inputs limits.Kernel.Limits.max_inputs)
+    else Core.return ()
+  in
+  let* () =
+    if
+      Kernel.over_limit limits.Kernel.Limits.max_outputs p.Stage_program.outputs
+    then Core.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
     else Core.return ()
   in
   (* Then every body's budget — selected or not. An oversized UNSELECTED body is
@@ -79,16 +110,34 @@ let analyse ~limits ~select (p : Stage_program.t) =
              ~max_depth:limits.Kernel.Limits.max_depth st.body))
       (Core.return ()) p.Stage_program.stages
   in
-  (* Only now is it safe to fold over bodies. *)
-  let boundary =
+  (* The boundary table is built RESULT-VALUED, not with [Map.add]. Insertion
+     silently overwrote a duplicate input, a duplicate constant, or an
+     input/constant id collision, and checked no signature id — so a selection
+     could still launder a malformed boundary definition, which is precisely
+     what treating [Stage_program.t] as untrusted is supposed to stop. *)
+  let* boundary =
+    let add m id (sg : Tensor_sig.t) =
+      let invalid kind =
+        Core.fail (`Program_invalid { Program_error.at = id; kind })
+      in
+      if Tensor_id.Map.mem id m then invalid Program_error.Duplicate_definition
+      else if not (Tensor_id.equal id sg.Tensor_sig.id) then
+        invalid Program_error.Signature_id
+      else Core.return (Tensor_id.Map.add id sg m)
+    in
+    let* m =
+      List.fold_left
+        (fun acc (id, sg) ->
+          let* m = acc in
+          add m id sg)
+        (Core.return Tensor_id.Map.empty)
+        p.Stage_program.inputs
+    in
     List.fold_left
-      (fun m (id, sg) -> Tensor_id.Map.add id sg m)
-      Tensor_id.Map.empty p.Stage_program.inputs
-  in
-  let boundary =
-    List.fold_left
-      (fun m ((sg : Tensor_sig.t), _) -> Tensor_id.Map.add sg.id sg m)
-      boundary p.Stage_program.consts
+      (fun acc ((sg : Tensor_sig.t), _) ->
+        let* m = acc in
+        add m sg.Tensor_sig.id sg)
+      (Core.return m) p.Stage_program.consts
   in
   let stage_sig =
     List.fold_left
@@ -136,6 +185,23 @@ let analyse ~limits ~select (p : Stage_program.t) =
       (Core.return (Tensor_id.Map.empty, Tensor_id.Set.empty))
       p.Stage_program.stages
   in
+  (* Every declared output is classified HERE, before any selection: a stage id
+     is fine, a boundary id is a pass-through, and an id in neither table is
+     malformed. Leaving it to the selection-dependent pass let an unknown id be
+     silently skipped, so a malformed program adapted cleanly to a kernel with a
+     DIFFERENT public result — the very hazard the pass-through rule exists to
+     prevent. Neither classification depends on the selection, so neither
+     belongs after it. *)
+  let* () =
+    List.fold_left
+      (fun acc id ->
+        let* () = acc in
+        if Tensor_id.Map.mem id stage_sig then Core.return ()
+        else if Tensor_id.Map.mem id boundary then
+          Core.fail (`Passthrough_output id)
+        else Core.fail (`Unknown_program_output id))
+      (Core.return ()) p.Stage_program.outputs
+  in
   let order =
     List.map
       (fun (st : Stage_program.Stage.t) -> st.Stage_program.Stage.id)
@@ -158,14 +224,7 @@ let analyse ~limits ~select (p : Stage_program.t) =
       select (Core.return ())
   in
   Core.return
-    {
-      select;
-      boundary;
-      kinds = p.Stage_program.input_kinds;
-      sources;
-      stage_sig;
-      order;
-    }
+    { select; kinds = p.Stage_program.input_kinds; sources; stage_sig; order }
 
 let sources_of a id =
   Option.value
@@ -210,9 +269,9 @@ let required a (p : Stage_program.t) =
     List.fold_left
       (fun acc id ->
         let* outs = acc in
+        (* Classified already; an unselected stage is simply not this kernel's
+           output. *)
         if Tensor_id.Set.mem id a.select then Core.return (id :: outs)
-        else if Tensor_id.Map.mem id a.boundary then
-          Core.fail (`Passthrough_output id)
         else Core.return outs)
       (Core.return []) p.Stage_program.outputs
   in
@@ -238,7 +297,13 @@ let required a (p : Stage_program.t) =
 let required_outputs ?(limits = Kernel.Limits.default) ?select p =
   let open Core.Syntax in
   let* a = analyse ~limits ~select p in
-  required a p
+  let* outs = required a p in
+  (* The DERIVED bound, enforced here too: this entry point never reaches
+     [Kernel.create], so without it the same limits would mean different things
+     depending on which function a caller used. *)
+  if Kernel.over_limit limits.Kernel.Limits.max_outputs outs then
+    Core.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
+  else Core.return outs
 
 let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
   let open Core.Syntax in
@@ -250,6 +315,13 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
     match outputs with
     | None -> Core.return req
     | Some given ->
+        (* The caller's list is a public collection too, and was prefix-scanned
+           and then extra-scanned before [Kernel.create] ever counted it. *)
+        let* () =
+          if Kernel.over_limit limits.Kernel.Limits.max_outputs given then
+            Core.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
+          else Core.return ()
+        in
         let rec strip req given =
           match (req, given) with
           | [], rest -> Core.return rest

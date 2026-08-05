@@ -25,12 +25,15 @@ type error =
   [ Expr.Eval.error
   | `Unbound_input of Tensor_id.t
   | `Binding_mismatch of Binding_mismatch.t
-  | `Unknown_value of Tensor_id.t ]
+  | `Unknown_value of Tensor_id.t
+  | `Recursion_too_deep of int ]
 
 let pp_error fmt : [< error ] -> unit = function
   | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
   | `Binding_mismatch m -> Binding_mismatch.pp fmt m
   | `Unknown_value id -> Fmt.pf fmt "%a names no value" Tensor_id.pp id
+  | `Recursion_too_deep n ->
+      Fmt.pf fmt "recursive evaluation nested more than %d producers deep" n
   | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
 
 (* ---- the per-run input environment ----------------------------------------
@@ -164,15 +167,30 @@ let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
       i < 0 || i >= Dim.to_int (Vec6.get sg.Tensor_sig.shape a))
     Expr.Axis.all
 
-let value_at k ~bind id coord =
-  caught @@ fun () ->
+(* One engine for both placements. A value in [stores] is materialised; a load
+   on an edge in [virtual_uses] recurses into its producer instead of reading a
+   buffer. [run] is this with nothing virtual and everything stored. *)
+let machine (k : Kernel.t) ~bind ~virtual_uses =
   let inputs = or_raise (input_env k ~bind) in
   let values = values_by_id k in
   let bodies = Tensor_id.Map.map converted values in
+  let bound = ref inputs in
+  (* An edge is virtual only for its NOMINATED consumer, so the question is
+     always "does this consumer recurse into that producer", never "is that
+     producer virtual". A producer both virtual and stored is materialised as
+     well, and read from its buffer by everyone else. *)
+  let is_virtual ~consumer ~producer =
+    Kernel.Use.Set.mem { Kernel.Use.producer; consumer } virtual_uses
+  in
   let memo = Hashtbl.create 64 in
-  (* Recursion, not buffers: this is the on-demand path, and the one a virtual
-     placement uses. [Expr.Eval] is pure, so memoising cannot reorder it. *)
-  let rec at id coord =
+  (* Depth is carried, not measured: the guard has to fire BEFORE the frame it
+     would have pushed, which a post-hoc count cannot do. *)
+  let rec eval_value ~depth id coord =
+    if depth > Kernel.Limits.Hard.eval_recursion then
+      raise
+        (Failed
+           (Core.Error.make
+              (`Recursion_too_deep Kernel.Limits.Hard.eval_recursion)));
     match Tensor_id.Map.find_opt id values with
     | None -> raise (Failed (Core.Error.make (`Unknown_value id)))
     | Some (v : Kernel.Value.t) -> (
@@ -189,55 +207,94 @@ let value_at k ~bind id coord =
         | None -> (
             let key = (Tensor_id.to_int id, coord_key coord) in
             match Hashtbl.find_opt memo key with
-            | Some v -> v
+            | Some x -> x
             | None ->
-                let r =
+                let x =
                   or_raise
                     (widen
-                       (Expr.Eval.value (env ()) ~output:coord
+                       (Expr.Eval.value (env_for ~depth id) ~output:coord
                           (Tensor_id.Map.find id bodies)))
                 in
-                Hashtbl.add memo key r;
-                r))
-  and env () =
+                Hashtbl.add memo key x;
+                x))
+  and env_for ~depth consumer =
     {
       Expr.Eval.Env.load =
         (fun src c ->
-          let id = Expr_bridge.id_of_source src in
-          if Tensor_id.Map.mem id values then Core.return (at id c)
+          let producer = Expr_bridge.id_of_source src in
+          if is_virtual ~consumer ~producer then
+            Core.return (eval_value ~depth:(depth + 1) producer c)
           else
-            (Expr_bridge.env ~binding:(fun i -> Tensor_id.Map.find_opt i inputs))
+            (Expr_bridge.env ~binding:(fun i -> Tensor_id.Map.find_opt i !bound))
               .Expr.Eval.Env.load src c);
     }
   in
-  Ok (at id coord)
+  (* Materialising one value, and evaluating one cell on demand: the same
+     recursion, so the depth guard cannot cover one path and miss the other. *)
+  let materialize (v : Kernel.Value.t) =
+    let t =
+      Tensor.materialize v.Kernel.Value.sg.Tensor_sig.shape (fun c ->
+          or_raise
+            (widen
+               (Expr.Eval.value
+                  (env_for ~depth:0 v.Kernel.Value.id)
+                  ~output:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
+                  (Tensor_id.Map.find v.Kernel.Value.id bodies))))
+    in
+    bound := Tensor_id.Map.add v.Kernel.Value.id t !bound;
+    t
+  in
+  (materialize, fun id coord -> eval_value ~depth:0 id coord)
+
+let execute (k : Kernel.t) ~bind ~virtual_uses ~stores =
+  let materialize, _ = machine k ~bind ~virtual_uses in
+  List.fold_left
+    (fun results (v : Kernel.Value.t) ->
+      if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
+      else Tensor_id.Map.add v.Kernel.Value.id (materialize v) results)
+    Tensor_id.Map.empty k.Kernel.values
 
 let run k ~bind =
   caught @@ fun () ->
-  let inputs = or_raise (input_env k ~bind) in
-  let bound = ref inputs in
-  let results =
-    List.fold_left
-      (fun results (v : Kernel.Value.t) ->
-        let env =
-          (* Every load — boundary and internal alike — goes through
-             [Expr_bridge.env] against the same map, so an internal one READS
-             the producer's buffer. Materialised values join the map as they are
-             computed, which is what makes this the buffer-based path. *)
-          Expr_bridge.env ~binding:(fun i -> Tensor_id.Map.find_opt i !bound)
-        in
-        let body = converted v in
-        let t =
-          Tensor.materialize v.Kernel.Value.sg.Tensor_sig.shape (fun c ->
-              or_raise
-                (widen
-                   (Expr.Eval.value env
-                      ~output:
-                        (Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
-                      body)))
-        in
-        bound := Tensor_id.Map.add v.Kernel.Value.id t !bound;
-        Tensor_id.Map.add v.Kernel.Value.id t results)
-      Tensor_id.Map.empty k.Kernel.values
-  in
-  Ok results
+  Ok
+    (execute k ~bind ~virtual_uses:Kernel.Use.Set.empty
+       ~stores:
+         (List.fold_left
+            (fun s (v : Kernel.Value.t) ->
+              Tensor_id.Set.add v.Kernel.Value.id s)
+            Tensor_id.Set.empty k.Kernel.values))
+
+let run_plan (p : Fusion_plan.t) ~bind =
+  caught @@ fun () ->
+  Ok
+    (execute p.Fusion_plan.kernel ~bind ~virtual_uses:p.Fusion_plan.virtual_uses
+       ~stores:p.Fusion_plan.stores)
+
+(* Every value virtual and nothing stored: the fully on-demand reading, and the
+   one a virtual placement uses per edge. Shares [execute]'s guarded recursion
+   rather than repeating it, so the depth bound cannot apply to one path and not
+   the other. *)
+let value_at k ~bind id coord =
+  caught @@ fun () ->
+  match Kernel.value k id with
+  | None -> raise (Failed (Core.Error.make (`Unknown_value id)))
+  | Some (v : Kernel.Value.t) -> (
+      match in_shape v.Kernel.Value.sg coord with
+      | Some a ->
+          raise
+            (Failed
+               (Core.Error.make
+                  (`Coord_out_of_range
+                     ( Expr_bridge.source_of_id id,
+                       a,
+                       Expr.Coord.get coord a,
+                       coord ))))
+      | None ->
+          (* [Kernel.uses] is exactly "every internal source dependency", which
+             is what fully virtual execution means, and it builds its value-id
+             set once. Refolding the bodies here and asking [Kernel.value] per
+             source made setup O(values x source occurrences) before evaluation
+             or memoisation had begun — the same linear-lookup-per-source shape
+             already removed from [edges_of]. *)
+          let _, eval = machine k ~bind ~virtual_uses:(Kernel.uses k) in
+          Ok (eval id coord))

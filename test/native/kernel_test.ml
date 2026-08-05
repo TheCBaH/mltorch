@@ -404,7 +404,7 @@ let%expect_test "Kernel_adapt: every fixture adapts to a validated kernel" =
     failures;
   [%expect
     {|
-    fixtures: 44
+    fixtures: 45
     rejected: 2
     bypass_permute_mixed_compatibility: t3: a stored value must be f32 and unquantized, got f16
     reuse_permute_backtrack_candidate: t2: a stored value must be f32 and unquantized, got f16 |}]
@@ -642,3 +642,240 @@ let%expect_test "Kernel_adapt: an oversized body is caught in both entries" =
     of_stage_program: t2: depth exceeds limit 128
     required_outputs: t2: depth exceeds limit 128
     unselected body: t2: depth exceeds limit 128 |}]
+
+(* ---- the untrusted boundary table ------------------------------------------
+
+   [Stage_program.t] is a public record, and the adapter's interface claims the
+   whole definition table is untrusted. These are the collisions that claim
+   covers; before they were checked, a selection could still launder a malformed
+   boundary. *)
+
+let stage_program ?(inputs = []) ?(consts = []) ?(stages = []) ?(outputs = [])
+    () =
+  {
+    Stage_program.inputs;
+    input_kinds = Tensor_id.Map.empty;
+    consts;
+    stages;
+    outputs;
+  }
+
+let stage id shape body =
+  { Stage_program.Stage.id = tid id; sg = sg id shape; body }
+
+let%expect_test "Kernel_adapt: the boundary table rejects collisions" =
+  let case name p =
+    Format.printf "%s: %a@." name
+      (Core.Pretty.core_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
+      (Kernel_adapt.required_outputs p)
+  in
+  let body = load 0 in
+  let one_stage = [ stage 2 (s1c 3) body ] in
+  case "duplicate input"
+    (stage_program
+       ~inputs:[ (tid 0, sg 0 (s1c 3)); (tid 0, sg 0 (s1c 3)) ]
+       ~stages:one_stage
+       ~outputs:[ tid 2 ]
+       ());
+  case "duplicate const"
+    (stage_program
+       ~inputs:[ (tid 0, sg 0 (s1c 3)) ]
+       ~consts:[ (sg 1 (s1c 3), 0.); (sg 1 (s1c 3), 0.) ]
+       ~stages:one_stage
+       ~outputs:[ tid 2 ]
+       ());
+  case "input/const collision"
+    (stage_program
+       ~inputs:[ (tid 0, sg 0 (s1c 3)) ]
+       ~consts:[ (sg 0 (s1c 3), 0.) ]
+       ~stages:one_stage
+       ~outputs:[ tid 2 ]
+       ());
+  (* An input tuple whose id disagrees with its signature id: [sg.id] is the
+     binding key everywhere else, so the two must not diverge. *)
+  case "input signature mismatch"
+    (stage_program
+       ~inputs:[ (tid 0, sg 9 (s1c 3)) ]
+       ~stages:one_stage
+       ~outputs:[ tid 2 ]
+       ());
+  case "well formed"
+    (stage_program
+       ~inputs:[ (tid 0, sg 0 (s1c 3)) ]
+       ~stages:one_stage
+       ~outputs:[ tid 2 ]
+       ());
+  [%expect
+    {|
+    duplicate input: stage program invalid at t0: defined twice
+    duplicate const: stage program invalid at t1: defined twice
+    input/const collision: stage program invalid at t0: defined twice
+    input signature mismatch: stage program invalid at t0: signature id disagrees
+    well formed: t2 |}]
+
+let%expect_test "Kernel_adapt: a declared output must name something" =
+  (* An id in NEITHER table was silently skipped, so a malformed program adapted
+     cleanly to a kernel with a DIFFERENT public result — t2 promoted as a dead
+     terminal while t99 vanished. That is the hazard [Passthrough_output] exists
+     to prevent, reached by another route. *)
+  let p =
+    stage_program
+      ~inputs:[ (tid 0, sg 0 (s1c 3)) ]
+      ~stages:[ stage 2 (s1c 3) (load 0) ]
+      ~outputs:[ tid 99 ]
+      ()
+  in
+  Format.printf "unknown output: %a@." pp_adapt (adapt p);
+  Format.printf "required_outputs: %a@."
+    (Core.Pretty.core_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
+    (Kernel_adapt.required_outputs p);
+  [%expect
+    {|
+    unknown output: graph output t99 is neither a stage nor a boundary
+    required_outputs: graph output t99 is neither a stage nor a boundary |}]
+
+let%expect_test "Kernel_adapt: raw lists are bounded before they are traversed"
+    =
+  (* Only [stages] used to be bounded, so [inputs], [consts] and [outputs] could
+     be arbitrarily large and the adapter would do unbounded work before
+     [Kernel.create] noticed — and [required_outputs] never reaches [create] at
+     all, so the same limits meant different things per entry point. *)
+  let limits =
+    Core.or_raise Kernel.Limits.pp_error
+      (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
+         ~max_dep_depth:16 ~max_inputs:2 ~max_outputs:1 ~max_extent:0x7FFF_FFFFL
+         ~max_numel:0x7FFF_FFFFL)
+  in
+  let many_inputs =
+    stage_program
+      ~inputs:(List.init 4 (fun i -> (tid i, sg i (s1c 3))))
+      ~stages:[ stage 9 (s1c 3) (load 0) ]
+      ~outputs:[ tid 9 ]
+      ()
+  in
+  let many_outputs =
+    stage_program
+      ~inputs:[ (tid 0, sg 0 (s1c 3)) ]
+      ~stages:[ stage 2 (s1c 3) (load 0); stage 3 (s1c 3) (load 0) ]
+      ~outputs:[ tid 2; tid 3 ]
+      ()
+  in
+  let show name r =
+    Format.printf "%s: %a@." name
+      (Core.Pretty.core_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
+      r
+  in
+  show "raw inputs, required_outputs"
+    (Kernel_adapt.required_outputs ~limits many_inputs);
+  show "raw outputs, required_outputs"
+    (Kernel_adapt.required_outputs ~limits many_outputs);
+  Format.printf "raw inputs, of_stage_program: %a@." pp_adapt
+    (Kernel_adapt.of_stage_program ~limits many_inputs);
+  [%expect
+    {|
+    raw inputs, required_outputs: more than 2 inputs
+    raw outputs, required_outputs: more than 1 outputs
+    raw inputs, of_stage_program: more than 2 inputs |}]
+
+let%expect_test "Kernel_adapt: the derived interface is bounded too" =
+  (* The raw lists are bounded before traversal; the DERIVED interface is
+     bounded separately, because it is not the same set. A selection invents a
+     synthetic input per referenced unselected stage, so a program within the
+     raw input limit can still exceed it once adapted — and [required_outputs]
+     must apply the derived output bound itself, since it never reaches
+     [Kernel.create]. *)
+  let limits ~max_inputs ~max_outputs =
+    Core.or_raise Kernel.Limits.pp_error
+      (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
+         ~max_dep_depth:16 ~max_inputs ~max_outputs ~max_extent:0x7FFF_FFFFL
+         ~max_numel:0x7FFF_FFFFL)
+  in
+  (* One raw input, but three stages; selecting only the last turns the two
+     unselected producers into synthetic Caller inputs. *)
+  let p =
+    stage_program
+      ~inputs:[ (tid 0, sg 0 (s1c 3)) ]
+      ~stages:
+        [
+          stage 1 (s1c 3) (load 0);
+          stage 2 (s1c 3) (load 0);
+          stage 3 (s1c 3) (Expr.Value.add (load 1) (load 2));
+        ]
+      ~outputs:[ tid 3 ]
+      ()
+  in
+  let last = Tensor_id.Set.singleton (tid 3) in
+  Format.printf "raw inputs = 1, derived = 2, limit 2: %a@." pp_adapt
+    (Kernel_adapt.of_stage_program
+       ~limits:(limits ~max_inputs:2 ~max_outputs:8)
+       ~select:last p);
+  Format.printf "same, limit 1: %a@." pp_adapt
+    (Kernel_adapt.of_stage_program
+       ~limits:(limits ~max_inputs:1 ~max_outputs:8)
+       ~select:last p);
+  (* Derived outputs: three dead terminals are promoted, exceeding a limit the
+     raw output list (one id) sits comfortably under. *)
+  let dead =
+    stage_program
+      ~inputs:[ (tid 0, sg 0 (s1c 3)) ]
+      ~stages:
+        [
+          stage 1 (s1c 3) (load 0);
+          stage 2 (s1c 3) (load 0);
+          stage 3 (s1c 3) (load 0);
+        ]
+      ~outputs:[ tid 1 ]
+      ()
+  in
+  Format.printf "raw outputs = 1, derived = 3, limit 2 (required_outputs): %a@."
+    (Core.Pretty.core_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
+    (Kernel_adapt.required_outputs
+       ~limits:(limits ~max_inputs:8 ~max_outputs:2)
+       dead);
+  Format.printf "same via of_stage_program: %a@." pp_adapt
+    (Kernel_adapt.of_stage_program
+       ~limits:(limits ~max_inputs:8 ~max_outputs:2)
+       dead);
+  [%expect
+    {|
+    raw inputs = 1, derived = 2, limit 2: input t1 : caller
+                                          input t2 : caller
+                                          t3 = round_f32((t1[N,T,D,H,W,C] + t2[N,T,D,H,W,C]))
+                                          outputs: t3
+    same, limit 1: more than 1 inputs
+    raw outputs = 1, derived = 3, limit 2 (required_outputs): more than 2 outputs
+    same via of_stage_program: more than 2 outputs |}]
+
+let%expect_test "Kernel.over_limit: bounded cardinality, shared budget" =
+  (* The bounded SCAN cannot be distinguished from [List.length] by any test at
+     a feasible size, and neither can the absence of the 32-bit sum: both are
+     structural properties of the source. What is testable is the contract, and
+     in particular that the two-list form shares ONE budget rather than checking
+     each list separately — [over_limit 2 a || over_limit 2 b] would answer
+     false for two two-element lists, which together exceed it. *)
+  let l n = List.init n (fun i -> i) in
+  Format.printf "0/2:%b 2/2:%b 3/2:%b@."
+    (Kernel.over_limit 2 (l 0))
+    (Kernel.over_limit 2 (l 2))
+    (Kernel.over_limit 2 (l 3));
+  Format.printf "shared 2+0:%b 1+1:%b 2+1:%b 2+2:%b@."
+    (Kernel.over_limit_2 2 (l 2) (l 0))
+    (Kernel.over_limit_2 2 (l 1) (l 1))
+    (Kernel.over_limit_2 2 (l 2) (l 1))
+    (Kernel.over_limit_2 2 (l 2) (l 2));
+  (* The first list alone over the limit short-circuits without touching the
+     second, which is what lets the pair be bounded without a sum. *)
+  Format.printf "first alone over: %b@." (Kernel.over_limit_2 1 (l 5) (l 0));
+  (* A negative limit is exceeded by everything, the empty list included: zero
+     cells is more than a negative count. Production callers only ever pass
+     validated positive limits, but a public helper answers on its own terms. *)
+  Format.printf "negative limit: empty:%b one:%b pair:%b@."
+    (Kernel.over_limit (-1) (l 0))
+    (Kernel.over_limit (-1) (l 1))
+    (Kernel.over_limit_2 (-1) (l 0) (l 0));
+  [%expect
+    {|
+    0/2:false 2/2:false 3/2:true
+    shared 2+0:false 1+1:false 2+1:true 2+2:true
+    first alone over: true
+    negative limit: empty:true one:true pair:true |}]

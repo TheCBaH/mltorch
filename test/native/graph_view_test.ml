@@ -64,6 +64,7 @@ let%expect_test "validation: a well-formed fixture is accepted" =
   [%expect
     {|
     bypass_permute_fanout: ok
+    conv_add: ok
     bypass_permute_mixed_compatibility: ok
     bypass_permute_output: ok
     bypass_permute_pair: ok

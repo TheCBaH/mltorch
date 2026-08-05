@@ -876,6 +876,28 @@ module Fold = struct
         | _ -> acc)
       ~index:no_index ~intrinsic:nothing Source.Set.empty e
 
+  (* Ordinary [Load] SITES, with their coordinates, in lexical order and with
+     repeats. [sources] answers a different question and cannot serve here: it
+     is a set, so it loses both multiplicity and addressing, and it folds in the
+     source of an intrinsic descriptor — which is a real dependency but not a
+     substitutable load. A consumer deciding what it may inline needs exactly
+     this list; one deciding what must be resolved and ordered needs [sources]. *)
+  let loads e =
+    List.rev
+      (walk
+         ~value:(fun acc -> function
+           | Value.Load (s, c) -> (s, c) :: acc | _ -> acc)
+         ~index:no_index ~intrinsic:nothing [] e)
+
+  let intrinsic_sources e =
+    List.rev
+      (walk
+         ~value:(fun acc -> function
+           | Value.Intrinsic (Intrinsic.Max_pool d) ->
+               d.Intrinsic.Max_pool.source :: acc
+           | _ -> acc)
+         ~index:no_index ~intrinsic:nothing [] e)
+
   let output_axes e =
     walk ~value:nothing ~index:{ idx = index_axes } ~intrinsic:nothing [] e
     |> List.sort Axis.compare
@@ -1022,8 +1044,16 @@ module Rewrite = struct
      silently, which is the collision this module exists to prevent. Index
      rewriting does NOT thread, and cannot: [on_index] is pure, so no index
      position can mint. *)
-  let rec rebuild ~idx ~src ~on_reduce env (e : Value.t) st =
-    let go = rebuild ~idx ~src ~on_reduce env in
+  (* [on_load] sees the already-rewritten source and coordinate and returns the
+     node that replaces the load. It exists so a load can become a SUBTREE
+     rather than only a renamed symbol, without a second scope-aware traversal
+     of [Value.t] living outside this module. Its result is returned as-is and
+     never fed back through [go]: an inserted fragment is not re-traversed, and
+     the composition rules that depend on that say so. *)
+  let keep_load s c st = (Value.Load (s, c), st)
+
+  let rec rebuild ~idx ~src ~on_load ~on_reduce env (e : Value.t) st =
+    let go = rebuild ~idx ~src ~on_load ~on_reduce env in
     let idxe i = idx.on_index env i in
     let unary wrap a st =
       let a, st = go a st in
@@ -1050,10 +1080,12 @@ module Rewrite = struct
         let b, st = go b st in
         (Value.Select (c, a, b), st)
     | Value.Value_of_index i -> (Value.Value_of_index (idxe i), st)
-    | Value.Load (s, c) -> (Value.Load (src s, Coord.map idxe c), st)
+    | Value.Load (s, c) -> on_load (src s) (Coord.map idxe c) st
     | Value.Reduce r ->
         let var, env', st = on_reduce env r.Reduction.var st in
-        let body, st = rebuild ~idx ~src ~on_reduce env' r.Reduction.body st in
+        let body, st =
+          rebuild ~idx ~src ~on_load ~on_reduce env' r.Reduction.body st
+        in
         ( Value.Reduce
             {
               Reduction.kind = r.Reduction.kind;
@@ -1106,7 +1138,7 @@ module Rewrite = struct
     in
     rebuild
       ~idx:{ on_index = (fun env i -> map_index_reducers (subst_env env) i) }
-      ~src:Fun.id ~on_reduce Reduce_var.Map.empty e s
+      ~src:Fun.id ~on_load:keep_load ~on_reduce Reduce_var.Map.empty e s
 
   (* Deterministic renaming by lexical traversal: running [freshen] from a fixed
      initial supply gives binders the LOWEST ORDINALS NOT FREE in the
@@ -1129,12 +1161,33 @@ module Rewrite = struct
     fst
       (rebuild
          ~idx:{ on_index = (fun _ i -> subst_index c i) }
-         ~src:Fun.id ~on_reduce:keep_reducer () e Builder.initial)
+         ~src:Fun.id ~on_load:keep_load ~on_reduce:keep_reducer () e
+         Builder.initial)
 
   let map_sources f e =
     fst
-      (rebuild ~idx:keep_indices ~src:f ~on_reduce:keep_reducer () e
-         Builder.initial)
+      (rebuild ~idx:keep_indices ~src:f ~on_load:keep_load
+         ~on_reduce:keep_reducer () e Builder.initial)
+
+  (* Replaces ordinary [Load] nodes with whole subtrees, in the SAME builder
+     namespace as the destination — which is the point of returning a
+     computation. Freshening each inserted fragment from [Builder.initial]
+     instead would have every fragment mint ordinal 0 again, and the collision
+     [freshen] exists to prevent would be reintroduced by the very act of
+     composing.
+
+     Intrinsic descriptors are left structurally intact. An [Intrinsic.Max_pool]
+     holds a source and window geometry, not a load node, so there is nothing
+     inside it that one scalar subtree could stand in for; its source still goes
+     through [src] as always, and a caller that needs to eliminate such a
+     dependency has to reject it instead. *)
+  let substitute_loads f e st =
+    rebuild ~idx:keep_indices ~src:Fun.id
+      ~on_load:(fun s c st ->
+        match f s c with
+        | None -> (Value.Load (s, c), st)
+        | Some replacement -> Builder.run_from st replacement)
+      ~on_reduce:keep_reducer () e st
 end
 
 (* ---- structural validation ------------------------------------------------ *)

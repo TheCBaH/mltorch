@@ -299,6 +299,21 @@ module Fold : sig
       about what counts as a node or a level. *)
 
   val sources : Value.t -> Source.Set.t
+  (** Every source the expression depends on, ordinary loads and intrinsic
+      descriptors alike. What must be RESOLVED and ordered. *)
+
+  val loads : Value.t -> (Source.t * Role.Position.t Index.t Coord.t) list
+  (** Ordinary [Load] sites with their coordinates, in lexical order, WITH
+      repeats. What may be SUBSTITUTED. Deliberately not derivable from
+      [sources], which is a set — it loses multiplicity and addressing, and
+      folds in intrinsic sources that no rewrite can replace. *)
+
+  val intrinsic_sources : Value.t -> Source.t list
+  (** Sources reached through an intrinsic descriptor, in lexical order. Real
+      dependencies, but not loads: there is no node inside the descriptor a
+      subtree could stand in for. Kept separate from [loads] because the two are
+      treated differently, not because one is a subset of the other. *)
+
   val output_axes : Value.t -> Axis.t list
   val intrinsics : Value.t -> int
 
@@ -353,6 +368,29 @@ module Rewrite : sig
   val map_sources : (Source.t -> Source.t) -> Value.t -> Value.t
   (** Changes source symbols and nothing else, including inside an intrinsic
       descriptor. *)
+
+  val substitute_loads :
+    (Source.t -> Role.Position.t Index.t Coord.t -> Value.t Builder.t option) ->
+    Value.t ->
+    Value.t Builder.t
+  (** Replaces ordinary [Load] nodes with whole subtrees; [None] keeps the load.
+
+      Returning a computation is the point: the replacement is minted in the
+      SAME namespace as the destination, so a caller freshens each inserted
+      fragment by threading this one state. Running [freshen] from
+      [Builder.initial] per fragment instead would have each mint ordinal 0
+      again and reintroduce, at the moment of composing, exactly the collision
+      [freshen] exists to prevent.
+
+      INSERTED SUBTREES ARE NOT RE-TRAVERSED. A replacement containing its own
+      loads keeps them, so a caller composing a chain must either iterate
+      deliberately or restrict itself to non-overlapping edges — and any budget
+      it enforces must account for the whole expansion rather than one step.
+
+      Intrinsic descriptors are left structurally intact: a [Max_pool] holds a
+      source and geometry, not a load node, so nothing inside it can be replaced
+      by one scalar subtree. A caller needing to eliminate such a dependency
+      must reject it. *)
 end
 
 module Check : sig

@@ -53,6 +53,21 @@ module Output : sig
       for a caller to get wrong and no mismatch error to carry. *)
 end
 
+module Use : sig
+  (* An INTERNAL producer->consumer edge: BOTH endpoints are logical values.
+     A load of a boundary input is a dependency of the body but never a [Use.t]
+     — otherwise a forged {producer = some input; consumer = some value} would
+     name a real load, pass a dependency check, and reach an elaborator with no
+     producer body or result conversion to substitute, while not being unknown
+     either. *)
+  type t = { producer : Tensor_id.t; consumer : Tensor_id.t }
+
+  val compare : t -> t -> int
+  val pp : Format.formatter -> t -> unit
+
+  module Set : Set.S with type elt = t
+end
+
 module Limits : sig
   (* Four independent budget dimensions. Bounding one leaves the others open,
      and the fourth exists only because the first two compose:
@@ -95,6 +110,16 @@ module Limits : sig
     val inputs : int
     val outputs : int
     val eval_depth : int
+
+    (* Producer transitions [Kernel_eval.value_at] may nest before it reports
+        rather than overflows. Measured under node against a REAL recursive
+        chain, not a flat expression: a transition costs far more frames than an
+        expression level, so [eval_depth] — which counts levels — does not bound
+        it. This is enforced at runtime, where the recursion is, rather than by
+        rejecting a deep DAG at construction: the buffer-based [run] never
+        recurses at all, so a long chain is perfectly executable and only the
+       on-demand path is limited. *)
+    val eval_recursion : int
     val extent : int64
     val numel : int64
   end
@@ -126,6 +151,12 @@ type t = private {
   values : Value.t list;  (** topologically ordered *)
   outputs : Output.t list;
   limits : Limits.t;
+  by_id : Value.t Tensor_id.Map.t;
+      (** Derived index over [values], maintained by [create]. Read it through
+          [value], whose lookup is therefore O(log values) — a balanced map, not
+          a hash table, so not constant time. The point is that the whole-list
+          scan is gone: it was multiplied by every caller resolving endpoints
+          per candidate. *)
 }
 
 (* Each error payload gets its own module: three of them would otherwise share
@@ -194,3 +225,28 @@ val create :
     the stack on exactly the oversized input the limit exists to reject. *)
 
 val pp : Format.formatter -> t -> unit
+val value : t -> Tensor_id.t -> Value.t option
+
+val over_limit : int -> 'a list -> bool
+(** Does the list hold more than [limit] cells? Stops one cell past the limit
+    instead of walking to the end, so a guard over an untrusted list does not
+    itself become the unbounded work it was added to prevent. A negative limit
+    is exceeded by every list, the empty one included. *)
+
+val over_limit_2 : int -> 'a list -> 'b list -> bool
+(** The same, over two lists sharing one budget. Continues the second from the
+    first's remainder rather than adding two counts: a sum of counts is an
+    unchecked [int] aggregate, and under js_of_ocaml a wrapped negative passes a
+    [> limit] test. *)
+
+val uses : t -> Use.Set.t
+(** Every internal dependency edge, from [Expr.Fold.sources] — which includes a
+    source reached only through an intrinsic descriptor — restricted to sources
+    resolving to a logical value. For DAG analysis. *)
+
+val load_uses : t -> Use.Set.t
+(** The same restriction over [Expr.Fold.loads]: ordinary-load edges between two
+    logical values. These are the SUBSTITUTABLE ones, and what elaboration and
+    the planner validate against. A producer named only by a max-pool descriptor
+    is in [uses] and not here; validating elaboration against [uses] would
+    accept such a pair and then leave the body silently unchanged. *)

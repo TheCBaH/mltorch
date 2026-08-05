@@ -708,9 +708,24 @@ let grouped () =
       let* b = group ~label:"second" (permute unrotate_hwc a) in
       relu b)
 
+(* Conv2D feeding an Add against a residual input: the acceptance case for
+   buffer-elimination fusion. The conv is the producer whose store fusion
+   removes, and the Add is the pointwise epilogue that reads it once at its own
+   output coordinate. *)
+let conv_add () =
+  build "conv_add"
+    Graph_builder.(
+      let* x = input ~shape:(s 1 1 1 3 3 2) () in
+      let* w = input ~shape:(weight_shape ~out_channels:1 ~in_channels:2) () in
+      let* b = input ~shape:(s1c 1) () in
+      let* r = input ~shape:(s 1 1 1 2 2 1) () in
+      let* c = conv2d (conv_params ~in_channels:2) ~x ~weight:w ~bias:b () in
+      add c r)
+
 let all =
   [
     ("bypass_permute_fanout", bypass_permute_fanout);
+    ("conv_add", conv_add);
     ("bypass_permute_mixed_compatibility", bypass_permute_mixed_compatibility);
     ("bypass_permute_output", bypass_permute_output);
     ("bypass_permute_pair", bypass_permute_pair);

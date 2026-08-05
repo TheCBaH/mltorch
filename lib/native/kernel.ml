@@ -33,6 +33,24 @@ module Output = struct
   type t = { value : Tensor_id.t; sg : Tensor_sig.t }
 end
 
+module Use = struct
+  type t = { producer : Tensor_id.t; consumer : Tensor_id.t }
+
+  let compare a b =
+    match Tensor_id.compare a.producer b.producer with
+    | 0 -> Tensor_id.compare a.consumer b.consumer
+    | c -> c
+
+  let pp fmt u =
+    Fmt.pf fmt "%a->%a" Tensor_id.pp u.producer Tensor_id.pp u.consumer
+
+  module Set = Set.Make (struct
+    type nonrec t = t
+
+    let compare = compare
+  end)
+end
+
 module Limits = struct
   type t = {
     max_size : int;
@@ -66,6 +84,16 @@ module Limits = struct
        buffer-based evaluator never recurses through it. *)
     let depth = 256
     let eval_depth = 2048
+
+    (* Measured under node with [Kernel_eval.value_at] over a real producer
+       chain (test/native/depth_probe.ml). The frontier there is both lower and
+       less stable than for a flat expression -- a 1024-transition chain
+       overflowed on three runs out of four at the previous ceiling, and a
+       384-transition chain of depth-4 bodies overflows while a 192-transition
+       chain of depth-16 bodies does not, so transition count dominates and the
+       limit does not fit a tidy cost model. 128 sits a factor of three inside
+       the smallest configuration observed to fail. *)
+    let eval_recursion = 128
 
     (* Memory and time, not stack. *)
     let size = 65536
@@ -128,6 +156,7 @@ type t = {
   values : Value.t list;
   outputs : Output.t list;
   limits : Limits.t;
+  by_id : Value.t Tensor_id.Map.t;
 }
 
 module Sig_mismatch = struct
@@ -289,6 +318,38 @@ let materializable id role (sg : Tensor_sig.t) =
 
 (* ---- construction --------------------------------------------------------- *)
 
+(* Does [l] hold more than [limit] cells? Stops one past the limit instead of
+   walking to the end: [List.length] on an untrusted list bounds the work that
+   FOLLOWS the check but not the work the check itself does, which is the same
+   budgets-before-work rule applied to the guard. Never forms a sum, either — a
+   count added to another count is an unchecked [int] aggregate, and under
+   js_of_ocaml a wrapped negative would sail past a [> limit] test. *)
+let over_limit limit l =
+  (* A negative limit is exceeded by ANY list, the empty one included: zero
+     cells is more than a negative count. Every production caller passes a
+     validated positive [Limits] field, but the helper is public and its
+     contract has to hold on its own terms rather than on its callers'. *)
+  if limit < 0 then true
+  else
+    let rec go n = function
+      | [] -> false
+      | _ :: tl -> if n >= limit then true else go (n + 1) tl
+    in
+    go 0 l
+
+(* Continue counting a second list against the capacity the first left, so the
+   two are bounded together without adding them. *)
+let over_limit_2 limit a b =
+  if limit < 0 then true
+  else
+    let rec go n = function
+      | [] -> (n, false)
+      | _ :: tl -> if n >= limit then (n, true) else go (n + 1) tl
+    in
+    match go 0 a with
+    | _, true -> true
+    | n, false -> ( match go n b with _, over -> over)
+
 let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
   let open Core.Syntax in
   (* Arity first: the cheapest guards, and they bound the list and map work
@@ -297,17 +358,17 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
      budget while imposing unbounded setup on the evaluator, which validates
      each declared input before computing anything. *)
   let* () =
-    if List.length inputs > limits.Limits.max_inputs then
+    if over_limit limits.Limits.max_inputs inputs then
       Core.fail (`Too_many_inputs limits.Limits.max_inputs)
     else Core.return ()
   in
   let* () =
-    if List.length outputs > limits.Limits.max_outputs then
+    if over_limit limits.Limits.max_outputs outputs then
       Core.fail (`Too_many_outputs limits.Limits.max_outputs)
     else Core.return ()
   in
   let* () =
-    if List.length values > limits.Limits.max_values then
+    if over_limit limits.Limits.max_values values then
       Core.fail (`Too_many_values limits.Limits.max_values)
     else Core.return ()
   in
@@ -401,7 +462,21 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
             (Expr.Fold.sources v.Value.body)
             (Core.return (0, 0))
         in
-        let d = d + 1 and e = e + Expr.Fold.depth v.Value.body in
+        (* The CONVERTED body, not the raw one: every consumer — a store, a
+           load, [value_at] — evaluates [Result_conversion.apply], so the
+           conversion node is a level the evaluator really walks and measuring
+           [v.body] undercounts each value by it.
+
+           This bound covers expression levels only. The per-producer-transition
+           cost, which dominates and which measurement showed does not fit a
+           weighted sum, is bounded at runtime by [Hard.eval_recursion] instead
+           of being folded into a static weight here. *)
+        let d = d + 1
+        and e =
+          e
+          + Expr.Fold.depth
+              (Result_conversion.apply v.Value.result v.Value.body)
+        in
         let* () =
           if d > limits.Limits.max_dep_depth then
             Core.fail (`Dependency_too_deep limits.Limits.max_dep_depth)
@@ -492,7 +567,17 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
         Bounds.signature limits v.Value.id v.Value.sg)
       (Core.return ()) values
   in
-  Core.return { inputs; values; outputs = out; limits }
+  Core.return
+    {
+      inputs;
+      values;
+      outputs = out;
+      limits;
+      by_id =
+        List.fold_left
+          (fun m (v : Value.t) -> Tensor_id.Map.add v.Value.id v m)
+          Tensor_id.Map.empty values;
+    }
 
 let pp fmt (k : t) =
   let comma l = String.concat ", " l in
@@ -514,3 +599,40 @@ let pp fmt (k : t) =
           (fun (o : Output.t) ->
             Format.asprintf "%a" Tensor_id.pp o.Output.value)
           k.outputs))
+
+(* Indexed, so O(log values) through the balanced map [create] built — not O(1),
+   which a persistent [Map.Make] cannot give. What matters is that the whole-list
+   scan is gone: it was multiplied by every caller resolving an edge's endpoints,
+   and the planner does so per candidate, making it an O(candidates x values)
+   term. A hash table would be constant expected time but would trade away the
+   immutability the rest of the representation relies on. *)
+let value (k : t) id = Tensor_id.Map.find_opt id k.by_id
+
+(* Both edge sets restrict to sources resolving to a VALUE: a load of a boundary
+   input is a dependency of the body but not an edge anything may virtualize.
+
+   Membership through a set built once, not [value]'s linear scan per source:
+   that made edge derivation quadratic in the value count before any planning
+   had begun. *)
+let edges_of (k : t) project =
+  let ids =
+    List.fold_left
+      (fun s (v : Value.t) -> Tensor_id.Set.add v.Value.id s)
+      Tensor_id.Set.empty k.values
+  in
+  let is_value id = Tensor_id.Set.mem id ids in
+  List.fold_left
+    (fun acc (v : Value.t) ->
+      List.fold_left
+        (fun acc src ->
+          let producer = Expr_bridge.id_of_source src in
+          if is_value producer then
+            Use.Set.add { Use.producer; consumer = v.Value.id } acc
+          else acc)
+        acc (project v.Value.body))
+    Use.Set.empty k.values
+
+let uses k =
+  edges_of k (fun b -> Expr.Source.Set.elements (Expr.Fold.sources b))
+
+let load_uses k = edges_of k (fun b -> List.map fst (Expr.Fold.loads b))
