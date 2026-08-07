@@ -55,10 +55,14 @@ type transformed =
       graph : Graph_ir.graph;
       lens : 'b Pt2_native_graph.lens;
       nodes_before : int;
-      audits : Pass.Audit.t list;
+      audits : Pass.Audit_log.t;
           (* one per pass that rewrote something, in execution order, when
              [~verify] was given — empty otherwise. A pass whose sweep matched
-             nothing produces an identity step, which has nothing to check. *)
+             nothing produces an identity step, which has nothing to check.
+
+             BOUNDED: at most [~max_audit_reports] retained reports plus one
+             aggregate summary, so a long pipeline over a real model cannot
+             retain a report per changed leaf. *)
       composed : Map_verify.Report.t option;
           (* what survived the WHOLE pipeline, over the composed origin-to-final
              map, so its clusters are in this graph's ids and each destination
@@ -96,6 +100,32 @@ val transform :
   Pt2_archive.t ->
   passes:Pass.t list ->
   (transformed, error) Core.result
+
+val transform_lowered :
+  ?constants:Tensor.packed Graph_ir.Tensor_id.Map.t ->
+  ?verify:Map_verify.Policy.t ->
+  ?verify_budget:Map_verify.Budget.t ->
+  ?verify_probe:int ->
+  ?trace:bool ->
+  ?max_trace_entries:int ->
+  ?max_audit_reports:int ->
+  Pt2_native_graph.t ->
+  passes:Pass.t list ->
+  (transformed, error) Core.result
+(** [transform] without the archive: rewrite, verify, pack and build the lens
+    over a graph the caller already lowered.
+
+    The archive is a prerequisite of exactly one thing — binding captured
+    payloads — so a caller that has none, or wants none, should not have to
+    present one. That is the payload-free [model.json] path: it lowers to a
+    [Pt2_native_graph.t] and has no weights to read, and under [transform] the
+    only way to reach the pipeline was through a type it cannot produce.
+
+    [~constants] seeds the transform state, as a map rather than
+    [Rewrite.origin]'s association list: a duplicated id is not a case this
+    boundary should have to answer for. [transform] passes the payloads a node
+    reads; a structural caller passes none, and [Fold_const] then declines every
+    node, exactly as it does under [transform] without [~preload]. *)
 
 type loaded = {
   from_state : int; (* constants a pass computed *)

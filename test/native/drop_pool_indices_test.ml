@@ -105,8 +105,9 @@ let%expect_test "drop_pool_indices: the Identical claim is proved, not declined"
       | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
       | Ok { Pass.audits; _ } ->
           List.iter
-            (fun { Pass.Audit.pass; report } ->
-              Format.printf "%s: %s@." pass (Map_verify.Report.summary report))
-            audits);
+            (fun ({ id; report } : Pass.Audit.t) ->
+              Format.printf "%a: %s@." Pass.Exec_id.pp id
+                (Map_verify.Report.summary report))
+            audits.reports);
       [%expect
-        {| drop_pool_indices: 4 clusters: 3 proved (structural), 1 vacuous |}]
+        {| drop_pool_indices#0: 4 clusters: 3 proved (structural), 1 vacuous |}]

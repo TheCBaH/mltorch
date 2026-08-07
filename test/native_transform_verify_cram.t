@@ -38,7 +38,7 @@ so a group reads the same way in both.
   >   --pt2 "$PT2_DATA/resnet18/resnet18.pt2"
   nodes: 174 -> 90
   constants: 102, of which 0 folded
-  symbolic verification: reshape_to_permute
+  symbolic verification: canonical/reshape_to_permute#0
     (root)
           2  proved (structural) [sampled 4]
          48  unproved (too large)
@@ -53,7 +53,7 @@ so a group reads the same way in both.
          80  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           4  unproved (too large)
-  symbolic verification: chain_permute
+  symbolic verification: canonical/relayout[0]/relayout/chain_permute[0]/chain_permute#1
     (root)
           2  proved (structural) [sampled 4]
          68  unproved (too large)
@@ -67,7 +67,7 @@ so a group reads the same way in both.
          60  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           4  unproved (too large)
-  symbolic verification: trim_permute
+  symbolic verification: canonical/relayout[0]/relayout/trim_permute[0]/trim_permute#2
     (root)
           2  proved (structural) [sampled 4]
          48  unproved (too large)
@@ -80,7 +80,7 @@ so a group reads the same way in both.
          60  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           4  unproved (too large)
-  symbolic verification: sink_permute
+  symbolic verification: canonical/relayout[0]/relayout/sink_permute[0]/sink_permute#3
     (root)
           2  proved (structural) [sampled 4]
          48  unproved (too large)
@@ -94,7 +94,7 @@ so a group reads the same way in both.
          60  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           4  unproved (too large)
-  symbolic verification: sink_permute
+  symbolic verification: canonical/relayout[0]/relayout/sink_permute[1]/sink_permute#4
     (root)
           2  proved (structural) [sampled 4]
          57  unproved (too large)
@@ -108,7 +108,7 @@ so a group reads the same way in both.
          60  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           4  unproved (too large)
-  symbolic verification: reuse_permute
+  symbolic verification: canonical/relayout[0]/relayout/reuse_permute[0]/reuse_permute#5
     (root)
           2  proved (structural) [sampled 4]
          60  unproved (too large)
@@ -122,7 +122,7 @@ so a group reads the same way in both.
          60  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           4  unproved (too large)
-  symbolic verification: sink_permute
+  symbolic verification: canonical/relayout[0]/relayout/sink_permute[0]/sink_permute#6
     (root)
           2  proved (structural) [sampled 4]
          60  unproved (too large)
@@ -136,7 +136,7 @@ so a group reads the same way in both.
          60  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           4  unproved (too large)
-  symbolic verification: bypass_permute
+  symbolic verification: canonical/relayout[0]/relayout/bypass_permute[0]/bypass_permute#7
     (root)
           2  proved (structural) [sampled 4]
          49  unproved (too large)
@@ -150,7 +150,7 @@ so a group reads the same way in both.
          41  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           2  unproved (too large)
-  symbolic verification: sink_permute_mean
+  symbolic verification: canonical/relayout[1]/relayout/sink_permute_mean[0]/sink_permute_mean#8
     (root)
           2  proved (structural) [sampled 4]
          48  unproved (too large)
@@ -164,7 +164,7 @@ so a group reads the same way in both.
          41  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           2  unproved (too large)
-  symbolic verification: bypass_permute
+  symbolic verification: canonical/relayout[1]/relayout/bypass_permute[0]/bypass_permute#9
     (root)
           1  unproved (over max_rounds) [sampled 4]
          48  unproved (too large)
@@ -178,7 +178,7 @@ so a group reads the same way in both.
          41  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           2  unproved (too large)
-  symbolic verification: dce
+  symbolic verification: canonical/prune/dce#10
     (root)
           1  proved (structural) [sampled 4]
          48  unproved (too large)
@@ -191,7 +191,7 @@ so a group reads the same way in both.
          41  unproved (too large)
     torch.ops.aten.max_pool2d_with_indices.default
           2  unproved (too large)
-  symbolic verification: drop_pool_indices
+  symbolic verification: canonical/prune/drop_pool_indices#11
     (root)
           1  proved (structural) [sampled 4]
          48  unproved (too large)

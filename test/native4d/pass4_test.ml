@@ -35,16 +35,18 @@ let run ?verify g =
       | Ok
           {
             Framework.Pass4.audits;
+            trace = _;
+            next_index = _;
             step = Framework.Rewrite4.Step (final, map);
           } ->
           Format.printf "@[<v 2>after:@,%a@]@." Graph.pp
             (Framework.Rewrite4.graph final);
           Format.printf "@[<v 2>map:@,%a@]@." Graph_map.pp map;
           List.iter
-            (fun { Framework.Pass4.Audit.pass; report } ->
-              Format.printf "audit %s: %s@." pass
+            (fun ({ id; report } : Pass.Audit.t) ->
+              Format.printf "audit %a: %s@." Pass.Exec_id.pp id
                 (Map_verify.Report.summary report))
-            audits)
+            audits.reports)
 
 let%expect_test "pass4: an identity permute is trimmed" =
   run (identity_permute ());
@@ -84,4 +86,4 @@ let%expect_test "pass4: the rewrite verifies through the shared framework" =
         {n0} -> {}
       provenance:
         none
-    audit trim_permute4: 2 clusters: 2 proved (structural) |}]
+    audit trim_permute4#0: 2 clusters: 2 proved (structural) |}]

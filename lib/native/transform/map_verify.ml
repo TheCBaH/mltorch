@@ -124,6 +124,12 @@ end
 module Coverage = struct
   type t = Exhaustive | Not_applicable | Sampled of int
 
+  let exhaustive = Exhaustive
+  let not_applicable = Not_applicable
+
+  let sampled n =
+    if n >= 1 then Core.return (Sampled n) else Core.fail (`Invalid_coverage n)
+
   let pp fmt = function
     | Exhaustive -> Fmt.string fmt "exhaustive"
     | Not_applicable -> Fmt.string fmt "n/a"
@@ -219,6 +225,25 @@ module Unproved = struct
     | Unbound_constant _ -> "unbound constant"
     | Unsupported_format _ -> "format blocks collapse"
     | Unsupported_relation _ -> "unsupported relation"
+
+  (* Every string [reason] can return, in constructor order. It has to be a
+     literal list: each constructor carries a payload ([Ground_eval.error], a
+     [Vec6.coord], a [Member.Erased.t]) that no enumeration can invent, so the
+     alternative is sample values this module has no business owning. What keeps
+     it honest is the exhaustiveness test beside it — [reason] applied to every
+     constructor must land in here — which fails as soon as the two diverge. *)
+  let reasons =
+    [
+      "grounding failed";
+      "frontier exhausted";
+      "over max_nodes";
+      "over max_rounds";
+      "out of bounds";
+      "too large";
+      "unbound constant";
+      "format blocks collapse";
+      "unsupported relation";
+    ]
 end
 
 module Verdict = struct
@@ -248,6 +273,24 @@ module Verdict = struct
     | Tested (Strength.Disagrees _) -> "tested (disagrees)"
     | Unproved u -> "unproved (" ^ Unproved.reason u ^ ")"
     | Vacuous -> "vacuous"
+
+  (* The finite set [label] can return, in the canonical order a decoder sorts
+     by. [label]'s own contract is what makes this finite — it drops every
+     payload — so this states a property that already holds rather than
+     imposing a new one. Its consumer is [Pass.Outcome_counts.of_bindings],
+     which without it could not tell a well-formed decoded label from an
+     arbitrary string and would be trusting the wire. *)
+  let labels =
+    [
+      "proved (for these constants)";
+      "proved (structural)";
+      "refuted (shape)";
+      "refuted (counterexample)";
+      "tested (coefficients agree)";
+      "tested (disagrees)";
+    ]
+    @ List.map (fun r -> "unproved (" ^ r ^ ")") Unproved.reasons
+    @ [ "vacuous" ]
 
   (* The WEAKER of two verdicts about the same cluster, since a cluster is only
      as verified as its least-verified coordinate. [Refuted] dominates
@@ -298,6 +341,18 @@ module Outcome = struct
      leaves the result order-dependent wherever two verdicts rank equal. *)
   let join a b =
     if Verdict.rank b.verdict > Verdict.rank a.verdict then b else a
+
+  (* The counting key: the verdict's payload-free label, suffixed with the
+     sample count when there is one. Factored out of [Tally.of_entries]
+     UNCHANGED — it was inline there, and [Pass.Outcome_counts] needs the same
+     key, so leaving it inline would have meant the format ("<verdict>
+     [sampled n]") existing twice and drifting silently. One function, two
+     callers, no vocabulary to keep in step. *)
+  let label t =
+    match t.coverage with
+    | Coverage.Sampled n ->
+        Fmt.str "%s [sampled %d]" (Verdict.label t.verdict) n
+    | Coverage.Exhaustive | Coverage.Not_applicable -> Verdict.label t.verdict
 
   let pp fmt t =
     match t.coverage with
@@ -391,15 +446,9 @@ module Tally = struct
   let of_entries entries =
     List.fold_left
       (fun acc (e : Entry.t) ->
-        let key =
-          match e.outcome.Outcome.coverage with
-          | Coverage.Sampled n ->
-              Fmt.str "%s [sampled %d]"
-                (Verdict.label e.outcome.Outcome.verdict)
-                n
-          | Coverage.Exhaustive | Coverage.Not_applicable ->
-              Verdict.label e.outcome.Outcome.verdict
-        in
+        (* The key is [Outcome.label] — the same function [Pass.Outcome_counts]
+           uses, which is what keeps the two vocabularies one. *)
+        let key = Outcome.label e.outcome in
         By_label.update key
           (function None -> Some 1 | Some n -> Some (n + 1))
           acc)

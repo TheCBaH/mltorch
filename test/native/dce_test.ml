@@ -189,12 +189,12 @@ let%expect_test "dce: the pass verifies its own step" =
       | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
       | Ok { Pass.audits; _ } ->
           List.iter
-            (fun { Pass.Audit.pass; report } ->
-              Format.printf "audit %s: %s@." pass
+            (fun ({ id; report } : Pass.Audit.t) ->
+              Format.printf "audit %a: %s@." Pass.Exec_id.pp id
                 (Map_verify.Report.summary report))
-            audits;
-          Format.printf "audits: %d@." (List.length audits));
+            audits.reports;
+          Format.printf "audits: %d@." (Pass.Audit_log.retained audits));
       [%expect
         {|
-    audit dce: 3 clusters: 2 proved (structural), 1 vacuous
+    audit dce#0: 3 clusters: 2 proved (structural), 1 vacuous
     audits: 1 |}]

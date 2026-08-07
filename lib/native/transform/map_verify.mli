@@ -96,7 +96,29 @@ module Coverage : sig
   (* [Not_applicable] is the honest answer for a cluster that returns before any
      coordinate is examined. Keeping it a constructor rather than an option
      forces every early exit to say which it is. *)
-  type t = Exhaustive | Not_applicable | Sampled of int
+  type t = private
+    | Exhaustive
+    | Not_applicable
+    | Sampled of int
+        (** PRIVATE, because [Sampled n] becomes a wire label ("… [sampled n]")
+            whose grammar admits [n >= 1] only. [check_members] already
+            guarantees that — [sampled_coords] returns [max 1 (min n numel)] —
+            but that is a property of one function, not of the type, and
+            [Entry.t]/[Report.t] are public records any caller can build.
+            [Sampled 0] would then reach a label decoder that rejects it, making
+            the round trip partial over its own public domain.
+
+            A private VARIANT rather than an abstract type because every use
+            outside this module is a match ([bin/native_graph.ml:465-466]),
+            which [private] leaves untouched: this closes construction at zero
+            call-site cost. *)
+
+  val exhaustive : t
+  val not_applicable : t
+
+  val sampled : int -> (t, [> `Invalid_coverage of int ]) Core.result
+  (** [n >= 1]. Rejects nothing the verifier produces; it closes the type
+      against everyone else. *)
 
   val pp : Format.formatter -> t -> unit
 end
@@ -181,6 +203,12 @@ module Unproved : sig
     | Unsupported_relation of Correspondence.relation
 
   val pp : Format.formatter -> t -> unit
+
+  val reason : t -> string
+  (** The payload-free half of the label, shared with [Verdict.label]. *)
+
+  val reasons : string list
+  (** Every string [reason] can return, in constructor order. *)
 end
 
 module Verdict : sig
@@ -210,6 +238,15 @@ module Verdict : sig
   (* Outcome and reason, with ids, coordinates and valuations dropped, so
      verdicts can be counted. The payloads belong in [Report.pp_verdicts]. *)
   val label : t -> string
+
+  val labels : string list
+  (** The FINITE set [label] can return, in canonical order. Finiteness is not a
+      new promise — [label] drops every payload, so it was already true; what
+      this adds is the ability to state it. A decoder rebuilding counts from
+      wire labels ([Pass.Outcome_counts.of_bindings]) needs it to distinguish a
+      well-formed label from an arbitrary string, and without it would be
+      trusting the wire. [List.mem (label v) labels] over every constructor is
+      the regression test. *)
 end
 
 module Outcome : sig
@@ -220,6 +257,14 @@ module Outcome : sig
      whose coverage is [Not_applicable] because nothing was examined, could come
      out marked [sampled n] from a sibling edge. *)
   val join : t -> t -> t
+
+  val label : t -> string
+  (** The counting key: [Verdict.label], suffixed [" [sampled n]"] when coverage
+      is [Sampled n]. THE one place that format is written. [Tally.of_entries]
+      and [Pass.Outcome_counts] both go through here, so the two summaries
+      cannot come to disagree about what a bucket is called — which is the whole
+      reason it stopped being inline in [Tally]. *)
+
   val pp : Format.formatter -> t -> unit
 end
 

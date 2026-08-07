@@ -383,9 +383,15 @@ let verify_symbolic_arg =
    model — "layer1.0", "features.3" — so a report over 170 clusters is only
    legible attributed to them. The roll-up counts by outcome AND reason, since
    "40 unproved" says nothing without "because too large". *)
-let pp_audits fmt audits =
+let pp_audits fmt (audits : Pass.Audit_log.t) =
   let reports =
-    List.map (fun (a : Pass.Audit.t) -> (a.Pass.Audit.pass, a.report)) audits
+    List.map
+      (fun (a : Pass.Audit.t) ->
+        (* The execution id, not the bare pass name: a fixpoint contributes one
+           audit per iteration and a sequence may hold the same leaf twice, so a
+           name alone does not say which run a report describes. *)
+        (Core.Pretty.to_string Pass.Exec_id.pp a.id, a.report))
+      audits.reports
   in
   match reports with
   | [] -> Format.fprintf fmt "symbolic verification: nothing to check@."
@@ -395,6 +401,19 @@ let pp_audits fmt audits =
           Format.fprintf fmt "@[<v 2>symbolic verification: %s@,%a@]@." pass
             Map_verify.Report.pp_groups report)
         reports;
+      (* An omitted report's clusters are still counted, in the aggregate the
+         log folded them into — so the total covers the whole run even when the
+         retention budget dropped individual reports. *)
+      (match audits.overflow with
+      | None -> ()
+      | Some s ->
+          Format.fprintf fmt
+            "@[<v 2>symbolic verification: %Ld further report(s), retained as \
+             counts@,\
+             %a@]@."
+            s.Pass.Audit_summary.omitted_reports
+            (Fmt.list (fun fmt (l, n) -> Fmt.pf fmt "%s: %Ld" l n))
+            (Pass.Outcome_counts.bindings s.Pass.Audit_summary.counts));
       Format.fprintf fmt "@[<v 2>symbolic verification: total@,%a@]@."
         Map_verify.Tally.pp
         (Map_verify.Tally.of_entries

@@ -101,6 +101,68 @@ let%expect_test "graph: captured input kind survives JSON roundtrip" =
 
 (* ---- ops ------------------------------------------------------------------ *)
 
+(* [op_name] and [op_jsont]'s case tag are one vocabulary, asserted rather than
+   claimed: the tag is recovered from the encoding itself (a single-key object,
+   [Json_util.single ~case]) and compared with [op_name] for every op the
+   fixture builds. Changing one without the other fails here.
+
+   The ops are listed explicitly because [op_registry] is private and its [OP]
+   signature carries no sample payload, so there is no way to derive a fixture
+   per registry entry — a registry-driven version of this test cannot be
+   written from outside the module. [Discard] is included for the opposite
+   reason: it owns no registry module at all and is the one arm that has to be
+   spelled out in the implementation. *)
+(* The encoding is one object with exactly one member, so the tag is the first
+   quoted string in it. Read textually rather than through a codec, so the
+   comparison stays independent of whatever [op_jsont] does inside the case. *)
+let case_tag json =
+  match String.index_opt json '"' with
+  | None -> "<no tag>"
+  | Some i -> (
+      match String.index_from_opt json (i + 1) '"' with
+      | None -> "<no tag>"
+      | Some j -> String.sub json (i + 1) (j - i - 1))
+
+let%expect_test "op_name agrees with the JSON case tag, Discard included" =
+  let result =
+    let open Core.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"names" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          let* b = input ~shape:(s1c 3) ~name:"b" () in
+          let* sum = add ~name:"sum" a b in
+          let* prod = mul ~name:"prod" sum b in
+          let* act = relu ~name:"act" prod in
+          let* dead = sub ~name:"dead" act a in
+          let* () = discard dead in
+          relu ~name:"out" act)
+    in
+    Core.List.map
+      (fun (node : Graph_ir.node) ->
+        let+ json = encode_op node.Node.op in
+        (Graph_ir.op_name node.Node.op, case_tag json))
+      g.Graph.nodes
+  in
+  (match result with
+  | Error e -> Format.printf "%a@." pp_error e.Core.Error.kind
+  | Ok rows ->
+      List.iter
+        (fun (name, tag) ->
+          Printf.printf "%-10s tag=%-10s agree=%b\n" name tag (name = tag))
+        rows);
+  [%expect
+    {|
+    Add        tag=Add        agree=true
+    Mul        tag=Mul        agree=true
+    Relu       tag=Relu       agree=true
+    Sub        tag=Sub        agree=true
+    Discard    tag=Discard    agree=true
+    Relu       tag=Relu       agree=true
+    |}]
+
 let%expect_test "op Add: encode → JSON" =
   let result =
     let open Core.Syntax in

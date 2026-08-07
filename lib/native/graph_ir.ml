@@ -247,6 +247,19 @@ let map_operands (f : tensor_ref -> tensor_ref) : op -> op = function
       registry_pick (fun (module M : OP) ->
           Option.map (fun t -> M.inject (M.map_operands f t)) (M.project op))
 
+(* [M.name] is the same string [op_jsont] uses as its case tag, deliberately:
+   an exported graph that labelled its nodes differently from the way the IR
+   serialises them would give two names to one op, and the first question asked
+   of an exported node is which IR op it came from. [Discard] is spelled out
+   because it owns no registry module — it is handled inline wherever the
+   registry is folded (see the [op] declaration) — and it takes its JSON case
+   tag for the same one-vocabulary reason. *)
+let op_name : op -> string = function
+  | Discard _ -> "Discard"
+  | op ->
+      registry_pick (fun (module M : OP) ->
+          Option.map (fun (_ : M.t) -> M.name) (M.project op))
+
 (* Producer/consumer/id lookup for the pretty-printer, precomputed once per
    dump instead of rescanning [g.Graph.nodes] for every operand/output/group
    item printed — that rescan is O(nodes) per lookup, so an unindexed dump (or
