@@ -81,6 +81,22 @@ val pt2_graph : Pt2_native_graph.Graph_path.t -> string
 val pt2_node : Pt2_native_graph.Graph_path.t -> int -> string
 (** [<path>#<index>]. *)
 
+val pt2_boundary :
+  limits:Me_limits.Limits.t ->
+  [ `In | `Const | `Out ] ->
+  string ->
+  (string, [> error ]) Core.result
+(** [in:<ssa>] / [const:<ssa>] / [out:<ssa>], the source graph's boundary nodes.
+    The SSA name is a DYNAMIC component and is encoded; the [:] is structural
+    and is not. Shares {!boundary}'s prefixes deliberately — the two graphs are
+    different, and a reader who learns one grammar has learnt both. *)
+
+val pt2_namespace :
+  limits:Me_limits.Limits.t -> string list -> (string, [> error ]) Core.result
+(** The source graph's namespace, one level per [nn_module_stack] entry. Each
+    level meets [max_namespace_component_bytes] — the unit the renderer's own
+    splitting works over — and the joined string meets [max_id_bytes]. *)
+
 val graph : Layer.t -> int -> string
 (** [g/<layer>/<NNN>]. Owned by the flow spine rather than by any execution
     identity, so that two runs of the same pipeline produce the same ids. *)
@@ -94,6 +110,12 @@ val flow_transition : Layer.t -> int -> string
 val op_node : Graph_ir.Node_id.t -> string
 (** [n<k>] — stable across versions, which is what the comparison view rests on.
 *)
+
+val value_node : Graph_ir.Tensor_id.t -> string
+(** [v<k>] — a VALUE graph's node, named by the value it produces. A different
+    letter from {!op_node} because those graphs are node-indexed and these are
+    value-indexed; a stage and the kernel value adapted from it share this id
+    precisely so the two can be compared without an explicit mapping. *)
 
 val boundary : [ `In | `Const | `Out ] -> Graph_ir.Tensor_id.t -> string
 (** [in:t<k>] / [const:t<k>] / [out:t<k>], pinned. *)

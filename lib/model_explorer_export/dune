@@ -9,4 +9,18 @@
 (library
  (name model_explorer_export)
  (wrapped false)
- (libraries core fmt jsont model_explorer native native4d native_graph pt2))
+ (libraries
+  core
+  expr
+  fmt
+  bytesrw
+  jsont
+  jsont.bytesrw
+  model_explorer
+  native
+  native4d
+  native_graph
+  native_interp
+  pt2
+  pytorch_types
+  schema_runtime))

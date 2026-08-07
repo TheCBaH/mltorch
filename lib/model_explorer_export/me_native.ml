@@ -1,9 +1,8 @@
 (* The Native instantiation of the projection.
 
    A module rather than a [Make] applied at each call site, so there is one
-   Native projection in the program and every caller gets the same one. The
-   Native4D instantiation is the same functor over [Ops4], and lands with
-   Stage 4. *)
+   Native projection in the program and every caller gets the same one.
+   [Me_native4d] is the same functor over the four-axis op. *)
 
 include Me_build.Make (struct
   type op = Graph_ir.op

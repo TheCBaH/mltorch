@@ -6,5 +6,6 @@ val graph :
   limits:Me_limits.Limits.t ->
   id:string ->
   ?labels:(Graph_ir.Node_id.t -> string) ->
+  ?group_attrs:(string * (string * string) list) list ->
   Graph_ir.graph ->
   (Model_explorer.Graph.t, [> Me_build.error ]) Core.result

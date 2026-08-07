@@ -399,10 +399,27 @@ module Wire_limits : sig
 
   val limits : t -> Limits.t
 
-  (* The wire CODEC ([of_json], [jsont]) lands with the rest of the worker
-     protocol, whose shape freezes at Stage 2 and whose fixtures live beside
-     it. What this module owns now is the domain closure — the property the
-     codec will encode — and that is testable today. *)
+  val jsont : t Jsont.t
+  (** The wire form: a FLAT object of the fields this profile TIGHTENS
+      [Limits.untrusted] by, and nothing else. A wire profile is by construction
+      no looser than [untrusted], so a field equal to it carries no information;
+      [untrusted] therefore encodes as [{}], and two equal profiles encode to
+      equal bytes — the determinism the session's claim quantifies over.
+
+      Keys are the field's own DIAGNOSTIC name, dotted for a nested one
+      ([zip.max_entries]), so the member a rejection names and the member that
+      carried it are literally the same string rather than two tables that agree
+      today.
+
+      Values are JSON strings through [Jsont.int64_as_string]: two fields are
+      [int64] with values past 2^31, and a JSON number would be read back
+      through a 32-bit [int] under js_of_ocaml. Each is bounded against the
+      ceiling BEFORE it is narrowed to the field's width, which is what makes
+      the bound a bound (CLAUDE.md); decoding then finishes through
+      {!of_limits}, so every decodable value is one the encoder could have
+      produced. An unknown member is rejected by name rather than ignored — a
+      profile the worker silently did not apply is the disagreement this type
+      exists to prevent. *)
 end
 
 (** {1 Diagnostics} *)

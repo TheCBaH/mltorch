@@ -31,6 +31,19 @@ val native4d : [< Native4d.Error.t ] -> verdict
     inside the dialect, which is why Native4D is conditional for a [.pt2] and a
     standalone [model.json] alike. *)
 
+val lowering : [< Native_interp.error ] -> verdict
+(** The row every other capability's fate follows from, since it decides whether
+    there is a Native graph at all.
+
+    [`Unsupported_operator] and [`Unsupported_input] are recoverable — and
+    recoverable for a [.pt2] and a bare [model.json] alike, because
+    [Native_interp.lower] takes an [ExportedProgram.t] and gains no operator
+    support from the archive payload. Everything else is fatal: a malformed
+    graph is a decoder that accepted what it should not have, the builder,
+    provenance, transform, verify and lens rows are internal invariants, and
+    [`Eval]/[`Tensor_bridge] belong to execution, which export never performs.
+*)
+
 val kernel : [< Kernel_adapt.error ] -> verdict
 (** [`Passthrough_output] is [Unsupported_graph_shape] and RECOVERABLE — a graph
     input used directly as a graph output has no stage to name, and the kernel
@@ -50,6 +63,14 @@ val requires_payloads_without_them : Me_session.Capability.reason
     [--fold] on a JSON model is a SUCCESSFUL structural session carrying this,
     plus a note on stderr, and not a usage error: the browser cannot surface one
     and the same code path serves both shells. *)
+
+val diagnostic_code :
+  Me_session.Capability.reason -> Me_limits.Diagnostic.Code.t
+(** The one place the capability vocabulary and the diagnostic vocabulary meet.
+    Every reason has a code of the same name, so the map is an identity in
+    spelling — which is why it is written out rather than assumed: the two are
+    separate types on purpose, and a code added for the worker protocol must not
+    silently become a capability reason. *)
 
 (** {1 Prerequisite propagation} *)
 

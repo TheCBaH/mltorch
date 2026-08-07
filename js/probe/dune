@@ -33,7 +33,7 @@
 (library
  (name probes_pt2)
  (wrapped false)
- (modules probe_model_json probe_pt2)
+ (modules probe_model_json probe_pt2 probe_worker)
  (libraries
   probes_pure
   core
@@ -43,6 +43,8 @@
   schema_runtime
   jsont
   jsont.bytesrw
+  model_explorer
+  model_explorer_export
   native
   native_graph
   native_interp))

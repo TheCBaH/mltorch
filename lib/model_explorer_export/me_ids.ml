@@ -101,6 +101,33 @@ let pt2_node path index =
     (fun fmt (p, i) -> Fmt.pf fmt "%a#%d" Pt2_native_graph.Graph_path.pp p i)
     (path, index)
 
+let pt2_boundary ~limits kind name =
+  let open Core.Syntax in
+  let prefix =
+    match kind with `In -> "in" | `Const -> "const" | `Out -> "out"
+  in
+  (* The SSA name is a dynamic component and goes through the encoder; the [:]
+     that separates it from the prefix does not, being structural. *)
+  let* encoded = encoded_component ~limits name in
+  check_id ~max:limits.Me_limits.Limits.max_id_bytes
+    (Printf.sprintf "%s:%s" prefix encoded)
+
+let pt2_namespace ~limits levels =
+  let open Core.Syntax in
+  let* components =
+    Core.List.map
+      (fun l ->
+        let* encoded = encoded_component ~limits l in
+        check_id ~max:limits.Me_limits.Limits.max_namespace_component_bytes
+          encoded)
+      levels
+  in
+  (* Each LEVEL meets the per-component ceiling, because that is the unit the
+     renderer's own splitting works over; the joined string meets
+     [max_id_bytes], because that is what every node carries. *)
+  check_id ~max:limits.Me_limits.Limits.max_id_bytes
+    (String.concat "/" components)
+
 let layered prefix layer n =
   Printf.sprintf "%s/%s/%s" prefix (Layer.to_string layer) (ordinal n)
 
@@ -108,6 +135,12 @@ let graph = layered "g"
 let flow_state = layered "s"
 let flow_transition = layered "t"
 let op_node id = Printf.sprintf "n%d" (Graph_ir.Node_id.to_int id)
+
+(* A VALUE graph's node, named by the value it produces. Deliberately a
+   different letter from [op_node]: those graphs are node-indexed and these are
+   value-indexed, and a stage and the kernel value adapted from it share this id
+   precisely so the two can be compared without an explicit mapping. *)
+let value_node id = Printf.sprintf "v%d" (Graph_ir.Tensor_id.to_int id)
 
 let boundary kind id =
   let prefix =

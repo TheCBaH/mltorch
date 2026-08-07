@@ -50,6 +50,54 @@ let bounded ~max pp v =
   in
   (Buffer.contents buf, capped)
 
+(* The [Group] tree is authoritative, so the namespace is read off it rather
+   than off any importer string. Each level goes through
+   [Me_ids.namespace_component], which is what stops a label containing a
+   slash from silently becoming two levels of hierarchy — the renderer splits
+   [namespace] on [/], so an unencoded label would move a node.
+
+   Outside the functor because it does not mention the dialect at ALL, and
+   because a second consumer needs it: a verification rollup keys
+   [groupNodeAttributes] by namespace, and computing that key a second way is
+   how two answers about the same hierarchy come to disagree. *)
+let namespaces ~limits (root : Graph_ir.Group.t) =
+  let open Core.Syntax in
+  let table = Hashtbl.create 64 in
+  let rec walk prefix (g : Graph_ir.Group.t) =
+    let* component =
+      Me_ids.namespace_component ~limits ?label:g.Graph_ir.Group.label
+        (Graph_ir.Group_id.to_int g.Graph_ir.Group.id)
+    in
+    let path = prefix @ [ component ] in
+    Core.List.iter
+      (fun (item : Graph_ir.Group.item) ->
+        match item with
+        | Graph_ir.Group.Node id ->
+            Hashtbl.replace table id (String.concat "/" path);
+            Core.return ()
+        | Graph_ir.Group.Group sub -> walk path sub)
+      g.Graph_ir.Group.items
+  in
+  (* The root's own component is dropped: every node would otherwise sit one
+     level deeper than the hierarchy says, and the extra level names the
+     graph, which the graph id already does. *)
+  let+ () =
+    Core.List.iter
+      (fun (item : Graph_ir.Group.item) ->
+        match item with
+        | Graph_ir.Group.Node id ->
+            Hashtbl.replace table id "";
+            Core.return ()
+        | Graph_ir.Group.Group sub -> walk [] sub)
+      root.Graph_ir.Group.items
+  in
+  table
+
+let namespace_of ~limits root =
+  let open Core.Syntax in
+  let+ table = namespaces ~limits root in
+  fun id -> Option.value (Hashtbl.find_opt table id) ~default:""
+
 module Make (S : SIDE) = struct
   (* Node attributes and output-metadata attributes are different types
      upstream: the first carries a [NodeAttributeValue.t] (which can also be a
@@ -61,51 +109,13 @@ module Make (S : SIDE) = struct
 
   let kv key value = ME.KeyValue.create ~key ~value
 
-  (* The [Group] tree is authoritative, so the namespace is read off it rather
-     than off any importer string. Each level goes through
-     [Me_ids.namespace_component], which is what stops a label containing a
-     slash from silently becoming two levels of hierarchy — the renderer splits
-     [namespace] on [/], so an unencoded label would move a node. *)
-  let namespaces ~limits (root : Graph_ir.Group.t) =
-    let open Core.Syntax in
-    let table = Hashtbl.create 64 in
-    let rec walk prefix (g : Graph_ir.Group.t) =
-      let* component =
-        Me_ids.namespace_component ~limits ?label:g.Graph_ir.Group.label
-          (Graph_ir.Group_id.to_int g.Graph_ir.Group.id)
-      in
-      let path = prefix @ [ component ] in
-      Core.List.iter
-        (fun (item : Graph_ir.Group.item) ->
-          match item with
-          | Graph_ir.Group.Node id ->
-              Hashtbl.replace table id (String.concat "/" path);
-              Core.return ()
-          | Graph_ir.Group.Group sub -> walk path sub)
-        g.Graph_ir.Group.items
-    in
-    (* The root's own component is dropped: every node would otherwise sit one
-       level deeper than the hierarchy says, and the extra level names the
-       graph, which the graph id already does. *)
-    let+ () =
-      Core.List.iter
-        (fun (item : Graph_ir.Group.item) ->
-          match item with
-          | Graph_ir.Group.Node id ->
-              Hashtbl.replace table id "";
-              Core.return ()
-          | Graph_ir.Group.Group sub -> walk [] sub)
-        root.Graph_ir.Group.items
-    in
-    table
-
   let shape_attr (sig_ : Tensor_sig.t) =
     let text, _ =
       bounded ~max:256 (fun fmt s -> Vec6.pp_shape fmt s.Tensor_sig.shape) sig_
     in
     text
 
-  let graph ~limits ~id ?labels (g : S.op Graph_ir.Graph.t) =
+  let graph ~limits ~id ?labels ?group_attrs (g : S.op Graph_ir.Graph.t) =
     let open Core.Syntax in
     let label_of = match labels with Some f -> f | None -> fun _ -> "" in
     let nodes = g.Graph_ir.Graph.nodes in
@@ -262,5 +272,21 @@ module Make (S : SIDE) = struct
         Core.fail (`Over_limit ("edges", edges))
       else Core.return ()
     in
-    ME.Graph.create ~id ~nodes:all ()
+    (* [groupNodeAttributes] is keyed by NAMESPACE, which is why the rollup
+       that fills it shares [namespaces] with this projection rather than
+       recomputing the key. *)
+    ME.Graph.create ~id ~nodes:all
+      ?groupNodeAttributes:
+        (Option.map
+           (fun rows ->
+             List.fold_left
+               (fun acc (ns, attrs) ->
+                 ME.String_map.add ns
+                   (List.fold_left
+                      (fun m (k, v) -> ME.String_map.add k v m)
+                      ME.String_map.empty attrs)
+                   acc)
+               ME.String_map.empty rows)
+           group_attrs)
+      ()
 end

@@ -122,7 +122,7 @@ pt2.runtest:
 		test/native_transform_cram.t test/native_transform_fold_cram.t \
 		test/native_transform_verify_cram.t \
 		test/native_transform_verify_fold_cram.t \
-		test/native4d_to4d_cram.t \
+		test/native4d_to4d_cram.t test/me_visualize_cram.t \
 		--auto-promote
 
 # Shared argument list for every interp_run.exe invocation below, so
@@ -415,6 +415,17 @@ spike.setup:
 	mkdir -p web/src/vendor
 	cp -r web/node_modules/ai-edge-model-explorer-visualizer/dist/* web/src/vendor/
 
+# Two specs, deliberately different in what they check. The 0A spike drives a
+# hand-authored fixture to settle questions about the RENDERER; the Stage 1 gate
+# drives the session `visualize` actually produced, to settle a question about
+# US -- whether a document [Me_session.validate] accepts is a document the
+# renderer accepts. Our validator is our own reading of the schema.
 spike.runtest:
 	opam exec -- dune exec test/model_explorer/spike/gen_fixture.exe -- web/src
+	opam exec -- dune exec bin/native_graph.exe -- visualize \
+		--model modules/pytorch.models.pt2/models/resnet18/models/model.json \
+		--verify-symbolic quick --output web/src/session.json
+	opam exec -- dune exec bin/native_graph.exe -- detail \
+		--model modules/pytorch.models.pt2/models/resnet18/models/model.json \
+		--graph g/kernel/000 --value 125 --output web/src/detail-delta.json
 	cd web && npx playwright test

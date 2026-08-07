@@ -42,11 +42,22 @@ val bounded : max:int -> (Format.formatter -> 'a -> unit) -> 'a -> string * bool
     needs, and because a bound nobody can test in isolation is a bound taken on
     trust. *)
 
+val namespace_of :
+  limits:Me_limits.Limits.t ->
+  Graph_ir.Group.t ->
+  (Graph_ir.Node_id.t -> string, [> Me_ids.error ]) Core.result
+(** A node's namespace, as {!Make}'s projection computes it. Outside the functor
+    because it does not mention the dialect at all, and exposed because a second
+    consumer needs it: [groupNodeAttributes] is keyed by NAMESPACE, and a rollup
+    computing that key its own way is how two answers about one hierarchy come
+    to disagree. A node in no group answers [""], the root. *)
+
 module Make (S : SIDE) : sig
   val graph :
     limits:Me_limits.Limits.t ->
     id:string ->
     ?labels:(Graph_ir.Node_id.t -> string) ->
+    ?group_attrs:(string * (string * string) list) list ->
     S.op Graph_ir.Graph.t ->
     (Model_explorer.Graph.t, [> error ]) Core.result
   (** Every native node becomes one [GraphNode] with [Me_ids.op_node]'s id, plus
@@ -59,5 +70,10 @@ module Make (S : SIDE) : sig
 
       [labels] overrides a node's displayed label — the hook the CLI's
       [--namespace module] mode and importer metadata use — and defaults to
-      [S.op_name]. *)
+      [S.op_name].
+
+      [group_attrs] becomes [groupNodeAttributes], which the renderer keys by
+      NAMESPACE and shows in the side panel when a group is selected. That is
+      where a per-group verification rollup belongs: it is the only place the
+      wire format lets a fact be attached to a group rather than to a node. *)
 end

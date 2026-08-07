@@ -6,6 +6,12 @@ type t = {
   deleted : string list;
 }
 
+type error = [ `Over_limit of string * int ]
+
+let pp_error fmt : [< error ] -> unit = function
+  | `Over_limit (field, n) ->
+      Fmt.pf fmt "navigation %s = %d is over the ceiling" field n
+
 (* Union-find over the two id spaces at once. They are disjoint by
    construction: a PT2 element is keyed by its rendered id, a native one by
    [Me_ids.op_node], and the two grammars share no string. Keeping them in ONE

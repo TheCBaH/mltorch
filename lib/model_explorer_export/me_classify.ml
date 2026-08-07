@@ -37,6 +37,23 @@ let native4d : [< Native4d.Error.t ] -> verdict = function
      user to change their model to work around our bug. *)
   | `Bad_constant_payload _ | `Map _ | `View _ -> Fatal
 
+(* Total over [Native_interp.error]. The row that decides whether there is a
+   Native graph at all, so every OTHER capability's fate follows from it. *)
+let lowering : [< Native_interp.error ] -> verdict = function
+  (* The two the matrix calls conditional, and the reason it calls them
+     conditional for a .pt2 and a bare model.json alike: [lower] takes an
+     ExportedProgram and gains no operator support from the archive payload. *)
+  | `Unsupported_operator _ -> Unavailable C.Unsupported_operator
+  | `Unsupported_input _ -> Unavailable C.Unsupported_input
+  (* Everything else is a defect or a stage this path never reaches. A
+     malformed graph is a decoder that accepted what it should not have; the
+     builder, provenance, transform, verify and lens rows are internal
+     invariants; and [`Eval] and [`Tensor_bridge] belong to execution, which
+     export does not perform. *)
+  | `Malformed_graph _ | `Tensor_bridge _ | `Eval _ | `Build _ | `Provenance _
+  | `Transform _ | `Verify _ | `Lens _ ->
+      Fatal
+
 let kernel : [< Kernel_adapt.error ] -> verdict = function
   (* Recoverable, and the kernel suite builds a graph its own comment calls
      legal that produces it: a graph input used directly as a graph output has
@@ -60,6 +77,24 @@ let kernel : [< Kernel_adapt.error ] -> verdict = function
       Fatal
 
 let requires_payloads_without_them = C.Requires_payloads
+
+(* The two closed vocabularies meet here, once. Every [reason] has a [Code] of
+   the same name, so the map is an identity in spelling — which is exactly why
+   it is written out rather than assumed: they are separate types on purpose,
+   and a [Code] added for the worker protocol must not silently become a
+   capability reason. *)
+let diagnostic_code (r : C.reason) : Me_limits.Diagnostic.Code.t =
+  match r with
+  | C.Unsupported_operator -> Me_limits.Diagnostic.Code.Unsupported_operator
+  | C.Unsupported_input -> Me_limits.Diagnostic.Code.Unsupported_input
+  | C.Unsupported_graph_shape ->
+      Me_limits.Diagnostic.Code.Unsupported_graph_shape
+  | C.Outside_dialect_domain -> Me_limits.Diagnostic.Code.Outside_dialect_domain
+  | C.Over_limit -> Me_limits.Diagnostic.Code.Over_limit
+  | C.Requires_payloads -> Me_limits.Diagnostic.Code.Requires_payloads
+  | C.Prerequisite_unavailable ->
+      Me_limits.Diagnostic.Code.Prerequisite_unavailable
+  | C.Not_implemented -> Me_limits.Diagnostic.Code.Not_implemented
 
 (* Which keys have no meaning without a Native graph.
 

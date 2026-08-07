@@ -15,5 +15,7 @@ web/node_modules/
 web/src/vendor/
 web/src/collection.json
 web/src/detail.json
+web/src/session.json
+web/src/detail-delta.json
 web/test-results/
 web/playwright-report/

@@ -76,6 +76,71 @@ let%expect_test "payloads remove exactly one failure mode" =
        outside);
   [%expect {| domain rejections still unavailable with payloads: true |}]
 
+(* --- Lowering --- *)
+
+let%expect_test "every Native_interp row, classified" =
+  (* The row every other capability's fate follows from: it decides whether
+     there is a Native graph at all. The two recoverable rows are recoverable
+     for a .pt2 and a bare model.json alike, because [lower] takes an
+     ExportedProgram and gains no operator support from the archive payload. *)
+  let rows : (string * Native_interp.error) list =
+    [
+      ("Unsupported_operator", `Unsupported_operator "aten.bogus");
+      ("Unsupported_input", `Unsupported_input "non-tensor input");
+      ("Malformed_graph", `Malformed_graph "y is not defined");
+      ("Tensor_bridge", `Tensor_bridge "dtype");
+      ("Eval", `Eval (`Missing_input (tid 0)));
+      ("Build", `Build (`Missing_tensor_sig (tid 0)));
+      ("Provenance", `Provenance (`Unknown_node_id (nid 0)));
+      ("Transform", `Transform (`Not_converged "fold"));
+      ("Verify", `Verify (`Missing_signature (tid 0)));
+      ("Lens", `Lens `Sidecar_graph_mismatch);
+    ]
+  in
+  List.iter (fun (n, e) -> show n (MC.lowering e)) rows;
+  [%expect
+    {|
+    Unsupported_operator                   unavailable unsupported_operator
+    Unsupported_input                      unavailable unsupported_input
+    Malformed_graph                        fatal
+    Tensor_bridge                          fatal
+    Eval                                   fatal
+    Build                                  fatal
+    Provenance                             fatal
+    Transform                              fatal
+    Verify                                 fatal
+    Lens                                   fatal |}]
+
+let%expect_test "every reason has a diagnostic code, and it is not assumed" =
+  (* The two closed vocabularies meet in one place. They agree in spelling,
+     which is exactly why the map is written out: a code added for the worker
+     protocol must not silently become a capability reason. *)
+  List.iter
+    (fun r ->
+      Format.printf "%-26s %s@."
+        (Core.Pretty.to_string MC.pp_verdict (MC.Unavailable r))
+        (Me_limits.Diagnostic.Code.to_string (MC.diagnostic_code r)))
+    [
+      C.Unsupported_operator;
+      C.Unsupported_input;
+      C.Unsupported_graph_shape;
+      C.Outside_dialect_domain;
+      C.Over_limit;
+      C.Requires_payloads;
+      C.Prerequisite_unavailable;
+      C.Not_implemented;
+    ];
+  [%expect
+    {|
+    unavailable unsupported_operator unsupported_operator
+    unavailable unsupported_input unsupported_input
+    unavailable unsupported_graph_shape unsupported_graph_shape
+    unavailable outside_dialect_domain outside_dialect_domain
+    unavailable over_limit     over_limit
+    unavailable requires_payloads requires_payloads
+    unavailable prerequisite_unavailable prerequisite_unavailable
+    unavailable not_implemented not_implemented |}]
+
 (* --- Kernel --- *)
 
 let%expect_test "every Kernel_adapt row, classified" =

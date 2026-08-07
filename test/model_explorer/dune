@@ -80,9 +80,86 @@
   (pps ppx_expect)))
 
 (library
+ (name me_source_test)
+ (modules me_source_test)
+ (libraries
+  core
+  fmt
+  model_explorer
+  model_explorer_export
+  pytorch_types
+  schema_runtime)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_verify_test)
+ (modules me_verify_test)
+ (libraries core fmt model_explorer model_explorer_export native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
  (name me_classify_test)
  (modules me_classify_test)
- (libraries core fmt model_explorer_export native native4d)
+ (libraries core fmt model_explorer_export native native4d native_interp)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_wire_limits_test)
+ (modules me_wire_limits_test)
+ (libraries core fmt jsont jsont.bytesrw model_explorer_export pt2)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_request_test)
+ (modules me_request_test)
+ (libraries core fmt jsont jsont.bytesrw model_explorer_export native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_response_test)
+ (modules me_response_test)
+ (libraries core fmt jsont jsont.bytesrw model_explorer_export native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_export_test)
+ (modules me_export_test)
+ (libraries core fmt jsont jsont.bytesrw model_explorer_export native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_detail_test)
+ (modules me_detail_test)
+ (libraries
+  core
+  expr
+  fmt
+  jsont
+  jsont.bytesrw
+  model_explorer
+  model_explorer_export
+  native)
  (inline_tests
   (modes best js))
  (preprocess

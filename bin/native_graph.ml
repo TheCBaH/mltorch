@@ -729,10 +729,215 @@ let to4d_cmd =
   Cmd.v (Cmd.info "to4d" ~doc)
     Term.(const to4d $ pt2_arg $ fold_arg $ verify_symbolic_arg)
 
+(* --- visualize: export a Model Explorer session ------------------------- *)
+
+(* The shell owns the filesystem, and the library takes bytes -- so the size
+   check belongs here too. Peeks the first 4 bytes to pick the applicable
+   ceiling -- [Me_export.detect]'s own magic-byte rule, reused rather than
+   re-derived so the two cannot disagree about what a file is -- and the size
+   check runs before the rest is read, so an oversized file of either format
+   never becomes an OCaml string. Shared by [visualize] and [detail]: two
+   copies of a filesystem size check is exactly the kind of drift that let
+   [detail] skip it once already. *)
+let read_bounded limits path =
+  let ic = open_in_bin path in
+  let size = in_channel_length ic in
+  let peek = really_input_string ic (min size 4) in
+  seek_in ic 0;
+  let ceiling =
+    match Me_export.detect ~bytes:peek with
+    | Ok Me_export.Model_json -> limits.Me_limits.Limits.max_json_bytes
+    | Ok Me_export.Pt2_archive
+    | Error { Core.Error.kind = `Unrecognised_format; _ } ->
+        limits.Me_limits.Limits.max_pt2_bytes
+  in
+  if Int64.compare (Int64.of_int size) ceiling > 0 then begin
+    close_in ic;
+    Error
+      (Printf.sprintf "%s is %d bytes, over the %Ld-byte ceiling" path size
+         ceiling)
+  end
+  else begin
+    let s = really_input_string ic size in
+    close_in ic;
+    Ok s
+  end
+
+let limits_conv =
+  (* Only the two WIRE-selectable profiles, which is what makes
+     [Me_limits.Wire_limits] a guarantee rather than a UI convention: [large]
+     and [trusted] exist for callers holding data they produced and are not
+     offered here. *)
+  Arg.enum
+    [
+      ("untrusted", Me_limits.Limits.untrusted);
+      ("small", Me_limits.Limits.small);
+    ]
+
+let limits_arg =
+  let doc = "Resource profile: $(b,untrusted) (the default) or $(b,small)." in
+  Arg.(
+    value & opt limits_conv Me_limits.Limits.untrusted & info [ "limits" ] ~doc)
+
+let output_arg =
+  let doc = "Write the session to this path instead of stdout." in
+  Arg.(value & opt (some string) None & info [ "output" ] ~doc ~docv:"FILE")
+
+let format_arg =
+  let doc =
+    "$(b,session) (the default) emits the full document; $(b,collections) \
+     emits the bare graph-collection array, which is LOSSY -- comparisons, \
+     node data, capabilities and the flow are discarded, and a warning names \
+     what went."
+  in
+  Arg.(
+    value
+    & opt
+        (Arg.enum [ ("session", `Session); ("collections", `Collections) ])
+        `Session
+    & info [ "format" ] ~doc)
+
+let model_arg =
+  let doc = "Path to the model: a .pt2 archive or an exported model.json." in
+  Arg.(
+    required & opt (some file) None & info [ "model"; "pt2" ] ~doc ~docv:"MODEL")
+
+(* The session builder lives in [Me_export], not here: the browser compiles
+   that library, and a second implementation in [bin/] is exactly the
+   divergence between "what the CLI exports" and "what the page renders" that
+   putting it in a library prevents. What stays here is the shell -- the
+   filesystem, the profile flag, and the two output formats. *)
+let visualize model limits output format fold verify_symbolic :
+    (unit, string) result =
+  (* Size is rejected BEFORE the rest of the file is read, so an oversized
+     file never becomes an OCaml string. Only a filesystem caller can do
+     that, which is why it is here and not in the library. *)
+  let* bytes = read_bounded limits model in
+  let size = Int64.of_int (String.length bytes) in
+  let collection_label = Filename.remove_extension (Filename.basename model) in
+  let* session =
+    to_cli Me_export.pp_error
+      (Me_export.session ~limits
+         ~options:
+           {
+             (* Every stage: the CLI exports one complete, standalone
+                document, unlike the worker's on-demand requests, so
+                "everything the pipeline reaches" is the only sensible
+                default and there is no flag to narrow it. *)
+             Me_export.Options.stages = Me_session.Capability.all_stages;
+             fold;
+             verify_symbolic;
+             name = collection_label;
+             source_bytes = size;
+             (* [None]: no expected digest was supplied, and there is nothing
+                to verify a locally chosen file against. *)
+             source_sha256 = None;
+           }
+         ~bytes)
+  in
+  let* text =
+    match format with
+    | `Session ->
+        to_cli Me_export.pp_error
+          (Me_export.encode_bounded
+             ~max_bytes:limits.Me_limits.Limits.max_session_bytes
+             Me_session.Session.jsont session)
+    | `Collections ->
+        prerr_endline
+          "warning: --format collections is lossy; comparisons, capabilities \
+           and the flow are discarded";
+        Result.map_error
+          (fun e -> "encode: " ^ e)
+          (Jsont_bytesrw.encode_string
+             (Jsont.list Model_explorer.GraphCollection.jsont)
+             session.Me_session.Session.graph_collections)
+  in
+  (match output with
+  | None -> print_string text
+  | Some path ->
+      let oc = open_out_bin path in
+      output_string oc text;
+      close_out oc);
+  Ok ()
+
+(* The on-demand half, as its own command rather than a flag on [visualize]:
+   they produce different documents with different lifetimes -- a session is a
+   whole model, a delta is one value's expression merged into a session someone
+   already has -- and one command emitting either would have to be told which. *)
+let detail model limits output parent value : (unit, string) result =
+  (* Same bounded read as [visualize]: rejected on size before the rest of
+     the file is read, not after. *)
+  let* bytes = read_bounded limits model in
+  let size = Int64.of_int (String.length bytes) in
+  let* key =
+    to_cli Me_request.Detail_key.pp_invalid
+      (Core.map_error
+         (fun (`Invalid_detail_key e) -> e)
+         (Me_request.Detail_key.create ~limits ~parent_graph:parent
+            ~value:(Graph_ir.Tensor_id.of_int value)))
+  in
+  let* delta =
+    to_cli Me_export.pp_error
+      (Me_export.detail ~limits
+         ~options:
+           {
+             (* Unread by [detail], which never reaches [lowered_shape] -- see
+                [Options.stages]'s doc. *)
+             Me_export.Options.stages = Me_session.Capability.all_stages;
+             fold = false;
+             verify_symbolic = None;
+             name = Filename.remove_extension (Filename.basename model);
+             source_bytes = size;
+             source_sha256 = None;
+           }
+         ~key ~bytes)
+  in
+  let* text =
+    to_cli Me_export.pp_error
+      (Me_export.encode_bounded
+         ~max_bytes:limits.Me_limits.Limits.max_detail_bytes
+         Me_detail.Delta.jsont delta)
+  in
+  (match output with
+  | None -> print_string text
+  | Some path ->
+      let oc = open_out_bin path in
+      output_string oc text;
+      close_out oc);
+  Ok ()
+
+let parent_arg =
+  let doc = "The graph holding the value, e.g. $(b,g/kernel/000)." in
+  Arg.(required & opt (some string) None & info [ "graph" ] ~doc ~docv:"GRAPH")
+
+let value_arg =
+  let doc = "The kernel value's tensor id." in
+  Arg.(required & opt (some int) None & info [ "value" ] ~doc ~docv:"N")
+
+let detail_cmd =
+  let doc =
+    "Export one kernel value's expression as a Model Explorer detail delta."
+  in
+  Cmd.v (Cmd.info "detail" ~doc)
+    Term.(
+      const detail $ model_arg $ limits_arg $ output_arg $ parent_arg
+      $ value_arg)
+
+let visualize_cmd =
+  let doc =
+    "Export a Model Explorer session for a PT2 archive or an exported \
+     model.json."
+  in
+  Cmd.v
+    (Cmd.info "visualize" ~doc)
+    Term.(
+      const visualize $ model_arg $ limits_arg $ output_arg $ format_arg
+      $ fold_arg $ verify_symbolic_arg)
+
 let cmd =
   let doc = "Tools for the native inference engine's graph representation." in
   Cmd.group
     (Cmd.info "native_graph" ~doc)
-    [ print_cmd; eval_cmd; transform_cmd; to4d_cmd ]
+    [ print_cmd; eval_cmd; transform_cmd; to4d_cmd; visualize_cmd; detail_cmd ]
 
 let () = exit (Cmd.eval_result cmd)
