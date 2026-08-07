@@ -15,6 +15,7 @@ type t = {
 
 type error =
   [ `Io of string * string
+  | `Io_too_large of string * int64
   | `Zip_open of string * Pt2_zip.error
   | `Read_archive_member of string * Pt2_zip.error
   | `Model_json_decode of string
@@ -27,6 +28,8 @@ type error =
 
 let pp_error ppf : error -> unit = function
   | `Io (path, message) -> Fmt.pf ppf "failed to read %S: %s" path message
+  | `Io_too_large (path, limit) ->
+      Fmt.pf ppf "%S is larger than %Ld bytes" path limit
   | `Zip_open (path, error) ->
       Fmt.pf ppf "failed to open zip %S: %a" path Pt2_zip.pp_error error
   | `Read_archive_member (path, error) ->
@@ -50,8 +53,50 @@ let pp_error ppf : error -> unit = function
       Fmt.pf ppf "failed to decode tensor pickle %S: %a" path
         Pt2_pickle.pp_error error
 
-let read_file path =
-  try Core.return (In_channel.with_open_bin path In_channel.input_all)
+(* CHECKPOINT 1 — before the OCaml string exists.
+
+   [In_channel.input_all] on an attacker-chosen path allocates whatever is
+   there, so the size is taken from the channel and REJECTED FIRST; only then is
+   that many bytes read. A bare [input_all] behind a later length check would
+   have done the allocation the check exists to prevent.
+
+   The two-step is deliberate about the race: the declared length is what gets
+   bounded, and [really_input_string] then reads exactly that many bytes, so a
+   file that grows between the two cannot make us read more than we approved.
+   (One that SHRINKS yields [None], reported as a short read.) *)
+
+(* The ceiling no [~max_bytes] may exceed, because the read narrows an [int64]
+   length to the [int] that [really_input_string] takes — and that [int] is
+   32-bit under js_of_ocaml. A caller-supplied bound is therefore not enough on
+   its own: a generous one would push the narrowing outside the JS domain, which
+   is the "narrow only after bounding" rule with the bound set too high to do any
+   bounding. 512MB is inside both backends' string domains and two orders of
+   magnitude above the largest catalog model. *)
+let max_file_bytes = 0x2000_0000L
+let default_max_file_bytes = max_file_bytes
+
+let effective_max_bytes max_bytes =
+  (* Named, and therefore testable. Inline, the clamp could only be observed by
+     presenting a 512MB file, so the one case that matters — a caller asking for
+     more than the domain allows — had no cheap fixture and would have been
+     "tested" by a fixture that could not fail. *)
+  if Int64.compare max_bytes max_file_bytes > 0 then max_file_bytes
+  else max_bytes
+
+let read_file ?(max_bytes = default_max_file_bytes) path =
+  let ceiling = effective_max_bytes max_bytes in
+  try
+    In_channel.with_open_bin path (fun ic ->
+        let length = In_channel.length ic in
+        if Int64.compare length ceiling > 0 then
+          Core.fail (`Io_too_large (path, ceiling))
+        else
+          (* Narrowed only now that it is bounded by [ceiling], which is at most
+             [max_file_bytes] — in range on both backends by construction rather
+             than by an argument about the caller. *)
+          match In_channel.really_input_string ic (Int64.to_int length) with
+          | Some s -> Core.return s
+          | None -> Core.fail (`Io (path, "short read")))
   with Sys_error message -> Core.fail (`Io (path, message))
 
 let read_member zip path =
@@ -62,10 +107,10 @@ let read_member zip path =
    never has to reach a filesystem: a JS build has no useful one, and a browser
    receives the bytes from a fetch or a file picker. [~name] is only a label for
    the error payloads -- nothing opens it. *)
-let of_string ~name contents =
+let of_string ?limits ~name contents =
   let path = name in
   let* zip =
-    Pt2_zip.of_string contents
+    Pt2_zip.of_string ?limits contents
     |> Core.map_error (fun error -> `Zip_open (path, error))
   in
   let* program_json = read_member zip "models/model.json" in
@@ -98,9 +143,9 @@ let of_string ~name contents =
   in
   Core.return { zip; program; weights; constants }
 
-let open_pt2 path =
-  let* contents = read_file path in
-  of_string ~name:path contents
+let open_pt2 ?limits ?max_bytes path =
+  let* contents = read_file ?max_bytes path in
+  of_string ?limits ~name:path contents
 
 let program t = t.program
 let weights_config t = t.weights
@@ -137,10 +182,10 @@ let load_captured_tensor t name =
 
 (* A standalone `.pt` tensor (a sample input image, or the archive's own
    data/sample_inputs/model.pt) already in memory. Same split as [of_string]. *)
-let pt_of_string ~name contents =
+let pt_of_string ?limits ~name contents =
   let path = name in
   let* zip =
-    Pt2_zip.of_string contents
+    Pt2_zip.of_string ?limits contents
     |> Core.map_error (fun error -> `Zip_open (path, error))
   in
   let* data_pkl = read_member zip "data.pkl" in
@@ -159,6 +204,6 @@ let pt_of_string ~name contents =
     }
 
 (* Load a standalone `.pt` tensor file from disk. *)
-let load_pt path =
-  let* contents = read_file path in
-  pt_of_string ~name:path contents
+let load_pt ?limits ?max_bytes path =
+  let* contents = read_file ?max_bytes path in
+  pt_of_string ?limits ~name:path contents

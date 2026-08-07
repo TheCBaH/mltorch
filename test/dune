@@ -88,6 +88,21 @@
  (preprocess
   (pps ppx_expect)))
 
+; The five ordered archive checkpoints. Runs under node as well as natively
+; because two of them turn on integer width: zipc's own [File.max_size] is
+; [min Int.max_int 4294967295], which differs per backend, and the declared
+; sizes are [int] (32-bit under js_of_ocaml) widened to [int64] before they meet
+; a limit. A native-only suite could not see either.
+
+(library
+ (name pt2_zip_limits_test)
+ (modules pt2_zip_limits_test)
+ (libraries core pt2 zipc)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
 ; Shared pretty-printing helpers from lib/core.
 
 (library
