@@ -1,1 +1,8 @@
-(vendored_dirs ocaml-yamlt opickle)
+; Vendored, not scanned as first-party: dune builds these without applying this
+; project's warning settings, and their own tests are not ours to run.
+;
+; [ocaml-model-explorer] carries its own [model-explorer] gitlink, which stays
+; uninitialised on purpose -- it is the upstream TypeScript renderer, fetched
+; from npm at the pinned version rather than built from source here.
+
+(vendored_dirs ocaml-yamlt opickle ocaml-model-explorer)

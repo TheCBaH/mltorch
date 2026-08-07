@@ -1,0 +1,16 @@
+{
+  "name": "mltorch-viewer",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Stage 0A contract spike: drives the pinned Model Explorer visualizer to settle the questions the coordinator design assumes.",
+  "scripts": {
+    "spike": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "http-server": "^14.1.1"
+  },
+  "dependencies": {
+    "ai-edge-model-explorer-visualizer": "0.1.2"
+  }
+}

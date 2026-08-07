@@ -1,0 +1,8 @@
+; The Stage 0A fixture generator. An executable rather than a test: its output
+; is consumed by the browser spike, which is gated on node and a downloaded
+; Chromium and therefore lives outside `make runtest`.
+
+(executable
+ (name gen_fixture)
+ (modules gen_fixture)
+ (libraries jsont jsont.bytesrw model_explorer))

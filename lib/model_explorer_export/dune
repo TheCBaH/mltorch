@@ -1,0 +1,12 @@
+; The Model Explorer export library. Pure OCaml, no Bigarray and no C stubs,
+; so the whole of it is inside js_of_ocaml's closure — the browser shell
+; compiles this same library rather than a second implementation of it.
+;
+; [(wrapped false)] because the three shells (the cmdliner CLI, the node
+; golden, the browser bundle) refer to these modules by their [Me_*] names;
+; the prefix is the namespace.
+
+(library
+ (name model_explorer_export)
+ (wrapped false)
+ (libraries core fmt jsont model_explorer native native4d native_graph pt2))

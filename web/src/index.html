@@ -1,0 +1,40 @@
+<meta charset="utf-8">
+<title>Stage 0A contract spike</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  #mount { width: 100vw; height: 100vh; }
+</style>
+
+<!-- The mount is a private container the driver never replaces wholesale; the
+     element inside it is what gets swapped. That is the shape the coordinator
+     protocol assumes, so the spike has to answer its questions in it. -->
+<div id="mount"></div>
+
+<script>
+  // Set BEFORE the bundle, which is where documentation and instinct put it --
+  // and which 0A found does NOT work: the bundle assigns its own
+  // `window.modelExplorer` over the top, so this object is gone before
+  // anything reads it. Kept as the probe that proves the ordering rule rather
+  // than deleted once the rule was known.
+  window.modelExplorer = { assetFilesBaseUrl: 'BEFORE', workerScriptPath: 'BEFORE' };
+  window.__spikeConfigBefore = JSON.stringify(window.modelExplorer);
+</script>
+
+<script src="vendor/main_browser.js"></script>
+
+<script>
+  // AFTER the bundle is the order that takes, and these are MUTATIONS of the
+  // object the bundle installed rather than a fresh one, so nothing that
+  // captured a reference to it is left holding the old values.
+  //
+  // The visualizer reads `window.modelExplorer.assetFilesBaseUrl ?? "static_files"`
+  // and `window.modelExplorer.workerScriptPath ?? "worker.js"` at element
+  // construction, both resolved relative to the PAGE -- which is exactly the
+  // base-URL question, since the deployed page lives under a path prefix
+  // rather than at the server root.
+  window.modelExplorer.assetFilesBaseUrl = 'vendor/static_files';
+  window.modelExplorer.workerScriptPath = 'vendor/worker.js';
+  window.__spikeConfigAfter = JSON.stringify(window.modelExplorer);
+</script>
+
+<script src="spike.js"></script>

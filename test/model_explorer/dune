@@ -1,0 +1,89 @@
+; The Model Explorer export suites. Under node as well as natively: this
+; library exists for the 32-bit backend, so a native-only run would exercise
+; the one width on which its aggregates cannot wrap. See test/native4d/dune for
+; why [js] carries no `enabled_if`.
+
+(library
+ (name me_limits_test)
+ (modules me_limits_test)
+ (libraries core model_explorer_export pt2)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_diagnostic_test)
+ (modules me_diagnostic_test)
+ (libraries core jsont jsont.bytesrw model_explorer_export)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_ids_test)
+ (modules me_ids_test)
+ (libraries core fmt model_explorer_export native native_graph)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_flow_test)
+ (modules me_flow_test)
+ (libraries core fmt model_explorer_export native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_session_test)
+ (modules me_session_test)
+ (libraries
+  core
+  fmt
+  jsont
+  jsont.bytesrw
+  model_explorer
+  model_explorer_export
+  native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_pt2_test)
+ (modules me_pt2_test)
+ (libraries
+  core
+  fmt
+  model_explorer_export
+  native
+  native_graph
+  schema_runtime)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_build_test)
+ (modules me_build_test)
+ (libraries core fmt model_explorer model_explorer_export native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_classify_test)
+ (modules me_classify_test)
+ (libraries core fmt model_explorer_export native native4d)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

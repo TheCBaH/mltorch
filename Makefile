@@ -1,4 +1,4 @@
-.PHONY: melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
+.PHONY: spike.setup spike.runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -401,3 +401,20 @@ js.runtest: jsoo.runtest jsoo.inline-runtest melange.runtest
 clean:
 	opam exec -- dune clean
 	git submodule foreach --recursive git clean -xdf
+
+# --- Stage 0A contract spike -----------------------------------------------
+#
+# Drives the real pinned Model Explorer element to settle the questions the
+# browser coordinator design assumes. Needs node, npm and a downloaded
+# Chromium, so it is outside every other target; its ANSWERS are recorded in
+# .ai/model_explorer_design.md and do not need re-deriving to read.
+
+spike.setup:
+	cd web && npm ci --no-audit --no-fund
+	cd web && npx playwright install chromium --with-deps
+	mkdir -p web/src/vendor
+	cp -r web/node_modules/ai-edge-model-explorer-visualizer/dist/* web/src/vendor/
+
+spike.runtest:
+	opam exec -- dune exec test/model_explorer/spike/gen_fixture.exe -- web/src
+	cd web && npx playwright test

@@ -10,3 +10,6 @@
 [submodule "vendored/opickle"]
 	path = vendored/opickle
 	url = https://github.com/TheCBaH/opickle.git
+[submodule "vendored/ocaml-model-explorer"]
+	path = vendored/ocaml-model-explorer
+	url = https://github.com/TheCBaH/ocaml-model-explorer.git

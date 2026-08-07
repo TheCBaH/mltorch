@@ -1,0 +1,17 @@
+import { defineConfig } from '@playwright/test';
+
+// The spike serves web/src over http rather than file://: the visualizer loads
+// a worker and font textures, and both are blocked under file:// in a way that
+// would make every answer below "no" for the wrong reason.
+export default defineConfig({
+  testDir: './test',
+  timeout: 120_000,
+  reporter: [['list']],
+  use: { baseURL: 'http://127.0.0.1:8123' },
+  webServer: {
+    command: 'npx http-server src -p 8123 -c-1 --silent',
+    url: 'http://127.0.0.1:8123/index.html',
+    reuseExistingServer: false,
+    timeout: 60_000,
+  },
+});

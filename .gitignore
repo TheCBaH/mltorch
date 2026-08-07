@@ -7,3 +7,13 @@ _build/
 AGENTS.md
 data/pt2/
 .profile/
+
+# Stage 0A spike: npm's tree, the copied visualizer dist, the generated
+# fixture and Playwright's output. The dist is pinned by package-lock.json and
+# copied in by `make spike.setup`; the fixture is emitted by gen_fixture.
+web/node_modules/
+web/src/vendor/
+web/src/collection.json
+web/src/detail.json
+web/test-results/
+web/playwright-report/
