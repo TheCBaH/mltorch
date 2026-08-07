@@ -21,4 +21,5 @@ let () =
   Probe_core.run ();
   Probe_tensor_json.run ();
   Probe_native.run ();
-  Probe_model_json.run model_json
+  Probe_model_json.run model_json;
+  Probe_worker.run model_json

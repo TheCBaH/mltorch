@@ -422,7 +422,18 @@ module Limits = struct
      the two cannot come to check different sets. Widths unify at [int64]:
      [Int64.of_int] is total, and comparing there means the 32-bit backend
      never narrows a ceiling before testing it. *)
-  type field = { name : string; get : t -> int64; hard : int64 }
+  type field = {
+    name : string;
+    get : t -> int64;
+    hard : int64;
+    assign : t -> int64 -> t;
+        (* Narrows an [int] field, and is therefore sound only after the value
+           has been bounded. [assign_checked] below is the only caller and does
+           that bounding; nothing else may use this directly. A wire value of
+           2^40 for an [int] field would otherwise wrap under jsoo before
+           anything looked at it -- CLAUDE.md's rule, in the one place this
+           record could break it. *)
+  }
 
   let i = Int64.of_int
 
@@ -432,181 +443,228 @@ module Limits = struct
         name = "max_json_bytes";
         get = (fun t -> t.max_json_bytes);
         hard = Hard.max_json_bytes;
+        assign = (fun t v -> { t with max_json_bytes = v });
       };
       {
         name = "max_pt2_bytes";
         get = (fun t -> t.max_pt2_bytes);
         hard = Hard.max_pt2_bytes;
+        assign = (fun t v -> { t with max_pt2_bytes = v });
       };
       {
         name = "max_nodes_per_graph";
         get = (fun t -> i t.max_nodes_per_graph);
         hard = i Hard.max_nodes_per_graph;
+        assign = (fun t v -> { t with max_nodes_per_graph = Int64.to_int v });
       };
       {
         name = "max_edges_per_graph";
         get = (fun t -> i t.max_edges_per_graph);
         hard = i Hard.max_edges_per_graph;
+        assign = (fun t v -> { t with max_edges_per_graph = Int64.to_int v });
       };
       {
         name = "max_groups_per_graph";
         get = (fun t -> i t.max_groups_per_graph);
         hard = i Hard.max_groups_per_graph;
+        assign = (fun t v -> { t with max_groups_per_graph = Int64.to_int v });
       };
       {
         name = "max_attrs_per_node";
         get = (fun t -> i t.max_attrs_per_node);
         hard = i Hard.max_attrs_per_node;
+        assign = (fun t v -> { t with max_attrs_per_node = Int64.to_int v });
       };
       {
         name = "max_metadata_items_per_node";
         get = (fun t -> i t.max_metadata_items_per_node);
         hard = i Hard.max_metadata_items_per_node;
+        assign =
+          (fun t v -> { t with max_metadata_items_per_node = Int64.to_int v });
       };
       {
         name = "max_outputs_metadata_per_node";
         get = (fun t -> i t.max_outputs_metadata_per_node);
         hard = i Hard.max_outputs_metadata_per_node;
+        assign =
+          (fun t v -> { t with max_outputs_metadata_per_node = Int64.to_int v });
       };
       {
         name = "max_namespace_depth";
         get = (fun t -> i t.max_namespace_depth);
         hard = i Hard.max_namespace_depth;
+        assign = (fun t v -> { t with max_namespace_depth = Int64.to_int v });
       };
       {
         name = "max_namespace_component_bytes";
         get = (fun t -> i t.max_namespace_component_bytes);
         hard = i Hard.max_namespace_component_bytes;
+        assign =
+          (fun t v -> { t with max_namespace_component_bytes = Int64.to_int v });
       };
       {
         name = "max_label_bytes";
         get = (fun t -> i t.max_label_bytes);
         hard = i Hard.max_label_bytes;
+        assign = (fun t v -> { t with max_label_bytes = Int64.to_int v });
       };
       {
         name = "max_id_bytes";
         get = (fun t -> i t.max_id_bytes);
         hard = i Hard.max_id_bytes;
+        assign = (fun t v -> { t with max_id_bytes = Int64.to_int v });
       };
       {
         name = "max_attr_chars";
         get = (fun t -> i t.max_attr_chars);
         hard = i Hard.max_attr_chars;
+        assign = (fun t v -> { t with max_attr_chars = Int64.to_int v });
       };
       {
         name = "max_url_bytes";
         get = (fun t -> i t.max_url_bytes);
         hard = i Hard.max_url_bytes;
+        assign = (fun t v -> { t with max_url_bytes = Int64.to_int v });
       };
       {
         name = "max_graphs";
         get = (fun t -> i t.max_graphs);
         hard = i Hard.max_graphs;
+        assign = (fun t v -> { t with max_graphs = Int64.to_int v });
       };
       {
         name = "max_total_nodes";
         get = (fun t -> t.max_total_nodes);
         hard = Hard.max_total_nodes;
+        assign = (fun t v -> { t with max_total_nodes = v });
       };
       {
         name = "max_total_edges";
         get = (fun t -> t.max_total_edges);
         hard = Hard.max_total_edges;
+        assign = (fun t v -> { t with max_total_edges = v });
       };
       {
         name = "max_views";
         get = (fun t -> i t.max_views);
         hard = i Hard.max_views;
+        assign = (fun t v -> { t with max_views = Int64.to_int v });
       };
       {
         name = "max_comparisons";
         get = (fun t -> i t.max_comparisons);
         hard = i Hard.max_comparisons;
+        assign = (fun t v -> { t with max_comparisons = Int64.to_int v });
       };
       {
         name = "max_node_data_sets";
         get = (fun t -> i t.max_node_data_sets);
         hard = i Hard.max_node_data_sets;
+        assign = (fun t v -> { t with max_node_data_sets = Int64.to_int v });
       };
       {
         name = "max_states";
         get = (fun t -> i t.max_states);
         hard = i Hard.max_states;
+        assign = (fun t v -> { t with max_states = Int64.to_int v });
       };
       {
         name = "max_transitions";
         get = (fun t -> i t.max_transitions);
         hard = i Hard.max_transitions;
+        assign = (fun t v -> { t with max_transitions = Int64.to_int v });
       };
       {
         name = "max_mapping_entries_per_comparison";
         get = (fun t -> i t.max_mapping_entries_per_comparison);
         hard = i Hard.max_mapping_entries_per_comparison;
+        assign =
+          (fun t v ->
+            { t with max_mapping_entries_per_comparison = Int64.to_int v });
       };
       {
         name = "max_mapping_members_per_entry";
         get = (fun t -> i t.max_mapping_members_per_entry);
         hard = i Hard.max_mapping_members_per_entry;
+        assign =
+          (fun t v -> { t with max_mapping_members_per_entry = Int64.to_int v });
       };
       {
         name = "max_mapping_members_total";
         get = (fun t -> i t.max_mapping_members_total);
         hard = i Hard.max_mapping_members_total;
+        assign =
+          (fun t v -> { t with max_mapping_members_total = Int64.to_int v });
       };
       {
         name = "max_node_data_results_per_graph";
         get = (fun t -> i t.max_node_data_results_per_graph);
         hard = i Hard.max_node_data_results_per_graph;
+        assign =
+          (fun t v ->
+            { t with max_node_data_results_per_graph = Int64.to_int v });
       };
       {
         name = "max_overlay_edges_per_overlay";
         get = (fun t -> i t.max_overlay_edges_per_overlay);
         hard = i Hard.max_overlay_edges_per_overlay;
+        assign =
+          (fun t v -> { t with max_overlay_edges_per_overlay = Int64.to_int v });
       };
       {
         name = "max_overlay_edges_total";
         get = (fun t -> i t.max_overlay_edges_total);
         hard = i Hard.max_overlay_edges_total;
+        assign =
+          (fun t v -> { t with max_overlay_edges_total = Int64.to_int v });
       };
       {
         name = "max_diagnostics";
         get = (fun t -> i t.max_diagnostics);
         hard = i Hard.max_diagnostics;
+        assign = (fun t v -> { t with max_diagnostics = Int64.to_int v });
       };
       {
         name = "max_diagnostic_bytes";
         get = (fun t -> i t.max_diagnostic_bytes);
         hard = i Hard.max_diagnostic_bytes;
+        assign = (fun t v -> { t with max_diagnostic_bytes = Int64.to_int v });
       };
       {
         name = "max_session_bytes";
         get = (fun t -> i t.max_session_bytes);
         hard = i Hard.max_session_bytes;
+        assign = (fun t v -> { t with max_session_bytes = Int64.to_int v });
       };
       {
         name = "max_trace_entries";
         get = (fun t -> i t.max_trace_entries);
         hard = i Hard.max_trace_entries;
+        assign = (fun t v -> { t with max_trace_entries = Int64.to_int v });
       };
       {
         name = "max_audit_reports";
         get = (fun t -> i t.max_audit_reports);
         hard = i Hard.max_audit_reports;
+        assign = (fun t v -> { t with max_audit_reports = Int64.to_int v });
       };
       {
         name = "max_detail_nodes";
         get = (fun t -> i t.max_detail_nodes);
         hard = i Hard.max_detail_nodes;
+        assign = (fun t v -> { t with max_detail_nodes = Int64.to_int v });
       };
       {
         name = "max_detail_graphs";
         get = (fun t -> i t.max_detail_graphs);
         hard = i Hard.max_detail_graphs;
+        assign = (fun t v -> { t with max_detail_graphs = Int64.to_int v });
       };
       {
         name = "max_detail_bytes";
         get = (fun t -> i t.max_detail_bytes);
         hard = i Hard.max_detail_bytes;
+        assign = (fun t v -> { t with max_detail_bytes = Int64.to_int v });
       };
     ]
 
@@ -617,11 +675,24 @@ module Limits = struct
      it. *)
   let zip_fields =
     [
-      ("max_entries", fun (z : Pt2_zip.Limits.t) -> i z.max_entries);
-      ("max_entry_bytes", fun (z : Pt2_zip.Limits.t) -> z.max_entry_bytes);
-      ("max_total_bytes", fun (z : Pt2_zip.Limits.t) -> z.max_total_bytes);
-      ("max_path_bytes", fun (z : Pt2_zip.Limits.t) -> i z.max_path_bytes);
-      ("max_path_depth", fun (z : Pt2_zip.Limits.t) -> i z.max_path_depth);
+      ( "max_entries",
+        (fun (z : Pt2_zip.Limits.t) -> i z.max_entries),
+        fun (z : Pt2_zip.Limits.t) v -> { z with max_entries = Int64.to_int v }
+      );
+      ( "max_entry_bytes",
+        (fun (z : Pt2_zip.Limits.t) -> z.max_entry_bytes),
+        fun (z : Pt2_zip.Limits.t) v -> { z with max_entry_bytes = v } );
+      ( "max_total_bytes",
+        (fun (z : Pt2_zip.Limits.t) -> z.max_total_bytes),
+        fun (z : Pt2_zip.Limits.t) v -> { z with max_total_bytes = v } );
+      ( "max_path_bytes",
+        (fun (z : Pt2_zip.Limits.t) -> i z.max_path_bytes),
+        fun (z : Pt2_zip.Limits.t) v ->
+          { z with max_path_bytes = Int64.to_int v } );
+      ( "max_path_depth",
+        (fun (z : Pt2_zip.Limits.t) -> i z.max_path_depth),
+        fun (z : Pt2_zip.Limits.t) v ->
+          { z with max_path_depth = Int64.to_int v } );
     ]
 
   let check name value ceiling =
@@ -638,7 +709,8 @@ module Limits = struct
       Core.List.iter (fun f -> check f.name (f.get t) (field_ceiling f)) fields
     in
     Core.List.iter
-      (fun (name, get) -> check ("zip." ^ name) (get t.zip) (get zip_ceiling))
+      (fun (name, get, _) ->
+        check ("zip." ^ name) (get t.zip) (get zip_ceiling))
       zip_fields
 
   let derive t =
@@ -691,6 +763,68 @@ module Limits = struct
     in
     check "response_live_bytes" t.response_live_bytes
       Hard.max_response_live_bytes
+
+  (* Apply ONE wire override, bounded before it is narrowed.
+     [assign] is what narrows, so nothing may call it directly: a wire value of
+     2^40 for an [int] field would wrap under jsoo before any check saw it, and
+     a check on a wrapped value is not a bound (CLAUDE.md). The ceiling is a
+     validated profile and so is itself no looser than [hard], which is why
+     bounding against it bounds against [hard] too. *)
+  let assign_checked ~ceiling t f v =
+    let open Core.Syntax in
+    let+ () = check f.name v (f.get ceiling) in
+    f.assign t v
+
+  let assign_zip_checked ~ceiling t (name, get, set) v =
+    let open Core.Syntax in
+    let+ () = check ("zip." ^ name) v (get ceiling.zip) in
+    { t with zip = set t.zip v }
+
+  (* The wire NAME of a field is its diagnostic name, dotted for a nested one --
+     the same string [Invalid.t] carries. One name, so a rejection can be
+     matched back to the member that caused it without a second table. *)
+  let field_named name =
+    match List.find_opt (fun f -> String.equal f.name name) fields with
+    | Some f -> Some (`Field f)
+    | None ->
+        let prefixed = "zip." in
+        if
+          String.length name > String.length prefixed
+          && String.sub name 0 (String.length prefixed) = prefixed
+        then
+          let bare =
+            String.sub name (String.length prefixed)
+              (String.length name - String.length prefixed)
+          in
+          Option.map
+            (fun z -> `Zip z)
+            (List.find_opt (fun (n, _, _) -> String.equal n bare) zip_fields)
+        else None
+
+  (* Every override the wire may carry, as the flat name/value pairs a profile
+     DIFFERS from its base by. Absent means "as the base", which is what makes
+     the base itself encode as [{}] and two equal profiles encode to equal
+     bytes -- the determinism §4 quantifies over. *)
+  let overrides ~base t =
+    List.filter_map
+      (fun f ->
+        if Int64.equal (f.get t) (f.get base) then None
+        else Some (f.name, f.get t))
+      fields
+    @ List.filter_map
+        (fun (name, get, _) ->
+          if Int64.equal (get t.zip) (get base.zip) then None
+          else Some ("zip." ^ name, get t.zip))
+        zip_fields
+
+  let apply_overrides ~ceiling ~base pairs =
+    Core.List.fold_left
+      (fun t (name, v) ->
+        match field_named name with
+        | Some (`Field f) -> assign_checked ~ceiling t f v
+        | Some (`Zip z) -> assign_zip_checked ~ceiling t z v
+        | None -> Core.fail (`Invalid_limit { Invalid.name; value = v }))
+      base pairs
 
   let create ?max_json_bytes ?max_pt2_bytes ?zip ?max_nodes_per_graph
       ?max_edges_per_graph ?max_groups_per_graph ?max_attrs_per_node
@@ -888,6 +1022,10 @@ module Limits = struct
          ~max_detail_bytes:0x100_0000 untrusted)
 end
 
+(* [Jsont.Object.as_string_map] yields a [Stdlib.Map.Make(String)], and
+   [Map.Make] is applicative, so this local instance IS that type. *)
+module Wire_map = Map.Make (String)
+
 module Wire_limits = struct
   type t = Limits.t
 
@@ -903,6 +1041,46 @@ module Wire_limits = struct
     Limits.create l
 
   let limits t = t
+
+  (* The wire carries a TIGHTENING of [untrusted], never a whole profile: a
+     [Wire_limits.t] is by construction no looser, so a field equal to
+     [untrusted]'s carries no information and is not sent. [untrusted] itself
+     therefore encodes as [{}].
+
+     FLAT, keyed by the field's own diagnostic name -- [zip.max_entries], not a
+     nested object -- so the member a rejection names and the member that
+     carried it are literally the same string.
+
+     Values are JSON STRINGS through [int64_as_string]: two of these fields are
+     [int64] with values past 2^31, and a JSON number would be read back
+     through a 32-bit [int] under jsoo. *)
+  let member_jsont =
+    Jsont.Object.as_string_map ~kind:"limits" Jsont.int64_as_string
+
+  let jsont =
+    Jsont.map ~kind:"wireLimits"
+      ~dec:(fun members ->
+        let pairs = Wire_map.bindings members in
+        match
+          let open Core.Syntax in
+          let* l =
+            Limits.apply_overrides ~ceiling:Limits.untrusted
+              ~base:Limits.untrusted pairs
+          in
+          (* [of_limits] rather than a bare [create]: the decoded value has to
+             be a value the ENCODER could have produced, and only the ceiling
+             check makes that true. *)
+          of_limits ~ceiling:Limits.untrusted l
+        with
+        | Ok l -> l
+        | Error e ->
+            Jsont.Error.msgf Jsont.Meta.none "%a" pp_error e.Core.Error.kind)
+      ~enc:(fun t ->
+        List.fold_left
+          (fun m (name, v) -> Wire_map.add name v m)
+          Wire_map.empty
+          (Limits.overrides ~base:Limits.untrusted t))
+      member_jsont
 end
 
 (* --- diagnostics --- *)

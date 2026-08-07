@@ -215,6 +215,40 @@
   schema_runtime.cmi
   model.json))
 
+; The Model Explorer export, over the committed resnet18 model.json. UNGATED:
+; that file is a submodule checkout rather than a downloaded weight, so the
+; whole lower/transform/project/validate path runs in every build. Its
+; payload-free nature is the point -- it is the concrete Requires_payloads case.
+
+(cram
+ (applies_to me_visualize_json_cram)
+ (deps %{exe:../bin/native_graph.exe} model.json))
+
+; One kernel value's expression, over the committed resnet18 model.json.
+; UNGATED for the same reason the session cram is.
+
+(cram
+ (applies_to me_detail_cram)
+ (deps %{exe:../bin/native_graph.exe} model.json))
+
+; The recoverable-failure shape, over graphs built in the cram itself. UNGATED,
+; and hand-built on purpose: what it exercises is a graph the lowerer rejects,
+; and no released model is one.
+
+(cram
+ (applies_to me_visualize_unsupported_cram)
+ (deps %{exe:../bin/native_graph.exe}))
+
+; The same export over a real .pt2. Gated on PT2_DATA, since it needs
+; downloaded weights; it adds the archive path and the payload-dependent
+; capabilities, which the committed model.json cannot reach.
+
+(cram
+ (applies_to me_visualize_cram)
+ (deps (universe) %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
 ; Per-model copies for models_cram (all 17 exported models).
 
 (rule

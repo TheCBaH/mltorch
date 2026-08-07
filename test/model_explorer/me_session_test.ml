@@ -19,14 +19,22 @@ let check label session =
 
 (* --- a minimal but complete session --- *)
 
-let node ?(outputs = 1) ?(incoming = []) id =
-  ME.GraphNode.create ~id ~label:id ~namespace:""
+let node ?(outputs = 1) ?(incoming = []) ?(attrs = 0) ?(inputs_metadata = 0)
+    ?(namespace = "") id =
+  ME.GraphNode.create ~id ~label:id ~namespace
     ~incomingEdges:
       (List.map
          (fun (src, slot) ->
            ME.IncomingEdge.create ~sourceNodeId:src ~sourceNodeOutputId:slot
              ~targetNodeInputId:"0" ())
          incoming)
+    ~attrs:
+      (List.init attrs (fun i ->
+           ME.NodeAttribute.create ~key:(string_of_int i)
+             ~value:(ME.NodeAttributeValue.Str "x")))
+    ~inputsMetadata:
+      (List.init inputs_metadata (fun i ->
+           ME.MetadataItem.create ~id:(string_of_int i) ~attrs:[]))
     ~outputsMetadata:
       (List.init outputs (fun i ->
            ME.MetadataItem.create ~id:(string_of_int i) ~attrs:[]))
@@ -272,10 +280,73 @@ let%expect_test "an edge must name a node AND one of its output slots" =
     }
   in
   check "edge from absent slot" bad_slot;
+  let bad_zero_slot =
+    {
+      base with
+      S.Session.graph_collections =
+        [
+          collection
+            [
+              graph "g/native/000"
+                [ node ~outputs:0 "n0"; node ~incoming:[ ("n0", "0") ] "n1" ];
+            ];
+        ];
+    }
+  in
+  (* The loophole a bare [i >= 0] check leaves: slot 0 does not exist just
+     because 0 is a plausible-looking index. A node with NO outputsMetadata
+     has no slots at all, not "slot 0 by default". *)
+  check "edge from a zero-output node" bad_zero_slot;
   [%expect
     {|
     edge from unknown node         unknown node n9 in graph g/native/000
-    edge from absent slot          edge in graph g/native/000 names no output slot of node n0 |}]
+    edge from absent slot          edge in graph g/native/000 names no output slot of node n0
+    edge from a zero-output node   edge in graph g/native/000 names no output slot of node n0 |}]
+
+let%expect_test "node ids are unique within a graph" =
+  let dup =
+    {
+      base with
+      S.Session.graph_collections =
+        [ collection [ graph "g/native/000" [ node "n0"; node "n0" ] ] ];
+    }
+  in
+  check "duplicate node" dup;
+  [%expect
+    {| duplicate node                 duplicate node id n0 in graph g/native/000 |}]
+
+let%expect_test "a view or pane naming the wrong collection is refused" =
+  (* The graph id resolves either way -- both collections could easily hold a
+     graph named [g/native/000] -- so this is not reachable through
+     [Unknown_graph]: only checking the DECLARED collection against the one
+     the graph is actually in catches it. *)
+  let two_collections =
+    {
+      base with
+      S.Session.graph_collections =
+        [
+          collection [ graph "g/native/000" [] ];
+          {
+            (collection [ graph "g/native/001" [] ]) with
+            ME.GraphCollection.label = "other:m";
+          };
+        ];
+    }
+  in
+  check "view names the wrong collection"
+    {
+      two_collections with
+      S.Session.views =
+        [
+          {
+            (List.hd base.S.Session.views) with
+            S.View.collection = "other:m";
+            graph = "g/native/000";
+          };
+        ];
+    };
+  [%expect
+    {| view names the wrong collection graph g/native/000 is not in collection other:m |}]
 
 let%expect_test "node data is graph-addressed and node-keyed" =
   let with_data graph results =
@@ -357,6 +428,40 @@ let%expect_test "one node may map in two comparisons, but not twice in one" =
     {|
     same nodes, two comparisons    ok
     same node twice in one         node n0 appears in two mapping entries of comparison c/4d |}]
+
+let%expect_test "a mapping entry must name a node in ITS SIDE's pane graph" =
+  (* Duplicate-checking [Mapping_entry] members is not enough: an id that
+     exists nowhere, or exists only in the OTHER pane, validated before this
+     resolved each side against its own graph. *)
+  let wrong_side =
+    {
+      two_pane_session with
+      S.Session.comparisons =
+        List.map
+          (fun (c : S.Comparison.t) ->
+            if String.equal c.S.Comparison.id "c/4d" then
+              {
+                c with
+                S.Comparison.sync =
+                  {
+                    c.S.Comparison.sync with
+                    S.Sync_navigation.entries =
+                      [
+                        {
+                          S.Mapping_entry.left = [ "n0"; "n1" ];
+                          right = [ "m9" ];
+                        };
+                      ];
+                  };
+              }
+            else c)
+          two_pane_session.S.Session.comparisons;
+    }
+  in
+  check "right names a node no right-pane graph has" wrong_side;
+  [%expect
+    {|
+    right names a node no right-pane graph has unknown node m9 in graph g/native4d/000 |}]
 
 (* --- the flow's half that only this scope can check --- *)
 
@@ -446,7 +551,7 @@ let%expect_test "the epoch is runtime state and never reaches the document" =
 let%expect_test "the document, in full" =
   print_endline (encode base);
   [%expect
-    {| {"schemaVersion":1,"producer":{"tool":"mltorch","sessionSchema":1},"model":{"name":"resnet18","sourceKind":"pt2","sourceBytes":"46000000","pt2GraphCount":1,"opTargets":2},"graphCollections":[{"label":"mltorch:m","graphs":[{"id":"g/native/000","nodes":[{"id":"n0","label":"n0","namespace":"","incomingEdges":[],"outputsMetadata":[{"id":"0","attrs":[]}]},{"id":"n1","label":"n1","namespace":"","incomingEdges":[{"sourceNodeId":"n0","sourceNodeOutputId":"0","targetNodeInputId":"0"}],"outputsMetadata":[{"id":"0","attrs":[]}]}]}]}],"views":[{"id":"v/native","label":"Initial Native","kind":"stage:initial_native","collection":"mltorch:m","graph":"g/native/000"}],"comparisons":[],"nodeDataSets":[],"capabilities":[{"key":"stage:source","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:initial_native","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:canonical","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:native4d","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:stage_program","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:kernel","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:fusion","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"feature:flow","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"feature:verification","status":{"state":"available","payload":{"kind":"verification_summary","verificationSummary":[]}}},{"key":"feature:pass_audits","status":{"state":"available","payload":{"kind":"pass_audit_status","passAuditStatus":{"retainedReports":"3","omittedReports":"0","omittedCounts":[]}}}},{"key":"feature:fold","status":{"state":"available","payload":{"kind":"present"}}},{"key":"feature:expression_detail","status":{"state":"available","payload":{"kind":"present"}}},{"key":"feature:loop_ir","status":{"state":"unavailable","reason":"not_implemented"}},{"key":"feature:codegen","status":{"state":"unavailable","reason":"not_implemented"}}],"diagnostics":[],"defaultView":"v/native"} |}]
+    {| {"schemaVersion":1,"producer":{"tool":"mltorch","sessionSchema":1},"model":{"name":"resnet18","sourceKind":"pt2","sourceBytes":"46000000","pt2GraphCount":1,"opTargets":2},"graphCollections":[{"label":"mltorch:m","graphs":[{"id":"g/native/000","nodes":[{"id":"n0","label":"n0","namespace":"","attrs":[],"incomingEdges":[],"inputsMetadata":[],"outputsMetadata":[{"id":"0","attrs":[]}]},{"id":"n1","label":"n1","namespace":"","attrs":[],"incomingEdges":[{"sourceNodeId":"n0","sourceNodeOutputId":"0","targetNodeInputId":"0"}],"inputsMetadata":[],"outputsMetadata":[{"id":"0","attrs":[]}]}]}]}],"views":[{"id":"v/native","label":"Initial Native","kind":"stage:initial_native","collection":"mltorch:m","graph":"g/native/000"}],"comparisons":[],"nodeDataSets":[],"capabilities":[{"key":"stage:source","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:initial_native","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:canonical","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:native4d","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:stage_program","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:kernel","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:fusion","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"feature:flow","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"feature:verification","status":{"state":"available","payload":{"kind":"verification_summary","verificationSummary":[]}}},{"key":"feature:pass_audits","status":{"state":"available","payload":{"kind":"pass_audit_status","passAuditStatus":{"retainedReports":"3","omittedReports":"0","omittedCounts":[]}}}},{"key":"feature:fold","status":{"state":"available","payload":{"kind":"present"}}},{"key":"feature:expression_detail","status":{"state":"available","payload":{"kind":"present"}}},{"key":"feature:loop_ir","status":{"state":"unavailable","reason":"not_implemented"}},{"key":"feature:codegen","status":{"state":"unavailable","reason":"not_implemented"}}],"diagnostics":[],"defaultView":"v/native"} |}]
 
 let%expect_test "aggregates are checked before the walks they bound" =
   let tight =
@@ -488,3 +593,133 @@ let%expect_test "aggregates are checked before the walks they bound" =
     {|
     graphs session graphs = 2 is over the ceiling
     views  session views = 2 is over the ceiling |}]
+
+(* --- the per-node and per-comparison ceilings [Session.validate] enforces,
+   not merely declares --- *)
+
+let%expect_test "attrs, metadata and namespace depth are bounded per node" =
+  let with_node n =
+    {
+      base with
+      S.Session.graph_collections =
+        [ collection [ graph "g/native/000" [ n ] ] ];
+    }
+  in
+  let check_field label lim session =
+    Format.printf "%-30s %a@." label pp_ok
+      (S.Session.validate ~limits:lim session)
+  in
+  check_field "attrs"
+    (Core.or_raise Me_limits.pp_error
+       (Me_limits.Limits.create ~max_attrs_per_node:1 limits))
+    (with_node (node ~attrs:2 "n0"));
+  check_field "inputsMetadata"
+    (Core.or_raise Me_limits.pp_error
+       (Me_limits.Limits.create ~max_metadata_items_per_node:1 limits))
+    (with_node (node ~inputs_metadata:2 "n0"));
+  check_field "outputsMetadata"
+    (Core.or_raise Me_limits.pp_error
+       (Me_limits.Limits.create ~max_outputs_metadata_per_node:1 limits))
+    (with_node (node ~outputs:2 "n0"));
+  check_field "namespaceDepth"
+    (Core.or_raise Me_limits.pp_error
+       (Me_limits.Limits.create ~max_namespace_depth:1 limits))
+    (with_node (node ~namespace:"a/b" "n0"));
+  [%expect
+    {|
+    attrs                          session attrsPerNode = 2 is over the ceiling
+    inputsMetadata                 session metadataItemsPerNode = 2 is over the ceiling
+    outputsMetadata                session outputsMetadataPerNode = 2 is over the ceiling
+    namespaceDepth                 session namespaceDepth = 2 is over the ceiling |}]
+
+let%expect_test
+    "total nodes and edges are summed in checked int64, not just per graph" =
+  let two_node_graph =
+    graph "g/native/000" [ node "n0"; node ~incoming:[ ("n0", "0") ] "n1" ]
+  in
+  let session =
+    {
+      base with
+      S.Session.graph_collections = [ collection [ two_node_graph ] ];
+    }
+  in
+  Format.printf "%-30s %a@." "total nodes" pp_ok
+    (S.Session.validate
+       ~limits:
+         (Core.or_raise Me_limits.pp_error
+            (Me_limits.Limits.create ~max_total_nodes:1L limits))
+       session);
+  let two_edge_graph =
+    graph "g/native/000"
+      [ node ~outputs:2 "n0"; node ~incoming:[ ("n0", "0"); ("n0", "1") ] "n1" ]
+  in
+  Format.printf "%-30s %a@." "total edges" pp_ok
+    (S.Session.validate
+       ~limits:
+         (Core.or_raise Me_limits.pp_error
+            (Me_limits.Limits.create ~max_total_edges:1L limits))
+       {
+         base with
+         S.Session.graph_collections = [ collection [ two_edge_graph ] ];
+       });
+  [%expect
+    {|
+    total nodes                    session totalNodes = 2 is over the ceiling
+    total edges                    session totalEdges = 2 is over the ceiling |}]
+
+let%expect_test "mapping entries per comparison are bounded" =
+  let tight =
+    Core.or_raise Me_limits.pp_error
+      (Me_limits.Limits.create ~max_mapping_entries_per_comparison:1 limits)
+  in
+  Format.printf "%-30s %a@." "two entries, ceiling one" pp_ok
+    (S.Session.validate ~limits:tight
+       {
+         two_pane_session with
+         S.Session.comparisons =
+           List.map
+             (fun (c : S.Comparison.t) ->
+               if String.equal c.S.Comparison.id "c/4d" then
+                 {
+                   c with
+                   S.Comparison.sync =
+                     {
+                       c.S.Comparison.sync with
+                       S.Sync_navigation.entries =
+                         c.S.Comparison.sync.S.Sync_navigation.entries
+                         @ [ { S.Mapping_entry.left = []; right = [] } ];
+                     };
+                 }
+               else c)
+             two_pane_session.S.Session.comparisons;
+       });
+  [%expect
+    {| two entries, ceiling one       session mappingEntriesPerComparison = 2 is over the ceiling |}]
+
+let%expect_test "overlay edges are summed across every comparison" =
+  let overlay n =
+    ME.EdgeOverlay.create ~name:"o" ~edgeColor:"red"
+      ~edges:
+        (List.init n (fun i ->
+             ME.Edge.create ~sourceNodeId:"n0" ~targetNodeId:(string_of_int i)
+               ()))
+      ()
+  in
+  let tight =
+    Core.or_raise Me_limits.pp_error
+      (Me_limits.Limits.create ~max_overlay_edges_total:1 limits)
+  in
+  Format.printf "%-30s %a@." "two edges in one overlay, ceiling one" pp_ok
+    (S.Session.validate ~limits:tight
+       {
+         two_pane_session with
+         S.Session.comparisons =
+           List.map
+             (fun (c : S.Comparison.t) ->
+               if String.equal c.S.Comparison.id "c/4d" then
+                 { c with S.Comparison.overlays_left = [ overlay 2 ] }
+               else c)
+             two_pane_session.S.Session.comparisons;
+       });
+  [%expect
+    {| two edges in one overlay, ceiling one session overlayEdgesTotal = 2 is over the ceiling |}]

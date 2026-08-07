@@ -884,10 +884,8 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
 (* Lower, optionally bind the payloads a node reads, then hand the rest to
    [transform_lowered]. The signature is unchanged, so every existing caller is
    unaffected by the split. *)
-let transform ?(preload = false) ?verify ?verify_budget ?verify_probe archive
-    ~passes =
+let preload archive lowered =
   let open Core.Syntax in
-  let* lowered = lower_archive archive in
   let source = lowered.Pt2_native_graph.graph in
   let read_by_a_node =
     List.concat_map
@@ -895,23 +893,30 @@ let transform ?(preload = false) ?verify ?verify_budget ?verify_probe archive
       source.Graph_ir.Graph.nodes
     |> Tensor_id.Set.of_list
   in
-  let* seeded =
-    if not preload then Core.return []
-    else
-      (* Only what a node reads: an archive holds buffers nothing evaluates —
-         resnet18's int64 [num_batches_tracked] among them — and loading one
-         would fail on a dtype the engine has no reason to support. *)
-      Core.List.map
-        (fun (id, target) ->
-          let+ payload = load_captured archive target in
-          (id, payload))
-        (List.filter
-           (fun (id, _) -> Tensor_id.Set.mem id read_by_a_node)
-           (Tensor_id.Map.bindings lowered.Pt2_native_graph.captured_targets))
+  (* Only what a node reads: an archive holds buffers nothing evaluates —
+     resnet18's int64 [num_batches_tracked] among them — and loading one would
+     fail on a dtype the engine has no reason to support. *)
+  let+ seeded =
+    Core.List.map
+      (fun (id, target) ->
+        let+ payload = load_captured archive target in
+        (id, payload))
+      (List.filter
+         (fun (id, _) -> Tensor_id.Set.mem id read_by_a_node)
+         (Tensor_id.Map.bindings lowered.Pt2_native_graph.captured_targets))
   in
-  transform_lowered
-    ~constants:(Tensor_id.Map.of_seq (List.to_seq seeded))
-    ?verify ?verify_budget ?verify_probe lowered ~passes
+  Tensor_id.Map.of_seq (List.to_seq seeded)
+
+let transform ?preload:(want_payloads = false) ?verify ?verify_budget
+    ?verify_probe archive ~passes =
+  let open Core.Syntax in
+  let* lowered = lower_archive archive in
+  let* constants =
+    if want_payloads then preload archive lowered
+    else Core.return Tensor_id.Map.empty
+  in
+  transform_lowered ~constants ?verify ?verify_budget ?verify_probe lowered
+    ~passes
 
 (* Payloads for the constants the graph actually reads, state before archive.
    An edge with neither is simply absent; [Eval_direct] is the one that decides

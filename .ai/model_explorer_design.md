@@ -165,7 +165,7 @@ documented as such rather than presented as independent; it is retained as the d
 statement of what the other two are a means to, and becomes live if a phase ever gains a
 term the document ceilings do not drive. The equality it rests on is pinned by a test.
 
-### One field table, two traversals
+### One field table, three traversals
 
 `create` (ceiling = the `Hard` figures) and `Wire_limits.of_limits` (ceiling = another
 profile) run the **same traversal over the same field list**, reading through a `get`
@@ -175,6 +175,23 @@ neither of them checks, and the list is the only place that can happen. Widths u
 narrows a ceiling before testing it. The nested `Pt2_zip.Limits.t` is traversed the same
 way, against `Pt2_zip.Limits.trusted`, so there is no second copy of that module's
 ceilings here.
+
+The **third** traversal is the wire codec, and it is why the record also carries an
+`assign`. Decoding a profile means *writing* fields, and writing them through the same
+table that reads them is what keeps "a field the checks do not see" impossible in both
+directions.
+
+**`assign` narrows, so it is unreachable outside `assign_checked`.** An `int` field's wire
+value arrives as `int64`, and `Int64.to_int` under js_of_ocaml truncates to 32 bits — so a
+member of `4294967297` becomes `1`, and a check on that is a check on a wrapped value,
+which CLAUDE.md says is not a bound. `assign_checked` tests against the ceiling profile
+first; a ceiling is itself a validated profile, so bounding against it bounds against
+`Hard` too.
+
+That guard's red was **observed, and only on one backend**: with the bound removed,
+`dune runtest` stays green — natively the value does not wrap, so `create`'s own hard check
+rejects it with the same message — while `dune build @runtest-js` reports `accepted`. It is
+the exact split CLAUDE.md names, and here only the node expect run can see it.
 
 ### Which profiles cross the wire
 
@@ -189,9 +206,17 @@ makes `--limits untrusted|small` a guarantee rather than a UI convention.
 inhabit except through it makes "the worker and the page disagree about the profile"
 unconstructable, rather than something rejected somewhere downstream.
 
-**The wire codec is not here.** `of_json` and `jsont` land with the rest of the worker
-protocol, whose shape freezes at Stage 2 and whose fixtures live beside it. What this
-module owns now is the domain closure — the property that codec will encode.
+**The wire form is a tightening, not a profile.** `Wire_limits.jsont` emits a flat object of
+the fields this profile tightens `untrusted` by, and nothing else — so `untrusted` encodes
+as `{}`, and two equal profiles encode to equal bytes, which is what the session's
+determinism claim quantifies over. Keys are the field's own **diagnostic** name, dotted for
+a nested one (`zip.max_entries`), so the member a rejection names and the member that
+carried it are literally the same string rather than two tables that agree today. Values
+are JSON *strings* through `int64_as_string`: two fields hold values past 2^31, and a JSON
+number would be read back through a 32-bit `int` under node. An unknown member is
+**rejected by name**, never ignored — a profile the worker silently did not apply is the
+disagreement this type exists to prevent — and decoding finishes through `of_limits`, so
+every decodable value is one the encoder could have produced.
 
 ### Request identity is protocol, not policy
 
@@ -307,6 +332,12 @@ which exported graph a capability is about; initial and canonical Native are two
 one layer, and fusion is a stage of the Kernel layer. Collapsing the two would leave
 `g/<layer>/<NNN>` unable to name the two Native graphs that share a layer. Both use the
 same successor-chain `all` as `Diagnostic.Code`.
+
+**The source graph's ids share the Native graph's prefixes on purpose.** `pt2_boundary`
+yields `in:`/`const:`/`out:` over an *encoded SSA name* where `boundary` yields the same
+prefixes over a tensor id; the two graphs are different, and a reader who learns one grammar
+has learnt both. `pt2_namespace` checks each level against `max_namespace_component_bytes`
+and the joined string against `max_id_bytes`, for the same two-sided reason as above.
 
 **A detail id does not re-encode its parents.** They are ids this module already produced,
 and encoding an encoded id is not idempotent — the `%` of an existing escape escapes again
@@ -500,7 +531,7 @@ teaches nothing, and the design's job is to react to the answer.
 | Is `config` **assignable on a live element**? | **No** — the assignment does not take | Replacement requires a **new element**, so two elements and two processed graphs coexist during an install. This is what makes `R_install` a sum rather than a maximum |
 | Install a **new graph plus a parent `subgraphIds` link after** `modelGraphProcessed`, then enter it? | **Yes** | The expression-detail delta path is viable: a graph nobody has seen can be linked from a node already on screen |
 | `subgraphIds` navigation | **Yes** — `selectNode(id, graphId, collectionLabel)` navigates | |
-| Node data through **both** provider entry points | **Yes** — `addNodeDataProviderData` (graph-id keyed) and `addNodeDataProviderDataWithGraphIndex` | Session v1's graph-addressed `Node_data_set` maps to either |
+| Node data through **both** provider entry points | **Yes**, but see the correction below — `addNodeDataProviderData` is **not** graph-id keyed | Session v1's graph-addressed `Node_data_set` maps to either, once keyed correctly |
 | `uiStateChanged` → `initialUiState` round trip | **Yes** — the emitted state is accepted by a fresh element | "Back to flow" can restore the pane the user left |
 
 ### The finding the spike existed to catch
@@ -530,6 +561,25 @@ rule, rather than deleted once the rule was known.
 
 The exact asset set, pinned: `static_files/{FontBold,FontMedium,FontRegular}.{json,png}`,
 `static_files/icons_20240521.{json,png}`, `static_files/styles.css`, and `worker.js`.
+
+### The Stage 1 gate, and the correction it forced
+
+`web/test/session.spec.ts` is a **second** spec, and the difference from the spike is the
+point. The spike drives a hand-authored fixture to settle questions about the **renderer**;
+the gate drives the session `native_graph visualize` actually produced from the committed
+resnet18 `model.json` — three graphs, node data and group attributes — to settle a question
+about **us**: whether a document `Me_session.validate` accepts is a document the renderer
+accepts. Our validator is our own reading of the schema, and a projection can satisfy it and
+still be rejected. One hard assertion, and it is about our side: every graph finishes
+processing.
+
+It immediately corrected a spike answer. **`addNodeDataProviderData(name, data)` is not
+keyed by graph id**: the element wraps `data` in `{[paneGraph.id]: data}` itself, so a caller
+that keys it too lands one level too deep and the run reads `.results` off a graph id,
+throwing `TypeError: Cannot convert undefined or null to object`. The spike recorded that
+call as accepted because nothing threw *at the time* — it never asked whether the data
+arrived. That is the difference between a spike that observes an API and a gate that uses
+it, and it is why the gate exists as well as the spike rather than instead of it.
 
 ---
 
@@ -568,6 +618,179 @@ Node and edge ceilings are checked before the walks linear in them.
 disagreement — the projection would happily emit an output-slot index the session validator
 rejects.
 
+### The source view — `Me_source`
+
+The exported program's **own** graph, and the one unconditional row of §5.4's matrix: it
+claims that the `model.json` parsed and nothing more. Everything past it is conditional on
+lowering, and lowering is where operator support enters.
+
+**Deliberately not a `Me_build.Make` instantiation.** That functor is parameterised over a
+dialect whose operands are `Graph_ir.Tensor_id.t` and whose hierarchy is a `Graph_ir.Group.t`
+tree. This side has neither: its values are **SSA names** and its hierarchy is
+`nn_module_stack`. Sharing the body would mean generalising over both, and the two
+projections would then have to be read together to be understood — the functor buys nothing
+where the parameters are the whole projection.
+
+**The input/constant split comes from `GraphSignature`.** A `Parameter`, `Buffer`,
+`Tensor_constant` or `Custom_obj` spec becomes `const:`, a `User_input` or `Token` spec
+`in:`. Reading the exporter's `p_`/`b_`/`c_` name prefixes instead would invent a rule the
+schema already states, and would misfile any parameter the exporter happened to name
+otherwise.
+
+**Edges follow tensor-valued arguments only.** A `sym_int` operand names an entry in
+`sym_int_values`, not a node output; drawing an edge for it would assert a dataflow
+dependency the graph does not have, and would then fail as an unknown producer on a graph
+that is entirely correct. `tensor_names` is a **total** match over `Argument.t` for the same
+reason the classifiers are: a constructor added upstream that carried a tensor would
+otherwise lose its edges silently, and a missing edge is a picture that is *wrong* rather
+than one that is incomplete — the reader cannot tell the difference by looking. An SSA name
+nothing defines is `Unknown_producer`, carrying the name.
+
+**A module level is relative to its parent.** `nn_module_stack` is `;`-separated
+`path,name,class` entries whose `name` is the *full* dotted path, so the naive join yields
+`layer1/layer1.0/layer1.0.conv1` — every level repeating its whole prefix. Levels are taken
+relative: `layer1/0/conv1`. The outermost entry names the whole module and carries an empty
+`name`, so it contributes no level, exactly as `Me_build` drops the root group's own
+component. A level that does not extend its parent is kept whole; dropping a prefix that is
+not there would be guessing at a hierarchy the exporter did not write.
+
+**Every separator in a rendered argument is a literal.** `Fmt.comma` carries a break hint,
+and an attribute value is a single line the renderer displays verbatim — a wrapped shape
+puts a newline inside it, and the cap then measures a string that also had to pay for the
+break. Truncation is reported by a separate `<name>_truncated` attribute rather than an
+appended ellipsis, which would put the value past the very bound it reports.
+
+**Root-scoped, like `Me_pt2`.** The node ids here are exactly the ones the sidecar's origins
+render to, which is what lets the import comparison pair the two panes; `node_ids` is total
+and cheap, so a projection failure does not take the mapping with it. A nested graph has no
+signature of its own and no native counterpart to pair with.
+
+### The four-axis branch — `Me_native4d`
+
+`Me_build` is a functor for exactly this: Native4D is projected through the **same body**
+with a different op type, so `Me_native4d` is nine lines. Two projections kept in step by
+hand would let a divergence read as a dialect difference rather than as the exporter defect
+it would be.
+
+**The dataflow branches at canonical Native**, and this is one branch. A graph outside the
+dialect's domain is the partiality `Me_classify.native4d` exists to classify, not a failure:
+it becomes a capability carrying the reason, exactly as an unsupported operator does one
+stage earlier. When it is outside, there is **no Native4D graph, no view and no flow state**
+— the same rule the unlowered session follows, since a spine node for a graph nobody can
+open asserts a navigability that is not there.
+
+**`--fold` had to start actually folding for this branch to exist at all.** The importer
+emits every conv weight right-aligned onto D/H/W/C, so an unfolded graph has non-unit D on
+every weight and is outside the dialect entirely; folding is what relays them. But a
+structural caller reaches `transform_lowered` with **no constants**, and `Fold_const`
+declines every node whose payload is not bound — so `--fold` on an archive was reporting the
+capability available while folding nothing. `Native_interp.preload` is now exposed and the
+exporter calls it, which is one implementation of "which payloads a fold gets" rather than
+two. On resnet18 the canonical graph goes from 194 nodes to 93, and only then does the
+conversion succeed.
+
+That also fixes the payload-free half honestly: a `model.json` has nothing to preload, so it
+stays outside the dialect and says so. `Outside_dialect_domain` rather than
+`Requires_payloads` because that is the first node that actually fails — the matrix admits
+either, and the classifier reports which.
+
+### The value graphs — `Me_kernel`
+
+The stage program and the kernel, and they are **not** `Me_build.Make`. That functor
+projects an op graph — nodes carrying an operator, edges carrying tensor ids — and neither
+of these is one. A `Stage_program.t` and a `Kernel.t` are lists of **values**, each an
+`Expr.Value.t` whose dependencies are *recovered by folding the expression* rather than read
+off a field. Parameterising the shared body over "how do I get a node's operands" would have
+made both call sites harder to read than two projections that each say what they do.
+
+One body serves both here, though, because they really are the same shape: an id, a
+signature, and a set of sources. What differs is where the values came from and which
+boundary each has.
+
+**Edges come from `Expr.Fold.sources`, which is loads *and* intrinsic descriptors.** Taking
+`loads` alone would drop a real dependency — a max-pool names its input only in its
+descriptor — and the picture would be *wrong* rather than incomplete.
+
+**`consts` are boundaries.** A synthetic constant-filled operand is a source a stage loads
+from and no stage produces; omitting it is the one thing that made a real model fail here,
+and its fill value goes on the node because it appears nowhere else. Kernel inputs carry
+their **binding** — caller, captured constant, filled — for the same reason: that is the
+distinction the adaptation exists to make and it is invisible in the graph shape.
+
+**`Me_ids.value_node` is `v<k>`, a different letter from `op_node`.** Those graphs are
+node-indexed and these are value-indexed; a stage and the kernel value adapted from it share
+this id precisely so the two panes pair without an explicit mapping — the same argument the
+Native comparison rests on.
+
+**Fusion says which unavailability it is.** Where the kernel is available, fusion is
+`Not_implemented` — it is a view over an unchanged kernel that has not landed. Where the
+kernel is not, fusion is `Prerequisite_unavailable`. Two different facts, and reporting both
+as one would lose which.
+
+### Fusion — `Me_fusion`
+
+An **overlay and a decision list over an unchanged kernel**, never a fabricated rewrite.
+`Fusion_plan` changes where a value is computed, not what it means, and it carries the kernel
+it planned over precisely so a plan cannot be applied to a different one. A "fused kernel
+graph" would be a graph nothing produced, and a reader comparing it against the kernel would
+be comparing a rendering with the thing it renders — so the capability names the **kernel
+graph**, and the fusion view is a second view over it.
+
+**Placement is two facts, not one.** Which dependency *edges* are virtual, and which *values*
+need stores. An externally live producer is both — virtual for its consumer and still stored
+for whoever else needs it — and a single materialized/virtual per value cannot say that. So
+the edges are an `EdgeOverlay` and the values are a `Node_data_set`, and neither is derivable
+from the other.
+
+**The overlay rides on the kernel graph**, in `tasksData`, rather than on a comparison: it is
+a fact about one plan, and a comparison's overlay slot would make it a fact about two panes.
+
+**A rejection is a fact about a value, so it lives on that value's datum.** One diagnostic
+per rejection is seventy on resnet18 alone against a `max_diagnostics` of 64 — a list the
+ceiling truncates rather than a report. What reaches the diagnostics is one **summary**,
+bounded by construction.
+
+**`Multiple_uses` renders `">= 2"`, never a figure.** The planner's counter saturates at two
+because the cross-body total is an `int` and the per-value limits admit a mathematical
+aggregate past 2^31 — which wraps negative under js_of_ocaml and would read as unique-use.
+Legality only asks one versus more than one, so a count would claim precision the value does
+not have; upstream names the field `at_least` for the same reason.
+
+### Verification, placed and counted — `Me_verify`
+
+**The exporter places clusters itself, and the reason is visible in every real report.**
+`Map_verify.Group_path` appends a group's **label alone**, while the importer labels every
+group with the PT2 node's target — so the twenty sibling `_native_batch_norm_legit_no_training`
+groups of a ResNet collapse into one path, and that path cannot key the ID-qualified
+namespace the projection emits. `Map_verify`'s own attribution also takes the *first*
+destination edge that resolves, which is set order rather than a common group.
+
+So placement is recomputed over the namespaces the projection actually used: a cluster's
+**destination** members map to their producing nodes, **producerless members are ignored**,
+and the placement is the longest common namespace prefix of the rest, root when none remain.
+That is `Graph_view.common_group`'s rule expressed in namespace space, which is the space the
+answer has to be in. Ignoring producerless members is not a detail — a fold's cluster names
+the folded weight, which is a graph constant belonging to no group, and counting it as "root"
+would lift most clusters on a real model out of their groups.
+
+**`namespace_of` is shared, not recomputed.** `Me_build` hands out the same function its own
+projection uses. Two answers about one hierarchy, computed two ways, is how they come to
+disagree.
+
+**Two destinations, saying different things.** `groupNodeAttributes` is the only part of the
+wire format keyed by **namespace** rather than by node id, so it is where a per-group tally
+belongs; the node-keyed `Node_data_set` is the only form that can colour a node, and carries
+one node's `Outcome.join` over its outputs. Neither substitutes for the other.
+
+**The rank is how weak a verdict is, not how good it is.** A gradient over it runs proved
+(1, 2) through tested (3, 4) to unproved (5) and refuted (6). `Vacuous` is **0, below
+proved**: a creation or a deletion claims nothing, and the ordering exists so a claimless
+cluster cannot mask a real verdict when a node's outputs are joined.
+
+**Two capability keys, not one.** `Native_interp.transformed.composed` survives per-pass audit
+truncation, so mapping that truncation to one `Verification → Over_limit` hides a result that
+is still available, while `Available` alone conceals that the per-pass detail is incomplete.
+
 ---
 
 ## 10. Partiality versus defect — `Me_classify`
@@ -582,6 +805,20 @@ Both classifiers are **total matches** over the upstream error rows — no wildc
 added upstream stops this compiling instead of falling into whichever answer was written
 last. The suite enumerates every row rather than sampling, because the matrix and the code
 drifting apart is exactly what happened once before.
+
+**Lowering.** The row every other capability's fate follows from, since it decides whether
+there is a Native graph at all. `Unsupported_operator` and `Unsupported_input` are
+recoverable — and recoverable for a `.pt2` and a bare `model.json` alike, because
+`Native_interp.lower` takes an `ExportedProgram.t` and gains no operator support from the
+archive payload. Everything else is fatal: a malformed graph is a decoder that accepted
+what it should not have, the builder/provenance/transform/verify/lens rows are internal
+invariants, and `Eval`/`Tensor_bridge` belong to execution, which export never performs.
+
+**`diagnostic_code` is where the two closed vocabularies meet, once.** Every
+`Capability.reason` has a `Diagnostic.Code` of the same name, so the map is an identity in
+spelling — which is exactly why it is written out rather than assumed. They are separate
+types on purpose, and a code added for the worker protocol must not silently become a
+capability reason.
 
 **Native4D.** `Missing_constant_payload` → `Requires_payloads`. The ten domain rejections →
 `Outside_dialect_domain`. `Bad_constant_payload`, `Map` and `View` → **fatal**: a payload
@@ -614,7 +851,344 @@ capability table accepts, so it cannot show `propagate` carrying forward somethi
 
 ---
 
-## 11. Testing posture
+## 11. The CLI — `native_graph visualize`
+
+```
+native_graph visualize --model MODEL.json|MODEL.pt2   (--pt2 is an alias)
+    [--output SESSION.json] [--format session|collections]
+    [--limits untrusted|small] [--fold]
+```
+
+**Format detection is content plus declaration, never extension alone.** `{` means a
+`model.json`, `PK\x03\x04` a zip; a mislabelled file is the ordinary case, not the
+adversarial one, and the two loaders fail very differently on each other's input. Size is
+rejected from `stat` **before reading**, so an oversized file never becomes an OCaml string.
+
+Both paths end at a `Pt2_native_graph.t`, which is what `transform_lowered` takes — the
+payload-free JSON path exists precisely because the archive is a prerequisite of binding
+payloads and of nothing else.
+
+**Only the two wire-selectable profiles are offered.** `large` and `trusted` exist for
+callers holding data they produced and cannot be named on the command line, which is what
+makes `Wire_limits` a guarantee rather than a UI convention. `small` accepts a real vision
+model, which the cram pins.
+
+**`--fold` on a payload-free `model.json` is a successful structural session** carrying
+`Feature Fold → Unavailable Requires_payloads`, not a usage error: the browser cannot
+surface one and the same code path serves both shells.
+
+**`--format collections` warns on stderr** and names what it discarded rather than silently
+emitting half a document.
+
+**Two comparisons, and only one of them can rely on `MATCH_NODE_ID`.** `c/canonical`
+(initial → canonical Native) ships with **no** explicit mapping entries: stable node ids plus
+the renderer's fallback already pair every node a pass did not touch, and the id-identity
+rule means a changed value is a new id. Entries for the changed nodes come from the pass
+lens; until that lands, an empty set is *correct* rather than approximate. `c/import`
+(exported program → initial Native) is the opposite case: the two panes speak different id
+languages, `MATCH_NODE_ID` pairs nothing across them, and every correspondence has to be
+stated — which is what `Me_pt2` computes, as connected components rather than pairs.
+
+**`Transition.comparison` is populated on both transitions**, which is also what makes the
+Pt2 flow state name a real graph. Before the source view existed it pointed at the *initial
+Native* graph, which was a placeholder the session validator could not object to.
+
+### Two session shapes, one code path
+
+A model this repository cannot lower is an **ordinary outcome the matrix has a row for**,
+not a usage error: the exported program decoded, which is the whole of what `Source` claims,
+so it becomes a *successful* session carrying a source view and a capability vector that
+says what is missing and why. The browser shell cannot surface a usage error and the same
+code path serves both, which is the same argument `--fold` on a payload-free `model.json`
+rests on.
+
+`Initial_native` carries the reason the classifier gave — `Unsupported_operator` or
+`Unsupported_input` — rather than `Prerequisite_unavailable`, which would be circular for
+the row that *is* the lowering, and would drop the only detail a user can act on. Everything
+downstream is `Prerequisite_unavailable`, enumerated through `Me_classify`'s
+`depends_on_lowering` rather than restated at the call site. There is **no flow**: with no
+Native state the spine would hold `s/pt2/000` and no transitions, and a one-node flow graph
+asserts a navigability that does not exist.
+
+**Free text lands in a diagnostic, not in the capability.** The vector says *which* rows are
+missing; `Me_limits.Diagnostic` is the bounded type that carries the message, and it is the
+one type crossing every boundary of this design. A `Me_classify.Fatal` row still exits —
+reporting an internal invariant failure as "this model is outside what we support" tells the
+user to change their model to work around our bug.
+
+`model.op_targets` counts **distinct PT2 targets**, which is what the field names and the one
+figure both shapes can produce; it previously counted native nodes, which the unlowered shape
+has none of.
+
+### Three crams, and what each reaches
+
+`test/me_visualize_json_cram.t` is **ungated** — the committed resnet18 `model.json` is a
+submodule file, not a downloaded weight, so the whole lower/transform/project/validate path
+runs in every build, and its payload-free nature is the point rather than a limitation.
+`test/me_visualize_unsupported_cram.t` is ungated too and builds its graphs **in the cram**:
+what it has to exercise is a graph the lowerer rejects, and no released model is one. It
+pins the complete vector for both recoverable rows and that a fatal row still exits.
+`test/me_visualize_cram.t` is `PT2_DATA`-gated and adds what neither can reach: the archive
+path, and `--fold` actually available. It is named in `pt2.runtest` — the only target that
+sets `PT2_DATA` — because a gated cram no target names never runs at all.
+
+Both summarise rather than print the document. A golden holding a megabyte of node JSON
+changes on every unrelated projection tweak and gets re-promoted without being read, which
+is the opposite of what a golden is for. What is pinned is the shape, the counts, and the
+**complete capability vector** — a test asserting only the interesting key would let every
+downstream row drift.
+
+---
+
+## 12. The worker request — `Me_request`
+
+**Self-contained means the request carries the profile.** Leaving the worker to pick its
+own default would let a page build a session under one profile and a worker validate it
+under another — the disagreement `Wire_limits` exists to prevent — so `limits` is a field
+and there is no fallback.
+
+**Closed by construction, in both directions.** Every record here is `private` behind a
+checked constructor. A checked *decoder* does not make a public encoder safe: with a public
+record the encoder can emit JSON its own decoder rejects, and the round-trip property then
+holds only of whichever values a fixture happened to pick. Closing the type is what gives
+the closure test something to be true about.
+
+**Provenance only, never the bytes.** Those travel beside this as a transferable
+`ArrayBuffer`; a pure OCaml type cannot hold a js_of_ocaml value, and putting the bytes in
+the JSON would defeat the transfer. What is here is exactly the set the determinism claim
+quantifies over.
+
+### Request identity is a grammar
+
+`<uuid>-<seq>`: 36 characters of canonical **lowercase** hyphenated UUID, a `-`, then 1–10
+decimal digits with no leading zero (bare `0` allowed) whose value is below
+`Hard.max_seq_exclusive`. Exact rather than merely bounded, because the builder is the sole
+producer and an exact check costs one fixed-width parse — which makes `Hard`'s two byte
+constants *consequences* of this grammar rather than a second rule that can drift from it.
+A length ceiling alone admits `9999999999`, a sequence no producer bounded by 2^32 can
+issue, so "consumer and producer accept the same strings" would be false in the direction
+that matters. Uppercase is refused for the same reason a leading zero is: two spellings of
+one id make `epoch` a non-injective projection, and the epoch is what a delta binds against.
+
+The sequence is compared through `Int64.of_string` and **never** through `int`, which wraps
+under node before the comparison.
+
+**There is no `epoch` field anywhere.** It is `Request_id.epoch id`, so no message can name
+one epoch in its id and another beside it.
+
+### One identity, not two
+
+`Detail_key` carries `{ parent_graph; value }` and *derives* `parent_node`. A Kernel value
+has exactly one tensor id and one body, so a separate `parent_node` field would admit a
+mismatched pair that validation would then have to reject. The visible consequence is that
+the derived id's last two components are the same tensor id — that is what the derivation
+looks like once the parent stopped being a field.
+
+`create` checks `parent_graph` **and** the derived id, because a component inside the
+ceiling can still render an id past it. `validate ~limits` is separate from construction:
+a key carries no witness of the profile it was built under, and only the enclosing request
+knows which profile applies.
+
+### The digest lives inside `Catalog`
+
+A sibling `verified_sha256 option` would permit a `Local` source claiming a verified digest
+— a false verification claim entering the deterministic session — and a `Catalog` source
+with none. Neither is constructible, so the session's digest rule needs no validation.
+
+### Options are normalised, not merely validated
+
+`stages` is filtered *through* `Capability.all_stages`, which removes duplicates and imposes
+constructor order in one pass. The list is therefore bounded by that type's cardinality by
+construction — no separate ceiling — and two requests differing only in the order a user
+typed them are the **same value**, which is what makes "same options ⇒ identical JSON" a
+statement about a canonical value rather than about a spelling. An empty list is an error:
+a request asking for nothing is a caller defect, not an empty session.
+
+### The constructors revalidate; they do not check a witness
+
+`build_session`/`build_detail` re-run every profile-dependent check under **this request's**
+profile — `Source`'s `name`/`url`/`ref_`, and `Detail_key.validate`. A `Source.t` keeps no
+record of the profile it was checked against, so "was it built under this one" is
+unobtainable; revalidation is obtainable and is what the worker will enforce. So the
+`Invalid_source` and `Invalid_detail_key` rows are **reachable** for a caller using the
+checked constructors, and that is the point: a source built under `untrusted` and combined
+with a `small` wire profile is valid alone and invalid here. The suite drives exactly that
+combination.
+
+### Decoding is staged, and finishes through the constructors
+
+Jsont decodes an object's members independently, but `Source.create ~limits` needs the
+*decoded* limits — so the members arrive as raw pieces and are validated in a fixed order:
+id, profile, options, source, key. The last two take the profile the step before them
+produced, which is why the order is part of the design and not an implementation detail.
+
+The decoder then finishes through `build_session`/`build_detail` rather than assembling the
+record itself. That is what makes encoder and decoder one domain rather than two that happen
+to agree, and the suite asserts it as encode → decode → encode returning equal bytes.
+
+Note what this ordering does *not* buy: a member's own codec (an unknown stage tag, a
+non-string integer) fails during member decoding, before any staged step runs. The staged
+order governs the checks that need the profile, which are the ones that could otherwise be
+run under the wrong one.
+
+---
+
+## 13. The worker response — `Me_response`
+
+**The document lives inside the constructor that has one.** Returning a `(t * string)` pair
+and letting the shell send any constructor makes every combination the envelope forbids
+constructible — a session with no document, a failure carrying one, a byte count disagreeing
+with the bytes beside it — and a JS test that decodes only the metadata cannot see any of
+it. There is no `bytes` field on a payload at all: it is **derived** in `Wire` from the
+document it describes, in one place, from the same string.
+
+**Three types, narrowing by one constructor each time, and the narrowing is the design.**
+`Handle_result` is what a function holding a validated request may return. `Final` adds
+`Protocol_failure`, the pre-decode failure only the shell can produce — every check before
+the request exists (length, the request codec, the profile, the source, the buffer) can fail
+with no validated id in hand, and a `Failed` could then be built only by echoing untrusted
+fields. A handler that received a validated request cannot honestly produce that
+constructor, and `Handle_result` says so as a type rather than as a rule in prose that
+something can contradict.
+
+**`Meta` is what actually crosses**, and it is neither of the others: the final constructors
+carry a document the metadata must not contain, and the metadata carries a byte count they do
+not have. It is `private`, produced only by `Wire`, which is what keeps the derivation true
+now that the invariant lives on the type that is serialized. A compiled OCaml variant through
+`postMessage` would hand the page jsoo's private runtime representation, with no stable
+discriminant and no stable field layout — so a `"kind"` discriminant over five constructors,
+with every member optional on the wire and the discriminant saying which are required.
+
+Every counter is `int64` through `int64_as_string`; `bytes` is an `int` and the width rule
+does not bite, because it is the length of a string that already exists, bounded by
+`max_session_bytes` — itself an `int` because the writer limit is one.
+
+**The metadata ceiling is an aggregate bound applied by the writer**, not an inference from
+individually-bounded fields: JSON escaping expands and three bounded fields still sum. So
+`of_final` is result-valued — a writer limit is a property of the writer, and a function
+whose implementation can fail should say so regardless of which inputs reach it today. The
+ceiling is injectable so the branch can be driven; a bound nobody can reach is a bound taken
+on trust.
+
+**The terminal response is precomputed.** `constant_protocol_failure` is already encoded, so
+the fallback path never runs the encoder — "it cannot itself fail" is a property of a value
+rather than an argument about a function, and the suite asserts the ceiling over exactly the
+bytes that path posts (126 of 1048576).
+
+---
+
+## 14. Model bytes in, session out — `Me_export`
+
+**This is the body the CLI used to hold, and it moved because the browser compiles this
+library rather than a second implementation of it.** A session builder living in `bin/`
+would have made "what the CLI exports" and "what the page renders" two things again the
+moment the worker gained one. What stays in the CLI is the shell: the filesystem, the
+profile flag, the two output formats — and the `stat` size check, which only a filesystem
+caller can perform and which keeps an oversized file from ever becoming an OCaml string.
+
+**In memory throughout.** The worker receives a transferred `ArrayBuffer`, not a path, so
+detection, archive opening and decoding all take a string (`Pt2_archive.of_string`).
+
+**Declared is a hint; the content decides.** `detect` reads `PK\x03\x04` or `{`, and the
+session records the *detected* kind — which is what makes `--fold` on a payload-free
+`model.json` a decision about the bytes rather than about a label. `handle` additionally
+checks the request's *declared* format against it, and a disagreement is `Invalid_source`:
+a fact about the source, not an internal error.
+
+**`handle` is total.** Every failure a valid request can produce is already a constructor of
+the return type, so there is no error row left to widen and no second place where a failure
+could become a message. It holds a validated request, so it always knows which request it is
+failing about — the condition under which the answer is `Failed` — and `Handle_result` makes
+the other constructor unwritable there.
+
+**A model this repository cannot lower is a session, not a failure**, in the worker exactly
+as in the CLI: the exported program decoded, which is the whole of what `Graph_stage Source`
+claims. Only a `Me_classify.Fatal` row becomes `Failed`.
+
+`diagnostic_code` draws the same line the classifiers draw: a model that is not what it
+claimed is `Invalid_source`, a ceiling reached inside the projection is `Over_limit` — a
+real model can be too big and that is a bound doing its job — and an invariant of ours is
+`Internal`.
+
+---
+
+## 15. Expression detail — `Me_detail`
+
+**On demand, which is the whole reason it is a delta rather than a stage.** A kernel value's
+expression can be far larger than the graph node that produced it, and a session carrying
+every one of them up front would pay for every expression to show one.
+
+**The delta carries no epoch and no key.** Three identities take part in a detail response —
+the pending request's, the metadata's, and the payload's — and comparing only the first two
+lets a shell announce key A with a payload for key B, which is then validated on its own
+terms and installed while the coordinator completes A. *Removing* the field beats comparing
+it: the validated key arrives as an **argument** to `apply`, so metadata and payload cannot
+name different values at all. The epoch belongs to the browser runtime and only the bridge
+holds it, so staleness is checked there and this stays pure in the session and the delta.
+
+**The initial session stays referentially valid.** A kernel value node carries no
+`subGraphIds` until its detail exists, so nothing in a fresh session points at a graph that
+is not there. The graph, the view and the link are installed **together**, because a link to
+an uninstalled graph is a dangling reference the validator rejects and a graph nobody links
+to is unreachable — a detail commits all three or none.
+
+**Re-requesting replaces.** Only the committed result counts toward the aggregates, so asking
+twice cannot inflate them. The graph and the view carry the same id, so one predicate removes
+both. The aggregates are checked on the **merged** session, over every installed detail; the
+node ceiling is checked on the **delta alone**, because a merged check would let an
+over-ceiling delta through whenever the session it joins is small.
+
+**The size ceiling runs before the walk.** `Fold.size` is an unmetered traversal but
+allocates nothing, while building nodes allocates per node — and an expression is exactly
+the shape whose size is not apparent from the thing that names it.
+
+**Every node carries the subtree rooted there, rendered and bounded — one attribute, not
+per-constructor ones.** `Expr.Pp.index` takes a `names` function precisely so its output
+cannot depend on allocation history, and this walk holds no scoped naming environment to
+give it; `Expr.Pp.value` builds its own. So a `Select`'s condition and a `Reduce`'s bounds
+are visible in their node's rendering rather than as index-language nodes, which would put
+two languages in one graph.
+
+**The worker's detail path is a smaller pipeline than its session path**, and re-lowers
+rather than caching. That is what a self-contained request means: the worker holds no session
+between requests, so there is nothing that could be stale.
+
+**The measure is `Expr.Fold.size`, which counts index trees too**, so it exceeds the number
+of value nodes produced — a convolution is 88 by that measure and 8 nodes here. The bound is
+conservative deliberately, because the index trees are what the bounded per-node rendering
+pays for, and the rejection is named for what was *measured* rather than for what would have
+been built.
+
+**`native_graph detail` is its own command, not a flag on `visualize`.** The two produce
+different documents with different lifetimes — a session is a whole model, a delta is one
+value's expression merged into a session someone already has — and one command emitting
+either would have to be told which.
+
+**The browser gate drives the whole path.** 0A proved a late graph plus a parent
+`subGraphIds` link works, with a hand-authored fixture; the gate now does it with a real
+delta: `expr/g/kernel/000/t125/t125`, eight nodes, linked from `v125`, merged, processed and
+entered. That is the only place the merge is checked against the element rather than against
+our own validator.
+
+"Entered" is `selectNode` called TWICE, not once: the first call selects the linking node
+inside its *parent* graph -- `selectNode`'s own implementation only reveals a node in an
+already-named graph, it never activates a node's linked subgraph -- so it proves the link is
+findable and nothing more. The second call passes the delta graph's own id as the target
+graph instead, which is the same primitive a real click on a `subgraphIds` node drives
+(`selectGraphInPane`).
+
+The proof that it actually switched is `modelGraphProcessed` firing **for that graph's id
+specifically**, not merely firing again. It measurably does fire again for a same-graph
+reselect too -- caught by a first version of this gate that waited for "the next event" and
+passed even when the second call was sabotaged to reselect the still-active parent graph,
+because a node reveal queued by the FIRST call can deliver its own event after the second
+call's listener is already attached. `ModelGraphProcessedEvent.modelGraph.id` (Angular
+Elements' own bridging of the `@Output()`, not a guess reconstructed from timing) is what
+makes the two distinguishable.
+
+---
+
+## 16. Testing posture
 
 Two commands catch different things, and both are required (CLAUDE.md): `make
 jsoo.runtest` diffs the backends and so sees only divergence; `make jsoo.inline-runtest`

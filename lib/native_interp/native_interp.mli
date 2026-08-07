@@ -92,6 +92,20 @@ type transformed =
    which needs real weights and covers only the graph output; this one covers
    every corresponding edge but is budget-capped and so leaves a real model's
    activation-shaped clusters unexamined. See .ai/native_transform_verify.md. *)
+val preload :
+  Pt2_archive.t ->
+  Pt2_native_graph.t ->
+  (Tensor.packed Graph_ir.Tensor_id.Map.t, error) Core.result
+(** The payloads a NODE READS, loaded from the archive. Only those: an archive
+    holds buffers nothing evaluates — resnet18's int64 [num_batches_tracked]
+    among them — and loading one would fail on a dtype the engine has no reason
+    to support.
+
+    Exposed because [transform]'s [~preload] is not the only caller any more:
+    the exporter reaches [transform_lowered] directly, and without this it was
+    silently running a fold that declines every node. One implementation, so the
+    two cannot come to disagree about which payloads a fold gets. *)
+
 val transform :
   ?preload:bool ->
   ?verify:Map_verify.Policy.t ->

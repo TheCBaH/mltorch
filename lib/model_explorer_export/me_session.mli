@@ -74,6 +74,8 @@ module Node_data_set : sig
         (** keyed by NODE ID. Upstream also permits an output tensor name;
             session v1 does not claim to mirror that. *)
   }
+
+  val jsont : t Jsont.t
 end
 
 module Capability : sig
@@ -101,6 +103,13 @@ module Capability : sig
   type key = Graph_stage of graph_stage | Feature of feature
 
   val key_name : key -> string
+  val stage_name : graph_stage -> string
+
+  val all_stages : graph_stage list
+  (** Every stage, in constructor order. Built by walking a successor chain, so
+      a stage cannot be added without reaching this list — and it is what a
+      request's stage selection is NORMALISED against, which is how that list is
+      bounded by construction rather than by a separate ceiling. *)
 
   val all_keys : key list
   (** Every key, in canonical order. Completeness is checked against this, so an
@@ -180,6 +189,8 @@ module View : sig
     collection : string;
     graph : string;
   }
+
+  val jsont : t Jsont.t
 end
 
 module Session : sig
@@ -199,8 +210,10 @@ module Session : sig
 
   type error =
     [ `Duplicate_graph of string
+    | `Duplicate_node of string * string  (** graph, node *)
     | `Unknown_graph of string
     | `Unknown_node of string * string  (** graph, node *)
+    | `Wrong_collection of string * string  (** graph, declared collection *)
     | `Dangling_edge of string * string  (** graph, source node *)
     | `Slot_mismatch of string * string
     | `Unknown_view of string
@@ -213,23 +226,42 @@ module Session : sig
     | `Missing_capability of string
     | `Incompatible_capability of string
     | `Over_limit of string * int
+    | `Over_limit_64 of string * int64
+      (** the [int64]-ceiling aggregates: [max_total_nodes]/[max_total_edges]
+          and the overlay-edges total, none of which a real model can approach
+          but which an untrusted document is not trusted not to claim *)
     | Me_flow.error ]
 
   val pp_error : Format.formatter -> [< error ] -> unit
 
   val validate :
     limits:Me_limits.Limits.t -> t -> (unit, [> error ]) Core.result
-  (** Unique graph ids; every [View.graph], [Pane_state.graph], node-data graph
-      and node key, and [subGraphIds] entry resolves; every
+  (** Unique graph ids, unique node ids within each graph; every [View.graph],
+      [Pane_state.graph], node-data graph and node key, and [subGraphIds] entry
+      resolves, and a [View]/[Pane_state] naming a graph in the WRONG collection
+      is [`Wrong_collection] even though the graph id itself exists; every
       [IncomingEdge.sourceNodeId] exists in its graph with a matching
-      [sourceNodeOutputId]; [default_view] resolves; within each
-      [Comparison.sync], each node id appears in at most one [Mapping_entry] on
-      each pane's side — SCOPED TO THE COMPARISON, not globally, since canonical
-      Native is the left pane of two comparisons and its nodes therefore
-      legitimately appear on the left of two mapping sets; every capability key
-      present exactly once with a compatible payload; the flow DAG contract; and
-      every [Transition.comparison] resolving with its left/right pane graph ids
-      equal to that transition's before/after state graph ids.
+      [sourceNodeOutputId] — the output slot must actually exist, so a node with
+      no [outputsMetadata] admits no incoming edge at all, not just none past a
+      nonexistent slot; [default_view] resolves; within each [Comparison.sync],
+      each [Mapping_entry] member resolves to a node in ITS SIDE's pane graph,
+      not merely to a node id that exists somewhere, and each node id appears in
+      at most one [Mapping_entry] on each pane's side — SCOPED TO THE
+      COMPARISON, not globally, since canonical Native is the left pane of two
+      comparisons and its nodes therefore legitimately appear on the left of two
+      mapping sets; every capability key present exactly once with a compatible
+      payload; the flow DAG contract; and every [Transition.comparison]
+      resolving with its left/right pane graph ids equal to that transition's
+      before/after state graph ids.
+
+      Every ceiling in {!Me_limits.Limits.t} that names a document shape rather
+      than a single field is enforced here too, not merely declared:
+      [max_attrs_per_node], [max_metadata_items_per_node] (inputsMetadata),
+      [max_outputs_metadata_per_node] and [max_namespace_depth] per node;
+      [max_mapping_entries_per_comparison] per comparison;
+      [max_total_nodes]/[max_total_edges] and the overlay-edges total, summed
+      across every graph/comparison respectively, in checked [int64] so the
+      running sum cannot itself narrow past the ceiling meant to catch it.
 
       Recoverable versus fatal: the eight [Capability.reason]s are capability
       outcomes. Invariant failures, a malformed generated graph and

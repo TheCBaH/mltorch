@@ -1,0 +1,20 @@
+<meta charset="utf-8">
+<title>Stage 1 gate: the exported session</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  #mount { width: 100vw; height: 100vh; }
+</style>
+
+<div id="mount"></div>
+
+<script src="vendor/main_browser.js"></script>
+<script>
+  // AFTER the bundle, and as MUTATIONS of the object it installed. Stage 0A
+  // found that setting this before the bundle does nothing, because the bundle
+  // assigns its own object over the top; index.html keeps the probe that
+  // proves it.
+  window.modelExplorer.assetFilesBaseUrl = 'vendor/static_files';
+  window.modelExplorer.workerScriptPath = 'vendor/worker.js';
+</script>
+
+<script src="session.js"></script>

@@ -197,16 +197,16 @@ let%expect_test "an unknown code on the wire is refused" =
   [%expect
     {|
     over_limit: m
-    rejected: Unexpected [1mdiagnostic_code enum string[0m value: [1msome_future_code[0m.
-    Must be [1mover_limit[0m, [1mmalformed_request[0m, [1minvalid_limits[0m, [1minvalid_source[0m,
-    [1mmalformed_response[0m, [1mrequest_in_flight[0m, [1minconsistent_mount[0m,
-    [1msettlement_mismatch[0m, [1mbuffer_mismatch[0m, [1mnot_an_array_buffer[0m, [1mstale_epoch[0m,
-    [1munsupported_detail_key[0m, [1mkey_disagrees_with_ids[0m, [1munsupported_operator[0m,
-    [1munsupported_input[0m, [1munsupported_graph_shape[0m, [1moutside_dialect_domain[0m,
-    [1mrequires_payloads[0m, [1mprerequisite_unavailable[0m, [1mnot_implemented[0m or [1minternal[0m.
+    rejected: Unexpected diagnostic_code enum string value: some_future_code.
+    Must be over_limit, malformed_request, invalid_limits, invalid_source,
+    malformed_response, request_in_flight, inconsistent_mount,
+    settlement_mismatch, buffer_mismatch, not_an_array_buffer, stale_epoch,
+    unsupported_detail_key, key_disagrees_with_ids, unsupported_operator,
+    unsupported_input, unsupported_graph_shape, outside_dialect_domain,
+    requires_payloads, prerequisite_unavailable, not_implemented or internal.
     File "-":
-    File "-": in member [1mcode[0m of
-    File "-", line 1, characters 0-27: [1mdiagnostic object[0m
+    File "-": in member code of
+    File "-", line 1, characters 0-27: diagnostic object
     internal: m |}]
 
 (* --- the dependency behaviour the sanitiser exists for --- *)

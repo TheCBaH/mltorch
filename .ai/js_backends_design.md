@@ -129,6 +129,22 @@ comparison is over bits instead of either backend's float formatting, and eight 
 so a divergence localizes to a handful of values — verified by flipping one ULP in one of
 the 1000, which the diff pins to a single line.
 
+**Tier 1's worker section — the whole browser path, ungated.** The request bytes go
+through `Me_request.Request.jsont`'s staged decoder, `Me_export.handle` does the
+projection, and the answer comes back through `Me_response.Wire`. That is exactly what a
+worker does, and everything in it is pure OCaml in one library, so the two backends must
+agree byte for byte. The section exists because the alternative is *asserting* that the
+browser runs the same code rather than checking it.
+
+It decodes a fixed request string rather than building one through the constructors:
+building would test the constructors, decoding tests the staged decoder — which is the
+half a browser exercises. It summarises the session document for tier 1's reason (a
+253KB payload would drown the diff) but prints the response **metadata** in full,
+including the byte count, which is measured from that document and therefore moves with
+it. And it drives the failure path once, because a model the worker cannot read still
+has to produce a well-formed response with a code from the closed vocabulary rather than
+an exception escaping into the shell.
+
 ## Golden-based coverage: the expect suites under node
 
 The differential probe answers *"do the backends agree"* and structurally cannot answer
