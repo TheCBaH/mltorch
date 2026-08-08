@@ -70,16 +70,30 @@ let pp_error ppf : error -> unit = function
    32-bit under js_of_ocaml. A caller-supplied bound is therefore not enough on
    its own: a generous one would push the narrowing outside the JS domain, which
    is the "narrow only after bounding" rule with the bound set too high to do any
-   bounding. 512MB is inside both backends' string domains and two orders of
-   magnitude above the largest catalog model. *)
-let max_file_bytes = 0x2000_0000L
+   bounding.
+
+   Per [Pt2_zip.Limits.Hard], ceilings come from the format and the platform,
+   never from measuring well-behaved models — this one used to be picked by the
+   latter (512MB, "two orders of magnitude above the largest catalog model") and
+   was wrong: vit_l_16 and vit_l_32 are ~1.15GB. Fixed the same way as
+   [Hard.entry_bytes]: bounded by jsoo's measured [Sys.max_string_length]
+   (2147483643), not by any catalog model.
+
+   Unlike [Hard.entry_bytes], this ceiling does NOT need to halve that domain
+   for "an entry and a copy of it" — [Zipc.of_binary_string] stores
+   [compressed_bytes = s], a reference to this whole string, not a copy
+   (zipc.ml's [decode_cd_members]); the later per-entry [String.sub] that does
+   copy is already bounded separately by [entry_bytes]. So the only margin
+   needed here is slack below the platform ceiling itself: 0x7000_0000 leaves
+   ~256MB (12%) under it, and ~640MB (1.5x) above the largest current model. *)
+let max_file_bytes = 0x7000_0000L
 let default_max_file_bytes = max_file_bytes
 
 let effective_max_bytes max_bytes =
   (* Named, and therefore testable. Inline, the clamp could only be observed by
-     presenting a 512MB file, so the one case that matters — a caller asking for
-     more than the domain allows — had no cheap fixture and would have been
-     "tested" by a fixture that could not fail. *)
+     presenting a file at the ceiling, so the one case that matters — a caller
+     asking for more than the domain allows — had no cheap fixture and would
+     have been "tested" by a fixture that could not fail. *)
   if Int64.compare max_bytes max_file_bytes > 0 then max_file_bytes
   else max_bytes
 

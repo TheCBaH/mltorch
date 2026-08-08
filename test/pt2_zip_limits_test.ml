@@ -300,21 +300,21 @@ let%expect_test "checkpoint 1: a caller cannot raise the bound past the ceiling"
      trusted: a bound the caller sets above the domain is not a bound.
 
      Asserted on the rule itself. Driving it through [open_pt2] would need a
-     512MB fixture to reach the clamp at all, and the cheap version of that test
-     — a small file, asking for 4GB — takes the same branch whether the clamp
-     exists or not. *)
+     fixture at the ceiling to reach the clamp at all, and the cheap version of
+     that test — a small file, asking for 4GB — takes the same branch whether
+     the clamp exists or not. *)
   List.iter
     (fun request ->
       Printf.printf "%Ld -> %Ld\n" request
         (Pt2_archive.effective_max_bytes request))
-    [ 1024L; 0x2000_0000L; 0x2000_0001L; 0x1_0000_0000L; Int64.max_int ];
+    [ 1024L; 0x7000_0000L; 0x7000_0001L; 0x1_0000_0000L; Int64.max_int ];
   [%expect
     {|
     1024 -> 1024
-    536870912 -> 536870912
-    536870913 -> 536870912
-    4294967296 -> 536870912
-    9223372036854775807 -> 536870912
+    1879048192 -> 1879048192
+    1879048193 -> 1879048192
+    4294967296 -> 1879048192
+    9223372036854775807 -> 1879048192
     |}]
 
 (* --- the profile itself --- *)

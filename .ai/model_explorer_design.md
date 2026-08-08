@@ -42,7 +42,14 @@ that would make it too late:
 1. **Before the OCaml string exists.** `Pt2_archive.read_file_limited`, so `open_pt2` no
    longer calls a bare `In_channel.input_all`. The requested bound is *clamped*, not
    trusted: the length is narrowed to the `int` `really_input_string` takes, and a bound
-   above that domain is not a bound (`Pt2_archive.effective_max_bytes`, 512MB).
+   above that domain is not a bound (`Pt2_archive.effective_max_bytes`, 0x7000_0000 /
+   ~1.75GB — bounded by jsoo's `Sys.max_string_length`, like `entry_bytes` below, not by
+   any catalog model; an earlier 512MB version *was* picked by measuring models, wrongly,
+   and broke `make inference` on vit_l_16/vit_l_32 (~1.15GB each) once nothing upstream of
+   it was failing first. Unlike `entry_bytes`, this ceiling doesn't need to halve the
+   domain for "an entry and a copy" — `Zipc.of_binary_string` keeps a reference to the
+   whole string rather than copying it; only the later per-entry `String.sub` copies, and
+   that is what `entry_bytes` already bounds).
 2. **Before `Zipc.of_binary_string`.** The raw EOCD member count, preflighted. A
    `Zipc.fold` count is taken *after* decoding, over a path-keyed map in which duplicates
    overwrite.
