@@ -10,6 +10,13 @@ updates:
     schedule:
       interval: "weekly"
 
+  # Keeps web/package-lock.json, which npm ci installs in both local
+  # devcontainers and the browser CI job, under Dependabot review.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

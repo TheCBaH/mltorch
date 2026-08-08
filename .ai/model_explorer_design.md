@@ -529,6 +529,11 @@ description of the same schema.
 only if the driver could not run: a gate that fails when the answer is inconvenient
 teaches nothing, and the design's job is to react to the answer.
 
+The Playwright browser path is `web/.playwright-browsers`, explicitly passed to both
+commands. In CI both setup and the gate run in the devcontainer as `vscode`; a browser
+installed in the runner user's default cache is invisible there. Keeping it in the
+workspace also gives the Actions cache and the container the same concrete directory.
+
 ### The answers
 
 | Question | Answer | What it settles |
