@@ -10,7 +10,8 @@ if [ "$(find /var/lib/apt/lists/* | wc -l)" = "0" ]; then
     apt-get update -y
 fi
 
-apt-get -o Acquire::Retries=3 -y install --no-install-recommends nodejs npm
+apt-get -o Acquire::Retries=3 -y install --no-install-recommends \
+    nodejs="${NODE_VERSION}" npm="${NPM_VERSION}"
 
 if [ -n "${PACKAGES:-}" ]; then
     npm install -g $PACKAGES

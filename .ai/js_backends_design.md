@@ -366,6 +366,8 @@ dune's private `.objs/melange` layout.
 | `jsont` | `0.2.0` | the patch's sha256 guard |
 | `fmt` | `0.11.0` | vendored source |
 | `@devcontainers/cli` | `0.88.0` | `--skip-post-create` is load-bearing |
+| `nodejs` | `20.19.2+dfsg-1+deb13u2` | exact Debian package used by the JS and browser gates |
+| `npm` | `9.2.0~ds1-3` | exact Debian package paired with nodejs |
 
 ### Why melange is pinned to 5.1.0 — it is not melange's fault
 
@@ -412,7 +414,9 @@ below it.
 
 ## CI
 
-`.github/workflows/js.yml`, two parallel jobs with **different** submodule needs.
+`.github/workflows/js.yml`, three parallel jobs with **different** submodule needs and
+different failure modes. The split is about attribution: a job that can go red for its own
+reasons gets its own name in the job list.
 
 The **jsoo** job checks submodules out (top level, non-recursive): `pytorch_types` comes
 from `schema.yaml` in `modules/pytorch`, and the tier-1 fixture from
@@ -441,6 +445,19 @@ on one push (run 30779046699 / 30779046652, both at the same commit):
 The two jobs run concurrently and `build` sets the critical path, so the step is close to
 free in the jsoo job and directly on the critical path in `build`. Moving it shortens the
 push and costs ~99 MB of download in a job that had minutes of slack.
+
+The **browser** job drives the real pinned Model Explorer element under Chromium. It needs
+`modules/pytorch.models.pt2` for resnet18's committed `model.json`, because the Stage 1 gate
+renders the session `native_graph visualize` actually produces from it — the only check
+anywhere that our export is one the *element* accepts rather than one our own validator
+accepts. Two caches, both keyed on `web/package-lock.json`: `node_modules` and the
+downloaded Chromium. Keying on the lockfile rather than on a fixed string is what keeps the
+renderer pin a claim about what was **rendered** — a version bump gets a fresh entry instead
+of silently reusing the previous `dist`.
+
+It fails for reasons the other two cannot — an npm lockfile, a downloaded browser, a
+renderer version — which is exactly why burying it in either would make a browser regression
+read as an OCaml one.
 
 **Its cache key must not be `build.yml`'s.** `pt2.vars` describes an archive of every model
 CI has downloaded this release; `jsoo.pt2.vars` describes one model, so it emits its own
@@ -528,4 +545,9 @@ of the engine at the cost of carrying an implementation upstream is already repl
   string under jsoo) and each weight is copied again by `Bytes.of_string`
   (`pt2_archive.ml`), so it roughly doubles. mobilenet_v3_small at 12 MB is comfortable;
   resnet18 at 46 MB is the shape of the real constraint.
-- **Node is unpinned**; the npm devcontainer feature installs Debian's `nodejs`.
+- **The web dependency closure is lockfile-pinned and local.** `npm ci` installs
+  `web/package-lock.json`; the Makefile invokes package scripts, not `npx`, so it cannot
+  fetch a missing tool from the registry. `web/.npmrc` rejects a different Node/npm
+  runtime, while the devcontainer pins the exact Debian packages above. Dependabot tracks
+  `/web` as an npm ecosystem, so a deliberate dependency update changes the lockfile and
+  browser-cache key together.

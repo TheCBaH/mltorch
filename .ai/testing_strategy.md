@@ -214,6 +214,26 @@ opam exec -- dune promote test/model_cram.t
 opam exec -- dune runtest test/model_cram.t
 ```
 
+### Promoting from an interactive shell: always `NO_COLOR=1`
+
+`cmdliner` and `jsont` both style error text with raw ANSI escapes
+(`\x1b[1m...\x1b[0m`) whenever they detect a color-capable terminal (`$TERM`
+set to anything but `dumb`, `$NO_COLOR` unset) -- see `Cmdliner_base.styler'`
+and `Jsont_base.Fmt.styler'`, independently-vendored copies of the same
+heuristic. `dune promote`/`--auto-promote` writes whatever the test printed
+verbatim into the golden. Run it from an interactive terminal and the escape
+bytes go straight into the committed `.t`/`.ml` file -- invisible in any
+viewer or in dune's own diff rendering (both interpret or strip them), but
+real bytes that only mismatch on a run where `$TERM` looks different, e.g.
+headless CI. Two goldens broke exactly this way (`me_diagnostic_test.ml`,
+`me_wire_limits_test.ml`): promoted from a colored shell, silently correct
+against every subsequent local run (same `$TERM`, same color decision), wrong
+against CI's uncolored one. `make runtest`, `make pt2.runtest` and `make
+jsoo.inline-runtest` set `NO_COLOR=1` for this reason; do the same for any ad
+hoc `dune promote`. The JS target needs it as much as promotion does: it is a
+second execution of those same committed byte-for-byte goldens, under Node's
+headless environment.
+
 ## What Each Model Shows (as of schema 8.14)
 
 From `models_cram.t` expected output:

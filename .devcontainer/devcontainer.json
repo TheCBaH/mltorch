@@ -23,14 +23,21 @@
         // fmt and jsont are pinned because js/melange/vendor copies their
         // sources and the jsont patch is checksum-guarded against 0.2.0.
         // bytesrw is pinned for plain reproducibility of the native build.
+        // cmdliner is pinned because its CLI error-message rendering (quoted
+        // vs styled text, see Cmdliner_base.styler) is asserted verbatim in
+        // test/me_visualize_json_cram.t; an unpinned bump silently broke that
+        // golden once already.
         // Deliberately floating: ctypes, ctypes-foreign, landmarks,
         // landmarks-ppx, memtrace, utop, yaml, zipc -- none is part of the JS
         // build or that solve. See .ai/js_backends_design.md.
         "./features/ocaml": {
-            "packages": "bytesrw#0.3.0 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.2.0 landmarks landmarks-ppx melange#5.1.0-414 memtrace ppx_expect#v0.16.2 utop yaml zipc"        },
-        // node, for running the js_of_ocaml and melange output. Unpinned: the
-        // feature installs Debian's nodejs/npm.
-        "./features/npm": {},
+            "packages": "bytesrw#0.3.0 cmdliner#2.1.1 ctypes ctypes-foreign fmt#0.11.0 js_of_ocaml#6.4.1 js_of_ocaml-compiler#6.4.1 js_of_ocaml-ppx#6.4.1 jsont#0.2.0 landmarks landmarks-ppx melange#5.1.0-414 memtrace ppx_expect#v0.16.2 utop yaml zipc"        },
+        // Node/npm run the js_of_ocaml, melange and browser gates. Exact Debian
+        // package pins keep a developer rebuild and CI on one runtime too.
+        "./features/npm": {
+            "node_version": "20.19.2+dfsg-1+deb13u2",
+            "npm_version": "9.2.0~ds1-3"
+        },
     },
     "customizations": {
         "vscode": {

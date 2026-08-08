@@ -9,7 +9,7 @@ export default defineConfig({
   reporter: [['list']],
   use: { baseURL: 'http://127.0.0.1:8123' },
   webServer: {
-    command: 'npx http-server src -p 8123 -c-1 --silent',
+    command: 'npm run serve',
     url: 'http://127.0.0.1:8123/index.html',
     reuseExistingServer: false,
     timeout: 60_000,

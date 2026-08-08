@@ -4,7 +4,13 @@
   "version": "0.0.0",
   "description": "Stage 0A contract spike: drives the pinned Model Explorer visualizer to settle the questions the coordinator design assumes.",
   "scripts": {
+    "install:chromium": "playwright install chromium --with-deps",
+    "serve": "http-server src -p 8123 -c-1 --silent",
     "spike": "playwright test"
+  },
+  "engines": {
+    "node": "20.19.2",
+    "npm": "9.2.0"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

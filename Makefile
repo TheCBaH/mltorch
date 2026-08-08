@@ -115,7 +115,7 @@ pt2.runtest:
 			exit 1; \
 		}; \
 	done
-	PT2_DATA=$(abspath $(PT2_DIR)) opam exec -- dune runtest \
+	PT2_DATA=$(abspath $(PT2_DIR)) NO_COLOR=1 opam exec -- dune runtest \
 		test/pt2_load_cram.t test/interp_resnet_cram.t \
 		test/interp_efficientnet_cram.t test/interp_mobilenet_cram.t \
 		test/interp_vit_cram.t test/native_graph_cram.t \
@@ -280,8 +280,16 @@ format:
 test:
 	opam exec -- dune test
 
+# NO_COLOR: --auto-promote bakes whatever a test prints straight into the
+# committed golden. cmdliner and jsont both style their error text with raw
+# ANSI escapes whenever $TERM looks color-capable, invisible in a terminal or
+# in dune's own diff rendering but real bytes -- and byte-for-byte wrong
+# against a headless CI run. See .ai/testing_strategy.md's "Promoting from an
+# interactive shell" note; NO_COLOR forces the plain (uncolored) renderer so a
+# promotion made from an interactive shell can't disagree with one made on a
+# runner.
 runtest:
-	opam exec -- dune runtest --auto-promote
+	NO_COLOR=1 opam exec -- dune runtest --auto-promote
 
 # JavaScript backends. Deliberately outside `runtest`, same reasoning as
 # pt2.runtest: linking js_of_ocaml on every local test run is not worth it, and
@@ -314,7 +322,7 @@ jsoo.runtest: jsoo.build
 # `make runtest` would start linking js_of_ocaml.
 
 jsoo.inline-runtest:
-	opam exec -- dune build @runtest-js
+	NO_COLOR=1 opam exec -- dune build @runtest-js
 
 # Tier 2: open a real .pt2, lower it, run inference, diff native against node.
 # Outside js.runtest for the same reason as pt2.runtest -- it needs downloaded
@@ -414,7 +422,8 @@ clean:
 
 spike.setup:
 	cd web && npm ci --no-audit --no-fund
-	cd web && npx playwright install chromium --with-deps
+	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
+		npm run install:chromium
 	mkdir -p web/src/vendor
 	cp -r web/node_modules/ai-edge-model-explorer-visualizer/dist/* web/src/vendor/
 
@@ -431,4 +440,5 @@ spike.runtest:
 	opam exec -- dune exec bin/native_graph.exe -- detail \
 		--model modules/pytorch.models.pt2/models/resnet18/models/model.json \
 		--graph g/kernel/000 --value 125 --output web/src/detail-delta.json
-	cd web && npx playwright test
+	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
+		npm run spike

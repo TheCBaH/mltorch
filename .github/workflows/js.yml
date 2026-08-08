@@ -18,6 +18,10 @@ on:
 #           downloads -- it builds no C++ and its tier-1 fixture is committed.
 #   melange reaches only walk_core + core + vendored fmt/jsont. It touches
 #           nothing PyTorch, so it keeps the submodule-free path and asserts it.
+#   browser drives the real pinned Model Explorer element under Chromium. It
+#           fails for its own reasons -- an npm lockfile, a downloaded browser,
+#           a renderer version -- so it is its own job for the same attribution
+#           reason as the other two.
 #
 # Both reuse the devcontainer image, which build.yml has usually already warmed
 # in ghcr.
@@ -78,6 +82,53 @@ jobs:
     - name: jsoo pt2 inference test
       run: |
         ${{ env.EXEC }} make jsoo.pt2.runtest
+
+  # The BROWSER gate. A third job for the same reason there are two: it fails
+  # for its own reasons -- a pinned renderer, an npm lockfile, a downloaded
+  # Chromium -- and burying that in either of the others would make a browser
+  # regression read as an OCaml one.
+  #
+  # It needs the modules/pytorch.models.pt2 submodule for resnet18's committed
+  # model.json: the gate renders the session `native_graph visualize` actually
+  # produces from it, which is the only check anywhere that our export is one
+  # the real element accepts rather than one our own validator accepts.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7
+      with:
+        submodules: true
+    - name: devcontainer
+      uses: ./.github/workflows/actions/devcontainer
+      id: devcontainer
+    - name: setup
+      run: |
+        echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    # Keyed on the lockfile, so a renderer version bump gets a fresh entry
+    # rather than silently reusing the previous dist -- which would make the
+    # pin a claim about the lockfile and not about what was rendered.
+    - name: node modules cache
+      uses: actions/cache@v6
+      with:
+        path: web/node_modules
+        key: web-npm-${{ hashFiles('web/package-lock.json') }}
+    - name: playwright browser cache
+      uses: actions/cache@v6
+      with:
+        # The browser is used from inside the devcontainer, so it must live in
+        # the workspace rather than the runner user's home directory.
+        path: web/.playwright-browsers
+        key: playwright-${{ hashFiles('web/package-lock.json') }}
+    - name: install the pinned renderer and chromium
+      run: |
+        ${{ env.EXEC }} make spike.setup
+    # Two specs, and they answer different questions: the 0A spike asks what the
+    # renderer does, the Stage 1 gate asks whether what we emit is something it
+    # accepts. See .ai/model_explorer_design.md §8.
+    - name: browser gate
+      run: |
+        ${{ env.EXEC }} make spike.runtest
 
   melange:
     runs-on: ubuntu-latest

@@ -4,6 +4,16 @@
     "version": "0.0.2",
     "description": "Install npm, global Node.js packages, and optionally Playwright",
     "options": {
+        "node_version": {
+            "type": "string",
+            "default": "20.19.2+dfsg-1+deb13u2",
+            "description": "Exact Debian nodejs package version"
+        },
+        "npm_version": {
+            "type": "string",
+            "default": "9.2.0~ds1-3",
+            "description": "Exact Debian npm package version"
+        },
         "packages": {
             "type": "string",
             "default": "",
