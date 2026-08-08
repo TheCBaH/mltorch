@@ -325,7 +325,10 @@ jsoo.inline-runtest:
 # mobilenet_v3_small rather than the resnet18 used elsewhere: measured natively
 # it is 10s and 99MB against resnet18's 86s and 241MB
 # (.ai/native_inference_verify.md), and node multiplies whatever the native cost
-# is -- ~4.9x when this was written.
+# is -- ~4.9x when this was written. Never point this at a PT2_MODELS_VIT entry
+# larger than vit_b_*: vit_l_16/vit_l_32 are ~1.15GB each, and nothing has
+# measured node/jsoo actually handling a Pt2_archive read anywhere near
+# Pt2_archive.max_file_bytes -- see lib/pt2/pt2_archive.ml.
 
 JS_PT2_MODEL := mobilenet_v3_small
 JS_PT2_ARCHIVE := $(PT2_DIR)/$(JS_PT2_MODEL)/$(JS_PT2_MODEL).pt2
