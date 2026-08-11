@@ -9,6 +9,13 @@
    need not be valid UTF-8, and the wire format is JSON. So the fixtures are
    deliberately ill-formed rather than merely long. *)
 
+(* Jsont styles its decode errors with ANSI escapes unless the ambient
+   environment says otherwise, and cram/expect goldens below quote that text.
+   Pinned here so a bare [dune runtest] agrees with [make runtest], which sets
+   NO_COLOR itself -- a golden that depends on the caller's environment is a
+   golden that passes for the wrong reason. *)
+let () = Jsont.Error.disable_ansi_styler ()
+
 module D = Me_limits.Diagnostic
 
 let limits = Me_limits.Limits.untrusted

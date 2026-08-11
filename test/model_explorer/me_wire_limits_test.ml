@@ -8,6 +8,13 @@
    name rather than ignored, and every value is bounded BEFORE it is narrowed to
    its field's width. *)
 
+(* Jsont styles its decode errors with ANSI escapes unless the ambient
+   environment says otherwise, and cram/expect goldens below quote that text.
+   Pinned here so a bare [dune runtest] agrees with [make runtest], which sets
+   NO_COLOR itself -- a golden that depends on the caller's environment is a
+   golden that passes for the wrong reason. *)
+let () = Jsont.Error.disable_ansi_styler ()
+
 module L = Me_limits.Limits
 module W = Me_limits.Wire_limits
 
