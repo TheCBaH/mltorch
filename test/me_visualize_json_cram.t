@@ -271,7 +271,14 @@ browser may select and that no real input drives past.
   > print(len(json.load(open('small.json'))['graphCollections'][0]['graphs']), 'graphs')"
   5 graphs
 
-  $ ../bin/native_graph.exe visualize --model model.json --limits large
+NO_COLOR, because this is the one assertion in the suite that pins CMDLINER's
+own text. Cmdliner styles by default and quotes only when styling is off, and
+cram strips ANSI escapes from output -- so a styled run reaches the golden as
+"option --limits", unquoted, with no visible sign that styling was ever
+involved. Dune scrubs the cram environment, so the variable has to be set here
+rather than by the caller.
+
+  $ NO_COLOR=1 ../bin/native_graph.exe visualize --model model.json --limits large
   Usage: native_graph visualize [--help] [OPTION]…
   native_graph: option '--limits': invalid value 'large', expected either
                 'untrusted' or 'small'
