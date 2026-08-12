@@ -35,6 +35,7 @@ at::Tensor make_cpu_tensor(const int64_t* sizes, size_t ndim,
 
 namespace atc_detail {
 std::atomic<long> live{0};
+std::atomic<long> list_live{0};
 
 /* Thread-local so each OCaml-calling thread reads its own last error / string. */
 thread_local std::string last_error;
@@ -114,6 +115,45 @@ void atc_free(atc_tensor t) {
 }
 
 int64_t atc_live_count(void) { return atc_detail::live.load(); }
+
+/* --- Tensor[] results ----------------------------------------------------
+   The null / out-of-range checks are explicit rather than ATC_TRY'd: that macro
+   catches std::exception, and dereferencing a null pointer is undefined
+   behaviour, not a throw. Only the at::Tensor copy inside get() can throw. */
+
+int64_t atc_tensor_list_len(atc_tensor_list l) {
+  if (!l) {
+    atc_detail::set_error("tensor list is null");
+    return -1;
+  }
+  return static_cast<int64_t>(atc_tensor_list_to_ptr(l)->size());
+}
+
+atc_tensor atc_tensor_list_get(atc_tensor_list l, int64_t i) {
+  if (!l) {
+    atc_detail::set_error("tensor list is null");
+    return nullptr;
+  }
+  auto* v = atc_tensor_list_to_ptr(l);
+  if (i < 0 || static_cast<uint64_t>(i) >= v->size()) {
+    atc_detail::set_error("tensor list index out of bounds");
+    return nullptr;
+  }
+  ATC_TRY(nullptr, {
+    /* Independent C handle; shared ATen storage and view metadata. */
+    return atc_wrap((*v)[static_cast<size_t>(i)]);
+  })
+}
+
+void atc_tensor_list_free(atc_tensor_list l) {
+  if (!l) return;
+  --atc_detail::list_live;
+  delete atc_tensor_list_to_ptr(l);
+}
+
+int64_t atc_tensor_list_live_count(void) {
+  return atc_detail::list_live.load();
+}
 
 int64_t atc_numel(atc_tensor t) { return atc_to_ptr(t)->numel(); }
 

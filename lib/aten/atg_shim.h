@@ -19,6 +19,19 @@
 struct atc_tensor_opaque;
 typedef struct atc_tensor_opaque* atc_tensor;
 
+/* Opaque owning handle to a heap-allocated std::vector<at::Tensor>: the result
+   of an op returning Tensor[] (at::unbind, ...). Caller must
+   atc_tensor_list_free it.
+
+   Container ownership and storage aliasing are SEPARATE. atc_tensor_list_get
+   hands out an independently freeable atc_tensor that still shares ATen storage
+   and view metadata with the op's input, and at::Tensor is intrusive-
+   reference-counted, so destroying the container drops only its own handles --
+   tensors already extracted stay valid. Unlike atc_to_tensor_vector below
+   (input-only, borrowed), this one owns what it points at. */
+struct atc_tensor_list_opaque;
+typedef struct atc_tensor_list_opaque* atc_tensor_list;
+
 /* Data type: integer codes matching c10::ScalarType. */
 typedef int8_t atc_scalar_type;
 #define ATC_DTYPE_BYTE   ((atc_scalar_type)0)
@@ -157,6 +170,27 @@ int atc_equal(atc_tensor a, atc_tensor b);
    leak / GC round-trip tests. */
 int64_t atc_live_count(void);
 
+/* --- Tensor[] results (atc_tensor_list) --------------------------------- */
+
+/* Number of tensors in the list; -1 with atc_last_error set if [l] is NULL.
+   A null handle cannot be caught by ATC_TRY (dereferencing it is UB, not a C++
+   exception), so these entry points check before touching the pointer. */
+int64_t atc_tensor_list_len(atc_tensor_list l);
+
+/* Element [i] as a NEW owning atc_tensor handle sharing the element's storage
+   and view metadata; the caller must atc_free it. NULL with atc_last_error set
+   if [l] is NULL or [i] is out of range. */
+atc_tensor atc_tensor_list_get(atc_tensor_list l, int64_t i);
+
+/* Release the list container (not the tensors extracted from it). NULL is a
+   no-op, mirroring atc_free. */
+void atc_tensor_list_free(atc_tensor_list l);
+
+/* Number of live list containers: atc_wrap_tensor_list allocations not yet
+   freed. The tensor [atc_live_count] does not cover these -- a container is not
+   a tensor handle -- so the leak tests need their own counter. */
+int64_t atc_tensor_list_live_count(void);
+
 #ifdef __cplusplus
 }
 
@@ -202,6 +236,11 @@ namespace atc_detail {
    handle is freed on (e.g. a GC finaliser). */
 extern std::atomic<long> live;
 
+/* Live atc_tensor_list containers; bumped in atc_wrap_tensor_list, dropped in
+   atc_tensor_list_free. Declared here (not only defined in atg_shim.cpp)
+   because the inline wrapper below increments it. */
+extern std::atomic<long> list_live;
+
 /* Stash a message for atc_last_error (thread-local; see atg_shim.cpp). */
 void set_error(const char* msg);
 }  // namespace atc_detail
@@ -236,6 +275,19 @@ inline atc_tensor atc_from_ptr(at::Tensor* t) {
 inline atc_tensor atc_wrap(at::Tensor t) {
   ++atc_detail::live;
   return atc_from_ptr(new at::Tensor(std::move(t)));
+}
+
+inline std::vector<at::Tensor>* atc_tensor_list_to_ptr(atc_tensor_list l) {
+  return reinterpret_cast<std::vector<at::Tensor>*>(l);
+}
+/* Take ownership of an op's returned vector. Allocates BEFORE bumping the
+   counter: a throwing allocation must not leave the count claiming a container
+   that was never created. (atc_wrap above increments first; that ordering is
+   not worth copying.) */
+inline atc_tensor_list atc_wrap_tensor_list(std::vector<at::Tensor> v) {
+  auto* p = new std::vector<at::Tensor>(std::move(v));
+  ++atc_detail::list_live;
+  return reinterpret_cast<atc_tensor_list>(p);
 }
 #endif
 

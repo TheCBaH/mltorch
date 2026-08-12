@@ -89,6 +89,12 @@ open Ctypes
    [Aten_c.Aten_functions.new_] can be passed straight into these ops. *)
 let atc_tensor = Aten_function_description.atc_tensor
 
+(* The owned Tensor[] result container, for ops whose schema return is Tensor[]
+   (their length is a runtime property, so there is no out-param struct to fill).
+   Consumed through [Aten_tensor_list.to_list], which manages every element and
+   frees the container. *)
+let atc_tensor_list = Aten_function_description.atc_tensor_list
+
 (* Multi-output op result structs, declared in Aten_type_description.Types and filled
    through an out-param by a status-returning op (see Aten_gen). Read output [field]
    with [tensors_get] (an owning handle the caller must free). *)

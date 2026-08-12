@@ -56,8 +56,13 @@
 (library
  (name native_bridge_test)
  (modules native_bridge_test)
+ ; [interp] is a DIRECT dependency: these tests call Interp_decode /
+ ; Interp_dispatch themselves. It was previously reached transitively through
+ ; aten_native_verify, which is exactly the layering a direct user should not
+ ; lean on.
  (libraries
   aten
+  interp
   native
   native_graph
   native_aten_bridge

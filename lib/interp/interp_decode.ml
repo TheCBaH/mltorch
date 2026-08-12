@@ -61,6 +61,21 @@ module Unexpected_output_kind = struct
   type t = { index : int; actual : string }
 end
 
+module Tensor_list_output = struct
+  type t = { actual : string list }
+  (* A Tensor[]-returning node must carry exactly one output, of kind Tensor[].
+     [actual] is the kinds actually present, in order -- the whole output shape
+     rather than one index, since "too many outputs" and "wrong kind at 0" are
+     the same malformation of the same list. *)
+end
+
+module Tensor_list_arity = struct
+  type t = { names : int; tensors : int }
+  (* Serialized SSA names vs. tensors ATen actually returned. Both counts, since
+     which side is larger says whether names would be left unbound or tensors
+     dropped. *)
+end
+
 type error =
   [ `Undefined_value of string
   | `Missing_argument of string
@@ -74,6 +89,11 @@ type error =
     (* Was [`Unexpected_output_kind (i, "missing")]: no output at that index at
        all is a different fact from one of the wrong kind, and a sentinel
        string in the payload is not a way to say so. *)
+  | `Expected_tensor_list_output of Tensor_list_output.t
+  | `Tensor_list_output_arity_mismatch of Tensor_list_arity.t
+    (* NOT [`Output_arity_mismatch]: that tag already exists in Eval_direct and
+       Eval_direct4 with a different payload, and sharing the name across
+       disjoint rows is a trap for whoever later composes them. *)
   ]
 
 let expected_kind_name : expected_kind -> string = function
@@ -112,6 +132,16 @@ let pp_error ppf : [< error ] -> unit = function
   | `Unexpected_output_kind { Unexpected_output_kind.index; actual } ->
       Fmt.pf ppf "output %d: expected tensor/None, got %s" index actual
   | `Missing_output i -> Fmt.pf ppf "output %d: missing" i
+  | `Expected_tensor_list_output { Tensor_list_output.actual } ->
+      Fmt.pf ppf "expected one Tensor[] output, got [%s]"
+        (String.concat "; " actual)
+  | `Tensor_list_output_arity_mismatch { Tensor_list_arity.names; tensors } ->
+      Fmt.pf ppf
+        "tensor-list output arity: %d serialized name%s, %d tensor%s returned"
+        names
+        (if names = 1 then "" else "s")
+        tensors
+        (if tensors = 1 then "" else "s")
 
 let argument_kind_name = function
   | Argument.None _ -> "None"
@@ -335,6 +365,55 @@ let bind1 (env : env) node tensor =
            (Aten_tensor.manage (Aten_tensor.check tensor))
            env)
   | None -> Err.return env
+
+(* Every SSA name a node's outputs bind, flattening a Tensor[] output's names in
+   place. [Argument.None] outputs stay ignored (a dead result the op computes but
+   the graph does not name).
+
+   Callers that filtered for [Argument.Tensor] alone saw ZERO names for a
+   list-returning node -- which reads as "nothing to report" rather than as the
+   omission it is. *)
+let output_names (node : Node.t) : string list =
+  List.concat_map
+    (function
+      | Argument.Tensor ta -> [ ta.TensorArgument.name ]
+      | Argument.Tensors tas ->
+          List.map (fun (ta : TensorArgument.t) -> ta.name) tas
+      | _ -> [])
+    node.outputs
+
+(* Bind a Tensor[] result. The serialized shape differs from a fixed tuple's:
+   ONE output of kind [Argument.Tensors] carrying every result name, rather than
+   N separate [Argument.Tensor] outputs -- hence a distinct path rather than an
+   overload of [bind_many], which indexes [node.outputs] positionally.
+
+   [tensors] arrive already checked and managed by [Aten_tensor_list.to_list], so
+   failing here cannot leak them: their finalisers are attached and the container
+   is already freed.
+
+   The arity check rides on [Err.List.map2], not a separate [List.length] test,
+   so it cannot drift from the pairing it guards; map2 validates both lengths
+   before the first mapping call, so a mismatch binds nothing at all. *)
+let bind_tensor_list (env : env) (node : Node.t) tensors =
+  let open Err.Syntax in
+  match node.outputs with
+  | [ Argument.Tensors tas ] ->
+      let* pairs =
+        Err.List.map2
+          ~unequal_lengths:(fun names tensors ->
+            `Tensor_list_output_arity_mismatch
+              { Tensor_list_arity.names; tensors })
+          (fun (ta : TensorArgument.t) t -> Err.return (ta.name, t))
+          tas tensors
+      in
+      Err.return
+        (List.fold_left
+           (fun env (name, t) -> String_map.add name t env)
+           env pairs)
+  | outs ->
+      Err.fail
+        (`Expected_tensor_list_output
+           { Tensor_list_output.actual = List.map argument_kind_name outs })
 
 let bind_many (env : env) node tensors =
   let open Err.Syntax in

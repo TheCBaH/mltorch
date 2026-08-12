@@ -10,6 +10,11 @@ open Ctypes
    multi-output result structs there can type their fields as atc_tensor too. *)
 let atc_tensor = ptr Aten_types_generated.tensor_opaque
 
+(* The owned Tensor[] result container, returned by the generated wrappers for
+   ops whose schema return is [Tensor[]] (see Aten_gen). Opaque, like
+   atc_tensor; consumed through Aten_tensor_list. *)
+let atc_tensor_list = ptr Aten_types_generated.tensor_list_opaque
+
 (* c10::ScalarType crosses the boundary as its int8 code; [scalar_type] is a
    ctypes view giving the OCaml side the typed [Aten_scalar_type.t] enum instead of a
    bare int (mirrors the enum views in aten_operation_description.ml). *)
@@ -67,6 +72,23 @@ module Functions (F : Ctypes.FOREIGN) = struct
     foreign "atc_item_int64" (atc_tensor @-> ptr int64_t @-> returning int)
 
   let live_count = foreign "atc_live_count" (void @-> returning int64_t)
+
+  (* Tensor[] results. [tensor_list_len] returns -1 and [tensor_list_get] NULL
+     on failure, both with atc_last_error set; Aten_tensor_list turns those into
+     Aten_tensor.Error. *)
+  let tensor_list_len =
+    foreign "atc_tensor_list_len" (atc_tensor_list @-> returning int64_t)
+
+  let tensor_list_get =
+    foreign "atc_tensor_list_get"
+      (atc_tensor_list @-> int64_t @-> returning atc_tensor)
+
+  let tensor_list_free =
+    foreign "atc_tensor_list_free" (atc_tensor_list @-> returning void)
+
+  let tensor_list_live_count =
+    foreign "atc_tensor_list_live_count" (void @-> returning int64_t)
+
   let last_error = foreign "atc_last_error" (void @-> returning string_opt)
   let to_string = foreign "atc_to_string" (atc_tensor @-> returning string_opt)
 

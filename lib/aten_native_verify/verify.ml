@@ -194,14 +194,12 @@ let compare_tensors ~atol ~output aten_t native_t =
    indices, which the native F32 engine can't compare anyway) is dropped /
    routed to a Discard sink, so it is simply not verified.  Only exposing MORE
    outputs than the op has is an error.  Returns one Err.Error.t per output
-   that fails; empty list means all compared outputs matched. *)
+   that fails; empty list means all compared outputs matched.
+
+   [output_names] flattens a Tensor[] output's names in place, so a
+   list-returning op exposes all N here rather than none. *)
 let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
-  let open Pytorch_types in
-  let out_names =
-    List.filter_map
-      (function Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
-      node.outputs
-  in
+  let out_names = Interp_decode.output_names node in
   if List.length native_outputs > List.length out_names then
     [
       Err.Error.make

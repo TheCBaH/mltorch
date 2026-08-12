@@ -57,11 +57,26 @@ For each `node` in `graph.nodes`:
    - `as_float` → `float`; `as_bool` → `bool`; `as_none` → the op's optional None
    - `as_scalar_type` → `Aten_scalar_type.t`
    - Scalars feeding a `Scalar` arg → `Aten_scalar.{Int|Float}`.
-3. Dispatch to the bound op (see §3), then bind results: zip `node.outputs`
-   (each `as_tensor {name}`) to the returned tensor(s). Multi-output ops
-   (`max_pool2d_with_indices`, `_native_batch_norm_legit_no_training`) return a
-   `tensorsN` struct — bind each `vK` to the K-th output name; outputs the graph
-   never reads (e.g. the indices) can be ignored/bound anyway.
+3. Dispatch to the bound op (see §3), then bind results. **There are two output
+   shapes, and the serializer distinguishes them:**
+   - **One tensor or a fixed tuple** — `node.outputs` is a list of `as_tensor
+     {name}`, one per result, zipped positionally (`bind1` / `bind_many`).
+     Multi-output ops (`max_pool2d_with_indices`,
+     `_native_batch_norm_legit_no_training`) return a `tensorsN` struct — bind
+     each `vK` to the K-th output name; outputs the graph never reads (e.g. the
+     indices) can be ignored/bound anyway.
+   - **A `Tensor[]` return** (`unbind.int`) — `node.outputs` is a **single**
+     `as_tensors [name0; …; nameN]` carrying every result name. Positional
+     zipping does not apply, so `bind_tensor_list` handles it: it requires
+     exactly that shape and pairs names to tensors through
+     `Err.List.map2 ~unequal_lengths`, so the arity check cannot drift from the
+     pairing it guards. Silently zipping would leave SSA names unbound or drop
+     tensors.
+
+   Anything reading a node's result names uses `Interp_decode.output_names`,
+   which flattens the `as_tensors` case in place. Filtering for `Argument.Tensor`
+   alone yields *zero* names for a list-returning node — a report with no output
+   lines, which reads as a pass.
 
 ### 3. Dispatch — the crux
 Generated ops have fixed monomorphic OCaml signatures, so a `string → thunk`

@@ -36,7 +36,7 @@ let generate ?(style = `Function) (op : Aten_func_ast.t) =
     | None -> Skipped "unsupported return shape"
     | Some (Aten_c_type.Tensors_ret nret) when nret > 3 ->
         Skipped (Printf.sprintf "unsupported return shape: %d-tuple" nret)
-    | Some (Aten_c_type.Tensors_ret nret) -> (
+    | Some ret -> (
         let mapped =
           List.map
             (fun (a : Aten_func_ast.Argument.t) ->
@@ -75,47 +75,67 @@ let generate ?(style = `Function) (op : Aten_func_ast.t) =
             (* A single Tensor is returned as the owning handle. A tuple of N
                Tensors is filled into a [struct atc_tensorsN*] out-param while
                the op returns a 0 (ok) / -1 (error) status (errors caught by
-               ATC_TRY, like the hand-written shims). *)
+               ATC_TRY, like the hand-written shims). A Tensor[] has no static
+               arity, so it comes back as an owned [atc_tensor_list] container
+               (atg_shim.h) -- with ATC_TRY, unlike the single-Tensor case,
+               because the ops that return one throw on a bad dim and a c10::Error
+               must not cross extern "C". *)
             let proto, c_source, ret_ctypes, out_ctypes =
-              if nret = 1 then
-                let proto =
-                  Printf.sprintf "atc_tensor %s(%s)" c_name
-                    (String.concat ", " c_params)
-                in
-                ( proto,
-                  Printf.sprintf {|%s {
+              match ret with
+              | Aten_c_type.Tensor_list_ret ->
+                  let proto =
+                    Printf.sprintf "atc_tensor_list %s(%s)" c_name
+                      (String.concat ", " c_params)
+                  in
+                  ( proto,
+                    Printf.sprintf
+                      {|%s {
+  ATC_TRY(nullptr, {
+    return atc_wrap_tensor_list(%s);
+  })
+}|}
+                      proto call,
+                    "atc_tensor_list",
+                    [] )
+              | Aten_c_type.Tensors_ret 1 ->
+                  let proto =
+                    Printf.sprintf "atc_tensor %s(%s)" c_name
+                      (String.concat ", " c_params)
+                  in
+                  ( proto,
+                    Printf.sprintf {|%s {
   return atc_wrap(%s);
 }|} proto call,
-                  "atc_tensor",
-                  [] )
-              else
-                let proto =
-                  Printf.sprintf "int %s(%s)" c_name
-                    (String.concat ", "
-                       (c_params
-                       @ [ Printf.sprintf "struct atc_tensors%d* out" nret ]))
-                in
-                let writes =
-                  List.init nret (fun i ->
-                      Printf.sprintf
-                        "    out->v%d = atc_wrap(std::get<%d>(__r));" i i)
-                  |> String.concat "\n"
-                in
-                let body =
-                  Printf.sprintf
-                    {|%s {
+                    "atc_tensor",
+                    [] )
+              | Aten_c_type.Tensors_ret nret ->
+                  let proto =
+                    Printf.sprintf "int %s(%s)" c_name
+                      (String.concat ", "
+                         (c_params
+                         @ [ Printf.sprintf "struct atc_tensors%d* out" nret ]))
+                  in
+                  let writes =
+                    List.init nret (fun i ->
+                        Printf.sprintf
+                          "    out->v%d = atc_wrap(std::get<%d>(__r));" i i)
+                    |> String.concat "\n"
+                  in
+                  let body =
+                    Printf.sprintf
+                      {|%s {
   ATC_TRY(-1, {
     auto __r = %s;
 %s
     return 0;
   })
 }|}
-                    proto call writes
-                in
-                ( proto,
-                  body,
-                  "int",
-                  [ Printf.sprintf "ptr tensors%d_struct" nret ] )
+                      proto call writes
+                  in
+                  ( proto,
+                    body,
+                    "int",
+                    [ Printf.sprintf "ptr tensors%d_struct" nret ] )
             in
             let c_decl = proto ^ ";" in
             let ctypes_in =

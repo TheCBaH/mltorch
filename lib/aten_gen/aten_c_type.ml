@@ -15,11 +15,18 @@ type arg = {
   ctypes : string list; (* ctypes type fragments, one per c_param *)
 }
 
-(* The C representation of the return: [n] Tensor outputs ([n] >= 1). A single
-   Tensor is returned as the owning handle; a tuple of [n] returns output 0 as
-   the handle and writes outputs 1..n-1 through trailing [atc_tensor*] out-params
-   (see Aten_gen). *)
-type ret = Tensors_ret of int
+(* The C representation of the return.
+
+   [Tensors_ret n]: [n] Tensor outputs ([n] >= 1), the arity known statically. A
+   single Tensor is returned as the owning handle; a tuple of [n] is written into
+   an [atc_tensorsN] out-param struct (see Aten_gen).
+
+   [Tensor_list_ret]: one [Tensor[]], whose length is a runtime property of the
+   call, so it comes back as an owned [atc_tensor_list] container instead. Kept
+   distinct from [Tensors_ret] even though both surface as an OCaml list at the
+   top: their schema shape, C ABI, and SERIALIZED GRAPH shape all differ (a tuple
+   is N separate node outputs, a Tensor[] is one output carrying N names). *)
+type ret = Tensors_ret of int | Tensor_list_ret
 
 let unsupported = None
 
@@ -264,12 +271,19 @@ let map_type ~name (ty : Aten_func_ast.Type.t) =
      QScheme is omitted on purpose: it never appears as a schema arg. *)
   | Base _ | Optional _ | List _ -> unsupported
 
-(* Supported return shapes: one Tensor, or a tuple of all-Tensor outputs. Any
-   non-Tensor return (Scalar, Tensor[], etc.) is unsupported. *)
+(* Supported return shapes: one Tensor, a tuple of all-Tensor outputs, or one
+   variable-length Tensor[]. Any other return (Scalar, a mixed tuple, ...) is
+   unsupported.
+
+   The [Tensor[]] arm must precede the all-Tensor test, and the [[]] guard must
+   precede both ([List.for_all] is vacuously true on the empty list). Note the
+   element annotation of [Tensor(a)[]] rides on [Return.annotation], not inside
+   [Type.t], so the type here is plainly [List (Base Tensor, _)]. *)
 let map_returns (returns : Aten_func_ast.Return.t list) =
   let is_tensor (r : Aten_func_ast.Return.t) = r.ty = Base Tensor in
   match returns with
   | [] -> unsupported
+  | [ { ty = List (Base Tensor, _); _ } ] -> Some Tensor_list_ret
   | _ when List.for_all is_tensor returns ->
       Some (Tensors_ret (List.length returns))
   | _ -> unsupported

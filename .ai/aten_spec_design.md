@@ -127,6 +127,29 @@ allocate), lowers `args` to a `Node.t`, and runs it through `interp_dispatch.ml`
 and `Op_bridge` (native), comparing with `Verify`. So config supplies the schema/arity,
 the spec supplies the concrete values, both from the identical op list.
 
+### Synthesizing outputs for a `Tensor[]` return
+
+`Aten_spec_run.outputs_for` builds the synthetic node's outputs *before* the op
+runs, so for a fixed arity it just reads the count off the config. A
+`Tensor_list_return` has no count to read: it is one `Argument.Tensors` output
+carrying N names, and N is the op's own semantics. So the runner derives it per
+target, from the already-synthesized inputs and `env`:
+
+- `unbind.int` — take `self`'s shape, normalize `dim` ATen-style (`dim < 0` adds
+  the rank), default `dim = 0` when the key is absent, and emit that many
+  `out<i>` names. An out-of-range `dim` emits **zero** outputs rather than
+  raising: the ATen call fails before any binding is attempted, so the real
+  diagnostic wins instead of an OCaml `Invalid_argument` from indexing.
+- any **other** tensor-list target — `invalid_arg` naming it. `split` counts by
+  split size and `chunk` by chunk count; a plausible-looking wrong count would
+  surface far from its cause, as an output-kind error inside `bind_tensor_list`.
+  Neither is in the curated selection, so this is an internal invariant.
+
+Anything reading a node's result names goes through `Interp_decode.output_names`,
+which flattens the `Argument.Tensors` case in place. Filtering for
+`Argument.Tensor` alone yields *zero* names for a list-returning node — a report
+with no output lines, which reads as a pass.
+
 ## How to run
 
 ```sh

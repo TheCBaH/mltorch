@@ -1048,3 +1048,47 @@ let%expect_test "PT2 provenance: native ids map to qualified source origins" =
       | Derived -> assert false);
       [%expect
         {| tensor=t1 path=root/4/2 name=p_layer_weight target=layer.weight |}]
+
+(* --- Interp_decode.output_names ---
+
+   Five call sites used to open-code a [Argument.Tensor]-only filter, which
+   yields ZERO names for a Tensor[]-returning node -- a report with no output
+   lines reads as "nothing to say" rather than as the omission it is. This pins
+   the helper's own behaviour (flattening order, None handling) independently of
+   any CLI formatting that consumes it. *)
+
+let names_of outputs =
+  let node = PT.Node.make "t" [] outputs Sm.empty None (Some "test") in
+  print_endline (String.concat "," (Interp_decode.output_names node))
+
+let%expect_test "output_names: flattens Tensor[] in place, skips None" =
+  (* single tensor: one name *)
+  names_of [ targ "a" ];
+  [%expect "a"];
+  (* fixed tuple: N separate outputs, in order *)
+  names_of [ targ "a"; targ "b"; targ "c" ];
+  [%expect "a,b,c"];
+  (* Tensor[]: ONE output carrying N names -- the shape unbind serializes as *)
+  names_of
+    [
+      PT.Argument.Tensors
+        [
+          PT.TensorArgument.make "x";
+          PT.TensorArgument.make "y";
+          PT.TensorArgument.make "z";
+        ];
+    ];
+  [%expect "x,y,z"];
+  (* a dead output stays skipped, and flattening happens in position *)
+  names_of
+    [
+      targ "a";
+      PT.Argument.None false;
+      PT.Argument.Tensors
+        [ PT.TensorArgument.make "x"; PT.TensorArgument.make "y" ];
+      targ "b";
+    ];
+  [%expect "a,x,y,b"];
+  (* an empty Tensor[] contributes nothing, but is not an error *)
+  names_of [ PT.Argument.Tensors [] ];
+  [%expect ""]
