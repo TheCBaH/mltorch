@@ -68,13 +68,13 @@ the same rule `poly_errors.ml` demonstrates:
   `Err.map_error ~pos:__POS__` so the detection origin survives.
   `lib/native_interp/native_interp.ml` wraps its six upstream domains this way.
 
-### An exception may carry a typed row
+### An escape may carry a typed row
 
-`Native_interp` raises `Lower_error` internally: the lowering walk is deeply
-recursive and threading a result through every arm would rewrite it, so the
-exception is caught once, at `lower`'s boundary, and converted to an `Err.t`
-there. That is a legitimate use of an exception for control flow — but what
-crosses it is a **typed row**, not a rendered sentence.
+`Native_interp` exits its lowering walk through `Err.Escape`: the walk is deeply
+recursive and threading a result through every arm would rewrite it, so it
+throws from ~32 sites and `lower` establishes one `with_escape` frame. That is a
+legitimate non-local exit — but what crosses it is a **typed row**, not a
+rendered sentence.
 
 It used to be `Printf.ksprintf` into one `` `Malformed_graph of string `` from 32
 sites. `Native_interp.malformed` is now ten cases with structured payloads, and
@@ -89,7 +89,48 @@ a valid program that produces it. Two lessons generalise:
 - **Not every raise is a recoverable error.** `add_env`'s arity check is an
   invariant of this module, not a fact about the model, so it is `invalid_arg`
   — the `Graph_ir.Index.assert_matches` precedent — and never reaches a caller
-  dressed as a malformed graph.
+  dressed as a malformed graph. It is therefore *not* a site for
+  `Err.List.iter2 ~unequal_lengths` either: that would turn a defect here into
+  an error row the caller is invited to handle.
+
+## Escaping a recursive walk: `Err.Escape`
+
+Five modules — `kernel_eval.ml`, `transform/ground_eval.ml`, `expr.ml` (twice)
+and `native_interp.ml` — had independently declared the same private exception
+plus catcher. They are now one idiom: `Err.Escape.with_escape` establishes the
+frame, `throw` detects at the throw site, `throw_error` re-throws a wrapper
+already built, and `or_throw` bridges an ordinary result-returning call into the
+walk without threading results through its arms.
+
+**The token is the point, and it is threaded, not global.** `Native_interp`'s
+version carried a bare `error` row rather than an `Err.Error.t`, so the catch
+rebuilt the wrapper with `Err.fail` and every malformed graph was reported as
+detected at `lower`'s boundary instead of where the fault was found. It also let
+`tensor_of_pt2`'s re-labelled row escape *uncaught* past a signature promising
+`Err.t` — nothing checked, because nothing could. Both are unexpressible now:
+the wrapper is built at the `throw` and the catch is by construction. The cost
+is an `esc` parameter on ~20 lowering helpers, which is what makes the reach of
+the escape visible in the types.
+
+Two frictions are worth knowing before writing the next one, because both are
+inherent rather than mistakes:
+
+- **A token is invariant in its payload**, so a callee working at a narrower row
+  cannot take its caller's token directly. `Expr.Eval.eval_index` fails at
+  `index_error` and is called from `value` at the wider `error`, which passes
+  `Err.Escape.map (fun e -> (e :> error)) esc`. The derived token exits the same
+  frame and allocates no second generative exception, which is what keeps a
+  nested `with_escape` off the per-output-pixel path.
+- **`or_throw` is monomorphic**, so a helper handling *several* sub-rows at once
+  still needs a three-line local wrapper coercing through `Error.t`'s
+  covariance (`ground_eval.ml`'s `or_throw`, `expr.ml`'s `vchk`). `Escape.map`
+  does not cover these: it produces a token at one narrower row, and these
+  widen a different sub-row at each call. `map_error` is wrong too — it would
+  record a `Map` event for a static coercion.
+
+The first was reported upstream in `err_trace_accum.md` and is fixed; the second
+is inherent (OCaml cannot quantify a row bound under an abstract `'e`) and is
+documented upstream as the idiom to write.
 
 ### When an unreachable row is deleted, and when it is kept
 
@@ -138,8 +179,44 @@ or in test cleanup — under `Fun.protect`, since the registry is process-wide.
 Libraries install none. No monitor is installed in-tree today.
 
 **Tests that change the policy must restore it.** `Err.Config` is process-wide
-and expect tests share a process; `test/native/core_test.ml`'s `with_config`
-is the pattern.
+and expect tests share a process; `Err.Config.with_config` restores the previous
+policy even when the body raises, and `test/native/core_test.ml` uses it. It is
+not thread- or domain-scoped — it is for tests and single-threaded startup.
+
+**`Config.fast` is not the production preset its name suggests.** It empties the
+action set, so it discards the whole event trail and not merely stack capture.
+The reproducible-diagnostics policy is `Config.deterministic` — boundary events
+kept, no automatic stacks — which is `MLTORCH_ERROR_TRACE=boundaries` with
+`MLTORCH_ERROR_BACKTRACE=off`, and gives identical output on native, bytecode,
+js_of_ocaml and Melange wherever a call site supplied `~pos`.
+
+**Validators short-circuit, and on untrusted input that is the bound.**
+`Me_session.validate` and `Me_flow.validate` check their aggregate ceilings
+*before* the walks that are linear in those counts — a bound checked after the
+work it bounds is not a bound. `Err.Accum`, which runs every element by
+contract, must therefore not be reached for above a ceiling that has not yet
+passed.
+
+**`Me_limits.Limits.check_against` is the one exception, and two conditions make
+it one.** The work is bounded by a compile-time constant — `fields` and
+`zip_fields`, 41 entries the document cannot influence — so "run every element"
+is not something the input can turn into a denial of service. And each check is
+an independent `Int64.compare`: none gates another, so there is no ordering to
+preserve. It accumulates, and an operator with three bad fields learns about
+three.
+
+`Err.Accum.fold_errors` is what keeps that local. Accumulation would otherwise
+be a one-way signature change — `('a, 'e Error.t list) Err.t` has no route back
+to `('a, 'e) Err.t`, so the list would propagate through `Limits.validate`,
+`Limits.create`, `Wire_limits.of_limits` and onto the wire. Instead the batch
+collapses into this module's own `` `Invalid_limits of Invalid.t list ``, one
+new row and one new `pp_error` arm; a single rejection still reports as
+`` `Invalid_limit ``, so the common message is unchanged.
+
+What that revealed is the argument for it: `me_limits_test.ml`'s nested-field
+case passed the whole of `Pt2_zip.Limits.trusted`, widening five fields, and the
+short-circuiting golden had been showing only the first for as long as the test
+existed.
 
 The per-call-site rules — when to use `map_error` vs `map_kind`, where `~pos`
 earns its place, why `guard`/`of_option`'s eagerness matters, and what a
@@ -148,8 +225,8 @@ the printing rules they interact with.
 
 ## Upstream fixes this adoption required
 
-Both are in the vendored submodule, found by putting `Err` on a path Melange
-reaches:
+All in the vendored submodule. The first two were found by putting `Err` on a
+path Melange reaches:
 
 - `Stack.is_available`/`Stack.pp` called `Printexc.raw_backtrace_length`, which
   Melange compiles to `bt.length` while its `get_callstack` yields `undefined` —
@@ -157,6 +234,36 @@ reaches:
   `Printexc.backtrace_slots`, which every backend answers safely.
 - `Exn.pp_kind` was added: rendering a packed exception's payload without its
   provenance, which a wire-facing boundary needs and `Exn.pp` cannot give.
+- `protect`/`with_escape` re-raised through `Printexc.raise_with_backtrace`,
+  which Melange does not implement — so under any stack-capturing policy,
+  including the default, every foreign exception crossing `protect` on Melange
+  was *replaced* by a "not polyfilled" error. They now reattach a backtrace only
+  when it has resolvable frames.
+- `Config.pp_backtrace` printed `never` while `of_strings` accepted only `off`,
+  so a logged policy could not be fed back. `off` is now both the printed and
+  the accepted spelling on both axes; `err_host.mli` documents `never` as the
+  accepted alias, and `test/err_host_test.ml`'s golden moved with it.
+
+Three more came from this repo's own adoption feedback (`err_trace_accum.md`),
+and each removed a workaround that is now gone from the tree:
+
+- `Accum.fold_errors` and `Accum.lift` — accumulation used to be a one-way
+  signature change, which is why `check_against` short-circuited over 41
+  independent checks. See the rule above.
+- `Escape.map` — a token viewed through a narrower row, which replaced the
+  `throw` callback `Expr.Eval.eval_index` had to take.
+- `List.map2`/`iter2` now validate both lengths **before** the first callback,
+  so a mismatch produces no partial effects and a callback failure cannot hide
+  it. That retires the caveat on `22f141d`: a prefix failure no longer outranks
+  the arity error in `graph_map.ml` or `graph_view.ml`.
+
+The `devel` API this repo vendors also added `payload`, `import`, `export`,
+`Error.pp_kind`, `List.filter_map`/`exists`/`for_all`, `Config.deterministic`,
+`Config.with_config` and `Err.Make`. All are adopted above except `Err.Make`:
+the binder does accept this repo's `[< error ] -> unit` printers — upstream's
+wording was corrected after this repo reported it — but the files holding the
+204 `~pp_error` uses each touch four to six domains, so binding them trades one
+labelled argument for several functor applications.
 
 ## Not built: JavaScript stack import
 

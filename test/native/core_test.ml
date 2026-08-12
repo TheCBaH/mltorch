@@ -302,11 +302,8 @@ let%expect_test
 
    Pinned under an explicit policy rather than the ambient one. [Err.Config] is
    process-wide, so a test that changed it and left it changed would leak into
-   every later expect test in this executable -- hence [Fun.protect]. *)
-let with_config config f =
-  let saved = Err.Config.get () in
-  Err.Config.set config;
-  Fun.protect ~finally:(fun () -> Err.Config.set saved) f
+   every later expect test in this executable -- hence [Err.Config.with_config],
+   which restores the previous policy even when the body raises. *)
 
 let%expect_test "a mapped position is recorded on every backend" =
   (* [backtrace = Never] is the honest model of the browser: whatever the
@@ -323,7 +320,7 @@ let%expect_test "a mapped position is recorded on every backend" =
         failwith
           (Core.Pretty.to_string Err.Config.pp_make_error (Err.Error.kind e))
   in
-  with_config no_stacks (fun () ->
+  Err.Config.with_config no_stacks (fun () ->
       let pp ppf (`Wrapped (`Inner k)) = Format.fprintf ppf "wrapped %s" k in
       let mapped =
         Err.map_error ~pos:__POS__
@@ -345,7 +342,7 @@ let%expect_test "a mapped position is recorded on every backend" =
    later error in this executable stackless. *)
 let%expect_test "with_config restores the ambient policy" =
   let before = Err.Config.backtrace (Err.Config.get ()) in
-  (try with_config Err.Config.debug (fun () -> failwith "boom")
+  (try Err.Config.with_config Err.Config.debug (fun () -> failwith "boom")
    with Failure _ -> ());
   let after = Err.Config.backtrace (Err.Config.get ()) in
   Printf.printf "restored=%b\n" (before = after);

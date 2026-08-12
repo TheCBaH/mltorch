@@ -46,9 +46,9 @@ let equal a b =
   | Per_tensor _, Per_channel _ | Per_channel _, Per_tensor _ -> false
 
 let of_err_for_jsont r =
-  match Err.mark_error ~pos:__POS__ Err.Action.Export r with
+  match Err.export ~pos:__POS__ r with
   | Ok v -> v
-  | Error e -> Jsont.Error.msgf Jsont.Meta.none "%a" pp_error (Err.Error.kind e)
+  | Error k -> Jsont.Error.msgf Jsont.Meta.none "%a" pp_error k
 
 let params t ~c =
   match t with

@@ -140,17 +140,15 @@ let of_string ?limits ~name contents =
   in
   let* program_json = read_member zip "models/model.json" in
   let* program =
-    match Jsont_bytesrw.decode_string ExportedProgram.jsont program_json with
-    | Ok program -> Err.return program
-    | Error e -> Err.fail (`Model_json_decode e)
+    Jsont_bytesrw.decode_string ExportedProgram.jsont program_json
+    |> Err.import ~pos:__POS__ (fun e -> `Model_json_decode e)
   in
   let* weights_json =
     read_member zip "data/weights/model_weights_config.json"
   in
   let* weights =
-    match Jsont_bytesrw.decode_string ModelWeightsConfig.jsont weights_json with
-    | Ok weights -> Err.return weights
-    | Error e -> Err.fail (`Weights_config_decode e)
+    Jsont_bytesrw.decode_string ModelWeightsConfig.jsont weights_json
+    |> Err.import ~pos:__POS__ (fun e -> `Weights_config_decode e)
   in
   let* constants_data =
     Pt2_zip.read_rel zip "data/constants/model_constants_config.json"
@@ -161,10 +159,9 @@ let of_string ?limits ~name contents =
   let* constants =
     match constants_data with
     | None -> Err.return { ModelWeightsConfig.config = String_map.empty }
-    | Some json -> (
-        match Jsont_bytesrw.decode_string ModelWeightsConfig.jsont json with
-        | Ok constants -> Err.return constants
-        | Error e -> Err.fail (`Constants_config_decode e))
+    | Some json ->
+        Jsont_bytesrw.decode_string ModelWeightsConfig.jsont json
+        |> Err.import ~pos:__POS__ (fun e -> `Constants_config_decode e)
   in
   Err.return { zip; program; weights; constants }
 

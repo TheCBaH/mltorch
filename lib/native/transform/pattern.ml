@@ -162,11 +162,11 @@ module Make (D : Dialect.S) = struct
      detection provenance is deliberately dropped: [failure] carries no
      [Err.Error.t], and [Invalid] is a report that the graph is broken rather
      than a developer diagnostic. Named so the crossing is auditable in one
-     place instead of open-coded at each use, and marked [Export] so a monitor
-     can see the crossing even though the value that leaves cannot record it. *)
+     place instead of open-coded at each use, and [Err.export] marks it so a
+     monitor can see the crossing even though the value that leaves cannot
+     record it. *)
   let of_err r =
-    Err.mark_error ~pos:__POS__ Err.Action.Export r
-    |> Result.map_error (fun e -> Invalid (Err.Error.kind e))
+    Err.export ~pos:__POS__ r |> Result.map_error (fun k -> Invalid k)
 
   (* [region] and [run] close over the same claimed-plus-shared set. *)
   let region_of s =

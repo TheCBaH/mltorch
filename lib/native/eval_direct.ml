@@ -116,30 +116,27 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
   (* One materialisation per output edge: [Graph_shape] and [Node.outputs]
          agree in length by construction (single-output ops give one of each; a
          [Discard]-style zero-output op gives none, so the fold is empty). *)
-  if List.compare_lengths node.Node.outputs shapes <> 0 then
-    Err.fail
-      (`Output_arity_mismatch
-         {
-           expected = List.length shapes;
-           actual = List.length node.Node.outputs;
-         })
-  else
-    let outs =
-      List.mapi
-        (fun output (oid, out_shape) -> (output, oid, out_shape))
-        (List.combine node.Node.outputs shapes)
-    in
-    Err.List.fold_left
-      (fun env (output, oid, out_shape) ->
-        let result =
-          Schedule.evaluate out_shape
-            (E.pixel op ~output
-               ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-               ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-               ~fill)
-        in
-        Err.return (Tensor_id.Map.add oid result env))
-      env outs
+  let* pairs =
+    Err.List.map2
+      ~unequal_lengths:(fun actual expected ->
+        `Output_arity_mismatch { expected; actual })
+      (fun oid out_shape -> Err.return (oid, out_shape))
+      node.Node.outputs shapes
+  in
+  let outs =
+    List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
+  in
+  Err.List.fold_left
+    (fun env (output, oid, out_shape) ->
+      let result =
+        Schedule.evaluate out_shape
+          (E.pixel op ~output
+             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+             ~fill)
+      in
+      Err.return (Tensor_id.Map.add oid result env))
+    env outs
 
 let run ?hooks ?(constants = []) (g : graph)
     ~(inputs : (Tensor_id.t * Tensor.packed) list) =

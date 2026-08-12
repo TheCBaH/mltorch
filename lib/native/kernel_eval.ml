@@ -130,16 +130,12 @@ let input_env (k : Kernel.t) ~bind =
 (* ---- evaluation ------------------------------------------------------------
 
    [Tensor.materialize] takes [Vec6.coord -> float] and cannot carry a result,
-   so the callback signals through a private exception carrying the ERROR VALUE
-   and the boundary converts once. Reusing [Schedule.ground] instead would put
-   [Err.or_raise ~pp_error:] on the path and let [Expr.Eval] failures escape as exceptions
-   through an API promising [Err.t]. The original error is re-returned,
-   never rebuilt by hand, so its detection backtrace survives. *)
+   so the callback signals through [Err.Escape] and the boundary converts once.
+   Reusing [Schedule.ground] instead would put [Err.or_raise ~pp_error:] on the
+   path and let [Expr.Eval] failures escape as exceptions through an API
+   promising [Err.t]. [Escape.or_throw] re-returns the original error, never
+   rebuilding it by hand, so its detection backtrace survives. *)
 
-exception Failed of error Err.Error.t
-
-let caught f = try f () with Failed e -> Error e
-let or_raise = function Ok v -> v | Error e -> raise (Failed e)
 let widen r = Err.map_error (fun (e : Expr.Eval.error) -> (e :> error)) r
 
 let coord_key (c : int Expr.Coord.t) =
@@ -170,8 +166,8 @@ let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
 (* One engine for both placements. A value in [stores] is materialised; a load
    on an edge in [virtual_uses] recurses into its producer instead of reading a
    buffer. [run] is this with nothing virtual and everything stored. *)
-let machine (k : Kernel.t) ~bind ~virtual_uses =
-  let inputs = or_raise (input_env k ~bind) in
+let machine esc (k : Kernel.t) ~bind ~virtual_uses =
+  let inputs = Err.Escape.or_throw esc (input_env k ~bind) in
   let values = values_by_id k in
   let bodies = Tensor_id.Map.map converted values in
   let bound = ref inputs in
@@ -187,30 +183,23 @@ let machine (k : Kernel.t) ~bind ~virtual_uses =
      would have pushed, which a post-hoc count cannot do. *)
   let rec eval_value ~depth id coord =
     if depth > Kernel.Limits.Hard.eval_recursion then
-      raise
-        (Failed
-           (Err.Error.make
-              (`Recursion_too_deep Kernel.Limits.Hard.eval_recursion)));
+      Err.Escape.throw esc
+        (`Recursion_too_deep Kernel.Limits.Hard.eval_recursion);
     match Tensor_id.Map.find_opt id values with
-    | None -> raise (Failed (Err.Error.make (`Unknown_value id)))
+    | None -> Err.Escape.throw esc (`Unknown_value id)
     | Some (v : Kernel.Value.t) -> (
         match in_shape v.Kernel.Value.sg coord with
         | Some a ->
-            raise
-              (Failed
-                 (Err.Error.make
-                    (`Coord_out_of_range
-                       ( Expr_bridge.source_of_id id,
-                         a,
-                         Expr.Coord.get coord a,
-                         coord ))))
+            Err.Escape.throw esc
+              (`Coord_out_of_range
+                 (Expr_bridge.source_of_id id, a, Expr.Coord.get coord a, coord))
         | None -> (
             let key = (Tensor_id.to_int id, coord_key coord) in
             match Hashtbl.find_opt memo key with
             | Some x -> x
             | None ->
                 let x =
-                  or_raise
+                  Err.Escape.or_throw esc
                     (widen
                        (Expr.Eval.value (env_for ~depth id) ~output:coord
                           (Tensor_id.Map.find id bodies)))
@@ -234,7 +223,7 @@ let machine (k : Kernel.t) ~bind ~virtual_uses =
   let materialize (v : Kernel.Value.t) =
     let t =
       Tensor.materialize v.Kernel.Value.sg.Tensor_sig.shape (fun c ->
-          or_raise
+          Err.Escape.or_throw esc
             (widen
                (Expr.Eval.value
                   (env_for ~depth:0 v.Kernel.Value.id)
@@ -246,8 +235,8 @@ let machine (k : Kernel.t) ~bind ~virtual_uses =
   in
   (materialize, fun id coord -> eval_value ~depth:0 id coord)
 
-let execute (k : Kernel.t) ~bind ~virtual_uses ~stores =
-  let materialize, _ = machine k ~bind ~virtual_uses in
+let execute esc (k : Kernel.t) ~bind ~virtual_uses ~stores =
+  let materialize, _ = machine esc k ~bind ~virtual_uses in
   List.fold_left
     (fun results (v : Kernel.Value.t) ->
       if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
@@ -255,40 +244,32 @@ let execute (k : Kernel.t) ~bind ~virtual_uses ~stores =
     Tensor_id.Map.empty k.Kernel.values
 
 let run k ~bind =
-  caught @@ fun () ->
-  Ok
-    (execute k ~bind ~virtual_uses:Kernel.Use.Set.empty
-       ~stores:
-         (List.fold_left
-            (fun s (v : Kernel.Value.t) ->
-              Tensor_id.Set.add v.Kernel.Value.id s)
-            Tensor_id.Set.empty k.Kernel.values))
+  Err.Escape.with_escape @@ fun esc ->
+  execute esc k ~bind ~virtual_uses:Kernel.Use.Set.empty
+    ~stores:
+      (List.fold_left
+         (fun s (v : Kernel.Value.t) -> Tensor_id.Set.add v.Kernel.Value.id s)
+         Tensor_id.Set.empty k.Kernel.values)
 
 let run_plan (p : Fusion_plan.t) ~bind =
-  caught @@ fun () ->
-  Ok
-    (execute p.Fusion_plan.kernel ~bind ~virtual_uses:p.Fusion_plan.virtual_uses
-       ~stores:p.Fusion_plan.stores)
+  Err.Escape.with_escape @@ fun esc ->
+  execute esc p.Fusion_plan.kernel ~bind
+    ~virtual_uses:p.Fusion_plan.virtual_uses ~stores:p.Fusion_plan.stores
 
 (* Every value virtual and nothing stored: the fully on-demand reading, and the
    one a virtual placement uses per edge. Shares [execute]'s guarded recursion
    rather than repeating it, so the depth bound cannot apply to one path and not
    the other. *)
 let value_at k ~bind id coord =
-  caught @@ fun () ->
+  Err.Escape.with_escape @@ fun esc ->
   match Kernel.value k id with
-  | None -> raise (Failed (Err.Error.make (`Unknown_value id)))
+  | None -> Err.Escape.throw esc (`Unknown_value id)
   | Some (v : Kernel.Value.t) -> (
       match in_shape v.Kernel.Value.sg coord with
       | Some a ->
-          raise
-            (Failed
-               (Err.Error.make
-                  (`Coord_out_of_range
-                     ( Expr_bridge.source_of_id id,
-                       a,
-                       Expr.Coord.get coord a,
-                       coord ))))
+          Err.Escape.throw esc
+            (`Coord_out_of_range
+               (Expr_bridge.source_of_id id, a, Expr.Coord.get coord a, coord))
       | None ->
           (* [Kernel.uses] is exactly "every internal source dependency", which
              is what fully virtual execution means, and it builds its value-id
@@ -296,5 +277,5 @@ let value_at k ~bind id coord =
              source made setup O(values x source occurrences) before evaluation
              or memoisation had begun — the same linear-lookup-per-source shape
              already removed from [edges_of]. *)
-          let _, eval = machine k ~bind ~virtual_uses:(Kernel.uses k) in
-          Ok (eval id coord))
+          let _, eval = machine esc k ~bind ~virtual_uses:(Kernel.uses k) in
+          eval id coord)

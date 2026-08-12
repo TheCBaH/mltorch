@@ -86,7 +86,7 @@ module Storage_range = struct
 end
 
 (* Loading a captured tensor, which is a different job from reading graph
-   metadata even though it reuses [shape_of_sizes] and so can raise its rows. *)
+   metadata even though it reuses [shape_of_sizes] and so can throw its rows. *)
 type tensor_bridge =
   [ malformed
   | `Rank_mismatch of Rank_mismatch.t
@@ -198,24 +198,30 @@ let pp_error ppf : [< error ] -> unit = function
   | `Verify e -> Map_verify.pp_error ppf e
   | `Lens e -> Pt2_native_graph.pp_lens_error ppf e
 
-exception Lower_error of error
-
 (* Internal control flow only — the .mli exposes [error] and nothing else. The
    lowering walk is deeply recursive and threading a result through every arm
-   would rewrite it; the exception is caught once, at [lower]'s boundary, and
-   converted there. What crosses it is now a typed row rather than a rendered
-   sentence. *)
-let malformed (e : malformed) = raise (Lower_error (e :> error))
+   would rewrite it, so it exits through [Err.Escape] instead: one token per
+   [with_escape] call, threaded to every helper that can detect a fault.
 
-let shape_of_sizes name sizes =
+   It replaces a private [exception Lower_error of error] carrying the BARE row.
+   That lost the [Err.Error.t] across this module's own boundary — the catch
+   rebuilt the wrapper with [Err.fail], so every malformed graph was reported as
+   detected at the catch site rather than where the fault was found — and it let
+   [tensor_of_pt2]'s re-labelled row escape uncaught past an [Err.t]
+   signature. [throw] records [Detect] where the fault is, and [with_escape]
+   catches by construction. *)
+let malformed esc (e : malformed) = Err.Escape.throw esc (e :> error)
+
+let shape_of_sizes esc name sizes =
   let dims =
     List.map
       (function
         | SymInt.Int i when i >= 0 -> i
         | SymInt.Int i ->
-            malformed (`Bad_dimension { tensor = name; fault = `Negative i })
+            malformed esc
+              (`Bad_dimension { tensor = name; fault = `Negative i })
         | SymInt.Expr _ ->
-            malformed (`Bad_dimension { tensor = name; fault = `Symbolic }))
+            malformed esc (`Bad_dimension { tensor = name; fault = `Symbolic }))
       sizes
   in
   match List.rev dims with
@@ -226,40 +232,41 @@ let shape_of_sizes name sizes =
   | [ c; w ] -> Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w ~c
   | c :: [] -> Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c
   | [] -> Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1
-  | _ -> malformed (`Bad_dimension { tensor = name; fault = `Rank_over_six })
+  | _ ->
+      malformed esc (`Bad_dimension { tensor = name; fault = `Rank_over_six })
 
-let tensor_shape (graph : Pytorch_types.Graph.t) name =
+let tensor_shape esc (graph : Pytorch_types.Graph.t) name =
   match String_map.find_opt name graph.tensor_values with
-  | Some meta -> shape_of_sizes name meta.TensorMeta.sizes
-  | None -> malformed (`Missing_metadata { ssa = name; role = `Tensor })
+  | Some meta -> shape_of_sizes esc name meta.TensorMeta.sizes
+  | None -> malformed esc (`Missing_metadata { ssa = name; role = `Tensor })
 
-let find_arg (node : Pytorch_types.Node.t) name =
+let find_arg esc (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
   | Some a -> a.arg
-  | None -> malformed (`Missing_arg { op = node.target; arg = name })
+  | None -> malformed esc (`Missing_arg { op = node.target; arg = name })
 
-let tensor_name (node : Pytorch_types.Node.t) name =
-  match find_arg node name with
+let tensor_name esc (node : Pytorch_types.Node.t) name =
+  match find_arg esc node name with
   | Argument.Tensor t -> t.TensorArgument.name
   | _ ->
-      malformed
+      malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Tensor })
 
-let optional_tensor_name (node : Pytorch_types.Node.t) name =
-  match find_arg node name with
+let optional_tensor_name esc (node : Pytorch_types.Node.t) name =
+  match find_arg esc node name with
   | Argument.Tensor t -> Some t.TensorArgument.name
   | Argument.None _ -> None
   | Argument.Optional_tensor (OptionalTensorArgument.Tensor t) ->
       Some t.TensorArgument.name
   | Argument.Optional_tensor (OptionalTensorArgument.None _) -> None
   | _ ->
-      malformed
+      malformed esc
         (`Wrong_arg_kind
            { op = node.target; arg = name; expected = `Optional_tensor })
 
-let ints_arg ?(default = []) (node : Pytorch_types.Node.t) name =
+let ints_arg esc ?(default = []) (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
@@ -267,44 +274,44 @@ let ints_arg ?(default = []) (node : Pytorch_types.Node.t) name =
   | Some { arg = Argument.Ints xs; _ } -> xs
   | Some { arg = Argument.None _; _ } -> default
   | Some _ ->
-      malformed
+      malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int_list })
 
-let int_arg ?(default = 0) (node : Pytorch_types.Node.t) name =
+let int_arg esc ?(default = 0) (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
   | None -> default
   | Some { arg = Argument.Int i; _ } -> i
   | Some _ ->
-      malformed
+      malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int })
 
-let bool_arg ?(default = false) (node : Pytorch_types.Node.t) name =
+let bool_arg esc ?(default = false) (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
   | None -> default
   | Some { arg = Argument.Bool b; _ } -> b
   | Some _ ->
-      malformed
+      malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Bool })
 
-let float_arg ?(default = 0.) (node : Pytorch_types.Node.t) name =
+let float_arg esc ?(default = 0.) (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
   | None -> default
   | Some { arg = Argument.Float f; _ } -> f
   | Some _ ->
-      malformed
+      malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Float })
 
 (* A schema [Scalar] argument crosses as either an Int or a Float — clamp's
    bounds arrive as `as_int` in MobileNet-v3 and hardtanh's as `as_float` in v2,
    for the same kind of parameter. Mirrors [Interp_decode.scalar_arg] /
    [scalar_opt_arg], which the ATen path decodes with. *)
-let scalar_arg ~default (node : Pytorch_types.Node.t) name =
+let scalar_arg esc ~default (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
@@ -313,10 +320,10 @@ let scalar_arg ~default (node : Pytorch_types.Node.t) name =
   | Some { arg = Argument.Float f; _ } -> f
   | Some { arg = Argument.None _; _ } -> default
   | Some _ ->
-      malformed
+      malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Scalar })
 
-let scalar_opt_arg (node : Pytorch_types.Node.t) name =
+let scalar_opt_arg esc (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
@@ -325,7 +332,7 @@ let scalar_opt_arg (node : Pytorch_types.Node.t) name =
   | Some { arg = Argument.Float f; _ } -> Some f
   | Some { arg = Argument.None _; _ } -> None
   | Some _ ->
-      malformed
+      malformed esc
         (`Wrong_arg_kind
            { op = node.target; arg = name; expected = `Optional_scalar })
 
@@ -333,17 +340,18 @@ let scalar_opt_arg (node : Pytorch_types.Node.t) name =
    [self + alpha * other]. Nothing in this model zoo serialises a non-default
    alpha, so it is not implemented — but it must not be silently dropped either,
    since that would quietly compute the wrong thing. Reject instead. *)
-let reject_alpha (node : Pytorch_types.Node.t) =
-  match scalar_opt_arg node "alpha" with
+let reject_alpha esc (node : Pytorch_types.Node.t) =
+  match scalar_opt_arg esc node "alpha" with
   | None -> ()
   | Some a when Float.equal a 1. -> ()
   | Some a ->
-      malformed (`Unsupported_option { op = node.target; option = `Alpha a })
+      malformed esc
+        (`Unsupported_option { op = node.target; option = `Alpha a })
 
 (* [clone] with a [memory_format] asks for a layout change this op does not
    perform. The native IR has one layout per shape, so honouring the request is
    impossible and ignoring it would misreport what was computed. *)
-let reject_memory_format (node : Pytorch_types.Node.t) =
+let reject_memory_format esc (node : Pytorch_types.Node.t) =
   match
     List.find_opt
       (fun (a : NamedArgument.t) -> a.name = "memory_format")
@@ -351,14 +359,14 @@ let reject_memory_format (node : Pytorch_types.Node.t) =
   with
   | None | Some { arg = Argument.None _; _ } -> ()
   | Some _ ->
-      malformed
+      malformed esc
         (`Unsupported_option { op = node.target; option = `Memory_format })
 
-let output_names (node : Pytorch_types.Node.t) =
+let output_names esc (node : Pytorch_types.Node.t) =
   List.map
     (function
       | Argument.Tensor t -> t.TensorArgument.name
-      | _ -> malformed (`Non_tensor_node_output node.target))
+      | _ -> malformed esc (`Non_tensor_node_output node.target))
     node.outputs
 
 let is_nontrivial_node (node : Pytorch_types.Node.t) =
@@ -370,22 +378,22 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
       true
   | _ -> false
 
-let materialized_output_names (node : Pytorch_types.Node.t) =
+let materialized_output_names esc (node : Pytorch_types.Node.t) =
   match node.target with
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
   | "torch.ops.aten.max_pool2d_with_indices.default" ->
-      [ List.hd (output_names node) ]
-  | _ -> output_names node
+      [ List.hd (output_names esc node) ]
+  | _ -> output_names esc node
 
-let hw2 param = function
+let hw2 esc param = function
   | [ h; w ] -> (h, w)
   | [ x ] -> (x, x)
-  | xs -> malformed (`Bad_arity { param; got = List.length xs })
+  | xs -> malformed esc (`Bad_arity { param; got = List.length xs })
 
-let env_find env name =
+let env_find esc env name =
   match String_map.find_opt name env with
   | Some x -> x
-  | None -> malformed (`Undefined_ssa name)
+  | None -> malformed esc (`Undefined_ssa name)
 
 let add_env env names ids =
   (* An INVARIANT of this module, not a fact about the model: [names] comes
@@ -413,13 +421,14 @@ let perm_addmm_weight =
   let open Axis in
   [ (N, C); (T, T); (D, D); (H, H); (W, N); (C, W) ]
 
-let conv_params (graph : Pytorch_types.Graph.t) (node : Pytorch_types.Node.t) =
-  let weight_name = tensor_name node "weight" in
+let conv_params esc (graph : Pytorch_types.Graph.t)
+    (node : Pytorch_types.Node.t) =
+  let weight_name = tensor_name esc node "weight" in
   let weight_meta =
     match String_map.find_opt weight_name graph.tensor_values with
     | Some x -> x
     | None ->
-        malformed
+        malformed esc
           (`Missing_metadata { ssa = weight_name; role = `Convolution_weight })
   in
   let sizes =
@@ -427,7 +436,7 @@ let conv_params (graph : Pytorch_types.Graph.t) (node : Pytorch_types.Node.t) =
       (function
         | SymInt.Int i -> i
         | SymInt.Expr _ ->
-            malformed
+            malformed esc
               (`Bad_dimension { tensor = weight_name; fault = `Symbolic }))
       weight_meta.TensorMeta.sizes
   in
@@ -435,7 +444,7 @@ let conv_params (graph : Pytorch_types.Graph.t) (node : Pytorch_types.Node.t) =
     match sizes with
     | [ a; b; c; d ] -> (a, b, c, d)
     | _ ->
-        malformed
+        malformed esc
           (`Bad_dimension
              {
                tensor = weight_name;
@@ -443,17 +452,21 @@ let conv_params (graph : Pytorch_types.Graph.t) (node : Pytorch_types.Node.t) =
              })
   in
   let _ = cout in
-  let sh, sw = hw2 `Stride (ints_arg ~default:[ 1; 1 ] node "stride") in
-  let ph, pw = hw2 `Padding (ints_arg ~default:[ 0; 0 ] node "padding") in
-  let dh, dw = hw2 `Dilation (ints_arg ~default:[ 1; 1 ] node "dilation") in
-  let groups = int_arg ~default:1 node "groups" in
+  let sh, sw = hw2 esc `Stride (ints_arg esc ~default:[ 1; 1 ] node "stride") in
+  let ph, pw =
+    hw2 esc `Padding (ints_arg esc ~default:[ 0; 0 ] node "padding")
+  in
+  let dh, dw =
+    hw2 esc `Dilation (ints_arg esc ~default:[ 1; 1 ] node "dilation")
+  in
+  let groups = int_arg esc ~default:1 node "groups" in
   ( {
       Conv.Convolution.stride =
         { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
       padding =
         { h = Op_config.Nonneg.of_int ph; w = Op_config.Nonneg.of_int pw };
       dilation = { h = Op_config.Pos.of_int dh; w = Op_config.Pos.of_int dw };
-      transposed = bool_arg node "transposed";
+      transposed = bool_arg esc node "transposed";
       output_padding =
         { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
       groups = Op_config.Pos.of_int groups;
@@ -462,28 +475,30 @@ let conv_params (graph : Pytorch_types.Graph.t) (node : Pytorch_types.Node.t) =
     kh,
     kw )
 
-let pool_params (node : Pytorch_types.Node.t) =
-  let kh, kw = hw2 `Kernel_size (ints_arg node "kernel_size") in
-  let stride = ints_arg ~default:[ kh; kw ] node "stride" in
-  let sh, sw = hw2 `Stride stride in
-  let ph, pw = hw2 `Padding (ints_arg ~default:[ 0; 0 ] node "padding") in
+let pool_params esc (node : Pytorch_types.Node.t) =
+  let kh, kw = hw2 esc `Kernel_size (ints_arg esc node "kernel_size") in
+  let stride = ints_arg esc ~default:[ kh; kw ] node "stride" in
+  let sh, sw = hw2 esc `Stride stride in
+  let ph, pw =
+    hw2 esc `Padding (ints_arg esc ~default:[ 0; 0 ] node "padding")
+  in
   {
     Pool.MaxPool2d.kernel = { h = Dim.extent kh; w = Dim.extent kw };
     stride = { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
     pad = { h = Op_config.Nonneg.of_int ph; w = Op_config.Nonneg.of_int pw };
   }
 
-let axes_for_rank rank dims =
+let axes_for_rank esc rank dims =
   let used = List.filteri (fun i _ -> i >= 6 - rank) Axis.all in
   List.map
     (fun d ->
       let d = if d < 0 then d + rank else d in
       if d < 0 || d >= rank then
-        malformed (`Axis_out_of_range { axis = d; rank })
+        malformed esc (`Axis_out_of_range { axis = d; rank })
       else List.nth used d)
     dims
 
-let native_perm ~rank dims =
+let native_perm esc ~rank dims =
   let used = List.filteri (fun i _ -> i >= 6 - rank) Axis.all in
   let outer = List.filter (fun a -> not (List.mem a used)) Axis.all in
   List.map (fun a -> (a, a)) outer
@@ -491,53 +506,243 @@ let native_perm ~rank dims =
       (fun i d ->
         let d = if d < 0 then d + rank else d in
         if d < 0 || d >= rank then
-          malformed (`Axis_out_of_range { axis = d; rank });
+          malformed esc (`Axis_out_of_range { axis = d; rank });
         (List.nth used i, List.nth used d))
       dims
 
 let shape_numel shape = (Vec6.numel shape :> int)
 
-let resolve_view shape size =
+let resolve_view esc shape size =
   let numel = shape_numel shape in
   let known = List.fold_left (fun n x -> if x = -1 then n else n * x) 1 size in
   let size = List.map (fun x -> if x = -1 then numel / known else x) size in
-  shape_of_sizes "view" (List.map (fun x -> SymInt.Int x) size)
+  shape_of_sizes esc "view" (List.map (fun x -> SymInt.Int x) size)
 
 let lower program =
-  try
-    let graph : Pytorch_types.Graph.t =
-      program.ExportedProgram.graph_module.graph
+  Err.Escape.with_escape @@ fun esc ->
+  Err.Escape.or_throw esc
+  @@
+  let graph : Pytorch_types.Graph.t =
+    program.ExportedProgram.graph_module.graph
+  in
+  let sign = program.ExportedProgram.graph_module.GraphModule.signature in
+  let source_specs =
+    List.map
+      (function
+        | InputSpec.User_input { UserInputSpec.arg = Argument.Tensor a } ->
+            (`Input, a.TensorArgument.name, None)
+        | InputSpec.Parameter p ->
+            (`Constant, p.arg.TensorArgument.name, Some p.parameter_name)
+        | InputSpec.Buffer p ->
+            (`Constant, p.arg.TensorArgument.name, Some p.buffer_name)
+        | InputSpec.Tensor_constant p ->
+            (`Constant, p.arg.TensorArgument.name, Some p.tensor_constant_name)
+        | _ -> Err.Escape.throw esc (`Unsupported_input `Non_tensor))
+      sign.GraphSignature.input_specs
+  in
+  let tensor_origins = ref Tensor_id.Map.empty in
+  let captured_targets = ref Tensor_id.Map.empty in
+  let node_outputs = ref [] in
+  let body =
+    let open Graph_builder in
+    let* env =
+      List.fold_left
+        (fun acc (kind, name, target) ->
+          let* env = acc in
+          let shape = tensor_shape esc graph name in
+          let* id =
+            match kind with
+            | `Input -> input ~shape ()
+            | `Constant -> constant ~shape ()
+          in
+          tensor_origins :=
+            Tensor_id.Map.add id
+              (Pt2_native_graph.Source
+                 {
+                   graph_path = [];
+                   ssa_name = name;
+                   meta = String_map.find_opt name graph.tensor_values;
+                 })
+              !tensor_origins;
+          Option.iter
+            (fun x ->
+              captured_targets := Tensor_id.Map.add id x !captured_targets)
+            target;
+          return (String_map.add name id env))
+        (return String_map.empty) source_specs
     in
-    let sign = program.ExportedProgram.graph_module.GraphModule.signature in
-    let source_specs =
-      List.map
-        (function
-          | InputSpec.User_input { UserInputSpec.arg = Argument.Tensor a } ->
-              (`Input, a.TensorArgument.name, None)
-          | InputSpec.Parameter p ->
-              (`Constant, p.arg.TensorArgument.name, Some p.parameter_name)
-          | InputSpec.Buffer p ->
-              (`Constant, p.arg.TensorArgument.name, Some p.buffer_name)
-          | InputSpec.Tensor_constant p ->
-              (`Constant, p.arg.TensorArgument.name, Some p.tensor_constant_name)
-          | _ -> raise (Lower_error (`Unsupported_input `Non_tensor)))
-        sign.GraphSignature.input_specs
+    let lower_op env node =
+      let get name = env_find esc env (tensor_name esc node name) in
+      (* A Tensor-typed argument the exporter serialised as a bare scalar.
+           MobileNet-v3's hardsigmoid is `add(x, 3)` / `div(x, 6)` with `as_int`
+           arguments; the ATen path materialises those through [full_like]
+           ([Interp_decode.tensor_or_scalar_arg]), and the native path routes
+           them to the scalar-parameter ops instead, so no edge needs binding. *)
+      let tensor_or_scalar name =
+        match find_arg esc node name with
+        | Argument.Tensor t -> `Tensor (env_find esc env t.TensorArgument.name)
+        | Argument.Int i -> `Scalar (float_of_int i)
+        | Argument.Float f -> `Scalar f
+        | _ ->
+            malformed esc
+              (`Wrong_arg_kind
+                 { op = node.target; arg = name; expected = `Tensor_or_scalar })
+      in
+      match node.target with
+      | "torch.ops.aten.convolution.default" ->
+          let params, _, _, _ = conv_params esc graph node in
+          let* x = permute perm_nchw_to_nhwc (get "input") in
+          let* w = permute perm_oihw_to_conv_weight (get "weight") in
+          let bias =
+            Option.map (env_find esc env) (optional_tensor_name esc node "bias")
+          in
+          let* y = convolution params ~x ~weight:w ?bias () in
+          let* y = permute perm_nhwc_to_nchw y in
+          return [ y ]
+      | "torch.ops.aten._native_batch_norm_legit_no_training.default" ->
+          let* x = permute perm_nchw_to_nhwc (get "input") in
+          let params =
+            { Norm.BatchNorm.channel = Axis.C; eps = float_arg esc node "eps" }
+          in
+          let* y =
+            batch_norm params ~x
+              ?weight:
+                (Option.map (env_find esc env)
+                   (optional_tensor_name esc node "weight"))
+              ?bias:
+                (Option.map (env_find esc env)
+                   (optional_tensor_name esc node "bias"))
+              ~running_mean:(get "running_mean")
+              ~running_var:(get "running_var") ()
+          in
+          let* y = permute perm_nhwc_to_nchw y in
+          return [ y ]
+      | "torch.ops.aten.relu.default" ->
+          let* y = relu (get "self") in
+          return [ y ]
+      | "torch.ops.aten.add.Tensor" -> (
+          reject_alpha esc node;
+          match tensor_or_scalar "other" with
+          | `Tensor other ->
+              let* y = add (get "self") other in
+              return [ y ]
+          | `Scalar s ->
+              let* y = add_scalar s (get "self") in
+              return [ y ])
+      | "torch.ops.aten.clamp.default" ->
+          let params : Pointwise.Clamp.params =
+            {
+              min = scalar_opt_arg esc node "min";
+              max = scalar_opt_arg esc node "max";
+            }
+          in
+          let* y = clamp params (get "self") in
+          return [ y ]
+      | "torch.ops.aten.clone.default" ->
+          reject_memory_format esc node;
+          let* y = clone (get "self") in
+          return [ y ]
+      | "torch.ops.aten.div.Tensor" -> (
+          match tensor_or_scalar "other" with
+          | `Tensor other ->
+              let* y = div (get "self") other in
+              return [ y ]
+          | `Scalar s ->
+              let* y = div_scalar s (get "self") in
+              return [ y ])
+      | "torch.ops.aten.hardtanh.default" ->
+          (* Schema defaults are -1/1; MobileNet-v2 always serialises 0/6. *)
+          let params : Pointwise.Hardtanh.params =
+            {
+              min_val = scalar_arg esc ~default:(-1.) node "min_val";
+              max_val = scalar_arg esc ~default:1. node "max_val";
+            }
+          in
+          let* y = hardtanh params (get "self") in
+          return [ y ]
+      | "torch.ops.aten.mul.Tensor" ->
+          let* y = mul (get "self") (get "other") in
+          return [ y ]
+      | "torch.ops.aten.max_pool2d_with_indices.default" ->
+          let* x = permute perm_nchw_to_nhwc (get "self") in
+          let* values, indices =
+            max_pool2d_with_indices (pool_params esc node) x
+          in
+          let* () = discard indices in
+          let* values = permute perm_nhwc_to_nchw values in
+          return [ values ]
+      | "torch.ops.aten.mean.dim" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            match String_map.find_opt x_name graph.tensor_values with
+            | Some m -> List.length m.TensorMeta.sizes
+            | None ->
+                malformed esc
+                  (`Missing_metadata { ssa = x_name; role = `Mean_input })
+          in
+          let params =
+            {
+              Reduce.Mean.dims =
+                axes_for_rank esc rank (ints_arg esc node "dim");
+              keepdim = bool_arg esc node "keepdim";
+            }
+          in
+          let* y = mean params (get "self") in
+          return [ y ]
+      | "torch.ops.aten.permute.default" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            match String_map.find_opt x_name graph.tensor_values with
+            | Some m -> List.length m.TensorMeta.sizes
+            | None ->
+                malformed esc
+                  (`Missing_metadata { ssa = x_name; role = `Permute_input })
+          in
+          let* y =
+            permute
+              (native_perm esc ~rank (ints_arg esc node "dims"))
+              (get "self")
+          in
+          return [ y ]
+      | "torch.ops.aten.view.default" ->
+          let shape = tensor_shape esc graph (tensor_name esc node "self") in
+          let* y =
+            reshape
+              {
+                Reshape.Reshape.shape =
+                  resolve_view esc shape (ints_arg esc node "size");
+              }
+              (get "self")
+          in
+          return [ y ]
+      | "torch.ops.aten.addmm.default" ->
+          let w_name = tensor_name esc node "mat2" in
+          let in_features =
+            match String_map.find_opt w_name graph.tensor_values with
+            | Some m -> (
+                match m.TensorMeta.sizes with
+                | SymInt.Int n :: _ -> n
+                | _ ->
+                    malformed esc
+                      (`Bad_dimension { tensor = w_name; fault = `Symbolic }))
+            | None ->
+                malformed esc
+                  (`Missing_metadata { ssa = w_name; role = `Addmm_weight })
+          in
+          let* w = permute perm_addmm_weight (get "mat2") in
+          let* y =
+            linear
+              { Linear.Linear.in_features = Dim.extent in_features }
+              ~x:(get "mat1") ~weight:w ~bias:(get "self") ()
+          in
+          return [ y ]
+      | target -> Err.Escape.throw esc (`Unsupported_operator target)
     in
-    let tensor_origins = ref Tensor_id.Map.empty in
-    let captured_targets = ref Tensor_id.Map.empty in
-    let node_outputs = ref [] in
-    let body =
-      let open Graph_builder in
-      let* env =
-        List.fold_left
-          (fun acc (kind, name, target) ->
-            let* env = acc in
-            let shape = tensor_shape graph name in
-            let* id =
-              match kind with
-              | `Input -> input ~shape ()
-              | `Constant -> constant ~shape ()
-            in
+    let lower_node index env node =
+      let names = materialized_output_names esc node in
+      let bind ids =
+        List.iter2
+          (fun name id ->
             tensor_origins :=
               Tensor_id.Map.add id
                 (Pt2_native_graph.Source
@@ -546,274 +751,88 @@ let lower program =
                      ssa_name = name;
                      meta = String_map.find_opt name graph.tensor_values;
                    })
-                !tensor_origins;
-            Option.iter
-              (fun x ->
-                captured_targets := Tensor_id.Map.add id x !captured_targets)
-              target;
-            return (String_map.add name id env))
-          (return String_map.empty) source_specs
+                !tensor_origins)
+          names ids;
+        node_outputs := (index, ids) :: !node_outputs;
+        add_env env names ids
       in
-      let lower_op env node =
-        let get name = env_find env (tensor_name node name) in
-        (* A Tensor-typed argument the exporter serialised as a bare scalar.
-           MobileNet-v3's hardsigmoid is `add(x, 3)` / `div(x, 6)` with `as_int`
-           arguments; the ATen path materialises those through [full_like]
-           ([Interp_decode.tensor_or_scalar_arg]), and the native path routes
-           them to the scalar-parameter ops instead, so no edge needs binding. *)
-        let tensor_or_scalar name =
-          match find_arg node name with
-          | Argument.Tensor t -> `Tensor (env_find env t.TensorArgument.name)
-          | Argument.Int i -> `Scalar (float_of_int i)
-          | Argument.Float f -> `Scalar f
-          | _ ->
-              malformed
-                (`Wrong_arg_kind
-                   {
-                     op = node.target;
-                     arg = name;
-                     expected = `Tensor_or_scalar;
-                   })
-        in
-        match node.target with
-        | "torch.ops.aten.convolution.default" ->
-            let params, _, _, _ = conv_params graph node in
-            let* x = permute perm_nchw_to_nhwc (get "input") in
-            let* w = permute perm_oihw_to_conv_weight (get "weight") in
-            let bias =
-              Option.map (env_find env) (optional_tensor_name node "bias")
-            in
-            let* y = convolution params ~x ~weight:w ?bias () in
-            let* y = permute perm_nhwc_to_nchw y in
-            return [ y ]
-        | "torch.ops.aten._native_batch_norm_legit_no_training.default" ->
-            let* x = permute perm_nchw_to_nhwc (get "input") in
-            let params =
-              { Norm.BatchNorm.channel = Axis.C; eps = float_arg node "eps" }
-            in
-            let* y =
-              batch_norm params ~x
-                ?weight:
-                  (Option.map (env_find env)
-                     (optional_tensor_name node "weight"))
-                ?bias:
-                  (Option.map (env_find env) (optional_tensor_name node "bias"))
-                ~running_mean:(get "running_mean")
-                ~running_var:(get "running_var") ()
-            in
-            let* y = permute perm_nhwc_to_nchw y in
-            return [ y ]
-        | "torch.ops.aten.relu.default" ->
-            let* y = relu (get "self") in
-            return [ y ]
-        | "torch.ops.aten.add.Tensor" -> (
-            reject_alpha node;
-            match tensor_or_scalar "other" with
-            | `Tensor other ->
-                let* y = add (get "self") other in
-                return [ y ]
-            | `Scalar s ->
-                let* y = add_scalar s (get "self") in
-                return [ y ])
-        | "torch.ops.aten.clamp.default" ->
-            let params : Pointwise.Clamp.params =
-              {
-                min = scalar_opt_arg node "min";
-                max = scalar_opt_arg node "max";
-              }
-            in
-            let* y = clamp params (get "self") in
-            return [ y ]
-        | "torch.ops.aten.clone.default" ->
-            reject_memory_format node;
-            let* y = clone (get "self") in
-            return [ y ]
-        | "torch.ops.aten.div.Tensor" -> (
-            match tensor_or_scalar "other" with
-            | `Tensor other ->
-                let* y = div (get "self") other in
-                return [ y ]
-            | `Scalar s ->
-                let* y = div_scalar s (get "self") in
-                return [ y ])
-        | "torch.ops.aten.hardtanh.default" ->
-            (* Schema defaults are -1/1; MobileNet-v2 always serialises 0/6. *)
-            let params : Pointwise.Hardtanh.params =
-              {
-                min_val = scalar_arg ~default:(-1.) node "min_val";
-                max_val = scalar_arg ~default:1. node "max_val";
-              }
-            in
-            let* y = hardtanh params (get "self") in
-            return [ y ]
-        | "torch.ops.aten.mul.Tensor" ->
-            let* y = mul (get "self") (get "other") in
-            return [ y ]
-        | "torch.ops.aten.max_pool2d_with_indices.default" ->
-            let* x = permute perm_nchw_to_nhwc (get "self") in
-            let* values, indices =
-              max_pool2d_with_indices (pool_params node) x
-            in
-            let* () = discard indices in
-            let* values = permute perm_nhwc_to_nchw values in
-            return [ values ]
-        | "torch.ops.aten.mean.dim" ->
-            let x_name = tensor_name node "self" in
-            let rank =
-              match String_map.find_opt x_name graph.tensor_values with
-              | Some m -> List.length m.TensorMeta.sizes
-              | None ->
-                  malformed
-                    (`Missing_metadata { ssa = x_name; role = `Mean_input })
-            in
-            let params =
-              {
-                Reduce.Mean.dims = axes_for_rank rank (ints_arg node "dim");
-                keepdim = bool_arg node "keepdim";
-              }
-            in
-            let* y = mean params (get "self") in
-            return [ y ]
-        | "torch.ops.aten.permute.default" ->
-            let x_name = tensor_name node "self" in
-            let rank =
-              match String_map.find_opt x_name graph.tensor_values with
-              | Some m -> List.length m.TensorMeta.sizes
-              | None ->
-                  malformed
-                    (`Missing_metadata { ssa = x_name; role = `Permute_input })
-            in
-            let* y =
-              permute (native_perm ~rank (ints_arg node "dims")) (get "self")
-            in
-            return [ y ]
-        | "torch.ops.aten.view.default" ->
-            let shape = tensor_shape graph (tensor_name node "self") in
-            let* y =
-              reshape
-                {
-                  Reshape.Reshape.shape =
-                    resolve_view shape (ints_arg node "size");
-                }
-                (get "self")
-            in
-            return [ y ]
-        | "torch.ops.aten.addmm.default" ->
-            let w_name = tensor_name node "mat2" in
-            let in_features =
-              match String_map.find_opt w_name graph.tensor_values with
-              | Some m -> (
-                  match m.TensorMeta.sizes with
-                  | SymInt.Int n :: _ -> n
-                  | _ ->
-                      malformed
-                        (`Bad_dimension { tensor = w_name; fault = `Symbolic }))
-              | None ->
-                  malformed
-                    (`Missing_metadata { ssa = w_name; role = `Addmm_weight })
-            in
-            let* w = permute perm_addmm_weight (get "mat2") in
-            let* y =
-              linear
-                { Linear.Linear.in_features = Dim.extent in_features }
-                ~x:(get "mat1") ~weight:w ~bias:(get "self") ()
-            in
-            return [ y ]
-        | target -> raise (Lower_error (`Unsupported_operator target))
-      in
-      let lower_node index env node =
-        let names = materialized_output_names node in
-        let bind ids =
-          List.iter2
-            (fun name id ->
-              tensor_origins :=
-                Tensor_id.Map.add id
-                  (Pt2_native_graph.Source
-                     {
-                       graph_path = [];
-                       ssa_name = name;
-                       meta = String_map.find_opt name graph.tensor_values;
-                     })
-                  !tensor_origins)
-            names ids;
-          node_outputs := (index, ids) :: !node_outputs;
-          add_env env names ids
-        in
-        if is_nontrivial_node node then
-          let* ids = group ~label:node.target (lower_op env node) in
-          return (bind ids)
-        else
-          let* ids = lower_op env node in
-          return (bind ids)
-      in
-      let* env =
-        List.fold_left
-          (fun acc (index, node) ->
-            let* env = acc in
-            lower_node index env node)
-          (return env)
-          (List.mapi (fun i n -> (i, n)) graph.nodes)
-      in
-      let outputs =
-        List.map
-          (function
-            | Argument.Tensor a -> env_find env a.TensorArgument.name
-            | _ -> malformed `Non_tensor_graph_output)
-          graph.outputs
-      in
-      return outputs
+      if is_nontrivial_node node then
+        let* ids = group ~label:node.target (lower_op env node) in
+        return (bind ids)
+      else
+        let* ids = lower_op env node in
+        return (bind ids)
     in
-    match
-      Graph_builder.build ~name:"pt2" ~outputs:Fun.id body
-      |> Err.map_error ~pos:__POS__ (fun e -> `Build e)
-    with
-    | Error _ as e -> e
-    | Ok native_graph ->
-        let node_origins =
-          List.fold_left
-            (fun acc (source_index, ids) ->
-              let origin_node = List.nth graph.nodes source_index in
-              List.fold_left
-                (fun acc (node : Graph_ir.node) ->
-                  if
-                    List.exists
-                      (fun id -> List.mem id node.Graph_ir.Node.outputs)
-                      ids
-                  then
-                    Node_id.Map.add node.Graph_ir.Node.id
-                      [
-                        {
-                          Pt2_native_graph.Node_origin.graph_path = [];
-                          index = source_index;
-                          target = origin_node.target;
-                          name = origin_node.name;
-                          metadata = origin_node.metadata;
-                        };
-                      ]
-                      acc
-                  else acc)
-                acc native_graph.Graph_ir.Graph.nodes)
-            Node_id.Map.empty !node_outputs
-        in
-        Pt2_native_graph.make ~graph:native_graph
-          ~tensor_origins:!tensor_origins ~node_origins
-          ~captured_targets:!captured_targets
-        |> Err.map_error ~pos:__POS__ (fun e -> `Provenance e)
-  with Lower_error e -> Err.fail e
+    let* env =
+      List.fold_left
+        (fun acc (index, node) ->
+          let* env = acc in
+          lower_node index env node)
+        (return env)
+        (List.mapi (fun i n -> (i, n)) graph.nodes)
+    in
+    let outputs =
+      List.map
+        (function
+          | Argument.Tensor a -> env_find esc env a.TensorArgument.name
+          | _ -> malformed esc `Non_tensor_graph_output)
+        graph.outputs
+    in
+    return outputs
+  in
+  match
+    Graph_builder.build ~name:"pt2" ~outputs:Fun.id body
+    |> Err.map_error ~pos:__POS__ (fun e -> `Build e)
+  with
+  | Error _ as e -> e
+  | Ok native_graph ->
+      let node_origins =
+        List.fold_left
+          (fun acc (source_index, ids) ->
+            let origin_node = List.nth graph.nodes source_index in
+            List.fold_left
+              (fun acc (node : Graph_ir.node) ->
+                if
+                  List.exists
+                    (fun id -> List.mem id node.Graph_ir.Node.outputs)
+                    ids
+                then
+                  Node_id.Map.add node.Graph_ir.Node.id
+                    [
+                      {
+                        Pt2_native_graph.Node_origin.graph_path = [];
+                        index = source_index;
+                        target = origin_node.target;
+                        name = origin_node.name;
+                        metadata = origin_node.metadata;
+                      };
+                    ]
+                    acc
+                else acc)
+              acc native_graph.Graph_ir.Graph.nodes)
+          Node_id.Map.empty !node_outputs
+      in
+      Pt2_native_graph.make ~graph:native_graph ~tensor_origins:!tensor_origins
+        ~node_origins ~captured_targets:!captured_targets
+      |> Err.map_error ~pos:__POS__ (fun e -> `Provenance e)
 
 let lower_archive archive = lower (Pt2_archive.program archive)
 
 let tensor_of_pt2 (tensor : Pt2_tensor.t) =
+  let open Err.Syntax in
   match tensor.dtype with
   | Pt2_dtype.Float32 -> (
-      let shape =
-        try
-          shape_of_sizes "tensor"
-            (List.map (fun x -> SymInt.Int x) tensor.sizes)
-        with Lower_error (#malformed as e) ->
-          (* [shape_of_sizes] is written for graph metadata; re-label its rows
-             for the bridge without discarding which row it was. *)
-          raise (Lower_error (`Tensor_bridge (e :> tensor_bridge)))
+      (* [shape_of_sizes] is written for graph metadata, so it throws into the
+         lowering row; this is the only caller outside [lower], so it owns the
+         frame and re-labels what comes out. Only the [malformed] rows can
+         arrive, and re-labelling them keeps which row it was. *)
+      let* shape =
+        Err.Escape.with_escape (fun esc ->
+            shape_of_sizes esc "tensor"
+              (List.map (fun x -> SymInt.Int x) tensor.sizes))
+        |> Err.map_error ~pos:__POS__ (function
+          | #malformed as e -> `Tensor_bridge (e :> tensor_bridge)
+          | e -> e)
       in
       if List.compare_lengths tensor.sizes tensor.strides <> 0 then
         Err.fail

@@ -10,14 +10,23 @@
 (* The five variables, in the order [Err.Config.of_strings] takes them:
 
      MLTORCH_ERROR_TRACE              off | boundaries | all | map,filter,...
-     MLTORCH_ERROR_BACKTRACE          off | origin | events
+     MLTORCH_ERROR_BACKTRACE          off (or never) | origin | events
      MLTORCH_ERROR_MAX_EVENTS         <int>
      MLTORCH_ERROR_MAX_FRAMES         <int>
      MLTORCH_ERROR_MAX_EXTERNAL_BYTES <int>
 
+   Surrounding whitespace is ignored, and the spellings above are the ones
+   [Err.Config.pp] emits, so a logged policy can be fed back verbatim.
+
    Unset variables take [Err]'s own defaults, and if NONE of the five is set
    the policy is left alone entirely rather than reset to those defaults — so a
-   host that has already chosen one keeps it. *)
+   host that has already chosen one keeps it.
+
+   [MLTORCH_ERROR_TRACE=boundaries] with [MLTORCH_ERROR_BACKTRACE=off] is
+   [Err.Config.deterministic]: identical diagnostics on every backend wherever
+   a call site supplied [~pos]. Note that [off] on the TRACE axis is not the
+   same thing — it discards the whole event trail, which is what
+   [Err.Config.fast] does despite its name. *)
 val vars : string list
 
 (* Parse a policy from [lookup], which stands in for [Sys.getenv_opt] so this

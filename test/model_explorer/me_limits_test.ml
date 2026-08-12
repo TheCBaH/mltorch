@@ -266,8 +266,34 @@ let%expect_test "only profiles no looser than untrusted cross the wire" =
     {|
     untrusted: ok
     small: ok
-    large: invalid limit max_nodes_per_graph = 1048576
-    trusted: invalid limit max_json_bytes = 536870912
+    large: 7 invalid limits: max_nodes_per_graph = 1048576,
+             max_edges_per_graph = 4194304, max_groups_per_graph = 1048576,
+             max_total_nodes = 67108864, max_total_edges = 268435456,
+             max_session_bytes = 16777216, max_detail_bytes = 16777216
+    trusted: 40 invalid limits: max_json_bytes = 536870912,
+               max_pt2_bytes = 536870912, max_nodes_per_graph = 1048576,
+               max_edges_per_graph = 4194304, max_groups_per_graph = 1048576,
+               max_attrs_per_node = 1024, max_metadata_items_per_node = 1024,
+               max_outputs_metadata_per_node = 1024, max_namespace_depth = 64,
+               max_namespace_component_bytes = 1024, max_label_bytes = 4096,
+               max_id_bytes = 4096, max_attr_chars = 65536, max_graphs = 4096,
+               max_total_nodes = 67108864, max_total_edges = 268435456,
+               max_views = 4096, max_comparisons = 1024,
+               max_node_data_sets = 1024, max_states = 4096,
+               max_transitions = 16384,
+               max_mapping_entries_per_comparison = 1048576,
+               max_mapping_members_per_entry = 1024,
+               max_mapping_members_total = 16777216,
+               max_node_data_results_per_graph = 1048576,
+               max_overlay_edges_per_overlay = 1048576,
+               max_overlay_edges_total = 16777216, max_diagnostics = 64,
+               max_diagnostic_bytes = 1024, max_session_bytes = 16777216,
+               max_trace_entries = 1048576, max_audit_reports = 65536,
+               max_detail_nodes = 65536, max_detail_graphs = 1024,
+               max_detail_bytes = 16777216, zip.max_entries = 65536,
+               zip.max_entry_bytes = 1073741824,
+               zip.max_total_bytes = 4294967296, zip.max_path_bytes = 65536,
+               zip.max_path_depth = 64
     |}]
 
 let%expect_test "one field between untrusted and Hard is enough to refuse" =
@@ -284,15 +310,52 @@ let%expect_test "one field between untrusted and Hard is enough to refuse" =
     (Me_limits.Limits.create ~max_attrs_per_node:257 Me_limits.Limits.untrusted);
   widened "max_views"
     (Me_limits.Limits.create ~max_views:257 Me_limits.Limits.untrusted);
-  (* And a nested one, which is the half a scalar-only comparison would miss. *)
+  (* And a nested one, which is the half a scalar-only comparison would miss.
+     Exactly one nested field, so this stays the singular row: passing the whole
+     of [Pt2_zip.Limits.trusted] widens all five at once, which is the next
+     test. *)
   widened "zip.max_entries"
-    (Me_limits.Limits.create ~zip:Pt2_zip.Limits.trusted
+    (Me_limits.Limits.create
+       ~zip:
+         {
+           Me_limits.Limits.untrusted.Me_limits.Limits.zip with
+           Pt2_zip.Limits.max_entries =
+             Pt2_zip.Limits.trusted.Pt2_zip.Limits.max_entries;
+         }
        Me_limits.Limits.untrusted);
   [%expect
     {|
     max_attrs_per_node: invalid limit max_attrs_per_node = 257
     max_views: invalid limit max_views = 257
     zip.max_entries: invalid limit zip.max_entries = 65536
+    |}]
+
+(* The fieldwise sweep ACCUMULATES: an operator whose profile has several fields
+   out of bounds learns about all of them, rather than one per round trip. This
+   is the only validator here that does — see [Me_limits.Wire_limits.of_limits]
+   for the two conditions that make it safe, neither of which holds for the
+   document validators.
+
+   The plural row is not decoration: before [Err.Accum], the previous test's
+   whole-record case reported ONLY [zip.max_entries] and the other four
+   rejections were invisible. *)
+let%expect_test "every field out of bounds is reported, not the first" =
+  let open Err.Syntax in
+  show_labelled "zip (whole record)"
+    (Me_limits.Limits.create ~zip:Pt2_zip.Limits.trusted
+       Me_limits.Limits.untrusted
+    >>= Me_limits.Wire_limits.of_limits ~ceiling:Me_limits.Limits.untrusted);
+  show_labelled "two scalars"
+    (Me_limits.Limits.create ~max_views:257 ~max_attrs_per_node:257
+       Me_limits.Limits.untrusted
+    >>= Me_limits.Wire_limits.of_limits ~ceiling:Me_limits.Limits.untrusted);
+  [%expect
+    {|
+    zip (whole record): 5 invalid limits: zip.max_entries = 65536,
+                          zip.max_entry_bytes = 1073741824,
+                          zip.max_total_bytes = 4294967296,
+                          zip.max_path_bytes = 65536, zip.max_path_depth = 64
+    two scalars: 2 invalid limits: max_attrs_per_node = 257, max_views = 257
     |}]
 
 let%expect_test "a wire profile is still a profile" =

@@ -6,11 +6,20 @@ module Invalid = struct
 end
 
 type live_error = [ `Live_overflow of string ]
-type error = [ `Invalid_limit of Invalid.t | live_error ]
+
+type error =
+  [ `Invalid_limit of Invalid.t
+  | `Invalid_limits of Invalid.t list
+  | live_error ]
+
+let pp_invalid fmt { Invalid.name; value } = Fmt.pf fmt "%s = %Ld" name value
 
 let pp_error fmt : [< error ] -> unit = function
-  | `Invalid_limit { Invalid.name; value } ->
-      Fmt.pf fmt "invalid limit %s = %Ld" name value
+  | `Invalid_limit i -> Fmt.pf fmt "invalid limit %a" pp_invalid i
+  | `Invalid_limits is ->
+      Fmt.pf fmt "@[<hov 2>%d invalid limits:@ %a@]" (List.length is)
+        (Fmt.list ~sep:(Fmt.any ",@ ") pp_invalid)
+        is
   | `Live_overflow phase -> Fmt.pf fmt "live allocation overflow in %s" phase
 
 (* --- the over-limit domain, owned here rather than per validator --- *)
@@ -862,16 +871,37 @@ module Limits = struct
 
   (* Against a ceiling supplied as a profile, so [create] (ceiling = the [Hard]
      figures) and [Wire_limits.of_limits] (ceiling = [untrusted]) run the same
-     traversal over the same field set. *)
+     traversal over the same field set.
+
+     ACCUMULATING, alone among this repo's validators, and the two conditions
+     that make it safe are worth naming because neither holds for
+     [Me_session.validate] or [Me_flow.validate]. The work is bounded by a
+     compile-time constant -- [fields] and [zip_fields], 41 entries, not
+     anything the document controls -- so running every element cannot be turned
+     into a denial of service by the input. And each check is an independent
+     [Int64.compare]: none is a precondition of another, so there is no ceiling
+     that has to pass before the rest may run.
+
+     [fold_errors] is what keeps this local. Without it, accumulating here would
+     put an error LIST in the type of [validate], [create] and
+     [Wire_limits.of_limits], i.e. on the wire; instead the batch collapses into
+     one payload of this module's own domain, and only [pp_error] had to
+     change. An operator with three bad fields learns about three. *)
   let check_against ~zip_ceiling ~field_ceiling t =
-    let open Err.Syntax in
-    let* () =
-      Err.List.iter (fun f -> check f.name (f.get t) (field_ceiling f)) fields
-    in
-    Err.List.iter
-      (fun (name, get, _) ->
-        check ("zip." ^ name) (get t.zip) (get zip_ceiling))
-      zip_fields
+    Err.Accum.iter
+      (fun (name, value, ceiling) -> check name value ceiling)
+      (List.map (fun f -> (f.name, f.get t, field_ceiling f)) fields
+      @ List.map
+          (fun (name, get, _) -> ("zip." ^ name, get t.zip, get zip_ceiling))
+          zip_fields)
+    |> Err.Accum.fold_errors
+         (fun (es : [ `Invalid_limit of Invalid.t ] Err.Accum.errors) ->
+           match List.map Err.Error.kind es with
+           (* One bad field stays the singular row: the plural form exists to
+              report a SET, and would otherwise churn every existing message. *)
+           | [ (`Invalid_limit _ as one) ] -> one
+           | invalid ->
+               `Invalid_limits (List.map (fun (`Invalid_limit i) -> i) invalid))
 
   let derive t =
     let open Err.Syntax in
@@ -1222,20 +1252,19 @@ module Wire_limits = struct
       ~dec:(fun members ->
         let pairs = Wire_map.bindings members in
         match
-          let open Err.Syntax in
-          let* l =
-            Limits.apply_overrides ~ceiling:Limits.untrusted
-              ~base:Limits.untrusted pairs
-          in
-          (* [of_limits] rather than a bare [create]: the decoded value has to
-             be a value the ENCODER could have produced, and only the ceiling
-             check makes that true. *)
-          of_limits ~ceiling:Limits.untrusted l
-          |> Err.mark_error ~pos:__POS__ Err.Action.Export
+          (let open Err.Syntax in
+           let* l =
+             Limits.apply_overrides ~ceiling:Limits.untrusted
+               ~base:Limits.untrusted pairs
+           in
+           (* [of_limits] rather than a bare [create]: the decoded value has to
+              be a value the ENCODER could have produced, and only the ceiling
+              check makes that true. *)
+           of_limits ~ceiling:Limits.untrusted l)
+          |> Err.export ~pos:__POS__
         with
         | Ok l -> l
-        | Error e ->
-            Jsont.Error.msgf Jsont.Meta.none "%a" pp_error (Err.Error.kind e))
+        | Error k -> Jsont.Error.msgf Jsont.Meta.none "%a" pp_error k)
       ~enc:(fun t ->
         List.fold_left
           (fun m (name, v) -> Wire_map.add name v m)

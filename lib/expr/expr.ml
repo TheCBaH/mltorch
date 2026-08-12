@@ -1334,24 +1334,28 @@ module Eval = struct
     | `Index_not_exact_in_float n ->
         Fmt.pf fmt "index %d is not exactly representable as a float" n
 
-  (* The recursion raises and the public entry point converts once, rather than
+  (* The recursion escapes and the public entry point converts once, rather than
      allocating an [Ok] per AST node per output pixel. The design permits this
      explicitly -- no state is exposed and the result is the defined value -- and
      it matters: this runs inside the grounding loop, which the transform
      verifier drives for every random-walk config.
 
-     The exception carries an already-built [Err.Error.t], so the backtrace is
-     the one captured where the failure was DETECTED, not where it was caught. *)
-  exception Fail of index_error Err.Error.t
-
-  let fail_with (k : index_error) = raise (Fail (Err.Error.make k))
-
-  let chk : ('a, [< index_error ]) Err.t -> 'a = function
-    | Ok v -> v
-    | Error e -> raise (Fail (e :> index_error Err.Error.t))
-
-  let eval_index (type r) ~(output : int Coord.t)
-      ~(reducers : Reduce_var.t -> int option) (e : r Index.t) : int =
+     The token carries an already-built [Err.Error.t], so the backtrace is the
+     one captured where the failure was DETECTED, not where it was caught. It is
+     an [index_error] token even though [value] below evaluates indices under
+     its own frame at the wider [error] row: a token is invariant in its
+     payload, so [value] passes [Err.Escape.map] of its own rather than sharing
+     one directly. That derived token exits the same frame and allocates no
+     second generative exception, which is what keeps a nested [with_escape] off
+     the per-pixel path. *)
+  let eval_index (type r) (esc : index_error Err.Escape.t)
+      ~(output : int Coord.t) ~(reducers : Reduce_var.t -> int option)
+      (e : r Index.t) : int =
+    let fail_with (k : index_error) = Err.Escape.throw esc k in
+    let chk : (int, [< index_error ]) Err.t -> int = function
+      | Ok v -> v
+      | Error e -> Err.Escape.throw_error esc (e :> index_error Err.Error.t)
+    in
     let rec go : type r. r Index.t -> int = function
       | Index.Output a -> Coord.get output a
       | Index.Reduce v -> (
@@ -1373,7 +1377,7 @@ module Eval = struct
     go e
 
   let index ~output ~reducers e =
-    try Ok (eval_index ~output ~reducers e) with Fail e -> Error e
+    Err.Escape.with_escape @@ fun esc -> eval_index esc ~output ~reducers e
 
   (* Exactness is a ROUND TRIP, not a magnitude threshold. binary64 stops
      representing CONSECUTIVE integers above 2^53, but plenty of larger ones are
@@ -1417,20 +1421,21 @@ module Eval = struct
     type t = { load : Source.t -> int Coord.t -> (float, error) Err.t }
   end
 
-  exception Fail_value of error Err.Error.t
-
-  (* Every value-level failure arrives as a [Err.t] from somewhere else --
-     the host's [load], the intrinsic geometry, the index evaluator -- so there
-     is no direct-raise helper here to go with [vchk]. *)
-  let vchk : ('a, [< error ]) Err.t -> 'a = function
+  (* Every value-level failure arrives as a [Err.t] from somewhere else -- the
+     host's [load], the intrinsic geometry, the index evaluator -- so there is
+     no direct-throw helper to go with [vchk]. It stays at module level so its
+     ['a] generalises; an annotation on a [let] inside [value] would not. *)
+  let vchk esc : ('a, [< error ]) Err.t -> 'a = function
     | Ok v -> v
-    | Error e -> raise (Fail_value (e :> error Err.Error.t))
+    | Error e -> Err.Escape.throw_error esc (e :> error Err.Error.t)
 
   let value (env : Env.t) ~output e =
-    let idx reducers i =
-      try eval_index ~output ~reducers i
-      with Fail e -> raise (Fail_value (e :> error Err.Error.t))
-    in
+    Err.Escape.with_escape @@ fun esc ->
+    let vchk r = vchk esc r in
+    (* The index evaluator's row is narrower than this frame's, so it gets a
+       VIEW of this token rather than one of its own. *)
+    let index_esc = Err.Escape.map (fun e -> (e :> error)) esc in
+    let idx reducers i = eval_index index_esc ~output ~reducers i in
     let rec go reducers (e : Value.t) : float =
       match e with
       | Value.Const x -> x
@@ -1506,7 +1511,7 @@ module Eval = struct
       | Value -> best
       | Index -> vchk (float_of_index best_ix)
     in
-    try Ok (go (fun _ -> None) e) with Fail_value e -> Error e
+    go (fun _ -> None) e
 end
 
 (* ---- printing ------------------------------------------------------------- *)

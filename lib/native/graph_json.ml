@@ -10,10 +10,12 @@ let pp_error ppf : [< error ] -> unit = function `Jsont m -> Fmt.string ppf m
    payload — a decoder position and expectation this module did not author and
    cannot classify further. Lifting it into [Err.t] is still worth doing: it
    gives every caller a wrapper with provenance and lets them compose with
-   [let*] instead of re-matching at each of the four entry points. *)
-let of_jsont = function
-  | Ok v -> Err.return v
-  | Error m -> Err.fail ~pos:__POS__ (`Jsont m)
+   [let*] instead of re-matching at each of the four entry points.
+
+   [Err.import], not [Err.fail]: this is the inbound boundary, so the event is
+   [Import] and there is no [Detect] — Jsont detected the failure, this module
+   only carried it across. *)
+let of_jsont r = Err.import ~pos:__POS__ (fun m -> `Jsont m) r
 
 let encode_graph ?(format = Jsont.Minify) g =
   of_jsont (Jsont_bytesrw.encode_string ~format Graph_ir.graph_jsont g)

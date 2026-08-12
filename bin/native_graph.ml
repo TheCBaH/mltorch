@@ -13,13 +13,13 @@ open Cmdliner
    is also why [Err.map_error] is wrong here — it would keep the [Err.Error.t]
    wrapper, which is precisely what Cmdliner cannot take.
 
-   [mark_error Export] is what makes the drop visible rather than merely
-   commented: under a policy that records boundaries, an error leaving through
-   here carries an [Export] event, so a monitor sees where the framework ended
-   even though the value crossing the line no longer says so. *)
+   [Err.export] is what makes the drop visible rather than merely commented: it
+   marks [Export] and then unwraps, so under a policy that records boundaries an
+   error leaving through here carries an [Export] event, and the marking is part
+   of the operation rather than something this helper has to remember. What is
+   left is the typed payload; rendering it is this boundary's own decision. *)
 let to_cli pp r =
-  Err.mark_error ~pos:__POS__ Err.Action.Export r
-  |> Result.map_error (fun e -> Core.Pretty.to_string pp (Err.Error.kind e))
+  Err.export ~pos:__POS__ r |> Result.map_error (Core.Pretty.to_string pp)
 
 (* Plain [Result.bind]: these are Cmdliner's bare results, already lowered by
    [to_cli], so [Err.Syntax]'s operators do not apply. *)

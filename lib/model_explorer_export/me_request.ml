@@ -4,11 +4,12 @@ module Hard = Me_limits.Hard
 
 (* Every checked constructor below crosses into Jsont at the end, and this is
    the one place the framework wrapper is dropped. Named, per CLAUDE.md, so it
-   reads as a deliberate crossing rather than a lost backtrace. *)
+   reads as a deliberate crossing rather than a lost backtrace; [Err.export]
+   supplies the [Export] mark that makes the drop visible. *)
 let or_jsont pp r =
-  match Err.mark_error ~pos:__POS__ Err.Action.Export r with
+  match Err.export ~pos:__POS__ r with
   | Ok v -> v
-  | Error e -> Jsont.Error.msgf Jsont.Meta.none "%a" pp (Err.Error.kind e)
+  | Error k -> Jsont.Error.msgf Jsont.Meta.none "%a" pp k
 
 (* --- request identity --------------------------------------------------- *)
 

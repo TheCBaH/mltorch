@@ -98,28 +98,25 @@ let eval_node (g : Graph.graph) env (node : Graph.node) =
         Tensor_id.Map.add r sh acc)
       Tensor_id.Map.empty (Op.operands op)
   in
-  if List.compare_lengths node.Graph.Node.outputs shapes <> 0 then
-    Err.fail
-      (`Output_arity_mismatch
-         {
-           expected = List.length shapes;
-           actual = List.length node.Graph.Node.outputs;
-         })
-  else
-    Err.List.fold_left
-      (fun env (output, oid, out_shape) ->
-        let result =
-          Schedule.evaluate (Shape4.to_vec6 out_shape)
-            (E.pixel op ~output
-               ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-               ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-               ~fill)
-        in
-        Err.return (Tensor_id.Map.add oid result env))
-      env
-      (List.mapi
-         (fun output (oid, out_shape) -> (output, oid, out_shape))
-         (List.combine node.Graph.Node.outputs shapes))
+  let* pairs =
+    Err.List.map2
+      ~unequal_lengths:(fun actual expected ->
+        `Output_arity_mismatch { expected; actual })
+      (fun oid out_shape -> Err.return (oid, out_shape))
+      node.Graph.Node.outputs shapes
+  in
+  Err.List.fold_left
+    (fun env (output, oid, out_shape) ->
+      let result =
+        Schedule.evaluate (Shape4.to_vec6 out_shape)
+          (E.pixel op ~output
+             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+             ~fill)
+      in
+      Err.return (Tensor_id.Map.add oid result env))
+    env
+    (List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs)
 
 let run ?(constants = []) (g : Graph.graph)
     ~(inputs : (Tensor_id.t * Tensor.packed) list) =

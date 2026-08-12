@@ -242,12 +242,12 @@ module Outcome_counts = struct
      drop is deliberate and therefore NAMED, per CLAUDE.md — it is
      distinguishable from an accidental unwrap. OCaml callers and tests still
      get the typed row from [of_bindings]; only the DECODER reports a Jsont
-     message. *)
-  let to_jsont = function
+     message. [Err.export] supplies the [Export] mark, which this helper
+     previously omitted. *)
+  let to_jsont r =
+    match Err.export ~pos:__POS__ r with
     | Ok v -> v
-    | Error e ->
-        Jsont.Error.msg Jsont.Meta.none
-          (Fmt.str "%a" pp_invalid (Err.Error.kind e))
+    | Error k -> Jsont.Error.msg Jsont.Meta.none (Fmt.str "%a" pp_invalid k)
 
   module Binding = struct
     type t = { label : string; count : int64 }
