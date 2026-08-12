@@ -37,6 +37,11 @@ let numel t = Int64.to_int (F.numel t)
 let dim t = Unsigned.Size_t.to_int (F.dim t)
 let element_size t = Int64.to_int (F.element_size t)
 let is_contiguous t = F.is_contiguous t <> 0
+
+(* Index of the view's first element within its storage. NOT implied by
+   [is_contiguous], which ignores it: [at::select] yields a contiguous view at a
+   non-zero offset. *)
+let storage_offset t = Int64.to_int (F.storage_offset t)
 let defined t = F.defined t <> 0
 let is_cpu t = F.is_cpu t <> 0
 
@@ -73,6 +78,29 @@ let data : type a b.
 
 let as_float32 t : float32_array option = data Aten_dtype.float32 t
 let as_int64 t : int64_array option = data Aten_dtype.int64 t
+
+(* The guard for the flat-Bigarray boundary: [t] itself when [data]'s flat view
+   can represent it faithfully, otherwise a managed dense copy with fresh
+   storage at offset zero.
+
+   BOTH conditions are needed. [data] reads from the storage base with no stride
+   arithmetic, so a strided view reads the wrong elements — and an offset view
+   reads the right ones from the wrong place while reporting itself contiguous.
+   Guarding on [is_contiguous] alone therefore passes a select/slice view
+   straight through, which is the defect this exists to close.
+
+   [O.contiguous] cannot be used: it no-ops on anything already contiguous and
+   hands back the same offset view. Only a copy relocates to offset zero.
+
+   [data] itself stays unguarded on purpose — it means "expose this tensor's
+   underlying flat storage", write-through included, and copying inside it would
+   silently break that for callers that want the view. Materializing is the
+   reader's explicit decision. *)
+let materialize_for_raw_read t =
+  if is_contiguous t && storage_offset t = 0 then t
+  else
+    Aten_c.Aten_operations.clone t (Some Aten_memory_format.Contiguous)
+    |> check |> manage
 
 (* A managed tensor of [shape] and dtype [dt], copied from the 1-D [src] (whose
    element count must equal the shape's). The tensor owns its own buffer, so

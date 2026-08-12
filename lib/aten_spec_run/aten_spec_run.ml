@@ -289,7 +289,11 @@ let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
                 Verify.report ppf node.target errors;
                 false)))
 
+(* [as_float32]/[as_int64] are flat reads off the storage base, so a view has to
+   be materialized first or this prints the wrong elements — a strided one in
+   the wrong order, an offset one from the wrong place. *)
 let pp_aten ppf t =
+  let t = Aten_tensor.materialize_for_raw_read t in
   match Aten_tensor.as_float32 t with
   | Some ba -> Aten_tensor.pp_float32 ppf ba
   | None -> (
@@ -483,6 +487,9 @@ let summarize_i64 (ba : Aten_tensor.int64_array) =
    otherwise make cram goldens flaky between machines. *)
 let pp_tensor_summary ppf t =
   pp_shape ppf (Array.to_list (Aten_tensor.shape t));
+  (* Same flat-read boundary as [pp_aten]: summarize the view's own elements,
+     not whatever lies at its storage base. The shape above is safe unmaterialized. *)
+  let t = Aten_tensor.materialize_for_raw_read t in
   match Aten_tensor.as_float32 t with
   | Some ba -> (
       match summarize_f32 ba with

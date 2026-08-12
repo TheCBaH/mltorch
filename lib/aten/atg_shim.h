@@ -138,8 +138,16 @@ int atc_is_contiguous(atc_tensor t);
 int atc_defined(atc_tensor t);
 int atc_is_cpu(atc_tensor t);
 
+/* Index of the view's first element within its storage. [atc_data_ptr] returns
+   the storage BASE, so a flat read through it is only faithful when this is 0 —
+   and [atc_is_contiguous] does not consider it: a select/slice view is
+   contiguous with a non-zero offset. Both must be checked. */
+int64_t atc_storage_offset(atc_tensor t);
+
 /* Raw data pointer, checking that the tensor's dtype matches.
-   Returns NULL on mismatch; the caller casts to the appropriate element type. */
+   Returns NULL on mismatch; the caller casts to the appropriate element type.
+   This is the STORAGE base, not the view's first element — see
+   [atc_storage_offset]. */
 void* atc_data_ptr(atc_tensor t, atc_scalar_type dtype);
 
 /* Extract the single element of a one-element tensor, converting to the target

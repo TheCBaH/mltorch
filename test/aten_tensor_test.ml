@@ -295,3 +295,69 @@ let%expect_test "tensor list: containers are counted separately from tensors" =
      baseline the unbind lifetime tests assert a return to. *)
   Printf.printf "live containers=%d\n" (Aten_tensor_list.live_count ());
   [%expect "live containers=0"]
+
+(* --- the flat-Bigarray boundary ------------------------------------------
+
+   [T.data] hands out a Bigarray over the tensor's STORAGE, with no stride
+   arithmetic and no offset applied. So it faithfully represents a tensor only
+   when that tensor is contiguous AND starts at offset zero. [is_contiguous]
+   alone is not that predicate: [at::select] returns a contiguous view at a
+   non-zero offset, and reading it flat silently yields another slice's values.
+   [T.materialize_for_raw_read] is the guard; these pin why it needs both
+   conditions. *)
+
+let f32 shape vals =
+  let t = T.create shape in
+  let v = Option.get (T.data Dtype.float32 t) in
+  List.iteri (fun i x -> v.{i} <- x) vals;
+  t
+
+let show name t =
+  Printf.printf "%s: contiguous=%b offset=%d data=%s\n" name (T.is_contiguous t)
+    (T.storage_offset t)
+    (match T.as_float32 t with
+    | None -> "<none>"
+    | Some ba ->
+        "["
+        ^ String.concat ";"
+            (List.init (Bigarray.Array1.dim ba) (fun i ->
+                 Printf.sprintf "%g" ba.{i}))
+        ^ "]")
+
+let%expect_test "select view is contiguous at a non-zero offset" =
+  let x = f32 [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  (* Row 1 is [2; 3]. The view is contiguous -- so an is_contiguous-only guard
+     passes it through -- but its offset is 2, and the flat read starts at the
+     storage base and returns row 0's values instead. *)
+  let row1 = T.manage (O.select_int x 0L 1L) in
+  show "view" row1;
+  show "materialized" (T.materialize_for_raw_read row1);
+  [%expect
+    {|
+    view: contiguous=true offset=2 data=[0;1]
+    materialized: contiguous=true offset=0 data=[2;3] |}]
+
+let%expect_test "strided view is materialized in logical order" =
+  let x = f32 [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  let tr =
+    T.manage (O.permute x (CArray.start (CArray.of_list int64_t [ 1L; 0L ])) 2)
+  in
+  show "view" tr;
+  show "materialized" (T.materialize_for_raw_read tr);
+  [%expect
+    {|
+    view: contiguous=false offset=0 data=[0;1;2;3;4;5]
+    materialized: contiguous=true offset=0 data=[0;3;1;4;2;5] |}]
+
+let%expect_test "a dense tensor is returned unchanged, not copied" =
+  collect ();
+  let base = T.live_count () in
+  let x = f32 [ 4 ] [ 1.; 2.; 3.; 4. ] in
+  let y = T.materialize_for_raw_read x in
+  (* No clone on the fast path: same handle, so the live count is unmoved and
+     "manage exactly once" is not at risk. *)
+  Printf.printf "same handle=%b live delta=%d\n"
+    (ptr_compare x y = 0)
+    (T.live_count () - base);
+  ignore (Sys.opaque_identity y);
+  [%expect "same handle=true live delta=1"]

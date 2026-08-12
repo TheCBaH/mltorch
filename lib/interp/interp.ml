@@ -143,20 +143,37 @@ let run archive (image : Pt2_tensor.t) =
    (at::argmax with dim=None) and read back as an int. *)
 let none_int = from_voidp int64_t null
 
+(* [item_int] reads through the shim and never manages, so the result has to be
+   managed here or the handle lives until the process exits. *)
 let argmax logits =
-  Err.return (Aten_tensor.item_int (O.argmax logits none_int false))
+  Err.return
+    (Aten_tensor.item_int
+       (O.argmax logits none_int false
+       |> Aten_tensor.check |> Aten_tensor.manage))
 
 (* The [k] highest-scoring (class index, probability) pairs of [logits]
    ([1; classes]), descending: softmax over the last dim, then at::topk. *)
 let top_predictions logits k =
-  let probs = O._softmax logits 1L false in
+  (* Own every handle before reading it: [Aten_tensor.data]'s finaliser only
+     anchors an already-registered handle for the Bigarray's lifetime, it never
+     frees, so an unmanaged op result here leaks. Materialize after managing —
+     topk's outputs are dense today, so the fast path returns them unchanged and
+     "manage exactly once" still holds; were that to change, the original stays
+     managed and the helper independently manages its clone. *)
+  let probs =
+    O._softmax logits 1L false |> Aten_tensor.check |> Aten_tensor.manage
+  in
   let out = make TG.tensors2_struct in
   let st = O.topk probs (Int64.of_int k) (-1L) true true (addr out) in
   if st <> 0 then Err.fail (`Aten_runtime_failure ("topk", st))
   else
+    let own v =
+      tget out v |> Aten_tensor.check |> Aten_tensor.manage
+      |> Aten_tensor.materialize_for_raw_read
+    in
     match
-      ( Aten_tensor.data Aten_dtype.float32 (tget out TG.tensors2_v0),
-        Aten_tensor.data Aten_dtype.int64 (tget out TG.tensors2_v1) )
+      ( Aten_tensor.data Aten_dtype.float32 (own TG.tensors2_v0),
+        Aten_tensor.data Aten_dtype.int64 (own TG.tensors2_v1) )
     with
     | Some vs, Some idx ->
         Err.return

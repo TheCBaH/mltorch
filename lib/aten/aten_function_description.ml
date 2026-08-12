@@ -62,6 +62,9 @@ module Functions (F : Ctypes.FOREIGN) = struct
   let defined = foreign "atc_defined" (atc_tensor @-> returning int)
   let is_cpu = foreign "atc_is_cpu" (atc_tensor @-> returning int)
 
+  let storage_offset =
+    foreign "atc_storage_offset" (atc_tensor @-> returning int64_t)
+
   let data_ptr =
     foreign "atc_data_ptr" (atc_tensor @-> scalar_type @-> returning (ptr void))
 

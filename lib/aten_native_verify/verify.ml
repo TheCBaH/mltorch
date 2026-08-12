@@ -13,9 +13,6 @@ open Schema_runtime
 open Err.Syntax
 
 let max_points = 10
-
-module O = Aten_c.Aten_operations
-
 let default_atol = 1e-5
 
 (* Most bridge-covered ops are either pointwise or otherwise deterministic
@@ -109,13 +106,13 @@ let float_differs ~atol av nv =
         Float.abs (av -. nv) > atol
       else not (Float.equal av nv)
 
-(* Some ATen ops (notably permute/view/expand/select) return non-contiguous
-   views. [Aten_tensor.data] exposes a flat buffer and therefore only reflects
-   logical element order for contiguous tensors, so verification materializes
-   such views before scanning them element-wise. *)
-let logical_tensor t =
-  if Aten_tensor.is_contiguous t then t
-  else Aten_tensor.manage (O.contiguous t Aten_memory_format.Contiguous)
+(* Some ATen ops (notably permute/view/expand/select/unbind) return views.
+   [Aten_tensor.data] exposes the flat STORAGE and so reflects logical element
+   order only for a contiguous tensor at offset zero, so verification
+   materializes anything else before scanning it element-wise. Guarding on
+   [is_contiguous] alone silently compared a select view against the wrong
+   region of its storage. *)
+let logical_tensor = Aten_tensor.materialize_for_raw_read
 
 let compare_tensors ~atol ~output aten_t native_t =
   let (Tensor.Tensor native_r) = native_t in

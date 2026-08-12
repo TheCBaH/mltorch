@@ -154,6 +154,47 @@ dereference is undefined behaviour, not a throw. `ATC_TRY` still guards the
 `-1` and `NULL` with `atc_last_error` set, which `Aten_tensor_list` turns into
 `Aten_tensor.Error`.
 
+## The flat-`Bigarray` boundary
+
+> Before exposing an ATen tensor through the flat `Aten_tensor.data` Bigarray
+> boundary, materialize it when its layout or storage offset makes that flat
+> representation unsafe.
+
+`atc_data_ptr` returns `storage().mutable_data()` — the storage **base**. It
+applies neither strides nor the storage offset, and `Aten_tensor.data` builds a
+`numel`-long Bigarray straight off it. So the flat view is faithful only for a
+tensor that is contiguous **and** at offset zero, and a reader must check both:
+
+- a **strided** view (`permute`, `expand`) yields the right elements in the wrong
+  order;
+- an **offset** view (`select`, `slice`, `unbind`) yields another slice's
+  elements entirely — and `atc_is_contiguous` reports it **contiguous**, because
+  `is_contiguous` does not consider the storage offset. An `is_contiguous`-only
+  guard therefore passes exactly the dangerous case straight through. That was a
+  live defect: `Tensor_bridge.of_aten` and `Verify.logical_tensor` both had it,
+  and `select.int` is in the curated selection.
+
+`atc_storage_offset` exposes the missing half, and `Aten_tensor.materialize_for_raw_read`
+is the single guard: it returns `t` unchanged when a flat read is faithful, and
+otherwise a **managed** dense copy at offset zero. It uses `clone`, not
+`contiguous` — `at::contiguous` no-ops on anything already contiguous and hands
+back the same offset view, so only a copy relocates the data.
+
+`Aten_tensor.data` stays unguarded on purpose: it means "expose this tensor's
+underlying flat storage", write-through included, and cloning inside it would
+silently break the callers that want the view. Materializing is the reader's
+explicit decision — see `native_aten_bridge_design.md` and
+`aten_native_verify_design.md` for the reader-side rule.
+
+It is **not** required that every `Aten_tensor.t` own dense storage. Views are
+valid inputs to other ATen ops, and to `shape` / `strides` / `equal` / `allclose` /
+`to_string`, all of which understand layout natively. Only the flat boundary
+needs the copy.
+
+Note the resulting coupling: `Aten_tensor` now depends on the *generated* ops for
+`clone`. Dropping `op "clone"` from the curated selection breaks compilation of
+`aten_tensor.ml` — a loud failure, which is why it is acceptable.
+
 Done — **Step 0 (plumbing)** + **Step 2 (minimal tensor runtime)**: the shim now
 exposes `atc_new_float` / `atc_free` / `atc_numel` / `atc_data_float` /
 `atc_fill_float` (scalar) / `atc_add_float` (tensor). [lib/aten/demo/main.ml](../lib/aten/demo/main.ml)

@@ -104,6 +104,19 @@ let%expect_test "of_aten: materializes a non-contiguous permute view" =
     (Tensor_bridge.of_aten aten);
   [%expect {| tensor f32 [W=3 C=2] {0, 3, 1, 4, 2, 5} |}]
 
+(* The permute case above cannot reach this one: a [select] view is CONTIGUOUS,
+   so the old [is_contiguous]-only guard passed it through untouched and
+   [of_aten] read from the storage base — row 0's values, labelled row 1. Index
+   1 is essential; index 0 has offset 0 and hides the bug. *)
+let%expect_test
+    "of_aten: materializes a contiguous select view at a non-zero offset" =
+  let x = float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  let row1 = Aten_tensor.manage (Aten_c.Aten_operations.select_int x 0L 1L) in
+  Format.printf "%a@."
+    (pp_of_aten_result ~ok:Tensor.pp)
+    (Tensor_bridge.of_aten row1);
+  [%expect {| tensor f32 [C=2] {2, 3} |}]
+
 (* ---- compare_tensors: shape/type/payload checks ------------------------- *)
 
 let%expect_test "compare_tensors: matching F32 tensors -> Ok" =
@@ -208,6 +221,19 @@ let%expect_test "compare_tensors: materializes non-contiguous permute view" =
   let native = native_f32 [ 3; 2 ] [ 0.; 3.; 1.; 4.; 2.; 5. ] in
   Format.printf "%a@." pp_result
     (Verify.compare_tensors ~atol:1e-6 ~output:"y" aten native);
+  [%expect {| Ok |}]
+
+(* [Verify.logical_tensor] had the same is_contiguous-only guard as [of_aten],
+   so verification compared a select view against row 0 and would report a
+   mismatch on a correct native impl (or, worse, agree with a wrong one). *)
+let%expect_test
+    "compare_tensors: materializes contiguous select view at a non-zero offset"
+    =
+  let x = float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  let aten = Aten_tensor.manage (Aten_c.Aten_operations.select_int x 0L 1L) in
+  Format.printf "%a@." pp_result
+    (Verify.compare_tensors ~atol:1e-6 ~output:"y" aten
+       (native_f32 [ 2 ] [ 2.; 3. ]));
   [%expect {| Ok |}]
 
 let%expect_test "compare_tensors: matching I64 -> Ok" =
@@ -1092,3 +1118,40 @@ let%expect_test "output_names: flattens Tensor[] in place, skips None" =
   (* an empty Tensor[] contributes nothing, but is not an error *)
   names_of [ PT.Argument.Tensors [] ];
   [%expect ""]
+
+(* --- Interp handle ownership ---
+
+   [Interp.top_predictions] and [Interp.argmax] read their results through
+   [Aten_tensor.data] / [item_int], neither of which manages a handle:
+   [data]'s finaliser only anchors an already-registered handle for the
+   Bigarray's lifetime, it never calls atc_free. So every op result these two
+   allocate has to be piped through [Aten_tensor.manage] at the call site or it
+   leaks for the process's lifetime. Counting handles is the only way to see
+   that -- the values are correct either way. *)
+
+let collect () =
+  Gc.full_major ();
+  Gc.full_major ()
+
+let%expect_test "top_predictions and argmax leave no live tensors" =
+  collect ();
+  let base = T.live_count () in
+  let logits = float_tensor [ 1; 4 ] [ 0.5; 3.0; 1.0; 2.0 ] in
+  (* Run in an inner scope so nothing but [logits] is still referenced when the
+     collection below runs. *)
+  (match
+     ( Interp.top_predictions logits 2 |> Err.payload,
+       Interp.argmax logits |> Err.payload )
+   with
+  | Ok top, Ok am ->
+      Printf.printf "argmax=%d top=%s\n" am
+        (String.concat ","
+           (List.map (fun (i, p) -> Printf.sprintf "%d:%.3f" i p) top))
+  | _ -> print_endline "unexpected error");
+  collect ();
+  (* [logits] is still live and still managed: +1, not +0. *)
+  Printf.printf "after gc: +%d\n" (T.live_count () - base);
+  ignore (Sys.opaque_identity logits);
+  [%expect {|
+    argmax=1 top=1:0.631,3:0.232
+    after gc: +1 |}]

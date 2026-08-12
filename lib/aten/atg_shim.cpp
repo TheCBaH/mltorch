@@ -183,6 +183,10 @@ int atc_defined(atc_tensor t) { return atc_to_ptr(t)->defined() ? 1 : 0; }
 
 int atc_is_cpu(atc_tensor t) { return atc_to_ptr(t)->is_cpu() ? 1 : 0; }
 
+int64_t atc_storage_offset(atc_tensor t) {
+  return atc_to_ptr(t)->storage_offset();
+}
+
 void* atc_data_ptr(atc_tensor t, atc_scalar_type dtype) {
   auto* a = atc_to_ptr(t);
   if (a->scalar_type() != static_cast<c10::ScalarType>(dtype)) return nullptr;

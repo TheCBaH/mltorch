@@ -15,9 +15,12 @@ run the equivalent Native op and return the result(s).
 
 ### `of_aten` — ATen → Native
 
-1. **Contiguity check**: `Aten_tensor.is_contiguous t`.  Non-contiguous tensors
-   return `Error "non-contiguous ..."`.  ATen op outputs are typically contiguous;
-   views (permute, select) are not and should be made contiguous before comparison.
+1. **Materialize**: `Aten_tensor.materialize_for_raw_read t`.  Step 3 reads the
+   tensor as a flat Bigarray off the storage base, so any view must be copied
+   dense at offset zero first.  **Not `is_contiguous` alone** — a `select` /
+   `slice` / `unbind` view *is* contiguous at a non-zero offset, and that guard
+   passed it through, converting another slice's values under this one's shape.
+   See "The flat-`Bigarray` boundary" in `aten_core_build.md`.
 2. **Shape**: `Aten_tensor.shape t` → `int array` → `Aten_shape.of_aten` →
    `Vec6.shape` (right-aligned, outer axes set to 1).
 3. **Data copy**: `Aten_tensor.data Aten_dtype.float32 t` returns a Bigarray

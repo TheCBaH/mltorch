@@ -38,15 +38,12 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "unsupported ATen dtype (code %d)" (Aten_scalar_type.to_int t)
 
 let of_aten t : (Tensor.packed, [> error ]) Err.t =
-  (* A non-contiguous ATen tensor (e.g. a permute/view output, such as the
-     transposed fc weight feeding [addmm]) doesn't share the native flat order,
-     so materialize a contiguous copy first — mirroring [Verify]'s approach. *)
-  let t =
-    if Aten_tensor.is_contiguous t then t
-    else
-      Aten_tensor.manage
-        (Aten_c.Aten_operations.contiguous t Aten_memory_format.Contiguous)
-  in
+  (* An ATen view doesn't share the native flat order: a permute/view output
+     (the transposed fc weight feeding [addmm]) is strided, and a select/slice
+     output sits at a non-zero storage offset while reporting itself contiguous.
+     [Aten_tensor.materialize_for_raw_read] covers both — guarding on
+     [is_contiguous] alone let the offset case through with wrong values. *)
+  let t = Aten_tensor.materialize_for_raw_read t in
   let shape_arr = Aten_tensor.shape t in
   match Aten_shape.of_aten shape_arr with
   | Error _ as e ->
