@@ -39,6 +39,12 @@ type node_result =
 **Comparison strategy:**
 
 For float32 outputs, compare Bigarray element-wise:
+- Materialize the ATen tensor first: `Verify.logical_tensor` is
+  `Aten_tensor.materialize_for_raw_read`, because `as_float32` reads flat off the
+  storage base. Guarding on `is_contiguous` alone — which it used to — compares a
+  `select`/`unbind` view against the wrong region of its storage, since such a
+  view *is* contiguous at a non-zero offset. See "The flat-`Bigarray` boundary"
+  in `aten_core_build.md`.
 - Extract ATen tensor as `float32_array` via `Aten_tensor.as_float32`
 - Extract native Payload.F32 `.data` field directly (no copy needed)
 - Since both are in the same flat order for contiguous right-aligned tensors
@@ -96,7 +102,7 @@ Or thread a `--verify` flag through `interp_run.ml`'s command line.
 | Category | ATen | Native | Verification approach |
 |----------|------|--------|-----------------------|
 | Float32 ops (relu, add) | exact C++ float | exact OCaml float | direct compare; should match |
-| Non-contiguous ATen tensors | possible | not supported | `of_aten` returns Error → Skipped |
+| ATen views (strided **or** offset) | possible | not supported (always dense) | `materialize_for_raw_read` copies dense at offset 0, then compare |
 | Non-float32 dtypes (int64, bool) | yes | partial (I64 supported) | `Aten_tensor.as_float32 = None` → Skipped |
 | Ops without native impl | yes | no | `Op_bridge = None` → Skipped |
 
