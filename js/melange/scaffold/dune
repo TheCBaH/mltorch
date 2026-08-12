@@ -16,4 +16,4 @@
  (enabled_if
   (= %{profile} melange))
  (modules scaffold)
- (libraries bigarray_mel fmt_mel jsont_base_mel))
+ (libraries bigarray_mel fmt_mel jsont_base_mel err_trace_mel))

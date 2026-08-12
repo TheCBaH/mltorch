@@ -4,5 +4,11 @@
 ; [ocaml-model-explorer] carries its own [model-explorer] gitlink, which stays
 ; uninitialised on purpose -- it is the upstream TypeScript renderer, fetched
 ; from npm at the pinned version rather than built from source here.
+;
+; [err_trace] is the error framework (module [Err]). Its own test/ needs base,
+; lwt, rresult, cmdliner, mirage-flow, logs and yojson -- adapter suites that
+; are its business, not ours. [vendored_dirs] is what keeps them off our @all:
+; only the src/ library is built, and only because lib/core depends on it.
+; Its melange stanza is NOT used here -- see js/melange/vendor/err_trace/dune.
 
-(vendored_dirs ocaml-yamlt opickle ocaml-model-explorer)
+(vendored_dirs ocaml-yamlt opickle ocaml-model-explorer err_trace)

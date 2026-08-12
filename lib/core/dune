@@ -4,6 +4,9 @@
 ; consumers (e.g. lib/native). [Pretty] is the repo-local glue layer around
 ; Fmt for shared printer conventions.
 
+; err_trace's [name] and [public_name] are the same, so the cross-project
+; handle below matches the module it exposes, [Err].
+
 (library
  (name core)
- (libraries fmt))
+ (libraries fmt err_trace))

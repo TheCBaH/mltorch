@@ -20,4 +20,4 @@
  (modes melange)
  (enabled_if
   (= %{profile} melange))
- (libraries fmt_mel))
+ (libraries fmt_mel err_trace_mel))
