@@ -44,6 +44,21 @@ let pp_error ppf = function
 Keep the row-polymorphic delegation; assemble the message with `Fmt.pf` and
 combinators, not by hand.
 
+**A shared domain is printed by its owner, once.** Delegation is not only for a
+whole included row — an individual tag whose payload is another module's type
+delegates too. `Me_limits.over_limit_error` is the worked example: nine
+validators flat-include it and each renders it as
+
+```ocaml
+| `Over_limit o -> Me_limits.Over_limit.pp fmt o
+```
+
+rather than re-deriving the sentence from the payload's fields. Before that,
+nine copies of one `Fmt.pf` differed only in a leading word, and that word — the
+validator that rejected — was information *the error did not carry*. Whenever
+re-deriving a message would need a fact the payload lacks, the fix is the
+payload, not the printer.
+
 ### 2. Container printers
 
 Bracketed lists, `", "`/`"; "`-separated lists, optional values rendered as
@@ -129,6 +144,28 @@ Three silent behaviour changes, each found by a cram golden that moved:
   (`lib/pt2_spec_gen/pt2_spec_gen.ml`, a few `test/*.ml` decode/encode helpers)
   stay plain `match ... | Error e -> failwith e` — generalising the helper for
   call sites with no `Err.Error.t` wrapper would be speculative abstraction.
+  Note the *dependency*: `js/probe/probe_tensor_json.ml` justified its `failwith`
+  in a comment reading "plain `result` from Jsont" — true until `Graph_json`
+  started returning an `Err.t`, at which point the exemption silently stopped
+  applying. When a channel is lifted into the framework, its consumers' `failwith`
+  exemptions expire with it.
+- **A third-party message may stay a string, but name the tag for its source.**
+  Jsont's decode error is a position and an expectation this repository did not
+  author and cannot classify further, so `Graph_json.error` and
+  `Me_response.Meta.error` are both `` `Jsont of string ``, and `Me_export`'s is
+  `` `Model_json_decode of string ``. What the name buys is that it does not read
+  as a case the module *declined* to classify. **Lifting it into `Err.t` is still
+  worth doing** even when the payload cannot improve: callers compose with
+  `let*` instead of re-matching at each entry point, and they get a wrapper with
+  provenance. That is a different judgement from dropping the wrapper outward
+  (`to_cli`, `or_jsont`), which remains correct where the far side genuinely
+  cannot carry one.
+- **Flat-including a base domain replaces a rendered payload, not just a tag.**
+  `Tensor_bridge.of_aten` returned `(_, string) result` and built it by
+  destructuring an `Err.t` to `Fmt.str "%a"` its kind — the wrapper discarded and
+  the caller left a sentence. It now flat-includes `Aten_shape.error` and widens
+  with `Err.map_error`, so `op_bridge`'s `` `Tensor_bridge `` carries the bridge's
+  own row (`cause`) instead of a `message : string`.
 - **A boundary that emits outward must print the payload ALONE.** Because
   `Err` registers a `Printexc` printer, the default rendering of `Err.Exn.E` —
   and therefore `Printexc.to_string` — is payload *plus* detection stack *plus*

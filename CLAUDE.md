@@ -43,6 +43,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   `(_, string) result`, into Jsont) is fine, but give it a **named** helper —
   `to_cli`, `Pattern.of_err`, `Me_request.or_jsont` — that marks
   `Err.Action.Export` first, so it is distinguishable from the defect.
+  **Payloads carry data, not prose.** A closed value set is a variant, not a
+  string (`Me_limits.Field`, `Native_interp.arg_kind`,
+  `Me_flow.Transition.Kind_tag`); a multi-field payload is a named record with
+  named fields, in its own module when labels would collide
+  (`Me_limits.Over_limit`, `Shape_error`'s `channels_mismatch`). A single-tag,
+  single-id payload — `` `Unknown_state of string `` — is already precise; leave
+  it. A third-party message (Jsont's) may stay a string, but name the tag for its
+  source (`` `Jsont ``, `` `Model_json_decode ``) so it does not read as a case
+  the module declined to classify.
   Configuration and monitors belong to the **host**, never to `lib/`:
   `lib/err_host` reads `MLTORCH_ERROR_*` once from an executable's entry point.
   See `.ai/error_handling_design.md` and `.ai/printer_conventions.md`.

@@ -2,11 +2,12 @@
 
 module ME = Model_explorer
 
-type error = [ `Over_limit of string * int ]
+type error = Me_limits.over_limit_error
 
 let pp_error fmt : [< error ] -> unit = function
-  | `Over_limit (field, n) ->
-      Fmt.pf fmt "fusion %s = %d is over the ceiling" field n
+  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
+
+let over_limit = Me_limits.check ~scope:Me_limits.Scope.Fusion
 
 type t = {
   overlays : ME.EdgeOverlaysData.t;
@@ -42,10 +43,8 @@ let of_kernel ~limits ~graph k =
       virtual_uses []
   in
   let* () =
-    let n = List.length edges in
-    if n > limits.Me_limits.Limits.max_overlay_edges_per_overlay then
-      Err.fail (`Over_limit ("overlayEdges", n))
-    else Err.return ()
+    over_limit Me_limits.Field.Overlay_edges (List.length edges)
+      ~ceiling:limits.Me_limits.Limits.max_overlay_edges_per_overlay
   in
   (* TWO facts, and the value scale is where they meet: a producer that is
      virtual for its consumer and still stored for someone else is neither
@@ -106,10 +105,8 @@ let of_kernel ~limits ~graph k =
       k.Kernel.values
   in
   let+ () =
-    let n = List.length results in
-    if n > limits.Me_limits.Limits.max_node_data_results_per_graph then
-      Err.fail (`Over_limit ("nodeDataResults", n))
-    else Err.return ()
+    over_limit Me_limits.Field.Node_data_results (List.length results)
+      ~ceiling:limits.Me_limits.Limits.max_node_data_results_per_graph
   in
   (* The summary: how many producers stayed materialized, and how many edges
      the plan made virtual. Bounded by construction, unlike a diagnostic per

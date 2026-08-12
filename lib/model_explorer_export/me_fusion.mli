@@ -15,7 +15,8 @@
 
    See .ai/model_explorer_design.md. *)
 
-type error = [ `Over_limit of string * int ]
+type error = Me_limits.over_limit_error
+(** Counting only, under [Me_limits.Scope.Fusion]. *)
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

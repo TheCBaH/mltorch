@@ -152,11 +152,22 @@ module Path_rejection = struct
   (** [path] is an [excerpt]. *)
 end
 
+(* Two different facts under one tag before: zipc's own inflate message, and a
+   produced-length disagreement this module detects. The second is the whole
+   point of the post-check (see [read]), and a caller could only tell them
+   apart by matching on the message text. *)
+type zip_read_cause = [ `Zipc of string | `Size_disagrees ]
+
+module Zip_read_failure = struct
+  type t = { name : string; cause : zip_read_cause }
+  (** [name] is an [excerpt], as every other path in this row is. *)
+end
+
 type t = { zip : Zipc.t; prefix : string }
 
 type error =
   [ `Zip_parse_failed of string
-  | `Zip_read_failed of string * string
+  | `Zip_read_failed of Zip_read_failure.t
   | `Zip_missing_entry of string
   | `Zip_no_eocd
   | `Zip_too_many_entries of int
@@ -197,8 +208,11 @@ let pp_path_rejection ppf ({ path; kind } : Path_rejection.t) =
 
 let pp_error ppf : error -> unit = function
   | `Zip_parse_failed msg -> Fmt.pf ppf "zip parse failed: %s" msg
-  | `Zip_read_failed (name, message) ->
-      Fmt.pf ppf "zip entry %S read failed: %s" name message
+  | `Zip_read_failed { Zip_read_failure.name; cause } ->
+      Fmt.pf ppf "zip entry %S read failed: %s" name
+        (match cause with
+        | `Zipc m -> m
+        | `Size_disagrees -> "decompressed size disagrees")
   | `Zip_missing_entry name -> Fmt.pf ppf "zip entry %S is missing" name
   | `Zip_no_eocd -> Fmt.pf ppf "zip has no end-of-central-directory record"
   | `Zip_too_many_entries limit ->
@@ -375,7 +389,8 @@ let prefix t = t.prefix
    pre-check refuses BEFORE [to_binary_string] builds the string; the post-check
    would refuse after allocating it, which for a member near the per-entry
    ceiling is the whole cost. The suite distinguishes them by their messages,
-   which is the only external evidence of which one fired.
+   which is the only external evidence of which one fired -- or was, before
+   [`Size_disagrees] made the post-check its own constructor.
 
    [to_binary_string] is itself safe on the archive range — decoding already
    validated that each compressed span fits (zipc.ml:335) — so neither check is
@@ -402,14 +417,25 @@ let read t name =
           let* s =
             match Zipc.File.to_binary_string f with
             | Ok s -> Err.return s
-            | Error e -> Err.fail (`Zip_read_failed (name, e))
+            | Error e ->
+                (* [excerpt], like every sibling check above: the bound on
+                   error-payload size was skipped at this site and the next
+                   one only. *)
+                Err.fail
+                  (`Zip_read_failed
+                     { Zip_read_failure.name = excerpt name; cause = `Zipc e })
           in
           (* The produced-length re-check. zipc's inflate is bounded by the
              declared size, so this closes the other direction: a member that
              yielded FEWER bytes than the central directory claimed was counted
              for more, which is safe, and one that yielded more would not be. *)
           if String.length s <> declared then
-            Err.fail (`Zip_read_failed (name, "decompressed size disagrees"))
+            Err.fail
+              (`Zip_read_failed
+                 {
+                   Zip_read_failure.name = excerpt name;
+                   cause = `Size_disagrees;
+                 })
           else Err.return (Some s))
 
 let read_required t name =

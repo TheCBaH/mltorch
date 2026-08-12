@@ -15,7 +15,11 @@ module D = Interp_decode
 
 type aten_env = Interp_decode.env
 type invalid_hw_arg = { name : string; values : int list }
-type tensor_bridge_error = { arg_name : string; message : string }
+
+(* [cause] is the bridge's OWN row, not a rendering of it: [Tensor_bridge]
+   used to hand back a string and this wrapped it, so a caller could read what
+   went wrong but never branch on it. *)
+type tensor_bridge_error = { arg_name : string; cause : Tensor_bridge.error }
 
 type error =
   [ `Decode of Interp_decode.error
@@ -39,7 +43,8 @@ let pp_int_array ppf xs = pp_int_list ppf (Array.to_list xs)
 
 let pp_error ppf : [< error ] -> unit = function
   | `Decode e -> Interp_decode.pp_error ppf e
-  | `Tensor_bridge { arg_name; message } -> Fmt.pf ppf "%s: %s" arg_name message
+  | `Tensor_bridge { arg_name; cause } ->
+      Fmt.pf ppf "%s: %a" arg_name Tensor_bridge.pp_error cause
   | `Build e -> Graph_builder.pp_error ppf e
   | `Invalid_hw_arg { name; values } ->
       Fmt.pf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list values
@@ -105,9 +110,9 @@ let some_graph = function Ok x -> Some (Ok x) | Error e -> Some (Error e)
 
 (* Convert an ATen tensor to native, prefixing errors with [arg_name]. *)
 let native_of_aten arg_name t =
-  match Tensor_bridge.of_aten t with
-  | Ok x -> Err.return x
-  | Error message -> Err.fail (`Tensor_bridge { arg_name; message })
+  Tensor_bridge.of_aten t
+  |> Err.map_error ~pos:__POS__ (fun cause ->
+      `Tensor_bridge { arg_name; cause })
 
 let native_tensor_arg aten_env node name =
   let* tensor = tensor_arg aten_env node name in

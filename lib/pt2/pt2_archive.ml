@@ -13,8 +13,16 @@ type t = {
   constants : ModelWeightsConfig.t;
 }
 
+(* Two different facts under one tag before: a short read this module detects,
+   and the OS message a [Sys_error] carried. Only the second is third-party. *)
+type io_cause = [ `Short_read | `Sys_error of string ]
+
+module Io = struct
+  type t = { path : string; cause : io_cause }
+end
+
 type error =
-  [ `Io of string * string
+  [ `Io of Io.t
   | `Io_too_large of string * int64
   | `Zip_open of string * Pt2_zip.error
   | `Read_archive_member of string * Pt2_zip.error
@@ -27,7 +35,9 @@ type error =
   | `Pt_pickle of string * Pt2_pickle.error ]
 
 let pp_error ppf : error -> unit = function
-  | `Io (path, message) -> Fmt.pf ppf "failed to read %S: %s" path message
+  | `Io { Io.path; cause } ->
+      Fmt.pf ppf "failed to read %S: %s" path
+        (match cause with `Short_read -> "short read" | `Sys_error m -> m)
   | `Io_too_large (path, limit) ->
       Fmt.pf ppf "%S is larger than %Ld bytes" path limit
   | `Zip_open (path, error) ->
@@ -110,8 +120,8 @@ let read_file ?(max_bytes = default_max_file_bytes) path =
              than by an argument about the caller. *)
           match In_channel.really_input_string ic (Int64.to_int length) with
           | Some s -> Err.return s
-          | None -> Err.fail (`Io (path, "short read")))
-  with Sys_error message -> Err.fail (`Io (path, message))
+          | None -> Err.fail (`Io { Io.path; cause = `Short_read }))
+  with Sys_error m -> Err.fail (`Io { Io.path; cause = `Sys_error m })
 
 let read_member zip path =
   Pt2_zip.read_rel_required zip path

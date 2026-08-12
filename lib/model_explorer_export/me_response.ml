@@ -200,7 +200,19 @@ module Meta = struct
       | _ -> None)
     |> Jsont.Object.finish
 
-  let decode = Jsont_bytesrw.decode_string jsont
+  type error = [ `Jsont of string ]
+
+  let pp_error fmt : [< error ] -> unit = function
+    | `Jsont m -> Fmt.string fmt m
+
+  (* Jsont's message is a THIRD-PARTY payload — a decoder position and
+     expectation this module did not author. Lifting it into [Err.t] anyway
+     gives the coordinator a wrapper with provenance and composition with
+     [let*]; the tag names its source rather than claiming a case of its own. *)
+  let decode s =
+    match Jsont_bytesrw.decode_string jsont s with
+    | Ok v -> Err.return v
+    | Error m -> Err.fail ~pos:__POS__ (`Jsont m)
 end
 
 module Wire = struct

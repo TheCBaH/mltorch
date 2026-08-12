@@ -2,14 +2,14 @@
 
 module MS = Me_session
 
-type error = [ Me_ids.error | `Over_limit of string * int | Pass.count_error ]
+type error = [ Me_ids.error | Me_limits.over_limit_error | Pass.count_error ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Me_ids.error as e -> Me_ids.pp_error fmt e
-  | `Over_limit (field, n) ->
-      Fmt.pf fmt "verification %s = %d is over the ceiling" field n
+  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
   | `Count_overflow o -> Pass.Count_overflow.pp fmt o
 
+let over_limit = Me_limits.check ~scope:Me_limits.Scope.Verification
 let summary = Pass.Outcome_counts.of_report
 
 let audit_status (log : Pass.Audit_log.t) =
@@ -93,9 +93,8 @@ let by_namespace ~limits (g : Graph_ir.graph) (report : Map_verify.Report.t) =
   in
   let count = Hashtbl.length table in
   let+ () =
-    if count > limits.Me_limits.Limits.max_groups_per_graph then
-      Err.fail (`Over_limit ("groupNodeAttributes", count))
-    else Err.return ()
+    over_limit Me_limits.Field.Group_node_attributes count
+      ~ceiling:limits.Me_limits.Limits.max_groups_per_graph
   in
   (* Sorted, and the counts within an entry already canonically ordered by
      [bindings]: two runs over the same report have to agree byte for byte. *)
@@ -150,10 +149,8 @@ let node_data ~limits ~graph (g : Graph_ir.graph) (report : Map_verify.Report.t)
                 } ))
       (Graph_ir.nodes g)
   in
-  let n = List.length results in
   let+ () =
-    if n > limits.Me_limits.Limits.max_node_data_results_per_graph then
-      Err.fail (`Over_limit ("nodeDataResults", n))
-    else Err.return ()
+    over_limit Me_limits.Field.Node_data_results (List.length results)
+      ~ceiling:limits.Me_limits.Limits.max_node_data_results_per_graph
   in
   { MS.Node_data_set.name = "verification"; graph; results }

@@ -24,7 +24,11 @@
 
    See .ai/model_explorer_design.md. *)
 
-type error = [ Me_ids.error | `Over_limit of string * int | Pass.count_error ]
+type error =
+  [ Me_ids.error
+  | Me_limits.over_limit_error
+    (* counted under [Me_limits.Scope.Verification] *)
+  | Pass.count_error ]
 (** [Me_ids.error] because a placement is a NAMESPACE, spelled by the same
     encoder the projection uses. *)
 

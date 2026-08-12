@@ -6,14 +6,14 @@ module A = Pytorch_types.Argument
 module SM = Schema_runtime.String_map
 
 type error =
-  [ Me_ids.error | `Over_limit of string * int | `Unknown_producer of string ]
+  [ Me_ids.error | Me_limits.over_limit_error | `Unknown_producer of string ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Me_ids.error as e -> Me_ids.pp_error fmt e
-  | `Over_limit (field, n) ->
-      Fmt.pf fmt "source graph %s = %d is over the ceiling" field n
+  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
   | `Unknown_producer name -> Fmt.pf fmt "SSA value %S has no producer" name
 
+let over_limit = Me_limits.check ~scope:Me_limits.Scope.Source_graph
 let tname (t : PT.TensorArgument.t) = t.PT.TensorArgument.name
 
 (* Which SSA values an argument READS.
@@ -278,9 +278,8 @@ let graph ~limits (gm : PT.GraphModule.t) =
     List.length nodes + List.length inputs + List.length outputs
   in
   let* () =
-    if node_count > limits.Me_limits.Limits.max_nodes_per_graph then
-      Err.fail (`Over_limit ("nodes", node_count))
-    else Err.return ()
+    over_limit Me_limits.Field.Nodes node_count
+      ~ceiling:limits.Me_limits.Limits.max_nodes_per_graph
   in
   let kinds = input_kinds gm.PT.GraphModule.signature in
   (* Where each SSA value comes from. A graph input resolves to its pinned
@@ -385,8 +384,7 @@ let graph ~limits (gm : PT.GraphModule.t) =
       0 all
   in
   let+ () =
-    if edges > limits.Me_limits.Limits.max_edges_per_graph then
-      Err.fail (`Over_limit ("edges", edges))
-    else Err.return ()
+    over_limit Me_limits.Field.Edges edges
+      ~ceiling:limits.Me_limits.Limits.max_edges_per_graph
   in
   ME.Graph.create ~id:(Me_ids.pt2_graph path) ~nodes:all ()

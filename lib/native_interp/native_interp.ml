@@ -3,17 +3,178 @@ open Schema_runtime
 module Tensor_id = Graph_ir.Tensor_id
 module Node_id = Graph_ir.Node_id
 
+type arg_kind =
+  [ `Tensor
+  | `Optional_tensor
+  | `Int_list
+  | `Int
+  | `Bool
+  | `Float
+  | `Scalar
+  | `Optional_scalar
+  | `Tensor_or_scalar ]
+
+type dim_fault =
+  [ `Negative of int | `Symbolic | `Rank_over_six | `Expected_rank_four of int ]
+
+type metadata_role =
+  [ `Tensor
+  | `Convolution_weight
+  | `Mean_input
+  | `Permute_input
+  | `Addmm_weight ]
+
+type hw_param = [ `Stride | `Padding | `Dilation | `Kernel_size ]
+
+(* Two genuinely different rejections, not one with a message: a graph input
+   that is not a tensor, and a graph whose user-input arity the runner cannot
+   satisfy. Both are recoverable ([Me_classify.lowering]); only the second has
+   a figure to report. *)
+type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
+type unsupported_option = [ `Alpha of float | `Memory_format ]
+
+(* Own modules, per the record-namespace convention: three of these carry an
+   [op] field and two an [arg], and distinct namespaces are how this repo keeps
+   labels unique rather than silencing warning 30. *)
+module Missing_arg = struct
+  type t = { op : string; arg : string }
+end
+
+module Wrong_arg_kind = struct
+  type t = { op : string; arg : string; expected : arg_kind }
+end
+
+module Bad_dimension = struct
+  type t = { tensor : string; fault : dim_fault }
+end
+
+module Missing_metadata = struct
+  type t = { ssa : string; role : metadata_role }
+end
+
+module Axis_out_of_range = struct
+  type t = { axis : int; rank : int }
+end
+
+module Bad_arity = struct
+  type t = { param : hw_param; got : int }
+end
+
+module Unsupported_option = struct
+  type t = { op : string; option : unsupported_option }
+end
+
+type malformed =
+  [ `Missing_arg of Missing_arg.t
+  | `Wrong_arg_kind of Wrong_arg_kind.t
+  | `Missing_metadata of Missing_metadata.t
+  | `Bad_dimension of Bad_dimension.t
+  | `Axis_out_of_range of Axis_out_of_range.t
+  | `Bad_arity of Bad_arity.t
+  | `Unsupported_option of Unsupported_option.t
+  | `Non_tensor_node_output of string
+  | `Non_tensor_graph_output
+  | `Undefined_ssa of string
+  | `Output_not_evaluated of Graph_ir.Tensor_id.t ]
+
+module Rank_mismatch = struct
+  type t = { sizes : int; strides : int }
+end
+
+module Storage_range = struct
+  type t = { lo : int64; hi : int64; data_bytes : int }
+end
+
+(* Loading a captured tensor, which is a different job from reading graph
+   metadata even though it reuses [shape_of_sizes] and so can raise its rows. *)
+type tensor_bridge =
+  [ malformed
+  | `Rank_mismatch of Rank_mismatch.t
+  | `Storage_index_overflow
+  | `Storage_out_of_range of Storage_range.t
+  | `Materialize_failed of string
+    (* [Invalid_argument]'s own message — a third-party payload, named for its
+       source rather than left to read as a case declined to classify. *)
+  | `Unsupported_dtype of Pt2_dtype.t
+  | `Archive of Pt2_archive.error ]
+
 type error =
-  [ `Unsupported_input of string
+  [ `Unsupported_input of unsupported_input
   | `Unsupported_operator of string
-  | `Malformed_graph of string
-  | `Tensor_bridge of string
+  | malformed
+  | `Tensor_bridge of tensor_bridge
   | `Eval of Eval_direct.error
   | `Build of Graph_builder.error
   | `Provenance of Pt2_native_graph.error
   | `Transform of Pass.error
   | `Verify of Map_verify.error
   | `Lens of Pt2_native_graph.lens_error ]
+
+let pp_arg_kind ppf : arg_kind -> unit = function
+  | `Tensor -> Fmt.string ppf "a tensor"
+  | `Optional_tensor -> Fmt.string ppf "an optional tensor"
+  | `Int_list -> Fmt.string ppf "an int list"
+  | `Int -> Fmt.string ppf "an int"
+  | `Bool -> Fmt.string ppf "a bool"
+  | `Float -> Fmt.string ppf "a float"
+  | `Scalar -> Fmt.string ppf "a scalar"
+  | `Optional_scalar -> Fmt.string ppf "an optional scalar"
+  | `Tensor_or_scalar -> Fmt.string ppf "a tensor or scalar"
+
+let pp_metadata_role ppf : metadata_role -> unit = function
+  | `Tensor -> Fmt.string ppf "tensor"
+  | `Convolution_weight -> Fmt.string ppf "convolution weight"
+  | `Mean_input -> Fmt.string ppf "mean input"
+  | `Permute_input -> Fmt.string ppf "permute input"
+  | `Addmm_weight -> Fmt.string ppf "addmm weight"
+
+let pp_hw_param ppf : hw_param -> unit = function
+  | `Stride -> Fmt.string ppf "stride"
+  | `Padding -> Fmt.string ppf "padding"
+  | `Dilation -> Fmt.string ppf "dilation"
+  | `Kernel_size -> Fmt.string ppf "kernel_size"
+
+let pp_malformed ppf : [< malformed ] -> unit = function
+  | `Missing_arg { Missing_arg.op; arg } ->
+      Fmt.pf ppf "%s: missing argument %S" op arg
+  | `Wrong_arg_kind { Wrong_arg_kind.op; arg; expected } ->
+      Fmt.pf ppf "%s.%s is not %a" op arg pp_arg_kind expected
+  | `Missing_metadata { Missing_metadata.ssa; role } ->
+      Fmt.pf ppf "no %a metadata for %S" pp_metadata_role role ssa
+  | `Bad_dimension { Bad_dimension.tensor; fault } -> (
+      match fault with
+      | `Negative i -> Fmt.pf ppf "%s has negative dimension %d" tensor i
+      | `Symbolic -> Fmt.pf ppf "%s has a symbolic dimension" tensor
+      | `Rank_over_six -> Fmt.pf ppf "%s has rank greater than six" tensor
+      | `Expected_rank_four n ->
+          Fmt.pf ppf "%s is rank %d, expected four" tensor n)
+  | `Axis_out_of_range { Axis_out_of_range.axis; rank } ->
+      Fmt.pf ppf "invalid dimension %d for rank %d" axis rank
+  | `Bad_arity { Bad_arity.param; got } ->
+      Fmt.pf ppf "%a must have one or two values, got %d" pp_hw_param param got
+  | `Unsupported_option { Unsupported_option.op; option } -> (
+      match option with
+      | `Alpha a -> Fmt.pf ppf "%s: alpha=%g is not supported (only 1)" op a
+      | `Memory_format -> Fmt.pf ppf "%s: memory_format is not supported" op)
+  | `Non_tensor_node_output op -> Fmt.pf ppf "%s has a non-tensor output" op
+  | `Non_tensor_graph_output -> Fmt.string ppf "non-tensor graph output"
+  | `Undefined_ssa name -> Fmt.pf ppf "SSA tensor %S is not defined" name
+  | `Output_not_evaluated id ->
+      Fmt.pf ppf "native output %a was not evaluated" Tensor_id.pp id
+
+let pp_tensor_bridge ppf : [< tensor_bridge ] -> unit = function
+  | #malformed as e -> pp_malformed ppf e
+  | `Rank_mismatch { Rank_mismatch.sizes; strides } ->
+      Fmt.pf ppf "%d sizes but %d strides" sizes strides
+  | `Storage_index_overflow ->
+      Fmt.string ppf "storage index range overflows a 64-bit integer"
+  | `Storage_out_of_range { Storage_range.lo; hi; data_bytes } ->
+      Fmt.pf ppf "storage index range [%Ld, %Ld] is outside %d bytes of data" lo
+        hi data_bytes
+  | `Materialize_failed m -> Fmt.pf ppf "materializing the tensor: %s" m
+  | `Unsupported_dtype d ->
+      Fmt.pf ppf "only float32 is supported, got %s" (Pt2_dtype.to_string d)
+  | `Archive e -> Pt2_archive.pp_error ppf e
 
 type hooks =
   | Hooks : {
@@ -23,10 +184,13 @@ type hooks =
       -> hooks
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Unsupported_input s -> Fmt.pf ppf "unsupported PT2 input: %s" s
+  | `Unsupported_input `Non_tensor ->
+      Fmt.string ppf "unsupported PT2 input: not a tensor"
+  | `Unsupported_input (`Not_exactly_one_user_input n) ->
+      Fmt.pf ppf "unsupported PT2 input: expected one user input, got %d" n
   | `Unsupported_operator s -> Fmt.pf ppf "unsupported PT2 operator: %s" s
-  | `Malformed_graph s -> Fmt.pf ppf "malformed PT2 graph: %s" s
-  | `Tensor_bridge s -> Fmt.pf ppf "PT2 tensor bridge: %s" s
+  | #malformed as e -> Fmt.pf ppf "malformed PT2 graph: %a" pp_malformed e
+  | `Tensor_bridge e -> Fmt.pf ppf "PT2 tensor bridge: %a" pp_tensor_bridge e
   | `Eval e -> Eval_direct.pp_error ppf e
   | `Build e -> Graph_builder.pp_error ppf e
   | `Provenance e -> Pt2_native_graph.pp_error ppf e
@@ -36,16 +200,22 @@ let pp_error ppf : [< error ] -> unit = function
 
 exception Lower_error of error
 
-let malformed fmt =
-  Printf.ksprintf (fun s -> raise (Lower_error (`Malformed_graph s))) fmt
+(* Internal control flow only — the .mli exposes [error] and nothing else. The
+   lowering walk is deeply recursive and threading a result through every arm
+   would rewrite it; the exception is caught once, at [lower]'s boundary, and
+   converted there. What crosses it is now a typed row rather than a rendered
+   sentence. *)
+let malformed (e : malformed) = raise (Lower_error (e :> error))
 
 let shape_of_sizes name sizes =
   let dims =
     List.map
       (function
         | SymInt.Int i when i >= 0 -> i
-        | SymInt.Int i -> malformed "%s has negative dimension %d" name i
-        | SymInt.Expr _ -> malformed "%s has a symbolic dimension" name)
+        | SymInt.Int i ->
+            malformed (`Bad_dimension { tensor = name; fault = `Negative i })
+        | SymInt.Expr _ ->
+            malformed (`Bad_dimension { tensor = name; fault = `Symbolic }))
       sizes
   in
   match List.rev dims with
@@ -56,24 +226,26 @@ let shape_of_sizes name sizes =
   | [ c; w ] -> Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w ~c
   | c :: [] -> Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c
   | [] -> Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1
-  | _ -> malformed "%s has rank greater than six" name
+  | _ -> malformed (`Bad_dimension { tensor = name; fault = `Rank_over_six })
 
 let tensor_shape (graph : Pytorch_types.Graph.t) name =
   match String_map.find_opt name graph.tensor_values with
   | Some meta -> shape_of_sizes name meta.TensorMeta.sizes
-  | None -> malformed "no tensor metadata for %S" name
+  | None -> malformed (`Missing_metadata { ssa = name; role = `Tensor })
 
 let find_arg (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
   | Some a -> a.arg
-  | None -> malformed "%s: missing argument %S" node.target name
+  | None -> malformed (`Missing_arg { op = node.target; arg = name })
 
 let tensor_name (node : Pytorch_types.Node.t) name =
   match find_arg node name with
   | Argument.Tensor t -> t.TensorArgument.name
-  | _ -> malformed "%s.%s is not a tensor" node.target name
+  | _ ->
+      malformed
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Tensor })
 
 let optional_tensor_name (node : Pytorch_types.Node.t) name =
   match find_arg node name with
@@ -82,7 +254,10 @@ let optional_tensor_name (node : Pytorch_types.Node.t) name =
   | Argument.Optional_tensor (OptionalTensorArgument.Tensor t) ->
       Some t.TensorArgument.name
   | Argument.Optional_tensor (OptionalTensorArgument.None _) -> None
-  | _ -> malformed "%s.%s is not an optional tensor" node.target name
+  | _ ->
+      malformed
+        (`Wrong_arg_kind
+           { op = node.target; arg = name; expected = `Optional_tensor })
 
 let ints_arg ?(default = []) (node : Pytorch_types.Node.t) name =
   match
@@ -91,7 +266,9 @@ let ints_arg ?(default = []) (node : Pytorch_types.Node.t) name =
   | None -> default
   | Some { arg = Argument.Ints xs; _ } -> xs
   | Some { arg = Argument.None _; _ } -> default
-  | Some _ -> malformed "%s.%s is not an int list" node.target name
+  | Some _ ->
+      malformed
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int_list })
 
 let int_arg ?(default = 0) (node : Pytorch_types.Node.t) name =
   match
@@ -99,7 +276,9 @@ let int_arg ?(default = 0) (node : Pytorch_types.Node.t) name =
   with
   | None -> default
   | Some { arg = Argument.Int i; _ } -> i
-  | Some _ -> malformed "%s.%s is not an int" node.target name
+  | Some _ ->
+      malformed
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int })
 
 let bool_arg ?(default = false) (node : Pytorch_types.Node.t) name =
   match
@@ -107,7 +286,9 @@ let bool_arg ?(default = false) (node : Pytorch_types.Node.t) name =
   with
   | None -> default
   | Some { arg = Argument.Bool b; _ } -> b
-  | Some _ -> malformed "%s.%s is not a bool" node.target name
+  | Some _ ->
+      malformed
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Bool })
 
 let float_arg ?(default = 0.) (node : Pytorch_types.Node.t) name =
   match
@@ -115,7 +296,9 @@ let float_arg ?(default = 0.) (node : Pytorch_types.Node.t) name =
   with
   | None -> default
   | Some { arg = Argument.Float f; _ } -> f
-  | Some _ -> malformed "%s.%s is not a float" node.target name
+  | Some _ ->
+      malformed
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Float })
 
 (* A schema [Scalar] argument crosses as either an Int or a Float — clamp's
    bounds arrive as `as_int` in MobileNet-v3 and hardtanh's as `as_float` in v2,
@@ -129,7 +312,9 @@ let scalar_arg ~default (node : Pytorch_types.Node.t) name =
   | Some { arg = Argument.Int i; _ } -> float_of_int i
   | Some { arg = Argument.Float f; _ } -> f
   | Some { arg = Argument.None _; _ } -> default
-  | Some _ -> malformed "%s.%s is not a scalar" node.target name
+  | Some _ ->
+      malformed
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Scalar })
 
 let scalar_opt_arg (node : Pytorch_types.Node.t) name =
   match
@@ -139,7 +324,10 @@ let scalar_opt_arg (node : Pytorch_types.Node.t) name =
   | Some { arg = Argument.Int i; _ } -> Some (float_of_int i)
   | Some { arg = Argument.Float f; _ } -> Some f
   | Some { arg = Argument.None _; _ } -> None
-  | Some _ -> malformed "%s.%s is not an optional scalar" node.target name
+  | Some _ ->
+      malformed
+        (`Wrong_arg_kind
+           { op = node.target; arg = name; expected = `Optional_scalar })
 
 (* [add.Tensor]/[sub.Tensor] carry `*, Scalar alpha=1` and compute
    [self + alpha * other]. Nothing in this model zoo serialises a non-default
@@ -149,7 +337,8 @@ let reject_alpha (node : Pytorch_types.Node.t) =
   match scalar_opt_arg node "alpha" with
   | None -> ()
   | Some a when Float.equal a 1. -> ()
-  | Some a -> malformed "%s: alpha=%g is not supported (only 1)" node.target a
+  | Some a ->
+      malformed (`Unsupported_option { op = node.target; option = `Alpha a })
 
 (* [clone] with a [memory_format] asks for a layout change this op does not
    perform. The native IR has one layout per shape, so honouring the request is
@@ -161,13 +350,15 @@ let reject_memory_format (node : Pytorch_types.Node.t) =
       node.Node.inputs
   with
   | None | Some { arg = Argument.None _; _ } -> ()
-  | Some _ -> malformed "%s: memory_format is not supported" node.target
+  | Some _ ->
+      malformed
+        (`Unsupported_option { op = node.target; option = `Memory_format })
 
 let output_names (node : Pytorch_types.Node.t) =
   List.map
     (function
       | Argument.Tensor t -> t.TensorArgument.name
-      | _ -> malformed "%s has a non-tensor output" node.target)
+      | _ -> malformed (`Non_tensor_node_output node.target))
     node.outputs
 
 let is_nontrivial_node (node : Pytorch_types.Node.t) =
@@ -186,20 +377,24 @@ let materialized_output_names (node : Pytorch_types.Node.t) =
       [ List.hd (output_names node) ]
   | _ -> output_names node
 
-let hw2 name = function
+let hw2 param = function
   | [ h; w ] -> (h, w)
   | [ x ] -> (x, x)
-  | xs ->
-      malformed "%s must have one or two values, got %d" name (List.length xs)
+  | xs -> malformed (`Bad_arity { param; got = List.length xs })
 
 let env_find env name =
   match String_map.find_opt name env with
   | Some x -> x
-  | None -> malformed "SSA tensor %S is not defined" name
+  | None -> malformed (`Undefined_ssa name)
 
 let add_env env names ids =
+  (* An INVARIANT of this module, not a fact about the model: [names] comes
+     from [materialized_output_names] and [ids] from the op call just made, so a
+     mismatch is a defect here. It must not reach the caller dressed as a
+     malformed graph. Same treatment as [Graph_ir.Index.assert_matches]. *)
   if List.compare_lengths names ids <> 0 then
-    malformed "internal output arity mismatch";
+    invalid_arg
+      "Native_interp.add_env: output arity does not match the ids produced";
   List.fold_left2 (fun e name id -> String_map.add name id e) env names ids
 
 let perm_nchw_to_nhwc =
@@ -223,24 +418,34 @@ let conv_params (graph : Pytorch_types.Graph.t) (node : Pytorch_types.Node.t) =
   let weight_meta =
     match String_map.find_opt weight_name graph.tensor_values with
     | Some x -> x
-    | None -> malformed "no metadata for convolution weight %S" weight_name
+    | None ->
+        malformed
+          (`Missing_metadata { ssa = weight_name; role = `Convolution_weight })
   in
   let sizes =
     List.map
       (function
         | SymInt.Int i -> i
-        | SymInt.Expr _ -> malformed "symbolic convolution weight")
+        | SymInt.Expr _ ->
+            malformed
+              (`Bad_dimension { tensor = weight_name; fault = `Symbolic }))
       weight_meta.TensorMeta.sizes
   in
   let cout, cin, kh, kw =
     match sizes with
     | [ a; b; c; d ] -> (a, b, c, d)
-    | _ -> malformed "convolution weight is not rank four"
+    | _ ->
+        malformed
+          (`Bad_dimension
+             {
+               tensor = weight_name;
+               fault = `Expected_rank_four (List.length sizes);
+             })
   in
   let _ = cout in
-  let sh, sw = hw2 "stride" (ints_arg ~default:[ 1; 1 ] node "stride") in
-  let ph, pw = hw2 "padding" (ints_arg ~default:[ 0; 0 ] node "padding") in
-  let dh, dw = hw2 "dilation" (ints_arg ~default:[ 1; 1 ] node "dilation") in
+  let sh, sw = hw2 `Stride (ints_arg ~default:[ 1; 1 ] node "stride") in
+  let ph, pw = hw2 `Padding (ints_arg ~default:[ 0; 0 ] node "padding") in
+  let dh, dw = hw2 `Dilation (ints_arg ~default:[ 1; 1 ] node "dilation") in
   let groups = int_arg ~default:1 node "groups" in
   ( {
       Conv.Convolution.stride =
@@ -258,10 +463,10 @@ let conv_params (graph : Pytorch_types.Graph.t) (node : Pytorch_types.Node.t) =
     kw )
 
 let pool_params (node : Pytorch_types.Node.t) =
-  let kh, kw = hw2 "kernel_size" (ints_arg node "kernel_size") in
+  let kh, kw = hw2 `Kernel_size (ints_arg node "kernel_size") in
   let stride = ints_arg ~default:[ kh; kw ] node "stride" in
-  let sh, sw = hw2 "stride" stride in
-  let ph, pw = hw2 "padding" (ints_arg ~default:[ 0; 0 ] node "padding") in
+  let sh, sw = hw2 `Stride stride in
+  let ph, pw = hw2 `Padding (ints_arg ~default:[ 0; 0 ] node "padding") in
   {
     Pool.MaxPool2d.kernel = { h = Dim.extent kh; w = Dim.extent kw };
     stride = { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
@@ -273,7 +478,8 @@ let axes_for_rank rank dims =
   List.map
     (fun d ->
       let d = if d < 0 then d + rank else d in
-      if d < 0 || d >= rank then malformed "invalid dimension %d" d
+      if d < 0 || d >= rank then
+        malformed (`Axis_out_of_range { axis = d; rank })
       else List.nth used d)
     dims
 
@@ -284,7 +490,8 @@ let native_perm ~rank dims =
   @ List.mapi
       (fun i d ->
         let d = if d < 0 then d + rank else d in
-        if d < 0 || d >= rank then malformed "invalid dimension %d" d;
+        if d < 0 || d >= rank then
+          malformed (`Axis_out_of_range { axis = d; rank });
         (List.nth used i, List.nth used d))
       dims
 
@@ -313,7 +520,7 @@ let lower program =
               (`Constant, p.arg.TensorArgument.name, Some p.buffer_name)
           | InputSpec.Tensor_constant p ->
               (`Constant, p.arg.TensorArgument.name, Some p.tensor_constant_name)
-          | _ -> raise (Lower_error (`Unsupported_input "non-tensor input")))
+          | _ -> raise (Lower_error (`Unsupported_input `Non_tensor)))
         sign.GraphSignature.input_specs
     in
     let tensor_origins = ref Tensor_id.Map.empty in
@@ -359,7 +566,14 @@ let lower program =
           | Argument.Tensor t -> `Tensor (env_find env t.TensorArgument.name)
           | Argument.Int i -> `Scalar (float_of_int i)
           | Argument.Float f -> `Scalar f
-          | _ -> malformed "%s.%s is not a tensor or scalar" node.target name
+          | _ ->
+              malformed
+                (`Wrong_arg_kind
+                   {
+                     op = node.target;
+                     arg = name;
+                     expected = `Tensor_or_scalar;
+                   })
         in
         match node.target with
         | "torch.ops.aten.convolution.default" ->
@@ -448,7 +662,9 @@ let lower program =
             let rank =
               match String_map.find_opt x_name graph.tensor_values with
               | Some m -> List.length m.TensorMeta.sizes
-              | None -> malformed "no metadata for mean input"
+              | None ->
+                  malformed
+                    (`Missing_metadata { ssa = x_name; role = `Mean_input })
             in
             let params =
               {
@@ -463,7 +679,9 @@ let lower program =
             let rank =
               match String_map.find_opt x_name graph.tensor_values with
               | Some m -> List.length m.TensorMeta.sizes
-              | None -> malformed "no metadata for permute input"
+              | None ->
+                  malformed
+                    (`Missing_metadata { ssa = x_name; role = `Permute_input })
             in
             let* y =
               permute (native_perm ~rank (ints_arg node "dims")) (get "self")
@@ -487,8 +705,12 @@ let lower program =
               | Some m -> (
                   match m.TensorMeta.sizes with
                   | SymInt.Int n :: _ -> n
-                  | _ -> malformed "invalid addmm weight")
-              | None -> malformed "no metadata for addmm weight"
+                  | _ ->
+                      malformed
+                        (`Bad_dimension { tensor = w_name; fault = `Symbolic }))
+              | None ->
+                  malformed
+                    (`Missing_metadata { ssa = w_name; role = `Addmm_weight })
             in
             let* w = permute perm_addmm_weight (get "mat2") in
             let* y =
@@ -536,7 +758,7 @@ let lower program =
         List.map
           (function
             | Argument.Tensor a -> env_find env a.TensorArgument.name
-            | _ -> malformed "non-tensor graph output")
+            | _ -> malformed `Non_tensor_graph_output)
           graph.outputs
       in
       return outputs
@@ -588,11 +810,19 @@ let tensor_of_pt2 (tensor : Pt2_tensor.t) =
         try
           shape_of_sizes "tensor"
             (List.map (fun x -> SymInt.Int x) tensor.sizes)
-        with Lower_error (`Malformed_graph s) ->
-          raise (Lower_error (`Tensor_bridge s))
+        with Lower_error (#malformed as e) ->
+          (* [shape_of_sizes] is written for graph metadata; re-label its rows
+             for the bridge without discarding which row it was. *)
+          raise (Lower_error (`Tensor_bridge (e :> tensor_bridge)))
       in
       if List.compare_lengths tensor.sizes tensor.strides <> 0 then
-        Err.fail (`Tensor_bridge "sizes and strides have different ranks")
+        Err.fail
+          (`Tensor_bridge
+             (`Rank_mismatch
+                {
+                  Rank_mismatch.sizes = List.length tensor.sizes;
+                  strides = List.length tensor.strides;
+                }))
       else
         let storage_index coord =
           List.fold_left ( + ) tensor.storage_offset
@@ -660,27 +890,21 @@ let tensor_of_pt2 (tensor : Pt2_tensor.t) =
           || Int64.compare hi (Int64.of_int ((data_len - 4) / 4)) > 0
         in
         match range with
-        | Error () ->
-            Err.fail
-              (`Tensor_bridge "storage index range overflows a 64-bit integer")
+        | Error () -> Err.fail (`Tensor_bridge `Storage_index_overflow)
         | Ok (lo, hi) when out_of_range (lo, hi) ->
             Err.fail
               (`Tensor_bridge
-                 (Format.asprintf
-                    "storage index range [%Ld, %Ld] is outside %d bytes of data"
-                    lo hi data_len))
+                 (`Storage_out_of_range
+                    { Storage_range.lo; hi; data_bytes = data_len }))
         | Ok _ -> (
             try
               Err.return
                 (Tensor.materialize shape (fun coord ->
                      let offset = storage_index coord * 4 in
                      Int32.float_of_bits (Bytes.get_int32_le tensor.data offset)))
-            with Invalid_argument s -> Err.fail (`Tensor_bridge s)))
-  | dtype ->
-      Err.fail
-        (`Tensor_bridge
-           (Format.asprintf "only float32 is supported, got %s"
-              (Pt2_dtype.to_string dtype)))
+            with Invalid_argument m ->
+              Err.fail (`Tensor_bridge (`Materialize_failed m))))
+  | dtype -> Err.fail (`Tensor_bridge (`Unsupported_dtype dtype))
 
 let run ?hooks archive ~input =
   let open Err.Syntax in
@@ -707,9 +931,7 @@ let run ?hooks archive ~input =
     | [ id ] -> Err.return [ (id, input) ]
     | ids ->
         Err.fail
-          (`Unsupported_input
-             (Format.asprintf "expected one user input, got %d"
-                (List.length ids)))
+          (`Unsupported_input (`Not_exactly_one_user_input (List.length ids)))
   in
   let used_constants =
     List.concat_map
@@ -721,8 +943,7 @@ let run ?hooks archive ~input =
       (fun (id, target) ->
         let* raw =
           Pt2_archive.load_captured_tensor archive target
-          |> Err.map_error ~pos:__POS__ (fun e ->
-              `Tensor_bridge (Format.asprintf "%a" Pt2_archive.pp_error e))
+          |> Err.map_error ~pos:__POS__ (fun e -> `Tensor_bridge (`Archive e))
         in
         let+ tensor = tensor_of_pt2 raw in
         (id, tensor))
@@ -736,8 +957,7 @@ let run ?hooks archive ~input =
   in
   Err.List.map
     (fun id ->
-      Tensor_id.Map.find_opt id env
-      |> Err.of_option (`Malformed_graph "native output was not evaluated"))
+      Tensor_id.Map.find_opt id env |> Err.of_option (`Output_not_evaluated id))
     graph.Graph_ir.Graph.outputs
 
 (* ---- transforming, and running the result --------------------------------- *)
@@ -760,8 +980,7 @@ let load_captured archive target =
   let open Err.Syntax in
   let* raw =
     Pt2_archive.load_captured_tensor archive target
-    |> Err.map_error ~pos:__POS__ (fun e ->
-        `Tensor_bridge (Format.asprintf "%a" Pt2_archive.pp_error e))
+    |> Err.map_error ~pos:__POS__ (fun e -> `Tensor_bridge (`Archive e))
   in
   tensor_of_pt2 raw
 
@@ -973,9 +1192,7 @@ let evaluate archive (Transformed t) ~input =
     | [ id ] -> Err.return [ (id, input) ]
     | ids ->
         Err.fail
-          (`Unsupported_input
-             (Format.asprintf "expected one user input, got %d"
-                (List.length ids)))
+          (`Unsupported_input (`Not_exactly_one_user_input (List.length ids)))
   in
   let* env =
     Eval_direct.run ~constants t.graph ~inputs
@@ -985,7 +1202,7 @@ let evaluate archive (Transformed t) ~input =
     Err.List.map
       (fun id ->
         Tensor_id.Map.find_opt id env
-        |> Err.of_option (`Malformed_graph "native output was not evaluated"))
+        |> Err.of_option (`Output_not_evaluated id))
       t.graph.Graph_ir.Graph.outputs
   in
   (outputs, loaded)

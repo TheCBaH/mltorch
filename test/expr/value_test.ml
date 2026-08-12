@@ -281,9 +281,9 @@ let%expect_test "max-pool intrinsic: descriptor, geometry, printing" =
   [%expect {| max_pool2d_index(t0; k=2x2 s=1x1 p=1x1; out=[N,T,D,H,W,C]) |}];
   (* Invalid geometry never becomes a descriptor. *)
   Fmt.pr "%a@." pp_i (mk ~stride:0 Intrinsic.Max_pool.Value);
-  [%expect {| stride_h must be valid, got 0 |}];
+  [%expect {| stride_h must be > 0, got 0 |}];
   Fmt.pr "%a@." pp_i (mk ~pad:(-1) Intrinsic.Max_pool.Value);
-  [%expect {| pad_h must be valid, got -1 |}]
+  [%expect {| pad_h must be >= 0, got -1 |}]
 
 let%expect_test "max-pool geometry: the window both interpreters share" =
   let d =

@@ -37,14 +37,42 @@ module State = struct
 end
 
 module Transition = struct
+  module Kind_tag = struct
+    type t = Import | Pass | Pack | Cross_dialect | Adapt
+
+    let to_string = function
+      | Import -> "import"
+      | Pass -> "pass"
+      | Pack -> "pack"
+      | Cross_dialect -> "cross_dialect"
+      | Adapt -> "adapt"
+
+    let next = function
+      | Import -> Some Pass
+      | Pass -> Some Pack
+      | Pack -> Some Cross_dialect
+      | Cross_dialect -> Some Adapt
+      | Adapt -> None
+
+    let all =
+      let rec walk acc c =
+        match next c with
+        | None -> List.rev (c :: acc)
+        | Some n -> walk (c :: acc) n
+      in
+      walk [] Import
+  end
+
   type kind = Import | Pass of Pass_execution.t | Pack | Cross_dialect | Adapt
 
-  let kind_name = function
-    | Import -> "import"
-    | Pass _ -> "pass"
-    | Pack -> "pack"
-    | Cross_dialect -> "cross_dialect"
-    | Adapt -> "adapt"
+  let tag : kind -> Kind_tag.t = function
+    | Import -> Kind_tag.Import
+    | Pass _ -> Kind_tag.Pass
+    | Pack -> Kind_tag.Pack
+    | Cross_dialect -> Kind_tag.Cross_dialect
+    | Adapt -> Kind_tag.Adapt
+
+  let kind_name k = Kind_tag.to_string (tag k)
 
   type t = {
     id : string;
@@ -61,6 +89,27 @@ type t = {
   graph : string;
 }
 
+(* Own modules, per the record-namespace convention: both payloads have a
+   [transition] field, and distinct namespaces are how this repo keeps labels
+   unique rather than silencing warning 30. *)
+module Illegal_transition = struct
+  type t = {
+    transition : string;
+    before : Me_ids.Layer.t;
+    kind : Transition.Kind_tag.t;
+    after : Me_ids.Layer.t;
+  }
+end
+
+module Pass_layer_disagreement = struct
+  type t = {
+    transition : string;
+    execution : Me_ids.Layer.t;
+    before : Me_ids.Layer.t;
+    after : Me_ids.Layer.t;
+  }
+end
+
 type error =
   [ `Duplicate_state of string
   | `Duplicate_transition of string
@@ -71,10 +120,10 @@ type error =
   | `Cycle of string
   | `Multiple_producers of string
   | `Producer_disagrees of string
-  | `Illegal_transition of string
-  | `Pass_layer_disagrees of string
-  | `Duplicate_pass_execution of string
-  | `Over_limit of string * int ]
+  | `Illegal_transition of Illegal_transition.t
+  | `Pass_layer_disagrees of Pass_layer_disagreement.t
+  | `Duplicate_pass_execution of Pass_execution.t
+  | Me_limits.over_limit_error ]
 
 let pp_error fmt : [< error ] -> unit = function
   | `Duplicate_state id -> Fmt.pf fmt "duplicate flow state %s" id
@@ -89,14 +138,27 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "state %s has more than one producer" id
   | `Producer_disagrees id ->
       Fmt.pf fmt "state %s names a producer that does not produce it" id
-  | `Illegal_transition id ->
-      Fmt.pf fmt "transition %s crosses layers illegally" id
-  | `Pass_layer_disagrees id ->
-      Fmt.pf fmt "transition %s carries an execution from another layer" id
-  | `Duplicate_pass_execution id ->
-      Fmt.pf fmt "pass execution %s occurs more than once" id
-  | `Over_limit (field, n) ->
-      Fmt.pf fmt "flow %s = %d is over the ceiling" field n
+  | `Illegal_transition { Illegal_transition.transition; before; kind; after }
+    ->
+      Fmt.pf fmt "transition %s crosses layers illegally: %s -%s-> %s"
+        transition
+        (Me_ids.Layer.to_string before)
+        (Transition.Kind_tag.to_string kind)
+        (Me_ids.Layer.to_string after)
+  | `Pass_layer_disagrees
+      { Pass_layer_disagreement.transition; execution; before; after } ->
+      Fmt.pf fmt
+        "transition %s carries an execution from another layer: %s, between %s \
+         and %s"
+        transition
+        (Me_ids.Layer.to_string execution)
+        (Me_ids.Layer.to_string before)
+        (Me_ids.Layer.to_string after)
+  | `Duplicate_pass_execution e ->
+      Fmt.pf fmt "pass execution %a occurs more than once" Pass_execution.pp e
+  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
+
+let count = Me_limits.check ~scope:Me_limits.Scope.Flow
 
 (* Which conversions exist, stated once. [Pass] and [Pack] stay inside a layer;
    the three that leave one are named individually rather than by a rule,
@@ -105,22 +167,23 @@ let pp_error fmt : [< error ] -> unit = function
    "the next layer" cannot express a branch. *)
 let legal_triples =
   let open Me_ids.Layer in
+  let open Transition.Kind_tag in
   [
-    (Pt2, "import", Native);
-    (Native, "pass", Native);
-    (Native, "pack", Native);
-    (Native, "cross_dialect", Native4d);
-    (Native4d, "pass", Native4d);
-    (Native4d, "pack", Native4d);
-    (Native, "adapt", Symbolic);
-    (Symbolic, "pass", Symbolic);
-    (Symbolic, "adapt", Kernel);
-    (Kernel, "pass", Kernel);
+    (Pt2, Import, Native);
+    (Native, Pass, Native);
+    (Native, Pack, Native);
+    (Native, Cross_dialect, Native4d);
+    (Native4d, Pass, Native4d);
+    (Native4d, Pack, Native4d);
+    (Native, Adapt, Symbolic);
+    (Symbolic, Pass, Symbolic);
+    (Symbolic, Adapt, Kernel);
+    (Kernel, Pass, Kernel);
   ]
 
 let is_legal ~before ~kind ~after =
   List.exists
-    (fun (b, k, a) -> b = before && String.equal k kind && a = after)
+    (fun (b, k, a) -> b = before && k = kind && a = after)
     legal_triples
 
 let validate ~limits flow =
@@ -130,16 +193,13 @@ let validate ~limits flow =
      Before the walks below, which are linear in these counts: a bound checked
      after the work it bounds is not a bound. *)
   let* () =
-    let count field n ceiling =
-      if n > ceiling then Err.fail (`Over_limit (field, n)) else Err.return ()
-    in
     let* () =
-      count "states" (List.length flow.states)
-        limits.Me_limits.Limits.max_states
+      count Me_limits.Field.States (List.length flow.states)
+        ~ceiling:limits.Me_limits.Limits.max_states
     in
-    count "transitions"
+    count Me_limits.Field.Transitions
       (List.length flow.transitions)
-      limits.Me_limits.Limits.max_transitions
+      ~ceiling:limits.Me_limits.Limits.max_transitions
   in
   (* --- unique ids, and a lookup --- *)
   let* states =
@@ -178,13 +238,19 @@ let validate ~limits flow =
       (fun (t : Transition.t) ->
         let* before = state t.Transition.before in
         let* after = state t.Transition.after in
+        let kind = Transition.tag t.Transition.kind in
         let* () =
-          if
-            is_legal ~before:before.State.layer
-              ~kind:(Transition.kind_name t.Transition.kind)
-              ~after:after.State.layer
+          if is_legal ~before:before.State.layer ~kind ~after:after.State.layer
           then Err.return ()
-          else Err.fail (`Illegal_transition t.Transition.id)
+          else
+            Err.fail
+              (`Illegal_transition
+                 {
+                   Illegal_transition.transition = t.Transition.id;
+                   before = before.State.layer;
+                   kind;
+                   after = after.State.layer;
+                 })
         in
         match t.Transition.kind with
         | Transition.Pass e ->
@@ -196,11 +262,21 @@ let validate ~limits flow =
                 e.Pass_execution.layer = before.State.layer
                 && e.Pass_execution.layer = after.State.layer
               then Err.return ()
-              else Err.fail (`Pass_layer_disagrees t.Transition.id)
+              else
+                Err.fail
+                  (`Pass_layer_disagrees
+                     {
+                       Pass_layer_disagreement.transition = t.Transition.id;
+                       execution = e.Pass_execution.layer;
+                       before = before.State.layer;
+                       after = after.State.layer;
+                     })
             in
+            (* Keyed by the RENDERING, which [Pass_execution.pp] makes injective
+               over the pair; the error carries the value itself. *)
             let key = Core.Pretty.to_string Pass_execution.pp e in
             if Hashtbl.mem seen_exec key then
-              Err.fail (`Duplicate_pass_execution key)
+              Err.fail (`Duplicate_pass_execution e)
             else begin
               Hashtbl.add seen_exec key ();
               Err.return ()

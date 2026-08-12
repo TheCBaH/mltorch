@@ -108,7 +108,7 @@ which is what makes the two rows one code path rather than two.
   > print(c['status']['state'], c['status']['reason'])
   > print(s['diagnostics'][0]['code'], '|', s['diagnostics'][0]['message'])"
   unavailable unsupported_input
-  unsupported_input | unsupported PT2 input: non-tensor input
+  unsupported_input | unsupported PT2 input: not a tensor
 
 A defect is NOT downgraded to a capability. Reporting an internal invariant
 failure as "this model is outside what we support" tells the user to change
@@ -123,3 +123,110 @@ whose output names nothing, which the lowerer rejects as malformed.
   $ ../bin/native_graph.exe visualize --model malformed.json
   native_graph: malformed PT2 graph: SSA tensor "y" is not defined
   [123]
+
+Every OTHER row of [Native_interp.malformed], each with its own witness.
+
+The rows were one `Malformed_graph of string` carrying a ksprintf sentence from
+32 sites, so no test could distinguish them and none tried. They are now ten
+typed cases, and a case no input reaches is indistinguishable from one that
+cannot be constructed -- so each is driven here, from the smallest mutation of a
+valid program that produces it.
+
+  $ python3 -c "
+  > import json
+  > def tm(sizes):
+  >     return {'dtype': 7, 'sizes': sizes, 'requires_grad': False,
+  >             'device': {'type': 'cpu'}, 'strides': [{'as_int': 1}],
+  >             'storage_offset': {'as_int': 0}, 'layout': 7}
+  > def ints(xs): return [{'as_int': i} for i in xs]
+  > def program(nodes, tv, names=['x'], outs=[{'as_tensor': {'name': 'y'}}]):
+  >     return {'graph_module': {
+  >               'graph': {'inputs': [{'as_tensor': {'name': n}} for n in names],
+  >                         'outputs': outs, 'nodes': nodes, 'tensor_values': tv,
+  >                         'sym_int_values': {}, 'sym_bool_values': {},
+  >                         'is_single_tensor_return': True},
+  >               'signature': {'input_specs': [{'user_input': {'arg': {'as_tensor': {'name': n}}}} for n in names],
+  >                             'output_specs': [{'user_output': {'arg': {'as_tensor': {'name': 'y'}}}}]},
+  >               'module_call_graph': []},
+  >             'opset_version': {'aten': 15}, 'range_constraints': {},
+  >             'schema_version': {'major': 8, 'minor': 5}}
+  > flat = tm(ints([1, 4]))
+  > relu = {'target': 'torch.ops.aten.relu.default',
+  >         'inputs': [{'name': 'self', 'arg': {'as_tensor': {'name': 'x'}}, 'kind': 1}],
+  >         'outputs': [{'as_tensor': {'name': 'y'}}], 'metadata': {}}
+  > both = {'x': flat, 'y': flat}
+  > def w(name, p): json.dump(p, open(name + '.json', 'w'))
+  > w('m-missing-arg',  program([dict(relu, inputs=[])], both))
+  > w('m-wrong-kind',   program([dict(relu, inputs=[{'name': 'self', 'arg': {'as_int': 3}, 'kind': 1}])], both))
+  > w('m-node-output',  program([dict(relu, outputs=[{'as_int': 1}])], both))
+  > w('m-graph-output', program([relu], both, outs=[{'as_int': 1}]))
+  > w('m-no-metadata',  program([relu], {'y': flat}))
+  > w('m-negative',     program([relu], {'x': tm(ints([-1])), 'y': flat}))
+  > w('m-symbolic',     program([relu], {'x': tm([{'as_expr': {'expr_str': 's0', 'hint': None}}]), 'y': flat}))
+  > w('m-rank-seven',   program([relu], {'x': tm(ints([1] * 7)), 'y': flat}))
+  > mean = {'target': 'torch.ops.aten.mean.dim',
+  >         'inputs': [{'name': 'self', 'arg': {'as_tensor': {'name': 'x'}}, 'kind': 1},
+  >                    {'name': 'dim', 'arg': {'as_ints': [9]}, 'kind': 1}],
+  >         'outputs': [{'as_tensor': {'name': 'y'}}], 'metadata': {}}
+  > w('m-axis', program([mean], both))
+  > add = {'target': 'torch.ops.aten.add.Tensor',
+  >        'inputs': [{'name': 'self', 'arg': {'as_tensor': {'name': 'x'}}, 'kind': 1},
+  >                   {'name': 'other', 'arg': {'as_tensor': {'name': 'x'}}, 'kind': 1},
+  >                   {'name': 'alpha', 'arg': {'as_int': 2}, 'kind': 1}],
+  >        'outputs': [{'as_tensor': {'name': 'y'}}], 'metadata': {}}
+  > w('m-alpha', program([add], both))
+  > clone = {'target': 'torch.ops.aten.clone.default',
+  >          'inputs': [{'name': 'self', 'arg': {'as_tensor': {'name': 'x'}}, 'kind': 1},
+  >                     {'name': 'memory_format', 'arg': {'as_memory_format': 2}, 'kind': 1}],
+  >          'outputs': [{'as_tensor': {'name': 'y'}}], 'metadata': {}}
+  > w('m-memory-format', program([clone], both))
+  > def conv(stride):
+  >     return {'target': 'torch.ops.aten.convolution.default',
+  >             'inputs': [{'name': 'input', 'arg': {'as_tensor': {'name': 'x'}}, 'kind': 1},
+  >                        {'name': 'weight', 'arg': {'as_tensor': {'name': 'w'}}, 'kind': 1},
+  >                        {'name': 'bias', 'arg': {'as_none': True}, 'kind': 1},
+  >                        {'name': 'stride', 'arg': {'as_ints': stride}, 'kind': 1},
+  >                        {'name': 'padding', 'arg': {'as_ints': [0, 0]}, 'kind': 1},
+  >                        {'name': 'dilation', 'arg': {'as_ints': [1, 1]}, 'kind': 1},
+  >                        {'name': 'transposed', 'arg': {'as_bool': False}, 'kind': 1},
+  >                        {'name': 'output_padding', 'arg': {'as_ints': [0, 0]}, 'kind': 1},
+  >                        {'name': 'groups', 'arg': {'as_int': 1}, 'kind': 1}],
+  >             'outputs': [{'as_tensor': {'name': 'y'}}], 'metadata': {}}
+  > img, out = tm(ints([1, 3, 8, 8])), tm(ints([1, 2, 8, 8]))
+  > w('m-arity',     program([conv([1, 1, 1])], {'x': img, 'w': tm(ints([2, 3, 1, 1])), 'y': out}, ['x', 'w']))
+  > w('m-conv-rank', program([conv([1, 1])],    {'x': img, 'w': tm(ints([2, 3])),       'y': out}, ['x', 'w']))"
+
+  $ for m in missing-arg wrong-kind node-output graph-output no-metadata \
+  >          negative symbolic rank-seven axis alpha memory-format arity conv-rank; do
+  >   ../bin/native_graph.exe visualize --model m-$m.json 2>&1 >/dev/null | head -1
+  > done
+  native_graph: malformed PT2 graph: torch.ops.aten.relu.default: missing argument "self"
+  native_graph: malformed PT2 graph: torch.ops.aten.relu.default.self is not a tensor
+  native_graph: malformed PT2 graph: torch.ops.aten.relu.default has a non-tensor output
+  native_graph: malformed PT2 graph: non-tensor graph output
+  native_graph: malformed PT2 graph: no tensor metadata for "x"
+  native_graph: malformed PT2 graph: x has negative dimension -1
+  native_graph: malformed PT2 graph: x has a symbolic dimension
+  native_graph: malformed PT2 graph: x has rank greater than six
+  native_graph: malformed PT2 graph: invalid dimension 9 for rank 2
+  native_graph: malformed PT2 graph: torch.ops.aten.add.Tensor: alpha=2 is not supported (only 1)
+  native_graph: malformed PT2 graph: torch.ops.aten.clone.default: memory_format is not supported
+  native_graph: malformed PT2 graph: stride must have one or two values, got 3
+  native_graph: malformed PT2 graph: w is rank 2, expected four
+
+[`Output_not_evaluated] has no witness here and is marked as such rather than
+left to look covered. It fires when [Eval_direct] returns an environment missing
+a graph output -- a graph declaring an output no node produces and that is
+neither an input nor a constant.
+
+No model can reach it. [Native_interp.lower]'s body resolves every output
+through [env_find], which returns ids [add_env] bound from node outputs, so a
+lowered graph's outputs are produced by construction.
+
+It is kept anyway, and that is a different judgement from the one that deleted
+[`Dangling_edge] in the same migration. [`Dangling_edge] had no construction
+site at all -- nothing in the tree could raise it, and its condition was already
+caught by [`Unknown_node]. This one IS raised, at both run sites, and NOTHING
+checks it earlier: [Graph_builder.build] does not verify that outputs are
+produced, and [Map_verify] runs only under verification. What stands between a
+pass that drops a producer and a silent wrong answer is this row.

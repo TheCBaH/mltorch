@@ -56,7 +56,8 @@ let pp_result =
    composes with [Core.Pretty.result] rather than [err_result]; [~ok] varies
    by test (the tensor itself, just its shape, or a surprise-success marker). *)
 let pp_of_aten_result ~ok =
-  Core.Pretty.result ~ok ~error:(fun ppf msg -> Fmt.pf ppf "Error: %s" msg)
+  Core.Pretty.err_result ~ok ~error:(fun ppf e ->
+      Fmt.pf ppf "Error: %a" Tensor_bridge.pp_error e)
 
 (* ---- of_aten: ATen -> Native conversion --------------------------------- *)
 

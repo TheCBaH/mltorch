@@ -46,12 +46,14 @@ let lowering : [< Native_interp.error ] -> verdict = function
   | `Unsupported_operator _ -> Unavailable C.Unsupported_operator
   | `Unsupported_input _ -> Unavailable C.Unsupported_input
   (* Everything else is a defect or a stage this path never reaches. A
-     malformed graph is a decoder that accepted what it should not have; the
-     builder, provenance, transform, verify and lens rows are internal
-     invariants; and [`Eval] and [`Tensor_bridge] belong to execution, which
-     export does not perform. *)
-  | `Malformed_graph _ | `Tensor_bridge _ | `Eval _ | `Build _ | `Provenance _
-  | `Transform _ | `Verify _ | `Lens _ ->
+     malformed graph is a decoder that accepted what it should not have — every
+     [Native_interp.malformed] row alike, which is why they are matched as the
+     one included row rather than listed; the builder, provenance, transform,
+     verify and lens rows are internal invariants; and [`Eval] and
+     [`Tensor_bridge] belong to execution, which export does not perform. *)
+  | #Native_interp.malformed
+  | `Tensor_bridge _ | `Eval _ | `Build _ | `Provenance _ | `Transform _
+  | `Verify _ | `Lens _ ->
       Fatal
 
 let kernel : [< Kernel_adapt.error ] -> verdict = function

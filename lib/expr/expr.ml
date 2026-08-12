@@ -46,6 +46,10 @@ module Coord = Coord
 module Source = Source
 module Max_op = Max_op
 
+type index_op = Checked.index_op
+
+module Index_overflow = Checked.Index_overflow
+
 (* ---- reducer variables ---------------------------------------------------- *)
 
 module Reduce_var = struct
@@ -180,11 +184,45 @@ module Intrinsic = struct
   end
 
   type t = Max_pool of Max_pool.t
-  type error = [ Checked.error | `Bad_geometry of string * int ]
+
+  (* The eight geometry parameters, closed. Each site used to pass its own name
+     as a literal, and the BOUND it failed was recorded nowhere at all -- the
+     message said only "must be valid". *)
+  type geometry_field =
+    [ `In_h
+    | `In_w
+    | `Kernel_h
+    | `Kernel_w
+    | `Stride_h
+    | `Stride_w
+    | `Pad_h
+    | `Pad_w ]
+
+  type geometry_bound = [ `Positive | `Non_negative ]
+
+  module Bad_geometry = struct
+    type t = { field : geometry_field; value : int; bound : geometry_bound }
+  end
+
+  type error = [ Checked.error | `Bad_geometry of Bad_geometry.t ]
+
+  let geometry_field_name : geometry_field -> string = function
+    | `In_h -> "in_h"
+    | `In_w -> "in_w"
+    | `Kernel_h -> "kernel_h"
+    | `Kernel_w -> "kernel_w"
+    | `Stride_h -> "stride_h"
+    | `Stride_w -> "stride_w"
+    | `Pad_h -> "pad_h"
+    | `Pad_w -> "pad_w"
 
   let pp_error fmt : [< error ] -> unit = function
     | #Checked.error as e -> Checked.pp_error fmt e
-    | `Bad_geometry (what, n) -> Fmt.pf fmt "%s must be valid, got %d" what n
+    | `Bad_geometry { Bad_geometry.field; value; bound } ->
+        Fmt.pf fmt "%s must be %s, got %d"
+          (geometry_field_name field)
+          (match bound with `Positive -> "> 0" | `Non_negative -> ">= 0")
+          value
 
   (* Result-returning, and the ONLY way to build a descriptor: [Check] does not
      revalidate this later, because a smart constructor makes the invalid state
@@ -194,21 +232,21 @@ module Intrinsic = struct
      here already validated. *)
   let max_pool ~source ~in_h ~in_w ~kernel_h ~kernel_w ~stride_h ~stride_w
       ~pad_h ~pad_w ~out ~result =
-    let positive what n =
-      if n >= 1 then Err.return n else Err.fail (`Bad_geometry (what, n))
+    let bounded bound ok field n =
+      if ok n then Err.return n
+      else Err.fail (`Bad_geometry { Bad_geometry.field; value = n; bound })
     in
-    let nonneg what n =
-      if n >= 0 then Err.return n else Err.fail (`Bad_geometry (what, n))
-    in
+    let positive = bounded `Positive (fun n -> n >= 1) in
+    let nonneg = bounded `Non_negative (fun n -> n >= 0) in
     let open Err.Syntax in
-    let* in_h = positive "in_h" in_h in
-    let* in_w = positive "in_w" in_w in
-    let* kernel_h = positive "kernel_h" kernel_h in
-    let* kernel_w = positive "kernel_w" kernel_w in
-    let* stride_h = positive "stride_h" stride_h in
-    let* stride_w = positive "stride_w" stride_w in
-    let* pad_h = nonneg "pad_h" pad_h in
-    let+ pad_w = nonneg "pad_w" pad_w in
+    let* in_h = positive `In_h in_h in
+    let* in_w = positive `In_w in_w in
+    let* kernel_h = positive `Kernel_h kernel_h in
+    let* kernel_w = positive `Kernel_w kernel_w in
+    let* stride_h = positive `Stride_h stride_h in
+    let* stride_w = positive `Stride_w stride_w in
+    let* pad_h = nonneg `Pad_h pad_h in
+    let+ pad_w = nonneg `Pad_w pad_w in
     Max_pool
       {
         Max_pool.source;

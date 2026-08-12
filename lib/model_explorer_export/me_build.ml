@@ -11,13 +11,14 @@ module type SIDE = sig
 end
 
 type error =
-  [ Me_ids.error | `Over_limit of string * int | `Unknown_producer of int ]
+  [ Me_ids.error | Me_limits.over_limit_error | `Unknown_producer of int ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Me_ids.error as e -> Me_ids.pp_error fmt e
-  | `Over_limit (field, n) ->
-      Fmt.pf fmt "graph %s = %d is over the ceiling" field n
+  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
   | `Unknown_producer t -> Fmt.pf fmt "tensor t%d has no producer" t
+
+let over_limit = Me_limits.check ~scope:Me_limits.Scope.Graph
 
 (* Stop the printer AT the cap.
 
@@ -126,9 +127,8 @@ module Make (S : SIDE) = struct
       + List.length g.Graph_ir.Graph.outputs
     in
     let* () =
-      if node_count > limits.Me_limits.Limits.max_nodes_per_graph then
-        Err.fail (`Over_limit ("nodes", node_count))
-      else Err.return ()
+      over_limit Me_limits.Field.Nodes node_count
+        ~ceiling:limits.Me_limits.Limits.max_nodes_per_graph
     in
     let* ns = namespaces ~limits g.Graph_ir.Graph.root in
     (* Where each tensor comes from. Boundary tensors resolve to their pinned
@@ -268,9 +268,8 @@ module Make (S : SIDE) = struct
         0 all
     in
     let+ () =
-      if edges > limits.Me_limits.Limits.max_edges_per_graph then
-        Err.fail (`Over_limit ("edges", edges))
-      else Err.return ()
+      over_limit Me_limits.Field.Edges edges
+        ~ceiling:limits.Me_limits.Limits.max_edges_per_graph
     in
     (* [groupNodeAttributes] is keyed by NAMESPACE, which is why the rollup
        that fills it shares [namespaces] with this projection rather than

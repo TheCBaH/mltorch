@@ -28,7 +28,7 @@ type error =
     (** the ENCODED document overran [max_session_bytes]/[max_detail_bytes]. No
         byte count: the writer aborts mid-stream once the limit is hit, so
         unlike [`Too_large] there is no final length to report. *)
-  | `Decode of string
+  | `Model_json_decode of string
   | `Archive of Pt2_archive.error
   | `Lowering of Native_interp.error
   | `Native4d of Native4d.Error.t
@@ -52,7 +52,7 @@ let pp_error fmt : [< error ] -> unit = function
   | `Too_large n -> Fmt.pf fmt "%Ld bytes is over the ceiling" n
   | `Document_too_large ->
       Fmt.string fmt "the encoded document is over the ceiling"
-  | `Decode m -> Fmt.pf fmt "model.json: %s" m
+  | `Model_json_decode m -> Fmt.pf fmt "model.json: %s" m
   | `Archive e -> Pt2_archive.pp_error fmt e
   | `Lowering e -> Native_interp.pp_error fmt e
   | `Native4d e -> Native4d.Error.pp fmt e
@@ -76,8 +76,8 @@ let pp_error fmt : [< error ] -> unit = function
 let diagnostic_code : [< error ] -> Me_limits.Diagnostic.Code.t =
   let module Code = Me_limits.Diagnostic.Code in
   function
-  | `Unrecognised_format | `Declared_format_disagrees | `Decode _ | `Archive _
-    ->
+  | `Unrecognised_format | `Declared_format_disagrees | `Model_json_decode _
+  | `Archive _ ->
       Code.Invalid_source
   | `Too_large _ | `Document_too_large -> Code.Over_limit
   | `Unsupported_detail_key -> Code.Unsupported_detail_key
@@ -800,7 +800,7 @@ let load ~limits ~bytes =
           Some archive )
   | Model_json ->
       let* program =
-        Err.of_option (`Decode "not a well-formed ExportedProgram")
+        Err.of_option (`Model_json_decode "not a well-formed ExportedProgram")
           (Result.to_option
              (Jsont_bytesrw.decode_string Pytorch_types.ExportedProgram.jsont
                 bytes))

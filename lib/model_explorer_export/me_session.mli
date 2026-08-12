@@ -208,28 +208,37 @@ module Session : sig
     default_view : string;
   }
 
+  type graph_node = { graph : string; node : string }
+  (** A node named WITHIN a graph. Records rather than a [string * string]: both
+      components are ids of the same type, so a tuple admits them in either
+      order and the type checker does not read the comment that says which is
+      which. *)
+
+  type placed_graph = { graph : string; collection : string }
+  type mapped_node = { comparison : string; node : string }
+
   type error =
     [ `Duplicate_graph of string
-    | `Duplicate_node of string * string  (** graph, node *)
+    | `Duplicate_node of graph_node
     | `Unknown_graph of string
-    | `Unknown_node of string * string  (** graph, node *)
-    | `Wrong_collection of string * string  (** graph, declared collection *)
-    | `Dangling_edge of string * string  (** graph, source node *)
-    | `Slot_mismatch of string * string
+    | `Unknown_node of graph_node
+    | `Wrong_collection of placed_graph  (** [collection] is the DECLARED one *)
+    | `Slot_mismatch of graph_node
     | `Unknown_view of string
     | `Duplicate_view of string
     | `Duplicate_comparison of string
     | `Unknown_comparison of string
-    | `Node_in_two_entries of string * string  (** comparison, node *)
+    | `Node_in_two_entries of mapped_node
     | `Comparison_panes_disagree of string  (** transition id *)
     | `Duplicate_capability of string
     | `Missing_capability of string
     | `Incompatible_capability of string
-    | `Over_limit of string * int
-    | `Over_limit_64 of string * int64
-      (** the [int64]-ceiling aggregates: [max_total_nodes]/[max_total_edges]
-          and the overlay-edges total, none of which a real model can approach
-          but which an untrusted document is not trusted not to claim *)
+    | Me_limits.over_limit_error
+      (* counted under [Me_limits.Scope.Session]. ONE tag for both widths: the
+         [int64]-ceiling aggregates ([max_total_nodes]/[max_total_edges], the
+         overlay-edges total) are aggregates no real model can approach but
+         which an untrusted document is not trusted not to claim, and
+         [Over_limit.count] is [int64] so they need no tag of their own. *)
     | Me_flow.error ]
 
   val pp_error : Format.formatter -> [< error ] -> unit

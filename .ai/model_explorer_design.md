@@ -149,6 +149,37 @@ measurement changes the value it was used to derive. Measurement may only tighte
 Enforcement is consequently **before input acquisition**: `create` rejects a profile
 whose peak does not fit, so no document is ever read under one.
 
+### One over-limit row, owned by `Me_limits`
+
+Nine validators count against these ceilings — `Me_build`, `Me_kernel`, `Me_source`,
+`Me_verify`, `Me_detail`, `Me_pt2`, `Me_fusion`, `Me_flow`, `Me_session`. Each used to
+declare its own `` `Over_limit of string * int `` and print it its own way, which made the
+aggregate name a stringly-typed enum with nine independent spellings, and made "which
+validator rejected" a fact that existed only inside a format string.
+
+Both halves now live in `Me_limits` and are closed vocabularies:
+
+- **`Me_limits.Field.t`** — the aggregate, in the renderer's own spelling
+  (`Field.to_string Node_data_results = "nodeDataResults"`). This is the **single
+  authority** for those wire names; nothing else may spell one. `Field.all` is built by
+  walking a successor chain, as `Me_ids.Layer.all` is, so a constructor cannot be added
+  without reaching the list.
+- **`Me_limits.Scope.t`** — which validator was counting. Carried in the payload rather
+  than supplied by the printer, because three different scopes count `Nodes` and a
+  caller reading only the rendered string cannot tell them apart.
+
+`Me_limits.over_limit_error` is **flat-included** by all nine — it is a shared base
+domain, not a crossed seam, so there is nothing to wrap and `scope` already records where
+the count came from. It is narrower than `Me_limits.error` for the same reason
+`live_error` is: a module that only counts has no limit *field* to reject.
+
+`` `Over_limit_64 `` is gone. `Over_limit.count` is `int64` whichever width the field has —
+`Invalid.t`'s decision, for `Invalid.t`'s reason, so the two `int64` aggregates
+(`max_total_nodes`, `max_total_edges`) need no tag of their own.
+
+`Me_limits.check` / `check64` are the only place the `>` comparison is written. Nine
+copies of it used to agree about everything and could stop.
+
 ### Which checks can fail, and why that was designed for
 
 Two ceilings are deliberately *not* collapsed into each other:
@@ -370,6 +401,23 @@ Native4D by conversion, and to the symbolic stages by adaptation — so "states 
 transitions + 1" describes nothing here, and `legal_triples` names each crossing
 individually rather than deriving "the next layer" from a rule that cannot express a
 branch.
+
+`legal_triples` ranges over `Transition.Kind_tag.t` — the kind *without* the execution a
+`Pass` carries — and not over kind names. The table used to match string literals, so a
+typo in one made a legal transition silently illegal, in a table whose entire job is to
+say which are legal. `Kind_tag` is also the single authority for the wire spelling
+(`Transition.kind_name` is `Kind_tag.to_string` of `Transition.tag`), so the encoder and
+the table cannot drift apart.
+
+**The rejection carries the triple, not the transition id.** `` `Illegal_transition ``
+holds `(transition, before, kind, after)` and `` `Pass_layer_disagrees `` holds the
+execution's layer beside *both* endpoints', because the check is that the execution
+equals both and one endpoint would not say which equality failed. With the id alone,
+four structurally different rejections rendered as one identical sentence and a reader
+had to go back to the flow to learn anything — see the four cases in
+`test/model_explorer/me_flow_test.ml`, which now print four distinct triples.
+`` `Duplicate_pass_execution `` carries the `Pass_execution.t`; the table that detects it
+is still keyed by the rendering, which `Pass_execution.pp` makes injective over the pair.
 
 **`Pass_execution` qualifies an execution by its dialect.** `Pass.Exec_id.t`'s ordinal is
 dense *per specialization*, so a Native and a Native4D execution are routinely equal —

@@ -40,9 +40,24 @@ module State : sig
 end
 
 module Transition : sig
+  (** A {!kind} WITHOUT the execution a [Pass] carries. The legality table, the
+      wire spelling and the [`Illegal_transition] payload all range over this
+      and nothing else — before it existed the table matched on string literals,
+      so a typo there silently made a legal transition illegal. *)
+  module Kind_tag : sig
+    type t = Import | Pass | Pack | Cross_dialect | Adapt
+
+    val to_string : t -> string
+    val all : t list
+  end
+
   type kind = Import | Pass of Pass_execution.t | Pack | Cross_dialect | Adapt
 
+  val tag : kind -> Kind_tag.t
+
   val kind_name : kind -> string
+  (** The wire spelling, [Kind_tag.to_string] of {!tag} — one authority, so the
+      encoder and the legality table cannot drift apart. *)
 
   type t = {
     id : string;  (** [t/<layer>/<NNN>] *)
@@ -67,6 +82,37 @@ type t = {
           to be a node for selecting it to open its comparison. *)
 }
 
+(** {1 Error payloads}
+
+    Own modules, per the record-namespace convention: both carry a [transition]
+    field, and distinct namespaces are how this repo keeps labels unique rather
+    than silencing warning 30. *)
+
+module Illegal_transition : sig
+  type t = {
+    transition : string;
+    before : Me_ids.Layer.t;
+    kind : Transition.Kind_tag.t;
+    after : Me_ids.Layer.t;
+  }
+  (** The whole rejected triple, not just the transition id. Which triple was
+      offered is the fact a reader needs and the id alone does not give — it
+      would have to be looked back up in the flow to say anything at all. *)
+end
+
+module Pass_layer_disagreement : sig
+  type t = {
+    transition : string;
+    execution : Me_ids.Layer.t;
+    before : Me_ids.Layer.t;
+    after : Me_ids.Layer.t;
+  }
+  (** [execution] is the layer the [Pass_execution.t] claims; [before] and
+      [after] are the endpoints' own. All three, because the check is that the
+      execution equals BOTH — reporting one endpoint would not say which
+      equality failed. *)
+end
+
 type error =
   [ `Duplicate_state of string
   | `Duplicate_transition of string
@@ -79,10 +125,10 @@ type error =
         {!validate} — and retained as a termination guard. *)
   | `Multiple_producers of string
   | `Producer_disagrees of string  (** [produced_by] is not the transition *)
-  | `Illegal_transition of string  (** the transition id *)
-  | `Pass_layer_disagrees of string
-  | `Duplicate_pass_execution of string
-  | `Over_limit of string * int  (** the aggregate, and the count offered *) ]
+  | `Illegal_transition of Illegal_transition.t
+  | `Pass_layer_disagrees of Pass_layer_disagreement.t
+  | `Duplicate_pass_execution of Pass_execution.t
+  | Me_limits.over_limit_error (* counted under [Me_limits.Scope.Flow] *) ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -102,10 +148,12 @@ val validate : limits:Me_limits.Limits.t -> t -> (unit, [> error ]) Err.t
     table this module cannot see. [Me_session.validate] does that, and does it
     with the pane-graph equality that makes it meaningful. *)
 
-val legal_triples : (Me_ids.Layer.t * string * Me_ids.Layer.t) list
-(** Every admitted [(before, kind, after)] combination, by kind name — the table
-    {!validate} checks against, exposed so a fixture can enumerate what is legal
-    instead of restating it. *)
+val legal_triples :
+  (Me_ids.Layer.t * Transition.Kind_tag.t * Me_ids.Layer.t) list
+(** Every admitted [(before, kind, after)] combination — the table {!validate}
+    checks against, exposed so a fixture can enumerate what is legal instead of
+    restating it. Over {!Transition.Kind_tag.t} rather than kind NAMES: a
+    misspelled literal here used to make a legal transition silently illegal. *)
 
 val jsont : t Jsont.t
 (** The spine reaches the browser as data, not only as a rendered graph:

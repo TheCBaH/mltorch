@@ -105,9 +105,9 @@ let run_conv () =
     (fun oid ->
       let t = Tensor_id.Map.find oid env in
       Format.printf "out %a@." Tensor.pp t;
-      match Graph_json.encode_tensor t with
-      | Ok j -> Printf.printf "out-json %s\n" j
-      | Error e -> failwith ("probe: encode_tensor: " ^ e))
+      Printf.printf "out-json %s\n"
+        (Err.or_raise ~pp_error:Graph_json.pp_error
+           (Graph_json.encode_tensor t)))
     graph.Graph_ir.Graph.outputs
 
 (* A Direct-vs-Symbolic mismatch prints its verdict and stops that op's walk --

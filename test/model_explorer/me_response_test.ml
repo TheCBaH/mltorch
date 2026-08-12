@@ -102,17 +102,20 @@ let%expect_test "which messages have a payload, and which cannot" =
 (* --- the metadata is the only thing that crosses --- *)
 
 let round_trip w =
-  Result.bind (Rsp.Meta.decode w.Rsp.Wire.meta) (fun m ->
-      Result.map
-        (fun again -> String.equal w.Rsp.Wire.meta again)
-        (Jsont_bytesrw.encode_string Rsp.Meta.jsont m))
+  let open Err.Syntax in
+  let* m = Rsp.Meta.decode w.Rsp.Wire.meta in
+  (* The re-encode reaches Jsont directly, so lift its bare message into the
+     same row [Meta.decode] uses. *)
+  match Jsont_bytesrw.encode_string Rsp.Meta.jsont m with
+  | Ok again -> Err.return (String.equal w.Rsp.Wire.meta again)
+  | Error msg -> Err.fail (`Jsont msg)
 
 let%expect_test "every kind survives the seam" =
   List.iter
     (fun (label, w) ->
       Format.printf "%-17s %a@." label
-        (Core.Pretty.result ~ok:Fmt.bool ~error:(fun ppf e ->
-             Fmt.pf ppf "REJECTED %s" e))
+        (Core.Pretty.err_result ~ok:Fmt.bool ~error:(fun ppf e ->
+             Fmt.pf ppf "REJECTED %a" Rsp.Meta.pp_error e))
         (round_trip (Err.or_raise ~pp_error:Rsp.Wire.pp_error w)))
     [
       ("progress", Rsp.Wire.of_progress progress);
@@ -140,7 +143,8 @@ let%expect_test "a kind that does not carry its own field" =
   List.iter
     (fun text ->
       Format.printf "%a@."
-        (Core.Pretty.result ~ok:(Fmt.any "accepted") ~error:(fun ppf e ->
+        (Core.Pretty.err_result ~ok:(Fmt.any "accepted")
+           ~error:(fun ppf (`Jsont e) ->
              Fmt.pf ppf "REJECTED %s" (first_line e)))
         (Rsp.Meta.decode text))
     [

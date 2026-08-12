@@ -18,8 +18,8 @@ let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 let lift_build (r : ('a, Graph_builder.error) Err.t) : ('a, error) Err.t =
   Err.map_error (fun e -> `Build e) r
 
-let lift_json (r : ('a, string) result) : ('a, error) Err.t =
-  match r with Ok x -> Err.return x | Error e -> Err.fail (`Json e)
+let lift_json (r : ('a, Graph_json.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun (`Jsont m) -> `Json m) r
 
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c c = s 1 1 1 1 1 c
@@ -42,9 +42,14 @@ let encode_tensor ?max_elts t =
 
 let decode_tensor s = lift_json (Graph_json.decode_tensor s)
 
+(* [Graph_json] exposes no op codec, so this reaches Jsont directly and lifts
+   its bare message the way [Graph_json.of_jsont] does. *)
 let encode_op op =
-  lift_json
-    (Jsont_bytesrw.encode_string ~format:Jsont.Indent Graph_ir.op_jsont op)
+  match
+    Jsont_bytesrw.encode_string ~format:Jsont.Indent Graph_ir.op_jsont op
+  with
+  | Ok v -> Err.return v
+  | Error m -> Err.fail (`Json m)
 
 let first_node g =
   match g.Graph.nodes with

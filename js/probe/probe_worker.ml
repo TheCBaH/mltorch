@@ -23,9 +23,10 @@ let read_file path =
 let ok what pp r =
   Err.or_raise ~pp_error:(fun ppf e -> Fmt.pf ppf "probe: %s: %a" what pp e) r
 
-(* Plain [result] from Jsont, so [failwith]. And it must RAISE rather than
-   print: both backends run this source, so a failure identical on each would
-   diff clean and exit 0. *)
+(* Plain [result] from Jsont, so [failwith] -- unlike [ok] above, which takes
+   the [Err.t] the framework-wrapped decoders return. Either way it must RAISE
+   rather than print: both backends run this source, so a failure identical on
+   each would diff clean and exit 0. *)
 let jsont what = function
   | Ok v -> v
   | Error e -> failwith (Printf.sprintf "probe: %s: %s" what e)
@@ -66,7 +67,8 @@ let run path =
       (Me_response.Wire.of_final (Me_response.Final.of_handle_result result))
   in
   let meta =
-    jsont "meta decode" (Me_response.Meta.decode wire.Me_response.Wire.meta)
+    ok "meta decode" Me_response.Meta.pp_error
+      (Me_response.Meta.decode wire.Me_response.Wire.meta)
   in
   Printf.printf "kind %s\n" (Me_response.Meta.kind meta);
   Printf.printf "meta-bytes %d\n" (String.length wire.Me_response.Wire.meta);

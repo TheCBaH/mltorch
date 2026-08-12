@@ -30,7 +30,10 @@ type error =
     (** the ENCODED document overran [max_session_bytes]/[max_detail_bytes]. No
         byte count: the writer aborts mid-stream once the limit is hit, so
         unlike [`Too_large] there is no final length to report. *)
-  | `Decode of string  (** the model.json decoder's own message *)
+  | `Model_json_decode of string
+    (** the model.json decoder's own message — a THIRD-PARTY payload, named for
+        its source so it is not mistaken for a case this module declined to
+        classify *)
   | `Archive of Pt2_archive.error
   | `Lowering of Native_interp.error
     (** a FATAL row only. A row [Me_classify.lowering] calls recoverable never

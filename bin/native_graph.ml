@@ -313,7 +313,10 @@ let eval model input expect verbose : (unit, string) result =
                   Error message)
           | _ :: _ :: _, _ -> Error "expected exactly one native graph output"
           | [], _ -> Error "native graph produced no outputs"
-          | _, Error message -> Error ("cannot decode reference: " ^ message)))
+          | _, Error e ->
+              Error
+                (Fmt.str "cannot decode reference: %a" Graph_json.pp_error
+                   (Err.Error.kind e))))
 
 let eval_cmd =
   let doc =
@@ -620,7 +623,10 @@ let transform model input expect fold verify verify_symbolic :
               verified output
           | [ output ], Some path -> (
               match Graph_json.decode_tensor (read_source path) with
-              | Error message -> Error ("cannot decode reference: " ^ message)
+              | Error e ->
+                  Error
+                    (Fmt.str "cannot decode reference: %a" Graph_json.pp_error
+                       (Err.Error.kind e))
               | Ok expected -> (
                   match compare_tensor ~atol:1e-4 expected output with
                   | Ok distance ->

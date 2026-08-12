@@ -6,11 +6,12 @@ type t = {
   deleted : string list;
 }
 
-type error = [ `Over_limit of string * int ]
+type error = Me_limits.over_limit_error
 
 let pp_error fmt : [< error ] -> unit = function
-  | `Over_limit (field, n) ->
-      Fmt.pf fmt "navigation %s = %d is over the ceiling" field n
+  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
+
+let over_limit = Me_limits.check ~scope:Me_limits.Scope.Navigation
 
 (* Union-find over the two id spaces at once. They are disjoint by
    construction: a PT2 element is keyed by its rendered id, a native one by
@@ -83,9 +84,8 @@ let of_origins ~limits ~source_nodes origins =
     origins;
   let total = Hashtbl.length native_side + Hashtbl.length pt2_side in
   let* () =
-    if total > limits.Me_limits.Limits.max_mapping_members_total then
-      Err.fail (`Over_limit ("mappingMembers", total))
-    else Err.return ()
+    over_limit Me_limits.Field.Mapping_members total
+      ~ceiling:limits.Me_limits.Limits.max_mapping_members_total
   in
   (* Group by representative, then order everything: components by their
      smallest native id, ids within a side lexicographically. Determinism is
@@ -116,9 +116,8 @@ let of_origins ~limits ~source_nodes origins =
           List.length e.Me_session.Mapping_entry.left
           + List.length e.Me_session.Mapping_entry.right
         in
-        if n > limits.Me_limits.Limits.max_mapping_members_per_entry then
-          Err.fail (`Over_limit ("mappingMembersPerEntry", n))
-        else Err.return ())
+        over_limit Me_limits.Field.Mapping_members_per_entry n
+          ~ceiling:limits.Me_limits.Limits.max_mapping_members_per_entry)
       entries
   in
   (* [deleted] needs the source universe, which the sidecar cannot supply: it

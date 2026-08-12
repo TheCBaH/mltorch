@@ -28,6 +28,93 @@ closure. See `js_backends_design.md`.
 - **Structured exceptions.** `Err.or_raise` raises `Err.Exn.E`, carrying the
   whole wrapper, with a registered `Printexc` printer.
 
+## Payloads: what a tag has to carry
+
+A polymorphic-variant row tracks the *case*. It does not, by itself, track the
+*data* — and a caller that cannot act on an error is not much better off than
+one that got a string. `err_trace`'s `examples/poly_errors.ml` is the reference:
+its `handle` branches on `` `A (`Missing_record { table; key }) `` and provisions
+the missing row. Two rules make that possible here.
+
+**A closed value set is a variant, not a string.** If the payload ranges over a
+set the code knows in full, spell the set. `Me_limits.Field.t` (which aggregate
+overran) and `Me_limits.Scope.t` (which validator was counting) were nine
+independent sets of string literals before they were two types; a new ceiling
+that reaches neither list is now a compile error rather than a new spelling.
+Give such a type an `all` built by walking a successor chain — as
+`Me_ids.Layer.all` and `Me_limits.Diagnostic.Code` do — so a constructor cannot
+be added without reaching everything that iterates the vocabulary.
+
+**A multi-field payload is a named record with named fields.** A tuple of
+same-typed components documents its meaning in a comment, which the type checker
+does not read: `` `Duplicate_node of string * string `` admits its two arguments in
+either order. `lib/native/shape_error.mli` is the long-standing example
+(`channels_mismatch`, `dims_mismatch`, `Window.t`), `Me_limits.Over_limit.t` the
+recent one.
+
+**A single-tag, single-id payload is already precise** — `` `Unknown_state of
+string `` names its case and its payload is unambiguous. Do not churn these.
+
+**Where the payload goes.** The base-versus-seam rule decides that, and it is
+the same rule `poly_errors.ml` demonstrates:
+
+- **Flat-include a shared base domain** (`[ Me_ids.error | … ]`,
+  `[ Me_limits.over_limit_error | … ]`, `[ Graph_shape.error | … ]`). The
+  example's `Base.error`, which both `A` and `B` include so a timeout is not
+  rewrapped at every internal boundary. Nothing is wrapped and nothing is lost:
+  where a base error came from belongs *in its payload* if it matters at all.
+- **Wrap when crossing a real domain seam** (`` `Eval of Eval_direct.error ``,
+  `` `Transform of Pass.error ``) — the example's `` `A of A.local_error ``, through
+  `Err.map_error ~pos:__POS__` so the detection origin survives.
+  `lib/native_interp/native_interp.ml` wraps its six upstream domains this way.
+
+### An exception may carry a typed row
+
+`Native_interp` raises `Lower_error` internally: the lowering walk is deeply
+recursive and threading a result through every arm would rewrite it, so the
+exception is caught once, at `lower`'s boundary, and converted to an `Err.t`
+there. That is a legitimate use of an exception for control flow — but what
+crosses it is a **typed row**, not a rendered sentence.
+
+It used to be `Printf.ksprintf` into one `` `Malformed_graph of string `` from 32
+sites. `Native_interp.malformed` is now ten cases with structured payloads, and
+`test/me_visualize_unsupported_cram.t` drives each from the smallest mutation of
+a valid program that produces it. Two lessons generalise:
+
+- **What the collapse hid.** `` `Unsupported_input `` covered both a non-tensor
+  graph input and a user-input arity the runner cannot satisfy;
+  `` `Tensor_bridge `` covered six shapes, two of which were
+  `Format.asprintf "%a"` of a whole `Pt2_archive.error` — a seam crossed with
+  the payload thrown away. Splitting them is what made those visible.
+- **Not every raise is a recoverable error.** `add_env`'s arity check is an
+  invariant of this module, not a fact about the model, so it is `invalid_arg`
+  — the `Graph_ir.Index.assert_matches` precedent — and never reaches a caller
+  dressed as a malformed graph.
+
+### When an unreachable row is deleted, and when it is kept
+
+Two rows in this migration had no test able to construct them, and they got
+opposite treatments. The distinction is worth stating because "no witness" alone
+does not decide it.
+
+`Me_session.Session`'s `` `Dangling_edge `` was **deleted**. It had no
+construction site *anywhere* — declared and printed, never raised — and its
+condition was already caught by `` `Unknown_node `` through `Graph_index.node`.
+It was a printer arm for a value nothing could build.
+
+`Native_interp`'s `` `Output_not_evaluated `` was **kept**. It is raised, at both
+run sites, and nothing checks the condition earlier: `Graph_builder.build` does
+not verify that a graph's outputs are produced, and `Map_verify` runs only under
+verification. No *model* can reach it — `lower` resolves every output through
+`env_find`, so a lowered graph's outputs are produced by construction — but a
+pass that drops a producer would, and this row is what stands between that and a
+silent wrong answer.
+
+So the test is not "can a test construct it" but **"is something else already
+catching this, and what happens if nothing is"**. Record the answer where a
+reader will meet it: `test/me_visualize_unsupported_cram.t` carries the argument
+for `` `Output_not_evaluated `` beside the twelve rows that do have witnesses.
+
 ## Rules
 
 **Configuration belongs to the host.** `Err` reads no environment: a library

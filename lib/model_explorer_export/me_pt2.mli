@@ -24,7 +24,8 @@ type t = {
   deleted : string list;  (** PT2 node ids with no native counterpart *)
 }
 
-type error = [ `Over_limit of string * int ]
+type error = Me_limits.over_limit_error
+(** Counting only, under [Me_limits.Scope.Navigation]. *)
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
