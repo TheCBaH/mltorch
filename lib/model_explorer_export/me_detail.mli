@@ -40,7 +40,7 @@ val of_value :
   limits:Me_limits.Limits.t ->
   key:Me_request.Detail_key.t ->
   Kernel.Value.t ->
-  (Model_explorer.Graph.t, [> `Over_limit of string * int ]) Core.result
+  (Model_explorer.Graph.t, [> `Over_limit of string * int ]) Err.t
 (** The value's expression as a graph: one node per AST node, edges from child
     to parent, bounded by [max_detail_nodes] BEFORE the walk that would build
     them — an expression is exactly the shape whose size is not apparent from
@@ -81,7 +81,7 @@ val apply :
   limits:Me_limits.Limits.t ->
   Me_session.Session.t ->
   Delta.t ->
-  (Me_session.Session.t, [> error ]) Core.result
+  (Me_session.Session.t, [> error ]) Err.t
 (** In this order, and ALL of it before anything is mutated:
 
     + [graph.id = view.id = Detail_key.id key]. There is no separate parent-node

@@ -24,7 +24,7 @@ type state = {
   input_kinds : Graph_ir.Input.kind Tensor_id.Map.t;
 }
 
-type 'a t = state -> ('a, error) Core.result * state
+type 'a t = state -> ('a, error) Err.t * state
 
 let pp_error ppf : [< error ] -> unit = function
   | #Graph_shape4.error as e -> Graph_shape4.pp_error ppf e
@@ -32,9 +32,7 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "expected a single output shape, got %d" count
 
 let return x s = (Ok x, s)
-
-let lift_result (r : ('a, [< error ]) Core.result) s =
-  ((r :> ('a, error) Core.result), s)
+let lift_result (r : ('a, [< error ]) Err.t) s = ((r :> ('a, error) Err.t), s)
 
 let ( let* ) m f s =
   match m s with Ok x, s' -> f x s' | Error e, s' -> (Error e, s')
@@ -101,14 +99,14 @@ let op1 op : Tensor_id.t t =
     lift_result
       (Graph_shape4.output_shape op ~sig_of:(fun r ->
            Tensor_id.Map.find_opt r s.tensors
-           |> Core.of_option (`Missing_tensor_sig r)))
+           |> Err.of_option (`Missing_tensor_sig r)))
   in
   let* shape =
     match shapes with
     | [ sh ] -> return sh
     | _ ->
         fun s ->
-          ( Core.fail
+          ( Err.fail
               (`Expected_single_output_shape { count = List.length shapes }),
             s )
   in

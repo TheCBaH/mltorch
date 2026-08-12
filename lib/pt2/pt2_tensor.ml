@@ -70,20 +70,20 @@ let pp_error ppf : error -> unit = function
       Fmt.pf ppf "symbolic tensor metadata is unsupported for %s" field
 
 let int_of_symint ?(field = "tensor metadata") = function
-  | Pytorch_types.SymInt.Int i -> Core.return i
-  | Pytorch_types.SymInt.Expr _ -> Core.fail (`Symbolic_value field)
+  | Pytorch_types.SymInt.Int i -> Err.return i
+  | Pytorch_types.SymInt.Expr _ -> Err.fail (`Symbolic_value field)
 
 let of_meta (m : Pytorch_types.TensorMeta.t) ~data =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* dtype =
-    Pt2_dtype.of_scalar_type m.dtype |> Core.map_error (fun e -> (e :> error))
+    Pt2_dtype.of_scalar_type m.dtype |> Err.map_error (fun e -> (e :> error))
   in
-  let* sizes = Core.List.map (int_of_symint ~field:"sizes") m.sizes in
-  let* strides = Core.List.map (int_of_symint ~field:"strides") m.strides in
+  let* sizes = Err.List.map (int_of_symint ~field:"sizes") m.sizes in
+  let* strides = Err.List.map (int_of_symint ~field:"strides") m.strides in
   let* storage_offset =
     int_of_symint ~field:"storage_offset" m.storage_offset
   in
-  Core.return { dtype; sizes; strides; storage_offset; data }
+  Err.return { dtype; sizes; strides; storage_offset; data }
 
 let pp_shape ppf t = Fmt.brackets (Fmt.list ~sep:Fmt.semi Fmt.int) ppf t.sizes
 let pp ppf t = Fmt.pf ppf "%s%a" (Pt2_dtype.to_string t.dtype) pp_shape t

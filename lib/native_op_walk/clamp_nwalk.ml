@@ -13,7 +13,7 @@ module M = struct
     let shape = W.shape c in
     let x, pcg = Native_tensor.synth pcg shape in
     let g =
-      Core.or_raise Graph_builder.pp_error
+      Err.or_raise ~pp_error:Graph_builder.pp_error
         Graph_builder.(
           build ~name:"clamp" ~outputs:(fun r -> [ r ])
           @@

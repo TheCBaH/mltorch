@@ -55,7 +55,7 @@ val make :
   tensor_origins:tensor_origin Tensor_id.Map.t ->
   node_origins:Node_origin.t list Node_id.Map.t ->
   captured_targets:string Tensor_id.Map.t ->
-  (t, error) Core.result
+  (t, error) Err.t
 
 (* Resolving provenance for a TRANSFORMED graph.
 
@@ -96,7 +96,7 @@ val lens :
   src:'a Rewrite.t ->
   ('a, 'b) Graph_map.t ->
   dst:'b Rewrite.t ->
-  ('b lens, lens_error) Core.result
+  ('b lens, lens_error) Err.t
 
 (* A LIST because a cluster is many-to-one and picking one origin would be
    arbitrary. Yields [Tensor_origin.t] rather than the sidecar's [tensor_origin]
@@ -104,12 +104,12 @@ val lens :
    never ambiguous between [[]] and [[Derived]]. Sorted by source id and
    deduplicated. *)
 val tensor_origins :
-  'b lens -> Tensor_id.t -> (Tensor_origin.t list, lens_error) Core.result
+  'b lens -> Tensor_id.t -> (Tensor_origin.t list, lens_error) Err.t
 
 (* Combined through the node clusters, sorted by [(graph_path, index)] and
    deduplicated. *)
 val node_origins :
-  'b lens -> Node_id.t -> (Node_origin.t list, lens_error) Core.result
+  'b lens -> Node_id.t -> (Node_origin.t list, lens_error) Err.t
 
 (* Follows ONLY an [Identical] correspondence. Provenance is never a fallback
    here and neither is a weaker claim: for [archive w --Permute--> wp] the
@@ -119,7 +119,7 @@ val node_origins :
    captured sources they are all [Identical] and so interchangeable; the lowest
    id is taken for determinism. *)
 val captured_target :
-  'b lens -> Tensor_id.t -> (string option, lens_error) Core.result
+  'b lens -> Tensor_id.t -> (string option, lens_error) Err.t
 
 (* The derivation, exposed separately from value correspondence because it
    answers a different question: where a folded constant came from, not which

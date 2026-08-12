@@ -14,7 +14,7 @@ module SM = Schema_runtime.String_map
 let limits = Me_limits.Limits.untrusted
 
 let pp_err ppf r =
-  Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Me_source.pp_error ppf r
+  Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Me_source.pp_error ppf r
 
 (* --- a graph to project --- *)
 
@@ -155,7 +155,7 @@ let%expect_test "a level is relative to its parent" =
      join is [layer1/layer1.0/layer1.0.conv1] — every level repeating its whole
      prefix. The outermost entry has an empty name and contributes no level. *)
   Format.printf "%a@."
-    (Core.Pretty.core_result
+    (Core.Pretty.err_result
        ~ok:(Fmt.list ~sep:(Fmt.any "/") Fmt.string)
        ~error:Me_source.pp_error)
     (Ok (Me_source.module_levels stack));
@@ -262,13 +262,13 @@ let%expect_test "a sym_int operand draws no edge" =
 
 let%expect_test "the ceilings, checked before the walks" =
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_nodes_per_graph:2 limits)
   in
   Format.printf "nodes %a@." pp_err
     (Me_source.graph ~limits:tight (graph_module ~nodes_of:two_nodes ()));
   let tight_e =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_edges_per_graph:1 limits)
   in
   Format.printf "edges %a@." pp_err
@@ -280,7 +280,7 @@ let%expect_test "the ceilings, checked before the walks" =
 
 let%expect_test "an over-long argument render is capped and says so" =
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_attr_chars:4 limits)
   in
   (match

@@ -73,7 +73,7 @@ module Make (D : Dialect.S) : sig
      in topological order; and each node's output arity matching
      [Graph_shape.output_shape]. Shape inference makes this the one costly check,
      which is why it runs once per step rather than per query. *)
-  val of_graph : graph -> (t, error) Core.result
+  val of_graph : graph -> (t, error) Err.t
   val graph : t -> graph
 
   (* Dataflow. [def] is [None] exactly for a graph input, never for a dangling
@@ -103,7 +103,7 @@ module Make (D : Dialect.S) : sig
      that contains freshly inserted nodes whose outputs are absent from any view of
      the pre-rewrite graph; resolving producers through a view would make
      dependencies between new nodes invisible. *)
-  val topo_sort : node list -> (node list, [> `Cycle of Node_id.t ]) Core.result
+  val topo_sort : node list -> (node list, [> `Cycle of Node_id.t ]) Err.t
 end
 
 (* The Native specialization: the interface every existing caller already uses.

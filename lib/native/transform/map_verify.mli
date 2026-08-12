@@ -116,7 +116,7 @@ module Coverage : sig
   val exhaustive : t
   val not_applicable : t
 
-  val sampled : int -> (t, [> `Invalid_coverage of int ]) Core.result
+  val sampled : int -> (t, [> `Invalid_coverage of int ]) Err.t
   (** [n >= 1]. Rejects nothing the verifier produces; it closes the type
       against everyone else. *)
 
@@ -394,7 +394,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) : sig
     ('src, 'dst) Graph_map.t ->
     src:'src Src.Snapshot.t ->
     dst:'dst Dst.Snapshot.t ->
-    (Report.t, error) Core.result
+    (Report.t, error) Err.t
 end
 
 (* The Native-to-Native specialization. *)
@@ -407,7 +407,7 @@ val run :
   ('src, 'dst) Graph_map.t ->
   src:'src Snapshot.t ->
   dst:'dst Snapshot.t ->
-  (Report.t, error) Core.result
+  (Report.t, error) Err.t
 
 (* Reads [Rewrite.constants] from each state separately, for the reason above.
    Works unchanged on a composed pipeline step, which is what makes cumulative
@@ -418,4 +418,4 @@ val step :
   ?probe:int ->
   'v Rewrite.t ->
   'v Rewrite.step ->
-  (Report.t, error) Core.result
+  (Report.t, error) Err.t

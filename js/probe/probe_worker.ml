@@ -21,7 +21,7 @@ let read_file path =
   with Sys_error msg -> failwith ("probe: cannot read " ^ path ^ ": " ^ msg)
 
 let ok what pp r =
-  Core.or_raise (fun ppf e -> Fmt.pf ppf "probe: %s: %a" what pp e) r
+  Err.or_raise ~pp_error:(fun ppf e -> Fmt.pf ppf "probe: %s: %a" what pp e) r
 
 (* Plain [result] from Jsont, so [failwith]. And it must RAISE rather than
    print: both backends run this source, so a failure identical on each would

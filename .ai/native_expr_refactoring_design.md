@@ -433,8 +433,8 @@ module Index : sig
   val add : Role.Delta.t t -> Role.Delta.t t -> Role.Delta.t t
   val scale : int -> Role.Delta.t t -> Role.Delta.t t
   (* result-returning: the divisor is a raw int and must be validated *)
-  val floor_div_pos : Role.Delta.t t -> int -> (Role.Delta.t t, error) Core.result
-  val ceil_div_pos : Role.Delta.t t -> int -> (Role.Delta.t t, error) Core.result
+  val floor_div_pos : Role.Delta.t t -> int -> (Role.Delta.t t, error) Err.t
+  val ceil_div_pos : Role.Delta.t t -> int -> (Role.Delta.t t, error) Err.t
   val min : Role.Delta.t t -> Role.Delta.t t -> Role.Delta.t t
   val max : Role.Delta.t t -> Role.Delta.t t -> Role.Delta.t t
   val clamp_low : Role.Delta.t t -> Role.Position.t t
@@ -452,7 +452,7 @@ claim. `clamp_low` establishes nonnegativity by its own semantics.
 
 `floor_div_pos` and `ceil_div_pos` require a strictly positive divisor. The
 smart constructor returns a result only from a validated positive value, or the
-operation returns a `Core.result`. A raw zero/negative divisor must not enter the
+operation returns a `Err.t`. A raw zero/negative divisor must not enter the
 AST.
 
 ### Boolean expressions
@@ -751,7 +751,7 @@ rewrites make binder behavior visible in signatures and error reports.
 module Eval : sig
   module Env : sig
     type t = {
-      load : Source.t -> int Coord.t -> (float, error) Core.result;
+      load : Source.t -> int Coord.t -> (float, error) Err.t;
     }
   end
 
@@ -759,13 +759,13 @@ module Eval : sig
     output:int Coord.t ->
     reducers:(Reduce_var.t -> int option) ->
     'role Index.t ->
-    (int, error) Core.result
+    (int, error) Err.t
 
   val value :
     Env.t ->
     output:int Coord.t ->
     Value.t ->
-    (float, error) Core.result
+    (float, error) Err.t
 end
 ```
 
@@ -882,7 +882,7 @@ Errors should distinguish:
 - malformed reducer scope;
 - unsupported intrinsic descriptor.
 
-Use `Core.result` and repository error-composition conventions. Do not rebuild an
+Use `Err.t` and repository error-composition conventions. Do not rebuild an
 error by extracting its kind and thereby discard its detection backtrace.
 
 ## Equality, ordering, hashing, and printing
@@ -947,7 +947,7 @@ because it needs the same scope-aware traversal as `Fold` and putting it in the
 façade would invert the layering:
 
 ```ocaml
-val Check.value : ?max_size:int -> ?max_depth:int -> Value.t -> (unit, error) Core.result
+val Check.value : ?max_size:int -> ?max_depth:int -> Value.t -> (unit, error) Err.t
 ```
 
 **Narrowed, deliberately.** It verifies only what *composition* can still
@@ -1224,7 +1224,7 @@ Errors should report enough context to locate the malformed expression:
   configuration;
 - a bounded pretty-printed expression fragment.
 
-Use the repository's `Core.result` conventions and preserve error backtraces.
+Use the repository's `Err.t` conventions and preserve error backtraces.
 Printing reducer names lexically rather than exposing internal IDs makes errors
 stable and comparable across runs.
 

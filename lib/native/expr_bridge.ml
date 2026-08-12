@@ -13,18 +13,18 @@ let vec6_of_coord (c : 'a Expr.Coord.t) : 'a Vec6.t =
 
 let env ~binding =
   let load s (c : int Expr.Coord.t) =
-    (* [Core.of_option], not a hand-rolled match: it is the repository's named
+    (* [Err.of_option], not a hand-rolled match: it is the repository's named
        bridge from an option into the result framework, and it captures the
-       detection backtrace the way [Core.fail] does. The payload is built
+       detection backtrace the way [Err.fail] does. The payload is built
        eagerly, which is fine here -- it is a pure, cheap constructor. *)
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* (Tensor.Tensor t) =
-      Core.of_option (`Unknown_source s) (binding (id_of_source s))
+      Err.of_option (`Unknown_source s) (binding (id_of_source s))
     in
     (* Bounds-checked BEFORE a [Vec6.coord] exists. Building one first would
        raise out of [Dim.index] on a negative component, and reading would raise
        [Invalid_argument] above an extent -- either way an exception would escape
-       a [Core.result] API. *)
+       a [Err.t] API. *)
     let out_of_range =
       List.find_opt
         (fun a ->
@@ -33,9 +33,9 @@ let env ~binding =
         Expr.Axis.all
     in
     match out_of_range with
-    | Some a -> Core.fail (`Coord_out_of_range (s, a, Expr.Coord.get c a, c))
+    | Some a -> Err.fail (`Coord_out_of_range (s, a, Expr.Coord.get c a, c))
     | None ->
-        Core.return
+        Err.return
           (Tensor.read_at_raw (Tensor.Tensor t) (fun a -> Expr.Coord.get c a))
   in
   { Expr.Eval.Env.load }

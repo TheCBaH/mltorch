@@ -15,7 +15,7 @@ let%expect_test "per-tensor with zero_point + clamping" =
   [%expect {| deq=1 req(1.0)=138 clamp_hi=255 |}]
 
 let per_channel ~scale ~zero_point =
-  Core.or_raise Quant.pp_error (Quant.per_channel ~scale ~zero_point)
+  Err.or_raise ~pp_error:Quant.pp_error (Quant.per_channel ~scale ~zero_point)
 
 let%expect_test "per-channel picks scale/zp by channel" =
   let q = per_channel ~scale:[| 0.5; 0.25 |] ~zero_point:[| 0; 1 |] in
@@ -27,7 +27,7 @@ let%expect_test "per-channel picks scale/zp by channel" =
 
 let%expect_test "per_channel rejects unequal array lengths" =
   Format.printf "%a@."
-    (Core.Pretty.core_result ~ok:Quant.pp ~error:Quant.pp_error)
+    (Core.Pretty.err_result ~ok:Quant.pp ~error:Quant.pp_error)
     (Quant.per_channel ~scale:[| 0.5; 0.25 |] ~zero_point:[| 0 |]);
   [%expect {| quant scale/zero_point lengths differ: 2 vs 1 |}]
 
@@ -92,7 +92,7 @@ let%expect_test "channel_count reports granularity" =
   [%expect {| per_channel=3 per_tensor=none |}]
 
 let%expect_test "jsont rejects mismatched arrays at the decode boundary" =
-  (* Through the public decoder: the constructor's [Core.result] has to become
+  (* Through the public decoder: the constructor's [Err.t] has to become
      Jsont's ordinary [Error _], not an exception escaping [decode_string]. *)
   let decode s =
     match Jsont_bytesrw.decode_string Quant.jsont s with

@@ -8,4 +8,4 @@ val graph :
   ?labels:(Graph_ir.Node_id.t -> string) ->
   ?group_attrs:(string * (string * string) list) list ->
   Graph_ir.graph ->
-  (Model_explorer.Graph.t, [> Me_build.error ]) Core.result
+  (Model_explorer.Graph.t, [> Me_build.error ]) Err.t

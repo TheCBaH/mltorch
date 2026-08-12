@@ -21,4 +21,4 @@
 
 (library
  (name native4d)
- (libraries core fmt jsont native))
+ (libraries err_trace fmt jsont native))

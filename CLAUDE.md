@@ -18,21 +18,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   namespaces instead. For mutually recursive records, use `module rec`; if a
   variant only references the others, parametrise it so it can stay outside the
   recursive group (see `lib/native/graph_ir.ml`: `'g gop`).
-- **Result/Option handling**: don't hand-roll `match ... Ok/Error`/
-  `Some/None` purely to print — compose through `Fmt.result`/`Fmt.option`/
-  `Core.Pretty` instead. Don't cross a `Core.result` into an exception
-  boundary with an open-coded `match ... | Error e -> failwith (...)` —
-  use `Core.or_raise`. Bridge an option into the framework with
-  `Core.of_option`, not `Option.to_result` (which yields no `Core.Error.t`,
-  hence no backtrace); its payload is built eagerly, so keep a match where
-  building it raises, has effects, or costs something on the success path.
-  Never rebuild an `Error` by hand-unwrapping `e.Core.Error.kind` when
-  `Core.map_error` applies — it preserves the original detection backtrace;
-  the hand-rolled form silently doesn't, and `graph_view.ml:352` was a live
-  instance of exactly that bug. A deliberate drop of the wrapper (crossing out
-  of the framework, e.g. into Cmdliner's `(_, string) result`) is fine, but
-  give it a **named** helper — `to_cli`, `Pattern.of_core` — so it is
-  distinguishable from the defect. See `.ai/printer_conventions.md`.
+- **Result/Option handling**: the error framework is `Err`, the single module of
+  the `err_trace` library vendored at `vendored/err_trace` — depend on it as
+  `err_trace`; name and public_name are the same, unlike most of this repo's
+  other libraries. `lib/core` keeps only `Core.Pretty`, the Fmt glue; the
+  dependency runs one way and `Err` must never depend on Fmt.
+  Don't hand-roll `match ... Ok/Error`/`Some/None` purely to print — compose
+  through `Fmt.result`/`Fmt.option`/`Core.Pretty` instead. Don't cross an
+  `Err.t` into an exception boundary with an open-coded
+  `match ... | Error e -> failwith (...)` — use `Err.or_raise ~pp_error`, which
+  raises `Err.Exn.E` carrying the whole wrapper. Because `Err` registers a
+  `Printexc` printer, a boundary that emits **outward** (wire response, browser,
+  third-party log) must match `Err.Exn.E` and print `Err.Exn.pp_kind` — the
+  default rendering includes the detection stack. Bridge an option with
+  `Err.of_option`, or `Err.map_none` when the payload is expensive, raising, or
+  effectful (`of_option`'s is eager, and so is `Err.guard`'s — which is why the
+  hot per-node limit checks in `lib/model_explorer_export` stay explicit).
+  The `Error.t` wrapper is **abstract**: rebuilding it is a type error, proved by
+  `test/native/error_opacity.t`. Use `Err.map_error` to widen a row —
+  it preserves the original detection origin, and `graph_view.ml:352` was a live
+  instance of the bug that follows from not doing so. Add `~pos:__POS__` at
+  subsystem seams, not per row: it is the only provenance that exists on the
+  JavaScript backends. A deliberate drop of the wrapper (into Cmdliner's
+  `(_, string) result`, into Jsont) is fine, but give it a **named** helper —
+  `to_cli`, `Pattern.of_err`, `Me_request.or_jsont` — that marks
+  `Err.Action.Export` first, so it is distinguishable from the defect.
+  Configuration and monitors belong to the **host**, never to `lib/`:
+  `lib/err_host` reads `MLTORCH_ERROR_*` once from an executable's entry point.
+  See `.ai/error_handling_design.md` and `.ai/printer_conventions.md`.
 - **Never assume a 63-bit `int` in the JS-reachable libraries** — `lib/native`,
   `lib/walk_core`, `lib/core`, `lib/native4d`, `lib/expr`, and now `lib/pt2`,
   `lib/native_graph` and `lib/native_interp`, which js_of_ocaml reaches since the probe

@@ -36,10 +36,7 @@ type t = {
 }
 
 val of_kernel :
-  limits:Me_limits.Limits.t ->
-  graph:string ->
-  Kernel.t ->
-  (t, [> error ]) Core.result
+  limits:Me_limits.Limits.t -> graph:string -> Kernel.t -> (t, [> error ]) Err.t
 (** [graph] is the KERNEL graph's id, which is also the fusion view's: the plan
     is a view over that graph rather than a graph of its own, so a second id
     would name something that does not exist.

@@ -17,13 +17,13 @@ let pp_error ppf : [< error ] -> unit = function
   | `Eval e -> Kernel_eval.pp_error ppf e
   | `Direct e -> Eval_direct.pp_error ppf e
 
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
-let lift f r = Core.map_error (fun e -> f e) r
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
+let lift f r = Err.map_error (fun e -> f e) r
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
 
 let kernel_of g =
-  Core.or_raise Kernel_adapt.pp_error
+  Err.or_raise ~pp_error:Kernel_adapt.pp_error
     (Kernel_adapt.of_stage_program (Eval_symbolic.run g))
 
 let ramp shape =
@@ -71,7 +71,7 @@ let%expect_test "Fusion: conv_add is bit-for-bit under both placements" =
   let bind = bind_of g in
   let p, _ = Fusion_plan.plan k in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* materialized =
       lift
         (fun e -> `Eval e)
@@ -96,18 +96,18 @@ let%expect_test "Fusion: conv_add is bit-for-bit under both placements" =
     let use = Kernel.Use.Set.choose p.Fusion_plan.virtual_uses in
     let consumer = Option.get (Kernel.value k use.Kernel.Use.consumer) in
     let body =
-      Core.or_raise Kernel_elab.pp_error (Kernel_elab.elaborate k use)
+      Err.or_raise ~pp_error:Kernel_elab.pp_error (Kernel_elab.elaborate k use)
     in
     let inputs_only id = if List.mem id g.Graph.inputs then bind id else None in
     let env = Expr_bridge.env ~binding:inputs_only in
     let elaborated =
       Tensor.materialize consumer.Kernel.Value.sg.Tensor_sig.shape (fun c ->
-          Core.or_raise Expr.Eval.pp_error
+          Err.or_raise ~pp_error:Expr.Eval.pp_error
             (Expr.Eval.value env
                ~output:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
                (Kernel.Result_conversion.apply consumer.Kernel.Value.result body)))
     in
-    Core.return
+    Err.return
       [
         ( "materialized == direct",
           same (get materialized) (Tensor_id.Map.find_opt out direct) );
@@ -123,11 +123,11 @@ let%expect_test "Fusion: conv_add is bit-for-bit under both placements" =
      deliberately compute the same value, so bitwise equality says nothing about
      whether the conv buffer went away. *)
   let materialized =
-    Core.or_raise Kernel_eval.pp_error
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
       (Kernel_eval.run_plan (Fusion_plan.default k) ~bind)
   in
   let fused =
-    Core.or_raise Kernel_eval.pp_error (Kernel_eval.run_plan p ~bind)
+    Err.or_raise ~pp_error:Kernel_eval.pp_error (Kernel_eval.run_plan p ~bind)
   in
   Format.printf "stored when materialized: %a@.stored when fused:        %a@."
     pp_ids (stored materialized) pp_ids (stored fused);
@@ -162,7 +162,7 @@ let round_fixture () =
       dilation = Op_config.Pos.of_int 1;
     }
   in
-  Core.or_raise Graph_builder.pp_error
+  Err.or_raise ~pp_error:Graph_builder.pp_error
     Graph_builder.(
       build ~name:"round_conv_add" ~outputs:(fun r -> [ r ])
       @@
@@ -207,11 +207,11 @@ let%expect_test "Fusion: the inner round survives buffer elimination" =
   let out = List.hd g.Graph.outputs in
   let read m = Tensor.read_at_raw (Tensor_id.Map.find out m) (fun _ -> 0) in
   let materialized =
-    Core.or_raise Kernel_eval.pp_error
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
       (Kernel_eval.run_plan (Fusion_plan.default k) ~bind)
   in
   let fused =
-    Core.or_raise Kernel_eval.pp_error (Kernel_eval.run_plan p ~bind)
+    Err.or_raise ~pp_error:Kernel_eval.pp_error (Kernel_eval.run_plan p ~bind)
   in
   (* The ELABORATED body belongs here too, not only on conv_add: that fixture's
      integer data makes the round a no-op, so dropping it inside [Kernel_elab]
@@ -219,10 +219,12 @@ let%expect_test "Fusion: the inner round survives buffer elimination" =
      place the elaborator's own conversion is observable. *)
   let use = Kernel.Use.Set.choose p.Fusion_plan.virtual_uses in
   let consumer = Option.get (Kernel.value k use.Kernel.Use.consumer) in
-  let body = Core.or_raise Kernel_elab.pp_error (Kernel_elab.elaborate k use) in
+  let body =
+    Err.or_raise ~pp_error:Kernel_elab.pp_error (Kernel_elab.elaborate k use)
+  in
   let elaborated =
     Tensor.materialize consumer.Kernel.Value.sg.Tensor_sig.shape (fun c ->
-        Core.or_raise Expr.Eval.pp_error
+        Err.or_raise ~pp_error:Expr.Eval.pp_error
           (Expr.Eval.value
              (Expr_bridge.env ~binding:bind)
              ~output:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
@@ -264,7 +266,7 @@ let%expect_test "Fusion: what the planner refuses, and why" =
      unchanged. It needs a VALUE producer: where max-pool reads a graph input
      directly, the pair is not a [Use] at all. *)
   let pool_chain =
-    Core.or_raise Graph_builder.pp_error
+    Err.or_raise ~pp_error:Graph_builder.pp_error
       Graph_builder.(
         build ~name:"pool_chain" ~outputs:(fun r -> [ r ])
         @@
@@ -293,7 +295,7 @@ let%expect_test "Fusion: what the planner refuses, and why" =
      to stay safe against a 32-bit wrap, and the diagnostic must not claim more
      than it knows. *)
   let three_uses =
-    Core.or_raise Graph_builder.pp_error
+    Err.or_raise ~pp_error:Graph_builder.pp_error
       Graph_builder.(
         build ~name:"three_uses" ~outputs:(fun (a, b, c) -> [ a; b; c ])
         @@
@@ -351,7 +353,7 @@ let%expect_test "Fusion: elaboration rejects what it cannot substitute" =
   let k = kernel_of g in
   let show name u =
     Format.printf "%s: %a@." name
-      (Core.Pretty.core_result
+      (Core.Pretty.err_result
          ~ok:(fun ppf _ -> Fmt.string ppf "ok")
          ~error:Kernel_elab.pp_error)
       (Kernel_elab.elaborate k u)
@@ -432,13 +434,13 @@ let%expect_test "Fusion: planning a wide kernel completes" =
      would reject the kernel outright — which auto-promote would then record as
      an expected exception, leaving a test that plans nothing. *)
   let limits =
-    Core.or_raise Kernel.Limits.pp_error
+    Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:4095
          ~max_dep_depth:1024 ~max_inputs:1024 ~max_outputs:4095
          ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
   in
   let k =
-    Core.or_raise Kernel.pp_error
+    Err.or_raise ~pp_error:Kernel.pp_error
       (Kernel.create ~limits
          ~inputs:
            [
@@ -518,7 +520,7 @@ let%expect_test "Fusion: a Site.t cannot be forged from outside" =
       (Expr_bridge.coord_of_vec6 Symbolic.out_vec)
   in
   let mk ~consumer_shape ~producer_shape body =
-    Core.or_raise Kernel.pp_error
+    Err.or_raise ~pp_error:Kernel.pp_error
       (Kernel.create
          ~inputs:
            [

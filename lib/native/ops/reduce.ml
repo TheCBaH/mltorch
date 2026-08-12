@@ -83,7 +83,7 @@ module Mean = struct
      reduced axes (and, for keepdim=false, the vacated outer axes) are extent 1. *)
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
     let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
-    Core.return
+    Err.return
       (List.fold_left
          (fun s (kin, oax) -> Vec6.copy x_shape ~src:kin ~dst:oax s)
          ones (kept_map p))

@@ -16,22 +16,20 @@ let pp_error ppf : [< error ] -> unit = function
   | #Pass.error as e -> Pass.pp_error ppf e
   | #Map_verify.error as e -> Map_verify.pp_error ppf e
 
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 
-let lift_origin (r : ('a, Rewrite.error) Core.result) : ('a, error) Core.result
-    =
-  Core.map_error (fun e -> `Origin e) r
+let lift_origin (r : ('a, Rewrite.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> `Origin e) r
 
-let lift_pass (r : ('a, Pass.error) Core.result) : ('a, error) Core.result =
-  Core.map_error (fun e -> (e :> error)) r
+let lift_pass (r : ('a, Pass.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> (e :> error)) r
 
-let lift_verify (r : ('a, Map_verify.error) Core.result) :
-    ('a, error) Core.result =
-  Core.map_error (fun e -> (e :> error)) r
+let lift_verify (r : ('a, Map_verify.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> (e :> error)) r
 
 (* Run [passes] over [g] and verify the map that comes back. *)
 let verified g passes =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* (Rewrite.Origin state) = lift_origin (Rewrite.origin g) in
   let* step = lift_pass (Pass.run_all state passes) in
   lift_verify (Map_verify.step state step)
@@ -145,7 +143,7 @@ let s = Graph_fixtures.nhwc ~h:3 ~w:3 ~c:2
 
 let build name m =
   Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
-  |> Core.or_raise Graph_builder.pp_error
+  |> Err.or_raise ~pp_error:Graph_builder.pp_error
 
 let verify_map map ~src ~dst =
   Format.printf "%a@."
@@ -832,7 +830,7 @@ let%expect_test "verify: trimming a permute off an i32 input is declined" =
    computed. *)
 
 let verified_with ?budget ?probe ~constants g passes =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* (Rewrite.Origin state) = lift_origin (Rewrite.origin ~constants g) in
   let* step = lift_pass (Pass.run_all state passes) in
   lift_verify (Map_verify.step ?budget ?probe state step)
@@ -876,7 +874,7 @@ let%expect_test "verify: a fold that computed the wrong payload is refuted" =
     Tensor.materialize t.Tensor.shape (fun c -> Tensor.read packed c +. 1.)
   in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* (Rewrite.Origin state) =
       lift_origin
         (Rewrite.origin
@@ -1044,14 +1042,14 @@ let cumulative = Map_verify.Budget.cumulative
 (* Apply passes one at a time, verifying each step against the state it started
    from, so a failure names the pass that caused it. *)
 let per_step ?constants g passes =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* (Rewrite.Origin origin) = lift_origin (Rewrite.origin ?constants g) in
   let rec go : type v.
       v Rewrite.t ->
       Pass.t list ->
-      ((string * Map_verify.Report.t) list, error) Core.result =
+      ((string * Map_verify.Report.t) list, error) Err.t =
    fun state -> function
-     | [] -> Core.return []
+     | [] -> Err.return []
      | p :: rest ->
          let* (Rewrite.Step (next, _) as step) =
            lift_pass (Pass.run_all state [ p ])
@@ -1065,7 +1063,7 @@ let per_step ?constants g passes =
   go origin passes
 
 let composed ?constants g passes =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* (Rewrite.Origin origin) = lift_origin (Rewrite.origin ?constants g) in
   let* step = lift_pass (Pass.run_all origin passes) in
   lift_verify (Map_verify.step ~budget:cumulative origin step)
@@ -1078,7 +1076,7 @@ let composed ?constants g passes =
    whose roundings cancel can compose to a bit-identical pair. *)
 let both name ?constants g passes =
   let report =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* steps = per_step ?constants g passes in
     let+ composed = composed ?constants g passes in
     let lines =
@@ -1146,7 +1144,7 @@ let%expect_test "verify: a fixpoint over a constant sub-DAG" =
    actually be caught, rather than just producing a plausible-looking map. *)
 let%expect_test "verify: origin -> passes -> pack, composed" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* (Rewrite.Origin s0) =
       lift_origin (Rewrite.origin (Graph_fixtures.permute_identity_chain ()))
     in
@@ -1193,7 +1191,7 @@ let trim_any_permute =
     }
 
 let piped ?verify g passes =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* (Rewrite.Origin state) = lift_origin (Rewrite.origin g) in
   let+ (Rewrite.Step (final, _)) =
     lift_pass (Pass.run_all ?verify state passes)
@@ -1314,7 +1312,7 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
   in
   let report ~dst_constants name =
     let result =
-      let open Core.Syntax in
+      let open Err.Syntax in
       let* (Rewrite.Origin state) = lift_origin (Rewrite.origin ~constants g) in
       let* (Rewrite.Step (final, map)) =
         lift_pass (Pass.run_all state [ Fold_batch_norm.pass ])
@@ -1359,7 +1357,7 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
 let%expect_test "sampling: a sampled proof does not satisfy Report.proved" =
   let sampling = { Map_verify.Budget.default with sample = Some 4 } in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* (Rewrite.Origin state) =
       lift_origin (Rewrite.origin (Graph_fixtures.permute_sequence ()))
     in

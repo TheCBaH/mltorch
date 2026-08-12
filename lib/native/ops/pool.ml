@@ -18,7 +18,7 @@ let window_output_shape ~(x_shape : Vec6.shape)
     ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
     ~(stride : Op_config.Pos.t Op_config.Hw.t)
     ~(pad : Op_config.Nonneg.t Op_config.Hw.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let out_extent axis ~kernel ~stride ~pad =
     Window_axis.output_extent ~in_extent:(Vec6.get x_shape axis) ~kernel ~stride
       ~pad_before:pad ~pad_after:pad ~dilation:(Op_config.Pos.of_int 1)

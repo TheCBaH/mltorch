@@ -31,7 +31,7 @@ val stage_program :
   limits:Me_limits.Limits.t ->
   id:string ->
   Stage_program.t ->
-  (Model_explorer.Graph.t, [> error ]) Core.result
+  (Model_explorer.Graph.t, [> error ]) Err.t
 (** One node per stage, plus a pinned boundary node per graph input and per
     program output. The attribute is the stage's BODY, rendered through
     [Me_build.bounded] — an expression tree is exactly the value whose printing
@@ -41,7 +41,7 @@ val kernel :
   limits:Me_limits.Limits.t ->
   id:string ->
   Kernel.t ->
-  (Model_explorer.Graph.t, [> error ]) Core.result
+  (Model_explorer.Graph.t, [> error ]) Err.t
 (** One node per kernel value. Kernel inputs are boundary nodes carrying their
     BINDING — caller, captured constant, or filled — because that is the
     distinction the adaptation exists to make and it appears nowhere in the

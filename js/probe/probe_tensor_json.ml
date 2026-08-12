@@ -20,7 +20,7 @@ let run () =
      sides run this same source, so a failure that reproduces on both -- which a
      genuine encode/decode bug would -- prints identical text, diffs clean, and
      passes. Only a non-zero exit gets noticed. Plain [result] from Jsont, so
-     [failwith] rather than [Core.or_raise] (see [[testing_strategy]]). *)
+     [failwith] rather than [Err.or_raise ~pp_error:] (see [[testing_strategy]]). *)
   let json =
     match Graph_json.encode_tensor tensor with
     | Ok json -> json

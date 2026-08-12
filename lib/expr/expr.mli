@@ -76,11 +76,8 @@ module Index : sig
      integer identities, never a floating-point one, where dropping an addition
      of zero or reassociating is observable through signed zero, NaN and
      rounding. *)
-  val floor_div_pos :
-    Role.Delta.t t -> int -> (Role.Delta.t t, error) Core.result
-
-  val ceil_div_pos :
-    Role.Delta.t t -> int -> (Role.Delta.t t, error) Core.result
+  val floor_div_pos : Role.Delta.t t -> int -> (Role.Delta.t t, error) Err.t
+  val ceil_div_pos : Role.Delta.t t -> int -> (Role.Delta.t t, error) Err.t
 end
 
 module Intrinsic : sig
@@ -135,12 +132,12 @@ module Intrinsic : sig
     pad_w:int ->
     out:Role.Position.t Index.t Coord.t ->
     result:Max_pool.result ->
-    (t, error) Core.result
+    (t, error) Err.t
   (** The only way to build a descriptor. [Check] does NOT revalidate this: a
       smart constructor makes the invalid state unconstructable through the
       public API, and a rule no test can turn red is not worth carrying. *)
 
-  val window : t -> out_h:int -> out_w:int -> (Window.t, error) Core.result
+  val window : t -> out_h:int -> out_w:int -> (Window.t, error) Err.t
   (** The half-open input window an output position reads, clipped to the input
       extents.
 
@@ -152,7 +149,7 @@ module Intrinsic : sig
       fields does not cover it either: [out_h * stride] is an aggregate and
       needs its own bound. *)
 
-  val flat_index : t -> ih:int -> iw:int -> (int, error) Core.result
+  val flat_index : t -> ih:int -> iw:int -> (int, error) Err.t
   (** The flattened input position a max-pool index result reports. Checked for
       the same reason — [ih * in_w] is an aggregate. *)
 end
@@ -405,8 +402,7 @@ module Check : sig
 
   val pp_error : Format.formatter -> [< error ] -> unit
 
-  val value :
-    ?max_size:int -> ?max_depth:int -> Value.t -> (unit, error) Core.result
+  val value : ?max_size:int -> ?max_depth:int -> Value.t -> (unit, error) Err.t
   (** Deliberately narrow. Division parameters, load roles and intrinsic
       dimensions are NOT rechecked: the smart constructors and the [Index] GADT
       make each unconstructable through the public API, so such a rule could
@@ -445,13 +441,13 @@ module Eval : sig
     output:int Coord.t ->
     reducers:(Reduce_var.t -> int option) ->
     'role Index.t ->
-    (int, index_error) Core.result
+    (int, index_error) Err.t
   (** Interprets an index at a concrete output coordinate. Every addition,
       scaling and division is bounds-checked BEFORE it is performed, so an
       intermediate cannot wrap back into range and sail past a later check --
       which is the whole point of the checked domain. *)
 
-  val float_of_index : int -> (float, index_error) Core.result
+  val float_of_index : int -> (float, index_error) Err.t
   (** Carries an index into the value domain, failing rather than rounding
       silently. Both interpreters must go through this: native's [Ground_eval]
       converts independently in two places today, and a helper returning [int]
@@ -468,7 +464,7 @@ module Eval : sig
   val pp_error : Format.formatter -> [< error ] -> unit
 
   module Env : sig
-    type t = { load : Source.t -> int Coord.t -> (float, error) Core.result }
+    type t = { load : Source.t -> int Coord.t -> (float, error) Err.t }
     (** The whole boundary between the language and its host: [Expr] supplies
         evaluated coordinates and consumes a working float, while storage
         format, quantization and tensor ownership stay on the other side. This
@@ -476,8 +472,7 @@ module Eval : sig
         evaluator testable against a plain map. *)
   end
 
-  val value :
-    Env.t -> output:int Coord.t -> Value.t -> (float, error) Core.result
+  val value : Env.t -> output:int Coord.t -> Value.t -> (float, error) Err.t
   (** The reference interpreter.
 
       [Select] evaluates only the selected branch. [Reduce] is the ordered

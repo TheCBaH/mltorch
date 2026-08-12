@@ -7,10 +7,9 @@ type source_format = Model_json | Pt2_archive
    each other's input. *)
 let detect ~bytes =
   if String.length bytes >= 4 && String.sub bytes 0 4 = "PK\003\004" then
-    Core.return Pt2_archive
-  else if String.length bytes >= 1 && bytes.[0] = '{' then
-    Core.return Model_json
-  else Core.fail `Unrecognised_format
+    Err.return Pt2_archive
+  else if String.length bytes >= 1 && bytes.[0] = '{' then Err.return Model_json
+  else Err.fail `Unrecognised_format
 
 (* Which ceiling applies is a fact about the CONTENT, the same rule [detect]
    uses. An unrecognised format falls back to [max_pt2_bytes]: [load] rejects
@@ -96,12 +95,12 @@ let diagnostic_code : [< error ] -> Me_limits.Diagnostic.Code.t =
       Code.Internal
 
 (* The one place a component's error is widened into this module's. Named,
-   rather than a [Core.map_error] at each of the twelve crossings, so the
+   rather than a [Err.map_error ~pos:__POS__] at each of the twelve crossings, so the
    wrapping constructor is visible at the call site and the detection backtrace
    is preserved by [map_error] rather than rebuilt. *)
-let wrap tag r = Core.map_error tag r
-let ( let* ) = Core.Syntax.( let* )
-let ( let+ ) = Core.Syntax.( let+ )
+let wrap tag r = Err.map_error ~pos:__POS__ tag r
+let ( let* ) = Err.Syntax.( let* )
+let ( let+ ) = Err.Syntax.( let+ )
 
 (* The PRODUCER side of the session/detail byte ceilings: a writer that
    refuses to grow past [max_bytes] rather than a check on the string after
@@ -119,9 +118,9 @@ let encode_bounded ~max_bytes jsont v =
       ~eod:true
   in
   match Jsont_bytesrw.encode jsont v ~eod:true w with
-  | Ok () -> Core.return (Buffer.contents buf)
-  | Error _ -> Core.fail `Document_too_large
-  | exception Bytesrw.Bytes.Stream.Error _ -> Core.fail `Document_too_large
+  | Ok () -> Err.return (Buffer.contents buf)
+  | Error _ -> Err.fail `Document_too_large
+  | exception Bytesrw.Bytes.Stream.Error _ -> Err.fail `Document_too_large
 
 let passes ~fold = [ Pipeline.canonical ~fold ]
 let capability key status = { Me_session.Capability.key; status }
@@ -252,7 +251,7 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
      capability and the pipeline saying the same thing. *)
   let* constants =
     match (fold, archive) with
-    | false, _ | _, None -> Core.return Graph_ir.Tensor_id.Map.empty
+    | false, _ | _, None -> Err.return Graph_ir.Tensor_id.Map.empty
     | true, Some archive ->
         wrap (fun e -> `Lowering e) (Native_interp.preload archive lowered)
   in
@@ -282,14 +281,14 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
      rather than each side computing the key. *)
   let* group_attrs =
     match t.composed with
-    | None -> Core.return None
+    | None -> Err.return None
     | Some report ->
         let* rows =
           wrap
             (fun e -> `Verification e)
             (Me_verify.by_namespace ~limits t.graph report)
         in
-        Core.return (Some rows)
+        Err.return (Some rows)
   in
   let* canonical =
     wrap
@@ -303,20 +302,20 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
      unsupported operator does one stage earlier. *)
   let native4d_id = Me_ids.graph Me_ids.Layer.Native4d 0 in
   let* native4d =
-    if not needed_native4d then Core.return Skipped
+    if not needed_native4d then Err.return Skipped
     else
       let* snapshot = wrap (fun e -> `View e) (Snapshot.create t.graph) in
       let (Snapshot.Pack src) = snapshot in
       match Native4d.Lower.convert ~constants:t.constants src with
       | Error e -> (
-          match Me_classify.native4d e.Core.Error.kind with
+          match Me_classify.native4d (Err.Error.kind e) with
           | Me_classify.Unavailable reason ->
-              Core.return
+              Err.return
                 (Refused
                    ( reason,
-                     Core.Pretty.to_string Native4d.Error.pp e.Core.Error.kind
+                     Core.Pretty.to_string Native4d.Error.pp (Err.Error.kind e)
                    ))
-          | Me_classify.Fatal -> Core.fail (`Native4d e.Core.Error.kind))
+          | Me_classify.Fatal -> Err.fail (`Native4d (Err.Error.kind e)))
       | Ok (Native4d.Lower.Pack r) ->
           let+ g =
             wrap
@@ -335,7 +334,7 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
      flagged, not [Me_kernel.stage_program]'s projection of it -- the two are
      gated together since the projection has nothing to project without it. *)
   let* program_and_stage_graph =
-    if not needed_stage_program then Core.return None
+    if not needed_stage_program then Err.return None
     else
       let program = Eval_symbolic.run t.graph in
       let+ stage_graph =
@@ -347,21 +346,21 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
   in
   let stage_graph = Option.map snd program_and_stage_graph in
   let* kernel_graph =
-    if not needed_kernel then Core.return Skipped
+    if not needed_kernel then Err.return Skipped
     else
       (* [needed_kernel] implies [needed_stage_program] by construction, so
          [program_and_stage_graph] is always [Some] here. *)
       let program, _ = Option.get program_and_stage_graph in
       match Kernel_adapt.of_stage_program program with
       | Error e -> (
-          match Me_classify.kernel e.Core.Error.kind with
+          match Me_classify.kernel (Err.Error.kind e) with
           | Me_classify.Unavailable reason ->
-              Core.return
+              Err.return
                 (Refused
                    ( reason,
                      Core.Pretty.to_string Kernel_adapt.pp_error
-                       e.Core.Error.kind ))
-          | Me_classify.Fatal -> Core.fail (`Kernel e.Core.Error.kind))
+                       (Err.Error.kind e) ))
+          | Me_classify.Fatal -> Err.fail (`Kernel (Err.Error.kind e)))
       | Ok k ->
           (* The fusion PLAN comes with the kernel, because it is a view over
              that very kernel -- [Fusion_plan.t] carries the kernel it
@@ -405,14 +404,14 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
   in
   let* node_data_sets =
     match t.composed with
-    | None -> Core.return []
+    | None -> Err.return []
     | Some report ->
         let* set =
           wrap
             (fun e -> `Verification e)
             (Me_verify.node_data ~limits ~graph:canonical_id t.graph report)
         in
-        Core.return [ set ]
+        Err.return [ set ]
   in
   (* One comparison, with NO explicit mapping entries: stable node ids plus the
      renderer's MATCH_NODE_ID fallback already pair every node a pass did not
@@ -594,18 +593,18 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
      that the per-pass detail is incomplete. *)
   let* verification =
     match t.composed with
-    | None -> Core.return C.Not_requested
+    | None -> Err.return C.Not_requested
     | Some report ->
         let* counts =
           wrap (fun e -> `Verification e) (Me_verify.summary report)
         in
-        Core.return (C.Available (C.Verification_summary counts))
+        Err.return (C.Available (C.Verification_summary counts))
   in
   let pass_audits =
     if verify_symbolic = None then C.Not_requested
     else C.Available (C.Pass_audit_status (Me_verify.audit_status t.audits))
   in
-  Core.return
+  Err.return
     {
       graphs =
         ([ source; initial; canonical ]
@@ -774,14 +773,14 @@ end
    ordinary outcome the capability matrix has a row for. *)
 let classify_lowering result =
   match result with
-  | Ok lowered -> Core.return (Ok lowered)
+  | Ok lowered -> Err.return (Ok lowered)
   | Error e -> (
       let detail =
-        Core.Pretty.to_string Native_interp.pp_error e.Core.Error.kind
+        Core.Pretty.to_string Native_interp.pp_error (Err.Error.kind e)
       in
-      match Me_classify.lowering e.Core.Error.kind with
-      | Me_classify.Unavailable reason -> Core.return (Error (reason, detail))
-      | Me_classify.Fatal -> Core.fail (`Lowering e.Core.Error.kind))
+      match Me_classify.lowering (Err.Error.kind e) with
+      | Me_classify.Unavailable reason -> Err.return (Error (reason, detail))
+      | Me_classify.Fatal -> Err.fail (`Lowering (Err.Error.kind e)))
 
 let load ~limits ~bytes =
   let* format = detect ~bytes in
@@ -794,20 +793,20 @@ let load ~limits ~bytes =
              ~name:"model.pt2" bytes)
       in
       let* lowering = classify_lowering (Native_interp.lower_archive archive) in
-      Core.return
+      Err.return
         ( Pt2_archive.program archive,
           lowering,
           Me_session.Model_summary.Pt2,
           Some archive )
   | Model_json ->
       let* program =
-        Core.of_option (`Decode "not a well-formed ExportedProgram")
+        Err.of_option (`Decode "not a well-formed ExportedProgram")
           (Result.to_option
              (Jsont_bytesrw.decode_string Pytorch_types.ExportedProgram.jsont
                 bytes))
       in
       let* lowering = classify_lowering (Native_interp.lower program) in
-      Core.return (program, lowering, Me_session.Model_summary.Json, None)
+      Err.return (program, lowering, Me_session.Model_summary.Json, None)
 
 (* --- the session --------------------------------------------------------- *)
 
@@ -815,8 +814,8 @@ let session ~limits ~(options : Options.t) ~bytes =
   let* () =
     let n = Int64.of_int (String.length bytes) in
     if Int64.compare n (max_bytes_for ~limits bytes) > 0 then
-      Core.fail (`Too_large n)
-    else Core.return ()
+      Err.fail (`Too_large n)
+    else Err.return ()
   in
   let* program, lowering, source_kind, archive = load ~limits ~bytes in
   let graph_module = program.Pytorch_types.ExportedProgram.graph_module in
@@ -842,7 +841,7 @@ let session ~limits ~(options : Options.t) ~bytes =
   let* shape =
     match lowering with
     | Error (reason, detail) ->
-        Core.return
+        Err.return
           (unlowered_shape ~stages:options.Options.stages ~source ~source_id
              ~source_view ~reason ~detail)
     | Ok lowered ->
@@ -898,7 +897,7 @@ let session ~limits ~(options : Options.t) ~bytes =
   let* () =
     wrap (fun e -> `Document e) (Me_session.Session.validate ~limits session)
   in
-  Core.return session
+  Err.return session
 
 (* --- one value's expression ---------------------------------------------- *)
 
@@ -914,24 +913,24 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
   let* () =
     let n = Int64.of_int (String.length bytes) in
     if Int64.compare n (max_bytes_for ~limits bytes) > 0 then
-      Core.fail (`Too_large n)
-    else Core.return ()
+      Err.fail (`Too_large n)
+    else Err.return ()
   in
   let* _, lowering, _, archive = load ~limits ~bytes in
   let* lowered =
     match lowering with
-    | Ok l -> Core.return l
+    | Ok l -> Err.return l
     | Error (reason, _) ->
         (* The one row that cannot become a capability here: a detail request
            about a model that does not lower is asking for something that was
            never offered, and the session it would have been offered by already
            said so. *)
         ignore reason;
-        Core.fail `Unsupported_detail_key
+        Err.fail `Unsupported_detail_key
   in
   let* constants =
     match (options.Options.fold, archive) with
-    | false, _ | _, None -> Core.return Graph_ir.Tensor_id.Map.empty
+    | false, _ | _, None -> Err.return Graph_ir.Tensor_id.Map.empty
     | true, Some archive ->
         wrap (fun e -> `Lowering e) (Native_interp.preload archive lowered)
   in
@@ -948,7 +947,7 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
       (Kernel_adapt.of_stage_program (Eval_symbolic.run t.graph))
   in
   let* value =
-    Core.of_option `Unsupported_detail_key
+    Err.of_option `Unsupported_detail_key
       (Kernel.value k key.Me_request.Detail_key.value)
   in
   let* graph =
@@ -959,7 +958,7 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
       (fun e -> `Identifier e)
       (Me_ids.collection ~limits options.Options.name)
   in
-  Core.return
+  Err.return
     {
       Me_detail.Delta.schema_version = 1;
       collection;
@@ -1022,19 +1021,19 @@ let handle ~emit request ~bytes =
   match Me_request.Request.key request with
   | Some key -> (
       match detail ~limits ~options ~key ~bytes with
-      | Error e -> failed e.Core.Error.kind
+      | Error e -> failed (Err.Error.kind e)
       | Ok d -> (
           match
             encode_bounded ~max_bytes:limits.Me_limits.Limits.max_detail_bytes
               Me_detail.Delta.jsont d
           with
-          | Error e -> failed e.Core.Error.kind
+          | Error e -> failed (Err.Error.kind e)
           | Ok json ->
               Me_response.Handle_result.Delta
                 { Me_response.Delta.id; key; json }))
   | None -> (
       match session ~limits ~options ~bytes with
-      | Error e -> failed e.Core.Error.kind
+      | Error e -> failed (Err.Error.kind e)
       | Ok s when declared_format_disagrees source s ->
           (* The request DECLARED a format; the bytes are content-validated
          regardless, and a disagreement is a fact about the source rather than
@@ -1046,7 +1045,7 @@ let handle ~emit request ~bytes =
             encode_bounded ~max_bytes:limits.Me_limits.Limits.max_session_bytes
               Me_session.Session.jsont s
           with
-          | Error e -> failed e.Core.Error.kind
+          | Error e -> failed (Err.Error.kind e)
           | Ok json ->
               Me_response.Handle_result.Session
                 {

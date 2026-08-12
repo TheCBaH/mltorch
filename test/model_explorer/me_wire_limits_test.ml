@@ -25,9 +25,9 @@ let pp_wire ppf r =
 let show_json t = Format.printf "%a@." pp_wire (encode t)
 
 let wire l =
-  Core.or_raise Me_limits.pp_error (W.of_limits ~ceiling:L.untrusted l)
+  Err.or_raise ~pp_error:Me_limits.pp_error (W.of_limits ~ceiling:L.untrusted l)
 
-let tighten f = wire (Core.or_raise Me_limits.pp_error (f L.untrusted))
+let tighten f = wire (Err.or_raise ~pp_error:Me_limits.pp_error (f L.untrusted))
 
 (* --- what crosses --- *)
 
@@ -47,7 +47,7 @@ let%expect_test "a nested archive field is flat and dotted" =
      member a rejection names and the member that carried it are the same
      string rather than two tables that agree today. *)
   let z =
-    Core.or_raise Pt2_zip.Limits.pp_error
+    Err.or_raise ~pp_error:Pt2_zip.Limits.pp_error
       (Pt2_zip.Limits.create ~max_entries:8 ~max_entry_bytes:0x1000L
          ~max_total_bytes:0x1_0000L ~max_path_bytes:64 ~max_path_depth:4)
   in

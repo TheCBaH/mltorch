@@ -4,9 +4,9 @@ let col c = Dim.to_int (Vec6.get c Axis.W)
 let s1c n = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:n
 
 let eval_tensor shape_result pixel =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* out_shape = shape_result in
-  Core.return (Schedule.evaluate out_shape pixel)
+  Err.return (Schedule.evaluate out_shape pixel)
 
 let pp_shape_tensor ppf (out_shape, tensor) =
   Format.fprintf ppf "shape: %a@.%a" Vec6.pp_shape out_shape Tensor.pp tensor
@@ -14,7 +14,7 @@ let pp_shape_tensor ppf (out_shape, tensor) =
 let pp_named_shape_tensor name ppf (out_shape, tensor) =
   Format.fprintf ppf "%s: %a@.%a" name Vec6.pp_shape out_shape Tensor.pp tensor
 
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:Shape_error.pp
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:Shape_error.pp
 
 let conv_axis ?(pad_before = 0) ?pad_after ?(dilation = 1) ~kernel ~stride () :
     Conv.Conv2d.axis_window =
@@ -250,7 +250,7 @@ let%expect_test "Direct: add of incompatible extents raises" =
   let a_shape = s1c 3 and b_shape = s1c 5 in
   (match Pointwise.Add.output_shape a_shape b_shape with
   | Ok _ -> print_string "no error"
-  | Error e -> Format.printf "error: %a@." Shape_error.pp e.Core.Error.kind);
+  | Error e -> Format.printf "error: %a@." Shape_error.pp (Err.Error.kind e));
   [%expect {| error: incompatible broadcast extents on axis C: 3 vs 5 |}]
 
 let%expect_test "Direct: conv2d 2x2 box filter (stride 1, no pad)" =
@@ -677,7 +677,7 @@ let%expect_test "windowed axis: output_extent and window agree" =
     let out_extent =
       Window_axis.output_extent ~kernel ~stride ~pad_before:pad ~pad_after:pad
         ~dilation:(Op_config.Pos.of_int 1) ~in_extent
-      |> Core.or_raise Shape_error.pp
+      |> Err.or_raise ~pp_error:Shape_error.pp
     in
     let non_empty out =
       let w =
@@ -734,7 +734,7 @@ let%expect_test
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:6 ~w:7 ~c:8 in
   let shape ~keepdim =
     Reduce.Mean.output_shape ~x_shape { Reduce.Mean.dims = [ Axis.W ]; keepdim }
-    |> Core.or_raise Shape_error.pp
+    |> Err.or_raise ~pp_error:Shape_error.pp
   in
   Format.printf "keepdim=true:  %a@." Vec6.pp_shape (shape ~keepdim:true);
   Format.printf "keepdim=false: %a@." Vec6.pp_shape (shape ~keepdim:false);
@@ -851,10 +851,10 @@ let%expect_test "Direct: permute identity — output equals input" =
   in
   let perm = List.map (fun a -> (a, a)) Axis.all in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* out_shape = Permute.Permute.output_shape ~x_shape perm in
     let tensor = Schedule.evaluate out_shape (P.pixel perm ~x) in
-    Core.return (out_shape, tensor)
+    Err.return (out_shape, tensor)
   in
   Format.printf "%a@." (pp_result pp_shape_tensor) result;
   [%expect
@@ -883,10 +883,10 @@ let%expect_test "Direct: permute 3D [H=2 W=3 C=4] — cycle H->W->C->H" =
     ]
   in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* out_shape = Permute.Permute.output_shape ~x_shape perm in
     let tensor = Schedule.evaluate out_shape (P.pixel perm ~x) in
-    Core.return (out_shape, tensor)
+    Err.return (out_shape, tensor)
   in
   Format.printf "%a@." (pp_result (pp_named_shape_tensor "out shape")) result;
   (* output[h,w,c] = input[c, h, w]  (inverse cycle: C->H->W->C)

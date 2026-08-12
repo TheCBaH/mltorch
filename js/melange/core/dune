@@ -2,14 +2,18 @@
 ; mirror.
 ;
 ; No hand-written entry module is needed here: lib/core's own core.ml IS the
-; module consumers name, so [wrapped false] already yields [Core] (and [Monad],
-; which core.ml re-exports as [Core.Monad]).
+; module consumers name, so [wrapped false] already yields [Core].
 ;
-; [Core.Error.make] calls [Printexc.get_callstack]. Melange's Printexc declares
-; it, and [backtrace_slots] returns [None] at runtime -- the same fallback
-; js_of_ocaml takes, and one [Core.Error.pp_backtrace] already handles. No shim
-; is required; the probe just must not print anything that differs between the
-; two branches.
+; The error framework it used to hold is now [Err], mirrored separately by
+; js/melange/vendor/err_trace; what remains here is [Core.Pretty].
+;
+; [Err.fail] captures a callstack through [Printexc.get_callstack]. Melange
+; declares it, but at runtime it yields a value its own [raw_backtrace_length]
+; cannot read -- the emitted code is [bt.length] and the value is [undefined].
+; [Err.Stack] therefore asks [Printexc.backtrace_slots], which Melange converts
+; defensively and answers [None] for, the same fallback js_of_ocaml takes. No
+; shim is required; the probe just must not print anything that differs between
+; the two branches.
 
 (copy_files
  (files %{workspace_root}/lib/core/*.{ml,mli}))

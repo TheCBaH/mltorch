@@ -24,13 +24,13 @@ let pp_error fmt : [< error ] -> unit = function
   | #Shape4.error as e -> Shape4.pp_error fmt e
   | `Missing_tensor_sig id -> Fmt.pf fmt "missing tensor sig %a" Tensor_id.pp id
 
-let widen (r : ('a, [< error ]) Core.result) : ('a, error) Core.result =
-  (r :> ('a, error) Core.result)
+let widen (r : ('a, [< error ]) Err.t) : ('a, error) Err.t =
+  (r :> ('a, error) Err.t)
 
 (* Native's window/broadcast rules answer in the six-axis frame; this is the one
    place the answer re-enters the dialect. *)
-let four (r : (Vec6.shape, [< error ]) Core.result) =
-  let open Core.Syntax in
+let four (r : (Vec6.shape, [< error ]) Err.t) =
+  let open Err.Syntax in
   let* s = widen r in
   widen (Shape4.of_vec6 s)
 
@@ -78,9 +78,9 @@ let rms_params (p : Ops4.Rms_norm.params) : Norm.RmsNorm.params =
 
 (* Exhaustive with no default arm, as [Graph_shape] is. *)
 let output_shape (op : Op.t)
-    ~(sig_of : Tensor_ref.t -> (Tensor_sig.t, error) Core.result) :
-    (Shape4.t list, error) Core.result =
-  let open Core.Syntax in
+    ~(sig_of : Tensor_ref.t -> (Tensor_sig.t, error) Err.t) :
+    (Shape4.t list, error) Err.t =
+  let open Err.Syntax in
   let shape r = sig_of r >>| fun sg -> sg.Tensor_sig.shape in
   let one r = r >>| fun s -> [ s ] in
   match op with
@@ -159,4 +159,4 @@ let output_shape (op : Op.t)
   | Reshape4 { Ops4.Reshape4.params; _ } ->
       (* Already a [Shape4.t]: a reshape cannot leave the dialect, which is the
          whole reason the target is typed rather than validated. *)
-      Core.return [ params.Ops4.Reshape4.shape ]
+      Err.return [ params.Ops4.Reshape4.shape ]

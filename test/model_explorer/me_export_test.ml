@@ -13,13 +13,14 @@ module L = Me_limits.Limits
 let limits = L.untrusted
 
 let wire =
-  Core.or_raise Me_limits.pp_error
+  Err.or_raise ~pp_error:Me_limits.pp_error
     (Me_limits.Wire_limits.of_limits ~ceiling:L.untrusted L.untrusted)
 
 let uuid = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 let id =
-  Core.or_raise MR.Request.pp_error (MR.Request_id.of_string (uuid ^ "-1"))
+  Err.or_raise ~pp_error:MR.Request.pp_error
+    (MR.Request_id.of_string (uuid ^ "-1"))
 
 (* A whole ExportedProgram, small enough to read. [target] is the one knob:
    an operator the lowerer knows and one it does not are the two rows §5.4 calls
@@ -50,7 +51,7 @@ let%expect_test "content decides, not a declared extension" =
   List.iter
     (fun (label, bytes) ->
       Format.printf "%-14s %a@." label
-        (Core.Pretty.core_result
+        (Core.Pretty.err_result
            ~ok:(fun ppf -> function
              | Me_export.Model_json -> Fmt.string ppf "model.json"
              | Me_export.Pt2_archive -> Fmt.string ppf "pt2")
@@ -72,13 +73,13 @@ let%expect_test "content decides, not a declared extension" =
 (* --- the worker entry point --- *)
 
 let source ?(format = `Model_json) ?(name = "tiny") bytes =
-  Core.or_raise MR.Request.pp_error
+  Err.or_raise ~pp_error:MR.Request.pp_error
     (MR.Source.create ~limits ~origin:MR.Source.Origin.Local ~name
        ~bytes:(Int64.of_int (String.length bytes))
        ~format)
 
 let options =
-  Core.or_raise MR.Request.pp_error
+  Err.or_raise ~pp_error:MR.Request.pp_error
     (MR.Options.create
        ~stages:[ Me_session.Capability.Canonical ]
        ~fold:false ~verify_symbolic:None ~namespace:MR.Options.Structural)
@@ -89,7 +90,7 @@ let run ?format ?(wire = wire) ?(options = options) ?(bytes = model ()) () =
     seen := Rsp.Phase.to_string p.Rsp.Progress.phase :: !seen
   in
   let request =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Request.build_session ~id ~source:(source ?format bytes) ~options
          ~limits:wire)
   in
@@ -106,7 +107,7 @@ let run ?format ?(wire = wire) ?(options = options) ?(bytes = model ()) () =
 let show (result, phases) =
   Printf.printf "phases: %s\n" (String.concat " " phases);
   match Rsp.Wire.of_final (Rsp.Final.of_handle_result result) with
-  | Error e -> Format.printf "%a@." Rsp.Wire.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "%a@." Rsp.Wire.pp_error (Err.Error.kind e)
   | Ok w ->
       Format.printf "%a@."
         (Core.Pretty.result
@@ -208,7 +209,7 @@ let%expect_test
      ignored -- the request-options test below is the one that would catch
      that directly. *)
   let kernel_options =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Options.create
          ~stages:[ Me_session.Capability.Kernel ]
          ~fold:false ~verify_symbolic:None ~namespace:MR.Options.Structural)
@@ -259,13 +260,13 @@ let%expect_test "a detail request answers with a delta, not a session" =
      kernel and nothing else. *)
   let bytes = model () in
   let key =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Detail_key.create ~limits
          ~parent_graph:(Me_ids.graph Me_ids.Layer.Kernel 0)
          ~value:(Graph_ir.Tensor_id.of_int 1))
   in
   let request =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Request.build_detail ~id ~source:(source bytes) ~options ~limits:wire
          ~key)
   in
@@ -282,13 +283,13 @@ let%expect_test "a detail request for a value the model does not produce" =
      malformed key and carries its own code. *)
   let bytes = model () in
   let key =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Detail_key.create ~limits
          ~parent_graph:(Me_ids.graph Me_ids.Layer.Kernel 0)
          ~value:(Graph_ir.Tensor_id.of_int 9999))
   in
   let request =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Request.build_detail ~id ~source:(source bytes) ~options ~limits:wire
          ~key)
   in
@@ -307,21 +308,21 @@ let%expect_test "an encoded delta over max_detail_bytes is refused" =
      model and value produce elsewhere in this suite. *)
   let bytes = model () in
   let key =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Detail_key.create ~limits
          ~parent_graph:(Me_ids.graph Me_ids.Layer.Kernel 0)
          ~value:(Graph_ir.Tensor_id.of_int 1))
   in
   let tiny_detail =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (L.create ~max_detail_bytes:256 L.untrusted)
   in
   let tiny_wire =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Wire_limits.of_limits ~ceiling:L.untrusted tiny_detail)
   in
   let request =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Request.build_detail ~id ~source:(source bytes) ~options
          ~limits:tiny_wire ~key)
   in
@@ -356,10 +357,11 @@ let%expect_test "the JSON ceiling applies to a JSON model, not the pt2 one" =
      check fell back to comparing every format against [max_pt2_bytes] --
      which it did before this test existed -- this model would be accepted. *)
   let tiny_json =
-    Core.or_raise Me_limits.pp_error (L.create ~max_json_bytes:64L L.untrusted)
+    Err.or_raise ~pp_error:Me_limits.pp_error
+      (L.create ~max_json_bytes:64L L.untrusted)
   in
   let tiny_wire =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Wire_limits.of_limits ~ceiling:L.untrusted tiny_json)
   in
   show (run ~wire:tiny_wire ());
@@ -377,11 +379,11 @@ let%expect_test
      proving the writer bound is what caught it, not one of the input checks
      above it. *)
   let tiny_session =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (L.create ~max_session_bytes:256 L.untrusted)
   in
   let tiny_wire =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Wire_limits.of_limits ~ceiling:L.untrusted tiny_session)
   in
   show (run ~wire:tiny_wire ());

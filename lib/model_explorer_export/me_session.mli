@@ -234,8 +234,7 @@ module Session : sig
 
   val pp_error : Format.formatter -> [< error ] -> unit
 
-  val validate :
-    limits:Me_limits.Limits.t -> t -> (unit, [> error ]) Core.result
+  val validate : limits:Me_limits.Limits.t -> t -> (unit, [> error ]) Err.t
   (** Unique graph ids, unique node ids within each graph; every [View.graph],
       [Pane_state.graph], node-data graph and node key, and [subGraphIds] entry
       resolves, and a [View]/[Pane_state] naming a graph in the WRONG collection

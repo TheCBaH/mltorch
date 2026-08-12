@@ -7,12 +7,12 @@
 (library
  (name pt2_spec_gen)
  (libraries
+  err_trace
   pt2
   pytorch_types
   schema_runtime
   aten_config
   aten_spec
   aten_op_spec
-  core
   jsont
   jsont.bytesrw))

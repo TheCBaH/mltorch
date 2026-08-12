@@ -7,7 +7,7 @@
 let output_extent ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
     ~(pad_before : Op_config.Nonneg.t) ~(pad_after : Op_config.Nonneg.t)
     ~(dilation : Op_config.Pos.t) ~(in_extent : Dim.extent Dim.t) :
-    (Dim.extent Dim.t, Shape_error.t) Core.result =
+    (Dim.extent Dim.t, Shape_error.t) Err.t =
   let effective_kernel = (((kernel :> int) - 1) * (dilation :> int)) + 1 in
   let out =
     ((in_extent :> int)
@@ -18,11 +18,11 @@ let output_extent ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
     + 1
   in
   if out < 1 then
-    Core.fail
+    Err.fail
       (`Window
          Shape_error.Window.
            { out; in_extent; kernel; stride; pad_before; pad_after; dilation })
-  else Core.return (Dim.extent out)
+  else Err.return (Dim.extent out)
 
 module Compute (S : sig
   type 'role index

@@ -13,10 +13,8 @@ let tid = Tensor_id.of_int
 let sg ?(fmt = f32) ?quant id shape =
   Tensor_sig.create ~id:(tid id) ~name:"" ~shape ~fmt ?quant ()
 
-let pp_kernel = Core.Pretty.core_result ~ok:Kernel.pp ~error:Kernel.pp_error
-
-let pp_adapt =
-  Core.Pretty.core_result ~ok:Kernel.pp ~error:Kernel_adapt.pp_error
+let pp_kernel = Core.Pretty.err_result ~ok:Kernel.pp ~error:Kernel.pp_error
+let pp_adapt = Core.Pretty.err_result ~ok:Kernel.pp ~error:Kernel_adapt.pp_error
 
 let pp_ids ppf ids =
   Fmt.string ppf
@@ -110,7 +108,7 @@ let%expect_test "Kernel: a source resolving to a later value is forward" =
    would then request a source construction never validated. *)
 let pool_body src =
   Expr.Value.intrinsic
-    (Core.or_raise Expr.Intrinsic.pp_error
+    (Err.or_raise ~pp_error:Expr.Intrinsic.pp_error
        (Expr.Intrinsic.max_pool
           ~source:(Expr_bridge.source_of_id (tid src))
           ~in_h:4 ~in_w:4 ~kernel_h:2 ~kernel_w:2 ~stride_h:2 ~stride_w:2
@@ -212,7 +210,7 @@ let%expect_test "Kernel: a stored value must be f32 and unquantized" =
 
 let%expect_test "Kernel: quantization must match the format and the C extent" =
   let q n =
-    Core.or_raise Quant.pp_error
+    Err.or_raise ~pp_error:Quant.pp_error
       (Quant.per_channel ~scale:(Array.make n 0.5) ~zero_point:(Array.make n 0))
   in
   let i8 = Payload.Fmt Payload.I8 in
@@ -241,7 +239,7 @@ let%expect_test "Kernel: quantization must match the format and the C extent" =
 (* ---- resource limits ------------------------------------------------------- *)
 
 let small ~max_values ~max_inputs ~max_outputs =
-  Core.or_raise Kernel.Limits.pp_error
+  Err.or_raise ~pp_error:Kernel.Limits.pp_error
     (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values
        ~max_dep_depth:1024 ~max_inputs ~max_outputs ~max_extent:0x7FFF_FFFFL
        ~max_numel:0x7FFF_FFFFL)
@@ -249,7 +247,7 @@ let small ~max_values ~max_inputs ~max_outputs =
 let%expect_test "Kernel.Limits: custom limits may tighten, never widen" =
   let case name r =
     Format.printf "%s: %a@." name
-      (Core.Pretty.core_result
+      (Core.Pretty.err_result
          ~ok:(fun ppf _ -> Fmt.string ppf "ok")
          ~error:Kernel.Limits.pp_error)
       r
@@ -333,7 +331,7 @@ let%expect_test "Kernel: the numel guard runs before the product is formed" =
      bound is consulted. That boundary is unconstructible on that backend by
      definition — which is the whole reason the runtime domain stops below it. *)
   let tight =
-    Core.or_raise Kernel.Limits.pp_error
+    Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16 ~max_extent:1000L
          ~max_numel:0x7FFF_FFFFL)
@@ -413,7 +411,8 @@ let%expect_test "Kernel_adapt: multi_output promotes its discarded terminal" =
   let p = Eval_symbolic.run (Graph_fixtures.multi_output ()) in
   Format.printf "@[<v>program outputs: %a@,required:        %a@,%a@]@." pp_ids
     p.Stage_program.outputs pp_ids
-    (Core.or_raise Kernel_adapt.pp_error (Kernel_adapt.required_outputs p))
+    (Err.or_raise ~pp_error:Kernel_adapt.pp_error
+       (Kernel_adapt.required_outputs p))
     pp_adapt (adapt p);
   [%expect
     {|
@@ -431,7 +430,7 @@ let%expect_test "Kernel_adapt: a pass-through graph output is rejected" =
      rather than filtered — silently returning a kernel that computes fewer
      outputs than its source program is the failure nothing downstream catches. *)
   let g =
-    Core.or_raise Graph_builder.pp_error
+    Err.or_raise ~pp_error:Graph_builder.pp_error
       (Graph_builder.build ~name:"passthrough"
          ~outputs:(fun o -> [ o ])
          (Graph_builder.input ~shape:(s1c 4) ()))
@@ -442,7 +441,7 @@ let%expect_test "Kernel_adapt: a pass-through graph output is rejected" =
 (* Two independent branches over separate inputs, so a selection can be shown
    not to inherit the other branch's boundary. *)
 let branches () =
-  Core.or_raise Graph_builder.pp_error
+  Err.or_raise ~pp_error:Graph_builder.pp_error
     Graph_builder.(
       build ~name:"branches" ~outputs:(fun (l, r) -> [ l; r ])
       @@
@@ -487,7 +486,7 @@ let%expect_test "Kernel_adapt: a selection naming no stage is rejected" =
    intrinsic descriptor. Both selection boundaries below are invisible to a
    loads-only rule. *)
 let pool_chain () =
-  Core.or_raise Graph_builder.pp_error
+  Err.or_raise ~pp_error:Graph_builder.pp_error
     Graph_builder.(
       build ~name:"pool_chain" ~outputs:(fun r -> [ r ])
       @@
@@ -531,7 +530,7 @@ let%expect_test
   let sel = Tensor_id.Set.singleton producer in
   Format.printf "@[<v>producer selected, required: %a@,with no outputs: %a@]@."
     pp_ids
-    (Core.or_raise Kernel_adapt.pp_error
+    (Err.or_raise ~pp_error:Kernel_adapt.pp_error
        (Kernel_adapt.required_outputs ~select:sel p))
     pp_adapt
     (adapt ~select:sel ~outputs:[] p);
@@ -551,11 +550,12 @@ let%expect_test "Kernel_adapt: caller outputs must begin with the required list"
     =
   let p = Eval_symbolic.run (branches ()) in
   let req =
-    Core.or_raise Kernel_adapt.pp_error (Kernel_adapt.required_outputs p)
+    Err.or_raise ~pp_error:Kernel_adapt.pp_error
+      (Kernel_adapt.required_outputs p)
   in
   let show name outputs =
     Format.printf "%s: %a@." name
-      (Core.Pretty.core_result
+      (Core.Pretty.err_result
          ~ok:(fun ppf (k : Kernel.t) ->
            pp_ids ppf
              (List.map
@@ -633,7 +633,7 @@ let%expect_test "Kernel_adapt: an oversized body is caught in both entries" =
   let other = List.nth (stage_ids p) 1 in
   Format.printf "of_stage_program: %a@." pp_adapt (adapt broken);
   Format.printf "required_outputs: %a@."
-    (Core.Pretty.core_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
+    (Core.Pretty.err_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
     (Kernel_adapt.required_outputs broken);
   Format.printf "unselected body: %a@." pp_adapt
     (adapt ~select:(Tensor_id.Set.singleton other) broken);
@@ -666,7 +666,7 @@ let stage id shape body =
 let%expect_test "Kernel_adapt: the boundary table rejects collisions" =
   let case name p =
     Format.printf "%s: %a@." name
-      (Core.Pretty.core_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
+      (Core.Pretty.err_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
       (Kernel_adapt.required_outputs p)
   in
   let body = load 0 in
@@ -727,7 +727,7 @@ let%expect_test "Kernel_adapt: a declared output must name something" =
   in
   Format.printf "unknown output: %a@." pp_adapt (adapt p);
   Format.printf "required_outputs: %a@."
-    (Core.Pretty.core_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
+    (Core.Pretty.err_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
     (Kernel_adapt.required_outputs p);
   [%expect
     {|
@@ -741,7 +741,7 @@ let%expect_test "Kernel_adapt: raw lists are bounded before they are traversed"
      [Kernel.create] noticed — and [required_outputs] never reaches [create] at
      all, so the same limits meant different things per entry point. *)
   let limits =
-    Core.or_raise Kernel.Limits.pp_error
+    Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:2 ~max_outputs:1 ~max_extent:0x7FFF_FFFFL
          ~max_numel:0x7FFF_FFFFL)
@@ -762,7 +762,7 @@ let%expect_test "Kernel_adapt: raw lists are bounded before they are traversed"
   in
   let show name r =
     Format.printf "%s: %a@." name
-      (Core.Pretty.core_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
+      (Core.Pretty.err_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
       r
   in
   show "raw inputs, required_outputs"
@@ -785,7 +785,7 @@ let%expect_test "Kernel_adapt: the derived interface is bounded too" =
      must apply the derived output bound itself, since it never reaches
      [Kernel.create]. *)
   let limits ~max_inputs ~max_outputs =
-    Core.or_raise Kernel.Limits.pp_error
+    Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs ~max_outputs ~max_extent:0x7FFF_FFFFL
          ~max_numel:0x7FFF_FFFFL)
@@ -828,7 +828,7 @@ let%expect_test "Kernel_adapt: the derived interface is bounded too" =
       ()
   in
   Format.printf "raw outputs = 1, derived = 3, limit 2 (required_outputs): %a@."
-    (Core.Pretty.core_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
+    (Core.Pretty.err_result ~ok:pp_ids ~error:Kernel_adapt.pp_error)
     (Kernel_adapt.required_outputs
        ~limits:(limits ~max_inputs:8 ~max_outputs:2)
        dead);

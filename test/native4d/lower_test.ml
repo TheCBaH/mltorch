@@ -14,10 +14,10 @@ let build = Fixtures.build
 let described ?constants g ~render =
   match Snapshot.create g with
   | Error e ->
-      Format.asprintf "snapshot: %a" Graph_view.pp_error e.Core.Error.kind
+      Format.asprintf "snapshot: %a" Graph_view.pp_error (Err.Error.kind e)
   | Ok (Snapshot.Pack src) -> (
       match Lower.convert ?constants src with
-      | Error e -> Format.asprintf "%a" Error.pp e.Core.Error.kind
+      | Error e -> Format.asprintf "%a" Error.pp (Err.Error.kind e)
       | Ok (Lower.Pack r) -> render (Lower.graph r))
 
 (* Prints the destination graph, so a legalization producing the wrong op — or
@@ -189,10 +189,10 @@ let bn_constants g =
 let described_map ?constants g =
   match Snapshot.create g with
   | Error e ->
-      Format.asprintf "snapshot: %a" Graph_view.pp_error e.Core.Error.kind
+      Format.asprintf "snapshot: %a" Graph_view.pp_error (Err.Error.kind e)
   | Ok (Snapshot.Pack src) -> (
       match Lower.convert ?constants src with
-      | Error e -> Format.asprintf "%a" Error.pp e.Core.Error.kind
+      | Error e -> Format.asprintf "%a" Error.pp (Err.Error.kind e)
       | Ok (Lower.Pack r) -> Format.asprintf "%a" Graph_map.pp r.Lower.map)
 
 let%expect_test "lower: standalone batch norm becomes a depthwise 1x1" =

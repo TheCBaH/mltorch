@@ -12,4 +12,4 @@
   aten_spec_gen
   aten_walk_gen
   walk_meta)
- (libraries aten_schema))
+ (libraries err_trace aten_schema))

@@ -4,4 +4,4 @@
 
 (library
  (name native_op_walk)
- (libraries native walk_core core))
+ (libraries err_trace native walk_core))

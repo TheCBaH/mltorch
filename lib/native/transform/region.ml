@@ -68,19 +68,19 @@ module Make (D : Dialect.S) = struct
     walk Node_id.Set.empty external_consumers
 
   let of_nodes view nodes =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* () =
-      if Node_id.Set.is_empty nodes then Core.fail `Empty_region
-      else Core.return ()
+      if Node_id.Set.is_empty nodes then Err.fail `Empty_region
+      else Err.return ()
     in
     let* () =
       Node_id.Set.fold
         (fun id acc ->
           let* () = acc in
           match View.node view id with
-          | Some _ -> Core.return ()
-          | None -> Core.fail (`Unknown_node id))
-        nodes (Core.return ())
+          | Some _ -> Err.return ()
+          | None -> Err.fail (`Unknown_node id))
+        nodes (Err.return ())
     in
     let claimed id = Node_id.Set.mem id nodes in
     let members = ordered view nodes in
@@ -102,7 +102,7 @@ module Make (D : Dialect.S) = struct
     let defined = List.concat_map (fun (n : node) -> n.Node.outputs) members in
     let outputs = List.filter escapes defined |> dedup in
     let interior = List.filter (fun id -> not (escapes id)) defined |> dedup in
-    Core.return
+    Err.return
       {
         nodes;
         inputs;

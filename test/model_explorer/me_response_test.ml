@@ -16,16 +16,17 @@ let limits = L.untrusted
    file's goldens stay about the RESPONSE. That the profile crosses at all, and
    what it looks like, belongs to the wire-limits suite. *)
 let wire =
-  Core.or_raise Me_limits.pp_error
+  Err.or_raise ~pp_error:Me_limits.pp_error
     (Me_limits.Wire_limits.of_limits ~ceiling:L.untrusted L.untrusted)
 
 let uuid = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 let id =
-  Core.or_raise MR.Request.pp_error (MR.Request_id.of_string (uuid ^ "-3"))
+  Err.or_raise ~pp_error:MR.Request.pp_error
+    (MR.Request_id.of_string (uuid ^ "-3"))
 
 let key =
-  Core.or_raise MR.Request.pp_error
+  Err.or_raise ~pp_error:MR.Request.pp_error
     (MR.Detail_key.create ~limits ~parent_graph:"g/native/001"
        ~value:(Graph_ir.Tensor_id.of_int 4))
 
@@ -46,7 +47,7 @@ let progress =
   { Rsp.Progress.id; phase = Rsp.Phase.Project; done_ = 7L; total = Some 9L }
 
 let pp_wire ppf r =
-  Core.Pretty.core_result
+  Core.Pretty.err_result
     ~ok:(fun ppf (w : Rsp.Wire.t) ->
       Fmt.pf ppf "%s@\npayload=%a" w.Rsp.Wire.meta
         (Core.Pretty.option_or ~none:"none" (fun ppf s ->
@@ -68,7 +69,7 @@ let%expect_test "a session carries its document and a count derived from it" =
     payload=19 bytes |}]
 
 let pp_shape ppf r =
-  Core.Pretty.core_result
+  Core.Pretty.err_result
     ~ok:(fun ppf (w : Rsp.Wire.t) ->
       Fmt.pf ppf "payload=%a"
         (Core.Pretty.option_or ~none:"none" (fun ppf s ->
@@ -112,7 +113,7 @@ let%expect_test "every kind survives the seam" =
       Format.printf "%-17s %a@." label
         (Core.Pretty.result ~ok:Fmt.bool ~error:(fun ppf e ->
              Fmt.pf ppf "REJECTED %s" e))
-        (round_trip (Core.or_raise Rsp.Wire.pp_error w)))
+        (round_trip (Err.or_raise ~pp_error:Rsp.Wire.pp_error w)))
     [
       ("progress", Rsp.Wire.of_progress progress);
       ("session", Rsp.Wire.of_final (session "{}"));
@@ -165,7 +166,7 @@ let%expect_test "the ceiling is a branch, and something can reach it" =
      the ceiling is injectable, since a bound nobody can drive is a bound taken
      on trust. *)
   Format.printf "%a@."
-    (Core.Pretty.core_result ~ok:(Fmt.any "encoded") ~error:Rsp.Wire.pp_error)
+    (Core.Pretty.err_result ~ok:(Fmt.any "encoded") ~error:Rsp.Wire.pp_error)
     (Rsp.Wire.of_final_bounded ~max_meta_bytes:16 (session "{}"));
   [%expect {| response metadata is over the ceiling |}]
 

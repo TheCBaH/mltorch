@@ -86,7 +86,7 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
-val validate : limits:Me_limits.Limits.t -> t -> (unit, [> error ]) Core.result
+val validate : limits:Me_limits.Limits.t -> t -> (unit, [> error ]) Err.t
 (** The rooted-DAG contract, in full: unique state and transition ids; exactly
     one [Pt2] root; every endpoint resolves; every state reachable from the
     root; acyclicity; at most one producer per state, agreeing with

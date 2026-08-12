@@ -34,11 +34,12 @@ open Native4d
 
 let nat name m =
   Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
-  |> Core.or_raise (fun ppf e ->
+  |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "%s: %a" name Graph_builder.pp_error e)
 
 let four m =
-  Builder.build ~outputs:(fun o -> [ o ]) m |> Core.or_raise Builder.pp_error
+  Builder.build ~outputs:(fun o -> [ o ]) m
+  |> Err.or_raise ~pp_error:Builder.pp_error
 
 (* Verify one hand-built pair against a map with no node clusters and only the
    [claims] the caller names explicitly — so every other id present in both
@@ -51,10 +52,11 @@ let mutated ?(constants = Tensor_id.Map.empty) ?dst_constants ?(claims = [])
   ignore dst_constants;
   match (Snapshot.create src_g, Framework.Snapshot4.create dst_g) with
   | Error e, _ ->
-      Format.printf "%-26s src: %a@." name Graph_view.pp_error e.Core.Error.kind
+      Format.printf "%-26s src: %a@." name Graph_view.pp_error
+        (Err.Error.kind e)
   | _, Error e ->
       Format.printf "%-26s dst: %a@." name Framework.View4.pp_error
-        e.Core.Error.kind
+        (Err.Error.kind e)
   | Ok (Snapshot.Pack src), Ok (Framework.Snapshot4.Pack dst) -> (
       match
         (* Raw ids in, clusters built HERE: the snapshots are existential, so a
@@ -72,7 +74,7 @@ let mutated ?(constants = Tensor_id.Map.empty) ?dst_constants ?(claims = [])
       with
       | Error e ->
           Format.printf "%-26s map: %a@." name Graph_map.pp_error
-            e.Core.Error.kind
+            (Err.Error.kind e)
       | Ok map -> (
           match
             Framework.Verify_from_native.run
@@ -82,7 +84,7 @@ let mutated ?(constants = Tensor_id.Map.empty) ?dst_constants ?(claims = [])
           with
           | Error e ->
               Format.printf "%-26s verify: %a@." name Map_verify.pp_error
-                e.Core.Error.kind
+                (Err.Error.kind e)
           | Ok report ->
               Format.printf "%-26s %s@." name (Map_verify.Report.summary report)
           ))
@@ -310,7 +312,7 @@ let%expect_test "mutation: what tier the honest batch-norm conversion reaches" =
   | Error _ -> Format.printf "snapshot failed@."
   | Ok (Snapshot.Pack src) -> (
       match Lower.convert ~constants src with
-      | Error e -> Format.printf "%a@." Error.pp e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Error.pp (Err.Error.kind e)
       | Ok (Lower.Pack r) -> (
           match
             Framework.Verify_from_native.run
@@ -320,7 +322,7 @@ let%expect_test "mutation: what tier the honest batch-norm conversion reaches" =
               r.Lower.map ~src ~dst:r.Lower.dst
           with
           | Error e ->
-              Format.printf "%a@." Map_verify.pp_error e.Core.Error.kind
+              Format.printf "%a@." Map_verify.pp_error (Err.Error.kind e)
           | Ok report ->
               Format.printf "%a@." Map_verify.Report.pp_verdicts report)));
   [%expect
@@ -524,7 +526,7 @@ let%expect_test "mutation: the bmm weight permutation transposed" =
         with
         | Error e ->
             Format.printf "%-22s map: %a@." name Graph_map.pp_error
-              e.Core.Error.kind
+              (Err.Error.kind e)
         | Ok map -> (
             match
               Framework.Verify_from_native.run
@@ -534,7 +536,7 @@ let%expect_test "mutation: the bmm weight permutation transposed" =
             with
             | Error e ->
                 Format.printf "%-22s verify: %a@." name Map_verify.pp_error
-                  e.Core.Error.kind
+                  (Err.Error.kind e)
             | Ok report ->
                 Format.printf "%-22s %s@." name
                   (Map_verify.Report.summary report)))

@@ -72,12 +72,12 @@ let producers (g : Graph_ir.graph) =
   fun t -> Hashtbl.find_opt table (Graph_ir.Tensor_id.to_int t)
 
 let by_namespace ~limits (g : Graph_ir.graph) (report : Map_verify.Report.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* namespace_of = Me_build.namespace_of ~limits g.Graph_ir.Graph.root in
   let producer = producers g in
   let table = Hashtbl.create 32 in
   let* () =
-    Core.List.iter
+    Err.List.iter
       (fun (e : Map_verify.Entry.t) ->
         let ns = placement ~namespace_of ~producer e in
         let current =
@@ -94,8 +94,8 @@ let by_namespace ~limits (g : Graph_ir.graph) (report : Map_verify.Report.t) =
   let count = Hashtbl.length table in
   let+ () =
     if count > limits.Me_limits.Limits.max_groups_per_graph then
-      Core.fail (`Over_limit ("groupNodeAttributes", count))
-    else Core.return ()
+      Err.fail (`Over_limit ("groupNodeAttributes", count))
+    else Err.return ()
   in
   (* Sorted, and the counts within an entry already canonically ordered by
      [bindings]: two runs over the same report have to agree byte for byte. *)
@@ -113,7 +113,7 @@ let by_namespace ~limits (g : Graph_ir.graph) (report : Map_verify.Report.t) =
 
 let node_data ~limits ~graph (g : Graph_ir.graph) (report : Map_verify.Report.t)
     =
-  let open Core.Syntax in
+  let open Err.Syntax in
   (* Destination edge -> the claim the whole pipeline makes about it. *)
   let by_edge = Hashtbl.create 256 in
   List.iter
@@ -153,7 +153,7 @@ let node_data ~limits ~graph (g : Graph_ir.graph) (report : Map_verify.Report.t)
   let n = List.length results in
   let+ () =
     if n > limits.Me_limits.Limits.max_node_data_results_per_graph then
-      Core.fail (`Over_limit ("nodeDataResults", n))
-    else Core.return ()
+      Err.fail (`Over_limit ("nodeDataResults", n))
+    else Err.return ()
   in
   { MS.Node_data_set.name = "verification"; graph; results }

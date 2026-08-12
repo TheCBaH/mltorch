@@ -66,9 +66,9 @@ let run_conv () =
      -- which a broken builder or evaluator would -- prints identical text, diffs
      clean, and passes. Only a non-zero exit is noticed. Same rule as
      [[testing_strategy]]'s "fixture failures abort; they do not become
-     absence"; [Core.or_raise] for a [Core.result], [failwith] for the plain
+     absence"; [Err.or_raise ~pp_error:] for a [Err.t], [failwith] for the plain
      [result] Jsont hands back. *)
-  let graph = Core.or_raise Graph_builder.pp_error built in
+  let graph = Err.or_raise ~pp_error:Graph_builder.pp_error built in
   (* Deterministic ramps rather than PCG draws: this section is about the
      evaluator, and a fixed pattern keeps it readable in the golden.
 
@@ -99,7 +99,7 @@ let run_conv () =
     Eval_direct.run graph
       ~constants:[ (w_id, ramp w_shape ~period:13 ~centre:6 ~denom:32.0) ]
       ~inputs:[ (x_id, ramp x_shape ~period:23 ~centre:11 ~denom:8.0) ]
-    |> Core.or_raise Eval_direct.pp_error
+    |> Err.or_raise ~pp_error:Eval_direct.pp_error
   in
   List.iter
     (fun oid ->

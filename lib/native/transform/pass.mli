@@ -56,9 +56,9 @@ module Outcome_counts : sig
   (** Canonically ordered: base verdict in [Verdict.labels] order, then sample
       count numerically. Deterministic on both backends. *)
 
-  val add : t -> Map_verify.Outcome.t -> (t, [> count_error ]) Core.result
-  val of_report : Map_verify.Report.t -> (t, [> count_error ]) Core.result
-  val merge : t -> t -> (t, [> count_error ]) Core.result
+  val add : t -> Map_verify.Outcome.t -> (t, [> count_error ]) Err.t
+  val of_report : Map_verify.Report.t -> (t, [> count_error ]) Err.t
+  val merge : t -> t -> (t, [> count_error ]) Err.t
 
   module Invalid : sig
     type kind =
@@ -72,7 +72,7 @@ module Outcome_counts : sig
 
   type invalid = [ `Invalid_counts of Invalid.t ]
 
-  val of_bindings : (string * int64) list -> (t, [> invalid ]) Core.result
+  val of_bindings : (string * int64) list -> (t, [> invalid ]) Err.t
   (** THE way back in, and why [t] can be abstract while crossing a wire.
       Replaying [add] is not an inverse: the wire carries labels and counts, not
       [Map_verify.Outcome.t] values, and a separate compilation unit seeing only
@@ -114,7 +114,7 @@ module Exec_id : sig
 
   val pp : Format.formatter -> t -> unit
 
-  val next_ordinal : int64 -> (int64, [> count_error ]) Core.result
+  val next_ordinal : int64 -> (int64, [> count_error ]) Err.t
   (** The ONLY way an ordinal advances: checks the boundary BEFORE adding, so no
       caller is left with [Int64.add index 1L] and a look at the result. *)
 end
@@ -134,7 +134,7 @@ module Audit_summary : sig
 
   val empty : t
 
-  val add : t -> Map_verify.Report.t -> (t, [> count_error ]) Core.result
+  val add : t -> Map_verify.Report.t -> (t, [> count_error ]) Err.t
   (** RESULT-VALUED: the aggregate is [int64] and every increment is checked
       BEFORE the addition, so an overflow is reported rather than inspected
       after the fact. [omitted_reports] and each outcome bucket are checked
@@ -154,12 +154,11 @@ module Audit_log : sig
   val omitted : t -> int64
   (** [0L] when nothing overflowed. *)
 
-  val push :
-    max_reports:int -> t -> Audit.t -> (t, [> count_error ]) Core.result
+  val push : max_reports:int -> t -> Audit.t -> (t, [> count_error ]) Err.t
   (** Enforced BEFORE retention: a limit applied while PROJECTING an
       already-built log arrives after the memory is gone. *)
 
-  val concat : max_reports:int -> t -> t -> (t, [> count_error ]) Core.result
+  val concat : max_reports:int -> t -> t -> (t, [> count_error ]) Err.t
 end
 
 module Make (S : Side.S) : sig
@@ -270,7 +269,7 @@ module Make (S : Side.S) : sig
 
   type t = {
     name : string;
-    run : 'v. ctx -> 'v Rewrite.Make(S).t -> ('v outcome, error) Core.result;
+    run : 'v. ctx -> 'v Rewrite.Make(S).t -> ('v outcome, error) Err.t;
   }
 
   (* What a pass sees. Both halves come from the state, and the payloads are the
@@ -333,7 +332,7 @@ module Make (S : Side.S) : sig
     ?verify_probe:int ->
     'v Rewrite.Make(S).t ->
     t list ->
-    ('v Rewrite.Make(S).step, error) Core.result
+    ('v Rewrite.Make(S).step, error) Err.t
 
   (* [run_all] keeping the audits, one per pass that actually rewrote something —
      a pass whose sweep matched nothing produces an identity step, which has
@@ -349,7 +348,7 @@ module Make (S : Side.S) : sig
     ?max_audit_reports:int ->
     'v Rewrite.Make(S).t ->
     t list ->
-    ('v outcome, error) Core.result
+    ('v outcome, error) Err.t
 end
 
 include module type of Make (Native_side)

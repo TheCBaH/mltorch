@@ -9,19 +9,18 @@
    larger of the two. Computed in extent-space (no [:> int] round-trips); start
    from [a_shape] and overwrite every axis. See .ai/native_compute_design.md §2b. *)
 let broadcast_output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
-  let open Core.Syntax in
-  Core.List.fold_left
+  let open Err.Syntax in
+  Err.List.fold_left
     (fun s axis ->
       let a = Vec6.get a_shape axis and b = Vec6.get b_shape axis in
       let* out =
-        if Dim.equal a b then Core.return a
-        else if Dim.equal a Dim.one then Core.return b
-        else if Dim.equal b Dim.one then Core.return a
+        if Dim.equal a b then Err.return a
+        else if Dim.equal a Dim.one then Err.return b
+        else if Dim.equal b Dim.one then Err.return a
         else
-          Core.fail
-            (`Broadcast Shape_error.Broadcast.{ axis; lhs = a; rhs = b })
+          Err.fail (`Broadcast Shape_error.Broadcast.{ axis; lhs = a; rhs = b })
       in
-      Core.return (Vec6.set s axis out))
+      Err.return (Vec6.set s axis out))
     a_shape Axis.all
 
 (* Broadcasting for a binary op. [load] is strict — an out-of-bounds index is an
@@ -90,8 +89,8 @@ module Clamp = struct
      parameter check reported as a shape error. *)
   let output_shape (p : params) (x_shape : Vec6.shape) =
     match (p.min, p.max) with
-    | None, None -> Core.fail (`Clamp Shape_error.Clamp.No_bounds)
-    | _ -> Core.return x_shape
+    | None, None -> Err.fail (`Clamp Shape_error.Clamp.No_bounds)
+    | _ -> Err.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* ATen's public path is [TORCH_IMPL_FUNC(clamp_out)]: it tests each scalar
@@ -193,7 +192,7 @@ module Clone = struct
   let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>clone@ x=%a@]" pp_ref t.x
 
-  let output_shape (x_shape : Vec6.shape) = Core.return x_shape
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel x (out : Semantics.position S.index Vec6.t) = S.load x out
@@ -266,7 +265,7 @@ module Hardtanh = struct
     Fmt.pf fmt "@[<hv 2>hardtanh@ x=%a@ params=%a@]" pp_ref t.x pp_params
       t.params
 
-  let output_shape (x_shape : Vec6.shape) = Core.return x_shape
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
 
   (* Both bounds are always present, so the [Clamp] params this lowers to can
      never be the rejected (None, None) pair. *)
@@ -335,7 +334,7 @@ module Relu = struct
     Fmt.pf fmt "@[<hv 2>relu@ x=%a@]" pp_ref t.x
 
   (* Identity: relu doesn't change shape. See .ai/native_compute_design.md §2b. *)
-  let output_shape (x_shape : Vec6.shape) = Core.return x_shape
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* relu x = (x < 0 ? 0 : x) — derived from [select]+[lt], not a primitive *)
@@ -389,7 +388,7 @@ module Sqrt = struct
   let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>sqrt@ x=%a@]" pp_ref t.x
 
-  let output_shape (x_shape : Vec6.shape) = Core.return x_shape
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* [sqrt] is one of the genuinely primitive values in [SEMANTICS] — unlike
@@ -566,7 +565,7 @@ module Add_scalar = struct
   let operands = Scalar_bin.operands
   let map_operands = Scalar_bin.map_operands
   let pp pp_ref fmt t = Scalar_bin.pp ~op:"add_scalar" pp_ref fmt t
-  let output_shape (x_shape : Vec6.shape) = Core.return x_shape
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     module B = Scalar_binary (S)
@@ -604,7 +603,7 @@ module Div_scalar = struct
   let operands = Scalar_bin.operands
   let map_operands = Scalar_bin.map_operands
   let pp pp_ref fmt t = Scalar_bin.pp ~op:"div_scalar" pp_ref fmt t
-  let output_shape (x_shape : Vec6.shape) = Core.return x_shape
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     module B = Scalar_binary (S)

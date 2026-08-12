@@ -11,6 +11,7 @@
   native_op_walk
   walk_core
   core
+  err_trace
   jsont
   jsont.bytesrw)
  ; See test/native4d/dune for why [js] carries no `enabled_if`.
@@ -34,3 +35,15 @@
 (cram
  (applies_to version_safety)
  (deps version_safety.sh version_probe.exe))
+
+; The same technique applied to [Err.Error.t]'s opacity. A separate, much
+; lighter toplevel: this one needs only [core], and naming it after what it
+; probes keeps the two harnesses from reading as one.
+
+(toplevel
+ (name core_probe)
+ (libraries core err_trace))
+
+(cram
+ (applies_to error_opacity)
+ (deps error_opacity.sh core_probe.exe))

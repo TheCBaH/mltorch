@@ -30,14 +30,14 @@ let pp_payloads fmt constants =
    to evaluate it. Everything a test wants to see is printed here. *)
 let run ?(show_before = true) ?(constants = []) g passes k =
   match Rewrite.origin ~constants g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) -> (
       if show_before then (
         Format.printf "@[<v 2>before:@,%a@]@." Graph_ir.pp (Rewrite.graph state);
         Format.printf "@[<v 2>payloads:@,%a@]@." pp_payloads
           (Rewrite.constants state));
       match Pass.run_all state passes with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (final, map)) ->
           Format.printf "@[<v 2>after:@,%a@]@." Graph_ir.pp
             (Rewrite.graph final);
@@ -58,7 +58,7 @@ let evaluated g ~constants ~inputs =
       ~constants:(Tensor_id.Map.bindings constants)
       ~inputs:(List.combine (user_inputs g) inputs)
   with
-  | Error e -> Format.asprintf "%a" Eval_direct.pp_error e.Core.Error.kind
+  | Error e -> Format.asprintf "%a" Eval_direct.pp_error (Err.Error.kind e)
   | Ok env -> (
       match g.Graph.outputs with
       | [ out ] -> Format.asprintf "%a" Tensor.pp (Tensor_id.Map.find out env)
@@ -351,7 +351,7 @@ let%expect_test "chain_permute then fold_const hoist a two-permute weight" =
         let* a = permute Graph_fixtures.swap_hw w in
         let* b = permute Graph_fixtures.swap_wc a in
         conv2d (Graph_fixtures.conv_params ~in_channels:2) ~x ~weight:b ())
-    |> Core.or_raise Graph_builder.pp_error
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
   in
   run g
     ~constants:[ (t_ 1, hw_ramp w_shape) ]

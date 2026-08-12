@@ -1,6 +1,6 @@
 # Printer and result-crossing conventions
 
-How this project renders values and errors, and how a `Core.result` is allowed to
+How this project renders values and errors, and how an `Err.t` is allowed to
 cross a boundary that cannot carry one. These are the durable rules; the staged
 record of the migration that produced them is a local working document
 (`fmt_migration_plan.md`), not part of the tracked design record.
@@ -14,8 +14,8 @@ module Pretty : sig
   val to_string : 'a Fmt.t -> 'a -> string
   val option_or : none:string -> 'a Fmt.t -> 'a option Fmt.t
   val result : ok:'a Fmt.t -> error:'e Fmt.t -> ('a, 'e) Stdlib.result Fmt.t
-  val error_kind : 'e Fmt.t -> 'e Error.t Fmt.t
-  val core_result : ok:'a Fmt.t -> error:'e Fmt.t -> ('a, 'e) result Fmt.t
+  val error_kind : 'e Fmt.t -> 'e Err.Error.t Fmt.t
+  val err_result : ok:'a Fmt.t -> error:'e Fmt.t -> ('a, 'e) Err.t Fmt.t
   val capture_to_string :
     ?like:Format.formatter -> (Format.formatter -> unit) -> string
 end
@@ -59,13 +59,13 @@ used consistently when building exception and error messages.
 ### 4. Result printers in tests
 
 `test/native/*`, `test/native_bridge_test.ml` and friends all need the same
-`Core.Error.kind` unwrap:
+`Err.Error.kind` unwrap:
 
 ```ocaml
-Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
+Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 ```
 
-Don't rebuild the `fun ppf e -> pp_error ppf e.Core.Error.kind` lambda per file.
+Don't rebuild the `fun ppf e -> pp_error ppf (Err.Error.kind e)` lambda per file.
 
 ### 5. Capturing formatter output in expect tests
 
@@ -95,49 +95,72 @@ Three silent behaviour changes, each found by a cram golden that moved:
 
 > The first rule below had a **live instance** in the tree while the rule was
 > already written down: `lib/native/transform/graph_view.ml:352` rebuilt
-> `D.validate_sig`'s `Core.result` by hand, so `Error.make` captured a fresh
+> `D.validate_sig`'s result by hand, so `Error.make` captured a fresh
 > callstack at the re-raise and the dialect's detection site was lost. Fixed with
 > a test that reverting the fix alone turns red. Writing the rule down was not
 > enough to prevent it, which is the argument for the checker this project has
 > not yet built.
 
-- **Never hand-rebuild an `Error` by unwrapping `e.Core.Error.kind`** when
-  `Core.map_error` does exactly that while preserving the original detection
-  backtrace:
+- **The `Error.t` wrapper is abstract, and rebuilding it is now a type error.**
+  It used to be a transparent record, which made
+  `| Error e -> Err.fail (`Build (Err.Error.kind e))` typecheck, read like a
+  widening, and silently re-capture provenance at the re-raise. `Err.map_error`
+  is the supported spelling and keeps the original detection origin:
   ```ocaml
-  (* wrong: discards the backtrace, captures a new one at the wrong site *)
-  | Error e -> Core.fail (`Build e.Core.Error.kind)
-  (* right *)
-  Graph_builder.build ... |> Core.map_error (fun e -> `Build e)
+  Graph_builder.build ... |> Err.map_error (fun e -> `Build e)
   ```
-  `Stdlib.Result.map_error` is **not** a substitute for `Core.map_error` on a
-  `Core.result` — it would map the whole `Error.t` wrapper, not just `.kind`,
-  producing the wrong error shape.
+  `test/native/error_opacity.t` is the evidence that the type checker enforces
+  this, paired-control style like `version_safety.t`.
+  `Stdlib.Result.map_error` is **not** a substitute for `Err.map_error` on an
+  `Err.t` — it would map the whole `Error.t` wrapper, not just the payload,
+  producing the wrong error shape. `Err.Error.map_kind` is not an untraced
+  escape hatch either: it records the same `Map` event.
+- **Add `~pos:__POS__` at subsystem seams, not everywhere.** It is the only
+  provenance that survives on the JavaScript backends, where no callstack is
+  captured at all, so the seams the browser path crosses carry one
+  (`Pt2_archive`, `Native_interp`, `Me_export`). Per-row coercions do not:
+  every `Map` event is retained memory and printed output.
 - **Never open-code `match r with Ok x -> x | Error e -> failwith (...)`** at a
-  boundary that cannot consume a `Core.result` (a fixed non-result signature, e.g.
+  boundary that cannot consume an `Err.t` (a fixed non-result signature, e.g.
   the walk framework's `build : pcg -> c -> subject * pcg`). Use
-  `Core.or_raise : (Format.formatter -> 'e -> unit) -> ('a, 'e) result -> 'a` —
-  one call site, payload-only message (no backtrace dump; it should read like a
-  normal exception, not a diagnostic). `Core.or_raise` is deliberately scoped to
-  `Core.result`; the handful of one-off `(string, string) result` boundaries
+  `Err.or_raise ~pp_error:pp` — one call site, and the exception it raises is
+  `Err.Exn.E`, which carries the whole wrapper and registers a `Printexc`
+  printer. The handful of one-off `(string, string) result` boundaries
   (`lib/pt2_spec_gen/pt2_spec_gen.ml`, a few `test/*.ml` decode/encode helpers)
-  stay plain `match ... | Error e -> failwith e` — generalising the helper for call
-  sites with no `Core.Error.t` wrapper would be speculative abstraction.
-- **Bridge an option into the framework with `Core.of_option`**, not
+  stay plain `match ... | Error e -> failwith e` — generalising the helper for
+  call sites with no `Err.Error.t` wrapper would be speculative abstraction.
+- **A boundary that emits outward must print the payload ALONE.** Because
+  `Err` registers a `Printexc` printer, the default rendering of `Err.Exn.E` —
+  and therefore `Printexc.to_string` — is payload *plus* detection stack *plus*
+  semantic trace. That is a developer diagnostic. Anything a browser, a wire
+  response, or a third party reads must match `Err.Exn.E` and use
+  `Err.Exn.pp_kind`; see `Me_limits.Diagnostic.of_exn`, whose test fails if the
+  match is removed.
+- **Bridge an option into the framework with `Err.of_option`**, not
   `Stdlib.Option.to_result`: the latter yields a bare `Stdlib.result` with no
-  `Core.Error.t`, so a bridged absence carries no backtrace. Its payload is built
-  eagerly, before the option is inspected — keep an explicit match where building
-  it raises, has effects, or costs something on the success path. On the ~20
-  graph-lookup sites it replaced, the cost is below measurement noise (measured).
-- **A deliberate drop of the wrapper needs a NAME.** Crossing out of the framework
-  is legitimate — Cmdliner wants `(_, string) result`, and the pattern monad has
-  its own `failure` type — but an anonymous
-  `| Error e -> Error (… e.Core.Error.kind …)` is textually indistinguishable from
-  the defect above. Two such boundaries are named, commented helpers: `to_cli` in
-  `bin/native_graph.ml` and `Pattern.of_core` in
-  `lib/native/transform/pattern.ml`. `test/native/dce_test.ml:147` is a third,
-  left inline behind the comment that already explained it.
+  `Err.Error.t`, so a bridged absence carries no provenance. Its payload is built
+  eagerly, before the option is inspected — use `Err.map_none ~error:(fun () -> ...)`
+  where building it raises, has effects, or costs something on the success path
+  (`graph_view.ml`'s `sig_of`, whose payload is an unbounded functor callback).
+  On the ~20 graph-lookup sites `of_option` replaced, the cost is below
+  measurement noise (measured).
+- **`Err.guard` is also eager**, and for the same reason is NOT used by the
+  per-node and per-edge limit checks in `lib/model_explorer_export`: it takes
+  `~error:'e` rather than a thunk, so it would allocate the payload on every
+  successful check in the hottest export loop. The explicit
+  `if over then fail else return ()` is the faster form there.
+- **A deliberate drop of the wrapper needs a NAME, and marks `Export`.**
+  Crossing out of the framework is legitimate — Cmdliner wants
+  `(_, string) result`, Jsont wants a raised decode error, and the pattern monad
+  has its own `failure` type — but an anonymous
+  `| Error e -> Error (… Err.Error.kind e …)` is textually indistinguishable
+  from the defect above. The named helpers are `to_cli` (`bin/native_graph.ml`),
+  `Pattern.of_err`, `Quant.of_err_for_jsont`, `Me_request.or_jsont`, and
+  `Me_limits`' wire decoder; each calls
+  `Err.mark_error ~pos:__POS__ Err.Action.Export` before unwrapping, so the
+  crossing is visible to a monitor and not only to a reader.
+  `test/native/dce_test.ml:147` is left inline behind the comment that already
+  explained it.
 - **`Option.value ~default:e` evaluates `e` eagerly.** Fine for a cheap total
   constant; for a raising, expensive, or effectful fallback keep explicit
-  branching. The same caveat is why `Core.of_option`'s payload argument is
-  documented as eager.
+  branching — or use `Err.map_none`, which is that caveat expressed in a type.

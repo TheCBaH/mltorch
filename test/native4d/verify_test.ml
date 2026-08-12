@@ -20,10 +20,10 @@ let build = Fixtures.build
 let verified ?constants ?(effort = Map_verify.Effort.Thorough) g =
   match Snapshot.create g with
   | Error e ->
-      Format.asprintf "snapshot: %a" Graph_view.pp_error e.Core.Error.kind
+      Format.asprintf "snapshot: %a" Graph_view.pp_error (Err.Error.kind e)
   | Ok (Snapshot.Pack src) -> (
       match Lower.convert ?constants src with
-      | Error e -> Format.asprintf "%a" Error.pp e.Core.Error.kind
+      | Error e -> Format.asprintf "%a" Error.pp (Err.Error.kind e)
       | Ok (Lower.Pack r) -> (
           let budget = Map_verify.Effort.budget effort in
           match
@@ -33,7 +33,8 @@ let verified ?constants ?(effort = Map_verify.Effort.Thorough) g =
               ~dst_constants:r.Lower.constants r.Lower.map ~src ~dst:r.Lower.dst
           with
           | Error e ->
-              Format.asprintf "verify: %a" Map_verify.pp_error e.Core.Error.kind
+              Format.asprintf "verify: %a" Map_verify.pp_error
+                (Err.Error.kind e)
           | Ok report -> Map_verify.Report.summary report))
 
 let check name ?constants g =
@@ -128,7 +129,7 @@ let%expect_test "verify: bmm, per cluster" =
   | Error _ -> Format.printf "snapshot failed@."
   | Ok (Snapshot.Pack src) -> (
       match Lower.convert src with
-      | Error e -> Format.printf "%a@." Error.pp e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Error.pp (Err.Error.kind e)
       | Ok (Lower.Pack r) -> (
           match
             Framework.Verify_from_native.run
@@ -136,7 +137,7 @@ let%expect_test "verify: bmm, per cluster" =
               r.Lower.map ~src ~dst:r.Lower.dst
           with
           | Error e ->
-              Format.printf "%a@." Map_verify.pp_error e.Core.Error.kind
+              Format.printf "%a@." Map_verify.pp_error (Err.Error.kind e)
           | Ok report ->
               Format.printf "%a@." Map_verify.Report.pp_verdicts report)));
   [%expect
@@ -168,7 +169,7 @@ let%expect_test "verify: bmm, numerically" =
   let native_out =
     match Eval_direct.run g ~inputs with
     | Error e ->
-        Format.asprintf "native: %a" Eval_direct.pp_error e.Core.Error.kind
+        Format.asprintf "native: %a" Eval_direct.pp_error (Err.Error.kind e)
     | Ok env ->
         let t = Tensor_id.Map.find (List.hd g.Graph_ir.Graph.outputs) env in
         Format.asprintf "%a" Tensor.pp t
@@ -178,13 +179,13 @@ let%expect_test "verify: bmm, numerically" =
     | Error _ -> "snapshot failed"
     | Ok (Snapshot.Pack src) -> (
         match Lower.convert src with
-        | Error e -> Format.asprintf "%a" Error.pp e.Core.Error.kind
+        | Error e -> Format.asprintf "%a" Error.pp (Err.Error.kind e)
         | Ok (Lower.Pack r) -> (
             let dst = Lower.graph r in
             match Eval_direct4.run dst ~inputs with
             | Error e ->
                 Format.asprintf "native4d: %a" Eval_direct4.pp_error
-                  e.Core.Error.kind
+                  (Err.Error.kind e)
             | Ok env ->
                 let t =
                   Tensor_id.Map.find
@@ -212,7 +213,7 @@ let%expect_test "verify: bmm, the two terms" =
   | Error _ -> Format.printf "snapshot failed@."
   | Ok (Snapshot.Pack src) -> (
       match Lower.convert src with
-      | Error e -> Format.printf "%a@." Error.pp e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Error.pp (Err.Error.kind e)
       | Ok (Lower.Pack r) ->
           let dst = Lower.graph r in
           let src_env =
@@ -227,7 +228,7 @@ let%expect_test "verify: bmm, the two terms" =
             match Ground_eval.at env out coord with
             | Error e ->
                 Format.printf "%s: %a@." label Ground_eval.pp_error
-                  e.Core.Error.kind
+                  (Err.Error.kind e)
             | Ok t ->
                 (* Expand with NO boundary, so both sides run all the way down to
                    their graph inputs and any difference is structural rather
@@ -238,7 +239,7 @@ let%expect_test "verify: bmm, the two terms" =
                     ~budget:100_000 env t
                 in
                 Format.printf "@[<v 2>%s:@,%a@]@." label
-                  (Core.Pretty.core_result ~ok:Ground_expr.pp
+                  (Core.Pretty.err_result ~ok:Ground_expr.pp
                      ~error:Ground_eval.pp_error)
                   t
           in
@@ -248,7 +249,7 @@ let%expect_test "verify: bmm, the two terms" =
              Round-over-Cell collapse fires here if it fires at all. *)
           let term env =
             match
-              Core.Syntax.( >>= )
+              Err.Syntax.( >>= )
                 (Ground_eval.at env out coord)
                 (Ground_eval.expand
                    ~boundary:(fun _ -> None)

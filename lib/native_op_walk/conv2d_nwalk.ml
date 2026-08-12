@@ -15,7 +15,7 @@ module M = struct
     let weight, pcg = Native_tensor.synth pcg (W.weight_shape c) in
     let bias, pcg = Native_tensor.synth pcg (W.bias_shape c) in
     let g =
-      Core.or_raise Graph_builder.pp_error
+      Err.or_raise ~pp_error:Graph_builder.pp_error
         Graph_builder.(
           build ~name:"conv2d" ~outputs:(fun r -> [ r ])
           @@

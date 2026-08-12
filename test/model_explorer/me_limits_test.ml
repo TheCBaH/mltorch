@@ -19,14 +19,14 @@
    polymorphic in the success type: every profile constructor below returns a
    different one, and only the failure side is ever rendered. *)
 let pp_ok ppf r =
-  Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Me_limits.pp_error ppf r
+  Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Me_limits.pp_error ppf r
 
 let show r = Format.printf "%a@." pp_ok r
 let show_labelled label r = Format.printf "%s: %a@." label pp_ok r
 
 let show_bytes r =
   Format.printf "%a@."
-    (Core.Pretty.core_result ~ok:Fmt.int64 ~error:Me_limits.pp_error)
+    (Core.Pretty.err_result ~ok:Fmt.int64 ~error:Me_limits.pp_error)
     r
 
 (* --- the constants --- *)
@@ -114,7 +114,7 @@ let%expect_test "the peak is monotone in both of its inputs" =
      result to render, and a -1 folded into the comparisons would let it read
      as monotone. *)
   let peak s d =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.response_live_bytes ~max_session_bytes:s ~max_detail_bytes:d)
   in
   let sizes = [ 1; 2; 4; 8; 16 ] in
@@ -275,7 +275,7 @@ let%expect_test "one field between untrusted and Hard is enough to refuse" =
      still not wire-eligible. This is the case the type exists for: a value
      below [Hard] can be far looser than [untrusted], and since the request IS
      the wire the check cannot be delegated to the page that built it. *)
-  let open Core.Syntax in
+  let open Err.Syntax in
   let widened field r =
     show_labelled field
       (r >>= Me_limits.Wire_limits.of_limits ~ceiling:Me_limits.Limits.untrusted)
@@ -297,7 +297,7 @@ let%expect_test "one field between untrusted and Hard is enough to refuse" =
 
 let%expect_test "a wire profile is still a profile" =
   let w =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Wire_limits.of_limits ~ceiling:Me_limits.Limits.untrusted
          Me_limits.Limits.small)
   in

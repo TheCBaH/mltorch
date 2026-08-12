@@ -72,16 +72,16 @@ module Linear = struct
     let x_channels = Vec6.get x_shape Axis.C in
     let weight_channels = Vec6.get weight_shape Axis.C in
     if not (Dim.equal x_channels expected) then
-      Core.fail
+      Err.fail
         (`Linear
            (Shape_error.Linear.Input_channels_mismatch
               Shape_error.Linear.{ actual = x_channels; expected }))
     else if not (Dim.equal weight_channels expected) then
-      Core.fail
+      Err.fail
         (`Linear
            (Shape_error.Linear.Weight_channels_mismatch
               Shape_error.Linear.{ actual = weight_channels; expected }))
-    else Core.return (Vec6.copy weight_shape ~src:Axis.N ~dst:Axis.C x_shape)
+    else Err.return (Vec6.copy weight_shape ~src:Axis.N ~dst:Axis.C x_shape)
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~x ~weight ~bias

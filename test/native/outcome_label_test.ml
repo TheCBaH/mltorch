@@ -109,8 +109,9 @@ let outcome coverage verdict : Outcome.t = { coverage; verdict }
 let%expect_test "Outcome.label suffixes only a sampled coverage" =
   let v = Verdict.Proved Strength.Structural in
   let sampled n =
-    Core.or_raise
-      (fun ppf (`Invalid_coverage n) -> Fmt.pf ppf "invalid coverage %d" n)
+    Err.or_raise
+      ~pp_error:(fun ppf (`Invalid_coverage n) ->
+        Fmt.pf ppf "invalid coverage %d" n)
       (Coverage.sampled n)
   in
   print_endline (Outcome.label (outcome Coverage.exhaustive v));
@@ -142,8 +143,9 @@ let%expect_test "Outcome.label is the key Tally counts by" =
     }
   in
   let sampled n =
-    Core.or_raise
-      (fun ppf (`Invalid_coverage n) -> Fmt.pf ppf "invalid coverage %d" n)
+    Err.or_raise
+      ~pp_error:(fun ppf (`Invalid_coverage n) ->
+        Fmt.pf ppf "invalid coverage %d" n)
       (Coverage.sampled n)
   in
   let entries =
@@ -180,7 +182,7 @@ let%expect_test "Coverage.sampled rejects a count no producer can emit" =
     match Coverage.sampled n with
     | Ok c -> Format.printf "%d -> %a@." n Coverage.pp c
     | Error e ->
-        let (`Invalid_coverage bad) = e.Core.Error.kind in
+        let (`Invalid_coverage bad) = Err.Error.kind e in
         Printf.printf "%d -> rejected (%d)\n" n bad
   in
   show 1;

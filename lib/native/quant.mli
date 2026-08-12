@@ -23,8 +23,7 @@ type error = [ `Quant_array_lengths of int * int ]
 val pp_error : Format.formatter -> [< error ] -> unit
 val per_tensor : scale:float -> zero_point:int -> t
 
-val per_channel :
-  scale:float array -> zero_point:int array -> (t, error) Core.result
+val per_channel : scale:float array -> zero_point:int array -> (t, error) Err.t
 (** Copies both arrays and rejects unequal lengths. Copying establishes
     ownership; it does not establish the invariant, which is why this is
     result-valued and [per_tensor] is not. *)
@@ -47,9 +46,9 @@ val equal : t -> t -> bool
 val pp : Format.formatter -> t -> unit
 val jsont : t Jsont.t
 
-val of_core_for_jsont : ('a, error) Core.result -> 'a
+val of_err_for_jsont : ('a, error) Err.t -> 'a
 (** Carries a constructor failure into Jsont's error boundary as
     [Jsont.Error.msgf], so a malformed document becomes [decode_string]'s
     ordinary [Error _] instead of escaping as an exception. NAMED rather than
-    inlined because it drops the [Core.Error.t] wrapper on purpose, and
-    CLAUDE.md requires that to stay distinguishable from the defect. *)
+    inlined because it drops the [Err.Error.t] wrapper on purpose, and CLAUDE.md
+    requires that to stay distinguishable from the defect. *)

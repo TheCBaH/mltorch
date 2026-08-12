@@ -16,7 +16,7 @@ open Pytorch_types
 open Schema_runtime
 
 let decode_program json =
-  (* Plain [result] from Jsont, so [failwith] rather than [Core.or_raise]. And
+  (* Plain [result] from Jsont, so [failwith] rather than [Err.or_raise ~pp_error:]. And
      it must RAISE, not print: both backends run this same source, so a decoder
      that failed identically on each would print the same text, diff clean and
      exit 0. See [[testing_strategy]]. *)

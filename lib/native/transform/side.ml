@@ -41,8 +41,7 @@ module type S = sig
     val view : 'v t -> Graph_view.Make(Dialect).t
 
     val create :
-      op Graph_common.Graph.t ->
-      (packed, Graph_view.Make(Dialect).error) Core.result
+      op Graph_common.Graph.t -> (packed, Graph_view.Make(Dialect).error) Err.t
   end
 
   module Transfer : sig

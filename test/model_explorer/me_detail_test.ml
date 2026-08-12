@@ -46,7 +46,7 @@ let model =
     {|{"dtype":7,"sizes":[{"as_int":1},{"as_int":4}],"requires_grad":false,"device":{"type":"cpu"},"strides":[{"as_int":4},{"as_int":1}],"storage_offset":{"as_int":0},"layout":7}|}
 
 let session_of ~limits =
-  Core.or_raise Me_export.pp_error
+  Err.or_raise ~pp_error:Me_export.pp_error
     (Me_export.session ~limits
        ~options:
          {
@@ -87,7 +87,7 @@ let%expect_test "the kernel graph offers value nodes to ask about" =
   [%expect {| 1 2 |}]
 
 let key ?(parent = kernel_id) v =
-  Core.or_raise MR.Request.pp_error
+  Err.or_raise ~pp_error:MR.Request.pp_error
     (MR.Detail_key.create ~limits ~parent_graph:parent
        ~value:(Graph_ir.Tensor_id.of_int v))
 
@@ -123,7 +123,7 @@ let delta ?graph ?view k =
   }
 
 let pp ppf r =
-  Core.Pretty.core_result
+  Core.Pretty.err_result
     ~ok:(fun ppf (s : Me_session.Session.t) ->
       Fmt.pf ppf "graphs=%d views=%d"
         (List.length
@@ -154,7 +154,7 @@ let%expect_test "re-requesting one REPLACES it" =
      carry the same id, so one predicate removes both. *)
   let a = key (List.hd (kernel_value_nodes session)) in
   let once =
-    Core.or_raise Me_detail.pp_error
+    Err.or_raise ~pp_error:Me_detail.pp_error
       (Me_detail.apply ~key:a ~limits session (delta a))
   in
   Format.printf "once  %a@." pp (Ok once);
@@ -192,7 +192,7 @@ let%expect_test "the parent node gains subGraphIds, and only then" =
   in
   show "before" session;
   show "after"
-    (Core.or_raise Me_detail.pp_error
+    (Err.or_raise ~pp_error:Me_detail.pp_error
        (Me_detail.apply ~key:a ~limits session (delta a)));
   [%expect
     {|
@@ -234,7 +234,8 @@ let%expect_test "each passes alone, the SECOND merge does not" =
   (* The aggregate is over every installed detail, not over the delta in hand,
      which is the whole reason it is checked on the merged session. *)
   let tight =
-    Core.or_raise Me_limits.pp_error (L.create ~max_detail_graphs:1 limits)
+    Err.or_raise ~pp_error:Me_limits.pp_error
+      (L.create ~max_detail_graphs:1 limits)
   in
   let s = session_of ~limits:tight in
   let values = kernel_value_nodes s in
@@ -273,7 +274,7 @@ let%expect_test "an expression becomes one node per AST node" =
     }
   in
   Format.printf "%a@."
-    (Core.Pretty.core_result
+    (Core.Pretty.err_result
        ~ok:(fun ppf (g : ME.Graph.t) ->
          Fmt.pf ppf "%s@\n%a" g.ME.Graph.id
            (Fmt.list ~sep:(Fmt.any "@\n") (fun ppf (n : ME.GraphNode.t) ->
@@ -299,7 +300,8 @@ let%expect_test "an expression becomes one node per AST node" =
 
 let%expect_test "the size ceiling is checked BEFORE the walk" =
   let tight =
-    Core.or_raise Me_limits.pp_error (L.create ~max_detail_nodes:2 limits)
+    Err.or_raise ~pp_error:Me_limits.pp_error
+      (L.create ~max_detail_nodes:2 limits)
   in
   let body = Expr.Value.add (Expr.Value.const 1.) (Expr.Value.const 2.) in
   let v =
@@ -316,6 +318,6 @@ let%expect_test "the size ceiling is checked BEFORE the walk" =
     }
   in
   Format.printf "%a@."
-    (Core.Pretty.core_result ~ok:(Fmt.any "built") ~error:Me_detail.pp_error)
+    (Core.Pretty.err_result ~ok:(Fmt.any "built") ~error:Me_detail.pp_error)
     (Me_detail.of_value ~limits:tight ~key:(key 7) v);
   [%expect {| detail expressionNodes = 3 is over the ceiling |}]

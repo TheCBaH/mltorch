@@ -18,10 +18,10 @@ let is_control c = Char.code c < 0x20 || Char.code c = 0x7F
 let component s =
   let buf = Buffer.create (String.length s) in
   let rec go i =
-    if i >= String.length s then Core.return (Buffer.contents buf)
+    if i >= String.length s then Err.return (Buffer.contents buf)
     else
       let c = s.[i] in
-      if is_control c then Core.fail (`Control_byte (Char.code c))
+      if is_control c then Err.fail (`Control_byte (Char.code c))
       else begin
         if List.mem c reserved then
           Buffer.add_string buf (Printf.sprintf "%%%02X" (Char.code c))
@@ -69,15 +69,15 @@ end
 let check_label ~limits s =
   let n = String.length s in
   if n > limits.Me_limits.Limits.max_label_bytes then
-    Core.fail (`Label_too_long n)
-  else Core.return ()
+    Err.fail (`Label_too_long n)
+  else Err.return ()
 
 let check_id ~max s =
   let n = String.length s in
-  if n > max then Core.fail (`Id_too_long n) else Core.return s
+  if n > max then Err.fail (`Id_too_long n) else Err.return s
 
 let encoded_component ~limits s =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* () = check_label ~limits s in
   component s
 
@@ -87,7 +87,7 @@ let encoded_component ~limits s =
 let ordinal = Printf.sprintf "%03d"
 
 let collection ~limits name =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* encoded = encoded_component ~limits name in
   check_id ~max:limits.Me_limits.Limits.max_id_bytes ("mltorch:" ^ encoded)
 
@@ -102,7 +102,7 @@ let pt2_node path index =
     (path, index)
 
 let pt2_boundary ~limits kind name =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let prefix =
     match kind with `In -> "in" | `Const -> "const" | `Out -> "out"
   in
@@ -113,9 +113,9 @@ let pt2_boundary ~limits kind name =
     (Printf.sprintf "%s:%s" prefix encoded)
 
 let pt2_namespace ~limits levels =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* components =
-    Core.List.map
+    Err.List.map
       (fun l ->
         let* encoded = encoded_component ~limits l in
         check_id ~max:limits.Me_limits.Limits.max_namespace_component_bytes
@@ -149,10 +149,10 @@ let boundary kind id =
   Printf.sprintf "%s:t%d" prefix (Graph_ir.Tensor_id.to_int id)
 
 let namespace_component ~limits ?label id =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* assembled =
     match label with
-    | None -> Core.return (Printf.sprintf "g%d" id)
+    | None -> Err.return (Printf.sprintf "g%d" id)
     | Some l ->
         let+ encoded = encoded_component ~limits l in
         Printf.sprintf "%s#g%d" encoded id

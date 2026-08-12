@@ -11,7 +11,7 @@ let chan c = s 1 1 1 1 1 c
 
 let build name m =
   Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
-  |> Core.or_raise (fun ppf e ->
+  |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
 let conv_axis ~kernel : Conv.Conv2d.axis_window =

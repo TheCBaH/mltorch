@@ -19,8 +19,8 @@ module Rejection : sig
     | Reducing_consumer of Kernel.Use.t
     | Non_pointwise_use of {
         use : Kernel.Use.t;
-        reason : Kernel_elab.error Core.Error.t;
-            (** The [Core.Error.t] is RETAINED, not unwrapped to its [.kind]:
+        reason : Kernel_elab.error Err.Error.t;
+            (** The [Err.Error.t] is RETAINED, not unwrapped to its [.kind]:
                 stripping it at the call site would discard the detection
                 backtrace, and CLAUDE.md requires a named conversion wherever a
                 wrapper is dropped deliberately. Nothing here needs it dropped.
@@ -29,7 +29,7 @@ module Rejection : sig
     | Overlaps_selected of { rejected : Kernel.Use.t; selected : Kernel.Use.t }
     | Budget_exceeded of {
         use : Kernel.Use.t;
-        error : Kernel_elab.error Core.Error.t;
+        error : Kernel_elab.error Err.Error.t;
       }
 
   val pp : Format.formatter -> t -> unit

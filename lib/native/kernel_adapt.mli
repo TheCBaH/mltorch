@@ -53,7 +53,7 @@ val required_outputs :
   ?limits:Kernel.Limits.t ->
   ?select:Tensor_id.Set.t ->
   Stage_program.t ->
-  (Tensor_id.t list, error) Core.result
+  (Tensor_id.t list, error) Err.t
 (** The outputs a kernel over this selection MUST declare, ordered:
 
     1. selected occurrences of [Stage_program.outputs], in their original order
@@ -75,7 +75,7 @@ val of_stage_program :
   ?select:Tensor_id.Set.t ->
   ?outputs:Tensor_id.t list ->
   Stage_program.t ->
-  (Kernel.t, error) Core.result
+  (Kernel.t, error) Err.t
 (** [select] absent adapts the whole program; [outputs] absent takes
     [required_outputs], so the ordinary caller does not run the analysis twice.
     When supplied, [outputs] must BEGIN with the required list — order and

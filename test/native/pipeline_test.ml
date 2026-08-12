@@ -12,7 +12,7 @@ open Graph_ir
 
 let build name m =
   Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
-  |> Core.or_raise (fun ppf e ->
+  |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
 let nhwc ~h ~w ~c = Vec6.shape ~n:1 ~t:1 ~d:1 ~h ~w ~c
@@ -53,9 +53,9 @@ let node_count g = List.length g.Graph.nodes
 
 (* Run the pipeline, then run it again on its own output. *)
 let twice ~fold g =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* (Rewrite.Origin state) =
-    (Rewrite.origin g :> (Rewrite.origin, Pass.error) Core.result)
+    (Rewrite.origin g :> (Rewrite.origin, Pass.error) Err.t)
   in
   let* (Rewrite.Step (once, first)) =
     Pass.run_all state [ Pipeline.canonical ~fold ]
@@ -68,7 +68,7 @@ let twice ~fold g =
 let report ~fold g =
   Format.printf "fold=%b: " fold;
   match twice ~fold g with
-  | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
   | Ok (g, first, second) ->
       Format.printf "%d nodes, first run changed=%b, second changed=%b@."
         (node_count g) first second

@@ -15,7 +15,7 @@
 (* Bound BEFORE [open Graph_ir], which shadows [Graph] with the Native one. *)
 module G4 = Graph
 open Graph_ir
-open Core.Syntax
+open Err.Syntax
 
 type ('src, 'dst) t = {
   dst : 'dst Framework.Snapshot4.t;
@@ -123,30 +123,30 @@ let forward_conv ~node ~params ~x ~weight ~bias ~weight_shape =
   let payload =
     { Ops4.Conv_payload.params = conv_params params; x; weight; bias }
   in
-  if groups = 1 then Core.return (Op.Conv2d payload)
+  if groups = 1 then Err.return (Op.Conv2d payload)
   else if Dim.to_int (Vec6.get weight_shape Axis.C) = 1 then
-    Core.return (Op.Depthwise_conv2d payload)
-  else Core.fail (`Unsupported_grouped_conv (node, groups))
+    Err.return (Op.Depthwise_conv2d payload)
+  else Err.fail (`Unsupported_grouped_conv (node, groups))
 
 let perm4_of_native ~node (perm : Permute.Permute.perm) =
-  Core.List.map
+  Err.List.map
     (fun out ->
       let in_axis = Permute.Permute.lookup perm (Axis4.to_axis out) in
       match Axis4.of_axis in_axis with
-      | Some a -> Core.return (out, a)
-      | None -> Core.fail (`Axis_outside_dialect (node, in_axis)))
+      | Some a -> Err.return (out, a)
+      | None -> Err.fail (`Axis_outside_dialect (node, in_axis)))
     Axis4.all
 
 let dims4 ~node dims =
-  Core.List.map
+  Err.List.map
     (fun axis ->
-      Axis4.of_axis axis |> Core.of_option (`Axis_outside_dialect (node, axis)))
+      Axis4.of_axis axis |> Err.of_option (`Axis_outside_dialect (node, axis)))
     dims
 
 let shape4 ~id shape =
   match Shape4.of_vec6 shape with
-  | Ok s -> Core.return s
-  | Error _ -> Core.fail (`Non_four_dimensional_tensor (id, shape))
+  | Ok s -> Err.return s
+  | Error _ -> Err.fail (`Non_four_dimensional_tensor (id, shape))
 
 (* ---- batch norm ----------------------------------------------------------- *)
 
@@ -162,12 +162,12 @@ let shape4 ~id shape =
    Needs the payloads AT CONVERSION TIME, which is why absence is an error here
    and nowhere else. *)
 let bn_channel_values ~node ~channels ~constants ids =
-  Core.List.map
+  Err.List.map
     (fun id ->
       match Tensor_id.Map.find_opt id constants with
-      | None -> Core.fail (`Missing_constant_payload (node, id))
+      | None -> Err.fail (`Missing_constant_payload (node, id))
       | Some t ->
-          Core.return (fun c ->
+          Err.return (fun c ->
               (* Parameters are laid out on C; every other axis is unit, so the
                  read is at (0,…,0,c). *)
               Tensor.read_at t (fun axis ->
@@ -212,7 +212,7 @@ let batch_norm_weights acc ~node ~channels ~eps (bn : Norm.BatchNorm.t) =
   in
   let wid, acc = fresh_constant acc w_shape w in
   let bid, acc = fresh_constant acc b_shape b in
-  Core.return (wid, bid, acc)
+  Err.return (wid, bid, acc)
 
 let unit_window : Conv.Conv2d.axis_window =
   {
@@ -236,9 +236,9 @@ let lower_node ~view acc (n : node) =
   let op_of = resolve acc in
   let sig_of id =
     match Graph_view.sig_of view id with
-    | Some sg -> Core.return sg.Tensor_sig.shape
+    | Some sg -> Err.return sg.Tensor_sig.shape
     | None ->
-        Core.fail
+        Err.fail
           (`Non_four_dimensional_tensor
              (id, Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1))
   in
@@ -247,7 +247,7 @@ let lower_node ~view acc (n : node) =
     | [ o ] -> o
     | _ -> node |> fun _ -> List.hd n.Node.outputs
   in
-  let simple op = Core.return (emit acc ~from:node op [ out ]) in
+  let simple op = Err.return (emit acc ~from:node op [ out ]) in
   match n.Node.op with
   (* §7.1 direct counterparts. The payload records are Native's own, reused
      unchanged — they name no axis and carry no shape. *)
@@ -287,7 +287,7 @@ let lower_node ~view acc (n : node) =
      fresh id — just a substitution, and a pair cluster recording that the two
      edges are the same value. *)
   | Clone { Pointwise.Clone.x } ->
-      Core.return
+      Err.return
         {
           acc with
           subst = Tensor_id.Map.add out (op_of x) acc.subst;
@@ -333,7 +333,7 @@ let lower_node ~view acc (n : node) =
          translation — restating it here would be a second definition free to
          drift from the one the compute uses. *)
       let* params =
-        Core.map_error
+        Err.map_error
           (fun _ -> `Unsupported_op (node, n.Node.op))
           (Conv.Conv2d_padding.to_conv2d_params ~weight_shape params)
       in
@@ -347,7 +347,7 @@ let lower_node ~view acc (n : node) =
       if params.Conv.Convolution.transposed then
         let groups = (params.Conv.Convolution.groups :> int) in
         if groups <> 1 then
-          Core.fail (`Unsupported_grouped_transposed_conv (node, groups))
+          Err.fail (`Unsupported_grouped_transposed_conv (node, groups))
         else
           simple
             (Op.Transposed_conv2d
@@ -365,7 +365,7 @@ let lower_node ~view acc (n : node) =
                })
       else
         let* params =
-          Core.map_error
+          Err.map_error
             (fun _ -> `Unsupported_op (node, n.Node.op))
             (Conv.Convolution.to_conv2d_params ~weight_shape params)
         in
@@ -391,8 +391,8 @@ let lower_node ~view acc (n : node) =
             Reduce.Mean.output_shape ~x_shape
               { Reduce.Mean.dims = params.Reduce.Mean.dims; keepdim = true }
           with
-          | Ok s -> Core.return s
-          | Error _ -> Core.fail (`Unsupported_op (node, n.Node.op))
+          | Ok s -> Err.return s
+          | Error _ -> Err.fail (`Unsupported_op (node, n.Node.op))
         in
         let* packed = sig_of out in
         let* kept4 = shape4 ~id:out kept in
@@ -407,7 +407,7 @@ let lower_node ~view acc (n : node) =
         let acc =
           { acc with provenance = ([ op_of x ], mid) :: acc.provenance }
         in
-        Core.return
+        Err.return
           (emit acc ~from:node
              (Op.Reshape4
                 { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
@@ -421,7 +421,7 @@ let lower_node ~view acc (n : node) =
       let* input_shape = sig_of input in
       let batch = Vec6.get input_shape Axis.H in
       if Dim.to_int batch <> 1 then
-        Core.fail (`Unsupported_bmm_batch (node, batch))
+        Err.fail (`Unsupported_bmm_batch (node, batch))
       else
         let* mat2_shape = sig_of mat2 in
         let contract = Vec6.get mat2_shape Axis.W in
@@ -452,7 +452,7 @@ let lower_node ~view acc (n : node) =
         let acc =
           { acc with provenance = ([ op_of mat2 ], wid) :: acc.provenance }
         in
-        Core.return
+        Err.return
           (emit acc ~from:node
              (Op.Conv2d
                 {
@@ -490,7 +490,7 @@ let lower_node ~view acc (n : node) =
             :: acc.provenance;
         }
       in
-      Core.return
+      Err.return
         (emit acc ~from:node
            (Op.Depthwise_conv2d
               {
@@ -504,7 +504,7 @@ let lower_node ~view acc (n : node) =
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them. *)
   | Max_pool2d_with_indices _ | Discard _ ->
-      Core.fail (`Unsupported_op (node, n.Node.op))
+      Err.fail (`Unsupported_op (node, n.Node.op))
 
 (* ---- constants ------------------------------------------------------------ *)
 
@@ -518,14 +518,14 @@ let lower_node ~view acc (n : node) =
 let fmt_name (Payload.Fmt f) = Payload.fmt_name f
 
 let check_constants ~view constants =
-  Core.List.iter
+  Err.List.iter
     (fun (id, Tensor.Tensor payload) ->
       let* () =
-        if Graph_view.is_constant view id then Core.return ()
-        else Core.fail (`Bad_constant_payload id)
+        if Graph_view.is_constant view id then Err.return ()
+        else Err.fail (`Bad_constant_payload id)
       in
       match Graph_view.sig_of view id with
-      | None -> Core.fail (`Bad_constant_payload id)
+      | None -> Err.fail (`Bad_constant_payload id)
       | Some sg ->
           let shape_ok =
             List.for_all
@@ -540,8 +540,8 @@ let check_constants ~view constants =
             && String.equal
                  (fmt_name sg.Tensor_sig.fmt)
                  (Payload.fmt_name payload.Tensor.payload.Payload.fmt)
-          then Core.return ()
-          else Core.fail (`Bad_constant_payload id))
+          then Err.return ()
+          else Err.fail (`Bad_constant_payload id))
     (Tensor_id.Map.bindings constants)
 
 (* ---- the conversion ------------------------------------------------------- *)
@@ -549,7 +549,7 @@ let check_constants ~view constants =
 let convert ?(constants = Tensor_id.Map.empty) (src : 'src Snapshot.t) =
   let view = Snapshot.view src in
   let g = Snapshot.graph src in
-  let* () = (Domain.check view :> (unit, Error.t) Core.result) in
+  let* () = (Domain.check view :> (unit, Error.t) Err.t) in
   let* () = check_constants ~view constants in
   (* Fresh ids start above the source watermark, so a created edge can never
      collide with a preserved one. *)
@@ -596,7 +596,7 @@ let convert ?(constants = Tensor_id.Map.empty) (src : 'src Snapshot.t) =
       fresh_constants = [];
     }
   in
-  let* acc = Core.List.fold_left (lower_node ~view) acc0 g.Graph.nodes in
+  let* acc = Err.List.fold_left (lower_node ~view) acc0 g.Graph.nodes in
   let dst_graph =
     {
       G4.Graph.nodes = List.rev acc.nodes;
@@ -622,7 +622,7 @@ let convert ?(constants = Tensor_id.Map.empty) (src : 'src Snapshot.t) =
     }
   in
   let* (Framework.Snapshot4.Pack dst) =
-    Core.map_error (fun e -> `View e) (Framework.Snapshot4.create dst_graph)
+    Err.map_error (fun e -> `View e) (Framework.Snapshot4.create dst_graph)
   in
   (* Claims, PROPAGATED FORWARD. One claim per legalized node is not enough: the
      moment any legalization is weaker than Identical every edge downstream is
@@ -724,7 +724,7 @@ let convert ?(constants = Tensor_id.Map.empty) (src : 'src Snapshot.t) =
       Provenance.empty acc.provenance
   in
   let+ map =
-    Core.map_error
+    Err.map_error
       (fun e -> `Map e)
       (Framework.Map_from_native.create ~src ~dst ~values:value_clusters
          ~nodes:node_clusters ~provenance)

@@ -13,14 +13,13 @@ let pp_error ppf : [< error ] -> unit = function
   | `Build e -> Graph_builder.pp_error ppf e
   | `Json msg | `Message msg -> Format.pp_print_string ppf msg
 
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 
-let lift_build (r : ('a, Graph_builder.error) Core.result) :
-    ('a, error) Core.result =
-  Core.map_error (fun e -> `Build e) r
+let lift_build (r : ('a, Graph_builder.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> `Build e) r
 
-let lift_json (r : ('a, string) result) : ('a, error) Core.result =
-  match r with Ok x -> Core.return x | Error e -> Core.fail (`Json e)
+let lift_json (r : ('a, string) result) : ('a, error) Err.t =
+  match r with Ok x -> Err.return x | Error e -> Err.fail (`Json e)
 
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c c = s 1 1 1 1 1 c
@@ -49,8 +48,8 @@ let encode_op op =
 
 let first_node g =
   match g.Graph.nodes with
-  | node :: _ -> Core.return node
-  | [] -> Core.fail (`Message "expected graph to contain at least one node")
+  | node :: _ -> Err.return node
+  | [] -> Err.fail (`Message "expected graph to contain at least one node")
 
 let pp_graph_json_and_op ppf (graph_json, op_json) =
   Format.fprintf ppf "graph JSON:@.%s@.op JSON:@.%s" graph_json op_json
@@ -77,7 +76,7 @@ let pp_full_and_elided ppf (full_json, elided_json) =
 
 let%expect_test "graph: captured input kind survives JSON roundtrip" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -90,8 +89,8 @@ let%expect_test "graph: captured input kind survives JSON roundtrip" =
     let* json = encode_graph g in
     let* decoded = decode_graph json in
     match List.nth decoded.Graph.inputs 1 |> Graph_ir.input_kind decoded with
-    | Input.Constant -> Core.return (String.contains json 'c')
-    | Input.Input -> Core.fail (`Message "constant decoded as input")
+    | Input.Constant -> Err.return (String.contains json 'c')
+    | Input.Input -> Err.fail (`Message "constant decoded as input")
   in
   Format.printf "%a@."
     (pp_result (fun ppf has_constants ->
@@ -125,7 +124,7 @@ let case_tag json =
 
 let%expect_test "op_name agrees with the JSON case tag, Discard included" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -140,14 +139,14 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
           let* () = discard dead in
           relu ~name:"out" act)
     in
-    Core.List.map
+    Err.List.map
       (fun (node : Graph_ir.node) ->
         let+ json = encode_op node.Node.op in
         (Graph_ir.op_name node.Node.op, case_tag json))
       g.Graph.nodes
   in
   (match result with
-  | Error e -> Format.printf "%a@." pp_error e.Core.Error.kind
+  | Error e -> Format.printf "%a@." pp_error (Err.Error.kind e)
   | Ok rows ->
       List.iter
         (fun (name, tag) ->
@@ -165,7 +164,7 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
 
 let%expect_test "op Add: encode → JSON" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -178,7 +177,7 @@ let%expect_test "op Add: encode → JSON" =
     let* node = first_node g in
     let* graph_json = encode_graph g in
     let* op_json = encode_op node.Node.op in
-    Core.return (graph_json, op_json)
+    Err.return (graph_json, op_json)
   in
   Format.printf "%a@." (pp_result pp_graph_json_and_op) result;
   [%expect
@@ -272,7 +271,7 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
       }
   in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -285,7 +284,7 @@ let%expect_test "op Conv2d: encode → decode → pretty-print graph" =
     in
     let* json = encode_graph g in
     let* g2 = decode_graph json in
-    Core.return (json, g2)
+    Err.return (json, g2)
   in
   Format.printf "%a@." (pp_result pp_json_and_graph) result;
   [%expect
@@ -420,7 +419,7 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
       }
   in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -432,7 +431,7 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
     in
     let* json = encode_graph g in
     let* g2 = decode_graph json in
-    Core.return (g, g2)
+    Err.return (g, g2)
   in
   Format.printf "%a@." (pp_result pp_original_and_graph) result;
   [%expect
@@ -469,7 +468,7 @@ let%expect_test "op Conv2d no bias: optional field absent in JSON" =
 let%expect_test "op Permute: encode → decode" =
   let perm = Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ] in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -499,7 +498,7 @@ let%expect_test "op Permute: encode → decode" =
    different literal. *)
 let%expect_test "ops Add_scalar/Clamp/Div_scalar: encode → decode" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -543,7 +542,7 @@ let%expect_test "ops Add_scalar/Clamp/Div_scalar: encode → decode" =
 
 let%expect_test "ops Hardtanh/Clone: encode → decode" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -571,7 +570,7 @@ let%expect_test "ops Hardtanh/Clone: encode → decode" =
 
 let%expect_test "graph with Mean op: encode → decode → pretty-print" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -597,7 +596,7 @@ let%expect_test "graph with Mean op: encode → decode → pretty-print" =
 
 let%expect_test "nested group: encode → decode → pretty-print" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -612,7 +611,7 @@ let%expect_test "nested group: encode → decode → pretty-print" =
     in
     let* json = encode_graph g in
     let* g2 = decode_graph json in
-    Core.return (g, g2)
+    Err.return (g, g2)
   in
   Format.printf "%a@." (pp_result pp_original_and_graph) result;
   [%expect
@@ -667,10 +666,10 @@ let%expect_test "tensor: encode → decode → verify values" =
     Tensor.materialize (s1c 4) (fun c -> float_of_int (chan c) *. 0.5)
   in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* json = encode_tensor original in
     let* decoded = decode_tensor json in
-    Core.return (original, decoded)
+    Err.return (original, decoded)
   in
   Format.printf "%a@." (pp_result pp_original_and_tensor) result;
   [%expect
@@ -681,10 +680,10 @@ let%expect_test "tensor: encode → decode → verify values" =
 let%expect_test "tensor: payload elided when numel exceeds max_elts" =
   let t = Tensor.materialize (s1c 8) (fun c -> float_of_int (chan c)) in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* full_json = encode_tensor t in
     let* elided_json = encode_tensor ~max_elts:4 t in
-    Core.return (full_json, elided_json)
+    Err.return (full_json, elided_json)
   in
   Format.printf "%a@." (pp_result pp_full_and_elided) result;
   [%expect

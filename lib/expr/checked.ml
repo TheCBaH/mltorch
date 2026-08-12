@@ -49,29 +49,29 @@ let pp_error fmt : [< error ] -> unit = function
 
 let add a b =
   if b > 0 && a > Stdlib.max_int - b then
-    Core.fail (`Index_overflow ("add", a, b))
+    Err.fail (`Index_overflow ("add", a, b))
   else if b < 0 && a < Stdlib.min_int - b then
-    Core.fail (`Index_overflow ("add", a, b))
-  else Core.return (a + b)
+    Err.fail (`Index_overflow ("add", a, b))
+  else Err.return (a + b)
 
 let sub a b =
   if b < 0 && a > Stdlib.max_int + b then
-    Core.fail (`Index_overflow ("sub", a, b))
+    Err.fail (`Index_overflow ("sub", a, b))
   else if b > 0 && a < Stdlib.min_int + b then
-    Core.fail (`Index_overflow ("sub", a, b))
-  else Core.return (a - b)
+    Err.fail (`Index_overflow ("sub", a, b))
+  else Err.return (a - b)
 
 (* Quadrant by sign, after peeling the two cases that would make a division
    inside the check itself unsafe. Every remaining [max_int / b] and
    [min_int / a] has a divisor that is neither 0 nor -1. *)
 let mul a b =
-  let overflow () = Core.fail (`Index_overflow ("mul", a, b)) in
-  let ok () = Core.return (a * b) in
-  if a = 0 || b = 0 then Core.return 0
+  let overflow () = Err.fail (`Index_overflow ("mul", a, b)) in
+  let ok () = Err.return (a * b) in
+  if a = 0 || b = 0 then Err.return 0
   else if a = -1 then
-    if b = Stdlib.min_int then overflow () else Core.return (-b)
+    if b = Stdlib.min_int then overflow () else Err.return (-b)
   else if b = -1 then
-    if a = Stdlib.min_int then overflow () else Core.return (-a)
+    if a = Stdlib.min_int then overflow () else Err.return (-a)
   else if a > 0 then
     if b > 0 then if a > Stdlib.max_int / b then overflow () else ok ()
     else if b < Stdlib.min_int / a then overflow ()
@@ -94,13 +94,13 @@ let mul a b =
    That makes this MORE defined than the form it replaces, which negates the
    dividend and so already misbehaves near [min_int]. *)
 let floor_div_pos n d =
-  if d <= 0 then Core.fail (`Non_positive_divisor d)
+  if d <= 0 then Err.fail (`Non_positive_divisor d)
   else
     let q = n / d and r = n mod d in
-    Core.return (if r < 0 then q - 1 else q)
+    Err.return (if r < 0 then q - 1 else q)
 
 let ceil_div_pos n d =
-  if d <= 0 then Core.fail (`Non_positive_divisor d)
+  if d <= 0 then Err.fail (`Non_positive_divisor d)
   else
     let q = n / d and r = n mod d in
-    Core.return (if r > 0 then q + 1 else q)
+    Err.return (if r > 0 then q + 1 else q)

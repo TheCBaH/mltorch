@@ -20,15 +20,13 @@ let pp_error ppf : [< error ] -> unit = function
   | `Missing_output_tensor id ->
       Format.fprintf ppf "missing output tensor t%d" (Tensor_id.to_int id)
 
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 
-let lift_build (r : ('a, Graph_builder.error) Core.result) :
-    ('a, error) Core.result =
-  Core.map_error (fun e -> `Build e) r
+let lift_build (r : ('a, Graph_builder.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> `Build e) r
 
-let lift_eval (r : ('a, Eval_direct.error) Core.result) :
-    ('a, error) Core.result =
-  Core.map_error (fun e -> `Eval e) r
+let lift_eval (r : ('a, Eval_direct.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> `Eval e) r
 
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
@@ -45,21 +43,21 @@ let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
 
 let output_id (g : graph) =
   match g.Graph.outputs with
-  | [ id ] -> Core.return id
+  | [ id ] -> Err.return id
   | outputs ->
-      Core.fail (`Expected_single_output { count = List.length outputs })
+      Err.fail (`Expected_single_output { count = List.length outputs })
 
 let find_tensor env id =
   match Tensor_id.Map.find_opt id env with
-  | Some tensor -> Core.return tensor
-  | None -> Core.fail (`Missing_output_tensor id)
+  | Some tensor -> Err.return tensor
+  | None -> Err.fail (`Missing_output_tensor id)
 
 let compare_output g grounded direct =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* id = output_id g in
   let* grounded_out = find_tensor grounded id in
   let* direct_out = find_tensor direct id in
-  Core.return (grounded_out, Tensor.equal_bits grounded_out direct_out)
+  Err.return (grounded_out, Tensor.equal_bits grounded_out direct_out)
 
 let pp_ground_result name ppf (tensor, matches) =
   Format.fprintf ppf "%s = %a@.ground matches direct: %b" name Tensor.pp tensor
@@ -68,7 +66,7 @@ let pp_ground_result name ppf (tensor, matches) =
 let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
     =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -103,7 +101,7 @@ let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
 
 let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -141,7 +139,7 @@ let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
 let%expect_test "Symbolic graph: hardsigmoid stage DAG + ground matches Direct"
     =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -181,7 +179,7 @@ let%expect_test "Symbolic graph: hardsigmoid stage DAG + ground matches Direct"
    load. Grounding checks both against Direct. *)
 let%expect_test "Symbolic graph: hardtanh/clone ground matches Direct" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -223,7 +221,7 @@ let%expect_test "Symbolic graph: hardtanh/clone ground matches Direct" =
 let%expect_test "Symbolic graph: sub/div/sqrt stage DAG + ground matches Direct"
     =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -264,7 +262,7 @@ let%expect_test "Symbolic graph: sub/div/sqrt stage DAG + ground matches Direct"
 let%expect_test "Symbolic graph: Discard emits no stage; ground matches Direct"
     =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -303,7 +301,7 @@ let%expect_test "Symbolic graph: Discard emits no stage; ground matches Direct"
    against Direct. *)
 let%expect_test "Symbolic graph: batch_norm ground matches Direct" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let vec2 a0 a1 =
       Tensor.materialize (s1c 2) (fun c -> [| a0; a1 |].(chan c))
     in
@@ -364,7 +362,7 @@ let mp_params =
 let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
     =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -385,7 +383,7 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
     let bind id = List.assoc id inputs in
     let grounded = Stage_program.ground prog ~bind in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
-    Core.return
+    Err.return
       (List.map
          (fun oid ->
            let d = Tensor_id.Map.find oid direct in
@@ -399,7 +397,7 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
         (fun (t, m) ->
           Format.printf "%a  ground matches direct: %b@." Tensor.pp t m)
         outs
-  | Error e -> Format.printf "%a@." pp_error e.Core.Error.kind);
+  | Error e -> Format.printf "%a@." pp_error (Err.Error.kind e));
   [%expect
     {|
     inputs: t0
@@ -413,7 +411,7 @@ let%expect_test "Symbolic graph: max_pool2d_with_indices ground matches Direct"
    offset (the value_of_index-free delinearize path); ground must match Direct. *)
 let%expect_test "Symbolic graph: reshape ground matches Direct" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -488,7 +486,7 @@ let convolution_transposed_params =
 let%expect_test
     "Symbolic graph: conv decomposition stage DAG + ground matches Direct" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -536,7 +534,7 @@ let%expect_test
 
 let%expect_test "Symbolic graph: conv2d_padding same ground matches Direct" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -574,7 +572,7 @@ let%expect_test "Symbolic graph: conv2d_padding same ground matches Direct" =
 
 let%expect_test "Symbolic graph: convolution ground matches Direct" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -612,7 +610,7 @@ let%expect_test "Symbolic graph: convolution ground matches Direct" =
 
 let%expect_test "Symbolic graph: transposed convolution ground matches Direct" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -648,7 +646,7 @@ let%expect_test "Symbolic graph: transposed convolution ground matches Direct" =
 let%expect_test "Symbolic lowering: stages are well-scoped, and reuse ordinals"
     =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -701,9 +699,9 @@ let%expect_test "Symbolic lowering: stages are well-scoped, and reuse ordinals"
         prog.Stage_program.stages again.Stage_program.stages
     in
     Format.printf "second lowering equal: %b@." same;
-    Core.return ()
+    Err.return ()
   in
-  ignore (result : (unit, [> error ]) Core.result);
+  ignore (result : (unit, [> error ]) Err.t);
   [%expect
     {|
     every stage well-scoped: true

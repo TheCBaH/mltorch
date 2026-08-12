@@ -15,12 +15,12 @@ let read_file path =
   try In_channel.with_open_bin path In_channel.input_all
   with Sys_error msg -> failwith ("probe: cannot read " ^ path ^ ": " ^ msg)
 
-(* [Core.or_raise] for a [Core.result], per [[printer_conventions]]. Raising
+(* [Err.or_raise ~pp_error:] for a [Err.t], per [[printer_conventions]]. Raising
    rather than printing is the whole contract of this harness: both backends run
    this same source, so an error that reproduced on each would print identically,
    diff clean and exit 0. See [[testing_strategy]]. *)
 let ok what pp r =
-  Core.or_raise (fun ppf e -> Fmt.pf ppf "probe: %s: %a" what pp e) r
+  Err.or_raise ~pp_error:(fun ppf e -> Fmt.pf ppf "probe: %s: %a" what pp e) r
 
 let run ~pt2 ~input =
   print_endline "=== pt2-inference ===";

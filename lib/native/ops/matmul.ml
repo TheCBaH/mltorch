@@ -34,16 +34,16 @@ module Bmm = struct
     let input_contract = Vec6.get input_shape Axis.C in
     let mat2_contract = Vec6.get mat2_shape Axis.W in
     if not (Dim.equal input_batch mat2_batch) then
-      Core.fail
+      Err.fail
         (`Bmm
            (Shape_error.Bmm.Batch_mismatch
               Shape_error.Bmm.{ lhs = input_batch; rhs = mat2_batch }))
     else if not (Dim.equal input_contract mat2_contract) then
-      Core.fail
+      Err.fail
         (`Bmm
            (Shape_error.Bmm.Contract_mismatch
               Shape_error.Bmm.{ lhs = input_contract; rhs = mat2_contract }))
-    else Core.return (Vec6.copy_axis mat2_shape Axis.C input_shape)
+    else Err.return (Vec6.copy_axis mat2_shape Axis.C input_shape)
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel ~(input_shape : Vec6.shape) ~input ~mat2

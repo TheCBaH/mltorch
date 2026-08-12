@@ -110,17 +110,17 @@ module Limits = struct
 
   let check_int name v hard =
     if v <= 0 || v >= hard then
-      Core.fail (`Invalid_limit { Invalid.name; value = Int64.of_int v })
-    else Core.return ()
+      Err.fail (`Invalid_limit { Invalid.name; value = Int64.of_int v })
+    else Err.return ()
 
   let check_int64 name v hard =
     if Int64.compare v 0L <= 0 || Int64.compare v hard >= 0 then
-      Core.fail (`Invalid_limit { Invalid.name; value = v })
-    else Core.return ()
+      Err.fail (`Invalid_limit { Invalid.name; value = v })
+    else Err.return ()
 
   let create ~max_size ~max_depth ~max_values ~max_dep_depth ~max_inputs
       ~max_outputs ~max_extent ~max_numel =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* () = check_int "max_size" max_size Hard.size in
     let* () = check_int "max_depth" max_depth Hard.depth in
     let* () = check_int "max_values" max_values Hard.values in
@@ -145,7 +145,7 @@ module Limits = struct
      default clears its maximum by an order of magnitude and sits at or below
      half the corresponding [Hard] ceiling. *)
   let default =
-    Core.or_raise pp_error
+    Err.or_raise ~pp_error
       (create ~max_size:4096 ~max_depth:128 ~max_values:4096 ~max_dep_depth:1024
          ~max_inputs:1024 ~max_outputs:1024 ~max_extent:0x7FFF_FFFFL
          ~max_numel:0x7FFF_FFFFL)
@@ -254,7 +254,7 @@ let pp_error fmt : [< error ] -> unit = function
    fold here. *)
 module Bounds = struct
   let signature (limits : Limits.t) id (sg : Tensor_sig.t) =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* () =
       List.fold_left
         (fun acc axis ->
@@ -263,9 +263,9 @@ module Bounds = struct
             Int64.of_int (Dim.to_int (Vec6.get sg.Tensor_sig.shape axis))
           in
           if Int64.compare e limits.Limits.max_extent > 0 then
-            Core.fail (`Extent_too_large { Extent_bound.id; axis; extent = e })
-          else Core.return ())
-        (Core.return ()) Expr.Axis.all
+            Err.fail (`Extent_too_large { Extent_bound.id; axis; extent = e })
+          else Err.return ())
+        (Err.return ()) Expr.Axis.all
     in
     let limit = limits.Limits.max_numel in
     let+ _ =
@@ -276,9 +276,9 @@ module Bounds = struct
             Int64.of_int (Dim.to_int (Vec6.get sg.Tensor_sig.shape axis))
           in
           if Int64.compare n (Int64.div limit e) > 0 then
-            Core.fail (`Numel_too_large id)
-          else Core.return (Int64.mul n e))
-        (Core.return 1L) Expr.Axis.all
+            Err.fail (`Numel_too_large id)
+          else Err.return (Int64.mul n e))
+        (Err.return 1L) Expr.Axis.all
     in
     ()
 end
@@ -288,17 +288,17 @@ end
 let quant_contract id (sg : Tensor_sig.t) =
   let quantized = Payload.is_quantized sg.Tensor_sig.fmt in
   match (quantized, sg.Tensor_sig.quant) with
-  | false, None -> Core.return ()
+  | false, None -> Err.return ()
   | true, Some q -> (
       (* A per-channel value's two arrays agree by [Quant.per_channel]'s
          construction; relating that common length to C is this side's job. *)
       match Quant.channel_count q with
-      | None -> Core.return ()
+      | None -> Err.return ()
       | Some n ->
           if n = Dim.to_int (Vec6.get sg.Tensor_sig.shape Expr.Axis.C) then
-            Core.return ()
-          else Core.fail (`Quant_contract id))
-  | true, None | false, Some _ -> Core.fail (`Quant_contract id)
+            Err.return ()
+          else Err.fail (`Quant_contract id))
+  | true, None | false, Some _ -> Err.fail (`Quant_contract id)
 
 (* [Tensor.materialize] always produces an f32, unquantized payload, and it is
    the only materialiser the evaluator has. So a locally created tensor must
@@ -311,9 +311,9 @@ let materializable id role (sg : Tensor_sig.t) =
   let f32 =
     match sg.Tensor_sig.fmt with Payload.Fmt Payload.F32 -> true | _ -> false
   in
-  if f32 && Option.is_none sg.Tensor_sig.quant then Core.return ()
+  if f32 && Option.is_none sg.Tensor_sig.quant then Err.return ()
   else
-    Core.fail
+    Err.fail
       (`Not_materializable { Format_rule.id; role; fmt = sg.Tensor_sig.fmt })
 
 (* ---- construction --------------------------------------------------------- *)
@@ -351,7 +351,7 @@ let over_limit_2 limit a b =
     | n, false -> ( match go n b with _, over -> over)
 
 let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
-  let open Core.Syntax in
+  let open Err.Syntax in
   (* Arity first: the cheapest guards, and they bound the list and map work
      every later check performs. Neither list contributes to [max_values], so a
      kernel with a thousand unused inputs would otherwise satisfy every DAG
@@ -359,18 +359,18 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
      each declared input before computing anything. *)
   let* () =
     if over_limit limits.Limits.max_inputs inputs then
-      Core.fail (`Too_many_inputs limits.Limits.max_inputs)
-    else Core.return ()
+      Err.fail (`Too_many_inputs limits.Limits.max_inputs)
+    else Err.return ()
   in
   let* () =
     if over_limit limits.Limits.max_outputs outputs then
-      Core.fail (`Too_many_outputs limits.Limits.max_outputs)
-    else Core.return ()
+      Err.fail (`Too_many_outputs limits.Limits.max_outputs)
+    else Err.return ()
   in
   let* () =
     if over_limit limits.Limits.max_values values then
-      Core.fail (`Too_many_values limits.Limits.max_values)
-    else Core.return ()
+      Err.fail (`Too_many_values limits.Limits.max_values)
+    else Err.return ()
   in
   (* Budgets before any unmetered traversal. [Expr.Fold]'s queries walk the whole
      tree; running one first would exhaust the stack on precisely the oversized
@@ -379,23 +379,23 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
     List.fold_left
       (fun acc (v : Value.t) ->
         let* () = acc in
-        (* [Core.map_error], not a hand-rolled rebuild: it preserves the
+        (* [Err.map_error], not a hand-rolled rebuild: it preserves the
            original detection backtrace, which unwrapping [.kind] and calling
-           [Core.fail] silently would not. *)
-        Core.map_error
+           [Err.fail] silently would not. *)
+        Err.map_error
           (fun e -> `Body { Body_error.at = v.id; error = e })
           (Expr.Check.value ~max_size:limits.Limits.max_size
              ~max_depth:limits.Limits.max_depth v.body))
-      (Core.return ()) values
+      (Err.return ()) values
   in
   (* Identity: the record id and its signature id must agree, since [sg.id] is
      the binding key everywhere else. Leaving them independent would key source
      resolution and binding differently. *)
   let* () =
     let check id (sg : Tensor_sig.t) =
-      if Tensor_id.equal id sg.Tensor_sig.id then Core.return ()
+      if Tensor_id.equal id sg.Tensor_sig.id then Err.return ()
       else
-        Core.fail
+        Err.fail
           (`Signature_id_mismatch
              { Sig_mismatch.record = id; sg = sg.Tensor_sig.id })
     in
@@ -404,21 +404,21 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
         (fun acc (i : Input.t) ->
           let* () = acc in
           check i.id i.sg)
-        (Core.return ()) inputs
+        (Err.return ()) inputs
     in
     List.fold_left
       (fun acc (v : Value.t) ->
         let* () = acc in
         check v.id v.sg)
-      (Core.return ()) values
+      (Err.return ()) values
   in
   let* _seen =
     List.fold_left
       (fun acc id ->
         let* seen = acc in
-        if Tensor_id.Set.mem id seen then Core.fail (`Duplicate_id id)
-        else Core.return (Tensor_id.Set.add id seen))
-      (Core.return Tensor_id.Set.empty)
+        if Tensor_id.Set.mem id seen then Err.fail (`Duplicate_id id)
+        else Err.return (Tensor_id.Set.add id seen))
+      (Err.return Tensor_id.Set.empty)
       (List.map (fun (i : Input.t) -> i.Input.id) inputs
       @ List.map (fun (v : Value.t) -> v.Value.id) values)
   in
@@ -440,27 +440,27 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
             (fun src acc ->
               let* d, e = acc in
               let id = Expr_bridge.id_of_source src in
-              if Tensor_id.Set.mem id input_ids then Core.return (d, e)
+              if Tensor_id.Set.mem id input_ids then Err.return (d, e)
               else
                 match
                   (Tensor_id.Map.find_opt id dep, Tensor_id.Map.find_opt id ev)
                 with
-                | Some pd, Some pe -> Core.return (max d pd, max e pe)
+                | Some pd, Some pe -> Err.return (max d pd, max e pe)
                 | _ ->
                     (* Defined later, or not at all: the ordered list makes
                        these the same walk. A source naming a value that exists
                        further down is a forward reference; anything else is
                        unresolved. *)
                     if Tensor_id.Set.mem id defined then
-                      Core.fail
+                      Err.fail
                         (`Forward_reference
                            { Forward_ref.at = v.Value.id; depends_on = id })
                     else
-                      Core.fail
+                      Err.fail
                         (`Unresolved_source
                            { Unresolved.at = v.Value.id; source = src }))
             (Expr.Fold.sources v.Value.body)
-            (Core.return (0, 0))
+            (Err.return (0, 0))
         in
         (* The CONVERTED body, not the raw one: every consumer — a store, a
            load, [value_at] — evaluates [Result_conversion.apply], so the
@@ -479,19 +479,19 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
         in
         let* () =
           if d > limits.Limits.max_dep_depth then
-            Core.fail (`Dependency_too_deep limits.Limits.max_dep_depth)
-          else Core.return ()
+            Err.fail (`Dependency_too_deep limits.Limits.max_dep_depth)
+          else Err.return ()
         in
         let* () =
           if e > Limits.Hard.eval_depth then
-            Core.fail (`Eval_too_deep Limits.Hard.eval_depth)
-          else Core.return ()
+            Err.fail (`Eval_too_deep Limits.Hard.eval_depth)
+          else Err.return ()
         in
-        Core.return
+        Err.return
           ( Tensor_id.Map.add v.Value.id d dep,
             Tensor_id.Map.add v.Value.id e ev,
             defined ))
-      (Core.return
+      (Err.return
          ( Tensor_id.Map.empty,
            Tensor_id.Map.empty,
            List.fold_left
@@ -510,9 +510,9 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
       (fun acc id ->
         let* out = acc in
         match Tensor_id.Map.find_opt id value_sig with
-        | None -> Core.fail (`Unknown_output id)
-        | Some sg -> Core.return ({ Output.value = id; sg } :: out))
-      (Core.return []) outputs
+        | None -> Err.fail (`Unknown_output id)
+        | Some sg -> Err.return ({ Output.value = id; sg } :: out))
+      (Err.return []) outputs
   in
   let out = List.rev out in
   (* Reachability: a reverse sweep over the same ordered list, so no recursive
@@ -537,9 +537,9 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
     List.fold_left
       (fun acc (v : Value.t) ->
         let* () = acc in
-        if Tensor_id.Set.mem v.Value.id live then Core.return ()
-        else Core.fail (`Unreachable_value v.Value.id))
-      (Core.return ()) values
+        if Tensor_id.Set.mem v.Value.id live then Err.return ()
+        else Err.fail (`Unreachable_value v.Value.id))
+      (Err.return ()) values
   in
   (* Signature contracts and the runtime domain, for every declared tensor. *)
   let* () =
@@ -551,10 +551,10 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
           match i.Input.binding with
           | Binding.Filled _ ->
               materializable i.Input.id Format_rule.Filled_input i.Input.sg
-          | Binding.Caller | Binding.Captured_constant -> Core.return ()
+          | Binding.Caller | Binding.Captured_constant -> Err.return ()
         in
         Bounds.signature limits i.Input.id i.Input.sg)
-      (Core.return ()) inputs
+      (Err.return ()) inputs
   in
   let* () =
     List.fold_left
@@ -565,9 +565,9 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
           materializable v.Value.id Format_rule.Stored_value v.Value.sg
         in
         Bounds.signature limits v.Value.id v.Value.sg)
-      (Core.return ()) values
+      (Err.return ()) values
   in
-  Core.return
+  Err.return
     {
       inputs;
       values;

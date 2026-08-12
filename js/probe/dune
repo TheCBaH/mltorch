@@ -15,13 +15,13 @@
  (name probes_pure)
  (wrapped false)
  (modules probe_walk_core probe_core)
- (libraries walk_core core fmt jsont))
+ (libraries walk_core core err_trace fmt jsont))
 
 (library
  (name probes_native)
  (wrapped false)
  (modules probe_tensor_json probe_native)
- (libraries probes_pure native native_op_walk walk_core core))
+ (libraries probes_pure native native_op_walk walk_core core err_trace))
 
 ; A THIRD library, for the same reason there is a second one: it records a real
 ; boundary rather than grouping by convenience. Everything here reaches PyTorch
@@ -37,6 +37,7 @@
  (libraries
   probes_pure
   core
+  err_trace
   fmt
   pt2
   pytorch_types

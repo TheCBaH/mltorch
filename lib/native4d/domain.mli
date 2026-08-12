@@ -22,4 +22,4 @@
    reject the model outright. It is the relayout passes plus constant folding
    that produce [N=out, H=kh, W=kw, C=in]. Run [Pipeline.canonical] first. *)
 
-val check : Graph_view.t -> (unit, Error.t) Core.result
+val check : Graph_view.t -> (unit, Error.t) Err.t

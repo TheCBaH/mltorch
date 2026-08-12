@@ -8,18 +8,18 @@ let s1c n = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:n
 
 let build name m =
   Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
-  |> Core.or_raise (fun ppf e ->
+  |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
 let run ?(pass = Dce.pass) g =
   match Rewrite.origin g with
   | Error e ->
-      Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind;
+      Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e);
       None
   | Ok (Rewrite.Origin state) -> (
       match Pass.run_all state [ pass ] with
       | Error e ->
-          Format.printf "%a@." Pass.pp_error e.Core.Error.kind;
+          Format.printf "%a@." Pass.pp_error (Err.Error.kind e);
           None
       | Ok (Rewrite.Step (final, map)) ->
           Format.printf "@[<v 2>after:@,%a@]@." Graph_ir.pp
@@ -144,10 +144,10 @@ let outcome label ~pass g =
      one printer without an intermediate error type. *)
   let result =
     match Rewrite.origin g with
-    | Error e -> Error (e.Core.Error.kind :> Pass.error)
+    | Error e -> Error (Err.Error.kind e :> Pass.error)
     | Ok (Rewrite.Origin state) -> (
         match Pass.run_all state [ pass ] with
-        | Error e -> Error e.Core.Error.kind
+        | Error e -> Error (Err.Error.kind e)
         | Ok (Rewrite.Step (final, _)) -> Ok (Rewrite.graph final))
   in
   match result with
@@ -180,13 +180,13 @@ let%expect_test "dce: a long dead chain goes in one sweep" =
 let%expect_test "dce: the pass verifies its own step" =
   let g = dead_branch () in
   match Rewrite.origin g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) ->
       (match
          Pass.run_reporting ~verify:Map_verify.Policy.Require_proved state
            [ Dce.pass ]
        with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok { Pass.audits; _ } ->
           List.iter
             (fun ({ id; report } : Pass.Audit.t) ->

@@ -12,7 +12,7 @@ let origin = Coord.of_fn (fun _ -> 0)
 let no_reducers _ = None
 
 let pp_res fmt r =
-  Core.Pretty.core_result ~ok:Fmt.int ~error:Eval.pp_index_error fmt r
+  Core.Pretty.err_result ~ok:Fmt.int ~error:Eval.pp_index_error fmt r
 
 let ev ?(output = origin) ?(reducers = no_reducers) e =
   Eval.index ~output ~reducers e
@@ -22,7 +22,7 @@ let ev ?(output = origin) ?(reducers = no_reducers) e =
 let div build n d =
   match build (Index.const n) d with
   | Ok e -> ev e
-  | Error e -> Error (e :> Eval.index_error Core.Error.t)
+  | Error e -> Error (e :> Eval.index_error Err.Error.t)
 
 let%expect_test "every current index form has a typed equivalent" =
   (* The nine constructors of the representation this replaces, in order, each

@@ -41,7 +41,7 @@ let pp_error fmt : [< error ] -> unit = function
    Resolved and validated BEFORE anything is evaluated, which is what makes
    [`Unbound_input] and [`Binding_mismatch] expressible at all:
    [Expr.Eval.Env.t.load] has the fixed result type
-   [(float, Expr.Eval.error) Core.result], and this row is wider. With a
+   [(float, Expr.Eval.error) Err.t], and this row is wider. With a
    validated total map, [Expr_bridge.env] can only ever report a genuine
    [`Unknown_source]. *)
 
@@ -72,7 +72,7 @@ let payload_quant (Tensor.Tensor t) =
    [Payload.get_float] at an otherwise in-range offset. *)
 let check_binding id (sg : Tensor_sig.t) tensor =
   let mismatch kind =
-    Core.fail (`Binding_mismatch { Binding_mismatch.id; kind })
+    Err.fail (`Binding_mismatch { Binding_mismatch.id; kind })
   in
   let (Tensor.Tensor t) = tensor in
   if not (same_shape sg.Tensor_sig.shape t.Tensor.shape) then
@@ -98,10 +98,10 @@ let check_binding id (sg : Tensor_sig.t) tensor =
         let actual = storage_cells tensor in
         if expected <> actual then
           mismatch (Binding_mismatch.Storage_length { expected; actual })
-        else Core.return ()
+        else Err.return ()
 
 let input_env (k : Kernel.t) ~bind =
-  let open Core.Syntax in
+  let open Err.Syntax in
   List.fold_left
     (fun acc (i : Kernel.Input.t) ->
       let* m = acc in
@@ -111,20 +111,20 @@ let input_env (k : Kernel.t) ~bind =
              handed through as an OCaml float: the store is f32, so a fill that
              is not representable there must be rounded before any consumer
              reads it. *)
-          Core.return
+          Err.return
             (Tensor_id.Map.add i.Kernel.Input.id
                (Tensor.materialize i.Kernel.Input.sg.Tensor_sig.shape (fun _ ->
                     v))
                m)
       | Kernel.Binding.Caller | Kernel.Binding.Captured_constant -> (
           match bind i.Kernel.Input.id with
-          | None -> Core.fail (`Unbound_input i.Kernel.Input.id)
+          | None -> Err.fail (`Unbound_input i.Kernel.Input.id)
           | Some tensor ->
               let+ () =
                 check_binding i.Kernel.Input.id i.Kernel.Input.sg tensor
               in
               Tensor_id.Map.add i.Kernel.Input.id tensor m))
-    (Core.return Tensor_id.Map.empty)
+    (Err.return Tensor_id.Map.empty)
     k.Kernel.inputs
 
 (* ---- evaluation ------------------------------------------------------------
@@ -132,15 +132,15 @@ let input_env (k : Kernel.t) ~bind =
    [Tensor.materialize] takes [Vec6.coord -> float] and cannot carry a result,
    so the callback signals through a private exception carrying the ERROR VALUE
    and the boundary converts once. Reusing [Schedule.ground] instead would put
-   [Core.or_raise] on the path and let [Expr.Eval] failures escape as exceptions
-   through an API promising [Core.result]. The original error is re-returned,
+   [Err.or_raise ~pp_error:] on the path and let [Expr.Eval] failures escape as exceptions
+   through an API promising [Err.t]. The original error is re-returned,
    never rebuilt by hand, so its detection backtrace survives. *)
 
-exception Failed of error Core.Error.t
+exception Failed of error Err.Error.t
 
 let caught f = try f () with Failed e -> Error e
 let or_raise = function Ok v -> v | Error e -> raise (Failed e)
-let widen r = Core.map_error (fun (e : Expr.Eval.error) -> (e :> error)) r
+let widen r = Err.map_error (fun (e : Expr.Eval.error) -> (e :> error)) r
 
 let coord_key (c : int Expr.Coord.t) =
   ( c.Expr.Coord.n,
@@ -189,16 +189,16 @@ let machine (k : Kernel.t) ~bind ~virtual_uses =
     if depth > Kernel.Limits.Hard.eval_recursion then
       raise
         (Failed
-           (Core.Error.make
+           (Err.Error.make
               (`Recursion_too_deep Kernel.Limits.Hard.eval_recursion)));
     match Tensor_id.Map.find_opt id values with
-    | None -> raise (Failed (Core.Error.make (`Unknown_value id)))
+    | None -> raise (Failed (Err.Error.make (`Unknown_value id)))
     | Some (v : Kernel.Value.t) -> (
         match in_shape v.Kernel.Value.sg coord with
         | Some a ->
             raise
               (Failed
-                 (Core.Error.make
+                 (Err.Error.make
                     (`Coord_out_of_range
                        ( Expr_bridge.source_of_id id,
                          a,
@@ -223,7 +223,7 @@ let machine (k : Kernel.t) ~bind ~virtual_uses =
         (fun src c ->
           let producer = Expr_bridge.id_of_source src in
           if is_virtual ~consumer ~producer then
-            Core.return (eval_value ~depth:(depth + 1) producer c)
+            Err.return (eval_value ~depth:(depth + 1) producer c)
           else
             (Expr_bridge.env ~binding:(fun i -> Tensor_id.Map.find_opt i !bound))
               .Expr.Eval.Env.load src c);
@@ -277,13 +277,13 @@ let run_plan (p : Fusion_plan.t) ~bind =
 let value_at k ~bind id coord =
   caught @@ fun () ->
   match Kernel.value k id with
-  | None -> raise (Failed (Core.Error.make (`Unknown_value id)))
+  | None -> raise (Failed (Err.Error.make (`Unknown_value id)))
   | Some (v : Kernel.Value.t) -> (
       match in_shape v.Kernel.Value.sg coord with
       | Some a ->
           raise
             (Failed
-               (Core.Error.make
+               (Err.Error.make
                   (`Coord_out_of_range
                      ( Expr_bridge.source_of_id id,
                        a,

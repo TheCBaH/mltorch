@@ -32,7 +32,7 @@ val of_origins :
   limits:Me_limits.Limits.t ->
   source_nodes:string list ->
   Pt2_native_graph.Node_origin.t list Graph_ir.Node_id.Map.t ->
-  (t, [> error ]) Core.result
+  (t, [> error ]) Err.t
 (** [source_nodes] is the PT2 root graph's own node ids, and it is a parameter
     rather than something derived from the sidecar because the sidecar is
     indexed BY NATIVE NODE: a PT2 node with no counterpart never appears in it

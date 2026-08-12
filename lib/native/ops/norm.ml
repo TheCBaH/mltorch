@@ -92,7 +92,7 @@ module BatchNorm = struct
       t.bias pp_ref t.running_mean pp_ref t.running_var pp_params t.params
 
   (* Output keeps the input shape: batch norm rescales, it does not reduce. *)
-  let output_shape ~(x_shape : Vec6.shape) = Core.return x_shape
+  let output_shape ~(x_shape : Vec6.shape) = Err.return x_shape
 
   (* Walk config: just the input shape and eps; the per-channel [C] vectors are
      derived from the shape's C extent by the walk's [build] (see
@@ -207,7 +207,7 @@ module RmsNorm = struct
       t.weight pp_params t.params
 
   (* Output keeps the input shape: rms-norm rescales, it does not reduce. *)
-  let output_shape ~(x_shape : Vec6.shape) = Core.return x_shape
+  let output_shape ~(x_shape : Vec6.shape) = Err.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x ~weight

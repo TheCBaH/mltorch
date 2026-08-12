@@ -142,7 +142,7 @@ module Make (S : Side.S) : sig
     ('v, 'a) t ->
     'v S.Snapshot.t ->
     Id_supply.t ->
-    ('a * 'v replacement list * Id_supply.t, error) Core.result
+    ('a * 'v replacement list * Id_supply.t, error) Err.t
 
   val pp_replacement : Format.formatter -> 'v replacement -> unit
 end

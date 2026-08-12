@@ -187,10 +187,10 @@ let module_levels stack =
 
 let namespace ~limits (n : PT.Node.t) =
   match SM.find_opt "nn_module_stack" n.PT.Node.metadata with
-  | None -> Core.return ""
+  | None -> Err.return ""
   | Some stack -> (
       match module_levels stack with
-      | [] -> Core.return ""
+      | [] -> Err.return ""
       | levels -> Me_ids.pt2_namespace ~limits levels)
 
 (* --- the projection ------------------------------------------------------ *)
@@ -268,7 +268,7 @@ let output_metadata g slot name =
   ME.MetadataItem.create ~id:(string_of_int slot) ~attrs
 
 let graph ~limits (gm : PT.GraphModule.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let g = gm.PT.GraphModule.graph in
   let nodes = g.PT.Graph.nodes in
   let inputs = List.concat_map tensor_names g.PT.Graph.inputs in
@@ -279,8 +279,8 @@ let graph ~limits (gm : PT.GraphModule.t) =
   in
   let* () =
     if node_count > limits.Me_limits.Limits.max_nodes_per_graph then
-      Core.fail (`Over_limit ("nodes", node_count))
-    else Core.return ()
+      Err.fail (`Over_limit ("nodes", node_count))
+    else Err.return ()
   in
   let kinds = input_kinds gm.PT.GraphModule.signature in
   (* Where each SSA value comes from. A graph input resolves to its pinned
@@ -288,7 +288,7 @@ let graph ~limits (gm : PT.GraphModule.t) =
      a case every consumer has to know about. *)
   let producer = Hashtbl.create 256 in
   let* () =
-    Core.List.iter
+    Err.List.iter
       (fun name ->
         let kind = Option.value (Hashtbl.find_opt kinds name) ~default:`In in
         let+ id = Me_ids.pt2_boundary ~limits (boundary_kind kind) name in
@@ -304,11 +304,11 @@ let graph ~limits (gm : PT.GraphModule.t) =
     nodes;
   let resolve name =
     match Hashtbl.find_opt producer name with
-    | Some p -> Core.return p
-    | None -> Core.fail (`Unknown_producer name)
+    | Some p -> Err.return p
+    | None -> Err.fail (`Unknown_producer name)
   in
   let* input_nodes =
-    Core.List.map
+    Err.List.map
       (fun name ->
         let kind = Option.value (Hashtbl.find_opt kinds name) ~default:`In in
         let+ id = Me_ids.pt2_boundary ~limits (boundary_kind kind) name in
@@ -320,11 +320,11 @@ let graph ~limits (gm : PT.GraphModule.t) =
       inputs
   in
   let* op_nodes =
-    Core.List.map
+    Err.List.map
       (fun (index, (n : PT.Node.t)) ->
         let* ns = namespace ~limits n in
         let+ incoming =
-          Core.List.map
+          Err.List.map
             (fun (arg_name, ssa) ->
               let+ src, slot = resolve ssa in
               ME.IncomingEdge.create ~sourceNodeId:src
@@ -362,7 +362,7 @@ let graph ~limits (gm : PT.GraphModule.t) =
       (List.mapi (fun i n -> (i, n)) nodes)
   in
   let* output_nodes =
-    Core.List.map
+    Err.List.map
       (fun name ->
         let* id = Me_ids.pt2_boundary ~limits `Out name in
         let+ src, slot = resolve name in
@@ -386,7 +386,7 @@ let graph ~limits (gm : PT.GraphModule.t) =
   in
   let+ () =
     if edges > limits.Me_limits.Limits.max_edges_per_graph then
-      Core.fail (`Over_limit ("edges", edges))
-    else Core.return ()
+      Err.fail (`Over_limit ("edges", edges))
+    else Err.return ()
   in
   ME.Graph.create ~id:(Me_ids.pt2_graph path) ~nodes:all ()

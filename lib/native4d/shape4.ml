@@ -19,8 +19,8 @@ let of_ints ~n ~h ~w ~c =
 
 let of_vec6 (s : Vec6.shape) =
   let unit_axis axis = Dim.to_int (Vec6.get s axis) = 1 in
-  if unit_axis Axis.T && unit_axis Axis.D then Core.return s
-  else Core.fail (`Non_four_dimensional_shape s)
+  if unit_axis Axis.T && unit_axis Axis.D then Err.return s
+  else Err.fail (`Non_four_dimensional_shape s)
 
 let to_vec6 s = s
 let get s axis = Vec6.get s (Axis4.to_axis axis)

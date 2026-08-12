@@ -52,7 +52,8 @@ let transposed_params : Ops4.Transposed_conv2d.params =
 
 let build ~outputs m =
   Builder.build ~outputs m
-  |> Core.or_raise (fun ppf e -> Fmt.pf ppf "fixture4: %a" Builder.pp_error e)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture4: %a" Builder.pp_error e)
 
 (* Distinct, non-degenerate values: a fill of zeros would make a wrong group
    count or a wrong axis map invisible. Kept small and exactly representable so

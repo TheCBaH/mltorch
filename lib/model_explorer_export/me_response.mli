@@ -157,9 +157,9 @@ module Wire : sig
   type error = [ `Meta_too_large ]
 
   val pp_error : Format.formatter -> [< error ] -> unit
-  val of_progress : Progress.t -> (t, [> error ]) Core.result
+  val of_progress : Progress.t -> (t, [> error ]) Err.t
 
-  val of_final : Final.t -> (t, [> error ]) Core.result
+  val of_final : Final.t -> (t, [> error ]) Err.t
   (** Builds the corresponding {!Meta.t} — [payload = Some json] and
       [bytes = String.length json] for a session and a delta, [None] and no byte
       count for the other three — then encodes it through a WRITER-LIMITED
@@ -178,8 +178,7 @@ module Wire : sig
       value rather than an argument about a function — and the suite asserts the
       ceiling over THESE bytes, the ones that path actually posts. *)
 
-  val of_final_bounded :
-    max_meta_bytes:int -> Final.t -> (t, [> error ]) Core.result
+  val of_final_bounded : max_meta_bytes:int -> Final.t -> (t, [> error ]) Err.t
   (** {!of_final} with the ceiling injected. Exposed only so the limit branch
       can be reached: a bound nobody can drive is a bound taken on trust. *)
 end

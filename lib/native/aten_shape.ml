@@ -29,13 +29,13 @@ let pp_error ppf : error -> unit = function
 (* Right-align an ATen shape into the frame; outer axes default to extent 1.
    Validates the untrusted rank and each dim, so it returns a [result]. *)
 let of_aten (dims : int array) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let r = Array.length dims in
   let* () =
-    if r > 6 then Core.fail (`Rank_out_of_range { rank = r; lo = 0; hi = 6 })
-    else Core.return ()
+    if r > 6 then Err.fail (`Rank_out_of_range { rank = r; lo = 0; hi = 6 })
+    else Err.return ()
   in
-  Core.List.fold_left
+  Err.List.fold_left
     (fun s (ax, v) ->
       let+ e = Dim.extent_checked v in
       Vec6.set s ax e)

@@ -24,5 +24,5 @@ let pp_op pp_ref fmt op = Graph_ir.pp_op_with ~pp_ref fmt op
    six-axis shape is a legal Native shape. The hook exists for dialects whose
    invariant is not implied by their operations — Native4D's four-axis rule
    holds of graph inputs and captured constants, which no op produces. *)
-let validate_sig : Tensor_sig.t -> (unit, shape_error) Core.result =
- fun _ -> Core.return ()
+let validate_sig : Tensor_sig.t -> (unit, shape_error) Err.t =
+ fun _ -> Err.return ()

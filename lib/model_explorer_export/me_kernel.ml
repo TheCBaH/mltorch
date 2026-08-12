@@ -32,14 +32,14 @@ let shape (sg : Tensor_sig.t) =
    lets the two be compared without an explicit mapping, the same argument the
    Native comparison rests on. *)
 let build ~limits ~id ~inputs ~outputs ~values =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let node_count =
     List.length values + List.length inputs + List.length outputs
   in
   let* () =
     if node_count > limits.Me_limits.Limits.max_nodes_per_graph then
-      Core.fail (`Over_limit ("nodes", node_count))
-    else Core.return ()
+      Err.fail (`Over_limit ("nodes", node_count))
+    else Err.return ()
   in
   let producer = Hashtbl.create 128 in
   List.iter
@@ -57,8 +57,8 @@ let build ~limits ~id ~inputs ~outputs ~values =
   let resolve src =
     let k = Expr.Source.to_int src in
     match Hashtbl.find_opt producer k with
-    | Some n -> Core.return n
-    | None -> Core.fail (`Unknown_producer k)
+    | Some n -> Err.return n
+    | None -> Err.fail (`Unknown_producer k)
   in
   let boundary kind (vid, label, sg, attrs) =
     ME.GraphNode.create ~id:(Me_ids.boundary kind vid) ~label ~namespace:""
@@ -72,10 +72,10 @@ let build ~limits ~id ~inputs ~outputs ~values =
   in
   let input_nodes = List.map (boundary `In) inputs in
   let* value_nodes =
-    Core.List.map
+    Err.List.map
       (fun (vid, label, sg, body) ->
         let+ incoming =
-          Core.List.map
+          Err.List.map
             (fun src ->
               let+ from = resolve src in
               ME.IncomingEdge.create ~sourceNodeId:from ~sourceNodeOutputId:"0"
@@ -107,7 +107,7 @@ let build ~limits ~id ~inputs ~outputs ~values =
       values
   in
   let* output_nodes =
-    Core.List.map
+    Err.List.map
       (fun (vid, label, sg, attrs) ->
         let+ from =
           resolve (Expr.Source.create (Graph_ir.Tensor_id.to_int vid))
@@ -137,8 +137,8 @@ let build ~limits ~id ~inputs ~outputs ~values =
   in
   let+ () =
     if edges > limits.Me_limits.Limits.max_edges_per_graph then
-      Core.fail (`Over_limit ("edges", edges))
-    else Core.return ()
+      Err.fail (`Over_limit ("edges", edges))
+    else Err.return ()
   in
   ME.Graph.create ~id ~nodes:all ()
 

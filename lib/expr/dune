@@ -16,4 +16,4 @@
 (library
  (name expr)
  (private_modules checked)
- (libraries core fmt))
+ (libraries err_trace fmt))
