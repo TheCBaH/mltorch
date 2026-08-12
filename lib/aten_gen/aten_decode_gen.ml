@@ -209,8 +209,8 @@ let dispatch_arm (op : A.t) : string option =
                   Printf.sprintf "let out = make TG.tensors%d_struct in" nret;
                   Printf.sprintf "let st = %s (addr out) in" call;
                   Printf.sprintf
-                    "if st <> 0 then Core.fail (`Aten_runtime_failure (%S, \
-                     st)) else"
+                    "if st <> 0 then Err.fail (`Aten_runtime_failure (%S, st)) \
+                     else"
                     (ocaml_name op);
                   Printf.sprintf "bind_many env node [ %s ]" reads;
                 ]
@@ -237,7 +237,7 @@ let file (ops : A.t list) : string =
 open Ctypes
 open Pytorch_types
 open Interp_decode
-open Core.Syntax
+open Err.Syntax
 module O = Aten_c.Aten_operations
 module TG = Aten_types_generated
 
@@ -246,6 +246,6 @@ let tget = Aten_operation_description.tensors_get
 let dispatch (env : env) (node : Node.t) =
   match node.target with
 %s
-  | other -> Core.fail (`Unhandled_op other)
+  | other -> Err.fail (`Unhandled_op other)
 |}
     banner (String.concat "\n" arms)

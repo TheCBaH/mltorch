@@ -5,7 +5,7 @@
 let pp_ints a = String.concat "; " (Array.to_list (Array.map string_of_int a))
 
 let main () =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let pt2_path = Sys.argv.(1) in
   let image_path = Sys.argv.(2) in
   let* m = Pt2_archive.open_pt2 pt2_path in
@@ -26,11 +26,11 @@ let main () =
   Printf.printf "image (aten): [%s] contiguous=%b\n"
     (pp_ints (Aten_tensor.shape ia))
     (Aten_tensor.is_contiguous ia);
-  Core.return ()
+  Err.return ()
 
 let () =
   match main () with
   | Ok () -> ()
   | Error e ->
-      Format.eprintf "%a@." (Core.Error.pp Pt2_archive.pp_error) e;
+      Format.eprintf "%a@." (Err.Error.pp Pt2_archive.pp_error) e;
       exit 1

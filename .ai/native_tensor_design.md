@@ -335,7 +335,7 @@ type t                                        (* ABSTRACT *)
 type error = [ `Quant_array_lengths of int * int ]
 
 val per_tensor  : scale:float -> zero_point:int -> t
-val per_channel : scale:float array -> zero_point:int array -> (t, error) Core.result
+val per_channel : scale:float array -> zero_point:int array -> (t, error) Err.t
 val channel_count : t -> int option           (* None for per-tensor *)
 val equal : t -> t -> bool
 ```

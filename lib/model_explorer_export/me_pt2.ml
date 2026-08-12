@@ -57,7 +57,7 @@ let is_root (o : Pt2_native_graph.Node_origin.t) =
   o.Pt2_native_graph.Node_origin.graph_path = Pt2_native_graph.Graph_path.root
 
 let of_origins ~limits ~source_nodes origins =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let uf = Uf.create () in
   let native_side = Hashtbl.create 64 in
   let pt2_side = Hashtbl.create 64 in
@@ -84,8 +84,8 @@ let of_origins ~limits ~source_nodes origins =
   let total = Hashtbl.length native_side + Hashtbl.length pt2_side in
   let* () =
     if total > limits.Me_limits.Limits.max_mapping_members_total then
-      Core.fail (`Over_limit ("mappingMembers", total))
-    else Core.return ()
+      Err.fail (`Over_limit ("mappingMembers", total))
+    else Err.return ()
   in
   (* Group by representative, then order everything: components by their
      smallest native id, ids within a side lexicographically. Determinism is
@@ -110,15 +110,15 @@ let of_origins ~limits ~source_nodes origins =
     |> List.map (fun (left, right) -> { Me_session.Mapping_entry.left; right })
   in
   let* () =
-    Core.List.iter
+    Err.List.iter
       (fun (e : Me_session.Mapping_entry.t) ->
         let n =
           List.length e.Me_session.Mapping_entry.left
           + List.length e.Me_session.Mapping_entry.right
         in
         if n > limits.Me_limits.Limits.max_mapping_members_per_entry then
-          Core.fail (`Over_limit ("mappingMembersPerEntry", n))
-        else Core.return ())
+          Err.fail (`Over_limit ("mappingMembersPerEntry", n))
+        else Err.return ())
       entries
   in
   (* [deleted] needs the source universe, which the sidecar cannot supply: it
@@ -129,7 +129,7 @@ let of_origins ~limits ~source_nodes origins =
     List.filter (fun id -> not (Hashtbl.mem pt2_side id)) source_nodes
     |> List.sort_uniq compare
   in
-  Core.return { entries; created = List.sort compare !created; deleted }
+  Err.return { entries; created = List.sort compare !created; deleted }
 
 let sync t =
   {

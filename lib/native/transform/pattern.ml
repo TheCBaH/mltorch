@@ -158,16 +158,19 @@ module Make (D : Dialect.S) = struct
     | Some sg -> return sg
     | None -> fail (Unproduced edge)
 
-  (* THE one place a [Core.result] crosses into this monad's [failure]. The
-     detection backtrace is deliberately dropped: [failure] carries no
-     [Core.Error.t], and [Invalid] is a report that the graph is broken rather
+  (* THE one place a [Err.t] crosses into this monad's [failure]. The
+     detection provenance is deliberately dropped: [failure] carries no
+     [Err.Error.t], and [Invalid] is a report that the graph is broken rather
      than a developer diagnostic. Named so the crossing is auditable in one
-     place instead of open-coded at each use. *)
-  let of_core r = Result.map_error (fun e -> Invalid e.Core.Error.kind) r
+     place instead of open-coded at each use, and marked [Export] so a monitor
+     can see the crossing even though the value that leaves cannot record it. *)
+  let of_err r =
+    Err.mark_error ~pos:__POS__ Err.Action.Export r
+    |> Result.map_error (fun e -> Invalid (Err.Error.kind e))
 
   (* [region] and [run] close over the same claimed-plus-shared set. *)
   let region_of s =
-    of_core (Rgn.of_nodes s.view (Node_id.Set.union s.claimed s.shared))
+    of_err (Rgn.of_nodes s.view (Node_id.Set.union s.claimed s.shared))
 
   let region s = region_of s |> Result.map (fun r -> (r, s))
 

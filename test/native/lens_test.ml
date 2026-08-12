@@ -95,18 +95,18 @@ let sidecar_for graph =
          ])
     ~captured_targets:
       (map_of (List.map (fun (id, _, target) -> (t_ id, target)) captured))
-  |> Core.or_raise P.pp_error
+  |> Err.or_raise ~pp_error:P.pp_error
 
 (* A sidecar carrying nothing but its graph, for the case where the point is
    which graph it describes rather than what it says about it. *)
 let bare_sidecar graph =
   P.make ~graph ~tensor_origins:Tensor_id.Map.empty
     ~node_origins:Node_id.Map.empty ~captured_targets:Tensor_id.Map.empty
-  |> Core.or_raise P.pp_error
+  |> Err.or_raise ~pp_error:P.pp_error
 
 (* ---- driving a pipeline and lensing the far end --------------------------- *)
 
-let fail e = Format.printf "%a@." P.pp_lens_error e.Core.Error.kind
+let fail e = Format.printf "%a@." P.pp_lens_error (Err.Error.kind e)
 
 (* The destination version is existential, so the probe has to be explicitly
    polymorphic to receive a lens at all. *)
@@ -116,13 +116,13 @@ let over_chain ?sidecar passes { probe } =
   let g = Graph_fixtures.chain () in
   let sidecar = Option.value sidecar ~default:(sidecar_for g) in
   match Rewrite.origin ~constants:chain_constants g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin s0) -> (
       match Pass.run_all s0 passes with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (s1, m01)) -> (
           match Rewrite.pack s1 with
-          | Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+          | Error e -> Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
           | Ok (Rewrite.Step (s2, m12)) -> (
               let map = Graph_map.compose m01 m12 in
               match P.lens sidecar ~src:s0 map ~dst:s2 with
@@ -302,7 +302,7 @@ let%expect_test "lens: a weaker claim never yields an archive path" =
   let g = Graph_fixtures.chain () in
   let sidecar = sidecar_for g in
   match Rewrite.origin ~constants:chain_constants g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin s0) ->
       (let snap = Rewrite.snapshot s0 in
        let e id = Option.get (Snapshot.edge snap (t_ id)) in

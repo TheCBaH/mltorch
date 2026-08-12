@@ -67,13 +67,13 @@ module Make (S : Side.S) = struct
     snapshot : 'v Snap.t;
   }
 
-  type ('v, 'a) t = 'v state -> ('a * 'v state, error) Core.result
+  type ('v, 'a) t = 'v state -> ('a * 'v state, error) Err.t
 
-  let return x s = Core.return (x, s)
+  let return x s = Err.return (x, s)
   let ( let* ) m f s = match m s with Ok (x, s) -> f x s | Error e -> Error e
 
   let ( let+ ) m f s =
-    match m s with Ok (x, s) -> Core.return (f x, s) | Error e -> Error e
+    match m s with Ok (x, s) -> Err.return (f x, s) | Error e -> Error e
 
   let all f l =
     let m =
@@ -91,8 +91,8 @@ module Make (S : Side.S) = struct
 
   let existing id s =
     match Snap.edge s.snapshot id with
-    | Some _ -> Core.return (id, s)
-    | None -> Core.fail (`Unknown_source_edge id)
+    | Some _ -> Err.return (id, s)
+    | None -> Err.fail (`Unknown_source_edge id)
 
   let fresh ?(fmt = f32) ?quant shape s =
     let id, ids = Id_supply.tensor s.ids in
@@ -104,7 +104,7 @@ module Make (S : Side.S) = struct
       | [] -> [ { empty_replacement with tensors = [ sg ] } ]
       | r :: rest -> { r with tensors = r.tensors @ [ sg ] } :: rest
     in
-    Core.return (id, { s with ids; rev })
+    Err.return (id, { s with ids; rev })
 
   let emit r s =
     (* [fresh] may have parked signatures in a placeholder; fold them in. *)
@@ -112,16 +112,16 @@ module Make (S : Side.S) = struct
     | placeholder :: rest
       when placeholder.remove = Node_id.Set.empty
            && placeholder.insert = [] && placeholder.tensors <> [] ->
-        Core.return
+        Err.return
           ( (),
             {
               s with
               rev = { r with tensors = placeholder.tensors @ r.tensors } :: rest;
             } )
-    | _ -> Core.return ((), { s with rev = r :: s.rev })
+    | _ -> Err.return ((), { s with rev = r :: s.rev })
 
   let run m snapshot ids =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ x, s = m { ids; rev = []; snapshot } in
     (x, List.rev s.rev, s.ids)
 

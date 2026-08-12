@@ -27,7 +27,7 @@ module Request_id : sig
   type t = private string
   (** [<uuid>-<seq>]. *)
 
-  val of_string : string -> (t, [> `Malformed_request_id ]) Core.result
+  val of_string : string -> (t, [> `Malformed_request_id ]) Err.t
   (** A GRAMMAR, not a length. 36 characters of canonical lowercase hyphenated
       UUID, a ['-'], then 1–10 decimal digits with no leading zero (bare ["0"]
       allowed) whose value is below [Me_limits.Hard.max_seq_exclusive].
@@ -69,7 +69,7 @@ module Detail_key : sig
     limits:Me_limits.Limits.t ->
     parent_graph:string ->
     value:Graph_ir.Tensor_id.t ->
-    (t, [> `Invalid_detail_key of invalid ]) Core.result
+    (t, [> `Invalid_detail_key of invalid ]) Err.t
   (** [parent_graph] against [max_id_bytes] AND the derived {!id} against it,
       since a component can expand threefold under encoding — checking only the
       input would approve a key whose rendered id is over.
@@ -81,7 +81,7 @@ module Detail_key : sig
   val validate :
     limits:Me_limits.Limits.t ->
     t ->
-    (unit, [> `Invalid_detail_key of invalid ]) Core.result
+    (unit, [> `Invalid_detail_key of invalid ]) Err.t
   (** The profile-dependent half, separated from construction because a [t]
       carries no witness of the profile it was built under — a key valid under
       [untrusted] can be invalid in a [small] request, and only the enclosing
@@ -152,7 +152,7 @@ module Source : sig
     name:string ->
     bytes:int64 ->
     format:[ `Model_json | `Pt2 ] ->
-    (t, [> `Invalid_source of Invalid.t ]) Core.result
+    (t, [> `Invalid_source of Invalid.t ]) Err.t
   (** [bytes >= 0]; the digest as exactly 64 lowercase hex bytes; [name] against
       [max_label_bytes] and [url]/[ref_] against [max_url_bytes].
 
@@ -182,7 +182,7 @@ module Options : sig
     fold:bool ->
     verify_symbolic:Map_verify.Effort.t option ->
     namespace:namespace ->
-    (t, [> `Invalid_options ]) Core.result
+    (t, [> `Invalid_options ]) Err.t
   (** [stages] is NORMALISED, not merely validated: duplicates removed and the
       result in [Capability.all_stages] order. So the list is bounded by that
       type's cardinality by construction — no separate ceiling — and two
@@ -236,7 +236,7 @@ module Request : sig
     source:Source.t ->
     options:Options.t ->
     limits:Me_limits.Wire_limits.t ->
-    (t, [> error ]) Core.result
+    (t, [> error ]) Err.t
 
   val build_detail :
     id:Request_id.t ->
@@ -244,7 +244,7 @@ module Request : sig
     options:Options.t ->
     limits:Me_limits.Wire_limits.t ->
     key:Detail_key.t ->
-    (t, [> error ]) Core.result
+    (t, [> error ]) Err.t
   (** The ONLY producers, and what they do is REVALIDATE every profile-dependent
       component under this request's own profile — [Source]'s
       [name]/[url]/[ref_] and [Detail_key.validate] — not verify that the

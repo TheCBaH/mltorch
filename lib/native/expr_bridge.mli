@@ -22,5 +22,5 @@ val env : binding:(Tensor_id.t -> Tensor.packed option) -> Expr.Eval.Env.t
     before a [Vec6.coord] is built. Both matter: [Tensor.read_at] raises
     [Invalid_argument] above an extent and [Dim.index] raises on a negative, so
     reusing [Tensor.read_at_raw] directly would let exceptions escape through a
-    [Core.result] API — and a total binding could only report a missing tensor
-    by raising too. *)
+    [Err.t] API — and a total binding could only report a missing tensor by
+    raising too. *)

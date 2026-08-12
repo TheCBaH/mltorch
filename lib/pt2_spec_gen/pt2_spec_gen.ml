@@ -8,7 +8,7 @@
    activations have no recorded real data (each node is tested standalone, not
    by running the full network), so they fall back to a fixed Normal(0,1).
 
-   Errors are threaded as Core.result throughout (matching Pt2_dtype/
+   Errors are threaded as Err.t throughout (matching Pt2_dtype/
    Pt2_tensor/Pt2_archive's own error framework), not converted to
    exceptions; only [write_dir], the outermost driver, pattern-matches the
    result per node to decide whether to write a file or skip with a
@@ -16,7 +16,7 @@
 
 open Pytorch_types
 open Schema_runtime
-open Core.Syntax
+open Err.Syntax
 
 module Stats = struct
   type t = { min : float; max : float; mean : float; variance : float }
@@ -46,33 +46,33 @@ let pp_error ppf : error -> unit = function
       Format.fprintf ppf "unexpected value for arg %S" name
   | `Unbound_op target -> Format.fprintf ppf "unbound op %S" target
 
-let dtype_of_pt2 : Pt2_dtype.t -> (Aten_spec.Dtype.t, [> error ]) Core.result =
+let dtype_of_pt2 : Pt2_dtype.t -> (Aten_spec.Dtype.t, [> error ]) Err.t =
   function
-  | Pt2_dtype.Float32 -> Core.return Aten_spec.Dtype.F32
-  | Pt2_dtype.Float64 -> Core.return Aten_spec.Dtype.F64
-  | Pt2_dtype.Int64 -> Core.return Aten_spec.Dtype.I64
-  | Pt2_dtype.Int32 -> Core.return Aten_spec.Dtype.I32
-  | Pt2_dtype.Bool -> Core.return Aten_spec.Dtype.Bool
+  | Pt2_dtype.Float32 -> Err.return Aten_spec.Dtype.F32
+  | Pt2_dtype.Float64 -> Err.return Aten_spec.Dtype.F64
+  | Pt2_dtype.Int64 -> Err.return Aten_spec.Dtype.I64
+  | Pt2_dtype.Int32 -> Err.return Aten_spec.Dtype.I32
+  | Pt2_dtype.Bool -> Err.return Aten_spec.Dtype.Bool
   | (Pt2_dtype.Int16 | Pt2_dtype.Int8 | Pt2_dtype.UInt8) as d ->
-      Core.fail (`Unsupported_pt2_dtype d)
+      Err.fail (`Unsupported_pt2_dtype d)
 
 let dtype_of_scalar_type st =
   let* d =
-    Pt2_dtype.of_scalar_type st |> Core.map_error (fun e -> (e :> error))
+    Pt2_dtype.of_scalar_type st |> Err.map_error (fun e -> (e :> error))
   in
   dtype_of_pt2 d
 
 let shape_of (m : TensorMeta.t) =
-  Core.List.map
+  Err.List.map
     (fun si ->
-      Pt2_tensor.int_of_symint si |> Core.map_error (fun e -> (e :> error)))
+      Pt2_tensor.int_of_symint si |> Err.map_error (fun e -> (e :> error)))
     m.sizes
 
 (* Sample statistics over every element of a real, contiguous tensor. Only
    f32 is expected for the models this targets (conv/linear weights, batch
    norm stats); other dtypes are not yet needed. *)
-let stats (t : Pt2_tensor.t) : (Stats.t, [> error ]) Core.result =
-  if not (Pt2_tensor.is_contiguous t) then Core.fail `Non_contiguous_tensor
+let stats (t : Pt2_tensor.t) : (Stats.t, [> error ]) Err.t =
+  if not (Pt2_tensor.is_contiguous t) then Err.fail `Non_contiguous_tensor
   else
     match t.dtype with
     | Pt2_dtype.Float32 ->
@@ -95,8 +95,8 @@ let stats (t : Pt2_tensor.t) : (Stats.t, [> error ]) Core.result =
             sum_sq (i + 1) (acc +. (d *. d))
         in
         let variance = sum_sq 0 0. /. float_of_int n in
-        Core.return { Stats.min; max; mean; variance }
-    | d -> Core.fail (`Unsupported_pt2_dtype d)
+        Err.return { Stats.min; max; mean; variance }
+    | d -> Err.fail (`Unsupported_pt2_dtype d)
 
 (* The tensor's own real data picks its distribution: values that are always
    positive (e.g. batch_norm's running_var, which must stay positive since
@@ -132,16 +132,16 @@ let params_of_signature (sign : GraphSignature.t) : string String_map.t =
     String_map.empty sign.input_specs
 
 let tensor_spec_of archive params tensor_values name :
-    (Aten_spec.Tensor_spec.t, [> error ]) Core.result =
+    (Aten_spec.Tensor_spec.t, [> error ]) Err.t =
   match String_map.find_opt name params with
   | Some cfg_name ->
       let* wt =
         Pt2_archive.load_captured_tensor archive cfg_name
-        |> Core.map_error (fun e -> (e :> error))
+        |> Err.map_error (fun e -> (e :> error))
       in
       let* dtype = dtype_of_pt2 wt.dtype in
       let* s = stats wt in
-      Core.return
+      Err.return
         {
           Aten_spec.Tensor_spec.dtype;
           shape = wt.sizes;
@@ -152,13 +152,13 @@ let tensor_spec_of archive params tensor_values name :
       | Some (meta : TensorMeta.t) ->
           let* dtype = dtype_of_scalar_type meta.dtype in
           let* shape = shape_of meta in
-          Core.return
+          Err.return
             {
               Aten_spec.Tensor_spec.dtype;
               shape;
               source = Random default_activation_distribution;
             }
-      | None -> Core.fail (`No_tensor_meta name))
+      | None -> Err.fail (`No_tensor_meta name))
 
 let find_named_arg (node : Node.t) name =
   List.find_map
@@ -176,14 +176,14 @@ let find_named_arg (node : Node.t) name =
    with [Jsont.Object.opt_mem] (absent key -> None), which does not accept an
    explicit JSON null in the value's place. *)
 let arg_value_of_node ~tensor_spec (node : Node.t) (p : Aten_op_config.param) :
-    ((string * Aten_spec.Arg_value.t) option, [> error ]) Core.result =
+    ((string * Aten_spec.Arg_value.t) option, [> error ]) Err.t =
   let name = p.name in
   let found = find_named_arg node name in
   let module Av = Aten_spec.Arg_value in
   let module Sv = Aten_spec.Scalar_value in
-  let missing () = Core.fail (`Missing_arg name) in
-  let unexpected () = Core.fail (`Unexpected_arg name) in
-  let some av = Core.return (Some (name, av)) in
+  let missing () = Err.fail (`Missing_arg name) in
+  let unexpected () = Err.fail (`Unexpected_arg name) in
+  let some av = Err.return (Some (name, av)) in
   match p.ty with
   | Aten_op_config.Tensor -> (
       match found with
@@ -206,13 +206,13 @@ let arg_value_of_node ~tensor_spec (node : Node.t) (p : Aten_op_config.param) :
              codec, which then fails to decode Tensor_spec/etc. from null. So
              an absent optional arg must drop the key entirely, not encode an
              explicit `_opt None`. *)
-          Core.return None
+          Err.return None
       | _ -> unexpected ())
   | Aten_op_config.Tensor_list -> (
       match found with
       | Some (Argument.Tensors tas) ->
           let* specs =
-            Core.List.map
+            Err.List.map
               (fun (ta : TensorArgument.t) -> tensor_spec ta.name)
               tas
           in
@@ -227,7 +227,7 @@ let arg_value_of_node ~tensor_spec (node : Node.t) (p : Aten_op_config.param) :
   | Aten_op_config.Int_opt -> (
       match found with
       | Some (Argument.Int i) -> some (Av.Int_opt (Some i))
-      | Some (Argument.None _) | None -> Core.return None
+      | Some (Argument.None _) | None -> Err.return None
       | _ -> unexpected ())
   | Aten_op_config.Int_list -> (
       match (found, p.default) with
@@ -240,7 +240,7 @@ let arg_value_of_node ~tensor_spec (node : Node.t) (p : Aten_op_config.param) :
   | Aten_op_config.Int_list_opt -> (
       match found with
       | Some (Argument.Ints xs) -> some (Av.Int_list_opt (Some xs))
-      | Some (Argument.None _) | None -> Core.return None
+      | Some (Argument.None _) | None -> Err.return None
       | _ -> unexpected ())
   | Aten_op_config.Float -> (
       match (found, p.default) with
@@ -251,7 +251,7 @@ let arg_value_of_node ~tensor_spec (node : Node.t) (p : Aten_op_config.param) :
   | Aten_op_config.Float_opt -> (
       match found with
       | Some (Argument.Float f) -> some (Av.Float_opt (Some f))
-      | Some (Argument.None _) | None -> Core.return None
+      | Some (Argument.None _) | None -> Err.return None
       | _ -> unexpected ())
   | Aten_op_config.Bool -> (
       match (found, p.default) with
@@ -262,7 +262,7 @@ let arg_value_of_node ~tensor_spec (node : Node.t) (p : Aten_op_config.param) :
   | Aten_op_config.Bool_opt -> (
       match found with
       | Some (Argument.Bool b) -> some (Av.Bool_opt (Some b))
-      | Some (Argument.None _) | None -> Core.return None
+      | Some (Argument.None _) | None -> Err.return None
       | _ -> unexpected ())
   | Aten_op_config.Scalar -> (
       match (found, p.default) with
@@ -277,7 +277,7 @@ let arg_value_of_node ~tensor_spec (node : Node.t) (p : Aten_op_config.param) :
       match found with
       | Some (Argument.Int i) -> some (Av.Scalar_opt (Some (Sv.Int i)))
       | Some (Argument.Float f) -> some (Av.Scalar_opt (Some (Sv.Float f)))
-      | Some (Argument.None _) | None -> Core.return None
+      | Some (Argument.None _) | None -> Err.return None
       | _ -> unexpected ())
   | Aten_op_config.Str -> (
       match (found, p.default) with
@@ -287,22 +287,22 @@ let arg_value_of_node ~tensor_spec (node : Node.t) (p : Aten_op_config.param) :
       | _ -> unexpected ())
   | Aten_op_config.Scalar_type_opt | Aten_op_config.Layout_opt
   | Aten_op_config.Memory_format_opt | Aten_op_config.Device_opt ->
-      Core.return None
+      Err.return None
 
 let spec_of_node archive params tensor_values (node : Node.t) :
-    (Aten_spec.Op_spec.t, [> error ]) Core.result =
+    (Aten_spec.Op_spec.t, [> error ]) Err.t =
   match Aten_op_config.find node.target with
-  | None -> Core.fail (`Unbound_op node.target)
+  | None -> Err.fail (`Unbound_op node.target)
   | Some cfg ->
       let tensor_spec = tensor_spec_of archive params tensor_values in
       let* args_rev =
-        Core.List.fold_left
+        Err.List.fold_left
           (fun acc p ->
             let* item = arg_value_of_node ~tensor_spec node p in
-            Core.return (match item with Some kv -> kv :: acc | None -> acc))
+            Err.return (match item with Some kv -> kv :: acc | None -> acc))
           [] cfg.params
       in
-      Core.return
+      Err.return
         { Aten_spec.Op_spec.target = node.target; args = List.rev args_rev }
 
 (* "torch.ops.aten.convolution.default" -> "convolution_default" *)
@@ -342,7 +342,7 @@ let write_dir ~out_dir (archive : Pt2_archive.t) =
         | Error e ->
             Printf.eprintf "pt2_spec_gen: skipping node %d (%s): %s\n" idx
               node.target
-              (Format.asprintf "%a" (Core.Error.pp pp_error) e);
+              (Format.asprintf "%a" (Err.Error.pp pp_error) e);
             (written, skipped + 1))
       (0, 0)
       (List.mapi (fun idx node -> (idx, node)) g.nodes)

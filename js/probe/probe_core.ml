@@ -1,11 +1,11 @@
 (* Section 2: the error framework. Reachable from melange (core depends on fmt
    alone).
 
-   The backtrace needs care. [Core.Error.make] captures a callstack, and
-   [Core.Error.pp_backtrace] has two branches: frames when the runtime supplies
-   slots (native), and "(backtrace unavailable...)" when it does not. BOTH JS
-   runtimes take the second branch -- js_of_ocaml drops the callstack, and
-   melange's [backtrace_slots] returns [None]. So printing slot counts, or
+   The backtrace needs care. [Err.fail] captures a callstack under the active
+   [Err.Config] policy, and [Err.Stack.pp] has two branches: frames when the
+   runtime supplies them (native), and "stack unavailable" when it does not.
+   BOTH JS runtimes take the second branch -- js_of_ocaml drops the callstack,
+   and melange's [backtrace_slots] returns [None]. So printing slot counts, or
    whether slots exist at all, would make this probe differ between backends BY
    DESIGN and the differential diff could never pass.
 
@@ -14,8 +14,8 @@
    notice actually rendered. Either way the answer is [true], and a genuine
    regression -- an empty slot array, or a missing notice -- still flips it. *)
 
-let backtrace_path_valid (e : string Core.Error.t) =
-  let rendered = Core.Pretty.to_string (Core.Error.pp Fmt.string) e in
+let backtrace_path_valid (e : string Err.Error.t) =
+  let rendered = Core.Pretty.to_string (Err.Error.pp Fmt.string) e in
   let contains hay needle =
     let nh = String.length needle and n = String.length hay in
     let rec go i =
@@ -23,20 +23,33 @@ let backtrace_path_valid (e : string Core.Error.t) =
     in
     go 0
   in
-  match Printexc.backtrace_slots e.Core.Error.backtrace with
+  let slots =
+    match Err.Error.origin e with
+    | None -> None
+    | Some origin -> (
+        match Err.Origin.stack origin with
+        | None -> None
+        | Some stack -> (
+            match Err.Stack.to_raw_backtrace stack with
+            | None -> None
+            | Some bt -> Printexc.backtrace_slots bt))
+  in
+  match slots with
   | Some slots -> Array.length slots > 0
-  | None -> contains rendered "backtrace unavailable"
+  | None ->
+      contains rendered "stack unavailable"
+      || contains rendered "not linked with -g"
 
 let run () =
   print_endline "=== core ===";
-  let failed : (int, string) Core.result = Core.fail "boom" in
-  let bridged : (int, string) Core.result = Core.of_option "absent" None in
-  let ok : (int, string) Core.result = Core.return 7 in
+  let failed : (int, string) Err.t = Err.fail "boom" in
+  let bridged : (int, string) Err.t = Err.of_option "absent" None in
+  let ok : (int, string) Err.t = Err.return 7 in
   List.iter
     (fun (label, r) ->
       Printf.printf "%s: %s\n" label
         (Core.Pretty.to_string
-           (Core.Pretty.core_result ~ok:Fmt.int ~error:Fmt.string)
+           (Core.Pretty.err_result ~ok:Fmt.int ~error:Fmt.string)
            r))
     [ ("fail", failed); ("of_option", bridged); ("return", ok) ];
   (* Print the verdict, then RAISE on it. Both backends run this source, so a

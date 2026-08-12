@@ -27,9 +27,9 @@ let of_ l =
       (fun acc c -> Tensor_id.Set.union acc (C.raws (get c)))
       Tensor_id.Set.empty l
   in
-  Core.or_raise
-    (Cluster_relation.pp_issue Tensor_id.pp)
-    (Result.map_error Core.Error.make
+  Err.or_raise
+    ~pp_error:(Cluster_relation.pp_issue Tensor_id.pp)
+    (Result.map_error Err.Error.make
        (C.of_clusters
           ~src:(I.edges (side (fun (c : (_, _) C.Cluster.t) -> c.src)))
           ~dst:(I.edges (side (fun (c : (_, _) C.Cluster.t) -> c.dst)))
@@ -248,9 +248,9 @@ let%expect_test "created and deleted report the unpaired ids" =
 
 let%expect_test "node map: fusion, creation, deletion and reverse lookup" =
   let m =
-    Core.or_raise
-      (Cluster_relation.pp_issue Node_id.pp)
-      (Result.map_error Core.Error.make
+    Err.or_raise
+      ~pp_error:(Cluster_relation.pp_issue Node_id.pp)
+      (Result.map_error Err.Error.make
          (Node_map.of_clusters
             ~src:
               (I.nodes
@@ -316,7 +316,7 @@ let relu_of op () =
 let show_create r =
   match r with
   | Ok _ -> Fmt.pf Fmt.stdout "ok@."
-  | Error e -> Fmt.pf Fmt.stdout "%a@." Graph_map.pp_error e.Core.Error.kind
+  | Error e -> Fmt.pf Fmt.stdout "%a@." Graph_map.pp_error (Err.Error.kind e)
 
 let%expect_test "create: a map of the graph onto itself passes" =
   let module A = (val Version_fixture.of_graph (two_input_graph ())) in

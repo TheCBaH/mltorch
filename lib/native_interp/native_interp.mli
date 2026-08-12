@@ -24,10 +24,8 @@ val pp_error : Format.formatter -> [< error ] -> unit
 (* Lowers a root exported graph into one native graph.  PT2 SSA names remain
    solely in the provenance wrapper; native execution addresses every edge by
    [Tensor_id].  This first static slice covers the ResNet-18 export set. *)
-val lower :
-  Pytorch_types.ExportedProgram.t -> (Pt2_native_graph.t, error) Core.result
-
-val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Core.result
+val lower : Pytorch_types.ExportedProgram.t -> (Pt2_native_graph.t, error) Err.t
+val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Err.t
 
 (* Execute a one-user-input static graph.  Captured tensor payloads are loaded
    through the sidecar's [Tensor_id -> target] map, never through native IR. *)
@@ -35,7 +33,7 @@ val run :
   ?hooks:hooks ->
   Pt2_archive.t ->
   input:Pt2_tensor.t ->
-  (Tensor.packed list, error) Core.result
+  (Tensor.packed list, error) Err.t
 
 (* Transforming, printing and executing are separate: a caller that only wants to
    SEE what a pipeline produced should not have to run inference to find out. *)
@@ -95,7 +93,7 @@ type transformed =
 val preload :
   Pt2_archive.t ->
   Pt2_native_graph.t ->
-  (Tensor.packed Graph_ir.Tensor_id.Map.t, error) Core.result
+  (Tensor.packed Graph_ir.Tensor_id.Map.t, error) Err.t
 (** The payloads a NODE READS, loaded from the archive. Only those: an archive
     holds buffers nothing evaluates — resnet18's int64 [num_batches_tracked]
     among them — and loading one would fail on a dtype the engine has no reason
@@ -113,7 +111,7 @@ val transform :
   ?verify_probe:int ->
   Pt2_archive.t ->
   passes:Pass.t list ->
-  (transformed, error) Core.result
+  (transformed, error) Err.t
 
 val transform_lowered :
   ?constants:Tensor.packed Graph_ir.Tensor_id.Map.t ->
@@ -125,7 +123,7 @@ val transform_lowered :
   ?max_audit_reports:int ->
   Pt2_native_graph.t ->
   passes:Pass.t list ->
-  (transformed, error) Core.result
+  (transformed, error) Err.t
 (** [transform] without the archive: rewrite, verify, pack and build the lens
     over a graph the caller already lowered.
 
@@ -158,4 +156,4 @@ val evaluate :
   Pt2_archive.t ->
   transformed ->
   input:Pt2_tensor.t ->
-  (Tensor.packed list * loaded, error) Core.result
+  (Tensor.packed list * loaded, error) Err.t

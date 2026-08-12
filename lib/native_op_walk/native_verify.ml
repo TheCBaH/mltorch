@@ -19,7 +19,7 @@ let run ppf (s : Native_subject.t) : bool =
   match Eval_direct.run g ~inputs:s.Native_subject.inputs with
   | Error e ->
       Fmt.pf ppf "[native] %s: eval error: %a@." s.Native_subject.target
-        Eval_direct.pp_error e.Core.Error.kind;
+        Eval_direct.pp_error (Err.Error.kind e);
       false
   | Ok direct ->
       let prog = Eval_symbolic.run g in

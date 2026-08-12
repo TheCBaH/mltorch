@@ -26,15 +26,15 @@ let pp_count_error ppf (`Count_overflow c) = Pass.Count_overflow.pp ppf c
 
 (* [count_error] and [invalid] are different rows, so they compose with
    different error printers — which is the point of them being different rows.
-   Composed through [Core.Pretty.core_result] rather than matched by hand, per
+   Composed through [Core.Pretty.err_result] rather than matched by hand, per
    CLAUDE.md. *)
-let pp_counts = Core.Pretty.core_result ~ok:pp_bindings ~error:pp_count_error
+let pp_counts = Core.Pretty.err_result ~ok:pp_bindings ~error:pp_count_error
 
 let pp_decoded =
-  Core.Pretty.core_result ~ok:pp_bindings ~error:Pass.Outcome_counts.pp_invalid
+  Core.Pretty.err_result ~ok:pp_bindings ~error:Pass.Outcome_counts.pp_invalid
 
 let pp_accept =
-  Core.Pretty.core_result ~ok:pp_accepted ~error:Pass.Outcome_counts.pp_invalid
+  Core.Pretty.err_result ~ok:pp_accepted ~error:Pass.Outcome_counts.pp_invalid
 
 let show pp label r = Format.printf "@[<v>%s:@,%a@]@." label pp r
 let show_inline pp label r = Format.printf "%s: %a@." label pp r
@@ -42,8 +42,9 @@ let show_inline pp label r = Format.printf "%s: %a@." label pp r
 (* --- totality over every outcome, and agreement with Tally --- *)
 
 let sampled n =
-  Core.or_raise
-    (fun ppf (`Invalid_coverage n) -> Fmt.pf ppf "invalid coverage %d" n)
+  Err.or_raise
+    ~pp_error:(fun ppf (`Invalid_coverage n) ->
+      Fmt.pf ppf "invalid coverage %d" n)
     (Map_verify.Coverage.sampled n)
 
 let entry coverage verdict : Map_verify.Entry.t =
@@ -149,7 +150,7 @@ let%expect_test "Outcome_counts and Map_verify.Tally agree label for label" =
       (List.length counts)
   in
   show_inline
-    (Core.Pretty.core_result ~ok:pp_agreement ~error:pp_count_error)
+    (Core.Pretty.err_result ~ok:pp_agreement ~error:pp_count_error)
     "tally"
     (Pass.Outcome_counts.of_report full_report);
   [%expect {| tally: agree=true entries=11 buckets=11 |}]
@@ -193,7 +194,7 @@ let%expect_test "bindings after of_bindings is the identity on canonical input"
     Fmt.pf ppf "identity=%b" (Pass.Outcome_counts.bindings t = input)
   in
   show_inline
-    (Core.Pretty.core_result ~ok:pp_identity
+    (Core.Pretty.err_result ~ok:pp_identity
        ~error:Pass.Outcome_counts.pp_invalid)
     "canonical input"
     (Pass.Outcome_counts.of_bindings input);
@@ -254,7 +255,7 @@ let%expect_test "of_bindings: every rejection kind" =
 
 let%expect_test "jsont round-trips through of_bindings, int64 as a string" =
   let t =
-    Core.or_raise Pass.Outcome_counts.pp_invalid
+    Err.or_raise ~pp_error:Pass.Outcome_counts.pp_invalid
       (Pass.Outcome_counts.of_bindings
          [
            ("proved (structural)", 2147483648L);
@@ -314,7 +315,7 @@ let%expect_test "jsont decoding refuses a malformed binding" =
 (* --- the overflow checks, reachable only through of_bindings --- *)
 
 let seeded label n =
-  Core.or_raise Pass.Outcome_counts.pp_invalid
+  Err.or_raise ~pp_error:Pass.Outcome_counts.pp_invalid
     (Pass.Outcome_counts.of_bindings [ (label, n) ])
 
 let%expect_test "add overflows its own bucket, and names it" =
@@ -342,10 +343,10 @@ let%expect_test "Audit_summary counts reports and clusters independently" =
     Fmt.pf ppf "omitted=%Ld buckets=%d" s.omitted_reports
       (List.length (Pass.Outcome_counts.bindings s.counts))
   in
-  let pp = Core.Pretty.core_result ~ok:pp_summary ~error:pp_count_error in
+  let pp = Core.Pretty.err_result ~ok:pp_summary ~error:pp_count_error in
   show_inline pp "first"
     (Pass.Audit_summary.add Pass.Audit_summary.empty full_report);
-  let open Core.Syntax in
+  let open Err.Syntax in
   show_inline pp "twice"
     (let* one = Pass.Audit_summary.add Pass.Audit_summary.empty full_report in
      Pass.Audit_summary.add one full_report);

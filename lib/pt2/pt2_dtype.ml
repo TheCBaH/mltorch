@@ -48,27 +48,27 @@ let pp_error ppf : error -> unit = function
 
 let of_scalar_type (st : Pytorch_types.ScalarType.t) =
   match st with
-  | FLOAT -> Core.return Float32
-  | DOUBLE -> Core.return Float64
-  | LONG -> Core.return Int64
-  | INT -> Core.return Int32
-  | SHORT -> Core.return Int16
-  | CHAR -> Core.return Int8
-  | BYTE -> Core.return UInt8
-  | BOOL -> Core.return Bool
-  | _ -> Core.fail (`Unsupported_scalar_type st)
+  | FLOAT -> Err.return Float32
+  | DOUBLE -> Err.return Float64
+  | LONG -> Err.return Int64
+  | INT -> Err.return Int32
+  | SHORT -> Err.return Int16
+  | CHAR -> Err.return Int8
+  | BYTE -> Err.return UInt8
+  | BOOL -> Err.return Bool
+  | _ -> Err.fail (`Unsupported_scalar_type st)
 
 (* From the storage class name used in a pickled `.pt` (e.g. "FloatStorage"). *)
 let of_storage_name = function
-  | "FloatStorage" -> Core.return Float32
-  | "DoubleStorage" -> Core.return Float64
-  | "LongStorage" -> Core.return Int64
-  | "IntStorage" -> Core.return Int32
-  | "ShortStorage" -> Core.return Int16
-  | "CharStorage" -> Core.return Int8
-  | "ByteStorage" -> Core.return UInt8
-  | "BoolStorage" -> Core.return Bool
-  | s -> Core.fail (`Unknown_storage_class s)
+  | "FloatStorage" -> Err.return Float32
+  | "DoubleStorage" -> Err.return Float64
+  | "LongStorage" -> Err.return Int64
+  | "IntStorage" -> Err.return Int32
+  | "ShortStorage" -> Err.return Int16
+  | "CharStorage" -> Err.return Int8
+  | "ByteStorage" -> Err.return UInt8
+  | "BoolStorage" -> Err.return Bool
+  | s -> Err.fail (`Unknown_storage_class s)
 
 let to_string = function
   | Float32 -> "float32"

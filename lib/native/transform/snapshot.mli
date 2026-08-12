@@ -33,7 +33,7 @@ module Make (D : Dialect.S) : sig
   (* Validates the graph, so every accessor below is unambiguous for the same
    reason [Graph_view]'s are. *)
   val create :
-    D.op Graph_common.Graph.t -> (packed, Graph_view.Make(D).error) Core.result
+    D.op Graph_common.Graph.t -> (packed, Graph_view.Make(D).error) Err.t
 
   (* [None] when the id is not in this version, which is the check that stops a
    raw id from being tagged into a graph it does not belong to. *)

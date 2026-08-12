@@ -23,7 +23,7 @@ module type SNAP = sig
 end
 
 let of_graph g : (module SNAP) =
-  match Core.or_raise Graph_view.pp_error (Snapshot.create g) with
+  match Err.or_raise ~pp_error:Graph_view.pp_error (Snapshot.create g) with
   | Snapshot.Pack (type a) (s : a Snapshot.t) ->
       (module struct
         type v = a

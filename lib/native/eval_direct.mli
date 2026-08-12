@@ -27,4 +27,4 @@ val run :
   ?constants:(Tensor_id.t * Tensor.packed) list ->
   graph ->
   inputs:(Tensor_id.t * Tensor.packed) list ->
-  (Tensor.packed Tensor_id.Map.t, error) Core.result
+  (Tensor.packed Tensor_id.Map.t, error) Err.t

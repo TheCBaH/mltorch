@@ -13,7 +13,7 @@ module M = struct
     let a, pcg = Native_tensor.synth pcg shape in
     let b, pcg = Native_tensor.synth pcg shape in
     let g =
-      Core.or_raise Graph_builder.pp_error
+      Err.or_raise ~pp_error:Graph_builder.pp_error
         Graph_builder.(
           build ~name:"mul" ~outputs:(fun r -> [ r ])
           @@

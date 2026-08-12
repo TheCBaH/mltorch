@@ -99,8 +99,7 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
    The only failure is [id] belonging to neither, which is checked once here
    rather than inside the traversal. *)
-val at :
-  Env.t -> Tensor_id.t -> Vec6.coord -> (Ground_expr.t, error) Core.result
+val at : Env.t -> Tensor_id.t -> Vec6.coord -> (Ground_expr.t, error) Err.t
 
 (* Replace every [Cell] that has a stage AND no boundary variable by
    [Round (that stage's body at the cell's coord)]. The [Round] lands exactly
@@ -122,7 +121,7 @@ val expand :
   budget:int ->
   Env.t ->
   Ground_expr.t ->
-  (Ground_expr.t, error) Core.result
+  (Ground_expr.t, error) Err.t
 (* Result-valued because expansion evaluates indices, and checked arithmetic can
    fail. The caller must convert a failure into a VERDICT about the cluster, the
    way [at]'s failure already is -- not widen its own error row and abandon the

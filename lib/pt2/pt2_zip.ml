@@ -81,17 +81,17 @@ module Limits = struct
 
   let check_int name v hard =
     if v <= 0 || v > hard then
-      Core.fail (`Invalid_limit { Invalid.name; value = Int64.of_int v })
-    else Core.return ()
+      Err.fail (`Invalid_limit { Invalid.name; value = Int64.of_int v })
+    else Err.return ()
 
   let check_int64 name v hard =
     if Int64.compare v 0L <= 0 || Int64.compare v hard > 0 then
-      Core.fail (`Invalid_limit { Invalid.name; value = v })
-    else Core.return ()
+      Err.fail (`Invalid_limit { Invalid.name; value = v })
+    else Err.return ()
 
   let create ~max_entries ~max_entry_bytes ~max_total_bytes ~max_path_bytes
       ~max_path_depth =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* () = check_int "max_entries" max_entries Hard.entries in
     let* () = check_int64 "max_entry_bytes" max_entry_bytes Hard.entry_bytes in
     let* () = check_int64 "max_total_bytes" max_total_bytes Hard.total_bytes in
@@ -114,14 +114,14 @@ module Limits = struct
      conservative: the release profile is calibrated after Stage 2. A real
      resnet18 .pt2 has ~250 entries and ~45MB of payload. *)
   let untrusted =
-    Core.or_raise pp_error
+    Err.or_raise ~pp_error
       (create ~max_entries:4096 ~max_entry_bytes:0x1000_0000L
          ~max_total_bytes:0x8000_0000L ~max_path_bytes:1024 ~max_path_depth:16)
 
   (* Internal/programmatic callers holding data they produced. Never reachable
      from a file the user chose — there is no [--limits trusted]. *)
   let trusted =
-    Core.or_raise pp_error
+    Err.or_raise ~pp_error
       (create ~max_entries:Hard.entries ~max_entry_bytes:Hard.entry_bytes
          ~max_total_bytes:Hard.total_bytes ~max_path_bytes:Hard.path_bytes
          ~max_path_depth:Hard.path_depth)
@@ -251,7 +251,7 @@ let raw_eocd_entry_count s =
    total. Nothing here decompresses. *)
 let check_path (limits : Limits.t) path =
   let reject kind =
-    Core.fail (`Zip_bad_path { Path_rejection.path = excerpt path; kind })
+    Err.fail (`Zip_bad_path { Path_rejection.path = excerpt path; kind })
   in
   if String.length path > limits.Limits.max_path_bytes then
     reject (Path_rejection.Too_long limits.Limits.max_path_bytes)
@@ -266,12 +266,12 @@ let check_path (limits : Limits.t) path =
     else if
       String.exists (fun c -> Char.code c < 0x20 || Char.code c = 0x7F) path
     then reject Path_rejection.Control_byte
-    else Core.return ()
+    else Err.return ()
 
 let check_file (limits : Limits.t) path (f : Zipc.File.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let too_large kind =
-    Core.fail
+    Err.fail
       (`Zip_entry_too_large
          {
            Entry_bound.path = excerpt path;
@@ -280,13 +280,13 @@ let check_file (limits : Limits.t) path (f : Zipc.File.t) =
          })
   in
   let* () =
-    if not (Zipc.File.is_encrypted f) then Core.return ()
-    else if limits.Limits.allow_encrypted then Core.return ()
-    else Core.fail (`Zip_encrypted_entry (excerpt path))
+    if not (Zipc.File.is_encrypted f) then Err.return ()
+    else if limits.Limits.allow_encrypted then Err.return ()
+    else Err.fail (`Zip_encrypted_entry (excerpt path))
   in
   let* () =
-    if Zipc.File.can_extract f then Core.return ()
-    else Core.fail (`Zip_unsupported_method (excerpt path))
+    if Zipc.File.can_extract f then Err.return ()
+    else Err.fail (`Zip_unsupported_method (excerpt path))
   in
   (* [decompressed_size] and [compressed_size] are [int], which is 32-bit under
      js_of_ocaml, so BOTH widen to [int64] before meeting an [int64] limit — a
@@ -298,12 +298,12 @@ let check_file (limits : Limits.t) path (f : Zipc.File.t) =
   let* () =
     if Int64.compare compressed limits.Limits.max_entry_bytes > 0 then
       too_large Entry_bound.Compressed
-    else Core.return ()
+    else Err.return ()
   in
   let+ () =
     if Int64.compare decompressed limits.Limits.max_entry_bytes > 0 then
       too_large Entry_bound.Decompressed
-    else Core.return ()
+    else Err.return ()
   in
   (* The aggregate counts whichever is LARGER. A Stored member may declare a
      [decompressed_size] smaller than the bytes it actually yields (checkpoint 5
@@ -312,16 +312,16 @@ let check_file (limits : Limits.t) path (f : Zipc.File.t) =
   if Int64.compare compressed decompressed > 0 then compressed else decompressed
 
 let check_central_directory limits zip =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let members = Zipc.fold (fun m acc -> m :: acc) zip [] in
   let rec walk total = function
-    | [] -> Core.return ()
+    | [] -> Err.return ()
     | m :: rest ->
         let path = Zipc.Member.path m in
         let* () = check_path limits path in
         let* size =
           match Zipc.Member.kind m with
-          | Zipc.Member.Dir -> Core.return 0L
+          | Zipc.Member.Dir -> Err.return 0L
           | Zipc.Member.File f -> check_file limits path f
         in
         (* CHECKED BEFORE THE ADDITION, not inspected after it: a wrapped total
@@ -330,24 +330,24 @@ let check_central_directory limits zip =
            [Hard.total_bytes] (2^32), so the subtraction cannot underflow. *)
         let remaining = Int64.sub limits.Limits.max_total_bytes total in
         if Int64.compare size remaining > 0 then
-          Core.fail (`Zip_total_too_large limits.Limits.max_total_bytes)
+          Err.fail (`Zip_total_too_large limits.Limits.max_total_bytes)
         else walk (Int64.add total size) rest
   in
   walk 0L members
 
 let of_string ?(limits = Limits.untrusted) s =
-  let open Core.Syntax in
+  let open Err.Syntax in
   (* 2 *)
-  let* declared = raw_eocd_entry_count s |> Core.of_option `Zip_no_eocd in
+  let* declared = raw_eocd_entry_count s |> Err.of_option `Zip_no_eocd in
   let* () =
     if declared > limits.Limits.max_entries then
-      Core.fail (`Zip_too_many_entries limits.Limits.max_entries)
-    else Core.return ()
+      Err.fail (`Zip_too_many_entries limits.Limits.max_entries)
+    else Err.return ()
   in
   let* zip =
     match Zipc.of_binary_string s with
-    | Ok zip -> Core.return zip
-    | Error e -> Core.fail (`Zip_parse_failed e)
+    | Ok zip -> Err.return zip
+    | Error e -> Err.fail (`Zip_parse_failed e)
   in
   (* 3 — the ONLY place a duplicate path below [max_entries] is detectable.
      zipc keys members by path, so two entries claiming one path decode to a
@@ -355,8 +355,8 @@ let of_string ?(limits = Limits.untrusted) s =
      with the declared one is what turns that back into a rejection. *)
   let* () =
     if Zipc.member_count zip <> declared then
-      Core.fail (`Zip_duplicate_paths declared)
-    else Core.return ()
+      Err.fail (`Zip_duplicate_paths declared)
+    else Err.return ()
   in
   (* 4 *)
   let+ () = check_central_directory limits zip in
@@ -382,40 +382,40 @@ let prefix t = t.prefix
    standing between us and an [Invalid_argument]. What they stand between is a
    member and an aggregate that was told a different number. *)
 let read t name =
-  let open Core.Syntax in
+  let open Err.Syntax in
   match Zipc.find name t.zip with
-  | None -> Core.return None
+  | None -> Err.return None
   | Some m -> (
       match Zipc.Member.kind m with
-      | Zipc.Member.Dir -> Core.return None
+      | Zipc.Member.Dir -> Err.return None
       | Zipc.Member.File f ->
           let declared = Zipc.File.decompressed_size f in
           let* () =
             match Zipc.File.compression f with
             | Zipc.Stored ->
                 if Zipc.File.compressed_size f <> declared then
-                  Core.fail (`Zip_stored_size_mismatch (excerpt name))
-                else Core.return ()
-            | Zipc.Deflate -> Core.return ()
-            | _ -> Core.fail (`Zip_unsupported_method (excerpt name))
+                  Err.fail (`Zip_stored_size_mismatch (excerpt name))
+                else Err.return ()
+            | Zipc.Deflate -> Err.return ()
+            | _ -> Err.fail (`Zip_unsupported_method (excerpt name))
           in
           let* s =
             match Zipc.File.to_binary_string f with
-            | Ok s -> Core.return s
-            | Error e -> Core.fail (`Zip_read_failed (name, e))
+            | Ok s -> Err.return s
+            | Error e -> Err.fail (`Zip_read_failed (name, e))
           in
           (* The produced-length re-check. zipc's inflate is bounded by the
              declared size, so this closes the other direction: a member that
              yielded FEWER bytes than the central directory claimed was counted
              for more, which is safe, and one that yielded more would not be. *)
           if String.length s <> declared then
-            Core.fail (`Zip_read_failed (name, "decompressed size disagrees"))
-          else Core.return (Some s))
+            Err.fail (`Zip_read_failed (name, "decompressed size disagrees"))
+          else Err.return (Some s))
 
 let read_required t name =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* data = read t name in
-  data |> Core.of_option (`Zip_missing_entry name)
+  data |> Err.of_option (`Zip_missing_entry name)
 
 let read_rel t rel = read t (t.prefix ^ "/" ^ rel)
 let read_rel_required t rel = read_required t (t.prefix ^ "/" ^ rel)

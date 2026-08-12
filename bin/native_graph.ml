@@ -5,18 +5,24 @@
 open Cmdliner
 
 (* Every command below returns Cmdliner's [(unit, string) result], so each step
-   has to leave the [Core.result] framework. [to_cli] is that boundary, named
+   has to leave the [Err.t] framework. [to_cli] is that boundary, named
    once instead of open-coded at each of the ten crossings.
 
-   The detection backtrace is DELIBERATELY dropped: this string is a diagnostic
-   for whoever ran the command, not for whoever wrote the code. That is also why
-   [Core.map_error] is wrong here — it would keep the [Core.Error.t] wrapper,
-   which is precisely what Cmdliner cannot take. *)
-let to_cli pp =
-  Result.map_error (fun e -> Core.Pretty.to_string pp e.Core.Error.kind)
+   The detection provenance is DELIBERATELY dropped: this string is a
+   diagnostic for whoever ran the command, not for whoever wrote the code. That
+   is also why [Err.map_error] is wrong here — it would keep the [Err.Error.t]
+   wrapper, which is precisely what Cmdliner cannot take.
+
+   [mark_error Export] is what makes the drop visible rather than merely
+   commented: under a policy that records boundaries, an error leaving through
+   here carries an [Export] event, so a monitor sees where the framework ended
+   even though the value crossing the line no longer says so. *)
+let to_cli pp r =
+  Err.mark_error ~pos:__POS__ Err.Action.Export r
+  |> Result.map_error (fun e -> Core.Pretty.to_string pp (Err.Error.kind e))
 
 (* Plain [Result.bind]: these are Cmdliner's bare results, already lowered by
-   [to_cli], so [Core.Syntax]'s operators do not apply. *)
+   [to_cli], so [Err.Syntax]'s operators do not apply. *)
 let ( let* ) = Result.bind
 
 (* An option (not a bare positional) since [print] is meant to grow other
@@ -174,7 +180,7 @@ let compare_tensor ~atol expected actual =
 (* [Cmd.eval_result] below maps [Ok ()] to exit 0 and [Error msg] to exit 123
    (`Exit.some_error`), printing [msg] itself — so failures here are reported
    as plain text, with no OCaml backtrace, matching a normal CLI's UX (unlike
-   [Core.Error.pp], which is meant for developer-facing diagnostics). *)
+   [Err.Error.pp], which is meant for developer-facing diagnostics). *)
 let pp_tensor_origin ppf = function
   | Pt2_native_graph.Source { graph_path; ssa_name; _ } ->
       Fmt.pf ppf "%a:%s" Pt2_native_graph.Graph_path.pp graph_path ssa_name
@@ -503,7 +509,7 @@ let pp_lens_printer ?(verdicts = Graph_ir.Tensor_id.Map.empty)
          with
         | Error e, _ | _, Error e ->
             Fmt.pf ppf "provenance error: %a" Pt2_native_graph.pp_lens_error
-              e.Core.Error.kind
+              (Err.Error.kind e)
         | Ok origins, Ok target -> (
             match (origins, target, List.assoc_opt id derived) with
             | [], _, Some names ->
@@ -525,7 +531,7 @@ let pp_lens_printer ?(verdicts = Graph_ir.Tensor_id.Map.empty)
         (match Pt2_native_graph.node_origins lens id with
         | Error e ->
             Fmt.pf ppf "provenance error: %a" Pt2_native_graph.pp_lens_error
-              e.Core.Error.kind
+              (Err.Error.kind e)
         | Ok [] -> Fmt.string ppf "derived"
         | Ok origins ->
             List.iteri
@@ -677,7 +683,7 @@ let to4d model fold verify_symbolic : (unit, string) result =
                      the first unsupported node is the ANSWER, printed and
                      exited zero. *)
           Format.printf "outside the dialect: %a@." Native4d.Error.pp
-            e.Core.Error.kind;
+            (Err.Error.kind e);
           Ok ()
       | Ok (Native4d.Lower.Pack r) ->
           let dst = Native4d.Lower.graph r in
@@ -705,7 +711,7 @@ let to4d model fold verify_symbolic : (unit, string) result =
                 with
                 | Error e ->
                     Format.printf "map verification: %a@." Map_verify.pp_error
-                      e.Core.Error.kind;
+                      (Err.Error.kind e);
                     Graph_ir.Tensor_id.Map.empty
                 | Ok report ->
                     Format.printf "map verification: %s@."
@@ -747,9 +753,14 @@ let read_bounded limits path =
   let ceiling =
     match Me_export.detect ~bytes:peek with
     | Ok Me_export.Model_json -> limits.Me_limits.Limits.max_json_bytes
-    | Ok Me_export.Pt2_archive
-    | Error { Core.Error.kind = `Unrecognised_format; _ } ->
-        limits.Me_limits.Limits.max_pt2_bytes
+    | Ok Me_export.Pt2_archive -> limits.Me_limits.Limits.max_pt2_bytes
+    (* Matching the payload, not a guard: [detect]'s error row is closed, so
+       this arm still fails to compile the day a second failure is added --
+       which a [when Err.Error.kind e = `Unrecognised_format] guard would
+       not. *)
+    | Error e -> (
+        match Err.Error.kind e with
+        | `Unrecognised_format -> limits.Me_limits.Limits.max_pt2_bytes)
   in
   if Int64.compare (Int64.of_int size) ceiling > 0 then begin
     close_in ic;
@@ -871,7 +882,7 @@ let detail model limits output parent value : (unit, string) result =
   let size = Int64.of_int (String.length bytes) in
   let* key =
     to_cli Me_request.Detail_key.pp_invalid
-      (Core.map_error
+      (Err.map_error
          (fun (`Invalid_detail_key e) -> e)
          (Me_request.Detail_key.create ~limits ~parent_graph:parent
             ~value:(Graph_ir.Tensor_id.of_int value)))
@@ -939,5 +950,21 @@ let cmd =
   Cmd.group
     (Cmd.info "native_graph" ~doc)
     [ print_cmd; eval_cmd; transform_cmd; to4d_cmd; visualize_cmd; detail_cmd ]
+
+(* The trace policy is chosen HERE, before any command runs, because this is
+   the host: [Err] reads no environment of its own, and nothing under lib/ is
+   allowed to. See lib/err_host for the variables.
+
+   A bad setting exits rather than being ignored. Silently falling back to the
+   default would leave the operator debugging with a policy they did not ask
+   for, which is the one situation this knob exists to avoid. Exit 124
+   ([Cmd.Exit.cli_error]) because a malformed MLTORCH_ERROR_* value is a usage
+   error, the same class as a malformed flag. *)
+let () =
+  match Err_host.install_from_env () with
+  | Ok (_ : Err.Config.t option) -> ()
+  | Error e ->
+      Fmt.epr "native_graph: %a@." Err_host.pp_error (Err.Error.kind e);
+      exit Cmd.Exit.cli_error
 
 let () = exit (Cmd.eval_result cmd)

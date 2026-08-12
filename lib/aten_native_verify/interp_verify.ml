@@ -13,19 +13,19 @@ let pp_interp_error ppf = function
 
 let dispatch ~verify ?(ppf = Format.err_formatter) (env : Interp_decode.env)
     (node : Pytorch_types.Node.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* env' = Interp_dispatch.dispatch env node in
   (if verify then
      match Op_bridge.dispatch ~aten_env:env node with
      | None -> ()
      | Some (Error e) ->
          Fmt.pf ppf "[verify] %s: bridge error: %a@." node.target
-           Op_bridge.pp_error e.Core.Error.kind
+           Op_bridge.pp_error (Err.Error.kind e)
      | Some (Ok (graph, bindings)) -> (
          match Eval_direct.run graph ~inputs:bindings with
          | Error e ->
              Fmt.pf ppf "[verify] %s: eval error: %a@." node.target
-               Eval_direct.pp_error e.Core.Error.kind
+               Eval_direct.pp_error (Err.Error.kind e)
          | Ok result_env ->
              let native_outputs =
                List.map
@@ -37,4 +37,4 @@ let dispatch ~verify ?(ppf = Format.err_formatter) (env : Interp_decode.env)
                Verify.verify_node ~atol ~aten_env:env' node native_outputs
              in
              Verify.report ppf node.target errors));
-  Core.return env'
+  Err.return env'

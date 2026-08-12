@@ -27,7 +27,7 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 (** {1 The one encoder} *)
 
-val component : string -> (string, [> error ]) Core.result
+val component : string -> (string, [> error ]) Err.t
 (** Percent-encodes [%] and each of [/], [;], [\], [#], [:] — the characters
     the renderer's own grammar reads — in a single pass, which is injective
     because [%] is encoded alongside the rest rather than after them.
@@ -72,7 +72,7 @@ end
     ceiling to meet. *)
 
 val collection :
-  limits:Me_limits.Limits.t -> string -> (string, [> error ]) Core.result
+  limits:Me_limits.Limits.t -> string -> (string, [> error ]) Err.t
 (** [mltorch:<component model_name>]. *)
 
 val pt2_graph : Pt2_native_graph.Graph_path.t -> string
@@ -85,14 +85,14 @@ val pt2_boundary :
   limits:Me_limits.Limits.t ->
   [ `In | `Const | `Out ] ->
   string ->
-  (string, [> error ]) Core.result
+  (string, [> error ]) Err.t
 (** [in:<ssa>] / [const:<ssa>] / [out:<ssa>], the source graph's boundary nodes.
     The SSA name is a DYNAMIC component and is encoded; the [:] is structural
     and is not. Shares {!boundary}'s prefixes deliberately — the two graphs are
     different, and a reader who learns one grammar has learnt both. *)
 
 val pt2_namespace :
-  limits:Me_limits.Limits.t -> string list -> (string, [> error ]) Core.result
+  limits:Me_limits.Limits.t -> string list -> (string, [> error ]) Err.t
 (** The source graph's namespace, one level per [nn_module_stack] entry. Each
     level meets [max_namespace_component_bytes] — the unit the renderer's own
     splitting works over — and the joined string meets [max_id_bytes]. *)
@@ -124,7 +124,7 @@ val namespace_component :
   limits:Me_limits.Limits.t ->
   ?label:string ->
   int ->
-  (string, [> error ]) Core.result
+  (string, [> error ]) Err.t
 (** [<component label>#g<id>], or [g<id>] when unlabelled. Bounded by
     [max_namespace_component_bytes] after encoding, since that is the figure the
     renderer's own splitting works over. *)
@@ -134,7 +134,7 @@ val detail :
   parent_graph:string ->
   parent_node:string ->
   int ->
-  (string, [> error ]) Core.result
+  (string, [> error ]) Err.t
 (** [expr/<parent_graph>/<parent_node>/t<k>]. The two parents are ids this
     module already produced, so they are not re-encoded — encoding an encoded id
     is not idempotent and would break the correspondence with the graph it

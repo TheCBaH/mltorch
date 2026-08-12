@@ -36,18 +36,18 @@ let%expect_test "zip round-trips STORED entries (incl. relative prefix)" =
       (make_zip
          [ ("m/models/model.json", "{\"k\":1}"); ("m/data/0", "raw-bytes") ])
   with
-  | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e)
   | Ok zip ->
       Printf.printf "prefix=%s\n" (Pt2_zip.prefix zip);
       (match Pt2_zip.read_rel_required zip "models/model.json" with
       | Ok s -> Printf.printf "model.json=%s\n" s
-      | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e));
       (match Pt2_zip.read_rel_required zip "data/0" with
       | Ok s -> Printf.printf "data/0=%s\n" s
-      | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e));
       (match Pt2_zip.read zip "m/nope" with
       | Ok missing -> Printf.printf "missing=%b\n" (missing = None)
-      | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e));
       [%expect
         {|
     prefix=m
@@ -58,11 +58,11 @@ let%expect_test "zip round-trips STORED entries (incl. relative prefix)" =
 
 let%expect_test "zip missing entry is typed" =
   match Pt2_zip.of_string (make_zip [ ("m/data/0", "raw-bytes") ]) with
-  | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e)
   | Ok zip ->
       (match Pt2_zip.read_rel_required zip "models/model.json" with
       | Ok _ -> print_endline "unexpected success"
-      | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind);
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e));
       [%expect {| zip entry "m/models/model.json" is missing |}]
 
 (* --- Pt2_tensor --- *)
@@ -92,11 +92,11 @@ let%expect_test "metadata: numel, contiguity, pp" =
 let%expect_test "dtype and tensor metadata failures are typed" =
   (match Pt2_dtype.of_scalar_type Pytorch_types.ScalarType.HALF with
   | Ok _ -> print_endline "unexpected success"
-  | Error e -> Format.printf "%a@." Pt2_dtype.pp_error e.Core.Error.kind);
+  | Error e -> Format.printf "%a@." Pt2_dtype.pp_error (Err.Error.kind e));
   Pt2_tensor.int_of_symint ~field:"sizes"
     (Pytorch_types.SymInt.Expr (Pytorch_types.SymExpr.make "s0" None))
   |> Format.printf "%a@."
-       (Core.Pretty.core_result
+       (Core.Pretty.err_result
           ~ok:(Fmt.any "unexpected success")
           ~error:Pt2_tensor.pp_error);
   [%expect
@@ -156,7 +156,7 @@ let tensor_pickle () =
 
 let%expect_test "pickle yields rebuild descriptor" =
   match Pt2_pickle.parse_tensor (tensor_pickle ()) with
-  | Error e -> Format.printf "%a@." Pt2_pickle.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "%a@." Pt2_pickle.pp_error (Err.Error.kind e)
   | Ok rb ->
       Printf.printf "key=%s dtype=%s offset=%d sizes=[%s] strides=[%s]\n"
         rb.Pt2_pickle.storage_key
@@ -170,7 +170,7 @@ let%expect_test "pickle failures are typed" =
   match Pt2_pickle.parse_tensor "not a pickle" with
   | Ok _ -> print_endline "unexpected success"
   | Error e ->
-      Format.printf "%a@." Pt2_pickle.pp_error e.Core.Error.kind;
+      Format.printf "%a@." Pt2_pickle.pp_error (Err.Error.kind e);
       [%expect
         {| pickle decode failed: pickle error at byte 1: unknown opcode 0x6e |}]
 

@@ -164,4 +164,4 @@ val build :
   name:string ->
   outputs:('a -> Tensor_id.t list) ->
   'a t ->
-  (graph, error) Core.result
+  (graph, error) Err.t

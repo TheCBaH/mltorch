@@ -47,8 +47,8 @@ let add_checked counter a b =
   (* [Int64.max_int - b] cannot underflow for [b >= 0], and every count here is
      non-negative by construction ([of_bindings] rejects the rest). *)
   if Int64.compare a (Int64.sub Int64.max_int b) > 0 then
-    Core.fail (`Count_overflow { Count_overflow.counter })
-  else Core.return (Int64.add a b)
+    Err.fail (`Count_overflow { Count_overflow.counter })
+  else Err.return (Int64.add a b)
 
 module Outcome_counts = struct
   (* Counts by outcome label, sharing ONE vocabulary with [Map_verify.Tally]:
@@ -161,25 +161,25 @@ module Outcome_counts = struct
 
   let bump label n t =
     let rec go = function
-      | [] -> Core.return [ (label, n) ]
+      | [] -> Err.return [ (label, n) ]
       | (l, m) :: rest when l = label ->
-          let open Core.Syntax in
+          let open Err.Syntax in
           let+ total = add_checked (Count_overflow.Outcome_bucket label) m n in
           (l, total) :: rest
       | binding :: rest ->
-          let open Core.Syntax in
+          let open Err.Syntax in
           let+ rest = go rest in
           binding :: rest
     in
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ t = go t in
     canonical t
 
   let add t outcome = bump (Map_verify.Outcome.label outcome) 1L t
 
   let of_report (report : Map_verify.Report.t) =
-    let open Core.Syntax in
-    Core.List.fold_left
+    let open Err.Syntax in
+    Err.List.fold_left
       (fun acc (e : Map_verify.Entry.t) -> add acc e.outcome)
       empty report.entries
     |> fun r ->
@@ -187,8 +187,8 @@ module Outcome_counts = struct
     t
 
   let merge a b =
-    let open Core.Syntax in
-    let+ t = Core.List.fold_left (fun acc (label, n) -> bump label n acc) a b in
+    let open Err.Syntax in
+    let+ t = Err.List.fold_left (fun acc (label, n) -> bump label n acc) a b in
     t
 
   module Invalid = struct
@@ -220,10 +220,10 @@ module Outcome_counts = struct
      shown to fire. *)
   let of_bindings bindings =
     let reject label kind =
-      Core.fail (`Invalid_counts { Invalid.label; kind })
+      Err.fail (`Invalid_counts { Invalid.label; kind })
     in
     let rec check seen = function
-      | [] -> Core.return ()
+      | [] -> Err.return ()
       | (label, n) :: rest ->
           if String.length label > max_label_bytes then
             reject label Invalid.Label_too_long
@@ -233,7 +233,7 @@ module Outcome_counts = struct
           else if List.mem label seen then reject label Invalid.Duplicate_label
           else check (label :: seen) rest
     in
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ () = check [] bindings in
     canonical bindings
 
@@ -247,7 +247,7 @@ module Outcome_counts = struct
     | Ok v -> v
     | Error e ->
         Jsont.Error.msg Jsont.Meta.none
-          (Fmt.str "%a" pp_invalid e.Core.Error.kind)
+          (Fmt.str "%a" pp_invalid (Err.Error.kind e))
 
   module Binding = struct
     type t = { label : string; count : int64 }
@@ -325,7 +325,7 @@ module Audit_summary = struct
      [Outcome_counts] raises flows out. [omitted_reports] and each outcome
      bucket are checked independently, so an overflow of either names itself. *)
   let add t report =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* omitted_reports =
       add_checked Count_overflow.Audit_reports t.omitted_reports 1L
     in
@@ -344,7 +344,7 @@ module Audit_log = struct
   let empty = { reports = []; overflow = None }
 
   let fold_away t (report : Map_verify.Report.t) =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ summary =
       Audit_summary.add
         (Option.value t.overflow ~default:Audit_summary.empty)
@@ -356,18 +356,18 @@ module Audit_log = struct
      applied while projecting arrives after the memory is gone. *)
   let push ~max_reports t (audit : Audit.t) =
     if List.compare_length_with t.reports max_reports < 0 then
-      Core.return { t with reports = t.reports @ [ audit ] }
+      Err.return { t with reports = t.reports @ [ audit ] }
     else fold_away t audit.report
 
   let concat ~max_reports a b =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* merged =
-      Core.List.fold_left
+      Err.List.fold_left
         (fun acc audit -> push ~max_reports acc audit)
         a b.reports
     in
     match b.overflow with
-    | None -> Core.return merged
+    | None -> Err.return merged
     | Some s ->
         let base = Option.value merged.overflow ~default:Audit_summary.empty in
         let* omitted_reports =
@@ -398,7 +398,7 @@ module Make (S : Side.S) = struct
 
   type node = S.op Graph_common.Node.t
 
-  open Core.Syntax
+  open Err.Syntax
 
   module Verification = struct
     (* Two distinct failures, and the caller needs to tell them apart: the
@@ -528,7 +528,7 @@ module Make (S : Side.S) = struct
 
   type t = {
     name : string;
-    run : 'v. ctx -> 'v Rw.t -> ('v outcome, error) Core.result;
+    run : 'v. ctx -> 'v Rw.t -> ('v outcome, error) Err.t;
   }
 
   type env = { constants : Tensor.packed Tensor_id.Map.t; view : View.t }
@@ -539,7 +539,7 @@ module Make (S : Side.S) = struct
      state it is planning against. *)
   type collector = { collect : 'v. env -> ('v, unit) Rcp.t list }
 
-  let lift r = (r :> ('a, error) Core.result)
+  let lift r = (r :> ('a, error) Err.t)
 
   (* One sweep: collect the builders a pass offers, plan them one after another so
      their allocations are contiguous, merge, and apply once. Merging is what makes
@@ -552,18 +552,18 @@ module Make (S : Side.S) = struct
           let* recipes, alloc = acc in
           let+ recipe, alloc = lift (Rw.plan state alloc builder) in
           (recipe :: recipes, alloc))
-        (Core.return ([], Rw.allocator state))
+        (Err.return ([], Rw.allocator state))
         builders
     in
     match List.rev planned with
-    | [] -> Core.return None
+    | [] -> Err.return None
     | first :: rest ->
         let* merged =
           List.fold_left
             (fun acc recipe ->
               let* acc = acc in
               lift (Rw.merge acc recipe))
-            (Core.return first) rest
+            (Err.return first) rest
         in
         let+ step = lift (Rw.apply state merged) in
         Some step
@@ -585,7 +585,7 @@ module Make (S : Side.S) = struct
   let verified id ctx state step =
     let name = id.Exec_id.leaf in
     match ctx.policy with
-    | None -> Core.return Audit_log.empty
+    | None -> Err.return Audit_log.empty
     | Some policy -> (
         (* [Map_verify.step] is Native-only — it reaches into [Rewrite] — so its
            two lines are inlined here, where both modules are in scope at this
@@ -598,18 +598,18 @@ module Make (S : Side.S) = struct
             ~dst:(Rw.snapshot after) ~dst_constants:(Rw.constants after)
         with
         | Error e ->
-            Core.fail
+            Err.fail
               (`Verification
                  {
                    Verification.pass = name;
-                   problem = Verification.Error e.Core.Error.kind;
+                   problem = Verification.Error (Err.Error.kind e);
                  })
         | Ok report ->
             if Map_verify.Policy.accepts policy report then
               Audit_log.push ~max_reports:ctx.max_audit_reports Audit_log.empty
                 { Audit.id; report }
             else
-              Core.fail
+              Err.fail
                 (`Verification
                    {
                      Verification.pass = name;
@@ -637,7 +637,7 @@ module Make (S : Side.S) = struct
                verify and is not traced: it is not an execution. That is what
                keeps ordinals dense over the executions that really happened
                rather than over the attempts. *)
-            Core.return
+            Err.return
               {
                 audits = Audit_log.empty;
                 trace = Trace.empty;
@@ -697,9 +697,9 @@ module Make (S : Side.S) = struct
               Audit_log.t * Trace.t ->
               int64 ->
               v Rw.step ->
-              (v outcome, error) Core.result =
+              (v outcome, error) Err.t =
            fun fuel iteration (audits, trace) index (Rw.Step (state, acc)) ->
-            if fuel <= 0 then Core.fail (`Not_converged inner.name)
+            if fuel <= 0 then Err.fail (`Not_converged inner.name)
             else
               (* [ctx], so EVERY iteration is verified rather than only the
                  composite the caller sees. *)
@@ -729,7 +729,7 @@ module Make (S : Side.S) = struct
                   inner_out.next_index
                   (Rw.Step (next, Graph_map.compose acc map))
               else
-                Core.return
+                Err.return
                   {
                     audits;
                     trace;
@@ -747,12 +747,11 @@ module Make (S : Side.S) = struct
   (* Every pass verifies its own step, so this threads the context, THREADS THE
      ORDINAL between members, and concatenates what came back. *)
   let run_with ctx state passes =
-    let rec go : type v.
-        int64 -> v Rw.t -> t list -> (v outcome, error) Core.result =
+    let rec go : type v. int64 -> v Rw.t -> t list -> (v outcome, error) Err.t =
      fun index state passes ->
       match passes with
       | [] ->
-          Core.return
+          Err.return
             {
               audits = Audit_log.empty;
               trace = Trace.empty;
@@ -768,8 +767,8 @@ module Make (S : Side.S) = struct
              exact-frame rules live in [of_sweep], which is private. *)
           let* () =
             if Int64.compare first.next_index index < 0 then
-              Core.fail (`Malformed_outcome pass.name)
-            else Core.return ()
+              Err.fail (`Malformed_outcome pass.name)
+            else Err.return ()
           in
           let* rest = go first.next_index next rest in
           let (Rw.Step (final, rest_map)) = rest.step in

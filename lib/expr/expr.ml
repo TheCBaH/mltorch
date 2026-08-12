@@ -131,14 +131,14 @@ module Index = struct
      performed it, so dropping it would have moved goldens during the migration.
      The others land in [add]/[scale] above, after the cutover. *)
   let floor_div_pos a d =
-    if d <= 0 then Core.fail (`Non_positive_divisor d)
-    else if d = 1 then Core.return a
-    else Core.return (Floor_div_pos (a, d))
+    if d <= 0 then Err.fail (`Non_positive_divisor d)
+    else if d = 1 then Err.return a
+    else Err.return (Floor_div_pos (a, d))
 
   let ceil_div_pos a d =
-    if d <= 0 then Core.fail (`Non_positive_divisor d)
-    else if d = 1 then Core.return a
-    else Core.return (Ceil_div_pos (a, d))
+    if d <= 0 then Err.fail (`Non_positive_divisor d)
+    else if d = 1 then Err.return a
+    else Err.return (Ceil_div_pos (a, d))
 end
 
 (* ---- intrinsics ----------------------------------------------------------- *)
@@ -195,12 +195,12 @@ module Intrinsic = struct
   let max_pool ~source ~in_h ~in_w ~kernel_h ~kernel_w ~stride_h ~stride_w
       ~pad_h ~pad_w ~out ~result =
     let positive what n =
-      if n >= 1 then Core.return n else Core.fail (`Bad_geometry (what, n))
+      if n >= 1 then Err.return n else Err.fail (`Bad_geometry (what, n))
     in
     let nonneg what n =
-      if n >= 0 then Core.return n else Core.fail (`Bad_geometry (what, n))
+      if n >= 0 then Err.return n else Err.fail (`Bad_geometry (what, n))
     in
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* in_h = positive "in_h" in_h in
     let* in_w = positive "in_w" in_w in
     let* kernel_h = positive "kernel_h" kernel_h in
@@ -237,7 +237,7 @@ module Intrinsic = struct
      is a product of individually in-range factors, and an aggregate needs its
      own bound. *)
   let window (Max_pool d) ~out_h ~out_w =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let axis out stride pad kernel extent =
       let* base = Checked.mul out stride in
       let* base = Checked.sub base pad in
@@ -257,7 +257,7 @@ module Intrinsic = struct
   (* The flattened input position a max-pool index result reports. Checked for
      the same reason: [ih * in_w] is an aggregate. *)
   let flat_index (Max_pool d) ~ih ~iw =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* row = Checked.mul ih d.Max_pool.in_w in
     Checked.add row iw
 end
@@ -1256,27 +1256,27 @@ module Check = struct
      unreachable bound rather than a separate pass. With both absent there is
      nothing to bound, and the walk is skipped. *)
   let value ?max_size ?max_depth e =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let or_unbounded = function Some l -> l | None -> Stdlib.max_int in
     let* () =
       match (max_size, max_depth) with
-      | None, None -> Core.return ()
+      | None, None -> Err.return ()
       | _ -> (
           let max_size = or_unbounded max_size
           and max_depth = or_unbounded max_depth in
           match Fold.exceeds ~max_size ~max_depth e with
-          | Some `Size -> Core.fail (`Too_large max_size)
-          | Some `Depth -> Core.fail (`Too_deep max_depth)
-          | None -> Core.return ())
+          | Some `Size -> Err.fail (`Too_large max_size)
+          | Some `Depth -> Err.fail (`Too_deep max_depth)
+          | None -> Err.return ())
     in
     let* () =
       match Reduce_var.Set.min_elt_opt (Fold.free_reducers e) with
-      | Some v -> Core.fail (`Free_reducer v)
-      | None -> Core.return ()
+      | Some v -> Err.fail (`Free_reducer v)
+      | None -> Err.return ()
     in
     match duplicate_binder e with
-    | Some v -> Core.fail (`Duplicate_binder v)
-    | None -> Core.return ()
+    | Some v -> Err.fail (`Duplicate_binder v)
+    | None -> Err.return ()
 end
 
 (* ---- interpretation ------------------------------------------------------- *)
@@ -1302,15 +1302,15 @@ module Eval = struct
      it matters: this runs inside the grounding loop, which the transform
      verifier drives for every random-walk config.
 
-     The exception carries an already-built [Core.Error.t], so the backtrace is
+     The exception carries an already-built [Err.Error.t], so the backtrace is
      the one captured where the failure was DETECTED, not where it was caught. *)
-  exception Fail of index_error Core.Error.t
+  exception Fail of index_error Err.Error.t
 
-  let fail_with (k : index_error) = raise (Fail (Core.Error.make k))
+  let fail_with (k : index_error) = raise (Fail (Err.Error.make k))
 
-  let chk : ('a, [< index_error ]) Core.result -> 'a = function
+  let chk : ('a, [< index_error ]) Err.t -> 'a = function
     | Ok v -> v
-    | Error e -> raise (Fail (e :> index_error Core.Error.t))
+    | Error e -> raise (Fail (e :> index_error Err.Error.t))
 
   let eval_index (type r) ~(output : int Coord.t)
       ~(reducers : Reduce_var.t -> int option) (e : r Index.t) : int =
@@ -1350,9 +1350,9 @@ module Eval = struct
      chosen to avoid -- in exchange for a check that can never fire there. *)
   let float_of_index i =
     let f = Stdlib.float_of_int i in
-    if Sys.int_size <= 53 then Core.return f
-    else if Int64.equal (Int64.of_float f) (Int64.of_int i) then Core.return f
-    else Core.fail (`Index_not_exact_in_float i)
+    if Sys.int_size <= 53 then Err.return f
+    else if Int64.equal (Int64.of_float f) (Int64.of_int i) then Err.return f
+    else Err.fail (`Index_not_exact_in_float i)
 
   (* Everything a value can fail on. [`Unknown_source] and [`Coord_out_of_range]
      are raised by the host's [load], not here -- the language knows nothing
@@ -1376,22 +1376,22 @@ module Eval = struct
        evaluated coordinates and consumes a working float; everything about
        storage format, quantization and tensor ownership lives on the other
        side. This is what keeps the library independent of [native]. *)
-    type t = { load : Source.t -> int Coord.t -> (float, error) Core.result }
+    type t = { load : Source.t -> int Coord.t -> (float, error) Err.t }
   end
 
-  exception Fail_value of error Core.Error.t
+  exception Fail_value of error Err.Error.t
 
-  (* Every value-level failure arrives as a [Core.result] from somewhere else --
+  (* Every value-level failure arrives as a [Err.t] from somewhere else --
      the host's [load], the intrinsic geometry, the index evaluator -- so there
      is no direct-raise helper here to go with [vchk]. *)
-  let vchk : ('a, [< error ]) Core.result -> 'a = function
+  let vchk : ('a, [< error ]) Err.t -> 'a = function
     | Ok v -> v
-    | Error e -> raise (Fail_value (e :> error Core.Error.t))
+    | Error e -> raise (Fail_value (e :> error Err.Error.t))
 
   let value (env : Env.t) ~output e =
     let idx reducers i =
       try eval_index ~output ~reducers i
-      with Fail e -> raise (Fail_value (e :> error Core.Error.t))
+      with Fail e -> raise (Fail_value (e :> error Err.Error.t))
     in
     let rec go reducers (e : Value.t) : float =
       match e with

@@ -209,7 +209,7 @@ val create :
   values:('src, 'dst) Correspondence.Cluster.t list ->
   nodes:('src, 'dst) Node_map.Cluster.t list ->
   provenance:('src, 'dst) Provenance.t ->
-  (('src, 'dst) t, error) Core.result
+  (('src, 'dst) t, error) Err.t
 ```
 
 It checks explicit endpoints, that creations exist only in `dst` and deletions
@@ -321,7 +321,7 @@ stop, because the answer would otherwise depend on the bound.
 type 'v t                                   (* graph + constants + supply + origin watermark *)
 type origin = Origin : 'v t -> origin
 val origin : ?constants:(Tensor_id.t * Tensor.packed) list -> graph ->
-             (origin, error) Core.result    (* the ONLY minter of a version *)
+             (origin, error) Err.t    (* the ONLY minter of a version *)
 val graph     : 'v t -> graph
 val constants : 'v t -> Tensor.packed Tensor_id.Map.t
 val view      : 'v t -> Graph_view.t        (* validated index of the current graph *)
@@ -330,11 +330,11 @@ type 'v allocator                           (* abstract; watermarked *)
 type 'v recipe                              (* abstract; retains start and end watermark *)
 val allocator : 'v t -> 'v allocator
 val plan  : 'v t -> 'v allocator -> Recipe.builder ->
-            ('v recipe * 'v allocator, error) Core.result
-val merge : 'v recipe -> 'v recipe -> ('v recipe, error) Core.result
+            ('v recipe * 'v allocator, error) Err.t
+val merge : 'v recipe -> 'v recipe -> ('v recipe, error) Err.t
 
 type 'v step = Step : 'w t * ('v,'w) Graph_map.t -> 'v step
-val apply : 'v t -> 'v recipe -> ('v step, error) Core.result
+val apply : 'v t -> 'v recipe -> ('v step, error) Err.t
 val pack  : 'v t -> 'v step
 ```
 
@@ -640,10 +640,10 @@ ever one sidecar value.
 ```ocaml
 type 'dst lens
 val lens : t -> src:'a Rewrite.t -> ('a,'b) Graph_map.t -> dst:'b Rewrite.t ->
-           ('b lens, error) Core.result
-val tensor_origins     : 'b lens -> Tensor_id.t -> (Tensor_origin.t list, error) Core.result
-val node_origins       : 'b lens -> Node_id.t -> (Node_origin.t list, error) Core.result
-val captured_target    : 'b lens -> Tensor_id.t -> (string option, error) Core.result
+           ('b lens, error) Err.t
+val tensor_origins     : 'b lens -> Tensor_id.t -> (Tensor_origin.t list, error) Err.t
+val node_origins       : 'b lens -> Node_id.t -> (Node_origin.t list, error) Err.t
+val captured_target    : 'b lens -> Tensor_id.t -> (string option, error) Err.t
 val provenance_sources : 'b lens -> Tensor_id.t -> Tensor_id.t list  (* diagnostics only *)
 ```
 
@@ -1513,8 +1513,8 @@ same signal `Pass.fixpoint` uses to detect convergence — on both branches.
 
 `test/native/` is `ppx_expect` inline tests in the `native_test` library. New tests
 follow the house idiom (`graph_test.ml`): a local `type error = [ … ]` row,
-`pp_error`, `let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok
-~error:pp_error`, `lift_*` adapters, one `Core.Syntax` chain, one `Format.printf`,
+`pp_error`, `let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok
+~error:pp_error`, `lift_*` adapters, one `Err.Syntax` chain, one `Format.printf`,
 one `[%expect]`.
 
 `test/native/graph_fixtures.ml` is the shared graph library this layer needs —

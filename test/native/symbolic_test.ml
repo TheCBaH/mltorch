@@ -3,7 +3,7 @@ let row c = Dim.to_int (Vec6.get c Axis.H)
 let col c = Dim.to_int (Vec6.get c Axis.W)
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 let f32 = Payload.Fmt Payload.F32
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:Shape_error.pp
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:Shape_error.pp
 
 let pp_eval_result ppf (vals, ok) =
   Format.fprintf ppf "eval=%s direct==symbolic=%b" vals ok
@@ -19,16 +19,16 @@ let pp_ground_result ppf (tensor, ok) =
 let build = Expr.Builder.run
 
 (* The symbolic side now evaluates through [Expr.Eval] and the bridge. The
-   binding is id-keyed and option-valued to match; [Core.or_raise] converts at
+   binding is id-keyed and option-valued to match; [Err.or_raise ~pp_error:] converts at
    this one seam, exactly as [Schedule.ground] does. *)
 let eval_expr ~binding e c =
-  Core.or_raise Expr.Eval.pp_error
+  Err.or_raise ~pp_error:Expr.Eval.pp_error
     (Expr.Eval.value (Expr_bridge.env ~binding)
        ~output:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
        e)
 
 let compare_symbolic out_shape_result ~iter_shape ~eval_direct ~eval_symbolic =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* out_shape = out_shape_result in
   let outs = ref [] and ok = ref true in
   (* Bitwise, not [Float.equal]: the latter equates -0. with +0. and any NaN
@@ -40,7 +40,7 @@ let compare_symbolic out_shape_result ~iter_shape ~eval_direct ~eval_symbolic =
       let s = eval_symbolic c in
       outs := s :: !outs;
       if not (same d s) then ok := false);
-  Core.return
+  Err.return
     ( String.concat "," (List.map (Printf.sprintf "%g") (List.rev !outs)),
       !ok,
       out_shape )
@@ -69,11 +69,11 @@ let conv_params ?(groups = 1) ?(pad = (0, 0)) ~kernel ~stride ~in_channels () =
    missing binding is a value the evaluator can report rather than a [Not_found]
    raised out of a map lookup. *)
 let compare_grounded out_shape_result ~binding ~expr ~eval_direct =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* out_shape = out_shape_result in
   let direct = Schedule.evaluate out_shape eval_direct in
   let grounded = Schedule.ground out_shape ~binding expr in
-  Core.return (grounded, Tensor.equal_bits direct grounded)
+  Err.return (grounded, Tensor.equal_bits direct grounded)
 
 let%expect_test "Symbolic: pointwise expr pp" =
   let module S = Symbolic in
@@ -805,7 +805,7 @@ let%expect_test "Symbolic: reusing a computation builds it twice" =
   Format.printf "reductions %d, distinct identities %d, well-scoped: %a@."
     (List.length binders)
     (Expr.Reduce_var.Set.cardinal (Expr.Reduce_var.Set.of_list binders))
-    (Core.Pretty.core_result ~ok:(Fmt.any "yes") ~error:Expr.Check.pp_error)
+    (Core.Pretty.err_result ~ok:(Fmt.any "yes") ~error:Expr.Check.pp_error)
     (Expr.Check.value e);
   [%expect {| reductions 2, distinct identities 2, well-scoped: yes |}];
   (* And it still denotes the same thing Direct computes. *)

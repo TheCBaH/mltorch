@@ -1,11 +1,13 @@
-; Project-wide error/result framework. Wrapped (default), so it is referenced as
-; Core.fail, Core.return, Core.Syntax.(let*), Core.Error.t, Core.Error.pp — a
-; shared library must not leak a global Error/List module into wrapped-false
-; consumers (e.g. lib/native). [Pretty] is the repo-local glue layer around
-; Fmt for shared printer conventions.
-
+; The repo's shared printer glue. The error framework that used to live here is
+; [Err] (vendored/err_trace); see .ai/error_handling_design.md.
+;
+; Wrapped (default), so it is referenced as Core.Pretty.* — a shared library
+; must not leak a global module into wrapped-false consumers (e.g. lib/native).
+;
 ; err_trace's [name] and [public_name] are the same, so the cross-project
-; handle below matches the module it exposes, [Err].
+; handle below matches the module it exposes, [Err]. It is a dependency
+; because [Pretty] prints [Err.Error.t] payloads -- the direction that must
+; never reverse, since [Err] may not depend on Fmt.
 
 (library
  (name core)

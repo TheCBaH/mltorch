@@ -81,7 +81,7 @@
 (library
  (name pt2_test)
  (modules pt2_test)
- (libraries core pt2 zipc opickle bytesrw)
+ (libraries core err_trace pt2 zipc opickle bytesrw)
  ; See test/native4d/dune for why [js] carries no `enabled_if`.
  (inline_tests
   (modes best js))
@@ -97,7 +97,7 @@
 (library
  (name pt2_zip_limits_test)
  (modules pt2_zip_limits_test)
- (libraries core pt2 zipc)
+ (libraries core err_trace pt2 zipc)
  (inline_tests
   (modes best js))
  (preprocess
@@ -105,10 +105,21 @@
 
 ; Shared pretty-printing helpers from lib/core.
 
+; The host trace knob. Native only: it reads process environment variables,
+; which the browser backends have none of.
+
+(library
+ (name err_host_test)
+ (modules err_host_test)
+ (libraries err_host err_trace)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
 (library
  (name pretty_test)
  (modules pretty_test)
- (libraries core fmt)
+ (libraries core err_trace fmt)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
@@ -738,7 +749,7 @@
 (executable
  (name pt2_load)
  (modules pt2_load)
- (libraries core pt2 pt2_aten))
+ (libraries core err_trace pt2 pt2_aten))
 
 (cram
  (applies_to pt2_load_cram)
@@ -751,7 +762,7 @@
 (executable
  (name interp_run)
  (modules interp_run)
- (libraries core interp pt2 jsont jsont.bytesrw unix))
+ (libraries core err_trace interp pt2 jsont jsont.bytesrw unix))
 
 (cram
  (applies_to interp_resnet_cram)

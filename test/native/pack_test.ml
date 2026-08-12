@@ -49,10 +49,10 @@ type sink = { consume : 'w. 'w Rewrite.t -> unit }
 
 let piped g ~constants passes { consume } =
   match Rewrite.origin ~constants g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) -> (
       match Pass.run_all state passes with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (final, _)) -> consume final)
 
 (* ---- what packing does ---------------------------------------------------- *)
@@ -68,7 +68,7 @@ let%expect_test "pack: origin ids stay put, post-origin ids compact" =
           Format.printf "@[<v 2>folded:@,%a@]@." Graph_ir.pp
             (Rewrite.graph folded_state);
           match Rewrite.pack folded_state with
-          | Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+          | Error e -> Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
           | Ok (Rewrite.Step (packed, map)) ->
               Format.printf "@[<v 2>packed:@,%a@]@." Graph_ir.pp
                 (Rewrite.graph packed);
@@ -130,7 +130,7 @@ let%expect_test "pack: constant payloads move with their edges" =
           Format.printf "before: %a@." pp_payload_ids
             (Rewrite.constants folded_state);
           match Rewrite.pack folded_state with
-          | Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+          | Error e -> Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
           | Ok (Rewrite.Step (packed, _)) ->
               Format.printf "after:  %a@." pp_payload_ids
                 (Rewrite.constants packed));
@@ -150,7 +150,7 @@ let%expect_test "pack: a graph with nothing post-origin is left alone" =
       consume =
         (fun trimmed ->
           match Rewrite.pack trimmed with
-          | Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+          | Error e -> Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
           | Ok (Rewrite.Step (packed, map)) ->
               Format.printf "@[<v 2>packed:@,%a@]@." Graph_ir.pp
                 (Rewrite.graph packed);
@@ -181,11 +181,11 @@ let%expect_test "pack: packing twice changes nothing" =
       consume =
         (fun folded_state ->
           match Rewrite.pack folded_state with
-          | Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+          | Error e -> Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
           | Ok (Rewrite.Step (once, _)) -> (
               match Rewrite.pack once with
               | Error e ->
-                  Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+                  Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
               | Ok (Rewrite.Step (twice, map)) ->
                   Format.printf "second pack moves nothing: %b@."
                     (Correspondence.is_empty (Graph_map.values map));
@@ -207,13 +207,13 @@ let%expect_test "pack: the origin-to-packed map still resolves every origin id"
      answer in the composed map, whether that is a packed destination, an
      unchanged one, or nothing at all because the edge is gone. *)
   match Rewrite.origin ~constants:chain_constants (Graph_fixtures.chain ()) with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin s0) ->
       (match Pass.run_all s0 folded with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (s1, m01)) -> (
           match Rewrite.pack s1 with
-          | Error e -> Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+          | Error e -> Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
           | Ok (Rewrite.Step (_, m12)) ->
               let composed = Graph_map.compose m01 m12 in
               let snap = Rewrite.snapshot s0 in
@@ -250,19 +250,19 @@ let%expect_test "pack: a dead id is not fused with the value packed onto it" =
      Checked under both association orders, since the guard is a side condition
      on extension and this is exactly where it could break associativity. *)
   match Rewrite.origin ~constants:chain_constants (Graph_fixtures.chain ()) with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin s0) ->
       (match Pass.run_all s0 [ Fold_batch_norm.pass ] with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (s1, m01)) -> (
           match Pass.run_all s1 [ Pass.fixpoint Fold_const.pass ] with
-          | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+          | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
           | Ok (Rewrite.Step (s2, m12)) -> (
               Format.printf "@[<v 2>fold map (t10-t14 die here):@,%a@]@."
                 Graph_map.pp m12;
               match Rewrite.pack s2 with
               | Error e ->
-                  Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+                  Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
               | Ok (Rewrite.Step (_, m23)) ->
                   Format.printf "@[<v 2>pack map (t15 lands on t10):@,%a@]@."
                     Graph_map.pp m23;

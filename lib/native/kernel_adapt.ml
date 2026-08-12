@@ -63,7 +63,7 @@ type analysis = {
 }
 
 let analyse ~limits ~select (p : Stage_program.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   (* Every untrusted raw list is bounded BEFORE it is traversed — not only the
      stages. [inputs], [consts] and [outputs] are just as public, and leaving
      them unbounded meant the adapter did unbounded work and only [Kernel.create]
@@ -82,21 +82,21 @@ let analyse ~limits ~select (p : Stage_program.t) =
      wrapped negative would sail straight past a [> limit] test. *)
   let* () =
     if Kernel.over_limit limits.Kernel.Limits.max_values p.Stage_program.stages
-    then Core.fail (`Too_many_values limits.Kernel.Limits.max_values)
-    else Core.return ()
+    then Err.fail (`Too_many_values limits.Kernel.Limits.max_values)
+    else Err.return ()
   in
   let* () =
     if
       Kernel.over_limit_2 limits.Kernel.Limits.max_inputs p.Stage_program.inputs
         p.Stage_program.consts
-    then Core.fail (`Too_many_inputs limits.Kernel.Limits.max_inputs)
-    else Core.return ()
+    then Err.fail (`Too_many_inputs limits.Kernel.Limits.max_inputs)
+    else Err.return ()
   in
   let* () =
     if
       Kernel.over_limit limits.Kernel.Limits.max_outputs p.Stage_program.outputs
-    then Core.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
-    else Core.return ()
+    then Err.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
+    else Err.return ()
   in
   (* Then every body's budget — selected or not. An oversized UNSELECTED body is
      just as dangerous: liveness scans it. *)
@@ -104,11 +104,11 @@ let analyse ~limits ~select (p : Stage_program.t) =
     List.fold_left
       (fun acc (st : Stage_program.Stage.t) ->
         let* () = acc in
-        Core.map_error
+        Err.map_error
           (fun e -> `Body { Kernel.Body_error.at = st.id; error = e })
           (Expr.Check.value ~max_size:limits.Kernel.Limits.max_size
              ~max_depth:limits.Kernel.Limits.max_depth st.body))
-      (Core.return ()) p.Stage_program.stages
+      (Err.return ()) p.Stage_program.stages
   in
   (* The boundary table is built RESULT-VALUED, not with [Map.add]. Insertion
      silently overwrote a duplicate input, a duplicate constant, or an
@@ -118,26 +118,26 @@ let analyse ~limits ~select (p : Stage_program.t) =
   let* boundary =
     let add m id (sg : Tensor_sig.t) =
       let invalid kind =
-        Core.fail (`Program_invalid { Program_error.at = id; kind })
+        Err.fail (`Program_invalid { Program_error.at = id; kind })
       in
       if Tensor_id.Map.mem id m then invalid Program_error.Duplicate_definition
       else if not (Tensor_id.equal id sg.Tensor_sig.id) then
         invalid Program_error.Signature_id
-      else Core.return (Tensor_id.Map.add id sg m)
+      else Err.return (Tensor_id.Map.add id sg m)
     in
     let* m =
       List.fold_left
         (fun acc (id, sg) ->
           let* m = acc in
           add m id sg)
-        (Core.return Tensor_id.Map.empty)
+        (Err.return Tensor_id.Map.empty)
         p.Stage_program.inputs
     in
     List.fold_left
       (fun acc ((sg : Tensor_sig.t), _) ->
         let* m = acc in
         add m sg.Tensor_sig.id sg)
-      (Core.return m) p.Stage_program.consts
+      (Err.return m) p.Stage_program.consts
   in
   let stage_sig =
     List.fold_left
@@ -153,15 +153,15 @@ let analyse ~limits ~select (p : Stage_program.t) =
       (fun acc (st : Stage_program.Stage.t) ->
         let* sources, defined = acc in
         let invalid kind =
-          Core.fail (`Program_invalid { Program_error.at = st.id; kind })
+          Err.fail (`Program_invalid { Program_error.at = st.id; kind })
         in
         let* () =
           if Tensor_id.Map.mem st.id sources || Tensor_id.Map.mem st.id boundary
           then invalid Program_error.Duplicate_definition
-          else Core.return ()
+          else Err.return ()
         in
         let* () =
-          if Tensor_id.equal st.id st.sg.Tensor_sig.id then Core.return ()
+          if Tensor_id.equal st.id st.sg.Tensor_sig.id then Err.return ()
           else invalid Program_error.Signature_id
         in
         let srcs = Expr.Fold.sources st.body in
@@ -171,18 +171,18 @@ let analyse ~limits ~select (p : Stage_program.t) =
               let* () = acc in
               let id = Expr_bridge.id_of_source src in
               if Tensor_id.Map.mem id boundary || Tensor_id.Set.mem id defined
-              then Core.return ()
+              then Err.return ()
               else if Tensor_id.Map.mem id stage_sig then
                 invalid Program_error.Forward_source
               else
-                Core.fail
+                Err.fail
                   (`Unknown_stage_source
                      { Unknown_stage.at = st.id; source = src }))
-            srcs (Core.return ())
+            srcs (Err.return ())
         in
-        Core.return
+        Err.return
           (Tensor_id.Map.add st.id srcs sources, Tensor_id.Set.add st.id defined))
-      (Core.return (Tensor_id.Map.empty, Tensor_id.Set.empty))
+      (Err.return (Tensor_id.Map.empty, Tensor_id.Set.empty))
       p.Stage_program.stages
   in
   (* Every declared output is classified HERE, before any selection: a stage id
@@ -196,11 +196,11 @@ let analyse ~limits ~select (p : Stage_program.t) =
     List.fold_left
       (fun acc id ->
         let* () = acc in
-        if Tensor_id.Map.mem id stage_sig then Core.return ()
+        if Tensor_id.Map.mem id stage_sig then Err.return ()
         else if Tensor_id.Map.mem id boundary then
-          Core.fail (`Passthrough_output id)
-        else Core.fail (`Unknown_program_output id))
-      (Core.return ()) p.Stage_program.outputs
+          Err.fail (`Passthrough_output id)
+        else Err.fail (`Unknown_program_output id))
+      (Err.return ()) p.Stage_program.outputs
   in
   let order =
     List.map
@@ -219,11 +219,11 @@ let analyse ~limits ~select (p : Stage_program.t) =
     Tensor_id.Set.fold
       (fun id acc ->
         let* () = acc in
-        if Tensor_id.Set.mem id all_stages then Core.return ()
-        else Core.fail (`Unknown_selection id))
-      select (Core.return ())
+        if Tensor_id.Set.mem id all_stages then Err.return ()
+        else Err.fail (`Unknown_selection id))
+      select (Err.return ())
   in
-  Core.return
+  Err.return
     { select; kinds = p.Stage_program.input_kinds; sources; stage_sig; order }
 
 let sources_of a id =
@@ -261,7 +261,7 @@ let dead_terminals a =
     a.order
 
 let required a (p : Stage_program.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   (* Graph outputs first, order and repeats preserved. A graph output that is a
      boundary input has no value to name, so it is rejected rather than
      dropped. *)
@@ -271,9 +271,9 @@ let required a (p : Stage_program.t) =
         let* outs = acc in
         (* Classified already; an unselected stage is simply not this kernel's
            output. *)
-        if Tensor_id.Set.mem id a.select then Core.return (id :: outs)
-        else Core.return outs)
-      (Core.return []) p.Stage_program.outputs
+        if Tensor_id.Set.mem id a.select then Err.return (id :: outs)
+        else Err.return outs)
+      (Err.return []) p.Stage_program.outputs
   in
   let graph_outs = List.rev graph_outs in
   let seen =
@@ -292,50 +292,50 @@ let required a (p : Stage_program.t) =
       ([], seen) a.order
   in
   let acc, _ = List.fold_left append (acc, seen) (dead_terminals a) in
-  Core.return (graph_outs @ List.rev acc)
+  Err.return (graph_outs @ List.rev acc)
 
 let required_outputs ?(limits = Kernel.Limits.default) ?select p =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* a = analyse ~limits ~select p in
   let* outs = required a p in
   (* The DERIVED bound, enforced here too: this entry point never reaches
      [Kernel.create], so without it the same limits would mean different things
      depending on which function a caller used. *)
   if Kernel.over_limit limits.Kernel.Limits.max_outputs outs then
-    Core.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
-  else Core.return outs
+    Err.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
+  else Err.return outs
 
 let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* a = analyse ~limits ~select p in
   let* req = required a p in
   (* Caller outputs must BEGIN with the required sequence, order and repeats
      included; extras follow and must name selected values. *)
   let* outputs =
     match outputs with
-    | None -> Core.return req
+    | None -> Err.return req
     | Some given ->
         (* The caller's list is a public collection too, and was prefix-scanned
            and then extra-scanned before [Kernel.create] ever counted it. *)
         let* () =
           if Kernel.over_limit limits.Kernel.Limits.max_outputs given then
-            Core.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
-          else Core.return ()
+            Err.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
+          else Err.return ()
         in
         let rec strip req given =
           match (req, given) with
-          | [], rest -> Core.return rest
+          | [], rest -> Err.return rest
           | r :: rt, g :: gt when Tensor_id.equal r g -> strip rt gt
-          | r :: _, _ -> Core.fail (`Missing_live_output r)
+          | r :: _, _ -> Err.fail (`Missing_live_output r)
         in
         let* extras = strip req given in
         let+ () =
           List.fold_left
             (fun acc id ->
               let* () = acc in
-              if Tensor_id.Set.mem id a.select then Core.return ()
-              else Core.fail (`Output_not_selected id))
-            (Core.return ()) extras
+              if Tensor_id.Set.mem id a.select then Err.return ()
+              else Err.fail (`Output_not_selected id))
+            (Err.return ()) extras
         in
         given
   in
@@ -420,6 +420,6 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
         else None)
       p.Stage_program.stages
   in
-  Core.map_error
+  Err.map_error
     (fun (e : Kernel.error) -> (e :> error))
     (Kernel.create ~limits ~inputs ~values ~outputs ())

@@ -61,7 +61,7 @@ let bounded ~max pp v =
    [groupNodeAttributes] by namespace, and computing that key a second way is
    how two answers about the same hierarchy come to disagree. *)
 let namespaces ~limits (root : Graph_ir.Group.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let table = Hashtbl.create 64 in
   let rec walk prefix (g : Graph_ir.Group.t) =
     let* component =
@@ -69,12 +69,12 @@ let namespaces ~limits (root : Graph_ir.Group.t) =
         (Graph_ir.Group_id.to_int g.Graph_ir.Group.id)
     in
     let path = prefix @ [ component ] in
-    Core.List.iter
+    Err.List.iter
       (fun (item : Graph_ir.Group.item) ->
         match item with
         | Graph_ir.Group.Node id ->
             Hashtbl.replace table id (String.concat "/" path);
-            Core.return ()
+            Err.return ()
         | Graph_ir.Group.Group sub -> walk path sub)
       g.Graph_ir.Group.items
   in
@@ -82,19 +82,19 @@ let namespaces ~limits (root : Graph_ir.Group.t) =
      level deeper than the hierarchy says, and the extra level names the
      graph, which the graph id already does. *)
   let+ () =
-    Core.List.iter
+    Err.List.iter
       (fun (item : Graph_ir.Group.item) ->
         match item with
         | Graph_ir.Group.Node id ->
             Hashtbl.replace table id "";
-            Core.return ()
+            Err.return ()
         | Graph_ir.Group.Group sub -> walk [] sub)
       root.Graph_ir.Group.items
   in
   table
 
 let namespace_of ~limits root =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let+ table = namespaces ~limits root in
   fun id -> Option.value (Hashtbl.find_opt table id) ~default:""
 
@@ -116,7 +116,7 @@ module Make (S : SIDE) = struct
     text
 
   let graph ~limits ~id ?labels ?group_attrs (g : S.op Graph_ir.Graph.t) =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let label_of = match labels with Some f -> f | None -> fun _ -> "" in
     let nodes = g.Graph_ir.Graph.nodes in
     (* The ceiling comes first, before the walks that are linear in it. *)
@@ -127,8 +127,8 @@ module Make (S : SIDE) = struct
     in
     let* () =
       if node_count > limits.Me_limits.Limits.max_nodes_per_graph then
-        Core.fail (`Over_limit ("nodes", node_count))
-      else Core.return ()
+        Err.fail (`Over_limit ("nodes", node_count))
+      else Err.return ()
     in
     let* ns = namespaces ~limits g.Graph_ir.Graph.root in
     (* Where each tensor comes from. Boundary tensors resolve to their pinned
@@ -158,8 +158,8 @@ module Make (S : SIDE) = struct
       nodes;
     let resolve t =
       match Hashtbl.find_opt producer (Graph_ir.Tensor_id.to_int t) with
-      | Some p -> Core.return p
-      | None -> Core.fail (`Unknown_producer (Graph_ir.Tensor_id.to_int t))
+      | Some p -> Err.return p
+      | None -> Err.fail (`Unknown_producer (Graph_ir.Tensor_id.to_int t))
     in
     let outputs_metadata (n : S.op Graph_ir.Node.t) =
       List.mapi
@@ -211,10 +211,10 @@ module Make (S : SIDE) = struct
         g.Graph_ir.Graph.inputs
     in
     let* op_nodes =
-      Core.List.map
+      Err.List.map
         (fun (n : S.op Graph_ir.Node.t) ->
           let+ incoming =
-            Core.List.map
+            Err.List.map
               (fun t ->
                 let+ src, slot = resolve t in
                 ME.IncomingEdge.create ~sourceNodeId:src
@@ -245,7 +245,7 @@ module Make (S : SIDE) = struct
         nodes
     in
     let* output_nodes =
-      Core.List.map
+      Err.List.map
         (fun t ->
           let+ src, slot = resolve t in
           ME.GraphNode.create ~id:(Me_ids.boundary `Out t) ~label:"output"
@@ -269,8 +269,8 @@ module Make (S : SIDE) = struct
     in
     let+ () =
       if edges > limits.Me_limits.Limits.max_edges_per_graph then
-        Core.fail (`Over_limit ("edges", edges))
-      else Core.return ()
+        Err.fail (`Over_limit ("edges", edges))
+      else Err.return ()
     in
     (* [groupNodeAttributes] is keyed by NAMESPACE, which is why the rollup
        that fills it shares [namespaces] with this projection rather than

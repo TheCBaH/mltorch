@@ -32,7 +32,7 @@ let show ?(source_nodes = []) label l =
       Format.printf "%s: %a@." label
         (fun fmt -> function
           | `Over_limit (f, n) -> Fmt.pf fmt "over limit %s = %d" f n)
-        e.Core.Error.kind
+        (Err.Error.kind e)
   | Ok t ->
       Printf.printf "%s:\n" label;
       List.iter
@@ -162,24 +162,24 @@ let%expect_test "the output does not depend on insertion order" =
 
 let%expect_test "the member ceilings" =
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_mapping_members_total:2 limits)
   in
   let l = [ (0, [ origin 0 ]); (1, [ origin 1 ]) ] in
   (match P.of_origins ~limits:tight ~source_nodes:[] (origins l) with
   | Ok _ -> print_endline "total: ok"
   | Error e -> (
-      match e.Core.Error.kind with
+      match Err.Error.kind e with
       | `Over_limit (f, n) -> Printf.printf "total: over limit %s = %d\n" f n));
   let tight_e =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_mapping_members_per_entry:2 limits)
   in
   let big = [ (0, [ origin 0; origin 1; origin 2 ]) ] in
   (match P.of_origins ~limits:tight_e ~source_nodes:[] (origins big) with
   | Ok _ -> print_endline "per entry: ok"
   | Error e -> (
-      match e.Core.Error.kind with
+      match Err.Error.kind e with
       | `Over_limit (f, n) ->
           Printf.printf "per entry: over limit %s = %d\n" f n));
   [%expect

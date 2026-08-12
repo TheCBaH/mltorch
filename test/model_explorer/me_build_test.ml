@@ -10,7 +10,7 @@ module ME = Model_explorer
 let limits = Me_limits.Limits.untrusted
 
 let pp_err ppf r =
-  Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Me_build.pp_error ppf r
+  Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Me_build.pp_error ppf r
 
 (* --- the bounded printer --- *)
 
@@ -170,13 +170,13 @@ let%expect_test "an operand nothing produces is named, not silently dropped" =
 
 let%expect_test "the ceilings, checked before the walks" =
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_nodes_per_graph:2 limits)
   in
   Format.printf "nodes %a@." pp_err
     (Me_native.graph ~limits:tight ~id:"g" (graph ()));
   let tight_e =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_edges_per_graph:1 limits)
   in
   Format.printf "edges %a@." pp_err
@@ -188,7 +188,7 @@ let%expect_test "the ceilings, checked before the walks" =
 
 let%expect_test "an over-long parameter render is capped and says so" =
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_attr_chars:4 limits)
   in
   (match Me_native.graph ~limits:tight ~id:"g" (graph ()) with
@@ -276,7 +276,7 @@ let%expect_test "what Me_build produces, Me_session accepts" =
         }
       in
       Format.printf "%a@."
-        (Core.Pretty.core_result ~ok:(Fmt.any "valid session")
+        (Core.Pretty.err_result ~ok:(Fmt.any "valid session")
            ~error:Me_session.Session.pp_error)
         (Me_session.Session.validate ~limits session);
       [%expect {| valid session |}]

@@ -71,13 +71,13 @@ codec (e.g. `Tensor_spec.jsont`), which then fails to decode a tensor from `null
 
 ## Errors are threaded, not exceptions
 
-`Pt2_dtype`/`Pt2_tensor`/`Pt2_archive` report failures as `Core.result` (see
+`Pt2_dtype`/`Pt2_tensor`/`Pt2_archive` report failures as `Err.t` (see
 `lib/core/core.mli`). `lib/pt2_spec_gen/pt2_spec_gen.ml` follows the same convention
 throughout — its own `error` row extends theirs, and every fallible function threads
-`Core.result` via `Core.Syntax`'s `let*`, rather than converting to exceptions internally.
+`Err.t` via `Err.Syntax`'s `let*`, rather than converting to exceptions internally.
 Only `write_dir`'s outermost per-node loop pattern-matches `Ok`/`Error` directly, and
 deliberately does *not* thread a single result through the whole node list: unlike
-`Core.List.map`/`fold_left` (which short-circuit on the first `Error`), generation must
+`Err.List.map`/`fold_left` (which short-circuit on the first `Error`), generation must
 keep going past one bad node, writing every node that succeeds and warning (to stderr)
 about the ones that don't — coverage gaps stay visible instead of aborting the whole run
 or getting silently dropped.

@@ -1,7 +1,7 @@
 (* See domain.mli. *)
 
 open Graph_ir
-open Core.Syntax
+open Err.Syntax
 
 (* --- the four-axis shape rule ------------------------------------------------
 
@@ -47,15 +47,15 @@ let live_tensors view =
 (* An absent signature is not this module's business: [Graph_view] owns that
    check, and a tensor it never recorded cannot be shape-tested here. *)
 let check_shapes view =
-  Core.List.iter
+  Err.List.iter
     (fun id ->
       match Graph_view.sig_of view id with
-      | None -> Core.return ()
+      | None -> Err.return ()
       | Some sg ->
           let shape = sg.Tensor_sig.shape in
           let unit_axis axis = Dim.to_int (Vec6.get shape axis) = 1 in
-          if unit_axis Axis.T && unit_axis Axis.D then Core.return ()
-          else Core.fail (`Non_four_dimensional_tensor (id, shape)))
+          if unit_axis Axis.T && unit_axis Axis.D then Err.return ()
+          else Err.fail (`Non_four_dimensional_tensor (id, shape)))
     (Tensor_id.Set.elements (live_tensors view))
 
 (* --- per-node predicates ----------------------------------------------------
@@ -70,18 +70,18 @@ let check_shapes view =
    convolution scales per channel and cannot normalize over N, H or W. *)
 
 let check_dims node dims =
-  Core.List.iter
+  Err.List.iter
     (fun axis ->
       match axis with
-      | Axis.T | Axis.D -> Core.fail (`Axis_outside_dialect (node, axis))
-      | Axis.N | Axis.H | Axis.W | Axis.C -> Core.return ())
+      | Axis.T | Axis.D -> Err.fail (`Axis_outside_dialect (node, axis))
+      | Axis.N | Axis.H | Axis.W | Axis.C -> Err.return ())
     dims
 
 let check_perm node perm =
-  Core.List.iter
+  Err.List.iter
     (fun axis ->
-      if Axis.equal (Permute.Permute.lookup perm axis) axis then Core.return ()
-      else Core.fail (`Axis_outside_dialect (node, axis)))
+      if Axis.equal (Permute.Permute.lookup perm axis) axis then Err.return ()
+      else Err.fail (`Axis_outside_dialect (node, axis)))
     [ Axis.T; Axis.D ]
 
 (* [weight] is laid out [Cout, 1, 1, Kh, Kw, Cin/groups] (conv.ml), so the C
@@ -91,19 +91,19 @@ let check_perm node perm =
    be classified, so it is left to [Graph_view]. *)
 let check_groups view node ~weight ~groups =
   let groups = (groups : Op_config.Pos.t :> int) in
-  if groups = 1 then Core.return ()
+  if groups = 1 then Err.return ()
   else
     match Graph_view.sig_of view weight with
-    | None -> Core.return ()
+    | None -> Err.return ()
     | Some sg ->
         if Dim.to_int (Vec6.get sg.Tensor_sig.shape Axis.C) = 1 then
-          Core.return ()
-        else Core.fail (`Unsupported_grouped_conv (node, groups))
+          Err.return ()
+        else Err.fail (`Unsupported_grouped_conv (node, groups))
 
 let check_transposed node ~groups =
   let groups = (groups : Op_config.Pos.t :> int) in
-  if groups = 1 then Core.return ()
-  else Core.fail (`Unsupported_grouped_transposed_conv (node, groups))
+  if groups = 1 then Err.return ()
+  else Err.fail (`Unsupported_grouped_transposed_conv (node, groups))
 
 (* Whether a value read from this format is already f32-representable. F32, F16
    and BF16 carry no more mantissa than f32; I32/I64 exceed its exact range
@@ -129,20 +129,20 @@ let fmt_is_f32_exact (Payload.Fmt fmt) =
    sound exactly when the materialization is lossless, and the dialect is
    allowed to be partial. *)
 let check_bmm view node ~input ~mat2 =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* () =
     match Graph_view.sig_of view input with
-    | None -> Core.return ()
+    | None -> Err.return ()
     | Some sg ->
         let batch = Vec6.get sg.Tensor_sig.shape Axis.H in
-        if Dim.to_int batch = 1 then Core.return ()
-        else Core.fail (`Unsupported_bmm_batch (node, batch))
+        if Dim.to_int batch = 1 then Err.return ()
+        else Err.fail (`Unsupported_bmm_batch (node, batch))
   in
   match Graph_view.sig_of view mat2 with
-  | None -> Core.return ()
+  | None -> Err.return ()
   | Some sg ->
-      if fmt_is_f32_exact sg.Tensor_sig.fmt then Core.return ()
-      else Core.fail (`Lossy_bmm_operand (node, mat2))
+      if fmt_is_f32_exact sg.Tensor_sig.fmt then Err.return ()
+      else Err.fail (`Lossy_bmm_operand (node, mat2))
 
 (* The two running statistics are required operands; [weight] and [bias] are
    optional, and absent means the identity, which is not a dynamic parameter.
@@ -153,8 +153,8 @@ let check_bmm view node ~input ~mat2 =
 let check_batch_norm view node (bn : Norm.BatchNorm.t) =
   let* () =
     let channel = bn.Norm.BatchNorm.params.Norm.BatchNorm.channel in
-    if Axis.equal channel Axis.C then Core.return ()
-    else Core.fail (`Axis_outside_dialect (node, channel))
+    if Axis.equal channel Axis.C then Err.return ()
+    else Err.fail (`Axis_outside_dialect (node, channel))
   in
   (* Every parameter must be as long as the axis it scales. The lowerer reads
      one value per channel to precompute the depthwise weight, so a shorter
@@ -170,25 +170,25 @@ let check_batch_norm view node (bn : Norm.BatchNorm.t) =
      failure arrive as a typed error instead of an exception. *)
   let* () =
     match Graph_view.sig_of view bn.Norm.BatchNorm.x with
-    | None -> Core.return ()
+    | None -> Err.return ()
     | Some x_sig ->
         let channels = Vec6.get x_sig.Tensor_sig.shape Axis.C in
-        Core.List.iter
+        Err.List.iter
           (fun id ->
             match Graph_view.sig_of view id with
-            | None -> Core.return ()
+            | None -> Err.return ()
             | Some sg ->
                 let extent = Vec6.get sg.Tensor_sig.shape Axis.C in
-                if Dim.equal extent channels then Core.return ()
-                else Core.fail (`Batch_norm_extent (node, id, extent, channels)))
+                if Dim.equal extent channels then Err.return ()
+                else Err.fail (`Batch_norm_extent (node, id, extent, channels)))
           (bn.Norm.BatchNorm.running_mean :: bn.Norm.BatchNorm.running_var
           :: List.filter_map Fun.id
                [ bn.Norm.BatchNorm.weight; bn.Norm.BatchNorm.bias ])
   in
-  Core.List.iter
+  Err.List.iter
     (fun id ->
-      if Graph_view.is_constant view id then Core.return ()
-      else Core.fail (`Dynamic_batch_norm node))
+      if Graph_view.is_constant view id then Err.return ()
+      else Err.fail (`Dynamic_batch_norm node))
     (bn.Norm.BatchNorm.running_mean :: bn.Norm.BatchNorm.running_var
     :: List.filter_map Fun.id
          [ bn.Norm.BatchNorm.weight; bn.Norm.BatchNorm.bias ])
@@ -211,14 +211,14 @@ let index_is_live view id =
    cannot represent it. Adding a Native op means deciding its answer here. *)
 let check_node view (n : node) =
   let node = n.Node.id in
-  let unsupported () = Core.fail (`Unsupported_op (node, n.Node.op)) in
+  let unsupported () = Err.fail (`Unsupported_op (node, n.Node.op)) in
   match n.Node.op with
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. *)
   | Add _ | Add_scalar _ | Avg_pool2d _ | Clamp _ | Clone _ | Div _
   | Div_scalar _ | Hardtanh _ | Linear _ | Max_pool2d _ | Mul _ | Relu _
   | Reshape _ | Sqrt _ | Sub _ ->
-      Core.return ()
+      Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
   | Bmm { Matmul.Bmm.input; mat2 } -> check_bmm view node ~input ~mat2
   | Conv2d { Conv.Conv2d.params; weight; _ } ->
@@ -239,7 +239,7 @@ let check_node view (n : node) =
   | Max_pool2d_with_indices _ -> (
       match n.Node.outputs with
       | [ _; indices ] when index_is_live view indices ->
-          Core.fail (`Live_max_pool_indices (node, indices))
+          Err.fail (`Live_max_pool_indices (node, indices))
       | _ -> unsupported ())
   | Discard _ -> unsupported ()
 
@@ -255,6 +255,6 @@ let check_node view (n : node) =
    that cannot be legalized. *)
 let check view =
   let* () =
-    Core.List.iter (check_node view) (Graph_ir.nodes (Graph_view.graph view))
+    Err.List.iter (check_node view) (Graph_ir.nodes (Graph_view.graph view))
   in
   check_shapes view

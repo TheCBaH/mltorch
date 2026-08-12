@@ -15,8 +15,7 @@
 
 type source_format = Model_json | Pt2_archive
 
-val detect :
-  bytes:string -> (source_format, [> `Unrecognised_format ]) Core.result
+val detect : bytes:string -> (source_format, [> `Unrecognised_format ]) Err.t
 (** CONTENT, never a declared extension: a mislabelled file is the ordinary case
     rather than the adversarial one, and the two loaders fail very differently
     on each other's input. [PK\x03\x04] is an archive, ['{'] a [model.json]. *)
@@ -92,7 +91,7 @@ val session :
   limits:Me_limits.Limits.t ->
   options:Options.t ->
   bytes:string ->
-  (Me_session.Session.t, [> error ]) Core.result
+  (Me_session.Session.t, [> error ]) Err.t
 (** Detect, decode, lower, transform, project, validate.
 
     A model this repository cannot LOWER is not an error here: the exported
@@ -105,7 +104,7 @@ val detail :
   options:Options.t ->
   key:Me_request.Detail_key.t ->
   bytes:string ->
-  (Me_detail.Delta.t, [> error ]) Core.result
+  (Me_detail.Delta.t, [> error ]) Err.t
 (** One value's expression, as a delta.
 
     A SMALLER pipeline than {!session}'s: a detail needs the kernel and nothing
@@ -118,7 +117,7 @@ val detail :
     that could be stale. *)
 
 val encode_bounded :
-  max_bytes:int -> 'a Jsont.t -> 'a -> (string, [> error ]) Core.result
+  max_bytes:int -> 'a Jsont.t -> 'a -> (string, [> error ]) Err.t
 (** Encode through a writer that refuses to grow past [max_bytes], failing with
     [`Document_too_large] rather than returning a string already over the
     ceiling. {!session} and {!detail} return VALUES rather than JSON, on

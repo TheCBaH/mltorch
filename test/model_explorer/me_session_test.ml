@@ -12,7 +12,7 @@ module ME = Model_explorer
 let limits = Me_limits.Limits.untrusted
 
 let pp_ok ppf r =
-  Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:S.Session.pp_error ppf r
+  Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:S.Session.pp_error ppf r
 
 let check label session =
   Format.printf "%-30s %a@." label pp_ok (S.Session.validate ~limits session)
@@ -555,7 +555,7 @@ let%expect_test "the document, in full" =
 
 let%expect_test "aggregates are checked before the walks they bound" =
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_graphs:1 limits)
   in
   Format.printf "graphs %a@." pp_ok
@@ -570,7 +570,7 @@ let%expect_test "aggregates are checked before the walks they bound" =
      check. A second view against a ceiling of one is the same test and is
      constructible. *)
   let tight_v =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_views:1 limits)
   in
   Format.printf "views  %a@." pp_ok
@@ -610,19 +610,19 @@ let%expect_test "attrs, metadata and namespace depth are bounded per node" =
       (S.Session.validate ~limits:lim session)
   in
   check_field "attrs"
-    (Core.or_raise Me_limits.pp_error
+    (Err.or_raise ~pp_error:Me_limits.pp_error
        (Me_limits.Limits.create ~max_attrs_per_node:1 limits))
     (with_node (node ~attrs:2 "n0"));
   check_field "inputsMetadata"
-    (Core.or_raise Me_limits.pp_error
+    (Err.or_raise ~pp_error:Me_limits.pp_error
        (Me_limits.Limits.create ~max_metadata_items_per_node:1 limits))
     (with_node (node ~inputs_metadata:2 "n0"));
   check_field "outputsMetadata"
-    (Core.or_raise Me_limits.pp_error
+    (Err.or_raise ~pp_error:Me_limits.pp_error
        (Me_limits.Limits.create ~max_outputs_metadata_per_node:1 limits))
     (with_node (node ~outputs:2 "n0"));
   check_field "namespaceDepth"
-    (Core.or_raise Me_limits.pp_error
+    (Err.or_raise ~pp_error:Me_limits.pp_error
        (Me_limits.Limits.create ~max_namespace_depth:1 limits))
     (with_node (node ~namespace:"a/b" "n0"));
   [%expect
@@ -646,7 +646,7 @@ let%expect_test
   Format.printf "%-30s %a@." "total nodes" pp_ok
     (S.Session.validate
        ~limits:
-         (Core.or_raise Me_limits.pp_error
+         (Err.or_raise ~pp_error:Me_limits.pp_error
             (Me_limits.Limits.create ~max_total_nodes:1L limits))
        session);
   let two_edge_graph =
@@ -656,7 +656,7 @@ let%expect_test
   Format.printf "%-30s %a@." "total edges" pp_ok
     (S.Session.validate
        ~limits:
-         (Core.or_raise Me_limits.pp_error
+         (Err.or_raise ~pp_error:Me_limits.pp_error
             (Me_limits.Limits.create ~max_total_edges:1L limits))
        {
          base with
@@ -669,7 +669,7 @@ let%expect_test
 
 let%expect_test "mapping entries per comparison are bounded" =
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_mapping_entries_per_comparison:1 limits)
   in
   Format.printf "%-30s %a@." "two entries, ceiling one" pp_ok
@@ -706,7 +706,7 @@ let%expect_test "overlay edges are summed across every comparison" =
       ()
   in
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_overlay_edges_total:1 limits)
   in
   Format.printf "%-30s %a@." "two edges in one overlay, ceiling one" pp_ok

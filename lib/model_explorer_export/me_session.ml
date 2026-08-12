@@ -495,24 +495,24 @@ module Session = struct
     }
 
     let of_session s =
-      let open Core.Syntax in
+      let open Err.Syntax in
       let graphs = Hashtbl.create 16 in
       let+ () =
-        Core.List.iter
+        Err.List.iter
           (fun (c : Model_explorer.GraphCollection.t) ->
             let collection = c.Model_explorer.GraphCollection.label in
-            Core.List.iter
+            Err.List.iter
               (fun (g : Model_explorer.Graph.t) ->
                 if Hashtbl.mem graphs g.Model_explorer.Graph.id then
-                  Core.fail (`Duplicate_graph g.Model_explorer.Graph.id)
+                  Err.fail (`Duplicate_graph g.Model_explorer.Graph.id)
                 else begin
                   let nodes = Hashtbl.create 64 in
                   let* () =
-                    Core.List.iter
+                    Err.List.iter
                       (fun (n : Model_explorer.GraphNode.t) ->
                         let id = n.Model_explorer.GraphNode.id in
                         if Hashtbl.mem nodes id then
-                          Core.fail
+                          Err.fail
                             (`Duplicate_node (g.Model_explorer.Graph.id, id))
                         else begin
                           Hashtbl.replace nodes id
@@ -520,13 +520,13 @@ module Session = struct
                                (Option.value
                                   n.Model_explorer.GraphNode.outputsMetadata
                                   ~default:[]));
-                          Core.return ()
+                          Err.return ()
                         end)
                       g.Model_explorer.Graph.nodes
                   in
                   Hashtbl.add graphs g.Model_explorer.Graph.id
                     { collection; nodes };
-                  Core.return ()
+                  Err.return ()
                 end)
               c.Model_explorer.GraphCollection.graphs)
           s.graph_collections
@@ -535,30 +535,30 @@ module Session = struct
 
     let graph t id =
       match Hashtbl.find_opt t id with
-      | Some g -> Core.return g
-      | None -> Core.fail (`Unknown_graph id)
+      | Some g -> Err.return g
+      | None -> Err.fail (`Unknown_graph id)
 
     (* Same as [graph], plus the check a bare id lookup cannot make: that the
        DECLARING side (a view, a pane) named the collection the graph is
        actually in, not merely a graph id that happens to exist somewhere. *)
     let graph_in t ~collection id =
-      let open Core.Syntax in
+      let open Err.Syntax in
       let* g = graph t id in
-      if g.collection = collection then Core.return g
-      else Core.fail (`Wrong_collection (id, collection))
+      if g.collection = collection then Err.return g
+      else Err.fail (`Wrong_collection (id, collection))
 
     let node t ~graph:gid id =
-      let open Core.Syntax in
+      let open Err.Syntax in
       let* g = graph t gid in
       match Hashtbl.find_opt g.nodes id with
-      | Some slots -> Core.return slots
-      | None -> Core.fail (`Unknown_node (gid, id))
+      | Some slots -> Err.return slots
+      | None -> Err.fail (`Unknown_node (gid, id))
   end
 
   let validate ~limits s =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let count field n ceiling =
-      if n > ceiling then Core.fail (`Over_limit (field, n)) else Core.return ()
+      if n > ceiling then Err.fail (`Over_limit (field, n)) else Err.return ()
     in
     (* [max_total_nodes]/[max_total_edges] are [int64] fields -- a real model's
        graphs cannot approach that domain, but this validator's whole point is
@@ -568,8 +568,8 @@ module Session = struct
        accumulating, not to notice afterwards that it was crossed. *)
     let count64 field total ceiling =
       if Int64.compare total ceiling > 0 then
-        Core.fail (`Over_limit_64 (field, total))
-      else Core.return total
+        Err.fail (`Over_limit_64 (field, total))
+      else Err.return total
     in
     let all_graphs =
       List.concat_map
@@ -602,7 +602,7 @@ module Session = struct
           limits.Me_limits.Limits.max_graphs
       in
       let* _ =
-        Core.List.fold_left
+        Err.List.fold_left
           (fun (nodes, edges) (g : Model_explorer.Graph.t) ->
             let* nodes =
               count64 "totalNodes"
@@ -632,7 +632,7 @@ module Session = struct
          built; nothing sums what an untrusted document could claim across all
          of them. *)
       let+ _ =
-        Core.List.fold_left
+        Err.List.fold_left
           (fun total (c : Comparison.t) ->
             let total =
               total
@@ -658,21 +658,21 @@ module Session = struct
       if ns = "" then 0 else List.length (String.split_on_char '/' ns)
     in
     let* () =
-      Core.List.iter
+      Err.List.iter
         (fun (c : Model_explorer.GraphCollection.t) ->
-          Core.List.iter
+          Err.List.iter
             (fun (g : Model_explorer.Graph.t) ->
               let gid = g.Model_explorer.Graph.id in
               let* () =
-                Core.List.iter
+                Err.List.iter
                   (fun sub ->
-                    Core.map_error
+                    Err.map_error
                       (fun e -> e)
                       (let+ _ = Graph_index.graph graphs sub in
                        ()))
                   (Option.value g.Model_explorer.Graph.subGraphIds ~default:[])
               in
-              Core.List.iter
+              Err.List.iter
                 (fun (n : Model_explorer.GraphNode.t) ->
                   let* () =
                     count "attrsPerNode"
@@ -701,7 +701,7 @@ module Session = struct
                       (namespace_depth n.Model_explorer.GraphNode.namespace)
                       limits.Me_limits.Limits.max_namespace_depth
                   in
-                  Core.List.iter
+                  Err.List.iter
                     (fun (e : Model_explorer.IncomingEdge.t) ->
                       let src = e.Model_explorer.IncomingEdge.sourceNodeId in
                       let* slots = Graph_index.node graphs ~graph:gid src in
@@ -716,8 +716,8 @@ module Session = struct
                          nonnegative: zero [outputsMetadata] means zero
                          slots, and an edge naming any index into that is a
                          connection that carries nothing. *)
-                      | Some i when i >= 0 && i < slots -> Core.return ()
-                      | _ -> Core.fail (`Slot_mismatch (gid, src)))
+                      | Some i when i >= 0 && i < slots -> Err.return ()
+                      | _ -> Err.fail (`Slot_mismatch (gid, src)))
                     (Option.value n.Model_explorer.GraphNode.incomingEdges
                        ~default:[]))
                 g.Model_explorer.Graph.nodes)
@@ -727,10 +727,10 @@ module Session = struct
     (* --- views --- *)
     let view_ids = Hashtbl.create 16 in
     let* () =
-      Core.List.iter
+      Err.List.iter
         (fun (v : View.t) ->
           if Hashtbl.mem view_ids v.View.id then
-            Core.fail (`Duplicate_view v.View.id)
+            Err.fail (`Duplicate_view v.View.id)
           else begin
             Hashtbl.add view_ids v.View.id ();
             let+ _ =
@@ -742,16 +742,16 @@ module Session = struct
         s.views
     in
     let* () =
-      if Hashtbl.mem view_ids s.default_view then Core.return ()
-      else Core.fail (`Unknown_view s.default_view)
+      if Hashtbl.mem view_ids s.default_view then Err.return ()
+      else Err.fail (`Unknown_view s.default_view)
     in
     (* --- comparisons --- *)
     let comparisons = Hashtbl.create 16 in
     let* () =
-      Core.List.iter
+      Err.List.iter
         (fun (c : Comparison.t) ->
           if Hashtbl.mem comparisons c.Comparison.id then
-            Core.fail (`Duplicate_comparison c.Comparison.id)
+            Err.fail (`Duplicate_comparison c.Comparison.id)
           else begin
             Hashtbl.add comparisons c.Comparison.id c;
             let* () =
@@ -775,15 +775,15 @@ module Session = struct
                mapping sets, and a global check would reject the branch the
                flow spine exists to show. *)
             let seen = Hashtbl.create 64 in
-            Core.List.iter
+            Err.List.iter
               (fun (e : Mapping_entry.t) ->
-                Core.List.iter
+                Err.List.iter
                   (fun (side, ids, pane_graph) ->
-                    Core.List.iter
+                    Err.List.iter
                       (fun id ->
                         let k = side ^ "\000" ^ id in
                         if Hashtbl.mem seen k then
-                          Core.fail (`Node_in_two_entries (c.Comparison.id, id))
+                          Err.fail (`Node_in_two_entries (c.Comparison.id, id))
                         else begin
                           Hashtbl.add seen k ();
                           (* A mapping-entry member names a node, not merely a
@@ -809,14 +809,14 @@ module Session = struct
     in
     (* --- node data, graph-addressed and node-keyed --- *)
     let* () =
-      Core.List.iter
+      Err.List.iter
         (fun (d : Node_data_set.t) ->
           let* () =
             count "nodeDataResults"
               (List.length d.Node_data_set.results)
               limits.Me_limits.Limits.max_node_data_results_per_graph
           in
-          Core.List.iter
+          Err.List.iter
             (fun (node, _) ->
               let+ _ =
                 Graph_index.node graphs ~graph:d.Node_data_set.graph node
@@ -828,29 +828,29 @@ module Session = struct
     (* --- capabilities: every key exactly once, with a compatible payload --- *)
     let seen_key = Hashtbl.create 16 in
     let* () =
-      Core.List.iter
+      Err.List.iter
         (fun (c : Capability.t) ->
           let name = Capability.key_name c.Capability.key in
           if Hashtbl.mem seen_key name then
-            Core.fail (`Duplicate_capability name)
+            Err.fail (`Duplicate_capability name)
           else begin
             Hashtbl.add seen_key name ();
-            if Capability.compatible c then Core.return ()
-            else Core.fail (`Incompatible_capability name)
+            if Capability.compatible c then Err.return ()
+            else Err.fail (`Incompatible_capability name)
           end)
         s.capabilities
     in
     let* () =
-      Core.List.iter
+      Err.List.iter
         (fun k ->
           let name = Capability.key_name k in
-          if Hashtbl.mem seen_key name then Core.return ()
-          else Core.fail (`Missing_capability name))
+          if Hashtbl.mem seen_key name then Err.return ()
+          else Err.fail (`Missing_capability name))
         Capability.all_keys
     in
     (* --- the flow, and the half of it only this scope can check --- *)
     match s.flow with
-    | None -> Core.return ()
+    | None -> Err.return ()
     | Some flow ->
         let* () = Me_flow.validate ~limits flow in
         let state_graph =
@@ -861,13 +861,13 @@ module Session = struct
             flow.Me_flow.states;
           t
         in
-        Core.List.iter
+        Err.List.iter
           (fun (tr : Me_flow.Transition.t) ->
             match tr.Me_flow.Transition.comparison with
-            | None -> Core.return ()
+            | None -> Err.return ()
             | Some cid -> (
                 match Hashtbl.find_opt comparisons cid with
-                | None -> Core.fail (`Unknown_comparison cid)
+                | None -> Err.fail (`Unknown_comparison cid)
                 | Some c ->
                     (* Resolving is not enough. A comparison naming two
                        unrelated graphs resolves perfectly and shows the wrong
@@ -881,9 +881,9 @@ module Session = struct
                     if
                       before = Some c.Comparison.left.Pane_state.graph
                       && after = Some c.Comparison.right.Pane_state.graph
-                    then Core.return ()
+                    then Err.return ()
                     else
-                      Core.fail
+                      Err.fail
                         (`Comparison_panes_disagree tr.Me_flow.Transition.id)))
           flow.Me_flow.transitions
 

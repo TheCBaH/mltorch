@@ -26,7 +26,7 @@ module Make (D : Dialect.S) : sig
      region to a single scheduling point, so the fusing recipe constructors require
      it while other rewrites need not care, and [Rewrite.apply]'s cycle check is the
      general backstop. *)
-  val of_nodes : Graph_view.Make(D).t -> Node_id.Set.t -> (t, error) Core.result
+  val of_nodes : Graph_view.Make(D).t -> Node_id.Set.t -> (t, error) Err.t
 
   (* The matched portion as a standalone graph, so a test can print it with plain
      [Graph_ir.pp]. Boundary inputs become graph inputs, keeping the parent's

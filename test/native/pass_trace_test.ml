@@ -20,7 +20,7 @@
    round and nothing on its second — which is what makes the identity-sweep case
    reachable without a hand-built pass. *)
 let dead_branch () =
-  Core.or_raise Graph_builder.pp_error
+  Err.or_raise ~pp_error:Graph_builder.pp_error
     Graph_builder.(
       build ~name:"dead_branch" ~outputs:(fun r -> [ r ])
       @@
@@ -81,19 +81,19 @@ let pp_error ppf : [< error ] -> unit = function
   | `Origin e -> Rewrite.pp_error ppf e
   | #Pass.error as e -> Pass.pp_error ppf e
 
-let pp_result = Core.Pretty.core_result ~ok:Summary.pp ~error:pp_error
+let pp_result = Core.Pretty.err_result ~ok:Summary.pp ~error:pp_error
 
 let summarize ?verify ?trace ?max_trace_entries ?max_audit_reports ?graph passes
     =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let graph = Option.value graph ~default:(dead_branch ()) in
   let* (Rewrite.Origin state) =
-    Rewrite.origin graph |> Core.map_error (fun e -> `Origin e)
+    Rewrite.origin graph |> Err.map_error (fun e -> `Origin e)
   in
   let+ out =
     Pass.run_reporting ?verify ?trace ?max_trace_entries ?max_audit_reports
       state passes
-    |> Core.map_error (fun e -> (e :> error))
+    |> Err.map_error (fun e -> (e :> error))
   in
   Summary.of_outcome out
 
@@ -188,7 +188,7 @@ let%expect_test "the audit log is bounded in CARDINALITY, not just in payload" =
     }
   in
   let log =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun acc i -> Pass.Audit_log.push ~max_reports:3 acc (audit i))
       Pass.Audit_log.empty (List.init 12 Fun.id)
   in
@@ -203,7 +203,7 @@ let%expect_test "the audit log is bounded in CARDINALITY, not just in payload" =
       l.overflow
   in
   Format.printf "@[<v>%a@]@."
-    (Core.Pretty.core_result ~ok:pp_log ~error:(fun ppf (`Count_overflow c) ->
+    (Core.Pretty.err_result ~ok:pp_log ~error:(fun ppf (`Count_overflow c) ->
          Pass.Count_overflow.pp ppf c))
     log;
   [%expect {|
@@ -261,7 +261,7 @@ let%expect_test "next_ordinal reports at the boundary rather than wrapping" =
      success. *)
   let show n =
     Format.printf "%Ld -> %a@." n
-      (Core.Pretty.core_result
+      (Core.Pretty.err_result
          ~ok:(fun ppf v -> Fmt.pf ppf "%Ld" v)
          ~error:(fun ppf (`Count_overflow c) -> Pass.Count_overflow.pp ppf c))
       (Pass.Exec_id.next_ordinal n)
@@ -290,7 +290,7 @@ let%expect_test "a pass returning a backwards ordinal is malformed" =
       Pass.name = "backwards";
       run =
         (fun _ctx state ->
-          Core.return
+          Err.return
             {
               Pass.audits = Pass.Audit_log.empty;
               trace = Pass.Trace.empty;

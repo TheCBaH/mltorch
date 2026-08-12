@@ -17,18 +17,16 @@ let pp_error ppf : [< error ] -> unit = function
   | `Missing_named_tensor name ->
       Format.fprintf ppf "missing named tensor %S" name
 
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 
-let lift_build (r : ('a, Graph_builder.error) Core.result) :
-    ('a, error) Core.result =
-  Core.map_error (fun e -> `Build e) r
+let lift_build (r : ('a, Graph_builder.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> `Build e) r
 
-let lift_eval (r : ('a, Eval_direct.error) Core.result) :
-    ('a, error) Core.result =
-  Core.map_error (fun e -> `Eval e) r
+let lift_eval (r : ('a, Eval_direct.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> `Eval e) r
 
-let lift_shape (r : ('a, Shape_error.t) Core.result) : ('a, error) Core.result =
-  Core.map_error (fun e -> `Shape e) r
+let lift_shape (r : ('a, Shape_error.t) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> `Shape e) r
 
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
@@ -56,15 +54,15 @@ let id_of_name (g : graph) name =
     | _ -> ( match g.Graph.outputs with id :: _ -> Some id | [] -> None)
   in
   match id with
-  | Some id -> Core.return id
-  | None -> Core.fail (`Missing_named_tensor name)
+  | Some id -> Err.return id
+  | None -> Err.fail (`Missing_named_tensor name)
 
 let tensor_of_name (g : graph) env name =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* id = id_of_name g name in
   match Tensor_id.Map.find_opt id env with
-  | Some tensor -> Core.return tensor
-  | None -> Core.fail (`Missing_named_tensor name)
+  | Some tensor -> Err.return tensor
+  | None -> Err.fail (`Missing_named_tensor name)
 
 let pp_named_tensor name ppf tensor =
   Format.fprintf ppf "%s = %a" name Tensor.pp tensor
@@ -106,7 +104,7 @@ let pp_deterministic_ids ppf (ids1, ids2, matches) =
 
 let%expect_test "Direct graph: sequence add -> relu (with intermediate)" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -129,7 +127,7 @@ let%expect_test "Direct graph: sequence add -> relu (with intermediate)" =
     in
     let* sum = tensor_of_name g env "sum" in
     let* out = tensor_of_name g env "out" in
-    Core.return (sum, out)
+    Err.return (sum, out)
   in
   Format.printf "%a@." (pp_result (pp_named_tensor_pair "sum" "out")) result;
   [%expect
@@ -139,7 +137,7 @@ let%expect_test "Direct graph: sequence add -> relu (with intermediate)" =
 
 let%expect_test "Direct graph: captured constant is bound by tensor id" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -164,7 +162,7 @@ let%expect_test "Direct graph: captured constant is bound by tensor id" =
 
 let%expect_test "Direct graph: add of two inputs" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -187,7 +185,7 @@ let%expect_test "Direct graph: add of two inputs" =
 
 let%expect_test "Direct graph: div of two inputs" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -210,7 +208,7 @@ let%expect_test "Direct graph: div of two inputs" =
 
 let%expect_test "Direct graph: mul of two inputs" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -233,7 +231,7 @@ let%expect_test "Direct graph: mul of two inputs" =
 
 let%expect_test "Direct graph: sqrt of an input" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -255,7 +253,7 @@ let%expect_test "Direct graph: sqrt of an input" =
 
 let%expect_test "Direct graph: sub of two inputs" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -282,7 +280,7 @@ let%expect_test "Direct graph: sub of two inputs" =
 let%expect_test "Direct graph: hardsigmoid chain (add_scalar/clamp/div_scalar)"
     =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -307,7 +305,7 @@ let%expect_test "Direct graph: hardsigmoid chain (add_scalar/clamp/div_scalar)"
 
 let%expect_test "Direct graph: hardtanh and clone" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -334,7 +332,7 @@ let%expect_test "Direct graph: hardtanh and clone" =
    surfaces from the builder rather than from evaluation. *)
 let%expect_test "Direct graph: clamp with no bounds fails to build" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ g =
       lift_build
         Graph_builder.(
@@ -357,7 +355,7 @@ let pp_discard ppf (g, out, dead) =
 
 let%expect_test "Direct graph: Discard sink (dead edge still materialised)" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -378,7 +376,7 @@ let%expect_test "Direct graph: Discard sink (dead edge still materialised)" =
     in
     let* out = tensor_of_name g env "out" in
     let* dead = tensor_of_name g env "dead" in
-    Core.return (g, out, dead)
+    Err.return (g, out, dead)
   in
   Format.printf "%a@." (pp_result pp_discard) result;
   [%expect
@@ -397,7 +395,7 @@ let%expect_test "Direct graph: Discard sink (dead edge still materialised)" =
    var=[4,4] (inv=0.5) and weight/bias [2,10]/[1,-1], y = (x-mean)*0.5*w+b. *)
 let%expect_test "Direct graph: batch_norm per-channel over C" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let vec2 a0 a1 =
       Tensor.materialize (s1c 2) (fun c -> [| a0; a1 |].(chan c))
     in
@@ -445,7 +443,7 @@ let mp_params =
 
 let%expect_test "Direct graph: max_pool2d_with_indices (two outputs)" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -465,8 +463,8 @@ let%expect_test "Direct graph: max_pool2d_with_indices (two outputs)" =
     in
     match g.Graph.outputs with
     | [ vid; iid ] ->
-        Core.return (Tensor_id.Map.find vid env, Tensor_id.Map.find iid env)
-    | _ -> Core.fail (`Missing_named_tensor "two outputs")
+        Err.return (Tensor_id.Map.find vid env, Tensor_id.Map.find iid env)
+    | _ -> Err.fail (`Missing_named_tensor "two outputs")
   in
   Format.printf "%a@."
     (pp_result (pp_named_tensor_pair "values" "indices"))
@@ -479,7 +477,7 @@ let%expect_test "Direct graph: max_pool2d_with_indices (two outputs)" =
 (* Reshape reinterprets the same flat buffer under a new shape (contiguous). *)
 let%expect_test "Direct graph: reshape [H=2 W=3 C=1] -> [C=6] (flatten)" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -520,7 +518,7 @@ let p_to_nchw = Axis.[ (N, N); (T, T); (D, D); (H, C); (W, H); (C, W) ]
 let%expect_test
     "Direct graph: conv NCHW -> permute -> NHWC conv -> permute -> NCHW" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -564,7 +562,7 @@ let%expect_test
         (Cv.pixel conv_params ~x_shape:r.shape ~weight_shape:(s 1 1 1 2 2 2)
            ~x:x_nhwc ~weight:w ~bias:b)
     in
-    Core.return (x_nhwc, y_nhwc, y_nchw, Tensor.equal_bits ref_y y_nhwc)
+    Err.return (x_nhwc, y_nhwc, y_nchw, Tensor.equal_bits ref_y y_nhwc)
   in
   Format.printf "%a@." (pp_result pp_conv_decomp) result;
   [%expect
@@ -591,7 +589,7 @@ let%expect_test "Direct graph: conv with optional bias omitted (None -> zeros)"
       else conv2d ~name:"y" conv_params ~x ~weight:w ())
   in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let x =
       Tensor.materialize (s 1 1 1 3 3 2) (fun c ->
           float_of_int (Dim.to_int (Vec6.get c Axis.H) + chan c))
@@ -611,7 +609,7 @@ let%expect_test "Direct graph: conv with optional bias omitted (None -> zeros)"
     in
     let* y_no = tensor_of_name g_no env_no "y" in
     let* y_yes = tensor_of_name g_yes env_yes "y" in
-    Core.return (y_no, Tensor.equal_bits y_no y_yes)
+    Err.return (y_no, Tensor.equal_bits y_no y_yes)
   in
   Format.printf "%a@." (pp_result pp_bias_compare) result;
   [%expect
@@ -633,7 +631,7 @@ let%expect_test "Direct graph: transposed convolution" =
     }
   in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -664,7 +662,7 @@ let%expect_test "Direct graph: transposed convolution" =
    namespace. Its result must match the same computation built flat. *)
 let%expect_test "Direct graph: grouped evaluation" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* nested =
       lift_build
         Graph_builder.(
@@ -704,7 +702,7 @@ let%expect_test "Direct graph: grouped evaluation" =
     in
     let* out_n = tensor_of_name nested env_n "nested_out" in
     let* out_f = tensor_of_name flat env_f "out" in
-    Core.return (out_n, Tensor.equal_bits out_n out_f)
+    Err.return (out_n, Tensor.equal_bits out_n out_f)
   in
   Format.printf "%a@." (pp_result pp_nested_compare) result;
   [%expect
@@ -743,14 +741,14 @@ let%expect_test "Builder: ids are deterministic across multiple build calls" =
       add ~name:"out" a b)
   in
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g1 = lift_build (build_add ()) in
     let* g2 = lift_build (build_add ()) in
     let ids_of g =
       Tensor_id.Map.bindings g.Graph.tensors
       |> List.map (fun (tid, sg) -> (tid, sg.Tensor_sig.id))
     in
-    Core.return (ids_of g1, ids_of g2, ids_of g1 = ids_of g2)
+    Err.return (ids_of g1, ids_of g2, ids_of g1 = ids_of g2)
   in
   Format.printf "%a@." (pp_result pp_deterministic_ids) result;
   [%expect

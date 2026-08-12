@@ -20,7 +20,7 @@ let env =
         let mix =
           Coord.foldi (fun a acc i -> (acc * 7) + Axis.to_int a + i) 1 c
         in
-        Core.return (float_of_int ((Source.to_int s * 13) + (mix mod 11)) /. 4.));
+        Err.return (float_of_int ((Source.to_int s * 13) + (mix mod 11)) /. 4.));
   }
 
 let origin = Coord.of_fn (fun a -> Axis.to_int a mod 3)
@@ -174,7 +174,7 @@ let%expect_test "freshening the inserted fragment repairs shadowing" =
   let unfreshened = compose ~freshen_first:false in
   let freshened = compose ~freshen_first:true in
   let verdict =
-    Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
+    Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
   in
   Fmt.pr "unfreshened: %a@." verdict (Check.value unfreshened);
   Fmt.pr "freshened:   %a@." verdict (Check.value freshened);
@@ -276,7 +276,7 @@ let%expect_test "freshening must not capture a FREE reducer" =
                    (Value.value_of_index (Index.of_position own))))))
   in
   let verdict =
-    Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
+    Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
   in
   Fmt.pr "before: %a@." verdict (Check.value frag);
   [%expect {| before: free reducer #0 |}];
@@ -332,7 +332,7 @@ let%expect_test "substitute_loads leaves an intrinsic descriptor intact" =
   let src = Source.create 5 in
   let e =
     Value.intrinsic
-      (Core.or_raise Intrinsic.pp_error
+      (Err.or_raise ~pp_error:Intrinsic.pp_error
          (Intrinsic.max_pool ~source:src ~in_h:4 ~in_w:4 ~kernel_h:2 ~kernel_w:2
             ~stride_h:2 ~stride_w:2 ~pad_h:0 ~pad_w:0
             ~out:(Coord.of_fn (fun a -> Index.output a))
@@ -393,7 +393,7 @@ let%expect_test "substitute_loads mints in the destination's namespace" =
          d)
   in
   let verdict =
-    Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
+    Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
   in
   Fmt.pr "threaded state:  %a@." verdict (Check.value (compose ~shared:true));
   Fmt.pr "fragment re-run from initial: %a@." verdict

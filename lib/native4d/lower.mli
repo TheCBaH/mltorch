@@ -38,4 +38,4 @@ val graph : ('src, 'dst) t -> Graph.graph
 val convert :
   ?constants:Tensor.packed Tensor_id.Map.t ->
   'src Snapshot.t ->
-  ('src packed, Error.t) Core.result
+  ('src packed, Error.t) Err.t

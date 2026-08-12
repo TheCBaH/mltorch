@@ -16,7 +16,7 @@ let tid = Graph_ir.Tensor_id.of_int
 let nid = Graph_ir.Node_id.of_int
 
 let pp_err ppf r =
-  Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Me_verify.pp_error ppf r
+  Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Me_verify.pp_error ppf r
 
 (* --- placement --- *)
 
@@ -156,7 +156,7 @@ let%expect_test "the rollup keys groupNodeAttributes by namespace" =
      projection uses. A label-only key would report one group with two
      clusters. *)
   Format.printf "%a@."
-    (Core.Pretty.core_result
+    (Core.Pretty.err_result
        ~ok:
          (Fmt.list ~sep:(Fmt.any "@\n") (fun fmt (ns, attrs) ->
               Fmt.pf fmt "%S %a" ns
@@ -176,7 +176,7 @@ let%expect_test "the node data is keyed by node id, not by namespace" =
      node's weakest outcome, the group attribute is its subtree's tally. Only
      the node-keyed form can colour a node. *)
   Format.printf "%a@."
-    (Core.Pretty.core_result
+    (Core.Pretty.err_result
        ~ok:(fun fmt (d : MS.Node_data_set.t) ->
          Fmt.pf fmt "%s over %s@\n%a" d.MS.Node_data_set.name
            d.MS.Node_data_set.graph
@@ -214,7 +214,7 @@ let%expect_test "a claimless output does not mask a real verdict" =
     }
   in
   Format.printf "%a@."
-    (Core.Pretty.core_result
+    (Core.Pretty.err_result
        ~ok:(fun fmt (d : MS.Node_data_set.t) ->
          Fmt.list ~sep:(Fmt.any "@\n")
            (fun fmt (id, (v : MS.Node_data_set.value)) ->
@@ -230,13 +230,13 @@ let%expect_test "a claimless output does not mask a real verdict" =
 
 let%expect_test "the two ceilings" =
   let tight_groups =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_groups_per_graph:2 limits)
   in
   Format.printf "groups %a@." pp_err
     (Me_verify.by_namespace ~limits:tight_groups (graph ()) report);
   let tight_data =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_node_data_results_per_graph:1 limits)
   in
   Format.printf "results %a@." pp_err

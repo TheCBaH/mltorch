@@ -24,7 +24,7 @@ module Make (S : Side.S) = struct
   type node = S.Dialect.op Graph_common.Node.t
   type graph = S.Dialect.op Graph_common.Graph.t
 
-  open Core.Syntax
+  open Err.Syntax
 
   type error =
     [ Graph_map.error
@@ -106,8 +106,8 @@ module Make (S : Side.S) = struct
 
   let fold_result f init l =
     List.fold_left
-      (fun acc x -> Core.Syntax.( let* ) acc (fun acc -> f acc x))
-      (Core.return init) l
+      (fun acc x -> Err.Syntax.( let* ) acc (fun acc -> f acc x))
+      (Err.return init) l
 
   (* ---- payload validation -------------------------------------------------- *)
 
@@ -125,35 +125,33 @@ module Make (S : Side.S) = struct
     fold_result
       (fun seen (id, payload) ->
         let* () =
-          if Tensor_id.Set.mem id seen then Core.fail (`Bad_constant_payload id)
-          else Core.return ()
+          if Tensor_id.Set.mem id seen then Err.fail (`Bad_constant_payload id)
+          else Err.return ()
         in
         let* () =
-          if Graph_common.input_kind g id = Input.Constant then Core.return ()
-          else Core.fail (`Not_a_constant id)
+          if Graph_common.input_kind g id = Input.Constant then Err.return ()
+          else Err.fail (`Not_a_constant id)
         in
         let* () =
           match Tensor_id.Map.find_opt id g.Graph.tensors with
-          | Some sg when payload_matches sg payload -> Core.return ()
-          | _ -> Core.fail (`Bad_constant_payload id)
+          | Some sg when payload_matches sg payload -> Err.return ()
+          | _ -> Err.fail (`Bad_constant_payload id)
         in
-        Core.return (Tensor_id.Set.add id seen))
+        Err.return (Tensor_id.Set.add id seen))
       Tensor_id.Set.empty pairs
     |> fun r ->
     let+ _ = r in
     ()
 
   let origin ?(constants = []) g =
-    let* (Snap.Pack snapshot) =
-      (Snap.create g :> (Snap.packed, error) Core.result)
-    in
+    let* (Snap.Pack snapshot) = (Snap.create g :> (Snap.packed, error) Err.t) in
     let* () = check_payloads g constants in
     let table =
       List.fold_left
         (fun m (id, p) -> Tensor_id.Map.add id p m)
         Tensor_id.Map.empty constants
     in
-    Core.return
+    Err.return
       (Origin { constants = table; ids = Id_supply.of_graph g; snapshot })
 
   (* ---- planning ------------------------------------------------------------ *)
@@ -164,14 +162,14 @@ module Make (S : Side.S) = struct
   let plan state (Allocator ids) builder =
     let* (), replacements, finish =
       (Rcp.run builder state.snapshot ids
-        :> (unit * 'v Rcp.replacement list * Id_supply.t, error) Core.result)
+        :> (unit * 'v Rcp.replacement list * Id_supply.t, error) Err.t)
     in
-    Core.return ({ replacements; start = ids; finish }, Allocator finish)
+    Err.return ({ replacements; start = ids; finish }, Allocator finish)
 
   let merge a b =
     let* () =
-      if Id_supply.equal a.finish b.start then Core.return ()
-      else Core.fail `Discontiguous_allocation
+      if Id_supply.equal a.finish b.start then Err.return ()
+      else Err.fail `Discontiguous_allocation
     in
     let a_nodes =
       List.fold_left
@@ -182,11 +180,11 @@ module Make (S : Side.S) = struct
       fold_result
         (fun () (r : _ Rcp.replacement) ->
           match Node_id.Set.choose_opt (Node_id.Set.inter a_nodes r.remove) with
-          | Some id -> Core.fail (`Overlapping_replacements id)
-          | None -> Core.return ())
+          | Some id -> Err.fail (`Overlapping_replacements id)
+          | None -> Err.return ())
         () b.replacements
     in
-    Core.return
+    Err.return
       {
         replacements = a.replacements @ b.replacements;
         start = a.start;
@@ -235,16 +233,16 @@ module Make (S : Side.S) = struct
             (fun acc (from, onto) ->
               match Tensor_id.Map.find_opt from acc with
               | Some existing when not (Tensor_id.equal existing onto) ->
-                  Core.fail (`Substitution_conflict from)
-              | _ -> Core.return (Tensor_id.Map.add from onto acc))
+                  Err.fail (`Substitution_conflict from)
+              | _ -> Err.return (Tensor_id.Map.add from onto acc))
             acc (subst_pairs r))
         Tensor_id.Map.empty replacements
     in
     let rec follow seen id =
       match Tensor_id.Map.find_opt id raw with
-      | None -> Core.return id
+      | None -> Err.return id
       | Some next ->
-          if Tensor_id.Set.mem next seen then Core.fail (`Substitution_cycle id)
+          if Tensor_id.Set.mem next seen then Err.fail (`Substitution_cycle id)
           else follow (Tensor_id.Set.add next seen) next
     in
     fold_result
@@ -438,8 +436,8 @@ module Make (S : Side.S) = struct
       (fun () (id, sg) ->
         match Tensor_id.Map.find_opt id new_tensors with
         | Some new_sg when not (same_sig sg new_sg) ->
-            Core.fail (`Id_reuse_with_changed_value id)
-        | _ -> Core.return ())
+            Err.fail (`Id_reuse_with_changed_value id)
+        | _ -> Err.return ())
       ()
       (Tensor_id.Map.bindings old_tensors)
 
@@ -447,10 +445,10 @@ module Make (S : Side.S) = struct
     let old_g = View.graph old_view and new_g = View.graph new_view in
     fold_result
       (fun () (id, _) ->
-        if not (Tensor_id.Map.mem id new_g.Graph.tensors) then Core.return ()
-        else if same_definition ~rep old_view new_view id then Core.return ()
-        else if claimed id then Core.return ()
-        else Core.fail (`Unclaimed_redefinition id))
+        if not (Tensor_id.Map.mem id new_g.Graph.tensors) then Err.return ()
+        else if same_definition ~rep old_view new_view id then Err.return ()
+        else if claimed id then Err.return ()
+        else Err.fail (`Unclaimed_redefinition id))
       ()
       (Tensor_id.Map.bindings old_g.Graph.tensors)
 
@@ -461,18 +459,18 @@ module Make (S : Side.S) = struct
     let old_g = Snap.graph old_snap and old_view = Snap.view old_snap in
     (* 1. the recipe must have been planned against exactly this state *)
     let* () =
-      if Id_supply.equal recipe.start state.ids then Core.return ()
-      else Core.fail `Stale_allocator
+      if Id_supply.equal recipe.start state.ids then Err.return ()
+      else Err.fail `Stale_allocator
     in
     let* _claimed_nodes =
       fold_result
         (fun seen (r : _ Rcp.replacement) ->
           fold_result
             (fun seen id ->
-              if View.node old_view id = None then Core.fail (`Unknown_node id)
+              if View.node old_view id = None then Err.fail (`Unknown_node id)
               else if Node_id.Set.mem id seen then
-                Core.fail (`Overlapping_replacements id)
-              else Core.return (Node_id.Set.add id seen))
+                Err.fail (`Overlapping_replacements id)
+              else Err.return (Node_id.Set.add id seen))
             seen
             (Node_id.Set.elements r.remove))
         Node_id.Set.empty recipe.replacements
@@ -483,8 +481,8 @@ module Make (S : Side.S) = struct
           fold_result
             (fun () (id, _) ->
               if Graph_common.input_kind old_g id = Input.Constant then
-                Core.fail (`Constant_payload_overwrite id)
-              else Core.return ())
+                Err.fail (`Constant_payload_overwrite id)
+              else Err.return ())
             () (constant_pairs r))
         () recipe.replacements
     in
@@ -498,8 +496,8 @@ module Make (S : Side.S) = struct
       fold_result
         (fun () (from, _) ->
           if Tensor_id.Map.mem from old_g.Graph.tensors && not (claimed from)
-          then Core.fail (`Unclaimed_substitution from)
-          else Core.return ())
+          then Err.fail (`Unclaimed_substitution from)
+          else Err.return ())
         ()
         (Tensor_id.Map.bindings subst)
     in
@@ -575,15 +573,15 @@ module Make (S : Side.S) = struct
       fold_result
         (fun () (id, payload) ->
           match Tensor_id.Map.find_opt id tensors with
-          | Some sg when payload_matches sg payload -> Core.return ()
-          | _ -> Core.fail (`Bad_constant_payload id))
+          | Some sg when payload_matches sg payload -> Err.return ()
+          | _ -> Err.fail (`Bad_constant_payload id))
         () new_constants
     in
     let* () =
       check_signatures ~old_tensors:old_g.Graph.tensors ~new_tensors:tensors
     in
     (* 6. order, then structure *)
-    let* nodes = (View.topo_sort nodes :> (node list, error) Core.result) in
+    let* nodes = (View.topo_sort nodes :> (node list, error) Err.t) in
     let position =
       let table =
         List.fold_left
@@ -601,24 +599,24 @@ module Make (S : Side.S) = struct
        in one of the two snapshots — which is how a source id can no longer be
        written into a destination side. *)
     let* (Snap.Pack new_snap) =
-      (Snap.create new_g :> (Snap.packed, error) Core.result)
+      (Snap.create new_g :> (Snap.packed, error) Err.t)
     in
     let new_view = Snap.view new_snap in
     let src_edge id =
       Snap.edge old_snap id
-      |> Core.of_option (`Value_endpoint (Cluster_relation.Dangling_src id))
+      |> Err.of_option (`Value_endpoint (Cluster_relation.Dangling_src id))
     in
     let dst_edge id =
       Snap.edge new_snap id
-      |> Core.of_option (`Value_endpoint (Cluster_relation.Dangling_dst id))
+      |> Err.of_option (`Value_endpoint (Cluster_relation.Dangling_dst id))
     in
     let src_node id =
       Snap.node old_snap id
-      |> Core.of_option (`Node_endpoint (Cluster_relation.Dangling_src id))
+      |> Err.of_option (`Node_endpoint (Cluster_relation.Dangling_src id))
     in
     let dst_node id =
       Snap.node new_snap id
-      |> Core.of_option (`Node_endpoint (Cluster_relation.Dangling_dst id))
+      |> Err.of_option (`Node_endpoint (Cluster_relation.Dangling_dst id))
     in
     (* 8. preserved ids: same tensor, or an explicit claim.
 
@@ -632,7 +630,7 @@ module Make (S : Side.S) = struct
        identical. *)
     let explicit_pairs = claims in
     let* base_clusters =
-      Core.List.map
+      Err.List.map
         (fun (src, dst, rel) ->
           (* The claim names the edge the recipe wired to; where that edge was
              itself substituted away, the surviving one is its normal form. *)
@@ -695,12 +693,12 @@ module Make (S : Side.S) = struct
       Tensor_id.Map.fold
         (fun id rel acc ->
           let* acc = acc in
-          if Tensor_id.Map.mem id explicit then Core.return acc
+          if Tensor_id.Map.mem id explicit then Err.return acc
           else
             match (Snap.edge old_snap id, Snap.edge new_snap id) with
-            | Some s, Some d -> Core.return (Correspondence.pair s d rel :: acc)
-            | _ -> Core.return acc)
-        propagated (Core.return [])
+            | Some s, Some d -> Err.return (Correspondence.pair s d rel :: acc)
+            | _ -> Err.return acc)
+        propagated (Err.return [])
     in
     let mentioned id =
       List.exists
@@ -724,21 +722,21 @@ module Make (S : Side.S) = struct
           else Some (Correspondence.create d))
     in
     let* node_clusters =
-      Core.List.fold_left
+      Err.List.fold_left
         (fun acc ((r : _ Rcp.replacement), nodes) ->
           let accounted =
             List.concat_map (fun (_, from) -> from) nodes |> Node_id.Set.of_list
           in
           let* fused =
-            Core.List.map
+            Err.List.map
               (fun ((n : node), from) ->
-                let* from = Core.List.map src_node from in
+                let* from = Err.List.map src_node from in
                 let+ d = dst_node n.Node.id in
                 Node_map.fused ~from d)
               nodes
           in
           let+ dropped =
-            Core.List.map
+            Err.List.map
               (fun id ->
                 let+ s = src_node id in
                 Node_map.delete s)
@@ -748,9 +746,9 @@ module Make (S : Side.S) = struct
         [] stamped
     in
     let* provenance =
-      Core.List.fold_left
+      Err.List.fold_left
         (fun acc (sources, dst) ->
-          let* sources = Core.List.map src_edge sources in
+          let* sources = Err.List.map src_edge sources in
           let+ d = dst_edge dst in
           Provenance.add ~sources:(Correspondence.Set.of_list sources) d acc)
         Provenance.empty
@@ -760,7 +758,7 @@ module Make (S : Side.S) = struct
       Gmap.create ~src:old_snap ~dst:new_snap
         ~values:(pair_clusters @ propagated_clusters @ deleted @ created)
         ~nodes:node_clusters ~provenance
-      |> Core.map_error (fun e -> (e :> error))
+      |> Err.map_error (fun e -> (e :> error))
     in
     let constants =
       List.fold_left
@@ -770,7 +768,7 @@ module Make (S : Side.S) = struct
     let constants =
       Tensor_id.Map.filter (fun id _ -> Tensor_id.Set.mem id live) constants
     in
-    Core.return (Step ({ constants; ids; snapshot = new_snap }, map))
+    Err.return (Step ({ constants; ids; snapshot = new_snap }, map))
 
   (* ---- terminal packing ----------------------------------------------------- *)
 
@@ -878,7 +876,7 @@ module Make (S : Side.S) = struct
        graph nobody would accept, so the result goes through the trust boundary
        like any other. *)
     let* (Snap.Pack new_snap) =
-      (Snap.create new_g :> (Snap.packed, error) Core.result)
+      (Snap.create new_g :> (Snap.packed, error) Err.t)
     in
     let constants =
       Tensor_id.Map.fold
@@ -888,49 +886,48 @@ module Make (S : Side.S) = struct
     (* Only ids that actually moved are mentioned; the untouched bulk stays
        implicit, which is the whole point of leaving origin ids alone. *)
     let* moved_values =
-      Core.List.fold_left
+      Err.List.fold_left
         (fun acc (id, _) ->
           let packed = tensor_id id in
-          if Tensor_id.equal id packed then Core.return acc
+          if Tensor_id.equal id packed then Err.return acc
           else
             match (Snap.edge old_snap id, Snap.edge new_snap packed) with
             | Some s, Some d ->
-                Core.return
+                Err.return
                   (Correspondence.pair s d Correspondence.Identical :: acc)
             | None, _ ->
-                Core.fail (`Value_endpoint (Cluster_relation.Dangling_src id))
+                Err.fail (`Value_endpoint (Cluster_relation.Dangling_src id))
             | _, None ->
-                Core.fail
+                Err.fail
                   (`Value_endpoint (Cluster_relation.Dangling_dst packed)))
         []
         (Tensor_id.Map.bindings g.Graph.tensors)
     in
     let* moved_nodes =
-      Core.List.fold_left
+      Err.List.fold_left
         (fun acc (n : node) ->
           let packed = node_id n.Node.id in
-          if Node_id.equal n.Node.id packed then Core.return acc
+          if Node_id.equal n.Node.id packed then Err.return acc
           else
             match (Snap.node old_snap n.Node.id, Snap.node new_snap packed) with
-            | Some s, Some d -> Core.return (Node_map.pair s d :: acc)
+            | Some s, Some d -> Err.return (Node_map.pair s d :: acc)
             | None, _ ->
-                Core.fail
+                Err.fail
                   (`Node_endpoint (Cluster_relation.Dangling_src n.Node.id))
             | _, None ->
-                Core.fail
-                  (`Node_endpoint (Cluster_relation.Dangling_dst packed)))
+                Err.fail (`Node_endpoint (Cluster_relation.Dangling_dst packed)))
         [] g.Graph.nodes
     in
     let* map =
       Gmap.create ~src:old_snap ~dst:new_snap ~values:moved_values
         ~nodes:moved_nodes ~provenance:Provenance.empty
-      |> Core.map_error (fun e -> (e :> error))
+      |> Err.map_error (fun e -> (e :> error))
     in
     let ids =
       Id_supply.repack state.ids ~tensor:tensor_next ~node:node_next
         ~group:group_next
     in
-    Core.return (Step ({ constants; ids; snapshot = new_snap }, map))
+    Err.return (Step ({ constants; ids; snapshot = new_snap }, map))
 end
 
 include Make (Native_side)

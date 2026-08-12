@@ -54,7 +54,7 @@ let value_of_index i = Expr.Builder.return (Expr.Value.value_of_index i)
    it stays distinguishable from the defect that silently discards a
    backtrace. It is unreachable in practice: [Op_config.Pos.t] is already
    validated positive, which is the whole point of the type. *)
-let to_index r = Core.or_raise Expr.Index.pp_error r
+let to_index r = Err.or_raise ~pp_error:Expr.Index.pp_error r
 
 let index_floor_div_pos a (d : Op_config.Pos.t) =
   to_index (Expr.Index.floor_div_pos a (d :> int))
@@ -91,7 +91,7 @@ let max_pool (input : input) ~(x_shape : Vec6.shape) ~kernel ~stride ~pad out
   and pad_w = (pad.Op_config.Hw.w : Op_config.Nonneg.t :> int) in
   Expr.Builder.return
     (Expr.Value.intrinsic
-       (Core.or_raise Expr.Intrinsic.pp_error
+       (Err.or_raise ~pp_error:Expr.Intrinsic.pp_error
           (Expr.Intrinsic.max_pool
              ~source:(Expr_bridge.source_of_id input.Tensor_sig.id)
              ~in_h:(Dim.to_int (Vec6.get x_shape Axis.H))

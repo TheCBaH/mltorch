@@ -26,8 +26,8 @@ let pp_error ppf : [< error ] -> unit = function
   | `Eval e -> Kernel_eval.pp_error ppf e
   | `Direct e -> Eval_direct.pp_error ppf e
 
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
-let lift f r = Core.map_error (fun e -> f e) r
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
+let lift f r = Err.map_error (fun e -> f e) r
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
 
@@ -40,7 +40,7 @@ let ramp shape =
 
 (* Compare a kernel against all three oracles over one graph. *)
 let compare_all ?inputs g =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let prog = Eval_symbolic.run g in
   let* k = lift (fun e -> `Adapt e) (Kernel_adapt.of_stage_program prog) in
   let tensors =
@@ -78,7 +78,7 @@ let compare_all ?inputs g =
         let cells = ref [] in
         let* () =
           Vec6.fold_coords v.Kernel.Value.sg.Tensor_sig.shape
-            ~init:(Core.return ()) ~f:(fun acc c ->
+            ~init:(Err.return ()) ~f:(fun acc c ->
               let* () = acc in
               let+ x =
                 lift
@@ -96,8 +96,8 @@ let compare_all ?inputs g =
               incr i;
               x)
         in
-        Core.return (Tensor_id.Map.add v.Kernel.Value.id t m))
-      (Core.return Tensor_id.Map.empty)
+        Err.return (Tensor_id.Map.add v.Kernel.Value.id t m))
+      (Err.return Tensor_id.Map.empty)
       k.Kernel.values
   in
   let agree name other =
@@ -109,7 +109,7 @@ let compare_all ?inputs g =
           | Some u -> Tensor.equal_bits t u)
         kernel )
   in
-  Core.return
+  Err.return
     [
       agree "value_at" recursive;
       agree "ground" grounded;
@@ -159,7 +159,8 @@ let%expect_test "Kernel_eval: every fixture agrees with all three oracles" =
     reuse_permute_backtrack_candidate: t2: a stored value must be f32 and unquantized, got f16 |}]
 
 let build name outputs m =
-  Core.or_raise Graph_builder.pp_error (Graph_builder.build ~name ~outputs m)
+  Err.or_raise ~pp_error:Graph_builder.pp_error
+    (Graph_builder.build ~name ~outputs m)
 
 let%expect_test "Kernel_eval: conv, pool and reduce agree bitwise" =
   let conv_axis k st p : Conv.Conv2d.axis_window =
@@ -259,11 +260,11 @@ let%expect_test "Kernel_eval: the result conversion is applied exactly once" =
   in
   Format.printf "@[<v>%a@]@." (pp_result pp_agreements) (compare_all ~inputs g);
   let k =
-    Core.or_raise Kernel_adapt.pp_error
+    Err.or_raise ~pp_error:Kernel_adapt.pp_error
       (Kernel_adapt.of_stage_program (Eval_symbolic.run g))
   in
   let out =
-    Core.or_raise Kernel_eval.pp_error
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
       (Kernel_eval.run k ~bind:(fun id -> List.assoc_opt id inputs))
   in
   List.iter
@@ -315,7 +316,7 @@ let%expect_test "Kernel_eval: a Filled constant is stored through f32" =
       ~fmt:(Payload.Fmt Payload.F32) ()
   in
   let k =
-    Core.or_raise Kernel.pp_error
+    Err.or_raise ~pp_error:Kernel.pp_error
       (Kernel.create
          ~inputs:
            [
@@ -343,7 +344,8 @@ let%expect_test "Kernel_eval: a Filled constant is stored through f32" =
          ())
   in
   let out =
-    Core.or_raise Kernel_eval.pp_error (Kernel_eval.run k ~bind:(fun _ -> None))
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.run k ~bind:(fun _ -> None))
   in
   Format.printf "filled 2^24+1 reads back as %.1f (unrounded would be %.1f)@."
     (Tensor.read_at_raw
@@ -361,7 +363,7 @@ let%expect_test "Kernel_eval: a bound tensor is validated against its signature"
     Tensor_sig.create ~id:(Tensor_id.of_int id) ~name:"" ~shape ~fmt ?quant ()
   in
   let kernel ?(input_sg = sg 0 (s1c 3)) () =
-    Core.or_raise Kernel.pp_error
+    Err.or_raise ~pp_error:Kernel.pp_error
       (Kernel.create
          ~inputs:
            [
@@ -388,7 +390,7 @@ let%expect_test "Kernel_eval: a bound tensor is validated against its signature"
   in
   let case name ?input_sg bind =
     Format.printf "%s: %a@." name
-      (Core.Pretty.core_result
+      (Core.Pretty.err_result
          ~ok:(fun ppf _ -> Fmt.string ppf "ok")
          ~error:Kernel_eval.pp_error)
       (Kernel_eval.run (kernel ?input_sg ()) ~bind)
@@ -442,7 +444,8 @@ let%expect_test "Kernel_eval: value_at rejects unknown ids and bad coordinates"
   in
   let prog = Eval_symbolic.run g in
   let k =
-    Core.or_raise Kernel_adapt.pp_error (Kernel_adapt.of_stage_program prog)
+    Err.or_raise ~pp_error:Kernel_adapt.pp_error
+      (Kernel_adapt.of_stage_program prog)
   in
   let bind id =
     if Tensor_id.equal id (List.hd g.Graph.inputs) then Some (ramp (s1c 3))
@@ -450,7 +453,7 @@ let%expect_test "Kernel_eval: value_at rejects unknown ids and bad coordinates"
   in
   let case name id c =
     Format.printf "%s: %a@." name
-      (Core.Pretty.core_result ~ok:(Fmt.fmt "%g") ~error:Kernel_eval.pp_error)
+      (Core.Pretty.err_result ~ok:(Fmt.fmt "%g") ~error:Kernel_eval.pp_error)
       (Kernel_eval.value_at k ~bind id
          (Expr.Coord.make ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c))
   in

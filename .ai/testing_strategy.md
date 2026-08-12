@@ -69,7 +69,7 @@ cannot be promoted over a real regression.
 That property is also its constraint: a check here must produce the *same* text on
 every backend, so it cannot print anything backend-specific. `probe_core` prints
 `backtrace-path-valid=true` rather than a slot count, because native captures frames
-and both JS runtimes take `Core.Error.pp_backtrace`'s "unavailable" branch — a count
+and both JS runtimes end up on `Err.Stack.pp`'s "stack unavailable" branch — a count
 would differ by design and the diff could never pass.
 
 **A differential harness is blind to any fault that reproduces on both sides.** Both
@@ -77,7 +77,7 @@ executables run the same source, so a broken encoder, a failed evaluation or a
 Direct-vs-Symbolic mismatch prints *identical* text either side and diffs clean. The
 diff only ever answers "do the backends agree", never "is the answer right". Every
 correctness verdict in `js/probe` therefore has to reach the **exit status**: fixtures
-abort through `Core.or_raise`/`failwith` per the section below, boolean verdicts are
+abort through `Err.or_raise`/`failwith` per the section below, boolean verdicts are
 asserted rather than printed, and `Walk_core.Walk.run` returns whether every step
 verified so the entry point can fail on it. Adding a check that only prints is adding
 nothing.
@@ -161,14 +161,20 @@ copy rule for it — dune handles source-tree files directly.
 ## Fixture failures abort; they do not become absence
 
 A fixture that will not build is a broken test, not a test result. Unwrap it
-with `Core.or_raise`, which raises `Failure` carrying the error payload:
+with `Err.or_raise`, which raises `Err.Exn.E` carrying the whole error — payload,
+detection origin and semantic trace — and registers a `Printexc` printer, so a runner
+that only calls `Printexc.to_string` still reports all of it:
 
 ```ocaml
 let build name m =
   Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
-  |> Core.or_raise (fun ppf e ->
+  |> Err.or_raise ~pp_error:(fun ppf e ->
          Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 ```
+
+A test that catches this must match `Err.Exn.E`, not `Failure`. Assert its *shape* and
+that the payload survives — never the rendered text, which embeds a backtrace and
+shifts on every build (`test/pretty_test.ml` is the model).
 
 Do **not** turn a fixture failure into `None` or a default — the test then
 reports a wrong answer instead of a broken setup. Where a helper genuinely must
@@ -182,9 +188,17 @@ different boundaries with different error types, and one shared "build or die"
 would have to be untyped or a functor. Only byte-identical copies were merged
 (`test/native4d/{lower,verify}_test.ml` now use `Fixtures.build`).
 
-`Core.or_raise` is scoped to `Core.result`. A plain `(_, string) result` from
-Zipc/Jsont has no `Core.Error.t` to unwrap, so those keep an explicit
+`Err.or_raise` is scoped to `Err.t`. A plain `(_, string) result` from
+Zipc/Jsont has no `Err.Error.t` to unwrap, so those keep an explicit
 `match … | Error e -> failwith e`.
+
+## A test that changes the trace policy must restore it
+
+`Err.Config` is process-wide and expect tests share a process, so a test that sets a
+policy and leaves it set silently changes every later test in the same executable.
+Wrap it in `Fun.protect`; `test/native/core_test.ml`'s `with_config` is the pattern,
+and the test immediately after it asserts that the restore actually happened. The same
+rule applies to `Err.Monitor.install`, whose handle must be removed in the same way.
 
 ## When to Add a New Cram Test
 

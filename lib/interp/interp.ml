@@ -17,7 +17,7 @@ open Ctypes
 open Pytorch_types
 open Schema_runtime
 open Interp_decode
-open Core.Syntax
+open Err.Syntax
 module O = Aten_c.Aten_operations
 module TG = Aten_types_generated
 
@@ -99,18 +99,18 @@ let param_names (sign : GraphSignature.t) =
    untouched. *)
 let load_referenced_params archive (g : Graph.t) (sign : GraphSignature.t) env =
   let params = param_names sign in
-  Core.List.fold_left
+  Err.List.fold_left
     (fun env name ->
-      if String_map.mem name env then Core.return env
+      if String_map.mem name env then Err.return env
       else
         match String_map.find_opt name params with
         | Some cfg_name ->
             let* weight =
               Pt2_archive.load_captured_tensor archive cfg_name
-              |> Core.map_error (fun e -> (e :> error))
+              |> Err.map_error (fun e -> (e :> error))
             in
-            Core.return (String_map.add name (Pt2_aten.to_tensor weight) env)
-        | None -> Core.return env)
+            Err.return (String_map.add name (Pt2_aten.to_tensor weight) env)
+        | None -> Err.return env)
     env
     (referenced_tensor_names g)
 
@@ -128,23 +128,23 @@ let run archive (image : Pt2_tensor.t) =
   in
   let* env = load_referenced_params archive g sign env in
   let* env =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun env node ->
         Interp_dispatch.dispatch env node
-        |> Core.map_error (fun e -> (e :> error)))
+        |> Err.map_error (fun e -> (e :> error)))
       env g.Graph.nodes
   in
   match g.Graph.outputs with
   | [ Argument.Tensor ta ] -> resolve env ta.TensorArgument.name
   | outputs ->
-      Core.fail (`Unexpected_graph_output (graph_output_summary outputs))
+      Err.fail (`Unexpected_graph_output (graph_output_summary outputs))
 
 (* Index of the maximum element of the flattened logits, computed by ATen
    (at::argmax with dim=None) and read back as an int. *)
 let none_int = from_voidp int64_t null
 
 let argmax logits =
-  Core.return (Aten_tensor.item_int (O.argmax logits none_int false))
+  Err.return (Aten_tensor.item_int (O.argmax logits none_int false))
 
 (* The [k] highest-scoring (class index, probability) pairs of [logits]
    ([1; classes]), descending: softmax over the last dim, then at::topk. *)
@@ -152,14 +152,14 @@ let top_predictions logits k =
   let probs = O._softmax logits 1L false in
   let out = make TG.tensors2_struct in
   let st = O.topk probs (Int64.of_int k) (-1L) true true (addr out) in
-  if st <> 0 then Core.fail (`Aten_runtime_failure ("topk", st))
+  if st <> 0 then Err.fail (`Aten_runtime_failure ("topk", st))
   else
     match
       ( Aten_tensor.data Aten_dtype.float32 (tget out TG.tensors2_v0),
         Aten_tensor.data Aten_dtype.int64 (tget out TG.tensors2_v1) )
     with
     | Some vs, Some idx ->
-        Core.return
+        Err.return
           (List.init (Bigarray.Array1.dim idx) (fun i ->
                (Int64.to_int idx.{i}, vs.{i})))
-    | _ -> Core.fail `Topk_read_failed
+    | _ -> Err.fail `Topk_read_failed

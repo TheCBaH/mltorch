@@ -58,10 +58,10 @@ let trim_identity_at_input =
 
 let run_pipeline ?(show = true) g passes =
   match Rewrite.origin g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) -> (
       match Pass.run_all state passes with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (final, map)) ->
           if show then
             Format.printf "@[<v 2>after:@,%a@]@." Graph_ir.pp
@@ -254,7 +254,7 @@ let%expect_test "constant payloads accumulate across a pipeline" =
       }
   in
   (match Rewrite.origin g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) -> (
       Format.printf "@[<v 2>before:@,%a@]@." Graph_ir.pp (Rewrite.graph state);
       match
@@ -264,7 +264,7 @@ let%expect_test "constant payloads accumulate across a pipeline" =
             fold_node (Node_id.of_int 1) (t_ 5);
           ]
       with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (final, map)) ->
           Format.printf "@[<v 2>after:@,%a@]@." Graph_ir.pp
             (Rewrite.graph final);

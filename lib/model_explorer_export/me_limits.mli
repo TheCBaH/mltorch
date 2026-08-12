@@ -222,7 +222,7 @@ end
 val response_live_bytes :
   max_session_bytes:int ->
   max_detail_bytes:int ->
-  (int64, [> live_error ]) Core.result
+  (int64, [> live_error ]) Err.t
 (** The maximum of the four response phase sums, in checked [int64] — every
     product and every addition tested BEFORE it is performed, so an overflow is
     reported and never inspected after the fact.
@@ -328,7 +328,7 @@ module Limits : sig
     ?max_detail_graphs:int ->
     ?max_detail_bytes:int ->
     t ->
-    (t, [> error ]) Core.result
+    (t, [> error ]) Err.t
   (** Override fields of a base profile. Every field — including every nested
       [zip] field — is checked against its [Hard] ceiling, then
       [response_live_bytes] is derived and checked against
@@ -337,7 +337,7 @@ module Limits : sig
       because "tighter than [untrusted]" is a wire property and belongs to
       {!Wire_limits}, not to every programmatic caller. *)
 
-  val within_hard_response : t -> (unit, [> error ]) Core.result
+  val within_hard_response : t -> (unit, [> error ]) Err.t
   (** The three relations a profile must satisfy before the browser may read a
       document produced under it: [max_session_bytes] and [max_detail_bytes] at
       or below [Hard.max_response_document_bytes], and the derived
@@ -391,7 +391,7 @@ module Wire_limits : sig
       to the page that built it, and a type nobody can inhabit except through
       the check makes every constructible request round-trip. *)
 
-  val of_limits : ceiling:Limits.t -> Limits.t -> (t, [> error ]) Core.result
+  val of_limits : ceiling:Limits.t -> Limits.t -> (t, [> error ]) Err.t
   (** Fieldwise against [ceiling] — every scalar AND every nested
       [Pt2_zip.Limits.t] field. [response_live_bytes] is not compared: it is
       derived, and a derived field that is already monotone in its two inputs is

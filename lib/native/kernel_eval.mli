@@ -43,7 +43,7 @@ val value_at :
   bind:(Tensor_id.t -> Tensor.packed option) ->
   Tensor_id.t ->
   int Expr.Coord.t ->
-  (float, error) Core.result
+  (float, error) Err.t
 (** RECURSIVE: an internal load is resolved by evaluating its producer at the
     load coordinate. The result INCLUDES the value's result conversion.
     Bounds-checks its own coordinate against the value's shape first, since
@@ -53,7 +53,7 @@ val value_at :
 val run :
   Kernel.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
-  (Tensor.packed Tensor_id.Map.t, error) Core.result
+  (Tensor.packed Tensor_id.Map.t, error) Err.t
 (** BUFFER-BASED: materialises every value in topological order, and an internal
     load READS the already-materialised producer. Returns every materialised
     value keyed by id, mirroring [Stage_program.ground] so tests can inspect
@@ -67,7 +67,7 @@ val run :
 val run_plan :
   Fusion_plan.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
-  (Tensor.packed Tensor_id.Map.t, error) Core.result
+  (Tensor.packed Tensor_id.Map.t, error) Err.t
 (** Execution under a placement. There is no second kernel argument: the plan
     carries the one it was built for, so a plan cannot be applied to a kernel
     whose ids merely happen to overlap.

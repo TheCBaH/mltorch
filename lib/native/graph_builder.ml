@@ -1,6 +1,8 @@
 (* See graph_builder.mli. [state] carries the tree-wide id counters, the default
-   element type, and the accumulators (built up reversed). The monad itself is the
-   generic Core.Monad.State threaded over this concrete state. Op-output edges are
+   element type, and the accumulators (built up reversed). The monad is this
+   file's own: a result-and-state computation defined below, not a generic
+   state monad instantiated here — an earlier version of this comment claimed
+   the latter, and the [Core.Monad.State] it named is gone. Op-output edges are
    F32 (the compute domain); only [input] honours the chosen element type. *)
 
 open Graph_ir
@@ -22,7 +24,7 @@ type state = {
   input_kinds : Input.kind Tensor_id.Map.t;
 }
 
-type 'a t = state -> ('a, error) Core.result * state
+type 'a t = state -> ('a, error) Err.t * state
 
 let pp_error ppf : [< error ] -> unit = function
   | #Graph_shape.error as e -> Graph_shape.pp_error ppf e
@@ -30,9 +32,7 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf "expected a single output shape, got %d" count
 
 let return x s = (Ok x, s)
-
-let lift_result (r : ('a, [< error ]) Core.result) s =
-  ((r :> ('a, error) Core.result), s)
+let lift_result (r : ('a, [< error ]) Err.t) s = ((r :> ('a, error) Err.t), s)
 
 let ( let* ) m f s =
   match m s with Ok x, s' -> f x s' | Error e, s' -> (Error e, s')
@@ -101,14 +101,14 @@ let op1 ?name ~kind op : Tensor_id.t t =
     lift_result
       (Graph_shape.output_shape op ~sig_of:(fun r ->
            Tensor_id.Map.find_opt r s.tensors
-           |> Core.of_option (`Missing_tensor_sig r)))
+           |> Err.of_option (`Missing_tensor_sig r)))
   in
   let* shape =
     match shapes with
     | [ sh ] -> return sh
     | _ ->
         fun s ->
-          ( Core.fail
+          ( Err.fail
               (`Expected_single_output_shape { count = List.length shapes }),
             s )
   in
@@ -199,7 +199,7 @@ let max_pool2d_with_indices ?name params x =
     lift_result
       (Graph_shape.output_shape op ~sig_of:(fun r ->
            Tensor_id.Map.find_opt r s.tensors
-           |> Core.of_option (`Missing_tensor_sig r)))
+           |> Err.of_option (`Missing_tensor_sig r)))
   in
   match shapes with
   | [ vshape; ishape ] ->
@@ -209,8 +209,7 @@ let max_pool2d_with_indices ?name params x =
       return (vid, iid)
   | _ ->
       fun s ->
-        ( Core.fail
-            (`Expected_single_output_shape { count = List.length shapes }),
+        ( Err.fail (`Expected_single_output_shape { count = List.length shapes }),
           s )
 
 let div ?name a b = op1 ?name ~kind:"div" (Div { Pointwise.Bin.a; b })

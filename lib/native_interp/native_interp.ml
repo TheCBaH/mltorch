@@ -543,7 +543,7 @@ let lower program =
     in
     match
       Graph_builder.build ~name:"pt2" ~outputs:Fun.id body
-      |> Core.map_error (fun e -> `Build e)
+      |> Err.map_error ~pos:__POS__ (fun e -> `Build e)
     with
     | Error _ as e -> e
     | Ok native_graph ->
@@ -576,8 +576,8 @@ let lower program =
         Pt2_native_graph.make ~graph:native_graph
           ~tensor_origins:!tensor_origins ~node_origins
           ~captured_targets:!captured_targets
-        |> Core.map_error (fun e -> `Provenance e)
-  with Lower_error e -> Core.fail e
+        |> Err.map_error ~pos:__POS__ (fun e -> `Provenance e)
+  with Lower_error e -> Err.fail e
 
 let lower_archive archive = lower (Pt2_archive.program archive)
 
@@ -592,7 +592,7 @@ let tensor_of_pt2 (tensor : Pt2_tensor.t) =
           raise (Lower_error (`Tensor_bridge s))
       in
       if List.compare_lengths tensor.sizes tensor.strides <> 0 then
-        Core.fail (`Tensor_bridge "sizes and strides have different ranks")
+        Err.fail (`Tensor_bridge "sizes and strides have different ranks")
       else
         let storage_index coord =
           List.fold_left ( + ) tensor.storage_offset
@@ -661,29 +661,29 @@ let tensor_of_pt2 (tensor : Pt2_tensor.t) =
         in
         match range with
         | Error () ->
-            Core.fail
+            Err.fail
               (`Tensor_bridge "storage index range overflows a 64-bit integer")
         | Ok (lo, hi) when out_of_range (lo, hi) ->
-            Core.fail
+            Err.fail
               (`Tensor_bridge
                  (Format.asprintf
                     "storage index range [%Ld, %Ld] is outside %d bytes of data"
                     lo hi data_len))
         | Ok _ -> (
             try
-              Core.return
+              Err.return
                 (Tensor.materialize shape (fun coord ->
                      let offset = storage_index coord * 4 in
                      Int32.float_of_bits (Bytes.get_int32_le tensor.data offset)))
-            with Invalid_argument s -> Core.fail (`Tensor_bridge s)))
+            with Invalid_argument s -> Err.fail (`Tensor_bridge s)))
   | dtype ->
-      Core.fail
+      Err.fail
         (`Tensor_bridge
            (Format.asprintf "only float32 is supported, got %s"
               (Pt2_dtype.to_string dtype)))
 
 let run ?hooks archive ~input =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* lowered = lower_archive archive in
   let graph = lowered.Pt2_native_graph.graph in
   let eval_hooks =
@@ -704,9 +704,9 @@ let run ?hooks archive ~input =
   in
   let* inputs =
     match user_ids with
-    | [ id ] -> Core.return [ (id, input) ]
+    | [ id ] -> Err.return [ (id, input) ]
     | ids ->
-        Core.fail
+        Err.fail
           (`Unsupported_input
              (Format.asprintf "expected one user input, got %d"
                 (List.length ids)))
@@ -717,11 +717,11 @@ let run ?hooks archive ~input =
       graph.Graph_ir.Graph.nodes
   in
   let* constants =
-    Core.List.map
+    Err.List.map
       (fun (id, target) ->
         let* raw =
           Pt2_archive.load_captured_tensor archive target
-          |> Core.map_error (fun e ->
+          |> Err.map_error ~pos:__POS__ (fun e ->
               `Tensor_bridge (Format.asprintf "%a" Pt2_archive.pp_error e))
         in
         let+ tensor = tensor_of_pt2 raw in
@@ -732,12 +732,12 @@ let run ?hooks archive ~input =
   in
   let* env =
     Eval_direct.run ?hooks:eval_hooks ~constants graph ~inputs
-    |> Core.map_error (fun e -> `Eval e)
+    |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
   in
-  Core.List.map
+  Err.List.map
     (fun id ->
       Tensor_id.Map.find_opt id env
-      |> Core.of_option (`Malformed_graph "native output was not evaluated"))
+      |> Err.of_option (`Malformed_graph "native output was not evaluated"))
     graph.Graph_ir.Graph.outputs
 
 (* ---- transforming, and running the result --------------------------------- *)
@@ -757,10 +757,10 @@ type transformed =
 type loaded = { from_state : int; from_archive : int }
 
 let load_captured archive target =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* raw =
     Pt2_archive.load_captured_tensor archive target
-    |> Core.map_error (fun e ->
+    |> Err.map_error ~pos:__POS__ (fun e ->
         `Tensor_bridge (Format.asprintf "%a" Pt2_archive.pp_error e))
   in
   tensor_of_pt2 raw
@@ -770,15 +770,15 @@ let load_captured archive target =
    archive path of its own — a folded weight — which is exactly where "where did
    this come from" has no other answer. *)
 let derivations lens sidecar (graph : Graph_ir.graph) =
-  let open Core.Syntax in
-  Core.List.fold_left
+  let open Err.Syntax in
+  Err.List.fold_left
     (fun acc id ->
       if Graph_ir.input_kind graph id <> Graph_ir.Input.Constant then
-        Core.return acc
+        Err.return acc
       else
         let+ target =
           Pt2_native_graph.captured_target lens id
-          |> Core.map_error (fun e -> `Lens e)
+          |> Err.map_error ~pos:__POS__ (fun e -> `Lens e)
         in
         match target with
         | Some _ -> acc
@@ -809,12 +809,13 @@ let derivations lens sidecar (graph : Graph_ir.graph) =
    not a state this entry point should have to define an answer for. *)
 let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
     ?verify_probe ?trace ?max_trace_entries ?max_audit_reports lowered ~passes =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let source = lowered.Pt2_native_graph.graph in
   let seeded = Tensor_id.Map.bindings constants in
   let transform_error e = `Transform ((e : Rewrite.error) :> Pass.error) in
   let* (Rewrite.Origin origin) =
-    Rewrite.origin ~constants:seeded source |> Core.map_error transform_error
+    Rewrite.origin ~constants:seeded source
+    |> Err.map_error ~pos:__POS__ transform_error
   in
   let* {
          Pass.audits;
@@ -824,16 +825,16 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
        } =
     Pass.run_reporting ?verify ?verify_budget ?verify_probe ?trace
       ?max_trace_entries ?max_audit_reports origin passes
-    |> Core.map_error (fun e -> `Transform e)
+    |> Err.map_error ~pos:__POS__ (fun e -> `Transform e)
   in
   let* (Rewrite.Step (packed, pack_map)) =
-    Rewrite.pack rewritten |> Core.map_error transform_error
+    Rewrite.pack rewritten |> Err.map_error ~pos:__POS__ transform_error
   in
   let graph = Rewrite.graph packed in
   let composed_map = Graph_map.compose rewrite_map pack_map in
   let* lens =
     Pt2_native_graph.lens lowered ~src:origin composed_map ~dst:packed
-    |> Core.map_error (fun e -> `Lens e)
+    |> Err.map_error ~pos:__POS__ (fun e -> `Lens e)
   in
   (* The per-pass audits say what each rewrite established; this says what
      survived all of them, in the FINAL graph's ids — which is what lets a
@@ -843,7 +844,7 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
      intermediate ones. *)
   let* composed =
     match verify with
-    | None -> Core.return None
+    | None -> Err.return None
     | Some policy ->
         let* report =
           Map_verify.run ?budget:verify_budget ?probe:verify_probe composed_map
@@ -851,17 +852,16 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
             ~src_constants:(Rewrite.constants origin)
             ~dst:(Rewrite.snapshot packed)
             ~dst_constants:(Rewrite.constants packed)
-          |> Core.map_error (fun e -> `Verify e)
+          |> Err.map_error ~pos:__POS__ (fun e -> `Verify e)
         in
         (* The policy applies here too. Composition and terminal packing are the
            two steps no per-pass check covers — a refutation introduced by
            [Graph_map.compose] or [Rewrite.pack] appears in this report and
            nowhere else — so computing it and not judging it would print the
            failure inline and still exit successfully. *)
-        if Map_verify.Policy.accepts policy report then
-          Core.return (Some report)
+        if Map_verify.Policy.accepts policy report then Err.return (Some report)
         else
-          Core.fail
+          Err.fail
             (`Transform
                (`Verification
                   {
@@ -885,7 +885,7 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
    [transform_lowered]. The signature is unchanged, so every existing caller is
    unaffected by the split. *)
 let preload archive lowered =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let source = lowered.Pt2_native_graph.graph in
   let read_by_a_node =
     List.concat_map
@@ -897,7 +897,7 @@ let preload archive lowered =
      resnet18's int64 [num_batches_tracked] among them — and loading one would
      fail on a dtype the engine has no reason to support. *)
   let+ seeded =
-    Core.List.map
+    Err.List.map
       (fun (id, target) ->
         let+ payload = load_captured archive target in
         (id, payload))
@@ -909,11 +909,11 @@ let preload archive lowered =
 
 let transform ?preload:(want_payloads = false) ?verify ?verify_budget
     ?verify_probe archive ~passes =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* lowered = lower_archive archive in
   let* constants =
     if want_payloads then preload archive lowered
-    else Core.return Tensor_id.Map.empty
+    else Err.return Tensor_id.Map.empty
   in
   transform_lowered ~constants ?verify ?verify_budget ?verify_probe lowered
     ~passes
@@ -922,7 +922,7 @@ let transform ?preload:(want_payloads = false) ?verify ?verify_budget
    An edge with neither is simply absent; [Eval_direct] is the one that decides
    whether that matters, and says which edge if it does. *)
 let constants_for archive ~lens ~graph ~computed =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let used =
     List.concat_map
       (fun (n : Graph_ir.node) -> Graph_ir.operands n.Graph_ir.Node.op)
@@ -930,19 +930,19 @@ let constants_for archive ~lens ~graph ~computed =
     |> Tensor_id.Set.of_list
   in
   let+ loaded =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun acc id ->
-        if not (Tensor_id.Set.mem id used) then Core.return acc
+        if not (Tensor_id.Set.mem id used) then Err.return acc
         else
           match Tensor_id.Map.find_opt id computed with
-          | Some payload -> Core.return ((id, payload, `State) :: acc)
+          | Some payload -> Err.return ((id, payload, `State) :: acc)
           | None -> (
               let* target =
                 Pt2_native_graph.captured_target lens id
-                |> Core.map_error (fun e -> `Lens e)
+                |> Err.map_error ~pos:__POS__ (fun e -> `Lens e)
               in
               match target with
-              | None -> Core.return acc
+              | None -> Err.return acc
               | Some target ->
                   let+ payload = load_captured archive target in
                   (id, payload, `Archive) :: acc))
@@ -958,7 +958,7 @@ let constants_for archive ~lens ~graph ~computed =
     { from_state = count `State; from_archive = count `Archive } )
 
 let evaluate archive (Transformed t) ~input =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* input = tensor_of_pt2 input in
   let* constants, loaded =
     constants_for archive ~lens:t.lens ~graph:t.graph ~computed:t.constants
@@ -970,22 +970,22 @@ let evaluate archive (Transformed t) ~input =
   in
   let* inputs =
     match user_ids with
-    | [ id ] -> Core.return [ (id, input) ]
+    | [ id ] -> Err.return [ (id, input) ]
     | ids ->
-        Core.fail
+        Err.fail
           (`Unsupported_input
              (Format.asprintf "expected one user input, got %d"
                 (List.length ids)))
   in
   let* env =
     Eval_direct.run ~constants t.graph ~inputs
-    |> Core.map_error (fun e -> `Eval e)
+    |> Err.map_error ~pos:__POS__ (fun e -> `Eval e)
   in
   let+ outputs =
-    Core.List.map
+    Err.List.map
       (fun id ->
         Tensor_id.Map.find_opt id env
-        |> Core.of_option (`Malformed_graph "native output was not evaluated"))
+        |> Err.of_option (`Malformed_graph "native output was not evaluated"))
       t.graph.Graph_ir.Graph.outputs
   in
   (outputs, loaded)

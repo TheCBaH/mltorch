@@ -95,21 +95,21 @@ let find_arg (node : Node.t) name =
 (* Resolve a value name to a tensor: an earlier node result or a preloaded
    parameter/buffer, all carried by the environment. *)
 let resolve (env : env) name =
-  String_map.find_opt name env |> Core.of_option (`Undefined_value name)
+  String_map.find_opt name env |> Err.of_option (`Undefined_value name)
 
 let wrong_kind name expected arg =
-  Core.fail (`Wrong_argument_kind (name, expected, argument_kind_name arg))
+  Err.fail (`Wrong_argument_kind (name, expected, argument_kind_name arg))
 
 let tensor_arg env node name =
   match find_arg node name with
   | Some (Argument.Tensor ta) -> resolve env ta.TensorArgument.name
-  | Some (Argument.None _) -> Core.return null_tensor
+  | Some (Argument.None _) -> Err.return null_tensor
   | Some (Argument.Optional_tensor (OptionalTensorArgument.Tensor ta)) ->
       resolve env ta.TensorArgument.name
   | Some (Argument.Optional_tensor (OptionalTensorArgument.None _)) ->
-      Core.return null_tensor
+      Err.return null_tensor
   | Some arg -> wrong_kind name "tensor?" arg
-  | None -> Core.fail (`Missing_argument name)
+  | None -> Err.fail (`Missing_argument name)
 
 (* A binary op's Tensor-typed argument is normally an earlier node's result,
    but a compile-time scalar (e.g. the +3/relu6/.../6 in hardswish's
@@ -120,39 +120,39 @@ let tensor_or_scalar_arg env node name ~like =
   match find_arg node name with
   | Some (Argument.Tensor ta) -> resolve env ta.TensorArgument.name
   | Some (Argument.Int i) ->
-      Core.return
+      Err.return
         (O.full_like like
            (Aten_scalar.Int (Int64.of_int i))
            None None None None None)
   | Some (Argument.Float f) ->
-      Core.return
+      Err.return
         (O.full_like like (Aten_scalar.Float f) None None None None None)
   | Some arg -> wrong_kind name "tensor|scalar" arg
-  | None -> Core.fail (`Missing_argument name)
+  | None -> Err.fail (`Missing_argument name)
 
 let ints_arg ?(default = []) node name =
   match find_arg node name with
-  | Some (Argument.Ints xs) -> Core.return xs
-  | Some (Argument.None _) | None -> Core.return default
+  | Some (Argument.Ints xs) -> Err.return xs
+  | Some (Argument.None _) | None -> Err.return default
   | Some arg -> wrong_kind name "int[]" arg
 
-let require name = Core.of_option (`Missing_argument name)
+let require name = Err.of_option (`Missing_argument name)
 
 let int_arg ?default node name =
   match find_arg node name with
-  | Some (Argument.Int i) -> Core.return i
+  | Some (Argument.Int i) -> Err.return i
   | None -> require name default
   | Some arg -> wrong_kind name "int" arg
 
 let bool_arg ?(default = false) node name =
   match find_arg node name with
-  | Some (Argument.Bool b) -> Core.return b
-  | None -> Core.return default
+  | Some (Argument.Bool b) -> Err.return b
+  | None -> Err.return default
   | Some arg -> wrong_kind name "bool" arg
 
 let float_arg ?default node name =
   match find_arg node name with
-  | Some (Argument.Float f) -> Core.return f
+  | Some (Argument.Float f) -> Err.return f
   | None -> require name default
   | Some arg -> wrong_kind name "float" arg
 
@@ -163,36 +163,36 @@ let float_arg ?default node name =
    rms_norm's eps. *)
 let float_opt_ptr node name =
   match find_arg node name with
-  | Some (Argument.Float f) -> Core.return (allocate double f)
-  | Some (Argument.None _) | None -> Core.return (from_voidp double null)
+  | Some (Argument.Float f) -> Err.return (allocate double f)
+  | Some (Argument.None _) | None -> Err.return (from_voidp double null)
   | Some arg -> wrong_kind name "float?" arg
 
 (* A schema Scalar arg crosses as either an Int or a Float argument. *)
 let scalar_arg ?default node name =
   match find_arg node name with
-  | Some (Argument.Int i) -> Core.return (Aten_scalar.Int (Int64.of_int i))
-  | Some (Argument.Float f) -> Core.return (Aten_scalar.Float f)
+  | Some (Argument.Int i) -> Err.return (Aten_scalar.Int (Int64.of_int i))
+  | Some (Argument.Float f) -> Err.return (Aten_scalar.Float f)
   | None -> require name default
   | Some arg -> wrong_kind name "scalar" arg
 
 let scalar_opt_arg node name =
   match find_arg node name with
   | Some (Argument.Int i) ->
-      Core.return (Some (Aten_scalar.Int (Int64.of_int i)))
-  | Some (Argument.Float f) -> Core.return (Some (Aten_scalar.Float f))
-  | Some (Argument.None _) | None -> Core.return None
+      Err.return (Some (Aten_scalar.Int (Int64.of_int i)))
+  | Some (Argument.Float f) -> Err.return (Some (Aten_scalar.Float f))
+  | Some (Argument.None _) | None -> Err.return None
   | Some arg -> wrong_kind name "scalar?" arg
 
 let bool_opt_arg node name =
   match find_arg node name with
-  | Some (Argument.Bool b) -> Core.return (Some b)
-  | Some (Argument.None _) | None -> Core.return None
+  | Some (Argument.Bool b) -> Err.return (Some b)
+  | Some (Argument.None _) | None -> Err.return None
   | Some arg -> wrong_kind name "bool?" arg
 
 let string_arg ~default node name =
   match find_arg node name with
-  | Some (Argument.String s) -> Core.return s
-  | None -> Core.return default
+  | Some (Argument.String s) -> Err.return s
+  | None -> Err.return default
   | Some arg -> wrong_kind name "string" arg
 
 (* The schema MemoryFormat enum crosses as Pytorch_types.MemoryFormat (the
@@ -203,15 +203,15 @@ let memory_format_opt_arg node name =
   | Some (Argument.Memory_format mf) -> (
       match mf with
       | MemoryFormat.ContiguousFormat ->
-          Core.return (Some Aten_memory_format.Contiguous)
+          Err.return (Some Aten_memory_format.Contiguous)
       | MemoryFormat.PreserveFormat ->
-          Core.return (Some Aten_memory_format.Preserve)
+          Err.return (Some Aten_memory_format.Preserve)
       | MemoryFormat.ChannelsLast ->
-          Core.return (Some Aten_memory_format.ChannelsLast)
+          Err.return (Some Aten_memory_format.ChannelsLast)
       | MemoryFormat.ChannelsLast3d ->
-          Core.return (Some Aten_memory_format.ChannelsLast3d)
-      | MemoryFormat.Unknown -> Core.fail (`Unknown_memory_format name))
-  | Some (Argument.None _) | None -> Core.return None
+          Err.return (Some Aten_memory_format.ChannelsLast3d)
+      | MemoryFormat.Unknown -> Err.fail (`Unknown_memory_format name))
+  | Some (Argument.None _) | None -> Err.return None
   | Some arg -> wrong_kind name "memory_format?" arg
 
 (* ScalarType? / Layout? / Device? optionals. In exported inference graphs these
@@ -220,29 +220,29 @@ let memory_format_opt_arg node name =
    enum -> c10 enum translation. *)
 let scalar_type_opt_arg node name =
   match find_arg node name with
-  | Some (Argument.None _) | None -> Core.return None
+  | Some (Argument.None _) | None -> Err.return None
   | Some (Argument.Scalar_type _) ->
-      Core.fail (`Unsupported_scalar_type_arg name)
+      Err.fail (`Unsupported_scalar_type_arg name)
   | Some arg -> wrong_kind name "scalar_type?" arg
 
 let layout_opt_arg node name =
   match find_arg node name with
-  | Some (Argument.None _) | None -> Core.return None
-  | Some (Argument.Layout _) -> Core.fail (`Unsupported_layout_arg name)
+  | Some (Argument.None _) | None -> Err.return None
+  | Some (Argument.Layout _) -> Err.fail (`Unsupported_layout_arg name)
   | Some arg -> wrong_kind name "layout?" arg
 
 let device_opt_arg node name =
   match find_arg node name with
-  | Some (Argument.None _) | None -> Core.return None
-  | Some (Argument.Device _) -> Core.fail (`Unsupported_device_arg name)
+  | Some (Argument.None _) | None -> Err.return None
+  | Some (Argument.Device _) -> Err.fail (`Unsupported_device_arg name)
   | Some arg -> wrong_kind name "device?" arg
 
 let tensors_arg env node name =
   match find_arg node name with
   | Some (Argument.Tensors tas) ->
-      Core.List.map (fun (ta : TensorArgument.t) -> resolve env ta.name) tas
+      Err.List.map (fun (ta : TensorArgument.t) -> resolve env ta.name) tas
   | Some arg -> wrong_kind name "tensor[]" arg
-  | None -> Core.fail (`Missing_argument name)
+  | None -> Err.fail (`Missing_argument name)
 
 (* A Tensor[] binding takes a (data, length) pair: build the ctypes array of
    handles for the [data] argument. *)
@@ -253,26 +253,26 @@ let tensor_carray tensors =
 
 let out_name (node : Node.t) i =
   match List.nth_opt node.outputs i with
-  | Some (Argument.Tensor ta) -> Core.return (Some ta.TensorArgument.name)
-  | Some (Argument.None _) -> Core.return None
-  | Some arg -> Core.fail (`Unexpected_output_kind (i, argument_kind_name arg))
-  | None -> Core.fail (`Unexpected_output_kind (i, "missing"))
+  | Some (Argument.Tensor ta) -> Err.return (Some ta.TensorArgument.name)
+  | Some (Argument.None _) -> Err.return None
+  | Some arg -> Err.fail (`Unexpected_output_kind (i, argument_kind_name arg))
+  | None -> Err.fail (`Unexpected_output_kind (i, "missing"))
 
 let bind1 (env : env) node tensor =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* name = out_name node 0 in
   match name with
   | Some name ->
-      Core.return
+      Err.return
         (String_map.add name
            (Aten_tensor.manage (Aten_tensor.check tensor))
            env)
-  | None -> Core.return env
+  | None -> Err.return env
 
 let bind_many (env : env) node tensors =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* _, env =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun (i, env) tensor ->
         let* name = out_name node i in
         let env =
@@ -280,10 +280,10 @@ let bind_many (env : env) node tensors =
           | Some name -> String_map.add name (Aten_tensor.manage tensor) env
           | None -> env
         in
-        Core.return (i + 1, env))
+        Err.return (i + 1, env))
       (0, env) tensors
   in
-  Core.return env
+  Err.return env
 
 let resolve_result = resolve
 let tensor_arg_result = tensor_arg

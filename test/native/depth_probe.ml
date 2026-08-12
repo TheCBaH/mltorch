@@ -49,7 +49,7 @@ let nest n =
   done;
   !e
 
-let env = Expr.Eval.Env.{ load = (fun _ _ -> Core.return 1.0) }
+let env = Expr.Eval.Env.{ load = (fun _ _ -> Err.return 1.0) }
 let origin = Expr.Coord.make ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0
 
 (* Every recursive traversal applied to a body AFTER it has passed [Check]. A
@@ -206,7 +206,7 @@ let%expect_test "the accepted frontier survives in combination" =
      A raw depth of 255 plus the result conversion reaches [Hard.depth]
      exactly. *)
   let at_hard_depth =
-    Core.or_raise Kernel.Limits.pp_error
+    Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:255 ~max_values:4095
          ~max_dep_depth:1024 ~max_inputs:1024 ~max_outputs:1024
          ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
@@ -244,7 +244,7 @@ let%expect_test "the static DAG limits reject before execution" =
      stored DAG, distinct from the runtime recursion bound above. They are what
      stop a kernel being built at all. *)
   let tight ~max_dep_depth =
-    Core.or_raise Kernel.Limits.pp_error
+    Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:4096
          ~max_dep_depth ~max_inputs:1024 ~max_outputs:1024
          ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)

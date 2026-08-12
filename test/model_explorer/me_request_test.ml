@@ -17,17 +17,17 @@ module L = Me_limits.Limits
 let limits = L.untrusted
 
 let wire =
-  Core.or_raise Me_limits.pp_error
+  Err.or_raise ~pp_error:Me_limits.pp_error
     (Me_limits.Wire_limits.of_limits ~ceiling:L.untrusted L.untrusted)
 
 let wire_small =
-  Core.or_raise Me_limits.pp_error
+  Err.or_raise ~pp_error:Me_limits.pp_error
     (Me_limits.Wire_limits.of_limits ~ceiling:L.untrusted L.small)
 
 let uuid = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 let pp_id ppf r =
-  Core.Pretty.core_result
+  Core.Pretty.err_result
     ~ok:(fun ppf i -> Fmt.pf ppf "ok epoch=%s" (MR.Request_id.epoch i))
     ~error:MR.Request.pp_error ppf r
 
@@ -88,7 +88,7 @@ let opts ?(stages = [ C.Canonical ]) ?(fold = false) () =
     ~namespace:MR.Options.Structural
 
 let pp_opts ppf r =
-  Core.Pretty.core_result
+  Core.Pretty.err_result
     ~ok:(fun ppf (o : MR.Options.t) ->
       Fmt.pf ppf "[%s]"
         (String.concat " " (List.map C.stage_name o.MR.Options.stages)))
@@ -122,7 +122,7 @@ let src ?(origin = MR.Source.Origin.Local) ?(name = "resnet18") ?(bytes = 1024L)
   MR.Source.create ~limits ~origin ~name ~bytes ~format:`Model_json
 
 let pp_src ppf r =
-  Core.Pretty.core_result
+  Core.Pretty.err_result
     ~ok:(fun ppf (s : MR.Source.t) ->
       Fmt.pf ppf "ok digest=%a"
         (Core.Pretty.option_or ~none:"none" Fmt.string)
@@ -179,12 +179,13 @@ let%expect_test "every rejection row" =
 (* --- the request itself --- *)
 
 let id =
-  Core.or_raise MR.Request.pp_error (MR.Request_id.of_string (uuid ^ "-7"))
+  Err.or_raise ~pp_error:MR.Request.pp_error
+    (MR.Request_id.of_string (uuid ^ "-7"))
 
-let options = Core.or_raise MR.Request.pp_error (opts ())
+let options = Err.or_raise ~pp_error:MR.Request.pp_error (opts ())
 
 let pp_req ppf r =
-  Core.Pretty.core_result
+  Core.Pretty.err_result
     ~ok:(fun ppf (t : MR.Request.t) ->
       Fmt.pf ppf "ok epoch=%s key=%a" (MR.Request.epoch t)
         (Core.Pretty.option_or ~none:"none" (fun ppf k ->
@@ -193,11 +194,11 @@ let pp_req ppf r =
     ~error:MR.Request.pp_error ppf r
 
 let%expect_test "a session request, and a detail request" =
-  let source = Core.or_raise MR.Request.pp_error (src ()) in
+  let source = Err.or_raise ~pp_error:MR.Request.pp_error (src ()) in
   Format.printf "session %a@." pp_req
     (MR.Request.build_session ~id ~source ~options ~limits:wire);
   let key =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Detail_key.create ~limits ~parent_graph:"g/native/001"
          ~value:(Graph_ir.Tensor_id.of_int 12))
   in
@@ -216,7 +217,7 @@ let%expect_test "a component valid ALONE can be invalid in its request" =
      witness of the profile it was checked against, so only re-running the
      checks under the REQUEST's profile can answer. *)
   let name = String.make (L.small.L.max_label_bytes + 1) 'x' in
-  let source = Core.or_raise MR.Request.pp_error (src ~name ()) in
+  let source = Err.or_raise ~pp_error:MR.Request.pp_error (src ~name ()) in
   Format.printf "under untrusted %a@." pp_req
     (MR.Request.build_session ~id ~source ~options ~limits:wire);
   Format.printf "under small     %a@." pp_req
@@ -227,10 +228,10 @@ let%expect_test "a component valid ALONE can be invalid in its request" =
     under small     source name is too long |}]
 
 let%expect_test "and so can a detail key" =
-  let source = Core.or_raise MR.Request.pp_error (src ()) in
+  let source = Err.or_raise ~pp_error:MR.Request.pp_error (src ()) in
   let parent_graph = String.make (L.small.L.max_id_bytes + 1) 'g' in
   let key =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Detail_key.create ~limits ~parent_graph
          ~value:(Graph_ir.Tensor_id.of_int 0))
   in
@@ -243,7 +244,7 @@ let%expect_test "the derived id is checked, not only its input" =
      it, because the id is longer than the component it is built from. *)
   let parent_graph = String.make limits.L.max_id_bytes 'g' in
   Format.printf "%a@."
-    (Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:MR.Request.pp_error)
+    (Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:MR.Request.pp_error)
     (MR.Detail_key.create ~limits ~parent_graph
        ~value:(Graph_ir.Tensor_id.of_int 0));
   [%expect {| derived detail id is too long |}]
@@ -265,9 +266,9 @@ let pp_wire ppf r =
     ppf r
 
 let%expect_test "what a session request looks like on the wire" =
-  let source = Core.or_raise MR.Request.pp_error (src ()) in
+  let source = Err.or_raise ~pp_error:MR.Request.pp_error (src ()) in
   let req =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Request.build_session ~id ~source ~options ~limits:wire)
   in
   Format.printf "%a@." pp_wire (encode req);
@@ -282,9 +283,9 @@ let round_trip req =
           Result.map (fun again -> String.equal text again) (encode back)))
 
 let%expect_test "the decoder lands in the encoder's domain" =
-  let source = Core.or_raise MR.Request.pp_error (src ()) in
+  let source = Err.or_raise ~pp_error:MR.Request.pp_error (src ()) in
   let key =
-    Core.or_raise MR.Request.pp_error
+    Err.or_raise ~pp_error:MR.Request.pp_error
       (MR.Detail_key.create ~limits ~parent_graph:"g/native/001"
          ~value:(Graph_ir.Tensor_id.of_int 12))
   in
@@ -292,7 +293,7 @@ let%expect_test "the decoder lands in the encoder's domain" =
     (fun (label, req) ->
       Format.printf "%-8s %a@." label
         (Core.Pretty.result ~ok:Fmt.bool ~error:Fmt.string)
-        (round_trip (Core.or_raise MR.Request.pp_error req)))
+        (round_trip (Err.or_raise ~pp_error:MR.Request.pp_error req)))
     [
       ("session", MR.Request.build_session ~id ~source ~options ~limits:wire);
       ("detail", MR.Request.build_detail ~id ~source ~options ~limits:wire ~key);

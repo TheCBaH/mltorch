@@ -11,7 +11,7 @@
 
 let build name m =
   Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m
-  |> Core.or_raise (fun ppf e ->
+  |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
 let pool_params : Pool.MaxPool2d.params =
@@ -44,10 +44,10 @@ let live_indices () =
 let%expect_test "drop_pool_indices: the narrowing, and its map" =
   let g = unused_indices () in
   (match Rewrite.origin g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) -> (
       match Pass.run_all state [ Drop_pool_indices.pass ] with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (final, map)) ->
           Format.printf "@[<v 2>after:@,%a@]@." Graph_ir.pp
             (Rewrite.graph final);
@@ -75,10 +75,10 @@ let%expect_test "drop_pool_indices: the narrowing, and its map" =
 let%expect_test "drop_pool_indices: a live index edge is left alone" =
   let g = live_indices () in
   (match Rewrite.origin g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) -> (
       match Pass.run_all state [ Drop_pool_indices.pass ] with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (_, map)) ->
           Format.printf "changed: %b@."
             (not
@@ -96,13 +96,13 @@ let%expect_test "drop_pool_indices: the Identical claim is proved, not declined"
     =
   let g = unused_indices () in
   match Rewrite.origin g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) ->
       (match
          Pass.run_reporting ~verify:Map_verify.Policy.Require_proved state
            [ Drop_pool_indices.pass ]
        with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok { Pass.audits; _ } ->
           List.iter
             (fun ({ id; report } : Pass.Audit.t) ->

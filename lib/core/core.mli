@@ -1,96 +1,30 @@
-(* Project-wide result plumbing and shared monad building blocks.
+(* Repo-local printer glue.
 
-   [Monad] contains generic monad implementations (currently only [State]).
-   All other values/types in this module concern the [result]-based error
-   framework. *)
+   The error framework used to live here. It is [Err] (vendored/err_trace) now,
+   and every call site names [Err] directly — see .ai/error_handling_design.md.
+   What is left is the part that never belonged to a generic error library:
+   conventions built on Fmt, which [Err] does not and must not depend on.
 
-module Monad = Monad
+   The library keeps the name [core] because renaming it would touch every
+   consumer to no effect. Read it as "the repo's shared printer glue". *)
 
-(* Project-wide Result plumbing. The error side of every [result] is an
-   [Error.t] — a polymorphic-variant payload plus a detection backtrace. This
-   module owns only the generic machinery: smart constructors that capture the
-   callsite, binding operators, and result-aware list folds. The error *sets*
-   and their printers live in each component (a local [type error] + [pp_error]
-   that composes via row union), never here. *)
-
-module Error : sig
-  (* The payload ['e] (the owning component's polymorphic-variant error row)
-     plus the call stack captured the moment the error was built. It stays
-     visible in the signature (never hidden behind an existential) so a
-     function's error set is named at compile time. *)
-  type +'e t = { kind : 'e; backtrace : Printexc.raw_backtrace }
-
-  (* Build a bare [t] (not wrapped in a [result]), capturing the callstack the
-     same way [fail] does. For call sites that need an [Error.t] directly
-     (e.g. collecting a [t list] rather than short-circuiting on a [result]) —
-     prefer [fail] when a [result] is what's actually needed. *)
-  val make : 'e -> 'e t
-
-  (* Print the payload via [pp_payload], then the detection backtrace. Core
-     holds no knowledge of any payload's shape — the printer is supplied by the
-     component. The backtrace block degrades to a notice when the binary carries
-     no debug info (e.g. release without [-g]); the payload line always prints. *)
-  val pp : (Format.formatter -> 'e -> unit) -> Format.formatter -> 'e t -> unit
-end
-
-type ('a, 'e) result = ('a, 'e Error.t) Stdlib.result
-
-(* Build a failure from a payload, capturing the detection callstack
-   automatically (no [~here] argument). *)
-val fail : 'e -> ('a, 'e) result
-
-(* Build a success ( = [Ok]); provided for symmetry with [fail] at success
-   leaves. Pattern-match the transparent [Ok]/[Error] constructors when
-   destructuring. *)
-val return : 'a -> ('a, 'e) result
-
-(* Bridge an option into this framework, capturing the detection callstack the
-   way [fail] does. [Stdlib.Option.to_result] cannot serve: it yields a bare
-   [Stdlib.result] with no [Error.t], so there is nothing holding a backtrace.
-
-   The payload is built EAGERLY, before the option is inspected — keep an
-   explicit match wherever constructing it raises, has effects, or is expensive
-   enough to matter on the success path. *)
-val of_option : 'e -> 'a option -> ('a, 'e) result
-
-(* Rewrite the payload (e.g. to lift a sub-component's error into a wider row),
-   preserving the original detection backtrace. *)
-val map_error : ('e -> 'f) -> ('a, 'e) result -> ('a, 'f) result
-
-(* Cross a [result] into a domain that can't consume one (a boundary with a
-   fixed non-result signature). [Ok x] returns [x]; [Error e] raises [Failure]
-   with [pp] applied to the payload only (no backtrace — this is meant to read
-   like a normal exception message, not a diagnostic dump). *)
-val or_raise : (Format.formatter -> 'e -> unit) -> ('a, 'e) result -> 'a
-
-module Syntax : sig
-  val ( let* ) : ('a, 'e) result -> ('a -> ('b, 'e) result) -> ('b, 'e) result
-  val ( let+ ) : ('a, 'e) result -> ('a -> 'b) -> ('b, 'e) result
-  val ( >>= ) : ('a, 'e) result -> ('a -> ('b, 'e) result) -> ('b, 'e) result
-  val ( >>| ) : ('a, 'e) result -> ('a -> 'b) -> ('b, 'e) result
-end
-
-(* Shared pretty-printing glue. Handwritten printers should use Fmt directly
-   for their structure; this module only factors out repo-wide conventions that
-   would otherwise repeat verbatim (stringifying printers, [none], and
-   unwrapping [Core.Error.kind] in results). *)
+(* Handwritten printers should use Fmt directly for their structure; this
+   module only factors out repo-wide conventions that would otherwise repeat
+   verbatim (stringifying printers, [none], and unwrapping [Err.Error.kind] in
+   results). See .ai/printer_conventions.md. *)
 module Pretty : sig
   val to_string : 'a Fmt.t -> 'a -> string
   val option_or : none:string -> 'a Fmt.t -> 'a option Fmt.t
   val result : ok:'a Fmt.t -> error:'e Fmt.t -> ('a, 'e) Stdlib.result Fmt.t
-  val error_kind : 'e Fmt.t -> 'e Error.t Fmt.t
-  val core_result : ok:'a Fmt.t -> error:'e Fmt.t -> ('a, 'e) result Fmt.t
+
+  (* Print an [Err.Error.t] as its payload alone. The provenance is dropped, so
+     this is for output a person reads, not a diagnostic — [Err.Error.pp]
+     prints the whole wrapper. *)
+  val error_kind : 'e Fmt.t -> 'e Err.Error.t Fmt.t
+
+  (* The same, lifted over a whole [Err.t]. *)
+  val err_result : ok:'a Fmt.t -> error:'e Fmt.t -> ('a, 'e) Err.t Fmt.t
 
   val capture_to_string :
     ?like:Format.formatter -> (Format.formatter -> unit) -> string
-end
-
-(* Result-aware list combinators: short-circuit on the first [Error] and thread
-   the error row automatically, so migrated callers stay concise. *)
-module List : sig
-  val map : ('a -> ('b, 'e) result) -> 'a list -> ('b list, 'e) result
-  val iter : ('a -> (unit, 'e) result) -> 'a list -> (unit, 'e) result
-
-  val fold_left :
-    ('acc -> 'a -> ('acc, 'e) result) -> 'acc -> 'a list -> ('acc, 'e) result
 end

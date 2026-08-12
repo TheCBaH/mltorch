@@ -146,10 +146,10 @@ validated wrapper:
 module Shape4 : sig
   type t
 
-  val of_vec6 : Vec6.shape -> (t, error) Core.result
+  val of_vec6 : Vec6.shape -> (t, error) Err.t
   val to_vec6 : t -> Vec6.shape
   val make :
-    n:int -> h:int -> w:int -> c:int -> (t, Dim.error) Core.result
+    n:int -> h:int -> w:int -> c:int -> (t, Dim.error) Err.t
 end
 ```
 
@@ -273,7 +273,7 @@ module type DIALECT = sig
   val output_shapes :
     op ->
     sig_of:(Tensor_id.t -> tensor_sig) ->
-    (shape list, shape_error) Core.result
+    (shape list, shape_error) Err.t
 
   val output_transfer :
     op -> output:int -> Output_transfer.t

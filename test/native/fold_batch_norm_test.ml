@@ -101,7 +101,7 @@ let case ?(flavour = As_conv2d) ~conv_bias ~bn_weight ~bn_bias () =
           ~running_mean:mean ~running_var:var ()
       in
       relu n)
-  |> Core.or_raise Graph_builder.pp_error
+  |> Err.or_raise ~pp_error:Graph_builder.pp_error
 
 let constants_of g ~conv_bias ~bn_weight ~bn_bias =
   let ids =
@@ -119,7 +119,7 @@ let user_inputs g =
 let output g ~constants ~inputs =
   let env =
     Eval_direct.run g ~constants ~inputs:(List.combine (user_inputs g) inputs)
-    |> Core.or_raise Eval_direct.pp_error
+    |> Err.or_raise ~pp_error:Eval_direct.pp_error
   in
   match g.Graph.outputs with
   | [ out ] -> Tensor_id.Map.find out env
@@ -153,10 +153,10 @@ let agrees before after =
 
 let run ?(show = true) ?(passes = [ Fold_batch_norm.pass ]) g ~constants k =
   match Rewrite.origin ~constants g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) -> (
       match Pass.run_all state passes with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (final, map)) ->
           if show then (
             Format.printf "@[<v 2>after:@,%a@]@." Graph_ir.pp
@@ -422,7 +422,7 @@ let%expect_test "fold_batch_norm: the same, through aten.convolution" =
 
 let matches g =
   match Graph_view.of_graph g with
-  | Error e -> Format.printf "view: %a@." Graph_view.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "view: %a@." Graph_view.pp_error (Err.Error.kind e)
   | Ok view ->
       Format.printf "matches: %d@."
         (List.length (Pattern.scan Fold_batch_norm.pattern view))
@@ -446,7 +446,7 @@ let%expect_test "fold_batch_norm: channel counts must agree" =
         in
         batch_norm Graph_fixtures.bn_params ~x:y ~running_mean:mean
           ~running_var:var ())
-    |> Core.or_raise Graph_builder.pp_error
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
   in
   matches g;
   [%expect {| matches: 0 |}]
@@ -468,7 +468,7 @@ let%expect_test "fold_batch_norm: a non-constant parameter is refused" =
         in
         batch_norm Graph_fixtures.bn_params ~x:y ~weight:gamma
           ~running_mean:mean ~running_var:var ())
-    |> Core.or_raise Graph_builder.pp_error
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
   in
   matches g;
   [%expect {| matches: 0 |}]
@@ -493,7 +493,7 @@ let%expect_test "fold_batch_norm: a transposed convolution is refused" =
         let* y = convolution (convolution_params ~transposed) ~x ~weight:w () in
         batch_norm Graph_fixtures.bn_params ~x:y ~running_mean:mean
           ~running_var:var ())
-    |> Core.or_raise Graph_builder.pp_error
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
   in
   Format.printf "forward:   ";
   matches (square ~transposed:false);
@@ -522,7 +522,7 @@ let%expect_test "fold_batch_norm: a shared conv output is refused" =
             ~running_var:var ()
         in
         add n y)
-    |> Core.or_raise Graph_builder.pp_error
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
   in
   matches g;
   [%expect {| matches: 0 |}]

@@ -16,7 +16,7 @@ module L = Me_ids.Layer
 let limits = Me_limits.Limits.untrusted
 
 let pp_ok ppf r =
-  Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:F.pp_error ppf r
+  Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:F.pp_error ppf r
 
 let check label flow =
   Format.printf "%-26s %a@." label pp_ok (F.validate ~limits flow)
@@ -379,12 +379,12 @@ let%expect_test "an endpoint that names nothing" =
 
 let%expect_test "the two counts are checked before the walks they bound" =
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_states:4 ~max_transitions:4 limits)
   in
   Format.printf "states   %a@." pp_ok (F.validate ~limits:tight valid);
   let tight_t =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_states:64 ~max_transitions:4 limits)
   in
   Format.printf "trans    %a@." pp_ok (F.validate ~limits:tight_t valid);

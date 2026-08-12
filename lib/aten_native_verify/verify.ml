@@ -10,7 +10,7 @@
    Fmt_mismatch. *)
 
 open Schema_runtime
-open Core.Syntax
+open Err.Syntax
 
 let max_points = 10
 
@@ -126,9 +126,9 @@ let compare_tensors ~atol ~output aten_t native_t =
   let native_arr = Aten_shape.to_aten ~rank native_r.shape in
   let* () =
     if not (aten_arr = native_arr) then
-      Core.fail
+      Err.fail
         (Shape_mismatch { output; aten = aten_arr; native = native_r.shape })
-    else Core.return ()
+    else Err.return ()
   in
   (* 2. Format + payload *)
   let aten_dtype = Aten_tensor.scalar_type aten_t in
@@ -143,8 +143,8 @@ let compare_tensors ~atol ~output aten_t native_t =
               Some { coord; aten_val = av; native_val = nv }
             else None)
       in
-      if total = 0 then Core.return ()
-      else Core.fail (Payload_mismatch { output; total; points })
+      if total = 0 then Err.return ()
+      else Err.fail (Payload_mismatch { output; total; points })
   | Aten_scalar_type.Long, Payload.I64 ->
       let aten_ba = Option.get (Aten_tensor.data Aten_dtype.int64 aten_t) in
       let native_ba = native_r.payload.data in
@@ -160,8 +160,8 @@ let compare_tensors ~atol ~output aten_t native_t =
                 }
             else None)
       in
-      if total = 0 then Core.return ()
-      else Core.fail (Payload_mismatch { output; total; points })
+      if total = 0 then Err.return ()
+      else Err.fail (Payload_mismatch { output; total; points })
   | Aten_scalar_type.Int, Payload.I32 ->
       let aten_ba = Option.get (Aten_tensor.data Aten_dtype.int32 aten_t) in
       let native_ba = native_r.payload.data in
@@ -177,10 +177,10 @@ let compare_tensors ~atol ~output aten_t native_t =
                 }
             else None)
       in
-      if total = 0 then Core.return ()
-      else Core.fail (Payload_mismatch { output; total; points })
+      if total = 0 then Err.return ()
+      else Err.fail (Payload_mismatch { output; total; points })
   | _ ->
-      Core.fail
+      Err.fail
         (Fmt_mismatch
            {
              output;
@@ -193,7 +193,7 @@ let compare_tensors ~atol ~output aten_t native_t =
    than the ATen op: a dead output (e.g. max_pool2d_with_indices' int64 argmax
    indices, which the native F32 engine can't compare anyway) is dropped /
    routed to a Discard sink, so it is simply not verified.  Only exposing MORE
-   outputs than the op has is an error.  Returns one Core.Error.t per output
+   outputs than the op has is an error.  Returns one Err.Error.t per output
    that fails; empty list means all compared outputs matched. *)
 let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
   let open Pytorch_types in
@@ -204,7 +204,7 @@ let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
   in
   if List.length native_outputs > List.length out_names then
     [
-      Core.Error.make
+      Err.Error.make
         (Output_count
            {
              expected = List.length out_names;
@@ -217,7 +217,7 @@ let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
     List.filter_map
       (fun (name, native_t) ->
         match String_map.find_opt name aten_env with
-        | None -> Some (Core.Error.make (Missing_output { name }))
+        | None -> Some (Err.Error.make (Missing_output { name }))
         | Some aten_t -> (
             match compare_tensors ~atol ~output:name aten_t native_t with
             | Ok () -> None
@@ -226,5 +226,5 @@ let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
 
 let report ppf op errors =
   List.iter
-    (fun e -> Fmt.pf ppf "[verify] %s: %a@." op pp_error e.Core.Error.kind)
+    (fun e -> Fmt.pf ppf "[verify] %s: %a@." op pp_error (Err.Error.kind e))
     errors

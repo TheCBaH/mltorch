@@ -39,13 +39,13 @@ let pp_error ppf : [< error ] -> unit = function
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
-  |> Core.of_option (`Missing_tensor { context; id })
+  |> Err.of_option (`Missing_tensor { context; id })
 
-let widen (r : ('a, [< error ]) Core.result) : ('a, error) Core.result =
-  (r :> ('a, error) Core.result)
+let widen (r : ('a, [< error ]) Err.t) : ('a, error) Err.t =
+  (r :> ('a, error) Err.t)
 
 let sig_shape (g : Graph.graph) r =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let+ sg = find_tensor g.Graph.Graph.tensors r ~context:Sig_shape in
   sg.Tensor_sig.shape
 
@@ -62,51 +62,51 @@ let constant_is_used (g : Graph.graph) id =
     g.Graph.Graph.nodes
 
 let bind_constants (g : Graph.graph) constants env =
-  Core.List.fold_left
+  Err.List.fold_left
     (fun env id ->
       match Graph.input_kind g id with
-      | Graph_ir.Input.Input -> Core.return env
+      | Graph_ir.Input.Input -> Err.return env
       | Graph_ir.Input.Constant when not (constant_is_used g id) ->
-          Core.return env
+          Err.return env
       | Graph_ir.Input.Constant -> (
           match List.assoc_opt id constants with
-          | Some tensor -> Core.return (Tensor_id.Map.add id tensor env)
-          | None -> Core.fail (`Missing_constant id)))
+          | Some tensor -> Err.return (Tensor_id.Map.add id tensor env)
+          | None -> Err.fail (`Missing_constant id)))
     env g.Graph.Graph.inputs
 
 let eval_node (g : Graph.graph) env (node : Graph.node) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let op = node.Graph.Node.op in
   let fill v shape = Tensor.materialize shape (fun _ -> v) in
   let* shapes =
     widen
       (Graph_shape4.output_shape op ~sig_of:(fun r ->
            Tensor_id.Map.find_opt r g.Graph.Graph.tensors
-           |> Core.of_option (`Missing_tensor_sig r)))
+           |> Err.of_option (`Missing_tensor_sig r)))
   in
   let* operand_env =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun acc r ->
         let+ t = find_tensor env r ~context:Operand in
         Tensor_id.Map.add r t acc)
       Tensor_id.Map.empty (Op.operands op)
   in
   let* shape_env =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun acc r ->
         let+ sh = sig_shape g r in
         Tensor_id.Map.add r sh acc)
       Tensor_id.Map.empty (Op.operands op)
   in
   if List.compare_lengths node.Graph.Node.outputs shapes <> 0 then
-    Core.fail
+    Err.fail
       (`Output_arity_mismatch
          {
            expected = List.length shapes;
            actual = List.length node.Graph.Node.outputs;
          })
   else
-    Core.List.fold_left
+    Err.List.fold_left
       (fun env (output, oid, out_shape) ->
         let result =
           Schedule.evaluate (Shape4.to_vec6 out_shape)
@@ -115,7 +115,7 @@ let eval_node (g : Graph.graph) env (node : Graph.node) =
                ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
                ~fill)
         in
-        Core.return (Tensor_id.Map.add oid result env))
+        Err.return (Tensor_id.Map.add oid result env))
       env
       (List.mapi
          (fun output (oid, out_shape) -> (output, oid, out_shape))
@@ -128,14 +128,14 @@ let run ?(constants = []) (g : Graph.graph)
       (fun e (id, t) -> Tensor_id.Map.add id t e)
       Tensor_id.Map.empty inputs
   in
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* env0 =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun env id ->
         match Tensor_id.Map.find_opt id provided with
-        | Some tensor -> Core.return (Tensor_id.Map.add id tensor env)
-        | None -> Core.fail (`Missing_input id))
+        | Some tensor -> Err.return (Tensor_id.Map.add id tensor env)
+        | None -> Err.fail (`Missing_input id))
       Tensor_id.Map.empty (input_ids g)
   in
   let* env = bind_constants g constants env0 in
-  Core.List.fold_left (eval_node g) env g.Graph.Graph.nodes
+  Err.List.fold_left (eval_node g) env g.Graph.Graph.nodes

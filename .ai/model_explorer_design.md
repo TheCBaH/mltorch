@@ -321,7 +321,7 @@ observed before the guard was restored.
 
 **Control bytes are rejected, not encoded.** They survive percent-encoding into an id the
 renderer displays verbatim, and there is no correct rendering of them. Consequently
-`component` returns a `Core.result`: the plan sketched `string -> string`, and a signature
+`component` returns a `Err.t`: the plan sketched `string -> string`, and a signature
 that cannot express its own rejection is not a contract.
 
 **Two ceilings, on two sides of the encoding.** `max_label_bytes` bounds the raw input,

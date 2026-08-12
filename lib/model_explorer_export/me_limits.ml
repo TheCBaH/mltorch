@@ -37,7 +37,7 @@ module Phase = struct
     | Install -> "R_install"
 end
 
-let overflow phase = Core.fail (`Live_overflow (Phase.name phase))
+let overflow phase = Err.fail (`Live_overflow (Phase.name phase))
 
 (* A term is [coefficient * quantity]. The coefficients are single-digit hard
    constants; the quantities are the only operands a profile can move, which is
@@ -49,18 +49,18 @@ type term = { coefficient : int; quantity : int64 }
 let term_bytes phase { coefficient; quantity } =
   let k = Int64.of_int coefficient in
   if Int64.compare k 0L < 0 || Int64.compare quantity 0L < 0 then overflow phase
-  else if Int64.equal k 0L then Core.return 0L
+  else if Int64.equal k 0L then Err.return 0L
   else if Int64.compare quantity (Int64.div Int64.max_int k) > 0 then
     overflow phase
-  else Core.return (Int64.mul k quantity)
+  else Err.return (Int64.mul k quantity)
 
 let sum_terms phase terms =
-  Core.List.fold_left
+  Err.List.fold_left
     (fun acc t ->
-      let open Core.Syntax in
+      let open Err.Syntax in
       let* v = term_bytes phase t in
       if Int64.compare v (Int64.sub Int64.max_int acc) > 0 then overflow phase
-      else Core.return (Int64.add acc v))
+      else Err.return (Int64.add acc v))
     0L terms
 
 let max_of = List.fold_left (fun a b -> if Int64.compare b a > 0 then b else a)
@@ -211,7 +211,7 @@ let request_retained_terms =
 let request_widest_field = Hard_scalars.max_label_bytes
 
 let request_live_bytes () =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let open Hard_scalars in
   let json = Int64.of_int max_request_json_bytes in
   let* retained_convert = sum_terms Phase.Convert request_retained_terms in
@@ -253,7 +253,7 @@ let response_live_bytes ~max_session_bytes ~max_detail_bytes =
      whichever kind this profile admits more of. Bound before the [open] below,
      which carries fields of the same two names. *)
   let doc = Int64.of_int (max max_session_bytes max_detail_bytes) in
-  let open Core.Syntax in
+  let open Err.Syntax in
   let open Hard_scalars in
   let render_parsed = render_state_expansion * js_value_expansion in
   let* decode =
@@ -312,13 +312,13 @@ let response_live_bytes ~max_session_bytes ~max_detail_bytes =
 module Hard = struct
   include Hard_scalars
 
-  let max_request_live_bytes = Core.or_raise pp_error (request_live_bytes ())
+  let max_request_live_bytes = Err.or_raise ~pp_error (request_live_bytes ())
 
   (* Derived from hard scalars — the phase sums evaluated at
      [max_response_document_bytes] — not from any profile's peak, which would
      make a [Hard] constant depend on the profile [Hard] constrains. *)
   let max_response_live_bytes =
-    Core.or_raise pp_error
+    Err.or_raise ~pp_error
       (response_live_bytes ~max_session_bytes:max_response_document_bytes
          ~max_detail_bytes:max_response_document_bytes)
 end
@@ -332,11 +332,11 @@ let () =
   let open Hard in
   let relation name value ceiling =
     if Int64.compare value ceiling > 0 then
-      Core.fail (`Invalid_limit { Invalid.name; value })
-    else Core.return ()
+      Err.fail (`Invalid_limit { Invalid.name; value })
+    else Err.return ()
   in
-  Core.or_raise pp_error
-    (let open Core.Syntax in
+  Err.or_raise ~pp_error
+    (let open Err.Syntax in
      (* One worst-case [Js.to_string]: the JS string, its UTF-8 measure and the
         OCaml result. *)
      let* one_conversion =
@@ -697,38 +697,38 @@ module Limits = struct
 
   let check name value ceiling =
     if Int64.compare value 0L <= 0 || Int64.compare value ceiling > 0 then
-      Core.fail (`Invalid_limit { Invalid.name; value })
-    else Core.return ()
+      Err.fail (`Invalid_limit { Invalid.name; value })
+    else Err.return ()
 
   (* Against a ceiling supplied as a profile, so [create] (ceiling = the [Hard]
      figures) and [Wire_limits.of_limits] (ceiling = [untrusted]) run the same
      traversal over the same field set. *)
   let check_against ~zip_ceiling ~field_ceiling t =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* () =
-      Core.List.iter (fun f -> check f.name (f.get t) (field_ceiling f)) fields
+      Err.List.iter (fun f -> check f.name (f.get t) (field_ceiling f)) fields
     in
-    Core.List.iter
+    Err.List.iter
       (fun (name, get, _) ->
         check ("zip." ^ name) (get t.zip) (get zip_ceiling))
       zip_fields
 
   let derive t =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* peak =
       response_live_bytes ~max_session_bytes:t.max_session_bytes
         ~max_detail_bytes:t.max_detail_bytes
     in
     let+ () =
       if Int64.compare peak Hard.jsoo_safe_bytes > 0 then
-        Core.fail
+        Err.fail
           (`Invalid_limit { Invalid.name = "response_live_bytes"; value = peak })
-      else Core.return ()
+      else Err.return ()
     in
     { t with response_live_bytes = peak }
 
   let validate t =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* () =
       check_against ~zip_ceiling:Pt2_zip.Limits.trusted
         ~field_ceiling:(fun f -> f.hard)
@@ -752,7 +752,7 @@ module Limits = struct
      the moment a phase gains a term the document ceilings do not drive. The
      equality it rests on is pinned by a test, so that day is visible. *)
   let within_hard_response t =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* () =
       check "max_session_bytes" (i t.max_session_bytes)
         (i Hard.max_response_document_bytes)
@@ -771,12 +771,12 @@ module Limits = struct
      validated profile and so is itself no looser than [hard], which is why
      bounding against it bounds against [hard] too. *)
   let assign_checked ~ceiling t f v =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ () = check f.name v (f.get ceiling) in
     f.assign t v
 
   let assign_zip_checked ~ceiling t (name, get, set) v =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ () = check ("zip." ^ name) v (get ceiling.zip) in
     { t with zip = set t.zip v }
 
@@ -818,12 +818,12 @@ module Limits = struct
         zip_fields
 
   let apply_overrides ~ceiling ~base pairs =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun t (name, v) ->
         match field_named name with
         | Some (`Field f) -> assign_checked ~ceiling t f v
         | Some (`Zip z) -> assign_zip_checked ~ceiling t z v
-        | None -> Core.fail (`Invalid_limit { Invalid.name; value = v }))
+        | None -> Err.fail (`Invalid_limit { Invalid.name; value = v }))
       base pairs
 
   let create ?max_json_bytes ?max_pt2_bytes ?zip ?max_nodes_per_graph
@@ -904,7 +904,7 @@ module Limits = struct
      nobody can build is not a profile — and it is what leaves [create]'s
      rejection reachable from above. *)
   let trusted =
-    Core.or_raise pp_error
+    Err.or_raise ~pp_error
       (validate
          {
            max_json_bytes = Hard.max_json_bytes;
@@ -953,7 +953,7 @@ module Limits = struct
      document may be acquired under, so the check runs at construction and its
      failure is a load-time error rather than a rejected request. *)
   let wire_selectable r =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* t = r in
     let+ () = within_hard_response t in
     t
@@ -963,7 +963,7 @@ module Limits = struct
      clears what a real vision model needs by an order of magnitude, and the
      release profile is calibrated after Stages 2-4. *)
   let untrusted =
-    Core.or_raise pp_error
+    Err.or_raise ~pp_error
       (wire_selectable
       @@ create ~max_json_bytes:0x1000_0000L ~max_pt2_bytes:0x1000_0000L
            ~zip:Pt2_zip.Limits.untrusted ~max_nodes_per_graph:0x2_0000
@@ -988,7 +988,7 @@ module Limits = struct
 
   (* Fieldwise no looser than [untrusted], so it is wire-selectable. *)
   let small =
-    Core.or_raise pp_error
+    Err.or_raise ~pp_error
       (wire_selectable
       @@ create ~max_json_bytes:0x200_0000L ~max_pt2_bytes:0x200_0000L
            ~max_nodes_per_graph:0x4000 ~max_edges_per_graph:0x8000
@@ -1013,7 +1013,7 @@ module Limits = struct
      produced. Programmatic-only: [Wire_limits] rejects it, which is what makes
      [--limits untrusted|small] a guarantee rather than a UI convention. *)
   let large =
-    Core.or_raise pp_error
+    Err.or_raise ~pp_error
       (create ~max_nodes_per_graph:Hard.max_nodes_per_graph
          ~max_edges_per_graph:Hard.max_edges_per_graph
          ~max_groups_per_graph:Hard.max_groups_per_graph
@@ -1030,7 +1030,7 @@ module Wire_limits = struct
   type t = Limits.t
 
   let of_limits ~ceiling l =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* () =
       Limits.check_against ~zip_ceiling:ceiling.Limits.zip
         ~field_ceiling:(fun f -> f.Limits.get ceiling)
@@ -1062,7 +1062,7 @@ module Wire_limits = struct
       ~dec:(fun members ->
         let pairs = Wire_map.bindings members in
         match
-          let open Core.Syntax in
+          let open Err.Syntax in
           let* l =
             Limits.apply_overrides ~ceiling:Limits.untrusted
               ~base:Limits.untrusted pairs
@@ -1071,10 +1071,11 @@ module Wire_limits = struct
              be a value the ENCODER could have produced, and only the ceiling
              check makes that true. *)
           of_limits ~ceiling:Limits.untrusted l
+          |> Err.mark_error ~pos:__POS__ Err.Action.Export
         with
         | Ok l -> l
         | Error e ->
-            Jsont.Error.msgf Jsont.Meta.none "%a" pp_error e.Core.Error.kind)
+            Jsont.Error.msgf Jsont.Meta.none "%a" pp_error (Err.Error.kind e))
       ~enc:(fun t ->
         List.fold_left
           (fun m (name, v) -> Wire_map.add name v m)
@@ -1268,7 +1269,25 @@ module Diagnostic = struct
     { code; message; graph; truncated = message_truncated || graph_dropped }
 
   let create ~limits ?graph code message = build ~limits ?graph code message
-  let of_exn ~limits e = build ~limits Code.Internal (Printexc.to_string e)
+
+  (* [Err.Exn.E] is matched rather than left to [Printexc.to_string], which
+     WOULD render it: [Err] registers a printer, so the default path emits the
+     payload followed by the detection stack and the semantic trace. That text
+     is a developer diagnostic, and this value is a wire response the browser
+     receives -- shipping frame-by-frame provenance of the server's own source
+     to a client is not something a message like this should do, and the
+     sanitiser below would only truncate it, not remove it.
+
+     So render the payload alone here. The provenance is not lost, it simply
+     stays on this side of the boundary: the exception is still whole for any
+     top-level handler that logs it. *)
+  let of_exn ~limits e =
+    let message =
+      match e with
+      | Err.Exn.E packed -> Format.asprintf "%a" Err.Exn.pp_kind packed
+      | e -> Printexc.to_string e
+    in
+    build ~limits Code.Internal message
 
   let jsont =
     Jsont.Object.map ~kind:"diagnostic" (fun code message graph truncated ->

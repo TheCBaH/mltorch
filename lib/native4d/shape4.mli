@@ -34,7 +34,7 @@ val make :
 val of_ints : n:int -> h:int -> w:int -> c:int -> t
 
 (* The check, and the only way in from a Native shape. *)
-val of_vec6 : Vec6.shape -> (t, [> error ]) Core.result
+val of_vec6 : Vec6.shape -> (t, [> error ]) Err.t
 
 (* The way out, for calling shared compute. Total: a [t] is a [Vec6.shape] whose
    T and D happen to be 1. *)

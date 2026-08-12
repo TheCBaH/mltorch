@@ -42,20 +42,20 @@ let pp_error ppf : error -> unit = function
 (* Bind a variable to a concrete value, checking it against the declared
    constraints (mirrors dynamo's guard check). [Error] on a guard violation. *)
 let bind env name value =
-  let open Core.Syntax in
-  let add () = Core.return { env with binds = (name, value) :: env.binds } in
+  let open Err.Syntax in
+  let add () = Err.return { env with binds = (name, value) :: env.binds } in
   match List.assoc_opt name env.decls with
   | None -> add ()
   | Some { lo; hi; divisor } ->
       let* () =
         if value < lo || value >= hi then
-          Core.fail (`Out_of_range { name; value; lo; hi })
-        else Core.return ()
+          Err.fail (`Out_of_range { name; value; lo; hi })
+        else Err.return ()
       in
       let* () =
         if value mod divisor <> 0 then
-          Core.fail (`Not_divisible { name; value; divisor })
-        else Core.return ()
+          Err.fail (`Not_divisible { name; value; divisor })
+        else Err.return ()
       in
       add ()
 

@@ -135,17 +135,17 @@ module Make (D : Dialect.S) = struct
 
   let fold_result f init l =
     List.fold_left
-      (fun acc x -> Core.Syntax.( let* ) acc (fun acc -> f acc x))
-      (Core.return init) l
+      (fun acc x -> Err.Syntax.( let* ) acc (fun acc -> f acc x))
+      (Err.return init) l
 
   (* Group ids, ownership of each node, and the parent chain, in one walk. *)
   let index_groups (g : graph) =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let rec walk (owners, parents, seen) parent (grp : Group.t) =
       let* () =
         if Group_id.Set.mem grp.Group.id seen then
-          Core.fail (`Duplicate_group_id grp.Group.id)
-        else Core.return ()
+          Err.fail (`Duplicate_group_id grp.Group.id)
+        else Err.return ()
       in
       let seen = Group_id.Set.add grp.Group.id seen in
       let parents =
@@ -158,9 +158,9 @@ module Make (D : Dialect.S) = struct
           match item with
           | Group.Node id ->
               if Node_id.Map.mem id owners then
-                Core.fail (`Duplicate_group_item id)
+                Err.fail (`Duplicate_group_item id)
               else
-                Core.return
+                Err.return
                   (Node_id.Map.add id grp.Group.id owners, parents, seen)
           | Group.Group child ->
               walk (owners, parents, seen) (Some grp.Group.id) child)
@@ -171,14 +171,14 @@ module Make (D : Dialect.S) = struct
       None g.Graph.root
 
   let of_graph (g : graph) =
-    let open Core.Syntax in
+    let open Err.Syntax in
     (* node ids unique *)
     let* nodes =
       fold_result
         (fun acc (n : node) ->
           if Node_id.Map.mem n.Node.id acc then
-            Core.fail (`Duplicate_node_id n.Node.id)
-          else Core.return (Node_id.Map.add n.Node.id n acc))
+            Err.fail (`Duplicate_node_id n.Node.id)
+          else Err.return (Node_id.Map.add n.Node.id n acc))
         Node_id.Map.empty g.Graph.nodes
     in
     (* the group tree is a partition of the node list *)
@@ -186,15 +186,15 @@ module Make (D : Dialect.S) = struct
     let* () =
       fold_result
         (fun () (n : node) ->
-          if Node_id.Map.mem n.Node.id groups then Core.return ()
-          else Core.fail (`Node_not_grouped n.Node.id))
+          if Node_id.Map.mem n.Node.id groups then Err.return ()
+          else Err.fail (`Node_not_grouped n.Node.id))
         () g.Graph.nodes
     in
     let* () =
       fold_result
         (fun () (id, _) ->
-          if Node_id.Map.mem id nodes then Core.return ()
-          else Core.fail (`Unknown_group_item id))
+          if Node_id.Map.mem id nodes then Err.return ()
+          else Err.fail (`Unknown_group_item id))
         ()
         (Node_id.Map.bindings groups)
     in
@@ -202,8 +202,8 @@ module Make (D : Dialect.S) = struct
     let* () =
       fold_result
         (fun () (key, (sg : Tensor_sig.t)) ->
-          if Tensor_id.equal key sg.id then Core.return ()
-          else Core.fail (`Sig_key_mismatch { key; recorded = sg.id }))
+          if Tensor_id.equal key sg.id then Err.return ()
+          else Err.fail (`Sig_key_mismatch { key; recorded = sg.id }))
         ()
         (Tensor_id.Map.bindings g.Graph.tensors)
     in
@@ -214,8 +214,8 @@ module Make (D : Dialect.S) = struct
           fold_result
             (fun acc id ->
               if Tensor_id.Map.mem id acc then
-                Core.fail (`Duplicate_tensor_def id)
-              else Core.return (Tensor_id.Map.add id n acc))
+                Err.fail (`Duplicate_tensor_def id)
+              else Err.return (Tensor_id.Map.add id n acc))
             acc n.Node.outputs)
         Tensor_id.Map.empty g.Graph.nodes
     in
@@ -223,9 +223,8 @@ module Make (D : Dialect.S) = struct
     let* () =
       fold_result
         (fun () id ->
-          if Tensor_id.Map.mem id defs then
-            Core.fail (`Input_defined_by_node id)
-          else Core.return ())
+          if Tensor_id.Map.mem id defs then Err.fail (`Input_defined_by_node id)
+          else Err.return ())
         () g.Graph.inputs
     in
     let known id = Tensor_id.Map.mem id defs || Tensor_id.Set.mem id inputs in
@@ -235,15 +234,14 @@ module Make (D : Dialect.S) = struct
         (fun () (n : node) ->
           fold_result
             (fun () id ->
-              if known id then Core.return ()
-              else Core.fail (`Unknown_operand id))
+              if known id then Err.return () else Err.fail (`Unknown_operand id))
             () (D.operands n.Node.op))
         () g.Graph.nodes
     in
     let* () =
       fold_result
         (fun () id ->
-          if known id then Core.return () else Core.fail (`Unknown_output id))
+          if known id then Err.return () else Err.fail (`Unknown_output id))
         () g.Graph.outputs
     in
     (* input_kinds is sparse by design: keys must be inputs, but need not cover
@@ -251,8 +249,8 @@ module Make (D : Dialect.S) = struct
     let* () =
       fold_result
         (fun () (id, _) ->
-          if Tensor_id.Set.mem id inputs then Core.return ()
-          else Core.fail (`Unknown_input_kind id))
+          if Tensor_id.Set.mem id inputs then Err.return ()
+          else Err.fail (`Unknown_input_kind id))
         ()
         (Tensor_id.Map.bindings g.Graph.input_kinds)
     in
@@ -274,36 +272,36 @@ module Make (D : Dialect.S) = struct
               match Tensor_id.Map.find_opt operand defs with
               | Some producer
                 when position producer.Node.id >= position n.Node.id ->
-                  Core.fail (`Not_topological n.Node.id)
-              | _ -> Core.return ())
+                  Err.fail (`Not_topological n.Node.id)
+              | _ -> Err.return ())
             () (D.operands n.Node.op))
         () g.Graph.nodes
     in
     (* declared output arity matches what the op actually produces *)
-    (* NOT [Core.of_option]: its payload argument is eager, and [D.missing_sig]
-       is an abstract functor callback. Both dialects implement it as a cheap
-       constructor application, but [Dialect.S] does not require that, so
-       folding here would run an unbounded callback on every successful
-       lookup. *)
+    (* [Err.map_none], not [Err.of_option]: the latter's payload argument is
+       eager, and [D.missing_sig] is an abstract functor callback. Both
+       dialects implement it as a cheap constructor application, but
+       [Dialect.S] does not require that, so [of_option] would run an unbounded
+       callback on every SUCCESSFUL lookup. [map_none] takes the payload as a
+       thunk, which is the same guarantee the hand-rolled match gave and says
+       so in the type. *)
     let sig_of id =
-      match Tensor_id.Map.find_opt id g.Graph.tensors with
-      | Some sg -> Core.return sg
-      | None -> Core.fail (D.missing_sig id)
+      Tensor_id.Map.find_opt id g.Graph.tensors
+      |> Err.map_none ~error:(fun () -> D.missing_sig id)
     in
     let* () =
       fold_result
         (fun () (n : node) ->
           let* shapes =
-            Core.map_error
+            Err.map_error
               (fun e -> `Graph_shape e)
               (D.output_shape n.Node.op ~sig_of)
           in
           let expected = List.length shapes
           and actual = List.length n.Node.outputs in
           let* () =
-            if expected = actual then Core.return ()
-            else
-              Core.fail (`Output_arity { node = n.Node.id; expected; actual })
+            if expected = actual then Err.return ()
+            else Err.fail (`Output_arity { node = n.Node.id; expected; actual })
           in
           (* The recorded signature must be the shape the op actually produces.
            Arity alone would let a rewrite install an output whose declared
@@ -318,9 +316,9 @@ module Make (D : Dialect.S) = struct
                            (Vec6.get sg.Tensor_sig.shape ax)
                            (Vec6.get computed ax))
                        Axis.all ->
-                  Core.return ()
-              | Some _ -> Core.fail (`Output_shape_mismatch id)
-              | None -> Core.fail (`Graph_shape (D.missing_sig id)))
+                  Err.return ()
+              | Some _ -> Err.fail (`Output_shape_mismatch id)
+              | None -> Err.fail (`Graph_shape (D.missing_sig id)))
             ()
             (List.combine n.Node.outputs shapes))
         () g.Graph.nodes
@@ -350,13 +348,12 @@ module Make (D : Dialect.S) = struct
       fold_result
         (fun () id ->
           match Tensor_id.Map.find_opt id g.Graph.tensors with
-          | None -> Core.fail (`Graph_shape (D.missing_sig id))
-          (* [map_error], not a rebuilt [Core.fail]: the latter captures a fresh
+          | None -> Err.fail (`Graph_shape (D.missing_sig id))
+          (* [map_error], not a rebuilt [Err.fail]: the latter captures a fresh
              callstack here and discards the one the dialect check took at the
              point it actually detected the violation. *)
           | Some sg ->
-              D.validate_sig sg
-              |> Core.map_error (fun e -> `Invalid_sig (id, e)))
+              D.validate_sig sg |> Err.map_error (fun e -> `Invalid_sig (id, e)))
         ()
         (Tensor_id.Set.elements live)
     in
@@ -381,7 +378,7 @@ module Make (D : Dialect.S) = struct
         Tensor_id.Map.empty g.Graph.nodes
       |> Tensor_id.Map.map List.rev
     in
-    Core.return
+    Err.return
       {
         graph = g;
         nodes;
@@ -429,7 +426,7 @@ module Make (D : Dialect.S) = struct
     in
     let rec emit pending deps acc =
       match pending with
-      | [] -> Core.return (List.rev acc)
+      | [] -> Err.return (List.rev acc)
       | _ -> (
           let ready, blocked =
             List.partition
@@ -443,7 +440,7 @@ module Make (D : Dialect.S) = struct
           match ready with
           | [] ->
               let stuck = List.hd blocked in
-              Core.fail (`Cycle stuck.Node.id)
+              Err.fail (`Cycle stuck.Node.id)
           | ready ->
               let done_ids =
                 List.fold_left

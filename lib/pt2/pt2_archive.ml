@@ -4,7 +4,7 @@
 open Schema_runtime
 open Pytorch_types
 open Pytorch_weights_config
-open Core.Syntax
+open Err.Syntax
 
 type t = {
   zip : Pt2_zip.t;
@@ -103,19 +103,20 @@ let read_file ?(max_bytes = default_max_file_bytes) path =
     In_channel.with_open_bin path (fun ic ->
         let length = In_channel.length ic in
         if Int64.compare length ceiling > 0 then
-          Core.fail (`Io_too_large (path, ceiling))
+          Err.fail (`Io_too_large (path, ceiling))
         else
           (* Narrowed only now that it is bounded by [ceiling], which is at most
              [max_file_bytes] — in range on both backends by construction rather
              than by an argument about the caller. *)
           match In_channel.really_input_string ic (Int64.to_int length) with
-          | Some s -> Core.return s
-          | None -> Core.fail (`Io (path, "short read")))
-  with Sys_error message -> Core.fail (`Io (path, message))
+          | Some s -> Err.return s
+          | None -> Err.fail (`Io (path, "short read")))
+  with Sys_error message -> Err.fail (`Io (path, message))
 
 let read_member zip path =
   Pt2_zip.read_rel_required zip path
-  |> Core.map_error (fun error -> `Read_archive_member (path, error))
+  |> Err.map_error ~pos:__POS__ (fun error ->
+      `Read_archive_member (path, error))
 
 (* Decoding is separated from reading so an archive that is already in memory
    never has to reach a filesystem: a JS build has no useful one, and a browser
@@ -125,37 +126,37 @@ let of_string ?limits ~name contents =
   let path = name in
   let* zip =
     Pt2_zip.of_string ?limits contents
-    |> Core.map_error (fun error -> `Zip_open (path, error))
+    |> Err.map_error ~pos:__POS__ (fun error -> `Zip_open (path, error))
   in
   let* program_json = read_member zip "models/model.json" in
   let* program =
     match Jsont_bytesrw.decode_string ExportedProgram.jsont program_json with
-    | Ok program -> Core.return program
-    | Error e -> Core.fail (`Model_json_decode e)
+    | Ok program -> Err.return program
+    | Error e -> Err.fail (`Model_json_decode e)
   in
   let* weights_json =
     read_member zip "data/weights/model_weights_config.json"
   in
   let* weights =
     match Jsont_bytesrw.decode_string ModelWeightsConfig.jsont weights_json with
-    | Ok weights -> Core.return weights
-    | Error e -> Core.fail (`Weights_config_decode e)
+    | Ok weights -> Err.return weights
+    | Error e -> Err.fail (`Weights_config_decode e)
   in
   let* constants_data =
     Pt2_zip.read_rel zip "data/constants/model_constants_config.json"
-    |> Core.map_error (fun error ->
+    |> Err.map_error ~pos:__POS__ (fun error ->
         `Read_archive_member
           ("data/constants/model_constants_config.json", error))
   in
   let* constants =
     match constants_data with
-    | None -> Core.return { ModelWeightsConfig.config = String_map.empty }
+    | None -> Err.return { ModelWeightsConfig.config = String_map.empty }
     | Some json -> (
         match Jsont_bytesrw.decode_string ModelWeightsConfig.jsont json with
-        | Ok constants -> Core.return constants
-        | Error e -> Core.fail (`Constants_config_decode e))
+        | Ok constants -> Err.return constants
+        | Error e -> Err.fail (`Constants_config_decode e))
   in
-  Core.return { zip; program; weights; constants }
+  Err.return { zip; program; weights; constants }
 
 let open_pt2 ?limits ?max_bytes path =
   let* contents = read_file ?max_bytes path in
@@ -175,12 +176,12 @@ let constant_names t =
 let load_entry t ~dir name (e : WeightEntry.t) =
   let* data = read_member t.zip (dir ^ "/" ^ e.path_name) in
   Pt2_tensor.of_meta e.tensor_meta ~data:(Bytes.of_string data)
-  |> Core.map_error (fun error -> `Weight_tensor (name, error))
+  |> Err.map_error ~pos:__POS__ (fun error -> `Weight_tensor (name, error))
 
 (* Load a parameter/buffer by its config name (e.g. "conv1.weight"). *)
 let load_weight t name =
   match String_map.find_opt name t.weights.ModelWeightsConfig.config with
-  | None -> Core.fail (`Missing_weight name)
+  | None -> Err.fail (`Missing_weight name)
   | Some e -> load_entry t ~dir:"data/weights" name e
 
 (* Resolve a native inference [Constant { target }] across both payload roots.
@@ -192,7 +193,7 @@ let load_captured_tensor t name =
   | None -> (
       match String_map.find_opt name t.constants.ModelWeightsConfig.config with
       | Some e -> load_entry t ~dir:"data/constants" name e
-      | None -> Core.fail (`Missing_captured_tensor name))
+      | None -> Err.fail (`Missing_captured_tensor name))
 
 (* A standalone `.pt` tensor (a sample input image, or the archive's own
    data/sample_inputs/model.pt) already in memory. Same split as [of_string]. *)
@@ -200,15 +201,15 @@ let pt_of_string ?limits ~name contents =
   let path = name in
   let* zip =
     Pt2_zip.of_string ?limits contents
-    |> Core.map_error (fun error -> `Zip_open (path, error))
+    |> Err.map_error ~pos:__POS__ (fun error -> `Zip_open (path, error))
   in
   let* data_pkl = read_member zip "data.pkl" in
   let* rb =
     Pt2_pickle.parse_tensor data_pkl
-    |> Core.map_error (fun error -> `Pt_pickle (path, error))
+    |> Err.map_error ~pos:__POS__ (fun error -> `Pt_pickle (path, error))
   in
   let* data = read_member zip ("data/" ^ rb.Pt2_pickle.storage_key) in
-  Core.return
+  Err.return
     {
       Pt2_tensor.dtype = rb.Pt2_pickle.dtype;
       sizes = rb.Pt2_pickle.sizes;

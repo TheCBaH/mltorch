@@ -26,7 +26,7 @@ let native_f32 shape vals =
   List.iteri (fun i x -> data.{i} <- x) vals;
   let shape6 =
     Aten_shape.of_aten (Array.of_list shape)
-    |> Core.or_raise Aten_shape.pp_error
+    |> Err.or_raise ~pp_error:Aten_shape.pp_error
   in
   Tensor.Tensor
     {
@@ -40,7 +40,7 @@ let native_i64 shape vals =
   List.iteri (fun i x -> data.{i} <- x) vals;
   let shape6 =
     Aten_shape.of_aten (Array.of_list shape)
-    |> Core.or_raise Aten_shape.pp_error
+    |> Err.or_raise ~pp_error:Aten_shape.pp_error
   in
   Tensor.Tensor
     {
@@ -49,11 +49,11 @@ let native_i64 shape vals =
     }
 
 let pp_result =
-  Core.Pretty.core_result ~ok:(Fmt.any "Ok") ~error:(fun ppf e ->
+  Core.Pretty.err_result ~ok:(Fmt.any "Ok") ~error:(fun ppf e ->
       Fmt.pf ppf "Error: %a" Verify.pp_error e)
 
-(* [Tensor_bridge.of_aten] returns a plain (not [Core.result]) error, so this
-   composes with [Core.Pretty.result] rather than [core_result]; [~ok] varies
+(* [Tensor_bridge.of_aten] returns a plain (not [Err.t]) error, so this
+   composes with [Core.Pretty.result] rather than [err_result]; [~ok] varies
    by test (the tensor itself, just its shape, or a surprise-success marker). *)
 let pp_of_aten_result ~ok =
   Core.Pretty.result ~ok ~error:(fun ppf msg -> Fmt.pf ppf "Error: %s" msg)
@@ -271,13 +271,13 @@ let dispatch_print_with_graph ~print_graph ~target ~bindings ~inputs ~noutputs =
   match Op_bridge.dispatch ~aten_env:env node with
   | None -> print_string "no native impl\n"
   | Some (Error e) ->
-      Format.printf "error: %a@." Op_bridge.pp_error e.Core.Error.kind
+      Format.printf "error: %a@." Op_bridge.pp_error (Err.Error.kind e)
   | Some (Ok (graph, bindings)) -> (
       if print_graph then Format.printf "%a@." Graph_ir.pp graph;
       match Eval_direct.run graph ~inputs:bindings with
       | Error e ->
           Format.printf "eval error: %a@." Eval_direct.pp_error
-            e.Core.Error.kind
+            (Err.Error.kind e)
       | Ok result_env ->
           let outs =
             List.map
@@ -844,7 +844,7 @@ let verify_print ~target ~bindings ~inputs =
   with
   | Error e ->
       Format.printf "dispatch error: %a@." Interp_verify.pp_interp_error
-        e.Core.Error.kind
+        (Err.Error.kind e)
   | Ok _ -> print_string "aten and native agree\n"
 
 let%expect_test "verify: add.Tensor with a serialized Int scalar" =

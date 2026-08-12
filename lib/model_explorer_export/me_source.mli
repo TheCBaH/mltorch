@@ -48,7 +48,7 @@ val node_ids : Pytorch_types.Graph.t -> string list
 val graph :
   limits:Me_limits.Limits.t ->
   Pytorch_types.GraphModule.t ->
-  (Model_explorer.Graph.t, [> error ]) Core.result
+  (Model_explorer.Graph.t, [> error ]) Err.t
 (** One [GraphNode] per PT2 node, plus one boundary node per graph input and
     output. The id is [Me_ids.pt2_graph Graph_path.root].
 

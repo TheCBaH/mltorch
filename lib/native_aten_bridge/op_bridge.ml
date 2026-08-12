@@ -59,10 +59,10 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
         shape
 
-let ( let* ) = Core.Syntax.( let* )
-let return = Core.return
-let fail = Core.fail
-let decode_result r = Core.map_error (fun e -> `Decode e) r
+let ( let* ) = Err.Syntax.( let* )
+let return = Err.return
+let fail = Err.fail
+let decode_result r = Err.map_error (fun e -> `Decode e) r
 let tensor_arg env node name = decode_result (D.tensor_arg_result env node name)
 
 let int_arg ?default node name =
@@ -97,7 +97,7 @@ let build_g ~name tensors body =
       (let open Graph_builder in
        let* ids = alloc_inputs tensors in
        body ids)
-    |> Core.map_error (fun e -> `Build e)
+    |> Err.map_error (fun e -> `Build e)
   in
   return (g, List.combine g.Graph_ir.Graph.inputs tensors)
 
@@ -106,8 +106,8 @@ let some_graph = function Ok x -> Some (Ok x) | Error e -> Some (Error e)
 (* Convert an ATen tensor to native, prefixing errors with [arg_name]. *)
 let native_of_aten arg_name t =
   match Tensor_bridge.of_aten t with
-  | Ok x -> Core.return x
-  | Error message -> Core.fail (`Tensor_bridge { arg_name; message })
+  | Ok x -> Err.return x
+  | Error message -> Err.fail (`Tensor_bridge { arg_name; message })
 
 let native_tensor_arg aten_env node name =
   let* tensor = tensor_arg aten_env node name in
@@ -126,10 +126,10 @@ let aten_rank t = Array.length (Aten_tensor.shape t)
    which also admits a Bool the native scalar domain has no meaning for — so the
    narrowing to float is explicit and checked rather than assumed. *)
 let float_of_aten_scalar name = function
-  | Aten_scalar.Int i -> Core.return (Int64.to_float i)
-  | Aten_scalar.Float f -> Core.return f
+  | Aten_scalar.Int i -> Err.return (Int64.to_float i)
+  | Aten_scalar.Float f -> Err.return f
   | Aten_scalar.Bool _ ->
-      Core.fail (`Validation_failure (name ^ ": expected a numeric scalar"))
+      Err.fail (`Validation_failure (name ^ ": expected a numeric scalar"))
 
 let scalar_arg ~default node name =
   let* s = decode_result (D.scalar_arg_result ~default node name) in
@@ -252,9 +252,9 @@ let native_perm_of_aten ~rank dims =
 (* Validate a 2-element int list as [h; w].  A single-element list is accepted
    as [v; v] (symmetric). *)
 let hw2 name = function
-  | [ h; w ] -> Core.return (h, w)
-  | [ v ] -> Core.return (v, v)
-  | values -> Core.fail (`Invalid_hw_arg { name; values })
+  | [ h; w ] -> Err.return (h, w)
+  | [ v ] -> Err.return (v, v)
+  | values -> Err.fail (`Invalid_hw_arg { name; values })
 
 (* Construct Conv2d.params from the ATen weight shape array
    (rank-4: [Cout,Cin/groups,Kh,Kw]) and validated config ints.
@@ -316,9 +316,7 @@ let pool_stride kernel_size node =
 (* --- Op dispatch --- *)
 
 let dispatch ~(aten_env : aten_env) (node : Node.t) :
-    ( Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list,
-      error )
-    Core.result
+    (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, error) Err.t
     option =
   (* Arms in global alphabetical order by the dispatched op name. *)
   match node.target with
@@ -853,7 +851,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          | Error e ->
              fail
                (`Validation_failure
-                  (Fmt.str "view: %a" Aten_shape.pp_error e.Core.Error.kind))
+                  (Fmt.str "view: %a" Aten_shape.pp_error (Err.Error.kind e)))
          | Ok target ->
              let params = { Reshape.Reshape.shape = target } in
              build_g ~name:"view" [ x ] (function

@@ -128,7 +128,7 @@ module Coverage = struct
   let not_applicable = Not_applicable
 
   let sampled n =
-    if n >= 1 then Core.return (Sampled n) else Core.fail (`Invalid_coverage n)
+    if n >= 1 then Err.return (Sampled n) else Err.fail (`Invalid_coverage n)
 
   let pp fmt = function
     | Exhaustive -> Fmt.string fmt "exhaustive"
@@ -667,8 +667,8 @@ let shape_for sides member =
         (fun side e ->
           let id = Correspondence.raw e in
           match side.sig_of id with
-          | Some (sg : Tensor_sig.t) -> Core.return sg.Tensor_sig.shape
-          | None -> Core.fail (`Missing_signature id));
+          | Some (sg : Tensor_sig.t) -> Err.return sg.Tensor_sig.shape
+          | None -> Err.fail (`Missing_signature id));
     }
 
 (* The correspondence variables a PROJECTED term is a function of. Sorted and
@@ -697,13 +697,13 @@ let frontier_vars e =
    since an unknown cell is [stored_f32 = false] and refuses to collapse. *)
 (* A grounding failure is a verdict ABOUT this cluster, not an error for the
    caller -- the rule [compare_at] already follows for [Ground_eval.at]. The
-   conversion drops the [Core.Error.t] wrapper, because a verdict stores only
+   conversion drops the [Err.Error.t] wrapper, because a verdict stores only
    the payload; that is a legitimate boundary, but it must not read like the
    backtrace-destroying defect .ai/printer_conventions.md warns about, so it
-   gets ONE named helper used at both sites. [Core.map_error] is not it -- the
+   gets ONE named helper used at both sites. [Err.map_error] is not it -- the
    destination is a verdict, not another result. *)
-let unproved_of_eval_error (e : Ground_eval.error Core.Error.t) =
-  Verdict.Unproved (Unproved.Eval e.Core.Error.kind)
+let unproved_of_eval_error (e : Ground_eval.error Err.Error.t) =
+  Verdict.Unproved (Unproved.Eval (Err.Error.kind e))
 
 let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
     ~lhs_env ~rhs_env ~lhs_boundary ~rhs_boundary ~coord ~members =
@@ -1011,7 +1011,7 @@ let check_cluster ~budget ~index ~probe ~tolerance sides
     List.map (fun e -> Member.Src e) (Correspondence.Set.elements c.src)
     @ List.map (fun e -> Member.Dst e) (Correspondence.Set.elements c.dst)
   in
-  let outcome verdict coverage = Core.return { Outcome.coverage; verdict } in
+  let outcome verdict coverage = Err.return { Outcome.coverage; verdict } in
   if Correspondence.Set.is_empty c.src || Correspondence.Set.is_empty c.dst then
     outcome Verdict.Vacuous Coverage.Not_applicable
   else
@@ -1021,7 +1021,7 @@ let check_cluster ~budget ~index ~probe ~tolerance sides
        an unchanged transfer function downstream of a value-destroying rewrite
        has to say for itself. [settle] declines the tiers below structural; see
        its [Unverifiable] arm. *)
-    let open Core.Syntax in
+    let open Err.Syntax in
     match members with
     | [] -> outcome Verdict.Vacuous Coverage.Not_applicable
     | canonical :: others -> (
@@ -1039,10 +1039,10 @@ let check_cluster ~budget ~index ~probe ~tolerance sides
         (* Shapes are checked BEFORE the coordinate budget, since [numel] is
            ambiguous when the members disagree on shape. *)
         let* mismatch =
-          Core.List.fold_left
+          Err.List.fold_left
             (fun acc m ->
               match acc with
-              | Some _ -> Core.return acc
+              | Some _ -> Err.return acc
               | None ->
                   let+ s = shape_for m in
                   if Stdlib.( = ) s shape then None else Some (m, s))
@@ -1087,13 +1087,13 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
       ?(coefficient_tolerance = default_coefficient_tolerance) ?(probe = 4)
       ?(src_constants = Tensor_id.Map.empty)
       ?(dst_constants = Tensor_id.Map.empty) map ~(src : 'src Src.Snapshot.t)
-      ~(dst : 'dst Dst.Snapshot.t) : (Report.t, error) Core.result =
-    let open Core.Syntax in
+      ~(dst : 'dst Dst.Snapshot.t) : (Report.t, error) Err.t =
+    let open Err.Syntax in
     (* Endpoint validation now happens in [Graph_map.create], but closure does not
        survive [Graph_map.compose] — which takes no snapshots and so cannot
        re-check — and a composed map is exactly what a cumulative run receives. *)
     let* () =
-      (Map_pair.check_claim_closure map ~src ~dst :> (unit, error) Core.result)
+      (Map_pair.check_claim_closure map ~src ~dst :> (unit, error) Err.t)
     in
     let clusters = Map_pair.clusters_over map ~src ~dst in
     (* CLUSTER MEMBERSHIP decides what a raw id may mean, and nothing else does.
@@ -1141,7 +1141,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
        reached strictly earlier; a local obligation leans on nothing, so the
        clusters are checked in report order and each verdict stands alone. *)
     let* checked =
-      Core.List.fold_left
+      Err.List.fold_left
         (fun acc c ->
           let+ outcome =
             check_cluster ~budget ~index ~probe ~tolerance:coefficient_tolerance
@@ -1156,7 +1156,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
     and producers =
       Group_path.producers ~edge:(Dst.Snapshot.edge dst) dst_graph
     in
-    Core.return
+    Err.return
       {
         Report.entries =
           List.map2

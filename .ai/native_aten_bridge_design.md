@@ -66,7 +66,7 @@ val dispatch :
   node     : Pytorch_types.Node.t ->
   ( Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list,
     Op_bridge.error )
-  Core.result option
+  Err.t option
 ```
 
 - `None` — no native implementation; verification skips this node
@@ -170,7 +170,7 @@ native_aten_bridge
   ├── aten          (Aten_tensor, Aten_dtype, Aten_scalar_type, Aten_shape)
   ├── native        (Tensor, Payload, Vec6, Direct, Schedule, ops/*)
   ├── interp        (Interp_decode — arg decoders, env type)
-  └── core          (Core.Error — for Aten_shape.of_aten error type)
+  └── core          (Err.Error — for Aten_shape.of_aten error type)
 ```
 
 The `interp` library is `(wrapped false)` so `Interp_decode` and

@@ -9,7 +9,7 @@
 let pp_ok fmt () = Fmt.string fmt "in the dialect"
 
 let pp_outcome =
-  Core.Pretty.core_result ~ok:pp_ok ~error:(Native4d.Error.pp :> _ Fmt.t)
+  Core.Pretty.err_result ~ok:pp_ok ~error:(Native4d.Error.pp :> _ Fmt.t)
 
 (* Validation is [Graph_view]'s job, not the domain check's, so a fixture that
    fails it is a broken fixture and should say so loudly rather than be reported
@@ -17,7 +17,7 @@ let pp_outcome =
 let check name g =
   let view =
     Graph_view.of_graph g
-    |> Core.or_raise (fun ppf e ->
+    |> Err.or_raise ~pp_error:(fun ppf e ->
         Fmt.pf ppf "fixture %s is not a valid graph: %a" name
           Graph_view.pp_error e)
   in
@@ -204,9 +204,9 @@ let%expect_test "domain: max pool with indices" =
    something reads, so it is outside the dialect however canonical the graph. *)
 let canonical name g =
   let outcome =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* (Rewrite.Origin state) =
-      (Rewrite.origin g :> (Rewrite.origin, Pass.error) Core.result)
+      (Rewrite.origin g :> (Rewrite.origin, Pass.error) Err.t)
     in
     let+ (Rewrite.Step (final, _)) =
       Pass.run_all state [ Pipeline.canonical ~fold:false ]
@@ -215,7 +215,7 @@ let canonical name g =
   in
   match outcome with
   | Error e ->
-      Format.printf "%-28s pipeline: %a@." name Pass.pp_error e.Core.Error.kind
+      Format.printf "%-28s pipeline: %a@." name Pass.pp_error (Err.Error.kind e)
   | Ok g -> check name g
 
 let%expect_test "domain: canonicalization is what makes a graph convertible" =

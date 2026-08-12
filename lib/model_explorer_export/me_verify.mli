@@ -30,8 +30,7 @@ type error = [ Me_ids.error | `Over_limit of string * int | Pass.count_error ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
-val summary :
-  Map_verify.Report.t -> (Pass.Outcome_counts.t, [> error ]) Core.result
+val summary : Map_verify.Report.t -> (Pass.Outcome_counts.t, [> error ]) Err.t
 (** The [Feature Verification] payload: counts over the COMPOSED whole-pipeline
     report, whose clusters are in the final graph's ids. *)
 
@@ -57,7 +56,7 @@ val by_namespace :
   limits:Me_limits.Limits.t ->
   Graph_ir.graph ->
   Map_verify.Report.t ->
-  ((string * (string * string) list) list, [> error ]) Core.result
+  ((string * (string * string) list) list, [> error ]) Err.t
 (** The rollup, ready for {!Me_build.Make.graph}'s [group_attrs]: one entry per
     namespace that holds a cluster, its attributes being the outcome counts.
     Ordered by namespace, and the counts within an entry by
@@ -69,7 +68,7 @@ val node_data :
   graph:string ->
   Graph_ir.graph ->
   Map_verify.Report.t ->
-  (Me_session.Node_data_set.t, [> error ]) Core.result
+  (Me_session.Node_data_set.t, [> error ]) Err.t
 (** Per node, [Map_verify.Outcome.join] over its outputs, since a node is only
     as verified as its least-verified result. The value is
     [Map_verify.Verdict.rank] and the label is [Outcome.label] — the one place

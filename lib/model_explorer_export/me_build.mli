@@ -45,7 +45,7 @@ val bounded : max:int -> (Format.formatter -> 'a -> unit) -> 'a -> string * bool
 val namespace_of :
   limits:Me_limits.Limits.t ->
   Graph_ir.Group.t ->
-  (Graph_ir.Node_id.t -> string, [> Me_ids.error ]) Core.result
+  (Graph_ir.Node_id.t -> string, [> Me_ids.error ]) Err.t
 (** A node's namespace, as {!Make}'s projection computes it. Outside the functor
     because it does not mention the dialect at all, and exposed because a second
     consumer needs it: [groupNodeAttributes] is keyed by NAMESPACE, and a rollup
@@ -59,7 +59,7 @@ module Make (S : SIDE) : sig
     ?labels:(Graph_ir.Node_id.t -> string) ->
     ?group_attrs:(string * (string * string) list) list ->
     S.op Graph_ir.Graph.t ->
-    (Model_explorer.Graph.t, [> error ]) Core.result
+    (Model_explorer.Graph.t, [> error ]) Err.t
   (** Every native node becomes one [GraphNode] with [Me_ids.op_node]'s id, plus
       one boundary node per graph input, constant and output — pinned ids, so a
       comparison can match them across versions like any other node.

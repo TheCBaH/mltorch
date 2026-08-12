@@ -74,7 +74,7 @@ let%expect_test "reducer names are lexical, not allocation order" =
     (sum(r1=0..2: value_of_index(r1)) + sum(r2=0..2: value_of_index(r2)))
     |}];
   Fmt.pr "well scoped: %a@."
-    (Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Check.pp_error)
+    (Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error)
     (Check.value siblings);
   [%expect {| well scoped: ok |}];
   (* And a free reference must not pick up a sibling's binder: it prints as the
@@ -167,7 +167,7 @@ let%expect_test "Fold: scope-aware queries" =
   [%expect {| assume_position is locatable: 1 |}]
 
 let%expect_test "Check rejects what composition can still break" =
-  let ok = Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Check.pp_error in
+  let ok = Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error in
   let e = Builder.run (nested ~kind:Reduction.Sum) in
   Fmt.pr "%a@." ok (Check.value e);
   [%expect {| ok |}];
@@ -227,7 +227,7 @@ let%expect_test "the limits are metered, so they survive the tree they reject" =
 
      The depth lives in the INDEX tree, which the value walk reaches through a
      single [Value_of_index]: one value node over a very deep address. *)
-  let ok = Core.Pretty.core_result ~ok:(Fmt.any "ok") ~error:Check.pp_error in
+  let ok = Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error in
   let deep =
     let rec build n acc =
       if n = 0 then acc else build (n - 1) (Index.add acc (Index.const n))
@@ -271,7 +271,7 @@ let%expect_test "max-pool intrinsic: descriptor, geometry, printing" =
       ~out ~result
   in
   let pp_i =
-    Core.Pretty.core_result
+    Core.Pretty.err_result
       ~ok:(fun fmt d -> pp_v fmt (Value.intrinsic d))
       ~error:Intrinsic.pp_error
   in
@@ -303,7 +303,7 @@ let%expect_test "max-pool geometry: the window both interpreters share" =
           w.Intrinsic.Window.whi
     | Error e ->
         Fmt.pr "(%d,%d) -> %a@." out_h out_w Intrinsic.pp_error
-          e.Core.Error.kind
+          (Err.Error.kind e)
   in
   (* Padding clips at the low edge, the extent clips at the high edge -- the
      same bounds the current implementation computes. *)
@@ -317,7 +317,7 @@ let%expect_test "max-pool geometry: the window both interpreters share" =
     (4,4) -> h[3,4) w[3,4)
     |}];
   Fmt.pr "flat (2,3) = %a@."
-    (Core.Pretty.core_result ~ok:Fmt.int ~error:Intrinsic.pp_error)
+    (Core.Pretty.err_result ~ok:Fmt.int ~error:Intrinsic.pp_error)
     (Intrinsic.flat_index d ~ih:2 ~iw:3);
   [%expect {| flat (2,3) = 11 |}];
   (* The geometry is CHECKED, not just the descriptor fields: out_h * stride is

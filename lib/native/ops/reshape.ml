@@ -46,7 +46,7 @@ module Reshape = struct
       t.params
 
   (* The output shape is exactly the target (numel-preserving precondition). *)
-  let output_shape (p : params) = Core.return p.shape
+  let output_shape (p : params) = Err.return p.shape
 
   (* Walk config: just the input shape; the target flattens all elements onto C
      (always numel-preserving), which fully exercises the delinearize path. *)

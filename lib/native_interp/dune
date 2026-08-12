@@ -5,4 +5,4 @@
 (library
  (name native_interp)
  (wrapped false)
- (libraries core pt2 pytorch_types schema_runtime native native_graph))
+ (libraries err_trace pt2 pytorch_types schema_runtime native native_graph))

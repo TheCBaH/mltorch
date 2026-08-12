@@ -61,7 +61,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) : sig
     values:('src, 'dst) Correspondence.Cluster.t list ->
     nodes:('src, 'dst) Node_map.Cluster.t list ->
     provenance:('src, 'dst) Provenance.t ->
-    (('src, 'dst) t, error) Core.result
+    (('src, 'dst) t, error) Err.t
 
   val clusters_over :
     ('src, 'dst) t ->
@@ -73,7 +73,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) : sig
     ('src, 'dst) t ->
     src:'src Src.Snapshot.t ->
     dst:'dst Dst.Snapshot.t ->
-    (unit, error) Core.result
+    (unit, error) Err.t
 
   (* Positional and two-sided: equal output arity, and source output [i] sharing
      a cluster with destination output [i]. Coverage alone is too weak — it
@@ -86,7 +86,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) : sig
     ('src, 'dst) t ->
     src:'src Src.Snapshot.t ->
     dst:'dst Dst.Snapshot.t ->
-    (unit, error) Core.result
+    (unit, error) Err.t
 end
 
 include module type of Make_pair (Native_side) (Native_side)

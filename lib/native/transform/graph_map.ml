@@ -118,8 +118,8 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
   (* The relations answer with a bare [Stdlib.result]; crossing into the Core row
      is where the detection backtrace gets captured. *)
   let lift wrap = function
-    | Ok x -> Core.return x
-    | Error issue -> Core.fail (wrap issue)
+    | Ok x -> Err.return x
+    | Error issue -> Err.fail (wrap issue)
 
   let check_claim_closure t ~src ~dst =
     let explicit =
@@ -137,13 +137,13 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
     in
     Tensor_id.Map.fold
       (fun id _ acc ->
-        let open Core.Syntax in
+        let open Err.Syntax in
         let* () = acc in
         (* Everything [propagate] returns is weaker than [Identical]; an id that
            seeded the propagation is one the map already speaks about. *)
-        if Tensor_id.Map.mem id explicit then Core.return ()
-        else Core.fail (`Unclosed_claim id))
-      closed (Core.return ())
+        if Tensor_id.Map.mem id explicit then Err.return ()
+        else Err.fail (`Unclosed_claim id))
+      closed (Err.return ())
 
   (* Step 9 of .ai/native_transform_design.md §7, over every non-vacuous cluster
      INCLUDING the implicit identities — an id kept across a rewrite that changed
@@ -163,22 +163,21 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
           (Correspondence.raws c.dst |> Tensor_id.Set.elements)
     in
     let agree ~key ~err = function
-      | [] -> Core.return ()
+      | [] -> Err.return ()
       | (id0, sg0) :: rest ->
-          Core.List.iter
+          Err.List.iter
             (fun (id, sg) ->
-              if key sg = key sg0 then Core.return ()
-              else Core.fail (err id0 id))
+              if key sg = key sg0 then Err.return () else Err.fail (err id0 id))
             rest
     in
-    Core.List.iter
+    Err.List.iter
       (fun (c : ('a, 'b) Correspondence.Cluster.t) ->
         if
           Correspondence.Set.is_empty c.src || Correspondence.Set.is_empty c.dst
-        then Core.return ()
+        then Err.return ()
         else
           let ms = members c in
-          let open Core.Syntax in
+          let open Err.Syntax in
           let* () =
             agree
               ~key:(fun (sg : Tensor_sig.t) -> sg.shape)
@@ -191,7 +190,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
                 ~key:(fun (sg : Tensor_sig.t) -> (fmt_key sg.fmt, sg.quant))
                 ~err:(fun a b -> `Cluster_format (a, b))
                 ms
-          | _ -> Core.return ())
+          | _ -> Err.return ())
       (clusters_over t ~src ~dst)
 
   (* Output correspondence: POSITIONAL and TWO-SIDED.
@@ -229,17 +228,17 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
     let src_outputs = (Src.Snapshot.graph src).Graph_common.Graph.outputs
     and dst_outputs = (Dst.Snapshot.graph dst).Graph_common.Graph.outputs in
     if List.compare_lengths src_outputs dst_outputs <> 0 then
-      Core.fail
+      Err.fail
         (`Graph_output_arity (List.length src_outputs, List.length dst_outputs))
     else
-      Core.List.iter
+      Err.List.iter
         (fun (s, d) ->
-          if paired s d then Core.return ()
-          else Core.fail (`Graph_output_mismatch (s, d)))
+          if paired s d then Err.return ()
+          else Err.fail (`Graph_output_mismatch (s, d)))
         (List.combine src_outputs dst_outputs)
 
   let create ~src ~dst ~values ~nodes ~provenance =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* values =
       Correspondence.of_clusters ~src:(Src.Snapshot.edges src)
         ~dst:(Dst.Snapshot.edges dst) values

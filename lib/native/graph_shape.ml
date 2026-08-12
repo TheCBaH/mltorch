@@ -14,13 +14,12 @@ let pp_error ppf : [< error ] -> unit = function
   | `Missing_tensor_sig id ->
       Format.fprintf ppf "missing tensor sig t%d" (Tensor_id.to_int id)
 
-let widen (r : ('a, [< error ]) Core.result) : ('a, error) Core.result =
-  (r :> ('a, error) Core.result)
+let widen (r : ('a, [< error ]) Err.t) : ('a, error) Err.t =
+  (r :> ('a, error) Err.t)
 
-let output_shape (op : op)
-    ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Core.result) :
-    (Vec6.shape list, error) Core.result =
-  let open Core.Syntax in
+let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
+    : (Vec6.shape list, error) Err.t =
+  let open Err.Syntax in
   let shape r = sig_of r >>| fun sg -> sg.Tensor_sig.shape in
   match op with
   | Add { Pointwise.Bin.a; b } ->
@@ -74,7 +73,7 @@ let output_shape (op : op)
         widen (Conv.Convolution.output_shape ~x_shape ~weight_shape params)
       in
       [ out ]
-  | Discard _ -> Core.return []
+  | Discard _ -> Err.return []
   | Hardtanh { Pointwise.Hardtanh.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Hardtanh.output_shape x_shape) in

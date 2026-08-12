@@ -42,7 +42,7 @@ module Make (S : Side.S) : sig
   val origin :
     ?constants:(Tensor_id.t * Tensor.packed) list ->
     graph ->
-    (origin, error) Core.result
+    (origin, error) Err.t
 
   val graph : 'v t -> graph
   val constants : 'v t -> Tensor.packed Tensor_id.Map.t
@@ -66,7 +66,7 @@ module Make (S : Side.S) : sig
     'v t ->
     'v allocator ->
     ('v, unit) Recipe.Make(S).t ->
-    ('v recipe * 'v allocator, error) Core.result
+    ('v recipe * 'v allocator, error) Err.t
 
   (* Allocators are immutable and so copyable, which a watermark check alone does
      not catch: two recipes planned from the same allocator both start at its
@@ -74,12 +74,12 @@ module Make (S : Side.S) : sig
      allocation intervals in argument order, which rejects a branched history
      outright; an allocation-free recipe has equal start and end and merges
      freely. Regions must also be disjoint. *)
-  val merge : 'v recipe -> 'v recipe -> ('v recipe, error) Core.result
+  val merge : 'v recipe -> 'v recipe -> ('v recipe, error) Err.t
   val pp_recipe : Format.formatter -> 'v recipe -> unit
 
   type 'v step = Step : 'w t * ('v, 'w) Graph_map.t -> 'v step
 
-  val apply : 'v t -> 'v recipe -> ('v step, error) Core.result
+  val apply : 'v t -> 'v recipe -> ('v step, error) Err.t
 
   (* Terminal compaction, run once when no further rewriting is planned. Monotone
      allocation makes ids creep, so the ids introduced *after* the origin are
@@ -97,7 +97,7 @@ module Make (S : Side.S) : sig
      Not one of the four transformation kinds: nothing in stages 1-9 needs or
      assumes it, and it is only well-defined once "which ids are worth compacting"
      has stopped changing. See .ai/native_transform_design.md §9. *)
-  val pack : 'v t -> ('v step, error) Core.result
+  val pack : 'v t -> ('v step, error) Err.t
 end
 
 include module type of Make (Native_side)

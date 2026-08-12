@@ -20,9 +20,9 @@ let per_tensor ~scale ~zero_point = Per_tensor { scale; zero_point }
    nothing below hands the stored ones back out. *)
 let per_channel ~scale ~zero_point =
   let ls = Array.length scale and lz = Array.length zero_point in
-  if ls <> lz then Core.fail (`Quant_array_lengths (ls, lz))
+  if ls <> lz then Err.fail (`Quant_array_lengths (ls, lz))
   else
-    Core.return
+    Err.return
       (Per_channel
          { scale = Array.copy scale; zero_point = Array.copy zero_point })
 
@@ -45,9 +45,10 @@ let equal a b =
       && Array.for_all2 ( = ) x.zero_point y.zero_point
   | Per_tensor _, Per_channel _ | Per_channel _, Per_tensor _ -> false
 
-let of_core_for_jsont = function
+let of_err_for_jsont r =
+  match Err.mark_error ~pos:__POS__ Err.Action.Export r with
   | Ok v -> v
-  | Error e -> Jsont.Error.msgf Jsont.Meta.none "%a" pp_error e.Core.Error.kind
+  | Error e -> Jsont.Error.msgf Jsont.Meta.none "%a" pp_error (Err.Error.kind e)
 
 let params t ~c =
   match t with
@@ -86,7 +87,7 @@ let jsont : t Jsont.t =
               in
               (* Through the constructor, so a document with mismatched arrays
                  is rejected here rather than raising later out of [params]. *)
-              of_core_for_jsont (per_channel ~scale ~zero_point) );
+              of_err_for_jsont (per_channel ~scale ~zero_point) );
           ( "Per_tensor",
             fun v ->
               let ms = Json_util.req_obj v "Per_tensor" in

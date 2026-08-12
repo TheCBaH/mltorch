@@ -9,7 +9,7 @@
 open Native4d
 
 let build ~outputs m =
-  Builder.build ~outputs m |> Core.or_raise Builder.pp_error
+  Builder.build ~outputs m |> Err.or_raise ~pp_error:Builder.pp_error
 
 let nhwc = Shape4.of_ints ~n:1 ~h:2 ~w:2 ~c:3
 
@@ -25,13 +25,14 @@ let identity_permute () =
 let run ?verify g =
   match Framework.Rewrite4.origin g with
   | Error e ->
-      Format.printf "origin: %a@." Framework.Rewrite4.pp_error e.Core.Error.kind
+      Format.printf "origin: %a@." Framework.Rewrite4.pp_error
+        (Err.Error.kind e)
   | Ok (Framework.Rewrite4.Origin state) -> (
       match
         Framework.Pass4.run_reporting ?verify state [ Trim_permute4.pass ]
       with
       | Error e ->
-          Format.printf "%a@." Framework.Pass4.pp_error e.Core.Error.kind
+          Format.printf "%a@." Framework.Pass4.pp_error (Err.Error.kind e)
       | Ok
           {
             Framework.Pass4.audits;

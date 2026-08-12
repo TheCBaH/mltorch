@@ -7,7 +7,7 @@ open Graph_ir
 let n_ n = Node_id.of_int n
 let t_ n = Tensor_id.of_int n
 let shape ~h ~w ~c = Vec6.shape ~n:1 ~t:1 ~d:1 ~h ~w ~c
-let fail_with e = Format.printf "%a@." Rewrite.pp_error e.Core.Error.kind
+let fail_with e = Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
 
 (* RANK-2, because [Rewrite.origin] hands back an existential version and a
    builder used inside that unpack has to work at whichever one it is — the same

@@ -6,7 +6,7 @@
 (library
  (name me_limits_test)
  (modules me_limits_test)
- (libraries core model_explorer_export pt2)
+ (libraries core err_trace model_explorer_export pt2)
  (inline_tests
   (modes best js))
  (preprocess
@@ -15,7 +15,7 @@
 (library
  (name me_diagnostic_test)
  (modules me_diagnostic_test)
- (libraries core jsont jsont.bytesrw model_explorer_export)
+ (libraries core err_trace jsont jsont.bytesrw model_explorer_export)
  (inline_tests
   (modes best js))
  (preprocess
@@ -24,7 +24,7 @@
 (library
  (name me_ids_test)
  (modules me_ids_test)
- (libraries core fmt model_explorer_export native native_graph)
+ (libraries core err_trace fmt model_explorer_export native native_graph)
  (inline_tests
   (modes best js))
  (preprocess
@@ -33,7 +33,7 @@
 (library
  (name me_flow_test)
  (modules me_flow_test)
- (libraries core fmt model_explorer_export native)
+ (libraries core err_trace fmt model_explorer_export native)
  (inline_tests
   (modes best js))
  (preprocess
@@ -44,6 +44,7 @@
  (modules me_session_test)
  (libraries
   core
+  err_trace
   fmt
   jsont
   jsont.bytesrw
@@ -60,6 +61,7 @@
  (modules me_pt2_test)
  (libraries
   core
+  err_trace
   fmt
   model_explorer_export
   native
@@ -73,7 +75,7 @@
 (library
  (name me_build_test)
  (modules me_build_test)
- (libraries core fmt model_explorer model_explorer_export native)
+ (libraries core err_trace fmt model_explorer model_explorer_export native)
  (inline_tests
   (modes best js))
  (preprocess
@@ -84,6 +86,7 @@
  (modules me_source_test)
  (libraries
   core
+  err_trace
   fmt
   model_explorer
   model_explorer_export
@@ -97,7 +100,7 @@
 (library
  (name me_verify_test)
  (modules me_verify_test)
- (libraries core fmt model_explorer model_explorer_export native)
+ (libraries core err_trace fmt model_explorer model_explorer_export native)
  (inline_tests
   (modes best js))
  (preprocess
@@ -106,7 +109,14 @@
 (library
  (name me_classify_test)
  (modules me_classify_test)
- (libraries core fmt model_explorer_export native native4d native_interp)
+ (libraries
+  core
+  err_trace
+  fmt
+  model_explorer_export
+  native
+  native4d
+  native_interp)
  (inline_tests
   (modes best js))
  (preprocess
@@ -115,7 +125,7 @@
 (library
  (name me_wire_limits_test)
  (modules me_wire_limits_test)
- (libraries core fmt jsont jsont.bytesrw model_explorer_export pt2)
+ (libraries core err_trace fmt jsont jsont.bytesrw model_explorer_export pt2)
  (inline_tests
   (modes best js))
  (preprocess
@@ -124,7 +134,14 @@
 (library
  (name me_request_test)
  (modules me_request_test)
- (libraries core fmt jsont jsont.bytesrw model_explorer_export native)
+ (libraries
+  core
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  model_explorer_export
+  native)
  (inline_tests
   (modes best js))
  (preprocess
@@ -133,7 +150,14 @@
 (library
  (name me_response_test)
  (modules me_response_test)
- (libraries core fmt jsont jsont.bytesrw model_explorer_export native)
+ (libraries
+  core
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  model_explorer_export
+  native)
  (inline_tests
   (modes best js))
  (preprocess
@@ -142,7 +166,14 @@
 (library
  (name me_export_test)
  (modules me_export_test)
- (libraries core fmt jsont jsont.bytesrw model_explorer_export native)
+ (libraries
+  core
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  model_explorer_export
+  native)
  (inline_tests
   (modes best js))
  (preprocess
@@ -153,6 +184,7 @@
  (modules me_detail_test)
  (libraries
   core
+  err_trace
   expr
   fmt
   jsont

@@ -124,14 +124,14 @@ let is_legal ~before ~kind ~after =
     legal_triples
 
 let validate ~limits flow =
-  let open Core.Syntax in
+  let open Err.Syntax in
   (* --- the two aggregates, FIRST ---
 
      Before the walks below, which are linear in these counts: a bound checked
      after the work it bounds is not a bound. *)
   let* () =
     let count field n ceiling =
-      if n > ceiling then Core.fail (`Over_limit (field, n)) else Core.return ()
+      if n > ceiling then Err.fail (`Over_limit (field, n)) else Err.return ()
     in
     let* () =
       count "states" (List.length flow.states)
@@ -143,38 +143,38 @@ let validate ~limits flow =
   in
   (* --- unique ids, and a lookup --- *)
   let* states =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun acc (s : State.t) ->
         if Hashtbl.mem acc s.State.id then
-          Core.fail (`Duplicate_state s.State.id)
+          Err.fail (`Duplicate_state s.State.id)
         else begin
           Hashtbl.add acc s.State.id s;
-          Core.return acc
+          Err.return acc
         end)
       (Hashtbl.create 16) flow.states
   in
   (* Uniqueness only -- nothing below looks a transition up by id, and a table
      built to be discarded would read as one that is. *)
   let* (_ : (string, Transition.t) Hashtbl.t) =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun acc (t : Transition.t) ->
         if Hashtbl.mem acc t.Transition.id then
-          Core.fail (`Duplicate_transition t.Transition.id)
+          Err.fail (`Duplicate_transition t.Transition.id)
         else begin
           Hashtbl.add acc t.Transition.id t;
-          Core.return acc
+          Err.return acc
         end)
       (Hashtbl.create 16) flow.transitions
   in
   let state id =
     match Hashtbl.find_opt states id with
-    | Some s -> Core.return s
-    | None -> Core.fail (`Unknown_state id)
+    | Some s -> Err.return s
+    | None -> Err.fail (`Unknown_state id)
   in
   (* --- endpoints resolve, layers agree, executions are unique --- *)
   let seen_exec = Hashtbl.create 16 in
   let* () =
-    Core.List.iter
+    Err.List.iter
       (fun (t : Transition.t) ->
         let* before = state t.Transition.before in
         let* after = state t.Transition.after in
@@ -183,8 +183,8 @@ let validate ~limits flow =
             is_legal ~before:before.State.layer
               ~kind:(Transition.kind_name t.Transition.kind)
               ~after:after.State.layer
-          then Core.return ()
-          else Core.fail (`Illegal_transition t.Transition.id)
+          then Err.return ()
+          else Err.fail (`Illegal_transition t.Transition.id)
         in
         match t.Transition.kind with
         | Transition.Pass e ->
@@ -195,39 +195,39 @@ let validate ~limits flow =
               if
                 e.Pass_execution.layer = before.State.layer
                 && e.Pass_execution.layer = after.State.layer
-              then Core.return ()
-              else Core.fail (`Pass_layer_disagrees t.Transition.id)
+              then Err.return ()
+              else Err.fail (`Pass_layer_disagrees t.Transition.id)
             in
             let key = Core.Pretty.to_string Pass_execution.pp e in
             if Hashtbl.mem seen_exec key then
-              Core.fail (`Duplicate_pass_execution key)
+              Err.fail (`Duplicate_pass_execution key)
             else begin
               Hashtbl.add seen_exec key ();
-              Core.return ()
+              Err.return ()
             end
-        | _ -> Core.return ())
+        | _ -> Err.return ())
       flow.transitions
   in
   (* --- at most one producer per state, agreeing with [produced_by] --- *)
   let producer = Hashtbl.create 16 in
   let* () =
-    Core.List.iter
+    Err.List.iter
       (fun (t : Transition.t) ->
         if Hashtbl.mem producer t.Transition.after then
-          Core.fail (`Multiple_producers t.Transition.after)
+          Err.fail (`Multiple_producers t.Transition.after)
         else begin
           Hashtbl.add producer t.Transition.after t.Transition.id;
-          Core.return ()
+          Err.return ()
         end)
       flow.transitions
   in
   let* () =
-    Core.List.iter
+    Err.List.iter
       (fun (s : State.t) ->
         match (s.State.produced_by, Hashtbl.find_opt producer s.State.id) with
-        | None, None -> Core.return ()
-        | Some a, Some b when String.equal a b -> Core.return ()
-        | _ -> Core.fail (`Producer_disagrees s.State.id))
+        | None, None -> Err.return ()
+        | Some a, Some b when String.equal a b -> Err.return ()
+        | _ -> Err.fail (`Producer_disagrees s.State.id))
       flow.states
   in
   (* --- exactly one Pt2 root --- *)
@@ -239,9 +239,9 @@ let validate ~limits flow =
   in
   let* root =
     match roots with
-    | [ r ] -> Core.return r
-    | [] -> Core.fail `No_root
-    | l -> Core.fail (`Multiple_roots (List.length l))
+    | [ r ] -> Err.return r
+    | [] -> Err.fail `No_root
+    | l -> Err.fail (`Multiple_roots (List.length l))
   in
   (* --- reachability, with a termination guard ---
 
@@ -274,20 +274,20 @@ let validate ~limits flow =
     flow.transitions;
   let rec walk id =
     match Hashtbl.find_opt colour id with
-    | Some `Black -> Core.return ()
-    | Some `Grey -> Core.fail (`Cycle id)
+    | Some `Black -> Err.return ()
+    | Some `Grey -> Err.fail (`Cycle id)
     | None ->
         Hashtbl.replace colour id `Grey;
         let succs = Option.value (Hashtbl.find_opt out_edges id) ~default:[] in
-        let* () = Core.List.iter walk succs in
+        let* () = Err.List.iter walk succs in
         Hashtbl.replace colour id `Black;
-        Core.return ()
+        Err.return ()
   in
   let* () = walk root.State.id in
-  Core.List.iter
+  Err.List.iter
     (fun (s : State.t) ->
-      if Hashtbl.find_opt colour s.State.id = Some `Black then Core.return ()
-      else Core.fail (`Unreachable_state s.State.id))
+      if Hashtbl.find_opt colour s.State.id = Some `Black then Err.return ()
+      else Err.fail (`Unreachable_state s.State.id))
     flow.states
 
 (* --- the wire ---

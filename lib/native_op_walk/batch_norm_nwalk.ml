@@ -25,7 +25,7 @@ module M = struct
           Float.abs (Tensor.read running_var0 coord) +. 1.)
     in
     let g =
-      Core.or_raise Graph_builder.pp_error
+      Err.or_raise ~pp_error:Graph_builder.pp_error
         Graph_builder.(
           build ~name:"batch_norm" ~outputs:(fun r -> [ r ])
           @@

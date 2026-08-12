@@ -1,0 +1,7 @@
+; Host-side trace policy. Its own library rather than a module inside bin/
+; because bin/ builds several executables with disjoint [modules] fields -- a
+; module can belong to only one of them -- and because the parsing has a test.
+
+(library
+ (name err_host)
+ (libraries err_trace))

@@ -37,7 +37,7 @@ js/melange/    melange.emit of the pure half, plus the shims it needs
 | Path | Role |
 |---|---|
 | `js/probe/probe_walk_core.ml` | seeded PCG draws, `Float32` hex + `enc_json` on awkward values |
-| `js/probe/probe_core.ml` | `Core` error rendering and the backtrace verdict |
+| `js/probe/probe_core.ml` | `Err` error rendering and the stack-availability verdict |
 | `js/probe/probe_tensor_json.ml` | `Tensor` → `Graph_json.encode_tensor` → decode, bit-exactness reported separately from the JSON text |
 | `js/probe/probe_native.ml` | half/bfloat16 codecs, a conv2d+relu through `Eval_direct`, the op walk |
 | `js/probe/probe_model_json.ml` | a real `model.json` through `ExportedProgram.jsont`; structural summary |
@@ -71,7 +71,7 @@ is no golden file that can drift: `jsoo.runtest` diffs `native_probe.exe` agains
 source is what makes it trustworthy for the first question and useless for the second:
 a broken encoder or an op-walk mismatch prints the same text on both sides and diffs
 clean. So every correctness verdict in the probe raises instead of printing —
-`Core.or_raise` for a `Core.result`, `failwith` for the plain `result` Jsont returns,
+`Err.or_raise` for an `Err.t`, `failwith` for the plain `result` Jsont returns,
 and `Walk_core.Walk.run` returns whether every step verified so `probe_native` can fail
 on it. A verdict that only prints is not a check; it was one here until a review caught
 that a false `round-trip bit-exact` still exited 0.
@@ -172,9 +172,17 @@ stdout-capture stubs over `caml_ml_channel_redirect`, and `ppx_inline_test` pass
 **One golden cannot hold two backends' answers**, which is the recurring constraint. Four
 expect blocks asserted a native `Printexc` backtrace (two in `core_test`, one in
 `shape4_test`); js_of_ocaml captures no callstack, so they now assert that *whichever*
-branch was taken is well formed. The two integer regressions in `pt2_test` do the same
-with an oracle: compare against `Int32.unsigned_to_int` or the backend's own
-representable range and print only whether they agree.
+branch was taken is well formed — reading the stack through `Err.Error.origin` and
+accepting either `Err`'s own `stack unavailable` notice or the runtime's `not linked
+with -g`. The two integer regressions in `pt2_test` do the same with an oracle: compare
+against `Int32.unsigned_to_int` or the backend's own representable range and print only
+whether they agree.
+
+`~pos:__POS__` is the way out of this bind rather than around it. A position is compiled
+in, so it reads identically on all three backends and is the *only* provenance that
+exists on the two JavaScript ones — which is why the seams the browser path crosses
+carry one, and why `core_test` pins that behaviour under a `Never`-backtrace policy and
+runs the assertion under node too.
 
 ## The durable rule: never assume a 63-bit `int`
 
@@ -342,9 +350,36 @@ Both edits live in `js/melange/vendor/jsont/*.patch`, applied by a rule that ref
 run unless the upstream source matches a recorded sha256 — they are only correct for
 jsont 0.2.0, and a later release could accept them while meaning something else.
 
-No `Printexc` shim is needed: melange declares `get_callstack` and returns `None` from
-`backtrace_slots`, the same branch js_of_ocaml takes and one `Core.Error.pp_backtrace`
-already handles.
+No `Printexc` shim is needed, but melange's `Printexc` is only *partly* usable and the
+difference bit us. `get_callstack` is declared and returns a value its own
+`raw_backtrace_length` cannot read — the emitted code is `bt.length`, the value is
+`undefined` — so asking for the length threw a TypeError out of a printer, i.e. a crash
+in diagnostic code on the path taken when something has already gone wrong. This was
+fixed upstream in the vendored `err_trace`: `Err.Stack` asks `backtrace_slots`, which
+melange converts defensively and answers `None` from, the same branch js_of_ocaml takes.
+
+**The rule that generalises**: a melange `Printexc` function that is *declared* is not
+therefore *callable*. Reach the runtime through the conversion functions
+(`backtrace_slots`), not the accessors (`raw_backtrace_length`,
+`raw_backtrace_to_string`).
+
+`err_trace` is mirrored into `js/melange/vendor/err_trace/` rather than linked, for the
+usual reason plus one of its own: it ships a melange stanza gated on
+`ERR_TRACE_TEST_MELANGE=true`, and that same variable *disables* its native `src/`
+library, so no single tree can have both. Same copy-never-fork rule as `js/melange/core`.
+
+### No OCaml crosses into the browser
+
+Nothing in this repo links `js_of_ocaml` as a *library*: no OCaml handles `postMessage`,
+returns a Promise, or touches `Js_error`. `web/src/session.js` is plain JavaScript
+driving the upstream renderer against a session document the native CLI produced ahead
+of time, and the jsoo build here is a differential probe, not a deployment.
+
+So the external-stack adapters (`Err.Stack.of_external` fed from `Js_error.stack` /
+`Js.Exn.stack`) are deliberately **not** written — they would have no call sites. When an
+OCaml worker does appear, the adapter goes beside it and never in the base `Err`
+library: a browser dependency there would land in melange's pure closure, which is
+exactly what the scope split above exists to prevent.
 
 ### Profile gating
 

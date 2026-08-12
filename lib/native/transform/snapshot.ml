@@ -29,7 +29,7 @@ module Make (D : Dialect.S) = struct
 
   (* One brand for both id spaces, so tensors and nodes share the version. *)
   let create g =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ view = View.of_graph g in
     let (Brand.Pack brand) = Brand.fresh () in
     Pack

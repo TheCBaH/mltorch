@@ -137,7 +137,7 @@ module Limits : sig
     max_outputs:int ->
     max_extent:int64 ->
     max_numel:int64 ->
-    (t, error) Core.result
+    (t, error) Err.t
   (** Custom limits may TIGHTEN, never widen: every field is checked against its
       [Hard] counterpart, and non-positive values are rejected. Widening matters
       as much as the runtime domain does — [Expr.Check.value] is itself
@@ -218,7 +218,7 @@ val create :
   values:Value.t list ->
   outputs:Tensor_id.t list ->
   unit ->
-  (t, error) Core.result
+  (t, error) Err.t
 (** Validates, in an order that matters: cheap arity guards, then the metered
     per-body budgets, then everything unmetered. [Expr.Fold]'s queries recurse
     over a whole tree, so running one before [Expr.Check.value] would exhaust

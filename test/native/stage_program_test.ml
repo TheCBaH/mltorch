@@ -12,11 +12,10 @@ type error = [ `Build of Graph_builder.error ]
 let pp_error ppf : [< error ] -> unit = function
   | `Build e -> Graph_builder.pp_error ppf e
 
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 
-let lift_build (r : ('a, Graph_builder.error) Core.result) :
-    ('a, error) Core.result =
-  Core.map_error (fun e -> `Build e) r
+let lift_build (r : ('a, Graph_builder.error) Err.t) : ('a, error) Err.t =
+  Err.map_error (fun e -> `Build e) r
 
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
@@ -97,7 +96,7 @@ let%expect_test
     "Stage_program: every source resolves to an input, const, or earlier stage"
     =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -109,7 +108,7 @@ let%expect_test
           let* r = relu sum in
           mul r a)
     in
-    Core.return (Eval_symbolic.run g)
+    Err.return (Eval_symbolic.run g)
   in
   Format.printf "%a@." (pp_result pp_program) result;
   [%expect
@@ -121,7 +120,7 @@ let%expect_test
 let%expect_test
     "Stage_program: a max-pool stage's only source is inside its intrinsic" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -139,7 +138,7 @@ let%expect_test
           in
           max_pool2d_with_indices params x)
     in
-    Core.return (Eval_symbolic.run g)
+    Err.return (Eval_symbolic.run g)
   in
   (* Both stages of the one node appear, each resolving its source to the input.
      The printed bodies carry NO [tN[...]] load: the dependency lives only in
@@ -173,7 +172,7 @@ let%expect_test
 let%expect_test
     "Stage_program: an omitted optional operand becomes a synthetic const" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -185,7 +184,7 @@ let%expect_test
           in
           conv2d (conv_params ~in_channels:2) ~x ~weight:w ())
     in
-    Core.return (Eval_symbolic.run g)
+    Err.return (Eval_symbolic.run g)
   in
   Format.printf "%a@."
     (pp_result (fun ppf (p : Stage_program.t) ->
@@ -223,7 +222,7 @@ let%expect_test
 let%expect_test "Stage_program: an intermediate stage result is rounded to f32"
     =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -243,7 +242,7 @@ let%expect_test "Stage_program: an intermediate stage result is rounded to f32"
       | None -> nan
       | Some t -> Tensor.read_at_raw t (fun _ -> 0)
     in
-    Core.return
+    Err.return
       (List.map
          (fun (st : Stage_program.Stage.t) -> (st.id, read st.id))
          prog.Stage_program.stages)
@@ -290,7 +289,7 @@ let%expect_test "Tensor: materialize stores through float32" =
 
 let%expect_test "Stage_program: input_kinds is sparse, defaulting to Input" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -300,7 +299,7 @@ let%expect_test "Stage_program: input_kinds is sparse, defaulting to Input" =
           let* k = constant ~shape:(s1c 3) () in
           add x k)
     in
-    Core.return (Eval_symbolic.run g)
+    Err.return (Eval_symbolic.run g)
   in
   let report ppf (p : Stage_program.t) =
     List.iter
@@ -344,7 +343,7 @@ let%expect_test "Stage_program: input_kinds is sparse, defaulting to Input" =
 let%expect_test
     "Stage_program: separately built stages reuse reducer identities" =
   let result =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* g =
       lift_build
         Graph_builder.(
@@ -360,7 +359,7 @@ let%expect_test
           let* c1 = conv2d (conv_params ~in_channels:2) ~x ~weight:w1 () in
           conv2d (conv_params ~in_channels:1) ~x:c1 ~weight:w2 ())
     in
-    Core.return (Eval_symbolic.run g)
+    Err.return (Eval_symbolic.run g)
   in
   Format.printf "%a@."
     (pp_result (fun ppf (p : Stage_program.t) ->

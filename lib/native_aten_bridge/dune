@@ -4,4 +4,4 @@
 (library
  (name native_aten_bridge)
  (wrapped false)
- (libraries aten native interp core))
+ (libraries err_trace aten native interp))

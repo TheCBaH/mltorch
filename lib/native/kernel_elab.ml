@@ -68,14 +68,14 @@ type occurrence =
 let admit ~limits ~(u : Kernel.Use.t) ~(producer : Kernel.Value.t)
     ~(consumer : Kernel.Value.t) ~occurrence =
   match occurrence with
-  | None -> Core.fail (`Not_a_dependency u)
-  | Some Several -> Core.fail (`Unsupported_use u)
+  | None -> Err.fail (`Not_a_dependency u)
+  | Some Several -> Err.fail (`Unsupported_use u)
   | Some (One coord) ->
       if
         pointwise ~producer:producer.Kernel.Value.sg
           ~consumer:consumer.Kernel.Value.sg coord
-      then Core.return { Site.use = u; producer; consumer; coord; limits }
-      else Core.fail (`Unsupported_use u)
+      then Err.return { Site.use = u; producer; consumer; coord; limits }
+      else Err.fail (`Unsupported_use u)
 
 module Analysis = struct
   (* The extracted evidence, OWNED. Derived from a [Kernel.t] and reachable only
@@ -148,7 +148,7 @@ let site_in (a : Analysis.t) (u : Kernel.Use.t) =
   match
     (Kernel.value k u.Kernel.Use.producer, Kernel.value k u.Kernel.Use.consumer)
   with
-  | None, _ | _, None -> Core.fail (`Unknown_use u)
+  | None, _ | _, None -> Err.fail (`Unknown_use u)
   | Some producer, Some consumer ->
       admit ~limits:k.Kernel.limits ~u ~producer ~consumer
         ~occurrence:
@@ -180,7 +180,7 @@ let site (k : Kernel.t) (u : Kernel.Use.t) =
   match
     (Kernel.value k u.Kernel.Use.producer, Kernel.value k u.Kernel.Use.consumer)
   with
-  | None, _ | _, None -> Core.fail (`Unknown_use u)
+  | None, _ | _, None -> Err.fail (`Unknown_use u)
   | Some producer, Some consumer ->
       admit ~limits:k.Kernel.limits ~u ~producer ~consumer
         ~occurrence:
@@ -189,7 +189,7 @@ let site (k : Kernel.t) (u : Kernel.Use.t) =
              (Expr.Fold.loads consumer.Kernel.Value.body))
 
 let elaborate_site (s : Site.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let u = s.Site.use in
   let producer = s.Site.producer and consumer = s.Site.consumer in
   let src = Expr_bridge.source_of_id u.Kernel.Use.producer in
@@ -219,7 +219,7 @@ let elaborate_site (s : Site.t) =
   in
   let body = Expr.Builder.run composed in
   let+ () =
-    Core.map_error
+    Err.map_error
       (fun e ->
         `Body { Kernel.Body_error.at = u.Kernel.Use.consumer; error = e })
       (Expr.Check.value ~max_size:s.Site.limits.Kernel.Limits.max_size
@@ -230,6 +230,6 @@ let elaborate_site (s : Site.t) =
 (* The self-contained public form: validate, then rewrite. A caller that already
    holds a [Site.t] uses [elaborate_site] and pays for neither again. *)
 let elaborate (k : Kernel.t) (u : Kernel.Use.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* s = site k u in
   elaborate_site s

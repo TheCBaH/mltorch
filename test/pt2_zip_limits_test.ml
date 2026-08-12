@@ -132,20 +132,20 @@ let show ?limits s =
   match Pt2_zip.of_string ?limits s with
   | Ok zip ->
       Printf.printf "opened, %d entries\n" (List.length (Pt2_zip.entries zip))
-  | Error e -> Format.printf "%a@." Pt2_zip.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e)
 
 let read_show ?limits s name =
   match Pt2_zip.of_string ?limits s with
-  | Error e -> Format.printf "open: %a@." Pt2_zip.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "open: %a@." Pt2_zip.pp_error (Err.Error.kind e)
   | Ok zip -> (
       match Pt2_zip.read zip name with
       | Ok (Some data) -> Printf.printf "read %d bytes\n" (String.length data)
       | Ok None -> print_endline "no such entry"
-      | Error e -> Format.printf "read: %a@." Pt2_zip.pp_error e.Core.Error.kind
-      )
+      | Error e ->
+          Format.printf "read: %a@." Pt2_zip.pp_error (Err.Error.kind e))
 
 let tight ~max_entries ~max_entry_bytes ~max_total_bytes =
-  Core.or_raise Pt2_zip.Limits.pp_error
+  Err.or_raise ~pp_error:Pt2_zip.Limits.pp_error
     (Pt2_zip.Limits.create ~max_entries ~max_entry_bytes ~max_total_bytes
        ~max_path_bytes:1024 ~max_path_depth:16)
 
@@ -287,9 +287,11 @@ let%expect_test "checkpoint 1: an oversized file is rejected before input_all" =
      differ on every run and on every backend. *)
   (match Pt2_archive.open_pt2 ~max_bytes:1024L path with
   | Ok _ -> print_endline "unexpectedly opened"
-  | Error { Core.Error.kind = `Io_too_large (_, limit); _ } ->
-      Printf.printf "rejected before reading, limit=%Ld\n" limit
-  | Error e -> Format.printf "%a@." Pt2_archive.pp_error e.Core.Error.kind);
+  | Error e -> (
+      match Err.Error.kind e with
+      | `Io_too_large (_, limit) ->
+          Printf.printf "rejected before reading, limit=%Ld\n" limit
+      | kind -> Format.printf "%a@." Pt2_archive.pp_error kind));
   Sys.remove path;
   [%expect {| rejected before reading, limit=1024 |}]
 
@@ -323,7 +325,7 @@ let%expect_test "limits may tighten, never widen" =
   let show_create r =
     match r with
     | Ok _ -> print_endline "ok"
-    | Error e -> Format.printf "%a@." Pt2_zip.Limits.pp_error e.Core.Error.kind
+    | Error e -> Format.printf "%a@." Pt2_zip.Limits.pp_error (Err.Error.kind e)
   in
   show_create
     (Pt2_zip.Limits.create ~max_entries:16 ~max_entry_bytes:1024L

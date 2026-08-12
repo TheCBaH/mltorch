@@ -1,7 +1,7 @@
 (executable
  (name schema_gen)
  (modules schema_gen)
- (libraries pytorch_schema))
+ (libraries err_trace pytorch_schema))
 
 ; Driver for the ATen operation-binding generator (emits atg_ops.h / atg_ops.cpp /
 ; operation_description.ml; see lib/aten/dune for the rules that invoke it).
@@ -39,7 +39,7 @@
 (executable
  (name pt2_spec_gen)
  (modules pt2_spec_gen)
- (libraries pt2 core pt2_spec_gen))
+ (libraries pt2 core err_trace pt2_spec_gen))
 
 ; CLI wrapper around the existing generated ATen-vs-native walk modules
 ; (lib/aten_op_walk, see .ai/native_walk_design.md) — same machinery
@@ -63,6 +63,8 @@
   cmdliner
   pt2
   core
+  err_trace
+  err_host
   jsont
   jsont.bytesrw
   model_explorer
@@ -77,4 +79,12 @@
 (executable
  (name aten_graph_ref)
  (modules aten_graph_ref)
- (libraries core pt2 interp native_aten_bridge native jsont jsont.bytesrw))
+ (libraries
+  core
+  err_trace
+  pt2
+  interp
+  native_aten_bridge
+  native
+  jsont
+  jsont.bytesrw))

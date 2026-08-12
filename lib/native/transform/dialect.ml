@@ -37,8 +37,8 @@ module type S = sig
      this interface. *)
   val output_shape :
     op ->
-    sig_of:(Tensor_id.t -> (Tensor_sig.t, shape_error) Core.result) ->
-    (Vec6.shape list, shape_error) Core.result
+    sig_of:(Tensor_id.t -> (Tensor_sig.t, shape_error) Err.t) ->
+    (Vec6.shape list, shape_error) Err.t
 
   (* The dialect's standing invariant on ANY signature, node-produced or not.
      Native answers [Ok]; Native4D rejects extent on T or D.
@@ -48,7 +48,7 @@ module type S = sig
      against [output_shape] — and a graph input or a captured constant is
      produced by no op, so a graph whose input is directly its output would
      validate with a signature the dialect forbids. *)
-  val validate_sig : Tensor_sig.t -> (unit, shape_error) Core.result
+  val validate_sig : Tensor_sig.t -> (unit, shape_error) Err.t
   val classify : op -> output:int -> Output_transfer.t
   val pp_op : Tensor_id.t Fmt.t -> Format.formatter -> op -> unit
 end

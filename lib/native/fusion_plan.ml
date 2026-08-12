@@ -7,12 +7,12 @@ module Rejection = struct
     | Reducing_consumer of Kernel.Use.t
     | Non_pointwise_use of {
         use : Kernel.Use.t;
-        reason : Kernel_elab.error Core.Error.t;
+        reason : Kernel_elab.error Err.Error.t;
       }
     | Overlaps_selected of { rejected : Kernel.Use.t; selected : Kernel.Use.t }
     | Budget_exceeded of {
         use : Kernel.Use.t;
-        error : Kernel_elab.error Core.Error.t;
+        error : Kernel_elab.error Err.Error.t;
       }
 
   let pp fmt = function

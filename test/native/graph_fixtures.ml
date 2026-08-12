@@ -48,7 +48,7 @@ let unrotate_hwc = Axis.[ (N, N); (T, T); (D, D); (H, C); (W, H); (C, W) ]
 (* Shared by every [build*] below: a fixture that will not build is a broken
    test, so it aborts loudly rather than being reported as a failed assertion. *)
 let or_fixture name =
-  Core.or_raise (fun ppf e ->
+  Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
 let build name m =

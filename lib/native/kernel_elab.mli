@@ -40,7 +40,7 @@ module Site : sig
   val coord : t -> Expr.Role.Position.t Expr.Index.t Expr.Coord.t
 end
 
-val site : Kernel.t -> Kernel.Use.t -> (Site.t, error) Core.result
+val site : Kernel.t -> Kernel.Use.t -> (Site.t, error) Err.t
 (** The single admissible load site for this edge, or why there is none.
     SITE-LOCAL: resolves the two endpoints and folds only the named consumer.
     Routing it through [Analysis.of_kernel] would make one-edge elaboration
@@ -110,15 +110,15 @@ module Analysis : sig
   *)
 end
 
-val site_in : Analysis.t -> Kernel.Use.t -> (Site.t, error) Core.result
+val site_in : Analysis.t -> Kernel.Use.t -> (Site.t, error) Err.t
 (** [site] against an analysis already built. Same rule and same code — a caller
     checking many edges builds one [Analysis.t] instead of paying a pass per
     call. *)
 
-val elaborate_site : Site.t -> (Expr.Value.t, error) Core.result
+val elaborate_site : Site.t -> (Expr.Value.t, error) Err.t
 (** Rewrite an already-validated site. Performs no lookup and no fold. *)
 
-val elaborate : Kernel.t -> Kernel.Use.t -> (Expr.Value.t, error) Core.result
+val elaborate : Kernel.t -> Kernel.Use.t -> (Expr.Value.t, error) Err.t
 (** The consumer's body with that one producer edge inlined, WITHOUT the
     consumer's own [Result_conversion] — the same contract as
     [Kernel.Value.body], so a caller materializing the result applies it exactly

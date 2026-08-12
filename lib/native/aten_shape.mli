@@ -15,7 +15,7 @@ val pp_error : Format.formatter -> error -> unit
 
 (* Right-align an ATen shape into the frame; the outer [6 - rank] axes are
    extent 1. [Error] if the rank exceeds 6 or any dim is negative. *)
-val of_aten : int array -> (Vec6.shape, error) Core.result
+val of_aten : int array -> (Vec6.shape, error) Err.t
 
 (* The ATen shape of the innermost [rank] axes — the inverse of [of_aten] given
    the original rank ([to_aten ~rank:(length a) (of_aten a) = a]). The rank is

@@ -68,7 +68,7 @@ let attrs (v : Expr.Value.t) =
   attr "expr" text :: (if capped then [ attr "expr_truncated" "true" ] else [])
 
 let of_value ~limits ~key (v : Kernel.Value.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let body = v.Kernel.Value.body in
   (* BEFORE the walk. [Fold.size] is an unmetered traversal but allocates
      nothing, while building the nodes allocates per node -- and an expression is
@@ -83,8 +83,8 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
   let size = Expr.Fold.size body in
   let+ () =
     if size > limits.Me_limits.Limits.max_detail_nodes then
-      Core.fail (`Over_limit ("expressionNodes", size))
-    else Core.return ()
+      Err.fail (`Over_limit ("expressionNodes", size))
+    else Err.return ()
   in
   (* Pre-order, so a node's id orders it the way a reader reads the expression,
      and the ROOT is node 0 whatever the tree looks like. *)
@@ -149,7 +149,7 @@ end
 (* --- merging ------------------------------------------------------------- *)
 
 let count field n ceiling =
-  if n > ceiling then Core.fail (`Over_limit (field, n)) else Core.return ()
+  if n > ceiling then Err.fail (`Over_limit (field, n)) else Err.return ()
 
 (* A detail graph is one this module produced, and its id is the key's. So
    "which details are installed" is answerable from the session alone, with no
@@ -159,14 +159,14 @@ let is_detail (g : ME.Graph.t) =
   String.length id >= 5 && String.sub id 0 5 = "expr/"
 
 let apply ~key ~limits (s : Me_session.Session.t) (d : Delta.t) =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let expected = Me_request.Detail_key.id key in
   let* () =
     if
       String.equal d.Delta.graph.ME.Graph.id expected
       && String.equal d.Delta.view.Me_session.View.id expected
-    then Core.return ()
-    else Core.fail `Key_disagrees_with_ids
+    then Err.return ()
+    else Err.fail `Key_disagrees_with_ids
   in
   let parent = key.Me_request.Detail_key.parent_graph in
   let node = Me_ids.value_node key.Me_request.Detail_key.value in
@@ -183,8 +183,8 @@ let apply ~key ~limits (s : Me_session.Session.t) (d : Delta.t) =
                    g.ME.Graph.nodes)
             c.ME.GraphCollection.graphs)
         s.Me_session.Session.graph_collections
-    then Core.return ()
-    else Core.fail `Unsupported_detail_key
+    then Err.return ()
+    else Err.fail `Unsupported_detail_key
   in
   (* The delta ALONE. A merged check would let a delta that is itself over the
      ceiling pass whenever the session it joins is small. *)
@@ -272,7 +272,7 @@ let apply ~key ~limits (s : Me_session.Session.t) (d : Delta.t) =
     count "graphs" (List.length all_graphs) limits.Me_limits.Limits.max_graphs
   in
   let+ () =
-    Core.map_error
+    Err.map_error
       (fun e -> `Document e)
       (Me_session.Session.validate ~limits merged)
   in

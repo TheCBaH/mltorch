@@ -195,14 +195,16 @@ let pp_interp_error ppf = function
 let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
   let env, node = to_node spec in
   match Interp_dispatch.dispatch env node with
-  | Error { Core.Error.kind = `Unhandled_op _; _ } ->
-      Format.fprintf ppf "[spec] %s: skipped (aten interp: unhandled op)@."
-        node.target;
-      true
-  | Error e ->
-      Format.fprintf ppf "[spec] %s: aten interp error: %a@." node.target
-        pp_interp_error e.Core.Error.kind;
-      false
+  | Error e -> (
+      match Err.Error.kind e with
+      | `Unhandled_op _ ->
+          Format.fprintf ppf "[spec] %s: skipped (aten interp: unhandled op)@."
+            node.target;
+          true
+      | kind ->
+          Format.fprintf ppf "[spec] %s: aten interp error: %a@." node.target
+            pp_interp_error kind;
+          false)
   | Ok env' -> (
       match Op_bridge.dispatch ~aten_env:env node with
       | None ->
@@ -210,13 +212,13 @@ let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
           true
       | Some (Error e) ->
           Format.fprintf ppf "[spec] %s: bridge error: %a@." node.target
-            Op_bridge.pp_error e.Core.Error.kind;
+            Op_bridge.pp_error (Err.Error.kind e);
           false
       | Some (Ok (graph, bindings)) -> (
           match Eval_direct.run graph ~inputs:bindings with
           | Error e ->
               Format.fprintf ppf "[spec] %s: eval error: %a@." node.target
-                Eval_direct.pp_error e.Core.Error.kind;
+                Eval_direct.pp_error (Err.Error.kind e);
               false
           | Ok result_env ->
               let native_outputs =
@@ -260,7 +262,7 @@ let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
   match Interp_dispatch.dispatch env node with
   | Error e ->
       Format.fprintf ppf "[eval] %s@.  aten = <error: %a>@." node.target
-        pp_interp_error e.Core.Error.kind
+        pp_interp_error (Err.Error.kind e)
   | Ok env' ->
       let out_names =
         List.filter_map
@@ -293,11 +295,11 @@ let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
           | `Bridge_error e ->
               if i = 0 then
                 Format.fprintf ppf "  native = <error: %a>@." Op_bridge.pp_error
-                  e.Core.Error.kind
+                  (Err.Error.kind e)
           | `Eval_error e ->
               if i = 0 then
                 Format.fprintf ppf "  native = <error: eval error: %a>@."
-                  Eval_direct.pp_error e.Core.Error.kind
+                  Eval_direct.pp_error (Err.Error.kind e)
           | `Ok outs ->
               Format.fprintf ppf "  native %s = %a@." name
                 (Core.Pretty.option_or ~none:"<missing>" pp_native)
@@ -378,7 +380,7 @@ let eval_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
   match Interp_dispatch.dispatch env node with
   | Error e ->
       Format.fprintf ppf "  status: error: %a@." pp_interp_error
-        e.Core.Error.kind
+        (Err.Error.kind e)
   | Ok env' ->
       let out_names =
         List.filter_map
@@ -485,7 +487,7 @@ let walk_eval ?(ppf = Format.std_formatter) ~steps (spec : Aten_spec.Op_spec.t)
     match Interp_dispatch.dispatch env node with
     | Error e ->
         Format.fprintf ppf "  status: error: %a@." pp_interp_error
-          e.Core.Error.kind
+          (Err.Error.kind e)
     | Ok env' ->
         let out_names =
           List.filter_map
@@ -527,13 +529,15 @@ let compare_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
   let env, node = to_node spec in
   Format.fprintf ppf "%a@." pp_op_call spec;
   match Interp_dispatch.dispatch env node with
-  | Error { Core.Error.kind = `Unhandled_op _; _ } ->
-      Format.fprintf ppf "  status: skipped (aten interp: unhandled op)@.";
-      true
-  | Error e ->
-      Format.fprintf ppf "  status: aten interp error: %a@." pp_interp_error
-        e.Core.Error.kind;
-      false
+  | Error e -> (
+      match Err.Error.kind e with
+      | `Unhandled_op _ ->
+          Format.fprintf ppf "  status: skipped (aten interp: unhandled op)@.";
+          true
+      | kind ->
+          Format.fprintf ppf "  status: aten interp error: %a@." pp_interp_error
+            kind;
+          false)
   | Ok env' -> (
       let out_names =
         List.filter_map
@@ -553,13 +557,13 @@ let compare_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
           true
       | Some (Error e) ->
           Format.fprintf ppf "  status: bridge error: %a@." Op_bridge.pp_error
-            e.Core.Error.kind;
+            (Err.Error.kind e);
           false
       | Some (Ok (graph, bindings)) -> (
           match Eval_direct.run graph ~inputs:bindings with
           | Error e ->
               Format.fprintf ppf "  status: eval error: %a@."
-                Eval_direct.pp_error e.Core.Error.kind;
+                Eval_direct.pp_error (Err.Error.kind e);
               false
           | Ok result_env ->
               let native_outputs =

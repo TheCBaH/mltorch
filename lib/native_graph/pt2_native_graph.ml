@@ -73,29 +73,29 @@ let graph_ids (g : graph) =
 
 let make ~graph ~tensor_origins ~node_origins ~captured_targets =
   let tensors, nodes = graph_ids graph in
-  let open Core.Syntax in
+  let open Err.Syntax in
   let* () =
-    Core.List.iter
+    Err.List.iter
       (fun (id, _) ->
-        if Tensor_id.Map.mem id tensors then Core.return ()
-        else Core.fail (`Unknown_tensor_id id))
+        if Tensor_id.Map.mem id tensors then Err.return ()
+        else Err.fail (`Unknown_tensor_id id))
       (Tensor_id.Map.bindings tensor_origins)
   in
   let* () =
-    Core.List.iter
+    Err.List.iter
       (fun (id, _) ->
-        if Node_id.Map.mem id nodes then Core.return ()
-        else Core.fail (`Unknown_node_id id))
+        if Node_id.Map.mem id nodes then Err.return ()
+        else Err.fail (`Unknown_node_id id))
       (Node_id.Map.bindings node_origins)
   in
   let* () =
-    Core.List.iter
+    Err.List.iter
       (fun (id, _) ->
-        if Graph_ir.input_kind graph id = Input.Constant then Core.return ()
-        else Core.fail (`Captured_target_for_non_constant id))
+        if Graph_ir.input_kind graph id = Input.Constant then Err.return ()
+        else Err.fail (`Captured_target_for_non_constant id))
       (Tensor_id.Map.bindings captured_targets)
   in
-  Core.return { graph; tensor_origins; node_origins; captured_targets }
+  Err.return { graph; tensor_origins; node_origins; captured_targets }
 
 (* ---- the transformation lens ---------------------------------------------- *)
 
@@ -134,28 +134,27 @@ type 'dst lens =
 let canonical g = Result.to_option (Graph_json.encode_graph g)
 
 let lens sidecar ~src map ~dst =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let src = Rewrite.snapshot src and dst = Rewrite.snapshot dst in
   let* () =
     match (canonical sidecar.graph, canonical (Snapshot.graph src)) with
-    | Some a, Some b when String.equal a b -> Core.return ()
-    | _ -> Core.fail `Sidecar_graph_mismatch
+    | Some a, Some b when String.equal a b -> Err.return ()
+    | _ -> Err.fail `Sidecar_graph_mismatch
   in
   (* Endpoints were checked when the map was built; closure was not, because the
      map handed to a lens is composed and [Graph_map.compose] cannot re-establish
      it. An unclosed map is precisely what would make [captured_target] below
      return source bytes for an edge whose value differs. *)
   let* () =
-    (Graph_map.check_claim_closure map ~src ~dst
-      :> (unit, lens_error) Core.result)
+    (Graph_map.check_claim_closure map ~src ~dst :> (unit, lens_error) Err.t)
   in
-  Core.return (Lens { dst; map; sidecar; src })
+  Err.return (Lens { dst; map; sidecar; src })
 
 let dst_edge (Lens l) id =
-  Snapshot.edge l.dst id |> Core.of_option (`Unknown_destination_tensor id)
+  Snapshot.edge l.dst id |> Err.of_option (`Unknown_destination_tensor id)
 
 let dst_node (Lens l) id =
-  Snapshot.node l.dst id |> Core.of_option (`Unknown_destination_node id)
+  Snapshot.node l.dst id |> Err.of_option (`Unknown_destination_node id)
 
 (* The source ids a destination edge corresponds to, with the claim over them.
    An id in no cluster is implicitly [Identical] to itself (§3) — meaningful only
@@ -183,7 +182,7 @@ let dedup_by key l =
   |> snd |> List.rev
 
 let tensor_origins (Lens l as lens) id =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let+ d = dst_edge lens id in
   let sources, _ = sources_of lens d in
   List.filter_map
@@ -195,7 +194,7 @@ let tensor_origins (Lens l as lens) id =
   |> dedup_by (fun (o : Tensor_origin.t) -> (o.graph_path, o.ssa_name))
 
 let node_origins (Lens l as lens) id =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let+ n = dst_node lens id in
   let sources =
     match
@@ -216,7 +215,7 @@ let node_origins (Lens l as lens) id =
   |> dedup_by key
 
 let captured_target (Lens l as lens) id =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let+ d = dst_edge lens id in
   match sources_of lens d with
   | sources, Correspondence.Identical ->

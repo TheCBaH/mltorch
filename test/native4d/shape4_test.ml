@@ -4,7 +4,7 @@
 open Native4d
 
 let pp_shape_result =
-  Core.Pretty.core_result ~ok:Shape4.pp ~error:(Shape4.pp_error :> _ Fmt.t)
+  Core.Pretty.err_result ~ok:Shape4.pp ~error:(Shape4.pp_error :> _ Fmt.t)
 
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 
@@ -146,7 +146,7 @@ let%expect_test "view4: an input with a non-four-axis signature is rejected" =
       (match Framework.View4.of_graph (graph_with shape) with
       | Ok _ -> "accepted"
       | Error e ->
-          Format.asprintf "%a" Framework.View4.pp_error e.Core.Error.kind)
+          Format.asprintf "%a" Framework.View4.pp_error (Err.Error.kind e))
   in
   check "four-axis" (s 1 1 1 4 4 3);
   check "extent on D" (s 1 1 5 4 4 3);
@@ -159,11 +159,11 @@ let%expect_test "view4: an input with a non-four-axis signature is rejected" =
 (* The SAME rejection, asked a different question: where was it detected?
 
    [`Invalid_sig] carries the dialect's payload out of [D.validate_sig], and the
-   [Core.Error.t] wrapping it must be the one [Shape4.of_vec6] built — not a
+   [Err.Error.t] wrapping it must be the one [Shape4.of_vec6] built — not a
    fresh one captured at the point the view re-raised. Rebuilding the error by
-   hand (Core.fail applied to e.Core.Error.kind) type-checks, prints the same
+   hand (Err.fail applied to (Err.Error.kind e)) type-checks, prints the same
    message, and passes the test above, while silently moving the detection site
-   to the caller. [Core.map_error] is what keeps it.
+   to the caller. [Err.map_error] is what keeps it.
 
    Asserts a property, not backtrace text: frame content shifts per build, so
    this checks only which MODULE names the detection frame, and that the view
@@ -199,7 +199,7 @@ let%expect_test
   | Ok _ -> Format.printf "unexpected Ok@."
   | Error e ->
       let trace =
-        Core.Pretty.to_string (Core.Error.pp Framework.View4.pp_error) e
+        Core.Pretty.to_string (Err.Error.pp Framework.View4.pp_error) e
       in
       (* Both claims are about backtrace FRAMES, and js_of_ocaml captures none
          (this suite runs under it too -- see the [modes] field in dune). Where
@@ -207,8 +207,19 @@ let%expect_test
          assert instead that the "unavailable" branch rendered. Natively the
          real ordering check is unchanged. Same technique as
          test/native/core_test.ml. *)
+      let slots =
+        match Err.Error.origin e with
+        | None -> None
+        | Some origin -> (
+            match Err.Origin.stack origin with
+            | None -> None
+            | Some stack -> (
+                match Err.Stack.to_raw_backtrace stack with
+                | None -> None
+                | Some bt -> Printexc.backtrace_slots bt))
+      in
       let detected, ordered =
-        match Printexc.backtrace_slots e.Core.Error.backtrace with
+        match slots with
         | Some _ ->
             ( index_of trace "dialect4.ml" <> None,
               match
@@ -217,7 +228,10 @@ let%expect_test
               | Some d, Some v -> d < v
               | _ -> false )
         | None ->
-            let notice = index_of trace "backtrace unavailable" <> None in
+            let notice =
+              index_of trace "stack unavailable" <> None
+              || index_of trace "not linked with -g" <> None
+            in
             (notice, notice)
       in
       Format.printf "detected_in_dialect=%b view_is_only_the_caller=%b@."

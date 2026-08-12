@@ -222,12 +222,12 @@ module Wire = struct
         ~eod:true
     in
     match Jsont_bytesrw.encode Meta.jsont meta ~eod:true w with
-    | Ok () -> Core.return (Buffer.contents buf)
-    | Error _ -> Core.fail `Meta_too_large
-    | exception Bytesrw.Bytes.Stream.Error _ -> Core.fail `Meta_too_large
+    | Ok () -> Err.return (Buffer.contents buf)
+    | Error _ -> Err.fail `Meta_too_large
+    | exception Bytesrw.Bytes.Stream.Error _ -> Err.fail `Meta_too_large
 
   let wrap ~max_meta_bytes meta payload =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ meta = encode_bounded ~max_meta_bytes meta in
     { meta; payload }
 
@@ -274,7 +274,7 @@ module Wire = struct
      initialisation over a constant, so a failure is a build-time defect rather
      than a runtime outcome. *)
   let constant_protocol_failure =
-    Core.or_raise pp_error
+    Err.or_raise ~pp_error
       (of_final
          (Final.Protocol_failure
             {

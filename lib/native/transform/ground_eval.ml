@@ -149,15 +149,15 @@ let pp_error fmt : [< error ] -> unit = function
    rewrite them monadically for a failure that cannot occur on a well-formed
    graph. So the recursion raises and the module's PUBLIC entry points convert
    once -- the same shape [Expr.Eval] uses internally, and for the same reason.
-   The exception carries an already-built [Core.Error.t], so the backtrace is
+   The exception carries an already-built [Err.Error.t], so the backtrace is
    the one captured where the failure was detected. *)
-exception Eval_failed of error Core.Error.t
+exception Eval_failed of error Err.Error.t
 
-let or_raise : ('a, [< error ]) Core.result -> 'a = function
+let or_raise : ('a, [< error ]) Err.t -> 'a = function
   | Ok v -> v
-  | Error e -> raise (Eval_failed (e :> error Core.Error.t))
+  | Error e -> raise (Eval_failed (e :> error Err.Error.t))
 
-let caught f = try Core.return (f ()) with Eval_failed e -> Error e
+let caught f = try Err.return (f ()) with Eval_failed e -> Error e
 
 (* ---- grounding one stage body -------------------------------------------- *)
 
@@ -292,7 +292,7 @@ and max_pool ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
       let v = read ih iw in
       let flat =
         or_raise
-          (Core.map_error
+          (Err.map_error
              (fun e -> (e :> error))
              (Expr.Eval.float_of_index
                 (or_raise (Expr.Intrinsic.flat_index i ~ih ~iw))))
@@ -345,7 +345,7 @@ let at env id coord =
       | None, None ->
           let origin = Env.origin env id in
           if Option.is_none (Env.shape_of env origin) then
-            or_raise (Core.fail (`Unknown_edge id))
+            or_raise (Err.fail (`Unknown_edge id))
           else Ground_expr.Cell { Ground_expr.Cell.origin; coord })
 
 (* [budget] bounds ONE round, and has to: a single substitution step is

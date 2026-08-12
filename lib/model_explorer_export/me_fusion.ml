@@ -27,7 +27,7 @@ let pp_rejection fmt (r : Fusion_plan.Rejection.t) =
   | _ -> Fusion_plan.Rejection.pp fmt r
 
 let of_kernel ~limits ~graph k =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let plan, decisions = Fusion_plan.plan k in
   let virtual_uses = plan.Fusion_plan.virtual_uses in
   let stores = plan.Fusion_plan.stores in
@@ -44,8 +44,8 @@ let of_kernel ~limits ~graph k =
   let* () =
     let n = List.length edges in
     if n > limits.Me_limits.Limits.max_overlay_edges_per_overlay then
-      Core.fail (`Over_limit ("overlayEdges", n))
-    else Core.return ()
+      Err.fail (`Over_limit ("overlayEdges", n))
+    else Err.return ()
   in
   (* TWO facts, and the value scale is where they meet: a producer that is
      virtual for its consumer and still stored for someone else is neither
@@ -108,8 +108,8 @@ let of_kernel ~limits ~graph k =
   let+ () =
     let n = List.length results in
     if n > limits.Me_limits.Limits.max_node_data_results_per_graph then
-      Core.fail (`Over_limit ("nodeDataResults", n))
-    else Core.return ()
+      Err.fail (`Over_limit ("nodeDataResults", n))
+    else Err.return ()
   in
   (* The summary: how many producers stayed materialized, and how many edges
      the plan made virtual. Bounded by construction, unlike a diagnostic per

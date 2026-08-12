@@ -32,7 +32,7 @@ let pp_error ppf : error -> unit = function
   | `Non_positive_extent n -> Format.fprintf ppf "extent must be >= 1, got %d" n
 
 let extent_checked n =
-  if n < 1 then Core.fail (`Non_positive_extent n) else Core.return (extent n)
+  if n < 1 then Err.fail (`Non_positive_extent n) else Err.return (extent n)
 
 let delta n : delta t = n
 let one_count : count t = 1

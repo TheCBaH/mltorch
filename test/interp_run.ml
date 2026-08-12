@@ -72,8 +72,8 @@ let results_jsont = Jsont.Object.as_string_map (Jsont.list pred_jsont)
 let decode_results path =
   let s = In_channel.with_open_bin path In_channel.input_all in
   match Jsont_bytesrw.decode_string results_jsont s with
-  | Ok m -> Core.return m
-  | Error e -> Core.fail (`Results_decode e)
+  | Ok m -> Err.return m
+  | Error e -> Err.fail (`Results_decode e)
 
 type mode = Natural | Cram
 
@@ -95,7 +95,7 @@ let timed label f =
   result
 
 let main () =
-  let open Core.Syntax in
+  let open Err.Syntax in
   let pt2 = Sys.argv.(1) and images_dir = Sys.argv.(2) in
   let synsets_path = Sys.argv.(3) and metadata_path = Sys.argv.(4) in
   let results_path = Sys.argv.(5) in
@@ -105,7 +105,7 @@ let main () =
   in
   let* archive =
     timed "pt2 open" (fun () -> Pt2_archive.open_pt2 pt2)
-    |> Core.map_error (fun e -> (e :> error))
+    |> Err.map_error (fun e -> (e :> error))
   in
   let synsets = Array.of_list (read_lines synsets_path) in
   let names = names_of_metadata metadata_path in
@@ -120,26 +120,26 @@ let main () =
     |> List.sort String.compare
   in
   let* () =
-    Core.List.fold_left
+    Err.List.fold_left
       (fun () f ->
         let key = "images/" ^ f in
         let* image =
           timed (key ^ " load") (fun () ->
               Pt2_archive.load_pt (Filename.concat images_dir f))
-          |> Core.map_error (fun e -> (e :> error))
+          |> Err.map_error (fun e -> (e :> error))
         in
         let* logits =
           timed (key ^ " infer") (fun () -> Interp.run archive image)
-          |> Core.map_error (fun e -> (e :> error))
+          |> Err.map_error (fun e -> (e :> error))
         in
         let* local =
           Interp.top_predictions logits 5
-          |> Core.map_error (fun e -> (e :> error))
+          |> Err.map_error (fun e -> (e :> error))
         in
         let* expected =
           match SMap.find_opt key results with
-          | Some ps -> Core.return ps
-          | None -> Core.fail (`No_reference key)
+          | Some ps -> Err.return ps
+          | None -> Err.fail (`No_reference key)
         in
         Printf.printf "=== %s ===\n" key;
         let matches =
@@ -164,14 +164,14 @@ let main () =
               Printf.printf "%d: %s (%g)\n" p.rank p.label p.probability)
             expected
         end;
-        Core.return ())
+        Err.return ())
       () files
   in
-  Core.return ()
+  Err.return ()
 
 let () =
   match main () with
   | Ok () -> ()
   | Error e ->
-      Format.eprintf "%a@." (Core.Error.pp pp_error) e;
+      Format.eprintf "%a@." (Err.Error.pp pp_error) e;
       exit 1

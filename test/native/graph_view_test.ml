@@ -10,9 +10,9 @@ let pp_error ppf : [< error ] -> unit = function
   | #Graph_view.error as e -> Graph_view.pp_error ppf e
   | #Region.error as e -> Region.pp_error ppf e
 
-let pp_result pp_ok = Core.Pretty.core_result ~ok:pp_ok ~error:pp_error
-let lift_view r = (r :> (Graph_view.t, error) Core.result)
-let lift_region r = (r :> (Region.t, error) Core.result)
+let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
+let lift_view r = (r :> (Graph_view.t, error) Err.t)
+let lift_region r = (r :> (Region.t, error) Err.t)
 let view_of g = Graph_view.of_graph g |> Result.get_ok
 let ids pp_id fmt l = Fmt.brackets (Fmt.list ~sep:Fmt.comma pp_id) fmt l
 let n_ n = Node_id.of_int n
@@ -266,7 +266,7 @@ let%expect_test "topo_sort is stable and detects a cycle" =
   (match Graph_view.topo_sort [ self ] with
   | Ok _ -> Format.printf "cycle: accepted@."
   | Error e -> (
-      match e.Core.Error.kind with
+      match Err.Error.kind e with
       | `Cycle id -> Format.printf "cycle at %a@." Node_id.pp id));
   [%expect {|
     reversed then sorted: [n0, n1, n2]

@@ -8,7 +8,7 @@
    asserted, not eyeballed. *)
 
 let pp_id ppf r =
-  Core.Pretty.core_result ~ok:(Fmt.fmt "%S") ~error:Me_ids.pp_error ppf r
+  Core.Pretty.err_result ~ok:(Fmt.fmt "%S") ~error:Me_ids.pp_error ppf r
 
 let show r = Format.printf "%a@." pp_id r
 let show_labelled label r = Format.printf "%-28s %a@." label pp_id r
@@ -70,7 +70,8 @@ let%expect_test "the encoding is injective over near-collisions" =
   in
   let encoded =
     List.map
-      (fun s -> (s, Core.or_raise Me_ids.pp_error (Me_ids.component s)))
+      (fun s ->
+        (s, Err.or_raise ~pp_error:Me_ids.pp_error (Me_ids.component s)))
       corpus
   in
   List.iter (fun (s, e) -> Format.printf "%-10S -> %S@." s e) encoded;
@@ -205,7 +206,7 @@ let%expect_test "the raw label is bounded before encoding, the id after" =
      the same check: a label inside [max_label_bytes] can still produce an id
      past [max_id_bytes], and that is the case below. *)
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_label_bytes:12 ~max_id_bytes:24 limits)
   in
   show_labelled "raw over the label bound"
@@ -226,7 +227,7 @@ let%expect_test "a namespace component meets its own ceiling, not max_id_bytes"
      works over each piece: a component that fits the whole-id ceiling can
      still be one the splitter must carry. *)
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_namespace_component_bytes:8
          ~max_id_bytes:4096 limits)
   in

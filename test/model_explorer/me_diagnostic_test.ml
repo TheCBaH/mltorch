@@ -90,7 +90,7 @@ let%expect_test "replacement widens, so the cut is measured on what is written"
   (* One stray byte becomes three. A ceiling tested against the bytes READ
      would admit three times the bytes it promised. *)
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_diagnostic_bytes:16 limits)
   in
   let d = D.create ~limits:tight D.Code.Internal (String.make 32 '\xff') in
@@ -109,7 +109,7 @@ let%expect_test "replacement widens, so the cut is measured on what is written"
 
 let%expect_test "an id that does not fit is dropped, never truncated" =
   let tight =
-    Core.or_raise Me_limits.pp_error
+    Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_id_bytes:8 limits)
   in
   show (D.create ~limits:tight ~graph:"g/native" D.Code.Over_limit "m");
@@ -139,14 +139,44 @@ let%expect_test "of_exn is the one bridge, and it is lossy on purpose" =
     internal: Not_found
       message 9 bytes, graph absent, truncated false |}]
 
+(* [Err.Exn.E] is the one exception this bridge must NOT hand to
+   [Printexc.to_string]. [Err] registers a printer, so the default path renders
+   payload + detection stack + semantic trace -- and this value is a wire
+   response, so that would ship frame-by-frame provenance of the server's own
+   source to the browser. The sanitiser would truncate it, not remove it.
+
+   The message is asserted structurally rather than as a golden: it must CONTAIN
+   the payload and must NOT contain the provenance markers, and the frames
+   themselves shift per build and vanish entirely under node (this suite runs
+   both ways). Byte counts are out for the same reason. *)
+let%expect_test "of_exn renders an Err payload without its provenance" =
+  let pp_msg ppf (`Msg m) = Fmt.string ppf m in
+  let raised =
+    match Err.or_raise ~pp_error:pp_msg (Err.fail (`Msg "lowering failed")) with
+    | (_ : int) -> Failure "or_raise did not raise"
+    | exception e -> e
+  in
+  let d = D.of_exn ~limits raised in
+  let contains sub =
+    let s = d.D.message in
+    let n = String.length s and m = String.length sub in
+    let rec go i = i + m <= n && (String.sub s i m = sub || go (i + 1)) in
+    go 0
+  in
+  Printf.printf "payload=%b detected_at=%b trace=%b source_named=%b\n"
+    (contains "lowering failed")
+    (contains "detected at") (contains "trace:")
+    (contains "me_diagnostic_test.ml" || contains "err.ml");
+  [%expect {| payload=true detected_at=false trace=false source_named=false |}]
+
 (* --- the wire --- *)
 
 let%expect_test "round trip" =
   (* A named crossing out of jsont's [(_, string) result], per
      .ai/printer_conventions.md — not a hand-rolled print. Every value here is
      one [create] built, so an encoder that refuses it is a defect rather than
-     an outcome, and [Core.or_raise] cannot serve because this result carries
-     no [Core.Error.t]. *)
+     an outcome, and [Err.or_raise ~pp_error:] cannot serve because this result carries
+     no [Err.Error.t]. *)
   let encode d =
     match Jsont_bytesrw.encode_string D.jsont d with
     | Ok s -> s

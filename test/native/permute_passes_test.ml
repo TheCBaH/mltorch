@@ -8,12 +8,12 @@
 
 let run ?(show_before = true) g passes =
   match Rewrite.origin g with
-  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
   | Ok (Rewrite.Origin state) -> (
       if show_before then
         Format.printf "@[<v 2>before:@,%a@]@." Graph_ir.pp (Rewrite.graph state);
       match Pass.run_all state passes with
-      | Error e -> Format.printf "%a@." Pass.pp_error e.Core.Error.kind
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
       | Ok (Rewrite.Step (final, map)) ->
           Format.printf "@[<v 2>after:@,%a@]@." Graph_ir.pp
             (Rewrite.graph final);
@@ -25,7 +25,7 @@ let run ?(show_before = true) g passes =
    The error payload is deliberately discarded: every caller feeds the result
    into a boolean equivalence check, so a failure here surfaces as that check
    reporting [false] against a golden that expects [true]. The test still fails,
-   loudly enough — turning these into [Core.or_raise] would restructure every
+   loudly enough — turning these into [Err.or_raise ~pp_error:] would restructure every
    caller's [Some]/[None] match for a diagnostic they do not read. *)
 let rewritten g passes =
   match Rewrite.origin g with
@@ -43,7 +43,7 @@ let evaluated g inputs =
   match
     Eval_direct.run g ~inputs:(List.combine g.Graph_ir.Graph.inputs inputs)
   with
-  | Error e -> Format.asprintf "%a" Eval_direct.pp_error e.Core.Error.kind
+  | Error e -> Format.asprintf "%a" Eval_direct.pp_error (Err.Error.kind e)
   | Ok env -> (
       match g.Graph_ir.Graph.outputs with
       | [ out ] -> Format.asprintf "%a" Tensor.pp (Tensor_id.Map.find out env)
@@ -79,7 +79,7 @@ let same_tensor (Tensor.Tensor a) (Tensor.Tensor b) =
 (* What a pass matches, independent of what it then builds. *)
 let matches pattern g =
   match Graph_view.of_graph g with
-  | Error e -> Format.printf "view: %a@." Graph_view.pp_error e.Core.Error.kind
+  | Error e -> Format.printf "view: %a@." Graph_view.pp_error (Err.Error.kind e)
   | Ok view ->
       let found = Pattern.scan pattern view in
       if found = [] then Format.printf "no match@."
@@ -825,7 +825,7 @@ let%expect_test "reshape_to_permute: the permute computes the same tensor" =
       Graph_builder.(
         let* x = input ~shape:(Graph_fixtures.s 1 1 1 1 2 3) () in
         reshape { Reshape.Reshape.shape = Graph_fixtures.s 1 1 1 2 3 1 } x)
-    |> Core.or_raise Graph_builder.pp_error
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
   in
   let input =
     Tensor.materialize (Graph_fixtures.s 1 1 1 1 2 3) (fun c ->
@@ -1460,7 +1460,7 @@ let%expect_test "reshape_to_permute feeds the permute passes" =
           permute Axis.[ (N, N); (T, T); (D, D); (H, W); (W, C); (C, H) ] r
         in
         relu p)
-    |> Core.or_raise Graph_builder.pp_error
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
   in
   run g
     [

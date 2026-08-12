@@ -31,8 +31,8 @@ let of_aten t : (Tensor.packed, string) result =
   in
   let shape_arr = Aten_tensor.shape t in
   match Aten_shape.of_aten shape_arr with
-  | Error { Core.Error.kind = e; _ } ->
-      Error (Fmt.str "shape error: %a" Aten_shape.pp_error e)
+  | Error e ->
+      Error (Fmt.str "shape error: %a" Aten_shape.pp_error (Err.Error.kind e))
   | Ok shape -> (
       let n = Aten_tensor.numel t in
       match Aten_tensor.scalar_type t with

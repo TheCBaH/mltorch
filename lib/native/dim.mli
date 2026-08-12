@@ -38,8 +38,7 @@ val pp_error : Format.formatter -> error -> unit
 (* Open row ([>]) so it unifies upward into a caller's wider union (see
    [Aten_shape.of_aten]); the closed [error] above is for [pp_error]/[#Dim.error]
    and for a boundary that pins its final set. *)
-val extent_checked :
-  int -> (extent t, [> `Non_positive_extent of int ]) Core.result
+val extent_checked : int -> (extent t, [> `Non_positive_extent of int ]) Err.t
 
 (* the one signed role: index differences and stencil offsets, which may be
    negative before being guarded back into an [index] *)

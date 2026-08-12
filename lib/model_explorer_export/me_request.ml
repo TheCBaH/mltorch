@@ -5,9 +5,10 @@ module Hard = Me_limits.Hard
 (* Every checked constructor below crosses into Jsont at the end, and this is
    the one place the framework wrapper is dropped. Named, per CLAUDE.md, so it
    reads as a deliberate crossing rather than a lost backtrace. *)
-let or_jsont pp = function
+let or_jsont pp r =
+  match Err.mark_error ~pos:__POS__ Err.Action.Export r with
   | Ok v -> v
-  | Error e -> Jsont.Error.msgf Jsont.Meta.none "%a" pp e.Core.Error.kind
+  | Error e -> Jsont.Error.msgf Jsont.Meta.none "%a" pp (Err.Error.kind e)
 
 (* --- request identity --------------------------------------------------- *)
 
@@ -50,9 +51,9 @@ module Request_id = struct
     if String.length s > 37 && s.[36] = '-' then
       let uuid = String.sub s 0 36 in
       let seq = String.sub s 37 (String.length s - 37) in
-      if is_uuid uuid && is_seq seq then Core.return s
-      else Core.fail `Malformed_request_id
-    else Core.fail `Malformed_request_id
+      if is_uuid uuid && is_seq seq then Err.return s
+      else Err.fail `Malformed_request_id
+    else Err.fail `Malformed_request_id
 
   let epoch t = String.sub t 0 36
   let to_string t = t
@@ -94,13 +95,13 @@ module Detail_key = struct
   let validate ~limits t =
     let max = limits.Me_limits.Limits.max_id_bytes in
     if String.length t.parent_graph > max then
-      Core.fail (`Invalid_detail_key `Parent_too_long)
+      Err.fail (`Invalid_detail_key `Parent_too_long)
     else if String.length (id t) > max then
-      Core.fail (`Invalid_detail_key `Derived_id_too_long)
-    else Core.return ()
+      Err.fail (`Invalid_detail_key `Derived_id_too_long)
+    else Err.return ()
 
   let create ~limits ~parent_graph ~value =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let t = { parent_graph; value } in
     let+ () = validate ~limits t in
     t
@@ -111,7 +112,7 @@ module Detail_key = struct
        prevent. [Request.jsont] runs [validate] under the decoded profile. *)
     Jsont.Object.map ~kind:"detailKey" (fun parent_graph value ->
         or_jsont pp_invalid
-          (Core.map_error
+          (Err.map_error
              (fun (`Invalid_detail_key e) -> e)
              (create ~limits:Me_limits.Limits.trusted ~parent_graph
                 ~value:(Graph_ir.Tensor_id.of_int value))))
@@ -160,7 +161,7 @@ module Source = struct
       | Invalid.Url_too_long -> "source url is too long"
       | Invalid.Ref_too_long -> "source ref is too long")
 
-  let fail kind = Core.fail (`Invalid_source { Invalid.kind })
+  let fail kind = Err.fail (`Invalid_source { Invalid.kind })
 
   let is_digest s =
     String.length s = Hard.max_digest_bytes
@@ -169,19 +170,19 @@ module Source = struct
          s
 
   let create ~limits ~origin ~name ~bytes ~format =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let* () =
       if Int64.compare bytes 0L < 0 then fail Invalid.Negative_bytes
-      else Core.return ()
+      else Err.return ()
     in
     let* () =
       if String.length name > limits.Me_limits.Limits.max_label_bytes then
         fail Invalid.Name_too_long
-      else Core.return ()
+      else Err.return ()
     in
     let+ () =
       match origin with
-      | Origin.Local -> Core.return ()
+      | Origin.Local -> Err.return ()
       | Origin.Catalog c ->
           let max = limits.Me_limits.Limits.max_url_bytes in
           if String.length c.Origin.Catalog.url > max then
@@ -190,7 +191,7 @@ module Source = struct
             fail Invalid.Ref_too_long
           else if not (is_digest c.Origin.Catalog.verified_sha256) then
             fail Invalid.Bad_digest
-          else Core.return ()
+          else Err.return ()
     in
     { origin; name; bytes; format }
 
@@ -215,7 +216,7 @@ module Source = struct
   let jsont =
     Jsont.Object.map ~kind:"source" (fun catalog name bytes format ->
         or_jsont pp_invalid
-          (Core.map_error
+          (Err.map_error
              (fun (`Invalid_source i) -> i)
              (create ~limits:Me_limits.Limits.trusted
                 ~origin:
@@ -254,8 +255,8 @@ module Options = struct
 
   let create ~stages ~fold ~verify_symbolic ~namespace =
     match normalise stages with
-    | [] -> Core.fail `Invalid_options
-    | stages -> Core.return { stages; fold; verify_symbolic; namespace }
+    | [] -> Err.fail `Invalid_options
+    | stages -> Err.return { stages; fold; verify_symbolic; namespace }
 
   let stage_jsont =
     Jsont.enum ~kind:"graphStage"
@@ -333,7 +334,7 @@ module Request = struct
      unobtainable; re-running the profile-dependent checks under the request's
      own profile is obtainable and is what [handle] will enforce. *)
   let revalidate ~limits ~source ~key =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let l = Me_limits.Wire_limits.limits limits in
     let* _ =
       Source.create ~limits:l ~origin:source.Source.origin
@@ -341,16 +342,16 @@ module Request = struct
         ~format:source.Source.format
     in
     match key with
-    | None -> Core.return ()
+    | None -> Err.return ()
     | Some k -> Detail_key.validate ~limits:l k
 
   let build_session ~id ~source ~options ~limits =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ () = revalidate ~limits ~source ~key:None in
     Build_session { Build_session.id; source; options; limits }
 
   let build_detail ~id ~source ~options ~limits ~key =
-    let open Core.Syntax in
+    let open Err.Syntax in
     let+ () = revalidate ~limits ~source ~key:(Some key) in
     Build_detail { Build_detail.id; source; options; limits; key }
 
@@ -385,7 +386,7 @@ module Request = struct
   let jsont =
     Jsont.Object.map ~kind:"request" (fun id limits options source key ->
         or_jsont pp_error
-          (let open Core.Syntax in
+          (let open Err.Syntax in
            let* id = Request_id.of_string id in
            match key with
            | None -> build_session ~id ~source ~options ~limits

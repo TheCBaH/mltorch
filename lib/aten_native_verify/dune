@@ -7,10 +7,10 @@
  (name aten_native_verify)
  (wrapped false)
  (libraries
+  err_trace
   native_aten_bridge
   native
   aten
   interp
   schema_runtime
-  pytorch_types
-  core))
+  pytorch_types))
