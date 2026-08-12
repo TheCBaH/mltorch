@@ -184,7 +184,7 @@ let dispatch_arm (op : A.t) : string option =
     match Aten_c_type.map_returns op.returns with
     | None -> None
     | Some (Aten_c_type.Tensors_ret nret) when nret < 1 || nret > 3 -> None
-    | Some (Aten_c_type.Tensors_ret nret) ->
+    | Some ret ->
         let args = op.arguments.positional @ op.arguments.kwarg_only in
         let anchor = anchor_of args in
         let decoded = List.map (fun a -> decode_arg ~op ~anchor a) args in
@@ -197,23 +197,34 @@ let dispatch_arm (op : A.t) : string option =
             Printf.sprintf "O.%s %s" (ocaml_name op) (String.concat " " exprs)
           in
           let body =
-            if nret = 1 then Printf.sprintf "bind1 env node (%s)" call
-            else
-              let reads =
-                List.init nret (fun i ->
-                    Printf.sprintf "tget out TG.tensors%d_v%d" nret i)
-                |> String.concat "; "
-              in
-              String.concat "\n      "
-                [
-                  Printf.sprintf "let out = make TG.tensors%d_struct in" nret;
-                  Printf.sprintf "let st = %s (addr out) in" call;
-                  Printf.sprintf
-                    "if st <> 0 then Err.fail (`Aten_runtime_failure (%S, st)) \
-                     else"
-                    (ocaml_name op);
-                  Printf.sprintf "bind_many env node [ %s ]" reads;
-                ]
+            match ret with
+            (* A Tensor[] return serializes as ONE node output carrying every
+               result name, so it needs [bind_tensor_list], not [bind_many]:
+               the latter indexes node.outputs positionally, which is the fixed
+               tuple's shape. [to_list] checks and manages every element and
+               frees the container, so the binder receives owned handles. *)
+            | Aten_c_type.Tensor_list_ret ->
+                Printf.sprintf
+                  "bind_tensor_list env node (Aten_tensor_list.to_list (%s))"
+                  call
+            | Aten_c_type.Tensors_ret 1 ->
+                Printf.sprintf "bind1 env node (%s)" call
+            | Aten_c_type.Tensors_ret nret ->
+                let reads =
+                  List.init nret (fun i ->
+                      Printf.sprintf "tget out TG.tensors%d_v%d" nret i)
+                  |> String.concat "; "
+                in
+                String.concat "\n      "
+                  [
+                    Printf.sprintf "let out = make TG.tensors%d_struct in" nret;
+                    Printf.sprintf "let st = %s (addr out) in" call;
+                    Printf.sprintf
+                      "if st <> 0 then Err.fail (`Aten_runtime_failure (%S, \
+                       st)) else"
+                      (ocaml_name op);
+                    Printf.sprintf "bind_many env node [ %s ]" reads;
+                  ]
           in
           let lines = preambles @ [ body ] in
           Some

@@ -263,3 +263,35 @@ let%expect_test "allclose / equal" =
     {|
     equal a b=true  equal a c=false
     allclose a b=true  allclose a c=false  allclose ~atol:1.0 a c=true |}]
+
+(* Phase 5: the owned Tensor[] result container (Aten_tensor_list).
+
+   Only the null paths are exercised here: they need no operation, and they are
+   exactly the cases ATC_TRY cannot cover -- dereferencing a null handle is
+   undefined behaviour, not a catchable C++ exception, so the shim checks
+   before touching the pointer. The list/element lifetime tests, which need a
+   real Tensor[]-returning op, live alongside unbind in aten_ops_test. *)
+
+let null_list = coerce (ptr void) Aten_function_description.atc_tensor_list null
+
+let%expect_test "tensor list: null handle is a checked error, not a crash" =
+  (* The raw binding reports the -1 sentinel and sets last_error; it does not
+     itself raise. Aten_tensor_list is the layer that converts that. *)
+  Printf.printf "len(null)=%Ld\n" (F.tensor_list_len null_list);
+  Printf.printf "get(null)=%b\n" (is_null (F.tensor_list_get null_list 0L));
+  (match Aten_tensor_list.to_list null_list with
+  | exception T.Error _ -> print_string "to_list null: raised Tensor.Error\n"
+  | _ -> print_string "to_list null: no error\n");
+  (* Freeing a null container is a no-op, mirroring atc_free. *)
+  F.tensor_list_free null_list;
+  [%expect
+    {|
+    len(null)=-1
+    get(null)=true
+    to_list null: raised Tensor.Error |}]
+
+let%expect_test "tensor list: containers are counted separately from tensors" =
+  (* No container has been allocated, so the count is a clean zero -- the
+     baseline the unbind lifetime tests assert a return to. *)
+  Printf.printf "live containers=%d\n" (Aten_tensor_list.live_count ());
+  [%expect "live containers=0"]

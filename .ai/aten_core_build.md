@@ -114,6 +114,46 @@ the library share one directory, `libaten_core.a` / `dllaten_core.so` are produc
 right where `(foreign_archives aten_core)` and the preamble `#include "shim.h"`
 need them — no copy rules. (`modules/` is reserved for git submodules.)
 
+## Result ownership across the C ABI
+
+Every handle crossing into OCaml is owned by OCaml and freed exactly once, via
+`Aten_tensor.manage`'s finaliser. There are three result shapes, and they differ
+in more than arity:
+
+| Schema return | C ABI | OCaml |
+|---|---|---|
+| `Tensor` | returns `atc_tensor` | `check \|> manage` |
+| `(Tensor, Tensor[, Tensor])` | `int` status + `struct atc_tensorsN*` out-param | `bind_many`, one `manage` per field |
+| `Tensor[]` | returns `atc_tensor_list` | `Aten_tensor_list.to_list` |
+
+The `Tensor[]` case is the only one whose length is not known statically, so it
+needs a container rather than an out-param struct. `atc_tensor_list` is an opaque
+owned `std::vector<at::Tensor>` with a deliberately small lifecycle API
+(`_len` / `_get` / `_free` / `_live_count`).
+
+**Container ownership and storage aliasing are separate.** `atc_tensor_list_get`
+returns an independently freeable `atc_tensor` that still shares ATen storage and
+view metadata with the op's input — `at::unbind` returns views, and this ABI
+preserves them. `at::Tensor` is intrusive-reference-counted, so destroying the
+container drops only its own handles; tensors already extracted stay valid. That
+is why `Aten_tensor_list.to_list` can free the container before returning.
+
+Do **not** reuse `atc_to_tensor_vector` for this: it is input-only and borrowing
+(the vector is a temporary in the wrapper's `at::<op>(...)` full-expression, and
+the `ArrayRef` borrows it), so it cannot express ownership of a returned vector.
+
+Two counters, because a container is not a tensor handle: `atc_live_count` covers
+`atc_wrap` allocations, `atc_tensor_list_live_count` covers containers. The
+leak tests assert both — the container synchronously (`Fun.protect` frees it), the
+tensors only after the GC has run their finalisers.
+
+`atc_tensor_list_len` / `_get` check for NULL **before** dereferencing rather
+than relying on `ATC_TRY`: that macro catches `std::exception`, and a null
+dereference is undefined behaviour, not a throw. `ATC_TRY` still guards the
+`at::Tensor` copy inside `_get`, which genuinely can throw. The sentinels are
+`-1` and `NULL` with `atc_last_error` set, which `Aten_tensor_list` turns into
+`Aten_tensor.Error`.
+
 Done — **Step 0 (plumbing)** + **Step 2 (minimal tensor runtime)**: the shim now
 exposes `atc_new_float` / `atc_free` / `atc_numel` / `atc_data_float` /
 `atc_fill_float` (scalar) / `atc_add_float` (tensor). [lib/aten/demo/main.ml](../lib/aten/demo/main.ml)

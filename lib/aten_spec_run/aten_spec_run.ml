@@ -155,18 +155,68 @@ let lower pcg env name (av : Av.t) =
   | Av.Scalar_opt (Some sv) -> (pcg, env, scalar_to_arg sv)
   | Av.Str s -> (pcg, env, Argument.String s)
 
-let outputs_for target =
-  let arity =
-    match Aten_op_config.find target with
-    | Some c -> (
-        match c.returns with
-        | Aten_op_config.Single -> 1
-        | Aten_op_config.Tuple2 -> 2
-        | Aten_op_config.Tuple3 -> 3)
-    | None -> 1
+let out_name i = TensorArgument.make (Printf.sprintf "out%d" i)
+
+(* The number of tensors [unbind.int] will return: the size of the normalized
+   dim. Derived from the LOWERED inputs, because a Tensor[] return has no static
+   arity -- the count is a property of this call's actual input shape.
+
+   An out-of-range dim yields 0 names: ATen raises on the call itself, before any
+   output binding is attempted, so the real error still surfaces. Guessing a
+   count here would only replace it with a confusing arity mismatch. *)
+let unbind_output_count ~env ~inputs =
+  let arg name =
+    List.find_map
+      (fun (na : NamedArgument.t) ->
+        if String.equal na.name name then Some na.arg else None)
+      inputs
   in
-  List.init arity (fun i ->
-      Argument.Tensor (TensorArgument.make (Printf.sprintf "out%d" i)))
+  match arg "self" with
+  | Some (Argument.Tensor ta) -> (
+      match String_map.find_opt ta.TensorArgument.name env with
+      | None -> 0
+      | Some t ->
+          let shape = Aten_tensor.shape t in
+          let rank = Array.length shape in
+          (* dim is absent in real exported unbind nodes; the schema default is
+             0. Negative indexing is ATen's, normalized the same way. *)
+          let dim =
+            match arg "dim" with Some (Argument.Int d) -> d | _ -> 0
+          in
+          let dim = if dim < 0 then dim + rank else dim in
+          if dim < 0 || dim >= rank then 0 else shape.(dim))
+  | _ -> 0
+
+(* The outputs a synthesized node must carry, in the shape the PyTorch
+   serializer would have written.
+
+   A fixed arity comes straight from the config. A Tensor[] return has none, so
+   it is derived per target -- and ONLY for the targets modelled here. This is
+   deliberately not generic: split and chunk also return Tensor[] but count by
+   split size and by chunk count respectively, and a plausible-looking wrong
+   answer would surface far from its cause as an output-kind error. Failing here
+   names the actual gap. *)
+let outputs_for target ~env ~inputs =
+  match Aten_op_config.find target with
+  | Some { returns = Aten_op_config.Tensor_list_return; _ } ->
+      if not (String.equal target "torch.ops.aten.unbind.int") then
+        invalid_arg
+          (Printf.sprintf
+             "Aten_spec_run.outputs_for: no output-count rule for the \
+              Tensor[]-returning target %S"
+             target);
+      let n = unbind_output_count ~env ~inputs in
+      [ Argument.Tensors (List.init n out_name) ]
+  | c ->
+      let arity =
+        match c with
+        | Some { returns = Aten_op_config.Single; _ } | None -> 1
+        | Some { returns = Aten_op_config.Tuple2; _ } -> 2
+        | Some { returns = Aten_op_config.Tuple3; _ } -> 3
+        | Some { returns = Aten_op_config.Tensor_list_return; _ } ->
+            assert false (* handled above *)
+      in
+      List.init arity (fun i -> Argument.Tensor (out_name i))
 
 let to_node ?(pcg0 = Pcg.default) (spec : Aten_spec.Op_spec.t) =
   let _pcg, env, inputs_rev =
@@ -177,8 +227,10 @@ let to_node ?(pcg0 = Pcg.default) (spec : Aten_spec.Op_spec.t) =
       (pcg0, String_map.empty, [])
       spec.args
   in
+  let inputs = List.rev inputs_rev in
   let node =
-    Node.make spec.target (List.rev inputs_rev) (outputs_for spec.target)
+    Node.make spec.target inputs
+      (outputs_for spec.target ~env ~inputs)
       String_map.empty None (Some "spec")
   in
   (env, node)
@@ -265,12 +317,7 @@ let eval_print ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : unit
       Format.fprintf ppf "[eval] %s@.  aten = <error: %a>@." node.target
         pp_interp_error (Err.Error.kind e)
   | Ok env' ->
-      let out_names =
-        List.filter_map
-          (function
-            | Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
-          node.outputs
-      in
+      let out_names = Interp_decode.output_names node in
       let native =
         match Op_bridge.dispatch ~aten_env:env node with
         | None -> `None
@@ -383,12 +430,7 @@ let eval_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
       Format.fprintf ppf "  status: error: %a@." pp_interp_error
         (Err.Error.kind e)
   | Ok env' ->
-      let out_names =
-        List.filter_map
-          (function
-            | Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
-          node.outputs
-      in
+      let out_names = Interp_decode.output_names node in
       List.iter
         (fun name ->
           Format.fprintf ppf "  -> %s: %a@." name
@@ -490,12 +532,7 @@ let walk_eval ?(ppf = Format.std_formatter) ~steps (spec : Aten_spec.Op_spec.t)
         Format.fprintf ppf "  status: error: %a@." pp_interp_error
           (Err.Error.kind e)
     | Ok env' ->
-        let out_names =
-          List.filter_map
-            (function
-              | Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
-            node.outputs
-        in
+        let out_names = Interp_decode.output_names node in
         List.iter
           (fun name ->
             Format.fprintf ppf "  -> %s: %a@." name
@@ -540,12 +577,7 @@ let compare_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
             kind;
           false)
   | Ok env' -> (
-      let out_names =
-        List.filter_map
-          (function
-            | Argument.Tensor ta -> Some ta.TensorArgument.name | _ -> None)
-          node.outputs
-      in
+      let out_names = Interp_decode.output_names node in
       List.iter
         (fun name ->
           Format.fprintf ppf "  -> %s: %a@." name

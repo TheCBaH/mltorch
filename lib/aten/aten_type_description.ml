@@ -14,6 +14,12 @@ module Types (S : Ctypes.TYPE) = struct
   let tensor_opaque : [ `atc_tensor_opaque ] Ctypes.structure typ =
     structure "atc_tensor_opaque"
 
+  (* The opaque Tensor[] result container ([struct atc_tensor_list_opaque*]),
+     declared here for the same reason as [tensor_opaque] and likewise never
+     sealed -- it is only ever used through a pointer. *)
+  let tensor_list_opaque : [ `atc_tensor_list_opaque ] Ctypes.structure typ =
+    structure "atc_tensor_list_opaque"
+
   (* The shared int/float payload (union atc_scalar_value). *)
   let scalar_value : [ `atc_scalar_value ] Ctypes.union typ =
     union "atc_scalar_value"

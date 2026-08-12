@@ -77,11 +77,18 @@ let emit_param (a : Aten_func_ast.Argument.t) ~kwonly =
       Printf.sprintf "{ name = %S; ty = %s; default = %s; kwonly = %b }" a.name
         ty_s default_s kwonly)
 
+(* Deliberately a second, independent reading of the returns rather than a call
+   to Aten_c_type.map_returns: this one names a RUNTIME schema fact (how many
+   results a caller should expect), not a C calling convention. [Tensor_list_return]
+   is the shape whose count is not knowable here at all -- see
+   Aten_spec_run.outputs_for, which has to derive it per target. *)
 let returns_arity (returns : Aten_func_ast.Return.t list) =
   let is_tensor (r : Aten_func_ast.Return.t) =
     r.ty = Aten_func_ast.Type.Base Aten_func_ast.Base.Tensor
   in
   match returns with
+  | [ { ty = Aten_func_ast.Type.List (Base Tensor, _); _ } ] ->
+      Some "Tensor_list_return"
   | _ when List.for_all is_tensor returns -> (
       match List.length returns with
       | 1 -> Some "Single"
@@ -153,7 +160,10 @@ type param = {
   kwonly  : bool;
 }
 
-type return_arity = Single | Tuple2 | Tuple3
+(* [Tensor_list_return] is a Tensor[] return: ONE output whose length is a
+   runtime property of the call, so unlike the others it does not name a count.
+   Not [Tensor_list] -- that constructor is taken by [param_type] above. *)
+type return_arity = Single | Tuple2 | Tuple3 | Tensor_list_return
 
 type t = {
   target   : string;   (* "torch.ops.aten.add.Tensor" *)
@@ -210,7 +220,11 @@ let pp ppf t =
        ~pp_sep:(fun ppf () -> Format.fprintf ppf ",@ ")
        pp_param)
     t.params
-    (match t.returns with Single -> "T" | Tuple2 -> "(T, T)" | Tuple3 -> "(T, T, T)")|}
+    (match t.returns with
+     | Single -> "T"
+     | Tuple2 -> "(T, T)"
+     | Tuple3 -> "(T, T, T)"
+     | Tensor_list_return -> "T[]")|}
 
 let file (ops : A.t list) =
   let records = List.filter_map config_record ops in

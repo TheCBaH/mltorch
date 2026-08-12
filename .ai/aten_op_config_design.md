@@ -45,7 +45,10 @@ type default_ =
 type param = { name : string; ty : param_type; default : default_ option;
                kwonly : bool }
 
-type return_arity = Single | Tuple2 | Tuple3
+(* Tensor_list_return is a Tensor[] return: ONE output whose length is a runtime
+   property of the call, so unlike the others it does not name a count. Not
+   Tensor_list -- that constructor is taken by param_type above. *)
+type return_arity = Single | Tuple2 | Tuple3 | Tensor_list_return
 
 type t = {
   target   : string;        (* "torch.ops.aten.add.Tensor" *)
@@ -67,6 +70,12 @@ val find : string -> t option
 - **Float defaults** are preserved as their original YAML strings (e.g. `"0.5"`)
   emitted directly as OCaml float literals so no precision is lost.
 - **`all` / `find`** enable O(n) lookup over ~40 ops (adequate for dispatch).
+- **`Tensor_list_return` names a shape, not a count.** Every other `return_arity`
+  answers "how many outputs?" on its own; this one cannot, because the answer is
+  the op's runtime semantics (`unbind` splits by the size of its `dim`). A caller
+  that needs a count must derive it per target — see `Aten_spec_run.outputs_for`,
+  which handles `unbind.int` and `invalid_arg`s for any other tensor-list target
+  rather than guessing.
 
 ### Files
 

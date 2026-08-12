@@ -170,6 +170,25 @@ let%expect_test "tuple return (outputs 1.. via out-params)" =
     ---
     let max_pool2d_with_indices = foreign "atg_max_pool2d_with_indices" (atc_tensor @-> ptr int64_t @-> int @-> ptr tensors2_struct @-> returning int) |}]
 
+(* A Tensor[] return has no static arity, so there is no out-param struct to
+   fill: it comes back as the owned atc_tensor_list container. ATC_TRY is
+   present here but absent from the single-Tensor case above, deliberately --
+   at::unbind throws on an invalid dim, and a c10::Error must not cross
+   extern "C". *)
+let%expect_test "tensor-list return (owned atc_tensor_list)" =
+  gen "unbind.int(Tensor(a -> *) self, int dim=0) -> Tensor(a)[]";
+  [%expect
+    {|
+    atc_tensor_list atg_unbind_int(atc_tensor self, int64_t dim) {
+      ATC_TRY(nullptr, {
+        return atc_wrap_tensor_list(at::unbind(*atc_to_ptr(self), dim));
+      })
+    }
+    ---
+    let unbind_int = foreign "atg_unbind_int" (atc_tensor @-> int64_t @-> returning atc_tensor_list) |}]
+
+(* Still skipped, and for a reason the Tensor[] support does not touch: a
+   non-Tensor element of a tuple is a different bucket from a Tensor list. *)
 let%expect_test "skipped: non-Tensor tuple element" =
   gen "frexp.Tensor(Tensor self) -> (Tensor mantissa, Scalar exponent)";
   [%expect {| SKIPPED: unsupported return shape |}]
