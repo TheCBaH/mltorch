@@ -1,0 +1,29 @@
+; err_trace for Melange.
+;
+; vendored/err_trace ships a melange stanza of its own, but it is unusable here:
+; it is gated on ERR_TRACE_TEST_MELANGE=true, and that same env var DISABLES the
+; ordinary src/ library. Enabling one would turn the other off, so the native
+; build and the melange build could never both work in one tree.
+;
+; So mirror the source instead, exactly as js/melange/core does for lib/core:
+; copied, never forked, so a change upstream cannot leave the melange build
+; testing older code than the native golden.
+;
+; [wrapped false] so the module is [Err], the same name lib/core uses natively.
+; The library name differs from the cross-project [err_trace] so the two can
+; never collide.
+;
+; Vendored source: its warnings are upstream's business, and dev profile would
+; otherwise fail the build on them -- same rule as js/melange/vendor/fmt.
+
+(copy_files
+ (files %{workspace_root}/vendored/err_trace/src/err.{ml,mli}))
+
+(library
+ (name err_trace_mel)
+ (wrapped false)
+ (modes melange)
+ (enabled_if
+  (= %{profile} melange))
+ (flags
+  (:standard -w -a)))

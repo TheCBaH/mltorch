@@ -19,8 +19,10 @@ engine under node was never the goal on its own — a viewer needs to *read a mo
 needs no ccache and no C++: `lib/native_interp` depends on neither `aten` nor `interp`.
 
 Melange stays at `walk_core` + `core`. That is not unfinished work — it is
-[#1807][mel1807], below. Its CI job still runs with no submodule at all and asserts so,
-which doubles as a check that no probe section has drifted across the boundary.
+[#1807][mel1807], below. Its CI job checks out only `vendored/err_trace` (`core` prints
+`Err.Error.t`, so it needs that one submodule) and asserts no other gitlink was
+initialized, which doubles as a check that no probe section has drifted across the
+boundary.
 
 `aten`, `interp` and anything ctypes remain out of scope for both, permanently.
 
@@ -46,8 +48,9 @@ js/melange/    melange.emit of the pure half, plus the shims it needs
 
 Three libraries, because each split *is* a real boundary rather than a grouping:
 `probes_pure` is what melange reaches (`walk_core` needs `jsont` alone, `core` needs
-`fmt` alone); `probes_native` adds Bigarray and `Jsont_bytesrw`; `probes_pt2` adds
-everything that reaches PyTorch, and so needs a submodule checkout the other two do not.
+`fmt` and `err_trace`); `probes_native` adds Bigarray and `Jsont_bytesrw`; `probes_pt2`
+adds everything that reaches PyTorch, and so needs a submodule checkout — now not the
+only one of the three, since melange checks out `err_trace` (see below).
 Recording those lines in the build graph is what stops a section drifting across one
 unnoticed.
 
@@ -468,18 +471,20 @@ under the all-models key silently makes every later save a no-op and every `buil
 re-download the other four — forever, with nothing going red. `jsoo.pt2.vars` needs no
 model-list hash, unlike `PT2_MODELS_HASH`, because the key names the single model it holds.
 
-The **melange** job keeps the submodule-free path. Checking out without `submodules:` is
-not enough on its own: the shared devcontainer action runs `devcontainer up`, which runs
-this repo's `postCreateCommand`, which runs `git submodule update --init`. The action's
-`post-create` input (default `true`, so `build.yml` and `ocaml-images.yml` are unaffected)
-passes `--skip-post-create`. It asserts *after* the devcontainer step that no gitlink was
-initialized — before it the check passes trivially — and checks every gitlink rather than
-one path.
+The **melange** job keeps a near-submodule-free path — one exception, `vendored/err_trace`,
+which `core` (and its melange mirror, `core_mel`) needs because `Core.Pretty` prints
+`Err.Error.t`. Checking out without `submodules:` is not enough on its own: the shared
+devcontainer action runs `devcontainer up`, which runs this repo's `postCreateCommand`,
+which runs `git submodule update --init`. The action's `post-create` input (default
+`true`, so `build.yml` and `ocaml-images.yml` are unaffected) passes `--skip-post-create`,
+so the job then initializes `vendored/err_trace` itself, by name, and nothing else. It
+asserts *after* that step that no *other* gitlink was initialized — before it the check
+passes trivially — and checks every gitlink but that one path.
 
 **That assertion now carries more weight than a checkout flag.** Melange's reach is meant
-to stop at `walk_core` + `core`, and everything past that line goes through
-`pytorch_types`, which needs a submodule. If it goes red, the melange closure has grown —
-most likely a probe section that drifted into the wrong library.
+to stop at `walk_core` + `core`, and everything past that line (besides `err_trace`) goes
+through `pytorch_types`, which needs a submodule. If it goes red, the melange closure has
+grown — most likely a probe section that drifted into the wrong library.
 
 ### Submodules: name them, never `--recursive`
 

@@ -143,23 +143,31 @@ jobs:
     - name: setup
       run: |
         echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    # Named, never --recursive (see "Submodules: name them" below). core (and
+    # its melange mirror, core_mel) depends on err_trace -- Core.Pretty prints
+    # Err.Error.t -- so melange needs this one submodule despite otherwise
+    # staying submodule-free.
+    - name: init the err_trace submodule
+      run: |
+        git submodule update --init vendored/err_trace
     # AFTER the devcontainer step, not before: before it this passes trivially
-    # and proves nothing. Checks every gitlink rather than one path, so a new
-    # submodule is covered without anyone remembering to update this.
+    # and proves nothing. Excludes vendored/err_trace, initialized deliberately
+    # above; checks every other gitlink, so a new submodule is covered without
+    # anyone remembering to update this.
     #
     # This is now the melange job's alone, and it does more than assert a
     # checkout flag: melange's reach is meant to stop at walk_core + core, and
     # everything past that line goes through pytorch_types, which needs a
     # submodule. If this ever goes red, the melange closure has grown -- most
     # likely because a probe section drifted to the wrong library.
-    - name: assert no submodule was initialized
+    - name: assert no other submodule was initialized
       run: |
-        if git submodule status | grep -qv '^-'; then
-          echo "A submodule was initialized; this job is meant to run without any." >&2
+        if git submodule status | grep -v vendored/err_trace | grep -qv '^-'; then
+          echo "A submodule other than vendored/err_trace was initialized." >&2
           git submodule status >&2
           exit 1
         fi
-        echo "no submodules initialized"
+        echo "no other submodules initialized"
     # The scaffold first, so a failure says which layer broke: if this passes
     # and the next step fails, the vendored libraries are fine and the problem
     # is the jsont patch or what sits on it.
