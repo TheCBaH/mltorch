@@ -78,3 +78,25 @@ The exporter picks the flattest JSON representation:
   - Element is a symbolic variable → `{as_name: "sym_size_int_1"}`
 
 Plain `bool` / `int` / `float` (without `Sym` prefix) are never symbolic.
+
+## Schema text is not comment-safe
+
+The generators echo each op's schema signature into a doc comment above its
+binding. `unbind.int`'s is
+
+```text
+unbind.int(Tensor(a -> *) self, int dim=0) -> Tensor[](a)
+```
+
+and `Tensor(a -> *)` — the "may alias anything" annotation — contains a literal
+`*)`, which **closes the OCaml comment early** and makes the whole generated
+module a syntax error. Nothing catches this before the build; it surfaces as an
+unmatched-`struct` error hundreds of lines away.
+
+`Aten_emit.ocaml_comment_body` handles it: OCaml's comment lexer parses string
+literals inside comments, so a signature containing `*)` or `(*` is emitted
+quoted (`(* "…Tensor(a -> *)…" *)`), which hides the sequence without altering a
+character of the text. Only signatures that need it are quoted, so every other
+op's comment stays byte-identical.
+
+The C emitters need no equivalent — `*)` is not `*/`.

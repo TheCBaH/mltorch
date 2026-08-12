@@ -232,29 +232,37 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
     step 3 [n]: {kernel=2x3 stride=2x2 pad=0x0 n=2 c=4 H=8 W=8}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.unbind.int: skipped (no native impl)
+    step 1 [shape]: {shape=[2,3,6,4]}
+    [spec] torch.ops.aten.unbind.int: skipped (no native impl)
+    step 2 [shape]: {shape=[2,3,6,4]}
+    [spec] torch.ops.aten.unbind.int: skipped (no native impl)
+    step 3 [shape]: {shape=[2,3,6,4]}
+    [spec] torch.ops.aten.unbind.int: skipped (no native impl)
     step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 1 [n]: {shape=[1,4,8,8] dims=[2,3] keepdim=false}
+    step 1 [c]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 2 [c]: {shape=[1,4,8,8] dims=[2,3] keepdim=false}
+    step 2 [n]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 3 [c]: {shape=[1,16,8,8] dims=[2,3] keepdim=false}
+    step 3 [keepdim]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 1 [shape]: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.clone.default: matched
-    step 2 [shape]: {shape=[2,3,4,6]}
-    [spec] torch.ops.aten.clone.default: matched
-    step 3 [shape]: {shape=[2,3,3,6]}
-    [spec] torch.ops.aten.clone.default: matched
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
     step 1 [shape]: {shape=[6,3,4,4]}
-    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    [spec] torch.ops.aten.clone.default: matched
     step 2 [shape]: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    [spec] torch.ops.aten.clone.default: matched
     step 3 [shape]: {shape=[2,3,3,4]}
+    [spec] torch.ops.aten.clone.default: matched
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    step 1 [shape]: {shape=[2,3,4,6]}
+    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    step 2 [shape]: {shape=[6,3,4,6]}
+    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    step 3 [shape]: {shape=[6,3,3,6]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
     needs_meta:
       torch.ops.aten.add.Tensor

@@ -1155,3 +1155,95 @@ let%expect_test "top_predictions and argmax leave no live tensors" =
   [%expect {|
     argmax=1 top=1:0.631,3:0.232
     after gc: +1 |}]
+
+(* --- Interp_dispatch: the Tensor[] output shape --------------------------
+
+   A Tensor[] return serializes as ONE output of kind Tensor[] carrying every
+   result name, not as N separate outputs, so [bind_tensor_list] handles it
+   instead of the positional [bind_many]. These drive the generated arm through
+   hand-built nodes, because the fixture format cannot express a wrong output
+   shape (Aten_spec_run synthesizes outputs, so the counts always agree). *)
+
+let pp_dispatch_error ppf = function
+  | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
+  | `Aten_runtime_failure (op, st) ->
+      Fmt.pf ppf "ATen op %s failed with status %d" op st
+  | `Unhandled_op target -> Fmt.pf ppf "unhandled op %S" target
+
+(* Dispatch a one-node unbind graph and print each bound name's values. Reads go
+   through [materialize_for_raw_read]: unbind returns views. *)
+let unbind_dispatch ~inputs ~outputs ~self =
+  let env = Sm.add "self" self Sm.empty in
+  let node =
+    PT.Node.make "torch.ops.aten.unbind.int"
+      (PT.NamedArgument.make "self" (targ "self") None :: inputs)
+      outputs Sm.empty None (Some "test")
+  in
+  match Interp_dispatch.dispatch env node |> Err.payload with
+  | Error e -> Format.printf "Error: %a@." pp_dispatch_error e
+  | Ok env' ->
+      List.iter
+        (fun name ->
+          Format.printf "%s = %a@." name
+            (Core.Pretty.option_or ~none:"<unbound>" (fun ppf t ->
+                 Aten_tensor.pp_float32 ppf
+                   (Option.get
+                      (Aten_tensor.as_float32
+                         (Aten_tensor.materialize_for_raw_read t)))))
+            (Sm.find_opt name env'))
+        (Interp_decode.output_names node)
+
+let tensors names =
+  [ PT.Argument.Tensors (List.map PT.TensorArgument.make names) ]
+
+(* The real exported node omits [dim] entirely — the schema default 0 is applied
+   by the generated decoder, so this is the shape that actually has to work. *)
+let%expect_test "dispatch: unbind.int with dim absent binds every name" =
+  unbind_dispatch ~inputs:[]
+    ~outputs:(tensors [ "a"; "b"; "c" ])
+    ~self:(float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]);
+  [%expect {|
+    a = [0; 1]
+    b = [2; 3]
+    c = [4; 5] |}]
+
+let%expect_test "dispatch: unbind.int with a negative dim" =
+  unbind_dispatch
+    ~inputs:[ in_int "dim" (-1) ]
+    ~outputs:(tensors [ "a"; "b"; "c" ])
+    ~self:(float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]);
+  [%expect {|
+    a = [0; 3]
+    b = [1; 4]
+    c = [2; 5] |}]
+
+let%expect_test "dispatch: unbind.int of a zero-length dim binds nothing" =
+  unbind_dispatch
+    ~inputs:[ in_int "dim" 0 ]
+    ~outputs:(tensors [])
+    ~self:(Aten_tensor.create [ 0; 2 ]);
+  [%expect {| |}]
+
+(* A fixed tuple's output shape must not be accepted here: zipping [Tensors]
+   against separate [Tensor] outputs would leave SSA names unbound. *)
+let%expect_test "dispatch: unbind.int rejects the fixed-tuple output shape" =
+  unbind_dispatch ~inputs:[]
+    ~outputs:[ targ "a"; targ "b"; targ "c" ]
+    ~self:(float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]);
+  [%expect
+    {| Error: expected one Tensor[] output, got [Tensor; Tensor; Tensor] |}]
+
+(* The arity check rides on the pairing it guards (Err.List.map2), so it cannot
+   drift from it. Drop a name and it fires with both counts. *)
+let%expect_test "dispatch: unbind.int reports a name/tensor count mismatch" =
+  unbind_dispatch ~inputs:[]
+    ~outputs:(tensors [ "a"; "b" ])
+    ~self:(float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]);
+  [%expect
+    {| Error: tensor-list output arity: 2 serialized names, 3 tensors returned |}]
+
+let%expect_test "pp: unbind.int config" =
+  Aten_op_config.find "torch.ops.aten.unbind.int"
+  |> Format.printf "%a@."
+       (Core.Pretty.option_or ~none:"not found" Aten_op_config.pp);
+  [%expect {| torch.ops.aten.unbind.int (Tensor self, Int dim=0) -> T[] |}]

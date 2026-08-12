@@ -76,9 +76,29 @@ extern "C" {
     (Format.pp_print_list ~pp_sep:blank_line pp_def)
     ops
 
+(* A schema signature safe to sit inside an OCaml doc comment.
+
+   [unbind]'s "Tensor(a -> *)" — the may-alias-anything annotation — carries a
+   literal "*)", which closes the comment early and makes the whole generated
+   module a syntax error. OCaml's comment lexer does parse string literals
+   inside comments, so quoting the signature hides the sequence without altering
+   a character of it. Only signatures that need it are quoted, so every other
+   op's comment stays byte-identical.
+
+   The C emitters need no equivalent: "*)" is not "*/". *)
+let ocaml_comment_body s =
+  let contains sub =
+    let n = String.length s and m = String.length sub in
+    let rec go i = i + m <= n && (String.sub s i m = sub || go (i + 1)) in
+    go 0
+  in
+  if contains "*)" || contains "(*" then Printf.sprintf "%S" s else s
+
 let ocaml ops =
   let pp_binding ppf (g : Aten_gen.generated) =
-    Format.fprintf ppf "  (* %s *)\n  %s" g.signature g.ctypes_line
+    Format.fprintf ppf "  (* %s *)\n  %s"
+      (ocaml_comment_body g.signature)
+      g.ctypes_line
   in
   Format.asprintf
     {|%s
