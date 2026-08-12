@@ -110,13 +110,13 @@ let show (result, phases) =
   | Error e -> Format.printf "%a@." Rsp.Wire.pp_error (Err.Error.kind e)
   | Ok w ->
       Format.printf "%a@."
-        (Core.Pretty.result
+        (Core.Pretty.err_result
            ~ok:(fun ppf (m : Rsp.Meta.t) ->
              Fmt.pf ppf "%s payload=%a" (Rsp.Meta.kind m)
                (Core.Pretty.option_or ~none:"none" (fun ppf s ->
                     Fmt.pf ppf "%d bytes" (String.length s)))
                w.Rsp.Wire.payload)
-           ~error:Fmt.string)
+           ~error:Rsp.Meta.pp_error)
         (Rsp.Meta.decode w.Rsp.Wire.meta);
       Format.printf "%s@." w.Rsp.Wire.meta
 

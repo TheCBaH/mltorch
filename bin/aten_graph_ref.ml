@@ -11,21 +11,21 @@ let run model input reference =
   let* result =
     Interp.run archive input |> Err.map_error (fun e -> `Interp e)
   in
-  match Tensor_bridge.of_aten result with
-  | Error message -> Err.fail (`Tensor_bridge message)
-  | Ok output -> (
-      match Graph_json.encode_tensor ~format:Jsont.Indent output with
-      | Error message -> Err.fail (`Encode message)
-      | Ok json ->
-          Out_channel.with_open_bin reference (fun oc ->
-              Out_channel.output_string oc json);
-          Err.return ())
+  let* output =
+    Tensor_bridge.of_aten result |> Err.map_error (fun e -> `Tensor_bridge e)
+  in
+  let+ json =
+    Graph_json.encode_tensor ~format:Jsont.Indent output
+    |> Err.map_error (fun e -> `Encode e)
+  in
+  Out_channel.with_open_bin reference (fun oc ->
+      Out_channel.output_string oc json)
 
 let pp_error ppf = function
   | `Archive e -> Pt2_archive.pp_error ppf e
   | `Interp e -> Interp.pp_error ppf e
-  | `Tensor_bridge message | `Encode message ->
-      Format.pp_print_string ppf message
+  | `Tensor_bridge e -> Tensor_bridge.pp_error ppf e
+  | `Encode e -> Graph_json.pp_error ppf e
 
 let () =
   match Sys.argv with

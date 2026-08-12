@@ -1,10 +1,124 @@
 (* Pure lowering of the static tensor subset of an ExportedProgram. *)
 
+(** {1 Error payloads}
+
+    What a malformed graph actually was. These used to be one
+    [`Malformed_graph of string] carrying a [Printf.ksprintf] sentence from 32
+    sites, so a caller could read the failure but never branch on it. *)
+
+type arg_kind =
+  [ `Tensor
+  | `Optional_tensor
+  | `Int_list
+  | `Int
+  | `Bool
+  | `Float
+  | `Scalar
+  | `Optional_scalar
+  | `Tensor_or_scalar ]
+(** What an argument had to be — exactly the set the decode helpers accept. *)
+
+type dim_fault =
+  [ `Negative of int
+  | `Symbolic
+  | `Rank_over_six
+  | `Expected_rank_four of int  (** the rank actually offered *) ]
+
+type metadata_role =
+  [ `Tensor
+  | `Convolution_weight
+  | `Mean_input
+  | `Permute_input
+  | `Addmm_weight ]
+(** Why the missing [tensor_values] entry was wanted. *)
+
+type hw_param = [ `Stride | `Padding | `Dilation | `Kernel_size ]
+(** The four parameters read as an [h, w] pair. *)
+
+type unsupported_option = [ `Alpha of float | `Memory_format ]
+(** Options this lowering rejects rather than silently drops: a non-unit [alpha]
+    would compute the wrong thing, and a [memory_format] asks for a layout
+    change the native IR cannot express. *)
+
+type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
+(** Two different rejections, not one with a message. Both recoverable — see
+    [Me_classify.lowering] — and only the second has a figure to report. *)
+
+(** Own modules, per the record-namespace convention: three of these carry an
+    [op] field and two an [arg]. *)
+
+module Missing_arg : sig
+  type t = { op : string; arg : string }
+end
+
+module Wrong_arg_kind : sig
+  type t = { op : string; arg : string; expected : arg_kind }
+end
+
+module Bad_dimension : sig
+  type t = { tensor : string; fault : dim_fault }
+end
+
+module Missing_metadata : sig
+  type t = { ssa : string; role : metadata_role }
+end
+
+module Axis_out_of_range : sig
+  type t = { axis : int; rank : int }
+end
+
+module Bad_arity : sig
+  type t = { param : hw_param; got : int }
+end
+
+module Unsupported_option : sig
+  type t = { op : string; option : unsupported_option }
+end
+
+type malformed =
+  [ `Missing_arg of Missing_arg.t
+  | `Wrong_arg_kind of Wrong_arg_kind.t
+  | `Missing_metadata of Missing_metadata.t
+  | `Bad_dimension of Bad_dimension.t
+  | `Axis_out_of_range of Axis_out_of_range.t
+  | `Bad_arity of Bad_arity.t
+  | `Unsupported_option of Unsupported_option.t
+  | `Non_tensor_node_output of string  (** the node's target *)
+  | `Non_tensor_graph_output
+  | `Undefined_ssa of string
+  | `Output_not_evaluated of Graph_ir.Tensor_id.t ]
+(** A graph the decoder accepted and this lowering cannot read. FLAT-INCLUDED in
+    {!error}: it is this module's own failure domain, not a crossed seam. *)
+
+module Rank_mismatch : sig
+  type t = { sizes : int; strides : int }
+end
+
+module Storage_range : sig
+  type t = { lo : int64; hi : int64; data_bytes : int }
+end
+
+type tensor_bridge =
+  [ malformed
+    (* [shape_of_sizes] is written for graph metadata and the bridge reuses it,
+       so its rows arrive here re-labelled rather than flattened. *)
+  | `Rank_mismatch of Rank_mismatch.t
+  | `Storage_index_overflow
+  | `Storage_out_of_range of Storage_range.t
+  | `Materialize_failed of string
+    (** [Invalid_argument]'s own message — a third-party payload, named for its
+        source rather than left to read as a case declined to classify *)
+  | `Unsupported_dtype of Pt2_dtype.t
+  | `Archive of Pt2_archive.error
+    (** a real seam, so the whole row crosses it; this was
+        [Format.asprintf "%a"] of the same value *) ]
+(** Loading a captured tensor — a different job from reading graph metadata. *)
+
 type error =
-  [ `Unsupported_input of string
-  | `Unsupported_operator of string
-  | `Malformed_graph of string
-  | `Tensor_bridge of string
+  [ `Unsupported_input of unsupported_input
+  | `Unsupported_operator of string  (** the target *)
+  | malformed
+  | `Tensor_bridge of tensor_bridge
   | `Eval of Eval_direct.error
   | `Build of Graph_builder.error
   | `Provenance of Pt2_native_graph.error
@@ -20,6 +134,8 @@ type hooks =
       -> hooks
 
 val pp_error : Format.formatter -> [< error ] -> unit
+val pp_malformed : Format.formatter -> [< malformed ] -> unit
+val pp_tensor_bridge : Format.formatter -> [< tensor_bridge ] -> unit
 
 (* Lowers a root exported graph into one native graph.  PT2 SSA names remain
    solely in the provenance wrapper; native execution addresses every edge by

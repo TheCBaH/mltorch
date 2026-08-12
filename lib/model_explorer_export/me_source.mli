@@ -21,7 +21,8 @@
 
 type error =
   [ Me_ids.error
-  | `Over_limit of string * int
+  | Me_limits.over_limit_error
+    (* counted under [Me_limits.Scope.Source_graph] *)
   | `Unknown_producer of string  (** an SSA name nothing in the graph defines *)
   ]
 

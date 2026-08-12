@@ -22,7 +22,7 @@
 
 type error =
   [ Me_ids.error
-  | `Over_limit of string * int
+  | Me_limits.over_limit_error (* counted under [Me_limits.Scope.Value_graph] *)
   | `Unknown_producer of int  (** a source no value and no input defines *) ]
 
 val pp_error : Format.formatter -> [< error ] -> unit

@@ -142,10 +142,17 @@ module Meta : sig
   val kind : t -> string
   val jsont : t Jsont.t
 
-  val decode : string -> (t, string) result
+  type error = [ `Jsont of string ]
+  (** Jsont's own message. A THIRD-PARTY payload, named for its source: this
+      module does not author it and cannot classify it further. *)
+
+  val pp_error : Format.formatter -> [< error ] -> unit
+
+  val decode : string -> (t, [> error ]) Err.t
   (** PRODUCTION, not a test helper: the coordinator routes on a small
       [JSON.parse] of ["kind"], and every authoritative read of metadata comes
-      through here. *)
+      through here. In [Err.t] rather than a bare result so that read composes
+      with the rest of the path and carries provenance. *)
 end
 
 module Wire : sig

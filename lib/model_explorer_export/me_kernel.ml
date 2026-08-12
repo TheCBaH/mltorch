@@ -3,13 +3,14 @@
 module ME = Model_explorer
 
 type error =
-  [ Me_ids.error | `Over_limit of string * int | `Unknown_producer of int ]
+  [ Me_ids.error | Me_limits.over_limit_error | `Unknown_producer of int ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Me_ids.error as e -> Me_ids.pp_error fmt e
-  | `Over_limit (field, n) ->
-      Fmt.pf fmt "value graph %s = %d is over the ceiling" field n
+  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
   | `Unknown_producer t -> Fmt.pf fmt "source t%d has no producer" t
+
+let over_limit = Me_limits.check ~scope:Me_limits.Scope.Value_graph
 
 let attr key value =
   ME.NodeAttribute.create ~key ~value:(ME.NodeAttributeValue.Str value)
@@ -37,9 +38,8 @@ let build ~limits ~id ~inputs ~outputs ~values =
     List.length values + List.length inputs + List.length outputs
   in
   let* () =
-    if node_count > limits.Me_limits.Limits.max_nodes_per_graph then
-      Err.fail (`Over_limit ("nodes", node_count))
-    else Err.return ()
+    over_limit Me_limits.Field.Nodes node_count
+      ~ceiling:limits.Me_limits.Limits.max_nodes_per_graph
   in
   let producer = Hashtbl.create 128 in
   List.iter
@@ -136,9 +136,8 @@ let build ~limits ~id ~inputs ~outputs ~values =
       0 all
   in
   let+ () =
-    if edges > limits.Me_limits.Limits.max_edges_per_graph then
-      Err.fail (`Over_limit ("edges", edges))
-    else Err.return ()
+    over_limit Me_limits.Field.Edges edges
+      ~ceiling:limits.Me_limits.Limits.max_edges_per_graph
   in
   ME.Graph.create ~id ~nodes:all ()
 

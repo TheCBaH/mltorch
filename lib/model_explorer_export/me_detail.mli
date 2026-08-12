@@ -29,7 +29,7 @@ type error =
     (** well-formed, but names no value in that graph. Distinct from a malformed
         key: one is a bad request, the other a valid request about something
         absent *)
-  | `Over_limit of string * int
+  | Me_limits.over_limit_error (* counted under [Me_limits.Scope.Detail] *)
   | `Document of Me_session.Session.error ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
@@ -40,7 +40,7 @@ val of_value :
   limits:Me_limits.Limits.t ->
   key:Me_request.Detail_key.t ->
   Kernel.Value.t ->
-  (Model_explorer.Graph.t, [> `Over_limit of string * int ]) Err.t
+  (Model_explorer.Graph.t, [> Me_limits.over_limit_error ]) Err.t
 (** The value's expression as a graph: one node per AST node, edges from child
     to parent, bounded by [max_detail_nodes] BEFORE the walk that would build
     them — an expression is exactly the shape whose size is not apparent from

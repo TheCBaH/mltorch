@@ -5,7 +5,7 @@ module ME = Model_explorer
 type error =
   [ `Key_disagrees_with_ids
   | `Unsupported_detail_key
-  | `Over_limit of string * int
+  | Me_limits.over_limit_error
   | `Document of Me_session.Session.error ]
 
 let pp_error fmt : [< error ] -> unit = function
@@ -13,9 +13,10 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.string fmt "the delta's graph and view do not carry the key's id"
   | `Unsupported_detail_key ->
       Fmt.string fmt "the key names no value in that graph"
-  | `Over_limit (field, n) ->
-      Fmt.pf fmt "detail %s = %d is over the ceiling" field n
+  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
   | `Document e -> Me_session.Session.pp_error fmt e
+
+let count = Me_limits.check ~scope:Me_limits.Scope.Detail
 
 (* --- the expression graph ----------------------------------------------- *)
 
@@ -80,11 +81,9 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
      per-node rendering pays for, so they belong in the figure the ceiling
      governs -- and the field is named for what was measured rather than for what
      was built. *)
-  let size = Expr.Fold.size body in
   let+ () =
-    if size > limits.Me_limits.Limits.max_detail_nodes then
-      Err.fail (`Over_limit ("expressionNodes", size))
-    else Err.return ()
+    count Me_limits.Field.Expression_nodes (Expr.Fold.size body)
+      ~ceiling:limits.Me_limits.Limits.max_detail_nodes
   in
   (* Pre-order, so a node's id orders it the way a reader reads the expression,
      and the ROOT is node 0 whatever the tree looks like. *)
@@ -148,9 +147,6 @@ end
 
 (* --- merging ------------------------------------------------------------- *)
 
-let count field n ceiling =
-  if n > ceiling then Err.fail (`Over_limit (field, n)) else Err.return ()
-
 (* A detail graph is one this module produced, and its id is the key's. So
    "which details are installed" is answerable from the session alone, with no
    second list to keep in step. *)
@@ -189,9 +185,9 @@ let apply ~key ~limits (s : Me_session.Session.t) (d : Delta.t) =
   (* The delta ALONE. A merged check would let a delta that is itself over the
      ceiling pass whenever the session it joins is small. *)
   let* () =
-    count "detailNodes"
+    count Me_limits.Field.Detail_nodes
       (List.length d.Delta.graph.ME.Graph.nodes)
-      limits.Me_limits.Limits.max_detail_nodes
+      ~ceiling:limits.Me_limits.Limits.max_detail_nodes
   in
   (* REPLACEMENT by key, so a re-request cannot inflate the aggregates: only
      the committed result counts. The graph and the view carry the same id, so
@@ -264,12 +260,13 @@ let apply ~key ~limits (s : Me_session.Session.t) (d : Delta.t) =
       collections
   in
   let* () =
-    count "detailGraphs"
+    count Me_limits.Field.Detail_graphs
       (List.length (List.filter is_detail all_graphs))
-      limits.Me_limits.Limits.max_detail_graphs
+      ~ceiling:limits.Me_limits.Limits.max_detail_graphs
   in
   let* () =
-    count "graphs" (List.length all_graphs) limits.Me_limits.Limits.max_graphs
+    count Me_limits.Field.Graphs (List.length all_graphs)
+      ~ceiling:limits.Me_limits.Limits.max_graphs
   in
   let+ () =
     Err.map_error

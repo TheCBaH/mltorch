@@ -346,3 +346,24 @@ let%expect_test "limits may tighten, never widen" =
     invalid zip limit max_entry_bytes = 2147483648
     invalid zip limit max_total_bytes = 0
     |}]
+
+(* --- the read-failure row, which had no witness at all --- *)
+
+let%expect_test "a corrupt deflate stream, and the path bound on its payload" =
+  (* [`Zip_read_failed] was one tag over two facts -- zipc's own message and
+     this module's produced-length disagreement -- distinguishable only by
+     matching the message text. It is now a cause constructor.
+
+     The path is 80 bytes, past [path_excerpt_bytes]. Both construction sites
+     used the RAW name while every sibling check excerpted, so this row could
+     carry an unbounded path into an error message; nothing exercised it. *)
+  let long = "m/data/" ^ String.make 73 'x' in
+  let good =
+    Entry.deflated long (String.concat "" (List.init 40 (fun _ -> "abcd")))
+  in
+  let corrupt =
+    { good with Entry.data = String.map (fun _ -> '\x00') good.Entry.data }
+  in
+  read_show (make_archive [ corrupt ]) long;
+  [%expect
+    {| read: zip entry "m/data/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx..." read failed: deflate: Corrupted data stream |}]

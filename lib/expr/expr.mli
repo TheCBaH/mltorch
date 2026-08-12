@@ -15,6 +15,16 @@ module Max_op = Max_op
     leaving it there would force a second copy of the NaN/signed-zero rule --
     the exact duplication that produced the divergence it exists to prevent. *)
 
+type index_op = [ `Add | `Sub | `Mul ]
+(** The three checked-arithmetic operations that can overflow. *)
+
+module Index_overflow : sig
+  type t = { op : index_op; lhs : int; rhs : int }
+  (** Which operation overflowed, on which operands. Re-exported from the
+      library-private checked arithmetic: the rows below are public, so a caller
+      branching on one has to be able to name its payload. *)
+end
+
 module Reduce_var : sig
   (* Abstract, and with NO public constructor: only [Builder] mints one, which
      is what makes reducer scope enforceable. Identity is meaningful only within
@@ -113,10 +123,29 @@ module Intrinsic : sig
 
   type t = private Max_pool of Max_pool.t
 
+  type geometry_field =
+    [ `In_h
+    | `In_w
+    | `Kernel_h
+    | `Kernel_w
+    | `Stride_h
+    | `Stride_w
+    | `Pad_h
+    | `Pad_w ]
+  (** The eight parameters {!max_pool} validates, closed. *)
+
+  type geometry_bound = [ `Positive | `Non_negative ]
+  (** Which bound the value failed. Recorded nowhere before: the message said
+      only "must be valid", so the row could not say what would have been. *)
+
+  module Bad_geometry : sig
+    type t = { field : geometry_field; value : int; bound : geometry_bound }
+  end
+
   type error =
-    [ `Index_overflow of string * int * int
+    [ `Index_overflow of Index_overflow.t
     | `Non_positive_divisor of int
-    | `Bad_geometry of string * int ]
+    | `Bad_geometry of Bad_geometry.t ]
 
   val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -425,7 +454,7 @@ end
 
 module Eval : sig
   type index_error =
-    [ `Index_overflow of string * int * int
+    [ `Index_overflow of Index_overflow.t
     | `Non_positive_divisor of int
     | `Unbound_reducer of Reduce_var.t
     | `Index_not_exact_in_float of int ]

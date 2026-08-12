@@ -249,8 +249,9 @@ let pp_aten ppf t =
    element order, see native_aten_bridge_design) so it prints with the same
    formatter as the ATen output. *)
 let pp_native ppf packed =
-  Core.Pretty.result ~ok:pp_aten
-    ~error:(fun ppf e -> Fmt.pf ppf "<error: %s>" e)
+  Core.Pretty.err_result ~ok:pp_aten
+    ~error:(fun ppf e ->
+      Fmt.pf ppf "<error: %a>" Tensor_bridge.pp_to_aten_error e)
     ppf
     (Tensor_bridge.to_aten_flat packed)
 

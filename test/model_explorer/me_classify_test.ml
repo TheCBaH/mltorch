@@ -86,9 +86,9 @@ let%expect_test "every Native_interp row, classified" =
   let rows : (string * Native_interp.error) list =
     [
       ("Unsupported_operator", `Unsupported_operator "aten.bogus");
-      ("Unsupported_input", `Unsupported_input "non-tensor input");
-      ("Malformed_graph", `Malformed_graph "y is not defined");
-      ("Tensor_bridge", `Tensor_bridge "dtype");
+      ("Unsupported_input", `Unsupported_input `Non_tensor);
+      ("Malformed_graph", `Undefined_ssa "y");
+      ("Tensor_bridge", `Tensor_bridge (`Unsupported_dtype Pt2_dtype.Int64));
       ("Eval", `Eval (`Missing_input (tid 0)));
       ("Build", `Build (`Missing_tensor_sig (tid 0)));
       ("Provenance", `Provenance (`Unknown_node_id (nid 0)));

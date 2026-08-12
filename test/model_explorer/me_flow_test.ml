@@ -267,10 +267,10 @@ let%expect_test "illegal cross-layer transitions" =
     F.Transition.Import;
   [%expect
     {|
-    pt2 -> native4d            transition t/x/000 crosses layers illegally
-    native -> kernel           transition t/x/000 crosses layers illegally
-    native4d -> symbolic       transition t/x/000 crosses layers illegally
-    import inside native       transition t/x/000 crosses layers illegally |}]
+    pt2 -> native4d            transition t/x/000 crosses layers illegally: pt2 -cross_dialect-> native4d
+    native -> kernel           transition t/x/000 crosses layers illegally: native -adapt-> kernel
+    native4d -> symbolic       transition t/x/000 crosses layers illegally: native4d -adapt-> symbolic
+    import inside native       transition t/x/000 crosses layers illegally: native -import-> native |}]
 
 let%expect_test "a pass carrying another layer's execution" =
   (* The triple is legal — Native to Native — and the execution is from the
@@ -294,7 +294,7 @@ let%expect_test "a pass carrying another layer's execution" =
   in
   check "wrong layer" flow;
   [%expect
-    {| wrong layer                transition t/native/001 carries an execution from another layer |}]
+    {| wrong layer                transition t/native/001 carries an execution from another layer: native4d, between native and native |}]
 
 let%expect_test "the same execution twice" =
   let flow =
@@ -398,7 +398,9 @@ let%expect_test "the two counts are checked before the walks they bound" =
 let%expect_test "every legal triple, enumerated" =
   List.iter
     (fun (b, k, a) ->
-      Printf.printf "%-9s --%-14s-> %s\n" (L.to_string b) k (L.to_string a))
+      Printf.printf "%-9s --%-14s-> %s\n" (L.to_string b)
+        (F.Transition.Kind_tag.to_string k)
+        (L.to_string a))
     F.legal_triples;
   [%expect
     {|

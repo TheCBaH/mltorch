@@ -19,7 +19,25 @@ open Bigarray
    Bigarray so the result's lifetime is independent of the ATen handle (a
    non-contiguous input is materialized contiguous first).  Returns Error if the
    rank exceeds 6 or the dtype has no native equivalent. *)
-let of_aten t : (Tensor.packed, string) result =
+(* Three leaves, and a shared base domain flat-included.
+
+   [Aten_shape.error] arrives whole rather than as [Fmt.str "%a"] of it: this
+   used to destructure an [Err.t] only to re-render its payload, which threw
+   away the wrapper and left the caller a sentence it could not act on. *)
+type error =
+  [ Aten_shape.error
+  | `Null_data_ptr of Aten_scalar_type.t
+  | `Unsupported_dtype of Aten_scalar_type.t ]
+
+let pp_error ppf : [< error ] -> unit = function
+  | #Aten_shape.error as e -> Aten_shape.pp_error ppf e
+  | `Null_data_ptr t ->
+      Fmt.pf ppf "data_ptr returned null for ATen dtype (code %d)"
+        (Aten_scalar_type.to_int t)
+  | `Unsupported_dtype t ->
+      Fmt.pf ppf "unsupported ATen dtype (code %d)" (Aten_scalar_type.to_int t)
+
+let of_aten t : (Tensor.packed, [> error ]) Err.t =
   (* A non-contiguous ATen tensor (e.g. a permute/view output, such as the
      transposed fc weight feeding [addmm]) doesn't share the native flat order,
      so materialize a contiguous copy first — mirroring [Verify]'s approach. *)
@@ -31,18 +49,20 @@ let of_aten t : (Tensor.packed, string) result =
   in
   let shape_arr = Aten_tensor.shape t in
   match Aten_shape.of_aten shape_arr with
-  | Error e ->
-      Error (Fmt.str "shape error: %a" Aten_shape.pp_error (Err.Error.kind e))
+  | Error _ as e ->
+      (* [Err.map_error] rather than a rebuild: the row only WIDENS here, and
+         map_error is what preserves Aten_shape's own detection origin. *)
+      Err.map_error (fun e -> (e :> error)) e
   | Ok shape -> (
       let n = Aten_tensor.numel t in
       match Aten_tensor.scalar_type t with
       | Aten_scalar_type.Float -> (
           match Aten_tensor.data Aten_dtype.float32 t with
-          | None -> Error "float32 data_ptr returned null"
+          | None -> Err.fail (`Null_data_ptr Aten_scalar_type.Float)
           | Some src ->
               let data = Array1.create float32 c_layout n in
               Array1.blit src data;
-              Ok
+              Err.return
                 (Tensor.Tensor
                    {
                      Tensor.shape;
@@ -55,11 +75,11 @@ let of_aten t : (Tensor.packed, string) result =
                    }))
       | Aten_scalar_type.Long -> (
           match Aten_tensor.data Aten_dtype.int64 t with
-          | None -> Error "int64 data_ptr returned null"
+          | None -> Err.fail (`Null_data_ptr Aten_scalar_type.Long)
           | Some src ->
               let data = Array1.create int64 c_layout n in
               Array1.blit src data;
-              Ok
+              Err.return
                 (Tensor.Tensor
                    {
                      Tensor.shape;
@@ -70,23 +90,25 @@ let of_aten t : (Tensor.packed, string) result =
                          data;
                        };
                    }))
-      | other ->
-          let code = Aten_scalar_type.to_int other in
-          Error (Printf.sprintf "unsupported ATen dtype (code %d)" code))
+      | other -> Err.fail (`Unsupported_dtype other))
 
 (* Convert a Native packed float32 or int64 tensor to a 1-D ATen tensor.
    The ATen tensor has a flat 1D shape [numel] to avoid rank-alignment
    ambiguity.  Callers compare element-wise, not shape-wise. *)
+type to_aten_error = [ `Unsupported_native_fmt of Payload.packed_fmt ]
+
+let pp_to_aten_error ppf : [< to_aten_error ] -> unit = function
+  | `Unsupported_native_fmt (Payload.Fmt fmt) ->
+      Fmt.pf ppf "unsupported native fmt %s" (Payload.fmt_name fmt)
+
 let to_aten_flat (native : Tensor.packed) =
   let (Tensor.Tensor r) = native in
   match r.payload.fmt with
   | Payload.F32 ->
       let n = (Vec6.numel r.shape :> int) in
-      Ok (Aten_tensor.of_bigarray Aten_dtype.float32 r.payload.data [ n ])
+      Err.return
+        (Aten_tensor.of_bigarray Aten_dtype.float32 r.payload.data [ n ])
   | Payload.I64 ->
       let n = (Vec6.numel r.shape :> int) in
-      Ok (Aten_tensor.of_bigarray Aten_dtype.int64 r.payload.data [ n ])
-  | fmt ->
-      Error
-        (Printf.sprintf "to_aten_flat: unsupported native fmt %s"
-           (Payload.fmt_name fmt))
+      Err.return (Aten_tensor.of_bigarray Aten_dtype.int64 r.payload.data [ n ])
+  | fmt -> Err.fail (`Unsupported_native_fmt (Payload.Fmt fmt))

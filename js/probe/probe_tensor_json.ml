@@ -19,18 +19,15 @@ let run () =
   (* Failures RAISE rather than print. This is a differential harness: both
      sides run this same source, so a failure that reproduces on both -- which a
      genuine encode/decode bug would -- prints identical text, diffs clean, and
-     passes. Only a non-zero exit gets noticed. Plain [result] from Jsont, so
-     [failwith] rather than [Err.or_raise ~pp_error:] (see [[testing_strategy]]). *)
+     passes. Only a non-zero exit gets noticed. [Graph_json] returns an [Err.t]
+     now, so this goes through [Err.or_raise ~pp_error] per CLAUDE.md rather
+     than the open-coded [failwith] a plain [result] once forced. *)
   let json =
-    match Graph_json.encode_tensor tensor with
-    | Ok json -> json
-    | Error e -> failwith ("probe: encode_tensor: " ^ e)
+    Err.or_raise ~pp_error:Graph_json.pp_error (Graph_json.encode_tensor tensor)
   in
   Printf.printf "json %s\n" json;
   let back =
-    match Graph_json.decode_tensor json with
-    | Ok back -> back
-    | Error e -> failwith ("probe: decode_tensor: " ^ e)
+    Err.or_raise ~pp_error:Graph_json.pp_error (Graph_json.decode_tensor json)
   in
   let bit_exact = Tensor.equal_bits tensor back in
   Printf.printf "round-trip bit-exact: %b\n" bit_exact;

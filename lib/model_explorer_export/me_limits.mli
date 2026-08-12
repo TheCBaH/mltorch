@@ -34,6 +34,115 @@ type error = [ `Invalid_limit of Invalid.t | live_error ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+(** {1 The over-limit domain}
+
+    A count that crossed a ceiling, owned HERE rather than redeclared by each
+    validator. Nine modules used to carry their own
+    [`Over_limit of string * int] and print it their own way, which made the
+    aggregate name a stringly-typed enum with nine independent spellings and no
+    way for a caller to branch on which aggregate overran.
+
+    Both halves of the payload are closed vocabularies: {!Scope} names the
+    validator that rejected, {!Field} the aggregate it was counting. Neither is
+    reconstructible from the other — three different scopes count [Nodes]. *)
+
+module Scope : sig
+  (** Which validator rejected. Carried in the payload rather than supplied by
+      the printer: "which of the nine counted this" is a fact about the failure,
+      and a caller that only reads the rendered string cannot act on it. *)
+  type t =
+    | Session
+    | Graph
+    | Value_graph
+    | Source_graph
+    | Detail
+    | Navigation
+    | Fusion
+    | Flow
+    | Verification
+
+  val to_string : t -> string
+  val all : t list
+end
+
+module Field : sig
+  (** The aggregate that overran, in the renderer's own spelling.
+
+      A CLOSED set: every ceiling in {!Limits} that something counts against
+      appears exactly once, so adding a ceiling without giving it a name here is
+      a compile error at the call site rather than a new string. *)
+  type t =
+    | Views
+    | Comparisons
+    | Node_data_sets
+    | Diagnostics
+    | Graphs
+    | Nodes
+    | Edges
+    | Total_nodes
+    | Total_edges
+    | Attrs_per_node
+    | Metadata_items_per_node
+    | Outputs_metadata_per_node
+    | Namespace_depth
+    | Mapping_entries_per_comparison
+    | Mapping_members
+    | Mapping_members_per_entry
+    | States
+    | Transitions
+    | Detail_graphs
+    | Detail_nodes
+    | Expression_nodes
+    | Group_node_attributes
+    | Node_data_results
+    | Overlay_edges
+    | Overlay_edges_total
+
+  val to_string : t -> string
+  (** The wire spelling — ["nodeDataResults"], not ["Node_data_results"]. *)
+
+  val all : t list
+  (** Built by walking a successor chain, as [Me_ids.Layer.all] is, so a
+      constructor cannot be added without reaching this list. *)
+end
+
+module Over_limit : sig
+  type t = { scope : Scope.t; field : Field.t; count : int64 }
+  (** [count] is the figure OFFERED, not the ceiling, and is widened to [int64]
+      whichever width the field has — the same decision, for the same reason, as
+      {!Invalid.t}'s [value]. It replaces a separate [`Over_limit_64] tag that
+      existed only to carry the two [int64] aggregates. *)
+
+  val pp : Format.formatter -> t -> unit
+end
+
+type over_limit_error = [ `Over_limit of Over_limit.t ]
+(** Narrower than {!error}, for the same reason {!live_error} is: a module that
+    only counts has no limit field to reject. Validators FLAT-INCLUDE this — it
+    is a shared base domain, not a crossed seam, so there is nothing to wrap and
+    the origin of the count is already in [scope]. *)
+
+val check :
+  scope:Scope.t ->
+  Field.t ->
+  int ->
+  ceiling:int ->
+  (unit, [> over_limit_error ]) Err.t
+(** [check ~scope field n ~ceiling] fails when [n > ceiling]. The one place the
+    comparison is written; nine copies of it used to disagree about nothing but
+    could. *)
+
+val check64 :
+  scope:Scope.t ->
+  Field.t ->
+  int64 ->
+  ceiling:int64 ->
+  (unit, [> over_limit_error ]) Err.t
+(** {!check} for the [int64] aggregates. Separate rather than widening at the
+    call site: a caller holding an [int] total under a 32-bit [int] would have
+    to prove the conversion, and these two are summed as [int64] precisely so it
+    never has to. *)
+
 (** {1 Hard ceilings} *)
 
 module Hard : sig

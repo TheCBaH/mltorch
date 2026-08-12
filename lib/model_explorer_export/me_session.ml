@@ -435,55 +435,54 @@ module Session = struct
     default_view : string;
   }
 
+  type graph_node = { graph : string; node : string }
+  type placed_graph = { graph : string; collection : string }
+  type mapped_node = { comparison : string; node : string }
+
   type error =
     [ `Duplicate_graph of string
-    | `Duplicate_node of string * string
+    | `Duplicate_node of graph_node
     | `Unknown_graph of string
-    | `Unknown_node of string * string
-    | `Wrong_collection of string * string
-    | `Dangling_edge of string * string
-    | `Slot_mismatch of string * string
+    | `Unknown_node of graph_node
+    | `Wrong_collection of placed_graph
+    | `Slot_mismatch of graph_node
     | `Unknown_view of string
     | `Duplicate_view of string
     | `Duplicate_comparison of string
     | `Unknown_comparison of string
-    | `Node_in_two_entries of string * string
+    | `Node_in_two_entries of mapped_node
     | `Comparison_panes_disagree of string
     | `Duplicate_capability of string
     | `Missing_capability of string
     | `Incompatible_capability of string
-    | `Over_limit of string * int
-    | `Over_limit_64 of string * int64
+    | Me_limits.over_limit_error
     | Me_flow.error ]
 
   let pp_error fmt : [< error ] -> unit = function
     | `Duplicate_graph id -> Fmt.pf fmt "duplicate graph id %s" id
-    | `Duplicate_node (g, n) ->
-        Fmt.pf fmt "duplicate node id %s in graph %s" n g
+    | `Duplicate_node { graph; node } ->
+        Fmt.pf fmt "duplicate node id %s in graph %s" node graph
     | `Unknown_graph id -> Fmt.pf fmt "unknown graph %s" id
-    | `Unknown_node (g, n) -> Fmt.pf fmt "unknown node %s in graph %s" n g
-    | `Wrong_collection (g, c) ->
-        Fmt.pf fmt "graph %s is not in collection %s" g c
-    | `Dangling_edge (g, n) ->
-        Fmt.pf fmt "edge in graph %s names unknown source node %s" g n
-    | `Slot_mismatch (g, n) ->
-        Fmt.pf fmt "edge in graph %s names no output slot of node %s" g n
+    | `Unknown_node { graph; node } ->
+        Fmt.pf fmt "unknown node %s in graph %s" node graph
+    | `Wrong_collection { graph; collection } ->
+        Fmt.pf fmt "graph %s is not in collection %s" graph collection
+    | `Slot_mismatch { graph; node } ->
+        Fmt.pf fmt "edge in graph %s names no output slot of node %s" graph node
     | `Unknown_view id -> Fmt.pf fmt "unknown view %s" id
     | `Duplicate_view id -> Fmt.pf fmt "duplicate view id %s" id
     | `Duplicate_comparison id -> Fmt.pf fmt "duplicate comparison id %s" id
     | `Unknown_comparison id -> Fmt.pf fmt "unknown comparison %s" id
-    | `Node_in_two_entries (c, n) ->
-        Fmt.pf fmt "node %s appears in two mapping entries of comparison %s" n c
+    | `Node_in_two_entries { comparison; node } ->
+        Fmt.pf fmt "node %s appears in two mapping entries of comparison %s"
+          node comparison
     | `Comparison_panes_disagree t ->
         Fmt.pf fmt "transition %s names a comparison over other graphs" t
     | `Duplicate_capability k -> Fmt.pf fmt "duplicate capability %s" k
     | `Missing_capability k -> Fmt.pf fmt "missing capability %s" k
     | `Incompatible_capability k ->
         Fmt.pf fmt "capability %s carries a payload its key does not admit" k
-    | `Over_limit (field, n) ->
-        Fmt.pf fmt "session %s = %d is over the ceiling" field n
-    | `Over_limit_64 (field, n) ->
-        Fmt.pf fmt "session %s = %Ld is over the ceiling" field n
+    | `Over_limit o -> Me_limits.Over_limit.pp fmt o
     | #Me_flow.error as e -> Me_flow.pp_error fmt e
 
   (* --- an index over the graph payload, built once --- *)
@@ -513,7 +512,8 @@ module Session = struct
                         let id = n.Model_explorer.GraphNode.id in
                         if Hashtbl.mem nodes id then
                           Err.fail
-                            (`Duplicate_node (g.Model_explorer.Graph.id, id))
+                            (`Duplicate_node
+                               { graph = g.Model_explorer.Graph.id; node = id })
                         else begin
                           Hashtbl.replace nodes id
                             (List.length
@@ -545,31 +545,30 @@ module Session = struct
       let open Err.Syntax in
       let* g = graph t id in
       if g.collection = collection then Err.return g
-      else Err.fail (`Wrong_collection (id, collection))
+      else Err.fail (`Wrong_collection { graph = id; collection })
 
     let node t ~graph:gid id =
       let open Err.Syntax in
       let* g = graph t gid in
       match Hashtbl.find_opt g.nodes id with
       | Some slots -> Err.return slots
-      | None -> Err.fail (`Unknown_node (gid, id))
+      | None -> Err.fail (`Unknown_node { graph = gid; node = id })
   end
 
   let validate ~limits s =
     let open Err.Syntax in
-    let count field n ceiling =
-      if n > ceiling then Err.fail (`Over_limit (field, n)) else Err.return ()
-    in
+    let count = Me_limits.check ~scope:Me_limits.Scope.Session in
     (* [max_total_nodes]/[max_total_edges] are [int64] fields -- a real model's
        graphs cannot approach that domain, but this validator's whole point is
        an UNTRUSTED document, and a sum accumulated in [int] would be exactly
        the kind of narrowing this codebase does not do. Checked before each
        addition, not after the fold: the point of the ceiling is to stop
        accumulating, not to notice afterwards that it was crossed. *)
-    let count64 field total ceiling =
-      if Int64.compare total ceiling > 0 then
-        Err.fail (`Over_limit_64 (field, total))
-      else Err.return total
+    let count64 field total ~ceiling =
+      let+ () =
+        Me_limits.check64 ~scope:Me_limits.Scope.Session field total ~ceiling
+      in
+      total
     in
     let all_graphs =
       List.concat_map
@@ -580,38 +579,39 @@ module Session = struct
     (* --- aggregates first, before the walks that are linear in them --- *)
     let* () =
       let* () =
-        count "views" (List.length s.views) limits.Me_limits.Limits.max_views
+        count Me_limits.Field.Views (List.length s.views)
+          ~ceiling:limits.Me_limits.Limits.max_views
       in
       let* () =
-        count "comparisons"
+        count Me_limits.Field.Comparisons
           (List.length s.comparisons)
-          limits.Me_limits.Limits.max_comparisons
+          ~ceiling:limits.Me_limits.Limits.max_comparisons
       in
       let* () =
-        count "nodeDataSets"
+        count Me_limits.Field.Node_data_sets
           (List.length s.node_data_sets)
-          limits.Me_limits.Limits.max_node_data_sets
+          ~ceiling:limits.Me_limits.Limits.max_node_data_sets
       in
       let* () =
-        count "diagnostics"
+        count Me_limits.Field.Diagnostics
           (List.length s.diagnostics)
-          limits.Me_limits.Limits.max_diagnostics
+          ~ceiling:limits.Me_limits.Limits.max_diagnostics
       in
       let* () =
-        count "graphs" (List.length all_graphs)
-          limits.Me_limits.Limits.max_graphs
+        count Me_limits.Field.Graphs (List.length all_graphs)
+          ~ceiling:limits.Me_limits.Limits.max_graphs
       in
       let* _ =
         Err.List.fold_left
           (fun (nodes, edges) (g : Model_explorer.Graph.t) ->
             let* nodes =
-              count64 "totalNodes"
+              count64 Me_limits.Field.Total_nodes
                 (Int64.add nodes
                    (Int64.of_int (List.length g.Model_explorer.Graph.nodes)))
-                limits.Me_limits.Limits.max_total_nodes
+                ~ceiling:limits.Me_limits.Limits.max_total_nodes
             in
             let+ edges =
-              count64 "totalEdges"
+              count64 Me_limits.Field.Total_edges
                 (Int64.add edges
                    (Int64.of_int
                       (List.fold_left
@@ -622,7 +622,7 @@ module Session = struct
                                   n.Model_explorer.GraphNode.incomingEdges
                                   ~default:[]))
                          0 g.Model_explorer.Graph.nodes)))
-                limits.Me_limits.Limits.max_total_edges
+                ~ceiling:limits.Me_limits.Limits.max_total_edges
             in
             (nodes, edges))
           (0L, 0L) all_graphs
@@ -643,8 +643,8 @@ module Session = struct
                   (c.Comparison.overlays_left @ c.Comparison.overlays_right)
             in
             let+ () =
-              count "overlayEdgesTotal" total
-                limits.Me_limits.Limits.max_overlay_edges_total
+              count Me_limits.Field.Overlay_edges_total total
+                ~ceiling:limits.Me_limits.Limits.max_overlay_edges_total
             in
             total)
           0 s.comparisons
@@ -675,31 +675,33 @@ module Session = struct
               Err.List.iter
                 (fun (n : Model_explorer.GraphNode.t) ->
                   let* () =
-                    count "attrsPerNode"
+                    count Me_limits.Field.Attrs_per_node
                       (List.length
                          (Option.value n.Model_explorer.GraphNode.attrs
                             ~default:[]))
-                      limits.Me_limits.Limits.max_attrs_per_node
+                      ~ceiling:limits.Me_limits.Limits.max_attrs_per_node
                   in
                   let* () =
-                    count "metadataItemsPerNode"
+                    count Me_limits.Field.Metadata_items_per_node
                       (List.length
                          (Option.value n.Model_explorer.GraphNode.inputsMetadata
                             ~default:[]))
-                      limits.Me_limits.Limits.max_metadata_items_per_node
+                      ~ceiling:
+                        limits.Me_limits.Limits.max_metadata_items_per_node
                   in
                   let* () =
-                    count "outputsMetadataPerNode"
+                    count Me_limits.Field.Outputs_metadata_per_node
                       (List.length
                          (Option.value
                             n.Model_explorer.GraphNode.outputsMetadata
                             ~default:[]))
-                      limits.Me_limits.Limits.max_outputs_metadata_per_node
+                      ~ceiling:
+                        limits.Me_limits.Limits.max_outputs_metadata_per_node
                   in
                   let* () =
-                    count "namespaceDepth"
+                    count Me_limits.Field.Namespace_depth
                       (namespace_depth n.Model_explorer.GraphNode.namespace)
-                      limits.Me_limits.Limits.max_namespace_depth
+                      ~ceiling:limits.Me_limits.Limits.max_namespace_depth
                   in
                   Err.List.iter
                     (fun (e : Model_explorer.IncomingEdge.t) ->
@@ -717,7 +719,8 @@ module Session = struct
                          slots, and an edge naming any index into that is a
                          connection that carries nothing. *)
                       | Some i when i >= 0 && i < slots -> Err.return ()
-                      | _ -> Err.fail (`Slot_mismatch (gid, src)))
+                      | _ ->
+                          Err.fail (`Slot_mismatch { graph = gid; node = src }))
                     (Option.value n.Model_explorer.GraphNode.incomingEdges
                        ~default:[]))
                 g.Model_explorer.Graph.nodes)
@@ -755,9 +758,10 @@ module Session = struct
           else begin
             Hashtbl.add comparisons c.Comparison.id c;
             let* () =
-              count "mappingEntriesPerComparison"
+              count Me_limits.Field.Mapping_entries_per_comparison
                 (List.length c.Comparison.sync.Sync_navigation.entries)
-                limits.Me_limits.Limits.max_mapping_entries_per_comparison
+                ~ceiling:
+                  limits.Me_limits.Limits.max_mapping_entries_per_comparison
             in
             let* _ =
               Graph_index.graph_in graphs
@@ -783,7 +787,9 @@ module Session = struct
                       (fun id ->
                         let k = side ^ "\000" ^ id in
                         if Hashtbl.mem seen k then
-                          Err.fail (`Node_in_two_entries (c.Comparison.id, id))
+                          Err.fail
+                            (`Node_in_two_entries
+                               { comparison = c.Comparison.id; node = id })
                         else begin
                           Hashtbl.add seen k ();
                           (* A mapping-entry member names a node, not merely a
@@ -812,9 +818,9 @@ module Session = struct
       Err.List.iter
         (fun (d : Node_data_set.t) ->
           let* () =
-            count "nodeDataResults"
+            count Me_limits.Field.Node_data_results
               (List.length d.Node_data_set.results)
-              limits.Me_limits.Limits.max_node_data_results_per_graph
+              ~ceiling:limits.Me_limits.Limits.max_node_data_results_per_graph
           in
           Err.List.iter
             (fun (node, _) ->
