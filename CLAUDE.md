@@ -41,8 +41,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   subsystem seams, not per row: it is the only provenance that exists on the
   JavaScript backends. A deliberate drop of the wrapper (into Cmdliner's
   `(_, string) result`, into Jsont) is fine, but give it a **named** helper —
-  `to_cli`, `Pattern.of_err`, `Me_request.or_jsont` — that marks
-  `Err.Action.Export` first, so it is distinguishable from the defect.
+  `to_cli`, `Pattern.of_err`, `Me_request.or_jsont` — built on `Err.export`,
+  which marks `Err.Action.Export` and then unwraps, so the marking cannot be
+  forgotten and the crossing is distinguishable from the defect. Inbound is
+  `Err.import`, which records `Import` and no `Detect` (a third party detected
+  it, not you); `Err.payload` is the unmarked unwrap, for tests and rendering.
+  **Escape a deeply recursive walk with `Err.Escape`**, never a private
+  exception: `with_escape` establishes one frame, `throw`/`throw_error`/
+  `or_throw` exit it, and the token is threaded so the reach is visible in the
+  types. Carrying a bare row instead of the `Error.t` is the defect it removes —
+  `Native_interp` had it, and reported every malformed graph as detected at the
+  catch. A token is invariant in its payload, so a callee at a narrower row gets
+  `Err.Escape.map` of its caller's, not one of its own (`Expr.Eval.eval_index`).
+  **`Err.Accum` accumulates every failure, so it must not run above a ceiling
+  that has not yet passed** — `Me_session`/`Me_flow` check aggregates before the
+  walks linear in them, and that ordering is the bound. Where the work is a
+  compile-time constant and no check gates another it is right, and
+  `Err.Accum.fold_errors` collapses the batch back into the module's own domain
+  so the list never reaches a published signature
+  (`Me_limits.Limits.check_against`).
+  Two-list traversals go through `Err.List.map2`/`iter2 ~unequal_lengths` so the
+  arity check cannot drift from the pairing it guards — unless the mismatch is a
+  module invariant, which stays `invalid_arg` (`Native_interp.add_env`).
   **Payloads carry data, not prose.** A closed value set is a variant, not a
   string (`Me_limits.Field`, `Native_interp.arg_kind`,
   `Me_flow.Transition.Kind_tag`); a multi-field payload is a named record with
@@ -54,6 +74,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   the module declined to classify.
   Configuration and monitors belong to the **host**, never to `lib/`:
   `lib/err_host` reads `MLTORCH_ERROR_*` once from an executable's entry point.
+  A test that changes the policy uses `Err.Config.with_config`, which restores it
+  even when the body raises. `Config.fast` is **not** the production preset its
+  name suggests — it empties the action set and drops the whole event trail;
+  `Config.deterministic` is the one that keeps boundaries without stacks.
   See `.ai/error_handling_design.md` and `.ai/printer_conventions.md`.
 - **Never assume a 63-bit `int` in the JS-reachable libraries** — `lib/native`,
   `lib/walk_core`, `lib/core`, `lib/native4d`, `lib/expr`, and now `lib/pt2`,

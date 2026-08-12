@@ -208,11 +208,13 @@ module Meta = struct
   (* Jsont's message is a THIRD-PARTY payload — a decoder position and
      expectation this module did not author. Lifting it into [Err.t] anyway
      gives the coordinator a wrapper with provenance and composition with
-     [let*]; the tag names its source rather than claiming a case of its own. *)
+     [let*]; the tag names its source rather than claiming a case of its own.
+     [Err.import] records the crossing as [Import] and adds no [Detect], since
+     the failure was detected by the decoder. *)
   let decode s =
-    match Jsont_bytesrw.decode_string jsont s with
-    | Ok v -> Err.return v
-    | Error m -> Err.fail ~pos:__POS__ (`Jsont m)
+    Err.import ~pos:__POS__
+      (fun m -> `Jsont m)
+      (Jsont_bytesrw.decode_string jsont s)
 end
 
 module Wire = struct

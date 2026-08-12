@@ -30,7 +30,16 @@ type live_error = [ `Live_overflow of string ]
     or [R_install]. Narrower than [error] because [response_live_bytes] is a
     pure calculator over two numbers and has no field to reject. *)
 
-type error = [ `Invalid_limit of Invalid.t | live_error ]
+type error =
+  [ `Invalid_limit of Invalid.t
+  | `Invalid_limits of Invalid.t list
+  | live_error ]
+(** [`Invalid_limits] is the fieldwise sweep's verdict when MORE THAN ONE field
+    is out of bounds: {!Limits.create} and {!Wire_limits.of_limits} check all 41
+    fields and report every rejection, so an operator fixing a profile does not
+    do it one round trip at a time. A single rejection stays [`Invalid_limit],
+    so the common message is unchanged. Every other validator here reports the
+    FIRST problem, deliberately — see the note on {!Wire_limits.of_limits}. *)
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -504,7 +513,15 @@ module Wire_limits : sig
   (** Fieldwise against [ceiling] — every scalar AND every nested
       [Pt2_zip.Limits.t] field. [response_live_bytes] is not compared: it is
       derived, and a derived field that is already monotone in its two inputs is
-      implied by them. *)
+      implied by them.
+
+      This sweep ACCUMULATES: it reports every field out of bounds, not the
+      first. Two conditions make that safe here and rule it out for the document
+      validators — the field list is a compile-time constant, so the input
+      cannot make "run every element" expensive, and no check is a precondition
+      of another. {!Me_session.validate} and {!Me_flow.validate} check their
+      aggregate ceilings BEFORE the walks linear in those counts, and a bound
+      checked after the work it bounds is not a bound. *)
 
   val limits : t -> Limits.t
 

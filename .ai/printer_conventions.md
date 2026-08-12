@@ -186,18 +186,28 @@ Three silent behaviour changes, each found by a cram golden that moved:
   `~error:'e` rather than a thunk, so it would allocate the payload on every
   successful check in the hottest export loop. The explicit
   `if over then fail else return ()` is the faster form there.
-- **A deliberate drop of the wrapper needs a NAME, and marks `Export`.**
-  Crossing out of the framework is legitimate — Cmdliner wants
+- **A deliberate drop of the wrapper needs a NAME, and goes through
+  `Err.export`.** Crossing out of the framework is legitimate — Cmdliner wants
   `(_, string) result`, Jsont wants a raised decode error, and the pattern monad
   has its own `failure` type — but an anonymous
   `| Error e -> Error (… Err.Error.kind e …)` is textually indistinguishable
   from the defect above. The named helpers are `to_cli` (`bin/native_graph.ml`),
-  `Pattern.of_err`, `Quant.of_err_for_jsont`, `Me_request.or_jsont`, and
-  `Me_limits`' wire decoder; each calls
-  `Err.mark_error ~pos:__POS__ Err.Action.Export` before unwrapping, so the
-  crossing is visible to a monitor and not only to a reader.
+  `Pattern.of_err`, `Quant.of_err_for_jsont`, `Me_request.or_jsont`,
+  `Pass.Outcome.to_jsont`, and `Me_limits`' wire decoder; each is
+  `Err.export ~pos:__POS__`, which marks `Export` and *then* unwraps, so the
+  marking is part of the operation rather than something the helper has to
+  remember — `to_jsont` is the one that had forgotten it.
+  `Err.export` keeps the payload **typed**; rendering it is the boundary's own
+  decision, and a boundary that only wants to render uses `Err.Error.pp_kind`.
   `test/native/dce_test.ml:147` is left inline behind the comment that already
   explained it.
+- **The inbound twin is `Err.import`, not `Err.fail`.** Lifting a third party's
+  bare `(_, string) result` into the framework — `Graph_json.of_jsont`,
+  `Me_response.Meta.decode`, `Pt2_archive`'s three `Jsont_bytesrw` decodes —
+  records `Import` and no `Detect`, because the failure was detected by whoever
+  produced the result. `Err.fail` there would claim this module found it.
+  `Err.payload` is the *unmarked* unwrap, for tests and assertions, so uses that
+  are not boundaries do not dilute the marked form.
 - **`Option.value ~default:e` evaluates `e` eagerly.** Fine for a cheap total
   constant; for a raising, expensive, or effectful fallback keep explicit
   branching — or use `Err.map_none`, which is that caveat expressed in a type.

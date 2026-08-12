@@ -227,15 +227,14 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
     in
     let src_outputs = (Src.Snapshot.graph src).Graph_common.Graph.outputs
     and dst_outputs = (Dst.Snapshot.graph dst).Graph_common.Graph.outputs in
-    if List.compare_lengths src_outputs dst_outputs <> 0 then
-      Err.fail
-        (`Graph_output_arity (List.length src_outputs, List.length dst_outputs))
-    else
-      Err.List.iter
-        (fun (s, d) ->
-          if paired s d then Err.return ()
-          else Err.fail (`Graph_output_mismatch (s, d)))
-        (List.combine src_outputs dst_outputs)
+    (* The arity check rides on the traversal that needs it, rather than
+       sitting beside a [List.combine] that would raise if the two drifted. *)
+    Err.List.iter2
+      ~unequal_lengths:(fun src dst -> `Graph_output_arity (src, dst))
+      (fun s d ->
+        if paired s d then Err.return ()
+        else Err.fail (`Graph_output_mismatch (s, d)))
+      src_outputs dst_outputs
 
   let create ~src ~dst ~values ~nodes ~provenance =
     let open Err.Syntax in

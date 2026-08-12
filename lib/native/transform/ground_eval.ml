@@ -147,28 +147,28 @@ let pp_error fmt : [< error ] -> unit = function
 (* Index evaluation is result-returning, but [ground] and [expand] are
    recursive rebuilds threading a node budget; converting at every step would
    rewrite them monadically for a failure that cannot occur on a well-formed
-   graph. So the recursion raises and the module's PUBLIC entry points convert
-   once -- the same shape [Expr.Eval] uses internally, and for the same reason.
-   The exception carries an already-built [Err.Error.t], so the backtrace is
-   the one captured where the failure was detected. *)
-exception Eval_failed of error Err.Error.t
+   graph. So the recursion escapes through [Err.Escape] and the module's PUBLIC
+   entry points convert once -- the same shape [Expr.Eval] uses internally, and
+   for the same reason. [throw_error] carries the already-built [Err.Error.t],
+   so the backtrace is the one captured where the failure was detected.
 
-let or_raise : ('a, [< error ]) Err.t -> 'a = function
+   The local wrapper exists only for the row widening: [Escape.or_throw] is
+   monomorphic in the payload, and [Error.t]'s covariance coerces a sub-row for
+   free where [map_error] would record a [Map] event this never had. *)
+let or_throw esc : ('a, [< error ]) Err.t -> 'a = function
   | Ok v -> v
-  | Error e -> raise (Eval_failed (e :> error Err.Error.t))
-
-let caught f = try Err.return (f ()) with Eval_failed e -> Error e
+  | Error e -> Err.Escape.throw_error esc (e :> error Err.Error.t)
 
 (* ---- grounding one stage body -------------------------------------------- *)
 
 (* [Load]s become leaves through [leaf]; every index is evaluated at [coord]
    (and at the enclosing reduction variables), which is what removes the
    binders. *)
-let rec ground ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
-  let recur = ground ~env ~coord ~rvars in
+let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
+  let recur = ground esc ~env ~coord ~rvars in
   let index : type r. r Expr.Index.t -> int =
    fun i ->
-    or_raise
+    or_throw esc
       (Expr.Eval.index ~output:coord
          ~reducers:(fun v ->
            List.find_map
@@ -184,7 +184,7 @@ let rec ground ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
       (* Through the shared conversion, not [float_of_int]: this is the second
          interpreter, and a helper returning [int] does not make the conversion
          that follows it exact. *)
-      Ground_expr.Const (or_raise (Expr.Eval.float_of_index (index i)))
+      Ground_expr.Const (or_throw esc (Expr.Eval.float_of_index (index i)))
   | Expr.Value.Round_f32 x ->
       (* A stage boundary in the value language maps onto the ground language's
          own [Round], which already carries f32 semantics. *)
@@ -201,7 +201,7 @@ let rec ground ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
   | Expr.Value.Load (src, idx) ->
       leaf ~env (Expr_bridge.id_of_source src) (fun a ->
           index (Expr.Coord.get idx a))
-  | Expr.Value.Intrinsic i -> max_pool ~env ~coord ~rvars i
+  | Expr.Value.Intrinsic i -> max_pool esc ~env ~coord ~rvars i
   | Expr.Value.Reduce r ->
       let lo = index r.Expr.Reduction.lo and hi = index r.Expr.Reduction.hi in
       let combine, seed =
@@ -221,7 +221,7 @@ let rec ground ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
         else
           fold (i + 1)
             (combine acc
-               (ground ~env ~coord
+               (ground esc ~env ~coord
                   ~rvars:((r.Expr.Reduction.var, i) :: rvars)
                   r.Expr.Reduction.body))
       in
@@ -249,11 +249,11 @@ and leaf ~env id at_axis : Ground_expr.t =
    The value accumulator is a binary [Max] node, so it is mentioned once and
    the fold stays linear in the window; the index accumulator has to name the
    running best inside its guard, which is why it is the larger of the two. *)
-and max_pool ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
+and max_pool esc ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
   let open Expr.Intrinsic.Max_pool in
   let index : type r. r Expr.Index.t -> int =
    fun x ->
-    or_raise
+    or_throw esc
       (Expr.Eval.index ~output:coord
          ~reducers:(fun v ->
            List.find_map
@@ -266,7 +266,7 @@ and max_pool ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
      their own bounds -- and a second copy of the arithmetic is exactly how this
      interpreter and [Expr.Eval] would drift apart. *)
   let w =
-    or_raise
+    or_throw esc
       (Expr.Intrinsic.window i
          ~out_h:(index (Expr.Coord.get d.out Axis.H))
          ~out_w:(index (Expr.Coord.get d.out Axis.W)))
@@ -291,11 +291,9 @@ and max_pool ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
     else
       let v = read ih iw in
       let flat =
-        or_raise
-          (Err.map_error
-             (fun e -> (e :> error))
-             (Expr.Eval.float_of_index
-                (or_raise (Expr.Intrinsic.flat_index i ~ih ~iw))))
+        or_throw esc
+          (Expr.Eval.float_of_index
+             (or_throw esc (Expr.Intrinsic.flat_index i ~ih ~iw)))
       in
       fold_w ih (iw + 1)
         ( Ground_expr.Max (Expr.Max_op.Pool_max, best, v),
@@ -317,14 +315,14 @@ and max_pool ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
 
 (* ---- the interface -------------------------------------------------------- *)
 
-(* Internal: raises through [Eval_failed]. The public entries below convert. *)
-let body_at env (st : Stage_program.Stage.t) coord =
-  ground ~env
+(* Internal: escapes through [esc]. The public entries below establish it. *)
+let body_at esc env (st : Stage_program.Stage.t) coord =
+  ground esc ~env
     ~coord:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int coord))
     ~rvars:[] st.Stage_program.Stage.body
 
 let at env id coord =
-  caught @@ fun () ->
+  Err.Escape.with_escape @@ fun esc ->
   (* [id] names an edge of THIS graph, so the stage is looked up by that raw id
      DIRECTLY. A root is never replaced by a correspondence variable, whatever
      cluster it is in: doing so would let the cluster under test discharge
@@ -332,7 +330,7 @@ let at env id coord =
      looked at. Expanding the root is what puts a real definition on each side;
      projection then applies to what that reads. *)
   match Env.stage_of_id env id with
-  | Some st -> Ground_expr.Round (body_at env st coord)
+  | Some st -> Ground_expr.Round (body_at esc env st coord)
   | None -> (
       (* An input edge can itself be a bound constant — [fold_const]'s whole
          output is one — so the same binding [leaf] applies inside a body has to
@@ -345,7 +343,7 @@ let at env id coord =
       | None, None ->
           let origin = Env.origin env id in
           if Option.is_none (Env.shape_of env origin) then
-            or_raise (Err.fail (`Unknown_edge id))
+            or_throw esc (Err.fail (`Unknown_edge id))
           else Ground_expr.Cell { Ground_expr.Cell.origin; coord })
 
 (* [budget] bounds ONE round, and has to: a single substitution step is
@@ -364,7 +362,7 @@ let at env id coord =
    truncation and a completed frontier, and the two must not be confused —
    which is why [expandable] below asks the same question. *)
 let expand ~boundary ~budget env (e : Ground_expr.t) =
-  caught @@ fun () ->
+  Err.Escape.with_escape @@ fun esc ->
   let rec go n e =
     if n >= budget then (n, e)
     else
@@ -376,7 +374,7 @@ let expand ~boundary ~budget env (e : Ground_expr.t) =
           match Env.stage_of env c.Ground_expr.Cell.origin with
           | Some st ->
               let body =
-                Ground_expr.Round (body_at env st c.Ground_expr.Cell.coord)
+                Ground_expr.Round (body_at esc env st c.Ground_expr.Cell.coord)
               in
               (n + Ground_expr.size body, body)
           | None -> (n + 1, e))

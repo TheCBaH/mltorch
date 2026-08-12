@@ -297,17 +297,17 @@ module Make (D : Dialect.S) = struct
               (fun e -> `Graph_shape e)
               (D.output_shape n.Node.op ~sig_of)
           in
-          let expected = List.length shapes
-          and actual = List.length n.Node.outputs in
-          let* () =
-            if expected = actual then Err.return ()
-            else Err.fail (`Output_arity { node = n.Node.id; expected; actual })
-          in
           (* The recorded signature must be the shape the op actually produces.
            Arity alone would let a rewrite install an output whose declared
-           shape contradicts its operands, which then only surfaces at eval. *)
-          fold_result
-            (fun () (id, computed) ->
+           shape contradicts its operands, which then only surfaces at eval.
+
+           [iter2] carries the arity check, so it cannot drift from the pairing
+           it guards -- the two used to be a separate [if] and a [List.combine]
+           that would have raised [Invalid_argument] had they disagreed. *)
+          Err.List.iter2
+            ~unequal_lengths:(fun actual expected ->
+              `Output_arity { node = n.Node.id; expected; actual })
+            (fun id computed ->
               match Tensor_id.Map.find_opt id g.Graph.tensors with
               | Some sg
                 when List.for_all
@@ -319,8 +319,7 @@ module Make (D : Dialect.S) = struct
                   Err.return ()
               | Some _ -> Err.fail (`Output_shape_mismatch id)
               | None -> Err.fail (`Graph_shape (D.missing_sig id)))
-            ()
-            (List.combine n.Node.outputs shapes))
+            n.Node.outputs shapes)
         () g.Graph.nodes
     in
     (* Every LIVE id has a signature, and that signature satisfies the dialect.
