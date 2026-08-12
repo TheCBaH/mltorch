@@ -202,3 +202,45 @@ let%expect_test "skipped: out= variant" =
 let%expect_test "skipped: unsupported arg (Dimname)" =
   gen "squeeze.dimname(Tensor(a) self, Dimname dim) -> Tensor(a)";
   [%expect {| SKIPPED: unsupported arg type: Dimname |}]
+
+(* --- doc-comment escaping ------------------------------------------------
+
+   The emitters echo each op's schema into an OCaml doc comment above its
+   binding, and a schema is not comment-safe: unbind's alias annotation
+   "Tensor(a -> *)" carries a literal "*)", which closes the comment early and
+   makes the whole generated module a syntax error, reported hundreds of lines
+   away as an unmatched [struct].
+
+   Compiling the generated module covers this today only because unbind.int is
+   selected. These pin the rule itself, so dropping it from the selection cannot
+   quietly remove the coverage. *)
+
+let comment s = print_endline (Aten_emit.ocaml_comment_body s)
+
+let%expect_test "doc comment: an ordinary signature is passed through verbatim"
+    =
+  comment "add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor";
+  (* Note the bare "*," above: a lone star is harmless, so no quoting. *)
+  comment "gelu(Tensor self, *, str approximate=\"none\") -> Tensor";
+  [%expect
+    {|
+    add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
+    gelu(Tensor self, *, str approximate="none") -> Tensor |}]
+
+let%expect_test "doc comment: a comment delimiter is quoted, not rewritten" =
+  (* The whole point: the text survives character for character, hidden inside a
+     string literal that OCaml's comment lexer parses. *)
+  comment "unbind.int(Tensor(a -> *) self, int dim=0) -> Tensor[](a)";
+  (* An opening delimiter would nest and swallow the rest, so it is quoted too. *)
+  comment "fake.op(Tensor (* self) -> Tensor";
+  [%expect
+    {|
+    "unbind.int(Tensor(a -> *) self, int dim=0) -> Tensor[](a)"
+    "fake.op(Tensor (* self) -> Tensor" |}]
+
+(* A quoted signature must still be a well-formed OCaml string, or the comment
+   it sits in is unterminated -- so an embedded quote or backslash has to be
+   escaped, which %S does. *)
+let%expect_test "doc comment: quotes inside a quoted signature are escaped" =
+  comment "fake.op(str s=\"a *) b\") -> Tensor";
+  [%expect {| "fake.op(str s=\"a *) b\") -> Tensor" |}]

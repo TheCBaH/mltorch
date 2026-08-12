@@ -290,6 +290,48 @@ let%expect_test "tensor list: null handle is a checked error, not a crash" =
     get(null)=true
     to_list null: raised Tensor.Error |}]
 
+(* The index check, the other branch ATC_TRY cannot cover: a bad index is not a
+   C++ exception, and reading past the vector's end would be UB. Unlike the null
+   case this needs a REAL container, so it holds the raw handle and frees it
+   itself rather than going through [to_list], which frees on the way out.
+
+   [F.last_error] is asserted here and not above because the diagnostic is the
+   part a regression could silently drop: returning NULL without setting one
+   leaves [Aten_tensor.check] raising the generic "aten error" fallback, and
+   nothing else in the suite would notice. *)
+let%expect_test "tensor list: out-of-range index is a checked error" =
+  let l = O.unbind_int (alloc [ 3; 2 ]) 0L in
+  Fun.protect
+    ~finally:(fun () -> F.tensor_list_free l)
+    (fun () ->
+      Printf.printf "len=%Ld\n" (F.tensor_list_len l);
+      let get i =
+        let t = F.tensor_list_get l i in
+        Printf.printf "get(%Ld): null=%b last_error=%s\n" i (is_null t)
+          (Option.value (F.last_error ()) ~default:"<none>");
+        t
+      in
+      (* Both ends: a negative index, and one exactly at the length. *)
+      ignore (get (-1L));
+      ignore (get 3L);
+      (* An in-range index still works, so the guard is a bounds check and not a
+         blanket rejection. Its last_error line still shows the previous
+         message: atc_last_error is sticky, only written on failure, which is
+         why every assertion above reads it immediately after a failing call. *)
+      ignore (T.manage (T.check (get 1L)));
+      (* The raw binding does not raise; Aten_tensor.check is what converts the
+         NULL sentinel, and it reports the shim's own message. *)
+      match T.check (F.tensor_list_get l 99L) with
+      | exception T.Error msg -> Printf.printf "check: raised %S\n" msg
+      | _ -> print_string "check: no error\n");
+  [%expect
+    {|
+    len=3
+    get(-1): null=true last_error=tensor list index out of bounds
+    get(3): null=true last_error=tensor list index out of bounds
+    get(1): null=false last_error=tensor list index out of bounds
+    check: raised "tensor list index out of bounds" |}]
+
 let%expect_test "tensor list: containers are counted separately from tensors" =
   (* No container has been allocated, so the count is a clean zero -- the
      baseline the unbind lifetime tests assert a return to. *)
@@ -361,3 +403,42 @@ let%expect_test "a dense tensor is returned unchanged, not copied" =
     (T.live_count () - base);
   ignore (Sys.opaque_identity y);
   [%expect "same handle=true live delta=1"]
+
+(* --- tensor-list lifetimes, against a real Tensor[]-returning op ---------- *)
+
+let%expect_test "tensor list: the container is freed before to_list returns" =
+  collect ();
+  let base = Aten_tensor_list.live_count () in
+  let x = f32 [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  let rows = Aten_tensor_list.to_list (O.unbind_int x 0L) in
+  (* Synchronously, with no GC: [to_list] frees under Fun.protect. The extracted
+     tensors are still usable, because at::Tensor is intrusively refcounted and
+     destroying the vector drops only its own handles. *)
+  Printf.printf "containers=+%d rows=%d row1=%s\n"
+    (Aten_tensor_list.live_count () - base)
+    (List.length rows)
+    (match T.as_float32 (T.materialize_for_raw_read (List.nth rows 1)) with
+    | None -> "<none>"
+    | Some ba -> Printf.sprintf "[%g;%g]" ba.{0} ba.{1});
+  [%expect "containers=+0 rows=3 row1=[2;3]"]
+
+let%expect_test "tensor list: extracted tensors are freed by the GC" =
+  collect ();
+  let base = T.live_count () in
+  let x = f32 [ 4; 2 ] (List.init 8 float_of_int) in
+  let while_referenced =
+    let rows = Aten_tensor_list.to_list (O.unbind_int x 0L) in
+    let delta = T.live_count () - base in
+    ignore (Sys.opaque_identity rows);
+    delta
+  in
+  (* +1 for [x], +4 for the extracted rows: [to_list] manages every element, so
+     each is owned exactly once. *)
+  Printf.printf "while referenced: +%d\n" while_referenced;
+  collect ();
+  (* Back to just [x], which is still referenced below. *)
+  Printf.printf "after gc: +%d\n" (T.live_count () - base);
+  ignore (Sys.opaque_identity x);
+  [%expect {|
+    while referenced: +5
+    after gc: +1 |}]

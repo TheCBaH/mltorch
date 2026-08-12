@@ -74,6 +74,9 @@ let selection =
     (* shape/view ops used by the ViT models *)
     op "expand";
     op "select" ~overload:"int";
+    (* The only Tensor[]-returning op bound so far: the ViT attention blocks
+       split their packed qkv projection with it. *)
+    op "unbind" ~overload:"int";
     op "squeeze" ~overload:"dims";
     op "unsqueeze";
     op "mean" ~overload:"dim";

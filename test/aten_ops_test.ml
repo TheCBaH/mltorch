@@ -466,3 +466,72 @@ let%expect_test "topk" =
     status=0
     [1x3] = [0.9; 0.5; 0.3]
     [1x3] = [3; 1; 4] |}]
+
+(* --- unbind.int: the only Tensor[]-returning binding ---------------------
+
+   [show] reads flat off the storage base, and unbind returns VIEWS, so every
+   value here goes through [T.materialize_for_raw_read] first. Reading a result
+   directly would print result 0's numbers for every index. *)
+
+let show_view t = show (T.materialize_for_raw_read t)
+
+let%expect_test "unbind.int at dim 0" =
+  let x = make [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  let rows = Aten_tensor_list.to_list (O.unbind_int x 0L) in
+  Printf.printf "n=%d\n" (List.length rows);
+  List.iter show_view rows;
+  [%expect {|
+    n=3
+    [2] = [0; 1]
+    [2] = [2; 3]
+    [2] = [4; 5] |}]
+
+let%expect_test "unbind.int at dim -1" =
+  (* Columns of a 2x3: the negative dim normalizes to 2's last axis, and each
+     result is a STRIDED view, the other half of the view story. *)
+  let x = make [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  let cols = Aten_tensor_list.to_list (O.unbind_int x (-1L)) in
+  Printf.printf "n=%d\n" (List.length cols);
+  List.iter show_view cols;
+  [%expect {|
+    n=3
+    [2] = [0; 3]
+    [2] = [1; 4]
+    [2] = [2; 5] |}]
+
+let%expect_test "unbind.int of a zero-length dim is the empty list" =
+  (* [make] can't build this one: a zero-element tensor has a null data pointer,
+     so there is no Bigarray view to fill. *)
+  let x = T.create [ 0; 2 ] in
+  Printf.printf "n=%d\n"
+    (List.length (Aten_tensor_list.to_list (O.unbind_int x 0L)));
+  [%expect "n=0"]
+
+(* The results are views onto the input's storage, and they outlive the
+   container [to_list] frees. Mutating result 1 in place must therefore show up
+   in the input's second row -- proving the extracted handle kept its view
+   metadata (offset included) and its storage aliasing. Result 1, not 0: result
+   0 is at offset 0 and would pass even if the offset were lost. *)
+let%expect_test "unbind results alias their input and survive the container" =
+  let x = make [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  let rows = Aten_tensor_list.to_list (O.unbind_int x 0L) in
+  let row1 = List.nth rows 1 in
+  (* add_ returns Tensor(a!) -- a NEW owning handle over the same storage, so
+     manage it or it leaks past the live-count assertions elsewhere. *)
+  ignore
+    (T.manage
+       (O.add__Tensor row1 (make [ 2 ] [ 10.; 20. ]) (Aten_scalar.Int 1L)));
+  show x;
+  let expected = make [ 2 ] [ 12.; 23. ] in
+  Printf.printf "row1 == [12;23]: %b\n"
+    (T.equal (T.manage (O.select_int x 0L 1L)) expected);
+  [%expect {|
+    [3x2] = [0; 1; 12; 23; 4; 5]
+    row1 == [12;23]: true |}]
+
+let%expect_test "unbind.int with an out-of-range dim is a checked error" =
+  let x = make [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  (match Aten_tensor_list.to_list (O.unbind_int x 5L) with
+  | exception T.Error _ -> print_endline "raised Tensor.Error"
+  | l -> Printf.printf "no error, n=%d\n" (List.length l));
+  [%expect "raised Tensor.Error"]

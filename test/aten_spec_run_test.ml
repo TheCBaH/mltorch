@@ -292,3 +292,71 @@ let%expect_test "rms_norm: normalized_shape=[3] no weight (identity scale)" =
     [eval] torch.ops.aten.rms_norm.default
       aten   out0 = [0.46291; 0.925819; 1.38873; 0.789542; 0.986927; 1.18431]
       native out0 = [0.46291; 0.925819; 1.38873; 0.789542; 0.986927; 1.18431] |}]
+
+(* --- unbind.int: the Tensor[] return through every spec-runner path -------
+
+   Three separately-migrated readers meet here. [eval_print] prints VALUES via
+   [pp_aten], so it is the one that would show a view read off the wrong part of
+   its storage; [eval_report] and [walk_eval] read output NAMES via
+   [Interp_decode.output_names], which has to flatten the single as_tensors
+   output — an Argument.Tensor-only filter prints no output lines at all, which
+   reads as a pass. *)
+
+let unbind_spec =
+  {|{ "target": "torch.ops.aten.unbind.int",
+      "args": {
+        "self": { "dtype": "f32", "shape": [3, 2], "sequence": { "start": 0.0, "step": 1.0 } } } }|}
+
+(* [dim] is absent from the spec, as it is in a real exported node: the
+   generated codec's ~dec_absent:(Int 0) supplies the schema default, which is
+   why the report below echoes it back as dim=0. Each printed row is one result,
+   and each is an OFFSET VIEW onto self's storage — every row showing [0; 1]
+   would be the unmaterialized read. There is no native unbind. *)
+let%expect_test "unbind: eval_print shows each result's own values" =
+  eval unbind_spec;
+  [%expect
+    {|
+    [eval] torch.ops.aten.unbind.int
+      aten   out0 = [0; 1]
+      native = <no native impl>
+      aten   out1 = [2; 3]
+      aten   out2 = [4; 5] |}]
+
+let%expect_test "unbind: eval_report lists every synthesized output name" =
+  capture (fun ppf -> Aten_spec_run.eval_report ~ppf (decode unbind_spec));
+  [%expect
+    {|
+    [node] torch.ops.aten.unbind.int(self=f32[3,2]~sequence(start=0,step=1), dim=0)
+      -> out0: [2]
+      -> out1: [2]
+      -> out2: [2]
+      status: ok |}]
+
+(* The walk re-synthesizes and re-runs per step, so outputs_for derives the
+   count afresh each time rather than reading it off the config. The per-result
+   summaries are the other half: out1 reports min=2 max=3, not out0's 0/1, so
+   [pp_tensor_summary] is summarizing each view's own elements and not its
+   storage base. *)
+let%expect_test "unbind: walk_eval re-derives the count each step" =
+  capture (fun ppf ->
+      ignore (Aten_spec_run.walk_eval ~ppf ~steps:3 (decode unbind_spec)));
+  [%expect
+    {|
+    [step 1/3] modified axis: self
+      torch.ops.aten.unbind.int(self=f32[3,2]~sequence(start=0,step=1), dim=0)
+      -> out0: [2] min=0 max=1 mean=0.5
+      -> out1: [2] min=2 max=3 mean=2.5
+      -> out2: [2] min=4 max=5 mean=4.5
+      status: ok
+    [step 2/3] modified axis: self
+      torch.ops.aten.unbind.int(self=f32[3,2]~sequence(start=0,step=1), dim=0)
+      -> out0: [2] min=0 max=1 mean=0.5
+      -> out1: [2] min=2 max=3 mean=2.5
+      -> out2: [2] min=4 max=5 mean=4.5
+      status: ok
+    [step 3/3] modified axis: self
+      torch.ops.aten.unbind.int(self=f32[3,2]~sequence(start=0,step=1), dim=0)
+      -> out0: [2] min=0 max=1 mean=0.5
+      -> out1: [2] min=2 max=3 mean=2.5
+      -> out2: [2] min=4 max=5 mean=4.5
+      status: ok |}]
