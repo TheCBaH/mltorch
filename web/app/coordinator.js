@@ -13,7 +13,13 @@ export class Coordinator {
     if (this.#pending) throw new Error('a request is already in flight');
     const epoch = ++this.#epoch;
     const id = `${crypto.randomUUID()}-0`;
-    const built = this.bridge.request.buildSession({ id, source, options: {}, limits: {} });
+    const requestSource = {
+      name: source.name,
+      bytes: source.bytes.toString(),
+      kind: source.kind,
+      ...(source.catalog ? { catalog: source.catalog } : {}),
+    };
+    const built = this.bridge.request.buildSession({ id, source: requestSource, options: {}, limits: {} });
     if (!built.ok) throw new Error(built.error || 'request construction failed');
     const worker = this.workerFactory();
     const pending = this.#pending = { epoch, id, worker, terminal: false };

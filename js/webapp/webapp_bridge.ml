@@ -136,7 +136,9 @@ let () =
           Js.Unsafe.inject Me_limits.Hard.max_response_meta_bytes );
         ( "maxResponseDocumentBytes",
           Js.Unsafe.inject Me_limits.Hard.max_response_document_bytes );
-        ("maxJsonBytes", Js.Unsafe.inject Me_limits.Hard.max_json_bytes);
+        ( "maxJsonBytes",
+          Js.Unsafe.inject
+            (Js.string (Int64.to_string Me_limits.Hard.max_json_bytes)) );
         ("maxRestoreSteps", Js.Unsafe.inject Me_limits.Hard.max_restore_steps);
       |]
   in
