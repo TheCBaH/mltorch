@@ -384,3 +384,41 @@ let%expect_test "region: unknown and empty claims are rejected" =
   [%expect {|
     region claims unknown node n42
     region claims no nodes |}]
+
+(* The arity a node must declare is not a per-op constant for [Unbind]: it is
+   the extent at the selected axis, recomputed by shape inference. So dropping
+   one output edge from a well-formed unbind has to be rejected by the SAME
+   check, which is what proves the validator derives the expected count rather
+   than consulting a table.
+
+   Truncating rather than appending, unlike the [Relu] case above: an unbind's
+   dead slices have no consumer to dangle, so the operand check cannot notice,
+   and the arity check is the only thing standing between a corrupted node and a
+   graph that evaluates fewer slices than it claims. *)
+let%expect_test "validation: a truncated unbind output list is rejected" =
+  let g =
+    Graph_builder.build ~name:"unbind"
+      ~outputs:(fun ids -> ids)
+      (let open Graph_builder in
+       let* x = input ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3) () in
+       unbind { Split.Unbind.axis = Axis.C } x)
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
+  in
+  (* The control sits next to the negative on purpose: a harness that rejected
+     everything would "pass" while proving nothing. Both rows drop the graph
+     outputs, so truncation is the only difference between them. *)
+  let check label f =
+    let bad = { g with Graph.nodes = List.map f g.Graph.nodes; outputs = [] } in
+    Format.printf "%-11s %a@." label
+      (pp_result (fun fmt _ -> Fmt.string fmt "accepted"))
+      (lift_view (Graph_view.of_graph bad))
+  in
+  check "intact:" Fun.id;
+  check "truncated:" (fun (n : node) ->
+      match n.Node.op with
+      | Unbind _ -> { n with Node.outputs = [ List.hd n.Node.outputs ] }
+      | _ -> n);
+  [%expect
+    {|
+    intact:     accepted
+    truncated:  node n0 declares 1 outputs but its op has 3 |}]

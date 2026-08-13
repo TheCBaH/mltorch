@@ -235,3 +235,27 @@ let%expect_test "domain: canonicalization is what makes a graph convertible" =
 let%expect_test "domain: linear is in the dialect" =
   table [ ("linear", Fixtures.linear_layer) ];
   [%expect {| linear                       in the dialect |}]
+
+(* [Unbind]'s axis check and its shape consequence are DIFFERENT rejections, and
+   the ordering is what makes the first one useful: node predicates run before
+   the shape rule, so a rank-five unbind naming T reports the axis rather than
+   the tensor that ended up with extent on it.
+
+   The batch-2 C case is the one that shows the axis check is not the whole
+   story — C is legal to name, and the graph is still outside the dialect
+   because the slices are not four-axis. *)
+let%expect_test "domain: unbind's axis rule and its shape consequence" =
+  table
+    [
+      ("unbind C, batch 1", Fixtures.unbind_c_batch1);
+      ("unbind N, batch 2", Fixtures.unbind_n);
+      ("unbind C, batch 2", Fixtures.unbind_c_batch2);
+      ("unbind T (rank-5 ViT)", Fixtures.unbind_rank5_t);
+    ];
+  [%expect
+    {|
+    unbind C, batch 1            in the dialect
+    unbind N, batch 2            in the dialect
+    unbind C, batch 2            tensor t1 has extent on T or D: [T=2 D=1 H=1 W=2
+                                                                  C=2]
+    unbind T (rank-5 ViT)        node n0: axis T is outside the N/H/W/C dialect |}]

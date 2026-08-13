@@ -59,9 +59,29 @@ ops should still agree exactly or near-exactly. The current per-target
 override is `torch.ops.aten.addmm.default -> 1e-4`, which is enough for the
 resnet18 fixture's matmul noise without weakening pointwise verification.
 
-**Output pairing:** `node.outputs : Argument.t list` provides the SSA names.
-`Tensor` arguments in that list are matched positionally to `native_outputs`.
-Non-tensor outputs (rare in inference graphs) are silently skipped.
+**Output pairing:** `node.outputs : Argument.t list` provides the SSA names,
+flattened by `Interp_decode.output_names` — which expands a single `Tensors`
+argument in place, so a `Tensor[]` return contributes all N names rather than
+none. Names are matched positionally to `native_outputs`.
+
+**Cardinality depends on the output STRUCTURE, and the difference is
+load-bearing:**
+
+| node shape | rule | why |
+|---|---|---|
+| fixed tuple | compare the **leading** outputs; exposing fewer is fine | a dead output (`max_pool2d_with_indices`' int64 argmax) is dropped or routed to `Discard`, and the F32 engine could not compare it anyway |
+| one `Argument.Tensors` | require **exact** equality | the arity is the *input's*, not the op's, so there is no dead output to drop and nothing a correct bridge would decline to expose |
+
+Without the second row a bridge returning only the first slice of an unbind is
+reported as `matched`. That was measured, not hypothesised: dropping the last
+output from the `unbind.int` arm printed `status: matched` under leading-only
+comparison, and `output count: expected 2 got 1` once exactness landed. It is a
+*different* false green from a wrong output order, which the ordinal-swap
+mutation covers, so both proofs are kept.
+
+The discriminator is read off the node (`[Argument.Tensors _]`), never off its
+target string — a target list would be a second thing to keep in sync with the
+bindings, and it is exactly the sync that goes stale.
 
 ### `Interp_verify` (`interp_verify.ml`)
 

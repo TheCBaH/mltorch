@@ -146,6 +146,13 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Sub.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    (* Homogeneous multi-output: every ordinal runs the same algorithm and
+       differs only in the coordinate it reads, so [~output] goes in as data
+       rather than selecting between named pixel functions the way
+       [Max_pool2d_with_indices] does above. *)
+    | Unbind { Split.Unbind.params; x } ->
+        let module C = Split.Unbind.Compute (S) in
+        C.pixel params ~output ~x:(operand x) out
     | Discard _ ->
         invalid_arg
           "Eval_op.pixel: Discard produces no output, so it has no pixel"

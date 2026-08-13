@@ -185,19 +185,41 @@ let compare_tensors ~atol ~output aten_t native_t =
              native_fmt = Payload.fmt_name native_r.payload.fmt;
            })
 
+(* A FIXED tuple's arity is the op's, so the bridge may legitimately expose
+   fewer outputs than it: a dead output (max_pool2d_with_indices' int64 argmax
+   indices, which the native F32 engine cannot compare anyway) is dropped or
+   routed to a Discard sink, and is simply not verified.
+
+   A DYNAMIC `Tensor[]` return is different. Its arity is not the op's, it is
+   the input's, so there is no dead-output story and no reason to expose fewer:
+   a bridge that returned only the first slice would be WRONG, and under the
+   leading-outputs rule it would be reported as matched. That is a false green
+   the ordinal-perturbation test cannot see, so exactness is required here.
+
+   Decided by the node's OUTPUT STRUCTURE, never by its target string: a single
+   [Argument.Tensors] output is the dynamic shape, and the structure is right
+   there to be read. *)
+let requires_exact_outputs (node : Pytorch_types.Node.t) =
+  match node.Pytorch_types.Node.outputs with
+  | [ Pytorch_types.Argument.Tensors _ ] -> true
+  | _ -> false
+
 (* Verify the tensor outputs [native_outputs] the bridge exposes against the
-   LEADING tensor outputs of [node].  The native bridge may expose FEWER outputs
-   than the ATen op: a dead output (e.g. max_pool2d_with_indices' int64 argmax
-   indices, which the native F32 engine can't compare anyway) is dropped /
-   routed to a Discard sink, so it is simply not verified.  Only exposing MORE
-   outputs than the op has is an error.  Returns one Err.Error.t per output
-   that fails; empty list means all compared outputs matched.
+   tensor outputs of [node] — all of them for a dynamic list, the LEADING ones
+   for a fixed tuple (see above).  Only exposing MORE outputs than the op has is
+   an error either way.  Returns one Err.Error.t per output that fails; empty
+   list means all compared outputs matched.
 
    [output_names] flattens a Tensor[] output's names in place, so a
    list-returning op exposes all N here rather than none. *)
 let verify_node ~atol ~aten_env (node : Pytorch_types.Node.t) native_outputs =
   let out_names = Interp_decode.output_names node in
-  if List.length native_outputs > List.length out_names then
+  let wrong_count =
+    if requires_exact_outputs node then
+      List.compare_lengths native_outputs out_names <> 0
+    else List.length native_outputs > List.length out_names
+  in
+  if wrong_count then
     [
       Err.Error.make
         (Output_count

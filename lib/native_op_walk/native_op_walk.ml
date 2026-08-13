@@ -43,6 +43,11 @@ let all_walks : op list =
        that omits zero, so the walk stays informative rather than flaky. *)
     (module Div_scalar_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (* The only walk whose OUTPUT COUNT varies with its config, so it is the one
+       that fuzzes the variable-arity builder and the per-ordinal eval loop
+       rather than only an op's pixel math. *)
+    (module Unbind_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
   ]
 
 let run (m : op) ~ppf ~pcg ~steps =

@@ -20,6 +20,12 @@ type arg_kind =
 
 type dim_fault =
   [ `Negative of int
+  | `Zero
+    (** Not a sub-case of [`Negative]: the engine forbids an empty extent by
+        construction ([Dim.extent] is >= 1), so a declared 0 is a shape this
+        dialect has no form for rather than a nonsensical number — and it
+        arrives from real models (ATen's unbind of a zero-length dim), where a
+        negative size never does. *)
   | `Symbolic
   | `Rank_over_six
   | `Expected_rank_four of int  (** the rank actually offered *) ]
@@ -29,6 +35,7 @@ type metadata_role =
   | `Convolution_weight
   | `Mean_input
   | `Permute_input
+  | `Unbind_input
   | `Addmm_weight ]
 (** Why the missing [tensor_values] entry was wanted. *)
 
@@ -75,6 +82,10 @@ module Unsupported_option : sig
   type t = { op : string; option : unsupported_option }
 end
 
+module Output_arity : sig
+  type t = { op : string; serialized : int; derived : int }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
@@ -83,6 +94,12 @@ type malformed =
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
   | `Unsupported_option of Unsupported_option.t
+  | `Output_arity of Output_arity.t
+    (** A `Tensor[]`-returning node's arity is model data on one side (the names
+        in its single [Argument.Tensors] output) and derived from the operand's
+        extent on the other. Disagreement is a malformed graph, checked before
+        [add_env], whose [Invalid_argument] stays an invariant about this module
+        rather than a report about the graph. *)
   | `Non_tensor_node_output of string  (** the node's target *)
   | `Non_tensor_graph_output
   | `Undefined_ssa of string
@@ -117,6 +134,14 @@ type tensor_bridge =
 type error =
   [ `Unsupported_input of unsupported_input
   | `Unsupported_operator of string  (** the target *)
+  | `Output_count_over_limit of Shape_error.Output_count.t
+    (** A RESOURCE rejection, deliberately outside {!malformed}: a perfectly
+        well-formed graph can still ask for more outputs than the engine will
+        build. The distinction is load-bearing at the Model Explorer boundary,
+        where every {!malformed} row is [Fatal] ("our bug") and this one is
+        [Unavailable Over_limit] ("your model is too big"). [Shape_error]'s row
+        is reused rather than restated, so this spelling and the nested
+        [`Build (`Output_count_over_limit _)] carry the same payload. *)
   | malformed
   | `Tensor_bridge of tensor_bridge
   | `Eval of Eval_direct.error

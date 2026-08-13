@@ -383,7 +383,34 @@ This section covers every operation currently in `Graph_ir.op`.
 | `Max_pool2d`, `Avg_pool2d` | Direct counterpart | `Identical` when shared compute is used |
 | `Permute` | `Permute4`, after proving it acts only on the four-axis domain | `Identical` |
 | `Reshape` | `Reshape4`, when source and target both satisfy the invariant | `Identical` |
+| `Unbind` | `Unbind` with an `Axis4.t`, when the axis is nameable AND every inferred slice re-enters `Shape4` | `Identical` |
 | `Discard` | Removed by DCE | Vacuous deletion |
+
+`Unbind` is the dialect's **only multi-output operation**, and its representable
+set is narrower than its axis check suggests. Dropping an axis re-packs the
+survivors right-aligned, which shifts every axis *outside* the dropped one one
+place outward — so unbinding `H`/`W`/`C` moves `N`'s extent onto `T`. That is
+inside the dialect only when `N = 1`. Unbinding `N` always converts, since
+nothing lies outside it. A rank-≤3 source is the common way to satisfy the
+`N = 1` condition, but it is `N = 1` and not the rank that decides: the rank is
+not recoverable from a `Vec6.shape`.
+
+Nothing states that rule in code, and deliberately so — `Shape4.of_vec6` on each
+inferred slice is what enforces it. The two rejections it produces are different
+and both useful:
+
+- an axis the dialect cannot name (`T`/`D`) is `Axis_outside_dialect`, from
+  `Domain.check_node`, naming the axis;
+- a nameable axis whose slices leave the domain is
+  `Non_four_dimensional_tensor`, from the shape rule, naming the tensor.
+
+The first is the actionable one, which is why node predicates run before the
+shape rule (§ "Node predicates FIRST" in `domain.ml`). The motivating rank-five
+ViT node — `dim=0` on a rank-five tensor, which right-aligns onto `T` — is the
+first kind.
+
+Note this does **not** give the dialect a zero-output op, so it still needs no
+`Discard`: multi-output and zero-output are different needs.
 
 Average pool should remain an operation. Replacing it with a depthwise
 convolution multiplies every tap before accumulation instead of summing and then
@@ -531,7 +558,25 @@ graphs. A practical initial Native4D dialect also needs:
 - `MeanKeepDims`;
 - `Permute4`;
 - `Reshape4`;
+- `Unbind`, the one multi-output op (see §7.1);
 - graph constants, inputs, and the structural notion of discarded/dead output.
+
+**The single-output assumption is gone.** `Unbind` produces one output per
+coordinate of its axis, so the dialect's node arity is no longer always one. The
+shared framework needed no change for it — `Graph_common.Node.outputs` was
+already a list and `Eval_direct4`/`Eval_symbolic4`/`Output_transfer` already
+indexed it positionally — but three dialect-local things did: `Builder` gained an
+`opN` beside `op1`, `Graph_shape4` a list form of `four`, and `Eval_op4` stopped
+ignoring its `~output` ordinal.
+
+One consequence is worth stating because nothing structural catches it: swapping
+two of a node's output ids leaves the graph's signature, every shape, and the
+whole id set unchanged, so `Graph_view` validation and `Graph_map.create`'s
+positional output check both pass. Only `Map_verify` refutes it, because
+`Eval_symbolic4` emits one stage per ordinal. That mutation is pinned in
+`test/native4d/mutation_test.ml`, together with the weaker variant (swapping the
+*graph* outputs) that `Graph_map.create` does catch — the two are easy to confuse
+and prove very different things.
 
 `Permute4` and `Reshape4` are essential legalization operations, not merely
 optimizations. The existing PT2-to-Native lowering emits permutations around

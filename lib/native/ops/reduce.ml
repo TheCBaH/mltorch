@@ -73,11 +73,11 @@ module Mean = struct
      (all axes minus the reduced ones, in canonical order) re-pack right-aligned
      into the innermost positions. Depends only on [p], not on extents. *)
   let kept_map (p : params) =
-    let survivors = List.filter (fun a -> not (List.mem a p.dims)) Axis.all in
-    if p.keepdim then List.map (fun a -> (a, a)) survivors
-    else
-      List.combine survivors
-        (Aten_shape.used_axes ~rank:(List.length survivors))
+    if p.keepdim then
+      List.filter_map
+        (fun a -> if List.mem a p.dims then None else Some (a, a))
+        Axis.all
+    else Aten_shape.repack_dropped ~dropped:p.dims
 
   (* Output = surviving input extents packed onto their output axes (§1d);
      reduced axes (and, for keepdim=false, the vacated outer axes) are extent 1. *)

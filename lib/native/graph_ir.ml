@@ -40,6 +40,7 @@ type op =
   | Rms_norm of Norm.RmsNorm.t
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
+  | Unbind of Split.Unbind.t
 
 (* A module ALIAS, so field access [n.Node.outputs] still resolves — the fields
    belong to the module this names. OCaml will not let a parameterised record be
@@ -228,6 +229,12 @@ let op_registry : (module OP) list =
 
       let inject t = Sub t
       let project = function Sub t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Split.Unbind
+
+      let inject t = Unbind t
+      let project = function Unbind t -> Some t | _ -> None
     end : OP);
   ]
 

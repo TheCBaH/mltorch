@@ -21,12 +21,29 @@ type invalid_hw_arg = { name : string; values : int list }
    went wrong but never branch on it. *)
 type tensor_bridge_error = { arg_name : string; cause : Tensor_bridge.error }
 
+(* Own modules with the payload named [t], per CLAUDE.md's record convention.
+   The top-level records above predate it and are not a pattern to extend. *)
+module Unbind_invalid_dim = struct
+  type t = { dim : int; rank : int }
+end
+
+(* Carries ATen's OWN dtype, read off the source tensor before conversion,
+   rather than a Native [Payload.fmt]. Two reasons: [Payload.fmt] is a
+   three-parameter GADT and cannot be a bare field type (its existential is
+   [Payload.packed_fmt]), and translating a dtype into a Native format purely to
+   report it would be a conversion inside an error. *)
+module Unsupported_input_dtype = struct
+  type t = { arg_name : string; dtype : Aten_scalar_type.t }
+end
+
 type error =
   [ `Decode of Interp_decode.error
   | `Tensor_bridge of tensor_bridge_error
   | `Build of Graph_builder.error
   | `Invalid_hw_arg of invalid_hw_arg
   | `Validation_failure of string
+  | `Unbind_invalid_dim of Unbind_invalid_dim.t
+  | `Unsupported_input_dtype of Unsupported_input_dtype.t
   | `Addmm_invalid_weight_rank of int array
   | `Conv2d_invalid_weight_rank of int array
   | `Conv2d_padding_invalid_weight_rank of int array
@@ -49,6 +66,11 @@ let pp_error ppf : [< error ] -> unit = function
   | `Invalid_hw_arg { name; values } ->
       Fmt.pf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list values
   | `Validation_failure msg -> Fmt.string ppf msg
+  | `Unbind_invalid_dim { Unbind_invalid_dim.dim; rank } ->
+      Fmt.pf ppf "unbind.int: invalid dimension %d for rank %d" dim rank
+  | `Unsupported_input_dtype { Unsupported_input_dtype.arg_name; dtype } ->
+      Fmt.pf ppf "%s: the native engine computes in f32, got %s" arg_name
+        (Aten_scalar_type.to_string dtype)
   | `Addmm_invalid_weight_rank shape ->
       Fmt.pf ppf "addmm: mat2 must be rank-2, got shape %a" pp_int_array shape
   | `Conv2d_invalid_weight_rank shape ->
@@ -218,6 +240,38 @@ let dims_arg node ~rank name =
       Aten_shape.used_axes ~rank
   | Some (Argument.Ints xs) -> List.map (Aten_shape.axis_of_dim ~rank) xs
   | _ -> Aten_shape.used_axes ~rank
+
+(* [Aten_shape.axis_of_dim] asserts its precondition and raises, so the range is
+   checked HERE and reported as a typed row -- the design record's rule that a
+   rank-sensitive rejection gets its own constructor rather than a
+   [`Validation_failure] string. The ORIGINAL [dim] is reported, not the
+   normalized one: a user who wrote -9 is better served by seeing -9.
+
+   Only the DIM is judged here. A rank Native cannot hold is a different fault,
+   and folding it in would report "invalid dimension 0 for rank 7" — where 0 is
+   a perfectly good dimension and the rank is what went wrong. The caller
+   converts the operand first, so [Tensor_bridge]'s own [`Rank_out_of_range]
+   has already fired for that case and [rank] is in [0,6] by the time this
+   runs; the [rank < 1] arm then covers only a rank-0 operand, for which no dim
+   is valid. *)
+let unbind_axis ~rank dim =
+  let d = if dim < 0 then dim + rank else dim in
+  if rank < 1 || d < 0 || d >= rank then
+    fail (`Unbind_invalid_dim { Unbind_invalid_dim.dim; rank })
+  else return (Aten_shape.axis_of_dim ~rank dim)
+
+(* The engine's compute domain is f32 and [Graph_builder] gives every op output
+   [Payload.F32], so an i64 operand would silently become an f32 result that
+   then fails the verifier's dtype pairing. [Tensor_bridge.of_aten] itself
+   accepts i64, so the refusal belongs to the arm that knows what it will build.
+   Read from the ATen tensor before conversion, so the error names the source
+   dtype. *)
+let require_f32 arg_name t =
+  match Aten_tensor.scalar_type t with
+  | Aten_scalar_type.Float -> return ()
+  | dtype ->
+      fail
+        (`Unsupported_input_dtype { Unsupported_input_dtype.arg_name; dtype })
 
 let trailing_axes ~rank ~k =
   let all = Aten_shape.used_axes ~rank in
@@ -841,6 +895,32 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
+  (* The only arm returning a variable number of outputs, and the only one whose
+     count is fixed by the OPERAND rather than the op. Every slice is exposed:
+     unlike a fixed tuple's dead output, there is nothing here to drop, and
+     [Verify.verify_node] requires exact cardinality for a dynamic list for
+     precisely that reason.
+
+     This must NOT call ATen's own unbind. ATen is the oracle
+     [Interp_verify]/[Verify.verify_node] runs; the native side has to execute
+     [Graph_ir.Unbind] through [Eval_direct] or the comparison is vacuous. *)
+  | "torch.ops.aten.unbind.int" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* () = require_f32 "self" aten_x in
+         (* Rank comes from the ORIGINAL ATen tensor: [of_aten] right-aligns
+            into the six-axis frame, after which the rank is not recoverable. *)
+         let rank = aten_rank aten_x in
+         let* dim = int_arg ~default:0 node "dim" in
+         (* Convert BEFORE judging the dim, so a rank Native cannot represent is
+            reported as the rank fault it is rather than as a bad dimension. *)
+         let* x = native_of_aten "self" aten_x in
+         let* axis = unbind_axis ~rank dim in
+         build_g ~name:"unbind" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               unbind { Split.Unbind.axis } x_id
+           | _ -> assert false))
   | "torch.ops.aten.view.default" ->
       Some
         ((* Contiguous reshape. [of_aten] inputs are already ATen-row-major, so

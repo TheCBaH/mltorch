@@ -23,3 +23,16 @@ let of_int = function
   | 7 -> Some Double
   | 11 -> Some Bool
   | _ -> None
+
+(* For diagnostics. The names are ATen's own spelling, so an error naming a
+   dtype reads the same as the schema and the Python side do. *)
+let to_string = function
+  | Byte -> "Byte"
+  | Char -> "Char"
+  | Short -> "Short"
+  | Int -> "Int"
+  | Long -> "Long"
+  | Half -> "Half"
+  | Float -> "Float"
+  | Double -> "Double"
+  | Bool -> "Bool"

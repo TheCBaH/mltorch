@@ -186,12 +186,27 @@ module Convolution = struct
     | Transposed_output_non_positive d -> pp_transposed_window_output ppf d
 end
 
+module Output_count = struct
+  type observed = Exact of int | At_least of int
+  type t = { limit : int; observed : observed }
+
+  (* [limit] is EXCLUSIVE, so the printed figure is the largest accepted count.
+     Printing [limit] itself reads as a contradiction in the boundary case,
+     where the observed count equals it. *)
+  let pp ppf { limit; observed } =
+    match observed with
+    | Exact n -> Fmt.pf ppf "%d outputs, above the maximum of %d" n (limit - 1)
+    | At_least n ->
+        Fmt.pf ppf "at least %d outputs, above the maximum of %d" n (limit - 1)
+end
+
 type t =
   [ `Broadcast of Broadcast.t
   | `Window of Window.t
   | `Clamp of Clamp.error
   | `Linear of Linear.error
   | `Bmm of Bmm.error
+  | `Output_count_over_limit of Output_count.t
   | `Permute of Permute.t
   | `Convolution of Convolution.error ]
 
@@ -201,5 +216,6 @@ let pp ppf = function
   | `Clamp e -> Clamp.pp_error ppf e
   | `Linear e -> Linear.pp_error ppf e
   | `Bmm e -> Bmm.pp_error ppf e
+  | `Output_count_over_limit e -> Output_count.pp ppf e
   | `Permute e -> Permute.pp ppf e
   | `Convolution e -> Convolution.pp_error ppf e

@@ -59,6 +59,11 @@ type op =
   | Rms_norm of Norm.RmsNorm.t
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
+  (* The only op whose output COUNT is not fixed by the op: it is the extent at
+     the selected axis, so the arity comes from the operand signature.
+     [Graph_shape] returns one shape per slice and [Graph_builder.unbind]
+     allocates one edge each. See .ai/native_multi_output_design.md §1a. *)
+  | Unbind of Split.Unbind.t
 
 (* Aliases to [Graph_common], which owns the dialect-agnostic vocabulary so a
    second dialect can reuse it. The ID modules move with the records because

@@ -14,14 +14,25 @@ type arg_kind =
   | `Optional_scalar
   | `Tensor_or_scalar ]
 
+(* [Zero] is not a sub-case of [Negative]: the engine forbids an empty extent by
+   construction ([Dim.extent] is >= 1), so a declared 0 is a shape this dialect
+   has no form for rather than a nonsensical number. It also arrives from real
+   models -- ATen's unbind of a zero-length dim returns an empty list -- where a
+   negative size never does. Without its own arm it reached [Dim.extent] and
+   escaped as an uncaught [Invalid_argument]. *)
 type dim_fault =
-  [ `Negative of int | `Symbolic | `Rank_over_six | `Expected_rank_four of int ]
+  [ `Negative of int
+  | `Zero
+  | `Symbolic
+  | `Rank_over_six
+  | `Expected_rank_four of int ]
 
 type metadata_role =
   [ `Tensor
   | `Convolution_weight
   | `Mean_input
   | `Permute_input
+  | `Unbind_input
   | `Addmm_weight ]
 
 type hw_param = [ `Stride | `Padding | `Dilation | `Kernel_size ]
@@ -64,6 +75,15 @@ module Unsupported_option = struct
   type t = { op : string; option : unsupported_option }
 end
 
+(* A `Tensor[]`-returning node carries ONE output holding every result name, so
+   its arity is model data on one side and derived from the operand's extent on
+   the other. Disagreement is a malformed graph, not a defect: [add_env]'s
+   [Invalid_argument] stays an invariant about this module, and this check runs
+   before it so a bad export can never reach that boundary. *)
+module Output_arity = struct
+  type t = { op : string; serialized : int; derived : int }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
@@ -72,6 +92,7 @@ type malformed =
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
   | `Unsupported_option of Unsupported_option.t
+  | `Output_arity of Output_arity.t
   | `Non_tensor_node_output of string
   | `Non_tensor_graph_output
   | `Undefined_ssa of string
@@ -98,9 +119,18 @@ type tensor_bridge =
   | `Unsupported_dtype of Pt2_dtype.t
   | `Archive of Pt2_archive.error ]
 
+(* A RESOURCE rejection, deliberately not one of [malformed]'s rows: the graph
+   can be perfectly well formed and still ask for more outputs than the engine
+   will build. That distinction is load-bearing at the Model Explorer boundary,
+   where every [malformed] row is [Fatal] ("our bug") and this one has to be
+   [Unavailable Over_limit] ("your model is too big"). The row is
+   [Shape_error]'s, reused rather than restated, so the two spellings a caller
+   can meet -- this one and [`Build (`Output_count_over_limit _)] -- carry the
+   same payload. *)
 type error =
   [ `Unsupported_input of unsupported_input
   | `Unsupported_operator of string
+  | `Output_count_over_limit of Shape_error.Output_count.t
   | malformed
   | `Tensor_bridge of tensor_bridge
   | `Eval of Eval_direct.error
@@ -126,6 +156,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Convolution_weight -> Fmt.string ppf "convolution weight"
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Permute_input -> Fmt.string ppf "permute input"
+  | `Unbind_input -> Fmt.string ppf "unbind input"
   | `Addmm_weight -> Fmt.string ppf "addmm weight"
 
 let pp_hw_param ppf : hw_param -> unit = function
@@ -144,6 +175,7 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Bad_dimension { Bad_dimension.tensor; fault } -> (
       match fault with
       | `Negative i -> Fmt.pf ppf "%s has negative dimension %d" tensor i
+      | `Zero -> Fmt.pf ppf "%s has a zero-length dimension" tensor
       | `Symbolic -> Fmt.pf ppf "%s has a symbolic dimension" tensor
       | `Rank_over_six -> Fmt.pf ppf "%s has rank greater than six" tensor
       | `Expected_rank_four n ->
@@ -152,6 +184,8 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       Fmt.pf ppf "invalid dimension %d for rank %d" axis rank
   | `Bad_arity { Bad_arity.param; got } ->
       Fmt.pf ppf "%a must have one or two values, got %d" pp_hw_param param got
+  | `Output_arity { Output_arity.op; serialized; derived } ->
+      Fmt.pf ppf "%s declares %d outputs but produces %d" op serialized derived
   | `Unsupported_option { Unsupported_option.op; option } -> (
       match option with
       | `Alpha a -> Fmt.pf ppf "%s: alpha=%g is not supported (only 1)" op a
@@ -189,6 +223,8 @@ let pp_error ppf : [< error ] -> unit = function
   | `Unsupported_input (`Not_exactly_one_user_input n) ->
       Fmt.pf ppf "unsupported PT2 input: expected one user input, got %d" n
   | `Unsupported_operator s -> Fmt.pf ppf "unsupported PT2 operator: %s" s
+  | `Output_count_over_limit e ->
+      Fmt.pf ppf "PT2 graph over limit: %a" Shape_error.Output_count.pp e
   | #malformed as e -> Fmt.pf ppf "malformed PT2 graph: %a" pp_malformed e
   | `Tensor_bridge e -> Fmt.pf ppf "PT2 tensor bridge: %a" pp_tensor_bridge e
   | `Eval e -> Eval_direct.pp_error ppf e
@@ -216,7 +252,9 @@ let shape_of_sizes esc name sizes =
   let dims =
     List.map
       (function
-        | SymInt.Int i when i >= 0 -> i
+        | SymInt.Int i when i >= 1 -> i
+        | SymInt.Int 0 ->
+            malformed esc (`Bad_dimension { tensor = name; fault = `Zero })
         | SymInt.Int i ->
             malformed esc
               (`Bad_dimension { tensor = name; fault = `Negative i })
@@ -362,11 +400,70 @@ let reject_memory_format esc (node : Pytorch_types.Node.t) =
       malformed esc
         (`Unsupported_option { op = node.target; option = `Memory_format })
 
+(* A `Tensor[]` return is ONE output of kind [Argument.Tensors] holding every
+   result name in order — a different shape from a fixed tuple, whose elements
+   are separate [Argument.Tensor] entries. Both flatten to a name list here.
+
+   THE CEILING LIVES IN THIS FUNCTION, not in the operator arm that wants it.
+   [lower_node] calls [materialized_output_names] before it calls [lower_op], so
+   an arm-local preflight would run after the first [List.map] had already built
+   a list sized by model data. [take_bounded] therefore counts as it walks and
+   stops AT the limit, never learning the real length — which is exactly why
+   [Shape_error.Output_count] distinguishes [At_least] from [Exact].
+
+   The rule is [>= limit], matching [Kernel.Limits.create] and
+   [Split.Unbind.output_shapes]: 4095 names are accepted, 4096 are not. *)
+let output_limit = Kernel.Limits.Hard.outputs
+
+(* The rule is [>= output_limit], so the allowance is one less than the limit:
+   4095 names are accepted, the 4096th is refused. Carried as a remaining
+   budget rather than a running total so the traversal can stop without ever
+   holding a length. *)
+let output_allowance = output_limit - 1
+
+let over_limit esc =
+  Err.Escape.throw esc
+    (`Output_count_over_limit
+       {
+         Shape_error.Output_count.limit = output_limit;
+         observed = Shape_error.Output_count.At_least output_limit;
+       })
+
+(* Prepend [xs]'s names to [acc] while [budget] lasts; throws on the element
+   that would reach the limit. Counting rather than [List.length]-then-check is
+   the point: the list may be arbitrarily long, and this never walks past the
+   ceiling. *)
+let rec take_bounded esc ~budget acc = function
+  | [] -> (acc, budget)
+  | (t : TensorArgument.t) :: rest ->
+      if budget <= 0 then over_limit esc
+      else
+        take_bounded esc ~budget:(budget - 1)
+          (t.TensorArgument.name :: acc)
+          rest
+
+(* Flatten one argument's tensor names, threading the remaining budget so that
+   SEVERAL list-valued arguments are bounded in aggregate rather than each on
+   its own — several individually legal lists can exceed the ceiling together. *)
+let flatten_output esc ~on_bad_kind ~budget acc (a : Argument.t) =
+  match a with
+  | Argument.Tensor t ->
+      if budget <= 0 then over_limit esc
+      else (t.TensorArgument.name :: acc, budget - 1)
+  | Argument.Tensors ts -> take_bounded esc ~budget acc ts
+  | _ -> on_bad_kind ()
+
+let flatten_outputs esc ~on_bad_kind args =
+  let names, _ =
+    List.fold_left
+      (fun (acc, budget) a -> flatten_output esc ~on_bad_kind ~budget acc a)
+      ([], output_allowance) args
+  in
+  List.rev names
+
 let output_names esc (node : Pytorch_types.Node.t) =
-  List.map
-    (function
-      | Argument.Tensor t -> t.TensorArgument.name
-      | _ -> malformed esc (`Non_tensor_node_output node.target))
+  flatten_outputs esc
+    ~on_bad_kind:(fun () -> malformed esc (`Non_tensor_node_output node.target))
     node.outputs
 
 let is_nontrivial_node (node : Pytorch_types.Node.t) =
@@ -488,8 +585,21 @@ let pool_params esc (node : Pytorch_types.Node.t) =
     pad = { h = Op_config.Nonneg.of_int ph; w = Op_config.Nonneg.of_int pw };
   }
 
-let axes_for_rank esc rank dims =
-  let used = List.filteri (fun i _ -> i >= 6 - rank) Axis.all in
+(* [used] is the innermost [rank] frame axes, so it has SIX entries once rank
+   exceeds six — and then [d >= rank] admits d = 6 and [List.nth] raises
+   [Failure "nth"]. The rank comes from a node's [tensor_values] metadata, which
+   is untrusted model data and is NOT covered by [shape_of_sizes]'s own
+   rank check: that one runs over graph inputs and captured tensors, not over an
+   edge some node produced. Guarding here covers every caller
+   (mean.dim, permute.default, unbind.int) rather than each arm separately, and
+   reports the same row [shape_of_sizes] would for the same condition. *)
+let used_axes_for esc ~tensor rank =
+  if rank > 6 then
+    malformed esc (`Bad_dimension { tensor; fault = `Rank_over_six })
+  else List.filteri (fun i _ -> i >= 6 - rank) Axis.all
+
+let axes_for_rank esc ~tensor rank dims =
+  let used = used_axes_for esc ~tensor rank in
   List.map
     (fun d ->
       let d = if d < 0 then d + rank else d in
@@ -498,8 +608,8 @@ let axes_for_rank esc rank dims =
       else List.nth used d)
     dims
 
-let native_perm esc ~rank dims =
-  let used = List.filteri (fun i _ -> i >= 6 - rank) Axis.all in
+let native_perm esc ~tensor ~rank dims =
+  let used = used_axes_for esc ~tensor rank in
   let outer = List.filter (fun a -> not (List.mem a used)) Axis.all in
   List.map (fun a -> (a, a)) outer
   @ List.mapi
@@ -683,7 +793,7 @@ let lower program =
           let params =
             {
               Reduce.Mean.dims =
-                axes_for_rank esc rank (ints_arg esc node "dim");
+                axes_for_rank esc ~tensor:x_name rank (ints_arg esc node "dim");
               keepdim = bool_arg esc node "keepdim";
             }
           in
@@ -700,10 +810,39 @@ let lower program =
           in
           let* y =
             permute
-              (native_perm esc ~rank (ints_arg esc node "dims"))
+              (native_perm esc ~tensor:x_name ~rank (ints_arg esc node "dims"))
               (get "self")
           in
           return [ y ]
+      (* The only arm whose output count is not fixed by the op. By the time it
+         runs, [output_names] has already bounded and flattened the serialized
+         names, so what is left is to normalize the axis, derive the count from
+         already-validated metadata, and CHECK the two against each other before
+         allocating anything.
+         The check has to precede the builder, not merely precede binding: both
+         the name list and the extent are model data, and [add_env]'s
+         [Invalid_argument] is an invariant about this module rather than a
+         report about the graph. *)
+      | "torch.ops.aten.unbind.int" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            match String_map.find_opt x_name graph.tensor_values with
+            | Some m -> List.length m.TensorMeta.sizes
+            | None ->
+                malformed esc
+                  (`Missing_metadata { ssa = x_name; role = `Unbind_input })
+          in
+          let axis =
+            match
+              axes_for_rank esc ~tensor:x_name rank
+                [ int_arg esc ~default:0 node "dim" ]
+            with
+            | [ a ] -> a
+            | _ -> invalid_arg "Native_interp: axes_for_rank lost its singleton"
+          in
+          (* No arity check here: [bind] does it against the ids actually
+             produced, which is both stronger and total over ops. *)
+          unbind { Split.Unbind.axis } (get "self")
       | "torch.ops.aten.view.default" ->
           let shape = tensor_shape esc graph (tensor_name esc node "self") in
           let* y =
@@ -741,6 +880,32 @@ let lower program =
     let lower_node index env node =
       let names = materialized_output_names esc node in
       let bind ids =
+        (* THE arity check, here rather than in any operator arm, and against the
+           ids the builder actually produced rather than against anything
+           derived. Two reasons, both learned the hard way:
+
+           [output_names] flattens [Argument.Tensors] for EVERY node, not just
+           the ops that return one — so a serialized `relu` carrying an
+           `as_tensors` output reaches this point with two names and one id.
+           Before flattening, that shape was refused as
+           [`Non_tensor_node_output]; an arm-local check would restore the hole
+           for every op it does not cover.
+
+           And a check against metadata-derived counts is not the same property:
+           a node whose declared [tensor_values] shape disagrees with the shape
+           Native infers passes it and still arrives here mismatched.
+
+           [add_env]'s [Invalid_argument] stays an invariant about this module,
+           and this is what keeps a malformed export from reaching it — as does
+           [List.iter2] just below, which would otherwise raise first. *)
+        if List.compare_lengths names ids <> 0 then
+          malformed esc
+            (`Output_arity
+               {
+                 op = node.Pytorch_types.Node.target;
+                 serialized = List.length names;
+                 derived = List.length ids;
+               });
         List.iter2
           (fun name id ->
             tensor_origins :=
@@ -771,12 +936,15 @@ let lower program =
         (return env)
         (List.mapi (fun i n -> (i, n)) graph.nodes)
     in
+    (* The second place a `Tensor[]` has to flatten, through the same bounded
+       helper: a graph may return the whole list an unbind produced. The budget
+       is shared across the graph's outputs, so the bound is on the AGGREGATE
+       interface width rather than on each list separately. *)
     let outputs =
-      List.map
-        (function
-          | Argument.Tensor a -> env_find esc env a.TensorArgument.name
-          | _ -> malformed esc `Non_tensor_graph_output)
-        graph.outputs
+      List.map (env_find esc env)
+        (flatten_outputs esc
+           ~on_bad_kind:(fun () -> malformed esc `Non_tensor_graph_output)
+           graph.outputs)
     in
     return outputs
   in

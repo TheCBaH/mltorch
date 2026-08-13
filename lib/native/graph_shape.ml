@@ -138,3 +138,9 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Sub.output_shape a_shape b_shape) in
       [ out ]
+  (* The one arm whose LENGTH is not a constant of the op: [output_shapes]
+     returns one shape per coordinate of the selected axis, and bounds that
+     count itself before building the list. *)
+  | Unbind { Split.Unbind.params; x } ->
+      let* x_shape = shape x in
+      widen (Split.Unbind.output_shapes ~x_shape params)

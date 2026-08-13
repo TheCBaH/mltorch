@@ -567,14 +567,24 @@ values.
 > because continuity gives no error *bound*: multiplication amplifies by the
 > magnitude of its other operand, reductions accumulate, `Sqrt` has unbounded
 > sensitivity near zero, and quantized saturation is only piecewise continuous.
-> Only a proven reindexing carries it, the value multiset being unchanged. A real
-> op-specific error-transfer policy is future work; nothing in the staged passes
-> emits `Approximate`, so the conservative table costs nothing today.
+> Only a proven reindexing carries it. A real op-specific error-transfer policy
+> is future work; nothing in the staged passes emits `Approximate`, so the
+> conservative table costs nothing today.
 
-Current classification: `Reindexing` = `Permute`, `Reshape`; `Discontinuous` = the
-index output of `Max_pool2d_with_indices`; everything else `Continuous`. `Relu` and
-the pooled *value* output are branch-selecting but continuous, so they propagate
-normally.
+**`Reindexing` is value ROUTING, not permutation.** The rule is *every output
+element is copied from some input element with no arithmetic*, and what makes the
+`Approximate` row sound is that the claim is **per-element** — copying preserves
+it regardless of which elements survive. Permutation is the *total* case
+(`Clone`, `Permute`, `Reshape`); **selection is the partial one** (`Unbind`,
+whose every output is one slice). An earlier phrasing here justified the row by
+"the value multiset being unchanged", which is true only of the total case and
+would have excluded a slice that is just as sound. Adding `Unbind` is what forced
+the distinction; the classification did not change, only its stated reason.
+
+Current classification: `Reindexing` = `Clone`, `Permute`, `Reshape`, `Unbind`;
+`Discontinuous` = the index output of `Max_pool2d_with_indices`; everything else
+`Continuous`. `Relu` and the pooled *value* output are branch-selecting but
+continuous, so they propagate normally.
 
 ## 9. Terminal packing
 

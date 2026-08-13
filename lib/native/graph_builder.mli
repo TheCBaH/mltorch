@@ -152,6 +152,14 @@ val rms_norm :
 val sqrt : ?name:string -> tensor_ref -> Tensor_id.t t
 val sub : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
+(* Unbind returns EVERY slice, in ordinal order — the only builder whose result
+   length is not fixed by the op. The count is derived from the input signature
+   ([extent] at the selected axis), never passed in, so a caller holding a list
+   of serialized output names can check it rather than zip against it. The
+   list is never empty: Native extents are >= 1. *)
+val unbind :
+  ?name:string -> Split.Unbind.params -> tensor_ref -> Tensor_id.t list t
+
 (* Structurally group nodes emitted by [body].  The group shares the enclosing
    graph's global SSA namespace and has no inputs, outputs, or call semantics. *)
 val group : ?label:string -> 'a t -> 'a t

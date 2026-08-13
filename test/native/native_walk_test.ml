@@ -223,4 +223,16 @@ let%expect_test "native walk coverage" =
     step 4 [input]: [n=1 c=3 h=4 w=6] scalar=0.1
     [native] div_scalar: direct==symbolic
     step 5 [scalar]: [n=1 c=3 h=4 w=6] scalar=0.5
-    [native] div_scalar: direct==symbolic |}]
+    [native] div_scalar: direct==symbolic
+    step 0: {shape=[n=2 c=4 h=4 w=4] axis=H}
+    [native] unbind: direct==symbolic
+    step 1 [input]: {shape=[n=2 c=4 h=9 w=4] axis=H}
+    [native] unbind: direct==symbolic
+    step 2 [axis]: {shape=[n=2 c=4 h=9 w=4] axis=C}
+    [native] unbind: direct==symbolic
+    step 3 [axis]: {shape=[n=2 c=4 h=9 w=4] axis=N}
+    [native] unbind: direct==symbolic
+    step 4 [input]: {shape=[n=2 c=4 h=12 w=4] axis=N}
+    [native] unbind: direct==symbolic
+    step 5 [axis]: {shape=[n=2 c=4 h=12 w=4] axis=W}
+    [native] unbind: direct==symbolic |}]

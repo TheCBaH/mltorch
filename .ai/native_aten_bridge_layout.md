@@ -34,6 +34,7 @@ use rank-3/innermost layouts that already match what the native op reads:
 | `mean.dim` | `Reduce.Mean` | dims via `axis_of_dim ~rank`; `kept_map` re-packs survivors so the output matches the ATen rank for both `keepdim` values |
 | `rms_norm.default` | `Norm.RmsNorm` | normalises the trailing dims = the innermost frame axes; weight (rank-`k`) lands on those same axes |
 | `view.default` | `Reshape.Reshape` | a contiguous reshape preserves flat row-major order, and `of_aten` inputs are already ATen-row-major, so the target is just `size` right-aligned — no surrounding permutes. (A whole-graph flow feeding a permuted native frame would need them, per the user's "Reshape between Transpose nodes".) |
+| `unbind.int` | `Split.Unbind` | `dim` via `axis_of_dim ~rank`, so the selected axis is the one the data actually landed on; dropping it re-packs the survivors right-aligned by the *same* rule `mean(keepdim=false)` uses, which is the ATen output rank. The rank must be read from the ATen tensor before `of_aten`, since the frame cannot recover it. |
 
 (`rms_norm` also needed one unrelated fix on the ATen side — the interp decode
 generator had no `float?` case, so `aten.rms_norm`'s optional `eps` left it

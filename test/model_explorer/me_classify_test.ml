@@ -88,6 +88,21 @@ let%expect_test "every Native_interp row, classified" =
       ("Unsupported_operator", `Unsupported_operator "aten.bogus");
       ("Unsupported_input", `Unsupported_input `Non_tensor);
       ("Malformed_graph", `Undefined_ssa "y");
+      (* The per-node output ceiling, in BOTH spellings a caller can meet: the
+         lowerer's own bound on a serialized name list, and the same limit
+         enforced inside shape inference, arriving wrapped as a builder error.
+         Both must be recoverable, and the nested one must be matched ahead of
+         the generic [`Build] row below -- which is [fatal], and is the row it
+         would otherwise fall into. Telling a user their model is too big is a
+         different answer from telling them we have a bug. *)
+      ( "Output_count_over_limit",
+        `Output_count_over_limit
+          { Shape_error.Output_count.limit = 4096; observed = At_least 4096 } );
+      ( "Build Output_count_over_limit",
+        `Build
+          (`Output_count_over_limit
+             { Shape_error.Output_count.limit = 4096; observed = Exact 5000 })
+      );
       ("Tensor_bridge", `Tensor_bridge (`Unsupported_dtype Pt2_dtype.Int64));
       ("Eval", `Eval (`Missing_input (tid 0)));
       ("Build", `Build (`Missing_tensor_sig (tid 0)));
@@ -103,6 +118,8 @@ let%expect_test "every Native_interp row, classified" =
     Unsupported_operator                   unavailable unsupported_operator
     Unsupported_input                      unavailable unsupported_input
     Malformed_graph                        fatal
+    Output_count_over_limit                unavailable over_limit
+    Build Output_count_over_limit          unavailable over_limit
     Tensor_bridge                          fatal
     Eval                                   fatal
     Build                                  fatal

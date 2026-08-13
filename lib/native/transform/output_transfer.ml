@@ -11,7 +11,15 @@ open Graph_ir
 type t =
   | Continuous  (** small input change, small output change *)
   | Discontinuous  (** an arbitrarily small change can switch the result *)
-  | Reindexing  (** the output is a permutation of the input's values *)
+  | Reindexing
+      (** value ROUTING: every output element is copied from some input element
+          with no arithmetic, so it carries its source element's claim
+          unchanged. A permutation is the total case ([Permute], [Reshape],
+          [Clone]); a SELECTION is the partial one ([Unbind], whose every output
+          is one slice). Both are sound for the same reason — the claim is
+          per-element, and copying preserves it — which is why the rule is
+          "copied without arithmetic" rather than "the value multiset is
+          unchanged". The latter is true only of the total case. *)
 
 let pp fmt = function
   | Continuous -> Fmt.string fmt "continuous"
@@ -28,6 +36,12 @@ let classify (op : op) ~output =
      reindexing carries it across unchanged, which is the right answer for an op
      that moves no value at all. *)
   | Clone _ | Permute _ | Reshape _ -> Reindexing
+  (* Value routing, but a SELECTION rather than a permutation: each output is
+     one slice of the operand, so the outputs' value multisets partition the
+     input's rather than each reproducing it. That is still [Reindexing] — the
+     class is "copied without arithmetic", and an [Approximate] bound is
+     per-element, so a slice carries it exactly as a permutation does. *)
+  | Unbind _ -> Reindexing
   | Max_pool2d_with_indices _ ->
       if output = 0 then Continuous else Discontinuous
   (* No outputs at all, so this is unreachable from propagation; answer
@@ -46,7 +60,10 @@ let classify (op : op) ~output =
    [Approximate] dies at any actual computation — continuity gives no error
    BOUND, since multiplication amplifies by its other operand, reductions
    accumulate, sqrt is unbounded near zero, and quantized saturation is only
-   piecewise continuous — so only a proven reindexing carries it. *)
+   piecewise continuous — so only a proven reindexing carries it. What makes
+   that sound is that the claim is PER-ELEMENT and reindexing only copies
+   elements; it does not depend on the whole multiset surviving, which is why
+   a selection like [Unbind] qualifies as much as a permutation does. *)
 let transfer (claim : Correspondence.relation) = function
   | Reindexing -> claim
   | Continuous -> (

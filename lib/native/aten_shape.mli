@@ -6,6 +6,13 @@
 (* The innermost [rank] frame axes, in canonical order. [rank] must be in [0,6]. *)
 val used_axes : rank:int -> Axis.t list
 
+(* Dropping axes re-packs the survivors right-aligned — the same rule
+   [used_axes] states, so it lives here rather than being restated by each op
+   that removes an axis ([Reduce.Mean] with keepdim=false, [Split.Unbind]).
+   Returns (surviving INPUT axis, OUTPUT axis carrying its data) pairs, in
+   canonical order. *)
+val repack_dropped : dropped:Axis.t list -> (Axis.t * Axis.t) list
+
 (* Error set owned by this module: its own rank check unioned with [Dim.error]
    (from validating each dim). [pp_error] delegates to [Dim.pp_error]. *)
 type rank_bound = { rank : int; lo : int; hi : int }

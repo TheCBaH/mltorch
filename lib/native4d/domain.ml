@@ -242,6 +242,15 @@ let check_node view (n : node) =
           Err.fail (`Live_max_pool_indices (node, indices))
       | _ -> unsupported ())
   | Discard _ -> unsupported ()
+  (* The axis is checked HERE, on the Native [Axis.t], and converted to
+     [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
+     name the rejected axis: converting first would leave nothing to report but
+     "conversion failed".
+     The rest of the domain — every inferred slice still being four-axis — is
+     not restated here. [check_shapes] covers the outputs that are live, and the
+     lowerer's own [Shape4.of_vec6] covers the rest, so an unbind that shifts a
+     non-unit N onto T is refused without this arm knowing the rule. *)
+  | Unbind { Split.Unbind.params; _ } -> check_dims node [ params.axis ]
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation
    that moves C onto D necessarily produces a tensor with extent on D, so either

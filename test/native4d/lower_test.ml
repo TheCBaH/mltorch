@@ -284,3 +284,24 @@ let%expect_test "lower: the preconditions reach the lowerer" =
     {|
     bmm, i64 mat2              node n0: bmm operand t1 is stored in a format f32 cannot hold exactly, and the legalization materializes it
     batch_norm, short stats    node n0: batch norm parameter t1 has extent 1 on C, but the normalized axis has 2 |}]
+
+(* The complete ordered output list has to survive. Under the ID policy a
+   value-preserving edge keeps its SOURCE id, so all three slices appear in no
+   cluster and are implicitly [Identical] — which means a lowering that dropped
+   or reordered one would produce a graph that still validates, and the golden
+   is where it shows.
+
+   The graph output is deliberately slice 1, not slice 0: it makes the printed
+   graph distinguish "kept the list" from "kept the first one". *)
+let%expect_test "lower: unbind keeps every slice, in order" =
+  show "unbind" (Fixtures.unbind_c_batch1 ());
+  [%expect
+    {|
+    unbind:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1, t2, t3] = unbind x=t0 params={axis=C}
+    outputs: [t1 [W=2 C=2],
+    t2 [W=2 C=2],
+    t3 [W=2 C=2]] |}]

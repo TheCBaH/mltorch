@@ -131,6 +131,39 @@ already composes (groups and future transform passes are builder computations).
 - `Graph_shape.output_shape` (`graph_shape.ml`) — the S-independent twin, calling
   each native op's own `output_shape` on the operand sigs.
 
+### 3a. `Unbind` — a rank-removing, variable-output op
+
+`Unbind` (ATen `aten.unbind.int`) selects along one axis and produces **one output
+per coordinate of that axis**. It is the only op whose output count is not a
+constant of the op, so it is worth stating what its two dispatch arms do.
+
+`Graph_shape` returns the whole list from `Split.Unbind.output_shapes` instead of
+building a fixed-length one. `Eval_op` passes `~output` straight through as the
+coordinate to read — no per-ordinal branch, unlike `Max_pool2d_with_indices`.
+
+The shape rule is exactly `Mean keepdim=false` with a single dim, and shares its
+implementation (`Aten_shape.repack_dropped`): the selected axis is removed and the
+survivors re-pack right-aligned, so an input axis *outside* the selected one
+shifts inward by one. Right-aligned `[2,3,4]` is `[H=2 W=3 C=4]`; unbinding `W`
+gives three `[W=2 C=4]` outputs, and output `k` reads `[H=out.W, W=k, C=out.C]`.
+Like `Mean`, this needs no input rank: under the right-aligned embedding the axes
+outside the data are already extent 1.
+
+Two boundaries the op inherits from the engine rather than from ATen:
+
+- **No empty outputs.** `Dim.extent` is ≥ 1, so the output list is never empty and
+  ATen's zero-length-`dim` case has no Native form at all — it is refused before
+  reaching the op.
+- **Outputs are materialised F32 values, not views.** ATen's unbind returns
+  dtype-preserving *views* onto the operand's storage; `Graph_builder.new_edge`
+  gives every op output `Payload.F32`. So Native unbind is scoped to the engine's
+  F32 compute domain, and the contract it offers is numerical equivalence, not
+  aliasing. A non-F32 operand is a bridge-level refusal, not something the op
+  silently reinterprets.
+
+Its output-arity, ceiling and claim-transfer rules are in
+`native_multi_output_design.md` §1a and `native_transform_design.md` §8.
+
 ## 4. Optional operands
 
 `fill` is the only S-specific capability beyond `SEMANTICS`: Direct fills a real

@@ -18,10 +18,15 @@ open Op
    whose index output must answer [Discontinuous]. *)
 let classify (op : Op.t) ~output:_ =
   match op with
-  (* Data movement: the output is a permutation of the input's values, so an
-     incoming [Approximate] claim crosses unchanged rather than being downgraded
-     to [Unverifiable] the way continuity would downgrade it. *)
-  | Permute4 _ | Reshape4 _ -> Output_transfer.Reindexing
+  (* Data movement: every output element is COPIED from an input element with no
+     arithmetic, so an incoming [Approximate] claim crosses unchanged rather than
+     being downgraded to [Unverifiable] the way continuity would downgrade it.
+     [Permute4]/[Reshape4] are the total case, a permutation; [Unbind] is the
+     partial one, each output a slice. Both qualify, because the claim is
+     per-element and copying preserves it — the rule is not "the value multiset
+     is unchanged", which holds only of the total case. See
+     .ai/native_transform_design.md §8. *)
+  | Permute4 _ | Reshape4 _ | Unbind _ -> Output_transfer.Reindexing
   | Add _ | Add_scalar _ | Avg_pool2d _ | Clamp _ | Conv2d _
   | Depthwise_conv2d _ | Div _ | Div_scalar _ | Hardtanh _ | Max_pool2d _
   | Mean_keepdims _ | Mul _ | Relu _ | Rms_norm _ | Sqrt _ | Sub _
