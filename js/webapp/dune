@@ -15,3 +15,15 @@
   jsont.bytesrw
   model_explorer_export
   webapp_jsoo_buffer))
+
+(executable
+ (name webapp_bridge)
+ (modes js)
+ (modules webapp_bridge)
+ (libraries
+  js_of_ocaml
+  err_trace
+  jsont
+  jsont.bytesrw
+  model_explorer_export
+  webapp_jsoo_buffer))
