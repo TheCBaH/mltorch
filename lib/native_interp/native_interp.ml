@@ -625,6 +625,13 @@ let shape_numel shape = (Vec6.numel shape :> int)
 let resolve_view esc shape size =
   let numel = shape_numel shape in
   let known = List.fold_left (fun n x -> if x = -1 then n else n * x) 1 size in
+  (* A [-1] alongside a declared 0 makes [known] zero and the inference below a
+     division by zero — untrusted model data reaching an uncaught exception,
+     which is the same hole the [`Zero] dim_fault closes one function above.
+     [`Zero] is the accurate row: only a zero extent can make the product
+     vanish, every other size being positive or the single [-1]. *)
+  if List.mem (-1) size && known <= 0 then
+    malformed esc (`Bad_dimension { tensor = "view"; fault = `Zero });
   let size = List.map (fun x -> if x = -1 then numel / known else x) size in
   shape_of_sizes esc "view" (List.map (fun x -> SymInt.Int x) size)
 
