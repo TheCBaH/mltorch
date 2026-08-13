@@ -21,3 +21,4 @@ web/src/session.json
 web/src/detail-delta.json
 web/test-results/
 web/playwright-report/
+webapp-dist/

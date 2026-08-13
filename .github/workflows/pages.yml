@@ -1,0 +1,76 @@
+name: pages
+
+# There is ONE live site, so every trigger here overwrites the same URL -- the
+# last run to reach the deploy job wins, whatever ref it built. That is why the
+# tag pattern is narrow and why the concurrency group below is global.
+#
+#   push to main      the ordinary case: the site tracks the default branch.
+#   push of a v* tag  `v*` rather than `*`, so only version tags publish: this
+#                     repo already carries `backup/devel-before-squash`, and a
+#                     scratch or backup tag must not replace the live site.
+#                     (A bare `*` would not have matched that one anyway --
+#                     `*` stops at a slash -- but it would match any future
+#                     unnamespaced scratch tag, which is the real hazard.)
+#   release published the deliberate "this is a release" action, which is not
+#                     the same event as a tag push: a release can be cut from
+#                     an existing tag, and a tag can be pushed with no release.
+#                     Doing BOTH means the usual flow (push a tag, then publish
+#                     a release from it) fires twice and deploys identical
+#                     content twice -- harmless, since the concurrency group
+#                     serialises them, and cheaper than making the maintainer
+#                     remember which of the two actually publishes.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One group for every trigger, and NOT cancel-in-progress: two runs deploying
+# to one site must queue rather than race, and cancelling a half-finished
+# deploy is how a site ends up serving a partial upload.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: true
+    - uses: ./.github/workflows/actions/devcontainer
+      id: devcontainer
+    - name: setup
+      run: echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    - name: build site
+      # `env:` here would only reach the runner's host shell -- ${{ env.EXEC }}
+      # is `devcontainer exec`, which runs make INSIDE the container and does
+      # not forward the step's environment on its own. --remote-env is what
+      # actually crosses that boundary.
+      run: ${{ env.EXEC }} --remote-env MODELS=all make webapp.build
+    - name: configure Pages
+      id: pages
+      uses: actions/configure-pages@v6
+    - name: upload artifact
+      uses: actions/upload-pages-artifact@v5
+      with:
+        path: webapp-dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+    - name: deploy
+      id: deployment
+      uses: actions/deploy-pages@v4

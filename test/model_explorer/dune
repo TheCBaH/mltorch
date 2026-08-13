@@ -4,6 +4,15 @@
 ; why [js] carries no `enabled_if`.
 
 (library
+ (name me_bytes_test)
+ (modules me_bytes_test)
+ (libraries core err_trace model_explorer_export)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
  (name me_limits_test)
  (modules me_limits_test)
  (libraries core err_trace model_explorer_export pt2)
