@@ -70,3 +70,20 @@ let%expect_test "a rank-seven node-produced edge is refused, not raised" =
        ());
   [%expect
     {| y declared rank 7:         malformed PT2 graph: y has rank greater than six |}]
+
+(* A `view` whose target holds both 0 and -1 makes the product of the known
+   sizes vanish, and the inference divides by it. Pre-existing and unrelated to
+   `Tensor[]`, but it is the same "a declared zero escapes as an uncaught
+   exception" hole the `Zero` dim_fault closes one function above. *)
+let%expect_test "a view sizing both 0 and -1 is refused, not raised" =
+  let view =
+    jstr
+      {|{"target":"torch.ops.aten.view.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"size","arg":{"as_ints":[0,-1]},"kind":1}],"outputs":[%s],"metadata":{}}|}
+      (as_tensor "x") (as_tensor "y")
+  in
+  show "view [0; -1]:"
+    (program ~x_sizes:[ 2; 3 ] ~nodes:[ view ]
+       ~graph_outputs:[ as_tensor "y" ]
+       ());
+  [%expect
+    {| view [0; -1]:              malformed PT2 graph: view has a zero-length dimension |}]
