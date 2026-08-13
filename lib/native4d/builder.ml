@@ -89,10 +89,9 @@ let push_node op outputs s =
       rev_items = Graph_ir.Group.Node nid :: s.rev_items;
     } )
 
-(* Every Native4D op is single-output, so unlike Native's builder there is no
-   multi-output form to provide. The arity check stays because [Graph_shape4]
-   returns a list, and an op that grew a second output should fail loudly here
-   rather than silently drop it. *)
+(* Every op but [Unbind] is single-output, and this is the form they use: the
+   arity check is not vestigial, it is what stops an op that grew an output from
+   silently dropping it. [Unbind] uses [opN] below. *)
 let op1 op : Tensor_id.t t =
   let* s = get in
   let* shapes =
@@ -113,6 +112,32 @@ let op1 op : Tensor_id.t t =
   let* tid = new_edge shape in
   let* () = push_node op [ tid ] in
   return tid
+
+(* The variable-arity form: one edge per inferred shape, one node holding all of
+   them in order. No expected count to check against — for an op whose arity is
+   part of its input signature there is none. The same shape as Native's
+   [Graph_builder.opN], including the shared id-space guard, so the two dialects'
+   overflow behaviour cannot drift. *)
+let opN op : Tensor_id.t list t =
+  let* s = get in
+  let* shapes =
+    lift_result
+      (Graph_shape4.output_shape op ~sig_of:(fun r ->
+           Tensor_id.Map.find_opt r s.tensors
+           |> Err.of_option (`Missing_tensor_sig r)))
+  in
+  Tensor_id.check_room ~next:s.next_tid ~count:(List.length shapes);
+  (* Tail-recursive for the reason [Graph_builder.opN] documents: a monadic
+     frame per output overflows node's stack at a few thousand outputs. *)
+  let rec alloc acc = function
+    | [] -> return (List.rev acc)
+    | shape :: rest ->
+        let* tid = new_edge shape in
+        alloc (tid :: acc) rest
+  in
+  let* ids = alloc [] shapes in
+  let* () = push_node op ids in
+  return ids
 
 (* Op constructors in global alphabetical order, as in [Graph_builder]. *)
 
@@ -148,6 +173,11 @@ let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
 
 let transposed_conv2d params ~x ~weight ?bias () =
   op1 (Op.Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; bias })
+
+(* Takes [Axis4.t], so a graph naming T or D is not constructible through this
+   API — the dialect's rule that invalid states are unrepresentable rather than
+   validated. Returns every slice, in ordinal order. *)
+let unbind axis x = opN (Op.Unbind { Ops4.Unbind.params = { axis }; x })
 
 let build ?(dtype = f32) ~outputs (m : 'a t) =
   let s0 =

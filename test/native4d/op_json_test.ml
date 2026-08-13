@@ -104,6 +104,7 @@ let samples : Op.t list =
         weight = w;
         bias = None;
       };
+    Unbind { Ops4.Unbind.params = { axis = C }; x };
   ]
 
 (* THE COVERAGE CHECK. Every constructor has exactly one registry entry, so if
@@ -111,7 +112,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 19, registry: 19 |}]
+  [%expect {| samples: 20, registry: 20 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -152,7 +153,8 @@ let%expect_test "op4: printed" =
       params={stride={h=2; w=2};
              padding={h=1; w=1};
              dilation={h=1; w=1};
-             output_padding={h=1; w=1}} |}]
+             output_padding={h=1; w=1}}
+    unbind x=t0 params={axis=C} |}]
 
 let%expect_test "op4: round-trips through JSON" =
   List.iter
@@ -164,4 +166,4 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 19 ops |}]
+  [%expect {| round-tripped 20 ops |}]

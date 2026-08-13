@@ -127,10 +127,17 @@ whose output names nothing, which the lowerer rejects as malformed.
 Every OTHER row of [Native_interp.malformed], each with its own witness.
 
 The rows were one `Malformed_graph of string` carrying a ksprintf sentence from
-32 sites, so no test could distinguish them and none tried. They are now ten
+32 sites, so no test could distinguish them and none tried. They are now twelve
 typed cases, and a case no input reaches is indistinguishable from one that
 cannot be constructed -- so each is driven here, from the smallest mutation of a
 valid program that produces it.
+
+The two most recent are the ones a `Tensor[]` return forced. `zero-dim` is its
+own `dim_fault` rather than a negative one: the engine has no empty tensor at
+all, and unlike a negative size this does arrive from real models, since ATen's
+unbind of a zero-length dim returns an empty list. `output-arity` is the shape
+only a list-returning node can have -- one `as_tensors` output whose name count
+is model data, checked against a count derived from the operand's extent.
 
   $ python3 -c "
   > import json
@@ -194,10 +201,24 @@ valid program that produces it.
   >             'outputs': [{'as_tensor': {'name': 'y'}}], 'metadata': {}}
   > img, out = tm(ints([1, 3, 8, 8])), tm(ints([1, 2, 8, 8]))
   > w('m-arity',     program([conv([1, 1, 1])], {'x': img, 'w': tm(ints([2, 3, 1, 1])), 'y': out}, ['x', 'w']))
-  > w('m-conv-rank', program([conv([1, 1])],    {'x': img, 'w': tm(ints([2, 3])),       'y': out}, ['x', 'w']))"
+  > w('m-conv-rank', program([conv([1, 1])],    {'x': img, 'w': tm(ints([2, 3])),       'y': out}, ['x', 'w']))
+  > # A zero extent is its OWN fault, not a negative one: the engine has no empty
+  > # tensor at all ([Dim.extent] is >= 1), and unlike a negative size this does
+  > # arrive from real models -- ATen's unbind of a zero-length dim returns an
+  > # empty list. Without its own arm it reached [Dim.extent] and escaped as an
+  > # uncaught [Invalid_argument].
+  > w('m-zero-dim', program([relu], {'x': tm(ints([0, 4])), 'y': flat}))
+  > # The only arity a fixed-tuple op cannot have: one as_tensors output whose
+  > # name count is model data, against a count derived from the operand's extent.
+  > unbind = {'target': 'torch.ops.aten.unbind.int',
+  >           'inputs': [{'name': 'self', 'arg': {'as_tensor': {'name': 'x'}}, 'kind': 1}],
+  >           'outputs': [{'as_tensors': [{'name': 'y'}, {'name': 'z'}, {'name': 'w'}]}],
+  >           'metadata': {}}
+  > w('m-output-arity', program([unbind], {'x': tm(ints([2, 4])), 'y': flat}))"
 
   $ for m in missing-arg wrong-kind node-output graph-output no-metadata \
-  >          negative symbolic rank-seven axis alpha memory-format arity conv-rank; do
+  >          negative zero-dim symbolic rank-seven axis alpha memory-format arity \
+  >          conv-rank output-arity; do
   >   ../bin/native_graph.exe visualize --model m-$m.json 2>&1 >/dev/null | head -1
   > done
   native_graph: malformed PT2 graph: torch.ops.aten.relu.default: missing argument "self"
@@ -206,6 +227,7 @@ valid program that produces it.
   native_graph: malformed PT2 graph: non-tensor graph output
   native_graph: malformed PT2 graph: no tensor metadata for "x"
   native_graph: malformed PT2 graph: x has negative dimension -1
+  native_graph: malformed PT2 graph: x has a zero-length dimension
   native_graph: malformed PT2 graph: x has a symbolic dimension
   native_graph: malformed PT2 graph: x has rank greater than six
   native_graph: malformed PT2 graph: invalid dimension 9 for rank 2
@@ -213,6 +235,7 @@ valid program that produces it.
   native_graph: malformed PT2 graph: torch.ops.aten.clone.default: memory_format is not supported
   native_graph: malformed PT2 graph: stride must have one or two values, got 3
   native_graph: malformed PT2 graph: w is rank 2, expected four
+  native_graph: malformed PT2 graph: torch.ops.aten.unbind.int declares 3 outputs but produces 2
 
 [`Output_not_evaluated] has no witness here and is marked as such rather than
 left to look covered. It fires when [Eval_direct] returns an environment missing

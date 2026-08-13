@@ -131,6 +131,25 @@ track where `of_aten` placed the data):
 | `torch.ops.aten.mean.dim` | `Mean` | `"mean"` |
 | `torch.ops.aten.permute.default` | `Permute` | `"permute"` |
 | `torch.ops.aten.rms_norm.default` | `RmsNorm` | `"rms_norm"` |
+| `torch.ops.aten.unbind.int` | `Unbind` | `"unbind"` |
+
+`unbind.int` is the only arm returning a VARIABLE number of outputs, and the
+only one whose count is fixed by the operand rather than the op. Three things
+follow:
+
+- **All of them are exposed.** There is no dead output to drop, and
+  `Verify.verify_node` requires exact cardinality for a dynamic list for exactly
+  that reason (see `aten_native_verify_design.md`).
+- **The rank comes from the ATen tensor, before conversion.** `of_aten`
+  right-aligns into the six-axis frame, after which the rank is not recoverable,
+  so `dim` must be normalised against `aten_rank` and not against the frame.
+- **A non-f32 operand is refused, not reinterpreted.** The engine computes in
+  f32 and `Graph_builder` gives every op output `Payload.F32`, while
+  `Tensor_bridge.of_aten` happily accepts i64 — so an i64 unbind would produce
+  f32 results that then fail the verifier's dtype pairing. The arm reports
+  `Unsupported_input_dtype` carrying ATen's own dtype. Native unbind results are
+  materialised values, not alias-preserving views; numerical equivalence is the
+  contract.
 
 **Relayout needed** (graph wraps the core op in `Permute` nodes; named
 `"<op>_relayout"`; see `.ai/native_aten_bridge_layout.md` for derivation of

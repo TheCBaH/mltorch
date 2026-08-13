@@ -34,6 +34,16 @@ let four (r : (Vec6.shape, [< error ]) Err.t) =
   let* s = widen r in
   widen (Shape4.of_vec6 s)
 
+(* The list form of [four], for the one op whose output count is not fixed by
+   the op. Every inferred shape is re-entered into the dialect, not just the
+   first: an unbind whose slices leave the four-axis domain does so for all of
+   them, but checking one and assuming the rest is the kind of shortcut that
+   holds until an op has genuinely differing outputs. *)
+let four_all (r : (Vec6.shape list, [< error ]) Err.t) =
+  let open Err.Syntax in
+  let* shapes = widen r in
+  Err.List.map (fun s -> four (Err.return s)) shapes
+
 (* Grouping is a constructor here, not a parameter, so the Native params these
    build are the only place a [groups] value exists at all. *)
 let conv2d_params (p : Ops4.Conv_params.t) ~groups : Conv.Conv2d.params =
@@ -69,6 +79,12 @@ let mean_params (p : Ops4.Mean_keepdims.params) : Reduce.Mean.params =
     dims = List.map Axis4.to_axis p.Ops4.Mean_keepdims.dims;
     keepdim = true (* the dialect has no other form *);
   }
+
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
+   axis is being split. *)
+let unbind_params (p : Ops4.Unbind.params) : Split.Unbind.params =
+  { axis = Axis4.to_axis p.Ops4.Unbind.axis }
 
 let rms_params (p : Ops4.Rms_norm.params) : Norm.RmsNorm.params =
   {
@@ -150,6 +166,12 @@ let output_shape (op : Op.t)
   | Mean_keepdims { Ops4.Mean_keepdims.params; x } ->
       let* x_shape = shape x in
       one (four (Reduce.Mean.output_shape ~x_shape (mean_params params)))
+  (* The one arm returning a list whose length is not the op's. Native has
+     already bounded the count against [Kernel.Limits.Hard.outputs], so this
+     path only carries the row through. *)
+  | Unbind { Ops4.Unbind.params; x } ->
+      let* x_shape = shape x in
+      four_all (Split.Unbind.output_shapes ~x_shape (unbind_params params))
   | Rms_norm { Ops4.Rms_norm.x; _ } ->
       let* x_shape = shape x in
       one (four (Norm.RmsNorm.output_shape ~x_shape))

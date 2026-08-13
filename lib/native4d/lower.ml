@@ -242,12 +242,29 @@ let lower_node ~view acc (n : node) =
           (`Non_four_dimensional_tensor
              (id, Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1))
   in
-  let out =
+  (* An INVARIANT, not a diagnostic. [Graph_view] has already checked every
+     node's arity against shape inference, and [Domain.check] has already run,
+     so a single-output arm meeting anything else means those two disagree with
+     this match — our bug, not a model we cannot represent.
+
+     It must not be `Unsupported_op`: [Me_classify.native4d] maps that to
+     [Unavailable Outside_dialect_domain], which tells a user to change their
+     model to work around a lowering defect. Same treatment as
+     [Native_interp.add_env] gives its own module invariants.
+
+     Lazy, unlike the [List.hd] it replaces: that was computed before the match
+     and so would have raised on a zero-output [Discard] node before reaching
+     the arm that rejects one. *)
+  let single () =
     match n.Node.outputs with
     | [ o ] -> o
-    | _ -> node |> fun _ -> List.hd n.Node.outputs
+    | outputs ->
+        invalid_arg
+          (Format.asprintf
+             "Native4d.Lower: %a is a single-output op but declares %d outputs"
+             Node_id.pp node (List.length outputs))
   in
-  let simple op = Err.return (emit acc ~from:node op [ out ]) in
+  let simple op = Err.return (emit acc ~from:node op [ single () ]) in
   match n.Node.op with
   (* §7.1 direct counterparts. The payload records are Native's own, reused
      unchanged — they name no axis and carry no shape. *)
@@ -282,7 +299,7 @@ let lower_node ~view acc (n : node) =
              x = op_of x;
              weight = Option.map op_of weight;
            })
-        [ out ]
+        [ single () ]
   (* §7.1: [Clone] is removed and its output tied to its input. No node, no
      fresh id — just a substitution, and a pair cluster recording that the two
      edges are the same value. *)
@@ -290,20 +307,20 @@ let lower_node ~view acc (n : node) =
       Err.return
         {
           acc with
-          subst = Tensor_id.Map.add out (op_of x) acc.subst;
+          subst = Tensor_id.Map.add (single ()) (op_of x) acc.subst;
           (* Drop the signature too. Left in place the edge would exist in the
              destination universe, and naming it only as a cluster SOURCE would
              then be [Unpaired_src] — an id present in both graphs has to be
              named on both sides. *)
-          tensors = Tensor_id.Map.remove out acc.tensors;
+          tensors = Tensor_id.Map.remove (single ()) acc.tensors;
         }
   | Permute { Permute.Permute.perm; x } ->
       let+ perm = perm4_of_native ~node perm in
       emit acc ~from:node
         (Op.Permute4 { Ops4.Permute4.perm; x = op_of x })
-        [ out ]
+        [ single () ]
   | Reshape { Reshape.Reshape.params; x } ->
-      let* shape = shape4 ~id:out params.Reshape.Reshape.shape in
+      let* shape = shape4 ~id:(single ()) params.Reshape.Reshape.shape in
       simple (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x = op_of x })
   (* §7.3. The Native weight is already [Out,1,1,1,1,In] — literally a 1x1
      convolution weight — so this is a params-only rewrite with no data
@@ -394,9 +411,9 @@ let lower_node ~view acc (n : node) =
           | Ok s -> Err.return s
           | Error _ -> Err.fail (`Unsupported_op (node, n.Node.op))
         in
-        let* packed = sig_of out in
-        let* kept4 = shape4 ~id:out kept in
-        let* packed4 = shape4 ~id:out packed in
+        let* packed = sig_of (single ()) in
+        let* kept4 = shape4 ~id:(single ()) kept in
+        let* packed4 = shape4 ~id:(single ()) packed in
         let mid, acc = fresh_tensor acc kept4 in
         let acc =
           emit acc ~from:node
@@ -411,7 +428,7 @@ let lower_node ~view acc (n : node) =
           (emit acc ~from:node
              (Op.Reshape4
                 { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
-             [ out ])
+             [ single () ])
   (* §7.4. Only a single batch legalizes: for batch > 1 mat2 varies with the
      output's H coordinate while convolution weights are shared across spatial
      positions. mat2[H=1,W=contract,C=cols] permutes to the weight layout
@@ -462,7 +479,7 @@ let lower_node ~view acc (n : node) =
                   weight = wid;
                   bias = None;
                 })
-             [ out ])
+             [ single () ])
   (* §7.6, the only Equivalent legalization. *)
   | Batch_norm bn ->
       let* x_shape = sig_of bn.Norm.BatchNorm.x in
@@ -472,7 +489,7 @@ let lower_node ~view acc (n : node) =
       let acc =
         {
           acc with
-          claims = (out, Correspondence.Equivalent) :: acc.claims;
+          claims = (single (), Correspondence.Equivalent) :: acc.claims;
           (* Provenance is a factual claim about what was computed from what,
              so it follows the arithmetic: scale = gamma / sqrt(var + eps)
              reads the variance and the optional weight but NOT the mean;
@@ -500,7 +517,39 @@ let lower_node ~view acc (n : node) =
                 weight = wid;
                 bias = Some bid;
               })
-           [ out ])
+           [ single () ])
+  (* The dialect's only multi-output node. The COMPLETE ordered output list is
+     carried over unchanged, which is the whole of the correspondence work:
+     under the id policy an edge whose value is preserved keeps its source id
+     and so appears in no cluster, making every slice implicitly [Identical].
+     Reordering or dropping one would be silent here — [Graph_map]'s output
+     check is positional over the GRAPH's signature, not over a node's, so a
+     swap inside this list is caught by [Map_verify] comparing the per-ordinal
+     stages, and nowhere earlier.
+
+     The axis converts here rather than in [Domain.check_node], so the domain's
+     [Axis_outside_dialect] diagnostic can still name the rejected Native axis;
+     by this point T/D have already been refused and [dims4] cannot fail. *)
+  | Unbind { Split.Unbind.params; x } ->
+      let* axis4 = dims4 ~node [ params.axis ] in
+      (* Every slice, checked HERE. [Domain.check_shapes] only inspects tensors
+         that are live, so an unbind whose slices are all dead reaches this arm
+         unvalidated; without this it would fail later inside
+         [Snapshot4.create] as [`View _], which [Me_classify.native4d] calls
+         Fatal — reporting a graph outside the dialect as our own defect, and
+         naming no node. [shape4] gives the accurate row and the tensor id. *)
+      let+ () =
+        Err.List.iter
+          (fun o ->
+            let* shape = sig_of o in
+            let+ (_ : Shape4.t) = shape4 ~id:o shape in
+            ())
+          n.Node.outputs
+      in
+      emit acc ~from:node
+        (Op.Unbind
+           { Ops4.Unbind.params = { axis = List.hd axis4 }; x = op_of x })
+        n.Node.outputs
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them. *)
   | Max_pool2d_with_indices _ | Discard _ ->

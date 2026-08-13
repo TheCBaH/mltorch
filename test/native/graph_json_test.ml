@@ -142,6 +142,7 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
           let* act = relu ~name:"act" prod in
           let* dead = sub ~name:"dead" act a in
           let* () = discard dead in
+          let* _slices = unbind { Split.Unbind.axis = Axis.C } act in
           relu ~name:"out" act)
     in
     Err.List.map
@@ -164,6 +165,7 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
     Relu       tag=Relu       agree=true
     Sub        tag=Sub        agree=true
     Discard    tag=Discard    agree=true
+    Unbind     tag=Unbind     agree=true
     Relu       tag=Relu       agree=true
     |}]
 
@@ -769,3 +771,34 @@ let%expect_test "tensor: f32 special values roundtrip" =
         3
       ]
     } |}]
+
+(* A multi-output node has to survive the round trip with EVERY output edge, not
+   just the producer of the graph output: the codec stores [Node.outputs] as a
+   list, and a node that decoded back to one edge would still print and evaluate
+   until something read the missing slices. Two of the three are dead here, so
+   only the arity check in [Graph_view] and this golden would notice. *)
+let%expect_test "graph with Unbind op: encode → decode → pretty-print" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"unbind_c" ~outputs:(fun ids -> ids)
+          @@
+          let* x = input ~shape:(s 1 1 1 2 4 3) ~name:"x" () in
+          unbind ~name:"slice" { Split.Unbind.axis = Axis.C } x)
+    in
+    let* json = encode_graph g in
+    decode_graph json
+  in
+  Format.printf "%a@." (pp_result pp_decoded) result;
+  [%expect
+    {|
+    decoded:
+    graph
+    inputs: [t0 f32 [H=2 W=4 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=4], t2 f32 [W=2 C=4], t3 f32 [W=2 C=4]] =
+        unbind x=t0 params={axis=C}
+    outputs:
+      [t1 f32 [W=2 C=4] <-n0, t2 f32 [W=2 C=4] <-n0, t3 f32 [W=2 C=4] <-n0] |}]

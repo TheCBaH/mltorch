@@ -1,6 +1,13 @@
 Evaluate `torch.ops.aten.unbind.int` — the first bound op with a
-variable-length `Tensor[]` return — through the real ATen kernel only
-(`--eval`: no native comparison; there is no native unbind).
+variable-length `Tensor[]` return — through the real ATen kernel only.
+
+`--eval` prints ATen's results and does not compare them against anything. That
+is this file's job and it stays that way now that a native unbind exists: what
+it proves is that the whole `Tensor[]` path agrees on the result COUNT, which
+needs no second implementation. The ATen-versus-native comparison lives where
+the oracle is — `test/native_bridge_test.ml`'s verify cases,
+`test/aten_spec_run_test.ml`'s `eval_print` golden, and the generated bridge
+walk in `test/native_walk_test.ml`.
 
 This is the end-to-end proof that the whole Tensor[] path agrees on the result
 count: `Aten_spec_run.outputs_for` predicts it from `self`'s shape at the

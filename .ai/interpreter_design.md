@@ -78,6 +78,33 @@ For each `node` in `graph.nodes`:
    alone yields *zero* names for a list-returning node — a report with no output
    lines, which reads as a pass.
 
+   **`Native_interp` had the harsher form of the same bug**: its `output_names`
+   *rejected* the shape outright, so every unbind graph failed as
+   `` `Non_tensor_node_output `` — earlier than operator dispatch, and therefore
+   never reaching `` `Unsupported_operator ``. It now flattens the same way, at
+   both sites that read names (a node's outputs and the graph's own).
+
+   Two things follow that the ATen path does not need:
+
+   - **The name count is checkable, not just zippable.** The Native arity comes
+     from the operand's extent at the selected axis, so `Native_interp` compares
+     the two and reports `` `Output_arity `` on disagreement — *before* the
+     builder allocates. `add_env`'s `Invalid_argument` stays an invariant about
+     that module rather than becoming a report about the graph.
+   - **The list is untrusted, so flattening is bounded.** The ceiling lives in
+     the flattening helper, not in the operator arm, because `lower_node` reads
+     output names *before* it calls `lower_op` — an arm-local check would run
+     after the first `List.map` had already built a list sized by model data.
+     The traversal stops at the limit and never learns the real length, which is
+     why `Shape_error.Output_count` distinguishes `At_least` from `Exact`. The
+     budget is threaded across the graph's outputs, so several individually
+     legal lists cannot exceed the ceiling together.
+
+   Model Explorer's own `max_outputs_metadata_per_node` (1024) is *tighter* and
+   fires first on the `visualize` path; the lowering bound is what protects every
+   caller without Model Explorer limits. `test/native_interp/output_limit_test.ml`
+   drives it directly for that reason.
+
 ### 3. Dispatch — the crux
 Generated ops have fixed monomorphic OCaml signatures, so a `string → thunk`
 table needs per-op marshalling glue. **Recommended: hand-write dispatch for

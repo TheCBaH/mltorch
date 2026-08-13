@@ -110,12 +110,31 @@ module Convolution : sig
   val pp_error : Format.formatter -> error -> unit
 end
 
+(* A per-node output cardinality that model data can choose: [Unbind]'s output
+   count is the extent at the selected axis, so a declared size decides how many
+   edges shape inference is asked to produce. The ceiling is
+   [Kernel.Limits.Hard.outputs] and the rule is EXCLUSIVE, matching
+   [Kernel.Limits.create]'s own [v >= hard] test — reusing that constant with a
+   different boundary would be worse than picking a second number.
+
+   [observed] exists because the two producers know different things. Shape
+   inference holds the extent, so it reports [Exact]. A bounded list traversal
+   stops AT the exclusive limit and never learns the real length, so it reports
+   [At_least] — recording that as exact would claim evidence nobody gathered. *)
+module Output_count : sig
+  type observed = Exact of int | At_least of int
+  type t = { limit : int; observed : observed }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 type t =
   [ `Broadcast of Broadcast.t
   | `Window of Window.t
   | `Clamp of Clamp.error
   | `Linear of Linear.error
   | `Bmm of Bmm.error
+  | `Output_count_over_limit of Output_count.t
   | `Permute of Permute.t
   | `Convolution of Convolution.error ]
 

@@ -36,9 +36,11 @@ let bias_shape ~weight_shape =
     (Vec6.get weight_shape Axis.N)
 
 module Make (S : Semantics.SEMANTICS) = struct
-  (* [output] is accepted for signature compatibility with [Eval_op] and the
-     shared drivers, and ignored: no Native4D op is multi-output. *)
-  let pixel (op : Op.t) ~output:_ ~(operand : Tensor_ref.t -> S.input)
+  (* [output] is the ordinal in [Node.outputs] order. Only [Unbind] reads it —
+     every other op in the dialect has exactly one output — but the drivers have
+     always threaded a real value, so nothing outside this file changed when it
+     stopped being ignored. *)
+  let pixel (op : Op.t) ~output ~(operand : Tensor_ref.t -> S.input)
       ~(shape_of : Tensor_ref.t -> Vec6.shape)
       ~(fill : float -> Vec6.shape -> S.input)
       (out : Semantics.position S.index Vec6.t) : S.t =
@@ -125,6 +127,11 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           (Graph_shape4.mean_params params)
           ~x_shape:(shape_of x) ~x:(operand x) out
+    (* Through the SAME adapter [Graph_shape4] uses, so the axis the shape rule
+       drops is the axis the compute reads along, by construction. *)
+    | Unbind { Ops4.Unbind.params; x } ->
+        let module C = Split.Unbind.Compute (S) in
+        C.pixel (Graph_shape4.unbind_params params) ~output ~x:(operand x) out
     | Rms_norm { Ops4.Rms_norm.params; x; weight } ->
         let module C = Norm.RmsNorm.Compute (S) in
         let weight =

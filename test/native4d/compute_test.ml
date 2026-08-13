@@ -181,13 +181,22 @@ let agree name g ~inputs ~constants =
         | None -> invalid_arg "unbound")
   in
   let grounded = Stage_program.ground program ~bind in
-  let out = List.hd g.Graph.Graph.outputs in
-  let d = Tensor_id.Map.find out direct in
-  match Tensor_id.Map.find_opt out grounded with
-  | None -> Format.printf "%-22s symbolic produced no stage@." name
-  | Some s ->
-      Format.printf "%-22s %s@." name
-        (if same_bits d s then "direct = symbolic" else "MISMATCH")
+  (* EVERY output, not [List.hd]. For the eighteen single-output ops that is the
+     same thing; for [Unbind] it is the difference between comparing the whole
+     op and comparing its first slice, and a per-ordinal bug is exactly what a
+     multi-output op can have. *)
+  let verdict out =
+    let d = Tensor_id.Map.find out direct in
+    match Tensor_id.Map.find_opt out grounded with
+    | None -> "symbolic produced no stage"
+    | Some s -> if same_bits d s then "direct = symbolic" else "MISMATCH"
+  in
+  match g.Graph.Graph.outputs with
+  | [ out ] -> Format.printf "%-22s %s@." name (verdict out)
+  | outputs ->
+      List.iteri
+        (fun i out -> Format.printf "%-22s out%d %s@." name i (verdict out))
+        outputs
 
 (* Same coverage discipline as op_json_test.ml: an op with no fixture is an op
    whose two evaluation paths have never been compared. *)
@@ -195,7 +204,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 19, registry: 19 |}]
+  [%expect {| fixtures: 20, registry: 20 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -221,4 +230,38 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     rms_norm               direct = symbolic
     conv2d                 direct = symbolic
     depthwise_conv2d       direct = symbolic
-    transposed_conv2d      direct = symbolic |}]
+    transposed_conv2d      direct = symbolic
+    unbind                 out0 direct = symbolic
+    unbind                 out1 direct = symbolic |}]
+
+(* Hand values, not Native-as-oracle: both sides would instantiate the same
+   [Split.Unbind.Compute] functor, so agreement would prove the adapter and the
+   staging rather than the arithmetic.
+
+   Unbinding C on [N=1 H=1 W=2 C=3] drops the innermost axis, so H shifts onto W
+   and W onto C: each slice is [W=1 C=2], holding one column. Every ordinal is
+   printed, since that is what a single-output test cannot see. *)
+let%expect_test "direct4: unbind takes one slice per coordinate" =
+  let shape = s4 ~n:1 ~h:1 ~w:2 ~c:3 in
+  let g =
+    build ~outputs:Fun.id
+      (let open Builder in
+       let* x = input ~shape () in
+       unbind Axis4.C x)
+  in
+  let x =
+    Tensor.materialize (Shape4.to_vec6 shape) (fun c ->
+        float_of_int
+          ((Dim.to_int (Vec6.get c Axis.W) * 10)
+          + Dim.to_int (Vec6.get c Axis.C)))
+  in
+  let env = run_direct g ~inputs:[ (List.hd g.Graph.Graph.inputs, x) ] in
+  List.iteri
+    (fun i out ->
+      Format.printf "out%d = %a@." i Tensor.pp (Tensor_id.Map.find out env))
+    g.Graph.Graph.outputs;
+  [%expect
+    {|
+    out0 = tensor f32 [C=2] {0, 10}
+    out1 = tensor f32 [C=2] {1, 11}
+    out2 = tensor f32 [C=2] {2, 12} |}]

@@ -252,3 +252,44 @@ let linear_layer () =
      let* x = input ~shape:(nhwc ~n:1 ~h:1 ~w:1 ~c:8) () in
      let* w = constant ~shape:(s 4 1 1 1 1 8) () in
      linear { Linear.Linear.in_features = Dim.extent 8 } ~x ~weight:w ())
+
+(* ---- unbind -------------------------------------------------------------- *)
+
+(* The dialect's first multi-output source op, and the one whose representable
+   set is narrower than its axis check suggests.
+
+   Dropping an axis shifts every axis OUTSIDE it one place outward, so unbinding
+   H/W/C moves N's extent onto T — inside the dialect only when N=1. Unbinding N
+   always converts, since nothing lies outside it. Neither rule is written down
+   anywhere: [Shape4.of_vec6] on each inferred slice is what decides, which is
+   exactly what these fixtures are here to show.
+
+   [build] returns a single output, so these expose the whole slice list
+   instead — the point is that all of them survive. *)
+let unbind_all name ~shape axis =
+  Graph_builder.build ~name ~outputs:Fun.id
+    (let open Graph_builder in
+     let* x = input ~shape () in
+     unbind { Split.Unbind.axis } x)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* N=1, so unbinding C leaves every slice four-axis. *)
+let unbind_c_batch1 () =
+  unbind_all "unbind_c_batch1" ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:3) Axis.C
+
+(* Batch 2, unbound along N: the outermost axis, so nothing shifts onto T. *)
+let unbind_n () = unbind_all "unbind_n" ~shape:(nhwc ~n:2 ~h:2 ~w:2 ~c:3) Axis.N
+
+(* Batch 2, unbound along C: N's extent lands on T, which the dialect has no
+   form for. Rejected by the SHAPE rule, not by the axis rule — C is a perfectly
+   legal axis to name. *)
+let unbind_c_batch2 () =
+  unbind_all "unbind_c_batch2" ~shape:(nhwc ~n:2 ~h:2 ~w:2 ~c:3) Axis.C
+
+(* The motivating ViT node: rank five, unbound at dim 0. Right-aligned, dim 0 of
+   a rank-five tensor IS the frame's T axis, so this is refused by the axis rule
+   and names T — the actionable diagnostic, rather than a consequence like "some
+   tensor has extent on T". *)
+let unbind_rank5_t () =
+  unbind_all "unbind_rank5_t" ~shape:(s 1 3 1 3 101 32) Axis.T

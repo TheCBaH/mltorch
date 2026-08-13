@@ -8,11 +8,14 @@
 
    Two absences are decisions, not omissions:
 
-   - NO [Discard]. No Native4D op is multi-output, and dead outputs are gone
-     before conversion — [Pipeline.canonical] removes the sinks. [Discard] is
-     the one Native op handled INLINE at every [op_registry] fold site
-     (operands, map_operands, pp, JSON), so not inheriting it is what keeps the
-     registry below free of special cases.
+   - NO [Discard]. Dead outputs are gone before conversion —
+     [Pipeline.canonical] removes the sinks — so the dialect needs no way to
+     mark an edge unused. [Discard] is the one Native op handled INLINE at every
+     [op_registry] fold site (operands, map_operands, pp, JSON), so not
+     inheriting it is what keeps the registry below free of special cases.
+     (This used to be argued from "no Native4D op is multi-output". [Unbind]
+     ends that, and the conclusion is unaffected: multi-output and zero-output
+     are different needs, and only the second is what [Discard] serves.)
    - NO general grouped convolution. Grouping is not a number the IR can hold:
      one group is [Conv2d], one input channel per group is
      [Depthwise_conv2d], and anything else was rejected at the domain check.
@@ -39,6 +42,7 @@ type op =
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
   | Transposed_conv2d of Ops4.Transposed_conv2d.t
+  | Unbind of Ops4.Unbind.t
 
 type t = op
 
@@ -175,6 +179,12 @@ let op_registry : (module OP) list =
 
       let inject t = Transposed_conv2d t
       let project = function Transposed_conv2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Unbind
+
+      let inject t = Unbind t
+      let project = function Unbind t -> Some t | _ -> None
     end : OP);
   ]
 

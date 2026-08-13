@@ -45,6 +45,17 @@ let lowering : [< Native_interp.error ] -> verdict = function
      ExportedProgram and gains no operator support from the archive payload. *)
   | `Unsupported_operator _ -> Unavailable C.Unsupported_operator
   | `Unsupported_input _ -> Unavailable C.Unsupported_input
+  (* A per-node output-count ceiling, in the two spellings a caller can meet: a
+     `Tensor[]` node's serialized name list is bounded during lowering, and the
+     same limit is enforced again inside shape inference, arriving wrapped as a
+     builder error. Both are the bound doing its job on a graph that may be
+     perfectly well formed — so they are RECOVERABLE, and must be matched ahead
+     of the generic [`Build] arm below, which is [Fatal].
+     Not a [malformed] row for the same reason: telling a user their model is
+     too big is a different answer from telling them we accepted something we
+     should not have. *)
+  | `Output_count_over_limit _ | `Build (`Output_count_over_limit _) ->
+      Unavailable C.Over_limit
   (* Everything else is a defect or a stage this path never reaches. A
      malformed graph is a decoder that accepted what it should not have — every
      [Native_interp.malformed] row alike, which is why they are matched as the

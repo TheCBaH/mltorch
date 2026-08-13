@@ -80,9 +80,13 @@ alphabetical position at every site below; don't append.
    operands are materialised with `fill` (zeros bias / ones weight).
 
 5. **Claim transfer** — `lib/native/transform/output_transfer.ml`
-   Add the op to `classify`, per output: `Reindexing` if the output is a
-   permutation of the input's values, `Discontinuous` if an arbitrarily small
-   input change can switch the result (an argmax), otherwise `Continuous`. The
+   Add the op to `classify`, per output: `Reindexing` if every output element is
+   **copied from an input element with no arithmetic** — a permutation
+   (`Permute`, `Reshape`) or a selection (`Unbind`, one slice per output) both
+   qualify, because the `Approximate` claim it carries is per-element, so it does
+   not depend on the whole value multiset surviving; `Discontinuous` if an
+   arbitrarily small input change can switch the result (an argmax); otherwise
+   `Continuous`. The
    match is exhaustive with no default arm on purpose — a defaulting classifier
    would silently mis-transfer a new op, and mis-transferring means a verifier
    asserting an equality the graph does not guarantee. See
@@ -157,9 +161,21 @@ Most ops produce one output; a few ATen ops return a tuple. If yours does:
 - `Graph_shape.output_shape` returns one shape **per output**; `Node.outputs`
   holds one id per output. `Eval_direct`/`Eval_symbolic` loop over them, so the
   builder must allocate all output edges (not just via the single-output `op1`).
+  For a **fixed** arity, hand-roll the builder and name the edges (see
+  `max_pool2d_with_indices`). For an arity derived from the operand signature,
+  use `Graph_builder.opN`, which allocates one edge per inferred shape and
+  imposes no expected count.
 - If the outputs need **different** per-pixel computations, thread an output
   selector into `Eval_op.pixel` and have the op's `Compute` expose one pixel
-  function per output (e.g. values vs argmax indices).
+  function per output (e.g. values vs argmax indices). If they run the *same*
+  computation and differ only in a coordinate, take `~output` as an ordinary
+  parameter of one `pixel` instead (`Unbind`).
+- **If the output count comes from model data, bound it inside the op's
+  `output_shape`, before the list is built.** A ceiling in the builder is too
+  late — the builder calls `Graph_shape` first, so the allocation it means to
+  prevent has already happened. `Shape_error.Output_count` is the row, the limit
+  is `Kernel.Limits.Hard.outputs`, and the test is `>=`, matching
+  `Kernel.Limits.create`. See `native_multi_output_design.md` §1a.
 - Route a genuinely-dead output into a `Discard` sink
   (`Graph_builder.discard`); drop a size-0 ATen output entirely (the engine has
   no empty tensors). See `native_multi_output_design.md` for the full rationale.

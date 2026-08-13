@@ -896,3 +896,73 @@ let%expect_test "Direct: permute 3D [H=2 W=3 C=4] — cycle H->W->C->H" =
     {|
     out shape: [H=3 W=4 C=2]
     tensor f32 [H=3 W=4 C=2] {0, 12, 1, 13, 2, 14, 3, 15, ...} |}]
+
+(* --- Unbind ---------------------------------------------------------------
+
+   Hand-computed, not compared against another instantiation of the same
+   functor: agreement between Direct and Symbolic would prove staging, not
+   arithmetic. Value at (h,w,c) is h*100 + w*10 + c, so each printed slice can
+   be read straight off its coordinates. *)
+
+(* Unbind DROPS the axis it selects along, so the survivors re-pack
+   right-aligned exactly as mean(keepdim=false) does. [H2 W3 C2] unbound on H
+   gives [W3 C2]; on W gives [W2 C2] with H's data now on W; on C gives [W2 C3]
+   with H on W and W on C. Every ordinal is printed, because a bug that only
+   gets output 0 right is exactly what a singleton test cannot see. *)
+let%expect_test "Direct: unbind along an outer, a middle and an inner axis" =
+  let module U = Split.Unbind.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:2 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        float_of_int ((row c * 100) + (col c * 10) + chan c))
+  in
+  let run axis =
+    let p = { Split.Unbind.axis } in
+    let shapes =
+      Split.Unbind.output_shapes ~x_shape p
+      |> Err.or_raise ~pp_error:Shape_error.pp
+    in
+    Format.printf "unbind %a -> %d outputs@." Axis.pp axis (List.length shapes);
+    List.iteri
+      (fun i sh ->
+        Format.printf "  out%d %a %a@." i Vec6.pp_shape sh Tensor.pp
+          (Schedule.evaluate sh (U.pixel p ~output:i ~x)))
+      shapes
+  in
+  run Axis.H;
+  run Axis.W;
+  run Axis.C;
+  [%expect
+    {|
+    unbind H -> 2 outputs
+      out0 [W=3 C=2] tensor f32 [W=3 C=2] {0, 1, 10, 11, 20, 21}
+      out1 [W=3 C=2] tensor f32 [W=3 C=2] {100, 101, 110, 111, 120, 121}
+    unbind W -> 3 outputs
+      out0 [W=2 C=2] tensor f32 [W=2 C=2] {0, 1, 100, 101}
+      out1 [W=2 C=2] tensor f32 [W=2 C=2] {10, 11, 110, 111}
+      out2 [W=2 C=2] tensor f32 [W=2 C=2] {20, 21, 120, 121}
+    unbind C -> 2 outputs
+      out0 [W=2 C=3] tensor f32 [W=2 C=3] {0, 10, 20, 100, 110, 120}
+      out1 [W=2 C=3] tensor f32 [W=2 C=3] {1, 11, 21, 101, 111, 121} |}]
+
+(* The ceiling is EXCLUSIVE, matching [Kernel.Limits.create]'s own [v >= hard]
+   test, so 4095 is the largest accepted count. Checked here rather than in the
+   builder because this is the boundary that runs BEFORE the list exists: a
+   builder-side check would already have paid for the allocation it prevents. *)
+let%expect_test "unbind output_shapes: the output-count ceiling is exclusive" =
+  let limit = Kernel.Limits.Hard.outputs in
+  let at n =
+    let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:n ~w:1 ~c:1 in
+    Format.printf "%d -> %a@." n
+      (Core.Pretty.err_result
+         ~ok:(fun ppf shapes ->
+           Format.fprintf ppf "%d outputs" (List.length shapes))
+         ~error:Shape_error.pp)
+      (Split.Unbind.output_shapes ~x_shape { Split.Unbind.axis = Axis.H })
+  in
+  List.iter at [ limit - 1; limit; limit + 1 ];
+  [%expect
+    {|
+    4095 -> 4095 outputs
+    4096 -> 4096 outputs, above the maximum of 4095
+    4097 -> 4097 outputs, above the maximum of 4095 |}]

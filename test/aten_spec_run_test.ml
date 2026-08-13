@@ -318,9 +318,11 @@ let%expect_test "unbind: eval_print shows each result's own values" =
     {|
     [eval] torch.ops.aten.unbind.int
       aten   out0 = [0; 1]
-      native = <no native impl>
+      native out0 = [0; 1]
       aten   out1 = [2; 3]
-      aten   out2 = [4; 5] |}]
+      native out1 = [2; 3]
+      aten   out2 = [4; 5]
+      native out2 = [4; 5] |}]
 
 let%expect_test "unbind: eval_report lists every synthesized output name" =
   capture (fun ppf -> Aten_spec_run.eval_report ~ppf (decode unbind_spec));

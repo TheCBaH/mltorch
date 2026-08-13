@@ -116,6 +116,41 @@ let op1 ?name ~kind op : Tensor_id.t t =
   let* () = push_node op [ tid ] in
   return tid
 
+(* The variable-arity form: allocate one edge per inferred shape and push one
+   node holding all of them, in order. No arity constraint at all — for an op
+   whose output count is part of its input signature ([Unbind]) there is no
+   expected number to check against, and the ceiling that DOES bound it lives in
+   the op's [output_shapes], which is the only place it can run before the shape
+   list exists.
+
+   [op1] keeps its loud singleton check rather than being defined through this:
+   for a single-output op a shape list of any other length is a bug worth
+   naming. [max_pool2d_with_indices] keeps its own body too — it names its two
+   edges with different kinds, which this cannot express. *)
+let opN ?name ~kind op : Tensor_id.t list t =
+  let* s = get in
+  let* shapes =
+    lift_result
+      (Graph_shape.output_shape op ~sig_of:(fun r ->
+           Tensor_id.Map.find_opt r s.tensors
+           |> Err.of_option (`Missing_tensor_sig r)))
+  in
+  Tensor_id.check_room ~next:s.next_tid ~count:(List.length shapes);
+  (* TAIL-RECURSIVE, with an accumulator, and that is not a style choice: the
+     obvious [let* tid = … in let* ids = alloc rest in return (tid :: ids)]
+     holds a monadic frame per output, and at a few thousand outputs it
+     overflows node's stack — caught by [make jsoo.inline-runtest], which is the
+     only gate that runs these suites under the tighter stack. *)
+  let rec alloc acc = function
+    | [] -> return (List.rev acc)
+    | shape :: rest ->
+        let* tid = new_edge ?name ~kind shape in
+        alloc (tid :: acc) rest
+  in
+  let* ids = alloc [] shapes in
+  let* () = push_node op ids in
+  return ids
+
 (* Op constructors in global alphabetical order (see graph_ir.mli). The record
    payloads are built with their first label qualified, which disambiguates the
    op module each belongs to (the [node.Node.outputs] convention). *)
@@ -236,6 +271,13 @@ let rms_norm ?name params ~x ?weight () =
 
 let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })
 let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
+
+(* Returns every slice, in ordinal order. The count comes from the input
+   signature via [Graph_shape], never from the caller — which is what lets a
+   serialized graph's SSA name list be CHECKED against the node's arity instead
+   of silently zipped against it. *)
+let unbind ?name params x =
+  opN ?name ~kind:"unbind" (Unbind { Split.Unbind.params; x })
 
 let group ?label (body : 'a t) : 'a t =
  fun s ->

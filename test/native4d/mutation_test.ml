@@ -547,3 +547,67 @@ let%expect_test "mutation: the bmm weight permutation transposed" =
     {|
     correct permutation    4 clusters: 2 proved (structural), 1 tested (coefficients agree), 1 vacuous
     transposed             4 clusters: 2 proved (structural), 1 refuted (counterexample), 1 vacuous |}]
+
+(* ---- the multi-output mutation -------------------------------------------- *)
+
+(* [Unbind] is the one op whose outputs can be mutated WITHOUT changing any
+   shape, any id set, or the graph's own signature — every slice has the same
+   shape, so swapping two of them leaves a destination graph that validates and
+   a map that is structurally perfect.
+
+   Nothing before the verifier can see it. [Graph_view] checks arity and
+   signatures, which are unchanged. [Graph_map.create]'s output check is
+   positional over the GRAPH's outputs, and those are in the same order. Only
+   [Map_verify] catches it, because [Eval_symbolic4] emits one stage per output
+   ORDINAL and the swapped stages ground to different terms.
+
+   Both sides are hand-built rather than lowered, which is what lets the
+   destination differ from what the lowerer would produce. *)
+let unbind_pair ~swap =
+  let src =
+    Graph_builder.build ~name:"unbind" ~outputs:Fun.id
+      Graph_builder.(
+        let* x = input ~shape:sq () in
+        unbind { Split.Unbind.axis = Axis.C } x)
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
+  in
+  let dst =
+    Builder.build ~outputs:Fun.id
+      Builder.(
+        let* x = input ~shape:sq4 () in
+        unbind Axis4.C x)
+    |> Err.or_raise ~pp_error:Builder.pp_error
+  in
+  (* Swap the NODE's first two output ids and leave [Graph.outputs] alone. That
+     is the mutation nothing structural can see: the graph's signature is
+     unchanged, so the positional output check is satisfied, and every slice has
+     the same shape, so validation is too. What changed is which ORDINAL each id
+     is produced by — the only thing the per-output stages disagree about.
+     (Swapping the graph outputs instead is caught immediately by
+     [Graph_map.create], which is a different and much weaker claim.) *)
+  let dst =
+    if not swap then dst
+    else
+      {
+        dst with
+        Graph_common.Graph.nodes =
+          List.map
+            (fun (n : Graph.node) ->
+              match n.Graph_common.Node.outputs with
+              | a :: b :: rest ->
+                  { n with Graph_common.Node.outputs = b :: a :: rest }
+              | outs -> { n with Graph_common.Node.outputs = outs })
+            dst.Graph_common.Graph.nodes;
+      }
+  in
+  (src, dst)
+
+let%expect_test "mutation: swapping two unbind slices is refuted" =
+  let src, dst = unbind_pair ~swap:false in
+  mutated "slices in order" src dst;
+  let src, dst = unbind_pair ~swap:true in
+  mutated "slices swapped" src dst;
+  [%expect
+    {|
+    slices in order            3 clusters: 3 proved (structural)
+    slices swapped             3 clusters: 1 proved (structural), 2 refuted (counterexample) |}]

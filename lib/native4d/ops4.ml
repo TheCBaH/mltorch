@@ -377,3 +377,55 @@ module Reshape4 = struct
     Fmt.pf fmt "@[<hv 2>reshape4@ x=%a@ params=%a@]" pp_ref t.x pp_params
       t.params
 end
+
+(* ---- splitting ------------------------------------------------------------ *)
+
+(* The dialect's first MULTI-OUTPUT op: one output per coordinate of [axis], so
+   its arity comes from the operand's signature rather than from the op.
+
+   Needs its own payload for the first of the three reasons in
+   .ai/native4d_add_op.md — it NAMES AN AXIS, so the field is [Axis4.t] and T/D
+   are unsayable. Everything else is Native's [Split.Unbind]: the shape rule and
+   the per-pixel algorithm are delegated, never restated.
+
+   The representable set is narrower than it looks, and [Shape4.of_vec6] is what
+   enforces it rather than any rule written here. Dropping an axis shifts every
+   axis OUTSIDE it one place outward, so a four-axis [N,H,W,C] input unbound
+   along H/W/C puts N's extent on T. That is inside the dialect only when N=1 —
+   a rank-3 source is the common way to get there, but any batch-1 input
+   qualifies. Unbinding N always converts, since nothing is outside it. *)
+module Unbind = struct
+  type params = { axis : Axis4.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"unbind_params" (fun axis -> { axis })
+    |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a}@]" Axis4.pp p.axis
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Unbind"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>unbind@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+end

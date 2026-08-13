@@ -232,14 +232,14 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
     step 3 [n]: {kernel=2x3 stride=2x2 pad=0x0 n=2 c=4 H=8 W=8}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.unbind.int: skipped (no native impl)
-    step 1 [shape]: {shape=[2,3,6,4]}
-    [spec] torch.ops.aten.unbind.int: skipped (no native impl)
-    step 2 [shape]: {shape=[2,3,6,4]}
-    [spec] torch.ops.aten.unbind.int: skipped (no native impl)
-    step 3 [shape]: {shape=[2,3,6,4]}
-    [spec] torch.ops.aten.unbind.int: skipped (no native impl)
+    step 0: {shape=[2,3,4,4] dim=0}
+    [spec] torch.ops.aten.unbind.int: matched
+    step 1 [n]: {shape=[3,3,4,4] dim=0}
+    [spec] torch.ops.aten.unbind.int: matched
+    step 2 [dim]: {shape=[3,3,4,4] dim=-2}
+    [spec] torch.ops.aten.unbind.int: matched
+    step 3 [h]: {shape=[3,3,4,4] dim=-2}
+    [spec] torch.ops.aten.unbind.int: matched
     step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
     step 1 [c]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}

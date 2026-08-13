@@ -1,0 +1,21 @@
+; Expect tests for lib/native_interp. Pure OCaml: the programs are built as
+; JSON in the test and decoded through the generated schema, so this needs
+; neither downloaded weights nor the C++ ATen build.
+;
+; See test/native4d/dune for why [js] carries no `enabled_if`.
+
+(library
+ (name native_interp_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  native
+  native_interp
+  pytorch_types)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

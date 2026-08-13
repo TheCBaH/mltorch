@@ -32,6 +32,43 @@ admit a future multi-output op"). This is now honoured end to end:
   it; `Max_pool2d_with_indices` selects `value_pixel` for out0 and `index_pixel`
   for out1. `Eval_direct`/`Eval_symbolic` pass `~output:i` as they iterate.
 
+## 1a. Fixed arity vs. arity from the input signature
+
+`Max_pool2d_with_indices` has **two** outputs because the op says so. `Unbind` has
+as many outputs as the selected axis has coordinates — its arity is a function of
+its *operand signature*, and no other op's is. Three consequences, all of which
+the fixed-tuple ops never had to face:
+
+- **The builder cannot take a count.** `Graph_builder.opN` allocates one edge per
+  shape returned by `Graph_shape`, with no expected arity to check against. That
+  is deliberate: because the count is *derived*, a serialized graph's list of SSA
+  output names can be **checked** against it rather than zipped with it, which is
+  what turns a malformed export into a diagnostic instead of silent truncation.
+  `op1`'s loud singleton check stays for the ops whose arity really is fixed.
+- **`Eval_op.pixel`'s `~output` is data, not a selector.** The two max-pool
+  outputs run *different* algorithms, so its arm branches on the ordinal. Every
+  unbind output runs the same algorithm and differs only in the coordinate it
+  reads, so the ordinal goes straight in as a value.
+- **The count is untrusted, so it is bounded before it is used.** A declared size
+  in a serialized graph decides how many edges shape inference is asked to
+  produce, so it is an aggregate over model data. The ceiling is
+  `Kernel.Limits.Hard.outputs` (4096) and the rule is **exclusive**, matching
+  `Kernel.Limits.create`'s own `v >= hard` test — 4095 is the largest accepted
+  count. It is enforced inside `Split.Unbind.output_shapes`, *before* the shape
+  list is built: a check in the builder would already be too late, since the
+  builder asks `Graph_shape` for the list first and the allocation it means to
+  prevent has happened by the time it can measure one. The row is
+  `Shape_error.Output_count`, whose `observed` field distinguishes `Exact` (shape
+  inference knows the extent) from `At_least` (a bounded list traversal stops at
+  the limit and never learns the real length).
+
+Separately, `Tensor_id.check_room` guards the **id space** as both `opN`s advance
+their counters. That is an invariant, not a reachable ceiling — with per-node
+count bounded at 4095, exhausting the id space needs ~2^31 live edges and memory
+goes first — so it raises rather than returning a row. It is written
+`count > max_int - next`, never `next + count > max_int`: js_of_ocaml's `int` is
+32-bit and a wrapped sum passes the naive test.
+
 ## 2. The `Discard` sink
 
 `Discard of { x : tensor_ref }` is a node that **consumes one edge and produces
@@ -82,6 +119,18 @@ Only exposing *more* outputs than the op has is an error. So
 its argmax indices — dropped to `Discard`, and int64 where the native engine is
 F32 — are simply not compared. The bridge-coverage walk shows `matched` (not an
 `output count` mismatch) for it.
+
+**That leniency is for FIXED tuples only.** A dynamic `Tensor[]` return has no
+dead-output story: its arity is the *input's*, not the op's, so there is nothing
+a bridge could legitimately decline to expose, and under the leading-outputs rule
+a bridge returning only the first slice reports `matched`. Measured, not
+supposed: dropping the last output from the `unbind.int` arm printed
+`status: matched` until the rule was tightened.
+
+So `verify_node` requires **exact** cardinality when the node's outputs are a
+single `Argument.Tensors`, and keeps leading comparison otherwise. The
+discriminator is the node's **output structure**, read directly — not its target
+string, which would be a second list to keep in sync with the bindings.
 
 See `native_aten_bridge_layout.md` for the per-op relayout tables and
 `native_add_op.md` for the full site list when adding an op.

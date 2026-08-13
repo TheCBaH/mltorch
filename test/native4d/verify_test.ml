@@ -147,6 +147,17 @@ let%expect_test "verify: bmm, per cluster" =
     {t1} -> {t1} identical: proved (structural) [exhaustive]
     {t2} -> {t2} identical: tested: agrees (1e-05) [exhaustive] |}]
 
+(* Renders EVERY graph output, not [List.hd]. For a single-output graph that is
+   the same string; for a multi-output one it is the difference between an
+   end-to-end check and a check of the first result. The comparison is on the
+   rendered text, so an arity difference between the two dialects shows up as a
+   disagreement rather than being silently ignored. *)
+let render_outputs outputs env =
+  String.concat " | "
+    (List.map
+       (fun id -> Format.asprintf "%a" Tensor.pp (Tensor_id.Map.find id env))
+       outputs)
+
 (* The numeric cross-check that started the investigation: a refutation the
    numbers agree with means the verifier is wrong; one they confirm means the
    lowering is. They agreed. *)
@@ -170,9 +181,7 @@ let%expect_test "verify: bmm, numerically" =
     match Eval_direct.run g ~inputs with
     | Error e ->
         Format.asprintf "native: %a" Eval_direct.pp_error (Err.Error.kind e)
-    | Ok env ->
-        let t = Tensor_id.Map.find (List.hd g.Graph_ir.Graph.outputs) env in
-        Format.asprintf "%a" Tensor.pp t
+    | Ok env -> render_outputs g.Graph_ir.Graph.outputs env
   in
   let four_out =
     match Snapshot.create g with
@@ -186,13 +195,7 @@ let%expect_test "verify: bmm, numerically" =
             | Error e ->
                 Format.asprintf "native4d: %a" Eval_direct4.pp_error
                   (Err.Error.kind e)
-            | Ok env ->
-                let t =
-                  Tensor_id.Map.find
-                    (List.hd dst.Graph_common.Graph.outputs)
-                    env
-                in
-                Format.asprintf "%a" Tensor.pp t))
+            | Ok env -> render_outputs dst.Graph_common.Graph.outputs env))
   in
   Format.printf "native:   %s@." native_out;
   Format.printf "native4d: %s@." four_out;
@@ -293,3 +296,53 @@ let%expect_test "verify: bmm, the two terms" =
       (1) * dst.t1(1,2))))) + (0x0p+0 + (0x0p+0 + (dst.t0(2) * dst.t1(2,2))))) + 0x0p+0))
     structurally equal: false
     coefficients agree: true |}]
+
+(* The same end-to-end shape over a MULTI-OUTPUT graph, which the bmm case
+   cannot cover. Every slice is compared, in order: the whole point of the
+   lowering is that the ordered output list survives, and evaluating only the
+   first would leave a dropped or reordered slice invisible here exactly as it
+   is invisible to the structural checks. *)
+let%expect_test "verify: unbind, numerically, over every slice" =
+  let g = Fixtures.unbind_c_batch1 () in
+  let seq shape =
+    let i = ref 0. in
+    Tensor.materialize shape (fun _ ->
+        i := !i +. 1.;
+        !i)
+  in
+  let inputs =
+    List.map
+      (fun id ->
+        ( id,
+          seq (Tensor_id.Map.find id g.Graph_ir.Graph.tensors).Tensor_sig.shape
+        ))
+      g.Graph_ir.Graph.inputs
+  in
+  let native_out =
+    match Eval_direct.run g ~inputs with
+    | Error e ->
+        Format.asprintf "native: %a" Eval_direct.pp_error (Err.Error.kind e)
+    | Ok env -> render_outputs g.Graph_ir.Graph.outputs env
+  in
+  let four_out =
+    match Snapshot.create g with
+    | Error _ -> "snapshot failed"
+    | Ok (Snapshot.Pack src) -> (
+        match Lower.convert src with
+        | Error e -> Format.asprintf "%a" Error.pp (Err.Error.kind e)
+        | Ok (Lower.Pack r) -> (
+            let dst = Lower.graph r in
+            match Eval_direct4.run dst ~inputs with
+            | Error e ->
+                Format.asprintf "native4d: %a" Eval_direct4.pp_error
+                  (Err.Error.kind e)
+            | Ok env -> render_outputs dst.Graph_common.Graph.outputs env))
+  in
+  Format.printf "native:   %s@." native_out;
+  Format.printf "native4d: %s@." four_out;
+  Format.printf "agree: %b@." (String.equal native_out four_out);
+  [%expect
+    {|
+    native:   tensor f32 [W=2 C=2] {1, 4, 7, 10} | tensor f32 [W=2 C=2] {2, 5, 8, 11} | tensor f32 [W=2 C=2] {3, 6, 9, 12}
+    native4d: tensor f32 [W=2 C=2] {1, 4, 7, 10} | tensor f32 [W=2 C=2] {2, 5, 8, 11} | tensor f32 [W=2 C=2] {3, 6, 9, 12}
+    agree: true |}]

@@ -1247,3 +1247,95 @@ let%expect_test "pp: unbind.int config" =
   |> Format.printf "%a@."
        (Core.Pretty.option_or ~none:"not found" Aten_op_config.pp);
   [%expect {| torch.ops.aten.unbind.int (Tensor self, Int dim=0) -> T[] |}]
+
+(* --- the native side of unbind ------------------------------------------- *)
+
+(* [dispatch_print] is reusable here even though it synthesises a fixed-tuple
+   output shape: the bridge arm reads [self] and [dim] only, never the node's
+   outputs. The values are hand-derived, so this does not lean on ATen. *)
+let%expect_test "dispatch: unbind.int slices along the leading dim" =
+  (* [3,2] right-aligns to [W=3 C=2]; dim 0 is W, so each slice drops W and the
+     survivors re-pack to [C=2]. *)
+  dispatch_print ~target:"torch.ops.aten.unbind.int"
+    ~bindings:[ ("self", float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:0;
+  [%expect
+    {|
+    tensor f32 [C=2] {0, 1}
+    tensor f32 [C=2] {2, 3}
+    tensor f32 [C=2] {4, 5} |}]
+
+(* dim=-1 on a rank-2 input is C. Each slice reads a COLUMN, so the values are
+   strided rather than contiguous — the case a naive flat read gets wrong. *)
+let%expect_test "dispatch: unbind.int with a negative dim" =
+  dispatch_print ~target:"torch.ops.aten.unbind.int"
+    ~bindings:[ ("self", float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]) ]
+    ~inputs:[ in_tensor "self"; in_int "dim" (-1) ]
+    ~noutputs:0;
+  [%expect
+    {|
+    tensor f32 [C=2] {0, 3}
+    tensor f32 [C=2] {1, 4}
+    tensor f32 [C=2] {2, 5} |}]
+
+(* [Aten_shape.axis_of_dim] asserts its range and raises, so the arm checks
+   first and reports a typed row. The ORIGINAL dim is echoed, not the
+   normalised one. *)
+let%expect_test "dispatch: unbind.int rejects an out-of-range dim" =
+  List.iter
+    (fun d ->
+      dispatch_print ~target:"torch.ops.aten.unbind.int"
+        ~bindings:[ ("self", float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]) ]
+        ~inputs:[ in_tensor "self"; in_int "dim" d ]
+        ~noutputs:0)
+    [ 2; -3 ];
+  [%expect
+    {|
+    error: unbind.int: invalid dimension 2 for rank 2
+    error: unbind.int: invalid dimension -3 for rank 2 |}]
+
+(* The engine computes in f32 and [Graph_builder] gives every op output F32, so
+   an i64 operand would silently become an f32 result. [Tensor_bridge.of_aten]
+   accepts i64, so the refusal has to be the arm's. *)
+let%expect_test "dispatch: unbind.int rejects a non-f32 input" =
+  dispatch_print ~target:"torch.ops.aten.unbind.int"
+    ~bindings:
+      [ ("self", Aten_tensor.create ~dtype:Aten_scalar_type.Long [ 3; 2 ]) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:0;
+  [%expect {| error: self: the native engine computes in f32, got Long |}]
+
+(* The real oracle: ATen runs the op, the native side runs [Graph_ir.Unbind]
+   through [Eval_direct], and [Verify.verify_node] compares EVERY slice —
+   exactly, because a single [Argument.Tensors] output has no dead-output story
+   and a bridge returning fewer would otherwise report a match.
+
+   [verify_print] cannot drive this: it synthesises one [Argument.Tensor]
+   output, which [bind_tensor_list] rejects. Silence is agreement. *)
+let verify_unbind ~inputs ~outputs ~self =
+  let env = Sm.add "self" self Sm.empty in
+  let node =
+    PT.Node.make "torch.ops.aten.unbind.int"
+      (PT.NamedArgument.make "self" (targ "self") None :: inputs)
+      outputs Sm.empty None (Some "test")
+  in
+  match
+    Interp_verify.dispatch ~verify:true ~ppf:Format.std_formatter env node
+  with
+  | Error e ->
+      Format.printf "dispatch error: %a@." Interp_verify.pp_interp_error
+        (Err.Error.kind e)
+  | Ok _ -> print_string "aten and native agree\n"
+
+let%expect_test "verify: unbind.int agrees with ATen on every slice" =
+  let self = float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  verify_unbind ~inputs:[] ~outputs:(tensors [ "a"; "b"; "c" ]) ~self;
+  (* And along the strided axis, where each slice is a column. *)
+  verify_unbind
+    ~inputs:[ in_int "dim" (-1) ]
+    ~outputs:(tensors [ "a"; "b" ])
+    ~self:(float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]);
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]

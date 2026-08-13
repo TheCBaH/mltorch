@@ -108,6 +108,31 @@ let%expect_test "output_transfer: clone is reindexing and keeps Approximate" =
     continuous: approximate(bf16) -> unverifiable
     continuous: approximate(bf16) -> unverifiable |}]
 
+(* [Unbind] is the case that made the class's definition matter. Each output is
+   a SLICE, so the outputs' value multisets partition the input's rather than
+   each reproducing it — it is not a permutation, and "the value multiset is
+   unchanged" would not license it. The rule that does is the one the class
+   actually needs: every output element is COPIED from an input element with no
+   arithmetic, and an [Approximate] bound is per-element, so a slice carries it
+   exactly as a permutation does.
+
+   Every ordinal is asked, since the classifier takes [~output] and a per-output
+   answer is exactly what this op could get wrong. *)
+let%expect_test "output_transfer: every unbind slice keeps Approximate" =
+  let op = Unbind { Split.Unbind.params = { axis = Axis.C }; x = t 0 } in
+  List.iter
+    (fun output ->
+      let cls = Output_transfer.classify op ~output in
+      Fmt.pf Fmt.stdout "out%d %a: %a -> %a@." output Output_transfer.pp cls
+        C.pp_relation (approx [ bf16 ]) C.pp_relation
+        (Output_transfer.transfer (approx [ bf16 ]) cls))
+    [ 0; 1; 2 ];
+  [%expect
+    {|
+    out0 reindexing: approximate(bf16) -> approximate(bf16)
+    out1 reindexing: approximate(bf16) -> approximate(bf16)
+    out2 reindexing: approximate(bf16) -> approximate(bf16) |}]
+
 (* ---- normalisation ------------------------------------------------------- *)
 
 let%expect_test

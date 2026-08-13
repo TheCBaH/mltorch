@@ -312,6 +312,28 @@ let hardtanh =
     ( Aten_op_spec.Op_hardtanh.(spec { self; min_val; max_val }), pcg )|};
   }
 
+(* unbind.int already gets a generated DEFAULT walk (one tensor arg, every other
+   arg fillable), so unlike the entries above this is not filling a gap — it is
+   an override, for the reason the design record gives for hardtanh: the default
+   only ever exercises the schema defaults, and here that means dim=0 forever.
+   The whole negative- and nonzero-dim space is unreachable without this. *)
+let unbind_int =
+  {
+    module_name = "Unbind_int_walk";
+    target = "torch.ops.aten.unbind.int";
+    recipe = "Recipe_unbind";
+    initial =
+      "Aten_walk_recipes.Recipe_unbind.{ n = 2; c = 3; h = 4; w = 4; dim = 0 }";
+    axes =
+      "Aten_walk_recipes.Recipe_unbind.axes ~n:[ 1; 2; 3 ] ~c:[ 2; 3; 4 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 4; 6 ] ~dim:Aten_walk_recipes.Recipe_unbind.all_dims";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_unbind.self_shape c) in
+    ( Aten_op_spec.Op_unbind_int.(
+        spec { self; dim = Recipe_unbind.dim c }),
+      pcg )|};
+  }
+
 let entries =
   [
     conv2d;
@@ -324,6 +346,7 @@ let entries =
     mean_dim;
     clamp;
     hardtanh;
+    unbind_int;
   ]
 
 let find target = List.find_opt (fun e -> e.target = target) entries

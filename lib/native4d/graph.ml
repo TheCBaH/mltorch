@@ -12,10 +12,11 @@
    Stage 4 re-points these at the shared [Graph_common] records; they are
    written out here so stage 2 does not block on that extraction. *)
 
-(* The SHARED records, instantiated at the Native4D op. Node outputs are a
-   singleton for every op — the dialect has no multi-output operation, which is
-   why it needs no [Discard] either — but the list stays because the shared
-   framework indexes outputs positionally. *)
+(* The SHARED records, instantiated at the Native4D op. [Unbind] is the one op
+   whose outputs are not a singleton, and its arity comes from the operand's
+   signature rather than from the op — the shared framework already indexes
+   outputs positionally, so nothing here needed to change for it. A ZERO-output
+   op is still absent, which is why the dialect needs no [Discard]. *)
 module Node = Graph_common.Node
 module Graph = Graph_common.Graph
 

@@ -84,13 +84,18 @@ append.
 
 5. **Claim transfer** — the dialect's `Output_transfer` table.
 
-   Per output: `Reindexing` if the output is a permutation of the input's
-   values, `Discontinuous` if an arbitrarily small input change can switch the
-   result, otherwise `Continuous`. Exhaustive with no default arm, same
+   Per output: `Reindexing` if every output element is **copied from an input
+   element with no arithmetic** — a permutation (`Permute4`, `Reshape4`) or a
+   selection (`Unbind`) both qualify, since the claim is per-element and copying
+   preserves it; `Discontinuous` if an arbitrarily small input change can switch
+   the result; otherwise `Continuous`. Exhaustive with no default arm, same
    discipline and same reason as Native's.
 
 6. **Builder** — `lib/native4d/builder.ml`, alphabetical, taking `Shape4.t` and
    `Axis4.t` in its public signature so an invalid graph is not constructible.
+   `op1` for a fixed single output; `opN` when the arity comes from the operand
+   signature (`Unbind`). `op1`'s arity check is not vestigial — it is what stops
+   an op that grew an output from silently dropping it.
 
 7. **Legalization** — `lib/native4d/lower.ml`, plus a row in the domain contract
    table if the new op changes what `Domain.check` accepts. State the claim
@@ -105,8 +110,18 @@ append.
 - `test/native4d/compute_test.ml` — Direct values, hand-computed. Not
   Native-as-oracle: both sides would instantiate the same functor, so agreement
   would prove staging rather than arithmetic.
-- `test/native4d/graph_symbolic_test.ml` — Direct versus grounded Symbolic,
-  bitwise.
+- Direct versus grounded Symbolic, bitwise — in `compute_test.ml`, not in a
+  `graph_symbolic_test.ml`; this file used to name one that does not exist.
+  `Fixtures4.per_op` is count-checked against the registry the same way the JSON
+  samples are, so a new op fails until it has a graph there.
+- **If the op is multi-output**, check what the harnesses compare. Several took
+  `List.hd` of `Graph.outputs` and so only ever looked at ordinal 0;
+  `compute_test.ml`'s `agree` and `verify_test.ml`'s end-to-end comparison now
+  render every output. A fixture with two or more outputs is what keeps that
+  honest.
+- `test/native4d/mutation_test.ml` — for a multi-output op, swap two of a NODE's
+  output ids while leaving `Graph.outputs` alone. Nothing structural sees it;
+  only `Map_verify` does.
 - `test/native4d/verify_test.ml` — if the op is a legalization target, a mutation
   in its family, **observed failing before the fix is restored**.
 

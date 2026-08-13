@@ -16,6 +16,18 @@ let used_axes ~rank =
   let drop = List.length Axis.all - rank in
   List.filteri (fun i _ -> i >= drop) Axis.all
 
+(* Dropping axes from the frame re-packs the survivors right-aligned, which is
+   the same rule [used_axes] states — so it belongs here rather than restated by
+   each op that removes an axis. Returns (surviving INPUT axis, OUTPUT axis
+   carrying its data) pairs, in canonical order.
+
+   Two ops need exactly this: [Reduce.Mean] with keepdim=false, and
+   [Split.Unbind], which drops the axis it selects along. Restating it per op
+   would be a second definition free to drift from the compute that reads it. *)
+let repack_dropped ~dropped =
+  let survivors = List.filter (fun a -> not (List.mem a dropped)) Axis.all in
+  List.combine survivors (used_axes ~rank:(List.length survivors))
+
 (* Error set owned by this module: its own rank check unioned with [Dim.error]
    (from validating each untrusted dim). The printer delegates to [Dim]. *)
 type rank_bound = { rank : int; lo : int; hi : int }

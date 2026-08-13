@@ -198,3 +198,41 @@ let%expect_test "dce: the pass verifies its own step" =
         {|
     audit dce#0: 3 clusters: 2 proved (structural), 1 vacuous
     audits: 1 |}]
+
+(* SSA outputs are all-or-nothing: a multi-output node survives while ANY of its
+   edges is read, so an unbind with one live slice keeps all three. The two dead
+   ones are not deleted either — deleting them would need the node to shrink its
+   arity, which is not what DCE does.
+
+   The property worth pinning is that the surviving output ids and their ORDER
+   are untouched, since a consumer of slice 1 resolves it positionally. A pass
+   that renumbered the survivors would still print a plausible graph. *)
+let unbind_one_live () =
+  Graph_builder.build ~name:"unbind_one_live"
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* x = input ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3) () in
+     let* slices = unbind { Split.Unbind.axis = Axis.C } x in
+     relu (List.nth slices 1))
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture unbind_one_live: %a" Graph_builder.pp_error e)
+
+let%expect_test "dce: one live slice keeps the whole unbind node" =
+  ignore (run (unbind_one_live ()));
+  [%expect
+    {|
+    after:
+      graph
+      inputs: [t0 f32 [C=3] ->[n0]]
+      nodes:
+        n0: [t1 f32 [C=1], t2 f32 [C=1] ->[n1], t3 f32 [C=1]] =
+          unbind x=t0 params={axis=C}
+        n1: [t4 f32 [C=1]] = relu x=t2 <-n0
+      outputs: [t4 f32 [C=1] <-n1]
+    map:
+      values:
+        identity
+      nodes:
+        identity
+      provenance:
+        none |}]

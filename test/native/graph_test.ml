@@ -756,3 +756,40 @@ let%expect_test "Builder: ids are deterministic across multiple build calls" =
     g1 ids: (t0,t0) (t1,t1) (t2,t2)
     g2 ids: (t0,t0) (t1,t1) (t2,t2)
     match: true |}]
+
+(* A node whose output ARITY comes from its input signature rather than from the
+   op: three outputs here only because W's extent is 3. Every one is evaluated,
+   so the variable-arity path through [Graph_shape] -> builder -> [Eval_direct]'s
+   per-ordinal loop is exercised end to end rather than at output 0. *)
+let%expect_test "Direct graph: unbind is a variable-arity node" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"ub" ~outputs:Fun.id
+          @@
+          let* x = input ~shape:(s 1 1 1 2 3 1) ~name:"x" () in
+          unbind ~name:"slice" { Split.Unbind.axis = Axis.W } x)
+    in
+    let x =
+      Tensor.materialize (s 1 1 1 2 3 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 10)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    Err.return
+      (List.map (fun oid -> Tensor_id.Map.find oid env) g.Graph.outputs)
+  in
+  (match result with
+  | Ok outs ->
+      List.iteri (fun i t -> Format.printf "out%d = %a@." i Tensor.pp t) outs
+  | Error e -> Format.printf "%a@." pp_error (Err.Error.kind e));
+  [%expect
+    {|
+    out0 = tensor f32 [W=2 C=1] {0, 10}
+    out1 = tensor f32 [W=2 C=1] {1, 11}
+    out2 = tensor f32 [W=2 C=1] {2, 12} |}]

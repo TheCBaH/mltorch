@@ -1,10 +1,14 @@
 (* Native4D graphs, one per op, with bindings for every graph input.
 
    The per-op list is what makes the stage-3 acceptance criterion a real
-   criterion rather than a spot check: nineteen ops, nineteen graphs, and the
-   count is asserted against the op registry the same way op_json_test.ml
-   asserts its samples. An op whose evaluation nobody exercised is an op whose
-   Direct and Symbolic paths have never been compared. *)
+   criterion rather than a spot check: one graph per op, and the count is
+   asserted against the op registry the same way op_json_test.ml asserts its
+   samples. An op whose evaluation nobody exercised is an op whose Direct and
+   Symbolic paths have never been compared.
+
+   Every fixture exposes ALL of its node's outputs, not just the first. That
+   costs nothing for the single-output ops and is the entire point for [Unbind],
+   whose consumers compare per ordinal. *)
 
 open Native4d
 
@@ -166,6 +170,19 @@ let per_op () =
              transposed_conv2d transposed_params ~x ~weight:w ())
         in
         (g, [ flat; s4 ~n:4 ~h:1 ~w:1 ~c:3 ]) );
+      (* The one multi-output fixture, and the reason the harness compares every
+         output rather than [List.hd]. Unbinding C on a [1,4,4,2] input stays
+         inside the dialect: dropping the innermost axis shifts every axis
+         outside it one place inward, and N/T/D are unit either way. Two slices,
+         so a bug that only gets ordinal 0 right cannot pass. *)
+      ( "unbind",
+        let g =
+          build ~outputs:Fun.id
+            (let open Builder in
+             let* x = input ~shape:nhwc () in
+             unbind Axis4.C x)
+        in
+        (g, [ nhwc ]) );
     ]
   in
   List.map

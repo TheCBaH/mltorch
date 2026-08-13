@@ -255,6 +255,14 @@
  (applies_to me_visualize_unsupported_cram)
  (deps %{exe:../bin/native_graph.exe}))
 
+; Native lowering of a serialized Tensor[]-returning node. Same shape and same
+; reason as the stanza above: hand-built, ungated, and driving the lowerer over
+; node shapes no released model carries in a readable size.
+
+(cram
+ (applies_to unbind_native_cram)
+ (deps %{exe:../bin/native_graph.exe}))
+
 ; The same export over a real .pt2. Gated on PT2_DATA, since it needs
 ; downloaded weights; it adds the archive path and the payload-dependent
 ; capabilities, which the committed model.json cannot reach.
