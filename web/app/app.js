@@ -4,6 +4,7 @@ import { SourceStore, validateCatalog } from './source_store.js';
 
 const $ = (id) => document.getElementById(id);
 const status = $('status'), error = $('error'), select = $('catalogue'), file = $('local-file');
+const reload = $('reload'), clearLocal = $('clear-local');
 const bridge = globalThis.mltorch;
 
 function showError(message) { error.textContent = message; error.hidden = false; }
@@ -31,6 +32,21 @@ async function main() {
   };
   select.addEventListener('change', () => { history.pushState({}, '', `?model=${encodeURIComponent(select.value)}`); choose(select.value).catch((e) => showError(e.message)); });
   file.addEventListener('change', () => { if (!file.files[0]) return; clearError(); coordinator.cancel(); const source = store.setLocal(file.files[0]); history.pushState({}, '', location.pathname); coordinator.load({ ...source, readBytes: () => store.freshBytes() }).catch((e) => showError(e.message)); });
+  reload.addEventListener('click', () => {
+    const source = store.source;
+    if (!source) return showError('choose a model first');
+    clearError(); coordinator.cancel();
+    coordinator.load({ ...source, readBytes: () => store.freshBytes() }).catch((e) => showError(e.message));
+  });
+  clearLocal.addEventListener('click', () => {
+    if (store.source?.kind !== 'local') return;
+    coordinator.cancel(); store.clear(); file.value = ''; clearError(); status.textContent = 'Local file cleared';
+  });
+  addEventListener('popstate', () => {
+    const id = new URL(location.href).searchParams.get('model') || catalog.defaultModel;
+    if (!catalog.models.some((model) => model.id === id)) return showError('unknown catalogue model');
+    select.value = id; choose(id).catch((e) => showError(e.message));
+  });
   const initial = new URL(location.href).searchParams.get('model') || catalog.defaultModel;
   if (!catalog.models.some((model) => model.id === initial)) return showError('unknown catalogue model');
   select.value = initial; await choose(initial);
