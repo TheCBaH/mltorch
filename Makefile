@@ -1,4 +1,4 @@
-.PHONY: spike.setup spike.runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
+.PHONY: spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -442,3 +442,19 @@ spike.runtest:
 		--graph g/kernel/000 --value 125 --output web/src/detail-delta.json
 	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
 		npm run spike
+
+webapp.npm-install:
+	cd web && npm ci --no-audit --no-fund
+
+webapp.build: webapp.npm-install
+	opam exec -- dune build js/webapp/webapp_worker.bc.js js/webapp/webapp_bridge.bc.js
+	node web/scripts/build-webapp.mjs
+
+webapp.serve: webapp.build
+	cd webapp-dist && ../web/node_modules/.bin/http-server -p 8123 -c-1
+
+webapp.runtest:
+	node --check web/app/app.js
+	node --check web/app/coordinator.js
+	node --check web/app/renderer.js
+	node --check web/app/source_store.js
