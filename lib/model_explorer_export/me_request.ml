@@ -201,6 +201,8 @@ module Source = struct
     | Origin.Local -> None
     | Origin.Catalog c -> Some c.Origin.Catalog.verified_sha256
 
+  let bytes t = t.bytes
+
   let format_jsont =
     Jsont.enum ~kind:"sourceFormat"
       [ ("model_json", `Model_json); ("pt2", `Pt2) ]
