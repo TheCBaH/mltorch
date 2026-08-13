@@ -162,6 +162,10 @@ module Source : sig
   val verified_sha256 : t -> string option
   (** [Some] exactly when the origin is [Catalog]. *)
 
+  val bytes : t -> int64
+  (** Declared byte length; the transferable-buffer shell compares it before
+      making an OCaml string. *)
+
   val jsont : t Jsont.t
 end
 

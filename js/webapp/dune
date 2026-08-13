@@ -1,0 +1,17 @@
+(library
+ (name webapp_jsoo_buffer)
+ (wrapped false)
+ (modules webapp_jsoo_buffer)
+ (libraries js_of_ocaml err_trace model_explorer_export))
+
+(executable
+ (name webapp_worker)
+ (modes js)
+ (modules webapp_worker)
+ (libraries
+  js_of_ocaml
+  err_trace
+  jsont
+  jsont.bytesrw
+  model_explorer_export
+  webapp_jsoo_buffer))

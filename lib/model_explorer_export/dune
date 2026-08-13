@@ -9,6 +9,9 @@
 (library
  (name model_explorer_export)
  (wrapped false)
+ (modules
+  (:standard \ me_bytes)
+  me_bytes)
  (libraries
   core
   err_trace
