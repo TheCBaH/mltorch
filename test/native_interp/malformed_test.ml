@@ -139,3 +139,41 @@ let%expect_test "a view sizing both 0 and -1 is refused, not raised" =
        ());
   [%expect
     {| view [0; -1]:              malformed PT2 graph: view has a zero-length dimension |}]
+
+(* [_native_batch_norm_legit_no_training]'s schema has a REQUIRED [float eps].
+   When the optional-float arm was added to the shared [float_arg] rather than to
+   a separate decoder, this arm silently read an explicit null epsilon as 0. --
+   a different op computed under the right name. The optionality belongs to the
+   ARGUMENT, so it belongs at the call site. *)
+let%expect_test "batch_norm's required eps rejects an explicit none" =
+  let bn eps =
+    let eps_arg =
+      match eps with
+      | None -> ""
+      | Some v -> Programs.jstr {|,{"name":"eps","arg":%s,"kind":1}|} v
+    in
+    Programs.program ~x_sizes:[ 1; 2; 2; 2 ]
+      ~extra_tensor_values:
+        [ ("m", Programs.tensor_meta [ 2 ]); ("v", Programs.tensor_meta [ 2 ]) ]
+      ~params:[ "m"; "v" ]
+      ~nodes:
+        [
+          Programs.jstr
+            {|{"target":"torch.ops.aten._native_batch_norm_legit_no_training.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":{"as_none":true},"kind":1},{"name":"bias","arg":{"as_none":true},"kind":1},{"name":"running_mean","arg":%s,"kind":1},{"name":"running_var","arg":%s,"kind":1},{"name":"momentum","arg":{"as_float":0.1},"kind":1}%s],"outputs":[%s],"metadata":{}}|}
+            (Programs.as_tensor "x") (Programs.as_tensor "m")
+            (Programs.as_tensor "v") eps_arg (Programs.as_tensor "y");
+        ]
+      ~graph_outputs:[ Programs.as_tensor "y" ]
+      ()
+  in
+  Programs.show "eps 1e-5:" (bn (Some {|{"as_float":1e-05}|}));
+  Programs.show "eps none:" (bn (Some {|{"as_none":true}|}));
+  (* And OMISSION, which the previous shape of this helper answered with a
+     silent zero -- "required" meant "defaults to 0." while [Op_bridge] reported
+     the argument missing. *)
+  Programs.show "eps omitted:" (bn None);
+  [%expect
+    {|
+    eps 1e-5:                  lowered, nodes=3
+    eps none:                  malformed PT2 graph: torch.ops.aten._native_batch_norm_legit_no_training.default.eps is not a float
+    eps omitted:               malformed PT2 graph: torch.ops.aten._native_batch_norm_legit_no_training.default: missing argument "eps" |}]

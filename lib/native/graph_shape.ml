@@ -17,10 +17,21 @@ let pp_error ppf : [< error ] -> unit = function
 let widen (r : ('a, [< error ]) Err.t) : ('a, error) Err.t =
   (r :> ('a, error) Err.t)
 
+(* The optional affine bias, checked HERE and not inside each op's
+   [output_shape]: those take the required operands only, by design -- an output
+   shape is not a function of the bias. So the check has no other home, and
+   without it a short bias built a graph and raised from [Tensor.read] partway
+   through evaluation. Both importers inherit the rejection. *)
 let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
     : (Vec6.shape list, error) Err.t =
   let open Err.Syntax in
   let shape r = sig_of r >>| fun sg -> sg.Tensor_sig.shape in
+  let check_bias ~shape ~expected = function
+    | None -> Err.return ()
+    | Some b ->
+        let* actual = shape b in
+        widen (Affine_bias.check ~expected ~actual)
+  in
   match op with
   | Add { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
@@ -52,23 +63,37 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Clone.output_shape x_shape) in
       [ out ]
-  | Conv2d { Conv.Conv2d.params; x; weight; _ } ->
+  | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
+      let* () =
+        check_bias ~shape ~expected:(Affine_bias.shape ~weight_shape) bias
+      in
       let+ out =
         widen (Conv.Conv2d.output_shape ~x_shape ~weight_shape params)
       in
       [ out ]
-  | Conv2d_padding { Conv.Conv2d_padding.params; x; weight; _ } ->
+  | Conv2d_padding { Conv.Conv2d_padding.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
+      let* () =
+        check_bias ~shape ~expected:(Affine_bias.shape ~weight_shape) bias
+      in
       let+ out =
         widen (Conv.Conv2d_padding.output_shape ~x_shape ~weight_shape params)
       in
       [ out ]
-  | Convolution { Conv.Convolution.params; x; weight; _ } ->
+  | Convolution { Conv.Convolution.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
+      (* NOT [Affine_bias.shape]: a transposed convolution's weight is
+         [Cin, Cout/groups, kH, kW], so its output channel count comes from
+         [weight.C * groups] and not from [weight.N]. *)
+      let* () =
+        check_bias ~shape
+          ~expected:(Conv.Convolution.bias_shape ~weight_shape params)
+          bias
+      in
       let+ out =
         widen (Conv.Convolution.output_shape ~x_shape ~weight_shape params)
       in
@@ -78,9 +103,12 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Hardtanh.output_shape x_shape) in
       [ out ]
-  | Linear { Linear.Linear.params; x; weight; _ } ->
+  | Linear { Linear.Linear.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
+      let* () =
+        check_bias ~shape ~expected:(Affine_bias.shape ~weight_shape) bias
+      in
       let+ out =
         widen (Linear.Linear.output_shape params ~x_shape ~weight_shape)
       in
@@ -125,8 +153,17 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Reshape { Reshape.Reshape.params; _ } ->
       let+ out = widen (Reshape.Reshape.output_shape params) in
       [ out ]
-  | Rms_norm { Norm.RmsNorm.x; _ } ->
+  | Rms_norm { Norm.RmsNorm.params; x; weight } ->
       let* x_shape = shape x in
+      let* () =
+        match weight with
+        | None -> Err.return ()
+        | Some w ->
+            let* actual = shape w in
+            widen
+              (Norm.RmsNorm.check_weight ~x_shape ~dims:params.Norm.RmsNorm.dims
+                 ~actual)
+      in
       let+ out = widen (Norm.RmsNorm.output_shape ~x_shape) in
       [ out ]
   | Sqrt { Pointwise.Sqrt.x } ->

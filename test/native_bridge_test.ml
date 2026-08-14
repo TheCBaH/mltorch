@@ -287,6 +287,7 @@ let in_ints name xs = PT.NamedArgument.make name (PT.Argument.Ints xs) None
 let in_bool name b = PT.NamedArgument.make name (PT.Argument.Bool b) None
 let in_float name f = PT.NamedArgument.make name (PT.Argument.Float f) None
 let in_none name = PT.NamedArgument.make name (PT.Argument.None false) None
+let in_string name s = PT.NamedArgument.make name (PT.Argument.String s) None
 
 (* Bind each (name, ATen tensor) into an env and dispatch a one-node graph;
    print each native output as "shape {values}".  The env key and the input's
@@ -1387,6 +1388,211 @@ let%expect_test "verify: unbind.int agrees with ATen on every slice" =
     aten and native agree
     aten and native agree |}]
 
+(* A TRANSPOSED convolution's ATen weight is [Cin, Cout/groups, kH, kW], so its
+   output channel count -- and therefore its bias extent -- comes from
+   [weight.C * groups], not from [weight.N] as it does for every other affine op.
+   [Conv.Convolution.bias_shape] has always encoded that; the shared bias check
+   briefly did not consult it, and rejected every valid transposed convolution
+   whose input and output channel counts differ.
+
+   Unequal channel counts are the whole point of the fixture: with Cin = Cout the
+   two rules agree and the case is invisible. *)
+let%expect_test "dispatch: transposed convolution bias uses weight.C * groups" =
+  let x = float_tensor [ 1; 2; 2; 2 ] (List.init 8 float_of_int) in
+  let w = float_tensor [ 2; 3; 1; 1 ] (List.init 6 float_of_int) in
+  let b = float_tensor [ 3 ] [ 1.; 2.; 3. ] in
+  dispatch_print ~target:"torch.ops.aten.convolution.default"
+    ~bindings:[ ("input", x); ("weight", w); ("bias", b) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_tensor "bias";
+        in_ints "stride" [ 1; 1 ];
+        in_ints "padding" [ 0; 0 ];
+        in_ints "dilation" [ 1; 1 ];
+        in_bool "transposed" true;
+        in_ints "output_padding" [ 0; 0 ];
+        in_int "groups" 1;
+      ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [H=3 W=2 C=2] {13, 16, 19, 22, 18, 23, 28, 33, ...} |}]
+
+(* Ordinary malformed op-config arguments must be CONTAINED at this boundary --
+   the bridge returns [Some (Error _)], never raises. [Dim.extent],
+   [Op_config.Pos.of_int] and [Nonneg.of_int] all assert their preconditions,
+   and the aggregate bounds added for Group 2 check magnitude only, so every one
+   of these still reaches an assertion; what keeps it from escaping is that the
+   construction happens inside the arm's exception boundary.
+
+   These four are the cheapest cases that reach a different constructor each:
+   groups zero (a zero channel PRODUCT, so [Dim.extent]), stride zero and
+   dilation zero ([Pos]), negative padding ([Nonneg]). *)
+(* The payload, not the rendering. The point of a structured row is that a
+   caller can BRANCH on it -- which is what an undifferentiated
+   [`Validation_failure "Op_config.Pos.of_int: not positive"] cannot support,
+   and what these arms used to return. Destructuring here is the assertion that
+   the fields exist and carry the op, the parameter and the offending value. *)
+let config_fault ~target ~inputs bindings =
+  let env = List.fold_left (fun m (k, t) -> Sm.add k t m) Sm.empty bindings in
+  let node =
+    PT.Node.make target inputs [ targ "out0" ] Sm.empty None (Some "test")
+  in
+  match Op_bridge.dispatch ~aten_env:env node with
+  | None -> print_string "no native impl\n"
+  | Some (Ok _) -> print_string "accepted\n"
+  | Some (Error e) -> (
+      match Err.Error.kind e with
+      | `Bad_config { Op_config.Bad.op; param; fault } ->
+          Format.printf "op=%s param=%a fault=%s@." op Op_config.Bad.pp_param
+            param
+            (match fault with
+            | `Not_positive n -> Printf.sprintf "not_positive %d" n
+            | `Negative n -> Printf.sprintf "negative %d" n)
+      | other -> Format.printf "OTHER ROW: %a@." Op_bridge.pp_error other)
+
+let%expect_test
+    "dispatch: every Group-2 bridge arm reports a structured config fault" =
+  let x = float_tensor [ 1; 2; 4; 4 ] (List.init 32 float_of_int) in
+  let w = float_tensor [ 2; 2; 1; 1 ] (List.init 4 float_of_int) in
+  let conv target extra =
+    config_fault ~target
+      ~inputs:([ in_tensor "input"; in_tensor "weight" ] @ extra)
+      [ ("input", x); ("weight", w) ]
+  in
+  conv "torch.ops.aten.conv2d.default" [ in_ints "stride" [ 0; 1 ] ];
+  conv "torch.ops.aten.conv2d.default" [ in_ints "padding" [ 0; -2 ] ];
+  conv "torch.ops.aten.conv2d.padding"
+    [ in_string "padding" "same"; in_ints "dilation" [ 3; 0 ] ];
+  conv "torch.ops.aten.conv2d.padding"
+    [ in_string "padding" "valid"; in_int "groups" 0 ];
+  (* [padding] and [output_padding] are DIFFERENT arguments of the same op, so
+     the op name cannot disambiguate them -- only the tag can. Both spellings
+     appear here for that reason, and they must differ. *)
+  conv "torch.ops.aten.convolution.default"
+    [
+      in_ints "padding" [ 0; -1 ];
+      in_bool "transposed" false;
+      in_ints "output_padding" [ 0; 0 ];
+    ];
+  conv "torch.ops.aten.convolution.default"
+    [
+      in_ints "padding" [ 0; 0 ];
+      in_bool "transposed" true;
+      in_ints "output_padding" [ 0; -1 ];
+    ];
+  (* Both COMPONENTS, not just one: they are validated by separate calls, and a
+     tag fixed on only one of them looks correct from whichever side is
+     tested. *)
+  conv "torch.ops.aten.convolution.default"
+    [
+      in_ints "padding" [ 0; 0 ];
+      in_bool "transposed" true;
+      in_ints "output_padding" [ -1; 0 ];
+    ];
+  config_fault ~target:"torch.ops.aten.max_pool2d.default"
+    ~inputs:[ in_tensor "self"; in_ints "kernel_size" [ 0; 2 ] ]
+    [ ("self", x) ];
+  config_fault ~target:"torch.ops.aten.max_pool2d.default"
+    ~inputs:
+      [
+        in_tensor "self";
+        in_ints "kernel_size" [ 2; 2 ];
+        in_ints "padding" [ -1; 0 ];
+      ]
+    [ ("self", x) ];
+  [%expect
+    {|
+    op=torch.ops.aten.conv2d.default param=stride fault=not_positive 0
+    op=torch.ops.aten.conv2d.default param=padding fault=negative -2
+    op=torch.ops.aten.conv2d.padding param=dilation fault=not_positive 0
+    op=torch.ops.aten.conv2d.padding param=groups fault=not_positive 0
+    op=torch.ops.aten.convolution.default param=padding fault=negative -1
+    op=torch.ops.aten.convolution.default param=output_padding fault=negative -1
+    op=torch.ops.aten.convolution.default param=output_padding fault=negative -1
+    op=torch.ops.aten.max_pool2d.default param=kernel_size fault=not_positive 0
+    op=torch.ops.aten.max_pool2d.default param=padding fault=negative -1 |}]
+
+(* The padding MODE, which is model data and was reaching an asserting parser.
+   Contained by the arm's [try], but as a [`Validation_failure] string -- where
+   the serialized importer returns the offered mode in a typed row. Both now
+   report the same thing, through one checked parser, so the accepted set cannot
+   drift between them. Destructured, not just rendered. *)
+let%expect_test "dispatch: an unsupported conv2d.padding mode is a typed row" =
+  let x = float_tensor [ 1; 2; 4; 4 ] (List.init 32 float_of_int) in
+  let w = float_tensor [ 2; 2; 1; 1 ] (List.init 4 float_of_int) in
+  let mode m =
+    let env = Sm.add "input" x (Sm.add "weight" w Sm.empty) in
+    let node =
+      PT.Node.make "torch.ops.aten.conv2d.padding"
+        [ in_tensor "input"; in_tensor "weight"; in_string "padding" m ]
+        [ targ "out0" ]
+        Sm.empty None (Some "test")
+    in
+    match Op_bridge.dispatch ~aten_env:env node with
+    | None -> print_string "no native impl\n"
+    | Some (Ok _) -> Format.printf "%S accepted@." m
+    | Some (Error e) -> (
+        match Err.Error.kind e with
+        | `Unsupported_padding_mode s -> Format.printf "mode=%S refused@." s
+        | other -> Format.printf "OTHER ROW: %a@." Op_bridge.pp_error other)
+  in
+  mode "reflect";
+  mode "SAME";
+  mode "";
+  mode "valid";
+  mode "same";
+  [%expect
+    {|
+    mode="reflect" refused
+    mode="SAME" refused
+    mode="" refused
+    "valid" accepted
+    "same" accepted |}]
+
+let%expect_test "dispatch: malformed conv2d config is contained, not raised" =
+  let x = float_tensor [ 1; 2; 2; 2 ] (List.init 8 float_of_int) in
+  let w = float_tensor [ 2; 2; 1; 1 ] (List.init 4 float_of_int) in
+  let conv extra =
+    dispatch_print ~target:"torch.ops.aten.conv2d.default"
+      ~bindings:[ ("input", x); ("weight", w) ]
+      ~inputs:([ in_tensor "input"; in_tensor "weight" ] @ extra)
+      ~noutputs:1
+  in
+  conv [ in_int "groups" 0 ];
+  conv [ in_ints "stride" [ 0; 1 ] ];
+  conv [ in_ints "padding" [ -1; 0 ] ];
+  conv [ in_ints "dilation" [ 0; 1 ] ];
+  (* and the well-formed node still lowers *)
+  conv [ in_int "groups" 1 ];
+  [%expect
+    {|
+    error: torch.ops.aten.conv2d.default: groups must be positive, got 0
+    error: torch.ops.aten.conv2d.default: stride must be positive, got 0
+    error: torch.ops.aten.conv2d.default: padding must not be negative, got -1
+    error: torch.ops.aten.conv2d.default: dilation must be positive, got 0
+    tensor f32 [H=2 W=2 C=2] {4, 5, 6, 7, 12, 17, 22, 27} |}]
+
+(* RANK, which right-alignment into the six-axis frame erases. A bias declared
+   [1,Cout] arrives indistinguishable from [Cout], so the shared [Graph_shape]
+   check passes it -- while ATen refuses it ("expected bias to be
+   1-dimensional"). The rank survives only on the ATen tensor. *)
+let%expect_test "dispatch: a leading-singleton bias is refused on rank" =
+  let x = float_tensor [ 1; 2; 2; 2 ] (List.init 8 float_of_int) in
+  let w = float_tensor [ 3; 2; 1; 1 ] (List.init 6 float_of_int) in
+  let conv_bias b =
+    dispatch_print ~target:"torch.ops.aten.conv2d.default"
+      ~bindings:[ ("input", x); ("weight", w); ("bias", b) ]
+      ~inputs:[ in_tensor "input"; in_tensor "weight"; in_tensor "bias" ]
+      ~noutputs:1
+  in
+  conv_bias (float_tensor [ 1; 3 ] [ 1.; 2.; 3. ]);
+  conv_bias (float_tensor [ 3 ] [ 1.; 2.; 3. ]);
+  [%expect
+    {|
+    error: bias must be rank-1, got rank-2
+    tensor f32 [H=3 W=2 C=2] {5, 6, 7, 8, 14, 19, 24, 29, ...} |}]
+
 (* ---- pooling options the native params cannot hold ---------------------- *)
 
 (* Both arms decoded kernel/stride/padding and never read [dilation] or
@@ -1426,6 +1632,10 @@ let%expect_test "dispatch: max_pool2d dilation and ceil_mode are refused" =
   both (fun t -> pool ~ceil_mode:true t);
   (* the defaults, written out, still lower *)
   both (fun t -> pool ~dilation:[ 1; 1 ] ~ceil_mode:false t);
+  (* A single int is ATen's other legal spelling and normalizes to (1,1); three
+     is not, and a value-only check accepted it because no element differed. *)
+  both (fun t -> pool ~dilation:[ 1 ] t);
+  both (fun t -> pool ~dilation:[ 1; 1; 1 ] t);
   [%expect
     {|
     error: torch.ops.aten.max_pool2d.default: dilation=[2, 2] is not supported (only 1)
@@ -1433,7 +1643,11 @@ let%expect_test "dispatch: max_pool2d dilation and ceil_mode are refused" =
     error: torch.ops.aten.max_pool2d.default: ceil_mode=true is not supported
     error: torch.ops.aten.max_pool2d_with_indices.default: ceil_mode=true is not supported
     tensor f32 [W=2 C=2] {6, 8, 16, 18}
-    tensor f32 [W=2 C=2] {6, 8, 16, 18} |}]
+    tensor f32 [W=2 C=2] {6, 8, 16, 18}
+    tensor f32 [W=2 C=2] {6, 8, 16, 18}
+    tensor f32 [W=2 C=2] {6, 8, 16, 18}
+    error: dilation: expected [h; w] or [v], got [1, 1, 1]
+    error: dilation: expected [h; w] or [v], got [1, 1, 1] |}]
 
 (* ---- the PT2 importer's conv2d.default arm, against ATen ---------------- *)
 

@@ -388,10 +388,22 @@ end
 module Conv2d_padding = struct
   type padding = Valid | Same
 
-  let padding_of_string = function
-    | "valid" -> Valid
-    | "same" -> Same
-    | s -> invalid_arg ("Conv2d_padding: invalid padding " ^ s)
+  (* The CHECKED form, and the one every importer must use: the mode arrives as
+     model data, so an unknown one is a fact about the graph and not a broken
+     precondition. Returns the offered string, which is all a caller needs to
+     report it -- and both importers report it in their own row rather than
+     sharing one, since the two error domains are separate. *)
+  let of_string = function
+    | "valid" -> Ok Valid
+    | "same" -> Ok Same
+    | s -> Error s
+
+  (* Asserting, for the Jsont decoder alone: a mode read back out of a graph the
+     engine itself wrote is a trusted value. *)
+  let padding_of_string s =
+    match of_string s with
+    | Ok p -> p
+    | Error s -> invalid_arg ("Conv2d_padding: invalid padding " ^ s)
 
   let string_of_padding = function Valid -> "valid" | Same -> "same"
 
@@ -597,6 +609,12 @@ module Conv2d_padding = struct
       (Fmt.option ~none:(Fmt.any "none") pp_ref)
       t.bias pp_params t.params
 
+  (* [total] is a product of two independently model-supplied factors, so it is
+     computed in [int64] and bounded before narrowing -- the same rule
+     [Window_axis.output_extent] follows, and for the same reason: under
+     js_of_ocaml [int] is 32 bits, and in [int] this can wrap to a negative
+     number that then reaches [Op_config.Nonneg.of_int]'s assertion as an
+     escaping [Invalid_argument] instead of a typed error. *)
   let same_padding ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
       ~(dilation : Op_config.Pos.t) =
     if (stride :> int) <> 1 then
@@ -604,10 +622,29 @@ module Conv2d_padding = struct
         (`Convolution
            (Shape_error.Convolution.Same_padding_requires_stride_one { stride }))
     else
-      let total = (dilation :> int) * ((kernel :> int) - 1) in
-      Err.return
-        ( Op_config.Nonneg.of_int (total / 2),
-          Op_config.Nonneg.of_int (total - (total / 2)) )
+      let open Err.Syntax in
+      (* Each FACTOR bounded before the multiplication, not only the product:
+         [Op_config.Pos] enforces sign and not magnitude, so on a 63-bit-[int]
+         build [Int64.mul] of two unbounded factors wraps and lands back inside
+         the range a post-hoc check accepts. Same rule and same helper as
+         [Window_axis.output_extent]. *)
+      let* d = Window_axis.factor ~what:`Dilation (dilation :> int) in
+      let* k = Window_axis.factor ~what:`Kernel (kernel :> int) in
+      let total = Int64.mul d (Int64.sub k 1L) in
+      if total >= Window_axis.limit then
+        Err.fail
+          (`Window_over_limit
+             Shape_error.Window_over_limit.
+               {
+                 what = `Effective_kernel;
+                 value = Int64.add total 1L;
+                 limit = Window_axis.limit;
+               })
+      else
+        let total = Int64.to_int total in
+        Err.return
+          ( Op_config.Nonneg.of_int (total / 2),
+            Op_config.Nonneg.of_int (total - (total / 2)) )
 
   let axis_window ~(padding : padding) ~(kernel : Dim.extent Dim.t)
       ~(stride : Op_config.Pos.t) ~(dilation : Op_config.Pos.t) :
@@ -625,7 +662,28 @@ module Conv2d_padding = struct
       (Conv2d.params, Shape_error.t) Err.t =
     let open Err.Syntax in
     let groups = (p.groups :> int) in
-    let in_channels = (Vec6.get weight_shape Axis.C :> int) * groups in
+    (* Same aggregate rule as [Native_interp.conv_in_channels], which computes
+       this from serialized metadata: the per-group input extent times the group
+       count is a product of two model-supplied factors and can exceed the
+       engine's per-axis ceiling even when both factors are inside it. *)
+    let* in_channels =
+      let* c =
+        Window_axis.factor ~what:`In_channels
+          (Vec6.get weight_shape Axis.C :> int)
+      in
+      let* g = Window_axis.factor ~what:`In_channels groups in
+      let product = Int64.mul c g in
+      if product >= Window_axis.limit then
+        Err.fail
+          (`Window_over_limit
+             Shape_error.Window_over_limit.
+               {
+                 what = `In_channels;
+                 value = product;
+                 limit = Window_axis.limit;
+               })
+      else Err.return (Int64.to_int product)
+    in
     let* h =
       axis_window ~padding:p.padding
         ~kernel:(Vec6.get weight_shape Axis.H)

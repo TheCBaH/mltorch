@@ -14,7 +14,11 @@ end
 
 module Window = struct
   type t = {
-    out : int;
+    out : int64;
+        (* [int64], not [int]: this figure is a SUM of model-supplied extents
+           minus a PRODUCT of two more, and js_of_ocaml's [int] is 32 bits, so
+           reporting it as an [int] would print the wrapped number that made it
+           a defect. *)
     in_extent : Dim.extent Dim.t;
     kernel : Dim.extent Dim.t;
     stride : Op_config.Pos.t;
@@ -26,11 +30,73 @@ module Window = struct
   let pp ppf { out; in_extent; kernel; stride; pad_before; pad_after; dilation }
       =
     Fmt.pf ppf
-      "output extent must be >= 1, got %d (in=%a kernel=%a stride=%a \
+      "output extent must be >= 1, got %Ld (in=%a kernel=%a stride=%a \
        pad_before=%a pad_after=%a dilation=%a)"
       out Dim.pp in_extent Dim.pp kernel Op_config.Pos.pp stride
       Op_config.Nonneg.pp pad_before Op_config.Nonneg.pp pad_after
       Op_config.Pos.pp dilation
+end
+
+(* An output extent, or the effective kernel it is computed from, past the
+   engine's per-axis ceiling. Distinct from [Window], which is the same
+   arithmetic coming out too SMALL: a window that shrinks an axis to nothing is
+   an ordinary configuration error, while one that exceeds the ceiling is a
+   value the engine has no representation for at all. Both figures are [int64]
+   for the reason [Window.out] is. *)
+module Window_over_limit = struct
+  (* Which quantity ran past the ceiling. A closed set rather than a string:
+     every one of these is a specific field or a specific derived product, and a
+     reader has to know which. [`In_channels] is the conv weight's per-group
+     extent times its group count -- named for what it IS, not for the extent it
+     is on its way to becoming. *)
+  type quantity =
+    [ `Kernel
+    | `Dilation
+    | `Stride
+    | `Padding
+    | `Input_extent
+    | `Effective_kernel
+    | `Output_extent
+    | `In_channels ]
+
+  type t = { what : quantity; value : int64; limit : int64 }
+
+  let pp ppf { what; value; limit } =
+    Fmt.pf ppf "%s is %Ld, over the engine maximum of %Ld"
+      (match what with
+      | `Kernel -> "the kernel extent"
+      | `Dilation -> "the dilation"
+      | `Stride -> "the stride"
+      | `Padding -> "the padding"
+      | `Input_extent -> "the input extent"
+      | `Effective_kernel -> "the effective kernel dilation * (kernel - 1) + 1"
+      | `Output_extent -> "the output extent"
+      | `In_channels -> "the input channel count weight.C * groups")
+      value limit
+end
+
+(* An OPTIONAL operand whose shape disagrees with the one the op requires. Its
+   own row rather than a per-op variant because the fault is the same in every
+   case -- a shape was offered and a different one was needed -- and the
+   [operand] tag says which slot without multiplying the rows.
+
+   These were checked nowhere. Every [output_shape] takes the required operands
+   only, so an optional one passed straight through to evaluation and raised
+   from [Tensor.read]'s strict bounds check, uncaught, partway through the
+   result. *)
+module Operand_shape = struct
+  type t = {
+    operand : [ `Bias | `Rms_norm_weight ];
+    expected : Vec6.shape;
+    actual : Vec6.shape;
+  }
+
+  let pp ppf { operand; expected; actual } =
+    Fmt.pf ppf "%s shape must be %a, got %a"
+      (match operand with
+      | `Bias -> "bias"
+      | `Rms_norm_weight -> "rms_norm weight")
+      Vec6.pp_shape expected Vec6.pp_shape actual
 end
 
 module Clamp = struct
@@ -203,6 +269,8 @@ end
 type t =
   [ `Broadcast of Broadcast.t
   | `Window of Window.t
+  | `Window_over_limit of Window_over_limit.t
+  | `Operand_shape of Operand_shape.t
   | `Clamp of Clamp.error
   | `Linear of Linear.error
   | `Bmm of Bmm.error
@@ -213,6 +281,8 @@ type t =
 let pp ppf = function
   | `Broadcast e -> Broadcast.pp ppf e
   | `Window e -> Window.pp ppf e
+  | `Window_over_limit e -> Window_over_limit.pp ppf e
+  | `Operand_shape e -> Operand_shape.pp ppf e
   | `Clamp e -> Clamp.pp_error ppf e
   | `Linear e -> Linear.pp_error ppf e
   | `Bmm e -> Bmm.pp_error ppf e
