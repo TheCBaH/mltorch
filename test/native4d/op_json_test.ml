@@ -167,3 +167,85 @@ let%expect_test "op4: round-trips through JSON" =
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
   [%expect {| round-tripped 20 ops |}]
+
+(* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
+
+(* [samples] is a coverage check over CONSTRUCTORS: exactly one entry per op, so
+   it cannot also carry a second configuration of one. These are the Group-2
+   shapes that differ from the sampled ones in a way a codec can get wrong --
+   a multi-axis [dims] and an ABSENT weight, the case the ATen bridge used to
+   make unreachable by materializing a ones tensor. *)
+let group2_samples =
+  let open Op in
+  [
+    Rms_norm
+      {
+        Ops4.Rms_norm.params = { dims = [ H; W; C ]; eps = 1e-5 };
+        x;
+        weight = Some w;
+      };
+    Rms_norm
+      { Ops4.Rms_norm.params = { dims = [ W; C ]; eps = 0. }; x; weight = None };
+    Depthwise_conv2d
+      {
+        Ops4.Conv_payload.params =
+          {
+            h =
+              {
+                kernel = Dim.extent 3;
+                stride = Op_config.Pos.of_int 2;
+                pad_before = Op_config.Nonneg.of_int 1;
+                pad_after = Op_config.Nonneg.of_int 1;
+                dilation = Op_config.Pos.of_int 1;
+              };
+            w =
+              {
+                kernel = Dim.extent 2;
+                stride = Op_config.Pos.of_int 1;
+                pad_before = Op_config.Nonneg.of_int 0;
+                pad_after = Op_config.Nonneg.of_int 0;
+                dilation = Op_config.Pos.of_int 2;
+              };
+            in_channels = Dim.extent 4;
+          };
+        x;
+        weight = w;
+        bias = None;
+      };
+    Max_pool2d
+      {
+        Pool.MaxPool2d.params =
+          {
+            kernel = Op_config.Hw.{ h = Dim.extent 3; w = Dim.extent 2 };
+            stride =
+              Op_config.Hw.
+                { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 1 };
+            pad =
+              Op_config.Hw.
+                { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 0 };
+          };
+        x;
+      };
+  ]
+
+let%expect_test "op4: Group-2 non-default payloads round-trip" =
+  List.iter (fun op -> Format.printf "%a@." Op.pp op) group2_samples;
+  List.iter
+    (fun op ->
+      let back = Json_util.dec Op.jsont (Json_util.enc Op.jsont op) in
+      if Format.asprintf "%a" Op.pp op <> Format.asprintf "%a" Op.pp back then
+        Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
+    group2_samples;
+  Format.printf "round-tripped %d ops@." (List.length group2_samples);
+  [%expect
+    {|
+    rms_norm x=t0 weight=t2 params={dims=[H, W, C]; eps=1e-05}
+    rms_norm x=t0 params={dims=[W, C]; eps=0}
+    depthwise_conv2d
+      x=t0
+      weight=t2
+      params={h={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+             w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=2};
+             in_channels=4}
+    max_pool2d x=t0 params={kernel={h=3; w=2}; stride={h=2; w=1}; pad={h=1; w=0}}
+    round-tripped 4 ops |}]

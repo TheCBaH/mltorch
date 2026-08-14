@@ -252,6 +252,15 @@
  (applies_to me_detail_cram)
  (deps %{exe:../bin/native_graph.exe} model.json))
 
+; The five Group-2 functional overloads, over a graph built in the cram itself.
+; UNGATED and hand-built for a reason specific to this group: no downloadable
+; model serialises any of these targets, so this is the only place they reach
+; Model Explorer at all.
+
+(cram
+ (applies_to me_group2_cram)
+ (deps %{exe:../bin/native_graph.exe}))
+
 ; The recoverable-failure shape, over graphs built in the cram itself. UNGATED,
 ; and hand-built on purpose: what it exercises is a graph the lowerer rejects,
 ; and no released model is one.

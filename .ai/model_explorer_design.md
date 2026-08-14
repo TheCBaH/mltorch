@@ -1262,3 +1262,22 @@ rejects something, the guard is neutered once and the test watched to go red bef
 restored. Two guards in `Me_limits` have that history: the nested-`zip` traversal in the
 fieldwise comparison, and `create`'s peak rejection. Where a relation *cannot* fail, it
 says so in the code rather than being presented as a check.
+
+## Group-2 coverage: `test/me_group2_cram.t`
+
+`me_visualize_json_cram.t` runs over the committed resnet18 `model.json` and
+reaches none of the five Group-2 functional overloads — no downloadable model
+serialises them (see `.ai/native_aten_bridge_layout.md`). `me_group2_cram.t` is
+the only place they reach a session at all: a payload-free program built in the
+cram itself, carrying `conv2d.default`, `conv2d.padding`, `max_pool2d.default`,
+`rms_norm.default` and `linear.default` in one chain, with **every parameter
+non-default**.
+
+Defaults would prove nothing here. A projection that carries a field and one
+that drops it and re-derives the default are indistinguishable on a default
+value, and that is precisely the failure this cram exists to catch. What it
+pins per node: the source view's labels and namespaces, the imported native
+graph's `params` attribute in full, each node's provenance namespace (the
+serialized target, group-qualified, so a relayout permute is attributable to the
+node that caused it), the output shape, and every incoming edge's
+(source, output slot, input position) triple.
