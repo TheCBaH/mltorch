@@ -1,0 +1,16 @@
+; Expect tests for lib/infer_report. Pure OCaml -- no archive, no model, no
+; clock -- because [Infer_report.report] takes every host effect as a parameter.
+; That is the whole reason it is a separate function from [run]: the strict
+; verdict has no other observer. A fixture run cannot see it (every reference in
+; a release matches), and testing [strict_verdict] alone cannot see whether
+; [report] still calls it.
+;
+; See test/native4d/dune for why [js] carries no `enabled_if`.
+
+(library
+ (name infer_report_test)
+ (libraries core err_trace fmt infer_report pt2)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
