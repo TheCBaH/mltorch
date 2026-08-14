@@ -50,6 +50,8 @@ jobs:
       run: echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
     - name: build site
       run: ${{ env.EXEC }} make webapp.build
+      env:
+        MODELS: all
     - name: configure Pages
       id: pages
       uses: actions/configure-pages@v6
