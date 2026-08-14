@@ -38,7 +38,7 @@ let dump label json =
   Format.printf "%s@." label;
   match lower json with
   | Error e -> Format.printf "  %a@." Native_interp.pp_error (Err.Error.kind e)
-  | Ok l -> Graph_ir.pp Format.std_formatter l.Pt2_native_graph.graph
+  | Ok l -> Format.printf "%a@." Graph_ir.pp l.Pt2_native_graph.graph
 
 let%expect_test "linear.default lowers a non-square weight" =
   dump "no bias:" (prog (linear ()));
@@ -101,6 +101,42 @@ let%expect_test "a feature-count mismatch fails in shape inference" =
   show "x trailing 4, w in 3:" (prog ~x_sizes:[ 2; 4 ] (linear ()));
   [%expect
     {| x trailing 4, w in 3:      input C extent must equal in_features: 4 vs 3 |}]
+
+(* An optional operand's shape was checked NOWHERE. Every [output_shape] takes
+   the required operands only -- an output shape is not a function of the bias --
+   so a short one built a graph and then raised from [Tensor.read]'s strict
+   bounds check partway through evaluation, at whichever output channel first
+   ran off the end. [Affine_bias] owns the layout that [Eval_op] already used to
+   synthesize a zero bias, so the rule is one definition read from both ends. *)
+let%expect_test "a bias whose extent disagrees with out_features is refused" =
+  show "bias 2, out 5:" (prog ~bias_size:2 (linear ~bias:`Tensor ()));
+  show "bias 9, out 5:" (prog ~bias_size:9 (linear ~bias:`Tensor ()));
+  show "bias 5, out 5:" (prog ~bias_size:5 (linear ~bias:`Tensor ()));
+  [%expect
+    {|
+    bias 2, out 5:             bias shape must be [C=5], got [C=2]
+    bias 9, out 5:             bias shape must be [C=5], got [C=9]
+    bias 5, out 5:             lowered, nodes=2 |}]
+
+(* RANK, which the shared shape check cannot see. [shape_of_sizes] right-aligns,
+   so a bias declared [1,5] lands on exactly the extents [5] does and the
+   [Graph_shape] comparison passes it -- while ATen refuses it outright
+   ("expected bias to be 1-dimensional"). The declared rank exists only before
+   that conversion, so the importer is the only place it can be checked. *)
+let%expect_test "a leading-singleton bias is refused on rank" =
+  show "bias [1,5]:"
+    (program ~x_sizes:[ 2; 3 ]
+       ~extra_tensor_values:
+         [ ("w", tensor_meta [ 5; 3 ]); ("b", tensor_meta [ 1; 5 ]) ]
+       ~params:[ "w"; "b" ]
+       ~nodes:[ linear ~bias:`Tensor () ]
+       ~graph_outputs:[ as_tensor "y" ]
+       ());
+  show "bias [5]:" (prog ~bias_size:5 (linear ~bias:`Tensor ()));
+  [%expect
+    {|
+    bias [1,5]:                malformed PT2 graph: b is rank 2, expected 1
+    bias [5]:                  lowered, nodes=2 |}]
 
 let%expect_test "missing weight metadata names the linear role" =
   show "no weight meta:"

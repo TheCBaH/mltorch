@@ -8,13 +8,57 @@ end
 
 module Window : sig
   type t = {
-    out : int;
+    out : int64;
+        (** [int64], not [int]: a SUM of model-supplied extents minus a PRODUCT
+            of two more, and js_of_ocaml's [int] is 32 bits — reporting it as an
+            [int] would print the wrapped number that made it a defect. *)
     in_extent : Dim.extent Dim.t;
     kernel : Dim.extent Dim.t;
     stride : Op_config.Pos.t;
     pad_before : Op_config.Nonneg.t;
     pad_after : Op_config.Nonneg.t;
     dilation : Op_config.Pos.t;
+  }
+
+  val pp : Format.formatter -> t -> unit
+end
+
+(** An output extent, or the effective kernel it is computed from, past the
+    engine's per-axis ceiling. Distinct from {!Window}, which is the same
+    arithmetic coming out too SMALL: a window that shrinks an axis to nothing is
+    an ordinary configuration error, while one that exceeds the ceiling is a
+    value the engine has no representation for at all. *)
+module Window_over_limit : sig
+  type quantity =
+    [ `Kernel
+    | `Dilation
+    | `Stride
+    | `Padding
+    | `Input_extent
+    | `Effective_kernel
+    | `Output_extent
+    | `In_channels ]
+  (** Which quantity ran past the ceiling. A closed set rather than a string:
+      each is a specific field or a specific derived product, and a reader has
+      to know which. [`In_channels] is the conv weight's per-group extent times
+      its group count — named for what it IS, not for the extent it is on its
+      way to becoming. *)
+
+  type t = { what : quantity; value : int64; limit : int64 }
+
+  val pp : Format.formatter -> t -> unit
+end
+
+(** An OPTIONAL operand whose shape disagrees with the one the op requires. One
+    row rather than one per op: the fault is identical in every case and the
+    [operand] tag says which slot. Every [output_shape] takes the REQUIRED
+    operands only, so before this an optional one reached evaluation unchecked
+    and raised from [Tensor.read]'s bounds check partway through the result. *)
+module Operand_shape : sig
+  type t = {
+    operand : [ `Bias | `Rms_norm_weight ];
+    expected : Vec6.shape;
+    actual : Vec6.shape;
   }
 
   val pp : Format.formatter -> t -> unit
@@ -131,6 +175,8 @@ end
 type t =
   [ `Broadcast of Broadcast.t
   | `Window of Window.t
+  | `Window_over_limit of Window_over_limit.t
+  | `Operand_shape of Operand_shape.t
   | `Clamp of Clamp.error
   | `Linear of Linear.error
   | `Bmm of Bmm.error

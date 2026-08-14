@@ -4,25 +4,80 @@
    same four numbers, co-located here instead of duplicated per op.
    See .ai/native_compute_design.md §2b. *)
 
+(* Every factor is bounded against the per-axis ceiling BEFORE any arithmetic,
+   and only then combined in [int64].
+
+   Widening alone is not enough, which is the trap this went through once.
+   [Op_config.Pos]/[Nonneg] and [Dim.extent] enforce SIGN, not magnitude, so a
+   model-supplied dilation can be [max_int]; on a 63-bit-[int] build
+   [Int64.mul] of that by a kernel of 5 wraps to a small negative number, and
+   the bound placed after the multiplication then reads a value inside its
+   range. With the factors bounded first, every product and sum below is at
+   most 2^62 and cannot overflow [int64] at all.
+
+   [dilation * (kernel - 1)] is the aggregate CLAUDE.md names: two individually
+   in-range factors whose product need not be, on a backend where [int] is 32
+   bits and the ceiling is 0x8000_0000. Reached by conv2d, conv2d.padding,
+   convolution AND both pooling ops, so one bound here covers every windowed
+   axis in the engine. See .ai/js_backends_design.md. *)
+let limit = Kernel.Limits.Hard.extent
+
+let factor ~(what : Shape_error.Window_over_limit.quantity) (n : int) :
+    (int64, Shape_error.t) Err.t =
+  let n = Int64.of_int n in
+  if n >= limit then
+    Err.fail
+      (`Window_over_limit
+         Shape_error.Window_over_limit.{ what; value = n; limit })
+  else Err.return n
+
+(* Floor division, which is what the window formula means. [Int64.div]
+   truncates TOWARD ZERO, so a negative numerator -- a window wider than the
+   padded input -- rounded the wrong way: in_extent 1 with kernel 2 and stride 2
+   gives numerator -1, and (-1 / 2) + 1 = 1, one accepted output position where
+   the floor is 0. ATen rejects that configuration ("Calculated output size:
+   (1x0x0). Output size is too small"); native returned a value computed from a
+   partial window. *)
+let floor_div a b =
+  if a >= 0L then Int64.div a b
+  else Int64.neg (Int64.div (Int64.add (Int64.neg a) (Int64.sub b 1L)) b)
+
 let output_extent ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
     ~(pad_before : Op_config.Nonneg.t) ~(pad_after : Op_config.Nonneg.t)
     ~(dilation : Op_config.Pos.t) ~(in_extent : Dim.extent Dim.t) :
     (Dim.extent Dim.t, Shape_error.t) Err.t =
-  let effective_kernel = (((kernel :> int) - 1) * (dilation :> int)) + 1 in
-  let out =
-    ((in_extent :> int)
-    + (pad_before :> int)
-    + (pad_after :> int)
-    - effective_kernel)
-    / (stride :> int)
-    + 1
-  in
-  if out < 1 then
+  let open Err.Syntax in
+  let* k = factor ~what:`Kernel (kernel :> int) in
+  let* d = factor ~what:`Dilation (dilation :> int) in
+  let* s = factor ~what:`Stride (stride :> int) in
+  let* i = factor ~what:`Input_extent (in_extent :> int) in
+  let* pb = factor ~what:`Padding (pad_before :> int) in
+  let* pa = factor ~what:`Padding (pad_after :> int) in
+  let effective_kernel = Int64.add (Int64.mul (Int64.sub k 1L) d) 1L in
+  if effective_kernel >= limit then
     Err.fail
-      (`Window
-         Shape_error.Window.
-           { out; in_extent; kernel; stride; pad_before; pad_after; dilation })
-  else Err.return (Dim.extent out)
+      (`Window_over_limit
+         Shape_error.Window_over_limit.
+           { what = `Effective_kernel; value = effective_kernel; limit })
+  else
+    let out =
+      Int64.add
+        (floor_div
+           (Int64.sub (Int64.add (Int64.add i pb) pa) effective_kernel)
+           s)
+        1L
+    in
+    if out < 1L then
+      Err.fail
+        (`Window
+           Shape_error.Window.
+             { out; in_extent; kernel; stride; pad_before; pad_after; dilation })
+    else if out >= limit then
+      Err.fail
+        (`Window_over_limit
+           Shape_error.Window_over_limit.
+             { what = `Output_extent; value = out; limit })
+    else Err.return (Dim.extent (Int64.to_int out))
 
 module Compute (S : sig
   type 'role index

@@ -47,15 +47,25 @@ type metadata_role =
   | `Conv2d_weight
   | `Conv2d_padding_weight
   | `Linear_weight
+  | `Conv2d_bias
+  | `Conv2d_padding_bias
+  | `Convolution_bias
+  | `Linear_bias
   | `Rms_norm_input
+  | `Rms_norm_weight
   | `Mean_input
   | `Permute_input
   | `Unbind_input
   | `Addmm_weight ]
 
-type hw_param = [ `Stride | `Padding | `Dilation | `Kernel_size ]
-type config_param = [ hw_param | `Groups ]
-type config_fault = [ `Not_positive of int | `Negative of int ]
+type hw_param =
+  [ `Stride | `Padding | `Output_padding | `Dilation | `Kernel_size ]
+
+(* ONE definition of this vocabulary, shared with [Op_bridge] through
+   [Op_config.Bad]: the two importers must reject the same values, and two
+   spellings of "this stride is zero" is one drift away from two contracts. *)
+type config_param = Op_config.Bad.param
+type config_fault = Op_config.Bad.fault
 
 (* Two genuinely different rejections, not one with a message: a graph input
    that is not a tensor, and a graph whose user-input arity the runner cannot
@@ -93,9 +103,7 @@ module Bad_arity = struct
   type t = { param : hw_param; got : int }
 end
 
-module Bad_config = struct
-  type t = { op : string; param : config_param; fault : config_fault }
-end
+module Bad_config = Op_config.Bad
 
 module Unsupported_option = struct
   type t = { op : string; option : unsupported_option }
@@ -188,7 +196,12 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Conv2d_weight -> Fmt.string ppf "conv2d weight"
   | `Conv2d_padding_weight -> Fmt.string ppf "conv2d padding weight"
   | `Linear_weight -> Fmt.string ppf "linear weight"
+  | `Conv2d_bias -> Fmt.string ppf "conv2d bias"
+  | `Conv2d_padding_bias -> Fmt.string ppf "conv2d padding bias"
+  | `Convolution_bias -> Fmt.string ppf "convolution bias"
+  | `Linear_bias -> Fmt.string ppf "linear bias"
   | `Rms_norm_input -> Fmt.string ppf "rms_norm input"
+  | `Rms_norm_weight -> Fmt.string ppf "rms_norm weight"
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Permute_input -> Fmt.string ppf "permute input"
   | `Unbind_input -> Fmt.string ppf "unbind input"
@@ -197,12 +210,9 @@ let pp_metadata_role ppf : metadata_role -> unit = function
 let pp_hw_param ppf : hw_param -> unit = function
   | `Stride -> Fmt.string ppf "stride"
   | `Padding -> Fmt.string ppf "padding"
+  | `Output_padding -> Fmt.string ppf "output_padding"
   | `Dilation -> Fmt.string ppf "dilation"
   | `Kernel_size -> Fmt.string ppf "kernel_size"
-
-let pp_config_param ppf : config_param -> unit = function
-  | `Groups -> Fmt.string ppf "groups"
-  | #hw_param as p -> pp_hw_param ppf p
 
 let pp_malformed ppf : [< malformed ] -> unit = function
   | `Missing_arg { Missing_arg.op; arg } ->
@@ -226,14 +236,7 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       Fmt.pf ppf "invalid dimension %d for rank %d" axis rank
   | `Bad_arity { Bad_arity.param; got } ->
       Fmt.pf ppf "%a must have one or two values, got %d" pp_hw_param param got
-  | `Bad_config { Bad_config.op; param; fault } -> (
-      match fault with
-      | `Not_positive n ->
-          Fmt.pf ppf "%s: %a must be positive, got %d" op pp_config_param param
-            n
-      | `Negative n ->
-          Fmt.pf ppf "%s: %a must not be negative, got %d" op pp_config_param
-            param n)
+  | `Bad_config e -> Op_config.Bad.pp ppf e
   | `Output_arity { Output_arity.op; serialized; derived } ->
       Fmt.pf ppf "%s declares %d outputs but produces %d" op serialized derived
   | `Unsupported_option { Unsupported_option.op; option } -> (
@@ -427,12 +430,42 @@ let bool_arg esc ?(default = false) (node : Pytorch_types.Node.t) name =
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Bool })
 
-let float_arg esc ?(default = 0.) (node : Pytorch_types.Node.t) name =
+(* A REQUIRED [float]: no default, so omission is [`Missing_arg] and an explicit
+   none is [`Wrong_arg_kind]. Carrying a [?(default = 0.)] here was the same
+   mistake in a quieter form than the explicit-none one -- it made "required"
+   mean "defaults to zero", so a batch-norm node that simply omitted [eps]
+   computed with an epsilon of zero, while [Op_bridge]'s decoder reported the
+   argument missing. Anything with a real schema default passes it explicitly. *)
+let float_arg esc ?default (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> (
+      match default with
+      | Some d -> d
+      | None -> malformed esc (`Missing_arg { op = node.target; arg = name }))
+  | Some { arg = Argument.Float f; _ } -> f
+  | Some _ ->
+      malformed esc
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Float })
+
+(* A [float?]. Omission and an explicit none are the SAME REQUEST -- both are
+   serialized, since the generated op-spec path writes [Float_opt None] out as
+   [Argument.None] -- and anything else is still refused.
+
+   Separate from [float_arg] rather than an arm added to it. Accepting an
+   explicit none for every caller made
+   [_native_batch_norm_legit_no_training.default], whose schema has a REQUIRED
+   [float eps], silently read a null epsilon as 0. -- a different op, computed
+   under the right name. The optionality belongs to the argument, so it belongs
+   at the call site. *)
+let float_opt_arg esc ~default (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
   | None -> default
   | Some { arg = Argument.Float f; _ } -> f
+  | Some { arg = Argument.None _; _ } -> default
   | Some _ ->
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Float })
@@ -592,19 +625,21 @@ let hw2 esc param = function
    this ([dim.mli]: "the validated form for an untrusted size"); the other two
    have no checked form, so the test is written out here. *)
 let pos esc ~op ~param n =
-  if n < 1 then
-    malformed esc (`Bad_config { op; param; fault = `Not_positive n })
-  else Op_config.Pos.of_int n
+  match Op_config.Bad.pos ~op ~param n with
+  | Ok v -> v
+  | Error e -> malformed esc (`Bad_config e)
 
 let nonneg esc ~op ~param n =
-  if n < 0 then malformed esc (`Bad_config { op; param; fault = `Negative n })
-  else Op_config.Nonneg.of_int n
+  match Op_config.Bad.nonneg ~op ~param n with
+  | Ok v -> v
+  | Error e -> malformed esc (`Bad_config e)
 
 let extent esc ~op ~param n =
   match Dim.extent_checked n with
   | Ok e -> e
   | Error _ ->
-      malformed esc (`Bad_config { op; param; fault = `Not_positive n })
+      malformed esc
+        (`Bad_config { Op_config.Bad.op; param; fault = `Not_positive n })
 
 (* The same asserting constructor reached from tensor METADATA rather than from
    an op-configuration field, so it gets the row that already describes that:
@@ -680,6 +715,18 @@ let tensor_meta esc (graph : Pytorch_types.Graph.t) ~ssa ~role =
   | None -> malformed esc (`Missing_metadata { ssa; role })
 
 let meta_rank (meta : TensorMeta.t) = List.length meta.TensorMeta.sizes
+
+(* [shape_of_sizes] RIGHT-ALIGNS a declared size list into the six-axis frame,
+   so [C] and [1,C] land on exactly the same extents. [Graph_shape]'s operand
+   check compares those frames and therefore cannot tell the two apart -- but
+   ATen can, and refuses a bias that is not 1-D. The declared RANK exists only
+   on this side of the conversion, so no shared native rule can cover it and
+   each importer has to check its own. *)
+let require_rank esc (graph : Pytorch_types.Graph.t) ~ssa ~role ~expected =
+  let got = meta_rank (tensor_meta esc graph ~ssa ~role) in
+  if got <> expected then
+    malformed esc
+      (`Bad_dimension { tensor = ssa; fault = `Expected_rank { expected; got } })
 
 let static_sizes esc ~tensor (meta : TensorMeta.t) =
   List.map
@@ -813,10 +860,12 @@ let conv2d_padding_params esc (graph : Pytorch_types.Graph.t)
     (* NOT [Conv.Conv2d_padding.padding_of_string], which [invalid_arg]s on
        anything else (conv.ml:394). This string is model data, so it gets a
        typed row -- the same rule the guarded config constructors follow. *)
-    match string_arg esc ~default:"valid" node "padding" with
-    | "valid" -> Conv.Conv2d_padding.Valid
-    | "same" -> Conv.Conv2d_padding.Same
-    | s -> malformed esc (`Unsupported_padding_mode s)
+    match
+      Conv.Conv2d_padding.of_string
+        (string_arg esc ~default:"valid" node "padding")
+    with
+    | Ok p -> p
+    | Error s -> malformed esc (`Unsupported_padding_mode s)
   in
   let stride = hw2 esc `Stride (ints_arg esc ~default:[ 1; 1 ] node "stride") in
   let dilation =
@@ -847,15 +896,24 @@ let conv_params esc (graph : Pytorch_types.Graph.t)
     hw2 esc `Dilation (ints_arg esc ~default:[ 1; 1 ] node "dilation")
   in
   let groups = int_arg esc ~default:1 node "groups" in
+  (* [output_padding] IS an argument of this overload -- the schema is
+     convolution(..., bool transposed, SymInt[] output_padding, int groups) --
+     and forcing it to zero was wrong in both directions. A transposed
+     convolution's output extent includes it, so a nonzero value built a smaller
+     op than the model asked for; and a NON-transposed one with a nonzero value
+     is invalid, which [Convolution.output_shape] rejects (conv.ml:833) and
+     discarding the argument let through. [Op_bridge] has always decoded it, so
+     the two importers built different ops from one node. *)
+  let output_padding =
+    hw2 esc `Output_padding
+      (ints_arg esc ~default:[ 0; 0 ] node "output_padding")
+  in
   ( {
       Conv.Convolution.stride = pos_hw esc ~op ~param:`Stride stride;
       padding = nonneg_hw esc ~op ~param:`Padding padding;
       dilation = pos_hw esc ~op ~param:`Dilation dilation;
       transposed = bool_arg esc node "transposed";
-      (* Not model data: this overload has no output_padding of its own, so the
-         zero is ours and [of_int] is applied to a literal. *)
-      output_padding =
-        { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+      output_padding = nonneg_hw esc ~op ~param:`Output_padding output_padding;
       groups = pos esc ~op ~param:`Groups groups;
     },
     cin,
@@ -899,9 +957,15 @@ let pool_params esc (node : Pytorch_types.Node.t) =
   let padding =
     hw2 esc `Padding (ints_arg esc ~default:[ 0; 0 ] node "padding")
   in
+  (* NORMALIZED FIRST, then compared against the only value the params can hold.
+     Testing "does some element differ from 1" accepted [] and [1;1;1] as well
+     as [1;1] -- and ATen refuses both ("dilation must be either a single int,
+     or a tuple of two ints"), so the arity check every other H/W argument gets
+     was the one thing standing between a refused node and a silent drop. *)
   let dilation = ints_arg esc ~default:[ 1; 1 ] node "dilation" in
-  if List.exists (fun d -> d <> 1) dilation then
-    malformed esc (`Unsupported_option { op; option = `Dilation dilation });
+  (match hw2 esc `Dilation dilation with
+  | 1, 1 -> ()
+  | _ -> malformed esc (`Unsupported_option { op; option = `Dilation dilation }));
   if bool_arg esc ~default:false node "ceil_mode" then
     malformed esc (`Unsupported_option { op; option = `Ceil_mode });
   {
@@ -1039,10 +1103,14 @@ let lower program =
           let params = conv2d_params esc graph node in
           let* x = permute perm_nchw_to_nhwc (get "input") in
           let* w = permute perm_oihw_to_conv_weight (get "weight") in
-          let bias =
-            Option.map (env_find esc env)
-              (optional_tensor_name ~absent_ok:true esc node "bias")
+          let bias_name =
+            optional_tensor_name ~absent_ok:true esc node "bias"
           in
+          Option.iter
+            (fun ssa ->
+              require_rank esc graph ~ssa ~role:`Conv2d_bias ~expected:1)
+            bias_name;
+          let bias = Option.map (env_find esc env) bias_name in
           let* y = conv2d params ~x ~weight:w ?bias () in
           let* y = permute perm_nhwc_to_nchw y in
           return [ y ]
@@ -1052,10 +1120,14 @@ let lower program =
           let params = conv2d_padding_params esc graph node in
           let* x = permute perm_nchw_to_nhwc (get "input") in
           let* w = permute perm_oihw_to_conv_weight (get "weight") in
-          let bias =
-            Option.map (env_find esc env)
-              (optional_tensor_name ~absent_ok:true esc node "bias")
+          let bias_name =
+            optional_tensor_name ~absent_ok:true esc node "bias"
           in
+          Option.iter
+            (fun ssa ->
+              require_rank esc graph ~ssa ~role:`Conv2d_padding_bias ~expected:1)
+            bias_name;
+          let bias = Option.map (env_find esc env) bias_name in
           let* y = conv2d_padding params ~x ~weight:w ?bias () in
           let* y = permute perm_nhwc_to_nchw y in
           return [ y ]
@@ -1063,9 +1135,12 @@ let lower program =
           let params, _, _, _ = conv_params esc graph node in
           let* x = permute perm_nchw_to_nhwc (get "input") in
           let* w = permute perm_oihw_to_conv_weight (get "weight") in
-          let bias =
-            Option.map (env_find esc env) (optional_tensor_name esc node "bias")
-          in
+          let bias_name = optional_tensor_name esc node "bias" in
+          Option.iter
+            (fun ssa ->
+              require_rank esc graph ~ssa ~role:`Convolution_bias ~expected:1)
+            bias_name;
+          let bias = Option.map (env_find esc env) bias_name in
           let* y = convolution params ~x ~weight:w ?bias () in
           let* y = permute perm_nhwc_to_nchw y in
           return [ y ]
@@ -1115,7 +1190,8 @@ let lower program =
             {
               Norm.RmsNorm.dims =
                 trailing (used_axes_for esc ~tensor:x_name rank);
-              eps = float_arg esc ~default:Norm.RmsNorm.default_eps node "eps";
+              eps =
+                float_opt_arg esc ~default:Norm.RmsNorm.default_eps node "eps";
             }
           in
           (* NO ones tensor when the weight is absent. [Graph_ir]'s [Rms_norm]
@@ -1123,11 +1199,19 @@ let lower program =
              option (lower.ml:293-299); synthesizing a constant would make the
              two importers build structurally different graphs for the same
              node and leave that arm unreachable from one of them. *)
+          let weight_name =
+            optional_tensor_name ~absent_ok:true esc node "weight"
+          in
+          (* Rank [k], not rank 1: ATen indexes the weight by the whole
+             normalized shape, so a multi-axis normalization takes a
+             multi-axis weight. *)
+          Option.iter
+            (fun ssa ->
+              require_rank esc graph ~ssa ~role:`Rms_norm_weight ~expected:k)
+            weight_name;
           let* y =
             rms_norm params ~x:(get "input")
-              ?weight:
-                (Option.map (env_find esc env)
-                   (optional_tensor_name ~absent_ok:true esc node "weight"))
+              ?weight:(Option.map (env_find esc env) weight_name)
               ()
           in
           return [ y ]
@@ -1265,10 +1349,14 @@ let lower program =
                  (tensor_meta esc graph ~ssa:w_name ~role:`Linear_weight))
           in
           let* w = permute perm_linear_weight (get "weight") in
-          let bias =
-            Option.map (env_find esc env)
-              (optional_tensor_name ~absent_ok:true esc node "bias")
+          let bias_name =
+            optional_tensor_name ~absent_ok:true esc node "bias"
           in
+          Option.iter
+            (fun ssa ->
+              require_rank esc graph ~ssa ~role:`Linear_bias ~expected:1)
+            bias_name;
+          let bias = Option.map (env_find esc env) bias_name in
           (* No check that the input's trailing extent matches [in_features]:
              [Linear.output_shape] already compares both the activation's and
              the weight's C against it (linear.ml:69-84), and a second copy of

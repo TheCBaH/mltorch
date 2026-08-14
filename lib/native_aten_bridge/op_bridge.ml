@@ -53,6 +53,12 @@ module Normalized_shape = struct
   type t = { expected : int list; got : int list }
 end
 
+(* An optional operand's declared RANK, which right-alignment into the six-axis
+   frame erases before any shared shape rule can see it. *)
+module Operand_rank = struct
+  type t = { arg_name : string; expected : int; got : int }
+end
+
 module Pool_unsupported = struct
   type option = Dilation of int list | Ceil_mode
   type t = { op : string; option : option }
@@ -73,7 +79,10 @@ type error =
   | `Linear_invalid_weight_rank of int array
   | `Pool_unsupported of Pool_unsupported.t
   | `Normalized_rank of Normalized_rank.t
-  | `Normalized_shape of Normalized_shape.t ]
+  | `Normalized_shape of Normalized_shape.t
+  | `Operand_rank of Operand_rank.t
+  | `Bad_config of Op_config.Bad.t
+  | `Unsupported_padding_mode of string ]
 
 (* Deliberately not [Fmt.brackets], which boxes its content and so may
    line-wrap; the original bare "[%s]" (String.concat) never did, regardless
@@ -93,6 +102,11 @@ let pp_error ppf : [< error ] -> unit = function
   | `Validation_failure msg -> Fmt.string ppf msg
   | `Unbind_invalid_dim { Unbind_invalid_dim.dim; rank } ->
       Fmt.pf ppf "unbind.int: invalid dimension %d for rank %d" dim rank
+  | `Bad_config e -> Op_config.Bad.pp ppf e
+  | `Unsupported_padding_mode s ->
+      Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
+  | `Operand_rank { Operand_rank.arg_name; expected; got } ->
+      Fmt.pf ppf "%s must be rank-%d, got rank-%d" arg_name expected got
   | `Normalized_rank { Normalized_rank.rank; got } ->
       Fmt.pf ppf
         "rms_norm: normalized_shape has %d entries, outside [1, %d] for this \
@@ -308,6 +322,15 @@ let unbind_axis ~rank dim =
    accepts i64, so the refusal belongs to the arm that knows what it will build.
    Read from the ATen tensor before conversion, so the error names the source
    dtype. *)
+(* [Tensor_bridge.of_aten] right-aligns an ATen shape into the six-axis frame, so
+   a bias declared [1,Cout] arrives indistinguishable from [Cout] and the shared
+   [Graph_shape] check passes it -- while ATen refuses a bias that is not 1-D.
+   The rank survives only on the ATen tensor, so it is read there. *)
+let require_rank arg_name ~expected t =
+  let got = Array.length (Aten_tensor.shape t) in
+  if got = expected then return ()
+  else fail (`Operand_rank { Operand_rank.arg_name; expected; got })
+
 let require_f32 arg_name t =
   match Aten_tensor.scalar_type t with
   | Aten_scalar_type.Float -> return ()
@@ -341,10 +364,28 @@ let normalized_dims ~(x_shape : int array) ~normalized_shape =
   in
   return (trailing_axes ~rank ~k)
 
+(* rms_norm's [eps] is a [float?]: a float, an explicit none, or omitted. The
+   catch-all this replaces read a bool, int, string or tensor `eps` as the
+   default too -- so a malformed node the serialized importer refuses was
+   accepted here, which is precisely the acceptance divergence Group 2 exists to
+   close. *)
+(* rms_norm's [eps] is a [float?]: a float, an explicit none, or omitted. The
+   catch-all this replaces read a bool, int, string or tensor `eps` as the
+   default too -- so a malformed node the serialized importer refuses was
+   accepted here, which is precisely the acceptance divergence Group 2 exists to
+   close. [`Float_opt] rather than [`Float], because a none IS accepted. *)
+(* A REQUIRED [float]: [_native_batch_norm_legit_no_training]'s eps, whose schema
+   has no [?]. Kept apart from [eps_arg] below because the two answer different
+   questions, and one decoder answering both is how a null epsilon comes to be
+   read as zero. *)
+let float_arg ?default node name =
+  decode_result (D.float_arg_result ?default node name)
+
 let eps_arg node name =
   match D.find_arg node name with
-  | Some (Argument.Float f) -> f
-  | _ -> Norm.RmsNorm.default_eps
+  | Some (Argument.Float f) -> return f
+  | None | Some (Argument.None _) -> return Norm.RmsNorm.default_eps
+  | Some a -> decode_result (D.wrong_kind name `Float_opt a)
 
 (* Build a full 6D native permutation from an ATen [dims] list and the tensor
    rank.  For the [rank] used axes, [dims.(i)] is the ATen input dim for output
@@ -373,44 +414,132 @@ let hw2 name = function
 (* Construct Conv2d.params from the ATen weight shape array
    (rank-4: [Cout,Cin/groups,Kh,Kw]) and validated config ints.
    Raises [Invalid_argument] on bad dims. *)
-let conv_axis_window ~kernel ~stride ~pad ~dilation : Conv.Conv2d.axis_window =
-  {
-    kernel = Dim.extent kernel;
-    stride = Op_config.Pos.of_int stride;
-    pad_before = Op_config.Nonneg.of_int pad;
-    pad_after = Op_config.Nonneg.of_int pad;
-    dilation = Op_config.Pos.of_int dilation;
-  }
+(* Every raw value is validated BEFORE it reaches an asserting constructor, and
+   the fault it produces is [Op_config.Bad.t] -- the same row [Native_interp]
+   reports for the same node. Containing the assertions in the arm's exception
+   boundary is not enough on its own: it yields a [`Validation_failure] STRING,
+   which a caller cannot classify without parsing prose, and which says nothing
+   about which parameter of which op held what value. *)
+let cfg = function Ok v -> return v | Error e -> fail (`Bad_config e)
+let pos ~op ~param n = cfg (Op_config.Bad.pos ~op ~param n)
+let nonneg ~op ~param n = cfg (Op_config.Bad.nonneg ~op ~param n)
 
-let make_conv2d_params w_shape sh sw ph pw dh dw groups =
-  {
-    Conv.Conv2d.h =
-      conv_axis_window ~kernel:w_shape.(2) ~stride:sh ~pad:ph ~dilation:dh;
-    w = conv_axis_window ~kernel:w_shape.(3) ~stride:sw ~pad:pw ~dilation:dw;
-    in_channels = Dim.extent (w_shape.(1) * groups);
-    groups = Op_config.Pos.of_int groups;
-  }
+let extent ~op ~param n =
+  match Dim.extent_checked n with
+  | Ok e -> return e
+  | Error _ -> cfg (Error { Op_config.Bad.op; param; fault = `Not_positive n })
 
-let make_conv2d_padding_params sh sw padding dh dw groups :
-    Conv.Conv2d_padding.params =
-  {
-    stride = { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
-    padding = Conv.Conv2d_padding.padding_of_string padding;
-    dilation = { h = Op_config.Pos.of_int dh; w = Op_config.Pos.of_int dw };
-    groups = Op_config.Pos.of_int groups;
-  }
+let conv_axis_window ~op ~kernel ~stride ~pad ~dilation :
+    (Conv.Conv2d.axis_window, [> `Bad_config of Op_config.Bad.t ]) Err.t =
+  let* kernel = extent ~op ~param:`Kernel_size kernel in
+  let* stride = pos ~op ~param:`Stride stride in
+  let* pad = nonneg ~op ~param:`Padding pad in
+  let* dilation = pos ~op ~param:`Dilation dilation in
+  return
+    { Conv.Conv2d.kernel; stride; pad_before = pad; pad_after = pad; dilation }
 
-let make_convolution_params sh sw ph pw dh dw transposed oph opw groups :
-    Conv.Convolution.params =
-  {
-    stride = { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
-    padding = { h = Op_config.Nonneg.of_int ph; w = Op_config.Nonneg.of_int pw };
-    dilation = { h = Op_config.Pos.of_int dh; w = Op_config.Pos.of_int dw };
-    transposed;
-    output_padding =
-      { h = Op_config.Nonneg.of_int oph; w = Op_config.Nonneg.of_int opw };
-    groups = Op_config.Pos.of_int groups;
-  }
+(* [in_channels] is the weight's per-group input extent TIMES the group count,
+   and both factors are model-supplied. Computed in [int] it could wrap before
+   reaching [Dim.extent]'s assertion, which would then escape as an
+   [Invalid_argument] from inside the [try] below -- reported as a
+   [`Validation_failure] string rather than the typed row the other two
+   definitions of this rule return. Bounded through the same helper
+   [Window_axis] and [Native_interp] use, so all three agree. *)
+let make_conv2d_params ~op w_shape sh sw ph pw dh dw groups =
+  let* h =
+    conv_axis_window ~op ~kernel:w_shape.(2) ~stride:sh ~pad:ph ~dilation:dh
+  in
+  let* w =
+    conv_axis_window ~op ~kernel:w_shape.(3) ~stride:sw ~pad:pw ~dilation:dw
+  in
+  let* groups = pos ~op ~param:`Groups groups in
+  let* in_channels =
+    (* [Graph_shape.error] flat-includes [Shape_error.t], and
+       [Graph_builder.error] flat-includes that, so the row crosses into this
+       module's [`Build] seam unchanged rather than re-labelled. *)
+    let of_shape r =
+      Err.map_error
+        (fun (e : Shape_error.t) -> `Build (e :> Graph_builder.error))
+        r
+    in
+    let* c = of_shape (Window_axis.factor ~what:`In_channels w_shape.(1)) in
+    let* g = of_shape (Window_axis.factor ~what:`In_channels (groups :> int)) in
+    let product = Int64.mul c g in
+    if product >= Window_axis.limit then
+      of_shape
+        (Err.fail
+           (`Window_over_limit
+              Shape_error.Window_over_limit.
+                {
+                  what = `In_channels;
+                  value = product;
+                  limit = Window_axis.limit;
+                }))
+    else return (Dim.extent (Int64.to_int product))
+  in
+  return { Conv.Conv2d.h; w; in_channels; groups }
+
+let make_conv2d_padding_params ~op sh sw padding dh dw groups =
+  (* NOT [padding_of_string], which [invalid_arg]s: this string is model data.
+    Containing that in the arm's [try] turned it into a [`Validation_failure]
+    string, where [Native_interp] returns the mode itself in a typed row.
+    [Conv2d_padding.of_string] is the shared checked parser, so the accepted set
+    cannot drift between the two importers. *)
+  let* padding =
+    match Conv.Conv2d_padding.of_string padding with
+    | Ok p -> return p
+    | Error s -> fail (`Unsupported_padding_mode s)
+  in
+  let* sh = pos ~op ~param:`Stride sh in
+  let* sw = pos ~op ~param:`Stride sw in
+  let* dh = pos ~op ~param:`Dilation dh in
+  let* dw = pos ~op ~param:`Dilation dw in
+  let* groups = pos ~op ~param:`Groups groups in
+  return
+    {
+      Conv.Conv2d_padding.stride = { h = sh; w = sw };
+      padding;
+      dilation = { h = dh; w = dw };
+      groups;
+    }
+
+let make_convolution_params ~op sh sw ph pw dh dw transposed oph opw groups =
+  let* sh = pos ~op ~param:`Stride sh in
+  let* sw = pos ~op ~param:`Stride sw in
+  let* ph = nonneg ~op ~param:`Padding ph in
+  let* pw = nonneg ~op ~param:`Padding pw in
+  let* dh = pos ~op ~param:`Dilation dh in
+  let* dw = pos ~op ~param:`Dilation dw in
+  (* [`Output_padding], not [`Padding]. The comment this replaces claimed the op
+     name made the two unambiguous -- but `convolution.default` carries BOTH
+     arguments, so it never did, and the same malformed node produced a
+     different payload here than through the serialized importer. *)
+  let* oph = nonneg ~op ~param:`Output_padding oph in
+  let* opw = nonneg ~op ~param:`Output_padding opw in
+  let* groups = pos ~op ~param:`Groups groups in
+  return
+    {
+      Conv.Convolution.stride = { h = sh; w = sw };
+      padding = { h = ph; w = pw };
+      dilation = { h = dh; w = dw };
+      transposed;
+      output_padding = { h = oph; w = opw };
+      groups;
+    }
+
+let make_pool_params ~op kh kw sh sw ph pw =
+  let* kh = extent ~op ~param:`Kernel_size kh in
+  let* kw = extent ~op ~param:`Kernel_size kw in
+  let* sh = pos ~op ~param:`Stride sh in
+  let* sw = pos ~op ~param:`Stride sw in
+  let* ph = nonneg ~op ~param:`Padding ph in
+  let* pw = nonneg ~op ~param:`Padding pw in
+  return
+    {
+      Pool.MaxPool2d.kernel = { h = kh; w = kw };
+      stride = { h = sh; w = sw };
+      pad = { h = ph; w = pw };
+    }
 
 (* Resolve a single inferred [-1] in a view/reshape size against the total
    numel (PyTorch convention). *)
@@ -433,8 +562,12 @@ let pool_stride kernel_size node =
    rather than approximated: the native params have nowhere to put them. *)
 let reject_pool_extras node =
   let* dilation = ints_arg ~default:[ 1; 1 ] node "dilation" in
+  (* Normalized through [hw2] first, so a wrong ARITY keeps the typed arity
+     diagnostic every other H/W argument gets. Testing "does some element differ
+     from 1" accepted [] and [1;1;1], which ATen itself refuses. *)
+  let* h, w = hw2 "dilation" dilation in
   let* () =
-    if List.exists (fun d -> d <> 1) dilation then
+    if h <> 1 || w <> 1 then
       fail
         (`Pool_unsupported
            {
@@ -473,7 +606,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* rm = native_of_aten "running_mean" aten_rm in
          let* aten_rv = tensor_arg aten_env node "running_var" in
          let* rv = native_of_aten "running_var" aten_rv in
-         let eps = eps_arg node "eps" in
+         let* eps = float_arg node "eps" in
          let (Tensor.Tensor rm_r) = rm in
          (* weight/bias are optional (ATen `Tensor?`); materialise the identity
             (ones / zeros) [C] vector when absent, as [rms_norm] does. *)
@@ -608,14 +741,28 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            let* bias_opt =
              if optional_tensor_present node "bias" then
                let* bias = tensor_arg aten_env node "bias" in
+               let* () = require_rank "bias" ~expected:1 bias in
                let* bias = native_of_aten "bias" bias in
                return (Some bias)
              else return None
            in
            let* x = native_of_aten "input" aten_x in
            let* w = native_of_aten "weight" aten_w in
+           (* INSIDE the [try], with the rest of the parameter construction.
+              Moving it out was justified by a mistake: a [try] does not
+              interfere with the typed [Error] this returns, because that is a
+              VALUE and [let*] short-circuits on it without raising. What the
+              [try] catches is the other half -- [Dim.extent],
+              [Op_config.Pos.of_int] and [Nonneg.of_int] assert their
+              preconditions, and [Window_axis.factor] bounds magnitude only, so
+              an ordinary [groups=0] or [stride=[0,1]] still reaches an
+              assertion. Outside the boundary those escaped [dispatch] as an
+              uncaught [Invalid_argument]. *)
            try
-             let params = make_conv2d_params w_shape sh sw ph pw dh dw groups in
+             let* params =
+               make_conv2d_params ~op:node.Node.target w_shape sh sw ph pw dh dw
+                 groups
+             in
              let tensors = [ x; w ] @ Option.to_list bias_opt in
              build_g ~name:"conv2d_relayout" tensors (function
                | [ x_id; w_id ] ->
@@ -651,6 +798,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            let* bias_opt =
              if optional_tensor_present node "bias" then
                let* bias = tensor_arg aten_env node "bias" in
+               let* () = require_rank "bias" ~expected:1 bias in
                let* bias = native_of_aten "bias" bias in
                return (Some bias)
              else return None
@@ -658,8 +806,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            let* x = native_of_aten "input" aten_x in
            let* w = native_of_aten "weight" aten_w in
            try
-             let params =
-               make_conv2d_padding_params sh sw padding dh dw groups
+             let* params =
+               make_conv2d_padding_params ~op:node.Node.target sh sw padding dh
+                 dw groups
              in
              let tensors = [ x; w ] @ Option.to_list bias_opt in
              build_g ~name:"conv2d_padding_relayout" tensors (function
@@ -704,6 +853,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            let* bias_opt =
              if optional_tensor_present node "bias" then
                let* bias = tensor_arg aten_env node "bias" in
+               let* () = require_rank "bias" ~expected:1 bias in
                let* bias = native_of_aten "bias" bias in
                return (Some bias)
              else return None
@@ -711,9 +861,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            let* x = native_of_aten "input" aten_x in
            let* w = native_of_aten "weight" aten_w in
            try
-             let params =
-               make_convolution_params sh sw ph pw dh dw transposed oph opw
-                 groups
+             let* params =
+               make_convolution_params ~op:node.Node.target sh sw ph pw dh dw
+                 transposed oph opw groups
              in
              let tensors = [ x; w ] @ Option.to_list bias_opt in
              build_g ~name:"convolution_relayout" tensors (function
@@ -782,6 +932,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            let* bias_opt =
              if optional_tensor_present node "bias" then
                let* bias = tensor_arg aten_env node "bias" in
+               let* () = require_rank "bias" ~expected:1 bias in
                let* bias = native_of_aten "bias" bias in
                return (Some bias)
              else return None
@@ -817,19 +968,10 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* sh, sw = hw2 "stride" stride in
          let* ph, pw = hw2 "padding" padding in
          let* x = native_of_aten "self" aten_x in
+         let* params =
+           make_pool_params ~op:node.Node.target kh kw sh sw ph pw
+         in
          try
-           let params =
-             {
-               Pool.MaxPool2d.kernel = { h = Dim.extent kh; w = Dim.extent kw };
-               stride =
-                 { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
-               pad =
-                 {
-                   h = Op_config.Nonneg.of_int ph;
-                   w = Op_config.Nonneg.of_int pw;
-                 };
-             }
-           in
            build_g ~name:"max_pool2d_relayout" [ x ] (function
              | [ x_id ] ->
                  let open Graph_builder in
@@ -853,19 +995,10 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* sh, sw = hw2 "stride" stride in
          let* ph, pw = hw2 "padding" padding in
          let* x = native_of_aten "self" aten_x in
+         let* params =
+           make_pool_params ~op:node.Node.target kh kw sh sw ph pw
+         in
          try
-           let params =
-             {
-               Pool.MaxPool2d.kernel = { h = Dim.extent kh; w = Dim.extent kw };
-               stride =
-                 { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
-               pad =
-                 {
-                   h = Op_config.Nonneg.of_int ph;
-                   w = Op_config.Nonneg.of_int pw;
-                 };
-             }
-           in
            build_g ~name:"max_pool2d_with_indices_relayout" [ x ] (function
              | [ x_id ] ->
                  let open Graph_builder in
@@ -935,7 +1068,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* dims =
            normalized_dims ~x_shape:(Aten_tensor.shape t) ~normalized_shape
          in
-         let params = { Norm.RmsNorm.dims; eps = eps_arg node "eps" } in
+         let* eps = eps_arg node "eps" in
+         let params = { Norm.RmsNorm.dims; eps } in
          let* x = native_of_aten "input" t in
          (* NO ones tensor for an absent weight. [Graph_ir]'s [Rms_norm] carries
             [weight : Tensor_ref.t option] and Native4D reads the option
@@ -947,6 +1081,13 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* weight_opt =
            if optional_tensor_present node "weight" then
              let* weight = tensor_arg aten_env node "weight" in
+             (* Rank [k], the length of normalized_shape: ATen indexes the
+                weight by the whole normalized shape. *)
+             let* () =
+               require_rank "rms_norm weight"
+                 ~expected:(List.length normalized_shape)
+                 weight
+             in
              let* weight = native_of_aten "weight" weight in
              return (Some weight)
            else return None

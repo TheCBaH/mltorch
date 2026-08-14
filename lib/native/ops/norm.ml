@@ -214,6 +214,31 @@ module RmsNorm = struct
   (* Output keeps the input shape: rms-norm rescales, it does not reduce. *)
   let output_shape ~(x_shape : Vec6.shape) = Err.return x_shape
 
+  (* ATen indexes the weight by the NORMALIZED dims only, so it carries the
+     input's extent on each of those axes and is extent-1 (broadcast) on every
+     other. One definition of that layout, used by shape inference to reject a
+     weight that disagrees -- which nothing checked, so a wrong one built a
+     graph and then raised from [Tensor.read] partway through the result. *)
+  let weight_shape ~(x_shape : Vec6.shape) ~(dims : Axis.t list) =
+    List.fold_left
+      (fun acc a -> Vec6.set acc a (Vec6.get x_shape a))
+      (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
+      dims
+
+  let check_weight ~(x_shape : Vec6.shape) ~(dims : Axis.t list)
+      ~(actual : Vec6.shape) : (unit, Shape_error.t) Err.t =
+    let expected = weight_shape ~x_shape ~dims in
+    if
+      List.for_all
+        (fun a -> Dim.equal (Vec6.get expected a) (Vec6.get actual a))
+        Axis.all
+    then Err.return ()
+    else
+      Err.fail
+        (`Operand_shape
+           Shape_error.Operand_shape.
+             { operand = `Rms_norm_weight; expected; actual })
+
   (* The normalized axes are the innermost [k] of the frame, which is what both
      importers derive from ATen's trailing [normalized_shape]. [k] is an axis of
      the walk rather than a fixed choice, because the single- and multi-axis

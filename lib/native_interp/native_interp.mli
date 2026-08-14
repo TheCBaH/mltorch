@@ -57,6 +57,17 @@ type metadata_role =
         the weight for its RANK only, so a report naming the [conv2d] role would
         send a reader looking for a channel check that arm does not perform. *)
   | `Linear_weight
+  | `Conv2d_bias
+  | `Conv2d_padding_bias
+  | `Convolution_bias
+  | `Linear_bias
+  | `Rms_norm_weight
+    (** The OPTIONAL operands, whose metadata is read for its declared RANK.
+        [shape_of_sizes] right-aligns a size list into the six-axis frame, so
+        [C] and [1,C] land on identical extents and the shared [Graph_shape]
+        check cannot separate them — while ATen refuses a bias that is not 1-D.
+        The rank exists only before that conversion, so each importer checks its
+        own. *)
   | `Rms_norm_input
     (** rms_norm reads the INPUT's metadata, not a weight's: [normalized_shape]
         is checked against the input's trailing extents, which is the only place
@@ -67,19 +78,18 @@ type metadata_role =
   | `Addmm_weight ]
 (** Why the missing [tensor_values] entry was wanted. *)
 
-type hw_param = [ `Stride | `Padding | `Dilation | `Kernel_size ]
-(** The four parameters read as an [h, w] pair. *)
+type hw_param =
+  [ `Stride | `Padding | `Output_padding | `Dilation | `Kernel_size ]
+(** The parameters read as an [h, w] pair. Not the same set as
+    {!Op_config.Bad.param}, which adds [`Groups]: a group count is a lone int
+    and so can be a bad VALUE but never a bad arity. *)
 
-type config_param = [ hw_param | `Groups ]
-(** Which op-configuration field a value came from. A superset of {!hw_param}
-    rather than a second enumeration: [groups] is a lone int and the other four
-    arrive as pairs, but a bad value in any of them is the same failure. *)
+type config_param = Op_config.Bad.param
 
-type config_fault = [ `Not_positive of int | `Negative of int ]
-(** Which rule the value broke, carrying the value that broke it. The two are
-    distinct because the underlying constructors are: [Op_config.Pos] forbids
-    zero and [Op_config.Nonneg] permits it, so collapsing them would report "not
-    positive" for a padding of 0, which is ordinary. *)
+type config_fault = Op_config.Bad.fault
+(** Shared with {!Op_bridge} through [Op_config.Bad], not restated here. The two
+    importers have to reject the same values, and two vocabularies for "this
+    stride is zero" is one drift away from two contracts. *)
 
 type unsupported_option =
   [ `Alpha of float | `Memory_format | `Dilation of int list | `Ceil_mode ]
@@ -125,9 +135,7 @@ module Bad_arity : sig
   type t = { param : hw_param; got : int }
 end
 
-module Bad_config : sig
-  type t = { op : string; param : config_param; fault : config_fault }
-end
+module Bad_config = Op_config.Bad
 
 (** How many entries [normalized_shape] had against the rank it has to fit
     inside. Covers both ends -- an empty list and one longer than the rank -- as

@@ -36,6 +36,40 @@ module Pos = struct
       ~enc:to_int Jsont.int
 end
 
+module Bad = struct
+  type param =
+    [ `Stride | `Padding | `Output_padding | `Dilation | `Kernel_size | `Groups ]
+
+  type fault = [ `Not_positive of int | `Negative of int ]
+  type t = { op : string; param : param; fault : fault }
+
+  let pp_param ppf : param -> unit =
+   fun p ->
+    Fmt.string ppf
+      (match p with
+      | `Stride -> "stride"
+      | `Padding -> "padding"
+      | `Output_padding -> "output_padding"
+      | `Dilation -> "dilation"
+      | `Kernel_size -> "kernel_size"
+      | `Groups -> "groups")
+
+  let pp ppf { op; param; fault } =
+    match fault with
+    | `Not_positive n ->
+        Fmt.pf ppf "%s: %a must be positive, got %d" op pp_param param n
+    | `Negative n ->
+        Fmt.pf ppf "%s: %a must not be negative, got %d" op pp_param param n
+
+  let pos ~op ~param n =
+    if n < 1 then Error { op; param; fault = `Not_positive n }
+    else Ok (Pos.of_int n)
+
+  let nonneg ~op ~param n =
+    if n < 0 then Error { op; param; fault = `Negative n }
+    else Ok (Nonneg.of_int n)
+end
+
 module Hw = struct
   type 'a t = { h : 'a; w : 'a }
 

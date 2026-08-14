@@ -23,7 +23,10 @@ let rms ?(normalized = "[4]") ?(weight = `Absent) ?eps () =
   let eps_arg =
     match eps with
     | None -> ""
-    | Some e -> jstr {|,{"name":"eps","arg":{"as_float":%.12g},"kind":1}|} e
+    | Some `None -> {|,{"name":"eps","arg":{"as_none":true},"kind":1}|}
+    | Some (`Float e) ->
+        jstr {|,{"name":"eps","arg":{"as_float":%.12g},"kind":1}|} e
+    | Some (`Raw v) -> jstr {|,{"name":"eps","arg":%s,"kind":1}|} v
   in
   jstr
     {|{"target":"torch.ops.aten.rms_norm.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"normalized_shape","arg":{"as_ints":%s},"kind":1}%s%s],"outputs":[%s],"metadata":{}}|}
@@ -122,12 +125,25 @@ let%expect_test "a present weight is wired in unrelayouted" =
 (* [dump], not [show]: a node count says nothing about eps, which is the whole
    claim. The default is [Norm.RmsNorm.default_eps], the one spelling both
    importers now read. *)
+(* Three spellings of "use the default epsilon", not two. [eps] is a [float?] and
+   the generated op-spec path serialises [Float_opt None] as an explicit
+   [Argument.None], so a node that means the default arrives written out --
+   which [float_arg] used to reject as a wrong argument kind. *)
 let%expect_test "eps defaults to float32 epsilon and is otherwise carried" =
-  dump "default:" (prog (rms ()));
-  dump "explicit:" (prog (rms ~eps:1e-5 ()));
+  dump "omitted:" (prog (rms ()));
+  dump "explicit none:" (prog (rms ~eps:`None ()));
+  dump "explicit:" (prog (rms ~eps:(`Float 1e-5) ()));
   [%expect
     {|
-    default:
+    omitted:
+    graph
+    inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
+    nodes:
+      group g1 torch.ops.aten.rms_norm.default:
+        n0: [t1 f32 [H=2 W=3 C=4]] =
+          rms_norm x=t0 weight=none params={dims=[C]; eps=1.19209e-07}
+    outputs: [t1 f32 [H=2 W=3 C=4] <-n0]
+    explicit none:
     graph
     inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
     nodes:
@@ -143,6 +159,20 @@ let%expect_test "eps defaults to float32 epsilon and is otherwise carried" =
         n0: [t1 f32 [H=2 W=3 C=4]] =
           rms_norm x=t0 weight=none params={dims=[C]; eps=1e-05}
     outputs: [t1 f32 [H=2 W=3 C=4] <-n0] |}]
+
+(* An eps that is neither a float nor a none. [Op_bridge] used to read every
+   non-float value as the default, so a malformed node was accepted there and
+   refused here -- the acceptance divergence this group exists to close. Both
+   now reject. *)
+let%expect_test "a non-float, non-none eps is refused" =
+  show "eps as_int:" (prog (rms ~eps:(`Raw {|{"as_int":1}|}) ()));
+  show "eps as_bool:" (prog (rms ~eps:(`Raw {|{"as_bool":true}|}) ()));
+  show "eps as_string:" (prog (rms ~eps:(`Raw {|{"as_string":"1e-5"}|}) ()));
+  [%expect
+    {|
+    eps as_int:                malformed PT2 graph: torch.ops.aten.rms_norm.default.eps is not a float
+    eps as_bool:               malformed PT2 graph: torch.ops.aten.rms_norm.default.eps is not a float
+    eps as_string:             malformed PT2 graph: torch.ops.aten.rms_norm.default.eps is not a float |}]
 
 (* ---- rejections --------------------------------------------------------- *)
 
@@ -164,6 +194,37 @@ let%expect_test "normalized_shape must match the input's trailing extents" =
     {|
     wrong extent:              malformed PT2 graph: normalized_shape [5] does not match the input's trailing extents [4]
     right length, wrong values: malformed PT2 graph: normalized_shape [4,3] does not match the input's trailing extents [3,4] |}]
+
+(* The weight carries the input's extent on each NORMALIZED axis and is
+   extent-1 elsewhere, and nothing checked it. A weight of the wrong extent --
+   or of the right extent on the wrong axis -- normalized a correctly-shaped
+   graph and then read out of bounds during evaluation. *)
+let%expect_test "an rms_norm weight of the wrong shape is refused" =
+  show "weight [3], normalized [4]:"
+    (prog ~w_sizes:[ 3 ] (rms ~weight:`Tensor ()));
+  show "weight [4], normalized [3,4]:"
+    (prog ~w_sizes:[ 4 ] (rms ~normalized:"[3,4]" ~weight:`Tensor ()));
+  show "weight [3,4], normalized [3,4]:"
+    (prog ~w_sizes:[ 3; 4 ] (rms ~normalized:"[3,4]" ~weight:`Tensor ()));
+  [%expect
+    {|
+    weight [3], normalized [4]: rms_norm weight shape must be [C=4], got
+    [C=3]
+    weight [4], normalized [3,4]: malformed PT2 graph: w is rank 1, expected 2
+    weight [3,4], normalized [3,4]: lowered, nodes=1 |}]
+
+(* Same rank erasure on the norm weight: [1,4] right-aligns onto the extents of
+   [4], so only the declared rank separates them. Here the required rank is [k],
+   the length of normalized_shape, not 1. *)
+let%expect_test "a leading-singleton rms_norm weight is refused on rank" =
+  show "weight [1,4], normalized [4]:"
+    (prog ~w_sizes:[ 1; 4 ] (rms ~weight:`Tensor ()));
+  show "weight [4], normalized [4]:"
+    (prog ~w_sizes:[ 4 ] (rms ~weight:`Tensor ()));
+  [%expect
+    {|
+    weight [1,4], normalized [4]: malformed PT2 graph: w is rank 2, expected 1
+    weight [4], normalized [4]: lowered, nodes=1 |}]
 
 let%expect_test "missing input metadata names the rms_norm role" =
   show "no input meta:"

@@ -46,7 +46,7 @@ let dump label json =
   Format.printf "%s@." label;
   match lower json with
   | Error e -> Format.printf "  %a@." Native_interp.pp_error (Err.Error.kind e)
-  | Ok l -> Graph_ir.pp Format.std_formatter l.Pt2_native_graph.graph
+  | Ok l -> Format.printf "%a@." Graph_ir.pp l.Pt2_native_graph.graph
 
 let%expect_test "conv2d.default lowers with schema defaults" =
   dump "defaults:" (prog (conv ()));
@@ -233,6 +233,32 @@ let%expect_test "a channel product past the engine maximum is refused" =
   [%expect
     {| cin*groups overflow:       malformed PT2 graph: w has extent 4294967296, over the engine maximum of 2147483648 |}]
 
+(* Same gap, same rule, on the convolution side: the bias carries the weight's
+   OUT-channel extent and nothing compared the two. *)
+let%expect_test
+    "a conv bias whose extent disagrees with out_channels is refused" =
+  show "bias 3, out 8:" (prog ~bias_size:3 (conv ~bias:`Tensor ()));
+  show "bias 8, out 8:" (prog ~bias_size:8 (conv ~bias:`Tensor ()));
+  [%expect
+    {|
+    bias 3, out 8:             bias shape must be [C=8], got [C=3]
+    bias 8, out 8:             lowered, nodes=4 |}]
+
+let%expect_test "a leading-singleton conv bias is refused on rank" =
+  show "bias [1,8]:"
+    (program ~x_sizes:[ 1; 4; 8; 8 ]
+       ~extra_tensor_values:
+         [ ("w", tensor_meta [ 8; 4; 3; 3 ]); ("b", tensor_meta [ 1; 8 ]) ]
+       ~params:[ "w"; "b" ]
+       ~nodes:[ conv ~bias:`Tensor () ]
+       ~graph_outputs:[ as_tensor "y" ]
+       ());
+  show "bias [8]:" (prog ~bias_size:8 (conv ~bias:`Tensor ()));
+  [%expect
+    {|
+    bias [1,8]:                malformed PT2 graph: b is rank 2, expected 1
+    bias [8]:                  lowered, nodes=4 |}]
+
 let%expect_test "missing weight metadata names the conv2d role" =
   let node = conv () in
   show "no weight meta:"
@@ -241,6 +267,101 @@ let%expect_test "missing weight metadata names the conv2d role" =
        ());
   [%expect
     {| no weight meta:            malformed PT2 graph: no conv2d weight metadata for "w" |}]
+
+(* ---- convolution.default's output_padding -------------------------------- *)
+
+(* [output_padding] is an argument of this overload and was being forced to
+   zero. It matters in both directions, and every existing fixture used [0,0],
+   so neither could show. *)
+let convolution ?(stride = "[1,1]") ?(padding = "[0,0]") ?(dilation = "[1,1]")
+    ?(transposed = false) ?(output_padding = "[0,0]") ?(groups = 1) () =
+  jstr
+    {|{"target":"torch.ops.aten.convolution.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":%s,"kind":1},{"name":"bias","arg":{"as_none":true},"kind":1},{"name":"stride","arg":{"as_ints":%s},"kind":1},{"name":"padding","arg":{"as_ints":%s},"kind":1},{"name":"dilation","arg":{"as_ints":%s},"kind":1},{"name":"transposed","arg":{"as_bool":%b},"kind":1},{"name":"output_padding","arg":{"as_ints":%s},"kind":1},{"name":"groups","arg":{"as_int":%d},"kind":1}],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") (as_tensor "w") stride padding dilation transposed
+    output_padding groups (as_tensor "y")
+
+(* A transposed convolution's output extent INCLUDES output_padding:
+   (in-1)*stride - 2*pad + dilation*(kernel-1) + output_padding + 1. On a 2x2
+   input with stride 2 and a 2x2 kernel that is 4x4 at zero and 5x5 at one --
+   so forcing the zero silently built a smaller op than the model asked for. *)
+let%expect_test "transposed convolution carries output_padding into the extent"
+    =
+  dump "output_padding [0,0]:"
+    (prog ~x_sizes:[ 1; 2; 2; 2 ] ~w_sizes:[ 2; 3; 2; 2 ]
+       (convolution ~transposed:true ~stride:"[2,2]" ()));
+  dump "output_padding [1,1]:"
+    (prog ~x_sizes:[ 1; 2; 2; 2 ] ~w_sizes:[ 2; 3; 2; 2 ]
+       (convolution ~transposed:true ~stride:"[2,2]" ~output_padding:"[1,1]" ()));
+  [%expect
+    {|
+    output_padding [0,0]:
+    graph
+    inputs:
+      [t0 f32 [H=2 W=2 C=2] ->[n0], t1 f32 [D=2 H=3 W=2 C=2] ->[n1] constant]
+    nodes:
+      group g1 torch.ops.aten.convolution.default:
+        n0: [t2 f32 [H=2 W=2 C=2] ->[n2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t3 f32 [N=2 T=1 D=1 H=2 W=2 C=3] ->[n2]] =
+          permute x=t1 perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
+        n2: [t4 f32 [H=4 W=4 C=3] ->[n3]] =
+          convolution
+            x=t2 <-n0
+            weight=t3 <-n1
+            bias=none
+            params={stride={h=2; w=2};
+                   padding={h=0; w=0};
+                   dilation={h=1; w=1};
+                   transposed=true;
+                   output_padding={h=0; w=0};
+                   groups=1}
+        n3: [t5 f32 [H=3 W=4 C=4]] = permute x=t4 <-n2 perm=[H<-C, W<-H, C<-W]
+    outputs: [t5 f32 [H=3 W=4 C=4] <-n3]
+    output_padding [1,1]:
+    graph
+    inputs:
+      [t0 f32 [H=2 W=2 C=2] ->[n0], t1 f32 [D=2 H=3 W=2 C=2] ->[n1] constant]
+    nodes:
+      group g1 torch.ops.aten.convolution.default:
+        n0: [t2 f32 [H=2 W=2 C=2] ->[n2]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t3 f32 [N=2 T=1 D=1 H=2 W=2 C=3] ->[n2]] =
+          permute x=t1 perm=[N<-D, D<-N, H<-W, W<-C, C<-H]
+        n2: [t4 f32 [H=5 W=5 C=3] ->[n3]] =
+          convolution
+            x=t2 <-n0
+            weight=t3 <-n1
+            bias=none
+            params={stride={h=2; w=2};
+                   padding={h=0; w=0};
+                   dilation={h=1; w=1};
+                   transposed=true;
+                   output_padding={h=1; w=1};
+                   groups=1}
+        n3: [t5 f32 [H=3 W=5 C=5]] = permute x=t4 <-n2 perm=[H<-C, W<-H, C<-W]
+    outputs: [t5 f32 [H=3 W=5 C=5] <-n3] |}]
+
+(* And the other direction: a NON-transposed convolution with a nonzero
+   output_padding is invalid. [Convolution.output_shape] rejects it; discarding
+   the argument let the node through as though it had asked for something
+   else. *)
+let%expect_test "a non-transposed convolution refuses a nonzero output_padding"
+    =
+  show "not transposed, [1,1]:"
+    (prog ~x_sizes:[ 1; 4; 8; 8 ] (convolution ~output_padding:"[1,1]" ()));
+  show "not transposed, [0,0]:" (prog ~x_sizes:[ 1; 4; 8; 8 ] (convolution ()));
+  [%expect
+    {|
+    not transposed, [1,1]:     output_padding must be zero for non-transposed convolution, got {h=1; w=1}
+    not transposed, [0,0]:     lowered, nodes=4 |}]
+
+let%expect_test "output_padding is validated like every other H/W argument" =
+  show "negative:"
+    (prog ~x_sizes:[ 1; 4; 8; 8 ] (convolution ~output_padding:"[-1,0]" ()));
+  show "arity 3:"
+    (prog ~x_sizes:[ 1; 4; 8; 8 ] (convolution ~output_padding:"[0,0,0]" ()));
+  [%expect
+    {|
+    negative:                  malformed PT2 graph: torch.ops.aten.convolution.default: output_padding must not be negative, got -1
+    arity 3:                   malformed PT2 graph: output_padding must have one or two values, got 3 |}]
 
 (* ---- conv2d.padding ------------------------------------------------------ *)
 
@@ -340,6 +461,28 @@ let%expect_test "conv2d.padding: config faults are typed here too" =
     groups 0:                  malformed PT2 graph: torch.ops.aten.conv2d.padding: groups must be positive, got 0
     dilation 0:                malformed PT2 graph: torch.ops.aten.conv2d.padding: dilation must be positive, got 0
     rank 2 weight:             malformed PT2 graph: w is rank 2, expected 4 |}]
+
+(* The OTHER aggregate F5 names, and the one the conv2d.padding path reaches:
+   [dilation * (kernel - 1)]. Both factors are individually representable and
+   their product is not -- 2^30 dilation over a 3-wide kernel is 2^31 exactly,
+   the engine's per-axis ceiling. Computed in [int] on a 32-bit backend this
+   wraps negative and reaches [Op_config.Nonneg.of_int]'s assertion as an
+   escaping exception rather than a typed error.
+
+   Bounded in [Window_axis.output_extent], which every windowed axis in the
+   engine goes through -- conv2d, conv2d.padding, convolution and both pooling
+   ops -- so this fixture covers all of them at once. *)
+let%expect_test "an effective kernel past the engine maximum is refused" =
+  show "conv dilation 2^30:" (prog (conv ~dilation:"[1073741824,1]" ()));
+  show "padding dilation 2^30:"
+    (prog (conv_pad ~padding:"same" ~dilation:"[1073741824,1]" ()));
+  show "padding valid, 2^30:"
+    (prog (conv_pad ~padding:"valid" ~dilation:"[1073741824,1]" ()));
+  [%expect
+    {|
+    conv dilation 2^30:        the effective kernel dilation * (kernel - 1) + 1 is 2147483649, over the engine maximum of 2147483648
+    padding dilation 2^30:     the effective kernel dilation * (kernel - 1) + 1 is 2147483649, over the engine maximum of 2147483648
+    padding valid, 2^30:       the effective kernel dilation * (kernel - 1) + 1 is 2147483649, over the engine maximum of 2147483648 |}]
 
 (* ---- Native4D: which constructor these params select --------------------- *)
 

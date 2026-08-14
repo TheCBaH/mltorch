@@ -12,12 +12,11 @@
 
 open Graph_ir
 
-(* Conv/Linear bias is laid out [1,1,1,1,1,Cout]; Cout is the weight's N extent. *)
-let bias_shape ~weight_shape =
-  Vec6.set
-    (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
-    Axis.C
-    (Vec6.get weight_shape Axis.N)
+(* Conv/Linear bias is laid out [1,1,1,1,1,Cout]; Cout is the weight's N extent.
+   [Affine_bias] owns that definition, so the zero this synthesizes for an
+   absent operand and the shape [Graph_shape] rejects a present one against
+   cannot come to disagree. *)
+let bias_shape ~weight_shape = Affine_bias.shape ~weight_shape
 
 module Make (S : Semantics.SEMANTICS) = struct
   (* [output] selects which output edge's pixel to build, for multi-output ops

@@ -9,6 +9,12 @@
 
 open Programs
 
+(* The int-list arguments are spelled as WHOLE serialized values rather than as
+   bracket text, because "the argument is an explicit none" is one of the
+   spellings under test and [{"as_ints": ...}] cannot express it. *)
+let ints xs = jstr {|{"as_ints":%s}|} xs
+let none = {|{"as_none":true}|}
+
 let pool ?kernel ?stride ?padding ?dilation ?ceil_mode () =
   let arg name spelling =
     match spelling with
@@ -16,12 +22,10 @@ let pool ?kernel ?stride ?padding ?dilation ?ceil_mode () =
     | Some v -> jstr {|,{"name":"%s","arg":%s,"kind":1}|} name v
   in
   jstr
-    {|{"target":"torch.ops.aten.max_pool2d.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"kernel_size","arg":{"as_ints":%s},"kind":1}%s%s%s%s],"outputs":[%s],"metadata":{}}|}
+    {|{"target":"torch.ops.aten.max_pool2d.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"kernel_size","arg":%s,"kind":1}%s%s%s%s],"outputs":[%s],"metadata":{}}|}
     (as_tensor "x")
-    (Option.value kernel ~default:"[2,2]")
-    (arg "stride" (Option.map (jstr {|{"as_ints":%s}|}) stride))
-    (arg "padding" (Option.map (jstr {|{"as_ints":%s}|}) padding))
-    (arg "dilation" (Option.map (jstr {|{"as_ints":%s}|}) dilation))
+    (Option.value kernel ~default:(ints "[2,2]"))
+    (arg "stride" stride) (arg "padding" padding) (arg "dilation" dilation)
     (arg "ceil_mode" (Option.map (jstr {|{"as_bool":%b}|}) ceil_mode))
     (as_tensor "y")
 
@@ -55,10 +59,22 @@ let%expect_test "max_pool2d.default lowers with a defaulted stride" =
    list, and the value written out. PyTorch treats the first two the same, and
    an arm that normalized only one of them would accept a real export and refuse
    its equivalent. *)
+(* A fourth spelling, and the one nothing covered: an explicit none. [ints_arg]
+   has always mapped it to the default, and removing that arm left the whole
+   suite green -- so the arm was load-bearing and unwitnessed. Every [int[]?]
+   argument the importer reads goes through it. *)
+let%expect_test "an explicit none int list falls back to the default" =
+  show "stride none:" (prog (pool ~stride:none ()));
+  show "padding none:" (prog (pool ~padding:none ()));
+  [%expect
+    {|
+    stride none:               lowered, nodes=3
+    padding none:              lowered, nodes=3 |}]
+
 let%expect_test "an omitted, empty and explicit stride agree" =
   show "absent:" (prog (pool ()));
-  show "empty list:" (prog (pool ~stride:"[]" ()));
-  show "explicit:" (prog (pool ~stride:"[2,2]" ()));
+  show "empty list:" (prog (pool ~stride:(ints "[]") ()));
+  show "explicit:" (prog (pool ~stride:(ints "[2,2]") ()));
   [%expect
     {|
     absent:                    lowered, nodes=3
@@ -70,7 +86,8 @@ let%expect_test "an omitted, empty and explicit stride agree" =
 let%expect_test "rectangular kernel, stride and padding keep their axes" =
   dump "rectangular:"
     (prog ~x_sizes:[ 1; 3; 9; 7 ]
-       (pool ~kernel:"[3,2]" ~stride:"[2,1]" ~padding:"[1,0]" ()));
+       (pool ~kernel:(ints "[3,2]") ~stride:(ints "[2,1]")
+          ~padding:(ints "[1,0]") ()));
   [%expect
     {|
     rectangular:
@@ -88,33 +105,68 @@ let%expect_test "rectangular kernel, stride and padding keep their axes" =
 
 let%expect_test "single-element lists are accepted as symmetric" =
   show "one-element:"
-    (prog (pool ~kernel:"[2]" ~stride:"[2]" ~padding:"[0]" ()));
+    (prog
+       (pool ~kernel:(ints "[2]") ~stride:(ints "[2]") ~padding:(ints "[0]") ()));
   [%expect {| one-element:               lowered, nodes=3 |}]
 
 (* ---- rejections --------------------------------------------------------- *)
+
+(* A window WIDER than the padded input. The formula's numerator goes negative,
+   and the division it feeds means FLOOR -- but [/] and [Int64.div] both truncate
+   toward zero, so (1 - 2) / 2 + 1 came out as 1 and one output position was
+   accepted from a partial window. ATen refuses the same configuration
+   ("Calculated output size: (1x0x0). Output size is too small").
+
+   The asymmetric case matters separately: with stride 2 the H axis is the one
+   that goes negative and W does not, so a rule applied to only one axis still
+   looks right. *)
+let%expect_test "a window wider than the padded input is refused" =
+  show "1x1 in, 2x2 kernel:"
+    (prog ~x_sizes:[ 1; 1; 1; 1 ] (pool ~kernel:(ints "[2,2]") ()));
+  show "3x1 in, 2x2 kernel:"
+    (prog ~x_sizes:[ 1; 1; 3; 1 ] (pool ~kernel:(ints "[2,2]") ()));
+  show "1x1 in, padded to fit:"
+    (prog ~x_sizes:[ 1; 1; 1; 1 ]
+       (pool ~kernel:(ints "[2,2]") ~padding:(ints "[1,1]") ()));
+  [%expect
+    {|
+    1x1 in, 2x2 kernel:        output extent must be >= 1, got 0 (in=1 kernel=2 stride=2 pad_before=0 pad_after=0 dilation=1)
+    3x1 in, 2x2 kernel:        output extent must be >= 1, got 0 (in=1 kernel=2 stride=2 pad_before=0 pad_after=0 dilation=1)
+    1x1 in, padded to fit:     lowered, nodes=3 |}]
 
 (* [Pool.MaxPool2d.params] has no field for either, so silently dropping them
    would compute a different op under the right name. Both spellings of the
    default are accepted; anything else is refused. *)
 let%expect_test "dilation and ceil_mode are refused, not dropped" =
-  show "dilation 1,1:" (prog (pool ~dilation:"[1,1]" ()));
-  show "dilation 2,2:" (prog (pool ~dilation:"[2,2]" ()));
-  show "dilation 1,2:" (prog (pool ~dilation:"[1,2]" ()));
+  show "dilation 1,1:" (prog (pool ~dilation:(ints "[1,1]") ()));
+  show "dilation 2,2:" (prog (pool ~dilation:(ints "[2,2]") ()));
+  show "dilation 1,2:" (prog (pool ~dilation:(ints "[1,2]") ()));
   show "ceil_mode false:" (prog (pool ~ceil_mode:false ()));
   show "ceil_mode true:" (prog (pool ~ceil_mode:true ()));
+  (* Arity, not just value. ATen refuses a three-element dilation outright
+     ("dilation must be either a single int, or a tuple of two ints"), and a
+     value-only test accepted it -- and [] -- because no element differed from
+     one. Normalizing through [hw2] first keeps the typed arity diagnostic that
+     kernel_size, stride and padding already get. *)
+  show "dilation [1]:" (prog (pool ~dilation:(ints "[1]") ()));
+  show "dilation [1,1,1]:" (prog (pool ~dilation:(ints "[1,1,1]") ()));
+  show "dilation []:" (prog (pool ~dilation:(ints "[]") ()));
   [%expect
     {|
     dilation 1,1:              lowered, nodes=3
     dilation 2,2:              malformed PT2 graph: torch.ops.aten.max_pool2d.default: dilation=[2,2] is not supported (only 1)
     dilation 1,2:              malformed PT2 graph: torch.ops.aten.max_pool2d.default: dilation=[1,2] is not supported (only 1)
     ceil_mode false:           lowered, nodes=3
-    ceil_mode true:            malformed PT2 graph: torch.ops.aten.max_pool2d.default: ceil_mode=true is not supported |}]
+    ceil_mode true:            malformed PT2 graph: torch.ops.aten.max_pool2d.default: ceil_mode=true is not supported
+    dilation [1]:              lowered, nodes=3
+    dilation [1,1,1]:          malformed PT2 graph: dilation must have one or two values, got 3
+    dilation []:               malformed PT2 graph: dilation must have one or two values, got 0 |}]
 
 let%expect_test "config faults are typed, not raised" =
-  show "kernel 0:" (prog (pool ~kernel:"[0,0]" ()));
-  show "stride 0:" (prog (pool ~stride:"[0,0]" ()));
-  show "padding -1:" (prog (pool ~padding:"[-1,-1]" ()));
-  show "kernel arity:" (prog (pool ~kernel:"[2,2,2]" ()));
+  show "kernel 0:" (prog (pool ~kernel:(ints "[0,0]") ()));
+  show "stride 0:" (prog (pool ~stride:(ints "[0,0]") ()));
+  show "padding -1:" (prog (pool ~padding:(ints "[-1,-1]") ()));
+  show "kernel arity:" (prog (pool ~kernel:(ints "[2,2,2]") ()));
   [%expect
     {|
     kernel 0:                  malformed PT2 graph: torch.ops.aten.max_pool2d.default: kernel_size must be positive, got 0
