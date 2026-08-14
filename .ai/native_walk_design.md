@@ -105,6 +105,18 @@ applied after every mutation — not by filtering candidate values. Examples:
   spatial input until `output_dim ≥ 1`.
 - **Pool** (`Recipe_pool`): clamp `pad ≤ kernel/2`; grow inputs for `output_dim ≥ 1` (dilation 1).
 - **Reduce** / **Default**: identity (any dim subset / any single-tensor shape is valid).
+- **RmsNorm** (`Recipe_norm`): identity, for the same structural reason as Linear. The normalized
+  extents appear in three places — the input's trailing axes, `normalized_shape`, and the weight —
+  and one candidate list supplies all three, so they cannot disagree. Its `weight` axis walks both
+  graph shapes, because `Graph_ir`'s `Rms_norm` carries the weight as an **option** and the absent
+  case is a different path rather than a ones tensor. Note what an *uncorrelated* recipe would do
+  here: generate specs ATen rejects, which degrade to `skipped` — a suite of skips that reads as
+  coverage and is none.
+- **Linear** (`Recipe_linear`): identity, and deliberately so. `in_features` occurs once, in both the
+  input's trailing extent and the weight's second dimension, so the correlation other recipes repair
+  after the fact is structural here and there is nothing left to cascade. Its `leading` axis carries
+  the whole leading shape as one candidate value, which is how a step varies the input's **rank** —
+  the pass-through of leading axes is the property a rank-2-only walk can never see.
 
 `output_dim in pad kernel dilation stride = (in + 2*pad - ((kernel-1)*dilation + 1)) / stride + 1`
 (`Window_math.output_dim`). Cascade is pure (no PCG), so trajectories stay reproducible from the
@@ -143,8 +155,9 @@ external PCG has exclusive control over tensor content.
 ## Files
 
 - `lib/aten_walk_recipes/` — pure recipes + `Walk.Op` signature (`walk.ml`, `window_math.ml`,
-  `recipe_{conv,pool,reduce,default}.ml`)
-- `lib/aten_gen/walk_meta.ml` — hand-crafted per-op meta (conv2d, max_pool2d, mean.dim)
+  `recipe_{conv,conv_padding,pool,reduce,linear,norm,adaptive,bounds,unbind,default}.ml`)
+- `lib/aten_gen/walk_meta.ml` — hand-crafted per-op meta (conv2d, conv2d.padding, linear, rms_norm,
+  max_pool2d, mean.dim, …)
 - `lib/aten_gen/aten_walk_gen.ml` — the generator (tier partition + emit)
 - `lib/aten_op_walk/` — generated `aten_op_walk.ml` (walk modules, `all_walks`, `needs_meta`)
 - `lib/native_walk/op_walk.{ml,mli}` — the runner (`run : (module Walk.Op) -> ...`)
