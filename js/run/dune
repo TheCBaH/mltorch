@@ -1,0 +1,22 @@
+; The native build of the pure-engine inference runner. js/jsoo builds the same
+; source with `(modes js)`.
+;
+; A directory of its own rather than a file in js/probe: that directory is the
+; differential probe, whose contract is "both backends print the same bytes".
+; This runner's contract is "the ranking matches the release reference", and the
+; two are checked by different commands (`make jsoo.pt2.runtest` vs
+; `make jsoo.pt2.run`). Keeping them apart is what stops one being read as
+; evidence for the other.
+;
+; `(modes exe byte)` for the triage reason js/probe/dune gives: js_of_ocaml
+; compiles the BYTECODE, so a difference that survives between .bc and .exe is
+; ocamlopt's rather than jsoo's.
+;
+; No [unix] and no [aten]/[ctypes] -- see .ai/js_backends_design.md for the
+; check that keeps it that way.
+
+(executable
+ (name pt2_run)
+ (modes exe byte)
+ (modules pt2_run)
+ (libraries err_trace infer_report native_interp native_predict pt2))

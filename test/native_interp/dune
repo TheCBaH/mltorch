@@ -14,6 +14,7 @@
   jsont.bytesrw
   native
   native_interp
+  native_predict
   pytorch_types)
  (inline_tests
   (modes best js))

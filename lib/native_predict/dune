@@ -1,0 +1,13 @@
+; The classifier tail for the pure engine: softmax + top-k over the packed
+; tensors [Native_interp.run] returns.
+;
+; Deliberately depends on neither [pt2] nor [native_interp], even though its only
+; caller composes it with both. It is pure math over [Tensor.packed], so keeping
+; the composition at the executable leaves this testable with hand-built tensors
+; and no archive -- which is what lets the numerical cases (underflow ordering,
+; large-logit stability, full-class normalization) exist at all.
+
+(library
+ (name native_predict)
+ (wrapped false)
+ (libraries err_trace fmt native))

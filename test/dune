@@ -786,7 +786,11 @@
 (executable
  (name interp_run)
  (modules interp_run)
- (libraries core err_trace interp pt2 jsont jsont.bytesrw unix))
+ ; [jsont]/[jsont.bytesrw] moved to [infer_report] with the results.json
+ ; decoding. [unix] stays: this runner supplies the clock the shared library
+ ; takes as [~now], which is what keeps [unix] out of the js_of_ocaml build of
+ ; the same flow.
+ (libraries core err_trace infer_report interp pt2 unix))
 
 (cram
  (applies_to interp_resnet_cram)
