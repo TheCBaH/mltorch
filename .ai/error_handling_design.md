@@ -77,9 +77,11 @@ legitimate non-local exit — but what crosses it is a **typed row**, not a
 rendered sentence.
 
 It used to be `Printf.ksprintf` into one `` `Malformed_graph of string `` from 32
-sites. `Native_interp.malformed` is now ten cases with structured payloads, and
-`test/me_visualize_unsupported_cram.t` drives each from the smallest mutation of
-a valid program that produces it. Two lessons generalise:
+sites. `Native_interp.malformed` is now thirteen cases with structured payloads,
+and `test/me_visualize_unsupported_cram.t` drives each from the smallest mutation
+of a valid program that produces it — per *fault*, not per row, since
+`` `Bad_dimension ``'s five faults and `` `Bad_config ``'s two are what a caller
+branches on. Three lessons generalise:
 
 - **What the collapse hid.** `` `Unsupported_input `` covered both a non-tensor
   graph input and a user-input arity the runner cannot satisfy;
@@ -92,6 +94,22 @@ a valid program that produces it. Two lessons generalise:
   dressed as a malformed graph. It is therefore *not* a site for
   `Err.List.iter2 ~unequal_lengths` either: that would turn a defect here into
   an error row the caller is invited to handle.
+- **And the converse, which is the easier one to get wrong.** A raise that *is*
+  a fact about the model must not stay a raise. The engine's guarded
+  types — `Op_config.Pos`, `Op_config.Nonneg`, `Dim.extent` — assert a trusted
+  precondition and `invalid_arg` when it fails, which is right for a caller that
+  built the value. `Native_interp` is not that caller: its strides, paddings,
+  dilations and group counts are decoded from the model. Applied there they
+  raised straight through the `Err.Escape` frame and out of `lower`, so a
+  serialized `groups: 0` reached the Model Explorer boundary as an exception
+  rather than as the row that boundary exists to classify. The fix is one
+  approved route — `pos`/`nonneg`/`extent`/`dim_extent` in `native_interp.ml`,
+  throwing `` `Bad_config `` (a config field) or `` `Bad_dimension `` (a
+  metadata extent) — and the rule that no decoded argument may reach those
+  constructors directly. `Dim.extent_checked` already existed for exactly this
+  and simply was not being used. Two of the three sites were live and shipped;
+  `test/native_interp/malformed_test.ml` pins each with the escape it used to
+  produce.
 
 ## Escaping a recursive walk: `Err.Escape`
 

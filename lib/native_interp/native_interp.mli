@@ -15,8 +15,17 @@ type arg_kind =
   | `Float
   | `Scalar
   | `Optional_scalar
+  | `String
   | `Tensor_or_scalar ]
 (** What an argument had to be — exactly the set the decode helpers accept. *)
+
+(** A rank an arm requires against the rank the model declared. One row rather
+    than one per arity: [conv2d] wants four, [linear] two, and a second variant
+    per number would be the same fault spelled twice. Own module for the
+    record-namespace convention. *)
+module Expected_rank : sig
+  type t = { expected : int; got : int }
+end
 
 type dim_fault =
   [ `Negative of int
@@ -28,11 +37,30 @@ type dim_fault =
         negative size never does. *)
   | `Symbolic
   | `Rank_over_six
-  | `Expected_rank_four of int  (** the rank actually offered *) ]
+  | `Expected_rank of Expected_rank.t
+  | `Over_max_extent of int64
+    (** A derived extent past [Kernel.Limits.Hard.extent]. Carried as [int64]
+        because that is the only width it is guaranteed to fit: the value is a
+        product of model-supplied factors, and js_of_ocaml's [int] is 32 bits,
+        so reporting it as an [int] would print the wrapped number that made it
+        a defect. *) ]
 
 type metadata_role =
   [ `Tensor
   | `Convolution_weight
+  | `Conv2d_weight
+    (** Its own role, not shared with [`Convolution_weight]: the two overloads
+        have separate arms and a shared label would leave the row unable to say
+        which one failed. *)
+  | `Conv2d_padding_weight
+    (** Same reasoning again, and not an over-refinement: [conv2d.padding] reads
+        the weight for its RANK only, so a report naming the [conv2d] role would
+        send a reader looking for a channel check that arm does not perform. *)
+  | `Linear_weight
+  | `Rms_norm_input
+    (** rms_norm reads the INPUT's metadata, not a weight's: [normalized_shape]
+        is checked against the input's trailing extents, which is the only place
+        those extents can come from. *)
   | `Mean_input
   | `Permute_input
   | `Unbind_input
@@ -42,10 +70,29 @@ type metadata_role =
 type hw_param = [ `Stride | `Padding | `Dilation | `Kernel_size ]
 (** The four parameters read as an [h, w] pair. *)
 
-type unsupported_option = [ `Alpha of float | `Memory_format ]
+type config_param = [ hw_param | `Groups ]
+(** Which op-configuration field a value came from. A superset of {!hw_param}
+    rather than a second enumeration: [groups] is a lone int and the other four
+    arrive as pairs, but a bad value in any of them is the same failure. *)
+
+type config_fault = [ `Not_positive of int | `Negative of int ]
+(** Which rule the value broke, carrying the value that broke it. The two are
+    distinct because the underlying constructors are: [Op_config.Pos] forbids
+    zero and [Op_config.Nonneg] permits it, so collapsing them would report "not
+    positive" for a padding of 0, which is ordinary. *)
+
+type unsupported_option =
+  [ `Alpha of float | `Memory_format | `Dilation of int list | `Ceil_mode ]
 (** Options this lowering rejects rather than silently drops: a non-unit [alpha]
     would compute the wrong thing, and a [memory_format] asks for a layout
-    change the native IR cannot express. *)
+    change the native IR cannot express.
+
+    The two pooling options are the same kind of refusal for a different reason:
+    [Pool.MaxPool2d.params] has no field for either, so carrying them was never
+    an option and dropping them silently computed a different op under the right
+    name. [`Dilation] keeps the whole offered list rather than a normalized
+    pair, because the rejection happens before the arity check that would give
+    it one. *)
 
 type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
 (** Two different rejections, not one with a message. Both recoverable — see
@@ -78,6 +125,25 @@ module Bad_arity : sig
   type t = { param : hw_param; got : int }
 end
 
+module Bad_config : sig
+  type t = { op : string; param : config_param; fault : config_fault }
+end
+
+(** How many entries [normalized_shape] had against the rank it has to fit
+    inside. Covers both ends -- an empty list and one longer than the rank -- as
+    one fault, because both are the same question answered with the same two
+    numbers. *)
+module Normalized_rank : sig
+  type t = { rank : int; got : int }
+end
+
+(** The input's trailing extents against the ones [normalized_shape] declared.
+    Both lists, not a first differing index: a reader needs to see which axes
+    were meant. *)
+module Normalized_shape : sig
+  type t = { expected : int list; got : int list }
+end
+
 module Unsupported_option : sig
   type t = { op : string; option : unsupported_option }
 end
@@ -93,6 +159,27 @@ type malformed =
   | `Bad_dimension of Bad_dimension.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
+  | `Bad_config of Bad_config.t
+    (** An op-configuration value the engine's guarded types have no form for.
+        Its own row rather than a [`Bad_dimension] variant: a stride is not a
+        dimension, and the two are validated by different constructors against
+        different rules. Before it existed these reached
+        [Op_config.Pos.of_int]/[Nonneg.of_int] directly and left [lower] as an
+        uncaught [Invalid_argument] — past the boundary that is supposed to
+        classify them. *)
+  | `Normalized_rank of Normalized_rank.t
+  | `Normalized_shape of Normalized_shape.t
+    (** The check [Op_bridge] does not do. It reads [normalized_shape]'s LENGTH
+        and nothing else, so a shape naming the wrong extents normalizes over
+        the wrong axes and returns a plausible wrong answer rather than an
+        error. *)
+  | `Unsupported_padding_mode of string
+    (** The mode [conv2d.padding] offered. A string because it is a third-party
+        value out of the export rather than a case this module declined to
+        classify — [Conv.Conv2d_padding.padding] has exactly two constructors
+        and the tag names which argument produced the outlier. Its own row
+        rather than an [`Unsupported_option]: that record means "recognised and
+        refused", while an unknown mode is not recognised at all. *)
   | `Unsupported_option of Unsupported_option.t
   | `Output_arity of Output_arity.t
     (** A `Tensor[]`-returning node's arity is model data on one side (the names

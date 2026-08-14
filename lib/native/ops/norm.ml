@@ -160,6 +160,11 @@ module RmsNorm = struct
      `rms_norm(normalized_shape=[C])` and the multi-axis case alike. *)
   type params = { dims : Axis.t list; eps : float }
 
+  (* float32's machine epsilon, which is what ATen's `rms_norm` uses when [eps]
+     is absent. Here rather than in either importer: both need it, and two
+     copies of a literal is one drift away from two different default ops. *)
+  let default_eps = 1.1920929e-07
+
   let params_jsont : params Jsont.t =
     Jsont.Object.map ~kind:"rms_norm_params" (fun dims eps -> { dims; eps })
     |> Jsont.Object.mem "dims" (Jsont.list Axis.jsont) ~enc:(fun p -> p.dims)

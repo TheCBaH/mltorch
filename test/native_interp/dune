@@ -13,6 +13,7 @@
   jsont
   jsont.bytesrw
   native
+  native4d
   native_interp
   native_predict
   pytorch_types)

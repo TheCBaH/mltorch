@@ -71,6 +71,58 @@ let%expect_test "a rank-seven node-produced edge is refused, not raised" =
   [%expect
     {| y declared rank 7:         malformed PT2 graph: y has rank greater than six |}]
 
+(* The op CONFIGURATION -- stride, padding, dilation, groups, kernel -- is
+   model data exactly as much as a shape is, and it reached
+   [Op_config.Pos.of_int]/[Nonneg.of_int]/[Dim.extent] unguarded. Those raise
+   [Invalid_argument], and [lower] catches it nowhere (the module's only handler
+   is around [Tensor.materialize]), so a serialized zero stride left this
+   function as an exception rather than as an [Err] row -- past the Model
+   Explorer boundary, where every malformed row is meant to CLASSIFY.
+
+   Both shipped arms had it, which is why the witnesses below are
+   convolution.default and max_pool2d_with_indices.default and not the exact
+   conv2d/max_pool2d targets: this is a pre-existing hole, not one the
+   functional overloads introduce. *)
+let conv ~groups ~padding =
+  jstr
+    {|{"target":"torch.ops.aten.convolution.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":%s,"kind":1},{"name":"bias","arg":{"as_none":true},"kind":1},{"name":"stride","arg":{"as_ints":[1,1]},"kind":1},{"name":"padding","arg":{"as_ints":[%d,%d]},"kind":1},{"name":"dilation","arg":{"as_ints":[1,1]},"kind":1},{"name":"transposed","arg":{"as_bool":false},"kind":1},{"name":"output_padding","arg":{"as_ints":[0,0]},"kind":1},{"name":"groups","arg":{"as_int":%d},"kind":1}],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") (as_tensor "w") padding padding groups (as_tensor "y")
+
+let conv_program ~groups ~padding =
+  program ~x_sizes:[ 1; 4; 8; 8 ]
+    ~extra_tensor_values:[ ("w", tensor_meta [ 8; 4; 3; 3 ]) ]
+    ~nodes:[ conv ~groups ~padding ]
+    ~graph_outputs:[ as_tensor "y" ]
+    ()
+
+let%expect_test "a zero group count is refused, not raised" =
+  show "groups = 0:" (conv_program ~groups:0 ~padding:0);
+  [%expect
+    {| groups = 0:                malformed PT2 graph: torch.ops.aten.convolution.default: groups must be positive, got 0 |}]
+
+(* [Nonneg] rather than [Pos]: zero padding is ordinary, a negative one is not,
+   and the two constructors have to be distinguishable in the diagnostic or the
+   row cannot say which rule the model broke. *)
+let%expect_test "a negative padding is refused, not raised" =
+  show "padding = -1:" (conv_program ~groups:1 ~padding:(-1));
+  [%expect
+    {| padding = -1:              malformed PT2 graph: torch.ops.aten.convolution.default: padding must not be negative, got -1 |}]
+
+(* The pool arm reaches the same constructors by a different route, so it needs
+   its own witness: sharing [conv_params] would not have covered it. *)
+let%expect_test "a zero pool stride is refused, not raised" =
+  let pool =
+    jstr
+      {|{"target":"torch.ops.aten.max_pool2d_with_indices.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"kernel_size","arg":{"as_ints":[2,2]},"kind":1},{"name":"stride","arg":{"as_ints":[0,0]},"kind":1}],"outputs":[%s,%s],"metadata":{}}|}
+      (as_tensor "x") (as_tensor "y") (as_tensor "i")
+  in
+  show "pool stride = 0:"
+    (program ~x_sizes:[ 1; 4; 8; 8 ] ~nodes:[ pool ]
+       ~graph_outputs:[ as_tensor "y" ]
+       ());
+  [%expect
+    {| pool stride = 0:           malformed PT2 graph: torch.ops.aten.max_pool2d_with_indices.default: stride must be positive, got 0 |}]
+
 (* A `view` whose target holds both 0 and -1 makes the product of the known
    sizes vanish, and the inference divides by it. Pre-existing and unrelated to
    `Tensor[]`, but it is the same "a declared zero escapes as an uncaught

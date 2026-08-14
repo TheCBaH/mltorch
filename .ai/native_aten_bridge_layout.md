@@ -142,3 +142,89 @@ load the single user input and every captured parameter/buffer, then runs
 `Eval_direct`. The current static float32 implementation targets the ResNet-18
 operator set and does not yet enforce dynamic-shape guards. The ResNet cram is
 gated on `PT2_DATA` like the other real-model crams (`make pt2.runtest`).
+
+## Two importers, one set of layouts (Group 2)
+
+`Op_bridge` reads **live ATen tensors**; `Native_interp` reads **serialized
+metadata**. They are separate code, they build the same `Graph_ir`, and the rule
+that matters is that they must accept and reject the same node. The five Group-2
+functional overloads — `conv2d.default`, `conv2d.padding`, `linear.default`,
+`max_pool2d.default`, `rms_norm.default` — now have an arm in both.
+
+**No downloadable model reaches any of them.** resnet18, mobilenet_v2/v3_small,
+efficientnet_b0 and vit_b_32 are all exported post-decomposition and carry
+`convolution.default`, `addmm.default` and `max_pool2d_with_indices.default`
+instead. So no `interp_*_cram.t` covers these arms and `make pt2.runtest` is not
+a meaningful gate for them; hand-built fixtures in `test/native_interp/`, the
+generated walks, and `test/me_group2_cram.t` are the whole coverage.
+
+### The permutations are shared, and two of them are near-identical on purpose
+
+`Native_interp` defines the same constants `op_bridge.ml` does, with the same
+names and the same meanings — including **both** rank-2 weight permutations.
+`perm_addmm_weight` and `perm_linear_weight` are *not* a rename of each other:
+`addmm`'s `mat2` is `[In, Out]` and `linear`'s `weight` is `[Out, In]`, the
+transpose. Applying one where the other belongs produces a graph that still
+builds for a square weight and computes the wrong thing — which is why every
+`linear` fixture uses a non-square weight.
+
+`in_channels = weight.C * groups` has three definitions
+(`Op_bridge.make_conv2d_params`, `Conv2d_padding.to_conv2d_params`,
+`Native_interp.conv_in_channels`). The third is **computed in `int64` and
+bounded against `Kernel.Limits.Hard.extent` before narrowing**: both factors are
+model-supplied, `lib/native_interp` is js_of_ocaml-reachable, and 0x8000_0000 is
+exactly the 32-bit boundary. Bounding the factors would not catch it — the
+product is its own quantity. See `.ai/js_backends_design.md`.
+
+### `max_pool2d`: dilation and ceil_mode are REFUSED, not carried
+
+`Pool.MaxPool2d.params` has a field for neither. Both were previously decoded by
+neither importer — not approximated, *dropped*, so a serialized
+`dilation=[2,2]` computed an undilated pool under the dilated name. Both now
+reject, with one check (`Native_interp.pool_params`,
+`Op_bridge.reject_pool_extras`) shared by the functional overload and by
+`max_pool2d_with_indices.default`.
+
+Rejection rather than an IR extension is the deliberate choice: an extension is
+warranted only on a measured need, and since no reachable model serialises this
+target at all there is nothing to measure. Revisit when `avg_pool2d.default`
+forces the same question for `ceil_mode` and `count_include_pad`.
+
+### `conv2d.padding`: the mode is carried unresolved
+
+The importer matches `"valid"`/`"same"` itself and reports anything else as
+`` `Unsupported_padding_mode ``. It must **not** call
+`Conv.Conv2d_padding.padding_of_string`, which `invalid_arg`s on an unknown mode
+— that string is model data. Nor does it resolve the mode:
+`to_conv2d_params` is the single definition shared by shape inference, `Compute`
+and Native4D, and resolving in the importer would make a fourth. `"same"` with
+`stride > 1` therefore fails in **shape inference**, not in the importer, and
+the fixtures pin where.
+
+`same_padding` splits an odd total unevenly (`total/2` before,
+`total - total/2` after). Nothing else pinned which side got the extra cell:
+Direct-vs-Symbolic agreement resolves through the same function, an output-shape
+check is invariant under a reversal, and ATen reaches `constant_pad_nd`, which
+this repository's minimal static-dispatch build does not carry (it aborts the
+process rather than returning an error — which is also why `walk_meta`'s
+`conv2d_padding` kernels are all odd). It is pinned against hand-computed values
+in `test/native/compute_test.ml` instead.
+
+### `rms_norm`: an optional weight, and `normalized_shape` is validated
+
+`Graph_ir`'s `Rms_norm` carries `weight : Tensor_ref.t option` and Native4D
+reads the option. `Op_bridge` used to synthesize a ones tensor for an absent
+weight; it no longer does. The numeric result is unchanged — multiplying by ones
+is what the option's absence means — but the graph structure was not, and the
+old shape made the two importers build different graphs for the same node while
+leaving Native4D's optional-weight arm unreachable from the bridge.
+
+Both importers now validate `normalized_shape`'s **extents** against the input's
+trailing extents, and check `k <= rank` before computing the axes. The bridge
+previously used only the length: `[2]` on a `[2,3]` input produced the same
+answer as `[3]`, `[3,2]` the same as `[2,3]`, and an over-long shape reached
+`trailing_axes`, whose `List.filteri` lower bound goes negative and keeps every
+axis — so it normalized over the whole tensor. Four silently wrong answers,
+now four typed rejections.
+
+The float32-epsilon default lives in `Norm.RmsNorm.default_eps`, read by both.

@@ -799,9 +799,20 @@ let%expect_test "dispatch: rms_norm normalized_shape=[3] with weight" =
   [%expect
     {| tensor f32 [W=2 C=3] {0.46291, 0.925819, 1.38873, 0.789542, 0.986927, 1.18431} |}]
 
-let%expect_test "dispatch: rms_norm no weight (ones) matches affine identity" =
+(* The GRAPH is printed here and not above, because this is where the arm used
+   to materialize a ones tensor and pass it as a required operand. It no longer
+   does: [Graph_ir]'s [Rms_norm] carries [weight : Tensor_ref.t option] and
+   Native4D reads the option (lower.ml:293-299), so synthesizing a constant made
+   this path build a structurally different graph from [Native_interp]'s for the
+   same node and left that arm unreachable from the bridge.
+
+   That is a visible behaviour change, and the values beneath it are the claim
+   it must not hide: they are byte-identical to the weighted case above, whose
+   weight is all ones -- which is what an absent weight means. *)
+let%expect_test "dispatch: rms_norm with no weight builds no weight operand" =
   let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
-  dispatch_print ~target:"torch.ops.aten.rms_norm.default"
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.rms_norm.default"
     ~bindings:[ ("input", x) ]
     ~inputs:
       [
@@ -809,7 +820,43 @@ let%expect_test "dispatch: rms_norm no weight (ones) matches affine identity" =
       ]
     ~noutputs:1;
   [%expect
-    {| tensor f32 [W=2 C=3] {0.46291, 0.925819, 1.38873, 0.789542, 0.986927, 1.18431} |}]
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] =
+        rms_norm x=t0 weight=none params={dims=[C]; eps=1e-05}
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    tensor f32 [W=2 C=3] {0.46291, 0.925819, 1.38873, 0.789542, 0.986927, 1.18431} |}]
+
+(* Neither of these was refused before. The first normalized over axes whose
+   extents are not the ones the model named; the second reached [trailing_axes]
+   with [k > rank], where [List.filteri]'s negative lower bound keeps every
+   element, and normalized over the whole tensor. *)
+let%expect_test
+    "dispatch: rms_norm validates normalized_shape, not just its length" =
+  let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let bad normalized_shape =
+    dispatch_print ~target:"torch.ops.aten.rms_norm.default"
+      ~bindings:[ ("input", x) ]
+      ~inputs:[ in_tensor "input"; in_ints "normalized_shape" normalized_shape ]
+      ~noutputs:1
+  in
+  bad [ 2 ];
+  bad [ 3; 2 ];
+  bad [ 2; 3; 3 ];
+  bad [];
+  (* and the shapes that DO match still lower *)
+  bad [ 3 ];
+  bad [ 2; 3 ];
+  [%expect
+    {|
+    error: rms_norm: normalized_shape [2] does not match the input's trailing extents [3]
+    error: rms_norm: normalized_shape [3, 2] does not match the input's trailing extents [2, 3]
+    error: rms_norm: normalized_shape has 3 entries, outside [1, 2] for this rank
+    error: rms_norm: normalized_shape has 0 entries, outside [1, 2] for this rank
+    tensor f32 [W=2 C=3] {0.46291, 0.92582, 1.38873, 0.789542, 0.986928, 1.18431}
+    tensor f32 [W=2 C=3] {0.256776, 0.513553, 0.770329, 1.02711, 1.28388, 1.54066} |}]
 
 let%expect_test
     "dispatch: permute.default rank-2 dims=[1,0] — transposes W and C" =
@@ -1339,3 +1386,575 @@ let%expect_test "verify: unbind.int agrees with ATen on every slice" =
   [%expect {|
     aten and native agree
     aten and native agree |}]
+
+(* ---- pooling options the native params cannot hold ---------------------- *)
+
+(* Both arms decoded kernel/stride/padding and never read [dilation] or
+   [ceil_mode]. [Pool.MaxPool2d.params] has a field for neither, so a serialized
+   non-default value was not approximated -- it was DROPPED, and the bridge
+   computed an undilated floor-mode pool under the dilated or ceil-mode name.
+
+   The default spellings still pass, which is the half of this that a rejection
+   test alone would not show: refusing every export that mentions the argument
+   would be its own regression. *)
+let%expect_test "dispatch: max_pool2d dilation and ceil_mode are refused" =
+  let a =
+    float_tensor [ 1; 1; 5; 5 ] (List.init 25 (fun i -> float_of_int i))
+  in
+  let pool ?dilation ?ceil_mode target =
+    dispatch_print ~target
+      ~bindings:[ ("self", a) ]
+      ~inputs:
+        ([ in_tensor "self"; in_ints "kernel_size" [ 2; 2 ] ]
+        @ (match dilation with
+          | None -> []
+          | Some d -> [ in_ints "dilation" d ])
+        @
+        match ceil_mode with
+        | None -> []
+        | Some b -> [ in_bool "ceil_mode" b ])
+      ~noutputs:(if target = "torch.ops.aten.max_pool2d.default" then 1 else 2)
+  in
+  let both f =
+    List.iter f
+      [
+        "torch.ops.aten.max_pool2d.default";
+        "torch.ops.aten.max_pool2d_with_indices.default";
+      ]
+  in
+  both (fun t -> pool ~dilation:[ 2; 2 ] t);
+  both (fun t -> pool ~ceil_mode:true t);
+  (* the defaults, written out, still lower *)
+  both (fun t -> pool ~dilation:[ 1; 1 ] ~ceil_mode:false t);
+  [%expect
+    {|
+    error: torch.ops.aten.max_pool2d.default: dilation=[2, 2] is not supported (only 1)
+    error: torch.ops.aten.max_pool2d_with_indices.default: dilation=[2, 2] is not supported (only 1)
+    error: torch.ops.aten.max_pool2d.default: ceil_mode=true is not supported
+    error: torch.ops.aten.max_pool2d_with_indices.default: ceil_mode=true is not supported
+    tensor f32 [W=2 C=2] {6, 8, 16, 18}
+    tensor f32 [W=2 C=2] {6, 8, 16, 18} |}]
+
+(* ---- the PT2 importer's conv2d.default arm, against ATen ---------------- *)
+
+(* [Native_interp] is the OTHER importer: it reads SERIALIZED metadata where
+   [Op_bridge] reads live tensors. Nothing above compares the two. The generated
+   walks verify the bridge against ATen and test/native_interp/conv_test.ml pins
+   the importer's graph structure, but neither says the importer computes ATen's
+   answer -- and since no downloadable model serialises `conv2d.default` (every
+   one is exported post-decomposition, carrying `convolution.default`), no cram
+   over real weights ever will either.
+
+   ONE serialized node feeds both paths: the ATen side takes it out of the
+   DECODED graph rather than rebuilding it, so the two cannot come to disagree
+   about what was asked. What is left to differ is the only thing under test --
+   the weight relayout, the H/W pairing, and the channel arithmetic. *)
+
+let jstr fmt = Printf.sprintf fmt
+
+(* A local, deliberately minimal copy of test/native_interp/programs.ml's
+   builder. Depending on that library would pull its inline tests into this
+   runner, where they would run a second time under a different profile. *)
+let meta_json sizes =
+  jstr
+    {|{"dtype":7,"sizes":[%s],"requires_grad":false,"device":{"type":"cpu"},"strides":[{"as_int":1}],"storage_offset":{"as_int":0},"layout":7}|}
+    (String.concat "," (List.map (fun i -> jstr {|{"as_int":%d}|} i) sizes))
+
+(* [padding] is the whole serialized argument, because the two overloads spell it
+   differently: `conv2d.default` takes an int pair and `conv2d.padding` a mode
+   string. Everything else about the node -- and everything the comparison is
+   actually about -- is identical, so they share one builder. *)
+let conv_program ~target ~x_sizes ~w_sizes ~b_size ~stride ~padding ~dilation
+    ~groups =
+  let captured = [ ("w", w_sizes); ("b", [ b_size ]) ] in
+  let as_t n = jstr {|{"as_tensor":{"name":"%s"}}|} n in
+  let node =
+    jstr
+      {|{"target":"%s","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":%s,"kind":1},{"name":"bias","arg":%s,"kind":1},{"name":"stride","arg":{"as_ints":[%d,%d]},"kind":1},{"name":"padding","arg":%s,"kind":1},{"name":"dilation","arg":{"as_ints":[%d,%d]},"kind":1},{"name":"groups","arg":{"as_int":%d},"kind":1}],"outputs":[%s],"metadata":{}}|}
+      target (as_t "x") (as_t "w") (as_t "b") (fst stride) (snd stride) padding
+      (fst dilation) (snd dilation) groups (as_t "y")
+  in
+  jstr
+    {|{"graph_module":{"graph":{"inputs":[%s],"outputs":[%s],"nodes":[%s],"tensor_values":{%s},"sym_int_values":{},"sym_bool_values":{},"is_single_tensor_return":true},"signature":{"input_specs":[%s],"output_specs":[{"user_output":{"arg":%s}}]},"module_call_graph":[]},"opset_version":{"aten":15},"range_constraints":{},"schema_version":{"major":8,"minor":5}}|}
+    (String.concat "," (as_t "x" :: List.map (fun (n, _) -> as_t n) captured))
+    (as_t "y") node
+    (String.concat ","
+       (jstr {|"x":%s|} (meta_json x_sizes)
+       :: List.map (fun (n, s) -> jstr {|"%s":%s|} n (meta_json s)) captured))
+    (String.concat ","
+       (jstr {|{"user_input":{"arg":%s}}|} (as_t "x")
+       :: List.map
+            (fun (n, _) ->
+              jstr {|{"parameter":{"arg":{"name":"%s"},"parameter_name":"%s"}}|}
+                n n)
+            captured))
+    (as_t "y")
+
+(* A repeatable non-constant fill: constant inputs make a transposed kernel or a
+   swapped relayout indistinguishable from the correct one. *)
+let ramp n = List.init n (fun i -> float_of_int ((i mod 7) - 3) /. 2.)
+
+let importer_vs_aten ?(target = "torch.ops.aten.conv2d.default") label ~x_sizes
+    ~w_sizes ~stride ~padding ~dilation ~groups =
+  let numel = List.fold_left ( * ) 1 in
+  let b_size = List.nth w_sizes 0 in
+  let xs = ramp (numel x_sizes) and ws = ramp (numel w_sizes) in
+  let bs = ramp b_size in
+  let json =
+    conv_program ~target ~x_sizes ~w_sizes ~b_size ~stride ~padding ~dilation
+      ~groups
+  in
+  Format.printf "%-22s " label;
+  match Jsont_bytesrw.decode_string PT.ExportedProgram.jsont json with
+  | Error e -> Format.printf "fixture did not decode: %s@." e
+  | Ok program -> (
+      let node = List.hd program.PT.ExportedProgram.graph_module.graph.nodes in
+      let aten_env =
+        List.fold_left
+          (fun m (k, sizes, vals) -> Sm.add k (float_tensor sizes vals) m)
+          Sm.empty
+          [ ("x", x_sizes, xs); ("w", w_sizes, ws); ("b", [ b_size ], bs) ]
+      in
+      match Interp_dispatch.dispatch aten_env node with
+      | Error e ->
+          Format.printf "aten: %a@." Interp_verify.pp_interp_error
+            (Err.Error.kind e)
+      | Ok aten_out -> (
+          match Native_interp.lower program with
+          | Error e ->
+              Format.printf "lower: %a@." Native_interp.pp_error
+                (Err.Error.kind e)
+          | Ok lowered -> (
+              let g = lowered.Pt2_native_graph.graph in
+              (* Captured tensors are graph inputs of kind [Constant], and
+                 [Eval_direct] takes those through [~constants] -- the split the
+                 importer's own [run] makes when it resolves payloads. *)
+              let inputs, constants =
+                List.partition
+                  (fun (id, _) ->
+                    Graph_ir.input_kind g id = Graph_ir.Input.Input)
+                  (List.combine g.Graph_ir.Graph.inputs
+                     [
+                       native_f32 x_sizes xs;
+                       native_f32 w_sizes ws;
+                       native_f32 [ b_size ] bs;
+                     ])
+              in
+              match Eval_direct.run g ~constants ~inputs with
+              | Error e ->
+                  Format.printf "eval: %a@." Eval_direct.pp_error
+                    (Err.Error.kind e)
+              | Ok result ->
+                  let native_y =
+                    Graph_ir.Tensor_id.Map.find
+                      (List.hd g.Graph_ir.Graph.outputs)
+                      result
+                  in
+                  Format.printf "%a@." pp_result
+                    (Verify.compare_tensors ~atol:1e-6 ~output:"y"
+                       (Sm.find "y" aten_out) native_y))))
+
+let ints_pad (h, w) = jstr {|{"as_ints":[%d,%d]}|} h w
+let mode_pad m = jstr {|{"as_string":"%s"}|} m
+
+let%expect_test "importer: conv2d.default matches ATen" =
+  importer_vs_aten "defaults:" ~x_sizes:[ 1; 2; 5; 5 ] ~w_sizes:[ 3; 2; 3; 3 ]
+    ~stride:(1, 1)
+    ~padding:(ints_pad (0, 0))
+    ~dilation:(1, 1) ~groups:1;
+  (* Asymmetric everything: a transposed H/W pair survives every square
+     configuration and nothing else here would catch it. *)
+  importer_vs_aten "asymmetric:" ~x_sizes:[ 1; 2; 7; 5 ] ~w_sizes:[ 3; 2; 3; 2 ]
+    ~stride:(2, 1)
+    ~padding:(ints_pad (1, 0))
+    ~dilation:(1, 2) ~groups:1;
+  (* Depthwise: [in_channels] is the weight's per-group extent TIMES groups, so
+     dropping the factor builds a conv over one channel instead of four. *)
+  importer_vs_aten "depthwise:" ~x_sizes:[ 1; 4; 5; 5 ] ~w_sizes:[ 4; 1; 3; 3 ]
+    ~stride:(1, 1)
+    ~padding:(ints_pad (1, 1))
+    ~dilation:(1, 1) ~groups:4;
+  (* General grouping, which Native holds and only Native4D refuses. *)
+  importer_vs_aten "groups=2:" ~x_sizes:[ 1; 4; 5; 5 ] ~w_sizes:[ 6; 2; 3; 3 ]
+    ~stride:(1, 1)
+    ~padding:(ints_pad (1, 1))
+    ~dilation:(1, 1) ~groups:2;
+  [%expect
+    {|
+    defaults:              Ok
+    asymmetric:            Ok
+    depthwise:             Ok
+    groups=2:              Ok |}]
+
+(* "same" is where an ATen oracle earns its place. The importer does not resolve
+   the mode -- [Conv2d_padding.same_padding] does -- so what these check is that
+   the mode SURVIVES the importer intact and that the resolution downstream of
+   it agrees with ATen for the same weight.
+
+   NOT COVERED HERE: an even kernel, where the total padding is odd and the
+   split is genuinely asymmetric. ATen reaches [constant_pad_nd] for that case
+   and this repository's minimal static-dispatch build does not carry it, so the
+   comparison cannot be made -- it aborts the process rather than returning an
+   error. [walk_meta.ml]'s conv2d_padding axes are all-odd kernels for the same
+   reason. The asymmetric split is pinned against hand-computed values in
+   test/native instead, where the rule actually lives. *)
+let%expect_test "importer: conv2d.padding matches ATen" =
+  let pad ?(groups = 1) label ~mode ~x_sizes ~w_sizes ~dilation =
+    importer_vs_aten ~target:"torch.ops.aten.conv2d.padding" label ~x_sizes
+      ~w_sizes ~stride:(1, 1) ~padding:(mode_pad mode) ~dilation ~groups
+  in
+  pad "valid, 3x3:" ~mode:"valid" ~x_sizes:[ 1; 2; 5; 5 ]
+    ~w_sizes:[ 3; 2; 3; 3 ] ~dilation:(1, 1);
+  pad "same, 3x3:" ~mode:"same" ~x_sizes:[ 1; 2; 5; 5 ] ~w_sizes:[ 3; 2; 3; 3 ]
+    ~dilation:(1, 1);
+  (* Asymmetric spatial extents, so a transposed H/W pair is visible. *)
+  pad "same, 5x3:" ~mode:"same" ~x_sizes:[ 1; 2; 7; 5 ] ~w_sizes:[ 3; 2; 5; 3 ]
+    ~dilation:(1, 1);
+  (* Dilated "same": the total is [dilation * (kernel - 1)], not [kernel - 1],
+     so dropping the dilation factor pads too little and moves the shape. *)
+  pad "same, dilated:" ~mode:"same" ~x_sizes:[ 1; 2; 9; 9 ]
+    ~w_sizes:[ 3; 2; 3; 3 ] ~dilation:(2, 3);
+  (* Depthwise, to pin that the mode and the grouping compose. *)
+  pad ~groups:4 "same, depthwise:" ~mode:"same" ~x_sizes:[ 1; 4; 5; 5 ]
+    ~w_sizes:[ 4; 1; 3; 3 ] ~dilation:(1, 1);
+  [%expect
+    {|
+    valid, 3x3:            Ok
+    same, 3x3:             Ok
+    same, 5x3:             Ok
+    same, dilated:         Ok
+    same, depthwise:       Ok |}]
+
+(* ---- the PT2 importer's linear.default arm, against ATen ----------------- *)
+
+(* Same shape of evidence, and the same reason for it: `linear.default` is not
+   serialized by any downloadable model either. The weights here are all
+   NON-SQUARE and the input rank varies, because the two mutations that matter
+   -- transposing the weight permutation, and taking [in_features] from dim 0
+   instead of dim 1 -- both leave a square weight's graph buildable. *)
+(* [bias] is three-valued for the same reason it is in conv_test.ml, and here it
+   turns up a divergence: the ATen decode path requires the argument to be
+   PRESENT (Interp_decode.tensor_arg reports `Missing_argument for an omitted
+   one, and maps an explicit none to a null tensor), while the importer and
+   Op_bridge both read omission as None. The generated dispatch cannot tell a
+   `Tensor?` slot from a `Tensor` one, so this is the ATen decoder's gap rather
+   than the importer's -- pinned here rather than worked around. *)
+let linear_program ~x_sizes ~w_sizes ~bias =
+  let as_t n = jstr {|{"as_tensor":{"name":"%s"}}|} n in
+  let captured =
+    ("w", w_sizes)
+    :: (if bias = `Tensor then [ ("b", [ List.nth w_sizes 0 ]) ] else [])
+  in
+  let node =
+    jstr
+      {|{"target":"torch.ops.aten.linear.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":%s,"kind":1}%s],"outputs":[%s],"metadata":{}}|}
+      (as_t "x") (as_t "w")
+      (match bias with
+      | `Absent -> ""
+      | `None -> {|,{"name":"bias","arg":{"as_none":true},"kind":1}|}
+      | `Tensor -> jstr {|,{"name":"bias","arg":%s,"kind":1}|} (as_t "b"))
+      (as_t "y")
+  in
+  jstr
+    {|{"graph_module":{"graph":{"inputs":[%s],"outputs":[%s],"nodes":[%s],"tensor_values":{%s},"sym_int_values":{},"sym_bool_values":{},"is_single_tensor_return":true},"signature":{"input_specs":[%s],"output_specs":[{"user_output":{"arg":%s}}]},"module_call_graph":[]},"opset_version":{"aten":15},"range_constraints":{},"schema_version":{"major":8,"minor":5}}|}
+    (String.concat "," (as_t "x" :: List.map (fun (n, _) -> as_t n) captured))
+    (as_t "y") node
+    (String.concat ","
+       (jstr {|"x":%s|} (meta_json x_sizes)
+       :: List.map (fun (n, sz) -> jstr {|"%s":%s|} n (meta_json sz)) captured))
+    (String.concat ","
+       (jstr {|{"user_input":{"arg":%s}}|} (as_t "x")
+       :: List.map
+            (fun (n, _) ->
+              jstr {|{"parameter":{"arg":{"name":"%s"},"parameter_name":"%s"}}|}
+                n n)
+            captured))
+    (as_t "y")
+
+let linear_vs_aten label ~x_sizes ~w_sizes ~bias =
+  let numel = List.fold_left ( * ) 1 in
+  let xs = ramp (numel x_sizes) and ws = ramp (numel w_sizes) in
+  let out_features = List.nth w_sizes 0 in
+  let bs = ramp out_features in
+  Format.printf "%-22s " label;
+  match
+    Jsont_bytesrw.decode_string PT.ExportedProgram.jsont
+      (linear_program ~x_sizes ~w_sizes ~bias)
+  with
+  | Error e -> Format.printf "fixture did not decode: %s@." e
+  | Ok program -> (
+      let node = List.hd program.PT.ExportedProgram.graph_module.graph.nodes in
+      let aten_env =
+        List.fold_left
+          (fun m (k, sizes, vals) -> Sm.add k (float_tensor sizes vals) m)
+          Sm.empty
+          ([ ("x", x_sizes, xs); ("w", w_sizes, ws) ]
+          @ if bias = `Tensor then [ ("b", [ out_features ], bs) ] else [])
+      in
+      match Interp_dispatch.dispatch aten_env node with
+      | Error e ->
+          Format.printf "aten: %a@." Interp_verify.pp_interp_error
+            (Err.Error.kind e)
+      | Ok aten_out -> (
+          match Native_interp.lower program with
+          | Error e ->
+              Format.printf "lower: %a@." Native_interp.pp_error
+                (Err.Error.kind e)
+          | Ok lowered -> (
+              let g = lowered.Pt2_native_graph.graph in
+              let natives =
+                [ native_f32 x_sizes xs; native_f32 w_sizes ws ]
+                @
+                if bias = `Tensor then [ native_f32 [ out_features ] bs ]
+                else []
+              in
+              let inputs, constants =
+                List.partition
+                  (fun (id, _) ->
+                    Graph_ir.input_kind g id = Graph_ir.Input.Input)
+                  (List.combine g.Graph_ir.Graph.inputs natives)
+              in
+              match Eval_direct.run g ~constants ~inputs with
+              | Error e ->
+                  Format.printf "eval: %a@." Eval_direct.pp_error
+                    (Err.Error.kind e)
+              | Ok result ->
+                  Format.printf "%a@." pp_result
+                    (Verify.compare_tensors ~atol:1e-6 ~output:"y"
+                       (Sm.find "y" aten_out)
+                       (Graph_ir.Tensor_id.Map.find
+                          (List.hd g.Graph_ir.Graph.outputs)
+                          result)))))
+
+let%expect_test "importer: linear.default matches ATen" =
+  linear_vs_aten "bias omitted:" ~x_sizes:[ 4; 3 ] ~w_sizes:[ 5; 3 ]
+    ~bias:`Absent;
+  linear_vs_aten "bias explicit none:" ~x_sizes:[ 4; 3 ] ~w_sizes:[ 5; 3 ]
+    ~bias:`None;
+  linear_vs_aten "bias tensor:" ~x_sizes:[ 4; 3 ] ~w_sizes:[ 5; 3 ]
+    ~bias:`Tensor;
+  (* Leading axes pass through untouched; only the trailing extent reduces. *)
+  linear_vs_aten "rank 4 input:" ~x_sizes:[ 2; 7; 4; 3 ] ~w_sizes:[ 5; 3 ]
+    ~bias:`Tensor;
+  (* out < in as well as out > in, so a transposed permutation is unbuildable in
+     one direction and merely wrong in the other. *)
+  linear_vs_aten "in > out:" ~x_sizes:[ 4; 6 ] ~w_sizes:[ 2; 6 ] ~bias:`Tensor;
+  [%expect
+    {|
+    bias omitted:          aten: missing required argument "bias"
+    bias explicit none:    Ok
+    bias tensor:           Ok
+    rank 4 input:          Ok
+    in > out:              Ok |}]
+
+(* ---- the PT2 importer's max_pool2d.default arm, against ATen ------------- *)
+
+(* The input values are all NEGATIVE on purpose. Max-pooling's padding region
+   must contribute -inf, not 0; a naive guarded read returning 0 beats every
+   real value here and the result is wrong at every border window -- which, with
+   pad = 1 on a small input, is everywhere. A non-negative fixture cannot see
+   that at all. *)
+let pool_program ~x_sizes ~kernel ~stride ~padding =
+  let as_t n = jstr {|{"as_tensor":{"name":"%s"}}|} n in
+  let ints (h, w) = jstr {|{"as_ints":[%d,%d]}|} h w in
+  let node =
+    jstr
+      {|{"target":"torch.ops.aten.max_pool2d.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"kernel_size","arg":%s,"kind":1},{"name":"stride","arg":%s,"kind":1},{"name":"padding","arg":%s,"kind":1}],"outputs":[%s],"metadata":{}}|}
+      (as_t "x") (ints kernel) (ints stride) (ints padding) (as_t "y")
+  in
+  jstr
+    {|{"graph_module":{"graph":{"inputs":[%s],"outputs":[%s],"nodes":[%s],"tensor_values":{%s},"sym_int_values":{},"sym_bool_values":{},"is_single_tensor_return":true},"signature":{"input_specs":[{"user_input":{"arg":%s}}],"output_specs":[{"user_output":{"arg":%s}}]},"module_call_graph":[]},"opset_version":{"aten":15},"range_constraints":{},"schema_version":{"major":8,"minor":5}}|}
+    (as_t "x") (as_t "y") node
+    (jstr {|"x":%s|} (meta_json x_sizes))
+    (as_t "x") (as_t "y")
+
+let pool_vs_aten label ~x_sizes ~kernel ~stride ~padding =
+  let n = List.fold_left ( * ) 1 x_sizes in
+  let xs = List.init n (fun i -> -1. -. (float_of_int (i mod 11) /. 2.)) in
+  Format.printf "%-22s " label;
+  match
+    Jsont_bytesrw.decode_string PT.ExportedProgram.jsont
+      (pool_program ~x_sizes ~kernel ~stride ~padding)
+  with
+  | Error e -> Format.printf "fixture did not decode: %s@." e
+  | Ok program -> (
+      let node = List.hd program.PT.ExportedProgram.graph_module.graph.nodes in
+      match
+        Interp_dispatch.dispatch
+          (Sm.add "x" (float_tensor x_sizes xs) Sm.empty)
+          node
+      with
+      | Error e ->
+          Format.printf "aten: %a@." Interp_verify.pp_interp_error
+            (Err.Error.kind e)
+      | Ok aten_out -> (
+          match Native_interp.lower program with
+          | Error e ->
+              Format.printf "lower: %a@." Native_interp.pp_error
+                (Err.Error.kind e)
+          | Ok lowered -> (
+              let g = lowered.Pt2_native_graph.graph in
+              match
+                Eval_direct.run g
+                  ~inputs:
+                    [ (List.hd g.Graph_ir.Graph.inputs, native_f32 x_sizes xs) ]
+              with
+              | Error e ->
+                  Format.printf "eval: %a@." Eval_direct.pp_error
+                    (Err.Error.kind e)
+              | Ok result ->
+                  Format.printf "%a@." pp_result
+                    (Verify.compare_tensors ~atol:0. ~output:"y"
+                       (Sm.find "y" aten_out)
+                       (Graph_ir.Tensor_id.Map.find
+                          (List.hd g.Graph_ir.Graph.outputs)
+                          result)))))
+
+let%expect_test "importer: max_pool2d.default matches ATen" =
+  pool_vs_aten "square, no pad:" ~x_sizes:[ 1; 3; 8; 8 ] ~kernel:(2, 2)
+    ~stride:(2, 2) ~padding:(0, 0);
+  pool_vs_aten "padded:" ~x_sizes:[ 1; 3; 5; 5 ] ~kernel:(3, 3) ~stride:(1, 1)
+    ~padding:(1, 1);
+  (* Rectangular everything: a swapped stride or padding pair is invariant for a
+     square configuration and visible here. *)
+  pool_vs_aten "rectangular:" ~x_sizes:[ 1; 3; 9; 7 ] ~kernel:(3, 2)
+    ~stride:(2, 1) ~padding:(1, 0);
+  [%expect
+    {|
+    square, no pad:        Ok
+    padded:                Ok
+    rectangular:           Ok |}]
+
+(* ---- the PT2 importer's rms_norm.default arm, against ATen --------------- *)
+
+(* This is the row where shape-only evidence is worth least. Normalizing over
+   the LEADING axes instead of the trailing ones, dividing by the wrong count,
+   adding eps outside the sqrt instead of inside, or indexing the weight on the
+   wrong axis all preserve the output shape exactly. Only a value comparison
+   separates them, and ATen is the only oracle for it.
+
+   The input is NON-UNIFORM across every axis and the extents are all distinct,
+   so a wrong axis choice cannot coincide with the right one. *)
+let rms_program ~x_sizes ~normalized ~weight =
+  let as_t n = jstr {|{"as_tensor":{"name":"%s"}}|} n in
+  let captured = if weight = `Tensor then [ ("w", normalized) ] else [] in
+  let node =
+    jstr
+      {|{"target":"torch.ops.aten.rms_norm.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"normalized_shape","arg":{"as_ints":[%s]},"kind":1}%s],"outputs":[%s],"metadata":{}}|}
+      (as_t "x")
+      (String.concat "," (List.map string_of_int normalized))
+      (match weight with
+      | `Absent -> ""
+      | `None -> {|,{"name":"weight","arg":{"as_none":true},"kind":1}|}
+      | `Tensor -> jstr {|,{"name":"weight","arg":%s,"kind":1}|} (as_t "w"))
+      (as_t "y")
+  in
+  jstr
+    {|{"graph_module":{"graph":{"inputs":[%s],"outputs":[%s],"nodes":[%s],"tensor_values":{%s},"sym_int_values":{},"sym_bool_values":{},"is_single_tensor_return":true},"signature":{"input_specs":[%s],"output_specs":[{"user_output":{"arg":%s}}]},"module_call_graph":[]},"opset_version":{"aten":15},"range_constraints":{},"schema_version":{"major":8,"minor":5}}|}
+    (String.concat "," (as_t "x" :: List.map (fun (n, _) -> as_t n) captured))
+    (as_t "y") node
+    (String.concat ","
+       (jstr {|"x":%s|} (meta_json x_sizes)
+       :: List.map (fun (n, sz) -> jstr {|"%s":%s|} n (meta_json sz)) captured))
+    (String.concat ","
+       (jstr {|{"user_input":{"arg":%s}}|} (as_t "x")
+       :: List.map
+            (fun (n, _) ->
+              jstr {|{"parameter":{"arg":{"name":"%s"},"parameter_name":"%s"}}|}
+                n n)
+            captured))
+    (as_t "y")
+
+let rms_vs_aten label ~x_sizes ~normalized ~weight =
+  let numel = List.fold_left ( * ) 1 in
+  (* Well away from zero, and never repeating within a normalized group: a
+     constant input has RMS equal to itself and normalizes to 1 whatever axes
+     were chosen. *)
+  let scale n =
+    List.init n (fun i -> 0.5 +. (float_of_int (i * 7 mod 13) /. 4.))
+  in
+  let xs = scale (numel x_sizes) and ws = scale (numel normalized) in
+  Format.printf "%-22s " label;
+  match
+    Jsont_bytesrw.decode_string PT.ExportedProgram.jsont
+      (rms_program ~x_sizes ~normalized ~weight)
+  with
+  | Error e -> Format.printf "fixture did not decode: %s@." e
+  | Ok program -> (
+      let node = List.hd program.PT.ExportedProgram.graph_module.graph.nodes in
+      let aten_env =
+        List.fold_left
+          (fun m (k, sizes, vals) -> Sm.add k (float_tensor sizes vals) m)
+          Sm.empty
+          ([ ("x", x_sizes, xs) ]
+          @ if weight = `Tensor then [ ("w", normalized, ws) ] else [])
+      in
+      match Interp_dispatch.dispatch aten_env node with
+      | Error e ->
+          Format.printf "aten: %a@." Interp_verify.pp_interp_error
+            (Err.Error.kind e)
+      | Ok aten_out -> (
+          match Native_interp.lower program with
+          | Error e ->
+              Format.printf "lower: %a@." Native_interp.pp_error
+                (Err.Error.kind e)
+          | Ok lowered -> (
+              let g = lowered.Pt2_native_graph.graph in
+              let natives =
+                [ native_f32 x_sizes xs ]
+                @ if weight = `Tensor then [ native_f32 normalized ws ] else []
+              in
+              let inputs, constants =
+                List.partition
+                  (fun (id, _) ->
+                    Graph_ir.input_kind g id = Graph_ir.Input.Input)
+                  (List.combine g.Graph_ir.Graph.inputs natives)
+              in
+              match Eval_direct.run g ~constants ~inputs with
+              | Error e ->
+                  Format.printf "eval: %a@." Eval_direct.pp_error
+                    (Err.Error.kind e)
+              | Ok result ->
+                  Format.printf "%a@." pp_result
+                    (Verify.compare_tensors ~atol:1e-5 ~output:"y"
+                       (Sm.find "y" aten_out)
+                       (Graph_ir.Tensor_id.Map.find
+                          (List.hd g.Graph_ir.Graph.outputs)
+                          result)))))
+
+let%expect_test "importer: rms_norm.default matches ATen" =
+  rms_vs_aten "one axis, weight:" ~x_sizes:[ 2; 3; 4 ] ~normalized:[ 4 ]
+    ~weight:`Tensor;
+  (* No weight, spelled as an explicit none. The OMITTED spelling cannot be
+     compared: Interp_decode.tensor_arg reports it as missing, the same gap the
+     linear.default block above pins for [bias]. Both importers read omission as
+     None, so it is the ATen decoder that cannot express this node. *)
+  rms_vs_aten "one axis, none:" ~x_sizes:[ 2; 3; 4 ] ~normalized:[ 4 ]
+    ~weight:`None;
+  rms_vs_aten "one axis, omitted:" ~x_sizes:[ 2; 3; 4 ] ~normalized:[ 4 ]
+    ~weight:`Absent;
+  (* Two axes: the divisor is the PRODUCT of the normalized extents, so a count
+     taken from one axis alone is off by a factor of the other. *)
+  rms_vs_aten "two axes:" ~x_sizes:[ 2; 3; 4 ] ~normalized:[ 3; 4 ]
+    ~weight:`Tensor;
+  (* Every axis normalized -- the one case a leading/trailing mix-up CANNOT be
+     distinguished by, included so that its agreement is not read as evidence. *)
+  rms_vs_aten "all axes:" ~x_sizes:[ 2; 3; 4 ] ~normalized:[ 2; 3; 4 ]
+    ~weight:`None;
+  (* Rank 4 with four distinct extents, one normalized axis: the leading three
+     must pass through and the weight must be read on the trailing one. *)
+  rms_vs_aten "rank 4, one axis:" ~x_sizes:[ 2; 3; 4; 5 ] ~normalized:[ 5 ]
+    ~weight:`Tensor;
+  (* Rank 4, two normalized axes, so the pass-through and the multi-axis
+     reduction are exercised together. *)
+  rms_vs_aten "rank 4, two axes:" ~x_sizes:[ 2; 3; 4; 5 ] ~normalized:[ 4; 5 ]
+    ~weight:`Tensor;
+  [%expect
+    {|
+    one axis, weight:      Ok
+    one axis, none:        Ok
+    one axis, omitted:     aten: missing required argument "weight"
+    two axes:              Ok
+    all axes:              Ok
+    rank 4, one axis:      Ok
+    rank 4, two axes:      Ok |}]

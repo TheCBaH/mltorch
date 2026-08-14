@@ -36,6 +36,28 @@ module Unsupported_input_dtype = struct
   type t = { arg_name : string; dtype : Aten_scalar_type.t }
 end
 
+(* The two pooling options [Pool.MaxPool2d.params] has no field for. Own module
+   because the row carries the op alongside the value, and [op] would collide
+   with the other records here. A closed pair rather than one string tag: the
+   dilation has a value worth reporting and [ceil_mode] does not. *)
+(* rms_norm's two [normalized_shape] faults. The arm read the LENGTH of
+   [normalized_shape] and nothing else, so a shape naming extents the input does
+   not have normalized over the wrong axes and returned a plausible wrong
+   answer; and [trailing_axes] silently returns the whole axis list when
+   [k > rank], so an over-long shape normalized over everything. *)
+module Normalized_rank = struct
+  type t = { rank : int; got : int }
+end
+
+module Normalized_shape = struct
+  type t = { expected : int list; got : int list }
+end
+
+module Pool_unsupported = struct
+  type option = Dilation of int list | Ceil_mode
+  type t = { op : string; option : option }
+end
+
 type error =
   [ `Decode of Interp_decode.error
   | `Tensor_bridge of tensor_bridge_error
@@ -48,7 +70,10 @@ type error =
   | `Conv2d_invalid_weight_rank of int array
   | `Conv2d_padding_invalid_weight_rank of int array
   | `Convolution_invalid_weight_rank of int array
-  | `Linear_invalid_weight_rank of int array ]
+  | `Linear_invalid_weight_rank of int array
+  | `Pool_unsupported of Pool_unsupported.t
+  | `Normalized_rank of Normalized_rank.t
+  | `Normalized_shape of Normalized_shape.t ]
 
 (* Deliberately not [Fmt.brackets], which boxes its content and so may
    line-wrap; the original bare "[%s]" (String.concat) never did, regardless
@@ -68,6 +93,23 @@ let pp_error ppf : [< error ] -> unit = function
   | `Validation_failure msg -> Fmt.string ppf msg
   | `Unbind_invalid_dim { Unbind_invalid_dim.dim; rank } ->
       Fmt.pf ppf "unbind.int: invalid dimension %d for rank %d" dim rank
+  | `Normalized_rank { Normalized_rank.rank; got } ->
+      Fmt.pf ppf
+        "rms_norm: normalized_shape has %d entries, outside [1, %d] for this \
+         rank"
+        got rank
+  | `Normalized_shape { Normalized_shape.expected; got } ->
+      Fmt.pf ppf
+        "rms_norm: normalized_shape %a does not match the input's trailing \
+         extents %a"
+        pp_int_list got pp_int_list expected
+  | `Pool_unsupported { Pool_unsupported.op; option } -> (
+      match option with
+      | Pool_unsupported.Dilation d ->
+          Fmt.pf ppf "%s: dilation=%a is not supported (only 1)" op pp_int_list
+            d
+      | Pool_unsupported.Ceil_mode ->
+          Fmt.pf ppf "%s: ceil_mode=true is not supported" op)
   | `Unsupported_input_dtype { Unsupported_input_dtype.arg_name; dtype } ->
       Fmt.pf ppf "%s: the native engine computes in f32, got %s" arg_name
         (Aten_scalar_type.to_string dtype)
@@ -277,19 +319,32 @@ let trailing_axes ~rank ~k =
   let all = Aten_shape.used_axes ~rank in
   List.filteri (fun i _ -> i >= rank - k) all
 
-let float32_eps = 1.1920929e-07
+(* [k <= rank] is checked BEFORE [trailing_axes], which has no guard of its own:
+   [List.filteri] with a negative lower bound keeps every element, so an
+   over-long normalized_shape silently normalized over the whole tensor. And the
+   EXTENTS are compared, not just the count -- that is the check whose absence
+   made a wrong shape a wrong answer rather than an error. *)
+let normalized_dims ~(x_shape : int array) ~normalized_shape =
+  let rank = Array.length x_shape in
+  let k = List.length normalized_shape in
+  let* () =
+    if k < 1 || k > rank then
+      fail (`Normalized_rank { Normalized_rank.rank; got = k })
+    else return ()
+  in
+  let expected = Array.to_list (Array.sub x_shape (rank - k) k) in
+  let* () =
+    if expected <> normalized_shape then
+      fail
+        (`Normalized_shape { Normalized_shape.expected; got = normalized_shape })
+    else return ()
+  in
+  return (trailing_axes ~rank ~k)
 
 let eps_arg node name =
   match D.find_arg node name with
   | Some (Argument.Float f) -> f
-  | _ -> float32_eps
-
-let ones_weight (x_shape : Vec6.shape) dims =
-  let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
-  let wshape =
-    List.fold_left (fun s a -> Vec6.set s a (Vec6.get x_shape a)) ones dims
-  in
-  Tensor.materialize wshape (fun _ -> 1.0)
+  | _ -> Norm.RmsNorm.default_eps
 
 (* Build a full 6D native permutation from an ATen [dims] list and the tensor
    rank.  For the [rank] used axes, [dims.(i)] is the ATen input dim for output
@@ -371,6 +426,32 @@ let resolve_view_size size numel =
 let pool_stride kernel_size node =
   let* stride = ints_arg ~default:[] node "stride" in
   return (match stride with [] -> kernel_size | s -> s)
+
+(* [Pool.MaxPool2d.params] carries neither, so BOTH pooling arms decoded
+   kernel/stride/padding and left these two unread -- silently computing a
+   different op under the right name for any export that set them. Refused here
+   rather than approximated: the native params have nowhere to put them. *)
+let reject_pool_extras node =
+  let* dilation = ints_arg ~default:[ 1; 1 ] node "dilation" in
+  let* () =
+    if List.exists (fun d -> d <> 1) dilation then
+      fail
+        (`Pool_unsupported
+           {
+             Pool_unsupported.op = node.Node.target;
+             option = Pool_unsupported.Dilation dilation;
+           })
+    else return ()
+  in
+  let* ceil_mode = bool_arg ~default:false node "ceil_mode" in
+  if ceil_mode then
+    fail
+      (`Pool_unsupported
+         {
+           Pool_unsupported.op = node.Node.target;
+           option = Pool_unsupported.Ceil_mode;
+         })
+  else return ()
 
 (* --- Op dispatch --- *)
 
@@ -728,6 +809,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.max_pool2d.default" ->
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
+         let* () = reject_pool_extras node in
          let* kernel_size = ints_arg node "kernel_size" in
          let* stride = pool_stride kernel_size node in
          let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
@@ -763,6 +845,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
             value back to NCHW as the graph output, and route the dead indices
             edge into a Discard sink (see .ai/native_multi_output_design.md). *)
          let* aten_x = tensor_arg aten_env node "self" in
+         let* () = reject_pool_extras node in
          let* kernel_size = ints_arg node "kernel_size" in
          let* stride = pool_stride kernel_size node in
          let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
@@ -848,27 +931,38 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.rms_norm.default" ->
       Some
         (let* t = tensor_arg aten_env node "input" in
-         let rank = aten_rank t in
          let* normalized_shape = ints_arg node "normalized_shape" in
-         let k = List.length normalized_shape in
-         let dims = trailing_axes ~rank ~k in
-         let eps = eps_arg node "eps" in
-         let params = { Norm.RmsNorm.dims; eps } in
+         let* dims =
+           normalized_dims ~x_shape:(Aten_tensor.shape t) ~normalized_shape
+         in
+         let params = { Norm.RmsNorm.dims; eps = eps_arg node "eps" } in
          let* x = native_of_aten "input" t in
-         let* weight =
+         (* NO ones tensor for an absent weight. [Graph_ir]'s [Rms_norm] carries
+            [weight : Tensor_ref.t option] and Native4D reads the option
+            (lower.ml:293-299); materializing a constant made this path build a
+            structurally different graph from [Native_interp]'s for the same
+            node, and left that arm unreachable from here. The numeric result is
+            unchanged -- multiplying by ones is what the option's absence
+            means. *)
+         let* weight_opt =
            if optional_tensor_present node "weight" then
              let* weight = tensor_arg aten_env node "weight" in
-             native_of_aten "weight" weight
-           else
-             let (Tensor.Tensor r) = x in
-             return (ones_weight r.shape dims)
+             let* weight = native_of_aten "weight" weight in
+             return (Some weight)
+           else return None
          in
-         build_g ~name:"rms_norm" [ x; weight ] (function
-           | [ x_id; w_id ] ->
-               let open Graph_builder in
-               let+ y = rms_norm params ~x:x_id ~weight:w_id () in
-               [ y ]
-           | _ -> assert false))
+         build_g ~name:"rms_norm"
+           ([ x ] @ Option.to_list weight_opt)
+           (function
+             | [ x_id ] ->
+                 let open Graph_builder in
+                 let+ y = rms_norm params ~x:x_id () in
+                 [ y ]
+             | [ x_id; w_id ] ->
+                 let open Graph_builder in
+                 let+ y = rms_norm params ~x:x_id ~weight:w_id () in
+                 [ y ]
+             | _ -> assert false))
   | "torch.ops.aten.sqrt.default" | "torch.ops.aten.sqrt_.default" -> (
       match native_tensor_arg aten_env node "self" with
       | Error e -> Some (Error e)
