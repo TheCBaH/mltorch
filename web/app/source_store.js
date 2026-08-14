@@ -57,7 +57,7 @@ async function readBounded(response, maximum, signal) {
 
 export class SourceStore {
   #source = null;
-  constructor({ fetch: fetchImpl = fetch, crypto: cryptoImpl = crypto, hard }) {
+  constructor({ fetch: fetchImpl = fetch.bind(globalThis), crypto: cryptoImpl = crypto, hard }) {
     this.fetch = fetchImpl;
     this.crypto = cryptoImpl;
     this.hard = hard;
