@@ -127,7 +127,7 @@ whose output names nothing, which the lowerer rejects as malformed.
 Every OTHER row of [Native_interp.malformed], each with its own witness.
 
 The rows were one `Malformed_graph of string` carrying a ksprintf sentence from
-32 sites, so no test could distinguish them and none tried. They are now twelve
+32 sites, so no test could distinguish them and none tried. They are now thirteen
 typed cases, and a case no input reaches is indistinguishable from one that
 cannot be constructed -- so each is driven here, from the smallest mutation of a
 valid program that produces it.
@@ -187,21 +187,29 @@ is model data, checked against a count derived from the operand's extent.
   >                     {'name': 'memory_format', 'arg': {'as_memory_format': 2}, 'kind': 1}],
   >          'outputs': [{'as_tensor': {'name': 'y'}}], 'metadata': {}}
   > w('m-memory-format', program([clone], both))
-  > def conv(stride):
+  > def conv(stride, padding=[0, 0], groups=1):
   >     return {'target': 'torch.ops.aten.convolution.default',
   >             'inputs': [{'name': 'input', 'arg': {'as_tensor': {'name': 'x'}}, 'kind': 1},
   >                        {'name': 'weight', 'arg': {'as_tensor': {'name': 'w'}}, 'kind': 1},
   >                        {'name': 'bias', 'arg': {'as_none': True}, 'kind': 1},
   >                        {'name': 'stride', 'arg': {'as_ints': stride}, 'kind': 1},
-  >                        {'name': 'padding', 'arg': {'as_ints': [0, 0]}, 'kind': 1},
+  >                        {'name': 'padding', 'arg': {'as_ints': padding}, 'kind': 1},
   >                        {'name': 'dilation', 'arg': {'as_ints': [1, 1]}, 'kind': 1},
   >                        {'name': 'transposed', 'arg': {'as_bool': False}, 'kind': 1},
   >                        {'name': 'output_padding', 'arg': {'as_ints': [0, 0]}, 'kind': 1},
-  >                        {'name': 'groups', 'arg': {'as_int': 1}, 'kind': 1}],
+  >                        {'name': 'groups', 'arg': {'as_int': groups}, 'kind': 1}],
   >             'outputs': [{'as_tensor': {'name': 'y'}}], 'metadata': {}}
   > img, out = tm(ints([1, 3, 8, 8])), tm(ints([1, 2, 8, 8]))
-  > w('m-arity',     program([conv([1, 1, 1])], {'x': img, 'w': tm(ints([2, 3, 1, 1])), 'y': out}, ['x', 'w']))
+  > conv_tv = {'x': img, 'w': tm(ints([2, 3, 1, 1])), 'y': out}
+  > w('m-arity',     program([conv([1, 1, 1])], conv_tv, ['x', 'w']))
   > w('m-conv-rank', program([conv([1, 1])],    {'x': img, 'w': tm(ints([2, 3])),       'y': out}, ['x', 'w']))
+  > # The op CONFIGURATION is model data too, and it reached the guarded types
+  > # ([Op_config.Pos]/[Nonneg]/[Dim.extent]) unchecked -- so a serialized zero
+  > # stride left [lower] as an uncaught [Invalid_argument], past this boundary.
+  > # Both faults get a witness: [Pos] forbids zero where [Nonneg] permits it,
+  > # so one row reporting not-positive for a padding of 0 would be wrong.
+  > w('m-config-pos', program([conv([1, 1], groups=0)],        conv_tv, ['x', 'w']))
+  > w('m-config-neg', program([conv([1, 1], padding=[-1, -1])], conv_tv, ['x', 'w']))
   > # A zero extent is its OWN fault, not a negative one: the engine has no empty
   > # tensor at all ([Dim.extent] is >= 1), and unlike a negative size this does
   > # arrive from real models -- ATen's unbind of a zero-length dim returns an
@@ -218,7 +226,7 @@ is model data, checked against a count derived from the operand's extent.
 
   $ for m in missing-arg wrong-kind node-output graph-output no-metadata \
   >          negative zero-dim symbolic rank-seven axis alpha memory-format arity \
-  >          conv-rank output-arity; do
+  >          conv-rank config-pos config-neg output-arity; do
   >   ../bin/native_graph.exe visualize --model m-$m.json 2>&1 >/dev/null | head -1
   > done
   native_graph: malformed PT2 graph: torch.ops.aten.relu.default: missing argument "self"
@@ -234,7 +242,9 @@ is model data, checked against a count derived from the operand's extent.
   native_graph: malformed PT2 graph: torch.ops.aten.add.Tensor: alpha=2 is not supported (only 1)
   native_graph: malformed PT2 graph: torch.ops.aten.clone.default: memory_format is not supported
   native_graph: malformed PT2 graph: stride must have one or two values, got 3
-  native_graph: malformed PT2 graph: w is rank 2, expected four
+  native_graph: malformed PT2 graph: w is rank 2, expected 4
+  native_graph: malformed PT2 graph: torch.ops.aten.convolution.default: groups must be positive, got 0
+  native_graph: malformed PT2 graph: torch.ops.aten.convolution.default: padding must not be negative, got -1
   native_graph: malformed PT2 graph: torch.ops.aten.unbind.int declares 3 outputs but produces 2
 
 [`Output_not_evaluated] has no witness here and is marked as such rather than

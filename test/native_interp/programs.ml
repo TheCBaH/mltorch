@@ -26,17 +26,32 @@ let unbind_node ~dim ~outs =
    test, and listing thousands of entries would make a fixture larger than the
    property it demonstrates. It is supplied where a test needs a node's DECLARED
    shape to differ from the one Native infers. *)
-let program ?(extra_tensor_values = []) ~x_sizes ~nodes ~graph_outputs () =
+(* [params] are CAPTURED tensors -- weights and biases -- which reach the env as
+   [InputSpec.Parameter] rather than [User_input]. An op that reads one needs it
+   in both places or the arm fails at [env_find] with [`Undefined_ssa] before it
+   reaches whatever the fixture was written to check. *)
+let program ?(extra_tensor_values = []) ?(params = []) ~x_sizes ~nodes
+    ~graph_outputs () =
   let tensor_values =
     String.concat ","
       (jstr {|"x":%s|} (tensor_meta x_sizes)
       :: List.map (fun (n, m) -> jstr {|"%s":%s|} n m) extra_tensor_values)
   in
+  let inputs = String.concat "," (as_tensor "x" :: List.map as_tensor params) in
+  let input_specs =
+    String.concat ","
+      (jstr {|{"user_input":{"arg":%s}}|} (as_tensor "x")
+      :: List.map
+           (fun n ->
+             jstr {|{"parameter":{"arg":{"name":"%s"},"parameter_name":"%s"}}|}
+               n n)
+           params)
+  in
   jstr
-    {|{"graph_module":{"graph":{"inputs":[%s],"outputs":[%s],"nodes":[%s],"tensor_values":{%s},"sym_int_values":{},"sym_bool_values":{},"is_single_tensor_return":true},"signature":{"input_specs":[{"user_input":{"arg":%s}}],"output_specs":[%s]},"module_call_graph":[]},"opset_version":{"aten":15},"range_constraints":{},"schema_version":{"major":8,"minor":5}}|}
-    (as_tensor "x")
+    {|{"graph_module":{"graph":{"inputs":[%s],"outputs":[%s],"nodes":[%s],"tensor_values":{%s},"sym_int_values":{},"sym_bool_values":{},"is_single_tensor_return":true},"signature":{"input_specs":[%s],"output_specs":[%s]},"module_call_graph":[]},"opset_version":{"aten":15},"range_constraints":{},"schema_version":{"major":8,"minor":5}}|}
+    inputs
     (String.concat "," graph_outputs)
-    (String.concat "," nodes) tensor_values (as_tensor "x")
+    (String.concat "," nodes) tensor_values input_specs
     (String.concat ","
        (List.map (fun o -> jstr {|{"user_output":{"arg":%s}}|} o) graph_outputs))
 

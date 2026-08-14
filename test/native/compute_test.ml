@@ -371,6 +371,44 @@ let%expect_test "Direct: conv2d asymmetric padding with dilation" =
        (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
   [%expect {| tensor f32 [W=4 C=1] {4, 6, 4, 6} |}]
 
+(* [Conv2d_padding.same_padding] splits an ODD total unevenly — [total / 2]
+   before and [total - total / 2] after — and nothing else pins which side gets
+   the extra cell. Direct-vs-Symbolic agreement cannot: both resolve through the
+   same function, so they agree on a reversed split as readily as on the right
+   one. Neither can an output-shape check: reversing the split leaves the extent
+   untouched. Nor can the ATen oracle, which reaches [constant_pad_nd] for this
+   case and is not in this repository's minimal static-dispatch build.
+
+   So the numbers here are hand-computed, and the fixture is built so they
+   differ. A 1x2 kernel over a 1x3 row gives total = 1: pad_before = 0,
+   pad_after = 1. With the weight [0; 1] each output reads the cell to its
+   RIGHT, so y = [x1; x2; pad] = {2, 3, 0}. Reverse the split and every output
+   reads itself instead, giving {1, 2, 3}. *)
+let%expect_test "Direct: conv2d_padding same splits an odd total to the right" =
+  let module Cv = Conv.Conv2d_padding.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:1 in
+  let x = Tensor.materialize x_shape (fun c -> float_of_int (col c + 1)) in
+  let weight_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:1 in
+  let weight =
+    Tensor.materialize weight_shape (fun c -> if col c = 0 then 0. else 1.)
+  in
+  let bias = Tensor.materialize (s1c 1) (fun _ -> 0.) in
+  let p =
+    {
+      Conv.Conv2d_padding.stride =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+      padding = Conv.Conv2d_padding.Same;
+      dilation =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+      groups = Op_config.Pos.of_int 1;
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Conv.Conv2d_padding.output_shape ~x_shape ~weight_shape p)
+       (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
+  [%expect {| tensor f32 [W=3 C=1] {2, 3, 0} |}]
+
 let%expect_test
     "Direct: max_pool2d 2x2 (stride 1, pad 1) — negative inputs catch a \
      padding=0 bug" =

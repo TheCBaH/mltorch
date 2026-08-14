@@ -12,6 +12,7 @@ type arg_kind =
   | `Float
   | `Scalar
   | `Optional_scalar
+  | `String
   | `Tensor_or_scalar ]
 
 (* [Zero] is not a sub-case of [Negative]: the engine forbids an empty extent by
@@ -20,29 +21,50 @@ type arg_kind =
    models -- ATen's unbind of a zero-length dim returns an empty list -- where a
    negative size never does. Without its own arm it reached [Dim.extent] and
    escaped as an uncaught [Invalid_argument]. *)
+module Expected_rank = struct
+  type t = { expected : int; got : int }
+end
+
 type dim_fault =
   [ `Negative of int
   | `Zero
   | `Symbolic
   | `Rank_over_six
-  | `Expected_rank_four of int ]
+  | `Expected_rank of Expected_rank.t
+  | `Over_max_extent of int64 ]
+
+module Normalized_rank = struct
+  type t = { rank : int; got : int }
+end
+
+module Normalized_shape = struct
+  type t = { expected : int list; got : int list }
+end
 
 type metadata_role =
   [ `Tensor
   | `Convolution_weight
+  | `Conv2d_weight
+  | `Conv2d_padding_weight
+  | `Linear_weight
+  | `Rms_norm_input
   | `Mean_input
   | `Permute_input
   | `Unbind_input
   | `Addmm_weight ]
 
 type hw_param = [ `Stride | `Padding | `Dilation | `Kernel_size ]
+type config_param = [ hw_param | `Groups ]
+type config_fault = [ `Not_positive of int | `Negative of int ]
 
 (* Two genuinely different rejections, not one with a message: a graph input
    that is not a tensor, and a graph whose user-input arity the runner cannot
    satisfy. Both are recoverable ([Me_classify.lowering]); only the second has
    a figure to report. *)
 type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
-type unsupported_option = [ `Alpha of float | `Memory_format ]
+
+type unsupported_option =
+  [ `Alpha of float | `Memory_format | `Dilation of int list | `Ceil_mode ]
 
 (* Own modules, per the record-namespace convention: three of these carry an
    [op] field and two an [arg], and distinct namespaces are how this repo keeps
@@ -71,6 +93,10 @@ module Bad_arity = struct
   type t = { param : hw_param; got : int }
 end
 
+module Bad_config = struct
+  type t = { op : string; param : config_param; fault : config_fault }
+end
+
 module Unsupported_option = struct
   type t = { op : string; option : unsupported_option }
 end
@@ -91,6 +117,10 @@ type malformed =
   | `Bad_dimension of Bad_dimension.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
+  | `Bad_config of Bad_config.t
+  | `Unsupported_padding_mode of string
+  | `Normalized_rank of Normalized_rank.t
+  | `Normalized_shape of Normalized_shape.t
   | `Unsupported_option of Unsupported_option.t
   | `Output_arity of Output_arity.t
   | `Non_tensor_node_output of string
@@ -149,11 +179,16 @@ let pp_arg_kind ppf : arg_kind -> unit = function
   | `Float -> Fmt.string ppf "a float"
   | `Scalar -> Fmt.string ppf "a scalar"
   | `Optional_scalar -> Fmt.string ppf "an optional scalar"
+  | `String -> Fmt.string ppf "a string"
   | `Tensor_or_scalar -> Fmt.string ppf "a tensor or scalar"
 
 let pp_metadata_role ppf : metadata_role -> unit = function
   | `Tensor -> Fmt.string ppf "tensor"
   | `Convolution_weight -> Fmt.string ppf "convolution weight"
+  | `Conv2d_weight -> Fmt.string ppf "conv2d weight"
+  | `Conv2d_padding_weight -> Fmt.string ppf "conv2d padding weight"
+  | `Linear_weight -> Fmt.string ppf "linear weight"
+  | `Rms_norm_input -> Fmt.string ppf "rms_norm input"
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Permute_input -> Fmt.string ppf "permute input"
   | `Unbind_input -> Fmt.string ppf "unbind input"
@@ -164,6 +199,10 @@ let pp_hw_param ppf : hw_param -> unit = function
   | `Padding -> Fmt.string ppf "padding"
   | `Dilation -> Fmt.string ppf "dilation"
   | `Kernel_size -> Fmt.string ppf "kernel_size"
+
+let pp_config_param ppf : config_param -> unit = function
+  | `Groups -> Fmt.string ppf "groups"
+  | #hw_param as p -> pp_hw_param ppf p
 
 let pp_malformed ppf : [< malformed ] -> unit = function
   | `Missing_arg { Missing_arg.op; arg } ->
@@ -178,18 +217,45 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       | `Zero -> Fmt.pf ppf "%s has a zero-length dimension" tensor
       | `Symbolic -> Fmt.pf ppf "%s has a symbolic dimension" tensor
       | `Rank_over_six -> Fmt.pf ppf "%s has rank greater than six" tensor
-      | `Expected_rank_four n ->
-          Fmt.pf ppf "%s is rank %d, expected four" tensor n)
+      | `Expected_rank { Expected_rank.expected; got } ->
+          Fmt.pf ppf "%s is rank %d, expected %d" tensor got expected
+      | `Over_max_extent n ->
+          Fmt.pf ppf "%s has extent %Ld, over the engine maximum of %Ld" tensor
+            n Kernel.Limits.Hard.extent)
   | `Axis_out_of_range { Axis_out_of_range.axis; rank } ->
       Fmt.pf ppf "invalid dimension %d for rank %d" axis rank
   | `Bad_arity { Bad_arity.param; got } ->
       Fmt.pf ppf "%a must have one or two values, got %d" pp_hw_param param got
+  | `Bad_config { Bad_config.op; param; fault } -> (
+      match fault with
+      | `Not_positive n ->
+          Fmt.pf ppf "%s: %a must be positive, got %d" op pp_config_param param
+            n
+      | `Negative n ->
+          Fmt.pf ppf "%s: %a must not be negative, got %d" op pp_config_param
+            param n)
   | `Output_arity { Output_arity.op; serialized; derived } ->
       Fmt.pf ppf "%s declares %d outputs but produces %d" op serialized derived
   | `Unsupported_option { Unsupported_option.op; option } -> (
       match option with
       | `Alpha a -> Fmt.pf ppf "%s: alpha=%g is not supported (only 1)" op a
-      | `Memory_format -> Fmt.pf ppf "%s: memory_format is not supported" op)
+      | `Memory_format -> Fmt.pf ppf "%s: memory_format is not supported" op
+      | `Dilation d ->
+          Fmt.pf ppf "%s: dilation=[%a] is not supported (only 1)" op
+            Fmt.(list ~sep:(any ",") int)
+            d
+      | `Ceil_mode -> Fmt.pf ppf "%s: ceil_mode=true is not supported" op)
+  | `Unsupported_padding_mode s ->
+      Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
+  | `Normalized_rank { Normalized_rank.rank; got } ->
+      Fmt.pf ppf
+        "normalized_shape has %d entries, outside [1, %d] for this rank" got
+        rank
+  | `Normalized_shape { Normalized_shape.expected; got } ->
+      let ints = Fmt.(list ~sep:(any ",") int) in
+      Fmt.pf ppf
+        "normalized_shape [%a] does not match the input's trailing extents [%a]"
+        ints got ints expected
   | `Non_tensor_node_output op -> Fmt.pf ppf "%s has a non-tensor output" op
   | `Non_tensor_graph_output -> Fmt.string ppf "non-tensor graph output"
   | `Undefined_ssa name -> Fmt.pf ppf "SSA tensor %S is not defined" name
@@ -292,17 +358,33 @@ let tensor_name esc (node : Pytorch_types.Node.t) name =
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Tensor })
 
-let optional_tensor_name esc (node : Pytorch_types.Node.t) name =
-  match find_arg esc node name with
-  | Argument.Tensor t -> Some t.TensorArgument.name
-  | Argument.None _ -> None
-  | Argument.Optional_tensor (OptionalTensorArgument.Tensor t) ->
-      Some t.TensorArgument.name
-  | Argument.Optional_tensor (OptionalTensorArgument.None _) -> None
-  | _ ->
-      malformed esc
-        (`Wrong_arg_kind
-           { op = node.target; arg = name; expected = `Optional_tensor })
+(* [~absent_ok] distinguishes an argument that is PRESENT and None from one not
+   in the node's input list at all. The schema default for every optional tensor
+   here is None, and [Op_bridge] already reads omission that way
+   ([optional_tensor_present]), so an exact target that refused it would
+   disagree with the other importer about the same node — which is the property
+   the two paths exist to cross-check.
+
+   Defaulted to [false] so the arms that predate this keep the behaviour their
+   goldens pin; they are fed only by real exports, which serialise every
+   argument explicitly, and each can revisit it in its own row. *)
+let optional_tensor_name ?(absent_ok = false) esc (node : Pytorch_types.Node.t)
+    name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None when absent_ok -> None
+  | _ -> (
+      match find_arg esc node name with
+      | Argument.Tensor t -> Some t.TensorArgument.name
+      | Argument.None _ -> None
+      | Argument.Optional_tensor (OptionalTensorArgument.Tensor t) ->
+          Some t.TensorArgument.name
+      | Argument.Optional_tensor (OptionalTensorArgument.None _) -> None
+      | _ ->
+          malformed esc
+            (`Wrong_arg_kind
+               { op = node.target; arg = name; expected = `Optional_tensor }))
 
 let ints_arg esc ?(default = []) (node : Pytorch_types.Node.t) name =
   match
@@ -324,6 +406,16 @@ let int_arg esc ?(default = 0) (node : Pytorch_types.Node.t) name =
   | Some _ ->
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int })
+
+let string_arg esc ~default (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> default
+  | Some { arg = Argument.String s; _ } -> s
+  | Some _ ->
+      malformed esc
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `String })
 
 let bool_arg esc ?(default = false) (node : Pytorch_types.Node.t) name =
   match
@@ -468,10 +560,12 @@ let output_names esc (node : Pytorch_types.Node.t) =
 
 let is_nontrivial_node (node : Pytorch_types.Node.t) =
   match node.target with
-  | "torch.ops.aten.convolution.default"
+  | "torch.ops.aten.conv2d.default" | "torch.ops.aten.conv2d.padding"
+  | "torch.ops.aten.convolution.default" | "torch.ops.aten.linear.default"
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
+  | "torch.ops.aten.max_pool2d.default"
   | "torch.ops.aten.max_pool2d_with_indices.default"
-  | "torch.ops.aten.addmm.default" ->
+  | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.addmm.default" ->
       true
   | _ -> false
 
@@ -486,6 +580,49 @@ let hw2 esc param = function
   | [ h; w ] -> (h, w)
   | [ x ] -> (x, x)
   | xs -> malformed esc (`Bad_arity { param; got = List.length xs })
+
+(* [Op_config.Pos]/[Nonneg]/[Dim.extent] assert a TRUSTED precondition and
+   raise [Invalid_argument] when it fails. Every value below is decoded from the
+   model, so none of them may reach those constructors unguarded: the raise
+   crosses the [Err.Escape] frame and leaves [lower] as an exception, which is
+   what [malformed_test.ml]'s three config witnesses pinned.
+
+   These are the ONLY approved route from a decoded argument to a guarded
+   config type in this module. [Dim.extent_checked] already existed for exactly
+   this ([dim.mli]: "the validated form for an untrusted size"); the other two
+   have no checked form, so the test is written out here. *)
+let pos esc ~op ~param n =
+  if n < 1 then
+    malformed esc (`Bad_config { op; param; fault = `Not_positive n })
+  else Op_config.Pos.of_int n
+
+let nonneg esc ~op ~param n =
+  if n < 0 then malformed esc (`Bad_config { op; param; fault = `Negative n })
+  else Op_config.Nonneg.of_int n
+
+let extent esc ~op ~param n =
+  match Dim.extent_checked n with
+  | Ok e -> e
+  | Error _ ->
+      malformed esc (`Bad_config { op; param; fault = `Not_positive n })
+
+(* The same asserting constructor reached from tensor METADATA rather than from
+   an op-configuration field, so it gets the row that already describes that:
+   [Bad_dimension]'s [`Zero] and [`Negative] faults, which the module documents
+   as distinct because only [`Zero] arrives from real models. *)
+let dim_extent esc ~tensor n =
+  match Dim.extent_checked n with
+  | Ok e -> e
+  | Error _ ->
+      malformed esc
+        (`Bad_dimension
+           { tensor; fault = (if n = 0 then `Zero else `Negative n) })
+
+let pos_hw esc ~op ~param (h, w) =
+  { Op_config.Hw.h = pos esc ~op ~param h; w = pos esc ~op ~param w }
+
+let nonneg_hw esc ~op ~param (h, w) =
+  { Op_config.Hw.h = nonneg esc ~op ~param h; w = nonneg esc ~op ~param w }
 
 let env_find esc env name =
   match String_map.find_opt name env with
@@ -514,41 +651,119 @@ let perm_oihw_to_conv_weight =
   let open Axis in
   [ (N, D); (T, T); (D, N); (H, W); (W, C); (C, H) ]
 
+(* Rank-2 addmm weight [In,Out] (W=In, C=Out) -> native [N=Out, C=In]. *)
 let perm_addmm_weight =
   let open Axis in
   [ (N, C); (T, T); (D, D); (H, H); (W, N); (C, W) ]
 
-let conv_params esc (graph : Pytorch_types.Graph.t)
+(* Rank-2 linear weight [Out,In] (W=Out, C=In) -> native [N=Out, C=In]. NOT the
+   permutation above, and not a rename of it: `addmm`'s [mat2] is the transpose
+   of `linear`'s [weight], so an arm that reused one for the other would build a
+   weight whose output and input axes are swapped. Both spellings exist in
+   [Op_bridge] (op_bridge.ml:221,227) for the same reason. *)
+let perm_linear_weight =
+  let open Axis in
+  [ (N, W); (T, T); (D, D); (H, H); (W, N); (C, C) ]
+
+(* The [tensor_values] lookup, open-coded at five sites with the same three
+   steps and a different role label each. Three functions rather than one
+   because the sites want different depths: [mean.dim], [permute.default] and
+   [unbind.int] need only the RANK, which a symbolic dimension does not
+   prevent, while a conv weight needs the extents themselves.
+
+   [role] stays a parameter so each caller keeps its own diagnostic. Sharing one
+   role across two arms would make the row ambiguous about which one failed,
+   which is the property that made these worth typing in the first place. *)
+let tensor_meta esc (graph : Pytorch_types.Graph.t) ~ssa ~role =
+  match String_map.find_opt ssa graph.tensor_values with
+  | Some x -> x
+  | None -> malformed esc (`Missing_metadata { ssa; role })
+
+let meta_rank (meta : TensorMeta.t) = List.length meta.TensorMeta.sizes
+
+let static_sizes esc ~tensor (meta : TensorMeta.t) =
+  List.map
+    (function
+      | SymInt.Int i -> i
+      | SymInt.Expr _ ->
+          malformed esc (`Bad_dimension { tensor; fault = `Symbolic }))
+    meta.TensorMeta.sizes
+
+let sizes_rank_4 esc ~tensor = function
+  | [ a; b; c; d ] -> (a, b, c, d)
+  | sizes ->
+      malformed esc
+        (`Bad_dimension
+           {
+             tensor;
+             fault = `Expected_rank { expected = 4; got = List.length sizes };
+           })
+
+let sizes_rank_2 esc ~tensor = function
+  | [ a; b ] -> (a, b)
+  | sizes ->
+      malformed esc
+        (`Bad_dimension
+           {
+             tensor;
+             fault = `Expected_rank { expected = 2; got = List.length sizes };
+           })
+
+(* [Conv2d.params.in_channels] is the ACTIVATION's channel count: the weight's
+   per-group input extent times the group count. Same rule as
+   [Op_bridge.make_conv2d_params] and [Conv.Conv2d_padding.to_conv2d_params],
+   restated here only because the importer reads serialized metadata where those
+   read a live tensor.
+
+   COMPUTED IN int64 AND BOUNDED BEFORE NARROWING, which is the whole point.
+   js_of_ocaml's [int] is 32 bits and [Kernel.Limits.Hard.extent] is
+   0x8000_0000, so two individually plausible factors can multiply past the
+   representable range and WRAP to a small positive number — a silently wrong
+   graph rather than a rejected one. Bounding the factors would not catch it:
+   the product is its own quantity. [test/native_interp] runs under node
+   ([modes best js]), so this is reachable and not a theoretical concern. *)
+let conv_in_channels esc ~tensor ~cin ~groups =
+  (* Each FACTOR is bounded before the multiplication, not only the product.
+     Widening to [int64] does not by itself make the multiplication safe: these
+     are raw decoded ints, and on a 63-bit-[int] backend two factors near
+     2^62 overflow [Int64.mul] silently and land back inside the range the
+     check below accepts. The bound is unobservable under js_of_ocaml, where a
+     factor that large is not representable in a 32-bit [int] at all -- which is
+     exactly why it cannot be left to the product check. *)
+  let over n = Int64.of_int n >= Kernel.Limits.Hard.extent in
+  if over cin || over groups then
+    malformed esc
+      (`Bad_dimension
+         {
+           tensor;
+           fault =
+             `Over_max_extent
+               (if over cin then Int64.of_int cin else Int64.of_int groups);
+         });
+  let product = Int64.mul (Int64.of_int cin) (Int64.of_int groups) in
+  if product >= Kernel.Limits.Hard.extent then
+    malformed esc (`Bad_dimension { tensor; fault = `Over_max_extent product })
+  else if product < 1L then
+    malformed esc
+      (`Bad_dimension
+         { tensor; fault = (if product = 0L then `Zero else `Negative cin) })
+  else Dim.extent (Int64.to_int product)
+
+(* The exact `conv2d.default` overload, whose [params] record is NOT
+   [Convolution]'s: per-axis windows carrying their own kernel extent, an
+   activation channel count, and no transposed/output_padding fields. Sharing
+   the metadata and H/W decoding with [conv_params] while keeping the two
+   records apart is what lets the exact IR node survive to Native4D, which reads
+   [Conv2d] directly. *)
+let conv2d_params esc (graph : Pytorch_types.Graph.t)
     (node : Pytorch_types.Node.t) =
+  let op = node.Node.target in
   let weight_name = tensor_name esc node "weight" in
-  let weight_meta =
-    match String_map.find_opt weight_name graph.tensor_values with
-    | Some x -> x
-    | None ->
-        malformed esc
-          (`Missing_metadata { ssa = weight_name; role = `Convolution_weight })
-  in
   let sizes =
-    List.map
-      (function
-        | SymInt.Int i -> i
-        | SymInt.Expr _ ->
-            malformed esc
-              (`Bad_dimension { tensor = weight_name; fault = `Symbolic }))
-      weight_meta.TensorMeta.sizes
+    static_sizes esc ~tensor:weight_name
+      (tensor_meta esc graph ~ssa:weight_name ~role:`Conv2d_weight)
   in
-  let cout, cin, kh, kw =
-    match sizes with
-    | [ a; b; c; d ] -> (a, b, c, d)
-    | _ ->
-        malformed esc
-          (`Bad_dimension
-             {
-               tensor = weight_name;
-               fault = `Expected_rank_four (List.length sizes);
-             })
-  in
-  let _ = cout in
+  let _cout, cin, kh, kw = sizes_rank_4 esc ~tensor:weight_name sizes in
   let sh, sw = hw2 esc `Stride (ints_arg esc ~default:[ 1; 1 ] node "stride") in
   let ph, pw =
     hw2 esc `Padding (ints_arg esc ~default:[ 0; 0 ] node "padding")
@@ -557,32 +772,142 @@ let conv_params esc (graph : Pytorch_types.Graph.t)
     hw2 esc `Dilation (ints_arg esc ~default:[ 1; 1 ] node "dilation")
   in
   let groups = int_arg esc ~default:1 node "groups" in
+  (* Serialized integer padding is SYMMETRIC — ATen pads both sides of an axis
+     equally — so both fields take the one value. The asymmetric form exists for
+     [Conv2d_padding]'s "same", which splits an odd total unevenly. *)
+  let axis ~kernel ~stride ~pad ~dilation : Conv.Conv2d.axis_window =
+    {
+      kernel = extent esc ~op ~param:`Kernel_size kernel;
+      stride = pos esc ~op ~param:`Stride stride;
+      pad_before = nonneg esc ~op ~param:`Padding pad;
+      pad_after = nonneg esc ~op ~param:`Padding pad;
+      dilation = pos esc ~op ~param:`Dilation dilation;
+    }
+  in
+  {
+    Conv.Conv2d.h = axis ~kernel:kh ~stride:sh ~pad:ph ~dilation:dh;
+    w = axis ~kernel:kw ~stride:sw ~pad:pw ~dilation:dw;
+    in_channels = conv_in_channels esc ~tensor:weight_name ~cin ~groups;
+    groups = pos esc ~op ~param:`Groups groups;
+  }
+
+(* The overload whose padding is a MODE rather than a number. Its [params] carry
+   neither a kernel extent nor a channel count: [Conv2d_padding.to_conv2d_params]
+   derives both from the weight's shape, and that one definition is already
+   shared by shape inference, [Compute] and Native4D. Resolving the mode here
+   would make a fourth. *)
+let conv2d_padding_params esc (graph : Pytorch_types.Graph.t)
+    (node : Pytorch_types.Node.t) =
+  let op = node.Node.target in
+  let weight_name = tensor_name esc node "weight" in
+  (* Read for its RANK alone -- the extents are shape inference's business here.
+     Checked all the same, so the two conv2d arms accept the same weights: a
+     rank-3 weight would otherwise be right-aligned into the six-axis frame and
+     relayouted as though its leading axis were the output channel. *)
+  let sizes =
+    static_sizes esc ~tensor:weight_name
+      (tensor_meta esc graph ~ssa:weight_name ~role:`Conv2d_padding_weight)
+  in
+  let _ = sizes_rank_4 esc ~tensor:weight_name sizes in
+  let padding =
+    (* NOT [Conv.Conv2d_padding.padding_of_string], which [invalid_arg]s on
+       anything else (conv.ml:394). This string is model data, so it gets a
+       typed row -- the same rule the guarded config constructors follow. *)
+    match string_arg esc ~default:"valid" node "padding" with
+    | "valid" -> Conv.Conv2d_padding.Valid
+    | "same" -> Conv.Conv2d_padding.Same
+    | s -> malformed esc (`Unsupported_padding_mode s)
+  in
+  let stride = hw2 esc `Stride (ints_arg esc ~default:[ 1; 1 ] node "stride") in
+  let dilation =
+    hw2 esc `Dilation (ints_arg esc ~default:[ 1; 1 ] node "dilation")
+  in
+  {
+    Conv.Conv2d_padding.stride = pos_hw esc ~op ~param:`Stride stride;
+    padding;
+    dilation = pos_hw esc ~op ~param:`Dilation dilation;
+    groups = pos esc ~op ~param:`Groups (int_arg esc ~default:1 node "groups");
+  }
+
+let conv_params esc (graph : Pytorch_types.Graph.t)
+    (node : Pytorch_types.Node.t) =
+  let weight_name = tensor_name esc node "weight" in
+  let sizes =
+    static_sizes esc ~tensor:weight_name
+      (tensor_meta esc graph ~ssa:weight_name ~role:`Convolution_weight)
+  in
+  let cout, cin, kh, kw = sizes_rank_4 esc ~tensor:weight_name sizes in
+  let _ = cout in
+  let op = node.Node.target in
+  let stride = hw2 esc `Stride (ints_arg esc ~default:[ 1; 1 ] node "stride") in
+  let padding =
+    hw2 esc `Padding (ints_arg esc ~default:[ 0; 0 ] node "padding")
+  in
+  let dilation =
+    hw2 esc `Dilation (ints_arg esc ~default:[ 1; 1 ] node "dilation")
+  in
+  let groups = int_arg esc ~default:1 node "groups" in
   ( {
-      Conv.Convolution.stride =
-        { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
-      padding =
-        { h = Op_config.Nonneg.of_int ph; w = Op_config.Nonneg.of_int pw };
-      dilation = { h = Op_config.Pos.of_int dh; w = Op_config.Pos.of_int dw };
+      Conv.Convolution.stride = pos_hw esc ~op ~param:`Stride stride;
+      padding = nonneg_hw esc ~op ~param:`Padding padding;
+      dilation = pos_hw esc ~op ~param:`Dilation dilation;
       transposed = bool_arg esc node "transposed";
+      (* Not model data: this overload has no output_padding of its own, so the
+         zero is ours and [of_int] is applied to a literal. *)
       output_padding =
         { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
-      groups = Op_config.Pos.of_int groups;
+      groups = pos esc ~op ~param:`Groups groups;
     },
     cin,
     kh,
     kw )
 
+(* Shared by both pooling arms, which is why the two rejections below are here
+   rather than in either one: [max_pool2d_with_indices.default] dropped
+   [dilation] and [ceil_mode] exactly as silently as the functional overload
+   would have, and one copy of the check cannot come to disagree with the other.
+
+   REJECTED, not carried. [Pool.MaxPool2d.params] (pool.ml:116-120) has a field
+   for neither, so a non-default value would compute a different op under the
+   right name. Extending the native IR instead is what op2.md permits only on a
+   measured need, and no model this repository can download serialises either
+   pooling target at all -- so there is nothing to measure and a rejection is
+   the honest answer. Revisit when avg_pool2d.default forces the same question
+   for [ceil_mode] and [count_include_pad]. *)
 let pool_params esc (node : Pytorch_types.Node.t) =
+  let op = node.Node.target in
   let kh, kw = hw2 esc `Kernel_size (ints_arg esc node "kernel_size") in
-  let stride = ints_arg esc ~default:[ kh; kw ] node "stride" in
-  let sh, sw = hw2 esc `Stride stride in
-  let ph, pw =
+  (* Validated BEFORE the stride is defaulted from it. The default makes the two
+     the same value, so a kernel of 0 reached the stride's check first and was
+     reported as a bad stride -- a diagnostic naming an argument the model never
+     supplied. *)
+  let kernel =
+    {
+      Op_config.Hw.h = extent esc ~op ~param:`Kernel_size kh;
+      w = extent esc ~op ~param:`Kernel_size kw;
+    }
+  in
+  (* An EMPTY stride list means "same as the kernel" and is a different
+     spelling from the argument being absent, so both normalize here. Same rule
+     as [Op_bridge.pool_stride] (op_bridge.ml:371). *)
+  let stride =
+    match ints_arg esc ~default:[ kh; kw ] node "stride" with
+    | [] -> [ kh; kw ]
+    | s -> s
+  in
+  let stride = hw2 esc `Stride stride in
+  let padding =
     hw2 esc `Padding (ints_arg esc ~default:[ 0; 0 ] node "padding")
   in
+  let dilation = ints_arg esc ~default:[ 1; 1 ] node "dilation" in
+  if List.exists (fun d -> d <> 1) dilation then
+    malformed esc (`Unsupported_option { op; option = `Dilation dilation });
+  if bool_arg esc ~default:false node "ceil_mode" then
+    malformed esc (`Unsupported_option { op; option = `Ceil_mode });
   {
-    Pool.MaxPool2d.kernel = { h = Dim.extent kh; w = Dim.extent kw };
-    stride = { h = Op_config.Pos.of_int sh; w = Op_config.Pos.of_int sw };
-    pad = { h = Op_config.Nonneg.of_int ph; w = Op_config.Nonneg.of_int pw };
+    Pool.MaxPool2d.kernel;
+    stride = pos_hw esc ~op ~param:`Stride stride;
+    pad = nonneg_hw esc ~op ~param:`Padding padding;
   }
 
 (* [used] is the innermost [rank] frame axes, so it has SIX entries once rank
@@ -706,6 +1031,34 @@ let lower program =
                  { op = node.target; arg = name; expected = `Tensor_or_scalar })
       in
       match node.target with
+      (* The exact functional overload, kept separate from [convolution.default]
+         rather than folded into it: they build different IR nodes, and the
+         [Conv2d] one is what Native4D reads directly. Only the metadata and
+         H/W decoding is shared, through [conv2d_params]. *)
+      | "torch.ops.aten.conv2d.default" ->
+          let params = conv2d_params esc graph node in
+          let* x = permute perm_nchw_to_nhwc (get "input") in
+          let* w = permute perm_oihw_to_conv_weight (get "weight") in
+          let bias =
+            Option.map (env_find esc env)
+              (optional_tensor_name ~absent_ok:true esc node "bias")
+          in
+          let* y = conv2d params ~x ~weight:w ?bias () in
+          let* y = permute perm_nhwc_to_nchw y in
+          return [ y ]
+      (* Same decode and same relayouts as the arm above; only the padding
+         contract differs, and the mode is carried into the IR unresolved. *)
+      | "torch.ops.aten.conv2d.padding" ->
+          let params = conv2d_padding_params esc graph node in
+          let* x = permute perm_nchw_to_nhwc (get "input") in
+          let* w = permute perm_oihw_to_conv_weight (get "weight") in
+          let bias =
+            Option.map (env_find esc env)
+              (optional_tensor_name ~absent_ok:true esc node "bias")
+          in
+          let* y = conv2d_padding params ~x ~weight:w ?bias () in
+          let* y = permute perm_nhwc_to_nchw y in
+          return [ y ]
       | "torch.ops.aten.convolution.default" ->
           let params, _, _, _ = conv_params esc graph node in
           let* x = permute perm_nchw_to_nhwc (get "input") in
@@ -733,6 +1086,50 @@ let lower program =
               ~running_var:(get "running_var") ()
           in
           let* y = permute perm_nhwc_to_nchw y in
+          return [ y ]
+      (* [normalized_shape] is validated against the input, which is the check
+         the bridge is missing: it reads only the LENGTH (op_bridge.ml:899) and
+         never compares the extents, so a shape that names the wrong axes
+         normalizes over the wrong ones and produces a plausible wrong answer.
+         [trailing_axes] there does not check [k <= rank] either, and silently
+         returns the whole axis list when it is exceeded. *)
+      | "torch.ops.aten.rms_norm.default" ->
+          (* "input", not "self": the schema is
+             rms_norm(Tensor input, SymInt[] normalized_shape, Tensor? weight,
+             float? eps), and [Op_bridge] reads the same name. *)
+          let x_name = tensor_name esc node "input" in
+          let sizes =
+            static_sizes esc ~tensor:x_name
+              (tensor_meta esc graph ~ssa:x_name ~role:`Rms_norm_input)
+          in
+          let rank = List.length sizes in
+          let normalized = ints_arg esc node "normalized_shape" in
+          let k = List.length normalized in
+          if k < 1 || k > rank then
+            malformed esc (`Normalized_rank { rank; got = k });
+          let trailing l = List.filteri (fun i _ -> i >= rank - k) l in
+          let expected = trailing sizes in
+          if expected <> normalized then
+            malformed esc (`Normalized_shape { expected; got = normalized });
+          let params =
+            {
+              Norm.RmsNorm.dims =
+                trailing (used_axes_for esc ~tensor:x_name rank);
+              eps = float_arg esc ~default:Norm.RmsNorm.default_eps node "eps";
+            }
+          in
+          (* NO ones tensor when the weight is absent. [Graph_ir]'s [Rms_norm]
+             carries [weight : Tensor_ref.t option] and Native4D reads the
+             option (lower.ml:293-299); synthesizing a constant would make the
+             two importers build structurally different graphs for the same
+             node and leave that arm unreachable from one of them. *)
+          let* y =
+            rms_norm params ~x:(get "input")
+              ?weight:
+                (Option.map (env_find esc env)
+                   (optional_tensor_name ~absent_ok:true esc node "weight"))
+              ()
+          in
           return [ y ]
       | "torch.ops.aten.relu.default" ->
           let* y = relu (get "self") in
@@ -780,6 +1177,14 @@ let lower program =
       | "torch.ops.aten.mul.Tensor" ->
           let* y = mul (get "self") (get "other") in
           return [ y ]
+      (* The functional overload has ONE output and takes the generic path:
+         [materialized_output_names] must not gain it, since that list is for
+         nodes whose trailing outputs are dropped. *)
+      | "torch.ops.aten.max_pool2d.default" ->
+          let* x = permute perm_nchw_to_nhwc (get "self") in
+          let* y = max_pool2d (pool_params esc node) x in
+          let* y = permute perm_nhwc_to_nchw y in
+          return [ y ]
       | "torch.ops.aten.max_pool2d_with_indices.default" ->
           let* x = permute perm_nchw_to_nhwc (get "self") in
           let* values, indices =
@@ -791,11 +1196,7 @@ let lower program =
       | "torch.ops.aten.mean.dim" ->
           let x_name = tensor_name esc node "self" in
           let rank =
-            match String_map.find_opt x_name graph.tensor_values with
-            | Some m -> List.length m.TensorMeta.sizes
-            | None ->
-                malformed esc
-                  (`Missing_metadata { ssa = x_name; role = `Mean_input })
+            meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Mean_input)
           in
           let params =
             {
@@ -809,11 +1210,7 @@ let lower program =
       | "torch.ops.aten.permute.default" ->
           let x_name = tensor_name esc node "self" in
           let rank =
-            match String_map.find_opt x_name graph.tensor_values with
-            | Some m -> List.length m.TensorMeta.sizes
-            | None ->
-                malformed esc
-                  (`Missing_metadata { ssa = x_name; role = `Permute_input })
+            meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Permute_input)
           in
           let* y =
             permute
@@ -833,11 +1230,7 @@ let lower program =
       | "torch.ops.aten.unbind.int" ->
           let x_name = tensor_name esc node "self" in
           let rank =
-            match String_map.find_opt x_name graph.tensor_values with
-            | Some m -> List.length m.TensorMeta.sizes
-            | None ->
-                malformed esc
-                  (`Missing_metadata { ssa = x_name; role = `Unbind_input })
+            meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Unbind_input)
           in
           let axis =
             match
@@ -861,24 +1254,64 @@ let lower program =
               (get "self")
           in
           return [ y ]
+      (* Not mergeable with [addmm.default] below, though both build a [Linear]:
+         there [self] IS the bias and is required, here the bias is optional,
+         and the two weights are transposes of each other. *)
+      | "torch.ops.aten.linear.default" ->
+          let w_name = tensor_name esc node "weight" in
+          let _out_features, in_features =
+            sizes_rank_2 esc ~tensor:w_name
+              (static_sizes esc ~tensor:w_name
+                 (tensor_meta esc graph ~ssa:w_name ~role:`Linear_weight))
+          in
+          let* w = permute perm_linear_weight (get "weight") in
+          let bias =
+            Option.map (env_find esc env)
+              (optional_tensor_name ~absent_ok:true esc node "bias")
+          in
+          (* No check that the input's trailing extent matches [in_features]:
+             [Linear.output_shape] already compares both the activation's and
+             the weight's C against it (linear.ml:69-84), and a second copy of
+             that rule here is one that could drift from it. *)
+          let* y =
+            linear
+              {
+                Linear.Linear.in_features =
+                  dim_extent esc ~tensor:w_name in_features;
+              }
+              ~x:(get "input") ~weight:w ?bias ()
+          in
+          return [ y ]
       | "torch.ops.aten.addmm.default" ->
           let w_name = tensor_name esc node "mat2" in
           let in_features =
-            match String_map.find_opt w_name graph.tensor_values with
-            | Some m -> (
-                match m.TensorMeta.sizes with
-                | SymInt.Int n :: _ -> n
-                | _ ->
-                    malformed esc
-                      (`Bad_dimension { tensor = w_name; fault = `Symbolic }))
-            | None ->
+            match
+              static_sizes esc ~tensor:w_name
+                (tensor_meta esc graph ~ssa:w_name ~role:`Addmm_weight)
+            with
+            | n :: _ -> n
+            | [] ->
+                (* A rank-zero mat2, which this arm cannot read a feature count
+                   from. It used to report [`Symbolic], which was simply not
+                   true; [`Expected_rank] arrived with linear.default's own rank
+                   check and is the accurate row. Only the RANK-ZERO case is
+                   rejected here -- addmm reads dim 0 and has never required
+                   rank two, so demanding it would be a behaviour change rather
+                   than a corrected diagnostic. *)
                 malformed esc
-                  (`Missing_metadata { ssa = w_name; role = `Addmm_weight })
+                  (`Bad_dimension
+                     {
+                       tensor = w_name;
+                       fault = `Expected_rank { expected = 2; got = 0 };
+                     })
           in
           let* w = permute perm_addmm_weight (get "mat2") in
           let* y =
             linear
-              { Linear.Linear.in_features = Dim.extent in_features }
+              {
+                Linear.Linear.in_features =
+                  dim_extent esc ~tensor:w_name in_features;
+              }
               ~x:(get "mat1") ~weight:w ~bias:(get "self") ()
           in
           return [ y ]
