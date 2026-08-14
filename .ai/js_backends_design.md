@@ -30,6 +30,7 @@ boundary.
 
 ```
 js/probe/      six probe modules + three entry points; built natively = the golden
+js/run/        the tier-3 inference runner; built natively alongside its (modes js) twin
 js/jsoo/       (modes js) build of the same source
 js/melange/    melange.emit of the pure half, plus the shims it needs
 ```
@@ -45,6 +46,7 @@ js/melange/    melange.emit of the pure half, plus the shims it needs
 | `js/probe/native_probe.ml` | ungated entry point (sections 1–5) |
 | `js/probe/pt2_probe.ml` | gated entry point (section 6) |
 | `js/probe/subset_probe.ml` | subset entry point (the two melange can reach) |
+| `js/run/pt2_run.ml` | tier 3: every sample through `Native_interp`, checked against the release rankings. Not a probe — see tier 3 below for why it is a separate directory |
 
 Three libraries, because each split *is* a real boundary rather than a grouping:
 `probes_pure` is what melange reaches (`walk_core` needs `jsont` alone, `core` needs
@@ -86,18 +88,20 @@ make melange.runtest         # same for the pure half (26 lines)
 make js.runtest              # the three above
 make melange.build.scaffold  # shim + fmt + jsont_base only; the diagnostic floor
 make jsoo.pt2.runtest        # tier 2; gated on a downloaded model (133 lines)
+make jsoo.pt2.run            # tier 3; MANUAL, ~7.5 min -- see below
 ```
 
 Deliberately outside `make runtest`, same reasoning as `pt2.runtest`: they need node,
 and linking js_of_ocaml on every local test run is not worth it. CI runs jsoo and
-melange as two parallel jobs in `.github/workflows/js.yml`, and all three jsoo targets —
-`jsoo.pt2.runtest` included — run in the jsoo job.
+melange as two parallel jobs in `.github/workflows/js.yml`, and all three jsoo *test*
+targets — `jsoo.pt2.runtest` included — run in the jsoo job. `jsoo.pt2.run` does not,
+and is not in `js.runtest` either; see tier 3.
 
 `js.build` is composed of `jsoo.build` and `melange.build` rather than being a bare
 `dune build js`, which would defeat the profile gate that keeps `melange.emit` off
 `@all`.
 
-## Reading and running a model: what the two tiers cover
+## Reading and running a model: what the three tiers cover
 
 **Tier 1 — `model.json`, ungated.** `Jsont_bytesrw.decode_string ExportedProgram.jsont`
 on resnet18's committed `model.json` (226,263 bytes, 70 nodes, 9 distinct targets), the
@@ -131,6 +135,69 @@ invariant to arbitrary low-order float differences. Hex rather than decimal so t
 comparison is over bits instead of either backend's float formatting, and eight per line
 so a divergence localizes to a handful of values — verified by flipping one ULP in one of
 the 1000, which the diff pins to a single line.
+
+**Tier 3 — every sample against the release rankings, manual.** `make jsoo.pt2.run`
+(`js/run/pt2_run.ml`, built `(modes js)` in `js/jsoo`) runs all ten of
+`mobilenet_v3_small`'s samples through `Native_interp` under node and prints the same
+top-5 report the ATen runner prints, compared against the `results.json` shipped in the
+release zip.
+
+**It answers a different question from tier 2, and neither subsumes the other.** Tier 2
+diffs the two backends against each other, so it sees *divergence* and would pass just as
+happily if both backends were wrong. Tier 3 has an external reference and no native
+counterpart in the comparison, so it sees a *wrong answer* — but only to top-5
+granularity, and only on the samples the release happens to ship. Together they cover
+"the backends agree" and "the answer is right"; alone, each is silent about the other.
+
+The gate is `--strict`, which the Make target passes and nothing else does. Without it a
+ranking mismatch is printed and the process still exits 0 — the contract the four
+`interp_*_cram.t` goldens depend on, where the golden diff is what fails. Adding an
+opt-in flag rather than changing that contract keeps the native runner's behavior exactly
+as it was.
+
+**Cost: 7m32s wall, of which 451s is the ten inferences (45.1s each).** That per-image
+figure is tier 2's 44.9s, which is the point: the cost is ten inferences, not a new kind
+of work. **Not in CI, and not in `make runtest`, `js.runtest`, or `jsoo.pt2.runtest`.**
+Seven minutes to re-check a ranking that has not moved since the release was built is
+not worth a per-push slot when tier 2 already covers backend divergence for 45s.
+
+**The dependency boundary is the delicate part.** The flow is shared with the ATen runner
+through `lib/infer_report`, so the shared library must stay clear of `interp`, `aten` and
+`ctypes` — and of `unix`, which is why `Infer_report.run` takes the clock as `~now`
+(`Unix.gettimeofday` from `test/interp_run.ml`, `Sys.time` from `js/run/pt2_run.ml`)
+instead of reading it itself. `Sys.readdir` and `In_channel` need no such treatment:
+js_of_ocaml's node backend provides `caml_sys_read_directory` and the channel primitives,
+so sample discovery and the label files are the same source on both sides.
+
+The check that keeps it true, run against **both** directories — they are separate
+`dune` stanzas, and `copy_files` copies the `.ml` and nothing else, so a library added to
+one never reaches the other:
+
+```sh
+for d in js/jsoo js/run; do
+  closure=$(opam exec -- dune describe workspace "$d" --with-deps) || exit 1
+  if grep -qE '\(name (aten|ctypes|unix)\)' <<<"$closure"; then
+    echo "FAIL: forbidden library in the $d closure" >&2; exit 1
+  fi
+done
+```
+
+Capture before searching, and do not pipe into `grep -q`: a failed `dune describe` feeds
+`grep` nothing, which matches nothing, which reports success. That is the same fail-open
+shape the check exists to prevent. `pipefail` is not the fix either — an early `grep -q`
+match SIGPIPEs the producer. (Note also that `dune describe external-lib-deps` takes no
+directory argument and would not see the workspace-local `aten` if it did.) Current
+census: `js/jsoo` 25 libraries, `js/run` 18.
+
+**Ranking is by raw logit, not by probability** (`lib/native_predict`). Softmax is
+monotone so the two orders agree mathematically, but a finite probability underflows to
+`0.` long before the logit gap stops being representable — logits `[0.; -1001.; -1000.]`
+give probabilities `[1.; 0.; 0.]`, and ranking those returns class 1 ahead of class 2.
+The softmax is computed afterwards, for the report only, with the maximum subtracted and
+the denominator taken over **every** class rather than the selected five, so the printed
+probabilities match what the ATen runner prints instead of summing to 1 over the top-5.
+Measured agreement with `Interp.top_predictions` on the fixtures: identical rankings,
+probabilities to ~6 significant figures.
 
 **Tier 1's worker section — the whole browser path, ungated.** The request bytes go
 through `Me_request.Request.jsont`'s staged decoder, `Me_export.handle` does the
@@ -368,18 +435,23 @@ usual reason plus one of its own: it ships a melange stanza gated on
 `ERR_TRACE_TEST_MELANGE=true`, and that same variable *disables* its native `src/`
 library, so no single tree can have both. Same copy-never-fork rule as `js/melange/core`.
 
-### No OCaml crosses into the browser
+### Where OCaml crosses into the browser, and where it must not
 
-Nothing in this repo links `js_of_ocaml` as a *library*: no OCaml handles `postMessage`,
-returns a Promise, or touches `Js_error`. `web/src/session.js` is plain JavaScript
-driving the upstream renderer against a session document the native CLI produced ahead
-of time, and the jsoo build here is a differential probe, not a deployment.
+`js/webapp/` links `js_of_ocaml` as a *library* — `webapp_worker` and `webapp_bridge` are
+`(modes js)` executables and `webapp_jsoo_buffer` is a library, all with `js_of_ocaml` in
+their `(libraries ...)`. That is the OCaml worker this section used to say did not exist
+yet; it does now, and `web/src/session.js` is no longer the only path to the renderer.
 
-So the external-stack adapters (`Err.Stack.of_external` fed from `Js_error.stack` /
-`Js.Exn.stack`) are deliberately **not** written — they would have no call sites. When an
-OCaml worker does appear, the adapter goes beside it and never in the base `Err`
-library: a browser dependency there would land in melange's pure closure, which is
-exactly what the scope split above exists to prevent.
+The rule that survives is the narrower one, and it is the one that mattered: **`js/probe`,
+`js/run` and `js/jsoo` still take no `js_of_ocaml` library dependency and no ppx.** They
+write to stdout, so they need the compiler, not the bindings. Keeping the binding out of
+the probe and the runner is what lets `js/jsoo`'s closure be checked mechanically for
+`aten`/`ctypes`/`unix` without also having to reason about a browser surface.
+
+The external-stack adapters (`Err.Stack.of_external` fed from `Js_error.stack` /
+`Js.Exn.stack`) still are not written. If they are, they go beside the webapp worker and
+never in the base `Err` library: a browser dependency there would land in melange's pure
+closure, which is exactly what the scope split above exists to prevent.
 
 ### Profile gating
 
@@ -492,6 +564,11 @@ accepts. Two caches, both keyed on `web/package-lock.json`: `node_modules` and t
 downloaded Chromium. Keying on the lockfile rather than on a fixed string is what keeps the
 renderer pin a claim about what was **rendered** — a version bump gets a fresh entry instead
 of silently reusing the previous `dist`.
+
+It also runs `webapp.runtest` and `webapp.browser-runtest`, the unit and assembled-site
+gates for `js/webapp`. So the job now covers two things that fail for different reasons —
+the upstream element rejecting our export, and our own webapp bundle being broken — and a
+red run has to be read against which step failed.
 
 It fails for reasons the other two cannot — an npm lockfile, a downloaded browser, a
 renderer version — which is exactly why burying it in either would make a browser regression

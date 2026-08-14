@@ -33,3 +33,18 @@
  (modes js)
  (modules pt2_probe)
  (libraries probes_pt2))
+
+; The all-sample inference runner (`make jsoo.pt2.run`), whose native half is in
+; js/run. Same copy_files shape as the two probes above -- and note the
+; libraries are declared HERE, independently: copy_files copies the .ml and
+; nothing else, so js/run/dune's dependencies never reach this executable. A
+; forbidden library has to be checked in both closures separately.
+
+(copy_files
+ (files %{workspace_root}/js/run/pt2_run.ml))
+
+(executable
+ (name pt2_run)
+ (modes js)
+ (modules pt2_run)
+ (libraries err_trace infer_report native_interp native_predict pt2))

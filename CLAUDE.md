@@ -178,9 +178,18 @@ make melange.build.scaffold  # shim + fmt + jsont_base only — the diagnostic f
 
 # Gated on downloaded weights, so outside js.runtest — CI runs it in the jsoo job,
 # which fetches this one model under its own cache key (never build.yml's).
-make jsoo.pt2.download       # = pt2.download for the tier-2 model
+make jsoo.pt2.download       # = pt2.download for the tier-2/3 model
 make jsoo.pt2.runtest        # open a real .pt2, lower it, run inference, diff
 ```
+
+`make jsoo.pt2.run` is **tier 3 and manual** — every sample of the same model through
+`Native_interp` under node, checked against the `results.json` in the release zip, with
+`--strict` so a ranking mismatch exits 1. It answers "is the answer right", which the
+tier-2 diff cannot: that one compares the two backends to each other and would pass if
+both were wrong. ~7.5 min (ten inferences at ~45s), so it is in no CI job and no
+`runtest` alias. The flow is shared with the native runner through `lib/infer_report`,
+which must never gain `interp`/`aten`/`ctypes`/`unix` — the clock is passed in as `~now`
+for exactly that reason.
 
 Not part of `make runtest` (they need node); CI runs jsoo and melange as two parallel
 jobs. Melange is behind `--profile melange`, so plain `dune build` never compiles it.

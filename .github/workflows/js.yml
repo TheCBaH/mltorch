@@ -5,11 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Two independent jobs so the backends verify in parallel rather than in series
-# behind each other, and so a melange failure names melange in the job list
-# instead of being buried in a combined log.
+# Three independent jobs so the backends verify in parallel rather than in
+# series behind each other, and so a melange failure names melange in the job
+# list instead of being buried in a combined log.
 #
-# The two jobs have DIFFERENT scopes, and that asymmetry is deliberate rather
+# The three jobs have DIFFERENT scopes, and that asymmetry is deliberate rather
 # than an oversight:
 #
 #   jsoo    reads and runs real PT2 models, so it needs pytorch_types, which is
@@ -23,8 +23,13 @@ on:
 #           a renderer version -- so it is its own job for the same attribution
 #           reason as the other two.
 #
-# Both reuse the devcontainer image, which build.yml has usually already warmed
-# in ghcr.
+# All three reuse the devcontainer image, which build.yml has usually already
+# warmed in ghcr.
+#
+# `make jsoo.pt2.run` (tier 3) is deliberately NOT here: ~7.5 minutes to
+# re-check rankings that have not moved since the release was built, when
+# jsoo.pt2.runtest already covers backend divergence in ~45s. See
+# .ai/js_backends_design.md.
 
 jobs:
   jsoo:
