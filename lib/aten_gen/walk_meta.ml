@@ -334,11 +334,80 @@ let unbind_int =
       pcg )|};
   }
 
+(* linear.default: the trailing axis is the feature axis and every leading axis
+   passes through, so the [leading] candidates vary the input's RANK as well as
+   its extents. A rank-2-only walk would never exercise the pass-through, and a
+   bias-always walk would never exercise [Graph_ir]'s optional-bias path. *)
+let linear =
+  {
+    module_name = "Linear_walk";
+    target = "torch.ops.aten.linear.default";
+    recipe = "Recipe_linear";
+    initial =
+      "Aten_walk_recipes.Recipe_linear.{ leading = [ 4 ]; in_features = 8; \
+       out_features = 6; bias = true }";
+    axes =
+      "Aten_walk_recipes.Recipe_linear.axes ~leading:[ [ 4 ]; [ 2; 3 ]; [ 2; \
+       3; 4 ] ] ~in_features:[ 3; 8; 16 ] ~out_features:[ 1; 6; 12 ] ~bias:[ \
+       true; false ]";
+    build =
+      {|let input, pcg = Walk.tensor_spec pcg (Recipe_linear.input_shape c) in
+    let weight, pcg = Walk.tensor_spec pcg (Recipe_linear.weight_shape c) in
+    let bias, pcg =
+      if Recipe_linear.has_bias c then
+        let b, pcg = Walk.tensor_spec pcg (Recipe_linear.bias_shape c) in
+        (Some b, pcg)
+      else (None, pcg)
+    in
+    ( Aten_op_spec.Op_linear.(
+        spec { input; weight; bias }),
+      pcg )|};
+  }
+
+(* rms_norm.default: the normalized extents appear in three places -- the input's
+   trailing axes, [normalized_shape], and the weight -- and one list supplies all
+   three, so they cannot disagree. Both the single- and multi-axis cases and both
+   weight states are walked; each divides by a different count or reads the
+   weight on a different axis, and every one of them preserves the output
+   shape. *)
+let rms_norm =
+  {
+    module_name = "Rms_norm_walk";
+    target = "torch.ops.aten.rms_norm.default";
+    recipe = "Recipe_norm";
+    initial =
+      "Aten_walk_recipes.Recipe_norm.{ leading = [ 2; 3 ]; normalized = [ 4 ]; \
+       eps = None; weight = true }";
+    axes =
+      "Aten_walk_recipes.Recipe_norm.axes ~leading:[ [ 2 ]; [ 2; 3 ]; [ 2; 3; \
+       4 ] ] ~normalized:[ [ 4 ]; [ 5 ]; [ 3; 4 ]; [ 2; 3; 4 ] ] ~eps:[ None; \
+       Some 1e-5; Some 0. ] ~weight:[ true; false ]";
+    build =
+      {|let input, pcg = Walk.tensor_spec pcg (Recipe_norm.input_shape c) in
+    let weight, pcg =
+      if Recipe_norm.has_weight c then
+        let w, pcg = Walk.tensor_spec pcg (Recipe_norm.weight_shape c) in
+        (Some w, pcg)
+      else (None, pcg)
+    in
+    ( Aten_op_spec.Op_rms_norm.(
+        spec
+          {
+            input;
+            normalized_shape = Recipe_norm.normalized_shape c;
+            weight;
+            eps = Recipe_norm.eps c;
+          }),
+      pcg )|};
+  }
+
 let entries =
   [
     conv2d;
     convolution;
     conv2d_padding;
+    linear;
+    rms_norm;
     max_pool2d;
     max_pool2d_with_indices;
     avg_pool2d;

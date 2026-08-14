@@ -24,7 +24,11 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Conv2d_padding_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Linear_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Batch_norm_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (module Rms_norm_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Max_pool2d_with_indices_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
@@ -49,6 +53,20 @@ let all_walks : op list =
     (module Unbind_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
   ]
+
+(* [native_op_walk.ml] shares the library's name, so it IS the library's
+   interface: nothing else in this directory is reachable from outside it. A
+   focused test that wants ONE walk therefore cannot name its module, and
+   picking by index into [all_walks] would silently follow the list around.
+   Selecting by the walk's own [target] is stable under reordering. *)
+let find target =
+  List.find_opt
+    (fun (m : op) ->
+      let module M =
+        (val m : Walk_core.Walk.Op with type subject = Native_subject.t)
+      in
+      M.target = target)
+    all_walks
 
 let run (m : op) ~ppf ~pcg ~steps =
   Walk_core.Walk.run m ~verify:Native_verify.run ~ppf ~pcg ~steps
