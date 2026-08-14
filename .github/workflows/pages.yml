@@ -49,9 +49,11 @@ jobs:
     - name: setup
       run: echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
     - name: build site
-      run: ${{ env.EXEC }} make webapp.build
-      env:
-        MODELS: all
+      # `env:` here would only reach the runner's host shell -- ${{ env.EXEC }}
+      # is `devcontainer exec`, which runs make INSIDE the container and does
+      # not forward the step's environment on its own. --remote-env is what
+      # actually crosses that boundary.
+      run: ${{ env.EXEC }} --remote-env MODELS=all make webapp.build
     - name: configure Pages
       id: pages
       uses: actions/configure-pages@v6
