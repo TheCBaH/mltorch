@@ -802,3 +802,219 @@ let%expect_test "graph with Unbind op: encode → decode → pretty-print" =
         unbind x=t0 params={axis=C}
     outputs:
       [t1 f32 [W=2 C=4] <-n0, t2 f32 [W=2 C=4] <-n0, t3 f32 [W=2 C=4] <-n0] |}]
+
+(* ---- Group-2 non-default parameters through the codecs ------------------ *)
+
+(* Every op below already has a [params_jsont], so no new codec is expected --
+   what is unproven is that a NON-DEFAULT value survives one. A round trip over
+   default parameters cannot tell a codec that carries a field from one that
+   drops it and re-derives the default, and defaults are exactly what the
+   existing blocks above use: unit stride, zero pad, unit dilation, one group.
+
+   So each configuration here is asymmetric in H/W and non-unit wherever it can
+   be. The decoded graph is printed rather than compared, because a comparison
+   would pass on two identically-wrong values. *)
+let round_trip name build =
+  let result =
+    let open Err.Syntax in
+    let* g = lift_build build in
+    let* json = encode_graph g in
+    let+ g2 = decode_graph json in
+    g2
+  in
+  Format.printf "%s: %a@." name (pp_result Graph_ir.pp) result
+
+let%expect_test "Group 2: non-default conv2d params survive a round trip" =
+  round_trip "conv2d"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 8 8 4) ~name:"x" () in
+      let* w = input ~shape:(s 8 1 1 3 2 2) ~name:"w" () in
+      let* b = input ~shape:(s1c 8) ~name:"b" () in
+      conv2d ~name:"y"
+        Conv.Conv2d.
+          {
+            h =
+              {
+                kernel = Dim.extent 3;
+                stride = Op_config.Pos.of_int 2;
+                pad_before = Op_config.Nonneg.of_int 1;
+                pad_after = Op_config.Nonneg.of_int 1;
+                dilation = Op_config.Pos.of_int 1;
+              };
+            w =
+              {
+                kernel = Dim.extent 2;
+                stride = Op_config.Pos.of_int 1;
+                pad_before = Op_config.Nonneg.of_int 0;
+                pad_after = Op_config.Nonneg.of_int 0;
+                dilation = Op_config.Pos.of_int 2;
+              };
+            in_channels = Dim.extent 4;
+            groups = Op_config.Pos.of_int 2;
+          }
+        ~x ~weight:w ~bias:b ());
+  [%expect
+    {|
+    conv2d: graph
+            inputs:
+              [t0 f32 [H=8 W=8 C=4] ->[n0],
+               t1 f32 [N=8 T=1 D=1 H=3 W=2 C=2] ->[n0], t2 f32 [C=8] ->[n0]]
+            nodes:
+              n0: [t3 f32 [H=4 W=6 C=8]] =
+                conv2d
+                  x=t0
+                  weight=t1
+                  bias=t2
+                  params={h={kernel=3;
+                            stride=2;
+                            pad_before=1;
+                            pad_after=1;
+                            dilation=1};
+                         w={kernel=2;
+                           stride=1;
+                           pad_before=0;
+                           pad_after=0;
+                           dilation=2};
+                         in_channels=4;
+                         groups=2}
+            outputs: [t3 f32 [H=4 W=6 C=8] <-n0] |}]
+
+let%expect_test "Group 2: conv2d_padding carries the MODE, unresolved" =
+  round_trip "conv2d_padding same"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 8 8 4) ~name:"x" () in
+      (* per-group input extent 2 x 2 groups = the activation's 4 channels *)
+      let* w = input ~shape:(s 8 1 1 3 3 2) ~name:"w" () in
+      conv2d_padding ~name:"y"
+        Conv.Conv2d_padding.
+          {
+            stride =
+              Op_config.Hw.
+                { h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+            padding = Conv.Conv2d_padding.Same;
+            dilation =
+              Op_config.Hw.
+                { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 3 };
+            groups = Op_config.Pos.of_int 2;
+          }
+        ~x ~weight:w ());
+  [%expect
+    {|
+    conv2d_padding same: graph
+                         inputs:
+                           [t0 f32 [H=8 W=8 C=4] ->[n0],
+                            t1 f32 [N=8 T=1 D=1 H=3 W=3 C=2] ->[n0]]
+                         nodes:
+                           n0: [t2 f32 [H=8 W=8 C=8]] =
+                             conv2d_padding
+                               x=t0
+                               weight=t1
+                               bias=none
+                               params={stride={h=1; w=1};
+                                      padding=same;
+                                      dilation={h=2; w=3};
+                                      groups=2}
+                         outputs: [t2 f32 [H=8 W=8 C=8] <-n0] |}]
+
+let%expect_test "Group 2: rectangular max_pool2d params survive a round trip" =
+  round_trip "max_pool2d"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 9 7 3) ~name:"x" () in
+      max_pool2d ~name:"y"
+        Pool.MaxPool2d.
+          {
+            kernel = Op_config.Hw.{ h = Dim.extent 3; w = Dim.extent 2 };
+            stride =
+              Op_config.Hw.
+                { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 1 };
+            pad =
+              Op_config.Hw.
+                { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 0 };
+          }
+        x);
+  [%expect
+    {|
+    max_pool2d: graph
+                inputs: [t0 f32 [H=9 W=7 C=3] ->[n0]]
+                nodes:
+                  n0: [t1 f32 [H=5 W=6 C=3]] =
+                    max_pool2d
+                      x=t0
+                      params={kernel={h=3; w=2};
+                             stride={h=2; w=1};
+                             pad={h=1; w=0}}
+                outputs: [t1 f32 [H=5 W=6 C=3] <-n0] |}]
+
+(* A multi-axis [dims] and an OPTIONAL weight, in both states. The absent case is
+   the one the bridge used to make unreachable by materializing a ones tensor,
+   so a codec that could not express it would have gone unnoticed. *)
+let%expect_test
+    "Group 2: rms_norm dims and optional weight survive a round trip" =
+  round_trip "rms_norm with weight"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 8 2 5) ~name:"x" () in
+      let* w = input ~shape:(s 1 1 1 1 2 5) ~name:"w" () in
+      rms_norm ~name:"y"
+        { Norm.RmsNorm.dims = [ Axis.W; Axis.C ]; eps = 1e-5 }
+        ~x ~weight:w ());
+  round_trip "rms_norm no weight"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 8 2 5) ~name:"x" () in
+      rms_norm ~name:"y"
+        { Norm.RmsNorm.dims = [ Axis.W; Axis.C ]; eps = 1e-5 }
+        ~x ());
+  [%expect
+    {|
+    rms_norm with weight: graph
+                          inputs:
+                            [t0 f32 [H=8 W=2 C=5] ->[n0],
+                             t1 f32 [W=2 C=5] ->[n0]]
+                          nodes:
+                            n0: [t2 f32 [H=8 W=2 C=5]] =
+                              rms_norm
+                                x=t0
+                                weight=t1
+                                params={dims=[W, C]; eps=1e-05}
+                          outputs: [t2 f32 [H=8 W=2 C=5] <-n0]
+    rms_norm no weight: graph
+                        inputs: [t0 f32 [H=8 W=2 C=5] ->[n0]]
+                        nodes:
+                          n0: [t1 f32 [H=8 W=2 C=5]] =
+                            rms_norm
+                              x=t0
+                              weight=none
+                              params={dims=[W, C]; eps=1e-05}
+                        outputs: [t1 f32 [H=8 W=2 C=5] <-n0] |}]
+
+let%expect_test "Group 2: linear with a non-square weight survives a round trip"
+    =
+  round_trip "linear"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 8 2 5) ~name:"x" () in
+      let* w = input ~shape:(s 3 1 1 1 1 5) ~name:"w" () in
+      let* b = input ~shape:(s1c 3) ~name:"b" () in
+      linear ~name:"y"
+        { Linear.Linear.in_features = Dim.extent 5 }
+        ~x ~weight:w ~bias:b ());
+  [%expect
+    {|
+    linear: graph
+            inputs:
+              [t0 f32 [H=8 W=2 C=5] ->[n0],
+               t1 f32 [N=3 T=1 D=1 H=1 W=1 C=5] ->[n0], t2 f32 [C=3] ->[n0]]
+            nodes:
+              n0: [t3 f32 [H=8 W=2 C=3]] =
+                linear x=t0 weight=t1 bias=t2 params={in_features=5}
+            outputs: [t3 f32 [H=8 W=2 C=3] <-n0] |}]
