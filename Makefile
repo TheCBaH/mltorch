@@ -1,4 +1,4 @@
-.PHONY: spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
+.PHONY: spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -306,7 +306,7 @@ JS_BUILD := _build/default/js
 JS_MODEL_JSON := $(JS_BUILD)/probe/model.json
 
 jsoo.build:
-	opam exec -- dune build js/probe js/jsoo
+	opam exec -- dune build js/probe js/jsoo js/run
 
 jsoo.runtest: jsoo.build
 	@$(JS_BUILD)/probe/native_probe.exe $(JS_MODEL_JSON) > $(JS_BUILD)/native.txt
@@ -339,8 +339,9 @@ jsoo.inline-runtest:
 # Pt2_archive.max_file_bytes -- see lib/pt2/pt2_archive.ml.
 
 JS_PT2_MODEL := mobilenet_v3_small
-JS_PT2_ARCHIVE := $(PT2_DIR)/$(JS_PT2_MODEL)/$(JS_PT2_MODEL).pt2
-JS_PT2_INPUT := $(PT2_DIR)/$(JS_PT2_MODEL)/images/000000000149.pt
+JS_PT2_DIR := $(PT2_DIR)/$(JS_PT2_MODEL)
+JS_PT2_ARCHIVE := $(JS_PT2_DIR)/$(JS_PT2_MODEL).pt2
+JS_PT2_INPUT := $(JS_PT2_DIR)/images/000000000149.pt
 
 jsoo.pt2.download:
 	$(MAKE) pt2.download PT2_MODEL=$(JS_PT2_MODEL)
@@ -373,6 +374,28 @@ jsoo.pt2.runtest: jsoo.build
 	  > $(JS_BUILD)/pt2_jsoo.txt
 	@diff -u $(JS_BUILD)/pt2_native.txt $(JS_BUILD)/pt2_jsoo.txt \
 	  && echo "jsoo: $(JS_PT2_MODEL) inference matches native ($$(wc -l < $(JS_BUILD)/pt2_native.txt) lines)"
+
+# Every sample of the same model through the PURE engine under node, checked
+# against the rankings shipped in the release. A third thing, not a bigger
+# jsoo.pt2.runtest: that target diffs the two backends against each other and
+# would pass just as happily if both were wrong, while this one has an external
+# reference and no native counterpart in the comparison.
+#
+# --strict is what makes it a gate: without it a top-5 disagreement only shows
+# up in the printed report and the command still exits 0, which is the contract
+# the interp_*_cram.t goldens rely on and is deliberately left alone.
+#
+# MANUAL. Not in runtest, js.runtest, or jsoo.pt2.runtest: ten inferences at the
+# ~4.9x node multiplier is minutes, against ~45s for the one-image differential.
+# Depending on the download IS safe here, unlike pt2.runtest -- there is no cram
+# and no --auto-promote, so unzip -o refreshing mtimes costs nothing.
+
+JS_PT2_RUN_ARGS = $(JS_PT2_ARCHIVE) $(JS_PT2_DIR)/images \
+	$(JS_PT2_DIR)/imagenet_lsvrc_2015_synsets.txt \
+	$(JS_PT2_DIR)/imagenet_metadata.txt $(JS_PT2_DIR)/results.json
+
+jsoo.pt2.run: jsoo.pt2.download jsoo.build
+	node $(JS_BUILD)/jsoo/pt2_run.bc.js $(JS_PT2_RUN_ARGS) --strict
 
 # Melange lives behind `--profile melange` so that `dune build` and `make build`
 # never compile it -- a melange.emit stanza is otherwise attached to @all and
