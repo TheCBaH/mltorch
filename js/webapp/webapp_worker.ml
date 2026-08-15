@@ -78,6 +78,15 @@ let handle event =
     with
     | Ok wire -> post wire
     | Error _ -> protocol_failure ()
-  with _ -> protocol_failure ()
+  with e ->
+    let detail =
+      match e with
+      | Err.Exn.E packed -> Format.asprintf "%a" Err.Exn.pp_kind packed
+      | e -> Printexc.to_string e
+    in
+    ignore
+      (Js.Unsafe.meth_call Console.console "error"
+         [| Js.Unsafe.inject (Js.string detail) |]);
+    protocol_failure ()
 
 let () = Js.Unsafe.set Js.Unsafe.global "onmessage" (Js.wrap_callback handle)
