@@ -334,6 +334,51 @@ let unbind_int =
       pcg )|};
   }
 
+(* view.default / _unsafe_view.default: SymInt[] size has no default (unlike a
+   scalar or a bool), so neither reaches the generated Default tier
+   (op3-impl.md F5) -- the target is a factorization of the source's element
+   count, which [Recipe_view] draws as one axis correlated to the current
+   shape via [cascade], never independently. Two entries, same recipe/initial/
+   axes: view.default is not strictly required by this group (row 3.2 is
+   _unsafe_view), but it is the strongest available evidence that commit 1's
+   shared numel resolver still accepts what it used to -- an independent ATen
+   oracle exercising the same code path _unsafe_view's evidence already
+   covers by construction (both share one dispatch arm). *)
+let view_default =
+  {
+    module_name = "View_walk";
+    target = "torch.ops.aten.view.default";
+    recipe = "Recipe_view";
+    initial =
+      "Aten_walk_recipes.Recipe_view.{ n = 1; c = 4; h = 4; w = 4; pattern = \
+       Aten_walk_recipes.Recipe_view.Flatten; target = [] }";
+    axes =
+      "Aten_walk_recipes.Recipe_view.axes ~n:[ 1; 2 ] ~c:[ 2; 4; 6 ] ~h:[ 2; \
+       3; 4 ] ~w:[ 2; 3; 4 ] \
+       ~pattern:Aten_walk_recipes.Recipe_view.all_patterns";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_view.self_shape c) in
+    ( Aten_op_spec.Op_view.(spec { self; size = Recipe_view.target c }), pcg )|};
+  }
+
+let unsafe_view =
+  {
+    module_name = "Unsafe_view_walk";
+    target = "torch.ops.aten._unsafe_view.default";
+    recipe = "Recipe_view";
+    initial =
+      "Aten_walk_recipes.Recipe_view.{ n = 1; c = 4; h = 4; w = 4; pattern = \
+       Aten_walk_recipes.Recipe_view.Flatten; target = [] }";
+    axes =
+      "Aten_walk_recipes.Recipe_view.axes ~n:[ 1; 2 ] ~c:[ 2; 4; 6 ] ~h:[ 2; \
+       3; 4 ] ~w:[ 2; 3; 4 ] \
+       ~pattern:Aten_walk_recipes.Recipe_view.all_patterns";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_view.self_shape c) in
+    ( Aten_op_spec.Op__unsafe_view.(spec { self; size = Recipe_view.target c }),
+      pcg )|};
+  }
+
 (* sub.Tensor is a two-tensor op: the generated DEFAULT walk admits an op only
    when it has exactly one tensor argument (Aten_walk_gen.default_tensor), so
    there is no generic walk to override here -- this is filling a gap, the
@@ -443,6 +488,8 @@ let entries =
     hardtanh;
     unbind_int;
     sub_tensor;
+    view_default;
+    unsafe_view;
   ]
 
 let find target = List.find_opt (fun e -> e.target = target) entries

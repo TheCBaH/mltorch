@@ -330,37 +330,53 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
     step 3 [kernel_h]: {kernel=2x2 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
+    step 0: {shape=[1,4,4,4] pattern=flatten target=[64]}
+    [spec] torch.ops.aten.view.default: matched
+    step 1 [c]: {shape=[1,6,4,4] pattern=flatten target=[96]}
+    [spec] torch.ops.aten.view.default: matched
+    step 2 [n]: {shape=[1,6,4,4] pattern=flatten target=[96]}
+    [spec] torch.ops.aten.view.default: matched
+    step 3 [h]: {shape=[1,6,3,4] pattern=flatten target=[72]}
+    [spec] torch.ops.aten.view.default: matched
+    step 0: {shape=[1,4,4,4] pattern=flatten target=[64]}
+    [spec] torch.ops.aten._unsafe_view.default: matched
+    step 1 [w]: {shape=[1,4,4,3] pattern=flatten target=[48]}
+    [spec] torch.ops.aten._unsafe_view.default: matched
+    step 2 [h]: {shape=[1,4,2,3] pattern=flatten target=[24]}
+    [spec] torch.ops.aten._unsafe_view.default: matched
+    step 3 [c]: {shape=[1,6,2,3] pattern=flatten target=[36]}
+    [spec] torch.ops.aten._unsafe_view.default: matched
     step 0: {shape=[2,3,4,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 1 [dim]: {shape=[2,3,4,4] dim=-4}
+    step 1 [n]: {shape=[2,3,4,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 2 [n]: {shape=[2,3,4,4] dim=-4}
+    step 2 [dim]: {shape=[2,3,4,4] dim=1}
     [spec] torch.ops.aten.unbind.int: matched
-    step 3 [dim]: {shape=[2,3,4,4] dim=-1}
+    step 3 [dim]: {shape=[2,3,4,4] dim=3}
     [spec] torch.ops.aten.unbind.int: matched
     step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 1 [h]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
+    step 1 [dims]: {shape=[2,4,8,8] dims=[2] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 2 [w]: {shape=[2,4,8,16] dims=[2,3] keepdim=false}
+    step 2 [h]: {shape=[2,4,4,8] dims=[2] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 3 [c]: {shape=[2,8,8,16] dims=[2,3] keepdim=false}
+    step 3 [keepdim]: {shape=[2,4,4,8] dims=[2] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 1 [shape]: {shape=[2,8,4,4]}
+    step 1 [shape]: {shape=[6,3,4,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 2 [shape]: {shape=[2,2,4,4]}
+    step 2 [shape]: {shape=[6,3,3,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 3 [shape]: {shape=[2,2,2,4]}
+    step 3 [shape]: {shape=[6,3,8,4]}
     [spec] torch.ops.aten.clone.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 1 [shape]: {shape=[2,3,3,4]}
+    step 1 [shape]: {shape=[6,3,4,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 2 [shape]: {shape=[2,3,6,4]}
+    step 2 [shape]: {shape=[6,3,4,3]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 3 [shape]: {shape=[2,3,3,4]}
+    step 3 [shape]: {shape=[8,3,4,3]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
     needs_meta:
       torch.ops.aten.add.Tensor
@@ -383,7 +399,6 @@ let%expect_test "bridge coverage" =
       torch.ops.aten.batch_norm.default
       torch.ops.aten.dropout.default
       torch.ops.aten.dropout_.default
-      torch.ops.aten.view.default
       torch.ops.aten.expand.default
       torch.ops.aten.select.int
       torch.ops.aten.squeeze.dims

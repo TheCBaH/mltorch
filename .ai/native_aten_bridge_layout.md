@@ -228,3 +228,34 @@ axis — so it normalized over the whole tensor. Four silently wrong answers,
 now four typed rejections.
 
 The float32-epsilon default lives in `Norm.RmsNorm.default_eps`, read by both.
+
+### `view.default` / `_unsafe_view.default`: one shared body, `Identical` after materialization
+
+Both overloads decode identically (`self`, `size`) and legalize to the same
+`Reshape` node — `_unsafe_view` differs from `view` only in ATen's own aliasing
+contract (it skips the alias-safety check `view` performs, since the exporter
+has already proven the reshape is the only consumer), which has no native
+counterpart to differ over. Both importers dispatch the two targets through one
+match arm (`op_bridge.ml`, `native_interp.ml`) rather than two copies of an
+identical body — CLAUDE.md's rule against restating a shape/build rule a
+second time free to drift, applied to dispatch rather than to a shape formula.
+This is still exact-target dispatch in `op3.md`'s sense: both targets are
+named explicitly, there is no fallthrough case, and every diagnostic below the
+match reads `node.target` (`Op_bridge`) or the resolved tensor name
+(`Native_interp`), so a failure still says which overload produced it.
+
+**The correspondence is `Identical`, but only AFTER materialization, never
+alias-identical.** ATen's `view`/`_unsafe_view` may return a tensor that
+shares storage with `self` — mutating one would mutate the other. Native graph
+edges are immutable values with no aliasing relation at all; two edges either
+hold the same values or they don't. `Reshape`'s own header states the
+reinterpretation rule (row-major flat offset preserved under the new shape);
+this note is only that "identical" in this codebase's verification sense
+(`Verify.verify_node`'s element-wise comparison) never means alias-identical,
+and no test here asserts storage sharing.
+
+`Reshape` has one output and `Argument.Tensor`, so `Native_interp`'s generic
+`output_names`/provenance path is correct unmodified for both overloads — the
+per-op override in `materialized_output_names` exists only for the two
+multi-output arms (`_native_batch_norm_legit_no_training`,
+`max_pool2d_with_indices`), neither of which this is.

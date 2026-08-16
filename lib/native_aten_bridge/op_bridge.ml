@@ -1186,7 +1186,16 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                unbind { Split.Unbind.axis } x_id
            | _ -> assert false))
-  | "torch.ops.aten.view.default" ->
+  (* Both overloads share this body: after commit 1's checked resolver the body
+     is three calls, and two copies of it is exactly the drift risk this repo
+     keeps warning about. Still exact-target dispatch in op3.md's sense -- both
+     targets are named, there is no fallthrough, and [native_of_aten]/every
+     diagnostic below reads [node.target], so a failure still says which
+     overload it was (op3-impl.md Part IV #2). [Identical] AFTER
+     materialization, not alias-identical: ATen may return a view over the
+     same storage, native graph edges are values. See
+     .ai/native_aten_bridge_layout.md. *)
+  | "torch.ops.aten.view.default" | "torch.ops.aten._unsafe_view.default" ->
       Some
         ((* Contiguous reshape. [of_aten] inputs are already ATen-row-major, so
             the native reshape needs no surrounding permutes; the target native
