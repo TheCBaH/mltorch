@@ -27,7 +27,8 @@ open Bigarray
 type error =
   [ Aten_shape.error
   | `Null_data_ptr of Aten_scalar_type.t
-  | `Unsupported_dtype of Aten_scalar_type.t ]
+  | `Unsupported_dtype of Aten_scalar_type.t
+  | `Numel_over_limit of Vec6.Numel_bound.t ]
 
 let pp_error ppf : [< error ] -> unit = function
   | #Aten_shape.error as e -> Aten_shape.pp_error ppf e
@@ -36,14 +37,16 @@ let pp_error ppf : [< error ] -> unit = function
         (Aten_scalar_type.to_int t)
   | `Unsupported_dtype t ->
       Fmt.pf ppf "unsupported ATen dtype (code %d)" (Aten_scalar_type.to_int t)
+  | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
 
 let of_aten t : (Tensor.packed, [> error ]) Err.t =
-  (* An ATen view doesn't share the native flat order: a permute/view output
-     (the transposed fc weight feeding [addmm]) is strided, and a select/slice
-     output sits at a non-zero storage offset while reporting itself contiguous.
-     [Aten_tensor.materialize_for_raw_read] covers both — guarding on
-     [is_contiguous] alone let the offset case through with wrong values. *)
-  let t = Aten_tensor.materialize_for_raw_read t in
+  (* Read the shape off the ORIGINAL handle and bound its element count
+     BEFORE materializing: [materialize_for_raw_read] below clones a
+     non-contiguous tensor contiguous, and an oversized [self] must be
+     refused before that clone, not after it and the [Array1.create] that
+     follows -- see op3-impl.md F1's bridge-ordering half. Sound because
+     materializing never changes the shape (it clones OR returns the same
+     tensor -- either way the shape array is unaffected). *)
   let shape_arr = Aten_tensor.shape t in
   match Aten_shape.of_aten shape_arr with
   | Error _ as e ->
@@ -51,43 +54,57 @@ let of_aten t : (Tensor.packed, [> error ]) Err.t =
          map_error is what preserves Aten_shape's own detection origin. *)
       Err.map_error (fun e -> (e :> error)) e
   | Ok shape -> (
-      let n = Aten_tensor.numel t in
-      match Aten_tensor.scalar_type t with
-      | Aten_scalar_type.Float -> (
-          match Aten_tensor.data Aten_dtype.float32 t with
-          | None -> Err.fail (`Null_data_ptr Aten_scalar_type.Float)
-          | Some src ->
-              let data = Array1.create float32 c_layout n in
-              Array1.blit src data;
-              Err.return
-                (Tensor.Tensor
-                   {
-                     Tensor.shape;
-                     payload =
+      match
+        Err.map_error
+          (fun e -> (e :> error))
+          (Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel shape)
+      with
+      | Error _ as e -> e
+      | Ok _ -> (
+          (* An ATen view doesn't share the native flat order: a permute/view
+             output (the transposed fc weight feeding [addmm]) is strided, and
+             a select/slice output sits at a non-zero storage offset while
+             reporting itself contiguous. [materialize_for_raw_read] covers
+             both — guarding on [is_contiguous] alone let the offset case
+             through with wrong values. *)
+          let t = Aten_tensor.materialize_for_raw_read t in
+          let n = Aten_tensor.numel t in
+          match Aten_tensor.scalar_type t with
+          | Aten_scalar_type.Float -> (
+              match Aten_tensor.data Aten_dtype.float32 t with
+              | None -> Err.fail (`Null_data_ptr Aten_scalar_type.Float)
+              | Some src ->
+                  let data = Array1.create float32 c_layout n in
+                  Array1.blit src data;
+                  Err.return
+                    (Tensor.Tensor
                        {
-                         Payload.fmt = Payload.F32;
-                         quant = Payload.No_quant;
-                         data;
-                       };
-                   }))
-      | Aten_scalar_type.Long -> (
-          match Aten_tensor.data Aten_dtype.int64 t with
-          | None -> Err.fail (`Null_data_ptr Aten_scalar_type.Long)
-          | Some src ->
-              let data = Array1.create int64 c_layout n in
-              Array1.blit src data;
-              Err.return
-                (Tensor.Tensor
-                   {
-                     Tensor.shape;
-                     payload =
+                         Tensor.shape;
+                         payload =
+                           {
+                             Payload.fmt = Payload.F32;
+                             quant = Payload.No_quant;
+                             data;
+                           };
+                       }))
+          | Aten_scalar_type.Long -> (
+              match Aten_tensor.data Aten_dtype.int64 t with
+              | None -> Err.fail (`Null_data_ptr Aten_scalar_type.Long)
+              | Some src ->
+                  let data = Array1.create int64 c_layout n in
+                  Array1.blit src data;
+                  Err.return
+                    (Tensor.Tensor
                        {
-                         Payload.fmt = Payload.I64;
-                         quant = Payload.No_quant;
-                         data;
-                       };
-                   }))
-      | other -> Err.fail (`Unsupported_dtype other))
+                         Tensor.shape;
+                         payload =
+                           {
+                             Payload.fmt = Payload.I64;
+                             quant = Payload.No_quant;
+                             data;
+                           };
+                       }))
+          | other -> Err.fail (`Unsupported_dtype other)))
 
 (* Convert a Native packed float32 or int64 tensor to a 1-D ATen tensor.
    The ATen tensor has a flat 1D shape [numel] to avoid rank-alignment

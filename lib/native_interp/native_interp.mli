@@ -160,6 +160,23 @@ module Output_arity : sig
   type t = { op : string; serialized : int; derived : int }
 end
 
+(** A [view.default]/[_unsafe_view.default] target this module cannot satisfy:
+    either [Aten_shape]'s [-1]-inference convention (multiple inferred dims,
+    non-divisible, or a wrong total count) or the source's element count itself
+    running over [Kernel.Limits.Hard.numel]. One row rather than two, because
+    both are "this view request is not satisfiable" and the serialized [size] is
+    the operand a reader needs either way. Not [`Bad_dimension]'s
+    [`Over_max_extent]: a whole-tensor count and a per-axis extent are different
+    quantities. *)
+module Bad_view : sig
+  type t = {
+    size : int list;
+    fault :
+      [ `Aten_shape of Aten_shape.error
+      | `Numel_over_limit of Vec6.Numel_bound.t ];
+  }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
@@ -198,7 +215,8 @@ type malformed =
   | `Non_tensor_node_output of string  (** the node's target *)
   | `Non_tensor_graph_output
   | `Undefined_ssa of string
-  | `Output_not_evaluated of Graph_ir.Tensor_id.t ]
+  | `Output_not_evaluated of Graph_ir.Tensor_id.t
+  | `Bad_view of Bad_view.t ]
 (** A graph the decoder accepted and this lowering cannot read. FLAT-INCLUDED in
     {!error}: it is this module's own failure domain, not a crossed seam. *)
 

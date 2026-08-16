@@ -96,7 +96,8 @@ type error =
   | `Normalized_shape of Normalized_shape.t
   | `Operand_rank of Operand_rank.t
   | `Bad_config of Op_config.Bad.t
-  | `Unsupported_padding_mode of string ]
+  | `Unsupported_padding_mode of string
+  | `Aten_shape of Aten_shape.error ]
 
 (* Deliberately not [Fmt.brackets], which boxes its content and so may
    line-wrap; the original bare "[%s]" (String.concat) never did, regardless
@@ -157,6 +158,7 @@ let pp_error ppf : [< error ] -> unit = function
   | `Linear_invalid_weight_rank shape ->
       Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
         shape
+  | `Aten_shape e -> Aten_shape.pp_error ppf e
 
 let ( let* ) = Err.Syntax.( let* )
 let return = Err.return
@@ -569,16 +571,6 @@ let make_pool_params ~op kh kw sh sw ph pw =
       stride = { h = sh; w = sw };
       pad = { h = ph; w = pw };
     }
-
-(* Resolve a single inferred [-1] in a view/reshape size against the total
-   numel (PyTorch convention). *)
-let resolve_view_size size numel =
-  if List.mem (-1) size then
-    let known =
-      List.fold_left (fun p d -> if d = -1 then p else p * d) 1 size
-    in
-    List.map (fun d -> if d = -1 then numel / known else d) size
-  else size
 
 (* Pool stride defaults to kernel_size when absent (PyTorch convention). *)
 let pool_stride kernel_size node =
@@ -1194,19 +1186,26 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* size = ints_arg node "size" in
          let* x = native_of_aten "self" aten_x in
          let (Tensor.Tensor r) = x in
-         let numel = (Vec6.numel r.shape :> int) in
-         let resolved = resolve_view_size size numel in
-         match Aten_shape.of_aten (Array.of_list resolved) with
-         | Error e ->
-             fail
-               (`Validation_failure
-                  (Fmt.str "view: %a" Aten_shape.pp_error (Err.Error.kind e)))
-         | Ok target ->
-             let params = { Reshape.Reshape.shape = target } in
-             build_g ~name:"view" [ x ] (function
-               | [ x_id ] ->
-                   let open Graph_builder in
-                   let+ y = reshape params x_id in
-                   [ y ]
-               | _ -> assert false))
+         (* [x]'s shape already cleared [Tensor_bridge.of_aten]'s numel
+            preflight, so this count is < [Kernel.Limits.Hard.numel] and the
+            [int64] conversion below cannot itself be the overflow this design
+            guards against. *)
+         let numel = Int64.of_int (Dim.to_int (Vec6.numel r.shape)) in
+         let* resolved =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.resolve_view_size ~numel size)
+         in
+         let* target =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.of_aten (Array.of_list resolved))
+         in
+         let params = { Reshape.Reshape.shape = target } in
+         build_g ~name:"view" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = reshape params x_id in
+               [ y ]
+           | _ -> assert false))
   | _ -> None

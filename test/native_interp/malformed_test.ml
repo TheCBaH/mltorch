@@ -138,7 +138,53 @@ let%expect_test "a view sizing both 0 and -1 is refused, not raised" =
        ~graph_outputs:[ as_tensor "y" ]
        ());
   [%expect
-    {| view [0; -1]:              malformed PT2 graph: view has a zero-length dimension |}]
+    {| view [0; -1]:              malformed PT2 graph: view size [0, -1]: extent must be >= 1, got 0 |}]
+
+(* The divisibility check [resolve_view_size] adds divides by [known] even
+   with NO [-1] present, so a declared [0] alongside an ordinary extent is a
+   distinct case from the [-1]-alongside-[0] one above: nothing about it
+   involves inference. It is caught earlier still, by [Dim.extent_checked] on
+   the entry itself, before any division runs. *)
+let view_sized size =
+  let view =
+    jstr
+      {|{"target":"torch.ops.aten.view.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"size","arg":{"as_ints":[%s]},"kind":1}],"outputs":[%s],"metadata":{}}|}
+      (as_tensor "x")
+      (String.concat "," (List.map string_of_int size))
+      (as_tensor "y")
+  in
+  fun ~x_sizes ->
+    program ~x_sizes ~nodes:[ view ] ~graph_outputs:[ as_tensor "y" ] ()
+
+let%expect_test "a view sizing a zero with no -1 present is refused" =
+  show "view [0; 6]:" (view_sized [ 0; 6 ] ~x_sizes:[ 2; 3 ]);
+  [%expect
+    {| view [0; 6]:               malformed PT2 graph: view size [0, 6]: extent must be >= 1, got 0 |}]
+
+(* op3-impl.md F1's source-numel half: [Vec6.numel] wraps a source of 2^32
+   elements to 0 as a js_of_ocaml [int], and an unchecked [int] equality
+   between source and target numel would then pass. [resolve_view] bounds the
+   SOURCE via [Vec6.numel_bounded] before any comparison, so this is refused
+   even though the target (itself) is numel-EQUAL and would have been valid at
+   any representable size. *)
+let%expect_test
+    "a source past the numel ceiling is refused, not silently wrapped" =
+  show "source 65536x65536 -> itself:"
+    (view_sized [ 65536; 65536 ] ~x_sizes:[ 65536; 65536 ]);
+  [%expect
+    {|
+    source 65536x65536 -> itself: malformed PT2 graph: view size [65536, 65536]: axis C: 65536 elements so far times extent 65536 reaches the maximum of 2147483648 |}]
+
+(* The fencepost: 65536*32768 = 2^31 EXACTLY, which the hard contract excludes
+   ("stays BELOW 2^31") -- pinning that [numel_bounded]'s ceiling is exclusive
+   all the way through this importer, not just at the primitive
+   ([test/native/vec6_test.ml]). *)
+let%expect_test "a source of exactly 2^31 elements is refused" =
+  show "source 65536x32768 -> itself:"
+    (view_sized [ 65536; 32768 ] ~x_sizes:[ 65536; 32768 ]);
+  [%expect
+    {|
+    source 65536x32768 -> itself: malformed PT2 graph: view size [65536, 32768]: axis C: 65536 elements so far times extent 32768 reaches the maximum of 2147483648 |}]
 
 (* [_native_batch_norm_legit_no_training]'s schema has a REQUIRED [float eps].
    When the optional-float arm was added to the shared [float_arg] rather than to

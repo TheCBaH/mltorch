@@ -118,6 +118,15 @@ module Output_arity = struct
   type t = { op : string; serialized : int; derived : int }
 end
 
+module Bad_view = struct
+  type t = {
+    size : int list;
+    fault :
+      [ `Aten_shape of Aten_shape.error
+      | `Numel_over_limit of Vec6.Numel_bound.t ];
+  }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
@@ -134,7 +143,8 @@ type malformed =
   | `Non_tensor_node_output of string
   | `Non_tensor_graph_output
   | `Undefined_ssa of string
-  | `Output_not_evaluated of Graph_ir.Tensor_id.t ]
+  | `Output_not_evaluated of Graph_ir.Tensor_id.t
+  | `Bad_view of Bad_view.t ]
 
 module Rank_mismatch = struct
   type t = { sizes : int; strides : int }
@@ -264,6 +274,13 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Undefined_ssa name -> Fmt.pf ppf "SSA tensor %S is not defined" name
   | `Output_not_evaluated id ->
       Fmt.pf ppf "native output %a was not evaluated" Tensor_id.pp id
+  | `Bad_view { Bad_view.size; fault } -> (
+      let ints = Fmt.(list ~sep:(any ", ") int) in
+      match fault with
+      | `Aten_shape e ->
+          Fmt.pf ppf "view size [%a]: %a" ints size Aten_shape.pp_error e
+      | `Numel_over_limit e ->
+          Fmt.pf ppf "view size [%a]: %a" ints size Vec6.Numel_bound.pp e)
 
 let pp_tensor_bridge ppf : [< tensor_bridge ] -> unit = function
   | #malformed as e -> pp_malformed ppf e
@@ -1009,20 +1026,29 @@ let native_perm esc ~tensor ~rank dims =
         (List.nth used i, List.nth used d))
       dims
 
-let shape_numel shape = (Vec6.numel shape :> int)
-
-let resolve_view esc shape size =
-  let numel = shape_numel shape in
-  let known = List.fold_left (fun n x -> if x = -1 then n else n * x) 1 size in
-  (* A [-1] alongside a declared 0 makes [known] zero and the inference below a
-     division by zero — untrusted model data reaching an uncaught exception,
-     which is the same hole the [`Zero] dim_fault closes one function above.
-     [`Zero] is the accurate row: only a zero extent can make the product
-     vanish, every other size being positive or the single [-1]. *)
-  if List.mem (-1) size && known <= 0 then
-    malformed esc (`Bad_dimension { tensor = "view"; fault = `Zero });
-  let size = List.map (fun x -> if x = -1 then numel / known else x) size in
-  shape_of_sizes esc "view" (List.map (fun x -> SymInt.Int x) size)
+(* Shares [Aten_shape.resolve_view_size] with [Op_bridge] rather than
+   re-deriving the [-1] convention: op3-impl.md F1 found this resolver
+   accepted an invalid target silently (two [-1]s, a numel mismatch, a
+   non-divisible inference) and F8 found its diagnostic named a tensor called
+   "view" that never existed. Composed through [Err.Escape.or_throw], which
+   exists precisely so a recursive walk can call an ordinary result-returning
+   function without threading results through its own arms
+   ([conv_in_channels] above is the same pattern: a bounded [int64] count
+   inside the escape walk, reported as a typed row). *)
+let resolve_view esc ~tensor shape size =
+  let bad_view fault : error = `Bad_view { Bad_view.size; fault } in
+  let numel =
+    Err.Escape.or_throw esc
+      (Err.map_error bad_view
+         (Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel shape))
+  in
+  let resolved =
+    Err.Escape.or_throw esc
+      (Err.map_error
+         (fun e -> bad_view (`Aten_shape e))
+         (Aten_shape.resolve_view_size ~numel size))
+  in
+  shape_of_sizes esc tensor (List.map (fun x -> SymInt.Int x) resolved)
 
 let lower program =
   Err.Escape.with_escape @@ fun esc ->
@@ -1328,12 +1354,13 @@ let lower program =
              produced, which is both stronger and total over ops. *)
           unbind { Split.Unbind.axis } (get "self")
       | "torch.ops.aten.view.default" ->
-          let shape = tensor_shape esc graph (tensor_name esc node "self") in
+          let tensor = tensor_name esc node "self" in
+          let shape = tensor_shape esc graph tensor in
           let* y =
             reshape
               {
                 Reshape.Reshape.shape =
-                  resolve_view esc shape (ints_arg esc node "size");
+                  resolve_view esc ~tensor shape (ints_arg esc node "size");
               }
               (get "self")
           in

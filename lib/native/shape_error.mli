@@ -102,6 +102,14 @@ module Permute : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* [Reshape.output_shape]'s numel-preservation precondition, violated: a target
+   whose element count disagrees with the source's. *)
+module Reshape : sig
+  type t = { source : Vec6.shape; target : Vec6.shape }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 module Convolution : sig
   type channels_divisibility = { channels : int; groups : int }
 
@@ -182,6 +190,8 @@ type t =
   | `Bmm of Bmm.error
   | `Output_count_over_limit of Output_count.t
   | `Permute of Permute.t
+  | `Reshape of Reshape.t
+  | `Numel_over_limit of Vec6.Numel_bound.t
   | `Convolution of Convolution.error ]
 
 val pp : Format.formatter -> [< t ] -> unit

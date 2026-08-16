@@ -580,8 +580,22 @@ let%expect_test "Direct: reshape [H=2 W=3 C=1] -> [W=3 C=2] (contiguous)" =
     { Reshape.Reshape.shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:2 }
   in
   Format.printf "%a@." (pp_result Tensor.pp)
-    (eval_tensor (Reshape.Reshape.output_shape p) (R.pixel p ~x_shape ~x));
+    (eval_tensor
+       (Reshape.Reshape.output_shape ~x_shape p)
+       (R.pixel p ~x_shape ~x));
   [%expect {| tensor f32 [W=3 C=2] {0, 1, 2, 3, 4, 5} |}]
+
+let%expect_test
+    "Direct: reshape rejects a target that changes the element count" =
+  (* Numel 6 either way for the valid case above; here the target's numel (8)
+     disagrees with the source's (6). *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:1 in
+  let bad_target = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:4 ~c:2 in
+  Format.printf "%a@." (pp_result Vec6.pp_shape)
+    (Reshape.Reshape.output_shape ~x_shape
+       { Reshape.Reshape.shape = bad_target });
+  [%expect
+    {| reshape target [W=4 C=2] does not preserve the element count of [H=2 W=3 C=1] |}]
 
 let%expect_test "Direct: avg_pool2d 2x2 (stride 1, pad 0) — box-filter average"
     =

@@ -88,12 +88,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   silently truncates to `-1` there — which turns a mask into a no-op.
   **Narrow to `int` only after bounding the value**, and bound *aggregates*
   separately: a product or sum of individually-in-range factors can still overflow.
-  Six defects have turned on this — `Pcg.next`'s `[0, 2^32)` contract and
+  Seven defects have turned on this — `Pcg.next`'s `[0, 2^32)` contract and
   `Half.f32_bits`' mask (both live), `Pt2_pickle.int_of`, `Pt2_tensor.numel` /
   `contiguous_strides` and `Native_interp`'s `storage_index` (all latent, now
-  bounded), and `Opickle.Src.uint4`'s `land 0xFFFF_FFFF` (live; fixed upstream in
-  the vendored submodule). **A check on a wrapped result is not a bound** — two of
-  those validated only the folded value, which a mid-fold wrap sails straight past.
+  bounded), `Opickle.Src.uint4`'s `land 0xFFFF_FFFF` (live; fixed upstream in
+  the vendored submodule), and `Reshape.output_shape`/`Aten_shape.resolve_view_size`
+  comparing unchecked `Vec6.numel` results (live at the graph-construction
+  boundary: two *different* source/target products can wrap to the same 32-bit
+  `int`, so the equality that is supposed to reject a numel-changing reshape
+  target passes instead — fixed by `Vec6.numel_bounded`, which divides each
+  per-axis factor into the ceiling before multiplying, the same shape as
+  `Kernel.Bounds.signature`'s existing fold). **A check on a wrapped result is
+  not a bound** — three of those validated only the folded value, which a
+  mid-fold wrap sails straight past.
   **Two commands catch a regression, and they catch different things.**
   `make jsoo.runtest` diffs the backends, so it sees only divergence;
   `make jsoo.inline-runtest` runs the expect suites under node against their

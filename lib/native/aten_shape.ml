@@ -28,14 +28,40 @@ let repack_dropped ~dropped =
   let survivors = List.filter (fun a -> not (List.mem a dropped)) Axis.all in
   List.combine survivors (used_axes ~rank:(List.length survivors))
 
-(* Error set owned by this module: its own rank check unioned with [Dim.error]
-   (from validating each untrusted dim). The printer delegates to [Dim]. *)
+module View_size = struct
+  type t = {
+    size : int list;
+    numel : int64;
+    fault : [ `Multiple_inferred | `Not_divisible | `Count_mismatch ];
+  }
+
+  let pp_size ppf size =
+    Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Fmt.int) size
+
+  let pp ppf { size; numel; fault } =
+    match fault with
+    | `Multiple_inferred ->
+        Fmt.pf ppf "view size %a has more than one inferred (-1) dimension"
+          pp_size size
+    | `Not_divisible ->
+        Fmt.pf ppf "view size %a does not divide %Ld elements" pp_size size
+          numel
+    | `Count_mismatch ->
+        Fmt.pf ppf "view size %a does not match %Ld elements" pp_size size numel
+end
+
+(* Error set owned by this module: its own rank check and the [-1] convention's
+   faults, unioned with [Dim.error] (from validating each untrusted dim/size
+   entry). The printer delegates to [Dim]/[View_size]. *)
 type rank_bound = { rank : int; lo : int; hi : int }
-type error = [ `Rank_out_of_range of rank_bound | Dim.error ]
+
+type error =
+  [ `Rank_out_of_range of rank_bound | `View_size of View_size.t | Dim.error ]
 
 let pp_error ppf : error -> unit = function
   | `Rank_out_of_range { rank; lo; hi } ->
       Format.fprintf ppf "rank %d out of [%d, %d]" rank lo hi
+  | `View_size e -> View_size.pp ppf e
   | #Dim.error as e -> Dim.pp_error ppf e
 
 (* Right-align an ATen shape into the frame; outer axes default to extent 1.
@@ -68,3 +94,55 @@ let axis_of_dim ~rank dim =
   if d < 0 || d >= rank then
     invalid_arg "Aten_shape.axis_of_dim: dim out of range";
   List.nth (used_axes ~rank) d
+
+(* The order of these four steps IS the specification, because three of them
+   divide: an earlier revision of this rule treated the rejections as a SET
+   rather than a sequence, which is how a division by zero survives review --
+   [size = [-1; 0]] folds a naive [known] to 0 and the very next operation is
+   [numel / known].
+
+   1. SCAN for [-1]: more than one is [`Multiple_inferred]. Every OTHER entry
+      goes through [Dim.extent_checked] ([n >= 1]), so a zero or negative
+      entry is already [`Non_positive_extent] (via [Dim.error]) before any
+      division runs -- there is no separate zero rule to state.
+   2. FOLD [known] in [int64] with a divide-first guard against [numel] itself,
+      not [Kernel.Limits.Hard.numel]: that is the STRONGER bound and it is
+      free. A size list that is a genuine view of [numel] has [known] dividing
+      it, so [known > numel] is already the [`Count_mismatch] rejection --
+      reached here, before the multiply that would produce it, rather than
+      after. The caller has already bounded [numel] below [Hard.numel], so
+      this fold never multiplies past 2^31 and cannot overflow [int64].
+   3. Only now DIVIDE. With every contributing factor >= 1, [known] is never
+      zero: a [-1] is resolved as [numel / known] after
+      [Int64.rem numel known = 0L] ([`Not_divisible] otherwise); with no [-1],
+      require [known = numel] ([`Count_mismatch] otherwise).
+   4. NARROW last. The resolved entry is bounded by [numel < Hard.numel], so
+      narrowing it to [int] happens after the bound, not before it. *)
+let resolve_view_size ~numel size =
+  let open Err.Syntax in
+  let fail fault = Err.fail (`View_size { View_size.size; numel; fault }) in
+  let n_inferred = List.length (List.filter (Int.equal (-1)) size) in
+  let* () = if n_inferred > 1 then fail `Multiple_inferred else Err.return () in
+  let* known =
+    Err.List.fold_left
+      (fun known d ->
+        if d = -1 then Err.return known
+        else
+          let* e = Dim.extent_checked d in
+          let e64 = Int64.of_int (Dim.to_int e) in
+          if Int64.compare known (Int64.div numel e64) > 0 then
+            fail `Count_mismatch
+          else Err.return (Int64.mul known e64))
+      1L size
+  in
+  let* inferred =
+    if n_inferred = 0 then
+      if Int64.equal known numel then Err.return None else fail `Count_mismatch
+    else if not (Int64.equal (Int64.rem numel known) 0L) then
+      fail `Not_divisible
+    else Err.return (Some (Int64.div numel known))
+  in
+  Err.List.map
+    (fun d ->
+      Err.return (if d = -1 then Int64.to_int (Option.get inferred) else d))
+    size
