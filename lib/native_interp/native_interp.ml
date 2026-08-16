@@ -1253,6 +1253,19 @@ let lower program =
           | `Scalar s ->
               let* y = add_scalar s (get "self") in
               return [ y ])
+      (* [x - s] legalizes to [x + (-s)]: IEEE negation is exact and the
+         builder narrows to f32 on both spellings either way, so the two are
+         bit-identical (op3-impl.md F7). No [sub_scalar] builder exists and
+         none should: this negation is the whole legalization. *)
+      | "torch.ops.aten.sub.Tensor" -> (
+          reject_alpha esc node;
+          match tensor_or_scalar "other" with
+          | `Tensor other ->
+              let* y = sub (get "self") other in
+              return [ y ]
+          | `Scalar s ->
+              let* y = add_scalar (-.s) (get "self") in
+              return [ y ])
       | "torch.ops.aten.clamp.default" ->
           let params : Pointwise.Clamp.params =
             {
