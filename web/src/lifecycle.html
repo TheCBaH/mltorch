@@ -1,0 +1,28 @@
+<meta charset="utf-8">
+<title>Path B lifecycle contract</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+
+  /* The shape web/app/app.css installs, verbatim in structure: a mount that is
+     a positioning context, and stable sibling slots that fill it. A slot is
+     hidden with `visibility`, never `display:none` -- a zero-sized box is not a
+     layout contract a real graph can rely on, and that is precisely what this
+     page exists to check. */
+  #mount { position: relative; width: 1000px; height: 700px; }
+  .slot { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+  .slot--current { visibility: visible; pointer-events: auto; }
+  model-explorer-visualizer { display: block; width: 100%; height: 100%; }
+</style>
+
+<div id="mount"></div>
+
+<script src="vendor/main_browser.js"></script>
+<script>
+  // AFTER the bundle, and as MUTATIONS of the object it installed -- Stage 0A
+  // found that setting this before the bundle does nothing. index.html keeps
+  // the probe that proves it.
+  window.modelExplorer.assetFilesBaseUrl = 'vendor/static_files';
+  window.modelExplorer.workerScriptPath = 'vendor/worker.js';
+</script>
+
+<script src="lifecycle.js"></script>
