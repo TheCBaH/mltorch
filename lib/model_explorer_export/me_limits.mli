@@ -249,6 +249,22 @@ module Hard : sig
   (** The encoded [Render_state] per byte of document. It is a projection of the
       session, so it cannot exceed it. *)
 
+  val max_quarantined_elements : int
+  (** How many cancelled Model Explorer installs the browser may keep connected
+      at once, and the authority on that number: the page reads it from the
+      bridge and may tighten it, never widen it.
+
+      A cancelled install cannot be removed on demand — the pinned custom
+      element has no abort or dispose API, and disconnecting one that is still
+      processing destroys a live Angular component — so it is hidden, stripped
+      of authority, and removed only once its expected [modelGraphProcessed]
+      proves removal is safe. This bounds how many may be awaiting that proof.
+
+      {!max_response_live_bytes} budgets [2 + this] retained elements, which is
+      one more than can be reached: a candidate is admitted only while fewer
+      than this many are quarantined, so the true maximum is [1 + this]. A
+      deliberate structural bound, not a tight maximum. *)
+
   val json_escape_expansion : int
   (** Escaping a sanitised string for JSON. [Diagnostic.create] replaces control
       bytes and invalid sequences with U+FFFD before the length rule applies, so

@@ -140,6 +140,13 @@ let () =
           Js.Unsafe.inject
             (Js.string (Int64.to_string Me_limits.Hard.max_json_bytes)) );
         ("maxRestoreSteps", Js.Unsafe.inject Me_limits.Hard.max_restore_steps);
+        (* The page reads its quarantine ceiling from here rather than carrying
+           a literal of its own: [response_live_bytes] budgets the browser's
+           retained elements against this exact number, so a JavaScript copy
+           that drifted would silently invalidate the enforced peak. The
+           renderer may tighten it, never widen it. *)
+        ( "maxQuarantinedElements",
+          Js.Unsafe.inject Me_limits.Hard.max_quarantined_elements );
       |]
   in
   let request =
