@@ -5,7 +5,7 @@ import { defineConfig } from '@playwright/test';
 // would make every answer below "no" for the wrong reason.
 export default defineConfig({
   testDir: './test',
-  testMatch: /(?:spike|session)\.spec\.ts/,
+  testMatch: /(?:spike|session|lifecycle)\.spec\.ts/,
   timeout: 120_000,
   reporter: [['list']],
   use: { baseURL: 'http://127.0.0.1:8123' },
