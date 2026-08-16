@@ -379,6 +379,33 @@ let unsafe_view =
       pcg )|};
   }
 
+(* transpose.int: [int dim0]/[int dim1] have no default (op3-impl.md F5), and
+   a dim pair is only valid for a specific rank, so [Recipe_transpose] draws
+   rank and the pair together as one correlated axis. *)
+let transpose_int =
+  {
+    module_name = "Transpose_int_walk";
+    target = "torch.ops.aten.transpose.int";
+    recipe = "Recipe_transpose";
+    initial =
+      "Aten_walk_recipes.Recipe_transpose.{ n = 2; c = 3; h = 4; w = 5; config \
+       = List.hd Aten_walk_recipes.Recipe_transpose.all_configs }";
+    axes =
+      "Aten_walk_recipes.Recipe_transpose.axes ~n:[ 1; 2; 3 ] ~c:[ 2; 3; 4 ] \
+       ~h:[ 2; 3; 4 ] ~w:[ 2; 3; 4 ] \
+       ~config:Aten_walk_recipes.Recipe_transpose.all_configs";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_transpose.self_shape c) in
+    ( Aten_op_spec.Op_transpose_int.(
+        spec
+          {
+            self;
+            dim0 = Recipe_transpose.dim0 c;
+            dim1 = Recipe_transpose.dim1 c;
+          }),
+      pcg )|};
+  }
+
 (* sub.Tensor is a two-tensor op: the generated DEFAULT walk admits an op only
    when it has exactly one tensor argument (Aten_walk_gen.default_tensor), so
    there is no generic walk to override here -- this is filling a gap, the
@@ -490,6 +517,7 @@ let entries =
     sub_tensor;
     view_default;
     unsafe_view;
+    transpose_int;
   ]
 
 let find target = List.find_opt (fun e -> e.target = target) entries

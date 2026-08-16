@@ -35,6 +35,8 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Reshape_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Permute_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Clamp_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Clone_nwalk.M : Walk_core.Walk.Op

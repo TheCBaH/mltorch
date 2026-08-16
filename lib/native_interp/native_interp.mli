@@ -74,6 +74,11 @@ type metadata_role =
         those extents can come from. *)
   | `Mean_input
   | `Permute_input
+  | `Transpose_input
+    (** Its own role, not shared with [`Permute_input]: [transpose.int] and
+        [permute.default] have separate arms, and a shared label would leave the
+        row unable to say which one failed -- the same reasoning as
+        [`Conv2d_weight] vs [`Convolution_weight] above. *)
   | `Unbind_input
   | `Addmm_weight ]
 (** Why the missing [tensor_values] entry was wanted. *)
