@@ -1366,7 +1366,11 @@ let lower program =
           (* No arity check here: [bind] does it against the ids actually
              produced, which is both stronger and total over ops. *)
           unbind { Split.Unbind.axis } (get "self")
-      | "torch.ops.aten.view.default" ->
+      (* Both overloads share this body -- same argument names, same shared
+         resolver, same reason op_bridge.ml's arm does (drift risk, exact
+         target still visible in every diagnostic via [tensor]/[node.target]).
+         [Identical] AFTER materialization; see .ai/native_aten_bridge_layout.md. *)
+      | "torch.ops.aten.view.default" | "torch.ops.aten._unsafe_view.default" ->
           let tensor = tensor_name esc node "self" in
           let shape = tensor_shape esc graph tensor in
           let* y =

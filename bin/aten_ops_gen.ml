@@ -72,6 +72,7 @@ let selection =
     op "dropout_";
     op "avg_pool2d";
     op "view";
+    op "_unsafe_view";
     (* shape/view ops used by the ViT models *)
     op "expand";
     op "select" ~overload:"int";

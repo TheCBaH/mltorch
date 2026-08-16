@@ -117,6 +117,20 @@ applied after every mutation — not by filtering candidate values. Examples:
   after the fact is structural here and there is nothing left to cascade. Its `leading` axis carries
   the whole leading shape as one candidate value, which is how a step varies the input's **rank** —
   the pass-through of leading axes is the property a rank-2-only walk can never see.
+- **View** (`Recipe_view`, `view.default` / `_unsafe_view.default`): a rank-4 shape plus a reshape
+  `target` drawn as one correlated axis, never picked independently — a valid target is a
+  factorization of the source's element count, and mutating it on its own would usually be invalid
+  and degrade to a skip. Unlike `Recipe_binary`'s `pattern` (valid for any base shape, so its
+  `cascade` is identity), a reshape target's concrete VALUE depends on the current shape, so
+  `cascade` here is non-trivial: it recomputes `target` from `pattern` and the current `n`/`c`/`h`/`w`
+  after every mutation, whichever axis a step touched (a shape axis or `pattern` itself), and repairs
+  `c` to even first for the one pattern (`Split_c`) that needs it. `pattern` covers a `-1` form
+  (`Minus_one_c`) and both rank-changing directions (`Split_c` grows rank 4→5, `Merge_hw`/`Flatten`
+  shrink it). Two `walk_meta` entries share the recipe: `_unsafe_view.default` is the row this group
+  needs, and `view.default` is added alongside it as independent evidence that commit 1's shared
+  numel resolver still accepts what it used to (op3-impl.md commit 5) — the native `Reshape_nwalk`
+  already covers the compute kernel and needs no change, so it is not evidence for either exact
+  target.
 - **Binary** (`Recipe_binary`, `sub.Tensor`): the first **two-tensor** recipe (op3-impl.md F5 —
   `Aten_walk_gen.default_tensor` admits an op only with exactly one tensor argument, so a two-operand
   op has no Default tier and would sit in `needs_meta` forever without one). One shape plus a
