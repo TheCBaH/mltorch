@@ -481,7 +481,7 @@ webapp.runtest:
 	node --check web/app/coordinator.js
 	node --check web/app/renderer.js
 	node --check web/app/source_store.js
-	node --test web/test/webapp-unit.test.mjs
+	node --test web/test/renderer-unit.test.mjs web/test/webapp-unit.test.mjs
 
 webapp.browser-runtest: webapp.build
 	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" npm run webapp

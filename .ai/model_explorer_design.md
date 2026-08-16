@@ -136,8 +136,37 @@ rather than inspected after the fact. Its phases are built from lifetimes the co
 *establish*: the JS document string is conservatively live across the whole synchronous
 call, because `prepareOpen(metaText, documentText)` holds both arguments for its
 duration and a release the API cannot perform is not a release. `R_install` is the peak
-and it is a **sum**, not a maximum of its two largest members — both sessions, both
-processed graphs, both render states and both elements coexist there by construction.
+and it is a **sum**, not a maximum of its largest members — the sessions, the processed
+graphs, the render states and the elements coexist there by construction.
+
+**How many elements coexist, and why it is not two.** It was two while a replaced
+visualizer could be removed as soon as its successor was ready. It cannot be: the pinned
+custom element has no abort or dispose API, and disconnecting one that is still processing
+destroys a live Angular component mid-flight (NG0953). A cancelled or timed-out install is
+therefore *quarantined* — connected, hidden, stripped of authority — until its expected
+`modelGraphProcessed` proves removal is safe. `Hard.max_quarantined_elements` (3) bounds
+how many may be awaiting that proof, and `R_install` budgets `2 + that`, one more than the
+reachable population of `1 + that`: a candidate is admitted only while fewer than the
+ceiling are quarantined, so a current, an active and a full quarantine cannot coexist. The
+same deliberate over-reservation the queued-buffer terms make, for the same reason.
+
+Three is the largest ceiling the peak admits — at four, `trusted` reaches 1 126 170 624
+and stops being constructible — and `test/model_explorer/me_limits_test.ml` recomputes
+that from the coefficients so raising the constant fails there, with the reason, rather
+than failing as a library that will not load.
+
+**The JavaScript-held terms are budgeted at `min doc max_response_document_bytes`, not at
+`doc`.** No document above that ceiling reaches the browser: `within_hard_response` decides
+which profiles are wire-selectable and the page rejects an over-size payload before
+decoding it. `trusted` and `large` sit above it precisely because they are native-only, so
+budgeting their JS-side objects at their own 16MB ceiling reserves for objects that cannot
+exist. That was harmless at coefficient 2 and is decisive at five elements: without the
+clamp those two profiles would exceed `jsoo_safe_bytes` and the module would raise at
+initialisation.
+
+The ceiling is exported to the page as `mltorch.hard.maxQuarantinedElements`. The renderer
+takes it as a separate, mandatory input from any tighter policy value, so a test may narrow
+it and no caller can widen it past the figure this calculator budgeted against.
 
 **What is derived and what is calibrated.** The expansion factors — heap bytes per byte
 of document for a decoded session, a processed graph, a parsed JS value — are frozen
@@ -588,7 +617,7 @@ workspace also gives the Actions cache and the container the same concrete direc
 |---|---|---|
 | Can an element be built **off-DOM** and swapped in? | **Yes** — properties set while detached, `modelGraphProcessed` fires after `appendChild` | §6.1.1 keeps its off-DOM staging. The specified snapshot/restore fallback is **not** needed |
 | Does `modelGraphProcessed` fire reliably, and can it be bounded? | **Yes** to both — a `setTimeout` race around a `{once: true}` listener settles cleanly | The install transaction may await it with a timeout rather than unconditionally |
-| Is `config` **assignable on a live element**? | **No** — the assignment does not take | Replacement requires a **new element**, so two elements and two processed graphs coexist during an install. This is what makes `R_install` a sum rather than a maximum |
+| Is `config` **assignable on a live element**? | **No** — the assignment does not take | Replacement requires a **new element**, so elements and processed graphs coexist during an install. This is what makes `R_install` a sum rather than a maximum. Read two here; §3 explains why the budget is now `2 + max_quarantined_elements` |
 | Install a **new graph plus a parent `subgraphIds` link after** `modelGraphProcessed`, then enter it? | **Yes** | The expression-detail delta path is viable: a graph nobody has seen can be linked from a node already on screen |
 | `subgraphIds` navigation | **Yes** — `selectNode(id, graphId, collectionLabel)` navigates | |
 | Node data through **both** provider entry points | **Yes**, but see the correction below — `addNodeDataProviderData` is **not** graph-id keyed | Session v1's graph-addressed `Node_data_set` maps to either, once keyed correctly |

@@ -290,6 +290,27 @@ module Hard_scalars = struct
   let graph_expansion = 8
   let render_state_expansion = 1
 
+  (* How many CANCELLED Model Explorer installs the browser may keep connected.
+     The pinned custom element has no abort or dispose API and disconnecting one
+     that is still processing destroys a live Angular component mid-flight, so a
+     cancelled install cannot be removed on demand — it is hidden, stripped of
+     authority, and removed only once its expected [modelGraphProcessed] proves
+     removal is safe. This is the ceiling on how many may be awaiting that
+     proof, and it is the reason [R_install] below is no longer a two-element
+     sum. See [cancel.md] and .ai/model_explorer_design.md §3.
+
+     [R_install] budgets [2 + this], which is deliberately ONE MORE than the
+     reachable population: a candidate is admitted only while fewer than this
+     many are quarantined, so a current, an active and a full quarantine cannot
+     coexist and the true maximum is [1 + this]. The same over-reservation, for
+     the same reason, as the queued-buffer terms below. Structural bound, not
+     tight maximum.
+
+     Three is the largest value that fits: at four, [Limits.trusted]'s peak
+     reaches 1 126 170 624, above [jsoo_safe_bytes], and the profile would stop
+     being constructible. *)
+  let max_quarantined_elements = 3
+
   (* Escaping a sanitised string for JSON. [Diagnostic.create] replaces control
      bytes and invalid sequences with U+FFFD before the length rule applies, so
      the six-byte u-escape form is unreachable and only the quote and the
@@ -424,7 +445,23 @@ let response_live_bytes ~max_session_bytes ~max_detail_bytes =
   let doc = Int64.of_int (max max_session_bytes max_detail_bytes) in
   let open Err.Syntax in
   let open Hard_scalars in
+  (* The document a JAVASCRIPT object can be holding, which is not [doc]: no
+     document above [max_response_document_bytes] reaches the browser at all.
+     Two independent checks enforce it — [within_hard_response] decides which
+     profiles are wire-selectable, and the page rejects an over-size payload
+     before decoding it (web/app/coordinator.js). [trusted] and [large] sit
+     above that ceiling precisely because they are native-only, so budgeting
+     their JS-side terms at [doc] would reserve for objects that cannot exist.
+     Harmless while the coefficient was 2; decisive once [R_install] retains a
+     bounded quarantine. *)
+  let jsdoc =
+    let ceiling = Int64.of_int max_response_document_bytes in
+    if Int64.compare doc ceiling < 0 then doc else ceiling
+  in
   let render_parsed = render_state_expansion * js_value_expansion in
+  (* Current + active + a full quarantine. See [max_quarantined_elements]: one
+     more than can actually be reached, on purpose. *)
+  let elements = 2 + max_quarantined_elements in
   let* decode =
     sum_terms Phase.Decode
       [
@@ -469,11 +506,17 @@ let response_live_bytes ~max_session_bytes ~max_detail_bytes =
         { coefficient = 2; quantity = Int64.of_int max_response_document_bytes };
         { coefficient = 2; quantity = Int64.of_int max_response_meta_bytes };
         { coefficient = render_state_expansion; quantity = doc };
-        { coefficient = 2 * render_parsed; quantity = doc };
+        (* One parsed render state per retained element: the element holds the
+           [graphCollections] it was assigned for as long as it is connected. *)
+        { coefficient = elements * render_parsed; quantity = jsdoc };
         (* the JS document string, still the caller's *)
-        { coefficient = js_string_expansion; quantity = doc };
-        (* both processed graphs, old and new, each with its element *)
-        { coefficient = 2 * graph_expansion; quantity = doc };
+        { coefficient = js_string_expansion; quantity = jsdoc };
+        (* One processed graph per retained element — the current one, the
+           install in flight, and every cancelled install still awaiting the
+           event that authorises its removal. Distinct from the term above: that
+           is the input the element was given, this is what the visualizer
+           computes from it. *)
+        { coefficient = elements * graph_expansion; quantity = jsdoc };
       ]
   in
   max_of 0L [ decode; build; commit; install ]

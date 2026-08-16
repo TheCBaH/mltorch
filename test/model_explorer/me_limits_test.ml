@@ -54,7 +54,7 @@ let%expect_test "hard ceilings" =
     max_response_meta_bytes     1048576
     max_response_document_bytes 8388608
     max_request_live_bytes      209455
-    max_response_live_bytes     446693376
+    max_response_live_bytes     849346560
     |}]
 
 let%expect_test "the request-id constants are consequences of the grammar" =
@@ -97,7 +97,7 @@ let%expect_test "the four relations between the constants" =
     {|
     3 * max_request_json_bytes                196608 <= 1073741824
     max_request_live_bytes                    209455 <= 1073741824
-    max_response_live_bytes                446693376 <= 1073741824
+    max_response_live_bytes                849346560 <= 1073741824
     max_diagnostics * escaped bytes           655360 <=    1048576
     |}]
 
@@ -140,11 +140,11 @@ let%expect_test "the peak is monotone in both of its inputs" =
     (List.for_all non_decreasing columns);
   [%expect
     {|
-        72351744   125829120   232783872   446693376   874512384
-       125829120   125829120   232783872   446693376   874512384
-       232783872   232783872   232783872   446693376   874512384
-       446693376   446693376   446693376   446693376   874512384
-       874512384   874512384   874512384   874512384   874512384
+       122683392   226492416   434110464   849346560   991952896
+       226492416   226492416   434110464   849346560   991952896
+       434110464   434110464   434110464   849346560   991952896
+       849346560   849346560   849346560   849346560   991952896
+       991952896   991952896   991952896   991952896   991952896
     rows non-decreasing: true
     columns non-decreasing: true
     |}]
@@ -159,8 +159,78 @@ let%expect_test "the peak the hard constant is derived from" =
        ~max_detail_bytes:Me_limits.Hard.max_response_document_bytes);
   Printf.printf "%Ld\n" Me_limits.Hard.max_response_live_bytes;
   [%expect {|
-    446693376
-    446693376
+    849346560
+    849346560
+    |}]
+
+let%expect_test
+    "the retained-element count is a structural bound, not a tight maximum" =
+  (* [R_install] budgets one element more than the browser can actually retain,
+     and that is deliberate — the same over-reservation the queued-buffer terms
+     make. A candidate is admitted only while fewer than
+     [max_quarantined_elements] are quarantined, so a current, an active and a
+     FULL quarantine cannot coexist: whichever way the race goes, the population
+     is [1 + max_quarantined_elements].
+
+     Stated as arithmetic rather than prose because the renderer enforces the
+     reachable figure while this module budgets the structural one, and a change
+     to either that is not a change to the other is a defect. *)
+  let quarantined = Me_limits.Hard.max_quarantined_elements in
+  Printf.printf "budgeted   2 + %d = %d\n" quarantined (2 + quarantined);
+  Printf.printf
+    "reachable  1 + %d = %d  (active present: 1 current + 1 active + %d \
+     quarantined)\n"
+    quarantined (1 + quarantined) (quarantined - 1);
+  Printf.printf
+    "reachable  1 + %d = %d  (active absent:  1 current + %d quarantined)\n"
+    quarantined (1 + quarantined) quarantined;
+  [%expect
+    {|
+    budgeted   2 + 3 = 5
+    reachable  1 + 3 = 4  (active present: 1 current + 1 active + 2 quarantined)
+    reachable  1 + 3 = 4  (active absent:  1 current + 3 quarantined)
+    |}]
+
+let%expect_test "three is the largest quarantine ceiling the peak admits" =
+  (* The ceiling is not "3 because 3 is small". At four retained quarantined
+     elements the widest profile the browser path must still construct —
+     [trusted], whose 16MB document ceiling is native-only but whose peak is
+     computed all the same — passes [jsoo_safe_bytes], and building it would
+     raise during module initialisation rather than at some later call.
+
+     Recomputed here from the coefficients rather than read from the module, so
+     that raising [max_quarantined_elements] without redoing this arithmetic
+     fails HERE, with the reason, instead of failing as a library that will not
+     load. *)
+  let open Me_limits.Hard in
+  let peak elements =
+    let doc =
+      0x100_0000
+      (* [trusted]'s document ceiling *)
+    in
+    let jsdoc = min doc max_response_document_bytes in
+    let render_parsed = render_state_expansion * js_value_expansion in
+    Int64.of_int
+      ((((2 * session_expansion) + render_state_expansion) * doc)
+      + ((elements * render_parsed) + js_string_expansion
+        + (elements * graph_expansion))
+        * jsdoc
+      + (2 * max_response_document_bytes)
+      + (2 * max_response_meta_bytes))
+  in
+  List.iter
+    (fun q ->
+      let value = peak (2 + q) in
+      Printf.printf "quarantine %d -> %13Ld %s\n" q value
+        (if Int64.compare value jsoo_safe_bytes <= 0 then "fits" else "REFUSED"))
+    [ 2; 3; 4 ];
+  Printf.printf "configured %d\n" max_quarantined_elements;
+  [%expect
+    {|
+    quarantine 2 ->     857735168 fits
+    quarantine 3 ->     991952896 fits
+    quarantine 4 ->    1126170624 REFUSED
+    configured 3
     |}]
 
 (* --- profiles --- *)
@@ -209,7 +279,7 @@ let%expect_test "a profile whose peak does not fit is refused when it is built"
     (Me_limits.Limits.create ~max_session_bytes:0x100_0000
        ~max_detail_bytes:0x100_0000 base);
   [%expect {|
-    invalid limit response_live_bytes = 1730150400
+    invalid limit response_live_bytes = 1277165568
     ok
     |}]
 
@@ -222,10 +292,10 @@ let%expect_test "the derived field is stored, not recomputed" =
     (peak Me_limits.Limits.trusted);
   [%expect
     {|
-    untrusted 232783872
-    small     45613056
-    large     874512384
-    trusted   874512384
+    untrusted 434110464
+    small     70778880
+    large     991952896
+    trusted   991952896
     |}]
 
 let%expect_test "which profiles the browser may read a document under" =
@@ -367,4 +437,4 @@ let%expect_test "a wire profile is still a profile" =
   let l = Me_limits.Wire_limits.limits w in
   Printf.printf "%d %Ld\n" l.Me_limits.Limits.max_session_bytes
     l.Me_limits.Limits.response_live_bytes;
-  [%expect {| 524288 45613056 |}]
+  [%expect {| 524288 70778880 |}]

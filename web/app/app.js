@@ -13,7 +13,9 @@ function clearError() { error.hidden = true; error.textContent = ''; }
 async function main() {
   if (!bridge?.hard || !bridge?.request || !bridge?.session) throw new Error('MLTorch bridge did not load');
   const store = new SourceStore({ hard: bridge.hard });
-  const renderer = new Renderer({ mount: $('visualizer') });
+  // The quarantine ceiling is the OCaml one: `Me_limits.response_live_bytes`
+  // budgets the browser's retained elements against exactly this number.
+  const renderer = new Renderer({ mount: $('visualizer'), hardMaxQuarantined: bridge.hard.maxQuarantinedElements });
   const coordinator = new Coordinator({
     hard: bridge.hard, bridge, render: renderer,
     workerFactory: () => new Worker(new URL('./worker.js', document.baseURI)),
