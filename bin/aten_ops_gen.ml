@@ -31,6 +31,7 @@ let selection =
   [
     op "add" ~overload:"Tensor";
     op "add_" ~overload:"Tensor";
+    op "sub" ~overload:"Tensor";
     op "mul" ~overload:"Tensor";
     op "mul" ~overload:"Scalar";
     op "div" ~overload:"Tensor";

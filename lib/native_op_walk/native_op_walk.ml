@@ -11,6 +11,7 @@ let all_walks : op list =
     (module Relu_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Add_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
+    (module Sub_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
     (module Mul_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
     (module Mean_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);

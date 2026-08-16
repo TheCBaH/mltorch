@@ -334,6 +334,32 @@ let unbind_int =
       pcg )|};
   }
 
+(* sub.Tensor is a two-tensor op: the generated DEFAULT walk admits an op only
+   when it has exactly one tensor argument (Aten_walk_gen.default_tensor), so
+   there is no generic walk to override here -- this is filling a gap, the
+   first of its kind (op3-impl.md F5). [alpha] is held at its schema default
+   (1); the accept/reject boundary at a non-default alpha is pinned by hand
+   fixtures instead (test/native_bridge_test.ml), not walked. *)
+let sub_tensor =
+  {
+    module_name = "Sub_tensor_walk";
+    target = "torch.ops.aten.sub.Tensor";
+    recipe = "Recipe_binary";
+    initial =
+      "Aten_walk_recipes.Recipe_binary.{ n = 2; c = 4; h = 8; w = 8; pattern = \
+       Aten_walk_recipes.Recipe_binary.Equal }";
+    axes =
+      "Aten_walk_recipes.Recipe_binary.axes ~n:[ 1; 2; 4 ] ~c:[ 4; 8; 16 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] \
+       ~pattern:Aten_walk_recipes.Recipe_binary.all_patterns";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_binary.lhs_shape c) in
+    let other, pcg = Walk.tensor_spec pcg (Recipe_binary.rhs_shape c) in
+    ( Aten_op_spec.Op_sub_Tensor.(
+        spec { self; other; alpha = Aten_spec.Scalar_value.Int 1 }),
+      pcg )|};
+  }
+
 (* linear.default: the trailing axis is the feature axis and every leading axis
    passes through, so the [leading] candidates vary the input's RANK as well as
    its extents. A rank-2-only walk would never exercise the pass-through, and a
@@ -416,6 +442,7 @@ let entries =
     clamp;
     hardtanh;
     unbind_int;
+    sub_tensor;
   ]
 
 let find target = List.find_opt (fun e -> e.target = target) entries

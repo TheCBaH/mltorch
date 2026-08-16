@@ -117,6 +117,20 @@ applied after every mutation — not by filtering candidate values. Examples:
   after the fact is structural here and there is nothing left to cascade. Its `leading` axis carries
   the whole leading shape as one candidate value, which is how a step varies the input's **rank** —
   the pass-through of leading axes is the property a rank-2-only walk can never see.
+- **Binary** (`Recipe_binary`, `sub.Tensor`): the first **two-tensor** recipe (op3-impl.md F5 —
+  `Aten_walk_gen.default_tensor` admits an op only with exactly one tensor argument, so a two-operand
+  op has no Default tier and would sit in `needs_meta` forever without one). One shape plus a
+  broadcast `pattern` — `Equal`, or one operand with a single axis forced to extent 1 — drawn as one
+  correlated axis over whole valid `(lhs, rhs)` shape *pairs*, never two independently mutated shape
+  fields: mutating each operand's shape on its own axis would generate genuine broadcast mismatches
+  ATen rejects, degrading to skips that read as coverage and are none — the same failure mode the
+  `RmsNorm` bullet above warns about, for the same reason. `cascade` is identity: every `pattern` is
+  valid for every base shape. The native side's `Sub_nwalk` reuses `Pointwise.Bin.Walk`, which walks
+  **one** shape for both operands (no broadcast) — deliberately narrower than the ATen recipe, since
+  broadcasting both operands independently in the native walk too would move goldens for `add`/`mul`
+  (which share `Bin.Walk`) to prove a property neither of those rows claims. Broadcast evidence for
+  the native side is the ATen recipe (an independent oracle) plus the hand-written fixtures in
+  test/native_bridge_test.ml (op3-impl.md Part IV #4).
 
 `output_dim in pad kernel dilation stride = (in + 2*pad - ((kernel-1)*dilation + 1)) / stride + 1`
 (`Window_math.output_dim`). Cascade is pure (no PCG), so trajectories stay reproducible from the

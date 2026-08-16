@@ -982,6 +982,56 @@ let%expect_test "verify: div.Tensor with a serialized Float scalar" =
     ~inputs:[ in_tensor "self"; in_float "other" 0.1 ];
   [%expect {| aten and native agree |}]
 
+(* op3-impl.md F6: [sub.Tensor]'s scalar spelling cannot be expressed as an
+   [Op_spec] fixture (there is no [Arg_value] constructor for "a Tensor-typed
+   slot the exporter wrote as a bare scalar"), so this is the only route to
+   real ATen evidence for it. [x - s] legalizes to [x + (-s)] on the native
+   side (op_bridge.ml, native_interp.ml) -- if that negation were ever wrong
+   (e.g. [add_scalar s] instead of [add_scalar (-.s)]), this would print a
+   mismatch rather than agreement. *)
+let%expect_test "verify: sub.Tensor with a serialized Int scalar" =
+  let a = float_tensor [ 2; 3 ] [ -4.; -3.; 0.; 3.; 4.; 10. ] in
+  verify_print ~target:"torch.ops.aten.sub.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 3 ];
+  [%expect {| aten and native agree |}]
+
+let%expect_test "verify: sub.Tensor with a serialized Float scalar" =
+  let a = float_tensor [ 2; 3 ] [ -4.; -3.; 0.; 3.; 4.; 10. ] in
+  verify_print ~target:"torch.ops.aten.sub.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 0.5 ];
+  [%expect {| aten and native agree |}]
+
+(* Broadcasting a [1,3] against the [2,3] self, then a [2,1]: two different
+   axes carry the extent-1 side, checked against real ATen rather than a
+   hand-derived expectation. *)
+let%expect_test "verify: sub.Tensor broadcasts [1,3] and [2,1] against [2,3]" =
+  let a = float_tensor [ 2; 3 ] [ -4.; -3.; 0.; 3.; 4.; 10. ] in
+  let row = float_tensor [ 1; 3 ] [ 1.; 2.; 3. ] in
+  let col = float_tensor [ 2; 1 ] [ 10.; 20. ] in
+  verify_print ~target:"torch.ops.aten.sub.Tensor"
+    ~bindings:[ ("self", a); ("other", row) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ];
+  verify_print ~target:"torch.ops.aten.sub.Tensor"
+    ~bindings:[ ("self", a); ("other", col) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+(* [other] of a shape that cannot broadcast against [self] at all: the
+   existing native [`Broadcast] row, at the native boundary -- not a new
+   importer check, since [sub.Tensor] adds no shape rule of its own. *)
+let%expect_test "dispatch: sub.Tensor rejects an incompatible other shape" =
+  let a = float_tensor [ 2; 3 ] [ -4.; -3.; 0.; 3.; 4.; 10. ] in
+  let b = float_tensor [ 2; 4 ] (List.init 8 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.sub.Tensor"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect {| error: incompatible broadcast extents on axis C: 3 vs 4 |}]
+
 (* The whole hardsigmoid chain, each node checked against ATen in turn: the
    scalar add, both one-sided clamps, and the scalar divide. *)
 let%expect_test "verify: MobileNet-v3 hardsigmoid chain against ATen" =

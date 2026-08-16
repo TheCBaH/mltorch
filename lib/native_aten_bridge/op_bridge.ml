@@ -1136,21 +1136,30 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
-  | "torch.ops.aten.sub.Tensor" | "torch.ops.aten.sub_.Tensor" -> (
-      match
-        ( (let* () = reject_alpha node in
-           native_tensor_arg aten_env node "self"),
-          native_tensor_arg aten_env node "other" )
-      with
-      | Error e, _ | _, Error e -> Some (Error e)
-      | Ok a, Ok b ->
-          build_g ~name:"sub" [ a; b ] (function
-            | [ a_id; b_id ] ->
-                let open Graph_builder in
-                let+ y = sub a_id b_id in
-                [ y ]
-            | _ -> assert false)
-          |> some_graph)
+  (* [x - s] legalizes to [x + (-s)]: IEEE negation is exact and the builder
+     narrows to f32 on both spellings either way, so the two are bit-identical
+     (op3-impl.md F7). No [sub_scalar] builder exists and none should: this
+     negation is the whole legalization. *)
+  | "torch.ops.aten.sub.Tensor" | "torch.ops.aten.sub_.Tensor" ->
+      Some
+        (let* () = reject_alpha node in
+         let* a = native_tensor_arg aten_env node "self" in
+         let* other = tensor_or_scalar aten_env node "other" in
+         match other with
+         | `Tensor b ->
+             build_g ~name:"sub" [ a; b ] (function
+               | [ a_id; b_id ] ->
+                   let open Graph_builder in
+                   let+ y = sub a_id b_id in
+                   [ y ]
+               | _ -> assert false)
+         | `Scalar scalar ->
+             build_g ~name:"sub_scalar" [ a ] (function
+               | [ a_id ] ->
+                   let open Graph_builder in
+                   let+ y = add_scalar (-.scalar) a_id in
+                   [ y ]
+               | _ -> assert false))
   (* The only arm returning a variable number of outputs, and the only one whose
      count is fixed by the OPERAND rather than the op. Every slice is exposed:
      unlike a fixed tuple's dead output, there is nothing here to drop, and
