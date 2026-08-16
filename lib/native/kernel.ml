@@ -267,18 +267,18 @@ module Bounds = struct
           else Err.return ())
         (Err.return ()) Expr.Axis.all
     in
-    let limit = limits.Limits.max_numel in
+    (* [max_numel] is a configured limit and INCLUSIVE ([Limits.create] checks
+       it stays BELOW [Hard.numel], never at or above); [Vec6.numel_bounded]'s
+       [~limit] is EXCLUSIVE -- the smallest rejected count, matching every
+       other [Hard.*] comparison in the engine. The [succ] converts the
+       convention once, here, rather than tightening the configured limit by
+       one element; it cannot overflow because [max_numel < Hard.numel]. *)
     let+ _ =
-      List.fold_left
-        (fun acc axis ->
-          let* n = acc in
-          let e =
-            Int64.of_int (Dim.to_int (Vec6.get sg.Tensor_sig.shape axis))
-          in
-          if Int64.compare n (Int64.div limit e) > 0 then
-            Err.fail (`Numel_too_large id)
-          else Err.return (Int64.mul n e))
-        (Err.return 1L) Expr.Axis.all
+      Err.map_error
+        (fun (`Numel_over_limit _) -> `Numel_too_large id)
+        (Vec6.numel_bounded
+           ~limit:(Int64.succ limits.Limits.max_numel)
+           sg.Tensor_sig.shape)
     in
     ()
 end

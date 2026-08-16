@@ -150,8 +150,9 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Relu.output_shape x_shape) in
       [ out ]
-  | Reshape { Reshape.Reshape.params; _ } ->
-      let+ out = widen (Reshape.Reshape.output_shape params) in
+  | Reshape { Reshape.Reshape.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Reshape.Reshape.output_shape ~x_shape params) in
       [ out ]
   | Rms_norm { Norm.RmsNorm.params; x; weight } ->
       let* x_shape = shape x in

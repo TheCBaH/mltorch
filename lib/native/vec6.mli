@@ -86,6 +86,35 @@ val copy : 'd t -> src:Axis.t -> dst:Axis.t -> 'd t -> 'd t
 
 (* the role-bridging operations *)
 val numel : shape -> Dim.count Dim.t
+
+(* A bounded total element count, for graph-construction boundaries where
+   [numel]'s product could itself overflow: extents are only known positive
+   ([Dim.extent] bounds them below and nothing above), so six of them can have
+   a mathematical product near 2^186, and folding that into [int64] before
+   comparing is a post-overflow comparison, not a bound (see
+   [Kernel.Bounds.signature], whose divide-before-multiply fold this lifts).
+   Deliberately NOT used by [numel] itself, which stays the unchecked
+   per-element read-path primitive ([.ai/pt2_inference_perf.md]); this is for
+   the graph-construction boundaries that run once per node. *)
+module Numel_bound : sig
+  (* The witness is the PAIR the fold stopped on, never their product:
+     [prefix] is the accepted count before [axis] (so below [limit]), and
+     [extent] is that axis's size. Multiplying them to report one number is the
+     overflow this type exists to prevent -- on the 63-bit backend a single
+     axis can be near 2^62, so [prefix * extent] can itself exceed [int64]. *)
+  type t = { axis : Axis.t; prefix : int64; extent : int64; limit : int64 }
+
+  val pp : Format.formatter -> t -> unit
+end
+
+(* [limit] is EXCLUSIVE: the smallest REJECTED count, matching every other
+   [Kernel.Limits.Hard.*] comparison in the engine. On success, the returned
+   [int64] is the exact total count -- safe to return because bounding each
+   partial product below [limit] before multiplying means the final product
+   never approaches [int64]'s own ceiling. *)
+val numel_bounded :
+  limit:int64 -> shape -> (int64, [> `Numel_over_limit of Numel_bound.t ]) Err.t
+
 val offset : shape -> coord -> Dim.offset Dim.t (* dense NHWC linear index *)
 val in_bounds : shape -> coord -> bool
 

@@ -45,8 +45,23 @@ module Reshape = struct
     Fmt.pf fmt "@[<hv 2>reshape@ x=%a@ params=%a@]" pp_ref t.x pp_params
       t.params
 
-  (* The output shape is exactly the target (numel-preserving precondition). *)
-  let output_shape (p : params) = Err.return p.shape
+  (* The output shape is the target, PROVIDED it preserves the source's
+     element count -- checked here rather than trusted, since an oversized or
+     mismatched target used to be accepted silently (op3-impl.md F1) and
+     [Compute.delinearize] wraps rather than faulting on a bad target, so
+     nothing downstream would ever catch it. Both counts are bounded via
+     [Vec6.numel_bounded] rather than compared as plain [Vec6.numel]: on the
+     32-bit js_of_ocaml backend two DIFFERENT products can wrap to the same
+     [int], so an [int] equality is not the check it looks like. *)
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
+    let open Err.Syntax in
+    let limit = Kernel.Limits.Hard.numel in
+    let* source_numel = Vec6.numel_bounded ~limit x_shape in
+    let* target_numel = Vec6.numel_bounded ~limit p.shape in
+    if Int64.equal source_numel target_numel then Err.return p.shape
+    else
+      Err.fail
+        (`Reshape Shape_error.Reshape.{ source = x_shape; target = p.shape })
 
   (* Walk config: just the input shape; the target flattens all elements onto C
      (always numel-preserving), which fully exercises the delinearize path. *)

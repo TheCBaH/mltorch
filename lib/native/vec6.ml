@@ -112,6 +112,31 @@ let origin = coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0
 let numel (s : shape) =
   List.fold_left (fun acc a -> Dim.( *@ ) acc (get s a)) Dim.one_count Axis.all
 
+module Numel_bound = struct
+  type t = { axis : Axis.t; prefix : int64; extent : int64; limit : int64 }
+
+  let pp ppf { axis; prefix; extent; limit } =
+    Format.fprintf ppf
+      "axis %a: %Ld elements so far times extent %Ld reaches the maximum of %Ld"
+      Axis.pp axis prefix extent limit
+end
+
+(* Lifted from [Kernel.Bounds.signature]'s divide-before-multiply fold: bound
+   each partial product against the ceiling BEFORE multiplying, never after.
+   [limit] is exclusive, so the fold runs against [Int64.pred limit] -- the
+   largest ACCEPTED count -- which is [Kernel.Bounds.signature]'s own
+   (inclusive) convention applied to one-less-than the caller's exclusive
+   ceiling. *)
+let numel_bounded ~limit (s : shape) =
+  let ceiling = Int64.pred limit in
+  Err.List.fold_left
+    (fun prefix axis ->
+      let extent = Int64.of_int (Dim.to_int (get s axis)) in
+      if Int64.compare prefix (Int64.div ceiling extent) > 0 then
+        Err.fail (`Numel_over_limit Numel_bound.{ axis; prefix; extent; limit })
+      else Err.return (Int64.mul prefix extent))
+    1L Axis.all
+
 (* Unrolled over the 6 fixed fields instead of folding a closure over
    [Axis.all]: this is the innermost per-element tensor-read path, called
    millions of times for a real conv, and profiling (memtrace, then landmarks

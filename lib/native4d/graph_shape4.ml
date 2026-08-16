@@ -178,7 +178,20 @@ let output_shape (op : Op.t)
   | Permute4 { Ops4.Permute4.perm; x } ->
       let* x_shape = shape x in
       one (four (Permute.Permute.output_shape ~x_shape (perm6 perm)))
-  | Reshape4 { Ops4.Reshape4.params; _ } ->
-      (* Already a [Shape4.t]: a reshape cannot leave the dialect, which is the
-         whole reason the target is typed rather than validated. *)
-      Err.return [ params.Ops4.Reshape4.shape ]
+  | Reshape4 { Ops4.Reshape4.params; x } ->
+      (* The target is already a [Shape4.t]: a reshape cannot leave the
+         dialect, which is why the target is typed rather than validated for
+         AXES. It says nothing about element count, though, so this arm
+         delegates to the Native rule like every other -- restating a shape
+         rule here "would be a second definition free to drift" (module
+         header above). Without this, [Builder.reshape4] and any
+         JSON-decoded Native4D graph inherited op3-impl.md's F1: a target
+         whose numel disagrees with the source was accepted silently. *)
+      let* x_shape = shape x in
+      one
+        (four
+           (Reshape.Reshape.output_shape ~x_shape
+              {
+                Reshape.Reshape.shape =
+                  Shape4.to_vec6 params.Ops4.Reshape4.shape;
+              }))

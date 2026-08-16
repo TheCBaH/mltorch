@@ -153,6 +153,14 @@ module Permute = struct
       axis pp_perm_side side count
 end
 
+module Reshape = struct
+  type t = { source : Vec6.shape; target : Vec6.shape }
+
+  let pp ppf { source; target } =
+    Fmt.pf ppf "reshape target %a does not preserve the element count of %a"
+      Vec6.pp_shape target Vec6.pp_shape source
+end
+
 module Convolution = struct
   type channels_divisibility = { channels : int; groups : int }
 
@@ -276,6 +284,8 @@ type t =
   | `Bmm of Bmm.error
   | `Output_count_over_limit of Output_count.t
   | `Permute of Permute.t
+  | `Reshape of Reshape.t
+  | `Numel_over_limit of Vec6.Numel_bound.t
   | `Convolution of Convolution.error ]
 
 let pp ppf = function
@@ -288,4 +298,6 @@ let pp ppf = function
   | `Bmm e -> Bmm.pp_error ppf e
   | `Output_count_over_limit e -> Output_count.pp ppf e
   | `Permute e -> Permute.pp ppf e
+  | `Reshape e -> Reshape.pp ppf e
+  | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
   | `Convolution e -> Convolution.pp_error ppf e

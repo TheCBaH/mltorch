@@ -131,6 +131,28 @@ deliberately **no** `coord_of_shape`/`shape_of_coord`; the only way one meets th
 other is `offset`/`in_bounds`/`iter`/`fold`, exactly where index-within-extent is
 meaningful.
 
+**`numel` has no upper bound, and neither does a single `Dim.extent`.** `Dim.extent`
+enforces `n >= 1` and nothing above it, so on the 63-bit backend a single axis can
+sit near `max_int`, and the product of six such axes can be near 2^186 — folding
+that into `int64` and comparing afterwards is a post-overflow comparison, not a
+bound. `Vec6.numel_bounded ~limit shape` is the checked counterpart, for the
+graph-construction boundaries that need one (`Reshape.output_shape`,
+`Kernel.Bounds.signature`, `Tensor_bridge.of_aten`'s preflight): it bounds each
+per-axis partial product against `limit` **before** multiplying, in the style
+`Window_axis`/`Kernel.Bounds.signature` already used for the same reason, and
+returns the un-multiplied `{ axis; prefix; extent; limit }` witness on failure
+rather than the product itself — the product is exactly the figure that can
+overflow, so it is never computed for the error payload either. `~limit` is
+**exclusive**, matching every other `Kernel.Limits.Hard.*` comparison in the
+engine (`Window_axis.factor`, `conv_in_channels`, `Limits.check_int64`).
+`Vec6.numel` itself is deliberately left unchecked: it is the profiled
+per-element read path (`.ai/pt2_inference_perf.md`), and the checked form runs
+once per node rather than once per element. See op3-impl.md F1 for the defect
+this closes — both importers' `view`/`reshape` target resolution accepted a
+numel-changing target silently, and `Reshape.output_shape` compared unchecked
+`Vec6.numel` results, which can wrap two *different* products to the same
+32-bit `int` under js_of_ocaml.
+
 `fold` is not yet implemented (design-only, same status as the rest of this
 note where flagged) — `iter` covers every current use (`materialize`, `pp`),
 but a whole-tensor reduction (e.g. comparing two tensors, or an op that wants

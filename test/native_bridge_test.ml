@@ -1105,6 +1105,67 @@ let%expect_test "dispatch: view.default contiguous reshape (no permute)" =
     outputs: [t1 f32 [W=3 C=2] <-n0]
     tensor f32 [W=3 C=2] {0, 1, 2, 3, 4, 5} |}]
 
+(* op3-impl.md F1, the zero-guard half: [Aten_shape.resolve_view_size]
+   validates every non-[-1] entry through [Dim.extent_checked] before any
+   division runs, so [0] alongside [-1] is refused rather than dividing by the
+   zero it would otherwise fold [known] to. Before commit 1 the bridge's own
+   [resolve_view_size] had NO zero guard at all and raised [Division_by_zero]
+   here -- unlike [Native_interp], which already special-cased the [-1] case
+   (commit 9390ae6). *)
+let%expect_test "dispatch: view.default rejects a target sizing both 0 and -1" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.view.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "size" [ 0; -1 ] ]
+    ~noutputs:1;
+  [%expect {| error: extent must be >= 1, got 0 |}]
+
+(* The oversized-TARGET case, not the source: [Aten_shape.resolve_view_size]'s
+   divide-first fold rejects it (its [known] already exceeds the source's tiny
+   [numel] partway through) before [Aten_shape.of_aten] ever converts a
+   resolved list into a native shape, so no large allocation happens -- unlike
+   an oversized SOURCE, which would have to reach the bridge through a real
+   (unconstructible-as-a-fixture) ATen handle; see [Tensor_bridge.of_aten]'s
+   own preflight, tested at the primitive level in test/native/vec6_test.ml. *)
+let%expect_test "dispatch: view.default rejects a target past the numel ceiling"
+    =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.view.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "size" [ 2; 3 ] ]
+    ~noutputs:1;
+  (* numel 6 either way: a small, ordinary target still lowers, establishing
+     that the rejection below is about the OVERSIZED case and not a general
+     regression. *)
+  dispatch_print ~target:"torch.ops.aten.view.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "size" [ 65536; 65536 ] ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor f32 [W=2 C=3] {0, 1, 2, 3, 4, 5}
+    error: view size [65536, 65536] does not match 6 elements |}]
+
+(* The rejected witness cannot be the PRODUCT [prefix * extent]: [Dim.extent]
+   bounds an extent only BELOW, so on this (63-bit) backend a single axis can
+   sit near [max_int], and [prefix * extent] here would itself overflow
+   [int64] -- reintroducing exactly the wrap this design exists to prevent.
+   Native-only on purpose (unlike every other numel fixture in this group):
+   the constant is not representable in js_of_ocaml's 32-bit [int], and this
+   file's stanza is the one inline suite with plain [(inline_tests)], no [js]
+   mode (test/dune). *)
+let%expect_test
+    "vec6: numel_bounded reports the witness pair, never their \
+     (unrepresentable) product" =
+  let s = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1_073_741_824 ~c:max_int in
+  (match Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel s with
+  | Ok n -> Format.printf "Ok %Ld@." n
+  | Error e -> (
+      match Err.Error.kind e with
+      | `Numel_over_limit b -> Format.printf "Error %a@." Vec6.Numel_bound.pp b));
+  [%expect
+    {| Error axis C: 1073741824 elements so far times extent 4611686018427387903 reaches the maximum of 2147483648 |}]
+
 let%expect_test "PT2 provenance: native ids map to qualified source origins" =
   let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2 in
   let graph =

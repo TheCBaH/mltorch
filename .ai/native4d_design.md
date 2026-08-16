@@ -386,6 +386,13 @@ This section covers every operation currently in `Graph_ir.op`.
 | `Unbind` | `Unbind` with an `Axis4.t`, when the axis is nameable AND every inferred slice re-enters `Shape4` | `Identical` |
 | `Discard` | Removed by DCE | Vacuous deletion |
 
+`Graph_shape4`'s `Reshape4` arm delegates to `Reshape.Reshape.output_shape
+~x_shape`, like every other arm in this file — it used to return the typed
+target unchecked ("a reshape cannot leave the dialect", true of AXES, never a
+statement about element counts), so `Builder.reshape4` and any JSON-decoded
+Native4D graph inherited op3-impl.md F1's silent numel-changing wrap. Fixed in
+the same commit as the Native rule it now shares.
+
 `Unbind` is the dialect's **only multi-output operation**, and its representable
 set is narrower than its axis check suggests. Dropping an axis re-packs the
 survivors right-aligned, which shifts every axis *outside* the dropped one one
