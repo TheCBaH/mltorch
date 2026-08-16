@@ -51,6 +51,7 @@ let selection =
     op "reshape";
     op "flatten" ~overload:"using_ints";
     op "permute";
+    op "transpose" ~overload:"int";
     op "convolution";
     op "addmm";
     op "bmm";

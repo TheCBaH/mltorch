@@ -948,6 +948,112 @@ let%expect_test "dispatch: permute.default rejects a wrong-length dims list" =
     ~noutputs:1;
   [%expect {| error: permute.default: expected 2 dims, got 1 |}]
 
+(* ---- transpose.int --------------------------------------------------------- *)
+
+(* Coordinate-coded values (v = 100*i + j, generalized per rank below) so a
+   wrong swap fails on the printed VALUES, not merely on the output shape --
+   the mutation table's "wrong pair swapped" case needs asymmetric extents for
+   the same reason. *)
+let%expect_test "dispatch: transpose.int rank-2 (0,1)" =
+  (* [2,3], v[i,j] = 100*i+j. transpose(0,1) -> [3,2], out[j,i] = in[i,j]. *)
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 100.; 101.; 102. ] in
+  dispatch_print ~target:"torch.ops.aten.transpose.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim0" 0; in_int "dim1" 1 ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=3 C=2] {0, 100, 1, 101, 2, 102} |}]
+
+let%expect_test "dispatch: transpose.int rank-3 (1,2)" =
+  (* [2,3,4], v[i,j,k] = 100*i+10*j+k. transpose(1,2) swaps the middle two
+     axes: out[i,k,j] = in[i,j,k], shape [2,4,3]. *)
+  let vals =
+    List.concat_map
+      (fun i ->
+        List.concat_map
+          (fun j -> List.init 4 (fun k -> (100 * i) + (10 * j) + k))
+          [ 0; 1; 2 ])
+      [ 0; 1 ]
+  in
+  let x = float_tensor [ 2; 3; 4 ] (List.map float_of_int vals) in
+  dispatch_print ~target:"torch.ops.aten.transpose.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim0" 1; in_int "dim1" 2 ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor f32 [H=2 W=4 C=3] {0, 10, 20, 1, 11, 21, 2, 12, ...} |}]
+
+let%expect_test "dispatch: transpose.int rank-4 negative dims (-1,-2)" =
+  (* [1,2,3,4] (D,H,W,C), asymmetric extents 3x4 on the swapped axes, v =
+     100*h + w. dims -1,-2 normalize to rank-1=3 (C) and rank-2=2 (W), the
+     same pair positive dims 2,3 would name. *)
+  let vals =
+    List.concat_map (fun h -> List.init 4 (fun w -> (100 * h) + w)) [ 0; 1; 2 ]
+  in
+  let x = float_tensor [ 1; 2; 3; 4 ] (List.map float_of_int vals) in
+  dispatch_print ~target:"torch.ops.aten.transpose.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim0" (-1); in_int "dim1" (-2) ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor f32 [H=2 W=4 C=3] {0, 100, 200, 1, 101, 201, 2, 102, ...} |}]
+
+let%expect_test "dispatch: transpose.int rank-4 mixed dims (0,-1)" =
+  let x = float_tensor [ 2; 3; 4; 5 ] (List.init 120 float_of_int) in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.transpose.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim0" 0; in_int "dim1" (-1) ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [D=2 H=3 W=4 C=5] ->[n0]]
+    nodes:
+      n0: [t1 f32 [D=5 H=3 W=4 C=2]] = permute x=t0 perm=[D<-C, C<-D]
+    outputs: [t1 f32 [D=5 H=3 W=4 C=2] <-n0]
+    tensor f32 [D=5 H=3 W=4 C=2] {0, 60, 5, 65, 10, 70, 15, 75, ...} |}]
+
+(* Equal dims: a real identity transpose, not special-cased away. *)
+let%expect_test "dispatch: transpose.int equal dims is the identity" =
+  let x = float_tensor [ 3; 4 ] (List.init 12 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.transpose.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim0" 1; in_int "dim1" 1 ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=3 C=4] {0, 1, 2, 3, 4, 5, 6, 7, ...} |}]
+
+(* Duplicate dims after normalization -- (1, -3) on a rank-4 tensor both name
+   axis 1 -- is the same case as literally-equal dims: a well-defined identity
+   swap, not a rejection. *)
+let%expect_test
+    "dispatch: transpose.int duplicate dims after normalization is the identity"
+    =
+  let x = float_tensor [ 1; 3; 4; 5 ] (List.init 60 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.transpose.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim0" 1; in_int "dim1" (-3) ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [H=3 W=4 C=5] {0, 1, 2, 3, 4, 5, 6, 7, ...} |}]
+
+let%expect_test "dispatch: transpose.int rejects an out-of-range dim" =
+  let x = float_tensor [ 3; 4 ] (List.init 12 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.transpose.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim0" 0; in_int "dim1" 5 ]
+    ~noutputs:1;
+  [%expect {| error: transpose.int: invalid dimension 5 for rank 2 |}]
+
+(* Rank 6, the frame's full width: transpose the outermost pair. *)
+let%expect_test "dispatch: transpose.int rank-6 (0,1)" =
+  let x = float_tensor [ 2; 3; 1; 1; 1; 1 ] (List.init 6 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.transpose.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim0" 0; in_int "dim1" 1 ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [N=3 T=2 D=1 H=1 W=1 C=1] {0, 3, 1, 4, 2, 5} |}]
+
 (* ---- ATen-vs-native on the serialized-scalar path ------------------------- *)
 
 (* The bridge arms above pin the native compute against hand-derived values, and

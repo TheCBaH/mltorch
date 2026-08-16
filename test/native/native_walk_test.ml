@@ -238,75 +238,87 @@ let%expect_test "native walk coverage" =
     [native] reshape: direct==symbolic
     step 5 [input]: {shape=[n=2 c=5 h=8 w=2] -> flat}
     [native] reshape: direct==symbolic
+    step 0: {shape=[n=1 c=4 h=4 w=4] perm=[H<-W, W<-H]}
+    [native] permute: direct==symbolic
+    step 1 [input]: {shape=[n=1 c=4 h=1 w=4] perm=[H<-W, W<-H]}
+    [native] permute: direct==symbolic
+    step 2 [input]: {shape=[n=1 c=4 h=3 w=4] perm=[H<-W, W<-H]}
+    [native] permute: direct==symbolic
+    step 3 [input]: {shape=[n=1 c=1 h=3 w=4] perm=[H<-W, W<-H]}
+    [native] permute: direct==symbolic
+    step 4 [input]: {shape=[n=1 c=1 h=15 w=4] perm=[H<-W, W<-H]}
+    [native] permute: direct==symbolic
+    step 5 [perm]: {shape=[n=1 c=1 h=15 w=4] perm=[N<-C, C<-N]}
+    [native] permute: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4] {min=0; max=6}
     [native] clamp: direct==symbolic
-    step 1 [bounds]: [n=1 c=3 h=4 w=4] {min=0; max=6}
+    step 1 [input]: [n=1 c=3 h=4 w=6] {min=0; max=6}
     [native] clamp: direct==symbolic
-    step 2 [bounds]: [n=1 c=3 h=4 w=4] {min=1; max=-1}
+    step 2 [bounds]: [n=1 c=3 h=4 w=6] {min=1; max=-1}
     [native] clamp: direct==symbolic
-    step 3 [bounds]: [n=1 c=3 h=4 w=4] {min=0; max=none}
+    step 3 [bounds]: [n=1 c=3 h=4 w=6] {min=0; max=6}
     [native] clamp: direct==symbolic
-    step 4 [input]: [n=1 c=3 h=9 w=4] {min=0; max=none}
+    step 4 [input]: [n=1 c=3 h=4 w=6] {min=0; max=6}
     [native] clamp: direct==symbolic
-    step 5 [bounds]: [n=1 c=3 h=9 w=4] {min=none; max=6}
+    step 5 [bounds]: [n=1 c=3 h=4 w=6] {min=0; max=nan}
     [native] clamp: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4]
     [native] clone: direct==symbolic
-    step 1 [input]: [n=1 c=3 h=4 w=6]
+    step 1 [input]: [n=1 c=3 h=4 w=8]
     [native] clone: direct==symbolic
-    step 2 [input]: [n=1 c=3 h=4 w=6]
+    step 2 [input]: [n=1 c=15 h=4 w=8]
     [native] clone: direct==symbolic
-    step 3 [input]: [n=1 c=4 h=4 w=6]
+    step 3 [input]: [n=1 c=21 h=4 w=8]
     [native] clone: direct==symbolic
-    step 4 [input]: [n=1 c=21 h=4 w=6]
+    step 4 [input]: [n=1 c=21 h=6 w=8]
     [native] clone: direct==symbolic
-    step 5 [input]: [n=1 c=22 h=4 w=6]
+    step 5 [input]: [n=1 c=21 h=6 w=8]
     [native] clone: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4] {min_val=0; max_val=6}
     [native] hardtanh: direct==symbolic
-    step 1 [bounds]: [n=1 c=3 h=4 w=4] {min_val=0; max_val=6}
+    step 1 [bounds]: [n=1 c=3 h=4 w=4] {min_val=-1; max_val=1}
     [native] hardtanh: direct==symbolic
-    step 2 [input]: [n=1 c=3 h=15 w=4] {min_val=0; max_val=6}
+    step 2 [bounds]: [n=1 c=3 h=4 w=4] {min_val=1; max_val=-1}
     [native] hardtanh: direct==symbolic
-    step 3 [bounds]: [n=1 c=3 h=15 w=4] {min_val=-1; max_val=1}
+    step 3 [input]: [n=1 c=3 h=4 w=15] {min_val=1; max_val=-1}
     [native] hardtanh: direct==symbolic
-    step 4 [bounds]: [n=1 c=3 h=15 w=4] {min_val=0; max_val=6}
+    step 4 [input]: [n=1 c=3 h=16 w=15] {min_val=1; max_val=-1}
     [native] hardtanh: direct==symbolic
-    step 5 [bounds]: [n=1 c=3 h=15 w=4] {min_val=1; max_val=-1}
+    step 5 [input]: [n=2 c=3 h=16 w=15] {min_val=1; max_val=-1}
     [native] hardtanh: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4] scalar=3
     [native] add_scalar: direct==symbolic
-    step 1 [scalar]: [n=1 c=3 h=4 w=4] scalar=6
-    [native] add_scalar: direct==symbolic
-    step 2 [scalar]: [n=1 c=3 h=4 w=4] scalar=0.5
-    [native] add_scalar: direct==symbolic
-    step 3 [input]: [n=1 c=3 h=4 w=15] scalar=0.5
-    [native] add_scalar: direct==symbolic
-    step 4 [input]: [n=1 c=3 h=16 w=15] scalar=0.5
-    [native] add_scalar: direct==symbolic
-    step 5 [input]: [n=2 c=3 h=16 w=15] scalar=0.5
-    [native] add_scalar: direct==symbolic
-    step 0: [n=1 c=3 h=4 w=4] scalar=3
-    [native] div_scalar: direct==symbolic
     step 1 [input]: [n=1 c=3 h=4 w=16] scalar=3
-    [native] div_scalar: direct==symbolic
+    [native] add_scalar: direct==symbolic
     step 2 [input]: [n=1 c=3 h=4 w=1] scalar=3
-    [native] div_scalar: direct==symbolic
+    [native] add_scalar: direct==symbolic
     step 3 [input]: [n=1 c=3 h=4 w=14] scalar=3
-    [native] div_scalar: direct==symbolic
+    [native] add_scalar: direct==symbolic
     step 4 [scalar]: [n=1 c=3 h=4 w=14] scalar=3
-    [native] div_scalar: direct==symbolic
+    [native] add_scalar: direct==symbolic
     step 5 [input]: [n=1 c=12 h=4 w=14] scalar=3
+    [native] add_scalar: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4] scalar=3
+    [native] div_scalar: direct==symbolic
+    step 1 [input]: [n=1 c=6 h=4 w=4] scalar=3
+    [native] div_scalar: direct==symbolic
+    step 2 [input]: [n=1 c=12 h=4 w=4] scalar=3
+    [native] div_scalar: direct==symbolic
+    step 3 [input]: [n=1 c=12 h=4 w=5] scalar=3
+    [native] div_scalar: direct==symbolic
+    step 4 [scalar]: [n=1 c=12 h=4 w=5] scalar=-2
+    [native] div_scalar: direct==symbolic
+    step 5 [scalar]: [n=1 c=12 h=4 w=5] scalar=0.5
     [native] div_scalar: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] axis=H}
     [native] unbind: direct==symbolic
-    step 1 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=N}
+    step 1 [input]: {shape=[n=2 c=4 h=4 w=13] axis=H}
     [native] unbind: direct==symbolic
-    step 2 [input]: {shape=[n=2 c=4 h=2 w=4] axis=N}
+    step 2 [axis]: {shape=[n=2 c=4 h=4 w=13] axis=W}
     [native] unbind: direct==symbolic
-    step 3 [input]: {shape=[n=2 c=28 h=2 w=4] axis=N}
+    step 3 [axis]: {shape=[n=2 c=4 h=4 w=13] axis=N}
     [native] unbind: direct==symbolic
-    step 4 [axis]: {shape=[n=2 c=28 h=2 w=4] axis=N}
+    step 4 [axis]: {shape=[n=2 c=4 h=4 w=13] axis=H}
     [native] unbind: direct==symbolic
-    step 5 [input]: {shape=[n=2 c=19 h=2 w=4] axis=N}
+    step 5 [axis]: {shape=[n=2 c=4 h=4 w=13] axis=N}
     [native] unbind: direct==symbolic |}]

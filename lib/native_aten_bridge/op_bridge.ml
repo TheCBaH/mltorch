@@ -323,11 +323,18 @@ let perm_linear_weight : Permute.Permute.perm =
    has already fired for that case and [rank] is in [0,6] by the time this
    runs; the [rank < 1] arm then covers only a rank-0 operand, for which no dim
    is valid. *)
-let dim_axis ~op ~rank dim =
+(* The checked, normalized INT underneath [dim_axis] -- exposed on its own
+   because [transpose.int] needs the normalized position itself (to build a
+   swap permutation), not the frame axis [dim_axis] converts it to. *)
+let norm_dim ~op ~rank dim =
   let d = if dim < 0 then dim + rank else dim in
   if rank < 1 || d < 0 || d >= rank then
     fail (`Invalid_dim { Invalid_dim.op; dim; rank })
-  else return (Aten_shape.axis_of_dim ~rank dim)
+  else return d
+
+let dim_axis ~op ~rank dim =
+  let* d = norm_dim ~op ~rank dim in
+  return (Aten_shape.axis_of_dim ~rank d)
 
 let dims_arg node ~op ~rank name =
   match D.find_arg node name with
@@ -1066,6 +1073,31 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* perm = native_perm_of_aten ~op:"permute.default" ~rank dims in
          let* x = native_of_aten "self" t in
          build_g ~name:"permute" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = permute perm x_id in
+               [ y ]
+           | _ -> assert false))
+  (* Reuses [native_perm_of_aten], the same permute machinery
+     [permute.default] builds on, rather than a new builder -- outer padding
+     axes stay identity because that helper already does that. Equal dims are
+     a real identity transpose, not special-cased away: [List.init] produces
+     the identity list, and it lowers like any other permutation. *)
+  | "torch.ops.aten.transpose.int" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let* dim0 = int_arg node "dim0" in
+         let* dim1 = int_arg node "dim1" in
+         let* d0 = norm_dim ~op:"transpose.int" ~rank dim0 in
+         let* d1 = norm_dim ~op:"transpose.int" ~rank dim1 in
+         let dims =
+           List.init rank (fun i ->
+               if i = d0 then d1 else if i = d1 then d0 else i)
+         in
+         let* perm = native_perm_of_aten ~op:"transpose.int" ~rank dims in
+         let* x = native_of_aten "self" t in
+         build_g ~name:"transpose" [ x ] (function
            | [ x_id ] ->
                let open Graph_builder in
                let+ y = permute perm x_id in

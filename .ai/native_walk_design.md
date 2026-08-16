@@ -131,6 +131,22 @@ applied after every mutation — not by filtering candidate values. Examples:
   numel resolver still accepts what it used to (op3-impl.md commit 5) — the native `Reshape_nwalk`
   already covers the compute kernel and needs no change, so it is not evidence for either exact
   target.
+- **Transpose** (`Recipe_transpose`, `transpose.int`): rank and the dim pair drawn as ONE correlated
+  axis, never independently — a dim pair like `(2,3)` is only valid for rank ≥ 4, so mutating rank and
+  dims separately would generate invalid combinations ATen rejects. Candidates cover positive,
+  negative, equal, leading and trailing pairs across ranks 2, 3 and 4; `cascade` is identity since
+  every candidate is already a whole valid triple.
+
+  The **native** side gets its first `Permute` walk in the same commit (`lib/native/ops/permute.ml`'s
+  `Permute.Walk`, assembled by `Permute_nwalk`): a full 6-axis shape plus a permutation drawn from a
+  *fixed* candidate list (not generated combinatorially — a full 6-axis bijection has 720 elements,
+  most meaningless for a rank-4-visible tensor), **weighted away from identity** — none of the
+  candidates is the identity permutation, which is what the coverage-sweep header
+  (`test/native/native_walk_test.ml:9-18`) warns a lazy axis produces. At least one candidate is a
+  3-cycle: a two-element swap is its own inverse, so it cannot distinguish a correctly-directed
+  mapping from a reversed one — the "source/destination mapping reversed" mutation `transpose.int`'s
+  own evidence proves vacuous (op3-impl.md commit 6) becomes real only once a non-involutive
+  permutation exists to test it against.
 - **Binary** (`Recipe_binary`, `sub.Tensor`): the first **two-tensor** recipe (op3-impl.md F5 —
   `Aten_walk_gen.default_tensor` admits an op only with exactly one tensor argument, so a two-operand
   op has no Default tier and would sit in `needs_meta` forever without one). One shape plus a

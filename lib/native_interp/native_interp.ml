@@ -55,6 +55,7 @@ type metadata_role =
   | `Rms_norm_weight
   | `Mean_input
   | `Permute_input
+  | `Transpose_input
   | `Unbind_input
   | `Addmm_weight ]
 
@@ -214,6 +215,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Rms_norm_weight -> Fmt.string ppf "rms_norm weight"
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Permute_input -> Fmt.string ppf "permute input"
+  | `Transpose_input -> Fmt.string ppf "transpose input"
   | `Unbind_input -> Fmt.string ppf "unbind input"
   | `Addmm_weight -> Fmt.string ppf "addmm weight"
 
@@ -1339,6 +1341,32 @@ let lower program =
             permute
               (native_perm esc ~tensor:x_name ~rank (ints_arg esc node "dims"))
               (get "self")
+          in
+          return [ y ]
+      (* Reuses [native_perm], the same permute machinery [permute.default]
+         builds on, rather than a new builder -- outer padding axes stay
+         identity because [native_perm] already does that. Equal dims are a
+         real identity transpose, not special-cased away: [List.init] produces
+         the identity list, and it lowers like any other permutation. *)
+      | "torch.ops.aten.transpose.int" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Transpose_input)
+          in
+          let norm_dim d =
+            let d = if d < 0 then d + rank else d in
+            if d < 0 || d >= rank then
+              malformed esc (`Axis_out_of_range { axis = d; rank });
+            d
+          in
+          let d0 = norm_dim (int_arg esc node "dim0") in
+          let d1 = norm_dim (int_arg esc node "dim1") in
+          let dims =
+            List.init rank (fun i ->
+                if i = d0 then d1 else if i = d1 then d0 else i)
+          in
+          let* y =
+            permute (native_perm esc ~tensor:x_name ~rank dims) (get "self")
           in
           return [ y ]
       (* The only arm whose output count is not fixed by the op. By the time it
