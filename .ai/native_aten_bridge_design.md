@@ -185,6 +185,23 @@ checks should stay typed as bridge errors rather than collapsing to ad hoc
 strings; for example `conv2d.padding` now reports
 `Conv2d_padding_invalid_weight_rank` carrying the offending weight shape.
 
+**Every decoded dim goes through `dim_axis ~op ~rank dim`.** `Aten_shape.axis_of_dim`
+asserts its precondition and raises `Invalid_argument` — a fine contract for a
+trusted caller, but `dim` here is untrusted model data. `dim_axis` is the one
+approved route from a decoded `dim` to `axis_of_dim`: it normalises, range-checks,
+and reports the fault as `` `Invalid_dim { op; dim; rank } `` (the *original*,
+unnormalised `dim`), where `op` names the calling arm so the same row serves
+`unbind.int`, `mean.dim` and `permute.default` (`dims_arg`, `native_perm_of_aten`)
+without a per-arm vocabulary. Before this helper existed, `mean.dim` and
+`permute.default` called `axis_of_dim` directly on decoded data with no guard,
+so an out-of-range `dim` escaped `Op_bridge.dispatch` as an uncaught
+`Invalid_argument` instead of a typed row (`test/native_bridge_test.ml`, the
+"rejects an out-of-range dim" cases). `native_perm_of_aten` also now checks that
+a decoded `dims` list has exactly `rank` entries, reporting
+`` `Dims_count { op; rank; got } `` — previously a short/long list produced a
+non-bijective permutation caught later, with a worse message, by
+`Permute.output_shape`.
+
 ## Dependency graph
 
 ```

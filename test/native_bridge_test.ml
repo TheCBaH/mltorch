@@ -784,6 +784,24 @@ let%expect_test "dispatch: mean.dim omitted dim reduces over all dims" =
     ~noutputs:1;
   [%expect {| tensor f32 [C=1] {2.5} |}]
 
+(* [Aten_shape.axis_of_dim] asserts its range and raises; before commit 0 this
+   escaped [Op_bridge.dispatch] as an uncaught [Invalid_argument] rather than
+   the typed row every other bad-argument arm returns. *)
+let%expect_test "dispatch: mean.dim rejects an out-of-range dim" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  List.iter
+    (fun d ->
+      dispatch_print ~target:"torch.ops.aten.mean.dim"
+        ~bindings:[ ("self", x) ]
+        ~inputs:
+          [ in_tensor "self"; in_ints "dim" [ d ]; in_bool "keepdim" false ]
+        ~noutputs:1)
+    [ 7; -3 ];
+  [%expect
+    {|
+    error: mean.dim: invalid dimension 7 for rank 2
+    error: mean.dim: invalid dimension -3 for rank 2 |}]
+
 let%expect_test "dispatch: rms_norm normalized_shape=[3] with weight" =
   let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
   let w = float_tensor [ 3 ] [ 1.; 1.; 1. ] in
@@ -892,6 +910,27 @@ let%expect_test "dispatch: permute.default identity — output equals input" =
     ~inputs:[ in_tensor "self"; in_ints "dims" [ 0; 1 ] ]
     ~noutputs:1;
   [%expect {| tensor f32 [W=3 C=4] {0, 1, 2, 3, 4, 5, 6, 7, ...} |}]
+
+(* Same hole as unbind.int, on the other arm that resolves a decoded dim: before
+   commit 0, [dims.(1) = 5] escaped as an uncaught [Invalid_argument] rather
+   than the typed row. *)
+let%expect_test "dispatch: permute.default rejects an out-of-range dim" =
+  let x = float_tensor [ 3; 4 ] (List.init 12 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.permute.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dims" [ 0; 5 ] ]
+    ~noutputs:1;
+  [%expect {| error: permute.default: invalid dimension 5 for rank 2 |}]
+
+(* A [dims] list whose length disagrees with the operand's rank is a distinct
+   fault from any single entry being out of range. *)
+let%expect_test "dispatch: permute.default rejects a wrong-length dims list" =
+  let x = float_tensor [ 3; 4 ] (List.init 12 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.permute.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dims" [ 0 ] ]
+    ~noutputs:1;
+  [%expect {| error: permute.default: expected 2 dims, got 1 |}]
 
 (* ---- ATen-vs-native on the serialized-scalar path ------------------------- *)
 

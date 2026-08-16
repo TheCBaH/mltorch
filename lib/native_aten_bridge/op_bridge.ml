@@ -23,8 +23,21 @@ type tensor_bridge_error = { arg_name : string; cause : Tensor_bridge.error }
 
 (* Own modules with the payload named [t], per CLAUDE.md's record convention.
    The top-level records above predate it and are not a pattern to extend. *)
-module Unbind_invalid_dim = struct
-  type t = { dim : int; rank : int }
+
+(* Shared by every arm that resolves a decoded dim through
+   [Aten_shape.axis_of_dim]: [op] is what distinguishes one arm's fault from
+   another's (unbind.int, mean.dim, permute.default, transpose.int, ...),
+   [dim] is the ORIGINAL value as decoded (not normalized), and [rank] is the
+   operand's rank. *)
+module Invalid_dim = struct
+  type t = { op : string; dim : int; rank : int }
+end
+
+(* [permute.default]/[transpose.int] build a full permutation from a decoded
+   dims list; a list whose length disagrees with the operand's rank is a
+   distinct fault from any single dim being out of range. *)
+module Dims_count = struct
+  type t = { op : string; rank : int; got : int }
 end
 
 (* Carries ATen's OWN dtype, read off the source tensor before conversion,
@@ -70,7 +83,8 @@ type error =
   | `Build of Graph_builder.error
   | `Invalid_hw_arg of invalid_hw_arg
   | `Validation_failure of string
-  | `Unbind_invalid_dim of Unbind_invalid_dim.t
+  | `Invalid_dim of Invalid_dim.t
+  | `Dims_count of Dims_count.t
   | `Unsupported_input_dtype of Unsupported_input_dtype.t
   | `Addmm_invalid_weight_rank of int array
   | `Conv2d_invalid_weight_rank of int array
@@ -100,8 +114,10 @@ let pp_error ppf : [< error ] -> unit = function
   | `Invalid_hw_arg { name; values } ->
       Fmt.pf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list values
   | `Validation_failure msg -> Fmt.string ppf msg
-  | `Unbind_invalid_dim { Unbind_invalid_dim.dim; rank } ->
-      Fmt.pf ppf "unbind.int: invalid dimension %d for rank %d" dim rank
+  | `Invalid_dim { Invalid_dim.op; dim; rank } ->
+      Fmt.pf ppf "%s: invalid dimension %d for rank %d" op dim rank
+  | `Dims_count { Dims_count.op; rank; got } ->
+      Fmt.pf ppf "%s: expected %d dims, got %d" op rank got
   | `Bad_config e -> Op_config.Bad.pp ppf e
   | `Unsupported_padding_mode s ->
       Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
@@ -290,31 +306,33 @@ let perm_linear_weight : Permute.Permute.perm =
    6D shape), keeping reduced axes consistent with where [of_aten] places the
    data. [aten.mean.dim] treats a missing/None/empty dim list as "all dims", so
    the bridge normalizes all three spellings the same way. *)
-let dims_arg node ~rank name =
-  match D.find_arg node name with
-  | Some (Argument.Ints []) | Some (Argument.None _) | None ->
-      Aten_shape.used_axes ~rank
-  | Some (Argument.Ints xs) -> List.map (Aten_shape.axis_of_dim ~rank) xs
-  | _ -> Aten_shape.used_axes ~rank
-
-(* [Aten_shape.axis_of_dim] asserts its precondition and raises, so the range is
-   checked HERE and reported as a typed row -- the design record's rule that a
-   rank-sensitive rejection gets its own constructor rather than a
-   [`Validation_failure] string. The ORIGINAL [dim] is reported, not the
-   normalized one: a user who wrote -9 is better served by seeing -9.
+(* The only approved route from a decoded dim to [Aten_shape.axis_of_dim],
+   which asserts its precondition and raises: the range is checked HERE and
+   reported as a typed row -- the design record's rule that a rank-sensitive
+   rejection gets its own constructor rather than a [`Validation_failure]
+   string. The ORIGINAL [dim] is reported, not the normalized one: a user who
+   wrote -9 is better served by seeing -9. [op] names the calling arm, since
+   that is the only thing distinguishing one caller's fault from another's.
 
    Only the DIM is judged here. A rank Native cannot hold is a different fault,
    and folding it in would report "invalid dimension 0 for rank 7" — where 0 is
-   a perfectly good dimension and the rank is what went wrong. The caller
+   a perfectly good dimension and the rank is what went wrong. Every caller
    converts the operand first, so [Tensor_bridge]'s own [`Rank_out_of_range]
    has already fired for that case and [rank] is in [0,6] by the time this
    runs; the [rank < 1] arm then covers only a rank-0 operand, for which no dim
    is valid. *)
-let unbind_axis ~rank dim =
+let dim_axis ~op ~rank dim =
   let d = if dim < 0 then dim + rank else dim in
   if rank < 1 || d < 0 || d >= rank then
-    fail (`Unbind_invalid_dim { Unbind_invalid_dim.dim; rank })
+    fail (`Invalid_dim { Invalid_dim.op; dim; rank })
   else return (Aten_shape.axis_of_dim ~rank dim)
+
+let dims_arg node ~op ~rank name =
+  match D.find_arg node name with
+  | Some (Argument.Ints []) | Some (Argument.None _) | None ->
+      return (Aten_shape.used_axes ~rank)
+  | Some (Argument.Ints xs) -> Err.List.map (dim_axis ~op ~rank) xs
+  | _ -> return (Aten_shape.used_axes ~rank)
 
 (* The engine's compute domain is f32 and [Graph_builder] gives every op output
    [Payload.F32], so an i64 operand would silently become an f32 result that
@@ -389,18 +407,29 @@ let eps_arg node name =
 
 (* Build a full 6D native permutation from an ATen [dims] list and the tensor
    rank.  For the [rank] used axes, [dims.(i)] is the ATen input dim for output
-   position [i]; outer padding axes are the identity. *)
-let native_perm_of_aten ~rank dims =
+   position [i]; outer padding axes are the identity.
+
+   [dims] must have exactly [rank] entries: a short or long list is caught
+   downstream today ([Permute.output_shape] refuses the resulting
+   non-bijection), so this check is a diagnostic improvement, not a hole it
+   closes. *)
+let native_perm_of_aten ~op ~rank dims =
+  let* () =
+    let got = List.length dims in
+    if got <> rank then fail (`Dims_count { Dims_count.op; rank; got })
+    else return ()
+  in
   let used = Aten_shape.used_axes ~rank in
   let outer = List.filter (fun a -> not (List.mem a used)) Axis.all in
   let outer_perm = List.map (fun a -> (a, a)) outer in
-  let inner_perm =
-    List.mapi
-      (fun i d ->
-        (Aten_shape.axis_of_dim ~rank i, Aten_shape.axis_of_dim ~rank d))
-      dims
+  let* inner_perm =
+    Err.List.map
+      (fun (i, d) ->
+        let* in_axis = dim_axis ~op ~rank d in
+        return (Aten_shape.axis_of_dim ~rank i, in_axis))
+      (List.mapi (fun i d -> (i, d)) dims)
   in
-  outer_perm @ inner_perm
+  return (outer_perm @ inner_perm)
 
 (* --- Param helpers for conv2d / pool2d --- *)
 
@@ -1013,7 +1042,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* t = tensor_arg aten_env node "self" in
          let rank = aten_rank t in
-         let dims = dims_arg node ~rank "dim" in
+         let* dims = dims_arg node ~op:"mean.dim" ~rank "dim" in
          let* keepdim = bool_arg node "keepdim" in
          let* x = native_of_aten "self" t in
          let params = { Reduce.Mean.dims; keepdim } in
@@ -1042,7 +1071,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
         (let* t = tensor_arg aten_env node "self" in
          let rank = aten_rank t in
          let* dims = ints_arg node "dims" in
-         let perm = native_perm_of_aten ~rank dims in
+         let* perm = native_perm_of_aten ~op:"permute.default" ~rank dims in
          let* x = native_of_aten "self" t in
          build_g ~name:"permute" [ x ] (function
            | [ x_id ] ->
@@ -1150,7 +1179,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          (* Convert BEFORE judging the dim, so a rank Native cannot represent is
             reported as the rank fault it is rather than as a bad dimension. *)
          let* x = native_of_aten "self" aten_x in
-         let* axis = unbind_axis ~rank dim in
+         let* axis = dim_axis ~op:"unbind.int" ~rank dim in
          build_g ~name:"unbind" [ x ] (function
            | [ x_id ] ->
                let open Graph_builder in
