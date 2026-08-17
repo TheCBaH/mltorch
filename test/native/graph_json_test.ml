@@ -1018,3 +1018,47 @@ let%expect_test "Group 2: linear with a non-square weight survives a round trip"
               n0: [t3 f32 [H=8 W=2 C=3]] =
                 linear x=t0 weight=t1 bias=t2 params={in_features=5}
             outputs: [t3 f32 [H=8 W=2 C=3] <-n0] |}]
+
+(* ---- op3-impl.md commit 8: Group 3 round trips --------------------------- *)
+
+(* Sub has no [params_jsont] of its own -- it carries the same [Pointwise.Bin]
+   payload [Add]/[Mul] do -- so this is evidence that the JSON case tag for
+   THIS op decodes to the right compute, not a new codec. *)
+let%expect_test "Sub: encode -> decode" =
+  round_trip "sub"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* a = input ~shape:(s 1 1 1 2 3 4) ~name:"a" () in
+      let* b = input ~shape:(s 1 1 1 2 3 4) ~name:"b" () in
+      sub ~name:"y" a b);
+  [%expect
+    {|
+    sub: graph
+         inputs: [t0 f32 [H=2 W=3 C=4] ->[n0], t1 f32 [H=2 W=3 C=4] ->[n0]]
+         nodes:
+           n0: [t2 f32 [H=2 W=3 C=4]] = sub a=t0 b=t1
+         outputs: [t2 f32 [H=2 W=3 C=4] <-n0] |}]
+
+(* A non-trivial Reshape target: rank-changing (rank 3 -> rank 2) and not
+   flattening to a single axis, so the codec's [Vec6.shape_jsont] has more than
+   one non-default extent to lose. *)
+let%expect_test "Reshape: encode -> decode, a rank-changing non-default target"
+    =
+  round_trip "reshape"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 2 3 4) ~name:"x" () in
+      reshape ~name:"y" { Reshape.Reshape.shape = s 1 1 1 1 4 6 } x);
+  [%expect
+    {|
+    reshape: graph
+             inputs: [t0 f32 [H=2 W=3 C=4] ->[n0]]
+             nodes:
+               n0: [t1 f32 [W=4 C=6]] = reshape x=t0 params={shape=[W=4 C=6]}
+             outputs: [t1 f32 [W=4 C=6] <-n0] |}]
+
+(* The non-identity Permute round trip is already pinned above ("op Permute:
+   encode -> decode", a 3-cycle over H/W/C) -- op3-impl.md's exit condition is
+   satisfied by that test, not restated here. *)

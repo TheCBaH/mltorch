@@ -261,6 +261,14 @@
  (applies_to me_group2_cram)
  (deps %{exe:../bin/native_graph.exe}))
 
+; op3.md's Group 3: sub.Tensor, _unsafe_view.default and transpose.int, over
+; graphs built in the cram itself. Same reason as the stanza above: no
+; downloadable model serializes any of these three targets.
+
+(cram
+ (applies_to me_group3_cram)
+ (deps %{exe:../bin/native_graph.exe}))
+
 ; The recoverable-failure shape, over graphs built in the cram itself. UNGATED,
 ; and hand-built on purpose: what it exercises is a graph the lowerer rejects,
 ; and no released model is one.

@@ -393,6 +393,18 @@ statement about element counts), so `Builder.reshape4` and any JSON-decoded
 Native4D graph inherited op3-impl.md F1's silent numel-changing wrap. Fixed in
 the same commit as the Native rule it now shares.
 
+`test/native4d/lower_test.ml` pins op3.md's Group 3 (`Sub`, `Reshape4`,
+`Permute4` from `transpose.int`) against this table: `Sub` direct (equal shapes
+and a broadcast operand); `Reshape4` accepting both a rank-3 ATen target and a
+rank-4 `[1,h,w,c]` one (both land with `D=1` after right-alignment — it is the
+ATen leading entry that lands on `D`, never `N`, so neither target needs `N=1`)
+and refusing a rank-4 target whose leading entry is not 1; `Permute4` accepting
+every pairwise swap among `H`/`W`/`C` and refusing a swap naming `D`. Every
+rank-4 fixture uses `[1,h,w,c]` with distinct, non-unit `h`/`w`/`c` rather than
+a conventional shape like `[2,3,4,5]`, which would put a real batch on `D` and
+answer the shape-domain question instead of the axis-domain one this table is
+actually about (op3-impl.md's round-1 review response).
+
 `Unbind` is the dialect's **only multi-output operation**, and its representable
 set is narrower than its axis check suggests. Dropping an axis re-packs the
 survivors right-aligned, which shifts every axis *outside* the dropped one one
