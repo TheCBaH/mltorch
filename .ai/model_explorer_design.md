@@ -1427,3 +1427,66 @@ own and `worker.js` can only come from the app build.
 CI checks submodules out top-level only, by the policy `build.yml` documents, so both the
 `js.yml` browser job and `pages.yml` name the nested checkout explicitly — before the cache
 step, which is what makes the key computable.
+
+---
+
+## 18. The comparison surface, as the element actually implements it
+
+`web/src/compare.js` + `web/test/compare.spec.ts` are `web-ui-3.md`'s Prerequisite 0: the
+two-pane adapter may use only what is proven here, in Chromium, against the bundle §17
+builds. Hand-authored and tiny, so every observation is about the visualizer rather than
+about resnet18. Like the Path B gate it **asserts** nearly everything it records — these
+are the premises the adapter is built on, not accommodations to a third party.
+
+**Opening a comparison is two phases, and both need their own event.**
+`selectNode(nodeId, graphId, collectionLabel, 1)` is what creates the second pane:
+`selectGraphInPane(g, 1)` delegates to `openGraphInSplitPane` when only one pane exists,
+adding the pane synchronously before `panes()[1].id` is read. `modelGraphProcessed` carries
+`{modelGraph, paneIndex}`, and a candidate is ready only when both `(left, 0)` and
+`(right, 1)` have arrived.
+
+**Wait on the pane index as well as the graph id.** `Session.validate` does not require a
+comparison's two panes to name different graphs, and when they coincide
+`detail.modelGraph.id` is identical for both events — so a wait keyed on the id alone
+resolves the right-pane wait on the left pane's event and the adapter finalizes a
+comparison whose second pane never processed. The gate covers that case explicitly, and
+records which pane the *resolving* event carried: `fired` alone cannot police this, because
+the wrong event resolves the promise just as well as the right one. Deleting the filter
+turns the recorded pane into a mismatch, which is what makes the assertion able to fail.
+
+**Sync navigation is armed a beat AFTER the second pane event.** The component that reads
+`config.syncNavigationData` and selects `VISUALIZER_CONFIG` mode is
+`sync-navigation-button`, and `split_panes_container.ng.html` constructs it under
+`@if (hasSplitPane && allPanesLoaded())`. So a probe run in the same tick as the pane-1
+event reports "nothing paired" for a pairing that is about to work — measured at ~1.2 s
+here. This costs the adapter nothing, since nobody clicks a node in the tick the pane
+appears, but a gate that did not know it would pin a false negative as the contract. Every
+candidate is therefore armed on a pairing known to exist before any observation is trusted.
+
+**Cross-pane navigation is observable through `uiStateChanged`,** whose
+`paneStates[i].selectedNodeId` is positional; `selectedNodeChanged` carries only an opaque
+`paneId`. Reading the other pane's *current* selection proves nothing, though — both panes
+carry a selection from the moment the comparison opens, so the observation has to be the
+**change** away from a value deliberately primed to be the wrong answer.
+
+Proven: 1:N, N:M, and N:M read right-to-left all follow the supplied `mappingEntries`;
+`disableMappingFallback: true` is honoured; and the *same* document with the flag unset
+pairs an id present in both graphs and named in no entry. One direction alone cannot tell an
+honoured flag from a mapping that never loaded, which is why both are asserted — and it is
+what `Sync_navigation.match_node_id_fallback` decides per comparison. With an **empty**
+mapping and the fallback off, nothing corresponds to anything, not even that id; upstream's
+`renderDiffHighlights` reads that same empty mapped set as "all mapped nodes are missing",
+which is why `c/canonical` must declare its fallback rather than have one assumed.
+
+**What the gate does NOT claim.** Diff highlights and overlay edges are drawn in WebGL, and
+the element renders into a shadow root (`ViewEncapsulation.ShadowDom`), so "the node is
+outlined" and "the overlay is in the left pane" have no public observable — the overlay
+dropdown is gated on config, not on loaded overlays, so even its presence says nothing.
+Configs carrying `showDiffHighlights` with its two border colours, and per-pane overlay
+lists, are asserted **accepted**: both panes open and nothing throws, which is meaningful
+because `SplitPane` provides its own `EdgeOverlaysService` and loads the matching list in
+`ngOnInit`, where a malformed payload would throw. Nothing beyond that is claimed. Per-pane
+routing rests on `split_pane.ts:73-93` being read, not on a pixel.
+
+`addNodeDataProviderData(name, data, paneIndex)` is accepted per pane, at the point the
+adapter installs it: after both pane events.
