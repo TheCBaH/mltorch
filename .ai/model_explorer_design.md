@@ -1006,14 +1006,27 @@ surface one and the same code path serves both shells.
 **`--format collections` warns on stderr** and names what it discarded rather than silently
 emitting half a document.
 
-**Two comparisons, and only one of them can rely on `MATCH_NODE_ID`.** `c/canonical`
-(initial → canonical Native) ships with **no** explicit mapping entries: stable node ids plus
-the renderer's fallback already pair every node a pass did not touch, and the id-identity
-rule means a changed value is a new id. Entries for the changed nodes come from the pass
-lens; until that lands, an empty set is *correct* rather than approximate. `c/import`
-(exported program → initial Native) is the opposite case: the two panes speak different id
-languages, `MATCH_NODE_ID` pairs nothing across them, and every correspondence has to be
-stated — which is what `Me_pt2` computes, as connected components rather than pairs.
+**Two comparisons, and only one of them can rely on `MATCH_NODE_ID` — which each one
+DECLARES.** `c/canonical` (initial → canonical Native) ships with **no** explicit mapping
+entries: stable node ids plus the id-identity rule (a changed value is a new id) already
+pair every node a pass did not touch. Entries for the changed nodes come from the pass lens;
+until that lands, an empty set is *correct* rather than approximate. `c/import` (exported
+program → initial Native) is the opposite case: the two panes speak different id languages,
+equal ids pair nothing across them, and every correspondence has to be stated — which is
+what `Me_pt2` computes, as connected components rather than pairs.
+
+`Sync_navigation.match_node_id_fallback` is how each says which it is, and it is not a
+rendering preference the browser could infer. An empty `entries` means "the ids already pair
+the untouched nodes" for one comparison and "no mapping was computed" for another, and
+nothing else on the wire separates them. It cannot be left to the renderer's default either,
+because the fallback and the highlight are the same fact seen twice: a consumer that
+disabled the fallback on `c/canonical` would give every node an empty mapped set, which
+`renderDiffHighlights` reads as "all mapped nodes are missing" — turning
+`show_diff_highlights` from a report of the handful of touched nodes into a claim that the
+pass rewrote the whole graph. The browser translates the field verbatim and infers nothing;
+`web/test/compare.spec.ts` proves both directions against the real element, and
+`me_visualize_json_cram.t` pins entry count and flag together, since neither alone
+distinguishes the three configurations.
 
 **`Transition.comparison` is populated on both transitions**, which is also what makes the
 Pt2 flow state name a real graph. Before the source view existed it pointed at the *initial

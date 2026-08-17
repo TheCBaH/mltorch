@@ -49,7 +49,22 @@ module Mapping_entry : sig
 end
 
 module Sync_navigation : sig
-  type t = { entries : Mapping_entry.t list; show_diff_highlights : bool }
+  type t = {
+    entries : Mapping_entry.t list;
+    show_diff_highlights : bool;
+    match_node_id_fallback : bool;
+  }
+  (** [match_node_id_fallback] declares whether equal node ids across the two
+      panes are a {e correspondence claim} for this comparison. It is a property
+      of the relation, not a rendering preference, and only the producer knows
+      it: an empty [entries] means "the ids already pair what a pass did not
+      touch" for one comparison and "no mapping was computed" for another, and
+      nothing else on the wire tells those apart.
+
+      Consuming it is not optional. The renderer treats a node whose mapped set
+      is empty as changed, so a comparison that relies on the fallback and does
+      not say so renders as though every node differs — which is exactly what
+      [c/canonical] would do. See [.ai/model_explorer_design.md] §18. *)
 end
 
 module Comparison : sig

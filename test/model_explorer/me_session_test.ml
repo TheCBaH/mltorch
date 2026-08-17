@@ -379,7 +379,12 @@ let two_pane_session =
       label = id;
       left = pane "mltorch:m" "g/native/000";
       right = pane "mltorch:m" right;
-      sync = { S.Sync_navigation.entries; show_diff_highlights = true };
+      sync =
+        {
+          S.Sync_navigation.entries;
+          show_diff_highlights = true;
+          match_node_id_fallback = false;
+        };
       overlays_left = [];
       overlays_right = [];
     }

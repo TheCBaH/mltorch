@@ -134,4 +134,9 @@ let sync t =
   {
     Me_session.Sync_navigation.entries = t.entries;
     show_diff_highlights = t.created <> [] || t.deleted <> [];
+    (* The two panes speak different id languages -- PT2's `root#N` against the
+       native `nN` -- so an id that happened to appear on both sides would be a
+       coincidence, not a correspondence. Every relation across this boundary is
+       stated in [entries] or does not exist. *)
+    match_node_id_fallback = false;
   }

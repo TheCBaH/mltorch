@@ -50,9 +50,16 @@ show up in. A test asserting only the interesting key would let the rest move.
 
 The source view is the exported program's OWN graph, so its node count is the
 model.json's -- 70 nodes plus one boundary per graph input and output, and the
-123 inputs are what a signature-driven input/constant split is for. The import
-comparison is the one that must carry explicit entries: the two panes speak
-different id languages, so MATCH_NODE_ID pairs nothing across them.
+123 inputs are what a signature-driven input/constant split is for.
+
+The two comparisons are opposites, and the pairing of entry count with
+matchNodeIdFallback is what says so -- neither number alone does. Import carries
+every correspondence explicitly and declares equal ids meaningless, because the
+two panes speak different id languages. Canonical carries none and declares
+equal ids a claim, because stable ids already pair what the pass did not touch.
+An empty entry list with the fallback OFF would be a third thing entirely: a
+comparison in which nothing corresponds to anything, which the renderer draws as
+every node changed.
 
   $ python3 -c "
   > import json
@@ -64,10 +71,14 @@ different id languages, so MATCH_NODE_ID pairs nothing across them.
   >         kinds.get(n['label'] if n['label'] in ('input','constant','output') else 'op', 0) + 1
   > print('source', sorted(kinds.items()))
   > c = {c['id']: c for c in s['comparisons']}
-  > print('import entries', len(c['c/import']['sync']['entries']),
-  >       'canonical entries', len(c['c/canonical']['sync']['entries']))"
+  > for i in ('c/import', 'c/canonical'):
+  >     sync = c[i]['sync']
+  >     print(i, 'entries', len(sync['entries']),
+  >           'matchNodeIdFallback', sync['matchNodeIdFallback'],
+  >           'showDiffHighlights', sync['showDiffHighlights'])"
   source [('constant', 122), ('input', 1), ('op', 70), ('output', 1)]
-  import entries 70 canonical entries 0
+  c/import entries 70 matchNodeIdFallback False showDiffHighlights False
+  c/canonical entries 0 matchNodeIdFallback True showDiffHighlights True
 
 Namespaces come off nn_module_stack, one level RELATIVE to its parent -- the
 naive join would repeat the whole dotted path at every depth.

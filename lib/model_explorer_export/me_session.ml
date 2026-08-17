@@ -83,15 +83,22 @@ module Mapping_entry = struct
 end
 
 module Sync_navigation = struct
-  type t = { entries : Mapping_entry.t list; show_diff_highlights : bool }
+  type t = {
+    entries : Mapping_entry.t list;
+    show_diff_highlights : bool;
+    match_node_id_fallback : bool;
+  }
 
   let jsont =
     Jsont.Object.map ~kind:"sync_navigation"
-      (fun entries show_diff_highlights -> { entries; show_diff_highlights })
+      (fun entries show_diff_highlights match_node_id_fallback ->
+        { entries; show_diff_highlights; match_node_id_fallback })
     |> Jsont.Object.mem "entries" (Jsont.list Mapping_entry.jsont)
          ~enc:(fun s -> s.entries)
     |> Jsont.Object.mem "showDiffHighlights" Jsont.bool ~enc:(fun s ->
         s.show_diff_highlights)
+    |> Jsont.Object.mem "matchNodeIdFallback" Jsont.bool ~enc:(fun s ->
+        s.match_node_id_fallback)
     |> Jsont.Object.finish
 end
 

@@ -413,11 +413,20 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
         in
         Err.return [ set ]
   in
-  (* One comparison, with NO explicit mapping entries: stable node ids plus the
-     renderer's MATCH_NODE_ID fallback already pair every node a pass did not
-     touch, and the id-identity rule means a changed value is a new id. Entries
-     for the changed nodes are what §7.3 adds from the pass lens; until then an
-     empty set is correct rather than approximate. *)
+  (* One comparison, with NO explicit mapping entries, and that is correct
+     rather than approximate: entries for the changed nodes are what §7.3 adds
+     from the pass lens, and until then the empty set says exactly what is
+     known. Entries alone would be a LIE about the rest of the graph, which is
+     what [match_node_id_fallback] exists to prevent -- stable node ids already
+     pair every node a pass did not touch, and the id-identity rule means a
+     changed value is a new id, so here equal ids ARE a correspondence claim and
+     the comparison declares it.
+
+     Declared rather than left to the renderer's default because the two facts
+     are not separable downstream: a consumer that disabled the fallback on this
+     comparison would give every node an empty mapped set, which the renderer
+     reads as "changed" -- turning `show_diff_highlights` from a report of the
+     handful of touched nodes into a claim that the pass rewrote everything. *)
   let comparison =
     {
       Me_session.Comparison.id = "c/canonical";
@@ -425,7 +434,11 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
       left = { Me_session.Pane_state.collection = label; graph = initial_id };
       right = { Me_session.Pane_state.collection = label; graph = canonical_id };
       sync =
-        { Me_session.Sync_navigation.entries = []; show_diff_highlights = true };
+        {
+          Me_session.Sync_navigation.entries = [];
+          show_diff_highlights = true;
+          match_node_id_fallback = true;
+        };
       overlays_left = [];
       overlays_right = [];
     }
