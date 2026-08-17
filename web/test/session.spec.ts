@@ -62,6 +62,33 @@ test('the exported session renders in the pinned element', async ({ page }) => {
   expect(gate.detail.linkedFrom, 'the delta named no node in its parent graph').not.toBeNull();
   expect(gate.detail.fired, 'the merged session never finished processing').toBe(true);
 
+  /* `tasksData` reaches a runtime that reads it.
+   *
+   * This is the assertion that the vendored bundle is built from the submodule
+   * rather than installed from npm. `ai-edge-model-explorer-visualizer@0.1.2`
+   * -- the last published release, and a year behind -- contains the string
+   * nowhere, so `Me_fusion`'s overlay on the kernel graph was emitted and
+   * dropped without a trace. The control is asserted alongside it so a zero
+   * reads as "this runtime does not support it" rather than "the fetch or the
+   * minifier lost it".
+   *
+   * It proves the path is live and our payload is accepted by it -- NOT that
+   * anything was drawn. The element renders into a shadow root and gates the
+   * overlay dropdown on config rather than on loaded overlays, so there is no
+   * public observable for "the overlay is showing"; claiming one would mean
+   * scraping internals this gate has no business depending on.
+   */
+  expect(gate.bundle.control, 'the loaded bundle is not a Model Explorer build').toBeGreaterThan(0);
+  expect(gate.bundle.tasksData,
+    'the loaded bundle does not read tasksData; it is npm 0.1.2, not the submodule build')
+    .toBeGreaterThan(0);
+  expect(gate.tasksDataGraphs.length, 'the session exported no tasksData at all').toBeGreaterThan(0);
+  for (const id of gate.tasksDataGraphs) {
+    const graph = gate.graphs.find((g: {id: string}) => g.id === id);
+    expect(graph, `${id} carries tasksData but was never entered`).toBeDefined();
+    expect(graph.fired, `${id} carries tasksData and never finished processing`).toBe(true);
+  }
+
   // The actual detail-graph entry, not merely finding the link on screen.
   // `selectNode` into the parent graph cannot by itself prove the subgraph is
   // reachable -- it never asks the renderer to activate it. Entering it does,

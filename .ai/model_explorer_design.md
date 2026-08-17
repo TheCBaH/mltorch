@@ -595,8 +595,8 @@ insertion order would break while every entry stayed correct.
 
 ## 8. Stage 0A — the contract spike, and its answers
 
-A hand-authored fixture driving the **real pinned element**
-(`ai-edge-model-explorer-visualizer@0.1.2`) under Chromium. It uses no exporter — there is
+A hand-authored fixture driving the **real element** — built from the submodule, not
+installed from npm; see §17 — under Chromium. It uses no exporter — there is
 none yet, and the questions are about the renderer rather than about our projection of a
 model — but it builds its `GraphCollection` through the real `Model_explorer` binding, so
 the JSON it feeds the element is the JSON the export path will emit rather than a second
@@ -1347,3 +1347,83 @@ graph's `params` attribute in full, each node's provenance namespace (the
 serialized target, group-qualified, so a relayout permute is attributable to the
 node that caused it), the output shape, and every incoming edge's
 (source, output slot, input position) triple.
+
+---
+
+## 17. The visualizer bundle — built from the submodule, not installed from npm
+
+`web/src/vendor` and `webapp-dist/vendor` are produced by `make visualizer.build`, which
+runs upstream's own release script (`src/ui/scripts/build_npm.sh`) inside
+`vendored/ocaml-model-explorer/model-explorer`. The npm dependency on
+`ai-edge-model-explorer-visualizer` is gone.
+
+**One commit pins both halves of the integration.** The OCaml types in
+`vendored/ocaml-model-explorer/lib/model_explorer.ml` are hand-written against upstream's
+TypeScript schema, and the runtime is now built from the very tree those types describe.
+Previously they were pinned separately — the types against upstream's current shape, the
+runtime against a published release — and the gap was not academic. Every one of these is
+emitted by `lib/model_explorer_export` and was **silently dropped** by
+`ai-edge-model-explorer-visualizer@0.1.2`:
+
+| Field we emit | 0.1.2 | upstream |
+| --- | --- | --- |
+| `Graph.tasksData` — `me_export.ml:383-388` | absent from `src` *and* `dist` | `split_pane.ts:108-117` |
+| `EdgeOverlaysData.graphName` — `me_fusion.ml:121` | absent | `edge_overlays.ts:35` |
+| `EdgeOverlay.showEdgesConnectedToSelectedNodeOnly`, `.visibleEdgeHops` | absent | `edge_overlays.ts:69,88` |
+| `SyncNavigationData.showDiffHighlights` — `me_pt2.ml:135`, `me_export.ml:428` | absent | `sync_navigation.ts:103` |
+
+`tasksData` was the one with a visible cost: `Me_fusion`'s overlay rides on the kernel
+graph and rendered nothing at all. `test/session.spec.ts` now asserts the loaded bundle
+reads the field, with a control alongside so a zero reads as "unsupported" rather than "the
+fetch lost it". That assertion is the tripwire: it fails if the npm build is ever vendored
+back in.
+
+**Why there was no published release to move to.** npm carries only 0.1.0/0.1.1/0.1.2, and
+`latest` is 0.1.2 (2025-06-23). Upstream's own `custom_element_npm/package.json` is still
+0.1.2 at `main` despite a year of commits to `src/ui/src`, and all four of upstream's
+`custom_element_demos` consume the npm package with lockfiles resolving to 0.1.0/0.1.1 —
+older than the pin this repository had. Building is the only way to get the schema the
+OCaml layer already targets. The Python distribution is not an alternative: it ships the
+full Angular app, no custom-element bundle.
+
+**The patch, and why it is not optional.** `angular.json` builds `custom_element` with a
+`fileReplacements` entry swapping the real worker service for a stand-in that reads
+`window.modelExplorer.workerScriptPath` — which is exactly what lets the bundle be served
+from a path prefix, as the Pages deployment does. On 2026-04-06 (`49aa6a8`) the real
+service moved worker construction into `init(onPortal)`; the stand-in has not been touched
+since 2025-02-19, so `ng build custom_element` fails on `TS2339: Property 'init' does not
+exist`. Nothing upstream catches it: `build_ui_code.yaml` runs `ng build model_explorer`
+only, and `custom_element` is built solely at release time. That is the most likely reason
+the npm package has not moved in a year.
+
+`patches/model-explorer-custom-element-worker.patch` restores `init`/`ngOnDestroy` on the
+stand-in, and is the **only** drift — with it applied, both Angular builds succeed and all
+three browser gates pass unmodified, with no `NG0953`. `make visualizer.patch` is
+idempotent and **refuses rather than skips** when it no longer applies: a silently
+unpatched tree fails later, in a type error that says nothing about the submodule having
+moved.
+
+A consequence worth knowing before it alarms someone: once built, `git status` reports
+`vendored/ocaml-model-explorer` as modified, and `git diff` shows the commit with a
+`-dirty` suffix. That is the patched working tree of the nested submodule, not a moved
+pointer — the recorded SHA is unchanged, so there is nothing to commit and nothing to
+clean up. `git submodule update --force` would revert the patch, and the next
+`visualizer.patch` reapplies it.
+
+**Build shape.** `$(VISUALIZER_DIST)/main_browser.js` is a file target with every step
+inside the recipe, so an existing bundle costs nothing — no `npm ci`, no patch, no Angular
+build. That is what makes the CI cache worth having: keyed on the nested submodule commit
+and the patch hash, a hit skips a 1191-package install and two Angular builds outright. A
+prerequisite on `node_modules` would defeat it, since a cached bundle with no
+`node_modules` would reinstall and then rebuild against the newer timestamp. There is no
+dep-tracking on the submodule source — the same caveat `data/dune` carries — so after
+bumping the submodule, `rm -rf $(VISUALIZER_DIST)`.
+
+`build_npm.sh` builds `model_explorer` as well as `custom_element`, and must:
+`worker_service.ts` constructs its worker from a runtime string rather than
+`new URL(..., import.meta.url)`, so the custom-element target emits no worker chunk of its
+own and `worker.js` can only come from the app build.
+
+CI checks submodules out top-level only, by the policy `build.yml` documents, so both the
+`js.yml` browser job and `pages.yml` name the nested checkout explicitly — before the cache
+step, which is what makes the key computable.

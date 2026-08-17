@@ -18,8 +18,5 @@
   "devDependencies": {
     "@playwright/test": "1.56.1",
     "http-server": "^14.1.1"
-  },
-  "dependencies": {
-    "ai-edge-model-explorer-visualizer": "0.1.2"
   }
 }

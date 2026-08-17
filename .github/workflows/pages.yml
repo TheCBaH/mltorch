@@ -48,6 +48,19 @@ jobs:
       id: devcontainer
     - name: setup
       run: echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    # `webapp.build` needs the visualizer bundle, which is built from the nested
+    # submodule rather than installed from npm; `submodules: true` above is
+    # top-level only. Same cache as the js.yml browser job, so whichever runs
+    # first pays for the Angular build and the other reuses it.
+    - name: visualizer submodule
+      run: |
+        git -C vendored/ocaml-model-explorer submodule update --init --depth 1 model-explorer
+        echo "VISUALIZER_REF=$(git -C vendored/ocaml-model-explorer rev-parse HEAD:model-explorer)" >> $GITHUB_ENV
+    - name: visualizer bundle cache
+      uses: actions/cache@v6
+      with:
+        path: vendored/ocaml-model-explorer/model-explorer/src/ui/custom_element_npm/dist
+        key: visualizer-${{ env.VISUALIZER_REF }}-${{ hashFiles('patches/model-explorer-custom-element-worker.patch') }}
     - name: build site
       # `env:` here would only reach the runner's host shell -- ${{ env.EXEC }}
       # is `devcontainer exec`, which runs make INSIDE the container and does

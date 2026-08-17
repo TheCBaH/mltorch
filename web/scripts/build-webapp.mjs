@@ -32,7 +32,16 @@ try {
   await cp(join(root, 'web/app'), temporary, { recursive: true });
   await cp(join(root, '_build/default/js/webapp/webapp_worker.bc.js'), join(temporary, 'worker.js'));
   await cp(join(root, '_build/default/js/webapp/webapp_bridge.bc.js'), join(temporary, 'webapp_bridge.js'));
-  await cp(join(root, 'web/node_modules/ai-edge-model-explorer-visualizer/dist'), join(temporary, 'vendor'), { recursive: true });
+  // Built from the submodule that pins the OCaml schema, not from npm -- see
+  // the `visualizer.build` block in the Makefile for why there is no published
+  // release that carries what `lib/model_explorer_export` emits. Checked
+  // explicitly because `cp`'s ENOENT names a path but not the target that
+  // produces it.
+  const visualizer = join(root, 'vendored/ocaml-model-explorer/model-explorer/src/ui/custom_element_npm/dist');
+  if (!(await stat(join(visualizer, 'main_browser.js')).catch(() => null))?.isFile()) {
+    throw new Error(`no visualizer bundle at ${visualizer}; run \`make visualizer.build\``);
+  }
+  await cp(visualizer, join(temporary, 'vendor'), { recursive: true });
   await mkdir(join(temporary, 'models'));
 const models = [];
   for (const id of ids) {
