@@ -51,4 +51,10 @@ val of_origins :
 
 val sync : t -> Me_session.Sync_navigation.t
 (** With [show_diff_highlights] set: {!t}'s [created] and [deleted] are what the
-    highlight is derived from, so a caller that has one has the other. *)
+    highlight is derived from, so a caller that has one has the other.
+
+    [match_node_id_fallback] is always [false] here, and unlike the highlight it
+    is not derived from anything: the two panes speak different id languages, so
+    an id appearing on both sides is a coincidence rather than a correspondence.
+    Everything that relates across this boundary is in [entries] or does not
+    exist. *)
