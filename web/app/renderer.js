@@ -344,8 +344,12 @@ export class Renderer {
     const d = entry.descriptor;
     for (const set of d.nodeDataSets) {
       if (set.graph !== d.graphId) continue;
+      // A result is `{ nodeId, value }` -- an OBJECT, not a pair. Reading it as
+      // a pair throws "object is not iterable", which nothing noticed because
+      // the only set addressed to the default view is the verification one and
+      // the browser has never requested verification.
       const results = Object.fromEntries(
-        (set.results || []).map(([nodeId, value]) => [nodeId, { value: value.value }]),
+        (set.results || []).map((result) => [result.nodeId, { value: result.value.value }]),
       );
       entry.element.addNodeDataProviderData(set.name, {
         results,

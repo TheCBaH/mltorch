@@ -91,11 +91,15 @@ test('an invalid document is refused without touching the DOM', async () => {
 test('node data is installed for the target graph before the handle exists', async () => {
   const h = harness();
   const sets = [
-    { graph: 'g1', name: 'metric', results: [['n', { value: 1 }]] },
+    /* The wire shape, an object per result -- the fixture used to carry a pair,
+       which is the same misreading the installer had, so the two agreed with
+       each other and neither with the exporter. */
+    { graph: 'g1', name: 'metric', results: [{ nodeId: 'n', value: { value: 1 } }] },
     { graph: 'other', name: 'ignored', results: [] },
   ];
   const { slot } = await ready(h, 'g1', sets);
   assert.deepEqual(h.element(slot).nodeData.map((d) => d.name), ['metric']);
+  assert.deepEqual(h.element(slot).nodeData[0].data.results, { n: { value: 1 } });
 });
 
 test('a non-target event selects the target graph exactly once', async () => {
