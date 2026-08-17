@@ -305,3 +305,150 @@ let%expect_test "lower: unbind keeps every slice, in order" =
     outputs: [t1 [W=2 C=2],
     t2 [W=2 C=2],
     t3 [W=2 C=2]] |}]
+
+(* ---- op3-impl.md commit 8: Sub, Reshape4, Permute4 from transpose --------- *)
+
+(* Sub is a direct binary legalization, exactly like Add: no relayout, one
+   shape for equal-shape and a [C]-only operand for broadcast. *)
+let%expect_test "lower: sub, equal shapes and broadcast" =
+  show "sub equal"
+    (build "sub"
+       (let open Graph_builder in
+        let* a = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        let* b = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        sub a b));
+  show "sub broadcast"
+    (build "sub"
+       (let open Graph_builder in
+        let* a = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        let* b = input ~shape:(Fixtures.chan 3) () in
+        sub a b));
+  [%expect
+    {|
+    sub equal:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3],
+    t1 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t2] = sub a=t0 b=t1
+    outputs: [t2 [H=2 W=2 C=3]]
+    sub broadcast:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3],
+    t1 [C=3]]
+    nodes:
+      n0: [t2] = sub a=t0 b=t1
+    outputs: [t2 [H=2 W=2 C=3]] |}]
+
+(* Reshape4's target shape, read as ATen would serialize it: an ATen rank-r
+   size list right-aligns onto the innermost r of [N T D H W C]
+   (op3-impl.md F4), so a rank-3 target uses only H/W/C and a rank-4 target's
+   LEADING entry lands on D -- D=1 is what [Shape4.of_vec6] requires, not N=1.
+   Both valid targets below therefore have D=1 whether or not N itself is
+   trivial; only a target whose ATen rank-4 leading entry is not 1 puts a real
+   extent on D and leaves the dialect. *)
+let reshape4 ~source ~target =
+  build "reshape"
+    (let open Graph_builder in
+     let* x = input ~shape:source () in
+     reshape { Reshape.Reshape.shape = target } x)
+
+let%expect_test
+    "lower: reshape4, a rank-3 and a rank-4 [1,h,w,c] target both lower" =
+  let source = Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3 in
+  (* rank-3 ATen target [4,3]: right-aligns onto W,C only (H trivial). *)
+  show "rank-3 target"
+    (reshape4 ~source ~target:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:4 ~c:3));
+  (* rank-4 ATen target [1,2,2,3]: leading entry 1 lands on D, so D=1 and
+     every one of N/H/W/C is populated. *)
+  show "rank-4 [1,h,w,c] target"
+    (reshape4 ~source ~target:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:3));
+  [%expect
+    {|
+    rank-3 target:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = reshape4 x=t0 params={shape=[N=1 H=1 W=4 C=3]}
+    outputs: [t1 [W=4 C=3]]
+    rank-4 [1,h,w,c] target:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = reshape4 x=t0 params={shape=[N=1 H=2 W=2 C=3]}
+    outputs: [t1 [H=2 W=2 C=3]] |}]
+
+let%expect_test
+    "lower: reshape4, a rank-4 target with a non-1 leading entry is refused" =
+  let source = Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3 in
+  (* rank-4 ATen target [2,2,1,3]: leading entry 2 lands on D. *)
+  outcome "rank-4 [n,h,w,c], n<>1"
+    (reshape4 ~source ~target:(Vec6.shape ~n:1 ~t:1 ~d:2 ~h:2 ~w:1 ~c:3));
+  [%expect
+    {| rank-4 [n,h,w,c], n<>1     tensor t1 has extent on T or D: [D=2 H=2 W=1 C=3] |}]
+
+(* transpose.int on a rank-4 [1,h,w,c] ATen source: dim 0 is D (the leading
+   entry, D=1 so the SHAPE is in-domain), dims 1/2/3 are H/W/C. Every rank-4
+   fixture below uses DISTINCT, non-unit h/w/c so a wrong pair swapped is
+   visible in the printed shape, not just in whether it converts -- a
+   conventional shape like [2,3,4,5] would put a real batch on D and answer
+   the shape-domain question instead of the axis-domain one (op3-impl.md
+   round-1 review response). *)
+let transpose4 ~source pairs =
+  build "transpose"
+    (let open Graph_builder in
+     let* x = input ~shape:source () in
+     permute (Fixtures.perm_of pairs) x)
+
+let rank4_source = Fixtures.nhwc ~n:1 ~h:3 ~w:4 ~c:5
+
+let%expect_test
+    "lower: permute4 from transpose of dims 1/2, 1/3, 2/3 on [1,h,w,c]" =
+  let open Axis in
+  show "dims 1/2 (H,W)" (transpose4 ~source:rank4_source [ (H, W); (W, H) ]);
+  show "dims 1/3 (H,C)" (transpose4 ~source:rank4_source [ (H, C); (C, H) ]);
+  show "dims 2/3 (W,C)" (transpose4 ~source:rank4_source [ (W, C); (C, W) ]);
+  [%expect
+    {|
+    dims 1/2 (H,W):
+      graph4
+    inputs: [t0 [H=3 W=4 C=5]]
+    nodes:
+      n0: [t1] = permute4 x=t0 perm=[H<-W, W<-H]
+    outputs: [t1 [H=4 W=3 C=5]]
+    dims 1/3 (H,C):
+      graph4
+    inputs: [t0 [H=3 W=4 C=5]]
+    nodes:
+      n0: [t1] = permute4 x=t0 perm=[H<-C, C<-H]
+    outputs: [t1 [H=5 W=4 C=3]]
+    dims 2/3 (W,C):
+      graph4
+    inputs: [t0 [H=3 W=4 C=5]]
+    nodes:
+      n0: [t1] = permute4 x=t0 perm=[W<-C, C<-W]
+    outputs: [t1 [H=3 W=5 C=4]] |}]
+
+(* transpose naming dim 0 (D) is a different question from the shape-domain
+   one above -- [Domain.check] runs every per-node predicate BEFORE the shape
+   sweep (domain.ml:265-269), so this fires even though [1,h,w,c]'s SHAPE is
+   otherwise in-domain. *)
+let%expect_test
+    "lower: permute4 from transpose naming dim 0 is refused, naming D" =
+  let open Axis in
+  outcome "dims 0/1 (D,H)" (transpose4 ~source:rank4_source [ (D, H); (H, D) ]);
+  [%expect
+    {| dims 0/1 (D,H)             node n0: axis D is outside the N/H/W/C dialect |}]
+
+(* The SHAPE question, kept separate from the axis question above: dims 1/2
+   on a source whose ATen leading entry (n<>1) puts a real extent on D. The
+   perm itself only names H/W, both in-domain -- it is the SOURCE that leaves
+   the dialect. *)
+let%expect_test
+    "lower: transpose of dims 1/2 on [n,h,w,c], n<>1 is refused, not by the \
+     axis check" =
+  let open Axis in
+  let source = Vec6.shape ~n:1 ~t:1 ~d:2 ~h:3 ~w:4 ~c:5 in
+  outcome "dims 1/2, d<>1" (transpose4 ~source [ (H, W); (W, H) ]);
+  [%expect
+    {| dims 1/2, d<>1             tensor t0 has extent on T or D: [D=2 H=3 W=4 C=5] |}]

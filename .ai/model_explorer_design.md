@@ -902,6 +902,12 @@ recoverable — and recoverable for a `.pt2` and a bare `model.json` alike, beca
 archive payload. Everything else is fatal: a malformed graph is a decoder that accepted
 what it should not have, the builder/provenance/transform/verify/lens rows are internal
 invariants, and `Eval`/`Tensor_bridge` belong to execution, which export never performs.
+`` `Bad_view `` (op3-impl.md commit 1's row for an invalid `view`/`_unsafe_view` target —
+two inferred dims, a numel mismatch, a non-divisible inference, or a source past the numel
+ceiling) needs no arm of its own: it is one more member of `#Native_interp.malformed`, this
+rule already matches wholesale, and it reads Fatal for the same reason every other row here
+does — a decoder that accepted an invalid reshape target is our bug, not the model's.
+Confirmed rather than assumed in `test/me_group3_cram.t`.
 
 **`diagnostic_code` is where the two closed vocabularies meet, once.** Every
 `Capability.reason` has a `Diagnostic.Code` of the same name, so the map is an identity in
