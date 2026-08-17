@@ -520,11 +520,16 @@ spike.setup: visualizer.build
 	mkdir -p web/src/vendor
 	cp -r $(VISUALIZER_DIST)/* web/src/vendor/
 
-# Two specs, deliberately different in what they check. The 0A spike drives a
+# Four specs, deliberately different in what they check. The 0A spike drives a
 # hand-authored fixture to settle questions about the RENDERER; the Stage 1 gate
 # drives the session `visualize` actually produced, to settle a question about
 # US -- whether a document [Me_session.validate] accepts is a document the
-# renderer accepts. Our validator is our own reading of the schema.
+# renderer accepts. Our validator is our own reading of the schema. The Path B
+# gate settles whether the cancellation LIFECYCLE is real, and the comparison
+# gate whether the two-pane surface is -- panes, a supplied correspondence, and
+# per-pane data. The last two assert nearly everything they record: they are the
+# premises their designs rest on, not observations about a third party we must
+# accommodate.
 spike.runtest:
 	opam exec -- dune exec test/model_explorer/spike/gen_fixture.exe -- web/src
 	opam exec -- dune exec bin/native_graph.exe -- visualize \
