@@ -1,4 +1,4 @@
-.PHONY: spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
+.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -436,19 +436,89 @@ clean:
 	opam exec -- dune clean
 	git submodule foreach --recursive git clean -xdf
 
+# --- the Model Explorer visualizer bundle -----------------------------------
+#
+# Built from the submodule that also pins the OCaml schema, so ONE commit fixes
+# both halves of the integration. There is no published release that can: npm's
+# `ai-edge-model-explorer-visualizer` is stuck at 0.1.2 (2025-06-23) while
+# `Graph.tasksData`, `EdgeOverlaysData.graphName`, `EdgeOverlay.visibleEdgeHops`
+# and `SyncNavigationData.showDiffHighlights` all landed upstream after it --
+# every one of them emitted by `lib/model_explorer_export` and, against 0.1.2,
+# silently dropped. `tasksData` was the visible cost: the fusion overlay on
+# `g/kernel/000` rendered nothing at all.
+#
+# `scripts/build_npm.sh` is upstream's own release script and emits exactly the
+# `dist/` layout the npm package had, so consumers below changed only their
+# source path. It builds `model_explorer` too, and must: `worker_service.ts`
+# constructs its worker from a runtime string rather than `new URL(...)`, so the
+# `custom_element` target emits no worker chunk of its own.
+#
+# See `.ai/model_explorer_design.md` and `patches/` for why the patch exists.
+
+MODEL_EXPLORER   := vendored/ocaml-model-explorer/model-explorer
+VISUALIZER_SRC   := $(MODEL_EXPLORER)/src/ui
+VISUALIZER_DIST  := $(VISUALIZER_SRC)/custom_element_npm/dist
+VISUALIZER_PATCH := $(abspath patches/model-explorer-custom-element-worker.patch)
+
+# CI checks submodules out top-level only, by deliberate policy (build.yml), so
+# the nested one is named here the same way pytorch's two are.
+#
+# Guarded on the checkout already existing rather than run unconditionally: the
+# CI jobs initialise it on the RUNNER, before the cache step that needs its
+# commit for a key, and this target then runs again inside the devcontainer
+# against the same bind-mounted tree. Re-running `git submodule update` across
+# that boundary is work at best and a `dubious ownership` failure at worst.
+visualizer.submodule:
+	@test -f $(VISUALIZER_SRC)/package.json || { \
+		git submodule update --init --depth 1 vendored/ocaml-model-explorer && \
+		git -C vendored/ocaml-model-explorer submodule update --init --depth 1 model-explorer; }
+
+# Idempotent, and it REFUSES rather than skips. A tree that silently went
+# unpatched fails later, in an Angular type error that says nothing about the
+# submodule having moved.
+visualizer.patch: visualizer.submodule
+	@cd $(MODEL_EXPLORER) && \
+	if git apply --reverse --check $(VISUALIZER_PATCH) 2>/dev/null; then \
+		echo "visualizer: patch already applied"; \
+	elif git apply --check $(VISUALIZER_PATCH) 2>/dev/null; then \
+		git apply $(VISUALIZER_PATCH) && echo "visualizer: patch applied"; \
+	else \
+		echo "visualizer: $(VISUALIZER_PATCH)" >&2; \
+		echo "  no longer applies at $$(git rev-parse --short HEAD)." >&2; \
+		echo "  Re-derive it against the new custom_element stand-in, or drop it" >&2; \
+		echo "  if upstream has fixed the target. See patches/ for the rationale." >&2; \
+		exit 1; \
+	fi
+
+# File-targeted, with EVERY step inside the recipe, so an existing bundle costs
+# nothing at all: no npm ci, no patch, no Angular build. That is what makes the
+# CI cache worth having -- keyed on the submodule commit, a hit skips a
+# 1191-package install and two Angular builds outright. A prerequisite on
+# node_modules would defeat it, since a cached bundle with no node_modules would
+# reinstall and then rebuild against the newer timestamp.
+#
+# There is no dep-tracking on the submodule source, the same caveat `data/dune`
+# carries: after bumping the submodule, `rm -rf $(VISUALIZER_DIST)` to rebuild.
+$(VISUALIZER_DIST)/main_browser.js:
+	$(MAKE) visualizer.patch
+	cd $(VISUALIZER_SRC) && npm ci --no-audit --no-fund
+	cd $(VISUALIZER_SRC) && PATH="$$PWD/node_modules/.bin:$$PATH" ./scripts/build_npm.sh
+
+visualizer.build: $(VISUALIZER_DIST)/main_browser.js
+
 # --- Stage 0A contract spike -----------------------------------------------
 #
-# Drives the real pinned Model Explorer element to settle the questions the
-# browser coordinator design assumes. Needs node, npm and a downloaded
-# Chromium, so it is outside every other target; its ANSWERS are recorded in
+# Drives the real Model Explorer element to settle the questions the browser
+# coordinator design assumes. Needs node, npm and a downloaded Chromium, so it
+# is outside every other target; its ANSWERS are recorded in
 # .ai/model_explorer_design.md and do not need re-deriving to read.
 
-spike.setup:
+spike.setup: visualizer.build
 	cd web && npm ci --no-audit --no-fund
 	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
 		npm run install:chromium
 	mkdir -p web/src/vendor
-	cp -r web/node_modules/ai-edge-model-explorer-visualizer/dist/* web/src/vendor/
+	cp -r $(VISUALIZER_DIST)/* web/src/vendor/
 
 # Two specs, deliberately different in what they check. The 0A spike drives a
 # hand-authored fixture to settle questions about the RENDERER; the Stage 1 gate
@@ -469,7 +539,7 @@ spike.runtest:
 webapp.npm-install:
 	cd web && npm ci --no-audit --no-fund
 
-webapp.build: webapp.npm-install
+webapp.build: webapp.npm-install visualizer.build
 	opam exec -- dune build js/webapp/webapp_worker.bc.js js/webapp/webapp_bridge.bc.js
 	node web/scripts/build-webapp.mjs
 

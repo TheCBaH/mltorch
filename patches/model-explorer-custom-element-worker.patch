@@ -1,0 +1,83 @@
+Restore `WorkerService.init` on the custom-element stand-in.
+
+Applied to `vendored/ocaml-model-explorer/model-explorer` by `make
+visualizer.build`, against `model-explorer-v0.1.32-25-g2a89bd7`. Without it
+`ng build custom_element` does not compile and there is no bundle to ship.
+
+WHY THIS IS NEEDED
+
+`src/ui/angular.json` builds the `custom_element` target with a
+`fileReplacements` entry that swaps the real worker service for a stand-in:
+
+    components/visualizer/worker_service.ts -> custom_element/worker_service.ts
+
+The stand-in exists so the element takes its worker URL from
+`window.modelExplorer.workerScriptPath` instead of an `import.meta.url`
+relative path -- which is exactly what lets the bundle be served from a path
+prefix, as `web/app/index.html` and the Pages deployment both do.
+
+On 2026-04-06 (`49aa6a8`, "Refactor how worker is initialized") the real
+service moved worker construction out of its constructor into
+`init(onPortal)`, and `app_service.ts:1114` now calls it. The stand-in has not
+been touched since 2025-02-19, so it carries no `init` and the build fails:
+
+    TS2339: Property 'init' does not exist on type 'WorkerService'.
+      src/components/visualizer/app_service.ts:1114:23
+
+Nothing upstream catches this. `.github/workflows/build_ui_code.yaml` runs
+`npm run build`, which is `ng build model_explorer` only; the `custom_element`
+target is built solely by `scripts/build_npm.sh` at release time. That is also
+the most likely reason `ai-edge-model-explorer-visualizer` has been stuck at
+0.1.2 (2025-06-23) for over a year while `src/ui/src` kept moving.
+
+WHAT IT CHANGES
+
+Only the stand-in, and only to match the interface its consumer now expects:
+`init` (re)creates the worker from `workerScriptPath`, preserving the
+path-prefix behaviour the stand-in exists for, and `ngOnDestroy` terminates it.
+This mirrors the real service's shape without adopting its `import.meta.url`
+worker path.
+
+MAINTENANCE
+
+`make visualizer.patch` refuses to build if this no longer applies rather than
+skipping it, because a silently unpatched tree fails later and less legibly.
+When the submodule is bumped, either re-derive this against the new stand-in or
+drop it if upstream has fixed the target. The check that it is still needed is
+simply whether `ng build custom_element` succeeds without it.
+
+diff --git a/src/ui/src/custom_element/worker_service.ts b/src/ui/src/custom_element/worker_service.ts
+index 93d8d36..10d9cda 100644
+--- a/src/ui/src/custom_element/worker_service.ts
++++ b/src/ui/src/custom_element/worker_service.ts
+@@ -16,19 +16,26 @@
+  * ==============================================================================
+  */
+
+-import {Injectable} from '@angular/core';
++import {Injectable, OnDestroy} from '@angular/core';
+
+ /**
+  * Service to manage web worker.
+  */
+ @Injectable()
+-export class WorkerService {
+-  readonly worker: Worker;
++export class WorkerService implements OnDestroy {
++  worker!: Worker;
+
+-  constructor() {
++  init(onPortal: boolean) {
++    if (this.worker) {
++      this.worker.terminate();
++    }
+     const workerScriptUrl =
+       // tslint:disable-next-line:no-any
+       (window as any)['modelExplorer'].workerScriptPath ?? 'worker.js';
+     this.worker = new Worker(workerScriptUrl);
+   }
++
++  ngOnDestroy() {
++    this.worker?.terminate();
++  }
+ }

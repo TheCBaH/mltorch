@@ -89,9 +89,9 @@ jobs:
         ${{ env.EXEC }} make jsoo.pt2.runtest
 
   # The BROWSER gate. A third job for the same reason there are two: it fails
-  # for its own reasons -- a pinned renderer, an npm lockfile, a downloaded
-  # Chromium -- and burying that in either of the others would make a browser
-  # regression read as an OCaml one.
+  # for its own reasons -- an Angular renderer build, an npm lockfile, a
+  # downloaded Chromium -- and burying that in either of the others would make a
+  # browser regression read as an OCaml one.
   #
   # It needs the modules/pytorch.models.pt2 submodule for resnet18's committed
   # model.json: the gate renders the session `native_graph visualize` actually
@@ -110,9 +110,25 @@ jobs:
     - name: setup
       run: |
         echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
-    # Keyed on the lockfile, so a renderer version bump gets a fresh entry
-    # rather than silently reusing the previous dist -- which would make the
-    # pin a claim about the lockfile and not about what was rendered.
+    # The visualizer is BUILT from the submodule rather than installed from npm
+    # (see the `visualizer.build` block in the Makefile), and `submodules: true`
+    # above is top-level only by the policy build.yml documents -- so the nested
+    # checkout is named here, and it has to precede the cache step because it is
+    # what makes the key computable.
+    - name: visualizer submodule
+      run: |
+        git -C vendored/ocaml-model-explorer submodule update --init --depth 1 model-explorer
+        echo "VISUALIZER_REF=$(git -C vendored/ocaml-model-explorer rev-parse HEAD:model-explorer)" >> $GITHUB_ENV
+    # Cache the BUILT BUNDLE, not node_modules: on a hit this skips a
+    # 1191-package npm ci and two Angular builds outright. The submodule commit
+    # and the patch are jointly what determine the output, so both are in the
+    # key -- a bump or a re-derived patch gets a fresh entry rather than
+    # silently reusing a bundle built from different source.
+    - name: visualizer bundle cache
+      uses: actions/cache@v6
+      with:
+        path: vendored/ocaml-model-explorer/model-explorer/src/ui/custom_element_npm/dist
+        key: visualizer-${{ env.VISUALIZER_REF }}-${{ hashFiles('patches/model-explorer-custom-element-worker.patch') }}
     - name: node modules cache
       uses: actions/cache@v6
       with:
@@ -125,7 +141,7 @@ jobs:
         # the workspace rather than the runner user's home directory.
         path: web/.playwright-browsers
         key: playwright-${{ hashFiles('web/package-lock.json') }}
-    - name: install the pinned renderer and chromium
+    - name: build the renderer and install chromium
       run: |
         ${{ env.EXEC }} make spike.setup
     # Two specs, and they answer different questions: the 0A spike asks what the

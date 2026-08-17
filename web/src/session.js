@@ -179,6 +179,32 @@ async function run() {
     };
   }
 
+  /* The `tasksData` evidence.
+   *
+   * `Me_fusion`'s overlay rides on the kernel graph's own `tasksData` rather
+   * than on a comparison (`me_export.ml:380-392`), and the npm build this
+   * repository used to vendor -- `ai-edge-model-explorer-visualizer@0.1.2` --
+   * did not read that field ANYWHERE: zero occurrences in its `src` and its
+   * `dist` alike, so the overlay was emitted and silently dropped. The bundle
+   * is now built from the submodule that also pins our OCaml schema, which is
+   * the whole point of building it.
+   *
+   * Two halves, because either alone is weak. The count over the loaded bundle
+   * is what distinguishes the two runtimes at all -- with a control, so a zero
+   * cannot be a fetch or minifier artefact. The graph list is what makes it a
+   * statement about OUR document: `SplitPane.ngOnInit` now calls
+   * `addEdgeOverlayData` for this payload, and a structurally wrong one throws
+   * there, which under 0.1.2 was unreachable. */
+  const bundle = await (await fetch('vendor/main_browser.js')).text();
+  const occurrences = (needle) => bundle.split(needle).length - 1;
+  result.bundle = {
+    tasksData: occurrences('tasksData'),
+    control: occurrences('edgeOverlaysDataListLeftPane'),
+  };
+  result.tasksDataGraphs = collections[0].graphs
+    .filter((g) => g.tasksData != null)
+    .map((g) => g.id);
+
   /* What the renderer does with `groupNodeAttributes` is its business; what
    * this records is that a document carrying them still processes, since they
    * are the one part of our output keyed by namespace rather than by id. */
