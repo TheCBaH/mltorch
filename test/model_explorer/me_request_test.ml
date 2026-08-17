@@ -302,6 +302,50 @@ let%expect_test "the decoder lands in the encoder's domain" =
     session  true
     detail   true |}]
 
+(* No Astring here, and none is wanted for one substring check. *)
+let contains ~affix s =
+  let n = String.length affix and m = String.length s in
+  let rec go i =
+    i + n <= m && (String.equal (String.sub s i n) affix || go (i + 1))
+  in
+  go 0
+
+(* Every effort the browser can request, through the codec rather than only
+   through [Options.create]: the page now varies this field, and a verdict that
+   encoded but did not decode would surface as a worker protocol failure with
+   nothing naming the field. The optional member is ABSENT for [None], which is
+   what makes "off" and "off by omission" the same request. *)
+let%expect_test "every verification effort survives the wire" =
+  let source = Err.or_raise ~pp_error:MR.Request.pp_error (src ()) in
+  List.iter
+    (fun effort ->
+      let options =
+        Err.or_raise ~pp_error:MR.Request.pp_error
+          (MR.Options.create ~stages:[ C.Canonical ] ~fold:false
+             ~verify_symbolic:effort ~namespace:MR.Options.Structural)
+      in
+      let req =
+        Err.or_raise ~pp_error:MR.Request.pp_error
+          (MR.Request.build_session ~id ~source ~options ~limits:wire)
+      in
+      Format.printf "%-9s %a %a@."
+        (match effort with
+        | None -> "off"
+        | Some e -> Map_verify.Effort.to_string e)
+        (Core.Pretty.result ~ok:Fmt.bool ~error:Fmt.string)
+        (round_trip req)
+        (Core.Pretty.result ~ok:Fmt.bool ~error:Fmt.string)
+        (Result.map
+           (fun text -> contains ~affix:"verifySymbolic" text)
+           (encode req)))
+    (None :: List.map Option.some Map_verify.Effort.all);
+  [%expect
+    {|
+    off       true false
+    quick     true true
+    standard  true true
+    thorough  true true |}]
+
 let%expect_test "the staged decoder rejects in its own order" =
   (* [Source.create ~limits] needs the DECODED limits, so the members cannot be
      validated independently. Each row below is refused by the step that owns

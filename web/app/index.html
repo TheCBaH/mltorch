@@ -1,3 +1,21 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>MLTorch Model Explorer</title><link rel="stylesheet" href="app.css"><script src="vendor/main_browser.js"></script><script>window.modelExplorer.assetFilesBaseUrl = 'vendor/static_files'; window.modelExplorer.workerScriptPath = 'vendor/worker.js';</script><script src="webapp_bridge.js"></script></head>
-<body><main><h1>MLTorch Model Explorer</h1><div class="controls"><label>Catalogue model <select id="catalogue"></select></label><button id="reload" type="button">Reload</button><label>Local model.json <input id="local-file" type="file" accept=".json,application/json"></label><button id="clear-local" type="button">Clear local file</button></div><p>Local files are processed on this device and are never uploaded.</p><p id="status" role="status">Starting…</p><p id="error" role="alert" hidden></p><section id="visualizer" aria-label="Model graph"></section></main><script type="module" src="app.js"></script></body></html>
+<body><main><h1>MLTorch Model Explorer</h1>
+<div class="controls"><label>Catalogue model <select id="catalogue"></select></label><button id="reload" type="button">Reload</button><label>Local model.json <input id="local-file" type="file" accept=".json,application/json"></label><button id="clear-local" type="button">Clear local file</button></div>
+<p class="note">Local files are processed on this device and are never uploaded.</p>
+<section id="construction"><h2>Construction options</h2><div class="panel">
+<fieldset><legend>Output stages</legend><p class="note" id="backbone-note"></p><div id="stage-controls" class="options"></div></fieldset>
+<fieldset><legend>Constant/payload folding</legend><label class="option"><input type="checkbox" id="fold"><span>Fold constants and payloads</span></label><p class="note" id="fold-note"></p></fieldset>
+<fieldset><legend>Symbolic transformation verification</legend><div id="effort-controls" class="options"></div></fieldset>
+<p class="note" id="effective-options"></p>
+<p class="note">Changing any of these starts a new export.</p>
+</div></section>
+<div class="controls"><label>View <select id="view"></select></label></div>
+<details id="unavailable"><summary>Unavailable outputs</summary><div class="panel" id="unavailable-list"></div></details>
+<details id="diagnostics"><summary>Diagnostics</summary><div class="panel" id="diagnostics-list"></div></details>
+<details id="validation"><summary>Validation evidence</summary><div class="panel" id="validation-body"></div></details>
+<p id="status" role="status">Starting…</p>
+<p id="notice" role="status" hidden></p>
+<p id="error" role="alert" hidden></p>
+<div class="stage"><section id="visualizer" aria-label="Model graph"></section><aside id="legend" hidden></aside></div>
+</main><script type="module" src="app.js"></script></body></html>

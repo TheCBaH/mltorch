@@ -23,7 +23,7 @@ async function assertArtifact(directory, relative = '') {
     if (!info.isFile()) throw new Error(`artifact contains non-file: ${child}`);
     if (child.startsWith('models/') && child.endsWith('.json')) continue;
     if (child.startsWith('vendor/')) continue;
-    if (new Set(['index.html', 'app.css', 'app.js', 'coordinator.js', 'renderer.js', 'source_store.js', 'worker.js', 'webapp_bridge.js', 'catalog.json']).has(child)) continue;
+    if (new Set(['index.html', 'app.css', 'app.js', 'coordinator.js', 'panels.js', 'presentation.js', 'renderer.js', 'source_store.js', 'worker.js', 'webapp_bridge.js', 'catalog.json']).has(child)) continue;
     throw new Error(`artifact contains unexpected file: ${child}`);
   }
 }

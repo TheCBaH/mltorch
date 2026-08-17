@@ -15,6 +15,8 @@
  * `response_live_bytes` budgets the browser's retained elements.
  */
 
+import { bucketOfRank } from './presentation.js';
+
 const HEARTBEAT_MS = 5_000;
 const SLOT_CLASS = 'visualizer-slot';
 const CURRENT_CLASS = 'visualizer-slot--current';
@@ -26,6 +28,55 @@ const text = (error) => (error && error.message) || String(error);
 /* Safe, still-connected elements the renderer failed to remove. They are not
  * inconsistency -- the DOM is coherent -- but they hold quarantine slots. */
 const isDebt = (state) => state === 'cleanup_failed' || state === 'cleanup_abandoned';
+
+/* `View.kind` is `stage:<name>`, `flow`, or `compare`. Only a stage view names
+ * a graph this shell can open as a single view, so every selection rung below
+ * filters on this and not merely on "the id resolves". */
+const isStage = (view) => typeof view?.kind === 'string' && view.kind.startsWith('stage:');
+
+/* The one graph-addressed set the shell interprets rather than merely relays.
+ * `Me_verify` names it, and `Me_fusion`'s "fusion" is the only other. */
+const VERIFICATION_SET = 'verification';
+
+/* A `Node_data_set` result is `{ nodeId, value: { value, label? } }` -- an
+ * OBJECT, not a pair. Reading it as a pair throws "object is not iterable",
+ * which for a long time nothing noticed: the only set addressed to the default
+ * view is the verification one, and the browser never asked for verification. */
+const entries = (set) => (set.results || []).map((r) => [r.nodeId, r.value ?? {}]);
+
+/* Everything except verification, on the original anonymous gradient. */
+function gradientData(set) {
+  return {
+    results: Object.fromEntries(entries(set).map(([id, v]) => [id, { value: v.value }])),
+    gradient: [{ stop: 0, bgColor: '#e8f5e9' }, { stop: 1, bgColor: '#ffcdd2' }],
+  };
+}
+
+/* Verification, as named rank buckets carrying the exporter's own label.
+ *
+ * The pinned element derives the text it shows (`strValue`) from `value`, and
+ * reads NO `label` key anywhere -- so the supplied
+ * "proved (structural) [sampled 4]" can only reach the screen AS the value,
+ * which is why these are strings; `typeof value === 'string'` is explicitly
+ * handled in `processNodeDataProviderDataForGraph`. A per-result `bgColor`
+ * takes precedence over any gradient there, so the buckets need no other API,
+ * and `textColor` is omitted because the element derives a contrasting one by
+ * luminance.
+ *
+ * Bucketing keys on the numeric rank, never on the label text: the rank already
+ * states the category exactly, and re-deriving it from prose would be the one
+ * place a shortened "proved" could creep in. */
+function verificationData(set) {
+  const results = {};
+  for (const [nodeId, value] of entries(set)) {
+    const bucket = bucketOfRank(value.value);
+    results[nodeId] = {
+      value: value.label ?? String(value.value),
+      ...(bucket ? { bgColor: bucket.bg } : {}),
+    };
+  }
+  return { results };
+}
 
 function deferred() {
   let resolve;
@@ -95,12 +146,16 @@ export class Renderer {
 
   /* ---------------------------------------------------------------- install */
 
-  async install(renderText) {
+  /* `selection` is `{ view }` (exact -- an unresolvable or non-stage id fails),
+   * `{ prefer: [ids] }` (first stage view that resolves, then `defaultView`,
+   * then any stage view), or omitted (the original behaviour). It is resolved
+   * inside `#parse`, so a bad selection is refused BEFORE a candidate exists. */
+  async install(renderText, selection) {
     if (this.#inconsistent) throw new RenderFailure('inconsistent', this.#inconsistent);
     // Parsing precedes everything fallible, and allocates no entry, no deferred
     // and no DOM: an invalid document is refused without the renderer having
     // mutated anything on its behalf.
-    const descriptor = this.#parse(renderText);
+    const descriptor = this.#parse(renderText, selection);
     // Both remaining preflight steps can mutate the DOM, and either can discover
     // inconsistency. `markInconsistent` settles whatever entry is active at that
     // moment -- never the newcomer -- so the newcomer must not exist yet, or it
@@ -115,26 +170,68 @@ export class Renderer {
     return entry.promise;
   }
 
-  #parse(renderText) {
+  /* Stage-only at EVERY rung, not merely for the ids a caller asked for.
+   * `Session.validate` requires `defaultView` to name *some* declared view and
+   * says nothing about its kind, so a bridge-valid session may default to a
+   * `flow` or `compare` view -- and a chain that filtered the requested ids but
+   * then fell through to `defaultView` would re-open the excluded view by the
+   * back door. */
+  #select(state, selection) {
+    const views = Array.isArray(state.views) ? state.views : [];
+    const stage = (id) => {
+      const view = views.find((v) => v.id === id);
+      return view && isStage(view) ? view : null;
+    };
+    if (selection?.view != null) {
+      const view = stage(selection.view);
+      if (!view) {
+        throw new RenderFailure('invalid', `session has no stage view "${selection.view}"`);
+      }
+      return { graphId: view.graph, viewId: view.id };
+    }
+    if (Array.isArray(selection?.prefer)) {
+      for (const id of selection.prefer) {
+        const view = stage(id);
+        if (view) return { graphId: view.graph, viewId: view.id };
+      }
+      const fallback = stage(state.defaultView) ?? views.find(isStage);
+      if (!fallback) throw new RenderFailure('invalid', 'session declares no stage view');
+      return { graphId: fallback.graph, viewId: fallback.id };
+    }
+    // No descriptor: the original behaviour, kind filter and all, so the
+    // callers and tests that predate selection keep their contract.
+    const view = views.find((v) => v.id === state.defaultView);
+    return {
+      graphId: view?.graph || state.graphCollections?.[0]?.graphs?.[0]?.id,
+      viewId: view?.id ?? null,
+    };
+  }
+
+  #parse(renderText, selection) {
     let state;
     try {
       state = JSON.parse(renderText);
     } catch (error) {
       throw new RenderFailure('invalid', `session is not JSON: ${text(error)}`);
     }
-    const view = state.views?.find((v) => v.id === state.defaultView);
-    const graphId = view?.graph || state.graphCollections?.[0]?.graphs?.[0]?.id;
+    const { graphId, viewId } = this.#select(state, selection);
     if (!graphId) throw new RenderFailure('invalid', 'session has no renderable graph');
+    const collections = state.graphCollections ?? [];
     const nodeCounts = Object.fromEntries(
-      (state.graphCollections ?? []).flatMap((c) => c.graphs ?? []).map((g) => [g.id, g.nodes?.length ?? 0]),
+      collections.flatMap((c) => c.graphs ?? []).map((g) => [g.id, g.nodes?.length ?? 0]),
     );
+    // The collection that actually HOLDS the target, not collection zero:
+    // `selectNode` is addressed by collection label, and a view may name a
+    // graph in any of them.
+    const holder = collections.find((c) => (c.graphs ?? []).some((g) => g.id === graphId));
     return {
       graphId,
+      viewId,
       graphCollections: state.graphCollections,
       nodeDataSets: state.nodeDataSets || [],
       modelName: state.model?.name ?? '(unknown)',
-      collectionLabel: state.graphCollections?.[0]?.label,
-      targetFirstNodeId: state.graphCollections?.[0]?.graphs?.find((g) => g.id === graphId)?.nodes?.[0]?.id,
+      collectionLabel: holder?.label,
+      targetFirstNodeId: (holder?.graphs ?? []).find((g) => g.id === graphId)?.nodes?.[0]?.id,
       nodeCounts,
     };
   }
@@ -334,7 +431,10 @@ export class Renderer {
     // coordinator is about to commit.
     this.#retireListener(entry);
     entry.state = 'ready';
-    const handle = Object.freeze({ graph: d.graphId });
+    // `viewId` rides the handle so the caller learns what was actually shown
+    // without re-running the preference resolution above -- two selection
+    // algorithms would be free to drift apart.
+    const handle = Object.freeze({ graph: d.graphId, viewId: d.viewId });
     this.#handles.set(handle, entry);
     entry.handle = handle;
     this.#resolve(entry, handle);
@@ -344,17 +444,10 @@ export class Renderer {
     const d = entry.descriptor;
     for (const set of d.nodeDataSets) {
       if (set.graph !== d.graphId) continue;
-      // A result is `{ nodeId, value }` -- an OBJECT, not a pair. Reading it as
-      // a pair throws "object is not iterable", which nothing noticed because
-      // the only set addressed to the default view is the verification one and
-      // the browser has never requested verification.
-      const results = Object.fromEntries(
-        (set.results || []).map((result) => [result.nodeId, { value: result.value.value }]),
+      entry.element.addNodeDataProviderData(
+        set.name,
+        set.name === VERIFICATION_SET ? verificationData(set) : gradientData(set),
       );
-      entry.element.addNodeDataProviderData(set.name, {
-        results,
-        gradient: [{ stop: 0, bgColor: '#e8f5e9' }, { stop: 1, bgColor: '#ffcdd2' }],
-      });
     }
   }
 

@@ -49,12 +49,16 @@ function scenario({ session = {}, render = {} } = {}) {
   const workers = [];
   const errors = [];
   const statuses = [];
-  const calls = { prepare: [], commit: [], abort: [], install: [], finalize: [], abortReady: [], markInconsistent: [], cancel: 0 };
-  const handle = Object.freeze({ handle: true });
+  const calls = { prepare: [], commit: [], abort: [], install: [], finalize: [], abortReady: [], markInconsistent: [], cancel: 0, buildSession: [], sessions: [] };
+  const handle = Object.freeze({ handle: true, viewId: 'v/canonical' });
   let lastId = null;
 
   const bridge = {
-    request: { buildSession: ({ id }) => { lastId = id; return { ok: true, request: new ArrayBuffer(2) }; } },
+    /* Records the WHOLE request, so a test can assert the exact object the
+     * page handed over rather than only that something was built. The echo is
+     * the input here; what OCaml actually normalises to is pinned in
+     * `bridge-unit.test.mjs` against the real bridge. */
+    request: { buildSession: (request) => { lastId = request.id; calls.buildSession.push(request); return { ok: true, request: new ArrayBuffer(2), options: request.options }; } },
     session: {
       prepare: (id) => { calls.prepare.push(id); return (session.prepare ?? (() => ({ ok: true, token: id, render: '{}' })))(id); },
       commit: (token) => { calls.commit.push(token); return (session.commit ?? (() => ({ ok: true })))(token); },
@@ -62,7 +66,7 @@ function scenario({ session = {}, render = {} } = {}) {
     },
   };
   const view = {
-    install: (text) => { calls.install.push(text); return (render.install ?? (async () => handle))(text); },
+    install: (text, selection) => { calls.install.push({ text, selection }); return (render.install ?? (async () => handle))(text, selection); },
     finalize: (h) => { calls.finalize.push(h); return (render.finalize ?? (() => ({ ok: true })))(h); },
     abortReady: (h) => { calls.abortReady.push(h); return (render.abortReady ?? (() => ({ ok: true })))(h); },
     markInconsistent: (r) => { calls.markInconsistent.push(r); return (render.markInconsistent ?? (() => ({ ok: true })))(r); },
@@ -77,10 +81,11 @@ function scenario({ session = {}, render = {} } = {}) {
     bridge, render: view, hard: HARD,
     onStatus: (t) => statuses.push(t),
     onError: (t) => errors.push(t),
+    onSession: (s) => { calls.sessions.push(s); (session.onSession ?? (() => {}))(s); },
   });
 
-  const start = async () => {
-    await coordinator.load(source());
+  const start = async (args) => {
+    await coordinator.load(source(), args);
     return { worker: workers.at(-1), id: lastId };
   };
   const deliver = (request, overrides = {}) => {
@@ -447,4 +452,177 @@ test('the worker is terminated exactly once on success', async () => {
   assert.equal(s.calls.finalize.length, 1);
   assert.equal(s.statuses.at(-1), 'Model loaded');
   assert.equal(await s.inFlight(), 'accepted');
+});
+
+/* ------------------------------------------------------- construction options */
+
+/* The whole options bridge is inert without this: `load()` used to send `{}`
+ * unconditionally, so every stage and effort change would still have exported
+ * the defaults. */
+test('the options a caller passes reach the bridge exactly', async () => {
+  const s = scenario();
+  const options = { stages: ['source', 'canonical', 'kernel'], fold: false, verifySymbolic: 'quick' };
+  await s.start({ options });
+  assert.deepEqual(s.calls.buildSession.at(-1).options, options);
+
+  for (const effort of ['quick', 'standard', 'thorough', null]) {
+    const each = scenario();
+    await each.start({ options: { stages: ['source'], fold: false, verifySymbolic: effort } });
+    assert.equal(each.calls.buildSession.at(-1).options.verifySymbolic, effort);
+  }
+});
+
+/* The defaults exist only so the fixtures that assert the bridge's own
+ * behaviour keep asserting exactly that. */
+test('a load with no second argument still sends the bridge default', async () => {
+  const s = scenario();
+  await s.start();
+  assert.deepEqual(s.calls.buildSession.at(-1).options, {});
+});
+
+test('the view preference reaches the renderer with the first install', async () => {
+  const s = scenario();
+  const request = await s.start({ prefer: ['v/kernel', 'v/source'] });
+  await s.deliver(request);
+  assert.deepEqual(s.calls.install.at(-1).selection, { prefer: ['v/kernel', 'v/source'] });
+});
+
+/* ------------------------------------------------------ the completion contract */
+
+test('a completed load reports its session, options and resolved view exactly once', async () => {
+  const s = scenario();
+  const options = { stages: ['source'], fold: false, verifySymbolic: null };
+  const request = await s.start({ options });
+  await s.deliver(request);
+  assert.equal(s.calls.sessions.length, 1);
+  assert.deepEqual(s.calls.sessions[0], {
+    sessionText: '{}', effectiveOptions: options, viewId: 'v/canonical',
+  });
+  assert.equal(s.coordinator.session, '{}');
+  assert.deepEqual(s.coordinator.effectiveOptions, options);
+  assert.equal(s.coordinator.view, 'v/canonical');
+  assert.deepEqual(s.statuses.at(-1), 'Model loaded');
+});
+
+test('nothing is retained and nothing is reported for a load that never completes', async () => {
+  const s = scenario({ session: { commit: () => ({ ok: false, error: 'refused' }) } });
+  const request = await s.start();
+  await s.deliver(request);
+  assert.equal(s.calls.sessions.length, 0);
+  assert.equal(s.coordinator.session, null);
+});
+
+/* `#terminal` runs BEFORE the callback, so the record is out of `#pending` and
+ * a synchronous call from inside it meets the same guards a fresh caller
+ * would. Reporting while the record was still current would make this throw
+ * "a request is already in flight". */
+test('a presentation started from inside onSession is accepted, not refused', async () => {
+  let outcome = null;
+  const s = scenario({
+    session: {
+      onSession: () => {
+        outcome = s.coordinator.present({ view: 'v/source' }).then(() => 'accepted', (e) => e.message);
+      },
+    },
+  });
+  const request = await s.start();
+  await s.deliver(request);
+  assert.equal(await outcome, 'accepted');
+});
+
+/* -------------------------------------------------------------- presentation */
+
+const loaded = async (overrides) => {
+  const s = scenario(overrides);
+  const request = await s.start();
+  await s.deliver(request);
+  return s;
+};
+
+/* No worker message and no bridge call: `staged` was consumed by the commit
+ * that installed this document, and the retained text is that same
+ * bridge-validated document. */
+test('a presentation change runs no worker and touches no bridge state', async () => {
+  const s = await loaded();
+  const workers = s.workers.length;
+  const posts = s.workers.reduce((n, w) => n + w.posted.length, 0);
+  const bridgeCalls = s.calls.prepare.length + s.calls.commit.length + s.calls.abort.length;
+
+  await s.coordinator.present({ view: 'v/source' });
+
+  assert.equal(s.workers.length, workers);
+  assert.equal(s.workers.reduce((n, w) => n + w.posted.length, 0), posts);
+  assert.equal(s.calls.prepare.length + s.calls.commit.length + s.calls.abort.length, bridgeCalls);
+  assert.deepEqual(s.calls.install.at(-1), { text: '{}', selection: { view: 'v/source' } });
+  assert.equal(s.statuses.at(-1), 'View changed');
+});
+
+test('a presentation before any load is refused rather than rendering nothing', async () => {
+  const s = scenario();
+  await assert.rejects(s.coordinator.present({ view: 'v/source' }), /no model is loaded/);
+});
+
+/* A load reaches `finalize` with the bridge session already committed, so a
+ * failure there means bridge and presentation disagree. A presentation commits
+ * nothing and `known_old` leaves the previous view connected, visible and
+ * still correct for the SAME document -- so it is an ordinary error, and the
+ * page stays usable. Making it fatal would turn a failed view switch into a
+ * needless reload. */
+test('a known_old presentation is recoverable, while a known_old load is fatal', async () => {
+  const s = await loaded();
+  s.view.finalize = (h) => { s.calls.finalize.push(h); return { ok: false, state: 'known_old', error: 'reveal failed' }; };
+  await s.coordinator.present({ view: 'v/source' });
+
+  assert.equal(s.errors.length, 1);
+  assert.match(s.errors[0], /the current one is still shown/);
+  // Not the load wording: nothing was installed and nothing was committed.
+  assert.equal(s.errors[0].includes('the model was installed'), false);
+  assert.equal(s.errors[0].includes('Reload the page'), false);
+
+  // And the page still works: another presentation, and another load, both go.
+  s.view.finalize = (h) => { s.calls.finalize.push(h); return { ok: true }; };
+  await s.coordinator.present({ view: 'v/initial' });
+  assert.equal(s.statuses.at(-1), 'View changed');
+  const request = await s.start();
+  await s.deliver(request);
+  assert.equal(s.statuses.at(-1), 'Model loaded');
+
+  // The load path keeps its own matrix.
+  const load = scenario({ render: { finalize: () => ({ ok: false, state: 'known_old' }) } });
+  const first = await load.start();
+  await load.deliver(first);
+  assert.match(load.errors[0], /Reload the page/);
+});
+
+test('an inconsistent presentation finalize is still fatal', async () => {
+  const s = await loaded();
+  s.view.finalize = () => ({ ok: false, state: 'inconsistent', error: 'the mount is unknown' });
+  await s.coordinator.present({ view: 'v/source' });
+  assert.match(s.errors.at(-1), /Reload the page/);
+  assert.equal(await s.inFlight(), POISONED);
+});
+
+test('a presentation superseded before it settles says nothing and is consumed', async () => {
+  const s = await loaded();
+  // Gate the NEXT install only: gating the load's own would leave it pending.
+  const gate = deferred();
+  s.view.install = (text, selection) => { s.calls.install.push({ text, selection }); return gate.promise; };
+  const before = { statuses: s.statuses.length, aborts: s.calls.abortReady.length };
+  const running = s.coordinator.present({ view: 'v/source' });
+  s.coordinator.cancel();
+  gate.resolve(s.handle);
+  await running;
+  assert.equal(s.calls.abortReady.length, before.aborts + 1);
+  assert.equal(s.errors.length, 0);
+  assert.equal(s.statuses.length, before.statuses);
+  // The retained view is unchanged: nothing replaced what is on screen.
+  assert.equal(s.coordinator.view, 'v/canonical');
+});
+
+test('a presentation retires cleanly though it owns no worker', async () => {
+  const s = await loaded();
+  const terminations = s.workers.map((w) => w.terminated);
+  await s.coordinator.present({ view: 'v/source' });
+  assert.deepEqual(s.workers.map((w) => w.terminated), terminations);
+  assert.equal(s.errors.length, 0);
 });

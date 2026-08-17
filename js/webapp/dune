@@ -16,6 +16,10 @@
   model_explorer_export
   webapp_jsoo_buffer))
 
+; [native] is already linked through [model_explorer_export]; it is named here
+; so the bridge can spell [Map_verify.Effort] when converting the browser's
+; verification-effort option.
+
 (executable
  (name webapp_bridge)
  (modes js)
@@ -26,4 +30,5 @@
   jsont
   jsont.bytesrw
   model_explorer_export
+  native
   webapp_jsoo_buffer))
