@@ -1,4 +1,4 @@
-.PHONY: spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
+.PHONY: spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
 all: build
 
 # Models release published at github.com/TheCBaH/pytorch.models.pt2
@@ -479,9 +479,21 @@ webapp.serve: webapp.build
 webapp.runtest:
 	node --check web/app/app.js
 	node --check web/app/coordinator.js
+	node --check web/app/panels.js
+	node --check web/app/presentation.js
 	node --check web/app/renderer.js
 	node --check web/app/source_store.js
-	node --test web/test/renderer-unit.test.mjs web/test/webapp-unit.test.mjs
+	node --test web/test/renderer-unit.test.mjs web/test/webapp-unit.test.mjs \
+	  web/test/presentation-unit.test.mjs
+
+# The jsoo bridge itself, driven the way the page drives it. Separate from
+# webapp.runtest because it reads the dune output, which that target
+# deliberately does not build -- and it is the only place the `Js.Unsafe`
+# options decoder, its normalised echo, and a malformed raw JS value can be
+# reached at all: test/model_explorer links model_explorer_export, not this
+# executable.
+webapp.bridge-runtest: webapp.build
+	node --test web/test/bridge-unit.test.mjs
 
 webapp.browser-runtest: webapp.build
 	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" npm run webapp

@@ -580,3 +580,141 @@ test('supersession that discovers inconsistency orphans no caller', async () => 
   assert.equal(h.slots().length, 1);
   assert.ok(h.renderer.inconsistent);
 });
+
+/* ---------------------------------------------------------------- selection */
+
+/* A session with kinds, which the fixture above deliberately lacks: the legacy
+ * no-descriptor path applies no kind filter, so only these cases can exercise
+ * the stage-only rule. `flow` and `compare` views are hand-authored here
+ * because the exporter emits neither today -- which is exactly why the guard
+ * lives in the renderer rather than in a caller that might forget it. */
+const kinded = ({ defaultView = 'v/canonical', views, nodeDataSets = [] }) => JSON.stringify({
+  model: { name: 'm' },
+  defaultView,
+  views,
+  graphCollections: [{ label: 'c', graphs: [
+    { id: 'pt2/root', nodes: [{ id: 's0' }] },
+    { id: 'g/native/001', nodes: [{ id: 'c0' }] },
+    { id: 'g/flow', nodes: [{ id: 'f0' }] },
+  ] }],
+  nodeDataSets,
+});
+
+const STAGE_VIEWS = [
+  { id: 'v/canonical', label: 'Canonical', kind: 'stage:canonical', collection: 'c', graph: 'g/native/001' },
+  { id: 'v/source', label: 'Source', kind: 'stage:source', collection: 'c', graph: 'pt2/root' },
+];
+const FLOW_VIEW = { id: 'v/flow', label: 'Flow', kind: 'flow', collection: 'c', graph: 'g/flow' };
+
+async function enter(h, text, selection, graphId) {
+  const promise = h.renderer.install(text, selection);
+  h.emit(h.last(), graphId);
+  return promise;
+}
+
+test('an exact selection enters that view and reports it', async () => {
+  const h = harness();
+  const handle = await enter(h, kinded({ views: STAGE_VIEWS }), { view: 'v/source' }, 'pt2/root');
+  assert.equal(handle.graph, 'pt2/root');
+  assert.equal(handle.viewId, 'v/source');
+});
+
+test('an unknown exact selection fails before any element is connected', async () => {
+  const h = harness();
+  await assert.rejects(
+    h.renderer.install(kinded({ views: STAGE_VIEWS }), { view: 'v/nope' }),
+    isKind('invalid'));
+  assert.equal(h.slots().length, 0);
+});
+
+/* The delivery boundary, enforced where it cannot be bypassed. */
+test('a non-stage view cannot be selected exactly', async () => {
+  const h = harness();
+  await assert.rejects(
+    h.renderer.install(kinded({ views: [...STAGE_VIEWS, FLOW_VIEW] }), { view: 'v/flow' }),
+    isKind('invalid'));
+  assert.equal(h.slots().length, 0);
+});
+
+test('a preference skips a non-stage id and lands on the next stage view', async () => {
+  const h = harness();
+  const handle = await enter(h, kinded({ views: [...STAGE_VIEWS, FLOW_VIEW] }),
+    { prefer: ['v/flow', 'v/source'] }, 'pt2/root');
+  assert.equal(handle.viewId, 'v/source');
+});
+
+/* `Session.validate` checks `defaultView` with a membership test alone and says
+ * nothing about its kind, so a bridge-valid session may default to a flow view.
+ * A chain that filtered only the requested ids would re-open it from here. */
+test('a non-stage defaultView is skipped too', async () => {
+  const h = harness();
+  const handle = await enter(h,
+    kinded({ defaultView: 'v/flow', views: [...STAGE_VIEWS, FLOW_VIEW] }),
+    { prefer: ['v/missing'] }, 'g/native/001');
+  assert.equal(handle.viewId, 'v/canonical');
+});
+
+test('a preference falls back through defaultView', async () => {
+  const h = harness();
+  const handle = await enter(h, kinded({ views: STAGE_VIEWS }), { prefer: ['v/missing'] }, 'g/native/001');
+  assert.equal(handle.viewId, 'v/canonical');
+});
+
+test('a session with no stage view at all is refused rather than rendered', async () => {
+  const h = harness();
+  await assert.rejects(
+    h.renderer.install(kinded({ defaultView: 'v/flow', views: [FLOW_VIEW] }), { prefer: ['v/source'] }),
+    isKind('invalid'));
+  assert.equal(h.slots().length, 0);
+});
+
+/* ---------------------------------------------------------------- node data */
+
+const verificationSet = (graph) => ({
+  name: 'verification', graph,
+  results: [
+    { nodeId: 'c0', value: { value: 1, label: 'proved (structural) [sampled 4]' } },
+    { nodeId: 'c1', value: { value: 6, label: 'refuted (counterexample)' } },
+    { nodeId: 'c2', value: { value: 42, label: 'from the future' } },
+  ],
+});
+
+/* The element renders `strValue` from `value` and reads no `label` key at all,
+ * so the supplied label can only reach the screen AS the value. A per-result
+ * `bgColor` overrides any gradient, which is what makes the buckets named
+ * rather than a position on an anonymous ramp. */
+test('verification data carries the verbatim label and a bucket colour', async () => {
+  const h = harness();
+  await enter(h, kinded({ views: STAGE_VIEWS, nodeDataSets: [verificationSet('g/native/001')] }),
+    { view: 'v/canonical' }, 'g/native/001');
+  const [installed] = h.element(h.last()).nodeData;
+  assert.equal(installed.name, 'verification');
+  assert.equal(installed.data.gradient, undefined);
+  assert.equal(installed.data.results.c0.value, 'proved (structural) [sampled 4]');
+  assert.ok(installed.data.results.c0.bgColor);
+  assert.notEqual(installed.data.results.c1.bgColor, installed.data.results.c0.bgColor);
+  // A rank outside the known scale keeps its label and takes no colour rather
+  // than borrowing a neighbouring bucket's meaning.
+  assert.equal(installed.data.results.c2.value, 'from the future');
+  assert.equal(installed.data.results.c2.bgColor, undefined);
+});
+
+/* The wire shape is `{ nodeId, value }`, an object -- reading it as a pair
+ * throws "object is not iterable". Nothing noticed for a long time because the
+ * only set addressed to the default view is the verification one and the
+ * browser never asked for verification. */
+test('a non-verification set keeps its gradient and its numeric value', async () => {
+  const h = harness();
+  const fusion = { name: 'fusion', graph: 'g/native/001', results: [{ nodeId: 'c0', value: { value: 3 } }] };
+  await enter(h, kinded({ views: STAGE_VIEWS, nodeDataSets: [fusion] }), { view: 'v/canonical' }, 'g/native/001');
+  const [installed] = h.element(h.last()).nodeData;
+  assert.equal(installed.data.results.c0.value, 3);
+  assert.ok(Array.isArray(installed.data.gradient));
+});
+
+test('only the selected graph’s node data is installed', async () => {
+  const h = harness();
+  const sets = [verificationSet('g/native/001'), { name: 'fusion', graph: 'pt2/root', results: [] }];
+  await enter(h, kinded({ views: STAGE_VIEWS, nodeDataSets: sets }), { view: 'v/canonical' }, 'g/native/001');
+  assert.deepEqual(h.element(h.last()).nodeData.map((d) => d.name), ['verification']);
+});

@@ -15,16 +15,41 @@ const finalizeMessage = (result) => {
   const base = FINALIZE_MESSAGES[result?.state] ?? 'the model was installed but could not be shown';
   return result?.error ? `${base} (${result.error})` : base;
 };
+
+/* A presentation change installs no model and commits nothing, so none of the
+ * texts above is true of it. These say only what happened: the view did not
+ * change, and the one on screen is still the right view of the same document. */
+const PRESENT_MESSAGES = {
+  known_old: 'the view could not be switched; the current one is still shown',
+  cancelled: 'the prepared view was discarded before it could be shown',
+  misuse: 'the renderer rejected the view it had prepared',
+};
+const presentMessage = (result) => {
+  const base = PRESENT_MESSAGES[result?.state] ?? 'the view could not be changed';
+  return result?.error ? `${base} (${result.error})` : base;
+};
 const detail = (marked) => (marked?.ok === false && marked?.error ? ` (${marked.error})` : '');
 
 export class Coordinator {
   #pending = null;
   #epoch = 0;
   #poisoned = false;
+  /* What the bridge and the renderer produced, retained so a presentation
+   * change can replay it. Nothing derived lives here: the page builds its own
+   * index from `#session`, and the coordinator never reads one. A failed load
+   * leaves the previous triple in place, so the visible view, the controls and
+   * the URL keep describing one document. */
+  #session = null;
+  #options = null;
+  #view = null;
 
-  constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, hard }) {
-    Object.assign(this, { workerFactory, bridge, render, onStatus, onError, hard });
+  constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, onSession = () => {}, hard }) {
+    Object.assign(this, { workerFactory, bridge, render, onStatus, onError, onSession, hard });
   }
+
+  get session() { return this.#session; }
+  get effectiveOptions() { return this.#options; }
+  get view() { return this.#view; }
 
   /* Authority. Everything user-visible and everything that touches the bridge is
    * gated on this, `#poisoned` included: that is what makes "no already-running
@@ -48,7 +73,16 @@ export class Coordinator {
     }
   }
 
-  async load(source) {
+  /* `options` is the page's construction options, forwarded verbatim to the
+   * bridge, which normalises them and echoes the result back; `prefer` is the
+   * ordered view preference the renderer resolves against the arriving
+   * document, so the first and only install already shows the right graph.
+   *
+   * Both default, but ONLY so the fixtures that assert the bridge's own
+   * defaults keep asserting exactly that. Every app-originated load passes
+   * options -- omitting them would silently rebuild with defaults and discard
+   * whatever the user has selected. */
+  async load(source, { options = {}, prefer = [] } = {}) {
     if (this.#poisoned) throw new Error(POISONED);
     if (this.#pending) throw new Error('a request is already in flight');
     const epoch = ++this.#epoch;
@@ -59,12 +93,12 @@ export class Coordinator {
       kind: source.kind,
       ...(source.catalog ? { catalog: source.catalog } : {}),
     };
-    const built = this.bridge.request.buildSession({ id, source: requestSource, options: {}, limits: {} });
+    const built = this.bridge.request.buildSession({ id, source: requestSource, options, limits: {} });
     if (!built.ok) throw new Error(built.error || 'request construction failed');
     const worker = this.workerFactory();
     const pending = this.#pending = {
       epoch, id, worker, terminal: false, cancelled: false, retired: false,
-      token: null, tokenSettled: false,
+      token: null, tokenSettled: false, prefer, options: built.options ?? null,
     };
     worker.onmessage = (event) => this.#message(pending, event);
     worker.onerror = () => this.#terminal(pending, { message: 'worker failed' });
@@ -95,6 +129,9 @@ export class Coordinator {
   #retireWorker(pending) {
     if (!pending || pending.retired) return false;
     pending.retired = true;
+    // A presentation record has no worker at all; retiring it is a no-op rather
+    // than a caught throw, so `#terminal`'s `retired` stays meaningful.
+    if (!pending.worker) return true;
     try { pending.worker.terminate(); return true; }
     catch (error) { console.warn('[coordinator] worker termination failed', error); return false; }
   }
@@ -189,7 +226,7 @@ export class Coordinator {
     pending.token = prepared.token;                     // stored BEFORE any await
     let handle;
     try {
-      handle = await this.render.install(prepared.render);
+      handle = await this.render.install(prepared.render, { prefer: pending.prefer });
     } catch (error) {
       this.#settleToken(pending, 'abort');
       // Classify by kind BEFORE applying the stale rule: staleness decides
@@ -240,7 +277,84 @@ export class Coordinator {
     }
     const finalized = this.render.finalize(handle);
     if (!finalized.ok) return this.#fatal(finalizeMessage(finalized), { initiating: pending });
+    // Retention lands BEFORE `#terminal`: it is pure state that cannot throw,
+    // and it became true the instant the commit was confirmed. Only the
+    // outward-facing callbacks wait on `undisturbed` below.
+    this.#session = prepared.render;
+    this.#options = pending.options;
+    this.#view = handle.viewId ?? null;
     const settled = this.#terminal(pending, {});        // detach + terminate, no error
-    if (settled.undisturbed) this.onStatus('Model loaded');
+    // `undisturbed` is what makes a callback safe to hand control to: the
+    // record is out of `#pending` and the epoch is unchanged, so a synchronous
+    // `load()`, `present()` or `cancel()` from inside `onSession` meets the
+    // same guards a fresh caller would, instead of the in-flight one.
+    if (!settled.undisturbed) return;
+    this.onSession({
+      sessionText: this.#session,
+      effectiveOptions: this.#options,
+      viewId: this.#view,
+    });
+    this.onStatus('Model loaded');
+  }
+
+  /* ---------------------------------------------------------- presentation */
+
+  /* Show a different view of the session already retained.
+   *
+   * No worker, and no bridge call: `webapp_bridge.ml`'s `staged` slot was
+   * consumed by the commit that installed this document, so there is nothing to
+   * prepare or commit again -- and nothing needs to be. The retained text is
+   * the same bridge-validated document; only the graph on screen changes.
+   *
+   * The pinned visualizer cannot be re-pointed in place (assigning `config` on
+   * a live element does not take), so this still goes through the full
+   * candidate transaction, which is also what keeps the current view visible
+   * until the replacement is ready. */
+  async present(selection) {
+    if (this.#poisoned) throw new Error(POISONED);
+    if (this.#pending) throw new Error('a request is already in flight');
+    if (!this.#session) throw new Error('no model is loaded');
+    const epoch = ++this.#epoch;
+    const pending = this.#pending = {
+      epoch, id: null, worker: null, terminal: false, cancelled: false,
+      retired: false, token: null, tokenSettled: false,
+    };
+    let handle;
+    try {
+      handle = await this.render.install(this.#session, selection);
+    } catch (error) {
+      // Same classification as a load: a terminal renderer is a fact about the
+      // whole application, staleness is about one request.
+      if (error?.kind === 'inconsistent') {
+        return this.#fatal(error.message || 'the renderer cannot continue', { initiating: pending });
+      }
+      if (!this.#isCurrent(pending)) return;
+      return this.#terminal(pending, {
+        message: error?.kind === 'cancelled'
+          ? 'the renderer cancelled a request that was still current'
+          : (error?.message || 'renderer failed'),
+      });
+    }
+    if (!this.#isCurrent(pending)) {                    // stale: silent, but still consumed
+      this.#consumeAbort(pending, this.render.abortReady(handle), { silent: true });
+      return;
+    }
+    const finalized = this.render.finalize(handle);
+    // NOT the load matrix. A load reaches `finalize` with the bridge session
+    // already committed, so anything but a clean finalize means bridge and
+    // presentation disagree and only a reload can settle it. Nothing was
+    // committed here, and a `known_old` leaves the previous view connected,
+    // visible, and still correct FOR THE SAME DOCUMENT -- so the only fatal
+    // outcome is a renderer that has declared itself terminal. Treating the
+    // rest as fatal would turn a failed view switch into a needless reload.
+    if (!finalized.ok) {
+      if (finalized.state === 'inconsistent') {
+        return this.#fatal(finalized.error || 'the renderer cannot continue', { initiating: pending });
+      }
+      return this.#terminal(pending, { message: presentMessage(finalized) });
+    }
+    this.#view = handle.viewId ?? null;
+    const settled = this.#terminal(pending, {});
+    if (settled.undisturbed) this.onStatus('View changed');
   }
 }

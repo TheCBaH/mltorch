@@ -670,6 +670,37 @@ call as accepted because nothing threw *at the time* — it never asked whether 
 arrived. That is the difference between a spike that observes an API and a gate that uses
 it, and it is why the gate exists as well as the spike rather than instead of it.
 
+### What a node datum can actually say
+
+Two further facts about the pinned element, read out of
+`processNodeDataProviderDataForGraph` in the vendored bundle. Both contradict the natural
+reading of `Node_data_set.value`, and the browser shell depends on them.
+
+**The element renders `value`, and reads no `label` key at all.** The text it shows
+(`strValue`) is derived from `value`, with `typeof value === 'string'` explicitly handled
+alongside numbers and booleans. There is no `label` anywhere in that path. So
+`Node_data_set.value.label` — the one place the `"<verdict> [sampled n]"` spelling is
+written — cannot be passed *as* a label and be displayed; a caller that tried would show the
+bare rank digit and silently lose the strength and coverage the label exists to carry. The
+shell therefore installs the verification set with the **label as the value**.
+
+**A per-result `bgColor` overrides the gradient.** The gradient is consulted only when
+`bgColor == null`, so named buckets need no API the element does not already have, and
+`textColor` can be left out because the element derives a contrasting one by luminance.
+This is what lets `Map_verify.Verdict.rank`'s 0–6 scale become five *named* buckets —
+neutral Vacuous, positive Proved, distinct Tested, warning Unproved, strongest-contrast
+Refuted — instead of a position on an anonymous green-to-red ramp, where rank 0 would read
+as the best outcome rather than as no claim at all. Bucketing keys on the rank and never on
+the label text: the rank states the category exactly, and re-deriving it from prose is the
+one place a shortened "proved" could creep back in.
+
+A consequence worth stating because it stayed hidden for a long time: a `Node_data_set`
+result is `{ nodeId, value }`, an **object**, not a pair. The shell read it as a pair and
+would have thrown "object is not iterable" — but the only set addressed to the default view
+is the verification one, and the browser did not request verification until the request
+options landed, so nothing ever reached the code. Requesting verification and navigating to
+the Kernel view both reach it.
+
 ---
 
 ## 9. The projection — `Me_build` / `Me_native`
