@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   ALL_STAGES, BACKBONE_STAGES, OPTIONAL_STAGES, RANK_BUCKETS,
-  bucketOfRank, buildIndex, capabilityWording, controlsFromOptions, decodeUrl,
-  encodeUrl, optionsFromControls, optionsFromUrl, preferredViews, requestKey,
-  staleNotice,
+  bucketOfRank, buildIndex, capabilityWording, comparisonPresentation,
+  controlsFromOptions, decodeUrl, defaultPresentation, encodeUrl,
+  optionsFromControls, optionsFromUrl, preferredViews, requestKey,
+  resolvePresentation, samePresentation, singlePresentation, staleNotice,
+  staleComparisonNotice,
 } from '../app/presentation.js';
 
 const view = (id, kind, graph) => ({ id, label: id, kind, collection: 'c', graph });
@@ -221,10 +223,10 @@ test('a notice appears exactly when a requested view is not the one shown', () =
 
 test('the URL round-trips a catalogue selection', () => {
   const options = optionsFromControls({ optional: ['kernel'], effort: 'standard' });
-  const search = encodeUrl({ model: 'resnet18', options, view: 'v/kernel' });
+  const search = encodeUrl({ model: 'resnet18', options, presentation: singlePresentation('v/kernel') });
   const decoded = decodeUrl(search);
   assert.equal(decoded.model, 'resnet18');
-  assert.equal(decoded.view, 'v/kernel');
+  assert.deepEqual(decoded.presentation, singlePresentation('v/kernel'));
   assert.equal(decoded.verify, 'standard');
   assert.deepEqual(optionsFromUrl(decoded).stages, options.stages);
   assert.equal(requestKey('resnet18', optionsFromUrl(decoded)), requestKey('resnet18', options));
@@ -249,7 +251,7 @@ test('a fold parameter is ignored, and never written back', () => {
     requestKey('m', optionsFromUrl(decoded)),
     requestKey('m', optionsFromUrl(decodeUrl('?model=m'))),
   );
-  const written = encodeUrl({ model: 'm', options: optionsFromUrl(decoded), view: 'v/source' });
+  const written = encodeUrl({ model: 'm', options: optionsFromUrl(decoded), presentation: singlePresentation('v/source') });
   assert.equal(written.includes('fold'), false);
   /* And a following reload builds the identical request. */
   assert.equal(
@@ -259,7 +261,7 @@ test('a fold parameter is ignored, and never written back', () => {
 });
 
 test('a local source claims no reproducible URL', () => {
-  assert.equal(encodeUrl({ model: null, options: optionsFromControls({}), view: 'v/source' }).includes('model'), false);
+  assert.equal(encodeUrl({ model: null, options: optionsFromControls({}), presentation: singlePresentation('v/source') }).includes('model'), false);
   assert.equal(encodeUrl({}), '');
 });
 
@@ -272,4 +274,125 @@ test('the controls follow the normalised options', () => {
   /* Round trip: what the controls produce, restored, produces the same request. */
   const again = optionsFromControls(controls);
   assert.deepEqual(again.stages, ['source', 'initial_native', 'canonical', 'kernel']);
+});
+
+/* ------------------------------------------------------- comparisons */
+
+const comparison = (id, left, right, extra = {}) => ({
+  id,
+  label: id,
+  left: { collection: 'mltorch:model', graph: left },
+  right: { collection: 'mltorch:model', graph: right },
+  sync: { entries: [], showDiffHighlights: false, matchNodeIdFallback: false },
+  overlaysLeft: [],
+  overlaysRight: [],
+  ...extra,
+});
+
+const IMPORT = comparison('c/import', 'pt2/root', 'g/native/000');
+const CANONICAL = comparison('c/canonical', 'g/native/000', 'g/native/001');
+
+test('comparisons keep session order and are keyed by their declared id', () => {
+  const index = buildIndex(session({ comparisons: [IMPORT, CANONICAL] }));
+  assert.deepEqual(index.comparisons.map((c) => c.id), ['c/import', 'c/canonical']);
+  assert.equal(index.comparisonById.get('c/canonical').left.graph, 'g/native/000');
+  assert.equal(index.comparisonById.has('c/nope'), false);
+});
+
+/* None of these can arrive from the bridge -- `Session.validate` rejects a
+ * duplicate id and resolves both panes. Dropping them anyway is the difference
+ * between a selector entry that does not appear and a pane pair nobody asked
+ * for, if that boundary ever changes. */
+test('a malformed or duplicate comparison is dropped, never silently chosen', () => {
+  const index = buildIndex(session({
+    comparisons: [
+      IMPORT,
+      { ...CANONICAL, id: 'c/import' },              // duplicate id
+      { ...comparison('c/nostring', 'a', 'b'), id: 7 },
+      { ...comparison('c/nopane', 'a', 'b'), left: null },
+      { ...comparison('c/badpane', 'a', 'b'), right: { collection: 'c' } },
+      CANONICAL,
+    ],
+  }));
+  assert.deepEqual(index.comparisons.map((c) => c.id), ['c/import', 'c/canonical']);
+  // The FIRST declaration of a repeated id survives, not the last.
+  assert.equal(index.comparisonById.get('c/import').right.graph, 'g/native/000');
+  assert.equal(index.comparisonById.size, 2);
+});
+
+test('the index survives a session that declares no comparisons at all', () => {
+  const index = buildIndex(session({ comparisons: undefined }));
+  assert.deepEqual(index.comparisons, []);
+  assert.equal(index.comparisonById.size, 0);
+});
+
+/* A comparison names only `{collection, graph}` per pane and labels itself in
+ * prose, so a heading is looked up from the view that declares the same graph.
+ * First declaration wins, and a graph no view names has no heading to offer. */
+test('pane headings come from the view that declares the graph', () => {
+  const index = buildIndex(session({}));
+  assert.equal(index.viewByGraph.get('pt2/root').label, 'v/source');
+  assert.equal(index.viewByGraph.get('g/native/001').label, 'v/canonical');
+  assert.equal(index.viewByGraph.has('g/flow'), false);
+});
+
+/* ------------------------------------------------ presentation descriptors */
+
+test('a presentation resolves only against what the session declares', () => {
+  const index = buildIndex(session({ comparisons: [IMPORT] }));
+  assert.deepEqual(resolvePresentation(index, singlePresentation('v/source')),
+    singlePresentation('v/source'));
+  assert.deepEqual(resolvePresentation(index, comparisonPresentation('c/import')),
+    comparisonPresentation('c/import'));
+  assert.equal(resolvePresentation(index, singlePresentation('v/nope')), null);
+  assert.equal(resolvePresentation(index, comparisonPresentation('c/canonical')), null);
+  assert.equal(resolvePresentation(index, null), null);
+  // A view id is not a comparison id, and neither crosses into the other branch.
+  assert.equal(resolvePresentation(index, comparisonPresentation('v/source')), null);
+  assert.equal(resolvePresentation(index, singlePresentation('c/import')), null);
+});
+
+test('a non-stage view can never resolve as a single presentation', () => {
+  const index = buildIndex(session({
+    views: [...SESSION.views, view('v/cmp', 'compare', 'g/native/000')],
+  }));
+  assert.equal(resolvePresentation(index, singlePresentation('v/cmp')), null);
+});
+
+test('two descriptors are the same only within one branch', () => {
+  assert.equal(samePresentation(singlePresentation('v/a'), singlePresentation('v/a')), true);
+  assert.equal(samePresentation(singlePresentation('v/a'), singlePresentation('v/b')), false);
+  assert.equal(samePresentation(comparisonPresentation('c'), comparisonPresentation('c')), true);
+  assert.equal(samePresentation(singlePresentation('x'), comparisonPresentation('x')), false);
+  assert.equal(samePresentation(defaultPresentation(), singlePresentation('v/source')), true);
+});
+
+/* --------------------------------------------------------- the URL branch */
+
+test('the URL carries exactly one presentation branch', () => {
+  const options = optionsFromControls({});
+  const single = encodeUrl({ model: 'm', options, presentation: singlePresentation('v/kernel') });
+  assert.equal(new URLSearchParams(single).get('view'), 'v/kernel');
+  assert.equal(new URLSearchParams(single).has('comparison'), false);
+
+  const compare = encodeUrl({ model: 'm', options, presentation: comparisonPresentation('c/import') });
+  assert.equal(new URLSearchParams(compare).get('comparison'), 'c/import');
+  assert.equal(new URLSearchParams(compare).has('view'), false);
+
+  assert.deepEqual(decodeUrl(compare).presentation, comparisonPresentation('c/import'));
+});
+
+/* Both keys present names NEITHER: any tie-break would open a presentation the
+ * link did not unambiguously ask for. */
+test('a URL naming both a view and a comparison names no presentation', () => {
+  assert.equal(decodeUrl('?view=v/source&comparison=c/import').presentation, null);
+  assert.equal(decodeUrl('?model=m').presentation, null);
+});
+
+test('a stale comparison says it fell out of compare mode, not into another one', () => {
+  assert.equal(staleComparisonNotice('c/nope', null).includes('c/nope'), true);
+  assert.equal(staleComparisonNotice('c/nope', null).includes('single view'), true);
+  // Resolved, or never asked for: nothing to say.
+  assert.equal(staleComparisonNotice('c/import', comparisonPresentation('c/import')), '');
+  assert.equal(staleComparisonNotice(null, null), '');
 });

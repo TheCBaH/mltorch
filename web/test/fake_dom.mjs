@@ -51,16 +51,31 @@ class FakeNode {
     this.calls = [];
     this.nodeData = [];
     this.selected = null;
+    this.selections = [];
   }
 
   /* The two visualizer methods the renderer calls on a candidate. Riggable like
-   * every other mutation; the real ones come from the Angular custom element. */
-  selectNode(nodeId, graphId, label) {
-    this._fail('selectNode', () => { this.selected = { nodeId, graphId, label }; });
+   * every other mutation; the real ones come from the Angular custom element.
+   *
+   * `paneIndex` is recorded rather than defaulted, so a test can tell "asked
+   * for pane 0" from "did not say" -- the single-view path omits the argument
+   * entirely and must keep doing so. Every call is kept, not just the last:
+   * opening a comparison makes two, and which pane each addressed is the point.
+   */
+  selectNode(nodeId, graphId, label, paneIndex) {
+    this._fail('selectNode', () => {
+      // Absent when the caller did not pass one, rather than present-and-
+      // undefined: "did not name a pane" and "named pane 0" are different
+      // calls, and only the single-view path makes the former.
+      this.selected = { nodeId, graphId, label, ...(paneIndex === undefined ? {} : { paneIndex }) };
+      this.selections.push(this.selected);
+    });
   }
 
-  addNodeDataProviderData(name, data) {
-    this._fail('addNodeDataProviderData', () => { this.nodeData.push({ name, data }); });
+  addNodeDataProviderData(name, data, paneIndex) {
+    this._fail('addNodeDataProviderData', () => {
+      this.nodeData.push({ name, data, ...(paneIndex === undefined ? {} : { paneIndex }) });
+    });
   }
 
   /* The single choke point for "this operation may be rigged to fail". Records
@@ -152,9 +167,17 @@ class FakeNode {
     return true;
   }
 
-  /** The expected event, in the shape the renderer reads it. */
-  emitProcessed(graphId) {
-    this.dispatchEvent({ type: 'modelGraphProcessed', detail: { modelGraph: { id: graphId } } });
+  /* The expected event, in the shape the renderer reads it.
+   *
+   * `paneIndex` is part of the event's identity, not a detail: a comparison
+   * waits on `(graph, pane)` because `Session.validate` permits both panes to
+   * name the same graph. It defaults to 0 so every single-view test that
+   * predates comparisons keeps meaning what it meant. */
+  emitProcessed(graphId, paneIndex = 0) {
+    this.dispatchEvent({
+      type: 'modelGraphProcessed',
+      detail: { modelGraph: { id: graphId }, paneIndex },
+    });
   }
 }
 

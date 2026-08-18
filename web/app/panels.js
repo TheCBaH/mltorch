@@ -122,6 +122,83 @@ export function renderViewSelector(select, index, currentViewId) {
   select.disabled = index.views.length <= 1;
 }
 
+/* Exactly the session's declared comparisons, in the order it declared them,
+ * with `Comparison.label` verbatim -- `Session.comparisons` is the sole
+ * authority for what is selectable, and no capability is consulted.
+ *
+ * The leading empty option is the only entry not from the session, and it has
+ * to exist: without it the control could enter compare mode but never leave,
+ * since choosing the view selector is a different control. Its value is the
+ * empty string, which is not a legal comparison id, so it cannot collide.
+ */
+export const NO_COMPARISON = '';
+
+export function renderComparisonSelector(select, index, currentId) {
+  clear(select);
+  select.add(new Option('Single view', NO_COMPARISON));
+  for (const comparison of index.comparisons) {
+    const option = new Option(comparison.label, comparison.id);
+    option.selected = comparison.id === currentId;
+    select.add(option);
+  }
+  if (!currentId) select.value = NO_COMPARISON;
+  select.disabled = index.comparisons.length === 0;
+}
+
+/* What the two panes are, named from the session's own stage views.
+ *
+ * Rendered only for a comparison that is ON SCREEN. A heading written while a
+ * replacement was still being prepared would label the graph still showing with
+ * the name of one it may never be replaced by.
+ */
+export function renderPaneLabels(node, index, comparison) {
+  clear(node);
+  if (!comparison) { node.hidden = true; return; }
+  node.hidden = false;
+  const heading = (side) => index.viewByGraph.get(side.graph)?.label ?? side.graph;
+  node.append(el('span', `Left: ${heading(comparison.left)}`, 'pane-label'));
+  node.append(el('span', `Right: ${heading(comparison.right)}`, 'pane-label'));
+}
+
+/* What the comparison on screen actually claims, said from the session and
+ * nothing else. The count is exact and is never described as complete: the
+ * exporter emits the correspondence components it computed, and a node in
+ * neither pane's component is simply unclaimed.
+ */
+export function renderComparisonSummary(node, comparison) {
+  clear(node);
+  if (!comparison) { node.hidden = true; return; }
+  node.hidden = false;
+  const sync = comparison.sync ?? {};
+  const count = Array.isArray(sync.entries) ? sync.entries.length : 0;
+  const say = (line) => node.append(el('p', line, 'note'));
+
+  if (count > 0) {
+    say(`Navigation uses the ${count} exported correspondence components. `
+      + 'Nodes outside them are not claimed to correspond.');
+  } else {
+    // The two regimes an empty list can mean are distinguished on the wire, not
+    // guessed here -- see `matchNodeIdFallback` in `Me_session.Sync_navigation`.
+    say('No explicit changed-node mapping was exported.');
+    say(sync.matchNodeIdFallback === true
+      ? 'This comparison declares that nodes sharing an identifier correspond, '
+        + 'so navigation pairs them and only the nodes whose identifiers changed are marked.'
+      : 'Nothing pairs the two panes, so selecting a node on one side moves nothing on the other.');
+  }
+
+  if (sync.showDiffHighlights === true) {
+    say('Nodes with no counterpart are outlined: removed nodes on the left, '
+      + 'added nodes on the right.');
+  }
+
+  const overlays = (list, side) => {
+    const n = Array.isArray(list) ? list.length : 0;
+    if (n > 0) say(`The ${side} pane carries ${n} supplied edge overlays.`);
+  };
+  overlays(comparison.overlaysLeft, 'left');
+  overlays(comparison.overlaysRight, 'right');
+}
+
 /* Every capability that is not a navigable view, with its own state kept
  * distinct: "not requested" is a choice, "unavailable" is the exporter's typed
  * reason, and Loop IR and Code generation stay visibly unimplemented rather

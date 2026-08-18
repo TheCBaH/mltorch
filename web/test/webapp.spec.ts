@@ -273,6 +273,151 @@ test('a stale view in the URL falls back to Source with a notice', async ({ page
   expect(new URL(page.url()).searchParams.get('view')).toBe('v/source');
 });
 
+/* --------------------------------------------------- exported comparisons */
+
+/* The two the exporter declares: `c/import` (source -> initial, with 70
+ * correspondence components on resnet18) and `c/canonical` (initial ->
+ * canonical, deliberately with none). `Session.comparisons` is the sole
+ * authority for what is offered -- no capability is consulted. */
+const comparisonOptions = (page: Page) =>
+  page.locator('#comparison option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
+
+/* The URL is written after `present()` resolves, so it is the completion
+ * signal; `#status` still reads "View changed" from the previous operation. */
+const openedComparison = (page: Page, id: string) =>
+  expect.poll(() => new URL(page.url()).searchParams.get('comparison'),
+    { timeout: 90_000, message: `opening ${id}` }).toBe(id);
+
+test('the exported comparisons are offered, and only those', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+  const offered = await comparisonOptions(page);
+  // The empty leading entry is the way back to a single view; everything else
+  // is a declared comparison.
+  expect(offered[0]).toBe('');
+  expect(offered.slice(1)).toEqual(['c/import', 'c/canonical']);
+  await expect(page.locator('#comparison')).toHaveValue('');
+  await expect(page.locator('#pane-labels')).toBeHidden();
+});
+
+test('opening a comparison sends no worker message and keeps one model on screen', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(String(error)));
+  await page.goto('/index.html');
+  await loaded(page);
+  const before = await posts(page);
+  expect(before).toBeGreaterThan(0);
+
+  for (const id of ['c/import', 'c/canonical']) {
+    await page.locator('#comparison').selectOption(id);
+    await openedComparison(page, id);
+    expect(await posts(page), `opening ${id} posted to the app worker`).toBe(before);
+    exactlyOneOnScreen(await slots(page), `after opening ${id}`);
+    // A comparison is not a view, so the view key must not survive alongside it.
+    expect(new URL(page.url()).searchParams.get('view')).toBeNull();
+  }
+
+  // And back out again, to the single view the selector still shows.
+  await page.locator('#comparison').selectOption('');
+  await expect.poll(() => new URL(page.url()).searchParams.get('view'), { timeout: 90_000 })
+    .toBe('v/source');
+  expect(new URL(page.url()).searchParams.get('comparison')).toBeNull();
+  expect(await posts(page)).toBe(before);
+
+  await expect(page.locator('#error')).toBeHidden();
+  await neverTwoOnScreen(page, 'comparison switching');
+  expect(errors.join('\n')).not.toContain('NG0953');
+});
+
+/* Everything the chrome says about a comparison comes from the session: the
+ * pane headings from the stage views naming the same graphs, the mapping count
+ * verbatim, and -- for `c/canonical` -- the limitation stated rather than
+ * papered over. */
+test('a comparison names its panes and states what its mapping claims', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+
+  await page.locator('#comparison').selectOption('c/import');
+  await openedComparison(page, 'c/import');
+  await expect(page.locator('#pane-labels')).toBeVisible();
+  await expect(page.locator('#pane-labels')).toContainText('Exported Program');
+  await expect(page.locator('#pane-labels')).toContainText('Initial Native');
+  await expect(page.locator('#presentation-note')).toContainText('70 exported correspondence components');
+
+  await page.locator('#comparison').selectOption('c/canonical');
+  await openedComparison(page, 'c/canonical');
+  await expect(page.locator('#pane-labels')).toContainText('Initial Native');
+  await expect(page.locator('#pane-labels')).toContainText('Canonical Native');
+  await expect(page.locator('#presentation-note'))
+    .toContainText('No explicit changed-node mapping was exported.');
+  // `matchNodeIdFallback` is true for this one, so the empty list is a claim
+  // about identifiers rather than a missing computation -- and the copy has to
+  // say which, because the two look identical on the wire without it.
+  await expect(page.locator('#presentation-note')).toContainText('sharing an identifier');
+
+  // Leaving compare mode takes the headings with it.
+  await page.locator('#comparison').selectOption('');
+  await expect(page.locator('#pane-labels')).toBeHidden({ timeout: 90_000 });
+});
+
+test('a comparison the session does not declare falls back without inventing one', async ({ page }) => {
+  await page.goto('/index.html?model=resnet18&comparison=c%2Fnope');
+  await loaded(page);
+  await expect(page.locator('#comparison')).toHaveValue('');
+  await expect(page.locator('#pane-labels')).toBeHidden();
+  await expect(page.locator('#notice')).toContainText('c/nope');
+  await expect(page.locator('#error')).toBeHidden();
+  // Rewritten to what is actually on screen.
+  const url = new URL(page.url());
+  expect(url.searchParams.get('comparison')).toBeNull();
+  expect(url.searchParams.get('view')).toBe('v/source');
+});
+
+test('back and forward between a view and a comparison sends no worker message', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+  const before = await posts(page);
+
+  await page.locator('#comparison').selectOption('c/import');
+  await openedComparison(page, 'c/import');
+
+  await page.goBack();
+  await expect(page.locator('#comparison')).toHaveValue('', { timeout: 90_000 });
+  expect(new URL(page.url()).searchParams.get('view')).toBe('v/source');
+  expect(await posts(page), 'going back re-ran the worker').toBe(before);
+
+  await page.goForward();
+  await expect(page.locator('#comparison')).toHaveValue('c/import', { timeout: 90_000 });
+  expect(new URL(page.url()).searchParams.get('comparison')).toBe('c/import');
+  expect(await posts(page), 'going forward re-ran the worker').toBe(before);
+});
+
+/* A comparison is two processing rounds, so there is a window in which its left
+ * pane is up and its right is not. Cancelling inside that window must expose
+ * neither a one-pane comparison nor a second visible slot -- and must not tear
+ * out an element that is still processing. */
+test('cancelling while a comparison is being built exposes no partial comparison', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(String(error)));
+  await page.goto('/index.html');
+  await loaded(page);
+
+  await page.locator('#comparison').selectOption('c/import');
+  // The candidate is connected and processing; the previous view is still the
+  // only visible slot.
+  await expect(page.locator('#visualizer .visualizer-slot')).toHaveCount(2, { timeout: 90_000 });
+  exactlyOneOnScreen(await slots(page), 'while the comparison is being built');
+
+  // Reload cancels whatever is in flight, superseding the half-built comparison.
+  await page.locator('#reload').click();
+  await loaded(page);
+  await expect(page.locator('#visualizer .visualizer-slot')).toHaveCount(1, { timeout: 90_000 });
+  exactlyOneOnScreen(await slots(page), 'after cancellation settled');
+  await neverTwoOnScreen(page, 'comparison cancellation');
+  await expect(page.locator('#error')).toBeHidden();
+  expect(errors.join('\n')).not.toContain('NG0953');
+});
+
 /* ------------------------------------------------------ construction options */
 
 test('capabilities are shown, and not-requested differs from unavailable', async ({ page }) => {

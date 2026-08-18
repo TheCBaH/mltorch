@@ -41,7 +41,11 @@ export class Coordinator {
    * the URL keep describing one document. */
   #session = null;
   #options = null;
-  #view = null;
+  /* The closed presentation descriptor the renderer actually opened -- a single
+   * view or a comparison. `view` is DERIVED from it rather than stored beside
+   * it: two fields could disagree, and "which view is showing" has no answer
+   * while a comparison is on screen. */
+  #presentation = null;
 
   constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, onSession = () => {}, hard }) {
     Object.assign(this, { workerFactory, bridge, render, onStatus, onError, onSession, hard });
@@ -49,7 +53,11 @@ export class Coordinator {
 
   get session() { return this.#session; }
   get effectiveOptions() { return this.#options; }
-  get view() { return this.#view; }
+  get presentation() { return this.#presentation; }
+  /** The single view on screen, or `null` -- including while a comparison is. */
+  get view() {
+    return this.#presentation?.kind === 'single' ? this.#presentation.view : null;
+  }
 
   /* Authority. Everything user-visible and everything that touches the bridge is
    * gated on this, `#poisoned` included: that is what makes "no already-running
@@ -282,7 +290,7 @@ export class Coordinator {
     // outward-facing callbacks wait on `undisturbed` below.
     this.#session = prepared.render;
     this.#options = pending.options;
-    this.#view = handle.viewId ?? null;
+    this.#presentation = handle.presentation ?? null;
     const settled = this.#terminal(pending, {});        // detach + terminate, no error
     // `undisturbed` is what makes a callback safe to hand control to: the
     // record is out of `#pending` and the epoch is unchanged, so a synchronous
@@ -292,7 +300,7 @@ export class Coordinator {
     this.onSession({
       sessionText: this.#session,
       effectiveOptions: this.#options,
-      viewId: this.#view,
+      viewId: this.view,
     });
     this.onStatus('Model loaded');
   }
@@ -353,7 +361,7 @@ export class Coordinator {
       }
       return this.#terminal(pending, { message: presentMessage(finalized) });
     }
-    this.#view = handle.viewId ?? null;
+    this.#presentation = handle.presentation ?? null;
     const settled = this.#terminal(pending, {});
     if (settled.undisturbed) this.onStatus('View changed');
   }

@@ -25,6 +25,11 @@ const CURRENT_CLASS = 'visualizer-slot--current';
 const MAX_DETACH_ATTEMPTS = 3;
 
 const text = (error) => (error && error.message) || String(error);
+/* What a candidate is for, for a log line. A comparison names two graphs, so
+ * "graph g/native/000" would describe half of one. */
+const describe = (d) => (d.kind === 'comparison'
+  ? `comparison ${d.id} (${d.left.graph} | ${d.right.graph})`
+  : `graph ${d.graphId}`);
 /* Safe, still-connected elements the renderer failed to remove. They are not
  * inconsistency -- the DOM is coherent -- but they hold quarantine slots. */
 const isDebt = (state) => state === 'cleanup_failed' || state === 'cleanup_abandoned';
@@ -207,6 +212,86 @@ export class Renderer {
     };
   }
 
+  /* One pane, resolved against the collection that DECLARES it.
+   *
+   * `Pane_state` names a collection as well as a graph, and the pair is what
+   * `Session.validate` checks -- a graph id that exists in some OTHER
+   * collection is `Wrong_collection` there, and must be a refusal here too
+   * rather than a lookup that happens to find something. */
+  #pane(collections, side, label) {
+    const holder = collections.find((c) => c.label === side?.collection);
+    if (!holder) {
+      throw new RenderFailure('invalid', `${label}: session has no collection "${side?.collection}"`);
+    }
+    const graph = (holder.graphs ?? []).find((g) => g.id === side.graph);
+    if (!graph) {
+      throw new RenderFailure('invalid',
+        `${label}: collection "${side.collection}" has no graph "${side.graph}"`);
+    }
+    const firstNodeId = graph.nodes?.[0]?.id;
+    // A graph with no node cannot be navigated to: `selectNode` is the only way
+    // to reach a pane, and it takes a node. Refusing here keeps that a
+    // pre-connection failure rather than a candidate that never becomes ready.
+    if (typeof firstNodeId !== 'string') {
+      throw new RenderFailure('invalid', `${label}: graph "${side.graph}" has no node to select`);
+    }
+    return { graph: side.graph, collectionLabel: holder.label, firstNodeId };
+  }
+
+  /* Every field the candidate needs, resolved BEFORE anything is allocated.
+   * `Session.validate` has already accepted this document, so these are
+   * re-reads -- but an exact request that does not resolve is a refusal, never
+   * a fall-through to some other comparison or to `defaultView`. */
+  #selectComparison(state, id) {
+    const declared = Array.isArray(state.comparisons) ? state.comparisons : [];
+    const found = declared.filter((c) => c?.id === id);
+    if (found.length === 0) {
+      throw new RenderFailure('invalid', `session has no comparison "${id}"`);
+    }
+    if (found.length > 1) {
+      throw new RenderFailure('invalid', `session declares comparison "${id}" more than once`);
+    }
+    const comparison = found[0];
+    const collections = state.graphCollections ?? [];
+    const sync = comparison.sync ?? {};
+    const entries = Array.isArray(sync.entries) ? sync.entries : [];
+    const mappingEntries = entries.map((entry, index) => {
+      const left = entry?.left;
+      const right = entry?.right;
+      if (!Array.isArray(left) || !Array.isArray(right)) {
+        throw new RenderFailure('invalid', `comparison "${id}": mapping entry ${index} is malformed`);
+      }
+      // The two arrays cross as ARRAYS. Model Explorer's `mappingEntries` is
+      // the 1:N/N:1/N:M representation; expanding one into pairs would turn a
+      // single correspondence component into a Cartesian product of claims.
+      return { leftNodeIds: [...left], rightNodeIds: [...right] };
+    });
+    const overlays = (list, side) => {
+      if (list === undefined || list === null) return [];
+      if (!Array.isArray(list)) {
+        throw new RenderFailure('invalid', `comparison "${id}": ${side} overlays are malformed`);
+      }
+      return list;
+    };
+    return {
+      kind: 'comparison',
+      id: comparison.id,
+      label: typeof comparison.label === 'string' ? comparison.label : comparison.id,
+      left: this.#pane(collections, comparison.left, `comparison "${id}" left pane`),
+      right: this.#pane(collections, comparison.right, `comparison "${id}" right pane`),
+      mappingEntries,
+      /* Translated, never inferred. An empty `entries` means "the ids already
+       * pair what a pass did not touch" for one comparison and "no mapping was
+       * computed" for another; only the producer knows which, and
+       * `matchNodeIdFallback` is where it says so. Absent reads as `false`,
+       * which is the conservative half: equal ids claim nothing. */
+      disableMappingFallback: sync.matchNodeIdFallback !== true,
+      showDiffHighlights: sync.showDiffHighlights === true,
+      overlaysLeft: overlays(comparison.overlaysLeft, 'left'),
+      overlaysRight: overlays(comparison.overlaysRight, 'right'),
+    };
+  }
+
   #parse(renderText, selection) {
     let state;
     try {
@@ -214,25 +299,38 @@ export class Renderer {
     } catch (error) {
       throw new RenderFailure('invalid', `session is not JSON: ${text(error)}`);
     }
-    const { graphId, viewId } = this.#select(state, selection);
-    if (!graphId) throw new RenderFailure('invalid', 'session has no renderable graph');
     const collections = state.graphCollections ?? [];
     const nodeCounts = Object.fromEntries(
       collections.flatMap((c) => c.graphs ?? []).map((g) => [g.id, g.nodes?.length ?? 0]),
     );
+    const shared = {
+      graphCollections: state.graphCollections,
+      nodeDataSets: state.nodeDataSets || [],
+      modelName: state.model?.name ?? '(unknown)',
+      nodeCounts,
+    };
+    // Exactly one branch. `{ view, comparison }` together is not a request this
+    // renderer can honour, and picking one would open a presentation the caller
+    // did not unambiguously ask for.
+    if (selection?.comparison != null) {
+      if (selection.view != null) {
+        throw new RenderFailure('invalid', 'selection names both a view and a comparison');
+      }
+      return { ...shared, ...this.#selectComparison(state, selection.comparison) };
+    }
+    const { graphId, viewId } = this.#select(state, selection);
+    if (!graphId) throw new RenderFailure('invalid', 'session has no renderable graph');
     // The collection that actually HOLDS the target, not collection zero:
     // `selectNode` is addressed by collection label, and a view may name a
     // graph in any of them.
     const holder = collections.find((c) => (c.graphs ?? []).some((g) => g.id === graphId));
     return {
+      ...shared,
+      kind: 'single',
       graphId,
       viewId,
-      graphCollections: state.graphCollections,
-      nodeDataSets: state.nodeDataSets || [],
-      modelName: state.model?.name ?? '(unknown)',
       collectionLabel: holder?.label,
       targetFirstNodeId: (holder?.graphs ?? []).find((g) => g.id === graphId)?.nodes?.[0]?.id,
-      nodeCounts,
     };
   }
 
@@ -246,6 +344,9 @@ export class Renderer {
       selected: false,
       cleaningUp: false,
       detachAttempts: 0,
+      /* Which pane a comparison is still waiting for; always `left` for a
+       * single view, which has only the one. */
+      phase: 'left',
       seen: new Set(),
       startedAt: 0,
       handle: null,
@@ -324,6 +425,43 @@ export class Renderer {
     this.#settleCapacityWait(entry, null);
   }
 
+  /* The whole of what this shell tells the visualizer, built fresh per
+   * candidate -- assigning `config` on a live element does not take, which is
+   * why every presentation change is a new element rather than a re-point.
+   *
+   * `defaultGraphId` is not a real VisualizerConfig field (it appears nowhere
+   * in the library's types or compiled bundle) -- kept in case a future version
+   * adds it, but nothing depends on it. The library auto-selects some graph on
+   * its own; `selectNode` is what navigates to the one we want. */
+  #config(d) {
+    if (d.kind === 'single') return { defaultGraphId: d.graphId };
+    return {
+      defaultGraphId: d.left.graph,
+      syncNavigationData: {
+        type: 'sync_navigation',
+        mappingEntries: d.mappingEntries,
+        disableMappingFallback: d.disableMappingFallback,
+        ...(d.showDiffHighlights ? { showDiffHighlights: true } : {}),
+      },
+      /* `Comparison.overlaysLeft` is a bare `EdgeOverlay[]`, but the config
+       * field takes `EdgeOverlaysData[]` -- `{type, name, graphName, overlays}`
+       * -- so the list is wrapped rather than passed through. The key is
+       * omitted entirely for an empty list, which is every session produced
+       * today: the one real overlay rides on the kernel graph's own
+       * `tasksData`, not on a comparison. Each pane gets only its own. */
+      ...(d.overlaysLeft.length
+        ? { edgeOverlaysDataListLeftPane: [this.#overlays(d, d.overlaysLeft, d.left.graph)] }
+        : {}),
+      ...(d.overlaysRight.length
+        ? { edgeOverlaysDataListRightPane: [this.#overlays(d, d.overlaysRight, d.right.graph)] }
+        : {}),
+    };
+  }
+
+  #overlays(d, list, graphName) {
+    return { type: 'edge_overlays', name: d.label, graphName, overlays: list };
+  }
+
   #connect(entry) {
     const d = entry.descriptor;
     const slot = this.#doc.createElement('div');
@@ -331,11 +469,7 @@ export class Renderer {
     slot.setAttribute('aria-hidden', 'true');
     const element = this.#doc.createElement('model-explorer-visualizer');
     element.graphCollections = d.graphCollections;
-    // `defaultGraphId` is not a real VisualizerConfig field (it appears nowhere
-    // in the library's types or compiled bundle) -- kept in case a future
-    // version adds it, but nothing depends on it. The library auto-selects some
-    // graph on its own; `selectNode` below is what navigates to the one we want.
-    element.config = { defaultGraphId: d.graphId };
+    element.config = this.#config(d);
     entry.slot = slot;
     entry.element = element;
     entry.listener = (event) =>
@@ -356,7 +490,20 @@ export class Renderer {
       () => this.#guard(entry, 'heartbeat', () => this.#onHeartbeat(entry)),
       HEARTBEAT_MS,
     );
-    console.debug(`[renderer] model=${d.modelName} connected hidden, waiting for graph ${d.graphId}`);
+    console.debug(`[renderer] model=${d.modelName} connected hidden, waiting for ${describe(d)}`);
+  }
+
+  /* A comparison's second pane is a second processing round, asked for only
+   * once the first has finished, so it gets its own budget rather than serving
+   * the remainder of the first one's. `startedAt` is deliberately NOT reset:
+   * the heartbeat keeps reporting total elapsed, which is what a reader wants
+   * when a candidate is slow. */
+  #restartTimeout(entry) {
+    if (entry.timer !== null) this.#timers.clearTimeout(entry.timer);
+    entry.timer = this.#timers.setTimeout(
+      () => this.#guard(entry, 'timeout', () => this.#onTimeout(entry)),
+      this.timeout,
+    );
   }
 
   #startFailed(entry, error) {
@@ -408,18 +555,59 @@ export class Renderer {
     // if `removeEventListener` did not take.
     if (entry.state !== 'connected' && entry.state !== 'quarantined') return;
     const d = entry.descriptor;
-    const seen = event?.detail?.modelGraph?.id;
-    entry.seen.add(seen);
-    if (seen !== d.graphId) {
+    const detail = event?.detail;
+    const seen = detail?.modelGraph?.id;
+    /* The pane is part of the identity of an event, not decoration.
+     * `Session.validate` permits a comparison whose two panes name the SAME
+     * graph, and opening the second pane re-lays-out the first -- so a wait
+     * keyed on the graph id alone can be satisfied by the wrong pane, and the
+     * candidate would be finalized with a pane that never processed.
+     * `web/test/compare.spec.ts` covers exactly that. */
+    const pane = typeof detail?.paneIndex === 'number' ? detail.paneIndex : 0;
+    entry.seen.add(`${pane}:${seen}`);
+
+    const target = this.#expected(entry);
+    if (seen !== target.graph || pane !== target.pane) {
       // The library settled on some other graph as its own default; navigate to
-      // the one we asked for, the way a manual click does.
-      if (entry.selected || !d.targetFirstNodeId) return;
+      // the one we asked for, the way a manual click does. Only ever for the
+      // first pane: the second is reached by an explicit `selectNode` below.
+      if (entry.selected || target.pane !== 0 || !target.firstNodeId) return;
       entry.selected = true;
-      entry.element.selectNode(d.targetFirstNodeId, d.graphId, d.collectionLabel);
+      // A single view passes three arguments, exactly as it always has: the
+      // pane index defaults to 0 in the element, and a shell that has never
+      // had a second pane should not start naming the first one.
+      if (d.kind === 'comparison') {
+        entry.element.selectNode(target.firstNodeId, target.graph, target.collectionLabel, 0);
+      } else {
+        entry.element.selectNode(target.firstNodeId, target.graph, target.collectionLabel);
+      }
       return;
     }
-    // The expected event: this element may now be removed safely.
+
+    /* The expected event. `safe` means "nothing this renderer asked for is
+     * still outstanding", which at this instant is true -- it is the
+     * precondition `#release` asserts and `#park` branches on. For a comparison
+     * it becomes false again the moment the second pane is requested. */
     entry.safe = true;
+
+    if (d.kind === 'comparison' && entry.phase === 'left') {
+      // Authority is rechecked BEFORE more work is requested: a cancelled entry
+      // is idle right now and can simply be released, whereas asking for a
+      // second pane would make it unsafe again and cost a quarantine slot for
+      // an event nobody is waiting for.
+      if (entry !== this.#active || entry.cancelled || entry.state === 'quarantined') {
+        this.#clearTimers(entry);
+        this.#release(entry);
+        return;
+      }
+      entry.phase = 'right';
+      entry.safe = false;
+      this.#restartTimeout(entry);
+      const right = d.right;
+      entry.element.selectNode(right.firstNodeId, right.graph, right.collectionLabel, 1);
+      return;
+    }
+
     this.#clearTimers(entry);
     if (entry !== this.#active || entry.cancelled || entry.state === 'quarantined') {
       this.#release(entry);
@@ -431,31 +619,76 @@ export class Renderer {
     // coordinator is about to commit.
     this.#retireListener(entry);
     entry.state = 'ready';
-    // `viewId` rides the handle so the caller learns what was actually shown
-    // without re-running the preference resolution above -- two selection
-    // algorithms would be free to drift apart.
-    const handle = Object.freeze({ graph: d.graphId, viewId: d.viewId });
+    /* The presentation rides the handle so the caller learns what was actually
+     * shown without re-running the resolution above -- two selection algorithms
+     * would be free to drift apart. */
+    const handle = Object.freeze(d.kind === 'comparison'
+      ? {
+        graph: { left: d.left.graph, right: d.right.graph },
+        viewId: null,
+        presentation: { kind: 'comparison', comparison: d.id },
+      }
+      : {
+        graph: d.graphId,
+        viewId: d.viewId,
+        presentation: d.viewId ? { kind: 'single', view: d.viewId } : null,
+      });
     this.#handles.set(handle, entry);
     entry.handle = handle;
     this.#resolve(entry, handle);
   }
 
+  /* What this entry is waiting for right now: one graph, on one pane. */
+  #expected(entry) {
+    const d = entry.descriptor;
+    if (d.kind === 'single') {
+      return {
+        graph: d.graphId,
+        pane: 0,
+        firstNodeId: d.targetFirstNodeId,
+        collectionLabel: d.collectionLabel,
+      };
+    }
+    const side = entry.phase === 'right' ? d.right : d.left;
+    return {
+      graph: side.graph,
+      pane: entry.phase === 'right' ? 1 : 0,
+      firstNodeId: side.firstNodeId,
+      collectionLabel: side.collectionLabel,
+    };
+  }
+
+  /* Graph-addressed, exactly as for a single view -- a set is installed in the
+   * pane whose graph OWNS it, and a set addressed to neither pane is not
+   * installed at all. */
   #installNodeData(entry) {
     const d = entry.descriptor;
+    const panes = d.kind === 'comparison'
+      ? [{ graph: d.left.graph, index: 0 }, { graph: d.right.graph, index: 1 }]
+      : [{ graph: d.graphId, index: 0 }];
     for (const set of d.nodeDataSets) {
-      if (set.graph !== d.graphId) continue;
-      entry.element.addNodeDataProviderData(
-        set.name,
-        set.name === VERIFICATION_SET ? verificationData(set) : gradientData(set),
-      );
+      for (const pane of panes) {
+        if (set.graph !== pane.graph) continue;
+        const data = set.name === VERIFICATION_SET ? verificationData(set) : gradientData(set);
+        // The pane index is omitted for a single view, so the call the shell has
+        // always made stays byte-for-byte what it was.
+        if (d.kind === 'comparison') {
+          entry.element.addNodeDataProviderData(set.name, data, pane.index);
+        } else {
+          entry.element.addNodeDataProviderData(set.name, data);
+        }
+      }
     }
   }
 
   #onTimeout(entry) {
     if (entry.state !== 'connected') return;
     const d = entry.descriptor;
+    const target = this.#expected(entry);
     console.warn(
-      `[renderer] model=${d.modelName} timed out waiting for graph ${d.graphId}; received=${JSON.stringify([...entry.seen])}`,
+      `[renderer] model=${d.modelName} timed out waiting for ${describe(d)}`
+      + ` at pane ${target.pane} (${target.graph});`
+      + ` received=${JSON.stringify([...entry.seen])}`,
     );
     if (entry === this.#active) this.#active = null;
     this.#reject(entry, new RenderFailure('timeout', 'renderer timed out'));
