@@ -29,6 +29,7 @@ const text = (error) => (error && error.message) || String(error);
  * "graph g/native/000" would describe half of one. */
 const describe = (d) => (d.kind === 'comparison'
   ? `comparison ${d.id} (${d.left.graph} | ${d.right.graph})`
+  : d.kind === 'flow' ? `flow ${d.viewId} (${d.graphId})`
   : `graph ${d.graphId}`);
 /* Safe, still-connected elements the renderer failed to remove. They are not
  * inconsistency -- the DOM is coherent -- but they hold quarantine slots. */
@@ -112,6 +113,7 @@ export class Renderer {
   #timers;
   #now;
   #maxQuarantined;
+  #onFlowSelect;
   #active = null;
   #quarantined = new Set();
   /* handle -> entry, or a tombstone `{consumedBy}` once the entry has consumed
@@ -127,6 +129,7 @@ export class Renderer {
     timeout = 90_000,
     capacityTimeout = 10_000,
     doc = globalThis.document,
+    onFlowSelect = () => {},
     timers = globalThis,
     now = () => globalThis.performance?.now?.() ?? Date.now(),
   }) {
@@ -137,6 +140,7 @@ export class Renderer {
     if (maxQuarantined !== undefined) integer(maxQuarantined, 'maxQuarantined', 0);
     this.#mount = mount;
     this.#doc = doc;
+    this.#onFlowSelect = onFlowSelect;
     this.#timers = timers;
     this.#now = now;
     this.#maxQuarantined = Math.min(maxQuarantined ?? hardMaxQuarantined, hardMaxQuarantined);
@@ -238,6 +242,35 @@ export class Renderer {
     return { graph: side.graph, collectionLabel: holder.label, firstNodeId };
   }
 
+  /* Exactly one [View.Flow], resolved before anything is allocated. Kept apart
+   * from [#select] on purpose: the stage-only route stays strict, so a flow
+   * view can never enter it and a stage view can never enter this one. A typo
+   * is a refusal, never a silently different presentation. */
+  #selectFlow(state, viewId) {
+    const views = Array.isArray(state.views) ? state.views : [];
+    const found = views.filter((v) => v?.id === viewId);
+    if (found.length === 0) {
+      throw new RenderFailure('invalid', `session has no view "${viewId}"`);
+    }
+    if (found.length > 1) {
+      throw new RenderFailure('invalid', `session declares view "${viewId}" more than once`);
+    }
+    const view = found[0];
+    if (view.kind !== 'flow') {
+      throw new RenderFailure('invalid', `view "${viewId}" is not a flow view`);
+    }
+    const collections = state.graphCollections ?? [];
+    const pane = this.#pane(collections, { collection: view.collection, graph: view.graph },
+      `flow view "${viewId}"`);
+    return {
+      kind: 'flow',
+      viewId,
+      graphId: pane.graph,
+      collectionLabel: pane.collectionLabel,
+      targetFirstNodeId: pane.firstNodeId,
+    };
+  }
+
   /* Every field the candidate needs, resolved BEFORE anything is allocated.
    * `Session.validate` has already accepted this document, so these are
    * re-reads -- but an exact request that does not resolve is a refusal, never
@@ -312,11 +345,15 @@ export class Renderer {
     // Exactly one branch. `{ view, comparison }` together is not a request this
     // renderer can honour, and picking one would open a presentation the caller
     // did not unambiguously ask for.
+    const named = ['view', 'comparison', 'flow'].filter((k) => selection?.[k] != null);
+    if (named.length > 1) {
+      throw new RenderFailure('invalid', `selection names ${named.join(' and ')}`);
+    }
     if (selection?.comparison != null) {
-      if (selection.view != null) {
-        throw new RenderFailure('invalid', 'selection names both a view and a comparison');
-      }
       return { ...shared, ...this.#selectComparison(state, selection.comparison) };
+    }
+    if (selection?.flow != null) {
+      return { ...shared, ...this.#selectFlow(state, selection.flow) };
     }
     const { graphId, viewId } = this.#select(state, selection);
     if (!graphId) throw new RenderFailure('invalid', 'session has no renderable graph');
@@ -347,6 +384,13 @@ export class Renderer {
       /* Which pane a comparison is still waiting for; always `left` for a
        * single view, which has only the one. */
       phase: 'left',
+      /* [D2] The setup selection this renderer asked for and has not yet seen
+       * come back. Identity, never a count: one `selectNode` emits TWO events
+       * -- a clear then the target -- so a budget would be spent on the clear
+       * and the target would escape. Measured in `web/test/flow.spec.ts`. */
+      expected: null,
+      observer: null,
+      router: null,
       seen: new Set(),
       startedAt: 0,
       handle: null,
@@ -434,7 +478,7 @@ export class Renderer {
    * adds it, but nothing depends on it. The library auto-selects some graph on
    * its own; `selectNode` is what navigates to the one we want. */
   #config(d) {
-    if (d.kind === 'single') return { defaultGraphId: d.graphId };
+    if (d.kind !== 'comparison') return { defaultGraphId: d.graphId };
     return {
       defaultGraphId: d.left.graph,
       syncNavigationData: {
@@ -579,6 +623,11 @@ export class Renderer {
       if (d.kind === 'comparison') {
         entry.element.selectNode(target.firstNodeId, target.graph, target.collectionLabel, 0);
       } else {
+        /* [D2] A flow candidate arms its expectation and its OBSERVER before
+         * the call, not after: the emission can land in either order relative
+         * to finalize, and only an observation -- never an assumption about
+         * timing -- can tell which happened. */
+        if (d.kind === 'flow') this.#observe(entry, target);
         entry.element.selectNode(target.firstNodeId, target.graph, target.collectionLabel);
       }
       return;
@@ -628,11 +677,19 @@ export class Renderer {
         viewId: null,
         presentation: { kind: 'comparison', comparison: d.id },
       }
-      : {
-        graph: d.graphId,
-        viewId: d.viewId,
-        presentation: d.viewId ? { kind: 'single', view: d.viewId } : null,
-      });
+      : d.kind === 'flow'
+        ? {
+          graph: d.graphId,
+          // A flow is not a single view, so nothing that reads `viewId` may
+          // treat it as one.
+          viewId: null,
+          presentation: { kind: 'flow', view: d.viewId },
+        }
+        : {
+          graph: d.graphId,
+          viewId: d.viewId,
+          presentation: d.viewId ? { kind: 'single', view: d.viewId } : null,
+        });
     this.#handles.set(handle, entry);
     entry.handle = handle;
     this.#resolve(entry, handle);
@@ -641,7 +698,7 @@ export class Renderer {
   /* What this entry is waiting for right now: one graph, on one pane. */
   #expected(entry) {
     const d = entry.descriptor;
-    if (d.kind === 'single') {
+    if (d.kind !== 'comparison') {
       return {
         graph: d.graphId,
         pane: 0,
@@ -705,6 +762,94 @@ export class Renderer {
     );
   }
 
+  /* ------------------------------------------------------- flow selection
+
+     [D2]. `NodeInfo` carries no origin bit, and one `selectNode` emits TWO
+     events -- a clear (`nodeId: ""`) then the target -- so a user's click can
+     only be told from the shell's own setup selection by IDENTITY and ORDER.
+     `web/test/flow.spec.ts` measures both against the real element.
+
+     Two listeners with disjoint jobs. The observer exists from before the setup
+     call until finalize and routes nothing; the router exists only while the
+     entry is `current`. Whichever side of finalize the setup emission lands on,
+     exactly one of them sees it. */
+
+  #observe(entry, target) {
+    entry.expected = { nodeId: target.firstNodeId, graphId: target.graph };
+    if (entry.observer) return;
+    entry.observer = (event) =>
+      this.#guard(entry, 'selectedNodeChanged (setup)', () => {
+        const seen = event?.detail;
+        // The clear is not the target and never satisfies the expectation --
+        // consuming it here is precisely the defect that sank the counted
+        // design.
+        if (typeof seen?.nodeId !== 'string' || seen.nodeId === '') return;
+        if (entry.expected
+            && entry.expected.nodeId === seen.nodeId
+            && entry.expected.graphId === seen.graphId) {
+          entry.expected = null;
+        }
+      });
+    entry.element.addEventListener('selectedNodeChanged', entry.observer);
+  }
+
+  #retireObserver(entry) {
+    if (!entry.observer) return;
+    const observer = entry.observer;
+    entry.observer = null;
+    entry.element.removeEventListener('selectedNodeChanged', observer);
+  }
+
+  /* Attached by `finalize` to the entry it promotes, because a hidden candidate
+   * must never navigate: its slot is `pointer-events: none`, so every event it
+   * could see is one this renderer caused. */
+  #attachRouter(entry) {
+    if (entry.descriptor.kind !== 'flow' || entry.router) return;
+    entry.router = (event) =>
+      this.#guard(entry, 'selectedNodeChanged', () => this.#onSelected(entry, event));
+    entry.element.addEventListener('selectedNodeChanged', entry.router);
+  }
+
+  #retireRouter(entry) {
+    if (!entry.router) return;
+    const router = entry.router;
+    entry.router = null;
+    entry.element.removeEventListener('selectedNodeChanged', router);
+  }
+
+  #onSelected(entry, event) {
+    // Authority: a quarantined, superseded or replaced element still emits --
+    // `web/test/flow.spec.ts` proves it does -- so this is the guard, not the
+    // element going quiet.
+    if (entry !== this.current) return;
+    const d = entry.descriptor;
+    const seen = event?.detail;
+    // An absent detail is a real possibility, and is not a selection.
+    if (typeof seen?.nodeId !== 'string') return;
+    // Scoped on the event's own public fields; nothing private is consulted.
+    if (seen.graphId !== d.graphId || seen.collectionLabel !== d.collectionLabel) return;
+    if (seen.nodeId === '') {
+      // A cleared selection is not a node. It does NOT clear the expectation:
+      // setup emits the clear BEFORE its target, so consuming it here would let
+      // the target through as though a user had chosen it.
+      this.#onFlowSelect(null);
+      return;
+    }
+    if (entry.expected
+        && entry.expected.nodeId === seen.nodeId
+        && entry.expected.graphId === seen.graphId) {
+      entry.expected = null;
+      return;
+    }
+    // Once anything has routed, setup is definitively over.
+    entry.expected = null;
+    this.#onFlowSelect({
+      nodeId: seen.nodeId,
+      graphId: seen.graphId,
+      collectionLabel: seen.collectionLabel,
+    });
+  }
+
   /* ------------------------------------------------------------ settlement */
 
   #resolve(entry, value) {
@@ -753,6 +898,11 @@ export class Renderer {
     if (entry.state === 'quarantined') return;
     entry.state = 'quarantined';
     this.#quarantined.add(entry);
+    // The graph listener stays -- its late event is what authorises removal --
+    // but a quarantined element must never navigate, so selection authority is
+    // dropped here rather than resting on the `current` check alone.
+    this.#retireObserver(entry);
+    this.#retireRouter(entry);
     // The listener stays: that late expected event is the only thing that
     // authorises removal.
     this.#clearTimers(entry);
@@ -820,6 +970,8 @@ export class Renderer {
   #finishRelease(entry) {
     this.#clearTimers(entry);
     this.#retireListener(entry);
+    this.#retireObserver(entry);
+    this.#retireRouter(entry);
     const held = this.#quarantined.delete(entry);
     entry.attached = false;
     entry.state = 'released';
@@ -920,6 +1072,11 @@ export class Renderer {
     entry.state = 'current';
     this.current = entry;
     this.#active = null;
+    // [D2] Only now: a hidden candidate must not navigate, and the observer's
+    // window closes exactly where the router's opens, so the setup emission is
+    // seen by one of them and never by both.
+    this.#retireObserver(entry);
+    this.#attachRouter(entry);
 
     // 3. Demote the predecessor. Two visible slots is not a state to paper over.
     if (previous) {
@@ -991,6 +1148,11 @@ export class Renderer {
     if (victim) all.add(victim);
     if (this.current) all.add(this.current);
     for (const entry of all) step(() => this.#clearTimers(entry));
+    // Nothing may navigate once the renderer has declared itself terminal.
+    for (const entry of all) {
+      step(() => this.#retireObserver(entry));
+      step(() => this.#retireRouter(entry));
+    }
     // A parked caller is settled too; `#startFailed` sees the flag and mutates
     // no DOM.
     if (victim) step(() => this.#settleCapacityWait(victim, new RenderFailure('inconsistent', why)));

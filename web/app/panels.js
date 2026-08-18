@@ -199,6 +199,95 @@ export function renderComparisonSummary(node, comparison) {
   overlays(comparison.overlaysRight, 'right');
 }
 
+/* ------------------------------------------------------------------- flow */
+
+/* The one sentence that says what this graph is and is not. Fixed text: it is a
+ * claim about the export, not about any particular model. */
+export const FLOW_NOTE =
+  'Coarse export flow — representations and declared transformations, '
+  + 'not individual pass execution.';
+
+/* Shown only when the index resolved a whole flow destination. Never keyed on
+ * `feature:flow`: that capability is `available` on sessions carrying no
+ * navigable flow at all. */
+export function renderFlowControl(button, note, index, active) {
+  const has = !!index.flowView;
+  button.hidden = !has;
+  button.disabled = !has;
+  button.textContent = active ? 'Close export flow' : 'Export flow';
+  button.setAttribute('aria-pressed', String(!!active));
+  note.hidden = !(has && active);
+  note.textContent = has && active ? FLOW_NOTE : '';
+}
+
+/* State nodes and transition nodes are told apart only by which declared list
+ * holds their id -- never by label, shape or position -- so the legend says so
+ * rather than describing a colour the visualizer chose. */
+export function renderFlowLegend(container, index, active) {
+  clear(container);
+  if (!active || !index.flow) { container.hidden = true; return; }
+  container.hidden = false;
+  const list = el('dl', null, 'rows');
+  list.append(el('dt', `Representations (${index.stateById.size})`));
+  list.append(el('dd', 'each opens the stage view the export declares for it'));
+  list.append(el('dt', `Transformations (${index.transitionById.size})`));
+  list.append(el('dd', 'each opens its exported comparison, when one exists'));
+  container.append(list);
+}
+
+/* What the selected flow node offers. Selection and action are two steps: this
+ * renders the offer, and the caller acts only when the button is pressed.
+ *
+ * A single click is what the visualizer reports, so routing on selection alone
+ * would make a mis-click destructive and put a node's own attributes out of
+ * reach. It also lets the unpaired-transition case be a visible statement
+ * rather than a click that silently does nothing.
+ */
+export function renderFlowSelection(container, index, selection, onAction) {
+  clear(container);
+  if (!selection || !index.flow) { container.hidden = true; return; }
+  const { nodeId } = selection;
+  const state = index.stateById.get(nodeId);
+  const transition = index.transitionById.get(nodeId);
+  // Neither list holds it: a node the export does not declare is not a
+  // destination, and saying nothing is the honest response.
+  if (!state && !transition) { container.hidden = true; return; }
+  container.hidden = false;
+
+  const offer = (label, presentation) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'flow-action';
+    button.textContent = label;
+    button.addEventListener('click', () => onAction(presentation));
+    container.append(button);
+  };
+
+  if (state) {
+    const view = index.viewById.get(state.view);
+    container.append(el('p', `Selected: ${state.label} — representation`, 'note'));
+    // The index only keeps a state whose view resolves, so this is a re-read.
+    if (view) offer(`Open ${view.label}`, { kind: 'single', view: view.id });
+    return;
+  }
+
+  const kind = transition.kind?.kind ?? 'transformation';
+  container.append(el('p', `Selected: ${transition.id} — ${kind}`, 'note'));
+  const comparison = transition.comparison
+    ? index.comparisonById.get(transition.comparison)
+    : null;
+  if (comparison) {
+    offer(`Open comparison ${comparison.label}`,
+      { kind: 'comparison', comparison: comparison.id });
+    return;
+  }
+  /* Honest absence, never an identity claim and never a failed comparison. No
+   * compare button and no diff badge -- the kind is named because it is a fact
+   * the export declares, and nothing more is claimed. */
+  container.append(el('p',
+    'No exported comparison is available for this transition.', 'note'));
+}
+
 /* Every capability that is not a navigable view, with its own state kept
  * distinct: "not requested" is a choice, "unavailable" is the exporter's typed
  * reason, and Loop IR and Code generation stay visibly unimplemented rather

@@ -5,8 +5,8 @@ import {
   bucketOfRank, buildIndex, capabilityWording, comparisonPresentation,
   controlsFromOptions, decodeUrl, defaultPresentation, encodeUrl,
   optionsFromControls, optionsFromUrl, preferredViews, requestKey,
-  resolvePresentation, samePresentation, singlePresentation, staleNotice,
-  staleComparisonNotice,
+  flowPresentation, resolvePresentation, samePresentation, singlePresentation,
+  staleNotice, staleComparisonNotice, staleFlowNotice,
 } from '../app/presentation.js';
 
 const view = (id, kind, graph) => ({ id, label: id, kind, collection: 'c', graph });
@@ -395,4 +395,136 @@ test('a stale comparison says it fell out of compare mode, not into another one'
   // Resolved, or never asked for: nothing to say.
   assert.equal(staleComparisonNotice('c/import', comparisonPresentation('c/import')), '');
   assert.equal(staleComparisonNotice(null, null), '');
+});
+
+/* ------------------------------------------------------------------- flow */
+
+const FLOW_STATES = [
+  { id: 's/pt2/000', graph: 'pt2/root', view: 'v/source', layer: 'pt2', label: 'exported program' },
+  { id: 's/native/000', graph: 'g/native/000', view: 'v/initial', layer: 'native', label: 'initial', producedBy: 't/native/000' },
+  { id: 's/native/001', graph: 'g/native/001', view: 'v/canonical', layer: 'native', label: 'canonical', producedBy: 't/native/001' },
+];
+const FLOW_TRANSITIONS = [
+  { id: 't/native/000', before: 's/pt2/000', after: 's/native/000', kind: { kind: 'import' }, comparison: 'c/import' },
+  { id: 't/native/001', before: 's/native/000', after: 's/native/001', kind: { kind: 'pack' } },
+];
+
+const FLOW_VIEW = view('v/flow', 'flow', 'g/flow');
+const flowed = (overrides = {}) => session({
+  views: [...SESSION.views, FLOW_VIEW],
+  comparisons: [IMPORT],
+  flow: { states: FLOW_STATES, transitions: FLOW_TRANSITIONS, graph: 'g/flow' },
+  ...overrides,
+});
+
+test('the flow is indexed only when its whole destination resolves', () => {
+  const index = buildIndex(flowed());
+  assert.equal(index.flowView.id, 'v/flow');
+  assert.deepEqual([...index.stateById.keys()], ['s/pt2/000', 's/native/000', 's/native/001']);
+  assert.deepEqual([...index.transitionById.keys()], ['t/native/000', 't/native/001']);
+});
+
+/* `feature:flow` is `available` in this fixture and names `g/flow`, exactly as
+ * the real exporter emits -- yet with no flow view there is nothing to open. A
+ * capability is never a destination, which is the rule this whole module
+ * exists to keep. */
+test('an available flow capability never makes a destination on its own', () => {
+  const index = buildIndex(session({}));
+  assert.equal(index.flowView, null);
+  assert.equal(index.flow, null);
+  assert.equal(index.stateById.size, 0);
+  assert.equal(
+    index.capabilityByKey.get('feature:flow').status.state, 'available',
+    'the fixture must keep the capability available, or this proves nothing',
+  );
+});
+
+test('a flow view naming another graph than the spine is not a destination', () => {
+  const index = buildIndex(flowed({
+    views: [...SESSION.views, view('v/flow', 'flow', 'g/native/000')],
+  }));
+  assert.equal(index.flowView, null);
+  assert.equal(index.flow, null);
+});
+
+test('two flow views resolve to none rather than to a guess', () => {
+  const index = buildIndex(flowed({
+    views: [...SESSION.views, FLOW_VIEW, view('v/flow2', 'flow', 'g/flow')],
+  }));
+  assert.equal(index.flowView, null);
+});
+
+/* A broken link makes ONE node non-actionable; it never falls back to routing
+ * by graph, label or order. */
+test('a state whose view is missing or shows another graph is dropped', () => {
+  const index = buildIndex(flowed({
+    flow: {
+      graph: 'g/flow',
+      states: [
+        { ...FLOW_STATES[0], view: 'v/nope' },
+        { ...FLOW_STATES[1], view: 'v/canonical' },   // a stage view, wrong graph
+        FLOW_STATES[2],
+      ],
+      transitions: FLOW_TRANSITIONS,
+    },
+  }));
+  assert.deepEqual([...index.stateById.keys()], ['s/native/001']);
+});
+
+test('a transition naming a comparison that is gone is dropped, an unpaired one is not', () => {
+  const index = buildIndex(flowed({
+    flow: {
+      graph: 'g/flow',
+      states: FLOW_STATES,
+      transitions: [
+        { ...FLOW_TRANSITIONS[0], comparison: 'c/nope' },
+        FLOW_TRANSITIONS[1],
+      ],
+    },
+  }));
+  // The unpaired one survives: honest absence is not a broken link.
+  assert.deepEqual([...index.transitionById.keys()], ['t/native/001']);
+  assert.equal(index.transitionById.get('t/native/001').comparison, undefined);
+});
+
+test('a flow presentation resolves only against the one flow view', () => {
+  const index = buildIndex(flowed());
+  assert.deepEqual(resolvePresentation(index, flowPresentation('v/flow')), flowPresentation('v/flow'));
+  assert.equal(resolvePresentation(index, flowPresentation('v/source')), null);
+  assert.equal(resolvePresentation(index, flowPresentation('v/nope')), null);
+});
+
+/* The strict-route rule, in both directions. A flow view reachable through
+ * `{kind:'single'}` would make the renderer's stage-only route reachable by a
+ * typo, which is the one thing it exists to prevent. */
+test('a flow view is not a single view, and a stage view is not a flow', () => {
+  const index = buildIndex(flowed());
+  assert.equal(resolvePresentation(index, singlePresentation('v/flow')), null);
+  assert.equal(index.viewById.has('v/flow'), false);
+  assert.equal(resolvePresentation(index, flowPresentation('v/canonical')), null);
+});
+
+test('the URL carries a flow branch, exclusive with the other two', () => {
+  const options = optionsFromControls({});
+  const written = encodeUrl({ model: 'm', options, presentation: flowPresentation('v/flow') });
+  assert.equal(new URLSearchParams(written).get('flow'), 'v/flow');
+  assert.equal(new URLSearchParams(written).has('view'), false);
+  assert.equal(new URLSearchParams(written).has('comparison'), false);
+  assert.deepEqual(decodeUrl(written).presentation, flowPresentation('v/flow'));
+});
+
+test('any two presentation keys in one URL name none', () => {
+  assert.equal(decodeUrl('?flow=v/flow&view=v/source').presentation, null);
+  assert.equal(decodeUrl('?flow=v/flow&comparison=c/import').presentation, null);
+  assert.equal(decodeUrl('?view=v/source&comparison=c/import').presentation, null);
+  assert.equal(decodeUrl('?view=v/source&comparison=c/import&flow=v/flow').presentation, null);
+  // And exactly one still decodes.
+  assert.deepEqual(decodeUrl('?flow=v/flow').presentation, flowPresentation('v/flow'));
+});
+
+test('a stale flow says it fell out of flow mode', () => {
+  assert.equal(staleFlowNotice('v/flow', null).includes('v/flow'), true);
+  assert.equal(staleFlowNotice('v/flow', null).includes('single view'), true);
+  assert.equal(staleFlowNotice('v/flow', flowPresentation('v/flow')), '');
+  assert.equal(staleFlowNotice(null, null), '');
 });

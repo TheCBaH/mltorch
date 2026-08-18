@@ -153,6 +153,47 @@ function indexComparisons(raw) {
   return { comparisons, comparisonById };
 }
 
+/* The flow spine, retained ONLY when every link it needs resolves.
+ *
+ * `Me_session.validate` now binds the destination -- the spine's graph, its one
+ * `View.Flow`, and the `feature:flow` capability -- so the bridge has already
+ * proved all of this. This re-reads rather than re-validates, for the reason
+ * `indexComparisons` does: if that boundary ever changes, a broken link should
+ * make one node non-actionable, never route by graph name, layer, label or
+ * transition order.
+ *
+ * A capability is never consulted. `feature:flow` is `available` on sessions
+ * that carry no navigable flow at all, which is exactly the trap this module
+ * exists to avoid.
+ */
+function indexFlow(raw, { flowView, viewById, comparisonById }) {
+  if (!raw || !flowView) return { flow: null, stateById: new Map(), transitionById: new Map() };
+  if (typeof raw.graph !== 'string' || raw.graph !== flowView.graph) {
+    return { flow: null, stateById: new Map(), transitionById: new Map() };
+  }
+  const stateById = new Map();
+  for (const st of Array.isArray(raw.states) ? raw.states : []) {
+    if (!st || typeof st.id !== 'string' || stateById.has(st.id)) continue;
+    // A state opens its DECLARED view, and only if that view is a stage view
+    // over the state's own graph -- the same three facts `Session.validate`
+    // checks, re-read so a broken one is merely non-actionable here.
+    const view = typeof st.view === 'string' ? viewById.get(st.view) : undefined;
+    if (!view || view.graph !== st.graph) continue;
+    stateById.set(st.id, st);
+  }
+  const transitionById = new Map();
+  for (const tr of Array.isArray(raw.transitions) ? raw.transitions : []) {
+    if (!tr || typeof tr.id !== 'string' || transitionById.has(tr.id)) continue;
+    // `comparison` is optional; when present it must resolve. An unpaired
+    // transition is honest absence and stays actionable-as-nothing, which is a
+    // different thing from a transition naming a comparison that is gone.
+    if (tr.comparison !== undefined && tr.comparison !== null
+        && !comparisonById.has(tr.comparison)) continue;
+    transitionById.set(tr.id, tr);
+  }
+  return { flow: raw, stateById, transitionById };
+}
+
 /**
  * The defensive index. The document has already passed
  * `Me_session.Session.validate` in the bridge, so this re-reads rather than
@@ -169,11 +210,28 @@ export function buildIndex(sessionText) {
   const verification = payload(capabilityByKey.get('feature:verification'), 'verification_summary');
   const audits = payload(capabilityByKey.get('feature:pass_audits'), 'pass_audit_status');
   const { comparisons, comparisonById } = indexComparisons(session?.comparisons);
+  const viewById = new Map(views.map((v) => [v.id, v]));
+  /* Separate from `viewById` on purpose. A flow view must never satisfy a
+   * `{kind:'single'}` descriptor: the renderer's stage-only route would then be
+   * reachable by a typo, which is the one failure the strict route exists to
+   * prevent. Exactly one, or none -- `Session.validate` guarantees uniqueness,
+   * and a second here means the document changed under us. */
+  const flowViews = (Array.isArray(session?.views) ? session.views : [])
+    .filter((v) => v?.kind === 'flow' && typeof v.id === 'string' && typeof v.graph === 'string');
+  const flowView = flowViews.length === 1 ? flowViews[0] : null;
+  const { flow, stateById, transitionById } =
+    indexFlow(session?.flow, { flowView, viewById, comparisonById });
   return {
     model: session?.model ?? null,
     defaultView: typeof session?.defaultView === 'string' ? session.defaultView : null,
     views,
-    viewById: new Map(views.map((v) => [v.id, v])),
+    viewById,
+    /* Null unless the whole destination resolves, so a control can key on it
+     * directly rather than re-deriving the condition. */
+    flowView: flow ? flowView : null,
+    flow,
+    stateById,
+    transitionById,
     /* A comparison names only `{collection, graph}` per pane, and its own label
      * is prose ("exported program -> initial"). Pane HEADINGS come from the
      * stage view that declares the same graph, which is a lookup rather than a
@@ -218,6 +276,7 @@ export function preferredViews(urlView) {
  */
 export const singlePresentation = (view) => ({ kind: 'single', view });
 export const comparisonPresentation = (comparison) => ({ kind: 'comparison', comparison });
+export const flowPresentation = (view) => ({ kind: 'flow', view });
 
 /** The browser's own default: source first, for reading order. */
 export const defaultPresentation = () => singlePresentation(SOURCE_VIEW);
@@ -235,6 +294,11 @@ export function resolvePresentation(index, presentation) {
   }
   if (presentation.kind === 'comparison') {
     return index.comparisonById.has(presentation.comparison) ? presentation : null;
+  }
+  if (presentation.kind === 'flow') {
+    // Against the ONE resolved flow view, never against `viewById`: a stage
+    // view id must not become a flow presentation any more than the reverse.
+    return index.flowView && index.flowView.id === presentation.view ? presentation : null;
   }
   return null;
 }
@@ -254,6 +318,18 @@ export const samePresentation = (a, b) =>
 export function staleComparisonNotice(urlComparison, resolved) {
   if (!urlComparison || resolved) return '';
   return `This model has no comparison “${urlComparison}”; showing a single view instead.`;
+}
+
+/**
+ * Non-fatal text when a URL asked for a flow this session does not carry. Its
+ * own function for the same reason as the comparison one: a stale flow falls
+ * back out of flow mode entirely, and the sentence has to say so. A capability
+ * is never mentioned -- `feature:flow` can be available on a session with no
+ * navigable flow, and quoting it would explain the wrong thing.
+ */
+export function staleFlowNotice(urlFlow, resolved) {
+  if (!urlFlow || resolved) return '';
+  return `This model has no export flow “${urlFlow}”; showing a single view instead.`;
 }
 
 /**
@@ -319,17 +395,18 @@ export function decodeUrl(search) {
   const rawStages = query.get('stages');
   const stages = rawStages === null ? null : canonicalStages(rawStages.split(','));
   const verify = query.get('verify');
-  const view = query.get('view');
-  const comparison = query.get('comparison');
+  /* One closed choice, so a URL carrying ANY TWO of these names NEITHER: no
+   * rule for picking a winner is non-arbitrary, and guessing would open a
+   * presentation the link did not unambiguously ask for. */
+  const branches = [
+    ['comparison', query.get('comparison'), comparisonPresentation],
+    ['flow', query.get('flow'), flowPresentation],
+    ['view', query.get('view'), singlePresentation],
+  ].filter(([, value]) => value);
   return {
     model: query.get('model'),
-    /* `view` and `comparison` are branches of one closed choice, so a URL
-     * carrying both names NEITHER: there is no rule for picking a winner that
-     * is not arbitrary, and guessing would open a presentation the link did not
-     * unambiguously ask for. Phase 4's `flow` joins the same exclusion. */
-    presentation: view && comparison ? null
-      : comparison ? comparisonPresentation(comparison)
-      : view ? singlePresentation(view)
+    presentation: branches.length === 1
+      ? branches[0][2](branches[0][1])
       : null,
     stages: stages && stages.length > 0 ? stages : null,
     verify: EFFORTS.includes(verify) ? verify : null,
@@ -351,6 +428,8 @@ export function encodeUrl({ model, options, presentation } = {}) {
   if (EFFORTS.includes(options?.verifySymbolic)) query.set('verify', options.verifySymbolic);
   if (presentation?.kind === 'comparison' && presentation.comparison) {
     query.set('comparison', presentation.comparison);
+  } else if (presentation?.kind === 'flow' && presentation.view) {
+    query.set('flow', presentation.view);
   } else if (presentation?.kind === 'single' && presentation.view) {
     query.set('view', presentation.view);
   }
