@@ -11,6 +11,12 @@ fieldset { border: 1px solid #bbb; border-radius: 4px; }
 .legend-rows dt { padding: 0 0.4rem; border-radius: 3px; color: #111; }
 .rows dd, .legend-rows dd { margin: 0; color: #444; }
 .state-unavailable { color: #8a2f00; } .state-not_requested { color: #555; } .state-unimplemented { color: #666; font-style: italic; }
+/* Two columns matching the two panes, so a heading sits over the pane it names.
+   The legend column is not accounted for here: the panes split the mount, and
+   the mount is what the headings label. */
+.pane-labels { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.pane-label { font-weight: 600; font-size: 0.875rem; }
+#presentation-note { display: grid; gap: 0.15rem; }
 .stage { display: flex; gap: 1rem; align-items: stretch; }
 #legend { flex: 0 0 18rem; overflow-y: auto; }
 #legend h3 { margin: 0 0 0.5rem; font-size: 1rem; }

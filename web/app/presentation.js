@@ -125,6 +125,34 @@ function payload(capability, kind) {
   return status.payload?.kind === kind ? status.payload : null;
 }
 
+/* Declared comparisons, in session order, keyed by their own id.
+ *
+ * `Session.validate` already guarantees the ids are unique and both panes
+ * resolve, so this re-reads rather than re-validates -- but it DROPS a record
+ * whose id is absent, non-string or repeated instead of letting one silently
+ * win. That cannot arrive from the bridge today; if the boundary ever changes,
+ * an absent comparison is a selector entry that does not appear, while a
+ * silently chosen one is a pane pair nobody asked for.
+ *
+ * A pane's shape is checked here too, for the same reason: the selector must
+ * not offer a comparison the renderer will then refuse before connection.
+ */
+const pane = (p) =>
+  p && typeof p.collection === 'string' && typeof p.graph === 'string';
+
+function indexComparisons(raw) {
+  const comparisons = [];
+  const comparisonById = new Map();
+  for (const c of Array.isArray(raw) ? raw : []) {
+    if (!c || typeof c.id !== 'string' || c.id === '') continue;
+    if (comparisonById.has(c.id)) continue;
+    if (!pane(c.left) || !pane(c.right)) continue;
+    comparisonById.set(c.id, c);
+    comparisons.push(c);
+  }
+  return { comparisons, comparisonById };
+}
+
 /**
  * The defensive index. The document has already passed
  * `Me_session.Session.validate` in the bridge, so this re-reads rather than
@@ -140,15 +168,23 @@ export function buildIndex(sessionText) {
   const views = (Array.isArray(session?.views) ? session.views : []).filter(isStageView);
   const verification = payload(capabilityByKey.get('feature:verification'), 'verification_summary');
   const audits = payload(capabilityByKey.get('feature:pass_audits'), 'pass_audit_status');
+  const { comparisons, comparisonById } = indexComparisons(session?.comparisons);
   return {
     model: session?.model ?? null,
     defaultView: typeof session?.defaultView === 'string' ? session.defaultView : null,
     views,
     viewById: new Map(views.map((v) => [v.id, v])),
+    /* A comparison names only `{collection, graph}` per pane, and its own label
+     * is prose ("exported program -> initial"). Pane HEADINGS come from the
+     * stage view that declares the same graph, which is a lookup rather than a
+     * derivation -- no graph id is ever built from a stage name. First
+     * declaration wins; a graph no view names falls back to its own id. */
+    viewByGraph: new Map(views.map((v) => [v.graph, v]).reverse()),
     capabilities,
     capabilityByKey,
     diagnostics: Array.isArray(session?.diagnostics) ? session.diagnostics : [],
-    comparisons: Array.isArray(session?.comparisons) ? session.comparisons : [],
+    comparisons,
+    comparisonById,
     nodeDataSets: Array.isArray(session?.nodeDataSets) ? session.nodeDataSets : [],
     /* Arrays of `{label, count}` where `count` is a DECIMAL STRING
      * (`int64_as_string`): displayed verbatim, never parsed through `Number`,
@@ -168,6 +204,56 @@ export function buildIndex(sessionText) {
  */
 export function preferredViews(urlView) {
   return urlView && urlView !== SOURCE_VIEW ? [urlView, SOURCE_VIEW] : [SOURCE_VIEW];
+}
+
+/* ---------------------------------------------------------- presentation */
+
+/**
+ * What the page is showing, as a closed sum with exactly one branch active.
+ *
+ * This replaces "the current view id" at the app boundary. A comparison is not
+ * a view and cannot be encoded as one: it names two graphs, and `View` names
+ * one. Phase 4 adds a third branch (`flow`), which is why every consumer
+ * switches on `kind` rather than testing for the presence of a field.
+ */
+export const singlePresentation = (view) => ({ kind: 'single', view });
+export const comparisonPresentation = (comparison) => ({ kind: 'comparison', comparison });
+
+/** The browser's own default: source first, for reading order. */
+export const defaultPresentation = () => singlePresentation(SOURCE_VIEW);
+
+/**
+ * A descriptor resolved against a session, or `null` if it names nothing the
+ * document declares. `null` is the whole error vocabulary on purpose: every
+ * caller's response is the same -- fall back and say so -- and a richer result
+ * would invite a caller to render a destination that does not exist.
+ */
+export function resolvePresentation(index, presentation) {
+  if (!index || !presentation) return null;
+  if (presentation.kind === 'single') {
+    return index.viewById.has(presentation.view) ? presentation : null;
+  }
+  if (presentation.kind === 'comparison') {
+    return index.comparisonById.has(presentation.comparison) ? presentation : null;
+  }
+  return null;
+}
+
+/** True when two descriptors name the same thing; used to skip no-op changes. */
+export const samePresentation = (a, b) =>
+  a?.kind === b?.kind
+  && (a?.kind === 'comparison' ? a.comparison === b.comparison : a?.view === b?.view);
+
+/**
+ * Non-fatal text when a URL asked for a comparison this session does not
+ * declare. Separate from `staleNotice` rather than a generalisation of it: the
+ * two say different things -- a stale view falls back to another view, a stale
+ * comparison falls back out of compare mode entirely -- and merging them would
+ * make one sentence describe two different retreats.
+ */
+export function staleComparisonNotice(urlComparison, resolved) {
+  if (!urlComparison || resolved) return '';
+  return `This model has no comparison “${urlComparison}”; showing a single view instead.`;
 }
 
 /**
@@ -233,22 +319,41 @@ export function decodeUrl(search) {
   const rawStages = query.get('stages');
   const stages = rawStages === null ? null : canonicalStages(rawStages.split(','));
   const verify = query.get('verify');
+  const view = query.get('view');
+  const comparison = query.get('comparison');
   return {
     model: query.get('model'),
-    view: query.get('view'),
+    /* `view` and `comparison` are branches of one closed choice, so a URL
+     * carrying both names NEITHER: there is no rule for picking a winner that
+     * is not arbitrary, and guessing would open a presentation the link did not
+     * unambiguously ask for. Phase 4's `flow` joins the same exclusion. */
+    presentation: view && comparison ? null
+      : comparison ? comparisonPresentation(comparison)
+      : view ? singlePresentation(view)
+      : null,
     stages: stages && stages.length > 0 ? stages : null,
     verify: EFFORTS.includes(verify) ? verify : null,
   };
 }
 
-/** The query string for a reproducible catalogue selection, leading `?` included. */
-export function encodeUrl({ model, options, view } = {}) {
+/**
+ * The query string for a reproducible catalogue selection, leading `?` included.
+ *
+ * Exactly one presentation key is ever written, and it is written from the
+ * BRANCH rather than from two optional arguments -- which is what makes the
+ * exclusivity above structural instead of a rule each caller has to remember.
+ */
+export function encodeUrl({ model, options, presentation } = {}) {
   const query = new URLSearchParams();
   if (model) query.set('model', model);
   const stages = canonicalStages(options?.stages);
   if (stages.length > 0) query.set('stages', stages.join(','));
   if (EFFORTS.includes(options?.verifySymbolic)) query.set('verify', options.verifySymbolic);
-  if (view) query.set('view', view);
+  if (presentation?.kind === 'comparison' && presentation.comparison) {
+    query.set('comparison', presentation.comparison);
+  } else if (presentation?.kind === 'single' && presentation.view) {
+    query.set('view', presentation.view);
+  }
   const text = query.toString();
   return text ? `?${text}` : '';
 }

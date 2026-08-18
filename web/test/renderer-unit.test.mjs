@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Renderer } from '../app/renderer.js';
-import { createClock, createDocument, settled } from './fake_dom.mjs';
+import { createClock, createDocument, flush, settled } from './fake_dom.mjs';
 
 const CURRENT = 'visualizer-slot--current';
 
@@ -717,4 +717,338 @@ test('only the selected graph’s node data is installed', async () => {
   const sets = [verificationSet('g/native/001'), { name: 'fusion', graph: 'pt2/root', results: [] }];
   await enter(h, kinded({ views: STAGE_VIEWS, nodeDataSets: sets }), { view: 'v/canonical' }, 'g/native/001');
   assert.deepEqual(h.element(h.last()).nodeData.map((d) => d.name), ['verification']);
+});
+
+/* ================================================================ comparisons
+
+   A comparison is a two-pane presentation resolved entirely before a slot
+   exists, then driven through TWO processing rounds. What follows pins both
+   halves: the refusals that must never mutate the DOM, and the transitions of
+   the two-phase candidate -- above all the `safe` invariant, which decides
+   whether a cancelled entry costs a quarantine slot or none. */
+
+const ENTRIES = [
+  { left: ['l0'], right: ['r0', 'r1'] },              // 1:N
+  { left: ['l1', 'l2'], right: ['r2', 'r3'] },        // N:M
+];
+
+const compared = ({
+  sync = { entries: ENTRIES },
+  left = { collection: 'cL', graph: 'gL' },
+  right = { collection: 'cR', graph: 'gR' },
+  comparisons,
+  collections,
+  nodeDataSets = [],
+  extra = {},
+} = {}) => JSON.stringify({
+  model: { name: 'm' },
+  defaultView: 'v/l',
+  views: [
+    { id: 'v/l', label: 'Left', kind: 'stage:source', collection: 'cL', graph: 'gL' },
+    { id: 'v/r', label: 'Right', kind: 'stage:canonical', collection: 'cR', graph: 'gR' },
+  ],
+  graphCollections: collections ?? [
+    { label: 'cL', graphs: [{ id: 'gL', nodes: [{ id: 'l0' }] }] },
+    { label: 'cR', graphs: [{ id: 'gR', nodes: [{ id: 'r0' }] }] },
+  ],
+  comparisons: comparisons ?? [{ id: 'c/x', label: 'left → right', left, right, sync, ...extra }],
+  nodeDataSets,
+});
+
+/** Installs a comparison and drives it to `ready` through both pane events. */
+async function readyComparison(h, text = compared(), id = 'c/x') {
+  const promise = h.renderer.install(text, { comparison: id });
+  const slot = h.last();
+  h.element(slot).emitProcessed('gL', 0);
+  h.element(slot).emitProcessed('gR', 1);
+  return { slot, handle: await promise };
+}
+
+const refuses = async (h, text, selection = { comparison: 'c/x' }) => {
+  await assert.rejects(h.renderer.install(text, selection), isKind('invalid'));
+  assert.equal(h.slots().length, 0, 'a refusal must not leave a slot behind');
+};
+
+/* ------------------------------------------------------------- resolution */
+
+test('a comparison that does not resolve is refused before any DOM exists', async () => {
+  const h = harness();
+  await refuses(h, compared(), { comparison: 'c/nope' });
+  await refuses(h, compared({ comparisons: [
+    { id: 'c/x', label: 'a', left: { collection: 'cL', graph: 'gL' }, right: { collection: 'cR', graph: 'gR' }, sync: {} },
+    { id: 'c/x', label: 'b', left: { collection: 'cL', graph: 'gL' }, right: { collection: 'cR', graph: 'gR' }, sync: {} },
+  ] }));
+  // A graph that exists, but not in the collection the pane names: exactly
+  // `Session.validate`'s `Wrong_collection`, and a lookup that "found" it would
+  // open a pane the document never declared.
+  await refuses(h, compared({ right: { collection: 'cL', graph: 'gR' } }));
+  await refuses(h, compared({ left: { collection: 'nope', graph: 'gL' } }));
+  // A graph with no node cannot be navigated to: `selectNode` is the only way
+  // into a pane and it takes a node.
+  await refuses(h, compared({ collections: [
+    { label: 'cL', graphs: [{ id: 'gL', nodes: [] }] },
+    { label: 'cR', graphs: [{ id: 'gR', nodes: [{ id: 'r0' }] }] },
+  ] }));
+  await refuses(h, compared({ sync: { entries: [{ left: ['l0'], right: 'r0' }] } }));
+  await refuses(h, compared({ extra: { overlaysLeft: 'not a list' } }));
+});
+
+test('a selection naming both a view and a comparison is refused', async () => {
+  const h = harness();
+  await refuses(h, compared(), { comparison: 'c/x', view: 'v/l' });
+});
+
+/* --------------------------------------------------------------- the config */
+
+const configOf = (h, slot) => h.element(slot).config;
+
+test('mapping entries cross as arrays, never as a Cartesian product', async () => {
+  const h = harness();
+  const { slot } = await readyComparison(h);
+  assert.deepEqual(configOf(h, slot).syncNavigationData.mappingEntries, [
+    { leftNodeIds: ['l0'], rightNodeIds: ['r0', 'r1'] },
+    { leftNodeIds: ['l1', 'l2'], rightNodeIds: ['r2', 'r3'] },
+  ]);
+  assert.equal(configOf(h, slot).syncNavigationData.type, 'sync_navigation');
+});
+
+test('an empty exported mapping produces no synthetic entry', async () => {
+  const h = harness();
+  const { slot } = await readyComparison(h, compared({ sync: { entries: [], matchNodeIdFallback: true } }));
+  assert.deepEqual(configOf(h, slot).syncNavigationData.mappingEntries, []);
+});
+
+/* `matchNodeIdFallback` is the wire field that says whether equal ids are a
+ * CORRESPONDENCE CLAIM. It is translated, never inferred: with the fallback off
+ * and no entries, `renderDiffHighlights` treats every node's empty mapped set as
+ * "all counterparts missing" and outlines the whole of both panes. */
+test('the navigation fallback is translated from the wire in both directions', async () => {
+  const h = harness();
+  const off = await readyComparison(h, compared({ sync: { entries: [], matchNodeIdFallback: true } }));
+  assert.equal(configOf(h, off.slot).syncNavigationData.disableMappingFallback, false);
+  h.renderer.finalize(off.handle);
+
+  const on = await readyComparison(h, compared({ sync: { entries: [], matchNodeIdFallback: false } }));
+  assert.equal(configOf(h, on.slot).syncNavigationData.disableMappingFallback, true);
+  h.renderer.finalize(on.handle);
+
+  // Absent reads as `false`, which is the conservative half.
+  const absent = await readyComparison(h, compared({ sync: { entries: [] } }));
+  assert.equal(configOf(h, absent.slot).syncNavigationData.disableMappingFallback, true);
+});
+
+test('showDiffHighlights is present only when the session declares it', async () => {
+  const h = harness();
+  const off = await readyComparison(h);
+  assert.ok(!('showDiffHighlights' in configOf(h, off.slot).syncNavigationData));
+  h.renderer.finalize(off.handle);
+
+  const on = await readyComparison(h,
+    compared({ sync: { entries: ENTRIES, showDiffHighlights: true } }));
+  assert.equal(configOf(h, on.slot).syncNavigationData.showDiffHighlights, true);
+});
+
+/* `Comparison.overlaysLeft` is a bare `EdgeOverlay[]`; the config field takes
+ * `EdgeOverlaysData[]`. The wrapper is the adapter's, and each pane gets only
+ * its own list. */
+test('overlays are wrapped, side-correct, and omitted when empty', async () => {
+  const h = harness();
+  const bare = await readyComparison(h);
+  assert.ok(!('edgeOverlaysDataListLeftPane' in configOf(h, bare.slot)));
+  assert.ok(!('edgeOverlaysDataListRightPane' in configOf(h, bare.slot)));
+  h.renderer.finalize(bare.handle);
+
+  const overlay = { id: 'o', name: 'fusion', edges: [] };
+  const { slot } = await readyComparison(h, compared({ extra: { overlaysRight: [overlay] } }));
+  assert.ok(!('edgeOverlaysDataListLeftPane' in configOf(h, slot)));
+  assert.deepEqual(configOf(h, slot).edgeOverlaysDataListRightPane, [
+    { type: 'edge_overlays', name: 'left → right', graphName: 'gR', overlays: [overlay] },
+  ]);
+});
+
+/* ------------------------------------------------------------ the two phases */
+
+test('the second pane is requested only once the first has processed', async () => {
+  const h = harness();
+  const promise = h.renderer.install(compared(), { comparison: 'c/x' });
+  const element = h.element(h.last());
+  assert.deepEqual(element.selections, [], 'nothing is navigated before an event');
+
+  element.emitProcessed('gL', 0);
+  assert.deepEqual(element.selections, [{ nodeId: 'r0', graphId: 'gR', label: 'cR', paneIndex: 1 }]);
+
+  element.emitProcessed('gR', 1);
+  const handle = await promise;
+  assert.deepEqual(handle.graph, { left: 'gL', right: 'gR' });
+  assert.equal(handle.viewId, null);
+  assert.deepEqual(handle.presentation, { kind: 'comparison', comparison: 'c/x' });
+});
+
+test('a mismatched auto-selection is corrected on pane 0, naming the pane', async () => {
+  const h = harness();
+  const promise = h.renderer.install(compared(), { comparison: 'c/x' });
+  const element = h.element(h.last());
+  element.emitProcessed('gOther', 0);
+  assert.deepEqual(element.selections, [{ nodeId: 'l0', graphId: 'gL', label: 'cL', paneIndex: 0 }]);
+  element.emitProcessed('gL', 0);
+  element.emitProcessed('gR', 1);
+  await promise;
+});
+
+/* The pane is part of an event's IDENTITY. `Session.validate` permits both
+ * panes to name the same graph, and opening the second pane re-lays-out the
+ * first -- so a wait keyed on the graph id alone is satisfied by the wrong
+ * pane, and the candidate is finalized with a pane that never processed.
+ *
+ * Deleting the `pane !== target.pane` term in `#onProcessed` makes this test
+ * fail: the stray pane-0 event resolves the promise with the right pane never
+ * having been laid out. */
+test('a pane-0 re-layout does not satisfy the wait for pane 1', async () => {
+  const h = harness();
+  const same = compared({ right: { collection: 'cL', graph: 'gL' } });
+  const promise = h.renderer.install(same, { comparison: 'c/x' });
+  const element = h.element(h.last());
+  element.emitProcessed('gL', 0);
+  assert.equal(element.selections.length, 1);
+
+  let settledEarly = false;
+  promise.then(() => { settledEarly = true; }, () => { settledEarly = true; });
+  element.emitProcessed('gL', 0);                 // the re-layout of pane 0
+  // `install` is an async function, so its promise ADOPTS the entry's rather
+  // than being it: a single microtask tick is not enough to observe a
+  // settlement, and a check that flushed once would pass without the filter.
+  await flush();
+  assert.equal(settledEarly, false, 'the pane-1 wait was satisfied by a pane-0 event');
+
+  element.emitProcessed('gL', 1);
+  assert.ok(await promise);
+});
+
+test('node data is installed in the pane whose graph owns it', async () => {
+  const h = harness();
+  const sets = [
+    { graph: 'gL', name: 'left-metric', results: [{ nodeId: 'l0', value: { value: 1 } }] },
+    { graph: 'gR', name: 'right-metric', results: [{ nodeId: 'r0', value: { value: 2 } }] },
+    { graph: 'gNeither', name: 'ignored', results: [] },
+  ];
+  const { slot } = await readyComparison(h, compared({ nodeDataSets: sets }));
+  assert.deepEqual(h.element(slot).nodeData.map((d) => ({ name: d.name, paneIndex: d.paneIndex })), [
+    { name: 'left-metric', paneIndex: 0 },
+    { name: 'right-metric', paneIndex: 1 },
+  ]);
+});
+
+/* ------------------------------------------------------- cancellation windows
+
+   `entry.safe` means "no processing this renderer asked for is outstanding".
+   It is true at the pane-0 event and FALSE AGAIN the instant the pane-1
+   `selectNode` is issued, and those two windows must behave differently. */
+
+test('cancelling before the first pane event quarantines, and the late event releases it', async () => {
+  const h = harness();
+  const promise = h.renderer.install(compared(), { comparison: 'c/x' });
+  const slot = h.last();
+  const element = h.element(slot);
+  h.renderer.cancel();
+  assert.equal((await settled(promise)).status, 'rejected');
+  assert.equal(h.renderer.quarantined, 1, 'an element mid-processing cannot be removed');
+
+  element.emitProcessed('gL', 0);
+  // Cancelled: the second pane is never asked for, because asking would make
+  // the entry unsafe again for an event nobody is waiting for.
+  assert.deepEqual(element.selections, []);
+  assert.equal(h.renderer.quarantined, 0);
+  assert.ok(!slot.isConnected);
+});
+
+test('cancelling between the two pane events quarantines until the second arrives', async () => {
+  const h = harness();
+  const promise = h.renderer.install(compared(), { comparison: 'c/x' });
+  const slot = h.last();
+  const element = h.element(slot);
+  element.emitProcessed('gL', 0);
+  assert.equal(element.selections.length, 1, 'pane 1 was requested, so the entry is unsafe again');
+
+  h.renderer.cancel();
+  assert.equal((await settled(promise)).status, 'rejected');
+  assert.equal(h.renderer.quarantined, 1);
+  assert.ok(slot.isConnected, 'removing an element still processing throws NG0953');
+
+  element.emitProcessed('gR', 1);
+  assert.equal(h.renderer.quarantined, 0);
+  assert.ok(!slot.isConnected);
+});
+
+/* The vacuity check the rule above earns: if `entry.safe` were left TRUE when
+ * the pane-1 request is issued, the cancel in the previous test would take the
+ * `#release` branch and assert its way out, or remove an element that is still
+ * processing. Removing `entry.safe = false` from `#onProcessed` makes that test
+ * fail with a quarantine count of 0 and a detached slot. This one states the
+ * invariant directly. */
+test('a comparison is unsafe again while the second pane is outstanding', async () => {
+  const h = harness();
+  const promise = h.renderer.install(compared(), { comparison: 'c/x' });
+  const element = h.element(h.last());
+  element.emitProcessed('gL', 0);
+  h.renderer.cancel();
+  await settled(promise);
+  // Safe would mean "released"; unsafe means "quarantined".
+  assert.equal(h.renderer.quarantined, 1);
+});
+
+test('no partial comparison is ever finalized', async () => {
+  const h = harness();
+  const first = await ready(h, 'g1');
+  assert.equal(h.renderer.finalize(first.handle).ok, true);
+
+  const promise = h.renderer.install(compared(), { comparison: 'c/x' });
+  h.element(h.last()).emitProcessed('gL', 0);
+  // The left pane is up, but the candidate is not ready and there is no handle
+  // to finalize -- the previous view is still the only visible slot.
+  const current = h.slots().filter((s) => s.classList.contains(CURRENT));
+  assert.deepEqual(current, [first.slot]);
+  h.element(h.last()).emitProcessed('gR', 1);
+  assert.equal(h.renderer.finalize(await promise).ok, true);
+});
+
+/* Each pane is its own layout round, so each gets its own budget rather than
+ * the remainder of the first one's. */
+test('the processing deadline restarts for the second pane', async () => {
+  const h = harness();
+  const promise = h.renderer.install(compared(), { comparison: 'c/x' });
+  const element = h.element(h.last());
+  h.clock.advance(h.renderer.timeout - 1);
+  element.emitProcessed('gL', 0);
+  h.clock.advance(h.renderer.timeout - 1);            // past the FIRST deadline
+  element.emitProcessed('gR', 1);
+  assert.ok(await promise);
+});
+
+test('a stall in either phase times out and quarantines', async () => {
+  for (const phase of ['left', 'right']) {
+    const h = harness();
+    const promise = h.renderer.install(compared(), { comparison: 'c/x' });
+    if (phase === 'right') h.element(h.last()).emitProcessed('gL', 0);
+    h.clock.advance(h.renderer.timeout + 1);
+    const outcome = await settled(promise);
+    assert.equal(outcome.status, 'rejected');
+    assert.equal(outcome.error.kind, 'timeout');
+    assert.equal(h.renderer.quarantined, 1);
+  }
+});
+
+test('a comparison superseded by a newer request settles as cancelled', async () => {
+  const h = harness();
+  const first = h.renderer.install(compared(), { comparison: 'c/x' });
+  const firstElement = h.element(h.last());
+  const second = h.renderer.install(compared(), { comparison: 'c/x' });
+  const outcome = await settled(first);
+  assert.equal(outcome.status, 'rejected');
+  assert.equal(outcome.error.kind, 'cancelled');
+  firstElement.emitProcessed('gL', 0);                // releases the superseded one
+  assert.equal(h.renderer.quarantined, 0);
+  const element = h.element(h.last());
+  element.emitProcessed('gL', 0);
+  element.emitProcessed('gR', 1);
+  assert.ok(await second);
 });

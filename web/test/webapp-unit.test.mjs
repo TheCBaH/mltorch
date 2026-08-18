@@ -50,7 +50,13 @@ function scenario({ session = {}, render = {} } = {}) {
   const errors = [];
   const statuses = [];
   const calls = { prepare: [], commit: [], abort: [], install: [], finalize: [], abortReady: [], markInconsistent: [], cancel: 0, buildSession: [], sessions: [] };
-  const handle = Object.freeze({ handle: true, viewId: 'v/canonical' });
+  /* Shaped exactly like `Renderer`'s own handle, `presentation` included: the
+   * coordinator retains that descriptor and DERIVES `view` from it, so a stub
+   * carrying only `viewId` would prove a contract nothing implements. */
+  const handle = Object.freeze({
+    handle: true, viewId: 'v/canonical',
+    presentation: { kind: 'single', view: 'v/canonical' },
+  });
   let lastId = null;
 
   const bridge = {
@@ -625,4 +631,40 @@ test('a presentation retires cleanly though it owns no worker', async () => {
   await s.coordinator.present({ view: 'v/source' });
   assert.deepEqual(s.workers.map((w) => w.terminated), terminations);
   assert.equal(s.errors.length, 0);
+});
+
+/* ------------------------------------------------------- comparisons */
+
+/* The coordinator forwards an opaque selection and retains whatever descriptor
+ * the renderer reports. It knows nothing about comparisons beyond that -- which
+ * is the point: a two-pane presentation costs it no new state and no new
+ * failure mode. */
+test('a comparison selection is forwarded verbatim and retained as the presentation', async () => {
+  const s = await loaded();
+  const comparison = Object.freeze({
+    handle: true, viewId: null,
+    presentation: { kind: 'comparison', comparison: 'c/import' },
+  });
+  s.view.install = (text, selection) => { s.calls.install.push({ text, selection }); return comparison; };
+
+  await s.coordinator.present({ comparison: 'c/import' });
+
+  assert.deepEqual(s.calls.install.at(-1), { text: '{}', selection: { comparison: 'c/import' } });
+  assert.deepEqual(s.coordinator.presentation, { kind: 'comparison', comparison: 'c/import' });
+  // Derived, not stored: there is no single view on screen, so there is no
+  // answer to give -- and a stale `v/canonical` here would put the wrong id in
+  // the URL and the wrong entry in the view selector.
+  assert.equal(s.coordinator.view, null);
+});
+
+test('a failed comparison leaves the previous presentation intact', async () => {
+  const s = await loaded();
+  assert.deepEqual(s.coordinator.presentation, { kind: 'single', view: 'v/canonical' });
+  s.view.install = () => { throw Object.assign(new Error('nope'), { kind: 'invalid' }); };
+
+  await s.coordinator.present({ comparison: 'c/nope' });
+
+  assert.deepEqual(s.coordinator.presentation, { kind: 'single', view: 'v/canonical' });
+  assert.equal(s.coordinator.view, 'v/canonical');
+  assert.equal(s.errors.at(-1), 'nope');
 });

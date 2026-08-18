@@ -1503,3 +1503,85 @@ routing rests on `split_pane.ts:73-93` being read, not on a pixel.
 
 `addNodeDataProviderData(name, data, paneIndex)` is accepted per pane, at the point the
 adapter installs it: after both pane events.
+
+## 19. The two-pane adapter — `web/app/`
+
+§18 says what the element does; this says what the browser app makes of it. Phase 3 of
+`web-ui-3.md`: the two comparisons `Me_session` already exports (`c/import`, `c/canonical`)
+become openable presentations. Nothing about the wire changed except §20's one field.
+
+**A presentation is a closed sum, and it replaces "the current view id" at every boundary.**
+`presentation.js` declares `{kind:'single', view}` and `{kind:'comparison', comparison}`;
+Phase 4's `flow` is the third arm, which is why every consumer switches on `kind` rather
+than testing whether a field is present. A comparison is *not* a view and cannot be encoded
+as one — `View` names one graph and a comparison names two — so `Coordinator.view` became a
+**derived** accessor (`null` while a comparison is on screen) over a retained
+`#presentation`. Two stored fields could disagree; one cannot.
+
+The URL follows the same shape. `encodeUrl` writes exactly one branch key, *from the
+branch*, so exclusivity is structural rather than a rule each caller remembers; `decodeUrl`
+treats a URL carrying both `view` and `comparison` as naming **neither**, because no
+non-arbitrary rule picks a winner and guessing opens a presentation the link did not ask
+for. `requestKey` is untouched: a presentation is not part of a request, which is what keeps
+"same model, different pane pair" a `present()` rather than a re-export.
+
+**A load resolves a view; a comparison is opened on top of it.** `Coordinator.load` takes an
+ordered `prefer` list of *view ids*, so `?comparison=c/import` still loads a single view
+first and then switches. That is one extra presentation change on startup, and it is the
+honest shape: the comparison rests on a document that does not exist until the load lands,
+so it cannot be resolved before then. The switch replaces its URL rather than pushing —
+one navigation, one entry.
+
+**Two-phase readiness, and the `safe` invariant that pays for it.** `Renderer` resolves a
+comparison completely before a slot, timer, deferred or element exists — one record with
+that id, each pane's graph found *inside the collection its `Pane_state` names* (a graph in
+some other collection is `Wrong_collection` at the exporter and a refusal here), a first
+node on both (a node-less graph cannot be navigated to, since `selectNode` is the only way
+into a pane), well-formed mapping entries, array overlays. There is no fall-through from an
+unresolvable comparison to `defaultView`.
+
+The candidate then waits on `(graph, paneIndex)` twice: connect hidden with the left graph
+and the full config, await `(left, 0)`, issue `selectNode(right.firstNodeId, right.graph,
+right.collectionLabel, 1)`, await `(right, 1)`, install node data per pane, resolve.
+`entry.safe` means *no processing this renderer asked for is outstanding* — the
+precondition `#release` asserts and `#park` branches on — so it is true at the pane-0 event
+and **false again immediately before** the pane-1 request. That single toggle is what makes
+the two cancellation windows behave differently:
+
+- cancelled *between* the two events ⇒ unsafe ⇒ quarantined, and the late pane-1 event
+  releases it;
+- cancelled *before* the pane-0 event ⇒ the event finds the entry cancelled, releases it,
+  and never asks for a second pane — no quarantine slot is spent on an event nobody awaits.
+
+Deleting `entry.safe = false` turns the first into a removal of an element that is still
+processing; both are pinned in `renderer-unit`, and both were watched to fail without it.
+The processing deadline **restarts** for the second pane (each is its own layout round) while
+`startedAt` does not, so the heartbeat keeps reporting total elapsed. Heartbeat, capacity,
+supersession, quarantine, `abortReady`, `finalize` and `markInconsistent` are untouched.
+
+**Config translation is translation, never inference.** `disableMappingFallback` is
+`sync.matchNodeIdFallback !== true` and nothing else (§20); `showDiffHighlights` is emitted
+only when declared; mapping entries cross as **arrays** (`{leftNodeIds, rightNodeIds}`),
+because expanding a correspondence *component* into pairs would turn one claim into a
+Cartesian product of claims.
+
+**The overlay wrapper is the adapter's, and that asymmetry is deliberate.**
+`Comparison.overlays_left/right` are bare `Model_explorer.EdgeOverlay.t list`, but
+`edgeOverlaysDataListLeftPane` takes `EdgeOverlaysData[]` — `{type, name, graphName,
+overlays}`. The browser wraps, per pane, and omits the key entirely for an empty list —
+which is every session produced today, since the one real overlay rides on the kernel
+graph's own `tasksData`. Moving the wrapper onto the wire is the principled shape and is
+**not** taken while no comparison populates one; it is the obvious follow-up if one ever
+does.
+
+**What the chrome may say.** `panels.js` renders the comparison selector from
+`Session.comparisons` alone — no capability is consulted — with `Comparison.label` verbatim,
+plus one leading "Single view" entry that exists only because a control able to enter
+compare mode must be able to leave it. Pane headings come from `viewByGraph`: a comparison
+names only `{collection, graph}` and its own label is prose, so a heading is a **lookup** of
+the stage view declaring the same graph (falling back to the bare graph id), never a graph
+id built from a stage name. They are rendered only for a comparison that is on screen — a
+heading written while a replacement was still being prepared would label the graph still
+showing with the name of one it may never be replaced by. The summary states the exact
+component count and never claims completeness, and for an empty mapping says so outright
+before saying which of §20's two regimes applies.
