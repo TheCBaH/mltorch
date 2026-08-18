@@ -1585,3 +1585,110 @@ heading written while a replacement was still being prepared would label the gra
 showing with the name of one it may never be replaced by. The summary states the exact
 component count and never claims completeness, and for an empty mapping says so outright
 before saying which of §20's two regimes applies.
+
+## 20. The flow spine as a destination — `Me_flow.State.view`
+
+Phase 4 of `web-ui-4.md` makes the exported spine navigable. The first half of that
+is a wire contract: **a flow state names the view it opens, explicitly.**
+
+`Me_flow.State.t` carries `view : string`, required rather than derived, and
+`Me_session.validate` checks that it resolves, that it is a `View.Stage` (never
+`Flow` or `Compare`), and that the view's graph is the state's own.
+
+**Why not look the view up by graph.** It is ambiguous *by contract*, not merely in
+some hypothetical export. Nothing in `Session.validate` forbids two stage views over
+one graph, and `View.kind`'s own docstring contemplates exactly that — canonical is
+"a VIEW naming the final Native state's graph, not a separate projection, and when
+every pass and the pack are identities that graph is the initial one". A lookup that
+happens to be unique in today's output would be a rule the document does not
+guarantee. Matching on label or layer would be inference of a cruder kind. So the
+producer says which view, and the validator checks it meant it.
+
+**Why the check lives in `Me_session` and not `Me_flow`.** Identical reasoning to
+`Transition.comparison`: `Me_flow.validate` establishes the rooted-DAG contract and
+cannot see the view table, so a rule about views cannot be stated there. `Me_flow`
+owns DAG validity; `Me_session` owns every rule that crosses two tables.
+
+Three tags, each carrying data rather than prose, with the multi-field payload in
+its own module so `state`/`view` labels cannot collide (CLAUDE.md's
+record-namespace rule, not warning 30 silencing):
+
+| Tag | Payload | Means |
+| --- | --- | --- |
+| `` `Flow_view_unknown `` | `Flow_state_view.t` | the id resolves to no declared view |
+| `` `Flow_view_not_stage `` | `Flow_state_view.t` | it resolves to a `Flow` or `Compare` view |
+| `` `Flow_view_graph_disagrees `` | `Flow_view_graph.t` | a stage view, but over another graph |
+
+The third carries **both** graphs, because the check is that they are equal —
+naming one would not say which side was wrong, and the ids alone would have to be
+looked back up in two tables to mean anything.
+
+**No fallback for older documents.** A client-side graph-to-view map as a
+compatibility shim would reintroduce exactly the ambiguity this field exists to
+remove. A session predating the field simply has no navigable flow.
+
+The exporter populates it from the stage view it built for the same graph, and the
+pairing is pinned end-to-end in `test/me_visualize_json_cram.t` — the five states
+against `v/source`, `v/initial`, `v/canonical`, `v/stage_program` and `v/kernel`,
+each with its graph agreeing — so a renaming on either side is a test failure rather
+than a silently unnavigable spine.
+
+### 20.1 The flow graph — `Me_flow_graph`
+
+The spine renders as a **bipartite** graph: one node per state, one per transition,
+edges `before -> transition -> after` and nothing else. Bipartite because Model
+Explorer has no edge-selection event and `subgraphIds` is a node field — a
+transition has to *be* a node for selecting it to offer its comparison.
+
+`Me_flow_graph` is its own module rather than a case inside a dialect projector:
+this record shape has nothing in common with a `Graph_ir` walk, and `Me_build` is
+functorised over exactly that walk.
+
+**Every node carries one output slot, leaves included.** `Session.validate` reads a
+node's slot count as `List.length outputsMetadata` and rejects an edge into a slot
+that does not exist, so a leaf without one does not merely render oddly — it makes
+the whole session invalid.
+
+**Two ceilings are checked before anything is allocated, and that ordering is the
+bound.** `Me_flow.validate` runs first, because `max_states`/`max_transitions` live
+there and every walk below is linear in them. Then the projected counts —
+`states + transitions` against `max_nodes_per_graph`, `2 * transitions` against
+`max_edges_per_graph` — because those two are **wire-selectable independently** and
+*nothing downstream enforces them*: `Session.validate` counts graphs (`Field.Graphs`)
+and the session-wide `int64` `Total_nodes`/`Total_edges`, never a single graph's.
+Skipping this would make the flow graph the one graph in the session on which
+`max_nodes_per_graph` means nothing. Every other projector (`Me_build`, `Me_source`,
+`Me_kernel`) owns the same two checks for the same reason.
+
+A transition names its comparison in an attribute **only when it has one**. An
+absent comparison is honest absence, never an identity claim, so it gets no
+attribute rather than one reading "none".
+
+### 20.2 A flow destination is three agreeing facts
+
+`Session.validate` binds together what nothing bound before:
+
+- the spine's own `flow.graph`;
+- exactly one `View.Flow`, naming that graph — resolved **in the collection that
+  view declares**, so a graph living in another collection is `Wrong_collection`
+  exactly as it is for a view or a pane;
+- `feature:flow` `Available (Graph flow.graph)`.
+
+and, symmetrically, `flow = None` admits **neither** a `View.Flow` nor an
+`Available` `feature:flow`. *A capability alone never creates a destination* —
+that was already the browser's rule, and it is now the document's.
+
+Before this, a session could carry a spine whose graph no collection held, a flow
+view pointing elsewhere, or a capability advertising a third graph, and the browser
+would have been the first thing to notice. The client's defensive index remains, but
+as defence in depth rather than as the boundary.
+
+`Flow_destination.part` is a closed variant (`Flow_view` / `Flow_capability`) rather
+than prose in a message, and `named` is `None` when that part is absent entirely
+versus `Some g` when it named the wrong graph — the two are different defects and
+the payload keeps them apart. Each of the six rules was individually neutered and
+watched to turn its test green before being restored.
+
+The exporter adds the graph to the same collection as the stage graphs and declares
+`v/flow` "Export flow". **It is never the default view**: the browser stays
+source-first and the CLI keeps canonical Native.

@@ -30,6 +30,7 @@ module State = struct
   type t = {
     id : string;
     graph : string;
+    view : string;
     layer : Me_ids.Layer.t;
     label : string;
     produced_by : string option;
@@ -410,11 +411,14 @@ let pass_execution_jsont =
   |> Jsont.Object.finish
 
 let state_jsont =
-  Jsont.Object.map ~kind:"flow_state" (fun id graph layer label produced_by ->
-      { State.id; graph; layer; label; produced_by })
+  Jsont.Object.map ~kind:"flow_state"
+    (fun id graph view layer label produced_by ->
+      { State.id; graph; view; layer; label; produced_by })
   |> Jsont.Object.mem "id" Jsont.string ~enc:(fun (s : State.t) -> s.State.id)
   |> Jsont.Object.mem "graph" Jsont.string ~enc:(fun (s : State.t) ->
       s.State.graph)
+  |> Jsont.Object.mem "view" Jsont.string ~enc:(fun (s : State.t) ->
+      s.State.view)
   |> Jsont.Object.mem "layer" layer_jsont ~enc:(fun (s : State.t) ->
       s.State.layer)
   |> Jsont.Object.mem "label" Jsont.string ~enc:(fun (s : State.t) ->

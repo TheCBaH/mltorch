@@ -145,8 +145,8 @@ let%expect_test "two details on two different value nodes" =
   | Ok s ->
       Format.printf "two   %a@." pp (Me_detail.apply ~key:b ~limits s (delta b)));
   [%expect {|
-    one   graphs=7 views=7
-    two   graphs=8 views=8 |}]
+    one   graphs=8 views=8
+    two   graphs=9 views=9 |}]
 
 let%expect_test "re-requesting one REPLACES it" =
   (* Aggregates are counted over what is installed, so an accumulating merge
@@ -160,8 +160,8 @@ let%expect_test "re-requesting one REPLACES it" =
   Format.printf "once  %a@." pp (Ok once);
   Format.printf "twice %a@." pp (Me_detail.apply ~key:a ~limits once (delta a));
   [%expect {|
-    once  graphs=7 views=7
-    twice graphs=7 views=7 |}]
+    once  graphs=8 views=8
+    twice graphs=8 views=8 |}]
 
 let%expect_test "the parent node gains subGraphIds, and only then" =
   (* A fresh session carries none: a link to a graph that is not installed is a
@@ -249,7 +249,7 @@ let%expect_test "each passes alone, the SECOND merge does not" =
         (Me_detail.apply ~key:b ~limits:tight s' (delta b)));
   [%expect
     {|
-    first  graphs=7 views=7
+    first  graphs=8 views=8
     second detail detailGraphs = 2 is over the ceiling |}]
 
 (* --- the expression graph --- *)

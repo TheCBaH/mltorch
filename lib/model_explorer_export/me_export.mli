@@ -54,6 +54,7 @@ type error =
   | `View of Graph_view.error
   | `Project of Me_build.error
   | `Navigation of Me_pt2.error
+  | `Flow_graph of Me_flow_graph.error
   | `Verification of Me_verify.error
   | `Identifier of Me_ids.error
   | `Document of Me_session.Session.error ]

@@ -43,15 +43,21 @@ let node ?(outputs = 1) ?(incoming = []) ?(attrs = 0) ?(inputs_metadata = 0)
 let graph id nodes = ME.Graph.create ~id ~nodes ()
 let collection graphs = ME.GraphCollection.create ~label:"mltorch:m" ~graphs ()
 
-let capabilities ~stage_graph =
+(* [?flow_graph] defaults to none, because the base session declares no flow --
+   and a [feature:flow] that offers a graph in a session with no spine is now
+   exactly what [validate] rejects. A capability alone never creates a
+   destination. *)
+let capabilities ?flow_graph ~stage_graph () =
   List.map
     (fun k ->
       let status =
         match k with
         | S.Capability.Graph_stage _ ->
             S.Capability.Available (S.Capability.Graph stage_graph)
-        | S.Capability.Feature S.Capability.Flow ->
-            S.Capability.Available (S.Capability.Graph stage_graph)
+        | S.Capability.Feature S.Capability.Flow -> (
+            match flow_graph with
+            | Some g -> S.Capability.Available (S.Capability.Graph g)
+            | None -> S.Capability.Not_requested)
         | S.Capability.Feature S.Capability.Verification ->
             S.Capability.Available
               (S.Capability.Verification_summary Pass.Outcome_counts.empty)
@@ -104,7 +110,7 @@ let base =
     comparisons = [];
     node_data_sets = [];
     flow = None;
-    capabilities = capabilities ~stage_graph:"g/native/000";
+    capabilities = capabilities ~stage_graph:"g/native/000" ();
     diagnostics = [];
     default_view = "v/native";
   }
@@ -470,13 +476,61 @@ let%expect_test "a mapping entry must name a node in ITS SIDE's pane graph" =
 
 (* --- the flow's half that only this scope can check --- *)
 
+(* Every state opens a declared stage view over its OWN graph, so the fixture
+   carries the graphs and views its spine names -- the rule under test is that
+   those three facts agree, and a fixture that could not satisfy it would only
+   ever prove the failure branch. *)
 let with_flow session comparison_of_4d =
   let st id graph layer label produced_by =
-    { Me_flow.State.id; graph; layer; label; produced_by }
+    { Me_flow.State.id; graph; view = "v" ^ id; layer; label; produced_by }
+  in
+  let stage_view id graph kind =
+    {
+      S.View.id;
+      label = id;
+      kind = S.View.Stage kind;
+      collection = "mltorch:m";
+      graph;
+    }
+  in
+  let collections =
+    match session.S.Session.graph_collections with
+    | [ c ] ->
+        [
+          {
+            c with
+            Model_explorer.GraphCollection.graphs =
+              c.Model_explorer.GraphCollection.graphs
+              @ [
+                  graph "g/pt2/000" [ node "p0" ];
+                  graph "g/flow" [ node "s/pt2/000" ];
+                ];
+          };
+        ]
+    | other -> other
   in
   {
     session with
-    S.Session.flow =
+    S.Session.graph_collections = collections;
+    (* A destination is three agreeing facts: the spine's graph, the one
+       [View.Flow] that opens it, and the capability that offers it. *)
+    views =
+      [
+        stage_view "vs/pt2/000" "g/pt2/000" S.Capability.Source;
+        stage_view "vs/native/000" "g/native/000" S.Capability.Initial_native;
+        stage_view "vs/native4d/000" "g/native4d/000" S.Capability.Native4d;
+        {
+          S.View.id = "v/flow";
+          label = "Export flow";
+          kind = S.View.Flow;
+          collection = "mltorch:m";
+          graph = "g/flow";
+        };
+      ];
+    capabilities =
+      capabilities ~stage_graph:"g/native/000" ~flow_graph:"g/flow" ();
+    default_view = "vs/native/000";
+    flow =
       Some
         {
           Me_flow.states =
@@ -523,6 +577,117 @@ let%expect_test "a transition's comparison must be over its own two graphs" =
     comparison does not exist      unknown comparison c/nope
     no comparison                  ok |}]
 
+(* A flow DESTINATION is three facts that must name one graph: the spine's own
+   [graph], the single [View.Flow] that opens it, and the [feature:flow]
+   capability that offers it. Nothing bound them together before, so each of
+   these could reach the browser and be discovered there. *)
+let%expect_test "a flow destination is the spine, its view and its capability" =
+  let flowed = with_flow two_pane_session None in
+  let views_without_flow =
+    List.filter
+      (fun (v : S.View.t) -> v.S.View.kind <> S.View.Flow)
+      flowed.S.Session.views
+  in
+  let flow_view ?(id = "v/flow") graph =
+    {
+      S.View.id;
+      label = "Export flow";
+      kind = S.View.Flow;
+      collection = "mltorch:m";
+      graph;
+    }
+  in
+  check "spine, view and capability agree" flowed;
+  check "no flow view at all"
+    { flowed with S.Session.views = views_without_flow };
+  (* Distinct ids: two views sharing one id is [`Duplicate_view], a different
+     defect that the generic rule catches first. This is the case where the
+     session declares two legitimate-looking flow destinations; the SECOND in
+     document order is the one named. *)
+  check "two flow views"
+    {
+      flowed with
+      S.Session.views =
+        flow_view ~id:"v/flow2" "g/flow" :: flowed.S.Session.views;
+    };
+  check "the flow view shows another graph"
+    {
+      flowed with
+      S.Session.views = flow_view "g/native/000" :: views_without_flow;
+    };
+  (* The graph must be in the collection the flow view DECLARES -- one that
+     exists elsewhere is the same defect a view or a pane would report. *)
+  check "the spine's graph is in no collection"
+    {
+      flowed with
+      S.Session.flow =
+        Option.map
+          (fun (f : Me_flow.t) -> { f with Me_flow.graph = "g/nope" })
+          flowed.S.Session.flow;
+      views = flow_view "g/nope" :: views_without_flow;
+    };
+  check "the capability offers another graph"
+    {
+      flowed with
+      S.Session.capabilities =
+        capabilities ~stage_graph:"g/native/000" ~flow_graph:"g/native/000" ();
+    };
+  check "the capability offers nothing"
+    {
+      flowed with
+      S.Session.capabilities = capabilities ~stage_graph:"g/native/000" ();
+    };
+  (* And with no spine, neither of the other two may claim one. *)
+  check "a flow view without a spine" { flowed with S.Session.flow = None };
+  check "a capability without a spine"
+    { flowed with S.Session.flow = None; views = views_without_flow };
+  [%expect
+    {|
+    spine, view and capability agree ok
+    no flow view at all            the flow declares graph g/flow but there is no flow view
+    two flow views                 duplicate flow view v/flow
+    the flow view shows another graph the flow declares graph g/flow but its flow view names g/native/000
+    the spine's graph is in no collection unknown graph g/nope
+    the capability offers another graph the flow declares graph g/flow but its feature:flow capability names g/native/000
+    the capability offers nothing  the flow declares graph g/flow but there is no feature:flow capability
+    a flow view without a spine    flow view v/flow in a session that declares no flow
+    a capability without a spine   feature:flow offers graph g/flow in a session that declares no flow |}]
+
+(* A state's view is an EXPLICIT reference, and all three ways it can be wrong
+   are distinguished. Lookup by graph would be ambiguous by contract -- nothing
+   forbids two stage views over one graph -- and lookup by label or layer would
+   be inference. *)
+let%expect_test "a flow state opens a declared stage view over its own graph" =
+  let flowed = with_flow two_pane_session None in
+  let restate f =
+    {
+      flowed with
+      S.Session.flow =
+        Option.map
+          (fun (fl : Me_flow.t) ->
+            { fl with Me_flow.states = List.map f fl.Me_flow.states })
+          flowed.S.Session.flow;
+    }
+  in
+  let retarget id view (st : Me_flow.State.t) =
+    if st.Me_flow.State.id = id then { st with Me_flow.State.view } else st
+  in
+  check "each state names its own view" flowed;
+  check "view does not resolve" (restate (retarget "s/native/000" "v/nope"));
+  (* The flow view is a destination for the flow control, never for a state --
+     and [with_flow] already declares it, so this only retargets. *)
+  check "view is the flow view" (restate (retarget "s/native/000" "v/flow"));
+  (* Resolving to a stage view is not enough: this one shows another graph, so
+     the state would open the wrong representation for its point in the spine. *)
+  check "stage view shows another graph"
+    (restate (retarget "s/native/000" "vs/native4d/000"));
+  [%expect
+    {|
+    each state names its own view  ok
+    view does not resolve          flow state s/native/000 names unknown view v/nope
+    view is the flow view          flow state s/native/000 names view v/flow, which is not a stage view
+    stage view shows another graph flow state s/native/000 is graph g/native/000 but its view vs/native4d/000 shows graph g/native4d/000 |}]
+
 (* --- determinism, and the aggregates --- *)
 
 let encode s =
@@ -556,7 +721,7 @@ let%expect_test "the epoch is runtime state and never reaches the document" =
 let%expect_test "the document, in full" =
   print_endline (encode base);
   [%expect
-    {| {"schemaVersion":1,"producer":{"tool":"mltorch","sessionSchema":1},"model":{"name":"resnet18","sourceKind":"pt2","sourceBytes":"46000000","pt2GraphCount":1,"opTargets":2},"graphCollections":[{"label":"mltorch:m","graphs":[{"id":"g/native/000","nodes":[{"id":"n0","label":"n0","namespace":"","attrs":[],"incomingEdges":[],"inputsMetadata":[],"outputsMetadata":[{"id":"0","attrs":[]}]},{"id":"n1","label":"n1","namespace":"","attrs":[],"incomingEdges":[{"sourceNodeId":"n0","sourceNodeOutputId":"0","targetNodeInputId":"0"}],"inputsMetadata":[],"outputsMetadata":[{"id":"0","attrs":[]}]}]}]}],"views":[{"id":"v/native","label":"Initial Native","kind":"stage:initial_native","collection":"mltorch:m","graph":"g/native/000"}],"comparisons":[],"nodeDataSets":[],"capabilities":[{"key":"stage:source","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:initial_native","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:canonical","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:native4d","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:stage_program","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:kernel","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:fusion","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"feature:flow","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"feature:verification","status":{"state":"available","payload":{"kind":"verification_summary","verificationSummary":[]}}},{"key":"feature:pass_audits","status":{"state":"available","payload":{"kind":"pass_audit_status","passAuditStatus":{"retainedReports":"3","omittedReports":"0","omittedCounts":[]}}}},{"key":"feature:fold","status":{"state":"available","payload":{"kind":"present"}}},{"key":"feature:expression_detail","status":{"state":"available","payload":{"kind":"present"}}},{"key":"feature:loop_ir","status":{"state":"unavailable","reason":"not_implemented"}},{"key":"feature:codegen","status":{"state":"unavailable","reason":"not_implemented"}}],"diagnostics":[],"defaultView":"v/native"} |}]
+    {| {"schemaVersion":1,"producer":{"tool":"mltorch","sessionSchema":1},"model":{"name":"resnet18","sourceKind":"pt2","sourceBytes":"46000000","pt2GraphCount":1,"opTargets":2},"graphCollections":[{"label":"mltorch:m","graphs":[{"id":"g/native/000","nodes":[{"id":"n0","label":"n0","namespace":"","attrs":[],"incomingEdges":[],"inputsMetadata":[],"outputsMetadata":[{"id":"0","attrs":[]}]},{"id":"n1","label":"n1","namespace":"","attrs":[],"incomingEdges":[{"sourceNodeId":"n0","sourceNodeOutputId":"0","targetNodeInputId":"0"}],"inputsMetadata":[],"outputsMetadata":[{"id":"0","attrs":[]}]}]}]}],"views":[{"id":"v/native","label":"Initial Native","kind":"stage:initial_native","collection":"mltorch:m","graph":"g/native/000"}],"comparisons":[],"nodeDataSets":[],"capabilities":[{"key":"stage:source","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:initial_native","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:canonical","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:native4d","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:stage_program","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:kernel","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"stage:fusion","status":{"state":"available","payload":{"kind":"graph","graph":"g/native/000"}}},{"key":"feature:flow","status":{"state":"not_requested"}},{"key":"feature:verification","status":{"state":"available","payload":{"kind":"verification_summary","verificationSummary":[]}}},{"key":"feature:pass_audits","status":{"state":"available","payload":{"kind":"pass_audit_status","passAuditStatus":{"retainedReports":"3","omittedReports":"0","omittedCounts":[]}}}},{"key":"feature:fold","status":{"state":"available","payload":{"kind":"present"}}},{"key":"feature:expression_detail","status":{"state":"available","payload":{"kind":"present"}}},{"key":"feature:loop_ir","status":{"state":"unavailable","reason":"not_implemented"}},{"key":"feature:codegen","status":{"state":"unavailable","reason":"not_implemented"}}],"diagnostics":[],"defaultView":"v/native"} |}]
 
 let%expect_test "aggregates are checked before the walks they bound" =
   let tight =

@@ -23,8 +23,11 @@ let check label flow =
 
 (* --- the spine --- *)
 
+(* [view] is required by the record but means nothing to [F.validate], which
+   cannot see a view table -- [Me_session.validate] is what checks it. Derived
+   from the id so every state's is distinct, exactly as its graph is. *)
 let state ?produced_by id layer label =
-  { F.State.id; graph = "g" ^ id; layer; label; produced_by }
+  { F.State.id; graph = "g" ^ id; view = "v" ^ id; layer; label; produced_by }
 
 let exec layer leaf index =
   { F.Pass_execution.layer; exec = { Pass.Exec_id.frames = []; leaf; index } }
@@ -414,3 +417,88 @@ let%expect_test "every legal triple, enumerated" =
     symbolic  --pass          -> symbolic
     symbolic  --adapt         -> kernel
     kernel    --pass          -> kernel |}]
+
+(* --- the projection --- *)
+
+let pp_graph ppf r =
+  Core.Pretty.err_result
+    ~ok:(fun ppf (g : Model_explorer.Graph.t) ->
+      let nodes = g.Model_explorer.Graph.nodes in
+      let edges =
+        List.fold_left
+          (fun acc (n : Model_explorer.GraphNode.t) ->
+            acc
+            + List.length
+                (Option.value n.Model_explorer.GraphNode.incomingEdges
+                   ~default:[]))
+          0 nodes
+      in
+      Fmt.pf ppf "%s nodes=%d edges=%d" g.Model_explorer.Graph.id
+        (List.length nodes) edges)
+    ~error:Me_flow_graph.pp_error ppf r
+
+let%expect_test "the spine projects to a bipartite graph" =
+  (* One node per state plus one per transition, and exactly the edges
+     [before -> transition -> after] -- so two per transition, no more. *)
+  Format.printf "shape    %a@." pp_graph (Me_flow_graph.graph ~limits valid);
+  Format.printf "states=%d transitions=%d@."
+    (List.length valid.F.states)
+    (List.length valid.F.transitions);
+  [%expect
+    {|
+    shape    g/flow nodes=15 edges=14
+    states=8 transitions=7 |}]
+
+let%expect_test "every node carries the one output slot an edge needs" =
+  (* [Me_session.validate] reads a node's slot count as the length of its
+     [outputsMetadata] and rejects an edge into a slot that does not exist. A
+     LEAF without one would make the whole session invalid, which is why this
+     counts nodes with no slot rather than checking a sample. *)
+  let g = Err.payload (Me_flow_graph.graph ~limits valid) in
+  let g = match g with Ok g -> g | Error _ -> assert false in
+  let slotless =
+    List.filter
+      (fun (n : Model_explorer.GraphNode.t) ->
+        List.length
+          (Option.value n.Model_explorer.GraphNode.outputsMetadata ~default:[])
+        <> 1)
+      g.Model_explorer.Graph.nodes
+  in
+  (* And every edge names slot "0" of a node that exists in this graph. *)
+  let ids =
+    List.map
+      (fun (n : Model_explorer.GraphNode.t) -> n.Model_explorer.GraphNode.id)
+      g.Model_explorer.Graph.nodes
+  in
+  let dangling =
+    List.concat_map
+      (fun (n : Model_explorer.GraphNode.t) ->
+        List.filter
+          (fun (e : Model_explorer.IncomingEdge.t) ->
+            (not (List.mem e.Model_explorer.IncomingEdge.sourceNodeId ids))
+            || e.Model_explorer.IncomingEdge.sourceNodeOutputId <> "0")
+          (Option.value n.Model_explorer.GraphNode.incomingEdges ~default:[]))
+      g.Model_explorer.Graph.nodes
+  in
+  Format.printf "slotless=%d dangling=%d@." (List.length slotless)
+    (List.length dangling);
+  [%expect {| slotless=0 dangling=0 |}]
+
+let%expect_test "the projected counts are checked before anything is built" =
+  (* These two ceilings are wire-selectable independently of [max_states] and
+     [max_transitions], and NOTHING downstream enforces them:
+     [Me_session.validate] counts graphs and the session-wide [int64] totals,
+     never a single graph's nodes or edges. Without this preflight the flow
+     graph would be the one graph on which [max_nodes_per_graph] means
+     nothing. *)
+  let raise_ r = Err.or_raise ~pp_error:Me_limits.pp_error r in
+  let nodes = raise_ (Me_limits.Limits.create ~max_nodes_per_graph:4 limits) in
+  let edges = raise_ (Me_limits.Limits.create ~max_edges_per_graph:4 limits) in
+  Format.printf "nodes    %a@." pp_graph
+    (Me_flow_graph.graph ~limits:nodes valid);
+  Format.printf "edges    %a@." pp_graph
+    (Me_flow_graph.graph ~limits:edges valid);
+  [%expect
+    {|
+    nodes    flow nodes = 15 is over the ceiling
+    edges    flow edges = 14 is over the ceiling |}]
