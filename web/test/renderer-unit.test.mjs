@@ -1052,3 +1052,263 @@ test('a comparison superseded by a newer request settles as cancelled', async ()
   element.emitProcessed('gR', 1);
   assert.ok(await second);
 });
+
+/* ===================================================================== flow
+
+   A flow view is an ordinary single-pane candidate plus one thing: the
+   finalized element's selections are routed to the app. Everything hard is in
+   that "plus one" -- see `web/test/flow.spec.ts` for the measurements it rests
+   on, and `.ai/model_explorer_design.md` §20.3 for why three earlier designs
+   were unsound. */
+
+const FLOW_VIEWS = [
+  ...STAGE_VIEWS,
+  { id: 'v/flow', label: 'Export flow', kind: 'flow', collection: 'c', graph: 'g/flow' },
+];
+
+const flowSession = ({ views = FLOW_VIEWS } = {}) => JSON.stringify({
+  model: { name: 'm' },
+  defaultView: 'v/canonical',
+  views,
+  graphCollections: [{ label: 'c', graphs: [
+    { id: 'pt2/root', nodes: [{ id: 's0' }] },
+    { id: 'g/native/001', nodes: [{ id: 'c0' }] },
+    { id: 'g/flow', nodes: [{ id: 's/pt2/000' }, { id: 't/native/000' }] },
+  ] }],
+  nodeDataSets: [],
+});
+
+function flowHarness(options = {}) {
+  const selections = [];
+  const doc = createDocument();
+  const clock = createClock();
+  const renderer = new Renderer({
+    mount: doc.mount,
+    hardMaxQuarantined: 2,
+    doc,
+    timers: clock,
+    now: () => clock.now(),
+    onFlowSelect: (s) => selections.push(s),
+    ...options,
+  });
+  const h = {
+    doc, clock, renderer, mount: doc.mount, selections,
+    slots: () => doc.mount.children,
+    last: () => doc.mount.children.at(-1),
+    element: (slot) => slot.children[0],
+  };
+  return h;
+}
+
+/** Opens the flow view and finalizes it, returning the live element. */
+async function currentFlow(h, { mismatch = true } = {}) {
+  const promise = h.renderer.install(flowSession(), { flow: 'v/flow' });
+  const slot = h.last();
+  const element = h.element(slot);
+  if (mismatch) {
+    // The library settles on another graph, so the shell corrects it -- which
+    // is the only path that arms an expectation.
+    element.emitProcessed('pt2/root');
+    element.emitProcessed('g/flow');
+  } else {
+    element.emitProcessed('g/flow');
+  }
+  const handle = await promise;
+  assert.equal(h.renderer.finalize(handle).ok, true);
+  return { slot, element, handle };
+}
+
+/* ------------------------------------------------------------- resolution */
+
+test('the flow route resolves only a flow view, and the stage route none', async () => {
+  const h = flowHarness();
+  const handle = await (async () => {
+    const p = h.renderer.install(flowSession(), { flow: 'v/flow' });
+    h.element(h.last()).emitProcessed('g/flow');
+    return p;
+  })();
+  assert.deepEqual(handle.presentation, { kind: 'flow', view: 'v/flow' });
+  // Not a single view: nothing that reads `viewId` may treat a flow as one.
+  assert.equal(handle.viewId, null);
+  assert.equal(handle.graph, 'g/flow');
+  h.renderer.finalize(handle);
+
+  // A stage view is not reachable through `{flow}`...
+  await assert.rejects(h.renderer.install(flowSession(), { flow: 'v/canonical' }), isKind('invalid'));
+  // ...and a flow view is not reachable through the strict stage route, which
+  // is what stops a typo silently changing the semantics.
+  await assert.rejects(h.renderer.install(flowSession(), { view: 'v/flow' }), isKind('invalid'));
+  await assert.rejects(h.renderer.install(flowSession(), { flow: 'v/nope' }), isKind('invalid'));
+  await assert.rejects(
+    h.renderer.install(flowSession(), { flow: 'v/flow', view: 'v/source' }), isKind('invalid'));
+});
+
+/* ------------------------------------------------------------ the router */
+
+test('nothing routes before the candidate is finalized', async () => {
+  const h = flowHarness();
+  const promise = h.renderer.install(flowSession(), { flow: 'v/flow' });
+  const element = h.element(h.last());
+  element.emitProcessed('g/flow');
+  // A hidden candidate is `pointer-events: none`, so this could only be the
+  // renderer's own doing -- and it must not navigate either way.
+  element.emitSelected({ nodeId: 's/pt2/000', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections, []);
+  h.renderer.finalize(await promise);
+});
+
+test('a finalized flow routes a selection with its public fields only', async () => {
+  const h = flowHarness();
+  const { element } = await currentFlow(h, { mismatch: false });
+  element.emitSelected({ nodeId: 't/native/000', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections, [
+    { nodeId: 't/native/000', graphId: 'g/flow', collectionLabel: 'c' },
+  ]);
+});
+
+test('an absent detail, a foreign graph and a foreign collection all route nothing', async () => {
+  const h = flowHarness();
+  const { element } = await currentFlow(h, { mismatch: false });
+  element.emitSelected(undefined);
+  element.emitSelected({});
+  element.emitSelected({ nodeId: 'x0', graphId: 'g/other', collectionLabel: 'c' });
+  element.emitSelected({ nodeId: 's/pt2/000', graphId: 'g/flow', collectionLabel: 'other' });
+  assert.deepEqual(h.selections, []);
+});
+
+/* An empty `nodeId` is a CLEARED selection, never a node. It routes `null` so
+ * the action row empties, and -- critically -- it does not consume the setup
+ * expectation, because setup emits the clear BEFORE its target. */
+test('an empty nodeId clears rather than selecting', async () => {
+  const h = flowHarness();
+  const { element } = await currentFlow(h, { mismatch: false });
+  element.emitSelected({ nodeId: '', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections, [null]);
+});
+
+/* ---------------------------------------------------- the [D2] expectation */
+
+test('a setup selection seen before finalize leaves nothing armed', async () => {
+  const h = flowHarness();
+  const promise = h.renderer.install(flowSession(), { flow: 'v/flow' });
+  const element = h.element(h.last());
+  element.emitProcessed('pt2/root');                 // arms the expectation
+  assert.deepEqual(element.selected,
+    { nodeId: 's/pt2/000', graphId: 'g/flow', label: 'c' });
+  // Setup's own two events arrive BEFORE finalize, so the observer consumes the
+  // expectation and the router inherits nothing.
+  element.emitSetupSelection('s/pt2/000', 'g/flow', 'c');
+  element.emitProcessed('g/flow');
+  h.renderer.finalize(await promise);
+
+  /* A -> B -> A. The sequence that made the first design unsound: with a stale
+   * barrier the final A is swallowed. */
+  element.emitSelected({ nodeId: 't/native/000', graphId: 'g/flow', collectionLabel: 'c' });
+  element.emitSelected({ nodeId: 's/pt2/000', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections.map((s) => s.nodeId), ['t/native/000', 's/pt2/000']);
+});
+
+test('a setup selection outstanding at finalize is swallowed exactly once', async () => {
+  const h = flowHarness();
+  const { element } = await currentFlow(h);          // mismatch arms it; no setup events yet
+  // Setup's pair arrives late. The clear routes a clear; the target is the one
+  // the renderer asked for and is suppressed.
+  element.emitSetupSelection('s/pt2/000', 'g/flow', 'c');
+  assert.deepEqual(h.selections, [null]);
+  // And only once: the user's own selection of that same node now routes.
+  element.emitSelected({ nodeId: 's/pt2/000', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections.at(-1), {
+    nodeId: 's/pt2/000', graphId: 'g/flow', collectionLabel: 'c',
+  });
+});
+
+/* The counted design's exact failure: one `selectNode` emits two events, so a
+ * budget of one is spent on the clear and the target escapes. Ordering the
+ * clear first is what this proves the router survives. */
+test('the setup clear does not consume the expectation', async () => {
+  const h = flowHarness();
+  const { element } = await currentFlow(h);
+  element.emitSelected({ nodeId: '', graphId: 'g/flow', collectionLabel: 'c' });
+  element.emitSelected({ nodeId: 's/pt2/000', graphId: 'g/flow', collectionLabel: 'c' });
+  // Exactly one clear routed, and the target did NOT route.
+  assert.deepEqual(h.selections, [null]);
+});
+
+/* -------------------------------------------------------------- authority */
+
+test('a replaced flow loses its routing authority', async () => {
+  const h = flowHarness();
+  const first = await currentFlow(h, { mismatch: false });
+  // A second flow supersedes it.
+  const second = await currentFlow(h, { mismatch: false });
+  h.selections.length = 0;
+  // The old element still emits -- `flow.spec.ts` proves the real one does --
+  // so this is what the authority check is for.
+  first.element.emitSelected({ nodeId: 's/pt2/000', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections, []);
+  second.element.emitSelected({ nodeId: 't/native/000', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections.map((s) => s.nodeId), ['t/native/000']);
+});
+
+/* A candidate quarantined before it was ever shown never had a router -- one is
+ * attached only at finalize -- and its OBSERVER is dropped here, so a late
+ * setup emission cannot mutate an entry nobody is waiting for. */
+test('a quarantined flow candidate routes nothing and keeps no observer', async () => {
+  const h = flowHarness();
+  const promise = h.renderer.install(flowSession(), { flow: 'v/flow' });
+  const element = h.element(h.last());
+  element.emitProcessed('pt2/root');                 // arms observer + expectation
+  assert.equal(element.listenerCount('selectedNodeChanged'), 1);
+  h.clock.advance(h.renderer.timeout + 1);           // stalls, so it is quarantined
+  assert.equal((await settled(promise)).status, 'rejected');
+  assert.equal(h.renderer.quarantined, 1);
+  assert.equal(element.listenerCount('selectedNodeChanged'), 0,
+    'a quarantined candidate kept selection authority');
+  element.emitSetupSelection('s/pt2/000', 'g/flow', 'c');
+  assert.deepEqual(h.selections, []);
+});
+
+/* A cancelled install is the same story, and it is the common one. */
+test('a cancelled flow candidate drops its observer', async () => {
+  const h = flowHarness();
+  const promise = h.renderer.install(flowSession(), { flow: 'v/flow' });
+  const element = h.element(h.last());
+  element.emitProcessed('pt2/root');
+  h.renderer.cancel();
+  assert.equal((await settled(promise)).status, 'rejected');
+  assert.equal(element.listenerCount('selectedNodeChanged'), 0);
+  element.emitSetupSelection('s/pt2/000', 'g/flow', 'c');
+  assert.deepEqual(h.selections, []);
+});
+
+test('an inconsistent renderer routes nothing', async () => {
+  const h = flowHarness();
+  const { element } = await currentFlow(h, { mismatch: false });
+  h.renderer.markInconsistent('the mount is unknown');
+  element.emitSelected({ nodeId: 's/pt2/000', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections, []);
+});
+
+/* The path that makes the `current` check load-bearing rather than belt-and-
+ * braces: a previous entry whose `slot.remove()` FAILS becomes cleanup debt.
+ * `#detach` leaves it connected and never reaches `#finishRelease`, so its
+ * router is still attached while `current` has moved on. Nothing else retires
+ * it, and the element keeps emitting -- `flow.spec.ts` proves the real one
+ * does. Without the authority check a dead view would drive the live one. */
+test('cleanup debt keeps its listener but loses its authority', async () => {
+  const h = flowHarness();
+  const first = await currentFlow(h, { mismatch: false });
+  first.slot.rig('remove', 'throw', { times: 10 });
+
+  const second = await currentFlow(h, { mismatch: false });
+  assert.ok(first.slot.isConnected, 'the debt entry must still be connected');
+  assert.equal(first.element.listenerCount('selectedNodeChanged'), 1,
+    'cleanup debt never reaches #finishRelease, so its router is still attached');
+
+  h.selections.length = 0;
+  first.element.emitSelected({ nodeId: 's/pt2/000', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections, [], 'a view that is no longer current navigated');
+
+  second.element.emitSelected({ nodeId: 't/native/000', graphId: 'g/flow', collectionLabel: 'c' });
+  assert.deepEqual(h.selections.map((s) => s.nodeId), ['t/native/000']);
+});

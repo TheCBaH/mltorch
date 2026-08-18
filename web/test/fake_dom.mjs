@@ -179,6 +179,23 @@ class FakeNode {
       detail: { modelGraph: { id: graphId }, paneIndex },
     });
   }
+
+  /* The selected-node event, in the shape `web/test/flow.spec.ts` measured.
+   *
+   * `detail` is passed straight through so a test can emit `undefined` -- an
+   * absent detail is a real possibility the adapter must survive, and a helper
+   * that always built a well-formed one could not express it. */
+  emitSelected(detail) {
+    this.dispatchEvent({ type: 'selectedNodeChanged', detail });
+  }
+
+  /* One `selectNode` emits TWO events: a clear, then the target. Measured, not
+   * assumed -- it is the behaviour that made a counted suppression unsound, so
+   * a fake that emitted once would let the broken design pass. */
+  emitSetupSelection(nodeId, graphId, collectionLabel) {
+    this.emitSelected({ nodeId: '', graphId, collectionLabel });
+    this.emitSelected({ nodeId, graphId, collectionLabel });
+  }
 }
 
 export function createDocument() {

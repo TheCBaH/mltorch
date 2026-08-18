@@ -10,8 +10,10 @@
 <p class="note" id="effective-options"></p>
 <p class="note">Changing any of these starts a new export.</p>
 </div></section>
-<div class="controls"><label>View <select id="view"></select></label><label>Comparison <select id="comparison"></select></label></div>
+<div class="controls"><label>View <select id="view"></select></label><label>Comparison <select id="comparison"></select></label><button id="flow-open" type="button" hidden>Export flow</button></div>
+<p class="note" id="flow-note" hidden></p>
 <div id="presentation-note" hidden></div>
+<div id="flow-selection" class="panel" hidden></div>
 <details id="unavailable"><summary>Unavailable outputs</summary><div class="panel" id="unavailable-list"></div></details>
 <details id="diagnostics"><summary>Diagnostics</summary><div class="panel" id="diagnostics-list"></div></details>
 <details id="validation"><summary>Validation evidence</summary><div class="panel" id="validation-body"></div></details>
@@ -19,5 +21,5 @@
 <p id="notice" role="status" hidden></p>
 <p id="error" role="alert" hidden></p>
 <div id="pane-labels" class="pane-labels" hidden></div>
-<div class="stage"><section id="visualizer" aria-label="Model graph"></section><aside id="legend" hidden></aside></div>
+<div class="stage"><section id="visualizer" aria-label="Model graph"></section><aside id="legend" hidden></aside><aside id="flow-legend" hidden></aside></div>
 </main><script type="module" src="app.js"></script></body></html>

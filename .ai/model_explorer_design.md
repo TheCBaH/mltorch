@@ -1692,3 +1692,90 @@ watched to turn its test green before being restored.
 The exporter adds the graph to the same collection as the stage graphs and declares
 `v/flow` "Export flow". **It is never the default view**: the browser stays
 source-first and the CLI keeps canonical Native.
+
+### 20.3 The selected-node event, as measured
+
+`web/src/flow.js` + `web/test/flow.spec.ts` are `web-ui-4.md`'s browser
+prerequisite, against the bundle §17 builds. The flow adapter routes a node
+selection to a declared destination, so it must separate a user's click from the
+shell's own setup `selectNode`. **`NodeInfo` carries no origin bit** —
+`{nodeId, graphId, collectionLabel, node?, paneId?}` — and both paths reach the same
+`AppService.selectNode`, so identity and order are the only separators that exist.
+
+Three suppression designs were wrong before this fixture was written, which is why
+it *enumerates* the sequence instead of confirming an assumed one:
+
+1. **a barrier armed at finalize on the setup node id** — unsound: a setup event
+   delivered *before* finalize leaves the barrier armed, so
+   `setup A · user B · user A` discards the user's genuine A;
+2. **a count of issued `selectNode` calls** — unsound for the reason below;
+3. anything that assumes the sequence without measuring it.
+
+What the element actually does, measured in Chromium:
+
+| Observation | Result |
+| --- | --- |
+| events per `selectNode` call | **two** — a clear (`nodeId: ""`), then the target |
+| ordering | the clear always precedes its target |
+| auto-select on graph load | **none** |
+| a replaced candidate's later selection | still emitted |
+| `removeEventListener` | stops delivery |
+| a foreign graph's selection | names its own `graphId`/`collectionLabel` |
+
+The two-events-per-call result is why a count cannot work: one call, one budget, and
+the budget is spent on the clear while the target escapes. It comes from
+`selectNode` clearing before revealing —
+`appService.selectNode(paneId, undefined)` at `model_graph_visualizer_base.ts:443`,
+then `setNodeToReveal` → `revealNode` → `handleSelectNode`
+(`webgl_renderer.ts:3582-3606`) — each feeding the same signal
+(`model_graph_visualizer_base.ts:179`).
+
+So the adapter's rule is **identity-based**: an empty `nodeId` is not a selection at
+all and is never routed by either listener, and the target is suppressed by matching
+the `{nodeId, graphId}` the renderer itself asked for, once. "No auto-select on load"
+retires one of [D2]'s two residual cases outright; the other — `revealNode`'s
+un-rendered branch completing without selecting — costs at most one missing action
+row under select-then-act, never a wrong navigation.
+
+"A replaced candidate still emits" is the measurement that makes listener removal
+**mandatory** rather than tidy: the element does not go quiet on its own, so
+authority has to be taken away explicitly.
+
+### 20.4 The adapter — select-then-act
+
+**Selection and action are two steps, and that is a correctness choice as much as
+a usability one.** `AppService.selectNode` is reached by an ordinary single click
+(`app_service.ts:491-543`), so routing on selection alone would make a mis-click
+destructive and put a flow node's own attributes permanently out of reach. It also
+lets the unpaired-transition case be a *visible statement* — "No exported comparison
+is available for this transition." — rather than a click that silently does nothing.
+`web-ui-4.md`'s routing table was amended to match.
+
+The consequences run through the whole design: a spurious or missing selection costs
+a stale or absent action row and **never a navigation**, which is what makes [D2]'s
+two residual cases tolerable rather than blocking.
+
+A state offers the stage view its `State.view` names; a transition offers its
+`Transition.comparison` by that comparison's own label, or nothing at all. No graph,
+label, layer or endpoint is ever consulted to invent one.
+
+**Three sites in `app.js` knew only two branches**, and each failed *silently* for a
+flow rather than loudly:
+
+| Site | Failure without the third arm |
+| --- | --- |
+| `changePresentation` | sends `{view: 'v/flow'}`, which the strict stage route refuses — the page reports a failure for a destination it declares |
+| `onSession` | `?flow=v/flow` loads, resolves, and leaves the **source stage** on screen under a flow URL |
+| `preferFor` | unchanged, but the source-stage load is the *bootstrap* presentation, never the destination |
+
+A load resolves a **view**, so neither a comparison nor a flow can be reached by
+`prefer`; both are opened on top of the installed document, replacing the URL just
+written rather than pushing — one navigation, one history entry. Two browser tests
+exist purely for this boundary, because clicking the control on a live session never
+reaches it: a direct `?flow=` load, and back/forward into and out of a flow.
+
+One CSS rule earns a mention because it bit here: **`[hidden]` is a UA rule, so any
+author `display` on the same element silently beats it.** `.panel` and the grid rows
+were all un-hiding themselves; an empty container merely *looked* hidden because a
+zero-height box reads as invisible. `[hidden] { display: none !important; }` is
+stated once rather than remembered at each new container.

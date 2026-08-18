@@ -1,3 +1,7 @@
+/* `[hidden]` is a UA rule, so any author `display` on the same element beats it
+   -- `.panel` and the grid rows below would all silently un-hide themselves.
+   Stated once, here, rather than remembered at every new container. */
+[hidden] { display: none !important; }
 body { font: 16px system-ui, sans-serif; margin: 0; } main { display: grid; gap: 1rem; padding: 1rem; } .controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; } #error { color: #b00020; white-space: pre-wrap; } #notice { color: #8a5300; }
 .note { color: #555; font-size: 0.875rem; margin: 0.25rem 0; }
 .panel { display: grid; gap: 0.75rem; padding: 0.75rem 0; }
@@ -18,7 +22,9 @@ fieldset { border: 1px solid #bbb; border-radius: 4px; }
 .pane-label { font-weight: 600; font-size: 0.875rem; }
 #presentation-note { display: grid; gap: 0.15rem; }
 .stage { display: flex; gap: 1rem; align-items: stretch; }
-#legend { flex: 0 0 18rem; overflow-y: auto; }
+#legend, #flow-legend { flex: 0 0 18rem; overflow-y: auto; }
+#flow-selection { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; padding: 0.5rem 0; }
+.flow-action { padding: 0.3rem 0.7rem; }
 #legend h3 { margin: 0 0 0.5rem; font-size: 1rem; }
 
 /* The mount is the positioning context; each candidate owns one absolutely

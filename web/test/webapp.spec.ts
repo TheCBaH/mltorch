@@ -418,6 +418,175 @@ test('cancelling while a comparison is being built exposes no partial comparison
   expect(errors.join('\n')).not.toContain('NG0953');
 });
 
+/* -------------------------------------------------------- the export flow */
+
+/* The coarse spine: states and transitions as nodes, opened through declared
+ * destinations only. Selection and action are two steps -- the visualizer
+ * reports an ordinary single click, so routing on selection alone would make a
+ * mis-click destructive. */
+
+const openedFlow = (page: Page, id: string) =>
+  expect.poll(() => new URL(page.url()).searchParams.get('flow'),
+    { timeout: 90_000, message: `opening ${id}` }).toBe(id);
+
+test('the export flow is offered only when the session carries one', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+  await expect(page.locator('#flow-open')).toBeVisible();
+  await expect(page.locator('#flow-open')).toHaveAttribute('aria-pressed', 'false');
+  // Nothing about the flow is shown until it is open.
+  await expect(page.locator('#flow-note')).toBeHidden();
+  await expect(page.locator('#flow-selection')).toBeHidden();
+});
+
+test('opening the flow sends no worker message and explains what it is', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(String(error)));
+  await page.goto('/index.html');
+  await loaded(page);
+  const before = await posts(page);
+  expect(before).toBeGreaterThan(0);
+
+  await page.locator('#flow-open').click();
+  await openedFlow(page, 'v/flow');
+  expect(await posts(page), 'opening the flow posted to the app worker').toBe(before);
+  exactlyOneOnScreen(await slots(page), 'after opening the flow');
+
+  await expect(page.locator('#flow-note')).toContainText('Coarse export flow');
+  await expect(page.locator('#flow-note')).toContainText('not individual pass execution');
+  await expect(page.locator('#flow-legend')).toContainText('Representations');
+  await expect(page.locator('#flow-legend')).toContainText('Transformations');
+  // A flow is not a view or a comparison, so neither key survives beside it.
+  expect(new URL(page.url()).searchParams.get('view')).toBeNull();
+  expect(new URL(page.url()).searchParams.get('comparison')).toBeNull();
+
+  // And back out again, to the single view the selector still shows.
+  await page.locator('#flow-open').click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('view'), { timeout: 90_000 })
+    .toBe('v/source');
+  expect(new URL(page.url()).searchParams.get('flow')).toBeNull();
+  expect(await posts(page)).toBe(before);
+  await expect(page.locator('#flow-selection')).toBeHidden();
+
+  await expect(page.locator('#error')).toBeHidden();
+  await neverTwoOnScreen(page, 'flow switching');
+  expect(errors.join('\n')).not.toContain('NG0953');
+});
+
+/* Selecting a node offers ONE declared action and navigates nothing until it is
+ * taken. Driven through the element's public `selectNode`, which is the same
+ * `AppService.selectNode` a click reaches -- a pointer event into a WebGL canvas
+ * inside a shadow root is not synthesizable, and `web/test/flow.spec.ts` is
+ * where that equivalence is established. */
+async function selectFlowNode(page: Page, nodeId: string) {
+  await page.evaluate((id) => {
+    const slot = document.querySelector('#visualizer .visualizer-slot--current');
+    const element = slot?.querySelector('model-explorer-visualizer') as any;
+    /* No collection label: the element then searches every collection and
+     * fills the real one into the event. The label is derived from the model
+     * name (`mltorch:resnet18`), so spelling it here would pin a fixture
+     * detail this test is not about. */
+    element.selectNode(id, 'g/flow');
+  }, nodeId);
+  await expect(page.locator('#flow-selection')).toBeVisible({ timeout: 90_000 });
+}
+
+test('a state offers its declared stage view, and taking it opens exactly that', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+  const before = await posts(page);
+  await page.locator('#flow-open').click();
+  await openedFlow(page, 'v/flow');
+
+  await selectFlowNode(page, 's/native/001');
+  await expect(page.locator('#flow-selection')).toContainText('representation');
+  await expect(page.locator('#flow-selection .flow-action')).toHaveText('Open Canonical Native');
+  // Selection alone navigates nothing.
+  expect(new URL(page.url()).searchParams.get('flow')).toBe('v/flow');
+
+  await page.locator('#flow-selection .flow-action').click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('view'), { timeout: 90_000 })
+    .toBe('v/canonical');
+  expect(await posts(page), 'taking a state action posted to the app worker').toBe(before);
+  await expect(page.locator('#error')).toBeHidden();
+});
+
+test('a paired transition offers only its declared comparison, an unpaired one none', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+  const before = await posts(page);
+  await page.locator('#flow-open').click();
+  await openedFlow(page, 'v/flow');
+
+  await selectFlowNode(page, 't/native/000');
+  await expect(page.locator('#flow-selection')).toContainText('import');
+  await expect(page.locator('#flow-selection .flow-action'))
+    .toHaveText('Open comparison exported program -> initial');
+
+  /* The unpaired case is a visible STATEMENT, not a click that does nothing --
+   * `t/symbolic/000` is an adaptation the exporter declares with no comparison,
+   * and inferring one from its endpoints is exactly what the safeguards
+   * forbid. */
+  await selectFlowNode(page, 't/symbolic/000');
+  await expect(page.locator('#flow-selection')).toContainText('adapt');
+  await expect(page.locator('#flow-selection'))
+    .toContainText('No exported comparison is available for this transition.');
+  await expect(page.locator('#flow-selection .flow-action')).toHaveCount(0);
+
+  // Back to the paired one, and take it.
+  await selectFlowNode(page, 't/native/001');
+  await page.locator('#flow-selection .flow-action').click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('comparison'), { timeout: 90_000 })
+    .toBe('c/canonical');
+  expect(await posts(page), 'taking a transition action posted to the app worker').toBe(before);
+  await expect(page.locator('#error')).toBeHidden();
+});
+
+/* --- the app.js translation boundary, which clicking the control never reaches --- */
+
+/* A load resolves a stage VIEW, so `?flow=` has to be opened on top of the
+ * document once it arrives. Before this was wired the page loaded, resolved,
+ * and then left the source stage on screen with a flow URL. */
+test('a direct flow URL ends with the flow on screen, not the source stage', async ({ page }) => {
+  await page.goto('/index.html?model=resnet18&flow=v%2Fflow');
+  await loaded(page);
+  await expect(page.locator('#flow-open')).toHaveAttribute('aria-pressed', 'true', { timeout: 90_000 });
+  await expect(page.locator('#flow-note')).toContainText('Coarse export flow');
+  expect(new URL(page.url()).searchParams.get('flow')).toBe('v/flow');
+  expect(new URL(page.url()).searchParams.get('view')).toBeNull();
+  await expect(page.locator('#error')).toBeHidden();
+});
+
+test('back and forward across a flow sends no worker message', async ({ page }) => {
+  await page.goto('/index.html');
+  await loaded(page);
+  const before = await posts(page);
+
+  await page.locator('#flow-open').click();
+  await openedFlow(page, 'v/flow');
+
+  await page.goBack();
+  await expect(page.locator('#flow-open')).toHaveAttribute('aria-pressed', 'false', { timeout: 90_000 });
+  expect(new URL(page.url()).searchParams.get('view')).toBe('v/source');
+  expect(await posts(page), 'going back re-ran the worker').toBe(before);
+
+  await page.goForward();
+  await expect(page.locator('#flow-open')).toHaveAttribute('aria-pressed', 'true', { timeout: 90_000 });
+  expect(new URL(page.url()).searchParams.get('flow')).toBe('v/flow');
+  expect(await posts(page), 'going forward re-ran the worker').toBe(before);
+});
+
+test('a flow the session does not declare falls back without inventing one', async ({ page }) => {
+  await page.goto('/index.html?model=resnet18&flow=v%2Fnope');
+  await loaded(page);
+  await expect(page.locator('#flow-open')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#notice')).toContainText('v/nope');
+  await expect(page.locator('#error')).toBeHidden();
+  const url = new URL(page.url());
+  expect(url.searchParams.get('flow')).toBeNull();
+  expect(url.searchParams.get('view')).toBe('v/source');
+});
+
 /* ------------------------------------------------------ construction options */
 
 test('capabilities are shown, and not-requested differs from unavailable', async ({ page }) => {
@@ -545,3 +714,4 @@ test('the backbone stages are labelled, not offered as checkboxes', async ({ pag
     .evaluateAll((es) => es.map((e) => (e as HTMLInputElement).id));
   expect(boxes.sort()).toEqual(['stage-fusion', 'stage-kernel', 'stage-native4d', 'stage-stage_program']);
 });
+

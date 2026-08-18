@@ -9,6 +9,7 @@ const status = $('status'), error = $('error'), notice = $('notice');
 const select = $('catalogue'), file = $('local-file'), viewSelect = $('view');
 const compareSelect = $('comparison');
 const reload = $('reload'), clearLocal = $('clear-local');
+const flowButton = $('flow-open');
 const bridge = globalThis.mltorch;
 
 function showError(message) { error.textContent = message; error.hidden = false; }
@@ -21,7 +22,14 @@ async function main() {
   const store = new SourceStore({ hard: bridge.hard });
   // The quarantine ceiling is the OCaml one: `Me_limits.response_live_bytes`
   // budgets the browser's retained elements against exactly this number.
-  const renderer = new Renderer({ mount: $('visualizer'), hardMaxQuarantined: bridge.hard.maxQuarantinedElements });
+  /* `onFlowSelect` reports a SELECTION, never a navigation: under select-then-
+   * act the action row is what navigates, and only when pressed. `null` means
+   * the selection was cleared. */
+  const renderer = new Renderer({
+    mount: $('visualizer'),
+    hardMaxQuarantined: bridge.hard.maxQuarantinedElements,
+    onFlowSelect: (selection) => { flowSelection = selection; renderFlowChrome(); },
+  });
 
   /* Browser-owned state. `index` is derived from the coordinator's retained
    * session and never from anything else; `controls` is what the user has
@@ -35,11 +43,16 @@ async function main() {
    * show; remembering the last single view is what makes "Single view" a
    * well-defined destination rather than a guess. */
   let lastView = null;
+  /* The flow node the user last selected, or null. Browser-only state: it is not
+   * part of any presentation, so it never reaches the URL. */
+  let flowSelection = null;
 
   const asView = (presentation) =>
     (presentation?.kind === 'single' ? presentation.view : null);
   const asComparison = (presentation) =>
     (presentation?.kind === 'comparison' ? presentation.comparison : null);
+  const asFlow = (presentation) =>
+    (presentation?.kind === 'flow' ? presentation.view : null);
   /* A load resolves a VIEW: `prefer` is an ordered list of view ids, and a
    * comparison names two graphs rather than one. So a URL that asks for a
    * comparison still loads a single view first, and the comparison is opened on
@@ -63,6 +76,19 @@ async function main() {
    * opened. The pane headings and the comparison summary are rendered from the
    * same value as the selectors, so the chrome cannot describe one presentation
    * while another is showing. */
+  /* The flow half, re-rendered on its own whenever a selection changes -- a
+   * selection is not a presentation change, so nothing else moves. */
+  const renderFlowChrome = () => {
+    if (!index) return;
+    const active = asFlow(coordinator.presentation) !== null;
+    panels.renderFlowControl(flowButton, $('flow-note'), index, active);
+    panels.renderFlowLegend($('flow-legend'), index, active);
+    panels.renderFlowSelection($('flow-selection'), index, active ? flowSelection : null,
+      (presentation) => {
+        changeFromControl(presentation);
+      });
+  };
+
   const renderSession = (presentation) => {
     if (!index) return;
     const comparisonId = asComparison(presentation);
@@ -71,6 +97,7 @@ async function main() {
     panels.renderComparisonSelector(compareSelect, index, comparisonId);
     panels.renderPaneLabels($('pane-labels'), index, comparison);
     panels.renderComparisonSummary($('presentation-note'), comparison);
+    renderFlowChrome();
     panels.renderUnavailable($('unavailable-list'), $('unavailable').firstElementChild, index);
     panels.renderDiagnostics($('diagnostics-list'), $('diagnostics').firstElementChild, index);
     panels.renderValidation($('validation-body'), $('validation').firstElementChild, index);
@@ -103,17 +130,21 @@ async function main() {
       const resolved = P.resolvePresentation(index, wanted);
       const stale = wanted?.kind === 'comparison'
         ? P.staleComparisonNotice(wanted.comparison, resolved)
-        : P.staleNotice(asView(wanted), viewId);
+        : wanted?.kind === 'flow'
+          ? P.staleFlowNotice(wanted.view, resolved)
+          : P.staleNotice(asView(wanted), viewId);
       if (stale) showNotice(stale); else clearNotice();
       // A user-originated selection -- a model or an option -- earns a history
       // entry; a reload, a normalisation and a history restoration do not.
       // Either way the URL written is the ECHOED options and the presentation
       // actually shown, never what a control spelled or a stale URL asked for.
       writeUrl(push ? 'push' : 'replace', shown);
-      // A comparison cannot be reached by a load's view preference, so it is
-      // opened on top of the document just installed. It replaces the URL it
-      // just wrote rather than pushing: one navigation, one entry.
-      if (resolved?.kind === 'comparison') {
+      // Neither a comparison NOR a flow can be reached by a load's view
+       // preference -- `prefer` is a list of stage view ids, and these name two
+       // graphs and a flow graph respectively. Both are opened on top of the
+       // document just installed, replacing the URL just written rather than
+       // pushing: one navigation, one entry.
+      if (resolved && resolved.kind !== 'single') {
         changePresentation(resolved, 'replace').catch((e) => showError(e.message));
       }
     },
@@ -166,11 +197,18 @@ async function main() {
     clearError(); clearNotice();
     const before = coordinator.presentation;
     coordinator.cancel();
+    /* The one place a descriptor becomes a renderer selection. A flow must NOT
+     * fall through to `{view}`: the stage-only route would refuse it, and the
+     * page would report a failure for a destination it declares. */
     await coordinator.present(presentation.kind === 'comparison'
       ? { comparison: presentation.comparison }
-      : { view: presentation.view });
+      : presentation.kind === 'flow'
+        ? { flow: presentation.view }
+        : { view: presentation.view });
     const shown = coordinator.presentation;
     if (shown?.kind === 'single') lastView = shown.view;
+    // A selection belongs to the flow that was on screen when it was made.
+    if (shown?.kind !== 'flow') flowSelection = null;
     // Always: a refused change must not leave a control claiming a destination
     // the page never reached.
     renderSession(shown);
@@ -226,6 +264,12 @@ async function main() {
   viewSelect.addEventListener('change', () => {
     changeFromControl(P.singlePresentation(viewSelect.value));
   });
+  flowButton.addEventListener('click', () => {
+    // A toggle: into the flow, or back to the single view the selector shows.
+    changeFromControl(asFlow(coordinator.presentation)
+      ? P.singlePresentation(viewSelect.value)
+      : P.flowPresentation(index.flowView.id));
+  });
   compareSelect.addEventListener('change', () => {
     const id = compareSelect.value;
     // "Single view" returns to the view the selector is showing, which is the
@@ -267,7 +311,9 @@ async function main() {
     if (decoded.presentation) {
       const notice = decoded.presentation.kind === 'comparison'
         ? P.staleComparisonNotice(decoded.presentation.comparison, null)
-        : P.staleNotice(decoded.presentation.view, coordinator.view);
+        : decoded.presentation.kind === 'flow'
+          ? P.staleFlowNotice(decoded.presentation.view, null)
+          : P.staleNotice(decoded.presentation.view, coordinator.view);
       if (notice) showNotice(notice);
       writeUrl('replace', coordinator.presentation);
     }
