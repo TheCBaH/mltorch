@@ -17,7 +17,7 @@ payloads.
   >     len(s['graphCollections'][0]['graphs'])))"
   sourceKind pt2
   sha256 absent
-  views=5 comparisons=2 graphs=5
+  views=6 comparisons=2 graphs=6
 
 The digest is absent because no expected one was supplied: a locally chosen
 file has nothing to verify against, and recording a digest we computed
@@ -55,8 +55,8 @@ running a fold that folded nothing while reporting the capability available.
   > print('transitions', [(t['id'], t['kind']['kind']) for t in s['flow']['transitions']])
   > print('native4d', [c['status']['state'] for c in s['capabilities']
   >                    if c['key'] == 'stage:native4d'])"
-  graphs [('pt2/root', 194), ('g/native/000', 298), ('g/native/001', 93), ('g/symbolic/000', 93), ('g/native4d/000', 93), ('g/kernel/000', 93)]
-  views ['v/canonical', 'v/initial', 'v/source', 'v/native4d', 'v/stage_program', 'v/kernel']
+  graphs [('pt2/root', 194), ('g/native/000', 298), ('g/native/001', 93), ('g/symbolic/000', 93), ('g/native4d/000', 93), ('g/kernel/000', 93), ('g/flow', 11)]
+  views ['v/canonical', 'v/initial', 'v/source', 'v/native4d', 'v/stage_program', 'v/kernel', 'v/flow']
   states ['s/pt2/000', 's/native/000', 's/native/001', 's/native4d/000', 's/symbolic/000', 's/kernel/000']
   transitions [('t/native/000', 'import'), ('t/native/001', 'pack'), ('t/native4d/000', 'cross_dialect'), ('t/symbolic/000', 'adapt'), ('t/kernel/000', 'adapt')]
   native4d ['available']

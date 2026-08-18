@@ -102,6 +102,30 @@ module Sync_navigation = struct
     |> Jsont.Object.finish
 end
 
+(* Both carry a [state] and a [view] label, so they are separate modules rather
+   than one flat pair of types: distinct namespaces are how this repo keeps
+   labels unique instead of silencing warning 30. *)
+module Flow_state_view = struct
+  type t = { state : string; view : string }
+end
+
+module Flow_view_graph = struct
+  type t = {
+    state : string;
+    view : string;
+    state_graph : string;
+    view_graph : string;
+  }
+end
+
+(* Which of the two facts that must agree with the spine disagreed. A closed
+   variant rather than a string: the printer needs to say which, and a caller
+   that only reads the rendered text cannot act on it. *)
+module Flow_destination = struct
+  type part = Flow_view | Flow_capability
+  type t = { part : part; declared : string; named : string option }
+end
+
 module Comparison = struct
   type t = {
     id : string;
@@ -458,6 +482,13 @@ module Session = struct
     | `Duplicate_comparison of string
     | `Unknown_comparison of string
     | `Node_in_two_entries of mapped_node
+    | `Duplicate_flow_view of string
+    | `Flow_destination_disagrees of Flow_destination.t
+    | `Unexpected_flow_view of string
+    | `Unexpected_flow_capability of string
+    | `Flow_view_unknown of Flow_state_view.t
+    | `Flow_view_not_stage of Flow_state_view.t
+    | `Flow_view_graph_disagrees of Flow_view_graph.t
     | `Comparison_panes_disagree of string
     | `Duplicate_capability of string
     | `Missing_capability of string
@@ -483,6 +514,35 @@ module Session = struct
     | `Node_in_two_entries { comparison; node } ->
         Fmt.pf fmt "node %s appears in two mapping entries of comparison %s"
           node comparison
+    | `Duplicate_flow_view id -> Fmt.pf fmt "duplicate flow view %s" id
+    | `Flow_destination_disagrees { Flow_destination.part; declared; named }
+      -> (
+        let what =
+          match part with
+          | Flow_destination.Flow_view -> "flow view"
+          | Flow_destination.Flow_capability -> "feature:flow capability"
+        in
+        match named with
+        | None ->
+            Fmt.pf fmt "the flow declares graph %s but there is no %s" declared
+              what
+        | Some g ->
+            Fmt.pf fmt "the flow declares graph %s but its %s names %s" declared
+              what g)
+    | `Unexpected_flow_view id ->
+        Fmt.pf fmt "flow view %s in a session that declares no flow" id
+    | `Unexpected_flow_capability g ->
+        Fmt.pf fmt
+          "feature:flow offers graph %s in a session that declares no flow" g
+    | `Flow_view_unknown { Flow_state_view.state; view } ->
+        Fmt.pf fmt "flow state %s names unknown view %s" state view
+    | `Flow_view_not_stage { Flow_state_view.state; view } ->
+        Fmt.pf fmt "flow state %s names view %s, which is not a stage view"
+          state view
+    | `Flow_view_graph_disagrees
+        { Flow_view_graph.state; view; state_graph; view_graph } ->
+        Fmt.pf fmt "flow state %s is graph %s but its view %s shows graph %s"
+          state state_graph view view_graph
     | `Comparison_panes_disagree t ->
         Fmt.pf fmt "transition %s names a comparison over other graphs" t
     | `Duplicate_capability k -> Fmt.pf fmt "duplicate capability %s" k
@@ -742,7 +802,7 @@ module Session = struct
           if Hashtbl.mem view_ids v.View.id then
             Err.fail (`Duplicate_view v.View.id)
           else begin
-            Hashtbl.add view_ids v.View.id ();
+            Hashtbl.add view_ids v.View.id v;
             let+ _ =
               Graph_index.graph_in graphs ~collection:v.View.collection
                 v.View.graph
@@ -862,10 +922,104 @@ module Session = struct
         Capability.all_keys
     in
     (* --- the flow, and the half of it only this scope can check --- *)
+    (* A flow DESTINATION is three facts that must name one graph: the spine's
+       own [graph], the [View.Flow] that opens it, and the [feature:flow]
+       capability that advertises it. Nothing tied them together before, so a
+       document could pass with a spine whose graph no collection held, a view
+       pointing elsewhere, or a capability naming a third graph -- and the
+       browser would have been the first thing to notice. *)
+    let flow_views =
+      List.filter (fun (v : View.t) -> v.View.kind = View.Flow) s.views
+    in
+    let flow_capability_graph =
+      List.fold_left
+        (fun acc (c : Capability.t) ->
+          match (c.Capability.key, c.Capability.status) with
+          | ( Capability.Feature Capability.Flow,
+              Capability.Available (Capability.Graph g) ) ->
+              Some g
+          | _ -> acc)
+        None s.capabilities
+    in
+    let disagrees part declared named =
+      Err.fail
+        (`Flow_destination_disagrees { Flow_destination.part; declared; named })
+    in
     match s.flow with
-    | None -> Err.return ()
+    | None -> (
+        (* No spine, so neither of the other two may claim one. A capability
+           alone never creates a destination. *)
+        let* () =
+          match flow_views with
+          | [] -> Err.return ()
+          | v :: _ -> Err.fail (`Unexpected_flow_view v.View.id)
+        in
+        match flow_capability_graph with
+        | None -> Err.return ()
+        | Some g -> Err.fail (`Unexpected_flow_capability g))
     | Some flow ->
         let* () = Me_flow.validate ~limits flow in
+        let declared = flow.Me_flow.graph in
+        (* The view first: it is what names the collection the graph must be
+           found in, so there is nothing to resolve the graph against until it
+           is known to be unique. *)
+        let* flow_view =
+          match flow_views with
+          | [ v ] -> Err.return v
+          | [] -> disagrees Flow_destination.Flow_view declared None
+          | _ :: v :: _ -> Err.fail (`Duplicate_flow_view v.View.id)
+        in
+        let* () =
+          if flow_view.View.graph = declared then Err.return ()
+          else
+            disagrees Flow_destination.Flow_view declared
+              (Some flow_view.View.graph)
+        in
+        (* In the collection the view declares -- a graph id that exists in some
+           OTHER collection is the same defect [`Wrong_collection] names for a
+           view or a pane, and must be one here too. *)
+        let* _ =
+          Graph_index.graph_in graphs ~collection:flow_view.View.collection
+            declared
+        in
+        let* () =
+          match flow_capability_graph with
+          | Some g when g = declared -> Err.return ()
+          | other -> disagrees Flow_destination.Flow_capability declared other
+        in
+        (* Every state opens an EXPLICIT view. Checked here and not in
+           [Me_flow.validate] for the same reason [Transition.comparison] is:
+           that module cannot see the view table. Resolving is not enough --
+           a [flow] or [compare] view is not somewhere a state can be opened,
+           and a stage view over some other graph would silently show the wrong
+           representation for this point in the spine. *)
+        let* () =
+          Err.List.iter
+            (fun (st : Me_flow.State.t) ->
+              let state = st.Me_flow.State.id
+              and view = st.Me_flow.State.view in
+              match Hashtbl.find_opt view_ids view with
+              | None ->
+                  Err.fail (`Flow_view_unknown { Flow_state_view.state; view })
+              | Some (v : View.t) -> (
+                  match v.View.kind with
+                  | View.Flow | View.Compare ->
+                      Err.fail
+                        (`Flow_view_not_stage { Flow_state_view.state; view })
+                  | View.Stage _ ->
+                      if v.View.graph = st.Me_flow.State.graph then
+                        Err.return ()
+                      else
+                        Err.fail
+                          (`Flow_view_graph_disagrees
+                             {
+                               Flow_view_graph.state;
+                               view;
+                               state_graph = st.Me_flow.State.graph;
+                               view_graph = v.View.graph;
+                             })))
+            flow.Me_flow.states
+        in
         let state_graph =
           let t = Hashtbl.create 16 in
           List.iter

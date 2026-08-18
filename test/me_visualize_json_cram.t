@@ -17,7 +17,7 @@ pinned here is the shape, the counts, and the COMPLETE capability vector.
   > print('views=%d comparisons=%d capabilities=%d graphs=%d' % (
   >     len(s['views']), len(s['comparisons']), len(s['capabilities']),
   >     len(s['graphCollections'][0]['graphs'])))"
-  views=5 comparisons=2 capabilities=14 graphs=5
+  views=6 comparisons=2 capabilities=14 graphs=6
 
 The complete capability vector, which is what a drifting downstream row would
 show up in. A test asserting only the interesting key would let the rest move.
@@ -108,7 +108,7 @@ admits either, and the classifier reports which.
   > print('graphs', [g['id'] for g in s['graphCollections'][0]['graphs']])
   > print('states', [x['id'] for x in s['flow']['states']])"
   ['node n1: axis D is outside the N/H/W/C dialect']
-  graphs ['pt2/root', 'g/native/000', 'g/native/001', 'g/symbolic/000', 'g/kernel/000']
+  graphs ['pt2/root', 'g/native/000', 'g/native/001', 'g/symbolic/000', 'g/kernel/000', 'g/flow']
   states ['s/pt2/000', 's/native/000', 's/native/001', 's/symbolic/000', 's/kernel/000']
 
 There is no Native4D graph and no Native4D flow state, which is the same rule the
@@ -138,6 +138,57 @@ transition node resolving to nothing.
   > print('transitions', [(t['id'], t['kind']['kind'], t.get('comparison')) for t in f['transitions']])"
   states ['s/pt2/000', 's/native/000', 's/native/001', 's/symbolic/000', 's/kernel/000']
   transitions [('t/native/000', 'import', 'c/import'), ('t/native/001', 'pack', 'c/canonical'), ('t/symbolic/000', 'adapt', None), ('t/kernel/000', 'adapt', None)]
+
+The flow destination: the spine's graph is in the collection, exactly one
+View.Flow opens it, and feature:flow offers that same graph. Session.validate
+binds all three, so any one of them drifting is a validation failure rather
+than something the browser discovers.
+
+  $ python3 -c "
+  > import json
+  > s = json.load(open('session.json'))
+  > flow = [v for v in s['views'] if v['kind'] == 'flow']
+  > cap = [c for c in s['capabilities'] if c['key'] == 'feature:flow'][0]
+  > g = {x['id']: x for x in s['graphCollections'][0]['graphs']}[s['flow']['graph']]
+  > print('view', [(v['id'], v['graph']) for v in flow])
+  > print('capability', cap['status']['payload']['graph'])
+  > print('nodes', len(g['nodes']), 'states+transitions',
+  >       len(s['flow']['states']) + len(s['flow']['transitions']))
+  > edges = sum(len(n.get('incomingEdges', [])) for n in g['nodes'])
+  > print('edges', edges, '2*transitions', 2 * len(s['flow']['transitions']))
+  > print('every node has one slot',
+  >       all(len(n.get('outputsMetadata', [])) == 1 for n in g['nodes']))"
+  view [('v/flow', 'g/flow')]
+  capability g/flow
+  nodes 9 states+transitions 9
+  edges 8 2*transitions 8
+  every node has one slot True
+
+v/flow is never the default: the browser stays source-first and the CLI keeps
+canonical Native.
+
+  $ python3 -c "
+  > import json
+  > print(json.load(open('session.json'))['defaultView'])"
+  v/canonical
+
+Each state names the stage view it opens, EXPLICITLY. Two stage views may name
+one graph without breaking any rule, so a graph-to-view lookup is ambiguous by
+contract; this pins the pairing the exporter actually emits, and that every
+named view is a declared stage view over that state's own graph.
+
+  $ python3 -c "
+  > import json
+  > s = json.load(open('session.json'))
+  > views = {v['id']: v for v in s['views']}
+  > for st in s['flow']['states']:
+  >     v = views.get(st['view'])
+  >     print(st['id'], '->', st['view'], v['kind'], 'graph-agrees', v['graph'] == st['graph'])"
+  s/pt2/000 -> v/source stage:source graph-agrees True
+  s/native/000 -> v/initial stage:initial_native graph-agrees True
+  s/native/001 -> v/canonical stage:canonical graph-agrees True
+  s/symbolic/000 -> v/stage_program stage:stage_program graph-agrees True
+  s/kernel/000 -> v/kernel stage:kernel graph-agrees True
 
 --verify-symbolic turns the two verification capabilities on. They are two keys
 rather than one because the composed report survives per-pass audit truncation:
@@ -260,7 +311,7 @@ dropping half the document.
   > import json
   > c = json.load(open('c.json'))
   > print(type(c).__name__, len(c), c[0]['label'], len(c[0]['graphs']))"
-  list 1 mltorch:model 5
+  list 1 mltorch:model 6
 
 Format detection is CONTENT, never the extension. The worker also carries a
 declared format and checks the two agree; the CLI has only the bytes.
@@ -280,7 +331,7 @@ browser may select and that no real input drives past.
   $ python3 -c "
   > import json
   > print(len(json.load(open('small.json'))['graphCollections'][0]['graphs']), 'graphs')"
-  5 graphs
+  6 graphs
 
 NO_COLOR, because this is the one assertion in the suite that pins CMDLINER's
 own text. Cmdliner styles by default and quotes only when styling is off, and

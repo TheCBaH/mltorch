@@ -40,6 +40,7 @@ type error =
   | `View of Graph_view.error
   | `Project of Me_build.error
   | `Navigation of Me_pt2.error
+  | `Flow_graph of Me_flow_graph.error
   | `Verification of Me_verify.error
   | `Identifier of Me_ids.error
   | `Document of Me_session.Session.error ]
@@ -65,6 +66,7 @@ let pp_error fmt : [< error ] -> unit = function
   | `View e -> Graph_view.pp_error fmt e
   | `Project e -> Me_build.pp_error fmt e
   | `Navigation e -> Me_pt2.pp_error fmt e
+  | `Flow_graph e -> Me_flow_graph.pp_error fmt e
   | `Verification e -> Me_verify.pp_error fmt e
   | `Identifier e -> Me_ids.pp_error fmt e
   | `Document e -> Me_session.Session.pp_error fmt e
@@ -87,11 +89,12 @@ let diagnostic_code : [< error ] -> Me_limits.Diagnostic.Code.t =
   | `Source_view (`Over_limit _)
   | `Project (`Over_limit _)
   | `Navigation (`Over_limit _)
+  | `Flow_graph (`Over_limit _)
   | `Verification (`Over_limit _)
   | `Document (`Over_limit _) ->
       Code.Over_limit
   | `Value_graph _ | `Source_view _ | `View _ | `Project _ | `Navigation _
-  | `Verification _ | `Identifier _ | `Document _ ->
+  | `Flow_graph _ | `Verification _ | `Identifier _ | `Document _ ->
       Code.Internal
 
 (* The one place a component's error is widened into this module's. Named,
@@ -466,8 +469,15 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
       overlays_right = [];
     }
   in
-  let state id graph label produced_by =
-    { Me_flow.State.id; graph; layer = Me_ids.Layer.Native; label; produced_by }
+  let state id graph view label produced_by =
+    {
+      Me_flow.State.id;
+      graph;
+      view;
+      layer = Me_ids.Layer.Native;
+      label;
+      produced_by;
+    }
   in
   (* The DAG branches at canonical Native, and this is the branch that exists so
      far. When the conversion is outside the dialect there is no state to show:
@@ -485,6 +495,7 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
             {
               Me_flow.State.id = Me_ids.flow_state Me_ids.Layer.Symbolic 0;
               graph = stage_id;
+              view = "v/stage_program";
               layer = Me_ids.Layer.Symbolic;
               label = "stage program";
               produced_by =
@@ -499,6 +510,7 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
           {
             Me_flow.State.id = Me_ids.flow_state Me_ids.Layer.Kernel 0;
             graph = kernel_id;
+            view = "v/kernel";
             layer = Me_ids.Layer.Kernel;
             label = "kernel";
             produced_by = Some (Me_ids.flow_transition Me_ids.Layer.Kernel 0);
@@ -541,6 +553,7 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
             {
               Me_flow.State.id = Me_ids.flow_state Me_ids.Layer.Native4d 0;
               graph = native4d_id;
+              view = "v/native4d";
               layer = Me_ids.Layer.Native4d;
               label = "native4d";
               produced_by =
@@ -565,17 +578,18 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
           {
             Me_flow.State.id = Me_ids.flow_state Me_ids.Layer.Pt2 0;
             graph = source_id;
+            view = source_view.Me_session.View.id;
             layer = Me_ids.Layer.Pt2;
             label = "exported program";
             produced_by = None;
           };
           state
             (Me_ids.flow_state Me_ids.Layer.Native 0)
-            initial_id "initial"
+            initial_id "v/initial" "initial"
             (Some (Me_ids.flow_transition Me_ids.Layer.Native 0));
           state
             (Me_ids.flow_state Me_ids.Layer.Native 1)
-            canonical_id "canonical"
+            canonical_id "v/canonical" "canonical"
             (Some (Me_ids.flow_transition Me_ids.Layer.Native 1));
         ]
         @ native4d_state @ symbolic_states;
@@ -600,6 +614,13 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
       graph = "g/flow";
     }
   in
+  (* The spine, as the graph that renders it. A flow DESTINATION is three facts
+     that must agree -- this graph, the [View.Flow] below, and the
+     [feature:flow] capability -- and [Session.validate] is what checks they
+     do. *)
+  let* flow_graph =
+    wrap (fun e -> `Flow_graph e) (Me_flow_graph.graph ~limits flow)
+  in
   (* Two keys, not one. [composed] survives per-pass audit truncation, so
      mapping that truncation to a single [Verification -> Over_limit] would hide
      a result that is still available, while [Available] alone would conceal
@@ -620,44 +641,44 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
   Err.return
     {
       graphs =
-        ([ source; initial; canonical ]
+        [ source; initial; canonical ]
         @ (match stage_graph with None -> [] | Some g -> [ g ])
         @ (match native4d with Ready g -> [ g ] | Skipped | Refused _ -> [])
-        @
-        match kernel_graph with
-        | Ready (g, _) -> [ g ]
-        | Skipped | Refused _ -> []);
+        @ (match kernel_graph with
+          | Ready (g, _) -> [ g ]
+          | Skipped | Refused _ -> [])
+        @ [ flow_graph ];
       views =
-        (([
-            {
-              Me_session.View.id = "v/canonical";
-              label = "Canonical Native";
-              kind = Me_session.View.Stage C.Canonical;
-              collection = label;
-              graph = canonical_id;
-            };
-            {
-              Me_session.View.id = "v/initial";
-              label = "Initial Native";
-              kind = Me_session.View.Stage C.Initial_native;
-              collection = label;
-              graph = initial_id;
-            };
-            source_view;
-          ]
-         @
-         match native4d with
-         | Skipped | Refused _ -> []
-         | Ready _ ->
-             [
-               {
-                 Me_session.View.id = "v/native4d";
-                 label = "Native4D";
-                 kind = Me_session.View.Stage C.Native4d;
-                 collection = label;
-                 graph = native4d_id;
-               };
-             ])
+        ([
+           {
+             Me_session.View.id = "v/canonical";
+             label = "Canonical Native";
+             kind = Me_session.View.Stage C.Canonical;
+             collection = label;
+             graph = canonical_id;
+           };
+           {
+             Me_session.View.id = "v/initial";
+             label = "Initial Native";
+             kind = Me_session.View.Stage C.Initial_native;
+             collection = label;
+             graph = initial_id;
+           };
+           source_view;
+         ]
+        @
+        match native4d with
+        | Skipped | Refused _ -> []
+        | Ready _ ->
+            [
+              {
+                Me_session.View.id = "v/native4d";
+                label = "Native4D";
+                kind = Me_session.View.Stage C.Native4d;
+                collection = label;
+                graph = native4d_id;
+              };
+            ])
         @ (match stage_graph with
           | None -> []
           | Some _ ->
@@ -670,19 +691,29 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
                   graph = stage_id;
                 };
               ])
-        @
-        match kernel_graph with
-        | Skipped | Refused _ -> []
-        | Ready _ ->
-            [
-              {
-                Me_session.View.id = "v/kernel";
-                label = "Kernel";
-                kind = Me_session.View.Stage C.Kernel;
-                collection = label;
-                graph = kernel_id;
-              };
-            ]);
+        @ (match kernel_graph with
+          | Skipped | Refused _ -> []
+          | Ready _ ->
+              [
+                {
+                  Me_session.View.id = "v/kernel";
+                  label = "Kernel";
+                  kind = Me_session.View.Stage C.Kernel;
+                  collection = label;
+                  graph = kernel_id;
+                };
+              ])
+        (* Never the default: the browser stays source-first and the CLI keeps
+           canonical Native. *)
+        @ [
+            {
+              Me_session.View.id = "v/flow";
+              label = "Export flow";
+              kind = Me_session.View.Flow;
+              collection = label;
+              graph = flow.Me_flow.graph;
+            };
+          ];
       comparisons = [ import_comparison; comparison ];
       node_data_sets = node_data_sets @ fusion_data;
       diagnostics = fusion_diagnostics;

@@ -32,6 +32,20 @@ module State : sig
   type t = {
     id : string;  (** [s/<layer>/<NNN>] *)
     graph : string;  (** [g/<layer>/<NNN>] *)
+    view : string;
+        (** The [Me_session.View.id] this state opens — a [View.Stage] one, and
+            REQUIRED rather than derived.
+
+            Naming only the graph would not do. Nothing in the session contract
+            forbids two stage views over one graph, and [View]'s own docstring
+            contemplates canonical naming the initial graph when every pass and
+            the pack are identities — so a graph-to-view lookup is ambiguous by
+            contract even where today's exporter happens to make it unique.
+            Matching on label or layer would be inference of a different kind.
+
+            [Me_session.validate] is what checks it resolves to a stage view
+            whose graph is this state's, exactly as it — and not this module —
+            checks [Transition.comparison]. *)
     layer : Me_ids.Layer.t;
     label : string;
     produced_by : string option;

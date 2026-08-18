@@ -67,6 +67,39 @@ module Sync_navigation : sig
       [c/canonical] would do. See [.ai/model_explorer_design.md] §18. *)
 end
 
+(** {1 Flow state-to-view payloads}
+
+    Own modules, per the record-namespace convention: both carry [state] and
+    [view] labels, and distinct namespaces are how this repo keeps labels unique
+    rather than silencing warning 30. *)
+
+module Flow_state_view : sig
+  type t = { state : string; view : string }
+end
+
+module Flow_view_graph : sig
+  type t = {
+    state : string;
+    view : string;
+    state_graph : string;
+    view_graph : string;
+  }
+  (** Both graphs, because the check is that they are EQUAL — naming one would
+      not say which side was wrong, and the ids alone would have to be looked
+      back up in the flow and the view table to mean anything. *)
+end
+
+module Flow_destination : sig
+  (** Which of the two facts that must agree with the spine disagreed. A closed
+      variant, not a string: a caller that only reads the rendered text cannot
+      act on it. *)
+  type part = Flow_view | Flow_capability
+
+  type t = { part : part; declared : string; named : string option }
+  (** [declared] is the graph the spine names; [named] is the graph that part
+      named instead, or [None] when the part is absent entirely. *)
+end
+
 module Comparison : sig
   type t = {
     id : string;
@@ -244,6 +277,14 @@ module Session : sig
     | `Duplicate_comparison of string
     | `Unknown_comparison of string
     | `Node_in_two_entries of mapped_node
+    | `Duplicate_flow_view of string
+    | `Flow_destination_disagrees of Flow_destination.t
+    | `Unexpected_flow_view of string  (** [flow = None] *)
+    | `Unexpected_flow_capability of string  (** [flow = None] *)
+    | `Flow_view_unknown of Flow_state_view.t
+    | `Flow_view_not_stage of Flow_state_view.t
+      (** a [View.Flow] or [View.Compare] is not a state destination *)
+    | `Flow_view_graph_disagrees of Flow_view_graph.t
     | `Comparison_panes_disagree of string  (** transition id *)
     | `Duplicate_capability of string
     | `Missing_capability of string
@@ -275,7 +316,17 @@ module Session : sig
       mapping sets; every capability key present exactly once with a compatible
       payload; the flow DAG contract; and every [Transition.comparison]
       resolving with its left/right pane graph ids equal to that transition's
-      before/after state graph ids.
+      before/after state graph ids; and every [Me_flow.State.view] resolving to
+      a declared [View.Stage] whose graph is that state's own.
+
+      A flow DESTINATION is three facts that must name one graph — the spine's
+      own [graph], the single [View.Flow] that opens it, and the [feature:flow]
+      capability that advertises it — and all three are checked together. A
+      capability alone never creates a destination, so [flow = None] admits
+      neither a [View.Flow] nor an [Available] [feature:flow]. The graph is
+      resolved IN THE COLLECTION THE FLOW VIEW DECLARES, so one that exists in
+      another collection is [`Wrong_collection] exactly as it is for a view or a
+      pane.
 
       Every ceiling in {!Me_limits.Limits.t} that names a document shape rather
       than a single field is enforced here too, not merely declared:
