@@ -180,6 +180,24 @@ emits go through `Aten_ident.ml_id`, shared with `Aten_spec_gen`, because
   (it keeps channels-last for speed). Numerically identical, so fine for now.
 - **Arg order / optional bias**: `convolution`'s `bias` is `Tensor?`; when the
   graph passes `as_none`, hand the binding its null-handle/None form.
+
+  **An entirely absent `Tensor?` key is not the same as `as_none`, and
+  `Interp_decode` treats it differently from every other optional decoder in the
+  file.** `tensor_arg` reports a missing key as `` `Missing_argument ``, while
+  `float_opt_ptr`, `int_opt_ptr`, `scalar_opt_arg` and `bool_opt_arg` all decode
+  absence to `None`. No corpus node hits it — every exported node spells its
+  optionals — but `layer_norm`'s `weight`/`bias` both default to `None` in the
+  schema, so a hand-written or re-exported node legitimately omits them, and the
+  generated ATen path then cannot decode a node both native importers accept.
+  It shows up in `test/native_bridge_test.ml` as the `omitted:` line reading
+  `aten: missing required argument "weight"`: a decoder limitation, not a finding
+  about the arm under test.
+
+  Left as-is on purpose. `Interp_decode` is shared by every generated arm, and
+  the two native importers read the argument themselves (`optional_tensor_present`
+  in `Op_bridge`, the same test in `Native_interp`), so absence is already `None`
+  where it matters. Recorded here so the next reader does not rediscover it as a
+  bug in a specific op.
 - **Dispatch breadth**: extending past resnet18 (efficientnet/vit add gelu, cat,
   layer_norm, softmax, etc. — all already bound) is "add a handler row", until
   the auto-generated table is worth building.

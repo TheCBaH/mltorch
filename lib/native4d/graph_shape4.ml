@@ -106,6 +106,12 @@ let slice_params (p : Ops4.Slice4.params) : Split.Slice.params =
 let unbind_params (p : Ops4.Unbind.params) : Split.Unbind.params =
   { axis = Axis4.to_axis p.Ops4.Unbind.axis }
 
+let layer_norm_params (p : Ops4.Layer_norm.params) : Norm.LayerNorm.params =
+  {
+    dims = List.map Axis4.to_axis p.Ops4.Layer_norm.dims;
+    eps = p.Ops4.Layer_norm.eps;
+  }
+
 let rms_params (p : Ops4.Rms_norm.params) : Norm.RmsNorm.params =
   {
     dims = List.map Axis4.to_axis p.Ops4.Rms_norm.dims;
@@ -201,9 +207,37 @@ let output_shape (op : Op.t)
   | Unbind { Ops4.Unbind.params; x } ->
       let* x_shape = shape x in
       four_all (Split.Unbind.output_shapes ~x_shape (unbind_params params))
-  | Rms_norm { Ops4.Rms_norm.x; _ } ->
+  (* The affine check that Native's own [Graph_shape] runs and this file's
+     [Rms_norm] arm does NOT (see below). A JSON-decoded Native4D graph reaches
+     this rule and no other, so leaving it out means an operand of the wrong
+     extent builds a graph here and raises out of [Tensor.read]'s bounds check
+     partway through the result. One shared [check_affine], so the two dialects
+     cannot come to disagree about which extents an operand carries. *)
+  | Layer_norm { Ops4.Layer_norm.params; x; weight; bias } ->
       let* x_shape = shape x in
-      one (four (Norm.RmsNorm.output_shape ~x_shape))
+      let opt_shape = function
+        | None -> Err.return None
+        | Some r ->
+            let+ s = shape r in
+            Some s
+      in
+      let* weight = opt_shape weight in
+      let* bias = opt_shape bias in
+      let p = layer_norm_params params in
+      let* () =
+        widen
+          (Norm.LayerNorm.check_affine ~x_shape ~dims:p.Norm.LayerNorm.dims
+             ~weight ~bias)
+      in
+      one (four (Norm.LayerNorm.output_shape ~x_shape p))
+  (* Asymmetric with the arm above ON PURPOSE, and worth stating rather than
+     quietly copying: [Rms_norm] does not re-run [check_weight] here, so a
+     JSON-decoded Native4D rms_norm skips the affine validation Native's
+     [Graph_shape] performs. Noted in .ai/native4d_design.md; not fixed in the
+     same change that adds a different op. *)
+  | Rms_norm { Ops4.Rms_norm.params; x; _ } ->
+      let* x_shape = shape x in
+      one (four (Norm.RmsNorm.output_shape ~x_shape (rms_params params)))
   | Pad4 { Ops4.Pad4.params; x } ->
       let* x_shape = shape x in
       one (four (Pad.Pad.output_shape ~x_shape (pad_params params)))

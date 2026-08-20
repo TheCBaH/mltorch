@@ -63,6 +63,14 @@ let selection =
     op "_softmax";
     op "gelu";
     op "cat";
+    (* The FUNCTIONAL layer norm, distinct from the decomposed
+       [native_layer_norm] below: one tensor back instead of three, an eps with
+       a schema default instead of a required one, and a [cudnn_enable] flag
+       that only exists on this overload. No exporter in this repository's
+       corpus emits it -- every ExportedProgram lowers it to
+       [native_layer_norm] -- so its coverage is hand-built fixtures and its
+       ATen walk. *)
+    op "layer_norm";
     (* tuple returns: output 0 is the return, extra outputs via out-params *)
     op "_native_batch_norm_legit_no_training";
     op "native_layer_norm";

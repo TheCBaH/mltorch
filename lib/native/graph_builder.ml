@@ -225,6 +225,10 @@ let hardtanh ?name (params : Pointwise.Hardtanh.params) x =
          x;
        })
 
+let layer_norm ?name params ~x ?weight ?bias () =
+  op1 ?name ~kind:"layer_norm"
+    (Layer_norm { Norm.LayerNorm.params; x; weight; bias })
+
 let linear ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"linear" (Linear { Linear.Linear.params; x; weight; bias })
 

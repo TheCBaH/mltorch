@@ -33,6 +33,8 @@ use rank-3/innermost layouts that already match what the native op reads:
 | `bmm.default` | `Matmul.Bmm` | rank-3 lands `H=batch, W=rows, C=cols` — exactly what `Bmm` reads |
 | `mean.dim` | `Reduce.Mean` | dims via `axis_of_dim ~rank`; `kept_map` re-packs survivors so the output matches the ATen rank for both `keepdim` values |
 | `rms_norm.default` | `Norm.RmsNorm` | normalises the trailing dims = the innermost frame axes; weight (rank-`k`) lands on those same axes |
+| `layer_norm.default` | `Norm.LayerNorm` | same rule as `rms_norm`: the trailing `normalized_shape` axes are the innermost frame axes, and both rank-`k` affine operands land on exactly those |
+| `native_layer_norm.default` | `Norm.LayerNorm` | the same node from the decomposed spelling; the extra `mean`/`rstd` tuple elements are dropped, not laid out |
 | `view.default` | `Reshape.Reshape` | a contiguous reshape preserves flat row-major order, and `of_aten` inputs are already ATen-row-major, so the target is just `size` right-aligned — no surrounding permutes. (A whole-graph flow feeding a permuted native frame would need them, per the user's "Reshape between Transpose nodes".) |
 | `unbind.int` | `Split.Unbind` | `dim` via `axis_of_dim ~rank`, so the selected axis is the one the data actually landed on; dropping it re-packs the survivors right-aligned by the *same* rule `mean(keepdim=false)` uses, which is the ATen output rank. The rank must be read from the ATen tensor before `of_aten`, since the frame cannot recover it. |
 
@@ -234,6 +236,88 @@ axis — so it normalized over the whole tensor. Four silently wrong answers,
 now four typed rejections.
 
 The float32-epsilon default lives in `Norm.RmsNorm.default_eps`, read by both.
+
+### `layer_norm`: two optional operands, `cudnn_enable`, and a required-but-defaulted `eps`
+
+`layer_norm.default` reuses `rms_norm`'s axis derivation wholesale — the shared
+`normalized_dims` checks `1 <= k <= rank` *and* compares the trailing extents,
+then hands back `trailing_axes` — and differs from it in three ways worth
+recording, because each is a place the two rows must not be copy-edited into
+each other.
+
+**Both affine operands are optional, and neither importer materialises one.**
+`Graph_ir`'s `Layer_norm` carries `weight` and `bias` as `Tensor_ref.t option`
+and `Eval_op` fills the absent ones (`fill 1.` / `fill 0.`), for the reason the
+`rms_norm` section above states: synthesizing a constant in one importer builds
+a structurally different graph from the other's for the same node. There are
+**four** states, not two, and "bias but no weight" is the one no exported model
+produces — it is dispatched explicitly in both arms and in
+`test/native_bridge_test.ml` rather than folded into a paired encoding, which is
+where a two-state assumption would get it wrong.
+
+An *entirely absent* `Tensor?` key is read as `None` by both native arms
+(`optional_tensor_present` in the bridge, the same test in `Native_interp`).
+`Interp_decode.tensor_arg` on the generated ATen path does **not**: it reports
+an absent key as `` `Missing_argument ``, unlike every other optional decoder in
+that file. No corpus node hits it, but it means the ATen oracle cannot express
+the omitted spelling, so the `omitted:` line in the bridge fixture reads
+`aten: missing required argument "weight"` and is a decoder limitation, not a
+finding about the arm. Recorded rather than fixed: the decoder is shared with
+every generated arm.
+
+**`eps` is a required float with a schema default of `1e-05`**, decoded as
+`float_arg ~default:1e-05` — never `eps_arg`. `rms_norm`'s `eps` is a `float?`
+whose *absence* means "ATen picks", which is why `Norm.RmsNorm.default_eps`
+exists; reading one with the other's decoder is how a null epsilon comes to be
+read as zero. `native_layer_norm.default`'s `eps` is required with no default at
+all, a third spelling of the same argument.
+
+**`cudnn_enable` is decoded and then deliberately discarded**, and accepted at
+both values. ATen's own composite is
+`layer_norm_symint(..., bool /* cudnn_enable, deprecated */)`: it names the
+parameter in a comment and drops it, computing `native_layer_norm` either way.
+So the native contract is backend-independent by construction, and rejecting
+`true` would reject the schema's own default and with it almost every real node.
+It is still decoded rather than ignored — a non-boolean there is a malformed
+node, and the decode is what says so. This is the one argument in this tree
+where discarding is the faithful reading rather than the `alpha`-shaped bug.
+
+`normalized_shape`'s diagnostics now name the op (`Normalized_rank` /
+`Normalized_shape` carry an `op : Norm.Target.t`), since the rows are shared by
+three targets and a message reading `rms_norm:` on a `layer_norm` node is a
+wrong answer about which node failed.
+
+### `native_layer_norm`: the same body, three differences, and 148 real nodes
+
+`layer_norm.default` and `native_layer_norm.default` are **one arm** in each
+importer, not two. They differ in exactly three things — `eps` is required with
+no schema default, there is no `cudnn_enable`, and the return is a 3-tuple — and
+in nothing else: same axis derivation, same `normalized_shape` validation, same
+affine handling, same node built. Two copies of that body would be two copies of
+a shape rule free to drift, so the arm names both targets explicitly (no
+fallthrough) and every diagnostic under it carries the resolved target, exactly
+as `view`/`_unsafe_view` already does.
+
+**This is the row that carries model coverage.** `layer_norm.default` occurs in
+no reachable graph — every ExportedProgram in the corpus lowers it to the
+decomposed target before writing `model.json`, recording the functional one only
+in `metadata.from_node` — while `native_layer_norm.default` occurs 148 times
+across `vit_b_16`, `vit_b_32`, `vit_l_16` and `vit_l_32`, all in one
+configuration: `normalized_shape` of arity 1 (`[768]` / `[1024]`), `eps` spelled
+`1e-06`, both affine operands present, and both statistics dead.
+
+For `vit_b_32` that is 25 of 839 nodes and takes the importer from 559 to 584.
+It does **not** move any cram gate yet: the first `expand.default` is node 3 and
+the first `native_layer_norm.default` is node 7, so the import still stops in the
+same place. Thirteen targets remain (`expand.default`, `select.int`,
+`mul.Scalar`, `bmm.default`, `logical_not.default`, `unsqueeze.default`,
+`squeeze.dims`, `_softmax.default`, `eq.Scalar`, `any.dim`, `full_like.default`,
+`where.self`, `gelu.default`, plus one `cat.default`). "Removes one of fourteen
+blockers" is the claim; "vit is importable" is not.
+
+The dead `mean`/`rstd` are a dead-output shape neither existing rule covered —
+see `native_multi_output_design.md` §3, which also states why the liveness check
+lives in the importer and not in the single-node bridge.
 
 ### `view.default` / `_unsafe_view.default`: one shared body, `Identical` after materialization
 

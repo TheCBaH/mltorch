@@ -14,6 +14,10 @@ let x = t_ 0
 let y = t_ 1
 let w = t_ 2
 
+(* A fourth distinct id, so a codec that confused [Layer_norm]'s two affine
+   operands prints a different reference rather than the same one twice. *)
+let b = t_ 3
+
 let axis_window ~kernel : Conv.Conv2d.axis_window =
   {
     kernel = Dim.extent kernel;
@@ -70,6 +74,13 @@ let samples : Op.t list =
     Hardsigmoid { Pointwise.Hardsigmoid.x };
     Hardswish { Pointwise.Hardswish.x };
     Hardtanh { Pointwise.Hardtanh.params = { min_val = 0.; max_val = 6. }; x };
+    Layer_norm
+      {
+        Ops4.Layer_norm.params = { dims = [ C ]; eps = 1e-5 };
+        x;
+        weight = Some w;
+        bias = Some b;
+      };
     Max_pool2d { Pool.MaxPool2d.params = max_params; x };
     Mean_keepdims { Ops4.Mean_keepdims.params = { dims = [ H; W ] }; x };
     Mul { Pointwise.Bin.a = x; b = y };
@@ -139,7 +150,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 25, registry: 25 |}]
+  [%expect {| samples: 26, registry: 26 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -167,6 +178,7 @@ let%expect_test "op4: printed" =
     hardsigmoid x=t0
     hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}
+    layer_norm x=t0 weight=t2 bias=t3 params={dims=[C]; eps=1e-05}
     max_pool2d x=t0 params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
     mean_keepdims x=t0 params={dims=[H, W]}
     mul a=t0 b=t1
@@ -198,7 +210,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 25 ops |}]
+  [%expect {| round-tripped 26 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 
@@ -218,6 +230,31 @@ let group2_samples =
       };
     Rms_norm
       { Ops4.Rms_norm.params = { dims = [ W; C ]; eps = 0. }; x; weight = None };
+    (* The four affine states are four distinct encodings, and the two
+       one-sided ones are what a codec pairing the operands gets wrong. [eps] is
+       0.1 rather than a power of ten: it is not exact in f32, so a scalar
+       narrowed on the way through is visible in the printed value. *)
+    Layer_norm
+      {
+        Ops4.Layer_norm.params = { dims = [ H; W; C ]; eps = 0.1 };
+        x;
+        weight = Some w;
+        bias = None;
+      };
+    Layer_norm
+      {
+        Ops4.Layer_norm.params = { dims = [ W; C ]; eps = 0. };
+        x;
+        weight = None;
+        bias = Some b;
+      };
+    Layer_norm
+      {
+        Ops4.Layer_norm.params = { dims = [ C ]; eps = 1e-6 };
+        x;
+        weight = None;
+        bias = None;
+      };
     Depthwise_conv2d
       {
         Ops4.Conv_payload.params =
@@ -273,6 +310,9 @@ let%expect_test "op4: Group-2 non-default payloads round-trip" =
     {|
     rms_norm x=t0 weight=t2 params={dims=[H, W, C]; eps=1e-05}
     rms_norm x=t0 params={dims=[W, C]; eps=0}
+    layer_norm x=t0 weight=t2 params={dims=[H, W, C]; eps=0.1}
+    layer_norm x=t0 bias=t3 params={dims=[W, C]; eps=0}
+    layer_norm x=t0 params={dims=[C]; eps=1e-06}
     depthwise_conv2d
       x=t0
       weight=t2
@@ -280,4 +320,4 @@ let%expect_test "op4: Group-2 non-default payloads round-trip" =
              w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=2};
              in_channels=4}
     max_pool2d x=t0 params={kernel={h=3; w=2}; stride={h=2; w=1}; pad={h=1; w=0}}
-    round-tripped 4 ops |}]
+    round-tripped 7 ops |}]

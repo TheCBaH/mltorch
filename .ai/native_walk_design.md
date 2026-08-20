@@ -97,6 +97,13 @@ is *not* auto-filled, because per-arg `None` can still be an invalid *combinatio
 Such cross-arg constraints belong in `walk_meta`. The generator partitions the entire `selection`,
 so every spec'd op either walks or is listed in `needs_meta` — the gap is visible, never silent.
 
+The same rule decides `layer_norm.default` before anyone chooses: it has three tensor arguments,
+two of them optional, so `default_tensor`'s "exactly one tensor argument" test fails and
+`fill_non_tensor` would refuse the optionals anyway. It lands in `needs_meta` the moment the binding
+is added, and a `walk_meta` entry plus a recipe is the only walk it can ever have — there is no
+vacuous default-tier walk to displace. Any op with an optional tensor argument is automatically
+`needs_meta` for this reason.
+
 That conservatism is also what keeps a whole class of vacuous walk from existing, and it is worth
 recording because op6-impl's F7 predicted the opposite. `slice.Tensor` has a default for *every*
 non-tensor argument (`dim=0, start=None, end=None, step=1`), and those defaults are jointly the
@@ -116,13 +123,30 @@ applied after every mutation — not by filtering candidate values. Examples:
   spatial input until `output_dim ≥ 1`.
 - **Pool** (`Recipe_pool`): clamp `pad ≤ kernel/2`; grow inputs for `output_dim ≥ 1` (dilation 1).
 - **Reduce** / **Default**: identity (any dim subset / any single-tensor shape is valid).
-- **RmsNorm** (`Recipe_norm`): identity, for the same structural reason as Linear. The normalized
-  extents appear in three places — the input's trailing axes, `normalized_shape`, and the weight —
-  and one candidate list supplies all three, so they cannot disagree. Its `weight` axis walks both
-  graph shapes, because `Graph_ir`'s `Rms_norm` carries the weight as an **option** and the absent
-  case is a different path rather than a ones tensor. Note what an *uncorrelated* recipe would do
-  here: generate specs ATen rejects, which degrade to `skipped` — a suite of skips that reads as
-  coverage and is none.
+- **Norm** (`Recipe_norm`, shared by `rms_norm.default`, `layer_norm.default` and
+  `native_layer_norm.default`): identity, for the same structural reason as Linear. The normalized
+  extents appear in four places — the input's trailing axes, `normalized_shape`, the weight and the
+  bias — and one candidate list supplies all of them, so they cannot disagree. Its `weight` and
+  `bias` axes walk all four **graph shapes**, because `Graph_ir` carries both operands as
+  **options** and each absent case is a different path rather than a ones/zeros tensor; "bias but no
+  weight" is the state no exported model produces and the one a paired encoding gets wrong, so the
+  walk's step count and seed are chosen to *reach* all four rather than assumed to. Note what an
+  *uncorrelated* recipe would do here: generate specs ATen rejects, which degrade to `skipped` — a
+  suite of skips that reads as coverage and is none.
+
+  The `bias` and `cudnn_enable` axes are **omitted** for a target that has no such argument, not
+  defaulted to a one-element candidate list. A single-valued axis is not free: the walk still spends
+  a step on it and still names it as the mutated field, which is a step that changed nothing dressed
+  up as one that did. `pp` prints the whole config including the fields a given target does not use,
+  because one recipe serves three targets and a renderer that hid them would have to know which
+  target it was printing for.
+
+  `layer_norm`'s `cudnn_enable` is walked at both values against the same expected result. ATen's
+  own composite names it `bool /* cudnn_enable, deprecated */` and drops it, so what the axis pins
+  is that the CPU path really does ignore it — the *decoding* of the argument is pinned by the
+  bridge dispatch fixtures instead. `native_layer_norm` has no such argument (none survives export)
+  and its `eps` is required with no schema default, which is why the recipe's `eps_or_default`
+  supplies the functional overload's own 1e-05 rather than inventing a third number.
 - **Linear** (`Recipe_linear`): identity, and deliberately so. `in_features` occurs once, in both the
   input's trailing extent and the weight's second dimension, so the correlation other recipes repair
   after the fact is structural here and there is nothing left to cascade. Its `leading` axis carries

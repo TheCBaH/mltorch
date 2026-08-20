@@ -316,6 +316,18 @@ let sink_permute_output () =
       let* r = relu a in
       return (a, r))
 
+(* [Layer_norm] is a barrier for exactly [Pad]'s and [Slice]'s reason: it names
+   the axes it normalises over, so commuting it past a permute would reduce over
+   whichever axes happened to land where the named ones used to be -- and the
+   affine operands, which carry the normalized_shape, would then be read on the
+   wrong axes too. Same silent-exclusion hazard, same fixture. *)
+let sink_permute_layer_norm () =
+  build "sink_permute_layer_norm"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute rotate_hwc x in
+      layer_norm { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 } ~x:a ())
+
 (* One of each op [Sink_permute] accepts, each fed its own singly-consumed
    permuted operand(s) so every branch is independently sinkable. Cheap
    insurance that the allowlist match arm actually fires for every

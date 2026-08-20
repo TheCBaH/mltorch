@@ -542,11 +542,11 @@ let rms_norm =
     recipe = "Recipe_norm";
     initial =
       "Aten_walk_recipes.Recipe_norm.{ leading = [ 2; 3 ]; normalized = [ 4 ]; \
-       eps = None; weight = true }";
+       eps = None; weight = true; bias = false; cudnn = false }";
     axes =
       "Aten_walk_recipes.Recipe_norm.axes ~leading:[ [ 2 ]; [ 2; 3 ]; [ 2; 3; \
        4 ] ] ~normalized:[ [ 4 ]; [ 5 ]; [ 3; 4 ]; [ 2; 3; 4 ] ] ~eps:[ None; \
-       Some 1e-5; Some 0. ] ~weight:[ true; false ]";
+       Some 1e-5; Some 0. ] ~weight:[ true; false ] ()";
     build =
       {|let input, pcg = Walk.tensor_spec pcg (Recipe_norm.input_shape c) in
     let weight, pcg =
@@ -566,6 +566,103 @@ let rms_norm =
       pcg )|};
   }
 
+(* layer_norm.default: rms_norm's recipe with the second affine operand and the
+   cudnn_enable axis. The four affine STATES are what this walk buys over the
+   hand-built fixtures -- each is a structurally different graph, and the
+   one-sided ones are what a paired encoding gets wrong.
+
+   [eps] never draws [None]: the schema default is 1e-05 and the spec always
+   emits the argument, so a [None] step would build the same spec as [Some 1e-5]
+   and spend a walk step proving nothing. The three drawn values are the two the
+   corpus contains plus zero, which is the value that makes the reciprocal
+   sqrt's argument the variance alone.
+
+   [cudnn_enable] is walked at both values against the same expected result --
+   ATen's composite names it [bool /* cudnn_enable, deprecated */] and drops it,
+   so what this pins is that the CPU path really does ignore it. *)
+let layer_norm =
+  {
+    module_name = "Layer_norm_walk";
+    target = "torch.ops.aten.layer_norm.default";
+    recipe = "Recipe_norm";
+    initial =
+      "Aten_walk_recipes.Recipe_norm.{ leading = [ 2; 3 ]; normalized = [ 4 ]; \
+       eps = Some 1e-5; weight = true; bias = true; cudnn = true }";
+    axes =
+      "Aten_walk_recipes.Recipe_norm.axes ~leading:[ [ 2 ]; [ 2; 3 ]; [ 2; 3; \
+       4 ] ] ~normalized:[ [ 4 ]; [ 5 ]; [ 3; 4 ]; [ 2; 3; 4 ] ] ~eps:[ Some \
+       1e-5; Some 1e-6; Some 0. ] ~weight:[ true; false ] ~bias:[ true; false \
+       ] ~cudnn:[ true; false ] ()";
+    build =
+      {|let input, pcg = Walk.tensor_spec pcg (Recipe_norm.input_shape c) in
+    let affine present shape pcg =
+      if present then
+        let t, pcg = Walk.tensor_spec pcg shape in
+        (Some t, pcg)
+      else (None, pcg)
+    in
+    let weight, pcg =
+      affine (Recipe_norm.has_weight c) (Recipe_norm.weight_shape c) pcg
+    in
+    let bias, pcg =
+      affine (Recipe_norm.has_bias c) (Recipe_norm.bias_shape c) pcg
+    in
+    ( Aten_op_spec.Op_layer_norm.(
+        spec
+          {
+            input;
+            normalized_shape = Recipe_norm.normalized_shape c;
+            weight;
+            bias;
+            eps = Recipe_norm.eps_or_default c;
+            cudnn_enable = Recipe_norm.cudnn c;
+          }),
+      pcg )|};
+  }
+
+(* native_layer_norm.default: the same recipe and the same four affine states,
+   without the cudnn_enable axis (no such argument survives export) and with a
+   REQUIRED eps. This is the target 148 corpus nodes actually carry, so its
+   drawn epsilons lead with 1e-06, the value all 148 spell. *)
+let native_layer_norm =
+  {
+    module_name = "Native_layer_norm_walk";
+    target = "torch.ops.aten.native_layer_norm.default";
+    recipe = "Recipe_norm";
+    initial =
+      "Aten_walk_recipes.Recipe_norm.{ leading = [ 2; 3 ]; normalized = [ 4 ]; \
+       eps = Some 1e-6; weight = true; bias = true; cudnn = false }";
+    axes =
+      "Aten_walk_recipes.Recipe_norm.axes ~leading:[ [ 2 ]; [ 2; 3 ]; [ 2; 3; \
+       4 ] ] ~normalized:[ [ 4 ]; [ 5 ]; [ 3; 4 ]; [ 2; 3; 4 ] ] ~eps:[ Some \
+       1e-6; Some 1e-5; Some 0. ] ~weight:[ true; false ] ~bias:[ true; false \
+       ] ()";
+    build =
+      {|let input, pcg = Walk.tensor_spec pcg (Recipe_norm.input_shape c) in
+    let affine present shape pcg =
+      if present then
+        let t, pcg = Walk.tensor_spec pcg shape in
+        (Some t, pcg)
+      else (None, pcg)
+    in
+    let weight, pcg =
+      affine (Recipe_norm.has_weight c) (Recipe_norm.weight_shape c) pcg
+    in
+    let bias, pcg =
+      affine (Recipe_norm.has_bias c) (Recipe_norm.bias_shape c) pcg
+    in
+    ( Aten_op_spec.Op_native_layer_norm.(
+        spec
+          {
+            input;
+            normalized_shape = Recipe_norm.normalized_shape c;
+            weight;
+            bias;
+            eps = Recipe_norm.eps_or_default c;
+          }),
+      pcg )|};
+  }
+
 let entries =
   [
     conv2d;
@@ -573,6 +670,8 @@ let entries =
     conv2d_padding;
     linear;
     rms_norm;
+    layer_norm;
+    native_layer_norm;
     max_pool2d;
     max_pool2d_with_indices;
     avg_pool2d;

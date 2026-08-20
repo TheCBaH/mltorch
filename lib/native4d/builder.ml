@@ -172,6 +172,12 @@ let permute4 perm x = op1 (Op.Permute4 { Ops4.Permute4.perm; x })
 let relu x = op1 (Op.Relu { Pointwise.Relu.x })
 let reshape4 shape x = op1 (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
 
+(* Takes the dialect's own [Ops4.Layer_norm.params], whose [dims] are
+   [Axis4.t]: a normalization naming T or D is not constructible through this
+   API. Both affine operands stay optional. *)
+let layer_norm4 params ~x ?weight ?bias () =
+  op1 (Op.Layer_norm { Ops4.Layer_norm.params; x; weight; bias })
+
 let rms_norm params ~x ?weight () =
   op1 (Op.Rms_norm { Ops4.Rms_norm.params; x; weight })
 

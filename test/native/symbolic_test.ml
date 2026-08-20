@@ -571,6 +571,42 @@ let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
     grounded=tensor f32 [C=1] {5} match=true
     grounded=tensor f32 [C=1] {4} match=true |}]
 
+(* The printed AST is the point: it shows TWO reduction nodes, the second with
+   the first's mean subtracted inside its body. That is what distinguishes
+   layer_norm from rms_norm structurally, and it is also the check that the
+   mean sub-expression is SHARED into the body rather than the body being
+   duplicated per element -- the symbolic term stays additive in size, which is
+   what keeps the walk inside [Kernel.Limits.Hard] depth. *)
+let%expect_test
+    "Symbolic layer_norm over C: two reductions, and eval matches Direct" =
+  let module S = Symbolic in
+  let module Ld = Norm.LayerNorm.Compute (Direct) in
+  let module Ls = Norm.LayerNorm.Compute (S) in
+  let x_shape = s1c 2 in
+  let x = Tensor.materialize x_shape (fun c -> [| 1.; 7. |].(chan c)) in
+  let weight = Tensor.materialize x_shape (fun _ -> 1.) in
+  let bias = Tensor.materialize x_shape (fun _ -> 0.) in
+  let sg id name =
+    Tensor_sig.create ~id:(Tensor_id.of_int id) ~name ~shape:x_shape ~fmt:f32 ()
+  in
+  let xs = sg 0 "x" and ws = sg 1 "w" and bs = sg 2 "b" in
+  let p = { Norm.LayerNorm.dims = [ Axis.C ]; eps = 0. } in
+  let e =
+    build (Ls.pixel p ~x_shape ~x:xs ~weight:ws ~bias:bs Symbolic.out_vec)
+  in
+  Format.printf "%a@." Expr.Pp.value e;
+  [%expect
+    {| ((((t0[N,T,D,H,W,C] - (sum(r1=0..2: t0[N,T,D,H,W,r1]) / 2)) * (1 / sqrt(((sum(r2=0..2: ((t0[N,T,D,H,W,r2] - (sum(r3=0..2: t0[N,T,D,H,W,r3]) / 2)) * (t0[N,T,D,H,W,r2] - (sum(r4=0..2: t0[N,T,D,H,W,r4]) / 2)))) / 2) + 0)))) * t1[0,0,0,0,0,C]) + t2[0,0,0,0,0,C]) |}];
+  let binding id =
+    if id = xs.id then Some x else if id = ws.id then Some weight else Some bias
+  in
+  Format.printf "%a@." (pp_result pp_eval_result)
+    (compare_symbolic (Norm.LayerNorm.output_shape ~x_shape p)
+       ~iter_shape:(s1c 2) ~eval_direct:(Ld.pixel p ~x_shape ~x ~weight ~bias)
+       ~eval_symbolic:(fun c -> eval_expr ~binding e c)
+    |> Result.map (fun (vals, ok, _) -> (vals, ok)));
+  [%expect {| eval=-1,1 direct==symbolic=true |}]
+
 let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
     =
   let module S = Symbolic in
@@ -594,7 +630,7 @@ let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
     {| ((t0[N,T,D,H,W,C] * (1 / sqrt(((sum(r1=0..2: (t0[N,T,D,H,W,r1] * t0[N,T,D,H,W,r1])) / 2) + 0)))) * t1[0,0,0,0,0,C]) |}];
   let binding id = if id = xs.id then Some x else Some weight in
   Format.printf "%a@." (pp_result pp_eval_result)
-    (compare_symbolic (Norm.RmsNorm.output_shape ~x_shape) ~iter_shape:(s1c 2)
+    (compare_symbolic (Norm.RmsNorm.output_shape ~x_shape p) ~iter_shape:(s1c 2)
        ~eval_direct:(Rd.pixel p ~x_shape ~x ~weight) ~eval_symbolic:(fun c ->
          eval_expr ~binding e c)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));

@@ -141,6 +141,20 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Unbind { Ops4.Unbind.params; x } ->
         let module C = Split.Unbind.Compute (S) in
         C.pixel (Graph_shape4.unbind_params params) ~output ~x:(operand x) out
+    (* Through [Graph_shape4]'s adapter, so the axes the shape rule validated
+       are the axes the reduction runs over. The absent operands are filled
+       exactly as [Eval_op] fills them -- 1 for the scale, 0 for the offset --
+       so an absent operand means the same thing in both dialects. *)
+    | Layer_norm { Ops4.Layer_norm.params; x; weight; bias } ->
+        let module C = Norm.LayerNorm.Compute (S) in
+        let fill_or v = function
+          | Some r -> operand r
+          | None -> fill v (shape_of x)
+        in
+        C.pixel
+          (Graph_shape4.layer_norm_params params)
+          ~x_shape:(shape_of x) ~x:(operand x) ~weight:(fill_or 1. weight)
+          ~bias:(fill_or 0. bias) out
     | Rms_norm { Ops4.Rms_norm.params; x; weight } ->
         let module C = Norm.RmsNorm.Compute (S) in
         let weight =

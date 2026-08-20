@@ -31,6 +31,11 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Rms_norm_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (* Beside RmsNorm, and for the same reason its entry gives: the affine
+       operands are options, so the walk's value is that it builds all four
+       graph SHAPES, not that it checks the arithmetic. *)
+    (module Layer_norm_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Max_pool2d_with_indices_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Reshape_nwalk.M : Walk_core.Walk.Op

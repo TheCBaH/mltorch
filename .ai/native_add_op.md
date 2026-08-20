@@ -179,6 +179,33 @@ alphabetical position at every site below; don't append.
    not registered, since a random divisor hits zero and the resulting inf/NaN
    would make the walk flaky rather than informative.
 
+## Reductions over named axes, and the aggregate they hide
+
+An op that reduces over `params.dims` (`Reduce.Mean`, `Norm.RmsNorm`,
+`Norm.LayerNorm`) nests one `S.sum` per reduced axis over `[0, extent)` and
+carries the reduction variables in an `override` association list that is folded
+onto the output coordinate **at the leaf only** — never per element, which is
+what a `List.assoc` inside the innermost loop would cost. A second reduction
+consuming the first (layer norm's variance consuming its mean) needs no new
+machinery and no new `SEMANTICS` primitive; it is the same idiom written twice.
+
+Under `Symbolic` it is not free, and the number to know is not the one the
+builder's shape suggests. `Symbolic.t` is a *builder computation*, not a node,
+so a mean term appearing three times in the source emits three sub-trees:
+layer norm's AST is roughly **3x** rms norm's in size and twice its depth, not
+"additive". Measure it against `Kernel.Limits.Hard.depth` / `eval_depth` with
+`Expr.Check.value ?max_size ?max_depth` before fixing the walk's config space,
+rather than reasoning about it.
+
+**The reduction's divisor is a 32-bit aggregate.** It is a product of extents
+each bounded only by `Kernel.Limits.Hard.extent`, so it wraps under
+js_of_ocaml's 32-bit `int` — CLAUDE.md's rule, on a JS-reachable path. Bound it
+in `output_shape`, which every graph constructor meets, using
+`Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel` over the shape that already
+describes the reduced axes; `Compute` has no error channel and can only document
+the invariant. Do **not** bound it in `Compute`, and do not check the folded
+product after the fact — a mid-fold wrap sails straight past that.
+
 ## Multi-output ops and dead outputs
 
 Most ops produce one output; a few ATen ops return a tuple. If yours does:
@@ -204,6 +231,13 @@ Most ops produce one output; a few ATen ops return a tuple. If yours does:
 - Route a genuinely-dead output into a `Discard` sink
   (`Graph_builder.discard`); drop a size-0 ATen output entirely (the engine has
   no empty tensors). See `native_multi_output_design.md` for the full rationale.
+- A dead output that is **neither** size-0 nor materialisable is a third case:
+  `native_layer_norm`'s `mean`/`rstd` are real f32 tensors that the fused
+  `Layer_norm` computes only as intermediates, so there is nothing to route into
+  a `Discard`. Drop them (`Native_interp.materialized_output_names`) and then
+  **prove them dead** — the importer refuses a graph that reads one with a typed
+  row rather than letting the dropped name surface as `` `Undefined_ssa `` at the
+  consumer. See `native_multi_output_design.md` §3.
 
 ## Tests (mirror the existing `add` cases)
 

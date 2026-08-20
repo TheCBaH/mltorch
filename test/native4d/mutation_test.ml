@@ -215,6 +215,58 @@ let%expect_test "mutation: a reduction over the wrong axes is caught by shape" =
   [%expect
     {| mean [H;W] -> mean [H]     map: value map: t1 and t1 correspond but differ in shape |}]
 
+(* NORMALIZATION, and the contrast with the reduction above. Layer norm reduces
+   over its [dims] and then rescales, so the output keeps the INPUT's shape
+   whichever axes were chosen -- unlike [mean], where the axes determine the
+   shape and the map rejects the cluster first. So this mutation reaches the
+   verifier, and it has to: normalizing over the wrong axis is the mistake
+   op7.md names first, and shape evidence cannot see it.
+
+   Square in H, W and C, and no affine operands: for [dims=[C]] the operands
+   would carry [C=2] and for [dims=[W]] they would carry [W=2], which is a shape
+   difference the map would reject before any term is built. *)
+let%expect_test
+    "mutation: a normalization over the wrong axis reaches the verifier" =
+  mutated "layer_norm C -> W"
+    (nat "layer_norm"
+       Graph_builder.(
+         let* x = input ~shape:sq () in
+         layer_norm { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 } ~x ()))
+    (four
+       Builder.(
+         let* x = input ~shape:sq4 () in
+         layer_norm4 { Ops4.Layer_norm.dims = [ Axis4.W ]; eps = 1e-5 } ~x ()));
+  [%expect
+    {| layer_norm C -> W          2 clusters: 1 proved (structural), 1 refuted (counterexample) |}]
+
+(* THE AFFINE ORDER. Both operands present and the SAME shape, so the swap
+   survives every structural check: same op, same ids, same wiring, same shapes.
+   [y * weight + bias] and [y * bias + weight] differ only in the values, and
+   only for a weight that is not the bias -- which the verifier does not have to
+   be told, because it quantifies over both. *)
+let%expect_test "mutation: layer_norm weight and bias exchanged" =
+  let chan = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2 in
+  let chan4 = Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:2 in
+  mutated "layer_norm w,b -> b,w"
+    (nat "layer_norm"
+       Graph_builder.(
+         let* x = input ~shape:sq () in
+         let* w = input ~shape:chan () in
+         let* b = input ~shape:chan () in
+         layer_norm
+           { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 }
+           ~x ~weight:w ~bias:b ()))
+    (four
+       Builder.(
+         let* x = input ~shape:sq4 () in
+         let* w = input ~shape:chan4 () in
+         let* b = input ~shape:chan4 () in
+         layer_norm4
+           { Ops4.Layer_norm.dims = [ Axis4.C ]; eps = 1e-5 }
+           ~x ~weight:b ~bias:w ()));
+  [%expect
+    {| layer_norm w,b -> b,w      4 clusters: 3 proved (structural), 1 refuted (counterexample) |}]
+
 (* SCALAR PARAMETERS. A parameter carried across wrong is invisible to every
    structural check — the graphs are the same shape, the same ops, the same
    wiring. Only the values differ. *)

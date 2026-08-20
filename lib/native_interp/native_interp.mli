@@ -73,6 +73,16 @@ type metadata_role =
     (** rms_norm reads the INPUT's metadata, not a weight's: [normalized_shape]
         is checked against the input's trailing extents, which is the only place
         those extents can come from. *)
+  | `Layer_norm_weight
+  | `Layer_norm_bias
+    (** layer_norm's two optional affine operands, read for their declared RANK
+        for the same reason [`Rms_norm_weight] is. Separate tags rather than one
+        shared "affine" role: they are separate arguments with separate checks,
+        and a shared label could not say which one disagreed. *)
+  | `Layer_norm_input
+    (** Both `layer_norm` and `native_layer_norm` read it, and one role covers
+        them: the metadata question is identical, and the target string is
+        already in the diagnostic that carries this role. *)
   | `Mean_input
   | `Permute_input
   | `Transpose_input
@@ -159,14 +169,25 @@ module Bad_config = Op_config.Bad
     one fault, because both are the same question answered with the same two
     numbers. *)
 module Normalized_rank : sig
-  type t = { rank : int; got : int }
+  type t = { op : Norm.Target.t; rank : int; got : int }
 end
 
 (** The input's trailing extents against the ones [normalized_shape] declared.
     Both lists, not a first differing index: a reader needs to see which axes
     were meant. *)
 module Normalized_shape : sig
-  type t = { expected : int list; got : int list }
+  type t = { op : Norm.Target.t; expected : int list; got : int list }
+end
+
+(** Which of [native_layer_norm]'s two dropped outputs a graph reads, and under
+    what SSA name. The tag is a variant and not the name alone: the name is
+    model-chosen ([native_layer_norm_unused_1] in the corpus, but nothing
+    requires that), so it identifies the edge while the tag identifies the
+    statistic. [op] carries the target, since only one target can produce this
+    today and hard-coding it in the message would have to be revisited when
+    another does. *)
+module Live_layer_norm_stats : sig
+  type t = { op : string; stat : [ `Mean | `Rstd ]; ssa : string }
 end
 
 module Unsupported_option : sig
@@ -226,6 +247,11 @@ type malformed =
         uncaught [Invalid_argument] — past the boundary that is supposed to
         classify them. *)
   | `Normalized_rank of Normalized_rank.t
+  | `Live_layer_norm_stats of Live_layer_norm_stats.t
+    (** [native_layer_norm]'s [mean]/[rstd] are dropped, and this is what
+        refuses a graph that reads one. Not the batch-norm case: those trailing
+        outputs are recorded size-0, these are real tensors that simply happen
+        to be dead in every occurrence the corpus contains. *)
   | `Normalized_shape of Normalized_shape.t
     (** The check [Op_bridge] does not do. It reads [normalized_shape]'s LENGTH
         and nothing else, so a shape naming the wrong extents normalizes over

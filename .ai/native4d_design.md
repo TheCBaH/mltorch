@@ -598,6 +598,44 @@ therefore introduces a different f32 rounding boundary. Its claim is
 If bit identity is required, retain a Native4D `RmsNorm` operation that delegates
 to the existing fused compute.
 
+### 7.7a Layer normalization
+
+`Ops4.Layer_norm` is retained **fused**, like `RmsNorm` and for one more reason.
+Layer norm needs the mean twice — once to centre and once inside the variance —
+so a decomposition either recomputes the reduction or materializes the mean, and
+both move an f32 rounding boundary the fused form does not have. The claim is
+`Identical`, and `verify_test.ml` proves it structurally.
+
+`params = { dims : Axis4.t list; eps : float }`, so a normalization naming `T`
+or `D` is unrepresentable in the dialect and unconstructible through
+`Builder.layer_norm4`. The axes are gated on the **Native** `Axis.t` by
+`Domain.check_dims` before `Lower` converts them, which is what lets the
+diagnostic name the rejected axis (`node n0: axis D is outside the N/H/W/C
+dialect`) instead of reporting that a conversion failed. `domain_test.ml` pins
+that row, and it was observed going green when the domain arm was replaced by
+`Err.return ()`.
+
+Both affine operands stay `Tensor_ref.t option`; `Eval_op4` fills the absent
+ones with 1 and 0 exactly as `Eval_op` does, so an absent operand means the same
+thing in both dialects.
+
+**One asymmetry, recorded rather than propagated.** `Graph_shape4`'s
+`Layer_norm` arm re-runs the shared `Norm.LayerNorm.check_affine`; its `Rms_norm`
+arm does **not** re-run `RmsNorm.check_weight`. A JSON-decoded Native4D graph
+reaches this rule and no other, so the rms_norm path skips affine validation
+that Native's own `Graph_shape` performs, and an operand of the wrong extent
+builds a graph there and raises out of `Tensor.read`'s bounds check partway
+through the result. The layer-norm arm does not copy that gap; closing it for
+rms_norm is a separate change, not one to fold into an unrelated op.
+
+Two mutations are kept permanently in `mutation_test.ml`, both reaching the
+verifier and both refuted. Normalizing over the wrong axis is the contrast case
+to §7.5's `Mean`: a reduction's output shape is determined by the axes it
+removes, so a wrong axis is caught by `Graph_map` before any term is built,
+while layer norm keeps the input's shape whichever axes were chosen and so must
+be refuted numerically. Exchanging `weight` and `bias` survives every structural
+check — same op, same ids, same wiring, same shapes — and is likewise refuted.
+
 ### 7.8 Max pool with indices
 
 When the indices output is consumed only by `Discard`, DCE removes the sink and

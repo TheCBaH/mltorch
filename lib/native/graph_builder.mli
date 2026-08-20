@@ -113,6 +113,20 @@ val hardswish : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardtanh :
   ?name:string -> Pointwise.Hardtanh.params -> tensor_ref -> Tensor_id.t t
 
+val layer_norm :
+  ?name:string ->
+  Norm.LayerNorm.params ->
+  x:tensor_ref ->
+  ?weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+(** Both affine operands are independently optional, exactly as ATen's
+    [Tensor? weight, Tensor? bias] are. Absent means the identity (scale 1,
+    shift 0) and is materialised by [Eval_op], not by the caller: a graph built
+    with an explicit ones tensor is a DIFFERENT graph, and the two importers
+    have to agree on which one they build. *)
+
 val linear :
   ?name:string ->
   Linear.Linear.params ->
