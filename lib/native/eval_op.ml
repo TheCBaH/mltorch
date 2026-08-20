@@ -99,6 +99,20 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Hardtanh { Pointwise.Hardtanh.params; x } ->
         let module C = Pointwise.Hardtanh.Compute (S) in
         C.pixel params (operand x) out
+    | Layer_norm { Norm.LayerNorm.params; x; weight; bias } ->
+        let module C = Norm.LayerNorm.Compute (S) in
+        (* Absent weight = identity scale, absent bias = identity shift. Filled
+           HERE, never in an importer: [Graph_ir] carries both as options and
+           Native4D reads the options, so materialising a constant upstream
+           would make the two import paths build structurally different graphs
+           for the same node. *)
+        let weight =
+          match weight with Some w -> operand w | None -> fill 1. (shape_of x)
+        in
+        let bias =
+          match bias with Some b -> operand b | None -> fill 0. (shape_of x)
+        in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight ~bias out
     | Linear { Linear.Linear.params; x; weight; bias } ->
         let module C = Linear.Linear.Compute (S) in
         let bias =

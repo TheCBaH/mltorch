@@ -382,6 +382,60 @@ materialization, but does not manifest as an observable difference in this
 retained fused op's own `Compute` functor. The pinned association still
 matches the ATen kernel's literal source order, which is why it is pinned.
 
+### 2f. `RmsNorm` and `LayerNorm` — reductions over named axes, and two of them
+
+`Norm.RmsNorm` and `Norm.LayerNorm` (`lib/native/ops/norm.ml`) both reduce
+over a *list of frame axes* named by `params.dims`, not over a window. The
+nesting idiom is one `S.sum` per reduced axis over `[0, extent)`, with the
+reduction variables carried in an `override` association list that is folded
+onto the output coordinate **at the leaf only** — deliberately, so no
+`List.assoc` runs per element:
+
+```text
+rms:   inv  = 1 / sqrt(sum(x*x)/count + eps)          one reduction
+       y    = x * inv * weight
+
+layer: mean = sum(x) / count                          two reductions,
+       var  = sum((x - mean)^2) / count               the second consuming the first
+       y    = (x - mean) / sqrt(var + eps)
+       y    = y * weight + bias
+```
+
+Four details of the layer-norm form are pinned because each is a place a
+plausible implementation differs from ATen: the variance divisor is `count`
+and not `count - 1` (ATen's layer norm is the biased estimator); `eps` is added
+**inside** the sqrt; the affine operands carry the normalized shape, so they
+are read at the output coordinate on each `dims` axis and broadcast (extent 1,
+index 0) on every other — never at the full output coordinate; and the affine
+step is `* weight` then `+ bias`, in that order. `count = 1` is legal and falls
+out correctly: `var` is 0, so `y` is 0 before the affine and `bias` alone
+survives.
+
+`E[x^2] - mean^2` is **not** used. It is one reduction instead of two, and its
+cancellation behaviour on data with a large mean and a small variance is
+materially worse — the one-pass identity subtracts two nearly-equal quantities.
+
+`LayerNorm` does not route through `RmsNorm`. The formulas differ by the
+centring, which is exactly the mutation the tests have to be able to see, so
+sharing the reduction would hide it.
+
+**No new `SEMANTICS` primitive was needed for either**, and none for the second
+reduction: `sum`, `sqrt`, `div`, `sub`, `mul`, `add` and `load` already existed.
+Contrast `Pad`, which needed `index_max`.
+
+**The divisor is a 32-bit aggregate, and bounding it is the shape rule's job.**
+`count` is the product of the normalized extents, each bounded only by
+`Kernel.Limits.Hard.extent`, so six of them wrap under js_of_ocaml's 32-bit
+`int` — CLAUDE.md's aggregate rule, on a JS-reachable path. The bound lives in
+`output_shape`, which every graph constructor meets (`Graph_builder`, a
+JSON-decoded graph, `Graph_shape4`), and is expressed as
+`Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel` applied to the
+`normalized_shape` — the same shape that already defines the affine operand
+layout, so one definition serves the bound and the operand check.
+`Compute` then documents the invariant instead of re-deriving it, which it
+could not do anyway: it has no error channel. This closed a latent wrap in
+`RmsNorm` at the same time, not only a `LayerNorm` concern.
+
 ## 3. `Direct` — concrete evaluation
 
 ```ocaml

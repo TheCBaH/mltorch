@@ -1393,6 +1393,46 @@ That asymmetry is worth stating because it is easy to expect one shape for both:
 an axis outside the dialect still has a Native graph to show, and a shape with
 no Native form does not.
 
+## Group-7 coverage: `test/me_group7_cram.t`
+
+The first group cram whose reason **splits**. `layer_norm.default` is the usual
+case — every ExportedProgram in the corpus lowers it before writing
+`model.json`, so this is the only place it reaches a session at all.
+`native_layer_norm.default` is not: four ViT models serialise it 148 times and
+`vit_b_32` is downloadable. It is here anyway, because a payload-free fixture
+pins the rendering deterministically and because its two dead outputs are the
+thing to see — a real model shows them too, but only behind a download and an
+839-node graph.
+
+Both targets render as the **same** `Layer_norm` node. They differ in their
+argument list and their return arity, not in the arithmetic, and the only
+visible difference in the session is the epsilon each carried (`1e-05` against
+`1e-06`).
+
+What it pins beyond the usual labels/namespaces/shapes/edges:
+
+- **The dropped outputs.** The source node declares three; the native node has
+  one, and the `mean`/`rstd` edges do not exist in the native graph at all. That
+  is sound only because nothing reads them, and `Live_layer_norm_stats` is what
+  refuses a graph that does — so the rendering is a fact about the graph rather
+  than a hope about it. See `native_multi_output_design.md` §3 for why this is a
+  third dead-output shape and not the batch-norm one.
+- **The operand order and the normalized axis**, through `params`, which is the
+  op's own `pp` verbatim: `layer_norm x=t0 weight=t1 bias=t2 params={dims=[C];
+  eps=1e-05}`. Reading the trailing extents as leading ones prints `dims=[H]`;
+  a swapped affine pair prints the operands the other way round. Both are
+  shape-preserving, so this is the only place in the session they show.
+- **Shared affine operands.** Both nodes read the same `const:t1` / `const:t2`
+  at slots 1 and 2. An importer materialising a ones/zeros tensor per node would
+  show four extra constants here — and would build a structurally different
+  graph from the other importer's for the same node.
+
+The capability-unavailable fixture is a normalization over **all four** axes of
+a rank-4 input, which right-aligns onto `D, H, W, C`: Native imports it and
+`stage:native4d` is `unavailable outside_dialect_domain`, naming `D`. Same shape
+as Group 6's `T` case, and for the same reason — the axis is gated on the Native
+`Axis.t` before conversion, so the diagnostic can name it.
+
 ---
 
 ## 17. The visualizer bundle — built from the submodule, not installed from npm

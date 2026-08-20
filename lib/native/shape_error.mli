@@ -56,7 +56,8 @@ end
     and raised from [Tensor.read]'s bounds check partway through the result. *)
 module Operand_shape : sig
   type t = {
-    operand : [ `Bias | `Rms_norm_weight ];
+    operand :
+      [ `Bias | `Rms_norm_weight | `Layer_norm_weight | `Layer_norm_bias ];
     expected : Vec6.shape;
     actual : Vec6.shape;
   }

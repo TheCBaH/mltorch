@@ -295,6 +295,21 @@ let lower_node ~view acc (n : node) =
       simple (Op.Avg_pool2d { Pool.AvgPool2d.params; x = op_of x })
   | Max_pool2d { Pool.MaxPool2d.params; x } ->
       simple (Op.Max_pool2d { Pool.MaxPool2d.params; x = op_of x })
+  (* The axes were gated on the NATIVE [Axis.t] by [Domain.check_dims] before
+     this walk started, so [dims4] here only converts what is already known to
+     be inside the dialect -- which is what lets the diagnostic name the
+     rejected axis instead of reporting "conversion failed". *)
+  | Layer_norm { Norm.LayerNorm.params; x; weight; bias } ->
+      let+ dims = dims4 ~node params.Norm.LayerNorm.dims in
+      emit acc ~from:node
+        (Op.Layer_norm
+           {
+             Ops4.Layer_norm.params = { dims; eps = params.Norm.LayerNorm.eps };
+             x = op_of x;
+             weight = Option.map op_of weight;
+             bias = Option.map op_of bias;
+           })
+        [ single () ]
   | Rms_norm { Norm.RmsNorm.params; x; weight } ->
       let+ dims = dims4 ~node params.Norm.RmsNorm.dims in
       emit acc ~from:node

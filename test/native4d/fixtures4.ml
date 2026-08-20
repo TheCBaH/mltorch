@@ -168,6 +168,23 @@ let per_op () =
             Builder.rms_norm
               { Ops4.Rms_norm.dims = [ Axis4.C ]; eps = 1e-5 }
               ~x ()) );
+      (* Both affine operands PRESENT, unlike the rms_norm fixture above: the
+         Direct-vs-Symbolic sweep runs the same functor on both sides, so what
+         it can see is the operand wiring and the reduction structure, and an
+         absent operand is filled with a constant that exercises neither. *)
+      ( "layer_norm",
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* x = input ~shape:nhwc () in
+             let* w = constant ~shape:(s4 ~n:1 ~h:1 ~w:1 ~c:2) () in
+             let* b = constant ~shape:(s4 ~n:1 ~h:1 ~w:1 ~c:2) () in
+             layer_norm4
+               { Ops4.Layer_norm.dims = [ Axis4.C ]; eps = 1e-5 }
+               ~x ~weight:w ~bias:b ())
+        in
+        (g, [ nhwc; s4 ~n:1 ~h:1 ~w:1 ~c:2; s4 ~n:1 ~h:1 ~w:1 ~c:2 ]) );
       ( "conv2d",
         let g =
           build

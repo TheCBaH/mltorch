@@ -426,6 +426,14 @@ let%expect_test "sink_permute: slice is a barrier" =
   matches Sink_permute.pattern (Graph_fixtures.sink_permute_slice ());
   [%expect {| no match |}]
 
+(* Layer_norm is excluded for the same reason and by the same silent default
+   arm, with one extra consequence the other two do not have: its affine
+   operands carry the normalized_shape, so sinking would also read weight and
+   bias on axes they were never sized for. *)
+let%expect_test "sink_permute: layer_norm is a barrier" =
+  matches Sink_permute.pattern (Graph_fixtures.sink_permute_layer_norm ());
+  [%expect {| no match |}]
+
 let%expect_test "sink_permute: every accepted op sinks" =
   run ~show_before:false
     (Graph_fixtures.sink_permute_allowlist ())

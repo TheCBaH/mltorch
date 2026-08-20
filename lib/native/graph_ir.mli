@@ -50,6 +50,7 @@ type op =
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
+  | Layer_norm of Norm.LayerNorm.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t

@@ -305,3 +305,46 @@ The configuration counts `op6.md` quotes (`constant` 74 / `reflect` 4 in
 `TheCBaH/devcontainer.pytorch-image-models`** — 100 functional-ATen graphs that
 are not a submodule here and that no `make` target fetches. Treat them as
 provisional; re-derive them if that corpus is ever added.
+
+**Group 7 (`op7.md`) splits, and the two halves must not be conflated in a
+coverage report.** The group has two targets and they sit at opposite ends of
+this section's spectrum:
+
+| target | occurrences | what stands in |
+|---|---|---|
+| `layer_norm.default` | **zero**, in all 23 core-ATen graphs and all five downloadable models | hand-built fixtures, exactly like Group 6 |
+| `native_layer_norm.default` | **148** — `vit_b_16` 25, `vit_b_32` 25, `vit_l_16` 49, `vit_l_32` 49 | the same fixtures, *plus* real weights via `vit_b_32` |
+
+Every corpus node is one configuration, checked argument by argument:
+`normalized_shape` of arity 1 (`[768]` / `[1024]`), `eps` spelled `1e-06`, both
+affine operands present, three outputs of which the trailing two are dead in
+every occurrence, and **no `cudnn_enable` argument survives export** — it exists
+only on the functional overload's schema. `metadata.from_node` records
+`aten.layer_norm.default` as the pre-decomposition source, so the functional
+target exists only *upstream* of export: `ExportedProgram.module()` lowers it
+before serialization.
+
+`op7.md`'s own "measured starting scope" (`eps ∈ {1e-5, 1e-6}`,
+`cudnn_enable = false`) comes from the same out-of-tree
+`TheCBaH/devcontainer.pytorch-image-models` clone as Group 6's counts. Same
+caveat: provisional, re-derive if that corpus is ever added. Both epsilon values
+are walked regardless.
+
+**And even the covered half moves no gate yet.** Importing
+`native_layer_norm.default` takes `vit_b_32` from 559 to 584 of 839 nodes, but
+the first `expand.default` is node 3 and the first `native_layer_norm.default`
+is node 7 — so `native_graph print` still stops in the same place and `make
+pt2.runtest` produces no diff. Fourteen targets remain. The claim to make is
+"removes one of fifteen blockers", never "vit_b_32 imports".
+
+What stands in for real-model evidence, for both targets:
+
+| layer | evidence |
+|---|---|
+| numeric, independent oracle | `test/native_bridge_test.ml` — 11 `layer_norm` and 4 `native_layer_norm` configurations against real ATen, including the corpus-shaped `[1, 50, 768]` |
+| numeric, fuzzed | the `Recipe_norm` ATen walks for both targets (`test/native_walk_test.ml`), 20 and 26 steps, all four affine states reached |
+| numeric, hand-computed | `test/native/compute_test.ml` — the formula itself, which no Direct-vs-Symbolic or Native-vs-Native4D comparison can check |
+| staging | `Layer_norm_nwalk` (Direct vs Symbolic — **not** an oracle: both sides run the same `Compute` functor) |
+| serialized lowering | `test/native_interp/layer_norm_test.ml`, both targets |
+| dialect | `test/native4d/{compute,lower,verify,mutation,domain}_test.ml` |
+| session | `test/me_group7_cram.t` |

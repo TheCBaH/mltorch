@@ -108,6 +108,31 @@ metadata. There are two shapes of deadness, handled differently by the bridge:
   `ih*in_W + iw` among tied maxima. Unlike max pooling, `avg_pool2d` remains a
   single-output operation: ATen provides no average-pool index tensor.
 
+- **Real-shaped dead outputs with nothing to compute → dropped, and liveness
+  refused.** `native_layer_norm`'s `mean`/`rstd` are the third shape and were
+  not covered by either rule above. They are *not* size-0 — `vit_b_32` records
+  them as real `[1, 50, 1]` f32 tensors, so the batch-norm rationale ("the graph
+  itself declares them empty") does not transfer. Nor are they materialised into
+  a `Discard`: the native `Layer_norm` op computes the mean and the reciprocal
+  standard deviation as *intermediates* of one fused reduction and has no output
+  for them, and adding two so a `Discard` could eat them would decompose an op
+  the dialect deliberately keeps fused.
+
+  So the bridge exposes one output, which the leading-outputs rule (§4) already
+  permits, and the importer keeps only the head in
+  `materialized_output_names`. What is new is that the dropped names then have
+  to be *proven dead* rather than assumed so: `Native_interp` collects every SSA
+  name any node input or graph output reads, and refuses a graph that reads
+  either statistic with `` `Live_layer_norm_stats ``. All 148 corpus occurrences
+  are dead, which is why the check has only a hand-built fixture — and why that
+  fixture was observed failing (without the check the failure is
+  `` `Undefined_ssa `` at the *consumer*, a diagnostic naming a node that did
+  nothing wrong) before the check was trusted.
+
+  The set is collected lazily and once per graph, not per node: scanning the
+  remaining nodes from inside the arm is quadratic in the node count on exactly
+  the four ViT models this row exists for.
+
 ## 4. ATen-vs-native verification of dropped outputs
 
 `Verify.verify_node` (`lib/aten_native_verify`) compares the outputs the bridge

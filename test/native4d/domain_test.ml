@@ -64,6 +64,9 @@ let%expect_test "domain: which axes an op may name" =
       ("permute C onto D", Fixtures.permute_c_onto_d);
       ("rms_norm over C", Fixtures.rms_norm_over [ Axis.C ]);
       ("rms_norm over D", Fixtures.rms_norm_over [ Axis.D ]);
+      ("layer_norm over C", Fixtures.layer_norm_over [ Axis.C ]);
+      ("layer_norm over W,C", Fixtures.layer_norm_over [ Axis.W; Axis.C ]);
+      ("layer_norm over D", Fixtures.layer_norm_over [ Axis.D ]);
       ("batch_norm on C", Fixtures.batch_norm_on Axis.C);
       ("batch_norm on H", Fixtures.batch_norm_on Axis.H);
     ];
@@ -75,6 +78,9 @@ let%expect_test "domain: which axes an op may name" =
     permute C onto D             node n0: axis D is outside the N/H/W/C dialect
     rms_norm over C              in the dialect
     rms_norm over D              node n0: axis D is outside the N/H/W/C dialect
+    layer_norm over C            in the dialect
+    layer_norm over W,C          in the dialect
+    layer_norm over D            node n0: axis D is outside the N/H/W/C dialect
     batch_norm on C              in the dialect
     batch_norm on H              node n0: axis H is outside the N/H/W/C dialect |}]
 

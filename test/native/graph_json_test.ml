@@ -157,7 +157,12 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
               { Split.Slice.axis = Axis.C; start = 1; stop = 3; step = pos 1 }
               padded
           in
-          relu ~name:"out" narrowed)
+          let* normed =
+            layer_norm
+              { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-6 }
+              ~x:narrowed ()
+          in
+          relu ~name:"out" normed)
     in
     Err.List.map
       (fun (node : Graph_ir.node) ->
@@ -182,6 +187,7 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
     Unbind     tag=Unbind     agree=true
     Pad        tag=Pad        agree=true
     Slice      tag=Slice      agree=true
+    Layer_norm tag=Layer_norm agree=true
     Relu       tag=Relu       agree=true
     |}]
 
@@ -997,6 +1003,84 @@ let%expect_test "Group 2: rectangular max_pool2d params survive a round trip" =
                              stride={h=2; w=1};
                              pad={h=1; w=0}}
                 outputs: [t1 f32 [H=5 W=6 C=3] <-n0] |}]
+
+(* layer_norm's payload is the first with TWO independently optional operands,
+   which is a JSON shape no other op has: the codec has to distinguish four
+   states, not two, and "weight present, bias absent" is the one an encoder that
+   pairs them would silently get wrong. All four are round-tripped.
+
+   [eps] is 0.1 rather than either corpus value on purpose: 0.1 is not f32-exact,
+   so a codec that failed to narrow through [Json_util.f32_jsont] would print a
+   different number here, which printing alone cannot show. *)
+let%expect_test
+    "Group 7: layer_norm's two optional operands survive a round trip" =
+  let g ?weight ?bias () =
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 8 2 5) ~name:"x" () in
+      let* w =
+        match weight with
+        | None -> return None
+        | Some () ->
+            let* w = input ~shape:(s 1 1 1 1 2 5) ~name:"w" () in
+            return (Some w)
+      in
+      let* b =
+        match bias with
+        | None -> return None
+        | Some () ->
+            let* b = input ~shape:(s 1 1 1 1 2 5) ~name:"b" () in
+            return (Some b)
+      in
+      layer_norm ~name:"y"
+        { Norm.LayerNorm.dims = [ Axis.W; Axis.C ]; eps = 0.1 }
+        ~x ?weight:w ?bias:b ())
+  in
+  round_trip "both" (g ~weight:() ~bias:() ());
+  round_trip "weight only" (g ~weight:() ());
+  round_trip "bias only" (g ~bias:() ());
+  round_trip "neither" (g ());
+  [%expect
+    {|
+    both: graph
+          inputs:
+            [t0 f32 [H=8 W=2 C=5] ->[n0], t1 f32 [W=2 C=5] ->[n0],
+             t2 f32 [W=2 C=5] ->[n0]]
+          nodes:
+            n0: [t3 f32 [H=8 W=2 C=5]] =
+              layer_norm x=t0 weight=t1 bias=t2 params={dims=[W, C]; eps=0.1}
+          outputs: [t3 f32 [H=8 W=2 C=5] <-n0]
+    weight only: graph
+                 inputs: [t0 f32 [H=8 W=2 C=5] ->[n0], t1 f32 [W=2 C=5] ->[n0]]
+                 nodes:
+                   n0: [t2 f32 [H=8 W=2 C=5]] =
+                     layer_norm
+                       x=t0
+                       weight=t1
+                       bias=none
+                       params={dims=[W, C]; eps=0.1}
+                 outputs: [t2 f32 [H=8 W=2 C=5] <-n0]
+    bias only: graph
+               inputs: [t0 f32 [H=8 W=2 C=5] ->[n0], t1 f32 [W=2 C=5] ->[n0]]
+               nodes:
+                 n0: [t2 f32 [H=8 W=2 C=5]] =
+                   layer_norm
+                     x=t0
+                     weight=none
+                     bias=t1
+                     params={dims=[W, C]; eps=0.1}
+               outputs: [t2 f32 [H=8 W=2 C=5] <-n0]
+    neither: graph
+             inputs: [t0 f32 [H=8 W=2 C=5] ->[n0]]
+             nodes:
+               n0: [t1 f32 [H=8 W=2 C=5]] =
+                 layer_norm
+                   x=t0
+                   weight=none
+                   bias=none
+                   params={dims=[W, C]; eps=0.1}
+             outputs: [t1 f32 [H=8 W=2 C=5] <-n0] |}]
 
 (* A multi-axis [dims] and an OPTIONAL weight, in both states. The absent case is
    the one the bridge used to make unreachable by materializing a ones tensor,

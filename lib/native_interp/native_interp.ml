@@ -35,11 +35,24 @@ type dim_fault =
   | `Over_max_extent of int64 ]
 
 module Normalized_rank = struct
-  type t = { rank : int; got : int }
+  type t = { op : Norm.Target.t; rank : int; got : int }
 end
 
 module Normalized_shape = struct
-  type t = { expected : int list; got : int list }
+  type t = { op : Norm.Target.t; expected : int list; got : int list }
+end
+
+(* [native_layer_norm] returns [(out, mean, rstd)]. Native's [Layer_norm] has
+   ONE output, so the trailing two are dropped -- which is only sound while
+   nothing reads them. Unlike [_native_batch_norm_legit_no_training]'s, they are
+   not empty: vit_b_32 records them as real [1, 50, 1] f32 tensors, so "recorded
+   size-0 and therefore meaningless" is not the reason they may go. The reason
+   is that every occurrence in the corpus is dead, and this row is what says so
+   when one is not, instead of the [`Undefined_ssa] the dropped name would
+   otherwise produce three nodes later -- a diagnostic naming the consumer
+   rather than the op that failed to provide. *)
+module Live_layer_norm_stats = struct
+  type t = { op : string; stat : [ `Mean | `Rstd ]; ssa : string }
 end
 
 type metadata_role =
@@ -54,6 +67,9 @@ type metadata_role =
   | `Linear_bias
   | `Rms_norm_input
   | `Rms_norm_weight
+  | `Layer_norm_input
+  | `Layer_norm_weight
+  | `Layer_norm_bias
   | `Mean_input
   | `Permute_input
   | `Transpose_input
@@ -162,6 +178,7 @@ type malformed =
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
   | `Normalized_rank of Normalized_rank.t
   | `Normalized_shape of Normalized_shape.t
+  | `Live_layer_norm_stats of Live_layer_norm_stats.t
   | `Unsupported_option of Unsupported_option.t
   | `Output_arity of Output_arity.t
   | `Non_tensor_node_output of string
@@ -238,6 +255,9 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Linear_bias -> Fmt.string ppf "linear bias"
   | `Rms_norm_input -> Fmt.string ppf "rms_norm input"
   | `Rms_norm_weight -> Fmt.string ppf "rms_norm weight"
+  | `Layer_norm_input -> Fmt.string ppf "layer_norm input"
+  | `Layer_norm_weight -> Fmt.string ppf "layer_norm weight"
+  | `Layer_norm_bias -> Fmt.string ppf "layer_norm bias"
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Permute_input -> Fmt.string ppf "permute input"
   | `Transpose_input -> Fmt.string ppf "transpose input"
@@ -292,15 +312,20 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Unsupported_padding_mode s ->
       Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
   | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
-  | `Normalized_rank { Normalized_rank.rank; got } ->
+  | `Normalized_rank { Normalized_rank.op; rank; got } ->
       Fmt.pf ppf
-        "normalized_shape has %d entries, outside [1, %d] for this rank" got
-        rank
-  | `Normalized_shape { Normalized_shape.expected; got } ->
+        "%a: normalized_shape has %d entries, outside [1, %d] for this rank"
+        Norm.Target.pp op got rank
+  | `Normalized_shape { Normalized_shape.op; expected; got } ->
       let ints = Fmt.(list ~sep:(any ",") int) in
       Fmt.pf ppf
-        "normalized_shape [%a] does not match the input's trailing extents [%a]"
-        ints got ints expected
+        "%a: normalized_shape [%a] does not match the input's trailing extents \
+         [%a]"
+        Norm.Target.pp op ints got ints expected
+  | `Live_layer_norm_stats { Live_layer_norm_stats.op; stat; ssa } ->
+      Fmt.pf ppf "%s: %s output %S is read, and this graph does not have it" op
+        (match stat with `Mean -> "mean" | `Rstd -> "rstd")
+        ssa
   | `Non_tensor_node_output op -> Fmt.pf ppf "%s has a non-tensor output" op
   | `Non_tensor_graph_output -> Fmt.string ppf "non-tensor graph output"
   | `Undefined_ssa name -> Fmt.pf ppf "SSA tensor %S is not defined" name
@@ -703,14 +728,21 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
   | "torch.ops.aten.max_pool2d.default"
   | "torch.ops.aten.max_pool2d_with_indices.default"
-  | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.addmm.default" ->
+  | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.layer_norm.default"
+  | "torch.ops.aten.native_layer_norm.default" | "torch.ops.aten.addmm.default"
+    ->
       true
   | _ -> false
 
 let materialized_output_names esc (node : Pytorch_types.Node.t) =
   match node.target with
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
-  | "torch.ops.aten.max_pool2d_with_indices.default" ->
+  | "torch.ops.aten.max_pool2d_with_indices.default"
+  (* Third entry, and the first whose dropped outputs are NOT empty: they are
+     real f32 tensors that happen to be dead in every occurrence the corpus
+     contains. Dropping them here is what makes the [`Live_layer_norm_stats]
+     check below load-bearing rather than decorative. *)
+  | "torch.ops.aten.native_layer_norm.default" ->
       [ List.hd (output_names esc node) ]
   | _ -> output_names esc node
 
@@ -1171,6 +1203,37 @@ let lower program =
         | _ -> Err.Escape.throw esc (`Unsupported_input `Non_tensor))
       sign.GraphSignature.input_specs
   in
+  (* Every SSA name any node READS, plus the graph's own outputs -- the
+     complement of "dead". Computed once and lazily, so a graph containing no
+     [native_layer_norm] never pays for it, and one containing 49 of them pays
+     once rather than 49 times: the alternative, scanning the remaining nodes
+     from inside the arm, is quadratic in the node count on exactly the models
+     this row exists for.
+
+     A node's own outputs are not reads, so they are not collected; only
+     [inputs] and [graph.outputs] are. *)
+  let reads =
+    lazy
+      (let add acc (a : Argument.t) =
+         match a with
+         | Argument.Tensor t -> String_map.add t.TensorArgument.name () acc
+         | Argument.Optional_tensor (OptionalTensorArgument.Tensor t) ->
+             String_map.add t.TensorArgument.name () acc
+         | Argument.Tensors ts ->
+             List.fold_left
+               (fun acc (t : TensorArgument.t) ->
+                 String_map.add t.TensorArgument.name () acc)
+               acc ts
+         | _ -> acc
+       in
+       List.fold_left
+         (fun acc (n : Node.t) ->
+           List.fold_left
+             (fun acc (i : NamedArgument.t) -> add acc i.NamedArgument.arg)
+             acc n.Node.inputs)
+         (List.fold_left add String_map.empty graph.outputs)
+         graph.nodes)
+  in
   let tensor_origins = ref Tensor_id.Map.empty in
   let captured_targets = ref Tensor_id.Map.empty in
   let node_outputs = ref [] in
@@ -1293,6 +1356,117 @@ let lower program =
          normalizes over the wrong ones and produces a plausible wrong answer.
          [trailing_axes] there does not check [k <= rank] either, and silently
          returns the whole axis list when it is exceeded. *)
+      (* The FUNCTIONAL layer norm and its DECOMPOSED twin, in one body, and
+         the serialized counterparts of [Op_bridge]'s arms: same checks, same
+         node, same treatment of the optional operands. The only differences
+         from the bridge are where the extents come from (static metadata here,
+         a live tensor there) and that this one can meet an unresolved symbolic
+         extent, which [static_sizes] already refuses.
+
+         The two TARGETS differ in three things and in nothing else:
+         [native_layer_norm]'s [eps] is required with no schema default, it has
+         no [cudnn_enable], and it returns a 3-tuple whose trailing two elements
+         this graph does not have. The arithmetic, the axis derivation, the
+         normalized_shape validation and the affine handling are identical, so
+         they are written once -- CLAUDE.md's rule against a second copy of a
+         shape rule free to drift, applied to dispatch, as [view]/[_unsafe_view]
+         already does. Both targets are named explicitly, there is no
+         fallthrough, and every diagnostic below carries [op] or the resolved
+         tensor name, so a failure still says which overload produced it. *)
+      | ( "torch.ops.aten.layer_norm.default"
+        | "torch.ops.aten.native_layer_norm.default" ) as target ->
+          let op, eps =
+            match target with
+            | "torch.ops.aten.layer_norm.default" ->
+                (* Decoded and then discarded, matching the bridge and matching
+                   ATen: [layer_norm_symint] takes it as [bool /* cudnn_enable,
+                   deprecated */] and drops it. Accepting only [false] would
+                   reject the schema's own default. Decoding it is still what
+                   rejects a non-boolean.
+
+                   A required float WITH a schema default, so [float_arg
+                   ~default] -- not rms_norm's [float_opt_arg], whose absent
+                   case means "ATen picks the machine epsilon". *)
+                let (_ : bool) =
+                  bool_arg esc ~default:true node "cudnn_enable"
+                in
+                (Norm.Target.Layer_norm, float_arg esc ~default:1e-05 node "eps")
+            | _ ->
+                (* The decomposed form's [eps] has NO default in the schema, so
+                   its absence is a malformed node rather than 1e-5. Every
+                   corpus occurrence spells it 1e-06 explicitly. *)
+                (Norm.Target.Native_layer_norm, float_arg esc node "eps")
+          in
+          (* The two dropped outputs, refused if anything reads one. Checked
+             before the node is built, so the diagnostic names the op that
+             cannot provide the statistic rather than the consumer that wanted
+             it. The arity is checked here too: [materialized_output_names]
+             keeps only the head, so a 2-tuple would pass the generic bind check
+             and silently drop one fewer output than it should. *)
+          let* () =
+            match op with
+            | Norm.Target.Layer_norm | Norm.Target.Rms_norm -> return ()
+            | Norm.Target.Native_layer_norm ->
+                let names = output_names esc node in
+                (match names with
+                | [ _; mean; rstd ] ->
+                    List.iter
+                      (fun (stat, ssa) ->
+                        if String_map.mem ssa (Lazy.force reads) then
+                          malformed esc
+                            (`Live_layer_norm_stats
+                               { Live_layer_norm_stats.op = target; stat; ssa }))
+                      [ (`Mean, mean); (`Rstd, rstd) ]
+                | _ ->
+                    malformed esc
+                      (`Output_arity
+                         {
+                           op = target;
+                           serialized = List.length names;
+                           derived = 3;
+                         }));
+                return ()
+          in
+          let x_name = tensor_name esc node "input" in
+          let sizes =
+            static_sizes esc ~tensor:x_name
+              (tensor_meta esc graph ~ssa:x_name ~role:`Layer_norm_input)
+          in
+          let rank = List.length sizes in
+          let normalized = ints_arg esc node "normalized_shape" in
+          let k = List.length normalized in
+          if k < 1 || k > rank then
+            malformed esc (`Normalized_rank { op; rank; got = k });
+          let trailing l = List.filteri (fun i _ -> i >= rank - k) l in
+          let expected = trailing sizes in
+          if expected <> normalized then
+            malformed esc (`Normalized_shape { op; expected; got = normalized });
+          let params =
+            {
+              Norm.LayerNorm.dims =
+                trailing (used_axes_for esc ~tensor:x_name rank);
+              eps;
+            }
+          in
+          (* NO ones/zeros tensors when an affine operand is absent -- see the
+             rms_norm arm below. Both importers must make the same choice or one
+             of [Graph_ir]'s option arms becomes unreachable from one of them. *)
+          let affine name role =
+            let ssa = optional_tensor_name ~absent_ok:true esc node name in
+            (* Rank [k], not rank 1: ATen indexes both affine operands by the
+               whole normalized shape. *)
+            Option.iter
+              (fun ssa -> require_rank esc graph ~ssa ~role ~expected:k)
+              ssa;
+            Option.map (env_find esc env) ssa
+          in
+          let* y =
+            layer_norm params ~x:(get "input")
+              ?weight:(affine "weight" `Layer_norm_weight)
+              ?bias:(affine "bias" `Layer_norm_bias)
+              ()
+          in
+          return [ y ]
       | "torch.ops.aten.rms_norm.default" ->
           (* "input", not "self": the schema is
              rms_norm(Tensor input, SymInt[] normalized_shape, Tensor? weight,
@@ -1306,11 +1480,14 @@ let lower program =
           let normalized = ints_arg esc node "normalized_shape" in
           let k = List.length normalized in
           if k < 1 || k > rank then
-            malformed esc (`Normalized_rank { rank; got = k });
+            malformed esc
+              (`Normalized_rank { op = Norm.Target.Rms_norm; rank; got = k });
           let trailing l = List.filteri (fun i _ -> i >= rank - k) l in
           let expected = trailing sizes in
           if expected <> normalized then
-            malformed esc (`Normalized_shape { expected; got = normalized });
+            malformed esc
+              (`Normalized_shape
+                 { op = Norm.Target.Rms_norm; expected; got = normalized });
           let params =
             {
               Norm.RmsNorm.dims =

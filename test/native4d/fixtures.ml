@@ -131,6 +131,48 @@ let rms_norm_over dims () =
      let* x = input ~shape:(nhwc ~n:1 ~h:4 ~w:4 ~c:3) () in
      rms_norm { Norm.RmsNorm.dims; eps = 1e-5 } ~x ())
 
+(* Both affine operands present, so the fixture also carries the two extra
+   edges the lowerer has to map. [dims] is the parameter under test, and the
+   affine shape is DERIVED from it -- the operands carry the normalized extents
+   and 1 everywhere else, so a fixture hard-coding [chan] would be rejected by
+   the shape rule for any multi-axis [dims] rather than reaching the domain
+   check it exists to exercise. *)
+let layer_norm_over dims () =
+  let x_shape = nhwc ~n:1 ~h:4 ~w:4 ~c:3 in
+  let affine =
+    List.fold_left
+      (fun acc a -> Vec6.set acc a (Vec6.get x_shape a))
+      (s 1 1 1 1 1 1) dims
+  in
+  build "layer_norm"
+    (let open Graph_builder in
+     let* x = input ~shape:x_shape () in
+     let* w = constant ~shape:affine () in
+     let* b = constant ~shape:affine () in
+     layer_norm { Norm.LayerNorm.dims; eps = 1e-5 } ~x ~weight:w ~bias:b ())
+
+(* Small enough that [Tensor.pp] prints every element, so the golden carries the
+   values and not only a shape.
+
+   What it CANNOT see: [verify_test]'s [native_vs_four] fills every input from
+   the same counter, so weight and bias arrive holding the same values and a
+   lowering that swapped them is invisible here. That swap is caught by the
+   lowering golden in lower_test.ml and by the structural verifier -- both were
+   observed failing under it -- and this fixture is for the axis conversion and
+   the reduction, not for the operand order. *)
+let layer_norm_tiny () =
+  build "layer_norm"
+    (let open Graph_builder in
+     (* Graph INPUTS, not constants: [native_vs_four] binds inputs and has no
+        payload to bind a constant with, and the operand wiring is what this
+        fixture is for. *)
+     let* x = input ~shape:(s 1 1 1 1 2 3) () in
+     let* w = input ~shape:(chan 3) () in
+     let* b = input ~shape:(chan 3) () in
+     layer_norm
+       { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 }
+       ~x ~weight:w ~bias:b ())
+
 (* ---- batch norm ----------------------------------------------------------- *)
 
 let batch_norm_on ?(dynamic = false) channel () =

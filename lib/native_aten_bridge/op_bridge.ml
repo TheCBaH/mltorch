@@ -53,17 +53,20 @@ end
    because the row carries the op alongside the value, and [op] would collide
    with the other records here. A closed pair rather than one string tag: the
    dilation has a value worth reporting and [ceil_mode] does not. *)
-(* rms_norm's two [normalized_shape] faults. The arm read the LENGTH of
-   [normalized_shape] and nothing else, so a shape naming extents the input does
-   not have normalized over the wrong axes and returned a plausible wrong
-   answer; and [trailing_axes] silently returns the whole axis list when
-   [k > rank], so an over-long shape normalized over everything. *)
+(* The two [normalized_shape] faults, shared by every normalisation. The arm
+   read the LENGTH of [normalized_shape] and nothing else, so a shape naming
+   extents the input does not have normalized over the wrong axes and returned a
+   plausible wrong answer; and [trailing_axes] silently returns the whole axis
+   list when [k > rank], so an over-long shape normalized over everything.
+
+   [op] names which normalisation, because three targets now share these rows
+   and the message used to say "rms_norm" for all of them. *)
 module Normalized_rank = struct
-  type t = { rank : int; got : int }
+  type t = { op : Norm.Target.t; rank : int; got : int }
 end
 
 module Normalized_shape = struct
-  type t = { expected : int list; got : int list }
+  type t = { op : Norm.Target.t; expected : int list; got : int list }
 end
 
 (* An optional operand's declared RANK, which right-alignment into the six-axis
@@ -125,16 +128,14 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
   | `Operand_rank { Operand_rank.arg_name; expected; got } ->
       Fmt.pf ppf "%s must be rank-%d, got rank-%d" arg_name expected got
-  | `Normalized_rank { Normalized_rank.rank; got } ->
+  | `Normalized_rank { Normalized_rank.op; rank; got } ->
       Fmt.pf ppf
-        "rms_norm: normalized_shape has %d entries, outside [1, %d] for this \
-         rank"
-        got rank
-  | `Normalized_shape { Normalized_shape.expected; got } ->
+        "%a: normalized_shape has %d entries, outside [1, %d] for this rank"
+        Norm.Target.pp op got rank
+  | `Normalized_shape { Normalized_shape.op; expected; got } ->
       Fmt.pf ppf
-        "rms_norm: normalized_shape %a does not match the input's trailing \
-         extents %a"
-        pp_int_list got pp_int_list expected
+        "%a: normalized_shape %a does not match the input's trailing extents %a"
+        Norm.Target.pp op pp_int_list got pp_int_list expected
   | `Pool_unsupported { Pool_unsupported.op; option } -> (
       match option with
       | Pool_unsupported.Dilation d ->
@@ -376,19 +377,20 @@ let trailing_axes ~rank ~k =
    over-long normalized_shape silently normalized over the whole tensor. And the
    EXTENTS are compared, not just the count -- that is the check whose absence
    made a wrong shape a wrong answer rather than an error. *)
-let normalized_dims ~(x_shape : int array) ~normalized_shape =
+let normalized_dims ~op ~(x_shape : int array) ~normalized_shape =
   let rank = Array.length x_shape in
   let k = List.length normalized_shape in
   let* () =
     if k < 1 || k > rank then
-      fail (`Normalized_rank { Normalized_rank.rank; got = k })
+      fail (`Normalized_rank { Normalized_rank.op; rank; got = k })
     else return ()
   in
   let expected = Array.to_list (Array.sub x_shape (rank - k) k) in
   let* () =
     if expected <> normalized_shape then
       fail
-        (`Normalized_shape { Normalized_shape.expected; got = normalized_shape })
+        (`Normalized_shape
+           { Normalized_shape.op; expected; got = normalized_shape })
     else return ()
   in
   return (trailing_axes ~rank ~k)
@@ -1152,12 +1154,112 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
+  (* The FUNCTIONAL layer norm and its DECOMPOSED twin, in one body. They differ
+     in three things and in nothing else: [native_layer_norm]'s [eps] is
+     required with no schema default, it has no [cudnn_enable], and it returns
+     a 3-tuple. The arithmetic, the axis derivation, the normalized_shape
+     validation and the affine handling are identical, so they are written once.
+
+     THE 3-TUPLE NEEDS NOTHING HERE. [Verify.requires_exact_outputs] is true
+     only for a dynamic [Argument.Tensors] return; a fixed tuple falls under the
+     leading-outputs rule, so exposing one output is legitimate and is verified
+     against the first ATen result alone. The liveness question -- whether a
+     graph READS [mean] or [rstd] -- is a whole-graph property this single-node
+     bridge cannot see, and [Native_interp] is where it is answered
+     ([`Live_layer_norm_stats]). *)
+  | ( "torch.ops.aten.layer_norm.default"
+    | "torch.ops.aten.native_layer_norm.default" ) as target ->
+      Some
+        (let functional = target = "torch.ops.aten.layer_norm.default" in
+         let op =
+           if functional then Norm.Target.Layer_norm
+           else Norm.Target.Native_layer_norm
+         in
+         let* t = tensor_arg aten_env node "input" in
+         let* normalized_shape = ints_arg node "normalized_shape" in
+         let* dims =
+           normalized_dims ~op ~x_shape:(Aten_tensor.shape t) ~normalized_shape
+         in
+         (* [layer_norm]'s eps is a REQUIRED float with a schema default of
+            1e-5, so [float_arg ~default], not [eps_arg]: rms_norm's eps is a
+            [float?] whose absence means "ATen picks", and reading one with the
+            other's decoder is how a null epsilon comes to be read as zero.
+            [native_layer_norm]'s has no default at all -- a third spelling of
+            the same argument -- so its absence is a malformed node. *)
+         let* eps =
+           if functional then float_arg ~default:1e-05 node "eps"
+           else float_arg node "eps"
+         in
+         (* Decoded, not ignored, and then deliberately DISCARDED -- which is
+            the one argument in this repository where that is the faithful
+            reading rather than the [alpha]-shaped bug. ATen's own composite is
+            [layer_norm_symint (..., bool /* cudnn_enable, deprecated */)]: it
+            names the parameter in a comment and drops it, computing
+            native_layer_norm either way. Accepting only the value some corpus
+            happens to show would reject the schema's own default of true and
+            with it almost every real node. Decoding it still matters: a
+            non-boolean there is a malformed node, and this is what says so.
+            The decomposed form does not carry the argument at all -- none
+            survives export -- so it is read only for the functional one. *)
+         let* () =
+           if functional then
+             let* (_ : bool) = bool_arg ~default:true node "cudnn_enable" in
+             return ()
+           else return ()
+         in
+         let params = { Norm.LayerNorm.dims; eps } in
+         let* x = native_of_aten "input" t in
+         (* NO ones/zeros tensors for absent affine operands, for the reason the
+            rms_norm arm below states at length: [Graph_ir] carries them as
+            options, [Eval_op] fills them, and materialising here would build a
+            structurally different graph from [Native_interp]'s. *)
+         let k = List.length normalized_shape in
+         let* affine =
+           Err.List.map
+             (fun name ->
+               if optional_tensor_present node name then
+                 let* t = tensor_arg aten_env node name in
+                 (* Rank [k], the length of normalized_shape: ATen indexes both
+                    affine operands by the whole normalized shape. *)
+                 let* () =
+                   require_rank
+                     (Fmt.str "%a %s" Norm.Target.pp op name)
+                     ~expected:k t
+                 in
+                 let* t = native_of_aten name t in
+                 return (Some t)
+               else return None)
+             [ "weight"; "bias" ]
+         in
+         let weight_opt, bias_opt =
+           match affine with [ w; b ] -> (w, b) | _ -> assert false
+         in
+         build_g ~name:"layer_norm"
+           (([ x ] @ Option.to_list weight_opt) @ Option.to_list bias_opt)
+           (fun ids ->
+             let open Graph_builder in
+             (* All FOUR states spelled out, matched against the options the
+                operand list was built from -- so the id positions and the
+                options cannot disagree. "bias but no weight" is the state no
+                model produces and the one a paired encoding would get wrong,
+                which is why it is written rather than folded away. *)
+             let x_id, weight, bias =
+               match (ids, weight_opt, bias_opt) with
+               | [ x ], None, None -> (x, None, None)
+               | [ x; w ], Some _, None -> (x, Some w, None)
+               | [ x; b ], None, Some _ -> (x, None, Some b)
+               | [ x; w; b ], Some _, Some _ -> (x, Some w, Some b)
+               | _ -> assert false
+             in
+             let+ y = layer_norm params ~x:x_id ?weight ?bias () in
+             [ y ]))
   | "torch.ops.aten.rms_norm.default" ->
       Some
         (let* t = tensor_arg aten_env node "input" in
          let* normalized_shape = ints_arg node "normalized_shape" in
          let* dims =
-           normalized_dims ~x_shape:(Aten_tensor.shape t) ~normalized_shape
+           normalized_dims ~op:Norm.Target.Rms_norm
+             ~x_shape:(Aten_tensor.shape t) ~normalized_shape
          in
          let* eps = eps_arg node "eps" in
          let params = { Norm.RmsNorm.dims; eps } in

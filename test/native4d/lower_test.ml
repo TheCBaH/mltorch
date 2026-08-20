@@ -364,6 +364,33 @@ let%expect_test "lower: pad4 carries both entries, signs and all" =
    the step or swapped start and stop still produces a graph that validates -- on
    these bounds it even produces the same OUTPUT SHAPE for a start/stop swap
    above the ceiling -- so the golden is where it shows. *)
+(* Only the axes convert; [eps] and both affine EDGES cross unchanged. A
+   lowering that dropped an operand, swapped weight and bias, or mapped the
+   wrong axis still produces a graph that validates and has the right output
+   shape, so the printed op is where it shows. *)
+let%expect_test "lower: layer_norm carries both affine operands" =
+  show "one axis" (Fixtures.layer_norm_over [ Axis.C ] ());
+  show "two axes" (Fixtures.layer_norm_over [ Axis.W; Axis.C ] ());
+  [%expect
+    {|
+    one axis:
+      graph4
+    inputs: [t0 [H=4 W=4 C=3],
+    t1 [C=3],
+    t2 [C=3]]
+    nodes:
+      n0: [t3] = layer_norm x=t0 weight=t1 bias=t2 params={dims=[C]; eps=1e-05}
+    outputs: [t3 [H=4 W=4 C=3]]
+    two axes:
+      graph4
+    inputs: [t0 [H=4 W=4 C=3],
+    t1 [W=4 C=3],
+    t2 [W=4 C=3]]
+    nodes:
+      n0: [t3] =
+        layer_norm x=t0 weight=t1 bias=t2 params={dims=[W, C]; eps=1e-05}
+    outputs: [t3 [H=4 W=4 C=3]] |}]
+
 let%expect_test "lower: slice4 carries all three bounds" =
   show "slice" (Fixtures.slice_w ());
   [%expect

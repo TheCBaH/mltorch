@@ -181,8 +181,8 @@ let%expect_test "normalized_shape must fit inside the rank" =
   show "longer than rank:" (prog (rms ~normalized:"[2,3,4,5]" ()));
   [%expect
     {|
-    empty:                     malformed PT2 graph: normalized_shape has 0 entries, outside [1, 3] for this rank
-    longer than rank:          malformed PT2 graph: normalized_shape has 4 entries, outside [1, 3] for this rank |}]
+    empty:                     malformed PT2 graph: rms_norm: normalized_shape has 0 entries, outside [1, 3] for this rank
+    longer than rank:          malformed PT2 graph: rms_norm: normalized_shape has 4 entries, outside [1, 3] for this rank |}]
 
 (* The check the bridge does not do. Its arm reads the LENGTH of
    normalized_shape and nothing else, so each of these silently normalizes over
@@ -192,8 +192,8 @@ let%expect_test "normalized_shape must match the input's trailing extents" =
   show "right length, wrong values:" (prog (rms ~normalized:"[4,3]" ()));
   [%expect
     {|
-    wrong extent:              malformed PT2 graph: normalized_shape [5] does not match the input's trailing extents [4]
-    right length, wrong values: malformed PT2 graph: normalized_shape [4,3] does not match the input's trailing extents [3,4] |}]
+    wrong extent:              malformed PT2 graph: rms_norm: normalized_shape [5] does not match the input's trailing extents [4]
+    right length, wrong values: malformed PT2 graph: rms_norm: normalized_shape [4,3] does not match the input's trailing extents [3,4] |}]
 
 (* The weight carries the input's extent on each NORMALIZED axis and is
    extent-1 elsewhere, and nothing checked it. A weight of the wrong extent --

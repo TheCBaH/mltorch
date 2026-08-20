@@ -80,6 +80,12 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
        (let open Graph_builder in
         let* x = input ~shape:nhwc () in
         hardswish x));
+  (* Retained fused, so the claim is [Identical] and the verifier proves it
+     STRUCTURALLY -- the two sides ground to the same term over the same [Expr],
+     including both reductions and both affine operands. A decomposed lowering
+     would only ever reach [Equivalent]. *)
+  check "layer_norm" (Fixtures.layer_norm_over [ Axis.C ] ());
+  check "layer_norm over W,C" (Fixtures.layer_norm_over [ Axis.W; Axis.C ] ());
   check "linear -> 1x1 conv" (Fixtures.linear_layer ());
   check "bmm -> permute + conv" (Fixtures.bmm_batch 1 ());
   check "mean keepdim=false" (Fixtures.mean_over_hw ~keepdim:false ~n:1 ());
@@ -104,6 +110,8 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
     silu                     2 clusters: 2 proved (structural)
     hardsigmoid              2 clusters: 2 proved (structural)
     hardswish                2 clusters: 2 proved (structural)
+    layer_norm               4 clusters: 2 proved (structural) [sampled 32], 2 unproved (unbound constant)
+    layer_norm over W,C      4 clusters: 2 proved (structural) [sampled 32], 2 unproved (unbound constant)
     linear -> 1x1 conv       3 clusters: 1 proved (structural), 2 unproved (unbound constant)
     bmm -> permute + conv    4 clusters: 2 proved (structural), 1 tested (coefficients agree), 1 vacuous
     mean keepdim=false       3 clusters: 1 proved (structural), 1 proved (structural) [sampled 32], 1 vacuous
@@ -387,6 +395,20 @@ let%expect_test "verify: slice, numerically, through the lowering" =
    row and the copied ones are in the golden, so a lowering that carried the
    axis but dropped the fill value is a difference in the numbers and not only
    in a shape. *)
+(* The structural proof above says the two sides compute the same function; this
+   says what that function IS, which no Native-vs-Native4D comparison can --
+   both run the same [Compute] functor, so agreement here is about the LOWERING
+   (the axis conversion, the operand mapping) and not about the formula. The
+   hand-computed values for the formula itself live in
+   test/native/compute_test.ml. *)
+let%expect_test "verify: layer_norm, numerically, through the lowering" =
+  native_vs_four (Fixtures.layer_norm_tiny ());
+  [%expect
+    {|
+    native:   tensor f32 [W=2 C=3] {-0.224736, 2, 6.67421, -0.224736, 2, 6.67421}
+    native4d: tensor f32 [W=2 C=3] {-0.224736, 2, 6.67421, -0.224736, 2, 6.67421}
+    agree: true |}]
+
 let%expect_test "verify: pad, numerically, through the lowering" =
   native_vs_four (Fixtures.pad_tiny ());
   [%expect

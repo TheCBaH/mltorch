@@ -285,6 +285,16 @@
  (applies_to me_group6_cram)
  (deps %{exe:../bin/native_graph.exe}))
 
+; Group 7's two normalization targets. Ungated like the stanzas above, but for a
+; reason that splits: layer_norm.default reaches no downloadable model, while
+; native_layer_norm.default reaches four -- this fixture is payload-free so the
+; rendering (and the two dropped outputs) is pinned deterministically rather
+; than behind a download and an 839-node graph.
+
+(cram
+ (applies_to me_group7_cram)
+ (deps %{exe:../bin/native_graph.exe}))
+
 ; The recoverable-failure shape, over graphs built in the cram itself. UNGATED,
 ; and hand-built on purpose: what it exercises is a graph the lowerer rejects,
 ; and no released model is one.

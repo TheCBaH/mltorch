@@ -111,6 +111,27 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Hardtanh.output_shape x_shape) in
       [ out ]
+  (* Both affine operands are optional, so both go through the op's own
+     [check_affine] rather than [check_bias]: they share ONE expected layout
+     (the normalized_shape), which is not the per-channel vector
+     [Affine_bias.check] knows about. *)
+  | Layer_norm { Norm.LayerNorm.params; x; weight; bias } ->
+      let* x_shape = shape x in
+      let opt_shape = function
+        | None -> Err.return None
+        | Some r ->
+            let+ s = shape r in
+            Some s
+      in
+      let* weight = opt_shape weight in
+      let* bias = opt_shape bias in
+      let* () =
+        widen
+          (Norm.LayerNorm.check_affine ~x_shape ~dims:params.Norm.LayerNorm.dims
+             ~weight ~bias)
+      in
+      let+ out = widen (Norm.LayerNorm.output_shape ~x_shape params) in
+      [ out ]
   | Linear { Linear.Linear.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
@@ -177,7 +198,7 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
               (Norm.RmsNorm.check_weight ~x_shape ~dims:params.Norm.RmsNorm.dims
                  ~actual)
       in
-      let+ out = widen (Norm.RmsNorm.output_shape ~x_shape) in
+      let+ out = widen (Norm.RmsNorm.output_shape ~x_shape params) in
       [ out ]
   | Silu { Pointwise.Silu.x } ->
       let* x_shape = shape x in

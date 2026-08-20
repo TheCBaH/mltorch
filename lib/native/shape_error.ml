@@ -86,7 +86,8 @@ end
    result. *)
 module Operand_shape = struct
   type t = {
-    operand : [ `Bias | `Rms_norm_weight ];
+    operand :
+      [ `Bias | `Rms_norm_weight | `Layer_norm_weight | `Layer_norm_bias ];
     expected : Vec6.shape;
     actual : Vec6.shape;
   }
@@ -95,7 +96,9 @@ module Operand_shape = struct
     Fmt.pf ppf "%s shape must be %a, got %a"
       (match operand with
       | `Bias -> "bias"
-      | `Rms_norm_weight -> "rms_norm weight")
+      | `Rms_norm_weight -> "rms_norm weight"
+      | `Layer_norm_weight -> "layer_norm weight"
+      | `Layer_norm_bias -> "layer_norm bias")
       Vec6.pp_shape expected Vec6.pp_shape actual
 end
 

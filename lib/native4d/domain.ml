@@ -220,6 +220,8 @@ let check_node view (n : node) =
   | Max_pool2d _ | Mul _ | Relu _ | Reshape _ | Silu _ | Sqrt _ | Sub _ ->
       Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
+  | Layer_norm { Norm.LayerNorm.params; _ } ->
+      check_dims node params.Norm.LayerNorm.dims
   | Bmm { Matmul.Bmm.input; mat2 } -> check_bmm view node ~input ~mat2
   | Conv2d { Conv.Conv2d.params; weight; _ } ->
       check_groups view node ~weight ~groups:params.Conv.Conv2d.groups

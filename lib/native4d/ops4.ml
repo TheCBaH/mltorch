@@ -285,6 +285,77 @@ module Rms_norm = struct
       t.weight pp_params t.params
 end
 
+(* Retained fused for the same reason [Rms_norm] is, and with one more: the
+   decomposition needs the MEAN twice -- once to centre and once inside the
+   variance -- so writing it out would either recompute the reduction or
+   materialise it, and both move an f32 rounding boundary the fused form does
+   not have. The claim stays [Identical].
+
+   Both affine operands stay [Tensor_ref.t option] rather than being filled
+   here: [Eval_op4] fills them exactly as [Eval_op] does, so the two dialects
+   agree on what an absent operand means. *)
+module Layer_norm = struct
+  type params = { dims : Axis4.t list; eps : float }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"layer_norm4_params" (fun dims eps -> { dims; eps })
+    |> Jsont.Object.mem "dims" (Jsont.list Axis4.jsont) ~enc:(fun p -> p.dims)
+    |> Jsont.Object.mem "eps" Json_util.f32_jsont ~enc:(fun p -> p.eps)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{dims=%a;@ eps=%a}@]"
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis4.pp))
+      p.dims Fmt.float p.eps
+
+  type t = {
+    params : params;
+    x : Tensor_ref.t;
+    weight : Tensor_ref.t option;
+    bias : Tensor_ref.t option;
+  }
+
+  let name = "LayerNorm"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          x = get "x" Tensor_ref.jsont;
+          weight = Json_util.opt_field ms "weight" Tensor_ref.jsont;
+          bias = Json_util.opt_field ms "bias" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        let ref_ = Json_util.enc Tensor_ref.jsont in
+        let opt k = function None -> [] | Some r -> [ (k, ref_ r) ] in
+        Json_util.jobj
+          (opt "bias" t.bias @ opt "weight" t.weight
+          @ [ ("params", Json_util.enc params_jsont t.params); ("x", ref_ t.x) ]
+          ))
+      Jsont.json
+
+  let operands (t : t) =
+    (t.x :: Option.to_list t.weight) @ Option.to_list t.bias
+
+  let map_operands f (t : t) =
+    {
+      t with
+      x = f t.x;
+      weight = Option.map f t.weight;
+      bias = Option.map f t.bias;
+    }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>layer_norm@ x=%a%a%a@ params=%a@]" pp_ref t.x
+      (Fmt.option (fun fmt w -> Fmt.pf fmt "@ weight=%a" pp_ref w))
+      t.weight
+      (Fmt.option (fun fmt b -> Fmt.pf fmt "@ bias=%a" pp_ref b))
+      t.bias pp_params t.params
+end
+
 (* ---- data movement -------------------------------------------------------- *)
 
 (* A four-axis bijection, as [(out_axis, in_axis)] pairs like Native's — but
