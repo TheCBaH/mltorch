@@ -139,7 +139,7 @@ async function run() {
    * This is the property that removes the 90-second stall. If the pinned
    * element serialised its layout worker across instances, a cancelled install
    * would still block its replacement and Path B would buy nothing. The second
-   * candidate carries the real exported resnet18 session, so this is not a
+   * candidate carries the real exported MobileNet session, so this is not a
    * question answered only for a toy graph. */
   reveal(first.slot);
   const second = connectHidden(session.graphCollections, 'g/native/000');

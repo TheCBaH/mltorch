@@ -1,76 +1,53 @@
 .PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
 all: build
 
-# Models release published at github.com/TheCBaH/pytorch.models.pt2
-PT2_RELEASE := v0.0.4
-PT2_REPO := TheCBaH/pytorch.models.pt2
-PT2_MODEL := resnet18
-PT2_DIR := data/pt2
-# Each model gets its own subdir, so several models' weights/images/results
-# can sit on disk at once (the interpreter cram tests are split by
-# architecture, one model family per file).
-# `=` (lazily expanded), not `:=`: `make -j inference` overrides PT2_MODEL
-# per inference.<model> target via a pattern-specific variable (below), and
-# these three need to re-expand against that override at recipe time rather
-# than freeze the top-of-file default at parse time.
+# Functional ATen model release, pinned alongside the producer submodule.
+PT2_MANIFEST_VERSION := 1
+PT2_RELEASE := v0.0.3
+PT2_REPO := TheCBaH/devcontainer.pytorch-image-models
+PT2_MODEL := mobilenetv2_050
+PT2_DIR := data/pt2-functional
+PT2_MANIFEST := data/pt2-functional-manifest.json
 PT2_MODEL_DIR = $(PT2_DIR)/$(PT2_MODEL)
-PT2_ZIP = $(PT2_MODEL_DIR)/$(PT2_MODEL).release.zip
-# Public release asset; the direct URL needs no auth (curl follows the redirect).
-PT2_URL = https://github.com/$(PT2_REPO)/releases/download/$(PT2_RELEASE)/$(PT2_MODEL).release.zip
+PT2_ZIP = $(PT2_MODEL_DIR)/$(PT2_MODEL).zip
+PT2_URL = https://github.com/$(PT2_REPO)/releases/download/$(PT2_RELEASE)/$(PT2_MODEL).zip
 
-# Models exercised by the graph interpreter, grouped by architecture.
-PT2_MODELS_RESNET := resnet18 resnet34 resnet50 resnet101 resnet152
-PT2_MODELS_EFFICIENTNET := efficientnet_b0 efficientnet_b1 efficientnet_b2 \
-	efficientnet_b3 efficientnet_b4 efficientnet_b5 efficientnet_b6 \
-	efficientnet_b7 efficientnet_v2_s efficientnet_v2_m efficientnet_v2_l
-PT2_MODELS_MOBILENET := mobilenet_v2 mobilenet_v3_large mobilenet_v3_small
-PT2_MODELS_VIT := vit_b_16 vit_b_32 vit_l_16 vit_l_32
-PT2_MODELS_ALL := $(PT2_MODELS_RESNET) $(PT2_MODELS_EFFICIENTNET) \
-	$(PT2_MODELS_MOBILENET) $(PT2_MODELS_VIT)
+# Roles are explicit compatibility claims, not a mirror of the producer zoo.
+PT2_MODELS_FIXTURES := mobilenetv2_050 test_convnext2
+PT2_MODELS_POOL := mobilenetv2_050 csatv2
+PT2_MODELS_CRAM := test_convnext2 mobilenetv2_050 regnetx_002 efficientnet_b0 fastvit_sa12
+PT2_MODELS_NATIVE_VERIFY := mobilenetv2_050 regnetx_002
+# [csatv2] is selected for its real [7,7] adaptive-pool graph, not as a
+# whole-model interpreter claim: it currently reaches unsupported aten.stack.
+# Keep that distinction explicit so the CI runnable cohort cannot silently
+# grow from a graph-only compatibility role.
+PT2_MODELS_INFERENCE := $(PT2_MODELS_CRAM)
+PT2_MODELS_ALL := $(PT2_MODELS_CRAM) csatv2
+PT2_NATIVE_VERIFY_MODELS := $(PT2_MODELS_NATIVE_VERIFY)
 
-# The smallest/fastest model per architecture - exactly what
-# test/interp_*_cram.t run, and all `make pt2.runtest` needs on disk.
-# mobilenet_v2 is the one exception to "smallest per architecture": the native
-# graph/transform crams read it as well as v3_small, because v2 is the only
-# model in the zoo that uses hardtanh (relu6) and so the only whole-graph
-# coverage that constructor has. It is structural-only there, so the cost is the
-# download, not runtime.
-PT2_MODELS_CRAM := resnet18 efficientnet_b0 mobilenet_v2 mobilenet_v3_small \
-	vit_b_32
-
-# Whole-graph native verification is intentionally a small, explicit list:
-# native convolution is pure OCaml and much slower than the ATen reference.
-# Both native-infer-verify and native-transform-verify expand this, so each
-# entry costs roughly five full native inferences.
-#
-# mobilenet_v3_small REPLACES resnet18: measured across both verify targets it
-# costs 40.9s of CPU against resnet18's 423.3s (0.10x), while covering the
-# importer arms resnet18 cannot reach — clamp, clone, mul, div and the
-# compile-time scalars the exporter writes into Tensor slots. resnet18's one
-# unique op, max_pool2d_with_indices, keeps its coverage in the targeted tests
-# (native/compute, graph, symbolic, native_bridge_test and the generated ATen
-# walks) rather than in a whole-model runtime job an order of magnitude more
-# expensive than the rest of this list. Run it by hand with
-# `make native-infer-verify.resnet18`. Measurements and the four-model
-# comparison are in .ai/native_inference_verify.md.
-PT2_NATIVE_VERIFY_MODELS := mobilenet_v3_small
-
-# Fetch the release zip (model .pt2 + sample input images) for the interpreter
-# tests, under data/pt2/<model>/. Gitignored and not part of the default build
-# (network-bound). The download is skipped when the zip is already present
-# (e.g. restored from a CI cache); the unzip is cheap and always refreshed.
+# Fetch one manifest-listed release asset.  Download is the only target allowed
+# to refresh assets; tests merely preflight what is already present.
 pt2.download:
 	mkdir -p $(PT2_MODEL_DIR)
 	test -f $(PT2_ZIP) || curl -fsSL -o $(PT2_ZIP) $(PT2_URL)
-	cd $(PT2_MODEL_DIR) && unzip -o $(PT2_MODEL).release.zip
+	@expected=$$(jq -r '.assets["$(PT2_MODEL)"] // empty' $(PT2_MANIFEST)); \
+	test -n "$$expected" || { echo "pt2.download: $(PT2_MODEL) is not in $(PT2_MANIFEST)" >&2; exit 1; }; \
+	echo "$$expected  $(PT2_ZIP)" | sha256sum -c -
+	cd $(PT2_MODEL_DIR) && unzip -o $(PT2_MODEL).zip
+	@for f in $(PT2_MODEL).pt2 preprocessing.json expected.json inputs.pt outputs.pt; do \
+		test -f $(PT2_MODEL_DIR)/$$f || { echo "pt2.download: $(PT2_MODEL) archive lacks $$f" >&2; exit 1; }; \
+	done
+	@release=$$(mktemp); source=$$(mktemp); trap 'rm -f "$$release" "$$source"' EXIT; \
+	unzip -p $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL)/models/model.json | jq -S . >"$$release"; \
+	jq -S . modules/devcontainer.pytorch-image-models/models/$(PT2_MODEL)/models/model.json >"$$source"; \
+	cmp -s "$$release" "$$source" || { echo "pt2.download: release graph differs from pinned producer graph for $(PT2_MODEL)" >&2; exit 1; }
 
 # Download the models the cram tests need (cheap next to the full set: 5
 # models, ~410 MB).
 pt2.download-cram:
 	for m in $(PT2_MODELS_CRAM); do $(MAKE) pt2.download PT2_MODEL=$$m; done
 
-# Download every supported model, one at a time (expensive: 22 models,
-# ~5.3 GB). Used by `make inference` and for ad hoc spot-checks.
+# Download every selected role model, one at a time.
 pt2.download-all:
 	for m in $(PT2_MODELS_ALL); do $(MAKE) pt2.download PT2_MODEL=$$m; done
 
@@ -86,12 +63,12 @@ pt2.download-all:
 # is PT2_MODELS_CRAM, so a model moving into that list has to invalidate the key
 # too. Hashing ALL alone would leave the pre-change cache — which lacks the new
 # model — valid forever, and every run would re-download it.
-PT2_MODELS_HASH := $(shell echo "$(PT2_MODELS_ALL) $(PT2_MODELS_CRAM)" \
+PT2_MODELS_HASH := $(shell echo "$(PT2_MANIFEST_VERSION) $(PT2_REPO) $(PT2_MODELS_ALL) $(PT2_MODELS_CRAM)" \
 	| md5sum | cut -c1-8)
 pt2.vars:
-	@echo "pt2_zip_glob=$(PT2_DIR)/*/*.release.zip"
-	@echo "pt2_cache_key=pt2-$(PT2_RELEASE)-$(PT2_MODELS_HASH)"
-	@echo "pt2_cache_restore_key=pt2-$(PT2_RELEASE)-"
+	@echo "pt2_zip_glob=$(PT2_DIR)/*/*.zip"
+	@echo "pt2_cache_key=pt2-functional-$(PT2_RELEASE)-v$(PT2_MANIFEST_VERSION)-$(PT2_MODELS_HASH)"
+	@echo "pt2_cache_restore_key=pt2-functional-$(PT2_RELEASE)-v$(PT2_MANIFEST_VERSION)-"
 
 # Run the gated end-to-end tests (load + interpreter) against the downloaded data.
 #
@@ -114,22 +91,17 @@ pt2.runtest:
 			echo "pt2.runtest: missing $(PT2_DIR)/$$m/$$m.pt2 -- run 'make pt2.download-cram' first" >&2; \
 			exit 1; \
 		}; \
+		for f in inputs.pt outputs.pt expected.json preprocessing.json; do \
+			test -f $(PT2_DIR)/$$m/$$f || { echo "pt2.runtest: missing $(PT2_DIR)/$$m/$$f -- run 'make pt2.download-cram' first" >&2; exit 1; }; \
+		done; \
 	done
 	PT2_DATA=$(abspath $(PT2_DIR)) NO_COLOR=1 opam exec -- dune runtest \
-		test/pt2_load_cram.t test/interp_resnet_cram.t \
-		test/interp_efficientnet_cram.t test/interp_mobilenet_cram.t \
-		test/interp_vit_cram.t test/native_graph_cram.t \
-		test/native_transform_cram.t test/native_transform_fold_cram.t \
-		test/native_transform_verify_cram.t \
-		test/native_transform_verify_fold_cram.t \
-		test/native4d_to4d_cram.t test/me_visualize_cram.t \
-		--auto-promote
+		test/pt2_load_cram.t test/interp_functional_cram.t
 
 # Shared argument list for every interp_run.exe invocation below, so
 # inference-run and benchmark.inference can't drift apart.
-PT2_INFER_ARGS = $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/images \
-	$(PT2_MODEL_DIR)/imagenet_lsvrc_2015_synsets.txt \
-	$(PT2_MODEL_DIR)/imagenet_metadata.txt $(PT2_MODEL_DIR)/results.json
+PT2_INFER_ARGS = $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/inputs.pt \
+	$(PT2_MODEL_DIR)/expected.json $(PT2_MODEL_DIR)/outputs.pt
 
 # Run the interpreter once on $(PT2_MODEL) (downloading it first if needed)
 # and print per-image inference timing to stderr. No correctness assertion -
@@ -161,11 +133,11 @@ inference.%: $(PT2_RUN)
 	$(MAKE) pt2.download PT2_MODEL=$*
 	$(PT2_RUN) $(PT2_INFER_ARGS)
 
-# Run inference for every supported model (all of PT2_MODELS_ALL), not just
-# the ones exercised by the cram tests. Every inference.<model> is
-# independent (own dir, own download, own process), so this is safe to run
-# with `-j` (e.g. `make -j$(nproc) inference`) to cut wall time.
-inference: $(addprefix inference., $(PT2_MODELS_ALL))
+# Run inference only for the interpreter-validated cohort, not every selected
+# graph role. Every inference.<model> is independent (own dir, own download,
+# own process), so this is safe to run with `-j` (e.g. `make -j$(nproc)
+# inference`) to cut wall time.
+inference: $(addprefix inference., $(PT2_MODELS_INFERENCE))
 
 # Keep ATen out of native_graph: this target first writes a reference with the
 # existing Interp.run evaluator, then asks the pure native executable to read
@@ -179,8 +151,8 @@ native-infer-verify.%: PT2_MODEL = $*
 native-infer-verify.%: $(ATEN_GRAPH_REF) $(NATIVE_GRAPH)
 	test -f $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 || $(MAKE) pt2.download PT2_MODEL=$*
 	set -eux; ref=$$(mktemp); trap 'rm -f "$$ref"' EXIT; \
-	$(ATEN_GRAPH_REF) $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/images/000000000149.pt "$$ref"; \
-	$(NATIVE_GRAPH) eval --pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 --input $(PT2_MODEL_DIR)/images/000000000149.pt --expect "$$ref" --verbose
+	$(ATEN_GRAPH_REF) $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL_DIR)/inputs.pt "$$ref"; \
+	$(NATIVE_GRAPH) eval --pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 --input $(PT2_MODEL_DIR)/inputs.pt --expect "$$ref" --verbose
 
 native-infer-verify: $(addprefix native-infer-verify., $(PT2_NATIVE_VERIFY_MODELS))
 
@@ -201,10 +173,10 @@ native-transform-verify.%: $(NATIVE_GRAPH)
 	set -eux; \
 	$(NATIVE_GRAPH) transform --verify \
 		--pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 \
-		--input $(PT2_MODEL_DIR)/images/000000000149.pt; \
+		--input $(PT2_MODEL_DIR)/inputs.pt; \
 	$(NATIVE_GRAPH) transform --fold --verify \
 		--pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 \
-		--input $(PT2_MODEL_DIR)/images/000000000149.pt; \
+		--input $(PT2_MODEL_DIR)/inputs.pt; \
 	$(NATIVE_GRAPH) transform --fold --verify-symbolic standard \
 		--pt2 $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2
 
@@ -338,10 +310,10 @@ jsoo.inline-runtest:
 # measured node/jsoo actually handling a Pt2_archive read anywhere near
 # Pt2_archive.max_file_bytes -- see lib/pt2/pt2_archive.ml.
 
-JS_PT2_MODEL := mobilenet_v3_small
+JS_PT2_MODEL := mobilenetv2_050
 JS_PT2_DIR := $(PT2_DIR)/$(JS_PT2_MODEL)
 JS_PT2_ARCHIVE := $(JS_PT2_DIR)/$(JS_PT2_MODEL).pt2
-JS_PT2_INPUT := $(JS_PT2_DIR)/images/000000000149.pt
+JS_PT2_INPUT := $(JS_PT2_DIR)/inputs.pt
 
 jsoo.pt2.download:
 	$(MAKE) pt2.download PT2_MODEL=$(JS_PT2_MODEL)
@@ -357,9 +329,9 @@ jsoo.pt2.download:
 # No model-list hash here, unlike PT2_MODELS_HASH: the key names the one model
 # it holds, so changing JS_PT2_MODEL already changes the key.
 jsoo.pt2.vars:
-	@echo "jsoo_pt2_zip_glob=$(PT2_DIR)/$(JS_PT2_MODEL)/*.release.zip"
-	@echo "jsoo_pt2_cache_key=pt2-jsoo-$(PT2_RELEASE)-$(JS_PT2_MODEL)"
-	@echo "jsoo_pt2_cache_restore_key=pt2-jsoo-$(PT2_RELEASE)-"
+	@echo "jsoo_pt2_zip_glob=$(PT2_DIR)/$(JS_PT2_MODEL)/*.zip"
+	@echo "jsoo_pt2_cache_key=pt2-jsoo-functional-$(PT2_RELEASE)-v$(PT2_MANIFEST_VERSION)-$(JS_PT2_MODEL)"
+	@echo "jsoo_pt2_cache_restore_key=pt2-jsoo-functional-$(PT2_RELEASE)-v$(PT2_MANIFEST_VERSION)-"
 
 jsoo.pt2.runtest: jsoo.build
 	@for f in $(JS_PT2_ARCHIVE) $(JS_PT2_INPUT); do \
@@ -390,9 +362,8 @@ jsoo.pt2.runtest: jsoo.build
 # Depending on the download IS safe here, unlike pt2.runtest -- there is no cram
 # and no --auto-promote, so unzip -o refreshing mtimes costs nothing.
 
-JS_PT2_RUN_ARGS = $(JS_PT2_ARCHIVE) $(JS_PT2_DIR)/images \
-	$(JS_PT2_DIR)/imagenet_lsvrc_2015_synsets.txt \
-	$(JS_PT2_DIR)/imagenet_metadata.txt $(JS_PT2_DIR)/results.json
+JS_PT2_RUN_ARGS = $(JS_PT2_ARCHIVE) $(JS_PT2_DIR)/inputs.pt \
+	$(JS_PT2_DIR)/expected.json $(JS_PT2_DIR)/outputs.pt
 
 jsoo.pt2.run: jsoo.pt2.download jsoo.build
 	node $(JS_BUILD)/jsoo/pt2_run.bc.js $(JS_PT2_RUN_ARGS) --strict
@@ -536,11 +507,12 @@ spike.setup: visualizer.build
 spike.runtest:
 	opam exec -- dune exec test/model_explorer/spike/gen_fixture.exe -- web/src
 	opam exec -- dune exec bin/native_graph.exe -- visualize \
-		--model modules/pytorch.models.pt2/models/resnet18/models/model.json \
+		--model modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/model.json \
 		--verify-symbolic quick --output web/src/session.json
+	@detail_value=$$(jq -er 'first(.graphCollections[] | .graphs[] | select(.id == "g/kernel/000") | .nodes[] | .id | select(test("^v[0-9]+$$")) | ltrimstr("v"))' web/src/session.json); \
 	opam exec -- dune exec bin/native_graph.exe -- detail \
-		--model modules/pytorch.models.pt2/models/resnet18/models/model.json \
-		--graph g/kernel/000 --value 125 --output web/src/detail-delta.json
+		--model modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/model.json \
+		--graph g/kernel/000 --value "$$detail_value" --output web/src/detail-delta.json
 	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" \
 		npm run spike
 

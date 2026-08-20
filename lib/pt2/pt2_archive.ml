@@ -32,7 +32,8 @@ type error =
   | `Missing_weight of string
   | `Missing_captured_tensor of string
   | `Weight_tensor of string * Pt2_tensor.error
-  | `Pt_pickle of string * Pt2_pickle.error ]
+  | `Pt_pickle of string * Pt2_pickle.error
+  | `Empty_tensor_map of string ]
 
 let pp_error ppf : error -> unit = function
   | `Io { Io.path; cause } ->
@@ -62,6 +63,7 @@ let pp_error ppf : error -> unit = function
   | `Pt_pickle (path, error) ->
       Fmt.pf ppf "failed to decode tensor pickle %S: %a" path
         Pt2_pickle.pp_error error
+  | `Empty_tensor_map path -> Fmt.pf ppf "tensor map %S is empty" path
 
 (* CHECKPOINT 1 — before the OCaml string exists.
 
@@ -202,8 +204,21 @@ let load_captured_tensor t name =
       | Some e -> load_entry t ~dir:"data/constants" name e
       | None -> Err.fail (`Missing_captured_tensor name))
 
-(* A standalone `.pt` tensor (a sample input image, or the archive's own
-   data/sample_inputs/model.pt) already in memory. Same split as [of_string]. *)
+let tensor_of_rebuild zip rb =
+  let* data = read_member zip ("data/" ^ rb.Pt2_pickle.storage_key) in
+  Err.return
+    {
+      Pt2_tensor.dtype = rb.Pt2_pickle.dtype;
+      sizes = rb.Pt2_pickle.sizes;
+      strides = rb.Pt2_pickle.strides;
+      storage_offset = rb.Pt2_pickle.storage_offset;
+      data = Bytes.of_string data;
+    }
+
+(* A standalone `.pt` tensor (the embedded sample input in a PT2 archive) is
+   intentionally kept separate from external torch-save maps.  Callers that
+   need a single known tensor retain this narrow API; release inputs and
+   outputs use [pt_tensor_map_of_string] below. *)
 let pt_of_string ?limits ~name contents =
   let path = name in
   let* zip =
@@ -215,17 +230,49 @@ let pt_of_string ?limits ~name contents =
     Pt2_pickle.parse_tensor data_pkl
     |> Err.map_error ~pos:__POS__ (fun error -> `Pt_pickle (path, error))
   in
-  let* data = read_member zip ("data/" ^ rb.Pt2_pickle.storage_key) in
-  Err.return
-    {
-      Pt2_tensor.dtype = rb.Pt2_pickle.dtype;
-      sizes = rb.Pt2_pickle.sizes;
-      strides = rb.Pt2_pickle.strides;
-      storage_offset = rb.Pt2_pickle.storage_offset;
-      data = Bytes.of_string data;
-    }
+  tensor_of_rebuild zip rb
 
 (* Load a standalone `.pt` tensor file from disk. *)
 let load_pt ?limits ?max_bytes path =
   let* contents = read_file ?max_bytes path in
   pt_of_string ?limits ~name:path contents
+
+let pt_tensor_map_of_string ?limits ~name contents =
+  let path = name in
+  let* zip =
+    Pt2_zip.of_string ?limits contents
+    |> Err.map_error ~pos:__POS__ (fun error -> `Zip_open (path, error))
+  in
+  let* data_pkl = read_member zip "data.pkl" in
+  let* rebuilds =
+    Pt2_pickle.parse_tensor_map data_pkl
+    |> Err.map_error ~pos:__POS__ (fun error -> `Pt_pickle (path, error))
+  in
+  Err.List.map
+    (fun (key, rb) ->
+      let+ tensor = tensor_of_rebuild zip rb in
+      (key, tensor))
+    rebuilds
+
+(* Load an external [torch.save] [dict[str, Tensor]].  It is the producer's
+   public inputs/outputs contract, unlike [load_pt], which remains for the
+   one-tensor archive-internal samples. *)
+let load_pt_tensor_map ?limits ?max_bytes path =
+  let* contents = read_file ?max_bytes path in
+  pt_tensor_map_of_string ?limits ~name:path contents
+
+let load_first_pt_tensor ?limits ?max_bytes path =
+  let* tensors = load_pt_tensor_map ?limits ?max_bytes path in
+  match tensors with
+  | (_, tensor) :: _ ->
+      (* Release input maps are post-transform, pre-batch tensors.  This API is
+         only for selecting an external map entry for the graph CLIs; [load_pt]
+         remains byte-for-byte faithful to archive-internal single tensors. *)
+      let batch_stride = Pt2_tensor.numel tensor in
+      Err.return
+        {
+          tensor with
+          Pt2_tensor.sizes = 1 :: tensor.sizes;
+          strides = batch_stride :: tensor.strides;
+        }
+  | [] -> Err.fail (`Empty_tensor_map path)

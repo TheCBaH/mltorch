@@ -22,7 +22,11 @@ type error =
   | `Int_out_of_range of string * int64
   | `Unexpected_storage_persistent_id
   | `Unexpected_rebuild_args
-  | `No_tensor_found ]
+  | `No_tensor_found
+  | `Expected_tensor_map
+  | `Tensor_map_key_not_string
+  | `Tensor_map_value_not_tensor of string
+  | `Duplicate_tensor_map_key of string ]
 
 let pp_error ppf : error -> unit = function
   | #Pt2_dtype.error as e -> Pt2_dtype.pp_error ppf e
@@ -36,6 +40,13 @@ let pp_error ppf : error -> unit = function
   | `Unexpected_rebuild_args ->
       Fmt.string ppf "unexpected _rebuild_tensor_v2 arguments"
   | `No_tensor_found -> Fmt.string ppf "pickle did not yield a tensor"
+  | `Expected_tensor_map -> Fmt.string ppf "pickle did not yield a tensor map"
+  | `Tensor_map_key_not_string ->
+      Fmt.string ppf "tensor map key is not a string"
+  | `Tensor_map_value_not_tensor key ->
+      Fmt.pf ppf "tensor map value for %S is not a tensor" key
+  | `Duplicate_tensor_map_key key ->
+      Fmt.pf ppf "tensor map contains duplicate key %S" key
 
 (* A distinct tag from [`Expected_int]: the value here IS an integer, it just
    does not fit this backend's [int]. Under js_of_ocaml that is 32 bits, so a
@@ -132,3 +143,36 @@ let parse_tensor s =
       let open Err.Syntax in
       let* rb = find_tensor v in
       rb |> Err.of_option `No_tensor_found
+
+(* External release files are [torch.save] maps keyed by sample name.  This is
+   deliberately not a general tree search: accepting a tensor hidden in an
+   arbitrary pickle object makes a malformed oracle look valid and loses the
+   association the caller must check. *)
+let tensor_of_value key = function
+  | V.Reduce { func = V.Global { name = "_rebuild_tensor_v2"; _ }; args } ->
+      rebuild_of_args args
+  | _ -> Err.fail (`Tensor_map_value_not_tensor key)
+
+let parse_tensor_map s =
+  match Opickle.of_string s with
+  | Error e -> Err.fail (`Malformed_pickle (Opickle.Error.to_string e))
+  | Ok (V.Dict entries) ->
+      let seen = Hashtbl.create 16 in
+      let open Err.Syntax in
+      let* pairs =
+        Err.List.map
+          (fun (key, value) ->
+            match key with
+            | V.Str key ->
+                if Hashtbl.mem seen key then
+                  Err.fail (`Duplicate_tensor_map_key key)
+                else begin
+                  Hashtbl.add seen key ();
+                  let+ tensor = tensor_of_value key value in
+                  (key, tensor)
+                end
+            | _ -> Err.fail `Tensor_map_key_not_string)
+          !entries
+      in
+      Err.return (List.sort (fun (a, _) (b, _) -> String.compare a b) pairs)
+  | Ok _ -> Err.fail `Expected_tensor_map

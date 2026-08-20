@@ -276,7 +276,7 @@ test('back and forward across a view-only change sends no worker message', async
 /* A URL naming a view this model does not have falls back rather than failing,
  * says so, and rewrites itself to what is actually on screen. */
 test('a stale view in the URL falls back to Source with a notice', async ({ page }) => {
-  await page.goto('/index.html?model=resnet18&view=v%2Fnot-a-view');
+  await page.goto('/index.html?model=mobilenetv2_050&view=v%2Fnot-a-view');
   await loaded(page);
   await expect(page.locator('#view')).toHaveValue('v/source');
   await expect(page.locator('#notice')).toBeVisible();
@@ -287,8 +287,8 @@ test('a stale view in the URL falls back to Source with a notice', async ({ page
 
 /* --------------------------------------------------- exported comparisons */
 
-/* The two the exporter declares: `c/import` (source -> initial, with 70
- * correspondence components on resnet18) and `c/canonical` (initial ->
+/* The two the exporter declares: `c/import` (source -> initial, with its
+ * explicit correspondence components) and `c/canonical` (initial ->
  * canonical, deliberately with none). `Session.comparisons` is the sole
  * authority for what is offered -- no capability is consulted. */
 const comparisonOptions = (page: Page) =>
@@ -354,7 +354,7 @@ test('a comparison names its panes and states what its mapping claims', async ({
   await expect(page.locator('#pane-labels')).toBeVisible();
   await expect(page.locator('#pane-labels')).toContainText('Exported Program');
   await expect(page.locator('#pane-labels')).toContainText('Initial Native');
-  await expect(page.locator('#presentation-note')).toContainText('70 exported correspondence components');
+  await expect(page.locator('#presentation-note')).toContainText('exported correspondence components');
 
   await page.locator('#comparison').selectOption('c/canonical');
   await openedComparison(page, 'c/canonical');
@@ -373,7 +373,7 @@ test('a comparison names its panes and states what its mapping claims', async ({
 });
 
 test('a comparison the session does not declare falls back without inventing one', async ({ page }) => {
-  await page.goto('/index.html?model=resnet18&comparison=c%2Fnope');
+  await page.goto('/index.html?model=mobilenetv2_050&comparison=c%2Fnope');
   await loaded(page);
   await expect(page.locator('#comparison')).toHaveValue('');
   await expect(page.locator('#pane-labels')).toBeHidden();
@@ -496,7 +496,7 @@ async function selectFlowNode(page: Page, nodeId: string) {
     const element = slot?.querySelector('model-explorer-visualizer') as any;
     /* No collection label: the element then searches every collection and
      * fills the real one into the event. The label is derived from the model
-     * name (`mltorch:resnet18`), so spelling it here would pin a fixture
+     * name, so spelling it here would pin a fixture
      * detail this test is not about. */
     element.selectNode(id, 'g/flow');
   }, nodeId);
@@ -560,7 +560,7 @@ test('a paired transition offers only its declared comparison, an unpaired one n
  * document once it arrives. Before this was wired the page loaded, resolved,
  * and then left the source stage on screen with a flow URL. */
 test('a direct flow URL ends with the flow on screen, not the source stage', async ({ page }) => {
-  await page.goto('/index.html?model=resnet18&flow=v%2Fflow');
+  await page.goto('/index.html?model=mobilenetv2_050&flow=v%2Fflow');
   await loaded(page);
   await expect(page.locator('#flow-open')).toHaveAttribute('aria-pressed', 'true', { timeout: 90_000 });
   await expect(page.locator('#flow-note')).toContainText('Coarse export flow');
@@ -589,7 +589,7 @@ test('back and forward across a flow sends no worker message', async ({ page }) 
 });
 
 test('a flow the session does not declare falls back without inventing one', async ({ page }) => {
-  await page.goto('/index.html?model=resnet18&flow=v%2Fnope');
+  await page.goto('/index.html?model=mobilenetv2_050&flow=v%2Fnope');
   await loaded(page);
   await expect(page.locator('#flow-open')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#notice')).toContainText('v/nope');
@@ -607,7 +607,7 @@ test('capabilities are shown, and not-requested differs from unavailable', async
   const disclosure = page.locator('#unavailable');
   await disclosure.locator('summary').click();
 
-  // Native4D is outside the dialect's domain for resnet18, and says so with the
+  // Native4D is outside this model's dialect domain, and says so with the
   // exporter's own bounded detail.
   await expect(disclosure).toContainText('Native4D');
   await expect(disclosure).toContainText('Unavailable');
@@ -728,4 +728,3 @@ test('the backbone stages are labelled, not offered as checkboxes', async ({ pag
     .evaluateAll((es) => es.map((e) => (e as HTMLInputElement).id));
   expect(boxes.sort()).toEqual(['stage-fusion', 'stage-kernel', 'stage-native4d', 'stage-stage_program']);
 });
-

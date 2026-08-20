@@ -1,6 +1,6 @@
 (* `aten.pad.default` through the serialized path (op6.md row 6.1). No model
    reachable from this checkout serializes the target at all -- not the 23
-   core-ATen graphs in modules/pytorch.models.pt2, not the five downloadable
+   core-ATen graphs in modules/devcontainer.pytorch-image-models, not the five downloadable
    release models (op6-impl F1) -- so these fixtures are the only place it
    reaches [Native_interp], and there is no cram that will regress if it breaks.
 

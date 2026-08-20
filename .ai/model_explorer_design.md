@@ -1305,9 +1305,10 @@ either would have to be told which.
 
 **The browser gate drives the whole path.** 0A proved a late graph plus a parent
 `subGraphIds` link works, with a hand-authored fixture; the gate now does it with a real
-delta: `expr/g/kernel/000/t125/t125`, eight nodes, linked from `v125`, merged, processed and
-entered. That is the only place the merge is checked against the element rather than against
-our own validator.
+delta. It selects the first `v<N>` kernel-value node from the session it just exported, then
+requests that value's expression, so the fixture stays valid when the pinned model changes.
+That is the only place the merge is checked against the element rather than against our own
+validator.
 
 "Entered" is `selectNode` called TWICE, not once: the first call selects the linking node
 inside its *parent* graph -- `selectNode`'s own implementation only reveals a node in an

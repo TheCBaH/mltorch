@@ -95,4 +95,4 @@
    %{target}
    (run
     cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet18/models/model.json))))
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/model.json))))

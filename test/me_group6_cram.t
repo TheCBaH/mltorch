@@ -3,7 +3,7 @@ export path.
 
 UNGATED and hand-built, same reason as `me_group2_cram.t`/`me_group3_cram.t`/
 `me_group5_cram.t`: no model this repository can download serializes either
-target -- not the 23 core-ATen graphs in `modules/pytorch.models.pt2`, not the
+target -- not the 23 core-ATen graphs in `modules/devcontainer.pytorch-image-models`, not the
 five downloadable release models (op6-impl F1). This is the only place either
 target reaches Model Explorer at all.
 

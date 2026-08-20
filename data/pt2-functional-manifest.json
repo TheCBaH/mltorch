@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "producer": {
+    "repository": "TheCBaH/devcontainer.pytorch-image-models",
+    "commit": "0baf47c2903eabdd57aa3843e531d1d3c636c7a4",
+    "release": "v0.0.3"
+  },
+  "required_files": [
+    "{model}.pt2",
+    "preprocessing.json",
+    "expected.json",
+    "inputs.pt",
+    "outputs.pt"
+  ],
+  "assets": {
+    "test_convnext2": "8fa5bb32a475eb9ab9a68d453c9892d55591177d80e05d3dbbca75db91548145",
+    "mobilenetv2_050": "899a240c87d1c635af3d17ab937a2b5926f87e81de5ec498a824096c4b05d5c7",
+    "csatv2": "53e1851396f108c74a2ebb40e8f95f3e188cd24552cb5732a73fe108cbbc2707",
+    "regnetx_002": "1f79b4c35eb6e1dccb9560dc3b01ea3aaf036d40d2e6549ab703c23694e45bea",
+    "efficientnet_b0": "01d872bcb01ca775b347653cdb6a4aa0249292e8f87fedfd818f2738b91f6e32",
+    "fastvit_sa12": "4598cca57123559e281746246421f3c4b828c4d1975f6e6155f8e59e62158ac5"
+  }
+}

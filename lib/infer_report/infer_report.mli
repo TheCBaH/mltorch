@@ -30,6 +30,9 @@ module Paths : sig
     synsets : string;
     metadata : string;
     results : string;
+    inputs : string option;
+    expected : string option;
+    outputs : string option;
   }
 end
 
@@ -64,6 +67,7 @@ end
 type 'eval error =
   [ Pt2_archive.error
   | `Results_decode of string
+  | `Expected_decode of string
   | `No_reference of string
   | `Mismatch of Mismatch.t  (** strict mode only *)
   | `Eval of 'eval ]
@@ -72,12 +76,8 @@ val pp_error :
   (Format.formatter -> 'eval -> unit) -> Format.formatter -> 'eval error -> unit
 
 val parse_argv : string array -> (Paths.t * Options.t, string) result
-(** Exactly five positional paths -- model, images dir, synsets, metadata,
-    results -- then zero or more of [--cram] and [--strict], in any order,
-    freely combined, repeats idempotent. An unknown flag, a flag before the
-    fifth path, or the wrong number of paths is [Error usage]; the executable
-    prints that and exits 2. This is a superset of the historical
-    [<5 paths> [--cram]] form, so every existing caller is unaffected. *)
+(** Exactly four positional paths -- model, preprocessed tensor map, top-5
+    reference, and full-output tensor map -- then zero or more flags. *)
 
 val compare_ranking :
   sample:string ->
@@ -117,9 +117,9 @@ val run :
   Paths.t ->
   Options.t ->
   (unit, 'eval error) Err.t
-(** The host shell over {!report}: reads the label files and [results.json],
-    opens the archive, discovers and loads the samples, times each step, and
-    classifies failures -- [load_pt] direct, [infer] under [`Eval].
+(** The host shell over {!report}: opens the archive and the producer's tensor
+    maps, checks their lexical key agreement, and classifies evaluator failures
+    under [`Eval].
 
     [~now] is the clock. It is a parameter rather than [Unix.gettimeofday]
     because [unix] must not enter the js_of_ocaml closure; the ATen runner

@@ -223,6 +223,14 @@ let tensor_arg env node name =
   | Some arg -> wrong_kind name `Tensor_opt arg
   | None -> Err.fail (`Missing_argument name)
 
+(* Functional ATen graphs omit a Tensor argument whose schema default is None
+   instead of serialising [as_none].  Keep the required decoder strict and make
+   that source-contract distinction explicit at generated call sites. *)
+let tensor_arg_opt env node name =
+  match find_arg node name with
+  | None -> Err.return null_tensor
+  | Some _ -> tensor_arg env node name
+
 (* A binary op's Tensor-typed argument is normally an earlier node's result,
    but a compile-time scalar (e.g. the +3/relu6/.../6 in hardswish's
    decomposition) is serialized as a bare Int/Float rather than a lifted

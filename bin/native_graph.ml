@@ -33,15 +33,15 @@ let pt2_arg =
   Arg.(required & opt (some file) None & info [ "pt2" ] ~doc ~docv:"MODEL.pt2")
 
 let input_arg =
-  let doc = "Path to the single user-input .pt tensor." in
+  let doc = "Path to an external torch-save input tensor map." in
   Arg.(required & opt (some file) None & info [ "input" ] ~docv:"INPUT.pt" ~doc)
 
 (* [transform] prints the rewritten graph when given no input, so that seeing
    what a pipeline produced does not require running inference over it. *)
 let optional_input_arg =
   let doc =
-    "Path to the single user-input .pt tensor. Omit to print the transformed \
-     graph instead of evaluating it."
+    "Path to an external torch-save input tensor map. Omit to print the \
+     transformed graph instead of evaluating it."
   in
   Arg.(value & opt (some file) None & info [ "input" ] ~docv:"INPUT.pt" ~doc)
 
@@ -256,7 +256,9 @@ let print_cmd =
 
 let eval model input expect verbose : (unit, string) result =
   with_archive model (fun archive ->
-      let* input = to_cli Pt2_archive.pp_error (Pt2_archive.load_pt input) in
+      let* input =
+        to_cli Pt2_archive.pp_error (Pt2_archive.load_first_pt_tensor input)
+      in
       let hooks =
         if verbose then
           (* [on_end] fires once per evaluated node against the same
@@ -593,7 +595,7 @@ let transform model input expect fold verify verify_symbolic :
           Ok ()
       | Some input -> (
           let* input =
-            to_cli Pt2_archive.pp_error (Pt2_archive.load_pt input)
+            to_cli Pt2_archive.pp_error (Pt2_archive.load_first_pt_tensor input)
           in
           let* outputs, loaded =
             to_cli Native_interp.pp_error

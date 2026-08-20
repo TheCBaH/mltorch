@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
  * be rejected by the element -- a graph id it cannot address, a namespace it
  * splits somewhere we did not expect, node data keyed by an id no node carries.
  * So this loads the session `native_graph visualize` actually produced from the
- * committed resnet18 model.json and enters every graph in it.
+ * committed MobileNet model.json and enters every graph in it.
  *
  * One hard assertion, and it is about US: every graph finishes processing. The
  * rest is recorded, like the 0A spike, because a gate that fails when an

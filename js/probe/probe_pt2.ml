@@ -1,10 +1,10 @@
 (* Section 6, its own entry point: reading a real .pt2 archive and running
    inference on it. Not melange-reachable, and gated on downloaded weights,
-   which is why it is not a section of native_probe -- a run that needs a 12MB
+   which is why it is not a section of native_probe -- a run that needs a model
    model cannot share an entry point with one that needs nothing.
 
    Everything here goes through the in-memory seam ([Pt2_archive.of_string],
-   [pt_of_string]) rather than the path-based entry points. Under node either
+   [pt_tensor_map_of_string]) rather than the path-based entry points. Under node either
    would work, but the in-memory one is what a browser has, so it is the one
    worth proving.
 
@@ -37,7 +37,8 @@ let run ~pt2 ~input =
     (List.length lowered.Pt2_native_graph.graph.Graph_ir.Graph.nodes);
   let tensor =
     ok "load input" Pt2_archive.pp_error
-      (Pt2_archive.pt_of_string ~name:input (read_file input))
+      (Pt2_archive.pt_tensor_map_of_string ~name:input (read_file input))
+    |> List.hd |> snd
   in
   Printf.printf "input-shape [%s]\n"
     (String.concat "; " (List.map string_of_int tensor.Pt2_tensor.sizes));

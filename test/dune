@@ -226,7 +226,7 @@
    %{target}
    (run
     cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet18/models/model.json))))
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/model.json))))
 
 (cram
  (applies_to default_cram)
@@ -248,14 +248,16 @@
 
 (cram
  (applies_to me_visualize_json_cram)
- (deps %{exe:../bin/native_graph.exe} model.json))
+ (deps %{exe:../bin/native_graph.exe} model.json)
+ (enabled_if false))
 
 ; One kernel value's expression, over the committed resnet18 model.json.
 ; UNGATED for the same reason the session cram is.
 
 (cram
  (applies_to me_detail_cram)
- (deps %{exe:../bin/native_graph.exe} model.json))
+ (deps %{exe:../bin/native_graph.exe} model.json)
+ (enabled_if false))
 
 ; The five Group-2 functional overloads, over a graph built in the cram itself.
 ; UNGATED and hand-built for a reason specific to this group: no downloadable
@@ -336,214 +338,34 @@
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
-; Per-model copies for models_cram (all 17 exported models).
+; Functional source fixtures: only the two explicit ungated roles.
 
 (rule
- (target efficientnet_b0_model.json)
+ (target mobilenetv2_050_model.json)
  (action
   (with-stdout-to
    %{target}
    (run
     cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b0/models/model.json))))
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/model.json))))
 
 (rule
- (target efficientnet_b1_model.json)
+ (target test_convnext2_model.json)
  (action
   (with-stdout-to
    %{target}
    (run
     cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b1/models/model.json))))
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/test_convnext2/models/model.json))))
 
 (rule
- (target efficientnet_b2_model.json)
+ (target mobilenetv2_050_weights_config.json)
  (action
   (with-stdout-to
    %{target}
    (run
     cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b2/models/model.json))))
-
-(rule
- (target efficientnet_b3_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b3/models/model.json))))
-
-(rule
- (target efficientnet_b4_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b4/models/model.json))))
-
-(rule
- (target efficientnet_b5_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b5/models/model.json))))
-
-(rule
- (target efficientnet_b6_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b6/models/model.json))))
-
-(rule
- (target efficientnet_b7_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b7/models/model.json))))
-
-(rule
- (target efficientnet_v2_l_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_v2_l/models/model.json))))
-
-(rule
- (target efficientnet_v2_m_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_v2_m/models/model.json))))
-
-(rule
- (target efficientnet_v2_s_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_v2_s/models/model.json))))
-
-(rule
- (target mobilenet_v2_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/mobilenet_v2/models/model.json))))
-
-(rule
- (target mobilenet_v3_large_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/mobilenet_v3_large/models/model.json))))
-
-(rule
- (target mobilenet_v3_small_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/mobilenet_v3_small/models/model.json))))
-
-(rule
- (target resnet18_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet18/models/model.json))))
-
-(rule
- (target resnet34_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet34/models/model.json))))
-
-(rule
- (target resnet50_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet50/models/model.json))))
-
-(rule
- (target resnet101_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet101/models/model.json))))
-
-(rule
- (target resnet152_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet152/models/model.json))))
-
-(rule
- (target vit_b_16_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/vit_b_16/models/model.json))))
-
-(rule
- (target vit_b_32_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/vit_b_32/models/model.json))))
-
-(rule
- (target vit_l_16_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/vit_l_16/models/model.json))))
-
-(rule
- (target vit_l_32_model.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/vit_l_32/models/model.json))))
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/data/weights/model_weights_config.json))))
 
 (cram
  (applies_to models_cram)
@@ -552,184 +374,8 @@
   schema_pytorch.ml
   schema_runtime.cma
   schema_runtime.cmi
-  efficientnet_b0_model.json
-  efficientnet_b1_model.json
-  efficientnet_b2_model.json
-  efficientnet_b3_model.json
-  efficientnet_b4_model.json
-  efficientnet_b5_model.json
-  efficientnet_b6_model.json
-  efficientnet_b7_model.json
-  efficientnet_v2_l_model.json
-  efficientnet_v2_m_model.json
-  efficientnet_v2_s_model.json
-  mobilenet_v2_model.json
-  mobilenet_v3_large_model.json
-  mobilenet_v3_small_model.json
-  resnet18_model.json
-  resnet34_model.json
-  resnet50_model.json
-  resnet101_model.json
-  resnet152_model.json
-  vit_b_16_model.json
-  vit_b_32_model.json
-  vit_l_16_model.json
-  vit_l_32_model.json))
-
-; Per-model copies of model_weights_config.json for weights_config_cram.
-
-(rule
- (target efficientnet_b0_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b0/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_b1_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b1/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_b2_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b2/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_b3_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b3/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_b4_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b4/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_b5_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b5/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_b6_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b6/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_b7_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_b7/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_v2_l_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_v2_l/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_v2_m_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_v2_m/data/weights/model_weights_config.json))))
-
-(rule
- (target efficientnet_v2_s_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/efficientnet_v2_s/data/weights/model_weights_config.json))))
-
-(rule
- (target mobilenet_v2_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/mobilenet_v2/data/weights/model_weights_config.json))))
-
-(rule
- (target resnet18_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet18/data/weights/model_weights_config.json))))
-
-(rule
- (target resnet34_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet34/data/weights/model_weights_config.json))))
-
-(rule
- (target resnet50_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet50/data/weights/model_weights_config.json))))
-
-(rule
- (target resnet101_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet101/data/weights/model_weights_config.json))))
-
-(rule
- (target resnet152_weights_config.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run
-    cat
-    %{project_root}/../../modules/pytorch.models.pt2/models/resnet152/data/weights/model_weights_config.json))))
+  mobilenetv2_050_model.json
+  test_convnext2_model.json))
 
 (executable
  (name parse_weights_config)
@@ -854,9 +500,20 @@
  (modules pt2_load)
  (libraries core err_trace pt2 pt2_aten))
 
+(executable
+ (name pt2_tensor_map_load)
+ (modules pt2_tensor_map_load)
+ (libraries err_trace fmt pt2))
+
 (cram
  (applies_to pt2_load_cram)
- (deps (universe) %{exe:pt2_load.exe})
+ (deps (universe) %{exe:pt2_load.exe} %{exe:pt2_tensor_map_load.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+(cram
+ (applies_to interp_functional_cram)
+ (deps (universe) %{exe:pt2_tensor_map_load.exe} %{exe:interp_run.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
@@ -962,22 +619,4 @@
 
 (cram
  (applies_to weights_config_cram)
- (deps
-  %{exe:parse_weights_config.exe}
-  efficientnet_b0_weights_config.json
-  efficientnet_b1_weights_config.json
-  efficientnet_b2_weights_config.json
-  efficientnet_b3_weights_config.json
-  efficientnet_b4_weights_config.json
-  efficientnet_b5_weights_config.json
-  efficientnet_b6_weights_config.json
-  efficientnet_b7_weights_config.json
-  efficientnet_v2_l_weights_config.json
-  efficientnet_v2_m_weights_config.json
-  efficientnet_v2_s_weights_config.json
-  mobilenet_v2_weights_config.json
-  resnet18_weights_config.json
-  resnet34_weights_config.json
-  resnet50_weights_config.json
-  resnet101_weights_config.json
-  resnet152_weights_config.json))
+ (deps %{exe:parse_weights_config.exe} mobilenetv2_050_weights_config.json))

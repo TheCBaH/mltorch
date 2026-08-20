@@ -280,7 +280,7 @@ efficientnet counts above via `make pt2.runtest`.
 
 **Group 6 (`op6.md`) is worse: neither target occurs in ANY graph this checkout
 can reach.** `pad.default` and `slice.Tensor` appear in none of the 23 core-ATen
-graphs under `modules/pytorch.models.pt2/models/*/models/model.json` and in none
+graphs under `modules/devcontainer.pytorch-image-models/models/*/models/model.json` and in none
 of the five downloadable release models. The 30 targets that do occur run
 `add.Tensor … where.self`; the nearest structural ops are `select.int` (220
 nodes across four ViT models), `expand.default`, `squeeze.dims` and
