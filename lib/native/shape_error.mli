@@ -252,6 +252,50 @@ module Output_count : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** [Sdpa]'s own row: the extent-agreement checks common to every operand pair,
+    the mask's broadcast-or-equal rule against {!Attention.Sdpa.score_shape},
+    and the sixth-factor total-work bound (op8-impl.md F12) that neither the
+    score-count nor the output-numel [`Numel_over_limit] bound implies. *)
+module Sdpa : sig
+  type check = [ `Query_key | `Query_value | `Key_value ]
+
+  type dims_mismatch = {
+    axis : Axis.t;
+    check : check;
+    lhs : Dim.extent Dim.t;
+    rhs : Dim.extent Dim.t;
+  }
+
+  type mask_mismatch = {
+    axis : Axis.t;
+    mask : Dim.extent Dim.t;
+    score : Dim.extent Dim.t;
+  }
+
+  type work_factor =
+    | Outer_n
+    | Outer_t
+    | Batch
+    | Heads
+    | Query_len
+    | Key_len
+    | Head_dim
+
+  type work_over_limit = {
+    factor : work_factor;
+    prefix : int64;
+    extent : int64;
+    limit : int64;
+  }
+
+  type error =
+    | Extent_mismatch of dims_mismatch
+    | Mask_shape of mask_mismatch
+    | Total_work_over_limit of work_over_limit
+
+  val pp_error : Format.formatter -> error -> unit
+end
+
 type t =
   [ `Broadcast of Broadcast.t
   | `Window of Window.t
@@ -266,6 +310,7 @@ type t =
   | `Reshape of Reshape.t
   | `Slice of Slice.t
   | `Numel_over_limit of Vec6.Numel_bound.t
-  | `Convolution of Convolution.error ]
+  | `Convolution of Convolution.error
+  | `Sdpa of Sdpa.error ]
 
 val pp : Format.formatter -> [< t ] -> unit

@@ -348,3 +348,43 @@ What stands in for real-model evidence, for both targets:
 | serialized lowering | `test/native_interp/layer_norm_test.ml`, both targets |
 | dialect | `test/native4d/{compute,lower,verify,mutation,domain}_test.ml` |
 | session | `test/me_group7_cram.t` |
+
+**Group 8 (`op8.md`) is a starker version of Group 7's split: the target
+occurs in NO reachable graph, and its NAME's presence is what makes that a
+measured fact rather than an absence.**
+
+| target | occurrences | what stands in |
+|---|---|---|
+| `scaled_dot_product_attention.default` | **zero** targets, in all 23 core-ATen graphs and all 13 downloaded archives — but the STRING appears 600-1200 times inside the four `vit_*` graphs' `metadata.from_node` provenance | hand-built fixtures only |
+
+`from_node` records what a node decomposed FROM, so those 600-1200
+occurrences are proof, not a near-miss: in `vit_b_32`, 300 of 839 nodes (36%
+of the graph) carry `from_node = aten.scaled_dot_product_attention.default`,
+and their actual targets are twelve primitives —
+`view`/`expand`/`permute`/`mul.Scalar`/`bmm`/`logical_not`/`_softmax`/
+`eq.Scalar`/`any.dim`/`full_like`/`where.self`/`clone`.default — none of
+which this row touches. `op8.md:17-18`'s premise ("SDPA is the common final
+interpreter blocker for the two transformer families") is false in this
+checkout: the blockers are the decomposition, a separately-ranked plan.
+
+Unlike Group 7, there is no covered half to report separately — every
+fixture below, at every layer, is hand-built:
+
+| layer | evidence |
+|---|---|
+| numeric, independent oracle | `test/native_bridge_test.ml` (the ATen-live-tensor importer) and `test/native_interp/sdpa_test.ml` (the serialized-metadata importer) |
+| numeric, real ATen kernel | five fixtures under `test/data/sdpa/`, run through `aten_spec_verify --eval` (`test/sdpa_spec_cram.t`) — every flash-admissible mask/scale form, since no model serializes one |
+| numeric, fuzzed against real ATen | `Recipe_sdpa` (`test/native_walk_test.ml`) — the recipe's types make an off-oracle (non-flash) configuration unrepresentable, checked independently with a one-time scratch probe over the recipe's full axis product (op8-impl.md commit 4) |
+| numeric, hand-computed | `test/native/compute_test.ml` — the formula itself, PLUS an 11-mutation battery each observed changing a result then reverted, since neither Direct-vs-Symbolic nor Native-vs-Native4D can see a wrong formula |
+| staging | `Sdpa_nwalk` (Direct vs Symbolic — **not** an oracle, same caveat as `Layer_norm_nwalk` above) |
+| serialized lowering | `test/native_interp/sdpa_test.ml` |
+| dialect | `test/native4d/domain_test.ml` — unconditional rejection, no legalization at any batch extent (unlike Bmm's `batch = 1` case) |
+| session | `test/me_group8_cram.t` |
+
+**This row delivers no model-coverage movement whatsoever**, not even Group
+7's "removes one of fifteen blockers" — `make pt2.runtest`, `make inference`
+and `make jsoo.pt2.runtest` show no diff, because no downloaded model
+contains the target. The four `vit_*` models stay blocked on the twelve
+primitives above, none of which is in scope here. Do not report this row's
+completion as model progress; report it as what it is — a fully specified,
+independently verified operation with zero corpus reach today.

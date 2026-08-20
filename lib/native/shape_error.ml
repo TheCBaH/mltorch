@@ -329,6 +329,92 @@ module Output_count = struct
         Fmt.pf ppf "at least %d outputs, above the maximum of %d" n (limit - 1)
 end
 
+(* [Sdpa]'s own row. The two per-shape numel checks (score count, output
+   numel) reuse the generic [`Numel_over_limit] above; this module is only
+   what that one cannot express: the two extent-agreement checks common to
+   every operand pair, the mask's broadcast-or-equal rule against
+   [Attention.Sdpa.score_shape], and the SIXTH-factor total-work bound
+   (op8-impl.md F12) — [D * H * Wq * Wk * E * E], recomputed per output
+   feature, which no single [Vec6.shape] holds and neither the score-count nor
+   the output-numel bound implies (the F12 counterexample passes both by six
+   orders of magnitude). *)
+module Sdpa = struct
+  (* Which pair of operands an extent-agreement check compared, so the message
+     says which two shapes disagreed rather than just "some pair". *)
+  type check = [ `Query_key | `Query_value | `Key_value ]
+
+  type dims_mismatch = {
+    axis : Axis.t;
+    check : check;
+    lhs : Dim.extent Dim.t;
+    rhs : Dim.extent Dim.t;
+  }
+
+  type mask_mismatch = {
+    axis : Axis.t;
+    mask : Dim.extent Dim.t;
+    score : Dim.extent Dim.t;
+  }
+
+  (* [Outer_n]/[Outer_t] are the frame's leading N/T axes -- unused by this
+     op's own semantics (F7 names only D/H/W/C), but review op8-impl-review.md
+     P1 found they were left unchecked entirely: a standalone or JSON-decoded
+     graph could give query/key/value disagreeing N or T, which either reads
+     an operand out of bounds or silently drops part of it, and the resource
+     bound below did not count their contribution to total work either. They
+     get exactly [Batch]/[Heads]'s treatment: cross-operand equality, and a
+     factor in the work bound. *)
+  type work_factor =
+    | Outer_n
+    | Outer_t
+    | Batch
+    | Heads
+    | Query_len
+    | Key_len
+    | Head_dim
+
+  type work_over_limit = {
+    factor : work_factor;
+    prefix : int64;
+    extent : int64;
+    limit : int64;
+  }
+
+  type error =
+    | Extent_mismatch of dims_mismatch
+    | Mask_shape of mask_mismatch
+    | Total_work_over_limit of work_over_limit
+
+  let pp_check ppf = function
+    | `Query_key -> Fmt.string ppf "query vs key"
+    | `Query_value -> Fmt.string ppf "query vs value"
+    | `Key_value -> Fmt.string ppf "key vs value"
+
+  let pp_work_factor ppf = function
+    | Outer_n -> Fmt.string ppf "the outer extent N"
+    | Outer_t -> Fmt.string ppf "the outer extent T"
+    | Batch -> Fmt.string ppf "the batch extent D"
+    | Heads -> Fmt.string ppf "the head-count extent H"
+    | Query_len -> Fmt.string ppf "the query sequence extent Wq"
+    | Key_len -> Fmt.string ppf "the key sequence extent Wk"
+    | Head_dim -> Fmt.string ppf "the head-dimension extent E"
+
+  let pp_error ppf = function
+    | Extent_mismatch { axis; check; lhs; rhs } ->
+        Fmt.pf ppf "sdpa: %a extent must agree (%a): %a vs %a" Axis.pp axis
+          pp_check check Dim.pp lhs Dim.pp rhs
+    | Mask_shape { axis; mask; score } ->
+        Fmt.pf ppf
+          "sdpa: mask extent on %a must be %a (the score extent) or 1, got %a"
+          Axis.pp axis Dim.pp score Dim.pp mask
+    | Total_work_over_limit { factor; prefix; extent; limit } ->
+        Fmt.pf ppf
+          "sdpa: total work N*T*D*H*Wq*Wk*E*E (score, row max and denominator \
+           are recomputed per output feature) exceeds %Ld after folding in %a \
+           (running product %Ld, this factor %Ld)"
+          limit pp_work_factor factor prefix extent
+end
+
 type t =
   [ `Broadcast of Broadcast.t
   | `Window of Window.t
@@ -343,7 +429,8 @@ type t =
   | `Reshape of Reshape.t
   | `Slice of Slice.t
   | `Numel_over_limit of Vec6.Numel_bound.t
-  | `Convolution of Convolution.error ]
+  | `Convolution of Convolution.error
+  | `Sdpa of Sdpa.error ]
 
 let pp ppf = function
   | `Broadcast e -> Broadcast.pp ppf e
@@ -360,3 +447,4 @@ let pp ppf = function
   | `Slice e -> Slice.pp ppf e
   | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
   | `Convolution e -> Convolution.pp_error ppf e
+  | `Sdpa e -> Sdpa.pp_error ppf e

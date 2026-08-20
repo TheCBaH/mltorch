@@ -31,6 +31,11 @@ let arr xs = CArray.start (CArray.of_list int64_t (List.map Int64.of_int xs))
 (* A null int64 pointer: an absent [int?] optional argument (-> nullopt). *)
 let none_int = from_voidp int64_t null
 
+(* A null tensor handle / double pointer: an absent [Tensor?] / [float?]
+   optional argument (-> nullopt). *)
+let none_tensor = from_voidp Aten_types_generated.tensor_opaque null
+let none_double = from_voidp double null
+
 (* An array of tensor handles for a Tensor[] argument (e.g. cat). *)
 let tensor_arr ts =
   CArray.start (CArray.of_list Aten_function_description.atc_tensor ts)
@@ -362,6 +367,34 @@ let%expect_test "_softmax" =
   (* softmax over a 2-vector of equal logits is uniform; half_to_float=false. *)
   show (O._softmax (make [ 2 ] [ 0.; 0. ]) 0L false);
   [%expect "[2] = [0.5; 0.5]"]
+
+let%expect_test "scaled_dot_product_attention (no mask, default scale)" =
+  (* [D=1,H=1,Wq=1,C=1] q/k/v, no mask: single query/key, attention is
+     trivially 1.0 on the only key, so out = value. Proves the archive
+     closure holds end to end (real flash-CPU dispatch, not just a link) --
+     op8-impl.md commit 0's spike, landed as this binding's coverage. *)
+  let q = make [ 1; 1; 1; 1 ] [ 1. ] in
+  let k = make [ 1; 1; 1; 1 ] [ 2. ] in
+  let v = make [ 1; 1; 1; 1 ] [ 7. ] in
+  show
+    (O.scaled_dot_product_attention q k v none_tensor 0.0 false none_double
+       false);
+  [%expect "[1x1x1x1] = [7]"]
+
+let%expect_test "scaled_dot_product_attention (explicit mask + explicit scale)"
+    =
+  (* q=[1,0], k0=[1,0] (dot=1), k1=[0,1] (dot=0); explicit scale=1 so
+     score=dot; a rank-2 [Wq=1,Wk=2] additive mask of [0,-inf] excludes k1
+     entirely, so the output is exactly value0=[10,20] -- exercises the
+     binding's mask-tensor and scale-pointer arguments, which the no-mask
+     case above never touches. *)
+  let q = make [ 1; 1; 1; 2 ] [ 1.; 0. ] in
+  let k = make [ 1; 1; 2; 2 ] [ 1.; 0.; 0.; 1. ] in
+  let v = make [ 1; 1; 2; 2 ] [ 10.; 20.; 30.; 40. ] in
+  let mask = make [ 1; 2 ] [ 0.; Float.neg_infinity ] in
+  let scale = allocate double 1.0 in
+  show (O.scaled_dot_product_attention q k v mask 0.0 false scale false);
+  [%expect "[1x1x1x2] = [10; 20]"]
 
 let%expect_test "gelu (exact, approximate=none)" =
   show (O.gelu (make [ 3 ] [ 0.; 1.; 2. ]) "none");

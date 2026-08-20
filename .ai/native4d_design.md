@@ -644,6 +644,38 @@ unused edge and the value output becomes ordinary `MaxPool2D`.
 If the index output is live, conversion requires a Native4D argmax-pool
 operation. The initial dialect should reject this case instead.
 
+### 7.9 Scaled dot-product attention (op8-impl.md, Group 8)
+
+`Attention.Sdpa`'s frame is `query [D=batch, H=heads, Wq=sequence, C=head_dim]`
+(§7.4's Bmm layout, generalized to two batch-like axes rather than one).
+Unlike Bmm, there is **no legalization at any batch extent** — not even the
+"batch = 1" escape hatch §7.4 uses to fall back to a 1x1 convolution:
+
+- **The op names `D` unconditionally.** Bmm's batch axis is `H`; a `batch = 1`
+  Bmm can drop it and become a plain matmul the conv-weight trick expresses.
+  Sdpa's batch axis is `D`, and the dialect has no name for `D` at any
+  extent, including 1 — `Axis4.of_axis Axis.D = None` by construction
+  (`axis4.ml:22-30`, "the whole point": a caller converting a Native axis has
+  to say what it does with the two the dialect has no name for, and there is
+  no answer for `D` here to give). Reject unconditionally is therefore the
+  only sound result, not a scope decision to revisit as the dialect grows.
+- **There is no fallback compute path to legalize onto, either.** §6's
+  compute-reuse argument (delegate to the same `Compute` functor Native uses)
+  needs the target ops to exist in `Ops4` first, and Native4D has neither a
+  `Bmm` (§7.4 already rejects the `batch > 1` case that would motivate one)
+  nor any softmax/reduction primitive beyond `MeanKeepDims`. A sound
+  direct/legalized/rejected decision has exactly one option when both of the
+  other two are unavailable, which is the case here.
+
+`Domain.check_node` rejects it with `` `Sdpa_batch_axis ``, an operation-specific
+reason (following `` `Live_max_pool_indices ``'s precedent at §7.8/§10: a
+reason that names *why*, not the generic `` `Unsupported_op ``) rather than a
+`check_dims`-style row: `check_dims` answers "which named axis is the fault",
+appropriate when an op's OWN parameter picks the offending axis (`Mean`'s
+`dims`, `Layer_norm`'s `normalized_shape`), but Sdpa's fault is not
+parameter-dependent — every configuration names `D` as batch, so there is no
+admissible case for a parameterized check to admit.
+
 ## 8. Operations actually required by the reduced dialect
 
 The three convolution forms are not sufficient to represent the current Native

@@ -200,6 +200,23 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       in
       let+ out = widen (Norm.RmsNorm.output_shape ~x_shape params) in
       [ out ]
+  | Sdpa { Attention.Sdpa.params = _; query; key; value; mask } ->
+      let* query_shape = shape query in
+      let* key_shape = shape key in
+      let* value_shape = shape value in
+      let* mask_shape =
+        match mask with
+        | None -> Err.return None
+        | Some m ->
+            let+ s = shape m in
+            Some s
+      in
+      let+ out =
+        widen
+          (Attention.Sdpa.output_shape ~query_shape ~key_shape ~value_shape
+             ~mask_shape)
+      in
+      [ out ]
   | Silu { Pointwise.Silu.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Silu.output_shape x_shape) in

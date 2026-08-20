@@ -93,7 +93,11 @@ type metadata_role =
   | `Pad_input
   | `Slice_input
   | `Unbind_input
-  | `Addmm_weight ]
+  | `Addmm_weight
+  | `Sdpa_query
+  | `Sdpa_key
+  | `Sdpa_value
+  | `Sdpa_mask ]
 (** Why the missing [tensor_values] entry was wanted. *)
 
 type hw_param =
@@ -277,7 +281,8 @@ type malformed =
   | `Undefined_ssa of string
   | `Output_not_evaluated of Graph_ir.Tensor_id.t
   | `Bad_view of Bad_view.t
-  | `Bad_slice of Bad_slice.t ]
+  | `Bad_slice of Bad_slice.t
+  | `Sdpa_reject of Attention.Sdpa.Reject.t ]
 (** A graph the decoder accepted and this lowering cannot read. FLAT-INCLUDED in
     {!error}: it is this module's own failure domain, not a crossed seam. *)
 

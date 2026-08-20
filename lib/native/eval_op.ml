@@ -161,6 +161,26 @@ module Make (S : Semantics.SEMANTICS) = struct
           (* absent weight = identity scale *)
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    | Sdpa { Attention.Sdpa.params; query; key; value; mask } ->
+        let module C = Attention.Sdpa.Compute (S) in
+        (* Absent mask fills a single element, shaped [1,1,1,1,1,1] (every
+           axis extent-1, so numel = 1), not the score shape (op8-impl.md
+           F11): [fill] allocates a real tensor under [Direct], and
+           [broadcast_coord] maps every axis of a ones-SHAPED tensor to index
+           0, so this one element serves every read regardless of the score's
+           real extent -- a score-shaped fill would cost D*H*Wq*Wk floats to
+           represent nothing. The fill VALUE is 0.0, the additive identity
+           (add nothing when no mask was given), not 1. *)
+        let mask_shape, mask =
+          match mask with
+          | Some m -> (shape_of m, operand m)
+          | None ->
+              let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
+              (ones, fill 0. ones)
+        in
+        C.pixel params ~query_shape:(shape_of query) ~key_shape:(shape_of key)
+          ~mask_shape ~query:(operand query) ~key:(operand key)
+          ~value:(operand value) ~mask out
     | Silu { Pointwise.Silu.x } ->
         let module C = Pointwise.Silu.Compute (S) in
         C.pixel (operand x) out

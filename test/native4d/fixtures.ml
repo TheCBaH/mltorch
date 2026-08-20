@@ -257,6 +257,20 @@ let bmm_batch batch () =
      let* b = input ~shape:(s 1 1 1 batch 3 4) () in
      bmm a b)
 
+(* [Sdpa] is rejected unconditionally (op8-impl.md F8), so any admissible
+   shape exercises it -- unlike [Bmm]'s single-batch escape hatch, there is no
+   configuration this legalizes to. *)
+let sdpa () =
+  build "sdpa"
+    (let open Graph_builder in
+     (* query/key/value[D=batch,H=heads,W=sequence,C=head_dim] *)
+     let* q = input ~shape:(s 1 1 2 2 3 4) () in
+     let* k = input ~shape:(s 1 1 2 2 3 4) () in
+     let* v = input ~shape:(s 1 1 2 2 3 4) () in
+     sdpa
+       { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+       ~query:q ~key:k ~value:v ())
+
 (* ---- max pool with indices ------------------------------------------------ *)
 
 let pool_params : Pool.MaxPool2d.params =

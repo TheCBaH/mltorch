@@ -156,6 +156,50 @@ valid index, never a generate-then-guard read of the padding region. See
 `ops/conv.ml` for the implementation.
 
 
+### Example — scaled dot-product attention (`Attention.Sdpa`, op8-impl.md)
+
+The same functor shape as `Bmm` (`ops/matmul.ml`) — a batched contraction
+over a shared reduction axis, right-aligned so no relayout is needed — with
+two things `Bmm` does not have: a second, dependent reduction (the softmax
+denominator consumes the row max), and an operand read at a coordinate that
+is neither `Bmm`'s output coordinate nor the mask's own shape (see
+`native_tensor_design.md` §1c's `broadcast_coord` note).
+
+```ocaml
+module Sdpa = struct
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel p ~query_shape ~key_shape ~mask_shape ~query ~key ~value ~mask
+        (out : Semantics.position S.index Vec6.t) =
+      let score_at k = (* dot(q,k)*scale + mask(q,k), scale split as sqrt *) ... in
+      let m = S.max_reduce ~lo ~hi score_at in
+      let z = S.sum ~lo ~hi (fun k -> S.exp (S.sub (score_at k) m)) in
+      let numer = S.sum ~lo ~hi (fun k ->
+          S.mul (S.div (S.exp (S.sub (score_at k) m)) z)
+            (S.load value (Vec6.set out Axis.W k)))
+      in
+      S.select (S.lt (S.const Float.neg_infinity) m) numer (S.const 0.)
+  end
+end
+```
+
+Two things worth stating because they are easy to miss reading the code cold:
+
+- **`score_at` is called from three places** (`m`, `z`'s body, `numer`'s
+  body), and because `Symbolic.t` is a builder computation rather than a
+  memoized node (op7-impl.md F4), each call emits its own sub-tree — the AST
+  is measurably ~3x one `score_at` evaluation's size, not additive. Measured,
+  not assumed, before fixing a walk's config space (op8-impl.md commit 0
+  step 3): depth 12, size 121 nodes, both independent of the reduction
+  extents (`Wk`, `E`) since those are runtime-bound reduction limits, not
+  something that unrolls the static term.
+- **The recompute is a deliberate choice with a cost that neither `output_shape`'s
+  two obvious bounds capture.** `m`/`z` are recomputed once per output
+  feature rather than cached, so direct work is an EIGHT-factor product
+  (`N·T·D·H·Wq·Wk·E·E`), not the score count or the output numel — see
+  `native_add_op.md`'s "recomputed-reduction idiom" for the bound this forces
+  in `output_shape`, and op8-impl-review.md P1 for why `N`/`T` are in that
+  product at all despite carrying no semantic role in this op.
+
 ### 2b. Output shape inference — an op must compute its own output shape
 
 `Schedule.evaluate shape pixel` (§5) iterates the *output* coordinate space —

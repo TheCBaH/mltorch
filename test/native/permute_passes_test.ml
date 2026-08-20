@@ -434,6 +434,13 @@ let%expect_test "sink_permute: layer_norm is a barrier" =
   matches Sink_permute.pattern (Graph_fixtures.sink_permute_layer_norm ());
   [%expect {| no match |}]
 
+(* Sdpa is excluded for the same reason: it names D/H/W/C as batch/heads/
+   sequence/head-dim, so sinking a permute past it would read those axes on
+   data sized for different ones (op8-impl.md commit 1 step 6). *)
+let%expect_test "sink_permute: sdpa is a barrier" =
+  matches Sink_permute.pattern (Graph_fixtures.sink_permute_sdpa ());
+  [%expect {| no match |}]
+
 let%expect_test "sink_permute: every accepted op sinks" =
   run ~show_before:false
     (Graph_fixtures.sink_permute_allowlist ())

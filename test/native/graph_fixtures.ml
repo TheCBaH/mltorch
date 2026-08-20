@@ -328,6 +328,26 @@ let sink_permute_layer_norm () =
       let* a = permute rotate_hwc x in
       layer_norm { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 } ~x:a ())
 
+(* [Sdpa] is a barrier for the same reason: it NAMES D as batch, H as heads, W
+   as the query/key sequence and C as the head dimension, so sinking a permute
+   past it would read those axes on data sized for different ones. Only
+   [query] is fed a permute -- enough to reach the anchor's pattern check,
+   which (unlike the uniform-operand [elementwise] case) never gets far enough
+   to require every operand permuted alike. H/W/C are all equal (4) so
+   [rotate_hwc] still builds a shape-consistent graph -- [output_shape]'s
+   cross-operand checks run before the pattern match does, and a real
+   permutation with unequal axis extents would fail those first. *)
+let sink_permute_sdpa () =
+  build "sink_permute_sdpa"
+    Graph_builder.(
+      let* q_in = input ~shape:(nhwc ~h:4 ~w:4 ~c:4) () in
+      let* q = permute rotate_hwc q_in in
+      let* k = input ~shape:(nhwc ~h:4 ~w:4 ~c:4) () in
+      let* v = input ~shape:(nhwc ~h:4 ~w:4 ~c:4) () in
+      sdpa
+        { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+        ~query:q ~key:k ~value:v ())
+
 (* One of each op [Sink_permute] accepts, each fed its own singly-consumed
    permuted operand(s) so every branch is independently sinkable. Cheap
    insurance that the allowlist match arm actually fires for every
