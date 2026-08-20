@@ -932,6 +932,25 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let+ y = div_scalar scalar a_id in
                    [ y ]
                | _ -> assert false))
+  | "torch.ops.aten.hardsigmoid.default" | "torch.ops.aten.hardsigmoid_.default"
+    ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"hardsigmoid" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = hardsigmoid x_id in
+               [ y ]
+           | _ -> assert false))
+  | "torch.ops.aten.hardswish.default" | "torch.ops.aten.hardswish_.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"hardswish" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = hardswish x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.hardtanh.default" | "torch.ops.aten.hardtanh_.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -1157,6 +1176,15 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let+ y = rms_norm params ~x:x_id ~weight:w_id () in
                  [ y ]
              | _ -> assert false))
+  | "torch.ops.aten.silu.default" | "torch.ops.aten.silu_.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"silu" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = silu x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.sqrt.default" | "torch.ops.aten.sqrt_.default" -> (
       match native_tensor_arg aten_env node "self" with
       | Error e -> Some (Error e)

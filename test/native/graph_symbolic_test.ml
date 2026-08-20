@@ -214,6 +214,115 @@ let%expect_test "Symbolic graph: hardtanh/clone ground matches Direct" =
     ground = tensor f32 [C=4] {0, 0, 2.5, 6}
     ground matches direct: true |}]
 
+(* The first [S.exp] consumer to travel Symbolic -> Expr -> Stage_program
+   (op5-impl F4). *)
+let%expect_test "Symbolic graph: silu stage DAG + ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"silu" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          silu ~name:"out" a)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = (t0[N,T,D,H,W,C] / (1 + exp((0 - t0[N,T,D,H,W,C]))))
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=4] {-0.0148357, -0.18877, 0.31123, 5.98516}
+    ground matches direct: true |}]
+
+(* The retained Group 5 [Hardsigmoid] op (one node), not the decomposed
+   add_scalar/clamp/div_scalar graph the test above builds by hand: it reuses
+   [Clamp.apply] on the value [x + 3], not a load, so the staged form must show
+   that same nested-select clamp, applied to an addition rather than a bare
+   load. *)
+let%expect_test
+    "Symbolic graph: Hardsigmoid op stage DAG + ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"hardsigmoid" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          hardsigmoid ~name:"out" a)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = (select((6 < select(((t0[N,T,D,H,W,C] + 3) < 0), 0, (t0[N,T,D,H,W,C] + 3))), 6, select(((t0[N,T,D,H,W,C] + 3) < 0), 0, (t0[N,T,D,H,W,C] + 3))) / 6)
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=4] {0, 0.416667, 0.583333, 1}
+    ground matches direct: true |}]
+
+(* Hardswish: multiply precedes divide in the staged expression too, matching
+   the pinned association (op5-impl F7). *)
+let%expect_test "Symbolic graph: hardswish stage DAG + ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"hardswish" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          hardswish ~name:"out" a)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = ((t0[N,T,D,H,W,C] * select((6 < select(((t0[N,T,D,H,W,C] + 3) < 0), 0, (t0[N,T,D,H,W,C] + 3))), 6, select(((t0[N,T,D,H,W,C] + 3) < 0), 0, (t0[N,T,D,H,W,C] + 3)))) / 6)
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=4] {-0, -0.208333, 0.291667, 6}
+    ground matches direct: true |}]
+
 (* The three ops batch-norm folding is written in terms of, through the shared
    [Eval_op] functor: one graph exercising sub, div and sqrt at once, so the
    stage DAG shows how they compose and grounding checks all three against

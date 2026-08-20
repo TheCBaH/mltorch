@@ -49,6 +49,43 @@ let%expect_test "lower: pointwise and pooling pass straight through" =
       n0: [t1] = relu x=t0
     outputs: [t1 [H=2 W=2 C=3]] |}]
 
+let%expect_test "lower: Group 5 activations pass straight through" =
+  show "silu"
+    (build "silu"
+       (let open Graph_builder in
+        let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        silu x));
+  show "hardsigmoid"
+    (build "hardsigmoid"
+       (let open Graph_builder in
+        let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        hardsigmoid x));
+  show "hardswish"
+    (build "hardswish"
+       (let open Graph_builder in
+        let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        hardswish x));
+  [%expect
+    {|
+    silu:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = silu x=t0
+    outputs: [t1 [H=2 W=2 C=3]]
+    hardsigmoid:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = hardsigmoid x=t0
+    outputs: [t1 [H=2 W=2 C=3]]
+    hardswish:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = hardswish x=t0
+    outputs: [t1 [H=2 W=2 C=3]] |}]
+
 (* §7.1: [Clone] contributes no node. Its output is tied to its input, which is
    a substitution rather than a rewrite — every later reference rewires, and the
    map records the two edges as one value. *)

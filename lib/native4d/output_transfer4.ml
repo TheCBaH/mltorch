@@ -28,9 +28,9 @@ let classify (op : Op.t) ~output:_ =
      .ai/native_transform_design.md §8. *)
   | Permute4 _ | Reshape4 _ | Unbind _ -> Output_transfer.Reindexing
   | Add _ | Add_scalar _ | Avg_pool2d _ | Clamp _ | Conv2d _
-  | Depthwise_conv2d _ | Div _ | Div_scalar _ | Hardtanh _ | Max_pool2d _
-  | Mean_keepdims _ | Mul _ | Relu _ | Rms_norm _ | Sqrt _ | Sub _
-  | Transposed_conv2d _ ->
+  | Depthwise_conv2d _ | Div _ | Div_scalar _ | Hardsigmoid _ | Hardswish _
+  | Hardtanh _ | Max_pool2d _ | Mean_keepdims _ | Mul _ | Relu _ | Rms_norm _
+  | Silu _ | Sqrt _ | Sub _ | Transposed_conv2d _ ->
       Output_transfer.Continuous
 
 module Transfer = Output_transfer.Make (struct

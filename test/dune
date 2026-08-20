@@ -269,6 +269,14 @@
  (applies_to me_group3_cram)
  (deps %{exe:../bin/native_graph.exe}))
 
+; op5.md's Group 5: silu.default, hardsigmoid.default and hardswish.default,
+; over a graph built in the cram itself. Same reason as the two stanzas above:
+; no downloadable model serializes any of these three functional targets.
+
+(cram
+ (applies_to me_group5_cram)
+ (deps %{exe:../bin/native_graph.exe}))
+
 ; The recoverable-failure shape, over graphs built in the cram itself. UNGATED,
 ; and hand-built on purpose: what it exercises is a graph the lowerer rejects,
 ; and no released model is one.

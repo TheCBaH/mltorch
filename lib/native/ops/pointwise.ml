@@ -107,12 +107,17 @@ module Clamp = struct
        expression, so nothing reaches the staged program.
 
        Bound order is load-bearing: lower bound first, then upper, so a reversed
-       [min > max] yields [max] everywhere exactly as the ATen kernel does. *)
-    let pixel (p : params) x (out : Semantics.position S.index Vec6.t) =
+       [min > max] yields [max] everywhere exactly as the ATen kernel does.
+
+       [apply] takes the value directly rather than loading it, so callers that
+       already have a value in hand — [Hardsigmoid]/[Hardswish] clamping
+       [x + 3], not a load — can reuse the same bound order without restating
+       it. [pixel] is [apply] composed with the load, for callers (this op,
+       [Hardtanh]) that clamp a tensor operand directly. *)
+    let apply (p : params) v =
       let is_nan = Option.fold ~none:false ~some:Float.is_nan in
       if is_nan p.min || is_nan p.max then S.const Float.nan
       else
-        let v = S.load x out in
         (* max (v, lo) = if v < lo then lo else v *)
         let v =
           match p.min with
@@ -123,6 +128,9 @@ module Clamp = struct
         match p.max with
         | None -> v
         | Some hi -> S.select (S.lt (S.const hi) v) (S.const hi) v
+
+    let pixel (p : params) x (out : Semantics.position S.index Vec6.t) =
+      apply p (S.load x out)
   end
 
   (* Walk config: the bound pair is ONE axis, not two independent ones, because
@@ -196,6 +204,125 @@ module Clone = struct
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel x (out : Semantics.position S.index Vec6.t) = S.load x out
+  end
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+  end
+end
+
+module Hardsigmoid = struct
+  (* [aten.hardsigmoid.default]: schema `hardsigmoid(Tensor self) -> Tensor`,
+     no parameters — the bounds are the ATen kernel's own constants, not a
+     user-supplied contract, so unlike [Hardtanh] there is no [params]. *)
+  type t = { x : Tensor_ref.t }
+
+  let name = "Hardsigmoid"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>hardsigmoid@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* ATen (Activation.cpp:552-568): hardsigmoid(x) = min(max(x+3,0),6) / 6 —
+       divides by 6, does not multiply by 1/6 (op5-impl F7). Reuses [Clamp]'s
+       bound order via [apply] rather than restating min/max/select. *)
+    let hard_clamp = { Clamp.min = Some 0.; max = Some 6. }
+
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let module C = Clamp.Compute (S) in
+      S.div
+        (C.apply hard_clamp (S.add (S.load x out) (S.const 3.)))
+        (S.const 6.)
+  end
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+  end
+end
+
+module Hardswish = struct
+  (* [aten.hardswish.default]: schema `hardswish(Tensor self) -> Tensor`, no
+     parameters, same reason as [Hardsigmoid]. *)
+  type t = { x : Tensor_ref.t }
+
+  let name = "Hardswish"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>hardswish@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* ATen (Activation.cpp:770-786): hardswish(x) = x * min(max(x+3,0),6) / 6,
+       left-associated — the multiply precedes the divide (op5-impl F7). That
+       order, not just the formula, is what distinguishes this from
+       [x * hardsigmoid(x)] under f32 rounding: this engine materializes every
+       node's output to f32, so [(x * c) / 6] and [x * (c / 6)] round
+       differently. *)
+    let hard_clamp = { Clamp.min = Some 0.; max = Some 6. }
+
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let module C = Clamp.Compute (S) in
+      let v = S.load x out in
+      S.div (S.mul v (C.apply hard_clamp (S.add v (S.const 3.)))) (S.const 6.)
   end
 
   module Walk (L : Walk_core.Limits.S) = struct
@@ -347,6 +474,58 @@ module Relu = struct
      imposes no constraint, so [cascade] is identity). A functor over the global
      Limits; the shape is one compound entry mutated within the limits' budget.
      Lives with the op so it can diverge from any other backend's walk. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+  end
+end
+
+module Silu = struct
+  (* [aten.silu.default]: schema `silu(Tensor self) -> Tensor`, no parameters. *)
+  type t = { x : Tensor_ref.t }
+
+  let name = "Silu"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>silu@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* ATen (Activation.cpp:1139): silu(x) = x / (1 + exp(-x)). The first
+       [S.exp] consumer in the engine (op5-impl F4). *)
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      S.div v (S.add (S.const 1.) (S.exp (S.sub (S.const 0.) v)))
+  end
+
   module Walk (L : Walk_core.Limits.S) = struct
     type cfg = { shape : Walk_core.Shape.t }
 

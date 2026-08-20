@@ -125,12 +125,21 @@ let output_shape (op : Op.t)
   | Clamp { Pointwise.Clamp.params; x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Clamp.output_shape params x_shape))
+  | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Hardsigmoid.output_shape x_shape))
+  | Hardswish { Pointwise.Hardswish.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Hardswish.output_shape x_shape))
   | Hardtanh { Pointwise.Hardtanh.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Hardtanh.output_shape x_shape))
   | Relu { Pointwise.Relu.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Relu.output_shape x_shape))
+  | Silu { Pointwise.Silu.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Silu.output_shape x_shape))
   | Sqrt { Pointwise.Sqrt.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Sqrt.output_shape x_shape))

@@ -45,8 +45,13 @@ let selection =
     op "relu";
     op "relu_";
     op "sigmoid";
+    op "hardsigmoid";
+    op "hardsigmoid_";
+    op "hardswish";
+    op "hardswish_";
     op "hardtanh";
     op "hardtanh_";
+    op "silu";
     op "silu_";
     op "reshape";
     op "flatten" ~overload:"using_ints";

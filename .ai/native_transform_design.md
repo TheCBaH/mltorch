@@ -584,7 +584,9 @@ the distinction; the classification did not change, only its stated reason.
 Current classification: `Reindexing` = `Clone`, `Permute`, `Reshape`, `Unbind`;
 `Discontinuous` = the index output of `Max_pool2d_with_indices`; everything else
 `Continuous`. `Relu` and the pooled *value* output are branch-selecting but
-continuous, so they propagate normally.
+continuous, so they propagate normally — as are `Hardsigmoid`/`Hardswish`
+(each clamps through the same `select`/`lt` pair) and `Silu` (no branch at
+all; op5.md's Group 5).
 
 ## 9. Terminal packing
 

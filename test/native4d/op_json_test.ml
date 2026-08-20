@@ -67,6 +67,8 @@ let samples : Op.t list =
       };
     Div { Pointwise.Bin.a = x; b = y };
     Div_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
+    Hardsigmoid { Pointwise.Hardsigmoid.x };
+    Hardswish { Pointwise.Hardswish.x };
     Hardtanh { Pointwise.Hardtanh.params = { min_val = 0.; max_val = 6. }; x };
     Max_pool2d { Pool.MaxPool2d.params = max_params; x };
     Mean_keepdims { Ops4.Mean_keepdims.params = { dims = [ H; W ] }; x };
@@ -89,6 +91,7 @@ let samples : Op.t list =
         x;
         weight = Some w;
       };
+    Silu { Pointwise.Silu.x };
     Sqrt { Pointwise.Sqrt.x };
     Sub { Pointwise.Bin.a = x; b = y };
     Transposed_conv2d
@@ -112,7 +115,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 20, registry: 20 |}]
+  [%expect {| samples: 23, registry: 23 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -137,6 +140,8 @@ let%expect_test "op4: printed" =
              in_channels=4}
     div a=t0 b=t1
     div_scalar x=t0 scalar=2
+    hardsigmoid x=t0
+    hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}
     max_pool2d x=t0 params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
     mean_keepdims x=t0 params={dims=[H, W]}
@@ -145,6 +150,7 @@ let%expect_test "op4: printed" =
     relu x=t0
     reshape4 x=t0 params={shape=[N=1 H=1 W=1 C=12]}
     rms_norm x=t0 weight=t2 params={dims=[C]; eps=1e-05}
+    silu x=t0
     sqrt x=t0
     sub a=t0 b=t1
     transposed_conv2d
@@ -166,7 +172,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 20 ops |}]
+  [%expect {| round-tripped 23 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

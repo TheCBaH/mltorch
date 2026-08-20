@@ -65,6 +65,21 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
         let* x = input ~shape:nhwc () in
         let* c = clone x in
         relu c));
+  check "silu"
+    (build "silu"
+       (let open Graph_builder in
+        let* x = input ~shape:nhwc () in
+        silu x));
+  check "hardsigmoid"
+    (build "hardsigmoid"
+       (let open Graph_builder in
+        let* x = input ~shape:nhwc () in
+        hardsigmoid x));
+  check "hardswish"
+    (build "hardswish"
+       (let open Graph_builder in
+        let* x = input ~shape:nhwc () in
+        hardswish x));
   check "linear -> 1x1 conv" (Fixtures.linear_layer ());
   check "bmm -> permute + conv" (Fixtures.bmm_batch 1 ());
   check "mean keepdim=false" (Fixtures.mean_over_hw ~keepdim:false ~n:1 ());
@@ -86,6 +101,9 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
     relu                     2 clusters: 2 proved (structural)
     add + relu               4 clusters: 4 proved (structural)
     clone removal            2 clusters: 2 proved (structural)
+    silu                     2 clusters: 2 proved (structural)
+    hardsigmoid              2 clusters: 2 proved (structural)
+    hardswish                2 clusters: 2 proved (structural)
     linear -> 1x1 conv       3 clusters: 1 proved (structural), 2 unproved (unbound constant)
     bmm -> permute + conv    4 clusters: 2 proved (structural), 1 tested (coefficients agree), 1 vacuous
     mean keepdim=false       3 clusters: 1 proved (structural), 1 proved (structural) [sampled 32], 1 vacuous

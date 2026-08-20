@@ -321,4 +321,40 @@ let%expect_test "native walk coverage" =
     step 4 [axis]: {shape=[n=2 c=4 h=4 w=13] axis=H}
     [native] unbind: direct==symbolic
     step 5 [axis]: {shape=[n=2 c=4 h=4 w=13] axis=N}
-    [native] unbind: direct==symbolic |}]
+    [native] unbind: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4]
+    [native] silu: direct==symbolic
+    step 1 [input]: [n=2 c=3 h=4 w=4]
+    [native] silu: direct==symbolic
+    step 2 [input]: [n=2 c=3 h=4 w=7]
+    [native] silu: direct==symbolic
+    step 3 [input]: [n=2 c=3 h=4 w=6]
+    [native] silu: direct==symbolic
+    step 4 [input]: [n=2 c=3 h=15 w=6]
+    [native] silu: direct==symbolic
+    step 5 [input]: [n=1 c=3 h=15 w=6]
+    [native] silu: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4]
+    [native] hardsigmoid: direct==symbolic
+    step 1 [input]: [n=1 c=3 h=4 w=5]
+    [native] hardsigmoid: direct==symbolic
+    step 2 [input]: [n=1 c=3 h=4 w=6]
+    [native] hardsigmoid: direct==symbolic
+    step 3 [input]: [n=1 c=3 h=4 w=4]
+    [native] hardsigmoid: direct==symbolic
+    step 4 [input]: [n=2 c=3 h=4 w=4]
+    [native] hardsigmoid: direct==symbolic
+    step 5 [input]: [n=2 c=3 h=4 w=4]
+    [native] hardsigmoid: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4]
+    [native] hardswish: direct==symbolic
+    step 1 [input]: [n=1 c=3 h=4 w=4]
+    [native] hardswish: direct==symbolic
+    step 2 [input]: [n=1 c=4 h=4 w=4]
+    [native] hardswish: direct==symbolic
+    step 3 [input]: [n=2 c=4 h=4 w=4]
+    [native] hardswish: direct==symbolic
+    step 4 [input]: [n=2 c=4 h=14 w=4]
+    [native] hardswish: direct==symbolic
+    step 5 [input]: [n=2 c=4 h=14 w=14]
+    [native] hardswish: direct==symbolic |}]

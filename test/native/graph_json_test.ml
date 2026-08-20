@@ -575,6 +575,37 @@ let%expect_test "ops Hardtanh/Clone: encode → decode" =
       n1: [t2 f32 [C=3]] = clone x=t1 <-n0
     outputs: [t2 f32 [C=3] <-n1] |}]
 
+(* Silu/Hardsigmoid/Hardswish carry no [params] -- byte-identical in JSON shape
+   to Relu/Sqrt/Clone -- so this is a codec sanity check (op5-impl), not new
+   codec coverage: chained so all three round-trip through one graph. *)
+let%expect_test "ops Silu/Hardsigmoid/Hardswish: encode → decode" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"group5" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 3) ~name:"x" () in
+          let* s = silu x in
+          let* h = hardsigmoid s in
+          hardswish ~name:"out" h)
+    in
+    let* json = encode_graph g in
+    decode_graph json
+  in
+  Format.printf "%a@." (pp_result pp_decoded_graph) result;
+  [%expect
+    {|
+    decoded graph:
+    graph
+    inputs: [t0 f32 [C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [C=3] ->[n1]] = silu x=t0
+      n1: [t2 f32 [C=3] ->[n2]] = hardsigmoid x=t1 <-n0
+      n2: [t3 f32 [C=3]] = hardswish x=t2 <-n1
+    outputs: [t3 f32 [C=3] <-n2] |}]
+
 let%expect_test "graph with Mean op: encode → decode → pretty-print" =
   let result =
     let open Err.Syntax in

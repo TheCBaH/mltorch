@@ -99,6 +99,14 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       in
       [ out ]
   | Discard _ -> Err.return []
+  | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Hardsigmoid.output_shape x_shape) in
+      [ out ]
+  | Hardswish { Pointwise.Hardswish.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Hardswish.output_shape x_shape) in
+      [ out ]
   | Hardtanh { Pointwise.Hardtanh.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Hardtanh.output_shape x_shape) in
@@ -166,6 +174,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
                  ~actual)
       in
       let+ out = widen (Norm.RmsNorm.output_shape ~x_shape) in
+      [ out ]
+  | Silu { Pointwise.Silu.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Silu.output_shape x_shape) in
       [ out ]
   | Sqrt { Pointwise.Sqrt.x } ->
       let* x_shape = shape x in

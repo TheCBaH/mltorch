@@ -49,8 +49,8 @@ let classify (op : op) ~output =
   | Discard _ -> Discontinuous
   | Add _ | Add_scalar _ | Avg_pool2d _ | Batch_norm _ | Bmm _ | Clamp _
   | Conv2d _ | Conv2d_padding _ | Convolution _ | Div _ | Div_scalar _
-  | Hardtanh _ | Linear _ | Max_pool2d _ | Mean _ | Mul _ | Relu _ | Rms_norm _
-  | Sqrt _ | Sub _ ->
+  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Linear _ | Max_pool2d _ | Mean _
+  | Mul _ | Relu _ | Rms_norm _ | Silu _ | Sqrt _ | Sub _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]
