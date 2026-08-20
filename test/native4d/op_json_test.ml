@@ -73,6 +73,22 @@ let samples : Op.t list =
     Max_pool2d { Pool.MaxPool2d.params = max_params; x };
     Mean_keepdims { Ops4.Mean_keepdims.params = { dims = [ H; W ] }; x };
     Mul { Pointwise.Bin.a = x; b = y };
+    (* Two axes, an asymmetric pad and a mixed pad/crop, so the codec is proved
+       on a SIGNED amount rather than only on the padding half of the range. The
+       fill is not f32-exact, so a narrowing round trip would be visible. *)
+    Pad4
+      {
+        Ops4.Pad4.params =
+          {
+            pads =
+              [
+                (H, { Pad.Pad.before = 1; after = 2 });
+                (W, { before = -1; after = 3 });
+              ];
+            mode = Pad.Pad.Constant 0.1;
+          };
+        x;
+      };
     Permute4
       {
         Ops4.Permute4.perm =
@@ -92,6 +108,14 @@ let samples : Op.t list =
         weight = Some w;
       };
     Silu { Pointwise.Silu.x };
+    (* Three distinct bounds and a step that is not 1, so an encoder that
+       permuted the fields still decodes and prints differently. *)
+    Slice4
+      {
+        Ops4.Slice4.params =
+          { axis = W; start = 1; stop = 8; step = Op_config.Pos.of_int 3 };
+        x;
+      };
     Sqrt { Pointwise.Sqrt.x };
     Sub { Pointwise.Bin.a = x; b = y };
     Transposed_conv2d
@@ -115,7 +139,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 23, registry: 23 |}]
+  [%expect {| samples: 25, registry: 25 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -146,11 +170,13 @@ let%expect_test "op4: printed" =
     max_pool2d x=t0 params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
     mean_keepdims x=t0 params={dims=[H, W]}
     mul a=t0 b=t1
+    pad4 x=t0 params={pads=[H:1,2, W:-1,3] mode=constant(0.1)}
     permute4 x=t0 perm=[H<-W, W<-H]
     relu x=t0
     reshape4 x=t0 params={shape=[N=1 H=1 W=1 C=12]}
     rms_norm x=t0 weight=t2 params={dims=[C]; eps=1e-05}
     silu x=t0
+    slice4 x=t0 params={axis=W start=1 stop=8 step=3}
     sqrt x=t0
     sub a=t0 b=t1
     transposed_conv2d
@@ -172,7 +198,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 23 ops |}]
+  [%expect {| round-tripped 25 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

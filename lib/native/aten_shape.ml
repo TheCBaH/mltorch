@@ -50,18 +50,31 @@ module View_size = struct
         Fmt.pf ppf "view size %a does not match %Ld elements" pp_size size numel
 end
 
-(* Error set owned by this module: its own rank check and the [-1] convention's
-   faults, unioned with [Dim.error] (from validating each untrusted dim/size
-   entry). The printer delegates to [Dim]/[View_size]. *)
+module Slice_bounds = struct
+  type t = { start : int; stop : int; step : Op_config.Pos.t }
+
+  let pp ppf { start; stop; step } =
+    Fmt.pf ppf "[%d, %d) step %d" start stop (step :> int)
+end
+
+(* Error set owned by this module: its own rank check, the [-1] convention's
+   faults, the one refusal in slice-bound resolution, unioned with [Dim.error]
+   (from validating each untrusted dim/size entry). The printer delegates to
+   [Dim]/[View_size]. *)
 type rank_bound = { rank : int; lo : int; hi : int }
 
 type error =
-  [ `Rank_out_of_range of rank_bound | `View_size of View_size.t | Dim.error ]
+  [ `Rank_out_of_range of rank_bound
+  | `View_size of View_size.t
+  | `Slice_step of int
+  | Dim.error ]
 
 let pp_error ppf : error -> unit = function
   | `Rank_out_of_range { rank; lo; hi } ->
       Format.fprintf ppf "rank %d out of [%d, %d]" rank lo hi
   | `View_size e -> View_size.pp ppf e
+  | `Slice_step step ->
+      Format.fprintf ppf "slice step must be >= 1, got %d" step
   | #Dim.error as e -> Dim.pp_error ppf e
 
 (* Right-align an ATen shape into the frame; outer axes default to extent 1.
@@ -146,3 +159,34 @@ let resolve_view_size ~numel size =
     (fun d ->
       Err.return (if d = -1 then Int64.to_int (Option.get inferred) else d))
     size
+
+(* [aten.slice.Tensor]'s bound resolution, in PyTorch's own order (ATen's
+   TensorShape.cpp): refuse a non-positive step FIRST, then defaults, then
+   negative normalization, then the clamps.
+
+   The order is the specification, not a preference. Normalizing before checking
+   the step would compute bounds for a slice that has none, and clamping before
+   normalizing would turn a legal [-1] into [0] instead of [extent - 1].
+
+   Every clamp here ACCEPTS. That is deliberate and is the half a reader is most
+   likely to get wrong: ATen clamps out-of-range bounds rather than rejecting
+   them, exporters emit them routinely (a trailing [end] far past the axis is
+   how "to the end" is often written), and an importer that rejected what ATen
+   accepts would refuse real graphs. The one Native-specific refusal — an empty
+   selection — is NOT here; it lives in the shape rule, so that the builder and
+   a JSON-decoded graph meet it too and not just the two importers.
+
+   No aggregate needs bounding: [norm] only ever moves a NEGATIVE bound toward
+   zero, so it cannot overflow, and both results are then clamped into
+   [0, extent]. The difference the shape rule takes is therefore at most the
+   extent. *)
+let resolve_slice ~extent ~start ~stop ~step =
+  if step < 1 then Err.fail (`Slice_step step)
+  else
+    let n = Dim.to_int extent in
+    let norm d = if d < 0 then d + n else d in
+    let clamp d = if d < 0 then 0 else if d > n then n else d in
+    let start = clamp (norm (Option.value start ~default:0)) in
+    let stop = clamp (norm (Option.value stop ~default:n)) in
+    let stop = if stop < start then start else stop in
+    Err.return { Slice_bounds.start; stop; step = Op_config.Pos.of_int step }

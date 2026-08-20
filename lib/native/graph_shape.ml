@@ -150,6 +150,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Mul.output_shape a_shape b_shape) in
       [ out ]
+  | Pad { Pad.Pad.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pad.Pad.output_shape ~x_shape params) in
+      [ out ]
   | Permute { Permute.Permute.perm; x } ->
       let* x_shape = shape x in
       let+ out = widen (Permute.Permute.output_shape ~x_shape perm) in
@@ -187,6 +191,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* a_shape = shape a in
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Sub.output_shape a_shape b_shape) in
+      [ out ]
+  | Slice { Split.Slice.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Split.Slice.output_shape ~x_shape params) in
       [ out ]
   (* The one arm whose LENGTH is not a constant of the op: [output_shapes]
      returns one shape per coordinate of the selected axis, and bounds that

@@ -163,6 +163,11 @@ let mean_keepdims dims x =
   op1 (Op.Mean_keepdims { Ops4.Mean_keepdims.params = { dims }; x })
 
 let mul a b = op1 (Op.Mul { Pointwise.Bin.a; b })
+
+(* Takes the dialect's own [Ops4.Pad4.params], whose entries are keyed by
+   [Axis4.t]: a pad naming T or D is not constructible through this API, the
+   same rule [unbind] below follows. *)
+let pad4 params x = op1 (Op.Pad4 { Ops4.Pad4.params; x })
 let permute4 perm x = op1 (Op.Permute4 { Ops4.Permute4.perm; x })
 let relu x = op1 (Op.Relu { Pointwise.Relu.x })
 let reshape4 shape x = op1 (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
@@ -171,6 +176,12 @@ let rms_norm params ~x ?weight () =
   op1 (Op.Rms_norm { Ops4.Rms_norm.params; x; weight })
 
 let silu x = op1 (Op.Silu { Pointwise.Silu.x })
+
+(* Takes the dialect's own [Ops4.Slice4.params], whose axis is [Axis4.t]: a
+   slice naming T or D is not constructible through this API. The BOUNDS are
+   still validated rather than typed -- canonical is a relation between three
+   ints and an extent, which no type here carries. *)
+let slice4 params x = op1 (Op.Slice4 { Ops4.Slice4.params; x })
 let sqrt x = op1 (Op.Sqrt { Pointwise.Sqrt.x })
 let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
 

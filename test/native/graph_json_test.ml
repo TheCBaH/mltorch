@@ -23,6 +23,7 @@ let lift_json (r : ('a, Graph_json.error) Err.t) : ('a, error) Err.t =
 
 let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c c = s 1 1 1 1 1 c
+let pos = Op_config.Pos.of_int
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 
 let conv_axis ~kernel ~stride ~pad : Conv.Conv2d.axis_window =
@@ -143,7 +144,20 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
           let* dead = sub ~name:"dead" act a in
           let* () = discard dead in
           let* _slices = unbind { Split.Unbind.axis = Axis.C } act in
-          relu ~name:"out" act)
+          let* padded =
+            pad
+              {
+                Pad.Pad.pads = [ (Axis.C, { Pad.Pad.before = 1; after = 0 }) ];
+                mode = Pad.Pad.Constant 0.;
+              }
+              act
+          in
+          let* narrowed =
+            slice
+              { Split.Slice.axis = Axis.C; start = 1; stop = 3; step = pos 1 }
+              padded
+          in
+          relu ~name:"out" narrowed)
     in
     Err.List.map
       (fun (node : Graph_ir.node) ->
@@ -166,6 +180,8 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
     Sub        tag=Sub        agree=true
     Discard    tag=Discard    agree=true
     Unbind     tag=Unbind     agree=true
+    Pad        tag=Pad        agree=true
+    Slice      tag=Slice      agree=true
     Relu       tag=Relu       agree=true
     |}]
 
@@ -1093,3 +1109,117 @@ let%expect_test "Reshape: encode -> decode, a rank-changing non-default target"
 (* The non-identity Permute round trip is already pinned above ("op Permute:
    encode -> decode", a 3-cycle over H/W/C) -- op3-impl.md's exit condition is
    satisfied by that test, not restated here. *)
+
+(* Pad introduces two JSON shapes no other op has: a per-axis SIGNED int pair,
+   and a mode carried as a single-key union whose constant case holds a bare
+   float. Both are exactly the kind [.ai/native_add_op.md] says earns a round
+   trip.
+
+   The fill is 0.1, which is not f32-exact: printing alone cannot tell a codec
+   that narrowed it from one that did not, and the encoded form has to survive
+   the trip as the SAME f32. A negative [before] rides along, since a codec that
+   read the pair as unsigned would silently lose the crop. *)
+let%expect_test "Pad: encode -> decode, signed entries and a non-exact fill" =
+  round_trip "pad"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 4 5 2) ~name:"x" () in
+      pad ~name:"y"
+        {
+          Pad.Pad.pads =
+            [
+              (Axis.H, { Pad.Pad.before = 2; after = 1 });
+              (Axis.W, { Pad.Pad.before = -1; after = 0 });
+            ];
+          mode = Pad.Pad.Constant 0.1;
+        }
+        x);
+  [%expect
+    {|
+    pad: graph
+         inputs: [t0 f32 [H=4 W=5 C=2] ->[n0]]
+         nodes:
+           n0: [t1 f32 [H=7 W=4 C=2]] =
+             pad x=t0 params={pads=[H:2,1, W:-1,0] mode=constant(0.1)}
+         outputs: [t1 f32 [H=7 W=4 C=2] <-n0] |}]
+
+let%expect_test "Pad: encode -> decode, the reflect mode has no fill to carry" =
+  round_trip "pad_reflect"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 4 5 2) ~name:"x" () in
+      pad ~name:"y"
+        {
+          Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 3; after = 2 }) ];
+          mode = Pad.Pad.Reflect;
+        }
+        x);
+  [%expect
+    {|
+    pad_reflect: graph
+                 inputs: [t0 f32 [H=4 W=5 C=2] ->[n0]]
+                 nodes:
+                   n0: [t1 f32 [H=4 W=10 C=2]] =
+                     pad x=t0 params={pads=[W:3,2] mode=reflect}
+                 outputs: [t1 f32 [H=4 W=10 C=2] <-n0] |}]
+
+(* The round trip above cannot see the narrowing, and saying so is the point:
+   [Json_util.f32_jsont] narrows on ENCODE, so an unnarrowed payload would still
+   produce a narrowed JSON number and decode back to the same value. What the
+   trip proves is the codec; what it cannot prove is the BUILDER.
+
+   So read the fill straight off the built node, at full precision. 0.1 has no
+   f32 representation, so a builder that skipped [f32_scalar] would print
+   0.10000000000000001 -- and would then compute in a precision the payload
+   cannot store. *)
+let%expect_test "Pad: the builder narrows a Constant fill to f32" =
+  let result =
+    let open Err.Syntax in
+    let+ g =
+      lift_build
+        Graph_builder.(
+          build ~name:"g" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 4) ~name:"x" () in
+          pad ~name:"y"
+            {
+              Pad.Pad.pads = [ (Axis.C, { Pad.Pad.before = 1; after = 0 }) ];
+              mode = Pad.Pad.Constant 0.1;
+            }
+            x)
+    in
+    match g.Graph.nodes with
+    | [ { Node.op = Graph_ir.Pad { Pad.Pad.params; _ }; _ } ] -> (
+        match params.Pad.Pad.mode with
+        | Pad.Pad.Constant v -> Printf.sprintf "%.17g" v
+        | Pad.Pad.Reflect -> "reflect")
+    | _ -> "unexpected graph"
+  in
+  Format.printf "%a@." (pp_result Format.pp_print_string) result;
+  [%expect {| 0.10000000149011612 |}]
+
+(* Slice's payload is three ints and an axis, which is not a new SHAPE of JSON
+   the way Pad's signed pair and mode union were. It earns a round trip for a
+   different reason: [step] is an [Op_config.Pos.t] on the OCaml side and a bare
+   int on the wire, so the codec narrows on the way in, and the three bounds are
+   easy to permute in an encoder without any of them failing to decode. The
+   values are deliberately all different from one another. *)
+let%expect_test "Slice: encode -> decode, bounds and a narrowed step" =
+  round_trip "slice"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 4 9 2) ~name:"x" () in
+      slice ~name:"y"
+        { Split.Slice.axis = Axis.W; start = 1; stop = 8; step = pos 3 }
+        x);
+  [%expect
+    {|
+    slice: graph
+           inputs: [t0 f32 [H=4 W=9 C=2] ->[n0]]
+           nodes:
+             n0: [t1 f32 [H=4 W=3 C=2]] =
+               slice x=t0 params={axis=W start=1 stop=8 step=3}
+           outputs: [t1 f32 [H=4 W=3 C=2] <-n0] |}]

@@ -80,6 +80,26 @@ let mean_params (p : Ops4.Mean_keepdims.params) : Reduce.Mean.params =
     keepdim = true (* the dialect has no other form *);
   }
 
+(* Shared with [Eval_op4] for the same reason [unbind_params] is: one
+   translation, so the shape rule and the compute cannot disagree about which
+   axes carry which amounts. Only the axis type narrows -- the entries and the
+   mode are Native's own values, unchanged. *)
+let pad_params (p : Ops4.Pad4.params) : Pad.Pad.params =
+  {
+    pads = List.map (fun (a, e) -> (Axis4.to_axis a, e)) p.Ops4.Pad4.pads;
+    mode = p.Ops4.Pad4.mode;
+  }
+
+(* Shared with [Eval_op4] for [pad_params]' reason. Only the axis type narrows;
+   the bounds are already canonical and mean the same thing in either dialect. *)
+let slice_params (p : Ops4.Slice4.params) : Split.Slice.params =
+  {
+    axis = Axis4.to_axis p.Ops4.Slice4.axis;
+    start = p.Ops4.Slice4.start;
+    stop = p.Ops4.Slice4.stop;
+    step = p.Ops4.Slice4.step;
+  }
+
 (* Shared with [Eval_op4], which needs the same translation for the same op:
    one adapter, so the shape rule and the compute cannot disagree about which
    axis is being split. *)
@@ -184,6 +204,12 @@ let output_shape (op : Op.t)
   | Rms_norm { Ops4.Rms_norm.x; _ } ->
       let* x_shape = shape x in
       one (four (Norm.RmsNorm.output_shape ~x_shape))
+  | Pad4 { Ops4.Pad4.params; x } ->
+      let* x_shape = shape x in
+      one (four (Pad.Pad.output_shape ~x_shape (pad_params params)))
+  | Slice4 { Ops4.Slice4.params; x } ->
+      let* x_shape = shape x in
+      one (four (Split.Slice.output_shape ~x_shape (slice_params params)))
   | Permute4 { Ops4.Permute4.perm; x } ->
       let* x_shape = shape x in
       one (four (Permute.Permute.output_shape ~x_shape (perm6 perm)))

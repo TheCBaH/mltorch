@@ -378,6 +378,130 @@ module Reshape4 = struct
       t.params
 end
 
+(* ---- boundary synthesis --------------------------------------------------- *)
+
+(* Native's [Pad] with its axes narrowed to the dialect's four. Its own payload
+   for the FIRST reason in .ai/native4d_add_op.md -- it names axes, so the field
+   is [Axis4.t] and T/D are unsayable in a four-axis graph.
+
+   The MODE stays a parameter rather than becoming a choice of constructor,
+   which is the third trigger in that file and does not apply here: the dialect
+   supports both modes Native does, so there is no value the constructor would
+   be making unrepresentable. Splitting [Pad4] into [Constant_pad4]/[Reflect_pad4]
+   would be the right move only if Native4D supported fewer modes than Native.
+
+   The amounts are Native's own [Pad.Pad.entry] -- signed, so cropping crosses
+   unchanged -- and the mode is Native's [Pad.Pad.mode]. Neither names an axis
+   nor carries a shape, so restating them here would be a second definition free
+   to drift from the [Compute] that reads them. *)
+module Pad4 = struct
+  type params = { pads : (Axis4.t * Pad.Pad.entry) list; mode : Pad.Pad.mode }
+
+  let entry_jsont : (Axis4.t * Pad.Pad.entry) Jsont.t =
+    Jsont.Object.map ~kind:"pad4_entry" (fun axis before after ->
+        (axis, { Pad.Pad.before; after }))
+    |> Jsont.Object.mem "axis" Axis4.jsont ~enc:fst
+    |> Jsont.Object.mem "before" Jsont.int ~enc:(fun (_, e) -> e.Pad.Pad.before)
+    |> Jsont.Object.mem "after" Jsont.int ~enc:(fun (_, e) -> e.Pad.Pad.after)
+    |> Jsont.Object.finish
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"pad4_params" (fun pads mode -> { pads; mode })
+    |> Jsont.Object.mem "pads" (Jsont.list entry_jsont) ~enc:(fun p -> p.pads)
+    |> Jsont.Object.mem "mode" Pad.Pad.mode_jsont ~enc:(fun p -> p.mode)
+    |> Jsont.Object.finish
+
+  let pp_entry fmt (axis, (e : Pad.Pad.entry)) =
+    Fmt.pf fmt "@[<h>%a:%d,%d@]" Axis4.pp axis e.Pad.Pad.before e.Pad.Pad.after
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{pads=%a mode=%a}@]"
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma pp_entry))
+      p.pads Pad.Pad.pp_mode p.mode
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Pad4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>pad4@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+end
+
+(* ---- selection ------------------------------------------------------------ *)
+
+(* Native's [Slice] with its axis narrowed to the dialect's four. Its own payload
+   for the FIRST reason in .ai/native4d_add_op.md -- it names an axis, so the
+   field is [Axis4.t] and T/D are unsayable in a four-axis graph.
+
+   The BOUNDS are Native's own and cross unchanged: they are canonical by the
+   time any payload exists, and nothing about narrowing the axis set changes
+   what [0 <= start <= stop <= extent] means. Restating the shape rule or the
+   pixel map here would be a second definition free to drift from the [Compute]
+   that reads them, so both are delegated to [Split.Slice]. *)
+module Slice4 = struct
+  type params = {
+    axis : Axis4.t;
+    start : int;
+    stop : int;
+    step : Op_config.Pos.t;
+  }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"slice4_params" (fun axis start stop step ->
+        { axis; start; stop; step = Op_config.Pos.of_int step })
+    |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.mem "start" Jsont.int ~enc:(fun p -> p.start)
+    |> Jsont.Object.mem "stop" Jsont.int ~enc:(fun p -> p.stop)
+    |> Jsont.Object.mem "step" Jsont.int ~enc:(fun p -> (p.step :> int))
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a start=%d stop=%d step=%d}@]" Axis4.pp p.axis
+      p.start p.stop
+      (p.step :> int)
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Slice4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>slice4@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+end
+
 (* ---- splitting ------------------------------------------------------------ *)
 
 (* The dialect's first MULTI-OUTPUT op: one output per coordinate of [axis], so

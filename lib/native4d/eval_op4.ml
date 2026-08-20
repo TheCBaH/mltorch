@@ -150,6 +150,14 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           (Graph_shape4.rms_params params)
           ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    | Pad4 { Ops4.Pad4.params; x } ->
+        let module C = Pad.Pad.Compute (S) in
+        C.pixel
+          (Graph_shape4.pad_params params)
+          ~x_shape:(shape_of x) ~x:(operand x) out
+    | Slice4 { Ops4.Slice4.params; x } ->
+        let module C = Split.Slice.Compute (S) in
+        C.pixel (Graph_shape4.slice_params params) ~x:(operand x) out
     | Permute4 { Ops4.Permute4.perm; x } ->
         let module C = Permute.Permute.Compute (S) in
         C.pixel (Graph_shape4.perm6 perm) ~x:(operand x) out

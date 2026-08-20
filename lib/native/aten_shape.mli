@@ -28,13 +28,33 @@ module View_size : sig
   val pp : Format.formatter -> t -> unit
 end
 
-(* Error set owned by this module: its own rank check and the [-1] convention's
-   faults, unioned with [Dim.error] (from validating each dim/size entry).
-   [pp_error] delegates to [Dim.pp_error] and [View_size.pp]. *)
+(* The canonical bounds of an [aten.slice.Tensor] along one axis: defaults
+   applied, negatives normalized against the extent, both ends clamped into it.
+   [start <= stop], both in [0, extent], and [step >= 1] by construction. What
+   is NOT guaranteed is that the selection is non-empty — [start = stop] is a
+   legal ATen slice with no Native form, and that boundary belongs to the shape
+   rule (see [Shape_error.Slice]), not here, so that a graph built through
+   [Graph_builder] or decoded from JSON meets it too. *)
+module Slice_bounds : sig
+  type t = { start : int; stop : int; step : Op_config.Pos.t }
+
+  val pp : Format.formatter -> t -> unit
+end
+
+(* Error set owned by this module: its own rank check, the [-1] convention's
+   faults, the one thing slice-bound resolution can refuse, and [Dim.error]
+   (from validating each dim/size entry). [pp_error] delegates to [Dim.pp_error]
+   and [View_size.pp]. *)
 type rank_bound = { rank : int; lo : int; hi : int }
 
 type error =
-  [ `Rank_out_of_range of rank_bound | `View_size of View_size.t | Dim.error ]
+  [ `Rank_out_of_range of rank_bound
+  | `View_size of View_size.t
+  | `Slice_step of int
+    (* A bare int, not a record: PyTorch's rule is "slice step must be
+       positive" and the offending value is the whole fact. Which axis and
+       which node it was belongs to the importer's own row. *)
+  | Dim.error ]
 
 val pp_error : Format.formatter -> error -> unit
 
@@ -57,3 +77,21 @@ val axis_of_dim : rank:int -> int -> Axis.t
    bound (below [Kernel.Limits.Hard.numel], via [Vec6.numel_bounded]) before
    calling: this function trusts it and therefore never multiplies past it. *)
 val resolve_view_size : numel:int64 -> int list -> (int list, [> error ]) Err.t
+
+(* Resolve [aten.slice.Tensor]'s bounds along one axis, in PyTorch's own order:
+   refuse a non-positive [step]; supply the defaults for an absent [start] (0)
+   and [stop] (the extent); normalize a negative bound by adding the extent;
+   clamp both into [0, extent]; and raise [stop] to [start] if the interval
+   inverted.
+
+   The clamps are ACCEPT-AND-NARROW, not rejections, because ATen clamps: the
+   two importers must accept exactly the nodes ATen accepts, and a slice past
+   the end of an axis is an ordinary, common thing for an exporter to emit. The
+   only Native-specific refusal — an empty selection — is deliberately absent;
+   see [Slice_bounds]. *)
+val resolve_slice :
+  extent:Dim.extent Dim.t ->
+  start:int option ->
+  stop:int option ->
+  step:int ->
+  (Slice_bounds.t, [> error ]) Err.t

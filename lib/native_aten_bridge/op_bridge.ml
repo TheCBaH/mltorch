@@ -97,7 +97,8 @@ type error =
   | `Operand_rank of Operand_rank.t
   | `Bad_config of Op_config.Bad.t
   | `Unsupported_padding_mode of string
-  | `Aten_shape of Aten_shape.error ]
+  | `Aten_shape of Aten_shape.error
+  | `Bad_pad_list of Pad.Pad.Bad_pad_list.t ]
 
 (* Deliberately not [Fmt.brackets], which boxes its content and so may
    line-wrap; the original bare "[%s]" (String.concat) never did, regardless
@@ -159,6 +160,7 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
         shape
   | `Aten_shape e -> Aten_shape.pp_error ppf e
+  | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
 
 let ( let* ) = Err.Syntax.( let* )
 let return = Err.return
@@ -407,6 +409,23 @@ let normalized_dims ~(x_shape : int array) ~normalized_shape =
    read as zero. *)
 let float_arg ?default node name =
   decode_result (D.float_arg_result ?default node name)
+
+(* A [float?] whose absence is genuinely "no value", not a default: [aten.pad]'s
+   [value] means 0.0 in constant mode and must be ABSENT (or zero) in reflect,
+   so the two cases have to stay distinguishable here rather than being
+   collapsed by a decoder default. Contrast [eps_arg], which supplies one. *)
+let float_opt_arg node name =
+  match D.find_arg node name with
+  | Some (Argument.Float f) -> return (Some f)
+  | Some (Argument.Int i) -> return (Some (float_of_int i))
+  | None | Some (Argument.None _) -> return None
+  | Some a -> decode_result (D.wrong_kind name `Float_opt a)
+
+(* Shared with the generated ATen dispatch and with [Native_interp] through
+   [Interp_decode], so the [Sym_int] policy -- a resolved [Int n] is accepted, a
+   [Name _] is refused as an unresolved symbol -- has ONE implementation rather
+   than three that happen to agree. *)
+let int_opt_arg node name = decode_result (D.int_opt_arg_result node name)
 
 let eps_arg node name =
   match D.find_arg node name with
@@ -1229,6 +1248,67 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      This must NOT call ATen's own unbind. ATen is the oracle
      [Interp_verify]/[Verify.verify_node] runs; the native side has to execute
      [Graph_ir.Unbind] through [Eval_direct] or the comparison is vacuous. *)
+  | "torch.ops.aten.pad.default" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* () = require_f32 "self" aten_x in
+         (* Rank from the ORIGINAL ATen tensor, before [of_aten] right-aligns it
+            into the frame and the rank stops being recoverable -- the same
+            ordering [unbind.int] uses, and here it is load-bearing twice over:
+            the pad list is indexed FROM the innermost dimension, so a wrong rank
+            silently pads the wrong axes. *)
+         let rank = aten_rank aten_x in
+         let* pad = ints_arg node "pad" in
+         let* mode = string_arg ~default:"constant" node "mode" in
+         let* value = float_opt_arg node "value" in
+         (* No [Err.map_error]: [params_of_aten] already fails with this
+            module's own [`Bad_pad_list] row, so the detection origin is the
+            check that found the fault rather than this call site. *)
+         let* params = Pad.Pad.params_of_aten ~rank ~pad ~mode ~value in
+         let* x = native_of_aten "self" aten_x in
+         build_g ~name:"pad" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = pad params x_id in
+               [ y ]
+           | _ -> assert false))
+  (* The bounds come from the LIVE tensor's extent, which is the whole reason
+     this arm and the importer's differ at all: everything after
+     [Aten_shape.resolve_slice] is shared, and the extent is the one thing the
+     two paths learn differently. Rank before [of_aten], as [pad.default] and
+     [unbind.int] do -- the frame does not carry it. *)
+  | "torch.ops.aten.slice.Tensor" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* () = require_f32 "self" aten_x in
+         let rank = aten_rank aten_x in
+         let* dim = int_arg ~default:0 node "dim" in
+         let* start = int_opt_arg node "start" in
+         let* stop = int_opt_arg node "end" in
+         let* step = int_arg ~default:1 node "step" in
+         let* x = native_of_aten "self" aten_x in
+         let* axis = dim_axis ~op:"slice.Tensor" ~rank dim in
+         let extent = Vec6.get (packed_shape x) axis in
+         let* bounds =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.resolve_slice ~extent ~start ~stop ~step)
+         in
+         build_g ~name:"slice" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y =
+                 slice
+                   {
+                     Split.Slice.axis;
+                     start = bounds.Aten_shape.Slice_bounds.start;
+                     stop = bounds.Aten_shape.Slice_bounds.stop;
+                     step = bounds.Aten_shape.Slice_bounds.step;
+                   }
+                   x_id
+               in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.unbind.int" ->
       Some
         (let* aten_x = tensor_arg aten_env node "self" in

@@ -320,14 +320,15 @@ let%expect_test "verify: bmm, the two terms" =
    lowering is that the ordered output list survives, and evaluating only the
    first would leave a dropped or reordered slice invisible here exactly as it
    is invisible to the structural checks. *)
-let%expect_test "verify: unbind, numerically, over every slice" =
-  let g = Fixtures.unbind_c_batch1 () in
-  let seq shape =
-    let i = ref 0. in
-    Tensor.materialize shape (fun _ ->
-        i := !i +. 1.;
-        !i)
-  in
+(* Native and Native4D over the same inputs, rendered identically. Extracted so
+   a second op's numeric proof does not become a second copy of the plumbing. *)
+let seq shape =
+  let i = ref 0. in
+  Tensor.materialize shape (fun _ ->
+      i := !i +. 1.;
+      !i)
+
+let native_vs_four g =
   let inputs =
     List.map
       (fun id ->
@@ -358,9 +359,38 @@ let%expect_test "verify: unbind, numerically, over every slice" =
   in
   Format.printf "native:   %s@." native_out;
   Format.printf "native4d: %s@." four_out;
-  Format.printf "agree: %b@." (String.equal native_out four_out);
+  Format.printf "agree: %b@." (String.equal native_out four_out)
+
+let%expect_test "verify: unbind, numerically, over every slice" =
+  native_vs_four (Fixtures.unbind_c_batch1 ());
   [%expect
     {|
     native:   tensor f32 [W=2 C=2] {1, 4, 7, 10} | tensor f32 [W=2 C=2] {2, 5, 8, 11} | tensor f32 [W=2 C=2] {3, 6, 9, 12}
     native4d: tensor f32 [W=2 C=2] {1, 4, 7, 10} | tensor f32 [W=2 C=2] {2, 5, 8, 11} | tensor f32 [W=2 C=2] {3, 6, 9, 12}
+    agree: true |}]
+
+(* The selection op, end to end. With values 1..10 laid out row-major over
+   [H=2 W=5], slicing W by [1,5) step 2 keeps columns 1 and 3 of each row: a
+   wrong start, a wrong step or a wrong axis each print different numbers rather
+   than only a different shape. *)
+let%expect_test "verify: slice, numerically, through the lowering" =
+  native_vs_four (Fixtures.slice_w ());
+  [%expect
+    {|
+    native:   tensor f32 [H=2 W=2 C=1] {2, 4, 7, 9}
+    native4d: tensor f32 [H=2 W=2 C=1] {2, 4, 7, 9}
+    agree: true |}]
+
+(* The boundary-synthesis op, end to end, on the one fixture whose whole output
+   prints — [Tensor.pp] truncates after eight elements, and on a fixture large
+   enough to need truncating every visible element is fill. Both the synthesized
+   row and the copied ones are in the golden, so a lowering that carried the
+   axis but dropped the fill value is a difference in the numbers and not only
+   in a shape. *)
+let%expect_test "verify: pad, numerically, through the lowering" =
+  native_vs_four (Fixtures.pad_tiny ());
+  [%expect
+    {|
+    native:   tensor f32 [H=3 W=2 C=1] {9, 9, 1, 2, 3, 4}
+    native4d: tensor f32 [H=3 W=2 C=1] {9, 9, 1, 2, 3, 4}
     agree: true |}]

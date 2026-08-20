@@ -79,6 +79,27 @@ The exporter picks the flattest JSON representation:
 
 Plain `bool` / `int` / `float` (without `Sym` prefix) are never symbolic.
 
+### What the decoders do with each spelling
+
+One rule, so "does this engine accept a dynamic bound" has a single answer:
+
+| spelling | `Interp_decode` (and `Op_bridge`, which wraps it) |
+|---|---|
+| `as_int` / `as_ints` | the value |
+| `as_sym_int: {as_int: N}` | the value — a *resolved* symbol is just a number |
+| `as_sym_int: {as_name: "s3"}` | `` `Unresolved_sym_arg { arg; symbol } `` |
+| `as_sym_ints` with one `as_name` entry | the same row; one unresolved entry refuses the whole list |
+
+The refusal is its **own** row, not a `` `Wrong_argument_kind ``: the argument is
+exactly the kind the schema declares, and what is missing is a shape environment
+to evaluate it in. That is the same distinction `Native_interp` already draws for
+a symbolic *tensor dimension* (`` `Bad_dimension { fault = `Symbolic } ``).
+
+`Op_bridge` inherits this by construction — its `int_arg`/`ints_arg` are
+`decode_result` wrappers over `Interp_decode`'s. `Native_interp` has its own
+hand-written decoders and must state the rule separately. Evidence for all of it
+is in `test/native_bridge_test.ml` §"SymInt-spelled arguments on the ATen path".
+
 ## Schema text is not comment-safe
 
 The generators echo each op's schema signature into a doc comment above its

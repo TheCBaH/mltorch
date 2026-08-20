@@ -110,6 +110,77 @@ module Reshape : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** A slice with no Native result. Two faults, and they are different in kind:
+
+    - [`Empty] — the canonical bounds select nothing. ATen returns a size-0
+      tensor; the engine has no empty extent ([Dim.extent] is >= 1), so this is
+      the typed "legal upstream, outside the Native domain" boundary rather than
+      a configuration error. Same boundary as {!Pad}'s [`Empty].
+    - [`Out_of_range] — the stored bounds are not
+      [0 <= start <= stop <= extent]. Not reachable from either importer, which
+      build their bounds with {!Aten_shape.resolve_slice} and so satisfy it by
+      construction; this guards {!Graph_builder} and JSON decoding, where
+      nothing else would, and it is the check that keeps [Compute]'s read in
+      bounds — [clamp_low] bounds the source coordinate below and nothing bounds
+      it above.
+
+    NOT folded into {!Window}: that payload names a kernel and a dilation, which
+    a slice does not have, and one row for both faults would make them
+    indistinguishable to a reader.
+
+    [out] is [int64] for {!Window}'s reason — a difference of model-supplied
+    bounds, divided, and js_of_ocaml's [int] is 32 bits. The bounds are the
+    CANONICAL ones (defaults applied, negatives normalized, clamped), because
+    those are what produced [out]; the serialized spelling belongs to the
+    importer's own row. *)
+module Slice : sig
+  type fault = [ `Empty | `Out_of_range ]
+
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    start : int;
+    stop : int;
+    step : Op_config.Pos.t;
+    out : int64;
+    fault : fault;
+  }
+
+  val pp : Format.formatter -> t -> unit
+end
+
+(** A pad configuration with no Native result. Two faults, because they are
+    different rules and a reader has to know which:
+
+    - [`Empty] — the padded extent is below 1. Reachable only through a NEGATIVE
+      pad, which crops: [aten.pad] permits it and the engine cannot represent
+      the result. Same boundary as {!Slice}'s, on the other structural op.
+    - [`Reflect_width] — reflect mode with a pad at least as wide as the axis it
+      mirrors, which PyTorch also rejects. Only the positive side can violate
+      it: a negative pad shrinks the read range, so the mirror never fires.
+    - [`Duplicate_axis] — two entries for one axis. Not reachable from either
+      importer (both build from a rank-indexed list), so this guards
+      {!Graph_builder} and JSON decoding. Which entry was meant is unknowable,
+      which is why it is a refusal and not a last-one-wins.
+
+    [before]/[after] are signed and [int64]: signed because cropping is
+    supported, [int64] because their sum with the extent is a model-supplied
+    aggregate. *)
+module Pad : sig
+  type fault = [ `Empty | `Reflect_width | `Duplicate_axis ]
+
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    before : int64;
+    after : int64;
+    out : int64;
+    fault : fault;
+  }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 module Convolution : sig
   type channels_divisibility = { channels : int; groups : int }
 
@@ -189,8 +260,10 @@ type t =
   | `Linear of Linear.error
   | `Bmm of Bmm.error
   | `Output_count_over_limit of Output_count.t
+  | `Pad of Pad.t
   | `Permute of Permute.t
   | `Reshape of Reshape.t
+  | `Slice of Slice.t
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Convolution of Convolution.error ]
 

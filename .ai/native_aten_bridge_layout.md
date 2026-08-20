@@ -203,12 +203,18 @@ the fixtures pin where.
 
 `same_padding` splits an odd total unevenly (`total/2` before,
 `total - total/2` after). Nothing else pinned which side got the extra cell:
-Direct-vs-Symbolic agreement resolves through the same function, an output-shape
-check is invariant under a reversal, and ATen reaches `constant_pad_nd`, which
-this repository's minimal static-dispatch build does not carry (it aborts the
-process rather than returning an error — which is also why `walk_meta`'s
-`conv2d_padding` kernels are all odd). It is pinned against hand-computed values
-in `test/native/compute_test.ml` instead.
+Direct-vs-Symbolic agreement resolves through the same function, and an
+output-shape check is invariant under a reversal. It is pinned against
+hand-computed values in `test/native/compute_test.ml`.
+
+> **Stale constraint, now lifted.** This section used to add "and ATen reaches
+> `constant_pad_nd`, which this repository's minimal static-dispatch build does
+> not carry", and that is why `walk_meta`'s `conv2d_padding` kernels are all
+> odd. Binding `aten.pad.default` put `native/PadNd.cpp` into the archive, so
+> `constant_pad_nd` is real now and an even `conv2d_padding` kernel would
+> execute. The walk was not widened in that change — the hand-computed fixture
+> is still the evidence — but the reason for the restriction no longer exists,
+> so do not re-derive it from the old sentence.
 
 ### `rms_norm`: an optional weight, and `normalized_shape` is validated
 
@@ -259,3 +265,110 @@ and no test here asserts storage sharing.
 per-op override in `materialized_output_names` exists only for the two
 multi-output arms (`_native_batch_norm_legit_no_training`,
 `max_pool2d_with_indices`), neither of which this is.
+
+## `aten.pad.default` (Group 6): the serialized list is REVERSED
+
+`pad(Tensor self, SymInt[] pad, str mode="constant", float? value=None)`
+serializes its amounts as a flat list of pairs, **innermost dimension first**:
+`[left, right, top, bottom, …]`. Pair *k* is therefore ATen dim `rank - 1 - k`,
+and the frame axis is that dim through `Aten_shape`'s right-aligned embedding.
+
+Three things follow, and none of them is optional.
+
+**The rank is load-bearing twice.** It converts each dim to a frame axis, *and*
+it decides which dims the list addresses at all. With a wrong rank the same list
+pads different axes and still produces a perfectly plausible graph — no shape
+check catches it, because the shape it produces is the shape that configuration
+would legitimately have. Both arms therefore read the rank before conversion:
+`Op_bridge` from the live ATen tensor (`aten_rank`, before `of_aten` right-aligns
+it away), `Native_interp` from the serialized `TensorMeta`.
+
+**The un-reversal happens once**, in `Pad.Pad.params_of_aten`, which both
+importers call. Its output is a list of `(Axis.t, {before; after})` in `Axis.all`
+order, so nothing downstream — shape rule, `Compute`, JSON, Model Explorer — ever
+sees the serialized ordering. That is the payload type doing the work: a raw
+`int list` in the IR would leave every consumer free to re-derive the convention,
+and one of them would get it wrong.
+
+**The accepted contract is ATen's own, checked in ATen's order** (`PadNd.cpp`'s
+`_pad_enum_symint`):
+
+| rule | outcome |
+|---|---|
+| even length, at most `rank` pairs | else `` `Odd_length `` / `` `Too_many_pairs `` |
+| `constant`: `value` absent means `0.0` | the fill, narrowed to f32 by the builder |
+| non-constant with a non-zero `value` | `` `Value_with_non_constant_mode `` — ATen's test is `!value.has_value() \|\| *value == 0`, so an explicit `0.0` is fine |
+| `reflect` at (1 pair, rank 2–3), (2, rank 3–4), (3, rank 4–5) | accepted |
+| `reflect` at any other (pairs, rank) | `` `Unsupported_rank `` |
+| `replicate`, `circular`, anything else | `` `Unsupported_mode `` |
+
+That fourth row is the one worth stating a reason for: ATen dispatches reflect to
+per-rank kernels and *rejects* the combinations without one. Accepting a pair
+ATen refuses would turn a boundary into a **walk mismatch**, which reads as a
+wrong answer rather than as an unsupported configuration.
+
+**Negative amounts crop, and are supported.** The only Native-specific refusal is
+the resulting extent, and it lives in `Pad.output_shape`
+(`Shape_error.Pad`, fault `` `Empty ``) rather than in either importer — so
+`Graph_builder` and a JSON-decoded graph meet it too. `reflect`'s width rule
+(each *positive* side below the extent it mirrors) is checked there for the same
+reason.
+
+**Binding this target changed the C++ archive**, which no previous op row did:
+`native/PadNd.cpp`, `ReflectionPad.cpp`, `ReplicationPadding.cpp` and
+`cpu/PaddingKernel.cpp` joined `lib/aten/build_archive.sh`, the
+`constant_pad_nd` throwing stub was removed as now-duplicate, and a quantized
+tensor-factory leaf was stubbed in its place. `_pad_enum_symint`'s mode switch is
+straight-line, so replicate and circular link even though the native engine
+refuses them — the interpreter runs real ATen, where the mode is just an
+argument. See `.ai/aten_core_build.md`.
+
+## `aten.slice.Tensor` (Group 6): one resolver, two extents
+
+`slice.Tensor(Tensor self, int dim=0, SymInt? start=None, SymInt? end=None,
+SymInt step=1)`. Unlike `pad`, the serialized spelling has no ordering trap — but
+it has four *conventions*, and every one of them is ATen's rather than the
+engine's:
+
+| spelling | meaning |
+|---|---|
+| absent or explicit null `start` / `end` | `0` and `extent` |
+| a negative bound | `+ extent`, then clamped |
+| `start` past the extent, or `end` past it | **clamped**, not rejected |
+| `end < start` | `end` becomes `start` (an empty result) |
+| `step < 1` | refused, as ATen refuses it |
+
+All five live in **one** helper, `Aten_shape.resolve_slice`, which both importers
+call. What differs between the two arms is nothing but where the extent comes
+from: the live ATen tensor on the bridge, the serialized `TensorMeta` in
+`Native_interp`. That is the entire reason the helper is shared rather than
+written twice — two normalizations of a five-rule convention is exactly the drift
+this layout doc exists to prevent.
+
+**Clamping is accept-and-narrow; emptiness is reject.** Both are ATen-faithful
+and only the second is a Native limitation, so only the second appears in a
+coverage report. And the emptiness check is not in the resolver: it is a fact
+about the extent, so it belongs to `Split.Slice.output_shape`
+(`Shape_error.Slice`, fault `` `Empty ``) where `Graph_builder` and a
+JSON-decoded graph meet it too — the same layering `pad`'s crop follows.
+
+**`SymInt` arguments arrive here first.** `start`/`end`/`step` are the engine's
+first bound arguments that can be spelled `as_sym_int`, and the rule is: a
+**resolved** `Sym_int (Int n)` is a value spelled differently and is accepted; a
+**named** `Sym_int (Name s)` is an unresolved symbol and is refused *with the
+symbol*. That mirrors the `` `Bad_dimension { fault = `Symbolic } `` rule tensor
+metadata already applied, and it is implemented once —
+`Interp_decode.sym_int_value` for the generated ATen path and for `Op_bridge`,
+`Native_interp.sym_int_value` for the importer, which cannot share a module
+because it reports through the escape token. Both are asserted, on both
+spellings, in `test/native_bridge_test.ml` and
+`test/native_interp/slice_test.ml`. Before this target the three decoders agreed
+only by refusing every `Sym_int` alike, which satisfied the requirement by
+accident.
+
+**Binding it needed no C++ change** and no new codegen capability — but only
+because commit `4f37a9c` had already closed the `int?`/`SymInt?` decode gap and
+lifted the OCaml-keyword escape into `Aten_gen.Aten_ident`. Without the latter
+the generated arm is `let* end = …`, which does not parse; the emitted source
+now binds `end_`, and that is checked by reading
+`_build/default/lib/interp/interp_dispatch.ml`, not inferred from a green build.

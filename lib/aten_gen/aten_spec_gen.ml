@@ -163,68 +163,10 @@ let dec_absent (sty : sty) (d : A.Default.t) : string option =
       Some (Printf.sprintf "(Aten_spec.Scalar_value.Bool %b)" b)
   | _ -> None
 
-let keywords =
-  [
-    "and";
-    "as";
-    "assert";
-    "begin";
-    "class";
-    "constraint";
-    "do";
-    "done";
-    "downto";
-    "else";
-    "end";
-    "exception";
-    "external";
-    "false";
-    "for";
-    "fun";
-    "function";
-    "functor";
-    "if";
-    "in";
-    "include";
-    "inherit";
-    "initializer";
-    "lazy";
-    "let";
-    "match";
-    "method";
-    "module";
-    "mutable";
-    "new";
-    "nonrec";
-    "object";
-    "of";
-    "open";
-    "or";
-    "private";
-    "rec";
-    "sig";
-    "struct";
-    "then";
-    "to";
-    "true";
-    "try";
-    "type";
-    "val";
-    "virtual";
-    "when";
-    "while";
-    "with";
-    "mod";
-    "land";
-    "lor";
-    "lxor";
-    "lsl";
-    "lsr";
-    "asr";
-  ]
-
-(* OCaml identifier for an arg name (the JSON key keeps the real name). *)
-let ml_id name = if List.mem name keywords then name ^ "_" else name
+(* Moved to [Aten_ident] when the decode generator needed the same escape: two
+   copies of one keyword list is one edit away from two answers about whether
+   [end] is spellable. *)
+let ml_id = Aten_ident.ml_id
 
 type kept = {
   name : string;

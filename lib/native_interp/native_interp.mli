@@ -11,6 +11,7 @@ type arg_kind =
   | `Optional_tensor
   | `Int_list
   | `Int
+  | `Int_opt
   | `Bool
   | `Float
   | `Scalar
@@ -79,6 +80,8 @@ type metadata_role =
         [permute.default] have separate arms, and a shared label would leave the
         row unable to say which one failed -- the same reasoning as
         [`Conv2d_weight] vs [`Convolution_weight] above. *)
+  | `Pad_input
+  | `Slice_input
   | `Unbind_input
   | `Addmm_weight ]
 (** Why the missing [tensor_values] entry was wanted. *)
@@ -122,6 +125,15 @@ end
 
 module Wrong_arg_kind : sig
   type t = { op : string; arg : string; expected : arg_kind }
+end
+
+(** A [SymInt] argument that arrived as a NAME rather than a value. Its own row
+    rather than a {!Wrong_arg_kind}: the spelling and the kind are both right,
+    and what is missing is a binding for the symbol — the same distinction
+    {!Bad_dimension}'s [`Symbolic] fault draws for tensor metadata, applied to
+    an argument. *)
+module Unresolved_sym_arg : sig
+  type t = { op : string; arg : string; symbol : string }
 end
 
 module Bad_dimension : sig
@@ -182,9 +194,25 @@ module Bad_view : sig
   }
 end
 
+(** A [slice.Tensor] request {!Aten_shape.resolve_slice} refuses — today only a
+    non-positive step, which ATen refuses too. Carries the SERIALIZED spelling,
+    optionals and all, because that is what a reader has to change; the
+    canonical bounds do not exist yet at the point this is raised, and an empty
+    RESULT is a different fault entirely, reported by {!Shape_error.Slice} once
+    the extent is known. *)
+module Bad_slice : sig
+  type t = {
+    start : int option;
+    stop : int option;
+    step : int;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
+  | `Unresolved_sym_arg of Unresolved_sym_arg.t
   | `Missing_metadata of Missing_metadata.t
   | `Bad_dimension of Bad_dimension.t
   | `Axis_out_of_range of Axis_out_of_range.t
@@ -204,6 +232,7 @@ type malformed =
         the wrong axes and returns a plausible wrong answer rather than an
         error. *)
   | `Unsupported_padding_mode of string
+  | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
     (** The mode [conv2d.padding] offered. A string because it is a third-party
         value out of the export rather than a case this module declined to
         classify — [Conv.Conv2d_padding.padding] has exactly two constructors
@@ -221,7 +250,8 @@ type malformed =
   | `Non_tensor_graph_output
   | `Undefined_ssa of string
   | `Output_not_evaluated of Graph_ir.Tensor_id.t
-  | `Bad_view of Bad_view.t ]
+  | `Bad_view of Bad_view.t
+  | `Bad_slice of Bad_slice.t ]
 (** A graph the decoder accepted and this lowering cannot read. FLAT-INCLUDED in
     {!error}: it is this module's own failure domain, not a crossed seam. *)
 

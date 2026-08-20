@@ -37,11 +37,13 @@ type op =
   | Max_pool2d of Pool.MaxPool2d.t
   | Mean_keepdims of Ops4.Mean_keepdims.t
   | Mul of Pointwise.Mul.t
+  | Pad4 of Ops4.Pad4.t
   | Permute4 of Ops4.Permute4.t
   | Relu of Pointwise.Relu.t
   | Reshape4 of Ops4.Reshape4.t
   | Rms_norm of Ops4.Rms_norm.t
   | Silu of Pointwise.Silu.t
+  | Slice4 of Ops4.Slice4.t
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
   | Transposed_conv2d of Ops4.Transposed_conv2d.t
@@ -154,6 +156,12 @@ let op_registry : (module OP) list =
       let project = function Mul t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Ops4.Pad4
+
+      let inject t = Pad4 t
+      let project = function Pad4 t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Ops4.Permute4
 
       let inject t = Permute4 t
@@ -182,6 +190,12 @@ let op_registry : (module OP) list =
 
       let inject t = Silu t
       let project = function Silu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Slice4
+
+      let inject t = Slice4 t
+      let project = function Slice4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Sqrt

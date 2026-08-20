@@ -71,48 +71,53 @@ let is_mean_dim_optional_dims (op : A.t) (a : A.Argument.t) =
    no preamble. Returns [None] for an unsupported type. *)
 let decode_arg ~(op : A.t) ~anchor (a : A.Argument.t) =
   let q = Printf.sprintf "%S" a.name in
-  let bind var call exprs =
-    Some ([ Printf.sprintf "let* %s = %s in" var call ], exprs)
+  (* [q] keeps the schema's real name, because that is the JSON key the node
+     carries; [id] is the OCaml identifier this emits, and it goes through
+     [Aten_ident.ml_id] because [slice.Tensor]'s bound is named [end]. Every
+     emitted identifier below is [id], never [a.name]: the two differ for
+     exactly one argument in the curated set, which is what makes the mistake
+     easy to make and invisible until that op is selected. *)
+  let id = Aten_ident.ml_id a.name in
+  let bind call exprs =
+    Some ([ Printf.sprintf "let* %s = %s in" id call ], exprs)
   in
   match a.ty with
   | A.Type.Base A.Base.Tensor -> (
       if Some a.name = anchor then
-        bind a.name (Printf.sprintf "(tensor_arg env node %s)" q) [ a.name ]
+        bind (Printf.sprintf "(tensor_arg env node %s)" q) [ id ]
       else
         match anchor with
         | Some like ->
-            bind a.name
+            bind
               (Printf.sprintf "(tensor_or_scalar_arg env node %s ~like:%s)" q
-                 like)
-              [ a.name ]
-        | None ->
-            bind a.name (Printf.sprintf "(tensor_arg env node %s)" q) [ a.name ]
-      )
+                 (Aten_ident.ml_id like))
+              [ id ]
+        | None -> bind (Printf.sprintf "(tensor_arg env node %s)" q) [ id ])
   | A.Type.Optional (A.Type.Base A.Base.Tensor) ->
-      bind a.name (Printf.sprintf "(tensor_arg env node %s)" q) [ a.name ]
+      bind (Printf.sprintf "(tensor_arg env node %s)" q) [ id ]
   | A.Type.Base A.Base.Int | A.Type.Base A.Base.SymInt ->
       let d =
         match a.default with
         | Some (A.Default.Int n) -> Printf.sprintf " ~default:%s" (lit n)
         | _ -> ""
       in
-      bind a.name
+      bind
         (Printf.sprintf "(int_arg%s node %s)" d q)
-        [ Printf.sprintf "(Int64.of_int %s)" a.name ]
+        [ Printf.sprintf "(Int64.of_int %s)" id ]
   | A.Type.Base A.Base.Float ->
       let d =
         match a.default with
         | Some (A.Default.Float s) -> Printf.sprintf " ~default:%s" (litf s)
         | _ -> ""
       in
-      bind a.name (Printf.sprintf "(float_arg%s node %s)" d q) [ a.name ]
+      bind (Printf.sprintf "(float_arg%s node %s)" d q) [ id ]
   | A.Type.Base A.Base.Bool ->
       let d =
         match a.default with
         | Some (A.Default.Bool b) -> Printf.sprintf " ~default:%b" b
         | _ -> ""
       in
-      bind a.name (Printf.sprintf "(bool_arg%s node %s)" d q) [ a.name ]
+      bind (Printf.sprintf "(bool_arg%s node %s)" d q) [ id ]
   | A.Type.Base A.Base.Scalar ->
       let d =
         match a.default with
@@ -122,29 +127,33 @@ let decode_arg ~(op : A.t) ~anchor (a : A.Argument.t) =
             Printf.sprintf " ~default:(Aten_scalar.Float %s)" (litf s)
         | _ -> ""
       in
-      bind a.name (Printf.sprintf "(scalar_arg%s node %s)" d q) [ a.name ]
+      bind (Printf.sprintf "(scalar_arg%s node %s)" d q) [ id ]
   | A.Type.Optional (A.Type.Base A.Base.Scalar) ->
-      bind a.name (Printf.sprintf "(scalar_opt_arg node %s)" q) [ a.name ]
+      bind (Printf.sprintf "(scalar_opt_arg node %s)" q) [ id ]
   | A.Type.Optional (A.Type.Base A.Base.Float) ->
-      bind a.name (Printf.sprintf "(float_opt_ptr node %s)" q) [ a.name ]
+      bind (Printf.sprintf "(float_opt_ptr node %s)" q) [ id ]
+  (* int? / SymInt?: the pointer form [Aten_c_type.map_type] already lowers both
+     to, so this arm is the decode half of a binding that has always been
+     generatable. Its absence is why [avg_pool2d.default] had a C binding and no
+     dispatch arm -- [dispatch_arm] drops an op SILENTLY when any argument is
+     undecodable, so the gap looked like an unselected op rather than a hole. *)
+  | A.Type.Optional (A.Type.Base A.Base.Int)
+  | A.Type.Optional (A.Type.Base A.Base.SymInt) ->
+      bind (Printf.sprintf "(int_opt_ptr node %s)" q) [ id ]
   | A.Type.Optional (A.Type.Base A.Base.Bool) ->
-      bind a.name (Printf.sprintf "(bool_opt_arg node %s)" q) [ a.name ]
+      bind (Printf.sprintf "(bool_opt_arg node %s)" q) [ id ]
   | A.Type.Optional (A.Type.Base A.Base.MemoryFormat) ->
-      bind a.name
-        (Printf.sprintf "(memory_format_opt_arg node %s)" q)
-        [ a.name ]
+      bind (Printf.sprintf "(memory_format_opt_arg node %s)" q) [ id ]
   | A.Type.Optional (A.Type.Base A.Base.ScalarType) ->
-      bind a.name (Printf.sprintf "(scalar_type_opt_arg node %s)" q) [ a.name ]
+      bind (Printf.sprintf "(scalar_type_opt_arg node %s)" q) [ id ]
   | A.Type.Optional (A.Type.Base A.Base.Layout) ->
-      bind a.name (Printf.sprintf "(layout_opt_arg node %s)" q) [ a.name ]
+      bind (Printf.sprintf "(layout_opt_arg node %s)" q) [ id ]
   | A.Type.Optional (A.Type.Base A.Base.Device) ->
-      bind a.name (Printf.sprintf "(device_opt_arg node %s)" q) [ a.name ]
+      bind (Printf.sprintf "(device_opt_arg node %s)" q) [ id ]
   | A.Type.Base A.Base.Str -> (
       match a.default with
       | Some (A.Default.Str s) ->
-          bind a.name
-            (Printf.sprintf "(string_arg ~default:%S node %s)" s q)
-            [ a.name ]
+          bind (Printf.sprintf "(string_arg ~default:%S node %s)" s q) [ id ]
       | _ -> None)
   (* int[] / SymInt[] and their optional forms all lower to a (data, len) pair.
      [aten.mean.dim] is special: its optional [dim] means "all dims" when
@@ -162,17 +171,15 @@ let decode_arg ~(op : A.t) ~anchor (a : A.Argument.t) =
         else d
       in
       Some
-        ( [ Printf.sprintf "let* %s = ints_arg%s node %s in" a.name d q ],
-          [
-            Printf.sprintf "(arr %s)" a.name;
-            Printf.sprintf "(List.length %s)" a.name;
-          ] )
+        ( [ Printf.sprintf "let* %s = ints_arg%s node %s in" id d q ],
+          [ Printf.sprintf "(arr %s)" id; Printf.sprintf "(List.length %s)" id ]
+        )
   | A.Type.List (A.Type.Base A.Base.Tensor, _) ->
       Some
-        ( [ Printf.sprintf "let* %s = tensors_arg env node %s in" a.name q ],
+        ( [ Printf.sprintf "let* %s = tensors_arg env node %s in" id q ],
           [
-            Printf.sprintf "(tensor_carray %s)" a.name;
-            Printf.sprintf "(List.length %s)" a.name;
+            Printf.sprintf "(tensor_carray %s)" id;
+            Printf.sprintf "(List.length %s)" id;
           ] )
   | _ -> None
 

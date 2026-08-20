@@ -157,6 +157,137 @@ let%expect_test "mean.dim walk 5 steps" =
     step 5 [w]: {shape=[1,8,16,4] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched |}]
 
+(* Twenty steps, not five, and what the extra fifteen buy is the pattern column.
+   The configuration is ONE axis of five, and [field_axis] redraws uniformly
+   including the value already held, so a five-step walk here sees a single
+   configuration and varies only the shape under it.
+
+   Even twenty steps do not sweep all seven: this seed reaches six, missing
+   [reflect_hw]. That is a property of a random walk and not a gap in the
+   evidence -- the CONFIGURATION space is covered exhaustively and against the
+   same ATen oracle by test/native_bridge_test.ml, which runs fourteen pad
+   configurations including reflect on every boundary. What the walk adds, and
+   the bridge fixtures cannot, is shape and tensor-value variation UNDER each
+   configuration, which is why the pad amounts here are derived from the drawn
+   extents rather than fixed. *)
+let%expect_test "pad.default walk 20 steps" =
+  capture (fun ppf ->
+      assert (
+        Op_walk.run
+          (module Aten_op_walk.Pad_walk)
+          ~ppf
+          ~pcg:(Pcg.seed ~seed:23L ~seq:6L)
+          ~steps:20));
+  [%expect
+    {|
+    step 0: {shape=[1,3,4,4] pattern=const_w pad=[1,2] mode=constant value=0.1}
+    [spec] torch.ops.aten.pad.default: matched
+    step 1 [h]: {shape=[1,3,6,4] pattern=const_w pad=[1,2] mode=constant value=0.1}
+    [spec] torch.ops.aten.pad.default: matched
+    step 2 [c]: {shape=[1,3,6,4] pattern=const_w pad=[1,2] mode=constant value=0.1}
+    [spec] torch.ops.aten.pad.default: matched
+    step 3 [h]: {shape=[1,3,6,4] pattern=const_w pad=[1,2] mode=constant value=0.1}
+    [spec] torch.ops.aten.pad.default: matched
+    step 4 [pattern]: {shape=[1,3,6,4] pattern=const_w_no_value pad=[2,1] mode=constant value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 5 [pattern]: {shape=[1,3,6,4] pattern=crop_and_pad pad=[-1,0,2,1] mode=constant value=0.1}
+    [spec] torch.ops.aten.pad.default: matched
+    step 6 [pattern]: {shape=[1,3,6,4] pattern=reflect_asym_w pad=[2,1,0,0] mode=reflect value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 7 [c]: {shape=[1,2,6,4] pattern=reflect_asym_w pad=[2,1,0,0] mode=reflect value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 8 [h]: {shape=[1,2,6,4] pattern=reflect_asym_w pad=[2,1,0,0] mode=reflect value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 9 [h]: {shape=[1,2,4,4] pattern=reflect_asym_w pad=[2,1,0,0] mode=reflect value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 10 [n]: {shape=[1,2,4,4] pattern=reflect_asym_w pad=[2,1,0,0] mode=reflect value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 11 [h]: {shape=[1,2,3,4] pattern=reflect_asym_w pad=[2,1,0,0] mode=reflect value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 12 [w]: {shape=[1,2,3,3] pattern=reflect_asym_w pad=[2,1,0,0] mode=reflect value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 13 [h]: {shape=[1,2,4,3] pattern=reflect_asym_w pad=[2,1,0,0] mode=reflect value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 14 [pattern]: {shape=[1,2,4,3] pattern=const_w pad=[1,2] mode=constant value=0.1}
+    [spec] torch.ops.aten.pad.default: matched
+    step 15 [h]: {shape=[1,2,4,3] pattern=const_w pad=[1,2] mode=constant value=0.1}
+    [spec] torch.ops.aten.pad.default: matched
+    step 16 [pattern]: {shape=[1,2,4,3] pattern=const_hw pad=[1,2,3,1] mode=constant value=-2.5}
+    [spec] torch.ops.aten.pad.default: matched
+    step 17 [n]: {shape=[1,2,4,3] pattern=const_hw pad=[1,2,3,1] mode=constant value=-2.5}
+    [spec] torch.ops.aten.pad.default: matched
+    step 18 [c]: {shape=[1,3,4,3] pattern=const_hw pad=[1,2,3,1] mode=constant value=-2.5}
+    [spec] torch.ops.aten.pad.default: matched
+    step 19 [h]: {shape=[1,3,3,3] pattern=const_hw pad=[1,2,3,1] mode=constant value=-2.5}
+    [spec] torch.ops.aten.pad.default: matched
+    step 20 [pattern]: {shape=[1,3,3,3] pattern=crop_h pad=[0,0,-1,-1] mode=constant value=7}
+    [spec] torch.ops.aten.pad.default: matched |}]
+
+(* Twenty steps, for [pad.default]'s reason: the configuration is one axis of
+   five, so a five-step run holds it fixed and varies only the shape. This seed
+   reaches four of the ten patterns and, more usefully, four different RANKS
+   (4, 1, 3, 4) with both dim spellings -- which is the correlation the recipe
+   exists for, since a dim is only valid for a rank and a bound only for an
+   extent. Watch step 7: the rank drops to 1 and [-3,-1) re-resolves against the
+   new extent without a cascade, because [Recipe_slice.bounds] derives it rather
+   than storing it.
+
+   The CONFIGURATION space is covered exhaustively, and against the same ATen
+   oracle, by test/native_bridge_test.ml. What the walk adds is shape and
+   tensor-value variation under each configuration. *)
+let%expect_test "slice.Tensor walk 20 steps" =
+  capture (fun ppf ->
+      assert (
+        Op_walk.run
+          (module Aten_op_walk.Slice_tensor_walk)
+          ~ppf
+          ~pcg:(Pcg.seed ~seed:1L ~seq:7L)
+          ~steps:20));
+  [%expect
+    {|
+    step 0: {shape=[2,3,4,5] dim=0 pattern=head [0,1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 1 [config]: {shape=[2,3,4,5] dim=3 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 2 [n]: {shape=[3,3,4,5] dim=3 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 3 [w]: {shape=[3,3,4,5] dim=3 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 4 [w]: {shape=[3,3,4,7] dim=3 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 5 [c]: {shape=[3,3,4,7] dim=3 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 6 [config]: {shape=[3,3,4,7] dim=-1 pattern=stride2 [none,none) step=2}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 7 [config]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 8 [w]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 9 [h]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 10 [h]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 11 [h]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 12 [w]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 13 [c]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 14 [n]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 15 [n]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 16 [w]: {shape=[7] dim=0 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 17 [config]: {shape=[3,2,7] dim=-3 pattern=both_neg [-3,-1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 18 [config]: {shape=[4,3,2,7] dim=1 pattern=stride3_offset [1,none) step=3}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 19 [c]: {shape=[4,3,2,7] dim=1 pattern=stride3_offset [1,none) step=3}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 20 [n]: {shape=[3,3,2,7] dim=1 pattern=stride3_offset [1,none) step=3}
+    [spec] torch.ops.aten.slice.Tensor: matched |}]
+
 let%expect_test "bridge coverage" =
   capture (fun ppf ->
       List.iteri
@@ -371,13 +502,13 @@ let%expect_test "bridge coverage" =
     step 3 [padding]: {kernel=3x3 stride=1x1 dilation=1x1 groups=4 in_c=4 out_c=8 n=1 H=8 W=8 padding=valid}
     [spec] torch.ops.aten.conv2d.padding: matched
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
+    [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
     step 1 [pad_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
+    [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
     step 2 [input_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=10 W=8}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
+    [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
     step 3 [kernel_h]: {kernel=4x2 stride=2x2 pad=0x0 n=1 c=4 H=10 W=8}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (aten interp: unhandled op)
+    [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
     step 0: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten.view.default: matched
     step 1 [n]: {shape=[1,4,4,4] pattern=flatten target=[64]}
@@ -394,37 +525,53 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten._unsafe_view.default: matched
     step 3 [pattern]: {shape=[1,4,4,2] pattern=minus_one_c target=[-1,4,2]}
     [spec] torch.ops.aten._unsafe_view.default: matched
+    step 0: {shape=[1,3,4,4] pattern=const_w pad=[1,2] mode=constant value=0.1}
+    [spec] torch.ops.aten.pad.default: matched
+    step 1 [pattern]: {shape=[1,3,4,4] pattern=const_hw pad=[1,2,3,1] mode=constant value=-2.5}
+    [spec] torch.ops.aten.pad.default: matched
+    step 2 [h]: {shape=[1,3,3,4] pattern=const_hw pad=[1,2,3,1] mode=constant value=-2.5}
+    [spec] torch.ops.aten.pad.default: matched
+    step 3 [pattern]: {shape=[1,3,3,4] pattern=reflect_hw pad=[1,1,1,1] mode=reflect value=none}
+    [spec] torch.ops.aten.pad.default: matched
+    step 0: {shape=[2,3,4,5] dim=0 pattern=head [0,1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 1 [c]: {shape=[2,5,4,5] dim=0 pattern=head [0,1) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 2 [n]: {shape=[4,5,4,5] dim=0 pattern=head [0,2) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
+    step 3 [w]: {shape=[4,5,4,7] dim=0 pattern=head [0,2) step=1}
+    [spec] torch.ops.aten.slice.Tensor: matched
     step 0: {shape=[2,3,4,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 1 [n]: {shape=[3,3,4,4] dim=0}
+    step 1 [h]: {shape=[2,3,2,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 2 [w]: {shape=[3,3,4,4] dim=0}
+    step 2 [n]: {shape=[1,3,2,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 3 [c]: {shape=[3,3,4,4] dim=0}
+    step 3 [dim]: {shape=[1,3,2,4] dim=-4}
     [spec] torch.ops.aten.unbind.int: matched
     step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 1 [keepdim]: {shape=[2,4,8,8] dims=[2,3] keepdim=true}
+    step 1 [h]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 2 [keepdim]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
+    step 2 [h]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 3 [w]: {shape=[2,4,8,16] dims=[2,3] keepdim=false}
+    step 3 [h]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 1 [shape]: {shape=[2,3,8,4]}
+    step 1 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 2 [shape]: {shape=[2,6,8,4]}
+    step 2 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 3 [shape]: {shape=[8,6,8,4]}
+    step 3 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.clone.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 1 [shape]: {shape=[4,3,4,4]}
+    step 1 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 2 [shape]: {shape=[2,3,4,4]}
+    step 2 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 3 [shape]: {shape=[3,3,4,4]}
+    step 3 [shape]: {shape=[8,3,3,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
     needs_meta:
       torch.ops.aten.add.Tensor

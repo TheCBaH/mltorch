@@ -276,6 +276,92 @@ let%expect_test "mutation: convolution padding applied to the wrong side" =
   [%expect
     {| conv pad 1/0 -> 0/1        3 clusters: 2 proved (structural), 1 refuted (counterexample) |}]
 
+(* The pad twin of the conv-padding mutation, and shape-preserving for the same
+   reason: [before + after] is what sets the output extent, so swapping the two
+   leaves every shape, id and signature untouched and only [Map_verify] can see
+   it. A mutation that changed the total instead would be refused by
+   [Graph_map.create] before the verifier ran, which is a weaker claim.
+
+   The fill is 9, not 0: a swap of a pad against a ZERO fill still moves real
+   elements, but a reader cannot tell from the verdict whether the synthesized
+   cells or the copied ones did the refuting.
+
+   Observed, not assumed: correcting the destination's amounts to 1/2 turns this
+   line into [2 clusters: 2 proved (structural)], so what the counterexample
+   refutes is the swap and not the fixture. *)
+let%expect_test "mutation: pad amounts swapped between the two sides" =
+  let pads ~before ~after = [ (Axis.H, { Pad.Pad.before; after }) ] in
+  let pads4 ~before ~after = [ (Axis4.H, { Pad.Pad.before; after }) ] in
+  mutated "pad 1/2 -> 2/1"
+    (nat "pad"
+       Graph_builder.(
+         let* x = input ~shape:sq () in
+         pad { Pad.Pad.pads = pads ~before:1 ~after:2; mode = Constant 9. } x))
+    (four
+       Builder.(
+         let* x = input ~shape:sq4 () in
+         pad4
+           { Ops4.Pad4.pads = pads4 ~before:2 ~after:1; mode = Constant 9. }
+           x));
+  [%expect
+    {| pad 1/2 -> 2/1             2 clusters: 1 proved (structural), 1 refuted (counterexample) |}]
+
+(* Slice4 takes TWO mutations, because op6-impl's prediction that "swapping the
+   axis is shape-preserving, so only Map_verify sees it" is wrong and the two
+   halves land in different layers.
+
+   [Slice] KEEPS the axis it narrows, so on a square [2,2] input slicing H to 1
+   gives [H=1 W=2] and slicing W to 1 gives [H=2 W=1]. A wrong axis is a shape
+   change, and [Graph_map.create] refuses it before the verifier runs -- the
+   same layer the reduction case above pins, and worth keeping for exactly that
+   reason.
+
+   The shape-PRESERVING mutation is sliding the window: start and stop moved by
+   the same offset select a different set of elements at an identical extent, so
+   every id, signature and shape matches and only [Map_verify] disagrees.
+
+   Observed, not assumed: correcting the destination's bounds to [0,1) turns the
+   second line into [2 clusters: 2 proved (structural)]. *)
+let slice_pair ~src_axis ~dst_axis ~dst_start ~dst_stop =
+  let bounds start stop = (start, stop, Op_config.Pos.of_int 1) in
+  let s_start, s_stop, s_step = bounds 0 1 in
+  ( nat "slice"
+      Graph_builder.(
+        let* x = input ~shape:sq () in
+        slice
+          {
+            Split.Slice.axis = src_axis;
+            start = s_start;
+            stop = s_stop;
+            step = s_step;
+          }
+          x),
+    four
+      Builder.(
+        let* x = input ~shape:sq4 () in
+        slice4
+          {
+            Ops4.Slice4.axis = dst_axis;
+            start = dst_start;
+            stop = dst_stop;
+            step = Op_config.Pos.of_int 1;
+          }
+          x) )
+
+let%expect_test "mutation: slice4 wrong axis, and a slid window" =
+  let src, dst =
+    slice_pair ~src_axis:Axis.H ~dst_axis:Axis4.W ~dst_start:0 ~dst_stop:1
+  in
+  mutated "axis H -> W" src dst;
+  let src, dst =
+    slice_pair ~src_axis:Axis.H ~dst_axis:Axis4.H ~dst_start:1 ~dst_stop:2
+  in
+  mutated "window [0,1) -> [1,2)" src dst;
+  [%expect
+    {|
+    axis H -> W                map: value map: t1 and t1 correspond but differ in shape
+    window [0,1) -> [1,2)      2 clusters: 1 proved (structural), 1 refuted (counterexample) |}]
+
 (* ---- the Equivalent family ------------------------------------------------
 
    Batch-norm precomputation is the only legalization that is [Equivalent]

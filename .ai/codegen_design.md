@@ -138,6 +138,16 @@ the key is present. The `match` is the correct lazy pattern. Discovered when `Gr
 - OCaml keyword clash (e.g. field named `type`) → append `_` (`type_`)
 - Recursive type support module: `Foo_Type` (not `Foo`) → avoids shadowing the facade
 
+**The ATen generators share one escape, and that is not tidiness.** `Aten_ident.ml_id`
+(`lib/aten_gen/aten_ident.ml`) is used by `Aten_spec_gen` and `Aten_decode_gen` alike.
+Before it was lifted out, only the spec generator escaped; the decode generator bound
+`a.name` raw, which is fine until an op has an argument literally named `end` —
+`slice.Tensor` does. The failure mode is what makes sharing the rule load-bearing: the
+generated `let* end = …` does not *parse*, so the break is loud, but it only surfaces
+after the missing decode arm is added, i.e. a run later than the change that caused it.
+When adding an arm to either generator, escape through `Aten_ident.ml_id` and keep the
+JSON key at the wire name — they are different strings whenever the escape fires.
+
 ## Default Value YAML Quoting Trap
 
 `default: 'False'` in YAML strips the single quotes — OCaml sees `"False"`, not

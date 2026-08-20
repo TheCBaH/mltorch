@@ -408,6 +408,24 @@ let%expect_test "sink_permute: an operand that is also a graph output" =
   matches Sink_permute.pattern (Graph_fixtures.sink_permute_output ());
   [%expect {| no match |}]
 
+(* Pad is NOT on the allowlist and must not be: it names axes, so sinking a
+   permute past it would leave the pad entries attached to the axes they had
+   BEFORE the reorder. The allowlist match has a default arm, so this exclusion
+   is silent in the source -- it is a fixture or it is nothing. *)
+let%expect_test "sink_permute: pad is a barrier" =
+  matches Sink_permute.pattern (Graph_fixtures.sink_permute_pad ());
+  [%expect {| no match |}]
+
+(* Slice is excluded for the same reason and by the same silent default arm: it
+   names an axis, so sinking a permute past it would leave the bounds attached
+   to whichever axis landed where the named one used to be. Checked at the
+   PATTERN rather than at the output, because a pass that sank it anyway would
+   still produce a graph that validates -- the wrong axis is a different answer,
+   not a malformed one. *)
+let%expect_test "sink_permute: slice is a barrier" =
+  matches Sink_permute.pattern (Graph_fixtures.sink_permute_slice ());
+  [%expect {| no match |}]
+
 let%expect_test "sink_permute: every accepted op sinks" =
   run ~show_before:false
     (Graph_fixtures.sink_permute_allowlist ())

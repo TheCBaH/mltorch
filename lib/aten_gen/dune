@@ -8,6 +8,7 @@
   aten_decode_gen
   aten_emit
   aten_gen
+  aten_ident
   aten_config_gen
   aten_spec_gen
   aten_walk_gen

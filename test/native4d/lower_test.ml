@@ -343,6 +343,38 @@ let%expect_test "lower: unbind keeps every slice, in order" =
     t2 [W=2 C=2],
     t3 [W=2 C=2]] |}]
 
+(* Only the axis KEYS convert; the signed amounts and the mode cross unchanged,
+   which is what makes the claim [Identical] and is exactly what a golden over
+   the printed op checks. A lowering that clamped the crop to zero, or dropped
+   the second entry, prints differently here and nowhere else — the numeric
+   comparison in verify_test.ml sees a shape change and refuses earlier. *)
+let%expect_test "lower: pad4 carries both entries, signs and all" =
+  show "pad" (Fixtures.pad_hw_crop ());
+  [%expect
+    {|
+    pad:
+      graph4
+    inputs: [t0 [H=4 W=4 C=2]]
+    nodes:
+      n0: [t1] = pad4 x=t0 params={pads=[H:1,-1, W:0,2] mode=constant(0.25)}
+    outputs: [t1 [H=4 W=6 C=2]] |}]
+
+(* Only the axis converts; the three bounds cross unchanged, which is what makes
+   the claim [Identical] and what the printed op checks. A lowering that dropped
+   the step or swapped start and stop still produces a graph that validates -- on
+   these bounds it even produces the same OUTPUT SHAPE for a start/stop swap
+   above the ceiling -- so the golden is where it shows. *)
+let%expect_test "lower: slice4 carries all three bounds" =
+  show "slice" (Fixtures.slice_w ());
+  [%expect
+    {|
+    slice:
+      graph4
+    inputs: [t0 [H=2 W=5 C=1]]
+    nodes:
+      n0: [t1] = slice4 x=t0 params={axis=W start=1 stop=5 step=2}
+    outputs: [t1 [H=2 W=2 C=1]] |}]
+
 (* ---- op3-impl.md commit 8: Sub, Reshape4, Permute4 from transpose --------- *)
 
 (* Sub is a direct binary legalization, exactly like Add: no relayout, one

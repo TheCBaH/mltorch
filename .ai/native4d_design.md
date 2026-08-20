@@ -384,6 +384,8 @@ This section covers every operation currently in `Graph_ir.op`.
 | `Max_pool2d`, `Avg_pool2d` | Direct counterpart | `Identical` when shared compute is used |
 | `Permute` | `Permute4`, after proving it acts only on the four-axis domain | `Identical` |
 | `Reshape` | `Reshape4`, when source and target both satisfy the invariant | `Identical` |
+| `Pad` | `Pad4` with `Axis4.t` keys, when every **padded** axis is nameable | `Identical` |
+| `Slice` | `Slice4` with an `Axis4.t`, when the sliced axis is nameable | `Identical` |
 | `Unbind` | `Unbind` with an `Axis4.t`, when the axis is nameable AND every inferred slice re-enters `Shape4` | `Identical` |
 | `Discard` | Removed by DCE | Vacuous deletion |
 
@@ -431,6 +433,44 @@ first kind.
 
 Note this does **not** give the dialect a zero-output op, so it still needs no
 `Discard`: multi-output and zero-output are different needs.
+
+`Pad` is the group's other axis-naming op, and its domain rule is narrower than
+`Unbind`'s in the way that matters: only the **padded** axes are gated. An entry
+naming `T` or `D` is what the four-axis dialect has no form for; an unpadded `T`
+or `D` extent is not `Domain.check_node`'s business, and `check_shapes` plus the
+lowerer's own `Shape4.of_vec6` already cover it. Gating every axis instead would
+reject graphs the dialect can represent perfectly well.
+
+Its payload is its own (`Ops4.Pad4`) for the first trigger in
+`.ai/native4d_add_op.md` — it names axes, so the entry keys are `Axis4.t` and
+`T`/`D` are unsayable in a Native4D graph. The **mode stays a parameter** rather
+than splitting into `Constant_pad4`/`Reflect_pad4`, which is that file's third
+trigger and does not apply: the dialect supports both modes Native does, so a
+constructor split would make nothing unrepresentable that a field does not.
+The amounts are Native's own `Pad.Pad.entry` — **signed**, so cropping crosses
+unchanged — and the shape rule and pixel map are delegated to
+`Pad.Pad.output_shape` / `Pad.Pad.Compute` through one adapter
+(`Graph_shape4.pad_params`) shared by `Graph_shape4` and `Eval_op4`, so the two
+cannot disagree about which axis an entry means.
+
+Only the axis KEYS convert in the lowerer, which is why the claim is
+`Identical`: both dialects materialize f32 through the same functor, so no value
+changes. The mutation that pins it swaps `before` and `after` on one axis —
+shape-preserving exactly because `before + after` sets the output extent — and
+`test/native4d/mutation_test.ml` records the honest conversion's verdict beside
+it, since a refutation is only evidence if the unmutated pair proves.
+
+`Slice` is the group's third axis-naming op and the simplest of them: one axis
+gated, the three bounds crossing unchanged, `Identical`. It is worth a note only
+for what its mutation revealed. `Slice` **keeps** the axis it narrows, so on a
+square input a wrong axis is a **shape change** — slicing `H` to 1 gives
+`[H=1 W=2]`, slicing `W` to 1 gives `[H=2 W=1]` — and `Graph_map.create` refuses
+it before `Map_verify` runs. op6.md predicted the opposite ("swap the axis, and
+only `Map_verify` sees it"), which is true of `Unbind`, whose slices all have the
+same shape, and false of `Slice`. The shape-preserving mutation here is sliding
+the WINDOW: `start` and `stop` moved by the same offset select different elements
+at an identical extent. `test/native4d/mutation_test.ml` keeps both, because they
+pin different layers.
 
 Average pool should remain an operation. Replacing it with a depthwise
 convolution multiplies every tap before accumulation instead of summing and then
@@ -581,6 +621,10 @@ graphs. A practical initial Native4D dialect also needs:
 - `MeanKeepDims`;
 - `Permute4`;
 - `Reshape4`;
+- `Pad4` (op6.md's Group 6, row 6.1): the dialect's first **boundary
+  synthesis** op — its output has cells that are a copy of no input element;
+- `Slice4` (row 6.2): a strided selection that KEEPS its axis, so unlike
+  `Unbind` it is single-output and rank-preserving;
 - `Unbind`, the one multi-output op (see §7.1);
 - graph constants, inputs, and the structural notion of discarded/dead output.
 

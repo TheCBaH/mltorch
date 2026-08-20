@@ -237,6 +237,35 @@ or perform NCHW↔NHWC: a rank-4 NHWC activation `[n;h;w;c]` lands with `n` on t
 load-time permutation), deliberately outside this positional bridge. The bridge's
 only job is to be the invertible rank carrier.
 
+#### `Aten_shape` also owns the ATen *conventions* the frame has no opinion on
+
+Three of them so far, and the reason they live here rather than in the ops or in
+the two importers is the same each time: `Op_bridge` reads live tensors and
+`Native_interp` reads serialized metadata, but they must accept and reject
+exactly the same node, and two copies of a convention is one edit away from two
+contracts.
+
+| helper | convention |
+|---|---|
+| `axis_of_dim ~rank` | a negative `dim` counts from the end |
+| `resolve_view_size ~numel` | `view`/`_unsafe_view`'s single inferred `-1` |
+| `resolve_slice ~extent` | `slice.Tensor`'s defaults, negative bounds and clamps |
+
+**These helpers accept what ATen accepts; they do not enforce Native's limits.**
+That split is deliberate and is the half most likely to be got wrong. ATen
+*clamps* an out-of-range slice bound rather than refusing it — a trailing `end`
+far past the axis is a routine way for an exporter to spell "to the end" — so
+`resolve_slice` clamps too. What it does *not* do is decide whether the result is
+empty, even though only Native has that problem (`Dim.extent` is ≥ 1, so a
+size-0 tensor has no representation at all).
+
+The emptiness rule belongs to the op's `output_shape`, reported as
+`Shape_error.Slice` (and `Shape_error.Pad` for a crop that consumes an axis).
+Putting it in the importer helper would leave `Graph_builder` and every
+JSON-decoded graph unguarded — the same mistake `Graph_shape4`'s `Reshape4` arm
+made by returning its target without inspecting its input. One rule, at the one
+point every construction path goes through.
+
 #### Rank-changing reductions (`mean.dim` / `sum` / `amax`) and `keepdim`
 
 A reduction over a set of ATen dims either keeps those dims at size 1

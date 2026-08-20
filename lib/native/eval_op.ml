@@ -128,6 +128,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Mul.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Pad { Pad.Pad.params; x } ->
+        let module C = Pad.Pad.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Permute { Permute.Permute.perm; x } ->
         let module C = Permute.Permute.Compute (S) in
         C.pixel perm ~x:(operand x) out
@@ -154,6 +157,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Sub.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Slice { Split.Slice.params; x } ->
+        let module C = Split.Slice.Compute (S) in
+        C.pixel params ~x:(operand x) out
     (* Homogeneous multi-output: every ordinal runs the same algorithm and
        differs only in the coordinate it reads, so [~output] goes in as data
        rather than selecting between named pixel functions the way

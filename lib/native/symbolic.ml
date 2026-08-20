@@ -43,6 +43,7 @@ let of_index = Expr.Index.of_position
 let index_add = Expr.Index.add
 let index_scale = Expr.Index.scale
 let index_min = Expr.Index.min
+let index_max = Expr.Index.max
 let index_eq a b = Expr.Builder.return (Expr.Bool.index_eq a b)
 let clamp_low = Expr.Index.clamp_low
 let assume_index = Expr.Index.assume_position

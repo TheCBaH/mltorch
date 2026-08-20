@@ -79,6 +79,9 @@ let selection =
     op "avg_pool2d";
     op "view";
     op "_unsafe_view";
+    (* structural: boundary synthesis and strided selection (op6.md Group 6) *)
+    op "pad";
+    op "slice" ~overload:"Tensor";
     (* shape/view ops used by the ViT models *)
     op "expand";
     op "select" ~overload:"int";

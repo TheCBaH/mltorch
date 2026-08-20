@@ -56,6 +56,36 @@ Include roots:
 (`gen` holds the codegen output as `gen/ATen/...`; `inc` holds the macro header as
 `inc/c10/macros/...`).
 
+### Adding an op can mean adding C++, not just a selection line
+
+`bin/aten_ops_gen.ml`'s `selection` decides what gets a *binding*.
+`lib/aten/build_archive.sh` decides what gets *linked*, and the two are separate
+lists. A one-line selection change that names an op whose kernel is not in the
+archive produces a **link error**, not a build success with a missing arm — the
+opposite failure mode from `Interp_decode`'s silent skip (see
+`.ai/interpreter_design.md` §3a), and much easier to notice.
+
+`aten.pad.default` is the worked example, and it shows all three moves:
+
+- **add the sources.** `native/PadNd.cpp` (`pad_symint`, `_pad_enum_symint`,
+  `constant_pad_nd`), plus `ReflectionPad.cpp` and `ReplicationPadding.cpp`,
+  plus `cpu/PaddingKernel.cpp` in the CAP list. Replicate and circular are
+  refused by the native engine and still have to link: `_pad_enum_symint`'s mode
+  switch is straight-line, so every arm is *referenced*.
+- **remove a stub that became a duplicate.** `constant_pad_nd` was in
+  `atg_stubs.cpp` only because `Convolution.cpp` references it for `same`
+  padding; with `PadNd.cpp` real, keeping the stub is a duplicate-symbol error.
+- **add a stub for what the new sources drag in.** `ReflectionPad.cpp` has
+  quantized variants calling `at::_empty_affine_quantized` straight-line, which
+  static dispatch resolves to `empty_affine_quantized_other_backends_stub` —
+  a cold path the dense-CPU float engine never takes, and one whose real
+  definition is itself only a better error message.
+
+The general shape: link, read the undefined symbol, decide *source or stub* by
+asking whether the dense-CPU float path can reach it, and record the answer in a
+comment beside the line. Guessing from the op's name does not work — the closure
+is empirical, exactly as the section above says.
+
 ## torchgen invocation quirks
 
 `python3 -m torchgen.gen --source-path <pt>/aten/src/ATen --install_dir <abs> --generate <what>`

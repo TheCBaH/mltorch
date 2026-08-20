@@ -135,6 +135,11 @@ val max_pool2d_with_indices :
 val mean : ?name:string -> Reduce.Mean.params -> tensor_ref -> Tensor_id.t t
 val mul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
+val pad : ?name:string -> Pad.Pad.params -> tensor_ref -> Tensor_id.t t
+(** Narrows a [Constant] fill to its f32-canonical value, as [add_scalar] does
+    for its scalar. Negative pad entries are accepted (they crop); the shape
+    rule refuses one that empties an axis. *)
+
 val permute :
   ?name:string -> Permute.Permute.perm -> tensor_ref -> Tensor_id.t t
 
@@ -152,6 +157,13 @@ val rms_norm :
   Tensor_id.t t
 
 val silu : ?name:string -> tensor_ref -> Tensor_id.t t
+
+val slice : ?name:string -> Split.Slice.params -> tensor_ref -> Tensor_id.t t
+(** Takes CANONICAL bounds — non-negative, ordered, within the axis. A caller
+    holding ATen's spelling gets them from {!Aten_shape.resolve_slice}; a caller
+    that does not is refused by the shape rule rather than silently reading out
+    of bounds. *)
+
 val sqrt : ?name:string -> tensor_ref -> Tensor_id.t t
 val sub : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 

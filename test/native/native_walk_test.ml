@@ -44,6 +44,53 @@ let%expect_test "native walk: linear reaches both bias states" =
     step 8 [input]: {shape=[n=1 c=27 h=5 w=4] out_features=16 bias=false}
     [native] linear: direct==symbolic |}]
 
+(* The coverage sweep runs pad at 5 steps on its own index as the seed, and that
+   walk never draws an extent of 1 -- so [Pad.Walk]'s config space could emit a
+   configuration the op REFUSES, and the sweep stayed green. [Pad_nwalk] builds
+   through [Err.or_raise], so an invalid config is not a mismatch, it is an
+   uncaught exception that aborts the whole sweep.
+
+   Seed 9 at 12 steps draws H=1 and pattern=reflect_hw, which is the pair that
+   used to raise ("reflect pad of axis H by (1, 1) needs each side below the
+   extent 1"). Pinned here rather than left to the sweep, because the sweep's
+   seed is its INDEX in [all_walks] -- so inserting any walk ahead of pad
+   silently re-rolls its dice, and that is how this surfaced. *)
+let%expect_test "native walk: pad stays inside its own domain at extent 1" =
+  capture (fun ppf ->
+      match Native_op_walk.find "pad" with
+      | None -> Format.fprintf ppf "no pad walk registered@."
+      | Some m ->
+          assert (
+            Native_op_walk.run m ~ppf ~pcg:(Pcg.seed ~seed:9L ~seq:1L) ~steps:12));
+  [%expect
+    {|
+    step 0: {shape=[n=1 c=3 h=6 w=6] pattern=pad_hw}
+    [native] pad: direct==symbolic
+    step 1 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=pad_asym_w}
+    [native] pad: direct==symbolic
+    step 2 [input]: {shape=[n=1 c=3 h=6 w=1] pattern=pad_asym_w}
+    [native] pad: direct==symbolic
+    step 3 [pattern]: {shape=[n=1 c=3 h=6 w=1] pattern=reflect_hw}
+    [native] pad: direct==symbolic
+    step 4 [input]: {shape=[n=1 c=3 h=6 w=10] pattern=reflect_hw}
+    [native] pad: direct==symbolic
+    step 5 [pattern]: {shape=[n=1 c=3 h=6 w=10] pattern=reflect_asym_w}
+    [native] pad: direct==symbolic
+    step 6 [pattern]: {shape=[n=1 c=3 h=6 w=10] pattern=reflect_hw}
+    [native] pad: direct==symbolic
+    step 7 [input]: {shape=[n=1 c=22 h=6 w=10] pattern=reflect_hw}
+    [native] pad: direct==symbolic
+    step 8 [pattern]: {shape=[n=1 c=22 h=6 w=10] pattern=reflect_hw}
+    [native] pad: direct==symbolic
+    step 9 [input]: {shape=[n=1 c=22 h=6 w=10] pattern=reflect_hw}
+    [native] pad: direct==symbolic
+    step 10 [pattern]: {shape=[n=1 c=22 h=6 w=10] pattern=reflect_asym_w}
+    [native] pad: direct==symbolic
+    step 11 [input]: {shape=[n=1 c=22 h=6 w=9] pattern=reflect_asym_w}
+    [native] pad: direct==symbolic
+    step 12 [pattern]: {shape=[n=1 c=22 h=6 w=9] pattern=pad_hw}
+    [native] pad: direct==symbolic |}]
+
 let%expect_test "native walk coverage" =
   (* [assert], not [ignore]: a mismatch also truncates the printed walk, so the
      golden would catch it -- but only by way of a diff that reads like a
@@ -357,4 +404,28 @@ let%expect_test "native walk coverage" =
     step 4 [input]: [n=2 c=4 h=14 w=4]
     [native] hardswish: direct==symbolic
     step 5 [input]: [n=2 c=4 h=14 w=14]
-    [native] hardswish: direct==symbolic |}]
+    [native] hardswish: direct==symbolic
+    step 0: {shape=[n=1 c=3 h=6 w=6] pattern=pad_hw}
+    [native] pad: direct==symbolic
+    step 1 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=reflect_asym_w}
+    [native] pad: direct==symbolic
+    step 2 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=pad_hw}
+    [native] pad: direct==symbolic
+    step 3 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=reflect_hw}
+    [native] pad: direct==symbolic
+    step 4 [input]: {shape=[n=1 c=3 h=6 w=6] pattern=reflect_hw}
+    [native] pad: direct==symbolic
+    step 5 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=pad_hw}
+    [native] pad: direct==symbolic
+    step 0: {shape=[n=2 c=4 h=4 w=4] axis=H start=0 stop=2 step=1}
+    [native] slice: direct==symbolic
+    step 1 [input]: {shape=[n=2 c=4 h=4 w=13] axis=H start=0 stop=2 step=1}
+    [native] slice: direct==symbolic
+    step 2 [pattern]: {shape=[n=2 c=4 h=4 w=13] axis=H start=2 stop=4 step=1}
+    [native] slice: direct==symbolic
+    step 3 [input]: {shape=[n=2 c=4 h=4 w=12] axis=H start=2 stop=4 step=1}
+    [native] slice: direct==symbolic
+    step 4 [axis]: {shape=[n=2 c=4 h=4 w=12] axis=W start=6 stop=12 step=1}
+    [native] slice: direct==symbolic
+    step 5 [input]: {shape=[n=2 c=14 h=4 w=12] axis=W start=6 stop=12 step=1}
+    [native] slice: direct==symbolic |}]
