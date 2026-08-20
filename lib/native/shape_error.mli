@@ -49,6 +49,20 @@ module Window_over_limit : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** Adaptive-pooling's [input_extent * output_size] aggregate exceeded the
+    JS-safe index ceiling. The product is checked before index arithmetic. *)
+module Adaptive_pool : sig
+  type t = {
+    axis : Axis.t;
+    input_extent : Dim.extent Dim.t;
+    output_size : Op_config.Pos.t;
+    aggregate : int64;
+    limit : int64;
+  }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 (** An OPTIONAL operand whose shape disagrees with the one the op requires. One
     row rather than one per op: the fault is identical in every case and the
     [operand] tag says which slot. Every [output_shape] takes the REQUIRED
@@ -298,6 +312,7 @@ end
 
 type t =
   [ `Broadcast of Broadcast.t
+  | `Adaptive_pool of Adaptive_pool.t
   | `Window of Window.t
   | `Window_over_limit of Window_over_limit.t
   | `Operand_shape of Operand_shape.t

@@ -293,6 +293,9 @@ let lower_node ~view acc (n : node) =
   | Sqrt { Pointwise.Sqrt.x } -> simple (Op.Sqrt { Pointwise.Sqrt.x = op_of x })
   | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       simple (Op.Avg_pool2d { Pool.AvgPool2d.params; x = op_of x })
+  | Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x } ->
+      simple
+        (Op.Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x = op_of x })
   | Max_pool2d { Pool.MaxPool2d.params; x } ->
       simple (Op.Max_pool2d { Pool.MaxPool2d.params; x = op_of x })
   (* The axes were gated on the NATIVE [Axis.t] by [Domain.check_dims] before

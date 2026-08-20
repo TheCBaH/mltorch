@@ -52,6 +52,9 @@ val add : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
    f32-canonical value here, so callers need not. *)
 val add_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
+val adaptive_avg_pool2d :
+  ?name:string -> Pool.AdaptiveAvgPool2d.params -> tensor_ref -> Tensor_id.t t
+
 val avg_pool2d :
   ?name:string -> Pool.AvgPool2d.params -> tensor_ref -> Tensor_id.t t
 

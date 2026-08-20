@@ -215,9 +215,10 @@ let check_node view (n : node) =
   match n.Node.op with
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. *)
-  | Add _ | Add_scalar _ | Avg_pool2d _ | Clamp _ | Clone _ | Div _
-  | Div_scalar _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Linear _
-  | Max_pool2d _ | Mul _ | Relu _ | Reshape _ | Silu _ | Sqrt _ | Sub _ ->
+  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
+  | Clone _ | Div _ | Div_scalar _ | Hardsigmoid _ | Hardswish _ | Hardtanh _
+  | Linear _ | Max_pool2d _ | Mul _ | Relu _ | Reshape _ | Silu _ | Sqrt _
+  | Sub _ ->
       Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
   | Layer_norm { Norm.LayerNorm.params; _ } ->

@@ -39,6 +39,9 @@ let avg_params : Pool.AvgPool2d.params =
     pad = hw (Op_config.Nonneg.of_int 0);
   }
 
+let adaptive_params : Pool.AdaptiveAvgPool2d.params =
+  { output_size = hw (Op_config.Pos.of_int 3) }
+
 let conv_params ~in_channels ~kernel : Ops4.Conv_params.t =
   {
     h = axis_window ~kernel;
@@ -127,6 +130,8 @@ let per_op () =
       ("hardswish", unary ~shape:nhwc Builder.hardswish);
       ("sqrt", unary ~shape:nhwc Builder.sqrt);
       ("max_pool2d", unary ~shape:nhwc (Builder.max_pool2d pool_params));
+      ( "adaptive_avg_pool2d",
+        unary ~shape:nhwc (Builder.adaptive_avg_pool2d adaptive_params) );
       ("avg_pool2d", unary ~shape:nhwc (Builder.avg_pool2d avg_params));
       ( "mean_keepdims",
         unary ~shape:nhwc (Builder.mean_keepdims [ Axis4.H; Axis4.W ]) );

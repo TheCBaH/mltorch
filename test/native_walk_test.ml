@@ -717,13 +717,13 @@ let%expect_test "bridge coverage" =
     step 3 [pad_w]: {kernel=2x4 stride=2x2 pad=0x1 n=1 c=4 H=8 W=16}
     [spec] torch.ops.aten.max_pool2d.default: matched
     step 0: {shape=[1,4,8,8] output_size=[4,4]}
-    [spec] torch.ops.aten.adaptive_avg_pool2d.default: skipped (no native impl)
+    [spec] torch.ops.aten.adaptive_avg_pool2d.default: matched
     step 1 [out_h]: {shape=[1,4,8,8] output_size=[4,4]}
-    [spec] torch.ops.aten.adaptive_avg_pool2d.default: skipped (no native impl)
+    [spec] torch.ops.aten.adaptive_avg_pool2d.default: matched
     step 2 [input_h]: {shape=[1,4,12,8] output_size=[4,4]}
-    [spec] torch.ops.aten.adaptive_avg_pool2d.default: skipped (no native impl)
+    [spec] torch.ops.aten.adaptive_avg_pool2d.default: matched
     step 3 [input_w]: {shape=[1,4,12,6] output_size=[4,4]}
-    [spec] torch.ops.aten.adaptive_avg_pool2d.default: skipped (no native impl)
+    [spec] torch.ops.aten.adaptive_avg_pool2d.default: matched
     step 0: {input=[4,8] out_features=6 bias=true}
     [spec] torch.ops.aten.linear.default: matched
     step 1 [leading]: {input=[2,3,8] out_features=6 bias=true}

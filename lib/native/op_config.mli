@@ -43,7 +43,13 @@ module Bad : sig
      that came from a model. Same split as [Dim.extent]/[Dim.extent_checked]. *)
 
   type param =
-    [ `Stride | `Padding | `Output_padding | `Dilation | `Kernel_size | `Groups ]
+    [ `Stride
+    | `Padding
+    | `Output_padding
+    | `Dilation
+    | `Kernel_size
+    | `Output_size
+    | `Groups ]
 
   type fault = [ `Not_positive of int | `Negative of int ]
   (** Distinct because the constructors are: [Pos] forbids zero and [Nonneg]

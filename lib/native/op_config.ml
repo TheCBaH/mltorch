@@ -38,7 +38,13 @@ end
 
 module Bad = struct
   type param =
-    [ `Stride | `Padding | `Output_padding | `Dilation | `Kernel_size | `Groups ]
+    [ `Stride
+    | `Padding
+    | `Output_padding
+    | `Dilation
+    | `Kernel_size
+    | `Output_size
+    | `Groups ]
 
   type fault = [ `Not_positive of int | `Negative of int ]
   type t = { op : string; param : param; fault : fault }
@@ -52,6 +58,7 @@ module Bad = struct
       | `Output_padding -> "output_padding"
       | `Dilation -> "dilation"
       | `Kernel_size -> "kernel_size"
+      | `Output_size -> "output_size"
       | `Groups -> "groups")
 
   let pp ppf { op; param; fault } =

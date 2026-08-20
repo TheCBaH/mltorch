@@ -17,6 +17,7 @@ type op =
      driven from [op_registry] below, not a per-constructor match. *)
   | Add of Pointwise.Add.t
   | Add_scalar of Pointwise.Add_scalar.t
+  | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
   | Bmm of Matmul.Bmm.t
@@ -104,6 +105,12 @@ let op_registry : (module OP) list =
 
       let inject t = Add_scalar t
       let project = function Add_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pool.AdaptiveAvgPool2d
+
+      let inject t = Adaptive_avg_pool2d t
+      let project = function Adaptive_avg_pool2d t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pool.AvgPool2d

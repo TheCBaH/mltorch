@@ -737,6 +737,29 @@ let%expect_test "dispatch: max_pool2d.default relayouts NCHW input and output" =
     outputs: [t3 f32 [W=4 C=4] <-n2]
     tensor f32 [W=4 C=4] {-1, -1, -2, -3, -1, -1, -2, -3, ...} |}]
 
+let%expect_test
+    "dispatch: adaptive_avg_pool2d.default retains output_size through relayout"
+    =
+  let x =
+    float_tensor [ 1; 1; 4; 4 ] (List.init 16 (fun i -> float_of_int (i + 1)))
+  in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.adaptive_avg_pool2d.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "output_size" [ 1; 1 ] ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=4 C=4] ->[n0]]
+    nodes:
+      n0: [t1 f32 [H=4 W=4 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t2 f32 [C=1] ->[n2]] =
+        adaptive_avg_pool2d x=t1 <-n0 params={output_size={h=1; w=1}}
+      n2: [t3 f32 [C=1]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [C=1] <-n2]
+    tensor f32 [C=1] {8.5} |}]
+
 let%expect_test "dispatch: max_pool2d_with_indices.default discards indices" =
   (* NCHW [1,1,4,4], value(h,w)=h*4+w. 2x2/stride-2 windows: max is each
      window's bottom-right; the graph output is the relayout'd values, and the
