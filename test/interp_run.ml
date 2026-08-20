@@ -1,8 +1,8 @@
 (* Run a .pt2 model through the ATen interpreter on every sample image and
-   compare the local top-5 against the reference results.json shipped in the
-   release zip. Driven by interp_cram (see `make pt2.runtest`) and
+   compare the local top-5 against the producer's expected.json and tensor-map
+   oracle. Driven by interp_cram (see `make pt2.runtest`) and
    `make inference`.
-   argv: <model.pt2> <images_dir> <synsets.txt> <metadata.txt> <results.json>
+   argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt>
          [--cram] [--strict]
 
    The flow itself lives in [Infer_report], shared with js/run/pt2_run.ml. All

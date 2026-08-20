@@ -10,8 +10,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const temporary = await mkdtemp(join(root, '.webapp-dist-'));
 const output = join(root, 'webapp-dist');
 const ids = (process.env.MODELS === 'all'
-  ? (await readdir(join(root, 'modules/pytorch.models.pt2/models'))).sort()
-  : (process.env.MODELS || 'resnet18').split(/\s+/).filter(Boolean).sort());
+  ? (await readdir(join(root, 'modules/devcontainer.pytorch-image-models/models'))).sort()
+  : (process.env.MODELS || 'mobilenetv2_050').split(/\s+/).filter(Boolean).sort());
 
 async function assertArtifact(directory, relative = '') {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -46,14 +46,14 @@ try {
 const models = [];
   for (const id of ids) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) throw new Error(`invalid model id: ${id}`);
-    const source = join(root, 'modules/pytorch.models.pt2/models', id, 'models/model.json');
+    const source = join(root, 'modules/devcontainer.pytorch-image-models/models', id, 'models/model.json');
     if (!(await stat(source)).isFile()) throw new Error(`unknown model: ${id}`);
     const data = await readFile(source);
     await cp(source, join(temporary, 'models', `${id}.json`));
     models.push({ id, displayName: id, bytes: String(data.byteLength), sha256: createHash('sha256').update(data).digest('hex'), url: `models/${id}.json` });
   }
   if (new Set(ids).size !== ids.length) throw new Error('duplicate model id');
-  const { stdout: sourceRef } = await exec('git', ['rev-parse', 'HEAD:modules/pytorch.models.pt2'], { cwd: root });
+  const { stdout: sourceRef } = await exec('git', ['rev-parse', 'HEAD:modules/devcontainer.pytorch-image-models'], { cwd: root });
   await writeFile(join(temporary, 'catalog.json'), `${JSON.stringify({ schemaVersion: 1, sourceRef: sourceRef.trim(), defaultModel: models[0].id, models })}\n`);
   await assertArtifact(temporary);
   await rm(output, { recursive: true, force: true });

@@ -70,14 +70,14 @@ jobs:
         ${{ env.EXEC }} make runtest
     # Model release .zips (12 MB-1.1 GB each; ~5.3 GB total across all 22
     # models exercised by `make inference`) are fetched from the
-    # pytorch.models.pt2 GitHub release (a public asset, so curl needs no
-    # token) into data/pt2/<model>/. One cache entry covers every zip
+    # devcontainer.pytorch-image-models GitHub release (a public asset, so curl needs no
+    # token) into data/pt2-functional/<model>/. One cache entry covers every zip
     # downloaded so far this release (glob path), keyed by release tag + a
     # hash of the model list, so adding/removing a model creates a fresh
     # cache entry instead of an immutable cache silently going stale; the
     # restore-key drops the hash to still warm-start from the closest prior
     # cache. The path/key come from `make pt2.vars` so they track the
-    # Makefile. data/pt2/ is gitignored; the host dir is bind-mounted into the
+    # Makefile. data/pt2-functional/ is gitignored; the host dir is bind-mounted into the
     # devcontainer, so the gated load test and inference step see it.
     - name: pt2 models cache
       uses: actions/cache@v6

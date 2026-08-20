@@ -39,7 +39,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         # Top level only, non-recursive. This job needs modules/pytorch for
-        # schema.yaml (pytorch_types), modules/pytorch.models.pt2 for the
+        # schema.yaml (pytorch_types), modules/devcontainer.pytorch-image-models for the
         # committed model.json fixture, and both vendored/ libraries. It does
         # NOT need pytorch's third_party -- that is for the C++ archive, which
         # nothing here builds.
@@ -93,7 +93,7 @@ jobs:
   # downloaded Chromium -- and burying that in either of the others would make a
   # browser regression read as an OCaml one.
   #
-  # It needs the modules/pytorch.models.pt2 submodule for resnet18's committed
+  # It needs the modules/devcontainer.pytorch-image-models submodule for resnet18's committed
   # model.json: the gate renders the session `native_graph visualize` actually
   # produces from it, which is the only check anywhere that our export is one
   # the real element accepts rather than one our own validator accepts.

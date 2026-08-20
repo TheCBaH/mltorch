@@ -1,7 +1,7 @@
 (* The pure-engine counterpart of test/interp_run.ml: the same all-sample top-5
    report, evaluated by [Native_interp] instead of by ATen. Built natively here
    and as a node program in js/jsoo.
-   argv: <model.pt2> <images_dir> <synsets.txt> <metadata.txt> <results.json>
+   argv: <model.pt2> <inputs.pt> <expected.json> <outputs.pt>
          [--cram] [--strict]
 
    NOT a probe, which is why it lives here rather than in js/probe. The probe

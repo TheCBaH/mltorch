@@ -530,7 +530,7 @@ reasons gets its own name in the job list.
 
 The **jsoo** job checks submodules out (top level, non-recursive): `pytorch_types` comes
 from `schema.yaml` in `modules/pytorch`, and the tier-1 fixture from
-`modules/pytorch.models.pt2`. It runs `jsoo.runtest`, `jsoo.inline-runtest` and
+`modules/devcontainer.pytorch-image-models`. It runs `jsoo.runtest`, `jsoo.inline-runtest` and
 `jsoo.pt2.runtest` as separate steps so a failure names the layer. It needs no ccache — it
 builds no C++.
 
@@ -557,7 +557,7 @@ free in the jsoo job and directly on the critical path in `build`. Moving it sho
 push and costs ~99 MB of download in a job that had minutes of slack.
 
 The **browser** job drives the real pinned Model Explorer element under Chromium. It needs
-`modules/pytorch.models.pt2` for resnet18's committed `model.json`, because the Stage 1 gate
+`modules/devcontainer.pytorch-image-models` for resnet18's committed `model.json`, because the Stage 1 gate
 renders the session `native_graph visualize` actually produces from it — the only check
 anywhere that our export is one the *element* accepts rather than one our own validator
 accepts. Two caches, both keyed on `web/package-lock.json`: `node_modules` and the
@@ -608,7 +608,7 @@ and measured against `.git/modules/modules/pytorch`:
 |---|---|
 | `modules/pytorch` itself, shallow | ~97 MB |
 | its 37 nested submodules | **306 MB** |
-| `modules/pytorch.models.pt2` | 1.1 MB |
+| `modules/devcontainer.pytorch-image-models` | 1.1 MB |
 
 So the recursion was 76% of the cost. Naming the two is equivalent for the build: nothing
 in the tree references any other `third_party` path, neither `fmt` nor `cpuinfo` declares

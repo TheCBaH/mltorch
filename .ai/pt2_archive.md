@@ -52,3 +52,24 @@ that placeholder. Target names are importer provenance, not native IR. The
 native IR intentionally does not retain trainability, buffer persistence, or
 mutation semantics. Exact aliasing between separately named payloads is also
 outside this inference-only boundary.
+
+## Functional image-model release contract
+
+Runnable fixtures come from `TheCBaH/devcontainer.pytorch-image-models` at
+`0baf47c2903eabdd57aa3843e531d1d3c636c7a4` / `v0.0.3`. Downloaded assets live
+under `data/pt2-functional/<model>/` and contain `<model>.pt2`,
+`preprocessing.json`, `expected.json`, `inputs.pt`, and `outputs.pt`.
+
+`inputs.pt` and `outputs.pt` are external `torch.save` `dict[str, Tensor]`
+archives, not the single tensor in `data/sample_inputs/model.pt`.
+`Pt2_archive.load_pt_tensor_map` is consequently separate from `load_pt`: it
+accepts direct string-to-tensor maps, retains tensor layout metadata, rejects
+duplicates and missing storage, and returns lexical key order. ZIP file,
+per-entry, and aggregate bounds apply before pickle decoding on native and
+js_of_ocaml alike.
+
+The selected-release manifest records the producer pin, required files and
+GitHub SHA-256 values. `pt2.download` validates digest, contents and the
+canonicalized release graph against the pinned producer graph. `pt2.runtest`
+is network-free and only preflights existing assets before ordinary
+`dune runtest`; it never promotes downloaded output.

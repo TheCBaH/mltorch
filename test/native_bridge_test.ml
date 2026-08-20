@@ -2673,7 +2673,7 @@ let%expect_test "importer: linear.default matches ATen" =
   linear_vs_aten "in > out:" ~x_sizes:[ 4; 6 ] ~w_sizes:[ 2; 6 ] ~bias:`Tensor;
   [%expect
     {|
-    bias omitted:          aten: missing required argument "bias"
+    bias omitted:          Ok
     bias explicit none:    Ok
     bias tensor:           Ok
     rank 4 input:          Ok

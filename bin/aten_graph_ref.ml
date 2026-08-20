@@ -6,7 +6,8 @@ let run model input reference =
     Pt2_archive.open_pt2 model |> Err.map_error (fun e -> `Archive e)
   in
   let* input =
-    Pt2_archive.load_pt input |> Err.map_error (fun e -> `Archive e)
+    Pt2_archive.load_first_pt_tensor input
+    |> Err.map_error (fun e -> `Archive e)
   in
   let* result =
     Interp.run archive input |> Err.map_error (fun e -> `Interp e)
@@ -36,5 +37,5 @@ let () =
           Format.eprintf "aten_graph_ref: %a@." (Err.Error.pp pp_error) e;
           exit 1)
   | _ ->
-      prerr_endline "usage: aten_graph_ref MODEL.pt2 INPUT.pt OUTPUT.json";
+      prerr_endline "usage: aten_graph_ref MODEL.pt2 INPUTS.pt OUTPUT.json";
       exit 1

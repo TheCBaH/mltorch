@@ -106,7 +106,7 @@ opam exec -- dune exec bin/pt2_spec_gen.exe -- <path/to/model.pt2> test/data/<mo
 ```
 
 Pure OCaml — no ATen/libtorch build needed, only the `.pt2` file (already present under
-`data/pt2/<model>/` once downloaded via `make pt2.download-cram`/`make pt2.download-all`).
+`data/pt2-functional/<model>/` once downloaded via `make pt2.download-cram`/`make pt2.download-all`).
 
 ## Evaluating the fixtures: `--eval`
 

@@ -53,7 +53,7 @@ git submodule update --init --recursive vendored/opickle vendored/ocaml-yamlt
   never touches opickle.
 
 The two big content submodules — `modules/pytorch` (the ATen C++ sources) and
-`modules/pytorch.models.pt2` (real model weights for the gated cram tests) — are
+`modules/devcontainer.pytorch-image-models` (real model weights for the gated cram tests) — are
 *not* initialized this way; see §5 for how to make the aten build / model tests
 see them without re-cloning gigabytes.
 
@@ -99,8 +99,8 @@ cloning a huge tree *plus* its `third_party/{fmt,cpuinfo}` — don't. Instead
 ```sh
 rmdir modules/pytorch && ln -s /workspaces/tfview/modules/pytorch modules/pytorch
 # same for the gated model tests, if you run them:
-rmdir modules/pytorch.models.pt2 && \
-  ln -s /workspaces/tfview/modules/pytorch.models.pt2 modules/pytorch.models.pt2
+rmdir modules/devcontainer.pytorch-image-models && \
+  ln -s /workspaces/tfview/modules/devcontainer.pytorch-image-models modules/devcontainer.pytorch-image-models
 ```
 
 This works because the `lib/aten`/`data` dune rules reach the sources as
@@ -130,7 +130,7 @@ submodule above is in place.
   any git command (status/add/commit), restore them to empty dirs — the build is
   done by then, so you don't need the sources anymore:
   ```sh
-  for p in modules/pytorch modules/pytorch.models.pt2; do
+  for p in modules/pytorch modules/devcontainer.pytorch-image-models; do
     [ -L "$p" ] && { rm "$p"; mkdir "$p"; }
   done
   ```

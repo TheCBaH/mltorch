@@ -242,20 +242,22 @@ let%expect_test "report: callback errors are propagated, not reclassified" =
 
 (* --- parse_argv --- *)
 
-let paths = [| "prog"; "m.pt2"; "images"; "syn.txt"; "meta.txt"; "res.json" |]
+let paths = [| "prog"; "m.pt2"; "inputs.pt"; "expected.json"; "outputs.pt" |]
 
 let show_argv argv =
   Fmt.pr "%a@."
     (Fmt.result
        ~ok:(fun ppf ((p : Paths.t), (o : Options.t)) ->
-         Fmt.pf ppf "%s %s %s %s %s%s%s" p.pt2 p.images_dir p.synsets p.metadata
-           p.results
+         Fmt.pf ppf "%s %s %s %s%s%s" p.pt2
+           (Option.value p.inputs ~default:"?")
+           (Option.value p.expected ~default:"?")
+           (Option.value p.outputs ~default:"?")
            (match o.mode with Natural -> "" | Cram -> " cram")
            (if o.strict then " strict" else ""))
        ~error:(fun ppf _ -> Fmt.pf ppf "usage"))
     (parse_argv argv)
 
-let%expect_test "parse_argv: five paths and the flag grammar" =
+let%expect_test "parse_argv: tensor-map paths and the flag grammar" =
   List.iter
     (fun extra -> show_argv (Array.append paths extra))
     [
@@ -268,12 +270,12 @@ let%expect_test "parse_argv: five paths and the flag grammar" =
     ];
   [%expect
     {|
-    m.pt2 images syn.txt meta.txt res.json
-    m.pt2 images syn.txt meta.txt res.json cram
-    m.pt2 images syn.txt meta.txt res.json strict
-    m.pt2 images syn.txt meta.txt res.json cram strict
-    m.pt2 images syn.txt meta.txt res.json cram strict
-    m.pt2 images syn.txt meta.txt res.json cram |}]
+    m.pt2 inputs.pt expected.json outputs.pt
+    m.pt2 inputs.pt expected.json outputs.pt cram
+    m.pt2 inputs.pt expected.json outputs.pt strict
+    m.pt2 inputs.pt expected.json outputs.pt cram strict
+    m.pt2 inputs.pt expected.json outputs.pt cram strict
+    m.pt2 inputs.pt expected.json outputs.pt cram |}]
 
 (* An extra positional is a distinct branch from a missing one, and the one that
    would otherwise be silently dropped -- which is how a caller ends up thinking
@@ -283,12 +285,12 @@ let%expect_test "parse_argv: rejections" =
     [
       [||];
       [| "prog" |];
-      [| "prog"; "m.pt2"; "images"; "syn.txt"; "meta.txt" |];
+      [| "prog"; "m.pt2"; "inputs.pt"; "expected.json" |];
       Array.append paths [| "extra.json" |];
       Array.append paths [| "--cram"; "extra.json" |];
       Array.append paths [| "--verbose" |];
       [|
-        "prog"; "m.pt2"; "--cram"; "images"; "syn.txt"; "meta.txt"; "res.json";
+        "prog"; "m.pt2"; "--cram"; "inputs.pt"; "expected.json"; "outputs.pt";
       |];
     ];
   [%expect

@@ -6,6 +6,7 @@ _build/
 .ai/*_census.*
 AGENTS.md
 data/pt2/
+data/pt2-functional/
 .profile/
 
 # Stage 0A spike: npm's tree, the copied visualizer dist, the generated

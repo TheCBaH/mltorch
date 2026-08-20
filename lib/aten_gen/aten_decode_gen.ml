@@ -65,6 +65,15 @@ let is_mean_dim_optional_dims (op : A.t) (a : A.Argument.t) =
   | Some "dim" -> String.equal a.name "dim"
   | _ -> false
 
+let is_functional_conv_bias (op : A.t) (a : A.Argument.t) =
+  (String.equal op.name.base "conv2d" || String.equal op.name.base "linear")
+  && String.equal a.name "bias"
+
+let is_functional_none_default (op : A.t) (a : A.Argument.t) =
+  is_functional_conv_bias op a
+  || String.equal op.name.base "scaled_dot_product_attention"
+     && String.equal a.name "attn_mask"
+
 (* Decode one argument to (preamble lets, call-site expressions). A list arg
    yields a preamble binding plus two expressions (data ptr + length), mirroring
    the (data, len) C parameter pair; everything else is a single expression and
@@ -88,13 +97,29 @@ let decode_arg ~(op : A.t) ~anchor (a : A.Argument.t) =
       else
         match anchor with
         | Some like ->
-            bind
-              (Printf.sprintf "(tensor_or_scalar_arg env node %s ~like:%s)" q
-                 (Aten_ident.ml_id like))
-              [ id ]
+            let decode =
+              match a.default with
+              | Some A.Default.None when is_functional_none_default op a ->
+                  "tensor_arg_opt"
+              | _ -> "tensor_or_scalar_arg"
+            in
+            let call =
+              if String.equal decode "tensor_arg_opt" then
+                Printf.sprintf "(%s env node %s)" decode q
+              else
+                Printf.sprintf "(%s env node %s ~like:%s)" decode q
+                  (Aten_ident.ml_id like)
+            in
+            bind call [ id ]
         | None -> bind (Printf.sprintf "(tensor_arg env node %s)" q) [ id ])
   | A.Type.Optional (A.Type.Base A.Base.Tensor) ->
-      bind (Printf.sprintf "(tensor_arg env node %s)" q) [ id ]
+      let decode =
+        match a.default with
+        | Some A.Default.None when is_functional_none_default op a ->
+            "tensor_arg_opt"
+        | _ -> "tensor_arg"
+      in
+      bind (Printf.sprintf "(%s env node %s)" decode q) [ id ]
   | A.Type.Base A.Base.Int | A.Type.Base A.Base.SymInt ->
       let d =
         match a.default with
