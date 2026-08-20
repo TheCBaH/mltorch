@@ -177,15 +177,27 @@ test('cancelling mid-load leaves the previous model usable and says nothing stal
   await page.goto('/index.html');
   await loaded(page);
 
-  // Reload cancels whatever is in flight before starting, so the second click
-  // supersedes the first candidate while it is still processing.
-  await page.locator('#reload').click();
-  await expect(page.locator('#visualizer .visualizer-slot')).toHaveCount(2, { timeout: 90_000 });
-  await page.locator('#reload').click();
-  // Cancellation removes authority, not the DOM connection: tearing a still
-  // processing element out is precisely what throws NG0953.
-  expect(await page.locator('#visualizer .visualizer-slot').count(),
-    'the cancelled candidate was torn out').toBe(2);
+  // This test needs to click #reload a SECOND time while the first candidate
+  // is still connected but not yet processed -- and for a small graph that
+  // window can close in a single event-loop tick (see the instrumentation
+  // note above `INSTRUMENT`), too narrow for a live DOM poll to reliably
+  // land in. CPU-throttling the page widens it without changing what either
+  // click does.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 8 });
+  try {
+    // Reload cancels whatever is in flight before starting, so the second click
+    // supersedes the first candidate while it is still processing.
+    await page.locator('#reload').click();
+    await expect(page.locator('#visualizer .visualizer-slot')).toHaveCount(2, { timeout: 90_000 });
+    await page.locator('#reload').click();
+    // Cancellation removes authority, not the DOM connection: tearing a still
+    // processing element out is precisely what throws NG0953.
+    expect(await page.locator('#visualizer .visualizer-slot').count(),
+      'the cancelled candidate was torn out').toBe(2);
+  } finally {
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+  }
 
   await loaded(page);
   await expect(page.locator('#visualizer .visualizer-slot')).toHaveCount(1, { timeout: 90_000 });
@@ -679,10 +691,12 @@ test('reload preserves the selected stages and effort', async ({ page }) => {
    * reads `not_requested`. Deselecting only Kernel would therefore prove
    * nothing about the selector. */
   await page.locator('#stage-controls input#stage-kernel').uncheck();
-  await replaced(page, from);
+  // Same shared, slower CI runners as the standard-effort passes below: an
+  // export at default effort has hit the 90s default here too.
+  await replaced(page, from, 240_000);
   from = (await samples(page)).length;
   await page.locator('#stage-controls input#stage-fusion').uncheck();
-  await replaced(page, from);
+  await replaced(page, from, 240_000);
   await expect.poll(stages, { timeout: 90_000 }).toBe(WITHOUT_KERNEL);
 
   from = (await samples(page)).length;
