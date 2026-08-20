@@ -334,6 +334,73 @@ let unbind_int =
       pcg )|};
   }
 
+(* pad.default: SymInt[] pad has no schema default, so like view/_unsafe_view it
+   never reaches the generated Default tier and this entry is the only walk it
+   can have. The whole configuration -- pad list, mode and value together -- is
+   ONE axis, because mode and value are not independent (ATen refuses a value on
+   a non-constant mode) and reflect's amounts are bounded by the extent they
+   mirror. [Recipe_pad] derives those amounts from the shape currently drawn, so
+   the pattern axis and the shape axes stay consistent without a cascade. *)
+let pad =
+  {
+    module_name = "Pad_walk";
+    target = "torch.ops.aten.pad.default";
+    recipe = "Recipe_pad";
+    initial =
+      "Aten_walk_recipes.Recipe_pad.{ n = 1; c = 3; h = 4; w = 4; pattern = \
+       Aten_walk_recipes.Recipe_pad.Const_w }";
+    axes =
+      "Aten_walk_recipes.Recipe_pad.axes ~n:[ 1; 2 ] ~c:[ 2; 3; 4 ] ~h:[ 3; 4; \
+       6 ] ~w:[ 3; 4; 6 ] ~pattern:Aten_walk_recipes.Recipe_pad.all_patterns";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_pad.self_shape c) in
+    ( Aten_op_spec.Op_pad.(
+        spec
+          {
+            self;
+            pad = Recipe_pad.pads c;
+            mode = Recipe_pad.mode c;
+            value = Recipe_pad.value c;
+          }),
+      pcg )|};
+  }
+
+(* slice.Tensor: both bounds are [SymInt?], and [fill_non_tensor] declines an
+   optional TYPE before it looks at the default, so this op has no Default tier
+   either. That is the conservatism doing real work here -- slice.Tensor's
+   schema defaults are jointly the IDENTITY slice, so a generated default walk
+   would hold every parameter at it and report [matched] for any implementation
+   that returned its input.
+
+   Rank and dim travel as ONE candidate (a dim is only valid for a rank) and the
+   bounds are derived from the drawn extent rather than stored, so [cascade] is
+   the identity. See .ai/native_walk_design.md. *)
+let slice_tensor =
+  {
+    module_name = "Slice_tensor_walk";
+    target = "torch.ops.aten.slice.Tensor";
+    recipe = "Recipe_slice";
+    initial =
+      "Aten_walk_recipes.Recipe_slice.{ n = 2; c = 3; h = 4; w = 5; config = { \
+       rank = 4; dim = 0; pattern = Aten_walk_recipes.Recipe_slice.Head } }";
+    axes =
+      "Aten_walk_recipes.Recipe_slice.axes ~n:[ 2; 3; 4 ] ~c:[ 2; 3; 5 ] ~h:[ \
+       2; 4; 6 ] ~w:[ 2; 5; 7 ] \
+       ~config:Aten_walk_recipes.Recipe_slice.all_configs";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_slice.self_shape c) in
+    ( Aten_op_spec.Op_slice_Tensor.(
+        spec
+          {
+            self;
+            dim = Recipe_slice.dim c;
+            start = Recipe_slice.start c;
+            end_ = Recipe_slice.stop c;
+            step = Recipe_slice.step c;
+          }),
+      pcg )|};
+  }
+
 (* view.default / _unsafe_view.default: SymInt[] size has no default (unlike a
    scalar or a bool), so neither reaches the generated Default tier
    (op3-impl.md F5) -- the target is a factorization of the source's element
@@ -514,6 +581,8 @@ let entries =
     clamp;
     hardtanh;
     unbind_int;
+    pad;
+    slice_tensor;
     sub_tensor;
     view_default;
     unsafe_view;

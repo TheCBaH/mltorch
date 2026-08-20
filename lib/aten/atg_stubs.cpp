@@ -52,7 +52,14 @@ at::Tensor mkldnn_matmul(const at::Tensor&, const at::Tensor&, const at::Tensor&
 // variants remain stubbed.
 at::Tensor slow_conv3d(const at::Tensor&, const at::Tensor&, at::IntArrayRef, const std::optional<at::Tensor>&, at::IntArrayRef, at::IntArrayRef) { MINSTUB("slow_conv3d"); }
 at::Tensor slow_conv_transpose3d_cpu(const at::Tensor&, const at::Tensor&, at::IntArrayRef, const std::optional<at::Tensor>&, at::IntArrayRef, at::IntArrayRef, at::IntArrayRef, at::IntArrayRef) { MINSTUB("slow_conv_transpose3d_cpu"); }
-at::Tensor constant_pad_nd(const at::Tensor&, at::IntArrayRef, const at::Scalar&) { MINSTUB("constant_pad_nd"); }
+// constant_pad_nd is now REAL (native/PadNd.cpp, added for aten.pad.default);
+// it was stubbed only because Convolution.cpp references it for `same` padding.
+
+// ReflectionPad.cpp / ReplicationPadding.cpp carry quantized variants that call
+// at::_empty_affine_quantized straight-line; under static dispatch that resolves
+// to this factory. The dense-CPU float paths this engine takes never reach it,
+// and PyTorch's own definition is itself only a better error message.
+at::Tensor empty_affine_quantized_other_backends_stub(at::IntArrayRef, std::optional<at::ScalarType>, std::optional<at::Layout>, std::optional<at::Device>, std::optional<bool>, double, int64_t, std::optional<at::MemoryFormat>) { MINSTUB("_empty_affine_quantized"); }
 
 // xnnpack mobile conv fast path (Convolution.cpp); never built/taken here.
 namespace xnnpack {

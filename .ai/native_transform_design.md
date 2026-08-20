@@ -588,6 +588,35 @@ continuous, so they propagate normally — as are `Hardsigmoid`/`Hardswish`
 (each clamps through the same `select`/`lt` pair) and `Silu` (no branch at
 all; op5.md's Group 5).
 
+**`Pad` is `Continuous`, and the interesting part is why it is not two answers.**
+In `Reflect` mode every output element IS copied from an input element, so
+`Reindexing` would be sound. In `Constant` mode the padded cells are a
+synthesized fill that is a copy of no input element, so a per-element
+`Approximate` claim about the input says nothing about them and `Reindexing`
+would be *unsound*. The classification is per **op**, not per payload, and a
+class that varied with a field would be one refactor away from being read off
+the wrong one — so both modes take the answer that is true of both. `Continuous`
+is honest for either: a small input change moves the copied cells slightly and
+leaves any constants exactly where they were. If a pass ever needs the stronger
+claim for reflect, the right change is to split the constructor, not to branch
+inside `classify`.
+
+**`Slice` is `Reindexing`**, the single-output form of `Unbind`'s argument: it
+keeps a strided *subset* of the input's elements and adds no arithmetic to any
+of them, so a per-element `Approximate` bound carries across unchanged. Note
+that this is a stronger claim than `Pad`'s and the difference is not about
+structure — both name an axis and both are permute barriers. It is about
+whether every output element is a copy of an input element, which is true of
+`Slice` unconditionally and of `Pad` only in `Reflect` mode.
+
+Neither `Slice` nor `Pad` is on `Sink_permute.elementwise` or
+`Reuse_permute.binary_elementwise`. Both name an axis, so commuting either with
+a permute would leave the parameters attached to whichever axis landed where the
+named one used to be. Those two matches have a **default arm**, unlike
+`classify`, so the exclusion is silent in the source — which is why each has a
+fixture (`Graph_fixtures.sink_permute_pad`, `sink_permute_slice`) rather than
+only a comment.
+
 ## 9. Terminal packing
 
 Status: **implemented** — `rewrite.ml`'s `pack`, over `Id_supply.origin_marks`

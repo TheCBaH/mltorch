@@ -39,6 +39,31 @@ alphabetical position at every site below; don't append.
    codec/dataflow/pp boilerplate. Reuse the value basis in
    `semantics.ml` — `mul`/`add`/`sub`/`div`/`select`/`lt`/… already exist, so a new
    pointwise op usually needs no new primitive.
+   **A structural op usually needs none either, and the two kinds of addition to
+   `SEMANTICS` are not the same size.** `index_max` (added for `Pad`'s reflect
+   mirror) cost three lines, because `Expr` already had the `Max` constructor
+   with every eval/pp/compare/traversal arm. An index *comparison* would not:
+   `Expr.Bool` has only `Value_lt` and `Index_eq`, so `index_lt` would be a
+   genuine new AST node. Before reaching for a boolean primitive, check whether
+   the clamp-and-compare idiom (`.ai/native_compute_design.md` §1) expresses the
+   test — it is also what keeps a `load` in bounds, since `select` evaluates
+   both arms.
+   **Decide where a parameter becomes canonical, and say so in the payload's
+   type.** `Slice`'s bounds are non-negative, ordered and inside the axis
+   because `Aten_shape.resolve_slice` applied the defaulting, the negative-index
+   normalization and the clamping *before* the payload existed — one helper, so
+   the bridge and the importer cannot drift. What is deliberately not delegated
+   is the decision that the result is EMPTY: that is a fact about the extent, so
+   it lives in `output_shape`, where `Graph_builder` and a JSON-decoded graph
+   meet it too. The same split applies to `Pad`'s crop. A rule that only the
+   importers enforce is a rule the builder and the JSON decoder do not have.
+
+   That leaves a check the op still owns: `Slice.output_shape` rejects bounds
+   outside `0 <= start <= stop <= extent`, unreachable from either importer and
+   reachable from both of the other two constructors — and it is what keeps
+   `Compute`'s read in bounds, since `clamp_low` bounds the source coordinate
+   below and nothing bounds it above.
+
    Keep the native graph surface one-to-one with ATen overloads when an overload
    has a distinct target and user-visible parameter contract. It is fine for the
    implementation to delegate internally after translating params (for example,

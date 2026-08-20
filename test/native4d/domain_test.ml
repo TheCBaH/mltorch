@@ -236,6 +236,26 @@ let%expect_test "domain: linear is in the dialect" =
   table [ ("linear", Fixtures.linear_layer) ];
   [%expect {| linear                       in the dialect |}]
 
+(* Only the PADDED axes are gated. The first fixture pads H and W and is inside
+   the dialect; the second pads D on a graph whose other axes are unremarkable,
+   and is refused by the axis rule with D named — the diagnostic that says which
+   entry to remove, rather than one about a tensor that grew an extent. *)
+let%expect_test "domain: pad gates the padded axes, and only those" =
+  table [ ("pad H and W", Fixtures.pad_hw_crop); ("pad D", Fixtures.pad_d) ];
+  [%expect
+    {|
+    pad H and W                  in the dialect
+    pad D                        node n0: axis D is outside the N/H/W/C dialect |}]
+
+(* Slice gates its ONE axis, the same rule pad applies to its padded ones. The
+   D case is refused by the axis rule and names D. *)
+let%expect_test "domain: slice gates the sliced axis" =
+  table [ ("slice W", Fixtures.slice_w); ("slice D", Fixtures.slice_d) ];
+  [%expect
+    {|
+    slice W                      in the dialect
+    slice D                      node n0: axis D is outside the N/H/W/C dialect |}]
+
 (* [Unbind]'s axis check and its shape consequence are DIFFERENT rejections, and
    the ordering is what makes the first one useful: node predicates run before
    the shape rule, so a rank-five unbind naming T reports the axis rather than

@@ -61,6 +61,19 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Hardswish_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (* The only walk that varies a STRUCTURAL parameter alongside the shape:
+       its pattern axis steps between padding, cropping and both at once, and
+       its mode axis between the constant fill and the reflect mirror. Both are
+       correlated with the drawn shape inside the op's [Walk], so an invalid
+       config is unreachable rather than filtered. *)
+    (module Pad_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
+    (* The other structural walk. Its pattern axis steps between the identity
+       selection, both ends, an interior range and two strides, each resolved
+       against the drawn extent inside the op's [Walk] -- so the empty and
+       out-of-range configurations [output_shape] refuses are unreachable here
+       rather than filtered out after the fact. *)
+    (module Slice_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
   ]
 
 (* [native_op_walk.ml] shares the library's name, so it IS the library's

@@ -55,6 +55,22 @@ module type SEMANTICS = sig
   val index_floor_div_pos : delta index -> Op_config.Pos.t -> delta index
   val index_ceil_div_pos : delta index -> Op_config.Pos.t -> delta index
   val index_min : delta index -> delta index -> delta index
+
+  (* [index_max] exists for [Pad]'s reflect mirror, which needs [abs] on an
+     index: [|x| = max x (-x)], and the mirror is
+     [n-1 - |n-1 - |j||]. Expressible as [-(min x (-x))] with [index_min]
+     alone, and deliberately not written that way -- the negation trick costs a
+     reader more than the primitive costs the two semantics, and [Expr] already
+     had the [Max] constructor with every eval/pp/compare/traversal arm, so this
+     adds no AST node.
+
+     What is NOT here, and should not be, is an index COMPARISON. [Expr.Bool]
+     has only [Value_lt] and [Index_eq]; an [index_lt] would be a genuine new
+     constructor. [Pad]'s "is this coordinate inside the source" test avoids
+     needing one by clamping the coordinate into range and comparing the clamped
+     value with the unclamped one through [index_eq] -- which also keeps the
+     [load] in bounds, since [select] evaluates both arms. *)
+  val index_max : delta index -> delta index -> delta index
   val index_eq : delta index -> delta index -> b
   val clamp_low : delta index -> position index
   val assume_index : delta index -> position index

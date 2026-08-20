@@ -362,3 +362,44 @@ let%expect_test "unbind: walk_eval re-derives the count each step" =
       -> out1: [2] min=2 max=3 mean=2.5
       -> out2: [2] min=4 max=5 mean=4.5
       status: ok |}]
+
+(* --- int? / SymInt?: the decode capability, exercised end to end ------------
+
+   [avg_pool2d.default] is the op that proves it. Before [Interp_decode.int_opt_ptr]
+   existed, [Aten_decode_gen.decode_arg] returned None for its [int?
+   divisor_override] and [dispatch_arm] dropped the whole op SILENTLY, so the
+   binding was reachable from C and unreachable from a graph — the status line
+   below read "aten interp: unhandled op" and there was nothing else in the tree
+   that said so.
+
+   Both states of the optional are pinned, because a decoder that always
+   produced the null pointer would pass the absent case alone: with
+   [divisor_override] absent ATen divides by the window size (4), and with it set
+   to 2 the same window divides by 2, so the second is exactly twice the first.
+   There is no native avg_pool2d bridge arm, hence no [native] line. *)
+
+let avg_pool2d_spec ~divisor =
+  Printf.sprintf
+    {|{ "target": "torch.ops.aten.avg_pool2d.default",
+        "args": {
+          "self": { "dtype": "f32", "shape": [1, 1, 2, 2], "sequence": { "start": 1.0, "step": 1.0 } },
+          "kernel_size": [2, 2],
+          "stride": [2, 2],
+          "padding": [0, 0]%s } }|}
+    divisor
+
+let%expect_test "avg_pool2d: int? absent divides by the window" =
+  eval (avg_pool2d_spec ~divisor:"");
+  [%expect
+    {|
+    [eval] torch.ops.aten.avg_pool2d.default
+      aten   out0 = [2.5]
+      native = <no native impl> |}]
+
+let%expect_test "avg_pool2d: int? present divides by divisor_override" =
+  eval (avg_pool2d_spec ~divisor:{|, "divisor_override": 2|});
+  [%expect
+    {|
+    [eval] torch.ops.aten.avg_pool2d.default
+      aten   out0 = [5]
+      native = <no native impl> |}]

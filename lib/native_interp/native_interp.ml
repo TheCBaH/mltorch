@@ -8,6 +8,7 @@ type arg_kind =
   | `Optional_tensor
   | `Int_list
   | `Int
+  | `Int_opt
   | `Bool
   | `Float
   | `Scalar
@@ -56,6 +57,8 @@ type metadata_role =
   | `Mean_input
   | `Permute_input
   | `Transpose_input
+  | `Pad_input
+  | `Slice_input
   | `Unbind_input
   | `Addmm_weight ]
 
@@ -86,6 +89,15 @@ end
 
 module Wrong_arg_kind = struct
   type t = { op : string; arg : string; expected : arg_kind }
+end
+
+(* A [SymInt] argument that arrived as a NAME rather than a value. Its own row
+   rather than a [`Wrong_arg_kind]: the spelling is right and the kind is right,
+   and what is missing is a binding for the symbol -- the same distinction
+   [`Bad_dimension { fault = `Symbolic }] draws for tensor METADATA, applied to
+   an argument. Carries the symbol, because "which one" is the actionable half. *)
+module Unresolved_sym_arg = struct
+  type t = { op : string; arg : string; symbol : string }
 end
 
 module Bad_dimension = struct
@@ -128,15 +140,26 @@ module Bad_view = struct
   }
 end
 
+module Bad_slice = struct
+  type t = {
+    start : int option;
+    stop : int option;
+    step : int;
+    fault : [ `Aten_shape of Aten_shape.error ];
+  }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
+  | `Unresolved_sym_arg of Unresolved_sym_arg.t
   | `Missing_metadata of Missing_metadata.t
   | `Bad_dimension of Bad_dimension.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
   | `Bad_config of Bad_config.t
   | `Unsupported_padding_mode of string
+  | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
   | `Normalized_rank of Normalized_rank.t
   | `Normalized_shape of Normalized_shape.t
   | `Unsupported_option of Unsupported_option.t
@@ -145,7 +168,8 @@ type malformed =
   | `Non_tensor_graph_output
   | `Undefined_ssa of string
   | `Output_not_evaluated of Graph_ir.Tensor_id.t
-  | `Bad_view of Bad_view.t ]
+  | `Bad_view of Bad_view.t
+  | `Bad_slice of Bad_slice.t ]
 
 module Rank_mismatch = struct
   type t = { sizes : int; strides : int }
@@ -194,6 +218,7 @@ let pp_arg_kind ppf : arg_kind -> unit = function
   | `Optional_tensor -> Fmt.string ppf "an optional tensor"
   | `Int_list -> Fmt.string ppf "an int list"
   | `Int -> Fmt.string ppf "an int"
+  | `Int_opt -> Fmt.string ppf "an optional int"
   | `Bool -> Fmt.string ppf "a bool"
   | `Float -> Fmt.string ppf "a float"
   | `Scalar -> Fmt.string ppf "a scalar"
@@ -216,6 +241,8 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Permute_input -> Fmt.string ppf "permute input"
   | `Transpose_input -> Fmt.string ppf "transpose input"
+  | `Pad_input -> Fmt.string ppf "pad input"
+  | `Slice_input -> Fmt.string ppf "slice input"
   | `Unbind_input -> Fmt.string ppf "unbind input"
   | `Addmm_weight -> Fmt.string ppf "addmm weight"
 
@@ -231,6 +258,8 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       Fmt.pf ppf "%s: missing argument %S" op arg
   | `Wrong_arg_kind { Wrong_arg_kind.op; arg; expected } ->
       Fmt.pf ppf "%s.%s is not %a" op arg pp_arg_kind expected
+  | `Unresolved_sym_arg { Unresolved_sym_arg.op; arg; symbol } ->
+      Fmt.pf ppf "%s.%s is the unresolved symbol %S" op arg symbol
   | `Missing_metadata { Missing_metadata.ssa; role } ->
       Fmt.pf ppf "no %a metadata for %S" pp_metadata_role role ssa
   | `Bad_dimension { Bad_dimension.tensor; fault } -> (
@@ -262,6 +291,7 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       | `Ceil_mode -> Fmt.pf ppf "%s: ceil_mode=true is not supported" op)
   | `Unsupported_padding_mode s ->
       Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
+  | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
   | `Normalized_rank { Normalized_rank.rank; got } ->
       Fmt.pf ppf
         "normalized_shape has %d entries, outside [1, %d] for this rank" got
@@ -276,6 +306,12 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Undefined_ssa name -> Fmt.pf ppf "SSA tensor %S is not defined" name
   | `Output_not_evaluated id ->
       Fmt.pf ppf "native output %a was not evaluated" Tensor_id.pp id
+  | `Bad_slice { Bad_slice.start; stop; step; fault } -> (
+      let bound = Fmt.(option ~none:(any "none") int) in
+      match fault with
+      | `Aten_shape e ->
+          Fmt.pf ppf "slice [%a, %a) step %d: %a" bound start bound stop step
+            Aten_shape.pp_error e)
   | `Bad_view { Bad_view.size; fault } -> (
       let ints = Fmt.(list ~sep:(any ", ") int) in
       match fault with
@@ -419,15 +455,48 @@ let ints_arg esc ?(default = []) (node : Pytorch_types.Node.t) name =
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int_list })
 
+(* A resolved [SymInt] is accepted and a NAMED one is refused as an unresolved
+   symbol -- the same rule [Interp_decode.sym_int_value] applies on the ATen
+   path, and the same one [Bad_dimension]'s [`Symbolic] fault already applied to
+   tensor METADATA here. Before [slice.Tensor] no bound op had a [SymInt]
+   argument, so an [Argument.Sym_int] reached [`Wrong_arg_kind] whatever it
+   carried: a resolved bound was refused for the wrong reason and an unresolved
+   one for a reason that did not name the symbol. *)
+let sym_int_value esc (node : Pytorch_types.Node.t) name = function
+  | SymIntArgument.Int i -> i
+  | SymIntArgument.Name symbol ->
+      malformed esc
+        (`Unresolved_sym_arg
+           { Unresolved_sym_arg.op = node.target; arg = name; symbol })
+
 let int_arg esc ?(default = 0) (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
   | None -> default
   | Some { arg = Argument.Int i; _ } -> i
+  | Some { arg = Argument.Sym_int sv; _ } -> sym_int_value esc node name sv
   | Some _ ->
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int })
+
+(* An [int?] whose ABSENCE is a distinguishable answer, as [float_opt_arg_opt]
+   is for [pad]'s fill: [slice]'s [start]/[end] default to the whole axis, and
+   [Aten_shape.resolve_slice] is what knows that. An explicit [Argument.None] is
+   the same as an absent argument, which is the schema's own default
+   ([SymInt? start=None]) and not a guess. *)
+let int_opt_arg_opt esc (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> None
+  | Some { arg = Argument.Int i; _ } -> Some i
+  | Some { arg = Argument.Sym_int sv; _ } ->
+      Some (sym_int_value esc node name sv)
+  | Some { arg = Argument.None _; _ } -> None
+  | Some _ ->
+      malformed esc
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int_opt })
 
 let string_arg esc ~default (node : Pytorch_types.Node.t) name =
   match
@@ -485,6 +554,23 @@ let float_opt_arg esc ~default (node : Pytorch_types.Node.t) name =
   | None -> default
   | Some { arg = Argument.Float f; _ } -> f
   | Some { arg = Argument.None _; _ } -> default
+  | Some _ ->
+      malformed esc
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Float })
+
+(* A [float?] whose ABSENCE is a distinguishable answer rather than a default:
+   [aten.pad]'s [value] means 0.0 in constant mode and must be absent (or zero)
+   in reflect, so collapsing the two here would erase the distinction the mode
+   check needs. Contrast [float_opt_arg] above, which supplies a default because
+   its callers have one. *)
+let float_opt_arg_opt esc (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> None
+  | Some { arg = Argument.Float f; _ } -> Some f
+  | Some { arg = Argument.Int i; _ } -> Some (float_of_int i)
+  | Some { arg = Argument.None _; _ } -> None
   | Some _ ->
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Float })
@@ -1052,6 +1138,17 @@ let resolve_view esc ~tensor shape size =
   in
   shape_of_sizes esc tensor (List.map (fun x -> SymInt.Int x) resolved)
 
+(* The shared resolver, wrapped in this module's own row. Beside [resolve_view]
+   and for its reason: the arm that calls it runs inside the builder monad,
+   where the ambient error type is [Graph_builder.error], so the widening has to
+   happen out here where [error] is what a row can be. *)
+let resolve_slice_arg esc ~extent ~start ~stop ~step =
+  Err.Escape.or_throw esc
+    (Err.map_error
+       (fun e : error ->
+         `Bad_slice { Bad_slice.start; stop; step; fault = `Aten_shape e })
+       (Aten_shape.resolve_slice ~extent ~start ~stop ~step))
+
 let lower program =
   Err.Escape.with_escape @@ fun esc ->
   Err.Escape.or_throw esc
@@ -1389,6 +1486,58 @@ let lower program =
          the name list and the extent are model data, and [add_env]'s
          [Invalid_argument] is an invariant about this module rather than a
          report about the graph. *)
+      (* The pad list is indexed FROM the innermost dimension, so the rank is
+         load-bearing: with the wrong one the same list pads different axes and
+         still produces a plausible graph. It comes from the serialized
+         metadata here and from the live tensor on the bridge, but the
+         un-reversal itself is [Pad.Pad.params_of_aten] on both sides. *)
+      | "torch.ops.aten.pad.default" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Pad_input)
+          in
+          let params =
+            Err.Escape.or_throw esc
+              (Pad.Pad.params_of_aten ~rank ~pad:(ints_arg esc node "pad")
+                 ~mode:(string_arg esc ~default:"constant" node "mode")
+                 ~value:(float_opt_arg_opt esc node "value"))
+          in
+          let* y = pad params (get "self") in
+          return [ y ]
+      (* Everything after [Aten_shape.resolve_slice] is shared with the bridge
+         arm; what differs is where the extent comes from, and that is the point
+         of a shared resolver rather than two normalizations. Here it is the
+         SERIALIZED shape, which is also where an unresolved symbolic dimension
+         is already refused; on the bridge it is the live tensor. *)
+      | "torch.ops.aten.slice.Tensor" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Slice_input)
+          in
+          let axis =
+            match
+              axes_for_rank esc ~tensor:x_name rank
+                [ int_arg esc ~default:0 node "dim" ]
+            with
+            | [ a ] -> a
+            | _ -> invalid_arg "Native_interp: axes_for_rank lost its singleton"
+          in
+          let extent = Vec6.get (tensor_shape esc graph x_name) axis in
+          let start = int_opt_arg_opt esc node "start" in
+          let stop = int_opt_arg_opt esc node "end" in
+          let step = int_arg esc ~default:1 node "step" in
+          let bounds = resolve_slice_arg esc ~extent ~start ~stop ~step in
+          let* y =
+            slice
+              {
+                Split.Slice.axis;
+                start = bounds.Aten_shape.Slice_bounds.start;
+                stop = bounds.Aten_shape.Slice_bounds.stop;
+                step = bounds.Aten_shape.Slice_bounds.step;
+              }
+              (get "self")
+          in
+          return [ y ]
       | "torch.ops.aten.unbind.int" ->
           let x_name = tensor_name esc node "self" in
           let rank =

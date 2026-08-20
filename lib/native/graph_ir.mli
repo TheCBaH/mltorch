@@ -55,11 +55,17 @@ type op =
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean of Reduce.Mean.t
   | Mul of Pointwise.Mul.t
+  | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
   | Silu of Pointwise.Silu.t
+  (* Selects a strided range along one axis and KEEPS it, so unlike [Unbind]
+     the rank is unchanged and there is one output. Its bounds are canonical —
+     defaulted, normalized and clamped by [Aten_shape.resolve_slice] before the
+     payload exists. *)
+  | Slice of Split.Slice.t
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
   (* The only op whose output COUNT is not fixed by the op: it is the extent at

@@ -36,11 +36,13 @@ type op =
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean of Reduce.Mean.t
   | Mul of Pointwise.Mul.t
+  | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
   | Silu of Pointwise.Silu.t
+  | Slice of Split.Slice.t
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
   | Unbind of Split.Unbind.t
@@ -210,6 +212,12 @@ let op_registry : (module OP) list =
       let project = function Mul t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pad.Pad
+
+      let inject t = Pad t
+      let project = function Pad t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Permute.Permute
 
       let inject t = Permute t
@@ -238,6 +246,12 @@ let op_registry : (module OP) list =
 
       let inject t = Silu t
       let project = function Silu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Split.Slice
+
+      let inject t = Slice t
+      let project = function Slice t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Sqrt

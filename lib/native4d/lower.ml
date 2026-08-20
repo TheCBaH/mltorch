@@ -327,6 +327,55 @@ let lower_node ~view acc (n : node) =
   | Reshape { Reshape.Reshape.params; x } ->
       let* shape = shape4 ~id:(single ()) params.Reshape.Reshape.shape in
       simple (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x = op_of x })
+  (* A direct counterpart with only the axis KEYS converted: the signed amounts
+     and the mode cross unchanged, and [Eval_op4] runs the very same
+     [Pad.Pad.Compute] functor over f32 values on both sides, so no value
+     changes and the claim is [Identical].
+
+     [Domain.check_node] has already refused T and D, so this conversion cannot
+     fail — it is still written as a conversion rather than asserted away, for
+     the reason the [Unbind] arm below gives: the domain check and this match
+     disagreeing is a bug worth reporting, not worth raising on.
+
+     The pairs are rebuilt in ONE traversal rather than mapping the axes and
+     re-pairing them, so there is no second list whose length could drift from
+     the entries it is paired with. *)
+  (* A direct counterpart with only the axis converted: the bounds are already
+     canonical against the same extent on both sides, and [Eval_op4] runs the
+     very same [Split.Slice.Compute], so no value changes and the claim is
+     [Identical]. T and D have already been refused by [Domain.check_node], for
+     the reason the [Unbind] arm below gives. *)
+  | Slice { Split.Slice.params; x } ->
+      let* axis = dims4 ~node [ params.axis ] in
+      simple
+        (Op.Slice4
+           {
+             Ops4.Slice4.params =
+               {
+                 axis = List.hd axis;
+                 start = params.start;
+                 stop = params.stop;
+                 step = params.step;
+               };
+             x = op_of x;
+           })
+  | Pad { Pad.Pad.params; x } ->
+      let* pads =
+        Err.List.map
+          (fun (axis, entry) ->
+            let+ axis4 =
+              Axis4.of_axis axis
+              |> Err.of_option (`Axis_outside_dialect (node, axis))
+            in
+            (axis4, entry))
+          params.Pad.Pad.pads
+      in
+      simple
+        (Op.Pad4
+           {
+             Ops4.Pad4.params = { pads; mode = params.Pad.Pad.mode };
+             x = op_of x;
+           })
   (* §7.3. The Native weight is already [Out,1,1,1,1,In] — literally a 1x1
      convolution weight — so this is a params-only rewrite with no data
      movement, and the spatial singleton loops add no arithmetic, leaving the

@@ -194,6 +194,51 @@ let%expect_test "direct4: permute4 swaps H and W" =
     in  [H=2 W=3]: [0 1 2 3 4 5]
     out [H=3 W=2 C=1]: [0 3 1 4 2 5] |}]
 
+(* Hand values, both modes. What this checks that the per-op table below cannot:
+   the dialect's [Axis4.t] keys reach [Pad.Pad.Compute] as the axes they name.
+   Swap H and W in [Graph_shape4.pad_params] and both modes here go red, while
+   the direct-versus-symbolic table stays entirely green — both of its sides
+   read the same adapter. *)
+let%expect_test "direct4: pad4, constant and reflect" =
+  let shape = s4 ~n:1 ~h:2 ~w:3 ~c:1 in
+  let pad mode pads =
+    let g =
+      build
+        ~outputs:(fun o -> [ o ])
+        (let open Builder in
+         let* x = input ~shape () in
+         pad4 { Ops4.Pad4.pads; mode } x)
+    in
+    let out =
+      single g ~inputs:[ (List.hd g.Graph.Graph.inputs, seq shape) ] ()
+    in
+    let (Tensor.Tensor tt) = out in
+    Format.printf "out %a: %a@." Vec6.pp_shape tt.Tensor.shape pp_values
+      (values out)
+  in
+  Format.printf "in  [H=2 W=3]: %a@." pp_values (values (seq shape));
+  (* One column of fill on each side of W, none on H: rows [9 0 1 2 9] and
+     [9 3 4 5 9]. *)
+  pad (Pad.Pad.Constant 9.) [ (Axis4.W, { Pad.Pad.before = 1; after = 1 }) ];
+  (* Mirror about the boundary element, which is NOT repeated: row [0 1 2]
+     extended left by one is [1 0 1 2], and by two on the right is [.. 1 0]. *)
+  pad Pad.Pad.Reflect [ (Axis4.W, { Pad.Pad.before = 1; after = 2 }) ];
+  (* H is the OUTER axis here, so a mirror on it moves whole rows: [0 1 2] and
+     [3 4 5] become [3 4 5], [0 1 2], [3 4 5]. A pad that silently used W would
+     print the same extents as a W-mirror only if H and W matched, which is why
+     this fixture is 2x3. *)
+  pad Pad.Pad.Reflect [ (Axis4.H, { Pad.Pad.before = 1; after = 0 }) ];
+  (* Cropping: a negative entry removes the last row, and nothing is
+     synthesized, so no fill value can appear. *)
+  pad (Pad.Pad.Constant 9.) [ (Axis4.H, { Pad.Pad.before = 0; after = -1 }) ];
+  [%expect
+    {|
+    in  [H=2 W=3]: [0 1 2 3 4 5]
+    out [H=2 W=5 C=1]: [9 0 1 2 9 9 3 4 5 9]
+    out [H=2 W=6 C=1]: [1 0 1 2 1 0 4 3 4 5 4 3]
+    out [H=3 W=3 C=1]: [3 4 5 0 1 2 3 4 5]
+    out [W=3 C=1]: [0 1 2] |}]
+
 (* ---- direct versus grounded symbolic --------------------------------------- *)
 
 (* The stage-3 acceptance criterion, over one graph per op. Comparison is
@@ -242,7 +287,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 23, registry: 23 |}]
+  [%expect {| fixtures: 25, registry: 25 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -266,6 +311,8 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     max_pool2d             direct = symbolic
     avg_pool2d             direct = symbolic
     mean_keepdims          direct = symbolic
+    pad4                   direct = symbolic
+    slice4                 direct = symbolic
     permute4               direct = symbolic
     reshape4               direct = symbolic
     rms_norm               direct = symbolic

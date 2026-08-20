@@ -130,6 +130,34 @@ schema order) and calls the binding. A mismatch (arg count/type) should raise a
 clear "unhandled <target>" so missing ops surface immediately when extending to
 other models.
 
+### 3a. The decoder set is the real op selection, and a gap in it is silent
+
+`bin/aten_ops_gen.ml`'s curated list says which ops get a *binding*.
+`Interp_decode`'s helper set says which of those get a *dispatch arm*, and the
+two are not the same: `Aten_decode_gen.decode_arg` returns `None` for an argument
+type it cannot decode, and `dispatch_arm` then drops the whole op — **silently**,
+unlike `bin/aten_ops_gen.ml:105` where a generator skip is fatal.
+
+The observable consequence is a target that is selected, has a C binding, and
+answers `` `Unhandled_op `` at runtime. `avg_pool2d.default` and `argmax.default`
+were both in that state until `int_opt_ptr` landed, purely because their `int?`
+argument had no decoder. Nothing in the tree said so; the generated
+`interp_dispatch.ml` is a build artifact, and the walk suite reported
+`skipped (aten interp: unhandled op)`, which reads like an unselected op.
+
+Two rules follow:
+
+- **A binding change is not done until the emitted `interp_dispatch.ml` has been
+  read.** A one-line addition to `selection` regenerates six artifacts and the
+  build is green whether or not the op became dispatchable.
+- **`skipped (aten interp: unhandled op)` in `test/native_walk_test.ml` is a
+  decoder gap, not a coverage decision.** `skipped (no native impl)` is the
+  honest state for an op ATen can run and native cannot.
+
+The decoder set also carries the argument-name escape: identifiers the generator
+emits go through `Aten_ident.ml_id`, shared with `Aten_spec_gen`, because
+`slice.Tensor`'s bound argument is named `end`.
+
 ### 4. Output / result
 - `graph.outputs : Argument.t list` — read the final `as_tensor` name(s) from
   `env`. resnet18 returns one `[1;1000]` logits tensor.

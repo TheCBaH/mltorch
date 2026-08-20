@@ -130,6 +130,34 @@ let per_op () =
       ("avg_pool2d", unary ~shape:nhwc (Builder.avg_pool2d avg_params));
       ( "mean_keepdims",
         unary ~shape:nhwc (Builder.mean_keepdims [ Axis4.H; Axis4.W ]) );
+      (* Both signs on two different axes, so the fixture covers padding and
+         cropping in one graph. Constant rather than reflect because that is the
+         mode whose pixel map goes through [select] — the arm the [Symbolic]
+         instance stages rather than evaluates, and so the one this
+         direct-versus-symbolic comparison is actually about. Reflect's mirror
+         is pinned by hand values above. *)
+      ( "pad4",
+        unary ~shape:nhwc
+          (Builder.pad4
+             {
+               Ops4.Pad4.pads =
+                 [
+                   (Axis4.H, { Pad.Pad.before = 1; after = -1 });
+                   (Axis4.W, { Pad.Pad.before = 0; after = 2 });
+                 ];
+               mode = Pad.Pad.Constant 0.25;
+             }) );
+      (* A non-unit step on a NON-square input, so a fixture that read the wrong
+         axis differs in shape as well as in values. *)
+      ( "slice4",
+        unary ~shape:nhwc
+          (Builder.slice4
+             {
+               Ops4.Slice4.axis = Axis4.W;
+               start = 1;
+               stop = 4;
+               step = Op_config.Pos.of_int 2;
+             }) );
       ( "permute4",
         unary ~shape:nhwc
           (Builder.permute4

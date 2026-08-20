@@ -161,6 +161,58 @@ module Reshape = struct
       Vec6.pp_shape target Vec6.pp_shape source
 end
 
+module Slice = struct
+  type fault = [ `Empty | `Out_of_range ]
+
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    start : int;
+    stop : int;
+    step : Op_config.Pos.t;
+    out : int64;
+    fault : fault;
+  }
+
+  let pp ppf { axis; in_extent; start; stop; step; out; fault } =
+    Fmt.pf ppf "slice of axis %a [%d, %d) step %d over extent %a %s" Axis.pp
+      axis start stop
+      (step :> int)
+      Dim.pp in_extent
+      (match fault with
+      | `Empty ->
+          Fmt.str "selects %Ld elements; the engine has no empty extent" out
+      | `Out_of_range -> "is not within 0 <= start <= stop <= extent")
+end
+
+module Pad = struct
+  type fault = [ `Empty | `Reflect_width | `Duplicate_axis ]
+
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    before : int64;
+    after : int64;
+    out : int64;
+    fault : fault;
+  }
+
+  let pp ppf { axis; in_extent; before; after; out; fault } =
+    match fault with
+    | `Empty ->
+        Fmt.pf ppf
+          "pad of axis %a by (%Ld, %Ld) over extent %a leaves %Ld elements; \
+           the engine has no empty extent"
+          Axis.pp axis before after Dim.pp in_extent out
+    | `Reflect_width ->
+        Fmt.pf ppf
+          "reflect pad of axis %a by (%Ld, %Ld) needs each side below the \
+           extent %a"
+          Axis.pp axis before after Dim.pp in_extent
+    | `Duplicate_axis ->
+        Fmt.pf ppf "axis %a has more than one pad entry" Axis.pp axis
+end
+
 module Convolution = struct
   type channels_divisibility = { channels : int; groups : int }
 
@@ -283,8 +335,10 @@ type t =
   | `Linear of Linear.error
   | `Bmm of Bmm.error
   | `Output_count_over_limit of Output_count.t
+  | `Pad of Pad.t
   | `Permute of Permute.t
   | `Reshape of Reshape.t
+  | `Slice of Slice.t
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Convolution of Convolution.error ]
 
@@ -297,7 +351,9 @@ let pp ppf = function
   | `Linear e -> Linear.pp_error ppf e
   | `Bmm e -> Bmm.pp_error ppf e
   | `Output_count_over_limit e -> Output_count.pp ppf e
+  | `Pad e -> Pad.pp ppf e
   | `Permute e -> Permute.pp ppf e
   | `Reshape e -> Reshape.pp ppf e
+  | `Slice e -> Slice.pp ppf e
   | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
   | `Convolution e -> Convolution.pp_error ppf e

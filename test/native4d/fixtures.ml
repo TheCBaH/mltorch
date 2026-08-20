@@ -274,6 +274,63 @@ let unbind_all name ~shape axis =
   |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
+let pad_graph name ~shape ~pads ~mode () =
+  Graph_builder.build ~name
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* x = input ~shape () in
+     pad { Pad.Pad.pads; mode } x)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* Pad on two dialect axes at once, one growing and one cropping, so a lowering
+   that carried only the first entry or dropped the sign is visible in the
+   printed graph rather than only in a numeric comparison. *)
+let pad_hw_crop =
+  pad_graph "pad_hw_crop" ~shape:(nhwc ~n:1 ~h:4 ~w:4 ~c:2)
+    ~pads:
+      [
+        (Axis.H, { Pad.Pad.before = 1; after = -1 });
+        (Axis.W, { Pad.Pad.before = 0; after = 2 });
+      ]
+    ~mode:(Pad.Pad.Constant 0.25)
+
+(* Small enough that its WHOLE output prints: [Tensor.pp] truncates after eight
+   elements, and on the fixture above every one of those eight is fill, which
+   would leave a numeric golden that no wrong pixel map could fail. *)
+let pad_tiny =
+  pad_graph "pad_tiny" ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:1)
+    ~pads:[ (Axis.H, { Pad.Pad.before = 1; after = 0 }) ]
+    ~mode:(Pad.Pad.Constant 9.)
+
+(* The same op naming D, which the frame has and the dialect does not. Refused
+   by the AXIS rule, so the diagnostic names D rather than reporting a tensor
+   that happens to have extent there. *)
+let pad_d =
+  pad_graph "pad_d" ~shape:(s 1 1 3 2 2 2)
+    ~pads:[ (Axis.D, { Pad.Pad.before = 1; after = 1 }) ]
+    ~mode:Pad.Pad.Reflect
+
+let slice_graph name ~shape ~axis ~start ~stop ~step () =
+  Graph_builder.build ~name
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* x = input ~shape () in
+     slice { Split.Slice.axis; start; stop; step = Op_config.Pos.of_int step } x)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* A non-unit step on a dialect axis. Small enough that its whole output prints,
+   for the reason [pad_tiny] gives. *)
+let slice_w =
+  slice_graph "slice_w" ~shape:(nhwc ~n:1 ~h:2 ~w:5 ~c:1) ~axis:Axis.W ~start:1
+    ~stop:5 ~step:2
+
+(* The same op naming D, refused by the AXIS rule so the diagnostic names D. *)
+let slice_d =
+  slice_graph "slice_d" ~shape:(s 1 1 3 2 2 2) ~axis:Axis.D ~start:0 ~stop:2
+    ~step:1
+
 (* N=1, so unbinding C leaves every slice four-axis. *)
 let unbind_c_batch1 () =
   unbind_all "unbind_c_batch1" ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:3) Axis.C

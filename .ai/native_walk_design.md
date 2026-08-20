@@ -97,6 +97,17 @@ is *not* auto-filled, because per-arg `None` can still be an invalid *combinatio
 Such cross-arg constraints belong in `walk_meta`. The generator partitions the entire `selection`,
 so every spec'd op either walks or is listed in `needs_meta` — the gap is visible, never silent.
 
+That conservatism is also what keeps a whole class of vacuous walk from existing, and it is worth
+recording because op6-impl's F7 predicted the opposite. `slice.Tensor` has a default for *every*
+non-tensor argument (`dim=0, start=None, end=None, step=1`), and those defaults are jointly the
+IDENTITY slice — so a Default-tier walk would vary only the input shape, hold every parameter at
+the identity, and report `matched` for any implementation that returns its input. It does not get
+one: `fill_non_tensor` returns `None` for an optional type before it ever looks at the default, so
+`start`/`end` disqualify the op and it lands in `needs_meta` like `pad.default`. The `walk_meta`
+entry is therefore what gives it a walk at all, not what displaces a misleading one. Do not weaken
+`is_opt` to "fill it if it has a default" — the identity-configuration hazard is real even though
+this particular op avoids it.
+
 ## Cascade replaces filtering
 
 Cross-correlated parameters are kept valid by a deterministic `cascade : cfg -> cfg` (per recipe),
@@ -131,6 +142,34 @@ applied after every mutation — not by filtering candidate values. Examples:
   numel resolver still accepts what it used to (op3-impl.md commit 5) — the native `Reshape_nwalk`
   already covers the compute kernel and needs no change, so it is not evidence for either exact
   target.
+- **Pad** (`Recipe_pad`, `pad.default`): shape plus the whole `(pad list, mode, value)` triple as ONE
+  correlated axis. Two independent reasons, and either alone is fatal to an uncorrelated recipe.
+  First, mode and value are not independent — ATen refuses a value on a non-constant mode — so a
+  separate `value` axis would spend most draws on configurations ATen rejects, which degrade to
+  skips that read as coverage. Second, reflect's amounts are bounded by the extent they mirror, and
+  ATen accepts two pairs only at rank 3 or 4. The second correlation needs no `cascade`: `pads`
+  *derives* the reflect amounts from the shape currently drawn, so a step on any shape axis cannot
+  leave a stale amount behind, and `cascade` stays the identity. Rank is fixed at 4 deliberately —
+  a rank axis would have to correlate with the pair count as well, and the rank-relative pad-list
+  decoding it would exercise is covered against every rank ATen accepts by the bridge and importer
+  fixtures.
+
+  **What a random walk over one configuration axis does and does not cover, stated because the
+  golden makes it look otherwise.** The configuration is one axis of five and `field_axis` redraws
+  uniformly including the value already held, so twenty steps reach six of the seven configurations
+  and five steps reach one. That is not a gap: the configuration space is swept exhaustively, and
+  against the same ATen oracle, by `test/native_bridge_test.ml`. What the walk adds is shape and
+  tensor-value variation *under* each configuration. Both halves are needed, and neither is the
+  other — the same division `.ai/native4d_design.md` draws between hand values and the
+  direct-versus-symbolic table.
+- **Slice** (`Recipe_slice`, `slice.Tensor`): rank, dim and the bound PATTERN as one correlated
+  axis, with the concrete bounds derived from the drawn extent. Two correlations stacked: a dim is
+  only valid for a rank (so they travel as one candidate, as `Recipe_transpose` does) and a
+  `(start, end)` pair is only valid for an extent (so `bounds` computes it from the shape currently
+  drawn, which is why `cascade` is the identity — there is no stored value for a repair to fix).
+  Patterns cover the identity, both ends, both negative spellings, both clamps, and two strides,
+  and every one of them is non-empty for any extent ≥ 2 — an empty slice is legal in ATen, has no
+  Native form, and would report as a `skipped` that reads as coverage.
 - **Transpose** (`Recipe_transpose`, `transpose.int`): rank and the dim pair drawn as ONE correlated
   axis, never independently — a dim pair like `(2,3)` is only valid for rank ≥ 4, so mutating rank and
   dims separately would generate invalid combinations ATen rejects. Candidates cover positive,

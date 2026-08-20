@@ -1101,3 +1101,338 @@ let%expect_test "unbind output_shapes: the output-count ceiling is exclusive" =
     4095 -> 4095 outputs
     4096 -> 4096 outputs, above the maximum of 4095
     4097 -> 4097 outputs, above the maximum of 4095 |}]
+
+(* ---- Pad: hand-computed, one rule per test ------------------------------- *)
+
+(* A coordinate-coded tensor: element (h, w) is 10*h + w, so every value names
+   the position it came from and a wrong source coordinate is legible rather
+   than merely unequal. *)
+let coord_hw h w =
+  let shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h ~w ~c:1 in
+  ( shape,
+    Tensor.materialize shape (fun c -> float_of_int ((10 * row c) + col c)) )
+
+(* [Tensor.pp] truncates after 8 elements and prints one flat list, which is the
+   wrong shape of evidence here: a pad is judged by WHERE each value landed. Print
+   the H x W grid in full, so a mirrored edge or a swapped before/after is legible
+   rather than merely unequal. *)
+let pp_grid shape ppf tensor =
+  let h = Dim.to_int (Vec6.get shape Axis.H)
+  and w = Dim.to_int (Vec6.get shape Axis.W) in
+  Format.fprintf ppf "%a@," Vec6.pp_shape shape;
+  for i = 0 to h - 1 do
+    for j = 0 to w - 1 do
+      let c = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:i ~w:j ~c:0 in
+      Format.fprintf ppf "%s%g"
+        (if j = 0 then "" else " ")
+        (Tensor.read tensor c)
+    done;
+    Format.fprintf ppf "@,"
+  done
+
+let pad_eval ~x_shape ~x (p : Pad.Pad.params) =
+  let module P = Pad.Pad.Compute (Direct) in
+  let open Err.Syntax in
+  let r =
+    let* out_shape = Pad.Pad.output_shape ~x_shape p in
+    Err.return (out_shape, Schedule.evaluate out_shape (P.pixel p ~x_shape ~x))
+  in
+  Format.printf "@[<v>%a@]@."
+    (pp_result (fun ppf (shape, t) -> pp_grid shape ppf t))
+    r
+
+let%expect_test "Direct: pad constant, one axis, asymmetric" =
+  let x_shape, x = coord_hw 2 3 in
+  (* W: 1 before, 2 after -> extent 3 + 3 = 6. Row 0 reads 0,1,2 into slots
+     1..3; slots 0, 4, 5 are the fill. *)
+  pad_eval ~x_shape ~x
+    {
+      Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 1; after = 2 }) ];
+      mode = Pad.Pad.Constant (-7.);
+    };
+  [%expect {|
+    [H=2 W=6 C=1]
+    -7 0 1 2 -7 -7
+    -7 10 11 12 -7 -7 |}]
+
+let%expect_test "Direct: pad constant, two axes at once" =
+  let x_shape, x = coord_hw 2 2 in
+  (* H by (1,0) and W by (0,1): 3 rows of 3. The interior is the 2x2 source in
+     the LOWER-LEFT, which distinguishes a before/after swap on either axis. *)
+  pad_eval ~x_shape ~x
+    {
+      Pad.Pad.pads =
+        [
+          (Axis.H, { Pad.Pad.before = 1; after = 0 });
+          (Axis.W, { Pad.Pad.before = 0; after = 1 });
+        ];
+      mode = Pad.Pad.Constant 9.;
+    };
+  [%expect {|
+    [H=3 W=3 C=1]
+    9 9 9
+    0 1 9
+    10 11 9 |}]
+
+let%expect_test "Direct: pad constant fill is used, not zero" =
+  let x_shape, x = coord_hw 1 2 in
+  (* A dropped [value] would print 0 in the pad slots. The source's own first
+     element is 0 too, which is exactly why the fill must not be. *)
+  pad_eval ~x_shape ~x
+    {
+      Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 1; after = 1 }) ];
+      mode = Pad.Pad.Constant 0.5;
+    };
+  [%expect {|
+    [W=4 C=1]
+    0.5 0 1 0.5 |}]
+
+let%expect_test "Direct: pad reflect mirrors about the boundary, not through it"
+    =
+  let x_shape, x = coord_hw 1 4 in
+  (* Source 0,1,2,3. Reflect by (2,2) gives 2,1 | 0,1,2,3 | 2,1 — the boundary
+     element is NOT repeated, which is what separates reflect from replicate,
+     and the left block is the mirror of the LEFT end rather than a copy of the
+     right one. *)
+  pad_eval ~x_shape ~x
+    {
+      Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 2; after = 2 }) ];
+      mode = Pad.Pad.Reflect;
+    };
+  [%expect {|
+    [W=8 C=1]
+    2 1 0 1 2 3 2 1 |}]
+
+let%expect_test "Direct: pad reflect, two axes, asymmetric" =
+  let x_shape, x = coord_hw 3 3 in
+  (* H by (1,0), W by (0,2): the top row mirrors row 1 (values 10..12) and each
+     row's tail mirrors its own columns 1 and 0. *)
+  pad_eval ~x_shape ~x
+    {
+      Pad.Pad.pads =
+        [
+          (Axis.H, { Pad.Pad.before = 1; after = 0 });
+          (Axis.W, { Pad.Pad.before = 0; after = 2 });
+        ];
+      mode = Pad.Pad.Reflect;
+    };
+  [%expect
+    {|
+    [H=4 W=5 C=1]
+    10 11 12 11 10
+    0 1 2 1 0
+    10 11 12 11 10
+    20 21 22 21 20 |}]
+
+let%expect_test "Direct: negative pads crop" =
+  let x_shape, x = coord_hw 3 4 in
+  (* Crop one column from each side of W and the first row of H: a 2x2 window
+     starting at (1,1). *)
+  pad_eval ~x_shape ~x
+    {
+      Pad.Pad.pads =
+        [
+          (Axis.H, { Pad.Pad.before = -1; after = 0 });
+          (Axis.W, { Pad.Pad.before = -1; after = -1 });
+        ];
+      mode = Pad.Pad.Constant 0.;
+    };
+  [%expect {|
+    [H=2 W=2 C=1]
+    11 12
+    21 22 |}]
+
+let%expect_test "Direct: pad and crop on different axes of one node" =
+  let x_shape, x = coord_hw 2 3 in
+  (* H padded by (1,0), W cropped by (-1,0): 3 rows of 2. *)
+  pad_eval ~x_shape ~x
+    {
+      Pad.Pad.pads =
+        [
+          (Axis.H, { Pad.Pad.before = 1; after = 0 });
+          (Axis.W, { Pad.Pad.before = -1; after = 0 });
+        ];
+      mode = Pad.Pad.Constant 5.;
+    };
+  [%expect {|
+    [H=3 W=2 C=1]
+    5 5
+    1 2
+    11 12 |}]
+
+let%expect_test "Direct: pad rejects the configurations with no Native result" =
+  let x_shape, _ = coord_hw 3 4 in
+  let refuse (p : Pad.Pad.params) =
+    Format.printf "%a@." (pp_result Vec6.pp_shape)
+      (Pad.Pad.output_shape ~x_shape p)
+  in
+  (* A crop that consumes the axis: legal in ATen (size-0), unrepresentable
+     here. *)
+  refuse
+    {
+      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = -2; after = -1 }) ];
+      mode = Pad.Pad.Constant 0.;
+    };
+  refuse
+    {
+      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = -5; after = 0 }) ];
+      mode = Pad.Pad.Constant 0.;
+    };
+  (* Reflect needs each POSITIVE side below the extent it mirrors: H is 3, so 3
+     is already too wide while 2 is fine. *)
+  refuse
+    {
+      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = 3; after = 0 }) ];
+      mode = Pad.Pad.Reflect;
+    };
+  refuse
+    {
+      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = 0; after = 3 }) ];
+      mode = Pad.Pad.Reflect;
+    };
+  (* The same widths are ordinary in constant mode — the rule is reflect's, not
+     padding's. *)
+  refuse
+    {
+      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = 3; after = 3 }) ];
+      mode = Pad.Pad.Constant 0.;
+    };
+  (* Two entries for one axis: unreachable from either importer, so this is the
+     guard on the builder and on JSON decoding. *)
+  refuse
+    {
+      Pad.Pad.pads =
+        [
+          (Axis.W, { Pad.Pad.before = 1; after = 1 });
+          (Axis.W, { Pad.Pad.before = 2; after = 2 });
+        ];
+      mode = Pad.Pad.Constant 0.;
+    };
+  [%expect
+    {|
+    pad of axis H by (-2, -1) over extent 3 leaves 0 elements; the engine has no empty extent
+    pad of axis H by (-5, 0) over extent 3 leaves -2 elements; the engine has no empty extent
+    reflect pad of axis H by (3, 0) needs each side below the extent 3
+    reflect pad of axis H by (0, 3) needs each side below the extent 3
+    [H=9 W=4 C=1]
+    axis W has more than one pad entry |}]
+
+(* ---- Slice ----------------------------------------------------------------
+
+   Four mutations were applied to [Split.Slice] and observed failing here before
+   being reverted, which is what makes these goldens evidence rather than
+   description:
+
+   - floor instead of the ceiling in [output_shape]: every strided extent drops
+     by one, in this file and in graph_json_test.ml;
+   - the step multiplication dropped from [Compute.pixel]: [0 2 4] becomes
+     [0 1 2];
+   - [start] replaced by 0: the selected window slides to the origin on both
+     axes;
+   - the upper range bound weakened from [stop <= extent]: an out-of-range slice
+     produces a shape instead of the typed refusal, and [Compute]'s read goes
+     out of bounds behind it.
+
+   A fifth -- the WRONG AXIS -- is refuted by the two tests that run the same
+   bounds on H and on W over a non-square fixture, which is why that pair exists
+   rather than one test. *)
+
+let slice_eval ~x_shape ~x (p : Split.Slice.params) =
+  let module Sl = Split.Slice.Compute (Direct) in
+  let open Err.Syntax in
+  let r =
+    let* out_shape = Split.Slice.output_shape ~x_shape p in
+    Err.return (out_shape, Schedule.evaluate out_shape (Sl.pixel p ~x))
+  in
+  Format.printf "@[<v>%a@]@."
+    (pp_result (fun ppf (shape, t) -> pp_grid shape ppf t))
+    r
+
+let pos = Op_config.Pos.of_int
+
+let%expect_test "Direct: slice keeps the axis and narrows it" =
+  let x_shape, x = coord_hw 3 4 in
+  (* Columns 1 and 2 of every row. The values are 10*row + col, so a wrong start
+     shows as a column shift and a wrong axis as a row selection. *)
+  slice_eval ~x_shape ~x
+    { Split.Slice.axis = Axis.W; start = 1; stop = 3; step = pos 1 };
+  [%expect {|
+    [H=3 W=2 C=1]
+    1 2
+    11 12
+    21 22 |}]
+
+let%expect_test "Direct: slice on the other axis selects rows" =
+  let x_shape, x = coord_hw 3 4 in
+  (* The same bounds on H. Distinguishable from the W case only because the
+     fixture is 3x4 and the values encode both coordinates. *)
+  slice_eval ~x_shape ~x
+    { Split.Slice.axis = Axis.H; start = 1; stop = 3; step = pos 1 };
+  [%expect {|
+    [H=2 W=4 C=1]
+    10 11 12 13
+    20 21 22 23 |}]
+
+let%expect_test "Direct: slice step selects every k-th element" =
+  let x_shape, x = coord_hw 1 6 in
+  (* [0,6) step 2 -> columns 0,2,4. An implementation that forgot the step
+     multiplication would print 0 1 2. *)
+  slice_eval ~x_shape ~x
+    { Split.Slice.axis = Axis.W; start = 0; stop = 6; step = pos 2 };
+  (* [1,6) step 2 -> columns 1,3,5: the span is 5, so the CEILING is what makes
+     the count 3 rather than 2. *)
+  slice_eval ~x_shape ~x
+    { Split.Slice.axis = Axis.W; start = 1; stop = 6; step = pos 2 };
+  (* [0,5) step 3 -> columns 0,3. Span 5 over step 3 is 1.67, and both a floor
+     and a truncation would print one column. *)
+  slice_eval ~x_shape ~x
+    { Split.Slice.axis = Axis.W; start = 0; stop = 5; step = pos 3 };
+  [%expect
+    {|
+    [W=3 C=1]
+    0 2 4
+
+    [W=3 C=1]
+    1 3 5
+
+    [W=2 C=1]
+    0 3 |}]
+
+let%expect_test "Direct: slice of the whole axis is the identity" =
+  let x_shape, x = coord_hw 2 2 in
+  (* The configuration a Default-tier walk would generate, and the reason
+     slice.Tensor needs a walk_meta entry rather than the generated default:
+     every implementation that returns its input passes this one. *)
+  slice_eval ~x_shape ~x
+    { Split.Slice.axis = Axis.W; start = 0; stop = 2; step = pos 1 };
+  [%expect {|
+    [H=2 W=2 C=1]
+    0 1
+    10 11 |}]
+
+let%expect_test "Slice: the configurations with no Native result" =
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:4 ~c:1 in
+  let refuse (p : Split.Slice.params) =
+    Format.printf "%a@." (pp_result Vec6.pp_shape)
+      (Split.Slice.output_shape ~x_shape p)
+  in
+  (* Empty: legal in ATen, which returns a size-0 tensor, and unrepresentable
+     here. Both the degenerate [start = stop] and a step wide enough to skip
+     everything are the same fault -- the second cannot happen, since a
+     non-empty span always yields at least one element under the ceiling, and
+     the case is written out to record that rather than leave it implied. *)
+  refuse { Split.Slice.axis = Axis.W; start = 2; stop = 2; step = pos 1 };
+  refuse { Split.Slice.axis = Axis.W; start = 3; stop = 4; step = pos 9 };
+  (* Out of range. Unreachable from either importer -- both build their bounds
+     with [Aten_shape.resolve_slice], which clamps -- so these guard the builder
+     and JSON decoding, and they are what keeps [Compute]'s read in bounds. *)
+  refuse { Split.Slice.axis = Axis.W; start = 0; stop = 5; step = pos 1 };
+  refuse { Split.Slice.axis = Axis.W; start = 3; stop = 1; step = pos 1 };
+  refuse { Split.Slice.axis = Axis.W; start = -1; stop = 2; step = pos 1 };
+  [%expect
+    {|
+    slice of axis W [2, 2) step 1 over extent 4 selects 0 elements; the engine has no empty extent
+    [H=3 W=1 C=1]
+    slice of axis W [0, 5) step 1 over extent 4 is not within 0 <= start <= stop <= extent
+    slice of axis W [3, 1) step 1 over extent 4 is not within 0 <= start <= stop <= extent
+    slice of axis W [-1, 2) step 1 over extent 4 is not within 0 <= start <= stop <= extent |}]

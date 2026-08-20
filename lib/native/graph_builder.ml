@@ -264,6 +264,18 @@ let mean ?name params x =
 
 let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
 
+(* The fill is narrowed to f32 HERE, at the one point every construction path
+   goes through, exactly as [add_scalar]'s scalar is: an unnarrowed float64
+   literal would compute in a precision the payload cannot store. *)
+let pad ?name (params : Pad.Pad.params) x =
+  let params =
+    match params.Pad.Pad.mode with
+    | Pad.Pad.Reflect -> params
+    | Pad.Pad.Constant v ->
+        { params with Pad.Pad.mode = Pad.Pad.Constant (f32_scalar v) }
+  in
+  op1 ?name ~kind:"pad" (Pad { Pad.Pad.params; x })
+
 let permute ?name perm x =
   op1 ?name ~kind:"permute" (Permute { Permute.Permute.perm; x })
 
@@ -277,6 +289,10 @@ let rms_norm ?name params ~x ?weight () =
 
 let silu ?name x = op1 ?name ~kind:"silu" (Silu { Pointwise.Silu.x })
 let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })
+
+let slice ?name params x =
+  op1 ?name ~kind:"slice" (Slice { Split.Slice.params; x })
+
 let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
 
 (* Returns every slice, in ordinal order. The count comes from the input

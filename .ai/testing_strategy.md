@@ -277,3 +277,31 @@ the same shape as Group 2 (`op2.md`) and Group 3 (`op3.md`) before them. The
 in-place spellings (`silu_.default` etc.) get the same bridge/importer arm as
 their functional twin and are additionally checked against the real
 efficientnet counts above via `make pt2.runtest`.
+
+**Group 6 (`op6.md`) is worse: neither target occurs in ANY graph this checkout
+can reach.** `pad.default` and `slice.Tensor` appear in none of the 23 core-ATen
+graphs under `modules/pytorch.models.pt2/models/*/models/model.json` and in none
+of the five downloadable release models. The 30 targets that do occur run
+`add.Tensor … where.self`; the nearest structural ops are `select.int` (220
+nodes across four ViT models), `expand.default`, `squeeze.dims` and
+`unsqueeze.default`. There is no `slice`, no `pad`, and no `narrow`.
+
+So for Group 6 the hand-built fixtures are not the coverage *for now* — they are
+the coverage, full stop, and **no cram will regress if either op breaks**.
+`make pt2.runtest`, `test/pt2_node_bridge_cram.t` and every `interp_*_cram.t`
+reach neither target. What stands in for real-model evidence:
+
+| layer | evidence |
+|---|---|
+| numeric, independent oracle | `test/native_bridge_test.ml` — 14 pad and 20 slice configurations against real ATen |
+| numeric, fuzzed | the `Recipe_pad` / `Recipe_slice` ATen walks (`test/native_walk_test.ml`) |
+| staging | `Pad_nwalk` / `Slice_nwalk` (Direct vs Symbolic — **not** an oracle: both sides run the same `Compute` functor) |
+| serialized lowering | `test/native_interp/{pad,slice}_test.ml` |
+| dialect | `test/native4d/{compute,lower,verify,mutation}_test.ml` |
+| session | `test/me_group6_cram.t` |
+
+The configuration counts `op6.md` quotes (`constant` 74 / `reflect` 4 in
+`resnetblur18`; `dim ∈ {1,2,3}`) come from a **clone of
+`TheCBaH/devcontainer.pytorch-image-models`** — 100 functional-ATen graphs that
+are not a submodule here and that no `make` target fetches. Treat them as
+provisional; re-derive them if that corpus is ever added.

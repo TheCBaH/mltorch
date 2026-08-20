@@ -268,6 +268,42 @@ let sink_permute_shared () =
       let* () = discard other in
       relu a)
 
+(* [Pad] names axes, so it is deliberately absent from [Sink_permute.elementwise]
+   and must stay a barrier: a permute reorders the axes the pad amounts are
+   attached to, so commuting the two without remapping the entries would pad the
+   WRONG axis. Unlike [Output_transfer]'s exhaustive match, that allowlist has a
+   default arm -- omitting an op is silent -- which is why the exclusion needs a
+   fixture rather than only a comment. *)
+let sink_permute_pad () =
+  build "sink_permute_pad"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute rotate_hwc x in
+      pad
+        {
+          Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 1; after = 1 }) ];
+          mode = Pad.Pad.Constant 0.;
+        }
+        a)
+
+(* [Slice] is a barrier for exactly [Pad]'s reason, and the fixture exists for
+   exactly [Pad]'s reason: it names an axis, and the allowlist's default arm
+   makes the exclusion invisible in the source. Commuting the two would slice
+   whichever axis happened to land where the named one used to be. *)
+let sink_permute_slice () =
+  build "sink_permute_slice"
+    Graph_builder.(
+      let* x = input ~shape:(nhwc ~h:2 ~w:3 ~c:4) () in
+      let* a = permute rotate_hwc x in
+      slice
+        {
+          Split.Slice.axis = Axis.W;
+          start = 0;
+          stop = 2;
+          step = Op_config.Pos.of_int 1;
+        }
+        a)
+
 (* The permute feeding the anchor [relu] has exactly one CONSUMER, but is
    itself also a graph output — the other half of [Pattern.interior], isolated
    from the shared-consumer case above. Sinking would leave that graph output

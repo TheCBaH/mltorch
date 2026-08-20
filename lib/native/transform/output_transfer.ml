@@ -38,10 +38,22 @@ let classify (op : op) ~output =
   | Clone _ | Permute _ | Reshape _ -> Reindexing
   (* Value routing, but a SELECTION rather than a permutation: each output is
      one slice of the operand, so the outputs' value multisets partition the
-     input's rather than each reproducing it. That is still [Reindexing] — the
+     input's rather than each reproducing it. [Slice] is the single-output form
+     of the same argument: it keeps a strided SUBSET of the elements, adding no
+     arithmetic to any of them. That is still [Reindexing] — the
      class is "copied without arithmetic", and an [Approximate] bound is
      per-element, so a slice carries it exactly as a permutation does. *)
-  | Unbind _ -> Reindexing
+  | Slice _ | Unbind _ -> Reindexing
+  (* [Pad] is NOT reindexing, and the mode is why the honest answer is one class
+     rather than two. In [Constant] mode the padded cells are a synthesized fill
+     that is a copy of no input element, so a per-element [Approximate] claim
+     about the input says nothing about them. In [Reflect] mode every output IS
+     a copied element and [Reindexing] would be sound — but classification here
+     is per OP, not per payload, and a class that changed with a field would be
+     one refactor away from being read off the wrong one. [Continuous] is true
+     of both: a small input change moves the copied cells slightly and leaves
+     any constants exactly where they were. *)
+  | Pad _ -> Continuous
   | Max_pool2d_with_indices _ ->
       if output = 0 then Continuous else Discontinuous
   (* No outputs at all, so this is unreachable from propagation; answer

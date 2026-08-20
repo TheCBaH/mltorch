@@ -54,6 +54,10 @@ let index_min (a : Semantics.delta index) (b : Semantics.delta index) :
     Semantics.delta index =
   Dim.delta (Stdlib.min (a :> int) (b :> int))
 
+let index_max (a : Semantics.delta index) (b : Semantics.delta index) :
+    Semantics.delta index =
+  Dim.delta (Stdlib.max (a :> int) (b :> int))
+
 let index_eq (x : Semantics.delta index) (y : Semantics.delta index) : bool =
   Int.equal (x :> int) (y :> int)
 

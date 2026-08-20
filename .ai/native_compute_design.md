@@ -91,6 +91,25 @@ pad an out-of-range one. Both are explicit, opt-in steps the op takes *before*
   broadcast the op knows statically, again always in-bounds.
 - **windowed reductions** clip their bounds (§4) so the source position is in
   range by construction.
+- **clamp-and-compare** (`Pad`) — clamp the source coordinate into the source's
+  own extent, then ask whether it moved. `S.select` is a function, so BOTH arms
+  are evaluated; `select cond (load oob) (const fill)` would fault in the pad
+  region no matter which way the condition went. Clamping first makes the load
+  unconditionally in bounds, and the displacement `clamped - unclamped` is zero
+  exactly when the coordinate was already inside — which is the region test.
+
+  The last part is what keeps the semantics small. `Expr.Bool` has only
+  `Value_lt` and `Index_eq`, so an index *comparison* would be a genuine new AST
+  constructor with eval/pp/compare/traversal arms; `index_eq` on a displacement
+  needs none. Summing `|displacement|` over the padded axes and comparing that
+  to zero covers all six axes with one `index_eq` — and the absolute value is
+  not decoration: a signed sum lets two axes displaced in opposite directions
+  cancel and report "inside" for a coordinate that is outside both.
+
+  Neither the clamp nor the mirror uses `assume_index`. `index_min` bounds the
+  coordinate above and `clamp_low` bounds it below, so the result is a
+  `position` by construction rather than by claim, and `Window_axis.window`
+  remains the single encapsulated unchecked cast.
 
 This keeps the one capability that *was* baked into the read primitive
 (silently returning 0 out of bounds) out of it, where it had two failure modes:

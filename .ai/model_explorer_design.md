@@ -1361,6 +1361,38 @@ serialized target, group-qualified, so a relayout permute is attributable to the
 node that caused it), the output shape, and every incoming edge's
 (source, output slot, input position) triple.
 
+## Group-6 coverage: `test/me_group6_cram.t`
+
+`pad.default` and `slice.Tensor` reach a session nowhere else — no model this
+repository can download serialises either (op6-impl F1) — so this cram is the
+whole of their Model Explorer evidence, and it is built payload-free in the cram
+itself like Group 2/3/5's.
+
+What it pins beyond the usual labels/namespaces/shapes/edges: **the two
+conversions that only exist at import**, both visible in the `params` attribute
+and nowhere else in the session.
+
+- Pad's serialised list is **innermost-first**, so on a rank-4 input
+  (right-aligned onto `D, H, W, C`) the list `[1, 2, -1, 0]` becomes
+  `pads=[W:-1,0, C:1,2]`. A reversal prints `W:1,2 C:-1,0`; an unsigned decode
+  loses the crop.
+- Slice's bounds are **canonical**: `dim=-1` has become `C`, an `as_sym_int`
+  start has resolved to a value, and `end=99` has been *clamped* to the extent
+  rather than refused. What is stored is `[1, 7)` — the point of resolving at
+  import rather than at evaluation, and invisible in the source view.
+
+It also pins the two ways a Group-6 graph can fail, which land at **different
+stages**:
+
+| graph | outcome |
+|---|---|
+| `slice` on `dim=0` of a rank-5 tensor (the frame's `T`) | Native imports it; `stage:native4d` is `unavailable outside_dialect_domain`, naming the axis |
+| a crop or a slice that empties an axis | the import itself fails; `native_graph` exits `123` with the `Shape_error` row and **no session is written** |
+
+That asymmetry is worth stating because it is easy to expect one shape for both:
+an axis outside the dialect still has a Native graph to show, and a shape with
+no Native form does not.
+
 ---
 
 ## 17. The visualizer bundle — built from the submodule, not installed from npm

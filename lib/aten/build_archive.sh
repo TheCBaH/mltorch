@@ -159,6 +159,19 @@ mapfile -t SRCS_GLUE < <(
   echo "$PT/aten/src/ATen/native/Dropout.cpp"
   echo "$PT/aten/src/ATen/native/ReduceOps.cpp"
   echo "$PT/aten/src/ATen/native/ReduceAllOps.cpp"
+  # pad -> _pad_enum -> constant_pad_nd (defined in PadNd.cpp itself, via
+  # at::empty + narrow + copy_ + fill_) or one of the per-rank reflection /
+  # replication / circular pads. The switch in _pad_enum_symint is
+  # straight-line, so every arm is REFERENCED even though only constant and
+  # reflect are supported by the native engine: reflection_pad{1,2,3}d are
+  # structured meta+impl in ReflectionPad.cpp, replication_pad* the same in
+  # ReplicationPadding.cpp, and both dispatch into cpu/PaddingKernel.cpp (CAP).
+  # Dropping either file would trade a link error for an unsupported-mode error
+  # at a boundary the ATen path is not supposed to have -- the interpreter runs
+  # real ATen, where mode is just an argument.
+  echo "$PT/aten/src/ATen/native/PadNd.cpp"
+  echo "$PT/aten/src/ATen/native/ReflectionPad.cpp"
+  echo "$PT/aten/src/ATen/native/ReplicationPadding.cpp"
   # topk structured meta+impl (+ topk_stub decl); kernel is cpu/SortingKernel.cpp.
   echo "$PT/aten/src/ATen/native/Sorting.cpp"
   # TensorIteratorBase::parallel_reduce (separate from TensorIterator.cpp).
@@ -213,6 +226,9 @@ mapfile -t SRCS_CAP < <(
   echo "$PT/aten/src/ATen/native/cpu/DepthwiseConvKernel.cpp"
   # REGISTER_DISPATCH(avg_pool2d_kernel, ...) — the vectorized pooling kernel.
   echo "$PT/aten/src/ATen/native/cpu/AvgPoolKernel.cpp"
+  # the reflection/replication pad kernels registered by ReflectionPad.cpp and
+  # ReplicationPadding.cpp's structured impls (one file for all of them).
+  echo "$PT/aten/src/ATen/native/cpu/PaddingKernel.cpp"
   # softmax_lastdim/softmax kernels behind _softmax (SoftMax.cpp's stubs).
   echo "$PT/aten/src/ATen/native/cpu/SoftMaxKernel.cpp"
   # LayerNormKernel (the vectorized layer-norm kernel) for native_layer_norm.

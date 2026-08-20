@@ -25,7 +25,7 @@ type tensor = [ `atc_tensor_opaque ] Ctypes.structure Ctypes.ptr
    the fold produces an extended environment. *)
 type env = tensor String_map.t
 
-(* What a decode helper demanded. Closed: exactly the sixteen shapes the
+(* What a decode helper demanded. Closed: exactly the seventeen shapes the
    helpers below accept, each of which used to spell itself as a literal at its
    own call site. The parallel set on the native path is
    [Native_interp.arg_kind] -- deliberately NOT shared, since neither library
@@ -36,6 +36,7 @@ type expected_kind =
   | `Tensor_list
   | `Tensor_or_scalar
   | `Int
+  | `Int_opt
   | `Int_list
   | `Bool
   | `Bool_opt
@@ -69,6 +70,19 @@ module Tensor_list_output = struct
      the same malformation of the same list. *)
 end
 
+module Unresolved_sym_arg = struct
+  type t = { arg : string; symbol : string }
+  (* A [SymInt]-typed argument the exporter wrote as a SYMBOL rather than a
+     value ([as_name], [SymIntArgument.Name]). The interpreter has no shape
+     environment to evaluate it in, so it is a refusal, not a decode failure of
+     the wrong kind -- the argument IS the kind the schema declares.
+
+     Both fields: [arg] is the schema slot ("start"), [symbol] the serialized
+     name ("s3"), and a reader needs the pair to tell "this graph is dynamic"
+     from "this one slot is". Same distinction the tensor-metadata rule already
+     draws with [`Bad_dimension { fault = `Symbolic }] in Native_interp. *)
+end
+
 module Tensor_list_arity = struct
   type t = { names : int; tensors : int }
   (* Serialized SSA names vs. tensors ATen actually returned. Both counts, since
@@ -80,6 +94,7 @@ type error =
   [ `Undefined_value of string
   | `Missing_argument of string
   | `Wrong_argument_kind of Wrong_argument_kind.t
+  | `Unresolved_sym_arg of Unresolved_sym_arg.t
   | `Unsupported_scalar_type_arg of string
   | `Unsupported_layout_arg of string
   | `Unsupported_device_arg of string
@@ -101,6 +116,7 @@ let expected_kind_name : expected_kind -> string = function
   | `Tensor_list -> "tensor[]"
   | `Tensor_or_scalar -> "tensor|scalar"
   | `Int -> "int"
+  | `Int_opt -> "int?"
   | `Int_list -> "int[]"
   | `Bool -> "bool"
   | `Bool_opt -> "bool?"
@@ -121,6 +137,8 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "argument %S: expected %s, got %s" arg
         (expected_kind_name expected)
         actual
+  | `Unresolved_sym_arg { Unresolved_sym_arg.arg; symbol } ->
+      Fmt.pf ppf "argument %S: unresolved symbolic value %S" arg symbol
   | `Unsupported_scalar_type_arg name ->
       Fmt.pf ppf "unsupported scalar_type argument %S" name
   | `Unsupported_layout_arg name ->
@@ -224,9 +242,25 @@ let tensor_or_scalar_arg env node name ~like =
   | Some arg -> wrong_kind name `Tensor_or_scalar arg
   | None -> Err.fail (`Missing_argument name)
 
+(* A schema [SymInt] slot crosses as either [Argument.Int] -- the spelling every
+   graph in the corpus uses, and the one [Aten_spec_run] emits -- or as
+   [Argument.Sym_int], which carries a RESOLVED value ([Int]) or an unresolved
+   SYMBOL ([Name]). Only the last is a refusal, and it is its own row rather
+   than a wrong-kind: the argument is exactly the kind the schema declares, and
+   what is missing is a shape environment to evaluate it in.
+
+   One rule, applied by every [SymInt]-shaped decoder below, so "does this
+   interpreter accept a dynamic bound" has one answer instead of three. *)
+let sym_int_value ~arg = function
+  | SymIntArgument.Int i -> Err.return i
+  | SymIntArgument.Name symbol ->
+      Err.fail (`Unresolved_sym_arg { Unresolved_sym_arg.arg; symbol })
+
 let ints_arg ?(default = []) node name =
   match find_arg node name with
   | Some (Argument.Ints xs) -> Err.return xs
+  | Some (Argument.Sym_ints xs) ->
+      Err.List.map (fun s -> sym_int_value ~arg:name s) xs
   | Some (Argument.None _) | None -> Err.return default
   | Some arg -> wrong_kind name `Int_list arg
 
@@ -235,6 +269,7 @@ let require name = Err.of_option (`Missing_argument name)
 let int_arg ?default node name =
   match find_arg node name with
   | Some (Argument.Int i) -> Err.return i
+  | Some (Argument.Sym_int s) -> sym_int_value ~arg:name s
   | None -> require name default
   | Some arg -> wrong_kind name `Int arg
 
@@ -260,6 +295,41 @@ let float_opt_ptr node name =
   | Some (Argument.Float f) -> Err.return (allocate double f)
   | Some (Argument.None _) | None -> Err.return (from_voidp double null)
   | Some arg -> wrong_kind name `Float_opt arg
+
+(* int? / SymInt?: the integer twin of [float_opt_ptr], and the same encoding --
+   [map_type] lowers both to a pointer ([int64_t*]), a null pointer being None
+   and a live cell the present value (aten_c_type.ml:151-158). Emitted by the
+   generator for e.g. slice.Tensor's [start]/[end] and avg_pool2d's
+   [divisor_override].
+
+   [Argument.None] and an ABSENT argument are both None. That is the schema's
+   own default ([SymInt? start=None]) rather than a guess: unlike [int_arg],
+   there is no other default a caller could want. *)
+let int_opt_ptr node name =
+  let open Err.Syntax in
+  match find_arg node name with
+  | Some (Argument.Int i) -> Err.return (allocate int64_t (Int64.of_int i))
+  | Some (Argument.Sym_int s) ->
+      let+ i = sym_int_value ~arg:name s in
+      allocate int64_t (Int64.of_int i)
+  | Some (Argument.None _) | None -> Err.return (from_voidp int64_t null)
+  | Some arg -> wrong_kind name `Int_opt arg
+
+(* The same rule as [int_opt_ptr], as an OCaml option rather than a C pointer.
+   The generated ATen dispatch wants the pointer; [Op_bridge] and
+   [Native_interp] want the value, and both go through this so decision 3 of
+   op6-impl -- accept [Sym_int (Int n)], refuse [Sym_int (Name _)] -- has one
+   implementation across the three decoders instead of three that happen to
+   agree. *)
+let int_opt_arg node name =
+  let open Err.Syntax in
+  match find_arg node name with
+  | Some (Argument.Int i) -> Err.return (Some i)
+  | Some (Argument.Sym_int s) ->
+      let+ i = sym_int_value ~arg:name s in
+      Some i
+  | Some (Argument.None _) | None -> Err.return None
+  | Some arg -> wrong_kind name `Int_opt arg
 
 (* A schema Scalar arg crosses as either an Int or a Float argument. *)
 let scalar_arg ?default node name =
@@ -436,6 +506,8 @@ let tensor_arg_result = tensor_arg
 let tensor_or_scalar_arg_result = tensor_or_scalar_arg
 let ints_arg_result = ints_arg
 let int_arg_result = int_arg
+let int_opt_ptr_result = int_opt_ptr
+let int_opt_arg_result = int_opt_arg
 let bool_arg_result = bool_arg
 let float_arg_result = float_arg
 let float_opt_ptr_result = float_opt_ptr

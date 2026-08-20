@@ -230,7 +230,13 @@ let check_node view (n : node) =
         check_transposed node ~groups:params.Conv.Convolution.groups
       else check_groups view node ~weight ~groups:params.Conv.Convolution.groups
   | Mean { Reduce.Mean.params; _ } -> check_dims node params.Reduce.Mean.dims
+  (* Only the PADDED axes are gated. An entry naming T or D is what the dialect
+     cannot say; an unpadded T or D extent is not this arm's business, and
+     [check_shapes] plus the lowerer's [Shape4.of_vec6] already cover it. *)
+  | Pad { Pad.Pad.params; _ } ->
+      check_dims node (List.map fst params.Pad.Pad.pads)
   | Permute { Permute.Permute.perm; _ } -> check_perm node perm
+  | Slice { Split.Slice.params; _ } -> check_dims node [ params.axis ]
   | Rms_norm { Norm.RmsNorm.params; _ } ->
       check_dims node params.Norm.RmsNorm.dims
   (* Two ops the dialect does not have. Both are removed by the canonical
