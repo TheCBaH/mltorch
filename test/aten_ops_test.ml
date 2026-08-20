@@ -248,6 +248,26 @@ let%expect_test "silu_" =
   show (O.silu_ (make [ 3 ] [ 0.; 2.; -2. ]));
   [%expect "[3] = [0; 1.76159; -0.238406]"]
 
+let%expect_test "silu (functional)" =
+  show (O.silu (make [ 3 ] [ 0.; 2.; -2. ]));
+  [%expect "[3] = [0; 1.76159; -0.238406]"]
+
+let%expect_test "hardsigmoid" =
+  show (O.hardsigmoid (make [ 3 ] [ -6.; 0.; 6. ]));
+  [%expect "[3] = [0; 0.5; 1]"]
+
+let%expect_test "hardsigmoid_" =
+  show (O.hardsigmoid_ (make [ 3 ] [ -6.; 0.; 6. ]));
+  [%expect "[3] = [0; 0.5; 1]"]
+
+let%expect_test "hardswish" =
+  show (O.hardswish (make [ 3 ] [ -6.; 0.; 6. ]));
+  [%expect "[3] = [-0; 0; 6]"]
+
+let%expect_test "hardswish_" =
+  show (O.hardswish_ (make [ 3 ] [ -6.; 0.; 6. ]));
+  [%expect "[3] = [-0; 0; 6]"]
+
 let%expect_test "hardtanh (functional)" =
   show
     (O.hardtanh

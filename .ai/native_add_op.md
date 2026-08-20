@@ -235,6 +235,19 @@ deliberately rather than assuming coverage:
   with `Verify.verify_node`. Silence means agreement — so confirm the test can
   fail before trusting it.
 
+**An in-place target needs a NON-idempotent value to actually exercise the
+oracle.** `Interp_verify.dispatch` and `Aten_spec_run.run` (the engines behind
+`test/native_bridge_test.ml`'s `verify_print`/`verify` and every generated ATen
+walk) both now capture native's `Op_bridge` read of the input BEFORE calling
+`Interp_dispatch.dispatch`, because a real in-place ATen op (`Tensor(a!) self`)
+mutates its argument through the very handle the harness holds — comparing
+after that call would silently compare against ATen's own output. This was a
+live bug until op5.md's Group 5 exposed it: `relu_`/`hardtanh_` never caught it
+because clamping is idempotent (`f(f(x)) = f(x)`), so applying the mutated
+value twice was invisible. Adding an in-place op whose function is NOT
+idempotent (most of them) is what actually tests this ordering — do not treat
+a green `relu_`-style precedent as proof the harness reads pre-mutation state.
+
 ## Verify and commit
 
 ```sh

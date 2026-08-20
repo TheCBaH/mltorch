@@ -47,6 +47,8 @@ type op =
        [Max_pool2d_with_indices] — so the op keeps its full ATen arity while the
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
+  | Hardsigmoid of Pointwise.Hardsigmoid.t
+  | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
@@ -57,6 +59,7 @@ type op =
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
+  | Silu of Pointwise.Silu.t
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
   (* The only op whose output COUNT is not fixed by the op: it is the extent at

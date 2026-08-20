@@ -207,6 +207,12 @@ let convolution ?name params ~x ~weight ?bias () =
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
 
+let hardsigmoid ?name x =
+  op1 ?name ~kind:"hardsigmoid" (Hardsigmoid { Pointwise.Hardsigmoid.x })
+
+let hardswish ?name x =
+  op1 ?name ~kind:"hardswish" (Hardswish { Pointwise.Hardswish.x })
+
 let hardtanh ?name (params : Pointwise.Hardtanh.params) x =
   op1 ?name ~kind:"hardtanh"
     (Hardtanh
@@ -269,6 +275,7 @@ let reshape ?name params x =
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
 
+let silu ?name x = op1 ?name ~kind:"silu" (Silu { Pointwise.Silu.x })
 let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })
 let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
 

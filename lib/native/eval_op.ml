@@ -90,6 +90,12 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
+        let module C = Pointwise.Hardsigmoid.Compute (S) in
+        C.pixel (operand x) out
+    | Hardswish { Pointwise.Hardswish.x } ->
+        let module C = Pointwise.Hardswish.Compute (S) in
+        C.pixel (operand x) out
     | Hardtanh { Pointwise.Hardtanh.params; x } ->
         let module C = Pointwise.Hardtanh.Compute (S) in
         C.pixel params (operand x) out
@@ -138,6 +144,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           (* absent weight = identity scale *)
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    | Silu { Pointwise.Silu.x } ->
+        let module C = Pointwise.Silu.Compute (S) in
+        C.pixel (operand x) out
     | Sqrt { Pointwise.Sqrt.x } ->
         let module C = Pointwise.Sqrt.Compute (S) in
         C.pixel (operand x) out

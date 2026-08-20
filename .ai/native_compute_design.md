@@ -322,6 +322,47 @@ single `S.sum` over `in_features`, no `Window_axis` involved — the windowed
 machinery genuinely doesn't generalize to it, rather than being a missed
 reuse opportunity.
 
+### 2e. Group 5 activations — `silu`, `hardsigmoid`, `hardswish`
+
+Pinned formulas, read off the ATen CPU kernels
+(`modules/pytorch/aten/src/ATen/native/cpu/Activation.cpp`, the
+`AT_DISPATCH_FLOATING_TYPES` branch):
+
+```text
+silu(x)        = x / (1 + exp(-x))
+hardsigmoid(x) = min(max(x + 3, 0), 6) / 6
+hardswish(x)   = x * min(max(x + 3, 0), 6) / 6
+```
+
+ATen **divides** by 6; it does not multiply by `1/6`. `hardswish` is
+`(x * c) / 6`, left-associated — the multiply precedes the divide, which is
+what distinguishes it from `x * hardsigmoid(x)`. `silu` is the first `S.exp`
+consumer in the engine (`Semantics.exp`/`Direct.exp`/`Symbolic.exp` were
+already fully plumbed with zero callers before this).
+
+All three are **retained fused Native ops**, not legalized into
+`Add_scalar`/`Clamp`/`Div_scalar`/`Mul`: the engine materializes every node's
+output to f32, so a decomposed 3-node graph would round the intermediate
+`clamp`/`div` results to f32 before the final multiply, which this engine's
+single-node fused `Compute (S)` never does — see §7.1 of
+`native4d_design.md` for why that keeps the Native→Native4D legalization
+`Identical` rather than `Equivalent`.
+
+`hardsigmoid`/`hardswish` both clamp `x + 3`, a value rather than a load, so
+`Clamp.Compute` exposes a value-level `apply : params -> S.t -> S.t` (the
+existing NaN-then-bound-order body, minus the `S.load`) alongside its
+loading `pixel = fun p x out -> apply p (S.load x out)`. `Hardtanh` keeps
+delegating through `pixel` unchanged; `Hardsigmoid`/`Hardswish` call `apply`
+directly on `S.add (S.load x out) (S.const 3.)`.
+
+Empirically, at `Direct`'s double precision, `(x * c) / 6` and `x * (c / 6)`
+are bit-identical for the fixture `test/native/compute_test.ml` uses (and
+agree with real ATen over a 20-step random walk) — the decomposed-graph
+rounding hazard above is real for a 3-node graph with per-node f32
+materialization, but does not manifest as an observable difference in this
+retained fused op's own `Compute` functor. The pinned association still
+matches the ATen kernel's literal source order, which is why it is pinned.
+
 ## 3. `Direct` — concrete evaluation
 
 ```ocaml

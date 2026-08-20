@@ -76,11 +76,20 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Clamp { Pointwise.Clamp.params; x } ->
         let module C = Pointwise.Clamp.Compute (S) in
         C.pixel params (operand x) out
+    | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
+        let module C = Pointwise.Hardsigmoid.Compute (S) in
+        C.pixel (operand x) out
+    | Hardswish { Pointwise.Hardswish.x } ->
+        let module C = Pointwise.Hardswish.Compute (S) in
+        C.pixel (operand x) out
     | Hardtanh { Pointwise.Hardtanh.params; x } ->
         let module C = Pointwise.Hardtanh.Compute (S) in
         C.pixel params (operand x) out
     | Relu { Pointwise.Relu.x } ->
         let module C = Pointwise.Relu.Compute (S) in
+        C.pixel (operand x) out
+    | Silu { Pointwise.Silu.x } ->
+        let module C = Pointwise.Silu.Compute (S) in
         C.pixel (operand x) out
     | Sqrt { Pointwise.Sqrt.x } ->
         let module C = Pointwise.Sqrt.Compute (S) in

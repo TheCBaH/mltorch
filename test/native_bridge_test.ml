@@ -1258,6 +1258,98 @@ let%expect_test "dispatch: hardtanh bound spellings" =
     tensor f32 [W=2 C=3] {0, 0, 0, 0.5, 2.5, 6}
     tensor f32 [W=2 C=3] {0, 0, 0, 0.5, 2.5, 6} |}]
 
+(* ---- Group 5 activations: silu, hardsigmoid, hardswish (op5-impl) -------- *)
+
+let%expect_test "dispatch: silu.default elementwise" =
+  let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.silu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {-0.0148357, -0.18877, 0.31123, 5.98516} |}]
+
+let%expect_test "dispatch: hardsigmoid.default elementwise" =
+  let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.hardsigmoid.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {0, 0.416667, 0.583333, 1} |}]
+
+let%expect_test "dispatch: hardswish.default elementwise" =
+  let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.hardswish.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {-0, -0.208333, 0.291667, 6} |}]
+
+(* Real-ATen agreement, functional AND in-place spellings both, over the
+   float32-threshold-neighbourhood fixture (op5.md). [verify_print] runs the
+   node through BOTH [Interp_dispatch] (real ATen) and [Op_bridge] +
+   [Eval_direct] (native) and compares element-wise -- silence means
+   agreement. The in-place spellings are the coverage that matters: efficientnet
+   serialises [silu_], never [silu] (op5-impl F1), and getting this to agree
+   required fixing [Interp_verify.dispatch] to capture native's read of [self]
+   BEFORE the ATen in-place call mutates it through the same handle -- the
+   previous order silently compared native's output against ATen's INPUT
+   already overwritten with ATen's own output, invisible for relu_/hardtanh_
+   only because clamping is idempotent (op5-impl). *)
+let activation_fixture =
+  [
+    -1e4;
+    -6.;
+    -3.0000005;
+    -3.;
+    -2.9999995;
+    -0.5;
+    -0.;
+    0.;
+    0.5;
+    2.9999995;
+    3.;
+    3.0000005;
+    6.;
+    1e4;
+  ]
+
+let%expect_test "verify: silu against real ATen, functional and in-place" =
+  let a = float_tensor [ 2; 7 ] activation_fixture in
+  verify_print ~target:"torch.ops.aten.silu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  verify_print ~target:"torch.ops.aten.silu_.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "verify: hardsigmoid against real ATen, functional and in-place"
+    =
+  let a = float_tensor [ 2; 7 ] activation_fixture in
+  verify_print ~target:"torch.ops.aten.hardsigmoid.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  verify_print ~target:"torch.ops.aten.hardsigmoid_.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "verify: hardswish against real ATen, functional and in-place" =
+  let a = float_tensor [ 2; 7 ] activation_fixture in
+  verify_print ~target:"torch.ops.aten.hardswish.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  verify_print ~target:"torch.ops.aten.hardswish_.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
 let%expect_test "dispatch: view.default contiguous reshape (no permute)" =
   (* NCHW [1,1,2,3] (values 0..5) viewed as [3,2]. of_aten inputs are already
      ATen-row-major, so the graph is a single reshape (no surrounding permute);

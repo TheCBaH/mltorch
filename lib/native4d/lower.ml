@@ -282,9 +282,14 @@ let lower_node ~view acc (n : node) =
       simple (Op.Div_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Clamp { Pointwise.Clamp.params; x } ->
       simple (Op.Clamp { Pointwise.Clamp.params; x = op_of x })
+  | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
+      simple (Op.Hardsigmoid { Pointwise.Hardsigmoid.x = op_of x })
+  | Hardswish { Pointwise.Hardswish.x } ->
+      simple (Op.Hardswish { Pointwise.Hardswish.x = op_of x })
   | Hardtanh { Pointwise.Hardtanh.params; x } ->
       simple (Op.Hardtanh { Pointwise.Hardtanh.params; x = op_of x })
   | Relu { Pointwise.Relu.x } -> simple (Op.Relu { Pointwise.Relu.x = op_of x })
+  | Silu { Pointwise.Silu.x } -> simple (Op.Silu { Pointwise.Silu.x = op_of x })
   | Sqrt { Pointwise.Sqrt.x } -> simple (Op.Sqrt { Pointwise.Sqrt.x = op_of x })
   | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       simple (Op.Avg_pool2d { Pool.AvgPool2d.params; x = op_of x })

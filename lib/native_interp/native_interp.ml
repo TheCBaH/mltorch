@@ -1289,6 +1289,17 @@ let lower program =
           | `Scalar s ->
               let* y = div_scalar s (get "self") in
               return [ y ])
+      | "torch.ops.aten.hardsigmoid.default"
+      | "torch.ops.aten.hardsigmoid_.default" ->
+          let* y = hardsigmoid (get "self") in
+          return [ y ]
+      | "torch.ops.aten.hardswish.default" | "torch.ops.aten.hardswish_.default"
+        ->
+          let* y = hardswish (get "self") in
+          return [ y ]
+      | "torch.ops.aten.silu.default" | "torch.ops.aten.silu_.default" ->
+          let* y = silu (get "self") in
+          return [ y ]
       | "torch.ops.aten.hardtanh.default" ->
           (* Schema defaults are -1/1; MobileNet-v2 always serialises 0/6. *)
           let params : Pointwise.Hardtanh.params =

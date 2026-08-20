@@ -154,6 +154,8 @@ let depthwise_conv2d params ~x ~weight ?bias () =
 
 let div a b = op1 (Op.Div { Pointwise.Bin.a; b })
 let div_scalar scalar x = op1 (Op.Div_scalar { Pointwise.Scalar_bin.x; scalar })
+let hardsigmoid x = op1 (Op.Hardsigmoid { Pointwise.Hardsigmoid.x })
+let hardswish x = op1 (Op.Hardswish { Pointwise.Hardswish.x })
 let hardtanh params x = op1 (Op.Hardtanh { Pointwise.Hardtanh.params; x })
 let max_pool2d params x = op1 (Op.Max_pool2d { Pool.MaxPool2d.params; x })
 
@@ -168,6 +170,7 @@ let reshape4 shape x = op1 (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
 let rms_norm params ~x ?weight () =
   op1 (Op.Rms_norm { Ops4.Rms_norm.params; x; weight })
 
+let silu x = op1 (Op.Silu { Pointwise.Silu.x })
 let sqrt x = op1 (Op.Sqrt { Pointwise.Sqrt.x })
 let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
 

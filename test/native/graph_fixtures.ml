@@ -282,8 +282,9 @@ let sink_permute_output () =
 
 (* One of each op [Sink_permute] accepts, each fed its own singly-consumed
    permuted operand(s) so every branch is independently sinkable. Cheap
-   insurance that the allowlist match arm actually fires for all six
-   constructors, despite it looking exhaustive on inspection. *)
+   insurance that the allowlist match arm actually fires for every
+   constructor, despite it looking exhaustive on inspection — including
+   [Silu]/[Hardsigmoid]/[Hardswish] (op5-impl). *)
 let sink_permute_allowlist () =
   build "sink_permute_allowlist"
     Graph_builder.(
@@ -309,6 +310,9 @@ let sink_permute_allowlist () =
       let* r_hardtanh =
         single (hardtanh { Pointwise.Hardtanh.min_val = 0.; max_val = 6. })
       in
+      let* r_silu = single silu in
+      let* r_hardsigmoid = single hardsigmoid in
+      let* r_hardswish = single hardswish in
       let* a1, b1 = pair () in
       let* r_add = add a1 b1 in
       let* a2, b2 = pair () in
@@ -326,7 +330,10 @@ let sink_permute_allowlist () =
       let* s7 = add s5 s6 in
       let* s8 = add s7 r_hardtanh in
       let* s9 = add s4 s3 in
-      add s9 s8)
+      let* s10 = add r_silu r_hardsigmoid in
+      let* s11 = add s10 r_hardswish in
+      let* s12 = add s9 s8 in
+      add s12 s11)
 
 (* ---- transporting a permute through a keepdim=true Mean ------------------ *)
 

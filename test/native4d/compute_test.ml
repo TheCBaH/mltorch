@@ -84,6 +84,44 @@ let%expect_test "direct4: pointwise" =
     (values (single g ~inputs:[ (List.nth ids 0, a); (List.nth ids 1, b) ] ()));
   [%expect {| relu(-1.5 + [0 1 2 3]), expect [0 0 0.5 1.5]: [0 0 0.5 1.5] |}]
 
+let chan c = Dim.to_int (Vec6.get c Axis.C)
+
+let activation_single f ~values:vs =
+  let shape = s4 ~n:1 ~h:1 ~w:1 ~c:(List.length vs) in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape () in
+       f x)
+  in
+  let x =
+    Tensor.materialize (Shape4.to_vec6 shape) (fun c -> List.nth vs (chan c))
+  in
+  let ids = g.Graph.Graph.inputs in
+  values (single g ~inputs:[ (List.nth ids 0, x) ] ())
+
+(* Hand values, not Native as oracle: [Compute (Direct)] is the same functor
+   whichever dialect calls it, so agreement between Native and Native4D here
+   would only show the parameter translation is self-consistent, not that the
+   formula is right. -6, -0.5, 0.5, 6 are worked out by hand in op5-impl. *)
+let%expect_test "direct4: silu" =
+  let vs = activation_single Builder.silu ~values:[ -6.; -0.5; 0.5; 6. ] in
+  Format.printf "%a@." pp_values vs;
+  [%expect {| [-0.0148357 -0.18877 0.31123 5.98516] |}]
+
+let%expect_test "direct4: hardsigmoid" =
+  let vs =
+    activation_single Builder.hardsigmoid ~values:[ -6.; -0.5; 0.5; 6. ]
+  in
+  Format.printf "%a@." pp_values vs;
+  [%expect {| [0 0.416667 0.583333 1] |}]
+
+let%expect_test "direct4: hardswish" =
+  let vs = activation_single Builder.hardswish ~values:[ -6.; -0.5; 0.5; 6. ] in
+  Format.printf "%a@." pp_values vs;
+  [%expect {| [-0 -0.208333 0.291667 6] |}]
+
 (* Depthwise is the arm where a wrong group count is invisible without a hand
    value: with in_channels = 2 and a 1x1 weight, output channel i is
    x[i] * w[i], whereas groups=1 would sum both channels into each output. *)
@@ -204,7 +242,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 20, registry: 20 |}]
+  [%expect {| fixtures: 23, registry: 23 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -221,6 +259,9 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     clamp                  direct = symbolic
     hardtanh               direct = symbolic
     relu                   direct = symbolic
+    silu                   direct = symbolic
+    hardsigmoid            direct = symbolic
+    hardswish              direct = symbolic
     sqrt                   direct = symbolic
     max_pool2d             direct = symbolic
     avg_pool2d             direct = symbolic

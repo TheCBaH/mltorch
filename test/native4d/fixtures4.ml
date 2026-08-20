@@ -122,6 +122,9 @@ let per_op () =
           (Builder.hardtanh { Pointwise.Hardtanh.min_val = 0.; max_val = 1. })
       );
       ("relu", unary ~shape:nhwc Builder.relu);
+      ("silu", unary ~shape:nhwc Builder.silu);
+      ("hardsigmoid", unary ~shape:nhwc Builder.hardsigmoid);
+      ("hardswish", unary ~shape:nhwc Builder.hardswish);
       ("sqrt", unary ~shape:nhwc Builder.sqrt);
       ("max_pool2d", unary ~shape:nhwc (Builder.max_pool2d pool_params));
       ("avg_pool2d", unary ~shape:nhwc (Builder.avg_pool2d avg_params));

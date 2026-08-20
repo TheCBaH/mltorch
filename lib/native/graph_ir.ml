@@ -28,6 +28,8 @@ type op =
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
+  | Hardsigmoid of Pointwise.Hardsigmoid.t
+  | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
@@ -38,6 +40,7 @@ type op =
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
+  | Silu of Pointwise.Silu.t
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
   | Unbind of Split.Unbind.t
@@ -159,6 +162,18 @@ let op_registry : (module OP) list =
       let project = function Div_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Hardsigmoid
+
+      let inject t = Hardsigmoid t
+      let project = function Hardsigmoid t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Hardswish
+
+      let inject t = Hardswish t
+      let project = function Hardswish t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Hardtanh
 
       let inject t = Hardtanh t
@@ -217,6 +232,12 @@ let op_registry : (module OP) list =
 
       let inject t = Rms_norm t
       let project = function Rms_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Silu
+
+      let inject t = Silu t
+      let project = function Silu t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Sqrt

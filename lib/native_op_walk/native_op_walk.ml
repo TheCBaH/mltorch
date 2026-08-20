@@ -55,6 +55,12 @@ let all_walks : op list =
        rather than only an op's pixel math. *)
     (module Unbind_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Silu_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (module Hardsigmoid_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (module Hardswish_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
   ]
 
 (* [native_op_walk.ml] shares the library's name, so it IS the library's

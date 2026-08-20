@@ -263,3 +263,17 @@ From `models_cram.t` expected output:
 
 ResNet uses `relu_` (in-place ReLU) and `add_` (in-place residual add).
 EfficientNet uses `silu_` (Swish) and `sigmoid+mul` for SE blocks.
+
+**None of the five downloadable models serializes the FUNCTIONAL spelling of
+any Group 5 activation (op5.md).** `silu_.default` is real coverage (the table
+above), but `silu.default` and `hardsigmoid.default` appear nowhere, and
+`hardswish.default` appears nowhere either — mobilenet_v3_small exports it
+pre-decomposed as `mul(x, div_scalar(clamp(add_scalar(x,3),0,6), 6))`
+(`test/native_graph_cram.t:1003`). So `test/native/compute_test.ml`'s
+deterministic fixture, `test/native_bridge_test.ml`'s dispatch/verify tests,
+`test/native_interp/activation_test.ml` and `test/me_group5_cram.t` are the
+coverage for the three functional targets, not a supplement to a zoo model —
+the same shape as Group 2 (`op2.md`) and Group 3 (`op3.md`) before them. The
+in-place spellings (`silu_.default` etc.) get the same bridge/importer arm as
+their functional twin and are additionally checked against the real
+efficientnet counts above via `make pt2.runtest`.

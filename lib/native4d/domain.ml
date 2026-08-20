@@ -216,8 +216,8 @@ let check_node view (n : node) =
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. *)
   | Add _ | Add_scalar _ | Avg_pool2d _ | Clamp _ | Clone _ | Div _
-  | Div_scalar _ | Hardtanh _ | Linear _ | Max_pool2d _ | Mul _ | Relu _
-  | Reshape _ | Sqrt _ | Sub _ ->
+  | Div_scalar _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Linear _
+  | Max_pool2d _ | Mul _ | Relu _ | Reshape _ | Silu _ | Sqrt _ | Sub _ ->
       Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
   | Bmm { Matmul.Bmm.input; mat2 } -> check_bmm view node ~input ~mat2

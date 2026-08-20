@@ -241,11 +241,42 @@ let pp_interp_error ppf = function
       Fmt.pf ppf "ATen op %s failed with status %d" op st
   | `Unhandled_op target -> Fmt.pf ppf "unhandled op %S" target
 
+(* The native side of the comparison, captured before [Interp_dispatch.dispatch]
+   runs. [Op_bridge.dispatch] + [Eval_direct.run] read [env]'s tensors and copy
+   their data into fresh OCaml-native storage, so evaluating them here --
+   against the still-pristine [env] -- is what [run] needs for an IN-PLACE ATen
+   target (e.g. [silu_]): [Interp_dispatch.dispatch] calls the real libtorch op,
+   which mutates its `Tensor(a!)` argument through the very handle [env] holds,
+   not a copy. Deferring native's read to after that call (the previous order)
+   compared against an already-overwritten input -- invisible for an idempotent
+   op like [relu_]/[hardtanh_] (applying it twice reproduces the same result),
+   exposed by [silu_]/[hardsigmoid_]/[hardswish_], none of which are idempotent
+   (op5-impl). *)
+type 'a native_result =
+  | Skipped
+  | Bridge_error of Op_bridge.error
+  | Eval_error of Eval_direct.error
+  | Computed of 'a
+
+let native_result env node =
+  match Op_bridge.dispatch ~aten_env:env node with
+  | None -> Skipped
+  | Some (Error e) -> Bridge_error (Err.Error.kind e)
+  | Some (Ok (graph, bindings)) -> (
+      match Eval_direct.run graph ~inputs:bindings with
+      | Error e -> Eval_error (Err.Error.kind e)
+      | Ok result_env ->
+          Computed
+            (List.map
+               (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
+               graph.Graph_ir.Graph.outputs))
+
 (* Execute the spec on both paths and report. Returns [true] if the native and
    ATen outputs agreed (or the op has no native impl, which is reported and
    treated as a pass), [false] on mismatch or error. *)
 let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
   let env, node = to_node spec in
+  let native = native_result env node in
   match Interp_dispatch.dispatch env node with
   | Error e -> (
       match Err.Error.kind e with
@@ -258,36 +289,29 @@ let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
             pp_interp_error kind;
           false)
   | Ok env' -> (
-      match Op_bridge.dispatch ~aten_env:env node with
-      | None ->
+      match native with
+      | Skipped ->
           Format.fprintf ppf "[spec] %s: skipped (no native impl)@." node.target;
           true
-      | Some (Error e) ->
+      | Bridge_error kind ->
           Format.fprintf ppf "[spec] %s: bridge error: %a@." node.target
-            Op_bridge.pp_error (Err.Error.kind e);
+            Op_bridge.pp_error kind;
           false
-      | Some (Ok (graph, bindings)) -> (
-          match Eval_direct.run graph ~inputs:bindings with
-          | Error e ->
-              Format.fprintf ppf "[spec] %s: eval error: %a@." node.target
-                Eval_direct.pp_error (Err.Error.kind e);
-              false
-          | Ok result_env ->
-              let native_outputs =
-                List.map
-                  (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
-                  graph.Graph_ir.Graph.outputs
-              in
-              let atol = Verify.atol_for_target node.target in
-              let errors =
-                Verify.verify_node ~atol ~aten_env:env' node native_outputs
-              in
-              if errors = [] then (
-                Format.fprintf ppf "[spec] %s: matched@." node.target;
-                true)
-              else (
-                Verify.report ppf node.target errors;
-                false)))
+      | Eval_error kind ->
+          Format.fprintf ppf "[spec] %s: eval error: %a@." node.target
+            Eval_direct.pp_error kind;
+          false
+      | Computed native_outputs ->
+          let atol = Verify.atol_for_target node.target in
+          let errors =
+            Verify.verify_node ~atol ~aten_env:env' node native_outputs
+          in
+          if errors = [] then (
+            Format.fprintf ppf "[spec] %s: matched@." node.target;
+            true)
+          else (
+            Verify.report ppf node.target errors;
+            false))
 
 (* [as_float32]/[as_int64] are flat reads off the storage base, so a view has to
    be materialized first or this prints the wrong elements — a strided one in

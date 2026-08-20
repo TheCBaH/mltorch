@@ -14,27 +14,36 @@ let pp_interp_error ppf = function
 let dispatch ~verify ?(ppf = Format.err_formatter) (env : Interp_decode.env)
     (node : Pytorch_types.Node.t) =
   let open Err.Syntax in
+  (* Native reads [env] BEFORE [Interp_dispatch.dispatch] runs, mirroring
+     [Aten_spec_run.run]: a real in-place ATen op (e.g. [silu_]) mutates its
+     `Tensor(a!)` argument through the very handle [env] holds, so capturing
+     native's bridge dispatch + eval first is what keeps this comparison
+     honest for an in-place target instead of comparing against a value ATen
+     already overwrote (op5-impl). *)
+  let native =
+    if not verify then None else Some (Op_bridge.dispatch ~aten_env:env node)
+  in
   let* env' = Interp_dispatch.dispatch env node in
-  (if verify then
-     match Op_bridge.dispatch ~aten_env:env node with
-     | None -> ()
-     | Some (Error e) ->
-         Fmt.pf ppf "[verify] %s: bridge error: %a@." node.target
-           Op_bridge.pp_error (Err.Error.kind e)
-     | Some (Ok (graph, bindings)) -> (
-         match Eval_direct.run graph ~inputs:bindings with
-         | Error e ->
-             Fmt.pf ppf "[verify] %s: eval error: %a@." node.target
-               Eval_direct.pp_error (Err.Error.kind e)
-         | Ok result_env ->
-             let native_outputs =
-               List.map
-                 (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
-                 graph.Graph_ir.Graph.outputs
-             in
-             let atol = Verify.atol_for_target node.target in
-             let errors =
-               Verify.verify_node ~atol ~aten_env:env' node native_outputs
-             in
-             Verify.report ppf node.target errors));
+  (match native with
+  | None -> ()
+  | Some None -> ()
+  | Some (Some (Error e)) ->
+      Fmt.pf ppf "[verify] %s: bridge error: %a@." node.target
+        Op_bridge.pp_error (Err.Error.kind e)
+  | Some (Some (Ok (graph, bindings))) -> (
+      match Eval_direct.run graph ~inputs:bindings with
+      | Error e ->
+          Fmt.pf ppf "[verify] %s: eval error: %a@." node.target
+            Eval_direct.pp_error (Err.Error.kind e)
+      | Ok result_env ->
+          let native_outputs =
+            List.map
+              (fun oid -> Graph_ir.Tensor_id.Map.find oid result_env)
+              graph.Graph_ir.Graph.outputs
+          in
+          let atol = Verify.atol_for_target node.target in
+          let errors =
+            Verify.verify_node ~atol ~aten_env:env' node native_outputs
+          in
+          Verify.report ppf node.target errors));
   Err.return env'

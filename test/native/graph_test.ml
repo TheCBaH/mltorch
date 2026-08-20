@@ -328,6 +328,73 @@ let%expect_test "Direct graph: hardtanh and clone" =
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
   [%expect {| out = tensor f32 [C=4] {0, 0, 2.5, 6} |}]
 
+let%expect_test "Direct graph: silu" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"silu" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          silu ~name:"out" a)
+    in
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect
+    {| out = tensor f32 [C=4] {-0.0148357, -0.18877, 0.31123, 5.98516} |}]
+
+let%expect_test "Direct graph: hardsigmoid" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"hardsigmoid" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          hardsigmoid ~name:"out" a)
+    in
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=4] {0, 0.416667, 0.583333, 1} |}]
+
+let%expect_test "Direct graph: hardswish" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"hardswish" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          hardswish ~name:"out" a)
+    in
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=4] {-0, -0.208333, 0.291667, 6} |}]
+
 (* The both-absent clamp is rejected where the node is built, so the error
    surfaces from the builder rather than from evaluation. *)
 let%expect_test "Direct graph: clamp with no bounds fails to build" =
