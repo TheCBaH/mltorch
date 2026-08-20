@@ -177,6 +177,16 @@ let%expect_test "domain: bmm batch extent" =
     batch=1                      in the dialect
     batch=2                      node n0: bmm batch extent is 2; only a single batch legalizes to a 1x1 convolution |}]
 
+(* [Sdpa] has no admissible shape at all: unlike [Bmm], whose single-batch
+   case legalizes to a 1x1 convolution, Native4D has neither a [Bmm] nor a
+   softmax to legalize through, and the op names D as batch regardless of
+   configuration (op8-impl.md F8). *)
+let%expect_test "domain: sdpa is always outside the dialect" =
+  table [ ("sdpa", Fixtures.sdpa) ];
+  [%expect
+    {|
+    sdpa                         node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native has no Bmm or softmax in Native4D) |}]
+
 (* ---- ops the pipeline is supposed to have removed ------------------------- *)
 
 (* Both reject, for different reasons and with different futures: the discarded

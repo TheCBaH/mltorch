@@ -42,6 +42,7 @@ type op =
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
+  | Sdpa of Attention.Sdpa.t
   | Silu of Pointwise.Silu.t
   | Slice of Split.Slice.t
   | Sqrt of Pointwise.Sqrt.t
@@ -247,6 +248,12 @@ let op_registry : (module OP) list =
 
       let inject t = Rms_norm t
       let project = function Rms_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Attention.Sdpa
+
+      let inject t = Sdpa t
+      let project = function Sdpa t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Silu

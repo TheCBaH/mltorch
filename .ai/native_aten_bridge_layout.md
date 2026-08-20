@@ -37,6 +37,7 @@ use rank-3/innermost layouts that already match what the native op reads:
 | `native_layer_norm.default` | `Norm.LayerNorm` | the same node from the decomposed spelling; the extra `mean`/`rstd` tuple elements are dropped, not laid out |
 | `view.default` | `Reshape.Reshape` | a contiguous reshape preserves flat row-major order, and `of_aten` inputs are already ATen-row-major, so the target is just `size` right-aligned — no surrounding permutes. (A whole-graph flow feeding a permuted native frame would need them, per the user's "Reshape between Transpose nodes".) |
 | `unbind.int` | `Split.Unbind` | `dim` via `axis_of_dim ~rank`, so the selected axis is the one the data actually landed on; dropping it re-packs the survivors right-aligned by the *same* rule `mean(keepdim=false)` uses, which is the ATen output rank. The rank must be read from the ATen tensor before `of_aten`, since the frame cannot recover it. |
+| `scaled_dot_product_attention.default` | `Attention.Sdpa` | rank-4 lands `D=batch, H=heads, W=sequence, C=head_dim` — exactly what `Sdpa` reads, no different from `Bmm`'s rank-3 case above (op8-impl.md F7). |
 
 (`rms_norm` also needed one unrelated fix on the ATen side — the interp decode
 generator had no `float?` case, so `aten.rms_norm`'s optional `eps` left it
@@ -406,6 +407,62 @@ tensor-factory leaf was stubbed in its place. `_pad_enum_symint`'s mode switch i
 straight-line, so replicate and circular link even though the native engine
 refuses them — the interpreter runs real ATen, where the mode is just an
 argument. See `.ai/aten_core_build.md`.
+
+## `aten.scaled_dot_product_attention.default` (Group 8): rank is erased, so every rank rule is an importer rule
+
+`unbind.int`'s row above and `pad`'s section both note, per op, that the rank
+must be read before conversion. `Attention.Sdpa` is the row that promotes this
+from a per-op remark to a stated rule, because it is the first op where the
+same erasure applies to an **optional** operand and the trap is concrete
+rather than hypothetical: `Aten_shape.of_aten` right-aligns and is lossy in
+exactly one direction (`aten_shape.ml:4-6` — recovering the rank back out
+needs it, "since the frame alone can't recover it"), and `Tensor_sig.t`
+retains only the folded `Vec6.shape`, no rank field. Concretely, these three
+attention-mask shapes fold to the **same** Native shape:
+
+```text
+rank 2  [Wq, Wk]        ⟶  D=1 H=1 W=Wq C=Wk
+rank 3  [1, Wq, Wk]     ⟶  D=1 H=1 W=Wq C=Wk
+rank 4  [1, 1, Wq, Wk]  ⟶  D=1 H=1 W=Wq C=Wk
+```
+
+The first and third are exactly what ATen's flash-attention CPU kernel admits
+(a rank-2 or rank-4 mask, each axis either the real extent or 1); the middle
+one is not, and `Attention.Sdpa.output_shape` cannot tell them apart — nor
+should it try to. Its checks stay to what the six-axis frame can express
+(per-axis extent agreement, broadcast-or-equal against `score_shape`); rank —
+Q/K/V at exactly 4, the mask at 2 or 4 — is enforced by **both** importers,
+before conversion: `Op_bridge` from `Aten_tensor.shape` (the same array
+`Tensor_bridge.of_aten` reads), `Native_interp` from the serialized
+`TensorMeta.sizes` length. The rank-3 fixture above is what proves the
+ordering — it passes every frame-level check and is caught only if raw rank
+is read first (`test/native_bridge_test.ml`'s and `sdpa_test.ml`'s "rank is
+checked on the declared metadata, not the normalized frame" cases both carry
+it deliberately).
+
+**A standalone Native or JSON-decoded graph carries no ATen rank at all.** A
+hand-built graph via `Graph_builder` (or one read back from JSON) can hold a
+mask no admissible ATen node could have produced, and it still evaluates
+soundly — the frame-level broadcast check in `Compute` is what the
+computation actually depends on, not a rank ATen never gave it. This is a
+property of the boundary, not a gap: rank is an *import*-time fact, and
+nothing downstream of `of_aten` has anywhere to keep it.
+
+**The typed-rejection boundary belongs to the op, not to either importer.**
+`Attention.Sdpa.Reject` (`lib/native/ops/attention.ml`) is shared by both
+arms for `Op_config.Bad`'s reason — dropout/causal/GQA/boolean-mask/scale
+rejections must read identically from both paths, or the two importers
+silently diverge on what "supported" means for the same node. Two of the
+frame-level checks (`Attention.Sdpa.output_shape`'s `` `Extent_mismatch ``
+on `C`, and its `` `Mask_shape ``) are flash-oracle boundaries rather than
+mathematical ones (op8-impl.md F4): ATen does not error on `Ev <> E` or an
+inadmissible mask shape, it silently falls back to the `math` backend, which
+is why they are rejections here rather than supported cases with a wider
+tolerance.
+
+**No relayout, same as `Bmm`** (added to the table above): a rank-4 SDPA
+operand `[B, heads, S, E]` lands `D=batch, H=heads, W=sequence, C=head_dim`,
+exactly the axes `Compute` reads.
 
 ## `aten.slice.Tensor` (Group 6): one resolver, two extents
 

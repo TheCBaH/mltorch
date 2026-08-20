@@ -36,6 +36,12 @@ let all_walks : op list =
        graph SHAPES, not that it checks the arithmetic. *)
     (module Layer_norm_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (* Mask presence, like RmsNorm/LayerNorm's affine operands, is a genuinely
+       different graph, not a ones-filled tensor; the shapes it draws are all
+       DERIVED from one correlated (batch, heads, wq, wk, e) tuple, so no
+       cross-operand mismatch is representable in the first place. *)
+    (module Sdpa_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Max_pool2d_with_indices_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Reshape_nwalk.M : Walk_core.Walk.Op

@@ -621,7 +621,7 @@ let lower_node ~view acc (n : node) =
         n.Node.outputs
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them. *)
-  | Max_pool2d_with_indices _ | Discard _ ->
+  | Max_pool2d_with_indices _ | Discard _ | Sdpa _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))
 
 (* ---- constants ------------------------------------------------------------ *)

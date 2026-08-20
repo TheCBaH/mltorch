@@ -24,6 +24,7 @@ type t =
   | `Live_max_pool_indices of Node_id.t * Tensor_id.t
   | `Lossy_bmm_operand of Node_id.t * Tensor_id.t
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
+  | `Sdpa_batch_axis of Node_id.t
   | `Unsupported_bmm_batch of Node_id.t * Dim.extent Dim.t
   | `Unsupported_grouped_conv of Node_id.t * int
   | `Unsupported_grouped_transposed_conv of Node_id.t * int

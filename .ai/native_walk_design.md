@@ -225,6 +225,33 @@ applied after every mutation — not by filtering candidate values. Examples:
   the native side is the ATen recipe (an independent oracle) plus the hand-written fixtures in
   test/native_bridge_test.ml (op3-impl.md Part IV #4).
 
+- **Sdpa** (`Recipe_sdpa`, `scaled_dot_product_attention.default`, op8-impl.md commit 4): the first
+  **three-tensor-plus-optional-mask** recipe, and the first where an uncorrelated axis would degrade
+  to something worse than a `skipped` line (see "the oracle-identity trap" below). One correlated
+  `(batch, heads, sq, sk, e)` tuple derives Q/K/V's shapes — there is no `ev` field, deliberately: a
+  distinct value feature dimension moves ATen's CPU dispatch off the flash kernel entirely (F4), so
+  the recipe must be unable to express it, not merely unlikely to draw it. `mask_kind` is a closed
+  variant (`No_mask | M2 of {q;k} | M4 of {d;h;q;k}`) where each field says "this axis is 1 rather
+  than its real extent", so every representable mask is flash-admissible *by construction* — there is
+  no way to build the `[Wq,Wk]`-shaped-but-wrong mask `check_attn_mask_shape` would reject. `cascade`
+  is identity, matching `Recipe_binary`'s reasoning: every field is already a whole valid tuple.
+
+  **The oracle-identity trap.** Every other recipe in this file risks generating a spec ATen itself
+  refuses, which degrades to `skipped` — visible, and merely wastes a walk step. `Sdpa`'s risk is
+  different in kind: `check_attn_mask_shape` and the other flash gates fail *silently*
+  (`sdp_utils_cpp.cpp`'s `priority_order_cpp` falls through to `SDPBackend::math` with no error), so
+  an inadmissible config still produces an answer — just from a different kernel — and the golden
+  would read `matched` while quietly comparing against the wrong oracle. A `skipped` line is not the
+  signal to watch for here; the recipe's types making an off-oracle point unrepresentable is the
+  *primary* defence, and it must be independently checked, not trusted by construction alone. The
+  secondary check is a scratch `extern "C"` wrapper around `_fused_sdp_choice` (never committed — see
+  op8-impl.md commit 0 step 2 for why: the op's `int` return is outside `Aten_c_type.map_returns`'
+  admitted shapes, so the generator cannot reach it, and the return ABI is not extended for a
+  one-time spike), run over the recipe's **full** axis product before its golden is fixed. **Anyone
+  who widens this recipe must rebuild that probe and re-run it** — nothing in CI re-checks the
+  backend choice, only that the walk's answer agrees with ATen's, which is exactly the failure mode
+  described above.
+
 `output_dim in pad kernel dilation stride = (in + 2*pad - ((kernel-1)*dilation + 1)) / stride + 1`
 (`Window_math.output_dim`). Cascade is pure (no PCG), so trajectories stay reproducible from the
 seed. Because mutation always picks freely and cascade guarantees validity, there is no "advance the

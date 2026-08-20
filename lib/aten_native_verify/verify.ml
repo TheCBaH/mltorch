@@ -21,6 +21,23 @@ let default_atol = 1e-5
    so widen them selectively rather than weakening verification globally. *)
 let atol_for_target = function
   | "torch.ops.aten.addmm.default" -> 1e-4
+  (* op8-impl.md commit 4 (F4): the CPU flash kernel is a blocked, tiled,
+     online-softmax reassociation of the same math this row implements
+     (split-sqrt scale, unconditional safe-softmax) -- a real numerical
+     divergence, not a bug, so it gets its own measured entry rather than
+     inheriting [default_atol] by coincidence. Measured (scratch probe,
+     op8-impl.md commit 0 step 2 and commit 4 step 3, never committed): the
+     worst observed |flash - math| across Recipe_sdpa's full shape space
+     (3240 samples) was 4.1e-7; the worst across large-magnitude logits
+     (op8-impl.md's max-subtraction-stability case, x20 scale) was 1.5e-8.
+     Both stay comfortably under [default_atol]; this entry is pinned
+     independently of it so a future unrelated change to [default_atol]
+     cannot silently loosen or tighten what this target was actually
+     verified against. This is defensible as ONE entry only because the
+     recipe's types make an off-oracle (non-flash) configuration
+     unrepresentable (F4/F9) -- if a future recipe widening reintroduces the
+     math backend, it needs its own policy, not a wider single number. *)
+  | "torch.ops.aten.scaled_dot_product_attention.default" -> 1e-5
   | _ -> default_atol
 
 type point = { coord : Vec6.coord; aten_val : float; native_val : float }

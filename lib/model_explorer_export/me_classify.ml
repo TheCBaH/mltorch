@@ -28,9 +28,9 @@ let native4d : [< Native4d.Error.t ] -> verdict = function
      dialect, which is why Native4D stays conditional for both input kinds. *)
   | `Axis_outside_dialect _ | `Batch_norm_extent _ | `Dynamic_batch_norm _
   | `Live_max_pool_indices _ | `Lossy_bmm_operand _
-  | `Non_four_dimensional_tensor _ | `Unsupported_bmm_batch _
-  | `Unsupported_grouped_conv _ | `Unsupported_grouped_transposed_conv _
-  | `Unsupported_op _ ->
+  | `Non_four_dimensional_tensor _ | `Sdpa_batch_axis _
+  | `Unsupported_bmm_batch _ | `Unsupported_grouped_conv _
+  | `Unsupported_grouped_transposed_conv _ | `Unsupported_op _ ->
       Unavailable C.Outside_dialect_domain
   (* A payload that WAS supplied and is wrong, and a map or view invariant
      failure, are defects. Reporting either as "outside the dialect" tells the

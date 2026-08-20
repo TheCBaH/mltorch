@@ -75,6 +75,7 @@ let selection =
     op "_native_batch_norm_legit_no_training";
     op "native_layer_norm";
     op "rms_norm";
+    op "scaled_dot_product_attention";
     op "max_pool2d_with_indices";
     op "max_pool2d";
     op "adaptive_avg_pool2d";

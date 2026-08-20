@@ -1127,6 +1127,65 @@ let%expect_test
                               params={dims=[W, C]; eps=1e-05}
                         outputs: [t1 f32 [H=8 W=2 C=5] <-n0] |}]
 
+(* Mask present/absent (an independently-optional operand, [rms_norm]'s
+   precedent) AND [Scale.Default] vs [Scale.Explicit] (a bare-number JSON
+   shape none of the other ops have): [0.1] is not f32-exact, so a narrowed
+   scalar is distinguishable from an unnarrowed one by printing alone. *)
+let%expect_test
+    "op8: sdpa mask presence and Default/Explicit scale survive a round trip" =
+  round_trip "sdpa, mask present, explicit scale"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* q = input ~shape:(s 1 1 2 3 4 5) ~name:"q" () in
+      let* k = input ~shape:(s 1 1 2 3 6 5) ~name:"k" () in
+      let* v = input ~shape:(s 1 1 2 3 6 5) ~name:"v" () in
+      let* m = input ~shape:(s 1 1 2 3 4 6) ~name:"m" () in
+      sdpa ~name:"y"
+        { Attention.Sdpa.scale = Attention.Sdpa.Scale.Explicit 0.1 }
+        ~query:q ~key:k ~value:v ~mask:m ());
+  round_trip "sdpa, mask absent, default scale"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* q = input ~shape:(s 1 1 2 3 4 5) ~name:"q" () in
+      let* k = input ~shape:(s 1 1 2 3 6 5) ~name:"k" () in
+      let* v = input ~shape:(s 1 1 2 3 6 5) ~name:"v" () in
+      sdpa ~name:"y"
+        { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+        ~query:q ~key:k ~value:v ());
+  [%expect
+    {|
+    sdpa, mask present, explicit scale: graph
+                                        inputs:
+                                          [t0 f32 [D=2 H=3 W=4 C=5] ->[n0],
+                                           t1 f32 [D=2 H=3 W=6 C=5] ->[n0],
+                                           t2 f32 [D=2 H=3 W=6 C=5] ->[n0],
+                                           t3 f32 [D=2 H=3 W=4 C=6] ->[n0]]
+                                        nodes:
+                                          n0: [t4 f32 [D=2 H=3 W=4 C=5]] =
+                                            sdpa
+                                              query=t0
+                                              key=t1
+                                              value=t2
+                                              mask=t3
+                                              params={scale=explicit(0.1)}
+                                        outputs: [t4 f32 [D=2 H=3 W=4 C=5] <-n0]
+    sdpa, mask absent, default scale: graph
+                                      inputs:
+                                        [t0 f32 [D=2 H=3 W=4 C=5] ->[n0],
+                                         t1 f32 [D=2 H=3 W=6 C=5] ->[n0],
+                                         t2 f32 [D=2 H=3 W=6 C=5] ->[n0]]
+                                      nodes:
+                                        n0: [t3 f32 [D=2 H=3 W=4 C=5]] =
+                                          sdpa
+                                            query=t0
+                                            key=t1
+                                            value=t2
+                                            mask=none
+                                            params={scale=default}
+                                      outputs: [t3 f32 [D=2 H=3 W=4 C=5] <-n0] |}]
+
 let%expect_test "Group 2: linear with a non-square weight survives a round trip"
     =
   round_trip "linear"

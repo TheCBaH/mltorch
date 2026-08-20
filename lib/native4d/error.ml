@@ -10,6 +10,7 @@ type t =
   | `Live_max_pool_indices of Node_id.t * Tensor_id.t
   | `Lossy_bmm_operand of Node_id.t * Tensor_id.t
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
+  | `Sdpa_batch_axis of Node_id.t
   | `Unsupported_bmm_batch of Node_id.t * Dim.extent Dim.t
   | `Unsupported_grouped_conv of Node_id.t * int
   | `Unsupported_grouped_transposed_conv of Node_id.t * int
@@ -59,6 +60,12 @@ let pp fmt : [< t ] -> unit = function
   | `Non_four_dimensional_tensor (id, shape) ->
       Fmt.pf fmt "@[tensor %a has extent on T or D: %a@]" Tensor_id.pp id
         Vec6.pp_shape shape
+  | `Sdpa_batch_axis node ->
+      Fmt.pf fmt
+        "@[node %a: scaled-dot-product attention's batch axis is D, which the \
+         N/H/W/C dialect has no name for; no legalization is available (Native \
+         has no Bmm or softmax in Native4D)@]"
+        Node_id.pp node
   | `Unsupported_bmm_batch (node, batch) ->
       Fmt.pf fmt
         "@[node %a: bmm batch extent is %a; only a single batch legalizes to a \

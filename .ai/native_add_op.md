@@ -206,6 +206,31 @@ describes the reduced axes; `Compute` has no error channel and can only document
 the invariant. Do **not** bound it in `Compute`, and do not check the folded
 product after the fact — a mid-fold wrap sails straight past that.
 
+**The recomputed-reduction idiom, and the bound the per-shape `numel`s do not
+imply.** `Attention.Sdpa` (op8-impl.md, Group 8) is a second reduction
+"consuming" a first in the sense above, but a harder case than layer norm's
+mean-then-variance: it deliberately **recomputes** the row's score, max and
+denominator once per OUTPUT FEATURE rather than caching them (`op8.md:127-128`
+requires the choice be explicit) — so total work is proportional to an
+EIGHT-factor product (`N·T·D·H·Wq·Wk·E·E` for Sdpa — `N`/`T` carry no
+semantic role in this op, but still multiply real work like any other
+operand extent, op8-impl-review.md P1) that neither the score count
+(`D·H·Wq·Wk`) nor the output numel (`D·H·Wq·E`) implies on its own. The
+counterexample that makes this concrete: `D=H=1, Wq=Wk=E=Ev=1024` passes
+BOTH of those bounds by six orders of magnitude while the real work is
+`~3·10^12`. The general rule: **an op whose cost is a product across
+several operand shapes — not one shape's own `numel` — needs its own
+divide-before-multiply fold in `output_shape`**, over an explicit list of
+the contributing factors, following `Kernel.Bounds.signature`
+(`kernel.ml:256-268`), the same shape CLAUDE.md's aggregate rule already
+cites. `Vec6.numel_bounded` cannot be reused directly here because no single
+`Vec6.shape` holds all eight factors (`E` appears twice, and no operand's own
+shape has both `Wq` and `Wk`). A check on any of the "obvious" bounds
+is not a substitute — it is a check on the wrong aggregate, and — P1's
+second lesson — a factor list that quietly omits an axis nobody thought
+mattered (`N`/`T` here) is still the wrong aggregate even when every listed
+factor is correct.
+
 ## Multi-output ops and dead outputs
 
 Most ops produce one output; a few ATen ops return a tuple. If yours does:

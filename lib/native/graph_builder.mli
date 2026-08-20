@@ -170,6 +170,16 @@ val rms_norm :
   unit ->
   Tensor_id.t t
 
+val sdpa :
+  ?name:string ->
+  Attention.Sdpa.params ->
+  query:tensor_ref ->
+  key:tensor_ref ->
+  value:tensor_ref ->
+  ?mask:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
 val silu : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val slice : ?name:string -> Split.Slice.params -> tensor_ref -> Tensor_id.t t

@@ -241,6 +241,13 @@ let check_node view (n : node) =
   | Slice { Split.Slice.params; _ } -> check_dims node [ params.axis ]
   | Rms_norm { Norm.RmsNorm.params; _ } ->
       check_dims node params.Norm.RmsNorm.dims
+  (* Not [check_dims]: the batch axis is D UNCONDITIONALLY (op8-impl.md F7/F8),
+     not a parameter that happens to name D in some configurations, so there
+     is no admissible case to let through. Typed rejection is the principled
+     answer here, not a shortcut: legalization is unavailable too (Native4D
+     has no Bmm and no softmax), so a sound direct/legalized/rejected decision
+     has exactly one option. *)
+  | Sdpa _ -> Err.fail (`Sdpa_batch_axis node)
   (* Two ops the dialect does not have. Both are removed by the canonical
      pipeline rather than legalized, so reaching them means the pipeline did not
      run — except for a live index, which nothing can remove. *)

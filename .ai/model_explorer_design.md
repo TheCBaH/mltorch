@@ -1433,6 +1433,47 @@ a rank-4 input, which right-aligns onto `D, H, W, C`: Native imports it and
 as Group 6's `T` case, and for the same reason — the axis is gated on the Native
 `Axis.t` before conversion, so the diagnostic can name it.
 
+## Group-8 coverage: `test/me_group8_cram.t`
+
+A stronger version of Group 7's split reason: `scaled_dot_product_attention`
+is not merely absent from a downloadable model's graph, its NAME is *inside*
+one — 600-1200 occurrences in the four `vit_*` graphs' `from_node`
+provenance — while its actual TARGET appears zero times, because every
+exporter decomposes it into twelve primitives before writing `model.json`
+(op8-impl.md F1). This hand-built, payload-free fixture is therefore the
+row's only Model Explorer evidence, and stays that way until the
+decomposition (out of scope for this row) is separately supported.
+
+Two nodes chained (`attn1 -> attn2`), pinning both axes `op8.md:253-259`
+asks for in one fixture: `attn1` has no mask and the default scale, `attn2`
+has both an explicit mask and an explicit scale (`0.1`).
+
+What it pins beyond the usual labels/namespaces/shapes:
+
+- **The three mandatory operand edges in order, plus the optional mask
+  edge.** `params` (the op's own `pp`) shows `query=... key=... value=...
+  mask=none|t..`, and the edge list shows the same order at stable slot ids.
+  `attn1`'s mask stays absent rather than a materialized ones-shaped
+  constant — `Graph_ir`'s `Sdpa` carries `mask : Tensor_ref.t option`, and a
+  fourth constant edge there would mean this importer and `Native_interp`
+  built structurally different graphs for the same absent-mask node.
+- **`Default` vs `Explicit` scale**, through `params` alone:
+  `params={scale=default}` against `params={scale=explicit(0.1)}`. The two
+  are not the same computation — `Default` is `1/sqrt(head_dim)`, resolved
+  only inside `Compute` — so the JSON/session distinction has to survive
+  intact rather than being pre-folded into a number.
+- **The output shape**, which is exactly `query_shape` (`Ev = E`, F4's
+  flash-oracle constraint, not a mathematical one): both nodes keep
+  query's `[Wq=2, C=4]` even though `attn2`'s query is `attn1`'s output.
+
+The capability-unavailable half needs no separate fixture: **both** nodes
+already fail `stage:native4d` unconditionally (F8 — the batch axis is `D`,
+which the N/H/W/C dialect has no name for, and there is no legalization to
+fall back to, unlike `Bmm`'s single-batch escape hatch). `Domain.check` is
+not an accumulator, so the session reports the FIRST failure (`n0`) and
+stops there — the same fail-fast contract every other capability-unavailable
+fixture in this file relies on.
+
 ---
 
 ## 17. The visualizer bundle — built from the submodule, not installed from npm

@@ -291,6 +291,10 @@ let reshape ?name params x =
 let rms_norm ?name params ~x ?weight () =
   op1 ?name ~kind:"rms_norm" (Rms_norm { Norm.RmsNorm.params; x; weight })
 
+let sdpa ?name params ~query ~key ~value ?mask () =
+  op1 ?name ~kind:"sdpa"
+    (Sdpa { Attention.Sdpa.params; query; key; value; mask })
+
 let silu ?name x = op1 ?name ~kind:"silu" (Silu { Pointwise.Silu.x })
 let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })
 

@@ -61,6 +61,7 @@ type op =
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
+  | Sdpa of Attention.Sdpa.t
   | Silu of Pointwise.Silu.t
   (* Selects a strided range along one axis and KEEPS it, so unlike [Unbind]
      the rank is unchanged and there is one output. Its bounds are canonical —

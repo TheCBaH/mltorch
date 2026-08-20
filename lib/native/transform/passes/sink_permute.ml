@@ -14,9 +14,11 @@
    and [p] maps corresponding axes of every operand identically, so the
    broadcast pattern permutes along with the data. It does NOT hold for
    [Mean] (reduces over named axes) or anything else with axis-specific
-   semantics (conv, pool, bmm, linear, norm, reshape, permute itself) — hence
-   the explicit allowlist below rather than reaching for [Graph_ir.operands]
-   on an arbitrary op. *)
+   semantics (conv, pool, bmm, linear, norm, reshape, permute itself, sdpa —
+   which NAMES D as the batch axis and H as heads, W as the query/key
+   sequence and C as the head dimension, so it is a barrier for the same
+   reason [Layer_norm] is) — hence the explicit allowlist below rather than
+   reaching for [Graph_ir.operands] on an arbitrary op. *)
 
 open Graph_ir
 

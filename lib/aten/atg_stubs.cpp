@@ -33,8 +33,9 @@ at::Tensor row_indices_default(const at::Tensor&) { MINSTUB("row_indices"); }
 
 // --- layer 2: leaves pulled in by TensorFactories / TensorShape /
 //     TensorConversions (output allocation + as_strided / select / to paths) ---
-at::Tensor nonzero_cpu(const at::Tensor&) { MINSTUB("nonzero_cpu"); }
-at::Tensor index_select_cpu_(const at::Tensor&, int64_t, const at::Tensor&) { MINSTUB("index_select_cpu_"); }
+// nonzero_cpu / index_select_cpu_ are now REAL (native/TensorAdvancedIndexing.cpp,
+// added for op8/scaled_dot_product_attention's masked_fill closure); they were
+// stubbed only because nothing else pulled that file in.
 at::Tensor& arange_out(const at::Scalar&, const at::Scalar&, const at::Scalar&, at::Tensor& out) { MINSTUB("arange_out"); return out; }
 at::Tensor sparse_compressed_tensor_with_dims(int64_t, int64_t, at::IntArrayRef, at::IntArrayRef, at::ScalarType, std::optional<at::ScalarType>, std::optional<at::Layout>, std::optional<at::Device>, std::optional<bool>) { MINSTUB("sparse_compressed_tensor_with_dims"); }
 at::Tensor _sparse_compressed_tensor_unsafe_symint(const at::Tensor&, const at::Tensor&, const at::Tensor&, c10::SymIntArrayRef, std::optional<at::ScalarType>, std::optional<at::Layout>, std::optional<at::Device>, std::optional<bool>) { MINSTUB("_sparse_compressed_tensor_unsafe_symint"); }

@@ -193,6 +193,20 @@ to a functor":
   So broadcasting needs no storage metadata — only the source's own shape, which
   the tensor already has.
 
+  **`broadcast_coord` was written for a binary pointwise op, where the operand
+  is read at the OUTPUT coordinate.** `Attention.Sdpa` (op8-impl.md, Group 8)
+  is the first consumer where that assumption does not hold: its mask is read
+  at the SCORE coordinate `[D,H,Wq,Wk]`, which is neither the op's own output
+  shape (`[D,H,Wq,E]`) nor another operand's — it is a coordinate the op
+  computes internally, one axis (`C`, holding the key position under
+  reduction) replaced from the output coordinate the pixel function was
+  given. The helper still applies unmodified (it only ever needed a shape and
+  an index function), which is the point: `broadcast_coord ~index_zero
+  mask_shape score_coord` is exactly as sound here as it is for a bias read
+  at the output coordinate, because "coordinate reduction against the
+  source's own shape" never assumed the coordinate came from anywhere in
+  particular.
+
 - **Slice / permute / reshape are index reindexings, not data with funny strides.**
   In a framework where computation *is* an index→value function, a layout op is a
   remap of the consumer's read indices (expressed in symbolic `index_expr`, see

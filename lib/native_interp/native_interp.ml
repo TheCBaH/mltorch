@@ -76,7 +76,11 @@ type metadata_role =
   | `Pad_input
   | `Slice_input
   | `Unbind_input
-  | `Addmm_weight ]
+  | `Addmm_weight
+  | `Sdpa_query
+  | `Sdpa_key
+  | `Sdpa_value
+  | `Sdpa_mask ]
 
 type hw_param =
   [ `Stride | `Padding | `Output_padding | `Dilation | `Kernel_size ]
@@ -186,7 +190,8 @@ type malformed =
   | `Undefined_ssa of string
   | `Output_not_evaluated of Graph_ir.Tensor_id.t
   | `Bad_view of Bad_view.t
-  | `Bad_slice of Bad_slice.t ]
+  | `Bad_slice of Bad_slice.t
+  | `Sdpa_reject of Attention.Sdpa.Reject.t ]
 
 module Rank_mismatch = struct
   type t = { sizes : int; strides : int }
@@ -265,6 +270,10 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Slice_input -> Fmt.string ppf "slice input"
   | `Unbind_input -> Fmt.string ppf "unbind input"
   | `Addmm_weight -> Fmt.string ppf "addmm weight"
+  | `Sdpa_query -> Fmt.string ppf "sdpa query"
+  | `Sdpa_key -> Fmt.string ppf "sdpa key"
+  | `Sdpa_value -> Fmt.string ppf "sdpa value"
+  | `Sdpa_mask -> Fmt.string ppf "sdpa attn_mask"
 
 let pp_hw_param ppf : hw_param -> unit = function
   | `Stride -> Fmt.string ppf "stride"
@@ -344,6 +353,7 @@ let pp_malformed ppf : [< malformed ] -> unit = function
           Fmt.pf ppf "view size [%a]: %a" ints size Aten_shape.pp_error e
       | `Numel_over_limit e ->
           Fmt.pf ppf "view size [%a]: %a" ints size Vec6.Numel_bound.pp e)
+  | `Sdpa_reject e -> Attention.Sdpa.Reject.pp ppf e
 
 let pp_tensor_bridge ppf : [< tensor_bridge ] -> unit = function
   | #malformed as e -> pp_malformed ppf e
@@ -730,7 +740,7 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
   | "torch.ops.aten.max_pool2d_with_indices.default"
   | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.layer_norm.default"
   | "torch.ops.aten.native_layer_norm.default" | "torch.ops.aten.addmm.default"
-    ->
+  | "torch.ops.aten.scaled_dot_product_attention.default" ->
       true
   | _ -> false
 
@@ -1514,6 +1524,78 @@ let lower program =
           let* y =
             rms_norm params ~x:(get "input")
               ?weight:(Option.map (env_find esc env) weight_name)
+              ()
+          in
+          return [ y ]
+      (* op8-impl.md commit 3: the serialized twin of [Op_bridge]'s arm --
+         same checks, same typed rejections ([Attention.Sdpa.Reject], shared
+         so the two importers cannot drift), same treatment of the optional
+         mask. Q/K/V/mask rank is checked on the DECLARED metadata rank
+         (F13), the only place it survives: [Tensor_sig.t] keeps none.
+         [value.C <> query.C] and an inadmissible mask broadcast shape are
+         flash-oracle boundaries (F4) [Attention.Sdpa.output_shape] already
+         rejects via the eventual [Graph_builder.build] call, not re-checked
+         here. *)
+      | "torch.ops.aten.scaled_dot_product_attention.default" ->
+          let query_name = tensor_name esc node "query" in
+          let key_name = tensor_name esc node "key" in
+          let value_name = tensor_name esc node "value" in
+          require_rank esc graph ~ssa:query_name ~role:`Sdpa_query ~expected:4;
+          require_rank esc graph ~ssa:key_name ~role:`Sdpa_key ~expected:4;
+          require_rank esc graph ~ssa:value_name ~role:`Sdpa_value ~expected:4;
+          let dropout_p = float_arg esc ~default:0.0 node "dropout_p" in
+          if not (Float.equal dropout_p 0.0) then
+            malformed esc
+              (`Sdpa_reject (Attention.Sdpa.Reject.Dropout dropout_p));
+          let is_causal = bool_arg esc ~default:false node "is_causal" in
+          if is_causal then
+            malformed esc (`Sdpa_reject Attention.Sdpa.Reject.Causal);
+          let enable_gqa = bool_arg esc ~default:false node "enable_gqa" in
+          if enable_gqa then
+            malformed esc (`Sdpa_reject Attention.Sdpa.Reject.Gqa);
+          let scale =
+            match float_opt_arg_opt esc node "scale" with
+            | None -> Attention.Sdpa.Scale.Default
+            | Some s ->
+                if not (Float.is_finite s) then
+                  malformed esc
+                    (`Sdpa_reject (Attention.Sdpa.Reject.Non_finite_scale s));
+                if Float.compare s 0.0 < 0 then
+                  malformed esc
+                    (`Sdpa_reject (Attention.Sdpa.Reject.Negative_scale s));
+                Attention.Sdpa.Scale.Explicit s
+          in
+          (* NO ones/zeros tensor for an absent mask -- [Graph_ir]'s [Sdpa]
+             carries [mask : Tensor_ref.t option] and [Eval_op] fills it;
+             materialising here would build a structurally different graph
+             from [Op_bridge]'s for the same node. *)
+          let mask_name =
+            optional_tensor_name ~absent_ok:true esc node "attn_mask"
+          in
+          Option.iter
+            (fun ssa ->
+              let meta = tensor_meta esc graph ~ssa ~role:`Sdpa_mask in
+              (match meta.TensorMeta.dtype with
+              | ScalarType.BOOL ->
+                  malformed esc
+                    (`Sdpa_reject Attention.Sdpa.Reject.Boolean_mask)
+              | _ -> ());
+              let got = meta_rank meta in
+              if got <> 2 && got <> 4 then
+                malformed esc
+                  (`Sdpa_reject
+                     (Attention.Sdpa.Reject.Rank
+                        {
+                          arg_name = "sdpa attn_mask";
+                          expected = [ 2; 4 ];
+                          got;
+                        })))
+            mask_name;
+          let params = { Attention.Sdpa.scale } in
+          let* y =
+            sdpa params ~query:(get "query") ~key:(get "key")
+              ~value:(get "value")
+              ?mask:(Option.map (env_find esc env) mask_name)
               ()
           in
           return [ y ]
