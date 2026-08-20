@@ -209,6 +209,36 @@ let%expect_test
   [%expect
     {| eval=0.25,0.5,0.25,0.5,1,0.5,0.25,0.5,0.25 direct==symbolic=true |}]
 
+let%expect_test
+    "Symbolic adaptive_avg_pool2d: eval matches Direct for upsampling" =
+  let module S = Symbolic in
+  let module Pd = Pool.AdaptiveAvgPool2d.Compute (Direct) in
+  let module Ps = Pool.AdaptiveAvgPool2d.Compute (S) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c -> float_of_int ((row c * 3) + col c + 1))
+  in
+  let xs =
+    Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"x" ~shape:x_shape ~fmt:f32
+      ()
+  in
+  let p =
+    {
+      Pool.AdaptiveAvgPool2d.output_size =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 3; w = Op_config.Pos.of_int 5 };
+    }
+  in
+  let e = build (Ps.pixel p ~x_shape ~x:xs Symbolic.out_vec) in
+  let binding id = if id = xs.id then Some x else None in
+  Format.printf "%a@." (pp_result pp_eval_result)
+    (compare_symbolic (Pool.AdaptiveAvgPool2d.output_shape ~x_shape p)
+       ~iter_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:5 ~c:1)
+       ~eval_direct:(Pd.pixel p ~x_shape ~x) ~eval_symbolic:(fun c ->
+         eval_expr ~binding e c)
+    |> Result.map (fun (vals, ok, _) -> (vals, ok)));
+  [%expect
+    {| eval=1,1.5,2,2.5,3,2.5,3,3.5,4,4.5,4,4.5,5,5.5,6 direct==symbolic=true |}]
+
 let%expect_test "Symbolic linear: eval matches Direct" =
   let module S = Symbolic in
   let module Ld = Linear.Linear.Compute (Direct) in

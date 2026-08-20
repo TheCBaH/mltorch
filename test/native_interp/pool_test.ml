@@ -173,3 +173,36 @@ let%expect_test "config faults are typed, not raised" =
     stride 0:                  malformed PT2 graph: torch.ops.aten.max_pool2d.default: stride must be positive, got 0
     padding -1:                malformed PT2 graph: torch.ops.aten.max_pool2d.default: padding must not be negative, got -1
     kernel arity:              malformed PT2 graph: kernel_size must have one or two values, got 3 |}]
+
+let adaptive ~output_size =
+  jstr
+    {|{"target":"torch.ops.aten.adaptive_avg_pool2d.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"output_size","arg":%s,"kind":1}],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") output_size (as_tensor "y")
+
+let%expect_test "adaptive_avg_pool2d accepts resolved SymInt[] and relayouts" =
+  let symints = {|{"as_sym_ints":[{"as_int":3},{"as_int":2}]}|} in
+  dump "adaptive:"
+    (prog ~x_sizes:[ 1; 2; 5; 4 ] (adaptive ~output_size:symints));
+  [%expect
+    {|
+    adaptive:
+    graph
+    inputs: [t0 f32 [H=2 W=5 C=4] ->[n0]]
+    nodes:
+      group g1 torch.ops.aten.adaptive_avg_pool2d.default:
+        n0: [t1 f32 [H=5 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=2 C=2] ->[n2]] =
+          adaptive_avg_pool2d x=t1 <-n0 params={output_size={h=3; w=2}}
+        n2: [t3 f32 [H=2 W=3 C=2]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [H=2 W=3 C=2] <-n2] |}]
+
+let%expect_test "adaptive_avg_pool2d rejects unsupported sizes and rank" =
+  show "one element:" (prog (adaptive ~output_size:(ints "[1]")));
+  show "zero:" (prog (adaptive ~output_size:(ints "[0,1]")));
+  show "rank two:"
+    (prog ~x_sizes:[ 2; 4 ] (adaptive ~output_size:(ints "[1,1]")));
+  [%expect
+    {|
+    one element:               malformed PT2 graph: output_size must have exactly two values, got 1
+    zero:                      malformed PT2 graph: torch.ops.aten.adaptive_avg_pool2d.default: output_size must be positive, got 0
+    rank two:                  malformed PT2 graph: x must be rank-3 (CHW) or rank-4 (NCHW), got rank-2 |}]

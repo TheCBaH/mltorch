@@ -52,12 +52,16 @@ let avg_params : Pool.AvgPool2d.params =
     pad = hw (Op_config.Nonneg.of_int 0);
   }
 
+let adaptive_params : Pool.AdaptiveAvgPool2d.params =
+  { output_size = hw (Op_config.Pos.of_int 3) }
+
 (* Deliberately in the variant's own alphabetical order, so a reader can check
    the list against [Op.op] by eye. *)
 let samples : Op.t list =
   [
     Add { Pointwise.Bin.a = x; b = y };
     Add_scalar { Pointwise.Scalar_bin.x; scalar = 0.1 };
+    Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params = adaptive_params; x };
     Avg_pool2d { Pool.AvgPool2d.params = avg_params; x };
     Clamp { Pointwise.Clamp.params = { min = Some 0.; max = Some 6. }; x };
     Conv2d
@@ -150,7 +154,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 26, registry: 26 |}]
+  [%expect {| samples: 27, registry: 27 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -158,6 +162,7 @@ let%expect_test "op4: printed" =
     {|
     add a=t0 b=t1
     add_scalar x=t0 scalar=0.1
+    adaptive_avg_pool2d x=t0 params={output_size={h=3; w=3}}
     avg_pool2d x=t0 params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
     clamp x=t0 params={min=0; max=6}
     conv2d
@@ -210,7 +215,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 26 ops |}]
+  [%expect {| round-tripped 27 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

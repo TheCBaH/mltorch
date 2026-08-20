@@ -381,7 +381,7 @@ This section covers every operation currently in `Graph_ir.op`.
 | `Clamp`, `Hardtanh`, `Relu`, `Sqrt` | Direct counterpart | `Identical` |
 | `Silu`, `Hardsigmoid`, `Hardswish` | Direct counterpart | `Identical` |
 | `Clone` | Remove and tie its output to its input | `Identical` |
-| `Max_pool2d`, `Avg_pool2d` | Direct counterpart | `Identical` when shared compute is used |
+| `Max_pool2d`, `Avg_pool2d`, `Adaptive_avg_pool2d` | Direct counterpart | `Identical` when shared compute is used |
 | `Permute` | `Permute4`, after proving it acts only on the four-axis domain | `Identical` |
 | `Reshape` | `Reshape4`, when source and target both satisfy the invariant | `Identical` |
 | `Pad` | `Pad4` with `Axis4.t` keys, when every **padded** axis is nameable | `Identical` |

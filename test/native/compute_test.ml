@@ -736,6 +736,58 @@ let%expect_test
   [%expect
     {| tensor f32 [H=3 W=3 C=1] {0.25, 0.5, 0.25, 0.5, 1, 0.5, 0.25, 0.5, ...} |}]
 
+let%expect_test
+    "Direct: adaptive_avg_pool2d uses ATen's overlapping non-divisible bins" =
+  let module P = Pool.AdaptiveAvgPool2d.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:5 ~w:5 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c -> float_of_int ((row c * 5) + col c + 1))
+  in
+  let p =
+    {
+      Pool.AdaptiveAvgPool2d.output_size =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 3; w = Op_config.Pos.of_int 3 };
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pool.AdaptiveAvgPool2d.output_shape ~x_shape p)
+       (P.pixel p ~x_shape ~x));
+  [%expect
+    {| tensor f32 [H=3 W=3 C=1] {4, 5.5, 7, 11.5, 13, 14.5, 19, 20.5, ...} |}]
+
+let%expect_test "Direct: adaptive_avg_pool2d global [1,1]" =
+  let module P = Pool.AdaptiveAvgPool2d.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:4 ~w:4 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c -> float_of_int ((row c * 4) + col c + 1))
+  in
+  let p =
+    {
+      Pool.AdaptiveAvgPool2d.output_size =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pool.AdaptiveAvgPool2d.output_shape ~x_shape p)
+       (P.pixel p ~x_shape ~x));
+  [%expect {| tensor f32 [C=1] {8.5} |}]
+
+let%expect_test
+    "adaptive_avg_pool2d rejects an index-scale aggregate before allocation" =
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:(1 lsl 30) ~w:1 ~c:1 in
+  let p =
+    {
+      Pool.AdaptiveAvgPool2d.output_size =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 1 };
+    }
+  in
+  Format.printf "%a@." (pp_result Vec6.pp_shape)
+    (Pool.AdaptiveAvgPool2d.output_shape ~x_shape p);
+  [%expect
+    {| adaptive_avg_pool2d: input extent 1073741824 times output_size 2 on axis H is 2147483648, which must be below the engine maximum of 2147483648 |}]
+
 let%expect_test "Direct: linear (addmm) — out_features mix in_features" =
   let module L = Linear.Linear.Compute (Direct) in
   let chan c = Dim.to_int (Vec6.get c Axis.C) in

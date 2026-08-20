@@ -341,3 +341,128 @@ module AvgPool2d = struct
       S.div total (S.const (float_of_int area))
   end
 end
+
+(* ATen adaptive-average-pooling bins one axis at a time:
+   [start = floor(o * I / O)], [stop = ceil((o + 1) * I / O)].  The shape
+   check below proves [I * O < Kernel.Limits.Hard.extent] before either
+   multiplication reaches [index_scale].  That is essential under js_of_ocaml,
+   where [int] is 32 bits, and makes every intermediate scale safe too because
+   [o < O]. *)
+module Adaptive_axis = struct
+  let check ~axis ~(input_extent : Dim.extent Dim.t)
+      ~(output_size : Op_config.Pos.t) : (unit, Shape_error.t) Err.t =
+    let limit = Kernel.Limits.Hard.extent in
+    let input = Int64.of_int (input_extent :> int) in
+    let output = Int64.of_int (output_size :> int) in
+    (* The factors are positive.  Divide before multiply so even a malicious
+       host-[int] extent cannot wrap [int64] before the rejection. *)
+    if input >= limit || output > Int64.div (Int64.sub limit 1L) input then
+      let aggregate =
+        if input >= limit || output >= limit then limit
+        else Int64.mul input output
+      in
+      Err.fail
+        (`Adaptive_pool
+           Shape_error.Adaptive_pool.
+             { axis; input_extent; output_size; aggregate; limit })
+    else Err.return ()
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    type bin = {
+      lo : Semantics.position S.index;
+      hi : Semantics.delta S.index;
+      area : S.t;
+    }
+
+    let bin ~(input_extent : Dim.extent Dim.t) ~(output_size : Op_config.Pos.t)
+        out_axis =
+      let scale = (input_extent :> int) in
+      let out = S.of_index out_axis in
+      let start = S.index_floor_div_pos (S.index_scale scale out) output_size in
+      let stop =
+        S.index_ceil_div_pos
+          (S.index_scale scale (S.index_add out (S.index_const 1)))
+          output_size
+      in
+      let lo = S.assume_index start in
+      let width = S.index_add stop (S.index_scale (-1) start) in
+      { lo; hi = stop; area = S.value_of_index width }
+  end
+end
+
+module AdaptiveAvgPool2d = struct
+  type params = { output_size : Op_config.Pos.t Op_config.Hw.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"adaptive_avg_pool2d_params" (fun output_size ->
+        { output_size })
+    |> Jsont.Object.mem "output_size" (Op_config.Hw.jsont Op_config.Pos.jsont)
+         ~enc:(fun p -> p.output_size)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "{output_size=%a}"
+      (Op_config.Hw.pp Op_config.Pos.pp)
+      p.output_size
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Adaptive_avg_pool2d"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>adaptive_avg_pool2d@ x=%a@ params=%a@]" pp_ref t.x
+      pp_params t.params
+
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
+    let open Err.Syntax in
+    let* () =
+      Adaptive_axis.check ~axis:Axis.H ~input_extent:(Vec6.get x_shape Axis.H)
+        ~output_size:p.output_size.h
+    in
+    let* () =
+      Adaptive_axis.check ~axis:Axis.W ~input_extent:(Vec6.get x_shape Axis.W)
+        ~output_size:p.output_size.w
+    in
+    Err.return
+      (Vec6.set
+         (Vec6.set x_shape Axis.H (Dim.extent (p.output_size.h :> int)))
+         Axis.W
+         (Dim.extent (p.output_size.w :> int)))
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let module A = Adaptive_axis.Compute (S) in
+      let h =
+        A.bin ~input_extent:(Vec6.get x_shape Axis.H)
+          ~output_size:p.output_size.h (Vec6.get out Axis.H)
+      in
+      let w =
+        A.bin ~input_extent:(Vec6.get x_shape Axis.W)
+          ~output_size:p.output_size.w (Vec6.get out Axis.W)
+      in
+      let total =
+        S.sum ~lo:h.lo ~hi:h.hi (fun ih ->
+            S.sum ~lo:w.lo ~hi:w.hi (fun iw ->
+                S.load x (out |> Vec6.set_h ih |> Vec6.set_w iw)))
+      in
+      S.div total (S.mul h.area w.area)
+  end
+end

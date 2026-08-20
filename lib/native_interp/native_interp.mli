@@ -97,11 +97,17 @@ type metadata_role =
   | `Sdpa_query
   | `Sdpa_key
   | `Sdpa_value
-  | `Sdpa_mask ]
+  | `Sdpa_mask
+  | `Adaptive_avg_pool2d_input ]
 (** Why the missing [tensor_values] entry was wanted. *)
 
 type hw_param =
-  [ `Stride | `Padding | `Output_padding | `Dilation | `Kernel_size ]
+  [ `Stride
+  | `Padding
+  | `Output_padding
+  | `Dilation
+  | `Kernel_size
+  | `Output_size ]
 (** The parameters read as an [h, w] pair. Not the same set as
     {!Op_config.Bad.param}, which adds [`Groups]: a group count is a lone int
     and so can be a bad VALUE but never a bad arity. *)
@@ -164,6 +170,10 @@ end
 
 module Bad_arity : sig
   type t = { param : hw_param; got : int }
+end
+
+module Adaptive_pool_rank : sig
+  type t = { tensor : string; got : int }
 end
 
 module Bad_config = Op_config.Bad
@@ -242,6 +252,7 @@ type malformed =
   | `Bad_dimension of Bad_dimension.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
+  | `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Bad_config of Bad_config.t
     (** An op-configuration value the engine's guarded types have no form for.
         Its own row rather than a [`Bad_dimension] variant: a stride is not a

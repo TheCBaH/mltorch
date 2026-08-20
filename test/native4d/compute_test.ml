@@ -84,6 +84,26 @@ let%expect_test "direct4: pointwise" =
     (values (single g ~inputs:[ (List.nth ids 0, a); (List.nth ids 1, b) ] ()));
   [%expect {| relu(-1.5 + [0 1 2 3]), expect [0 0 0.5 1.5]: [0 0 0.5 1.5] |}]
 
+let%expect_test "direct4: adaptive_avg_pool2d keeps ATen bins" =
+  let shape = s4 ~n:1 ~h:5 ~w:5 ~c:1 in
+  let params =
+    {
+      Pool.AdaptiveAvgPool2d.output_size =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 3; w = Op_config.Pos.of_int 3 };
+    }
+  in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape () in
+       adaptive_avg_pool2d params x)
+  in
+  let x = seq shape in
+  let id = List.hd g.Graph.Graph.inputs in
+  Format.printf "%a@." pp_values (values (single g ~inputs:[ (id, x) ] ()));
+  [%expect {| [3 4.5 6 10.5 12 13.5 18 19.5 21] |}]
+
 let chan c = Dim.to_int (Vec6.get c Axis.C)
 
 let activation_single f ~values:vs =
@@ -287,7 +307,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 26, registry: 26 |}]
+  [%expect {| fixtures: 27, registry: 27 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -309,6 +329,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     hardswish              direct = symbolic
     sqrt                   direct = symbolic
     max_pool2d             direct = symbolic
+    adaptive_avg_pool2d    direct = symbolic
     avg_pool2d             direct = symbolic
     mean_keepdims          direct = symbolic
     pad4                   direct = symbolic

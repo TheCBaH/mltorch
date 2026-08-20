@@ -65,7 +65,7 @@ over `C`; the conv/linear *weight* is read at `N = out-channel`. But:
 | `conv2d` | `Conv2d` | input NCHW→NHWC, weight OIHW→`[Cout,1,1,Kh,Kw,Cin/groups]`, output NHWC→NCHW |
 | `conv2d.padding` | `Conv2d_padding` | same as `Conv2d`; the op keeps the ATen string-padding overload distinct and lowers internally to concrete `Conv2d` params |
 | `convolution` | `Convolution` | same as `Conv2d`; the op keeps the ATen lower-level overload distinct, including `transposed` and `output_padding`, and lowers supported non-transposed 2D calls internally |
-| `max_pool2d*`, `avg_pool2d` | `Max/AvgPool2d` | input NCHW→NHWC, output NHWC→NCHW (no weight) |
+| `max_pool2d*`, `avg_pool2d`, `adaptive_avg_pool2d` | `Max/AvgPool2d` / `AdaptiveAvgPool2d` | input NCHW/CHW→NHWC, output NHWC→NCHW/CHW (no weight) |
 | `max_pool2d_with_indices` | `Max_pool2d_with_indices` | same relayout as `max_pool2d`, but two outputs: the pooled values (relayout'd out) and the argmax indices. The indices output is materialised (via the `value_of_index` bridge + an argmax reduction) and routed into a `Discard` sink — dead in inference (see native_multi_output_design.md) |
 | `addmm`/`linear` | `Linear` | weight only (`[N,In]` input already lands `In` on `C`); `addmm` carries `[In,Out]`, `linear` carries `[Out,In]` — different permutations |
 | `_native_batch_norm_legit_no_training` | `Norm.BatchNorm` | input NCHW→NHWC, output NHWC→NCHW; the per-channel `[C]` weight/bias/running_mean/running_var vectors already land on `C` (no weight permute). Only out0 is emitted — the size-`[0]` save_mean/save_invstd are dropped (see native_multi_output_design.md) |

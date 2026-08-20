@@ -80,10 +80,16 @@ type metadata_role =
   | `Sdpa_query
   | `Sdpa_key
   | `Sdpa_value
-  | `Sdpa_mask ]
+  | `Sdpa_mask
+  | `Adaptive_avg_pool2d_input ]
 
 type hw_param =
-  [ `Stride | `Padding | `Output_padding | `Dilation | `Kernel_size ]
+  [ `Stride
+  | `Padding
+  | `Output_padding
+  | `Dilation
+  | `Kernel_size
+  | `Output_size ]
 
 (* ONE definition of this vocabulary, shared with [Op_bridge] through
    [Op_config.Bad]: the two importers must reject the same values, and two
@@ -136,6 +142,10 @@ module Bad_arity = struct
   type t = { param : hw_param; got : int }
 end
 
+module Adaptive_pool_rank = struct
+  type t = { tensor : string; got : int }
+end
+
 module Bad_config = Op_config.Bad
 
 module Unsupported_option = struct
@@ -177,6 +187,7 @@ type malformed =
   | `Bad_dimension of Bad_dimension.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
+  | `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Bad_config of Bad_config.t
   | `Unsupported_padding_mode of string
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
@@ -274,6 +285,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Sdpa_key -> Fmt.string ppf "sdpa key"
   | `Sdpa_value -> Fmt.string ppf "sdpa value"
   | `Sdpa_mask -> Fmt.string ppf "sdpa attn_mask"
+  | `Adaptive_avg_pool2d_input -> Fmt.string ppf "adaptive_avg_pool2d input"
 
 let pp_hw_param ppf : hw_param -> unit = function
   | `Stride -> Fmt.string ppf "stride"
@@ -281,6 +293,7 @@ let pp_hw_param ppf : hw_param -> unit = function
   | `Output_padding -> Fmt.string ppf "output_padding"
   | `Dilation -> Fmt.string ppf "dilation"
   | `Kernel_size -> Fmt.string ppf "kernel_size"
+  | `Output_size -> Fmt.string ppf "output_size"
 
 let pp_malformed ppf : [< malformed ] -> unit = function
   | `Missing_arg { Missing_arg.op; arg } ->
@@ -305,7 +318,14 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Axis_out_of_range { Axis_out_of_range.axis; rank } ->
       Fmt.pf ppf "invalid dimension %d for rank %d" axis rank
   | `Bad_arity { Bad_arity.param; got } ->
-      Fmt.pf ppf "%a must have one or two values, got %d" pp_hw_param param got
+      Fmt.pf ppf "%a must have %s, got %d" pp_hw_param param
+        (match param with
+        | `Output_size -> "exactly two values"
+        | _ -> "one or two values")
+        got
+  | `Adaptive_pool_rank { Adaptive_pool_rank.tensor; got } ->
+      Fmt.pf ppf "%s must be rank-3 (CHW) or rank-4 (NCHW), got rank-%d" tensor
+        got
   | `Bad_config e -> Op_config.Bad.pp ppf e
   | `Output_arity { Output_arity.op; serialized; derived } ->
       Fmt.pf ppf "%s declares %d outputs but produces %d" op serialized derived
@@ -479,12 +499,21 @@ let optional_tensor_name ?(absent_ok = false) esc (node : Pytorch_types.Node.t)
             (`Wrong_arg_kind
                { op = node.target; arg = name; expected = `Optional_tensor }))
 
+let sym_int_value esc (node : Pytorch_types.Node.t) name = function
+  | SymIntArgument.Int i -> i
+  | SymIntArgument.Name symbol ->
+      malformed esc
+        (`Unresolved_sym_arg
+           { Unresolved_sym_arg.op = node.target; arg = name; symbol })
+
 let ints_arg esc ?(default = []) (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
   | None -> default
   | Some { arg = Argument.Ints xs; _ } -> xs
+  | Some { arg = Argument.Sym_ints xs; _ } ->
+      List.map (sym_int_value esc node name) xs
   | Some { arg = Argument.None _; _ } -> default
   | Some _ ->
       malformed esc
@@ -497,13 +526,6 @@ let ints_arg esc ?(default = []) (node : Pytorch_types.Node.t) name =
    argument, so an [Argument.Sym_int] reached [`Wrong_arg_kind] whatever it
    carried: a resolved bound was refused for the wrong reason and an unresolved
    one for a reason that did not name the symbol. *)
-let sym_int_value esc (node : Pytorch_types.Node.t) name = function
-  | SymIntArgument.Int i -> i
-  | SymIntArgument.Name symbol ->
-      malformed esc
-        (`Unresolved_sym_arg
-           { Unresolved_sym_arg.op = node.target; arg = name; symbol })
-
 let int_arg esc ?(default = 0) (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
@@ -737,6 +759,7 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
   | "torch.ops.aten.convolution.default" | "torch.ops.aten.linear.default"
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
   | "torch.ops.aten.max_pool2d.default"
+  | "torch.ops.aten.adaptive_avg_pool2d.default"
   | "torch.ops.aten.max_pool2d_with_indices.default"
   | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.layer_norm.default"
   | "torch.ops.aten.native_layer_norm.default" | "torch.ops.aten.addmm.default"
@@ -1675,6 +1698,36 @@ let lower program =
       | "torch.ops.aten.max_pool2d.default" ->
           let* x = permute perm_nchw_to_nhwc (get "self") in
           let* y = max_pool2d (pool_params esc node) x in
+          let* y = permute perm_nhwc_to_nchw y in
+          return [ y ]
+      | "torch.ops.aten.adaptive_avg_pool2d.default" ->
+          let x_name = tensor_name esc node "self" in
+          let got =
+            meta_rank
+              (tensor_meta esc graph ~ssa:x_name
+                 ~role:`Adaptive_avg_pool2d_input)
+          in
+          if got <> 3 && got <> 4 then
+            malformed esc (`Adaptive_pool_rank { tensor = x_name; got });
+          let out_h, out_w =
+            match ints_arg esc node "output_size" with
+            | [ h; w ] -> (h, w)
+            | xs ->
+                malformed esc
+                  (`Bad_arity
+                     { Bad_arity.param = `Output_size; got = List.length xs })
+          in
+          let params =
+            {
+              Pool.AdaptiveAvgPool2d.output_size =
+                {
+                  h = pos esc ~op:node.target ~param:`Output_size out_h;
+                  w = pos esc ~op:node.target ~param:`Output_size out_w;
+                };
+            }
+          in
+          let* x = permute perm_nchw_to_nhwc (get "self") in
+          let* y = adaptive_avg_pool2d params x in
           let* y = permute perm_nhwc_to_nchw y in
           return [ y ]
       | "torch.ops.aten.max_pool2d_with_indices.default" ->

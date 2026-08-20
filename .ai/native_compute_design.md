@@ -375,6 +375,19 @@ zero-padding behavior the way `MaxPool2d` couldn't: the clipped bounds make
 the padding contribute nothing to the *numerator*, and the constant divisor
 handles the *denominator* — no guarded read needed for either.
 
+`AdaptiveAvgPool2d` is a separate Native op, not a legalization to either
+`Mean` or `AvgPool2d`: its two positive output extents are explicit parameters
+and each output coordinate owns an ATen bin.  On one axis with input extent
+`I`, requested output extent `O`, and output coordinate `o`, its nested generic
+reductions run over `[floor(o*I/O), ceil((o+1)*I/O))`; the divisor is that
+coordinate's actual bin area, so non-divisible bins overlap exactly as ATen
+does and upsampling is supported.  Before creating either scaled index,
+`output_shape` proves `I * O < Kernel.Limits.Hard.extent` using guarded
+`int64` arithmetic.  This is a JS-safety condition as much as a resource
+condition: `Semantics.index_scale` takes an `int`, and js_of_ocaml's is
+32-bit.  The dedicated `Adaptive_pool` shape error names the offending axis
+and aggregate; do not move this check after the multiplication.
+
 `Linear` (`lib/native/ops/linear.ml`), the engine's `addmm`/fully-connected
 layer, is `Conv2d`'s `cin` reduction with the windowed kh/kw loop and
 `in_channels`/weight's `[Cout,1,1,Kh,Kw,Cin]` layout *removed down to*

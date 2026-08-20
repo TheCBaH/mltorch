@@ -75,6 +75,28 @@ module Window_over_limit = struct
       value limit
 end
 
+(* Adaptive pooling multiplies an input extent by the requested output extent
+   before dividing it into ATen's variable-width bins.  The product must stay
+   below the JS-safe index ceiling: [index_scale] takes an [int], and
+   js_of_ocaml's [int] is 32 bits.  This is deliberately a distinct error from
+   [Window_over_limit], whose fields describe fixed-window geometry. *)
+module Adaptive_pool = struct
+  type t = {
+    axis : Axis.t;
+    input_extent : Dim.extent Dim.t;
+    output_size : Op_config.Pos.t;
+    aggregate : int64;
+    limit : int64;
+  }
+
+  let pp ppf { axis; input_extent; output_size; aggregate; limit } =
+    Fmt.pf ppf
+      "adaptive_avg_pool2d: input extent %a times output_size %a on axis %a is \
+       %Ld, which must be below the engine maximum of %Ld"
+      Dim.pp input_extent Op_config.Pos.pp output_size Axis.pp axis aggregate
+      limit
+end
+
 (* An OPTIONAL operand whose shape disagrees with the one the op requires. Its
    own row rather than a per-op variant because the fault is the same in every
    case -- a shape was offered and a different one was needed -- and the
@@ -417,6 +439,7 @@ end
 
 type t =
   [ `Broadcast of Broadcast.t
+  | `Adaptive_pool of Adaptive_pool.t
   | `Window of Window.t
   | `Window_over_limit of Window_over_limit.t
   | `Operand_shape of Operand_shape.t
@@ -434,6 +457,7 @@ type t =
 
 let pp ppf = function
   | `Broadcast e -> Broadcast.pp ppf e
+  | `Adaptive_pool e -> Adaptive_pool.pp ppf e
   | `Window e -> Window.pp ppf e
   | `Window_over_limit e -> Window_over_limit.pp ppf e
   | `Operand_shape e -> Operand_shape.pp ppf e

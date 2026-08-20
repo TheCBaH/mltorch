@@ -80,6 +80,10 @@ module Pool_unsupported = struct
   type t = { op : string; option : option }
 end
 
+module Adaptive_pool_rank = struct
+  type t = { got : int }
+end
+
 (* sdpa's typed rejection boundary is [Attention.Sdpa.Reject], shared with
    [Native_interp] (op8-impl.md commit 3) for [Op_config.Bad]'s reason: the
    two importers must reject the same values. *)
@@ -99,6 +103,7 @@ type error =
   | `Convolution_invalid_weight_rank of int array
   | `Linear_invalid_weight_rank of int array
   | `Pool_unsupported of Pool_unsupported.t
+  | `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Normalized_rank of Normalized_rank.t
   | `Normalized_shape of Normalized_shape.t
   | `Operand_rank of Operand_rank.t
@@ -148,6 +153,11 @@ let pp_error ppf : [< error ] -> unit = function
             d
       | Pool_unsupported.Ceil_mode ->
           Fmt.pf ppf "%s: ceil_mode=true is not supported" op)
+  | `Adaptive_pool_rank { Adaptive_pool_rank.got } ->
+      Fmt.pf ppf
+        "adaptive_avg_pool2d input must be rank-3 (CHW) or rank-4 (NCHW), got \
+         rank-%d"
+        got
   | `Unsupported_input_dtype { Unsupported_input_dtype.arg_name; dtype } ->
       Fmt.pf ppf "%s: the native engine computes in f32, got %s" arg_name
         (Aten_scalar_type.to_string dtype)
@@ -1055,6 +1065,32 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  [ y ]
              | _ -> assert false)
          with Invalid_argument msg -> fail (`Validation_failure msg))
+  | "torch.ops.aten.adaptive_avg_pool2d.default" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let got = aten_rank aten_x in
+         let* () =
+           if got = 3 || got = 4 then return ()
+           else fail (`Adaptive_pool_rank { Adaptive_pool_rank.got })
+         in
+         let* output_size = ints_arg node "output_size" in
+         let* out_h, out_w =
+           match output_size with
+           | [ h; w ] -> return (h, w)
+           | values -> fail (`Invalid_hw_arg { name = "output_size"; values })
+         in
+         let* h = pos ~op:node.Node.target ~param:`Output_size out_h in
+         let* w = pos ~op:node.Node.target ~param:`Output_size out_w in
+         let* x = native_of_aten "self" aten_x in
+         let params = { Pool.AdaptiveAvgPool2d.output_size = { h; w } } in
+         build_g ~name:"adaptive_avg_pool2d_relayout" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let* x' = permute perm_nchw_to_nhwc x_id in
+               let* y' = adaptive_avg_pool2d params x' in
+               let+ y = permute perm_nhwc_to_nchw y' in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.max_pool2d_with_indices.default" ->
       Some
         ((* Two ATen outputs (values, indices). We materialise both, relayout the
