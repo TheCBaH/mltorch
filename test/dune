@@ -98,6 +98,17 @@
  (preprocess
   (pps ppx_expect)))
 
+; ATen bridge coverage stays separate from [pt2_test], which is deliberately
+; pure OCaml and JS-enabled.
+
+(library
+ (name pt2_aten_test)
+ (modules pt2_aten_test)
+ (libraries pt2 pt2_aten)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
 ; The five ordered archive checkpoints. Runs under node as well as natively
 ; because two of them turn on integer width: zipc's own [File.max_size] is
 ; [min Int.max_int 4294967295], which differs per backend, and the declared

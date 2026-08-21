@@ -11,9 +11,9 @@ ops, all already bound).
 - `Pt2_archive.open_pt2 path` → `{ program : ExportedProgram.t; weights }`.
   - `Pt2_archive.load_weight t name` → `Pt2_tensor.t` (raw, strided).
   - `Pt2_archive.load_pt path` → `Pt2_tensor.t` (a sample input image).
-- `Pt2_aten.to_tensor : Pt2_tensor.t -> Aten_tensor.t` (materialises contiguous
-  float32 and hands it to ATen via `of_bigarray`). Verified byte/stride-correct
-  against numpy.
+- `Pt2_aten.to_tensor : Pt2_tensor.t -> Aten_tensor.t` (preserves float32 and
+  int64 storage/layout and hands it to ATen via `of_storage`). Verified
+  byte/stride-correct against numpy.
 - Op layer: `module O = Aten_c.Aten_operations`, called on raw tensor handles —
   the same type as `Aten_tensor.t` — e.g. `O.add_Tensor a b (Aten_scalar.Int 1L)`,
   `O.relu g`, `O.convolution ...`. Multi-output ops fill a `tensorsN` struct.
