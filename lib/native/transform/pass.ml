@@ -332,6 +332,15 @@ module Audit_summary = struct
     let* counts = Outcome_counts.of_report report in
     let+ counts = Outcome_counts.merge t.counts counts in
     { omitted_reports; counts }
+
+  (* A verification budget can stop a pass before it has a report.  Keep that
+     fact visible without inventing outcome buckets that were never observed. *)
+  let skip t =
+    let open Err.Syntax in
+    let+ omitted_reports =
+      add_checked Count_overflow.Audit_reports t.omitted_reports 1L
+    in
+    { t with omitted_reports }
 end
 
 module Audit_log = struct
@@ -358,6 +367,13 @@ module Audit_log = struct
     if List.compare_length_with t.reports max_reports < 0 then
       Err.return { t with reports = t.reports @ [ audit ] }
     else fold_away t audit.report
+
+  let omit t =
+    let open Err.Syntax in
+    let+ summary =
+      Audit_summary.skip (Option.value t.overflow ~default:Audit_summary.empty)
+    in
+    { t with overflow = Some summary }
 
   let concat ~max_reports a b =
     let open Err.Syntax in
@@ -490,6 +506,7 @@ module Make (S : Side.S) = struct
     budget : Map_verify.Budget.t option;
     policy : Map_verify.Policy.t option;
     probe : int option;
+    max_verified_steps : int option;
     trace : bool;
     max_trace_entries : int;
     max_audit_reports : int;
@@ -505,6 +522,7 @@ module Make (S : Side.S) = struct
       budget = None;
       policy = None;
       probe = None;
+      max_verified_steps = None;
       trace = false;
       max_trace_entries = default_max_trace_entries;
       max_audit_reports = default_max_audit_reports;
@@ -589,9 +607,14 @@ module Make (S : Side.S) = struct
      cost. *)
   let verified id ctx state step =
     let name = id.Exec_id.leaf in
-    match ctx.policy with
-    | None -> Err.return Audit_log.empty
-    | Some policy -> (
+    match (ctx.policy, ctx.max_verified_steps) with
+    | None, _ -> Err.return Audit_log.empty
+    | Some _, Some limit when id.Exec_id.index >= Int64.of_int limit ->
+        (* The ordinal is dense over changed leaves, so it is the cumulative
+           work counter.  Transformation continues and the caller sees this as
+           an omitted audit rather than a falsely complete audit trail. *)
+        Audit_log.omit Audit_log.empty
+    | Some policy, _ -> (
         (* [Map_verify.step] is Native-only — it reaches into [Rewrite] — so its
            two lines are inlined here, where both modules are in scope at this
            dialect. Constants are read from each state SEPARATELY: a fold
@@ -800,14 +823,16 @@ module Make (S : Side.S) = struct
     in
     go ctx.index state passes
 
-  let run_reporting ?verify ?verify_budget ?verify_probe ?trace
-      ?max_trace_entries ?max_audit_reports state passes =
+  let run_reporting ?verify ?verify_budget ?verify_probe ?max_verified_steps
+      ?trace ?max_trace_entries ?max_audit_reports state passes =
     run_with
       {
         no_verification with
         budget = verify_budget;
         policy = verify;
         probe = verify_probe;
+        max_verified_steps =
+          Option.map (fun limit -> max 0 limit) max_verified_steps;
         trace = Option.value trace ~default:false;
         max_trace_entries =
           Option.value max_trace_entries ~default:default_max_trace_entries;
@@ -816,9 +841,11 @@ module Make (S : Side.S) = struct
       }
       state passes
 
-  let run_all ?verify ?verify_budget ?verify_probe state passes =
+  let run_all ?verify ?verify_budget ?verify_probe ?max_verified_steps state
+      passes =
     let+ out =
-      run_reporting ?verify ?verify_budget ?verify_probe state passes
+      run_reporting ?verify ?verify_budget ?verify_probe ?max_verified_steps
+        state passes
     in
     out.step
 

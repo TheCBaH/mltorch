@@ -87,6 +87,11 @@ module Effort : sig
   val all : t list
   val budget : t -> Budget.t
   val of_string : string -> (t, [> `Unknown_effort of string ]) Stdlib.result
+
+  (* Maximum changed pass executions audited during one interactive export.
+     The composed, end-to-end report is not counted here. *)
+  val max_verified_steps : t -> int
+  val max_clusters : t -> int
   val probe : t -> int
   val to_string : t -> string
   val pp : Format.formatter -> t -> unit
@@ -188,6 +193,7 @@ module Unproved : sig
       (* frontier fully expanded, terms still differ *)
     | Max_nodes of int
     | Max_rounds
+    | Max_clusters of int
       (* cells still expandable: the frontier never reached the inputs *)
     | Out_of_bounds of Ground_expr.Cell.t
     | Too_large of int
@@ -387,6 +393,7 @@ val default_coefficient_tolerance : float
 module Make_pair (Src : Side.S) (Dst : Side.S) : sig
   val run :
     ?budget:Budget.t ->
+    ?max_clusters:int ->
     ?coefficient_tolerance:float ->
     ?probe:int ->
     ?src_constants:Tensor.packed Tensor_id.Map.t ->
@@ -402,6 +409,7 @@ end
 (* The Native-to-Native specialization. *)
 val run :
   ?budget:Budget.t ->
+  ?max_clusters:int ->
   ?coefficient_tolerance:float ->
   ?probe:int ->
   ?src_constants:Tensor.packed Tensor_id.Map.t ->

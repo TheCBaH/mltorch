@@ -2293,7 +2293,8 @@ let derivations lens sidecar (graph : Graph_ir.graph) =
    list [Rewrite.origin] takes: an id appearing twice with different payloads is
    not a state this entry point should have to define an answer for. *)
 let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
-    ?verify_probe ?trace ?max_trace_entries ?max_audit_reports lowered ~passes =
+    ?verify_probe ?max_verified_steps ?max_verify_clusters ?trace
+    ?max_trace_entries ?max_audit_reports lowered ~passes =
   let open Err.Syntax in
   let source = lowered.Pt2_native_graph.graph in
   let seeded = Tensor_id.Map.bindings constants in
@@ -2322,8 +2323,8 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
          next_index = _;
          step = Rewrite.Step (rewritten, rewrite_map);
        } =
-    Pass.run_reporting ?verify ?verify_budget ?verify_probe ?trace
-      ?max_trace_entries ?max_audit_reports origin passes
+    Pass.run_reporting ?verify ?verify_budget ?verify_probe ?max_verified_steps
+      ?trace ?max_trace_entries ?max_audit_reports origin passes
     |> Err.map_error ~pos:__POS__ (fun e -> `Transform e)
   in
   let* (Rewrite.Step (packed, pack_map)) =
@@ -2346,7 +2347,8 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
     | None -> Err.return None
     | Some policy ->
         let* report =
-          Map_verify.run ?budget:verify_budget ?probe:verify_probe composed_map
+          Map_verify.run ?budget:verify_budget ?probe:verify_probe
+            ?max_clusters:max_verify_clusters composed_map
             ~src:(Rewrite.snapshot origin)
             ~src_constants:(Rewrite.constants origin)
             ~src_constant_store:(Rewrite.constant_store origin)
