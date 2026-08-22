@@ -84,6 +84,37 @@ let%expect_test "direct4: pointwise" =
     (values (single g ~inputs:[ (List.nth ids 0, a); (List.nth ids 1, b) ] ()));
   [%expect {| relu(-1.5 + [0 1 2 3]), expect [0 0 0.5 1.5]: [0 0 0.5 1.5] |}]
 
+let%expect_test "direct4: unbind preserves int64 cells" =
+  let shape = s4 ~n:1 ~h:1 ~w:2 ~c:2 in
+  let i64 = Payload.Fmt Payload.I64 in
+  let g =
+    Builder.build ~dtype:i64 ~outputs:Fun.id
+      (let open Builder in
+       let* x = input ~shape () in
+       unbind Axis4.C x)
+    |> Err.or_raise ~pp_error:Builder.pp_error
+  in
+  let data =
+    Bigarray.(
+      Array1.of_array int64 c_layout
+        [| Int64.min_int; -1L; 9_007_199_254_740_993L; Int64.max_int |])
+  in
+  let x =
+    Tensor.Tensor
+      {
+        Tensor.shape = Shape4.to_vec6 shape;
+        payload = { Payload.fmt = Payload.I64; quant = Payload.No_quant; data };
+      }
+  in
+  let env = run_direct g ~inputs:[ (List.hd g.Graph.Graph.inputs, x) ] in
+  List.iter
+    (fun id -> Format.printf "%a@." Tensor.pp (Tensor_id.Map.find id env))
+    g.Graph.Graph.outputs;
+  [%expect
+    {|
+    tensor i64 [C=2] {-9223372036854775808, 9007199254740993}
+    tensor i64 [C=2] {-1, 9223372036854775807} |}]
+
 let%expect_test "direct4: adaptive_avg_pool2d keeps ATen bins" =
   let shape = s4 ~n:1 ~h:5 ~w:5 ~c:1 in
   let params =

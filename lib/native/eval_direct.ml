@@ -129,11 +129,17 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
   Err.List.fold_left
     (fun env (output, oid, out_shape) ->
       let result =
-        Schedule.evaluate out_shape
-          (E.pixel op ~output
-             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-             ~fill)
+        match op with
+        | Unbind { Split.Unbind.params; x } ->
+            Tensor.unbind
+              (Tensor_id.Map.find x operand_env)
+              ~axis:params.axis ~output ~shape:out_shape
+        | _ ->
+            Schedule.evaluate out_shape
+              (E.pixel op ~output
+                 ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                 ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                 ~fill)
       in
       Err.return (Tensor_id.Map.add oid result env))
     env outs

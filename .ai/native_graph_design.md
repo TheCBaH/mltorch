@@ -154,12 +154,12 @@ Two boundaries the op inherits from the engine rather than from ATen:
 - **No empty outputs.** `Dim.extent` is ≥ 1, so the output list is never empty and
   ATen's zero-length-`dim` case has no Native form at all — it is refused before
   reaching the op.
-- **Outputs are materialised F32 values, not views.** ATen's unbind returns
-  dtype-preserving *views* onto the operand's storage; `Graph_builder.new_edge`
-  gives every op output `Payload.F32`. So Native unbind is scoped to the engine's
-  F32 compute domain, and the contract it offers is numerical equivalence, not
-  aliasing. A non-F32 operand is a bridge-level refusal, not something the op
-  silently reinterprets.
+- **Arithmetic outputs are materialised F32 values, not views.** ATen's unbind
+  returns dtype-preserving *views* onto the operand's storage. Native models it
+  as a fresh dense value, but copies storage cells directly and keeps the input
+  format and quantization metadata. Therefore `unbind` supports `I64` exactly
+  (without routing values through float); it offers value equivalence, not
+  aliasing.
 
 Its output-arity, ceiling and claim-transfer rules are in
 `native_multi_output_design.md` §1a and `native_transform_design.md` §8.

@@ -93,6 +93,74 @@ let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) =
       Payload.set_float payload ~c:(channel c) ~i (f c));
   Tensor { shape; payload }
 
+(* [Unbind] is a storage-preserving selection, unlike the arithmetic ops whose
+   results enter the engine's f32 compute domain.  Copy cells directly so an
+   i64 value (including one beyond float's exact range) is never routed through
+   [Payload.get_float].  Keeping this primitive here also gives Native and
+   Native4D one implementation of the dtype-preserving path. *)
+let unbind (Tensor src) ~axis ~output ~shape =
+  let source_coord out =
+    let zero = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0 in
+    let base =
+      List.fold_left
+        (fun v (input_axis, output_axis) ->
+          Vec6.copy out ~src:output_axis ~dst:input_axis v)
+        zero
+        (Aten_shape.repack_dropped ~dropped:[ axis ])
+    in
+    Vec6.set base axis (Dim.index output)
+  in
+  let copy : type e b q. (e, b, q) Payload.payload -> packed =
+   fun payload ->
+    let copy_data data =
+      Vec6.iter shape (fun out ->
+          let dst = (Vec6.offset shape out :> int) in
+          let src = (Vec6.offset src.shape (source_coord out) :> int) in
+          data.{dst} <- payload.data.{src})
+    in
+    let n = (Vec6.numel shape :> int) in
+    match payload.fmt with
+    | Payload.F32 ->
+        let data =
+          Bigarray.Array1.create Bigarray.float32 Bigarray.c_layout n
+        in
+        copy_data data;
+        Tensor { shape; payload = { payload with data } }
+    | Payload.I64 ->
+        let data = Bigarray.Array1.create Bigarray.int64 Bigarray.c_layout n in
+        copy_data data;
+        Tensor { shape; payload = { payload with data } }
+    | Payload.I32 ->
+        let data = Bigarray.Array1.create Bigarray.int32 Bigarray.c_layout n in
+        copy_data data;
+        Tensor { shape; payload = { payload with data } }
+    | Payload.F16 ->
+        let data =
+          Bigarray.Array1.create Bigarray.int16_unsigned Bigarray.c_layout n
+        in
+        copy_data data;
+        Tensor { shape; payload = { payload with data } }
+    | Payload.BF16 ->
+        let data =
+          Bigarray.Array1.create Bigarray.int16_unsigned Bigarray.c_layout n
+        in
+        copy_data data;
+        Tensor { shape; payload = { payload with data } }
+    | Payload.I16 ->
+        let data =
+          Bigarray.Array1.create Bigarray.int16_signed Bigarray.c_layout n
+        in
+        copy_data data;
+        Tensor { shape; payload = { payload with data } }
+    | Payload.I8 ->
+        let data =
+          Bigarray.Array1.create Bigarray.int8_signed Bigarray.c_layout n
+        in
+        copy_data data;
+        Tensor { shape; payload = { payload with data } }
+  in
+  copy src.payload
+
 (* Bit-for-bit equality — the only correct notion when the engine claims two
    computations are *identical* rather than merely close.
 
@@ -118,16 +186,26 @@ let equal_bits (Tensor a as ta) (Tensor b as tb) =
      {"fmt":"f32","quant":...,"shape":[...],"data":{"Array":[...]} or {"None":null}}
    [max_elts]: if Some n and the tensor has more than n elements, the data is
    encoded as {"None":null} instead of {"Array":[...]}.  Decoders always accept
-   both forms; {"None":null} decodes to [None].  Currently only F32 tensors can
-   be decoded back (the format is recorded in JSON for future extension). *)
+   both forms; {"None":null} decodes to [None].  I64 cells use JSON strings so
+   their complete signed 64-bit value survives JavaScript and round-trips. *)
 let jsont ?(max_elts : int option) () : packed Jsont.t =
   let enc_packed (Tensor t) =
     let numel = (Vec6.numel t.shape :> int) in
     let data_json =
-      Payload.enc_data_union ~max_elts ~numel ~iter_floats:(fun yield ->
-          Vec6.iter t.shape (fun c ->
-              let i = (Vec6.offset t.shape c :> int) in
-              yield i (Payload.get_float t.payload ~c:(channel c) ~i)))
+      match t.payload.Payload.fmt with
+      | Payload.I64 ->
+          if Option.fold ~none:false ~some:(fun m -> numel > m) max_elts then
+            Json_util.single ~case:"None" Json_util.jnull
+          else
+            Json_util.single ~case:"Array"
+              (Json_util.jarr
+                 (List.init numel (fun i ->
+                      Json_util.enc Jsont.int64_as_string t.payload.data.{i})))
+      | _ ->
+          Payload.enc_data_union ~max_elts ~numel ~iter_floats:(fun yield ->
+              Vec6.iter t.shape (fun c ->
+                  let i = (Vec6.offset t.shape c :> int) in
+                  yield i (Payload.get_float t.payload ~c:(channel c) ~i)))
     in
     let quant_json =
       match t.payload.Payload.quant with
@@ -148,6 +226,7 @@ let jsont ?(max_elts : int option) () : packed Jsont.t =
     let ms = Json_util.req_obj json "tensor" in
     let get k c = Json_util.req_field ms k c "tensor" in
     let shape = get "shape" Vec6.shape_jsont in
+    let fmt = get "fmt" Payload.packed_fmt_jsont in
     let data_json =
       match Json_util.find_member ms "data" with
       | Some v -> v
@@ -157,19 +236,39 @@ let jsont ?(max_elts : int option) () : packed Jsont.t =
     | Jsont.Object ([ (("None", _), _) ], _) ->
         Jsont.Error.msgf Jsont.Meta.none
           "tensor: cannot decode {\"None\":null} — data was elided"
-    | Jsont.Object ([ (("Array", _), Jsont.Array (vs, _)) ], _) ->
-        let floats = List.map (Json_util.dec Json_util.f32_jsont) vs in
+    | Jsont.Object ([ (("Array", _), Jsont.Array (vs, _)) ], _) -> (
         let expected = (Vec6.numel shape :> int) in
-        let got = List.length floats in
+        let got = List.length vs in
         if got <> expected then
           Jsont.Error.msgf Jsont.Meta.none
             "tensor: data has %d elements but shape needs %d" got expected;
-        let data = Bigarray.(Array1.create float32 c_layout expected) in
-        List.iteri (fun i f -> data.{i} <- f) floats;
-        let payload =
-          { Payload.fmt = Payload.F32; quant = Payload.No_quant; data }
-        in
-        Tensor { shape; payload }
+        match fmt with
+        | Payload.Fmt Payload.F32 ->
+            let data = Bigarray.(Array1.create float32 c_layout expected) in
+            List.iteri
+              (fun i v -> data.{i} <- Json_util.dec Json_util.f32_jsont v)
+              vs;
+            Tensor
+              {
+                shape;
+                payload =
+                  { Payload.fmt = Payload.F32; quant = Payload.No_quant; data };
+              }
+        | Payload.Fmt Payload.I64 ->
+            let data = Bigarray.(Array1.create int64 c_layout expected) in
+            List.iteri
+              (fun i v -> data.{i} <- Json_util.dec Jsont.int64_as_string v)
+              vs;
+            Tensor
+              {
+                shape;
+                payload =
+                  { Payload.fmt = Payload.I64; quant = Payload.No_quant; data };
+              }
+        | Payload.Fmt fmt ->
+            Jsont.Error.msgf Jsont.Meta.none
+              "tensor: decoding format %s is not supported"
+              (Payload.fmt_name fmt))
     | _ ->
         Jsont.Error.msgf Jsont.Meta.none
           "tensor: \"data\" must be {\"Array\":[...]} or {\"None\":null}"
@@ -186,7 +285,12 @@ let pp fmt (Tensor t) =
          if !count >= k then raise Exit;
          if !count > 0 then Format.fprintf fmt ", ";
          let i = (Vec6.offset t.shape c :> int) in
-         Format.fprintf fmt "%g" (Payload.get_float t.payload ~c:(channel c) ~i);
+         (match t.payload.Payload.fmt with
+         | Payload.I64 -> Format.fprintf fmt "%Ld" t.payload.data.{i}
+         | Payload.I32 -> Format.fprintf fmt "%ld" t.payload.data.{i}
+         | _ ->
+             Format.fprintf fmt "%g"
+               (Payload.get_float t.payload ~c:(channel c) ~i));
          incr count)
    with Exit -> ());
   if n > k then Format.fprintf fmt ", ...";

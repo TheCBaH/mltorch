@@ -67,10 +67,12 @@ let input ~shape ?fmt ?quant () =
 let constant ~shape ?fmt ?quant () =
   source ~kind:Graph_ir.Input.Constant ~shape ?fmt ?quant ()
 
-let new_edge (shape : Shape4.t) s =
+let new_edge ?fmt ?quant (shape : Shape4.t) s =
   let tid = Tensor_id.of_int s.next_tid in
   let sg =
-    Tensor_sig.create ~id:tid ~name:"" ~shape:(Shape4.to_vec6 shape) ~fmt:f32 ()
+    Tensor_sig.create ~id:tid ~name:"" ~shape:(Shape4.to_vec6 shape)
+      ~fmt:(Option.value fmt ~default:f32)
+      ?quant ()
   in
   ( Ok tid,
     {
@@ -118,7 +120,7 @@ let op1 op : Tensor_id.t t =
    part of its input signature there is none. The same shape as Native's
    [Graph_builder.opN], including the shared id-space guard, so the two dialects'
    overflow behaviour cannot drift. *)
-let opN op : Tensor_id.t list t =
+let opN ?fmt ?quant op : Tensor_id.t list t =
   let* s = get in
   let* shapes =
     lift_result
@@ -132,7 +134,7 @@ let opN op : Tensor_id.t list t =
   let rec alloc acc = function
     | [] -> return (List.rev acc)
     | shape :: rest ->
-        let* tid = new_edge shape in
+        let* tid = new_edge ?fmt ?quant shape in
         alloc (tid :: acc) rest
   in
   let* ids = alloc [] shapes in
@@ -201,7 +203,11 @@ let transposed_conv2d params ~x ~weight ?bias () =
 (* Takes [Axis4.t], so a graph naming T or D is not constructible through this
    API — the dialect's rule that invalid states are unrepresentable rather than
    validated. Returns every slice, in ordinal order. *)
-let unbind axis x = opN (Op.Unbind { Ops4.Unbind.params = { axis }; x })
+let unbind axis x =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  opN ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+    (Op.Unbind { Ops4.Unbind.params = { axis }; x })
 
 let build ?(dtype = f32) ~outputs (m : 'a t) =
   let s0 =

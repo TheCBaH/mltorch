@@ -2061,16 +2061,32 @@ let%expect_test "dispatch: unbind.int rejects an out-of-range dim" =
     error: unbind.int: invalid dimension 2 for rank 2
     error: unbind.int: invalid dimension -3 for rank 2 |}]
 
-(* The engine computes in f32 and [Graph_builder] gives every op output F32, so
-   an i64 operand would silently become an f32 result. [Tensor_bridge.of_aten]
-   accepts i64, so the refusal has to be the arm's. *)
-let%expect_test "dispatch: unbind.int rejects a non-f32 input" =
+(* Unbind is a view operation: it copies storage cells and keeps the source
+   format, rather than taking the arithmetic f32 materialization path.  Values
+   around 2^53 and the signed endpoints prove the result never went through an
+   OCaml float. *)
+let%expect_test "dispatch: unbind.int preserves int64 storage exactly" =
   dispatch_print ~target:"torch.ops.aten.unbind.int"
     ~bindings:
-      [ ("self", Aten_tensor.create ~dtype:Aten_scalar_type.Long [ 3; 2 ]) ]
+      [
+        ( "self",
+          i64_tensor [ 3; 2 ]
+            [
+              Int64.min_int;
+              -1L;
+              9_007_199_254_740_993L;
+              9_007_199_254_740_995L;
+              Int64.max_int;
+              0L;
+            ] );
+      ]
     ~inputs:[ in_tensor "self" ]
     ~noutputs:0;
-  [%expect {| error: self: the native engine computes in f32, got Long |}]
+  [%expect
+    {|
+    tensor i64 [C=2] {-9223372036854775808, -1}
+    tensor i64 [C=2] {9007199254740993, 9007199254740995}
+    tensor i64 [C=2] {9223372036854775807, 0} |}]
 
 (* The real oracle: ATen runs the op, the native side runs [Graph_ir.Unbind]
    through [Eval_direct], and [Verify.verify_node] compares EVERY slice —
@@ -2105,6 +2121,21 @@ let%expect_test "verify: unbind.int agrees with ATen on every slice" =
   [%expect {|
     aten and native agree
     aten and native agree |}]
+
+let%expect_test "verify: unbind.int agrees with ATen for int64" =
+  verify_unbind ~inputs:[]
+    ~outputs:(tensors [ "a"; "b"; "c" ])
+    ~self:
+      (i64_tensor [ 3; 2 ]
+         [
+           Int64.min_int;
+           -1L;
+           9_007_199_254_740_993L;
+           9_007_199_254_740_995L;
+           Int64.max_int;
+           0L;
+         ]);
+  [%expect {| aten and native agree |}]
 
 (* A TRANSPOSED convolution's ATen weight is [Cin, Cout/groups, kH, kW], so its
    output channel count -- and therefore its bias extent -- comes from

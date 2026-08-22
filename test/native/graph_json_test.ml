@@ -737,6 +737,52 @@ let%expect_test "tensor: encode → decode → verify values" =
     original: tensor f32 [C=4] {0, 0.5, 1, 1.5}
     decoded:  tensor f32 [C=4] {0, 0.5, 1, 1.5} |}]
 
+let%expect_test "tensor: int64 JSON round-trip preserves all bits" =
+  let data =
+    Bigarray.(
+      Array1.of_array int64 c_layout
+        [| Int64.min_int; 9_007_199_254_740_993L; Int64.max_int |])
+  in
+  let original =
+    Tensor.Tensor
+      {
+        Tensor.shape = s1c 3;
+        payload = { Payload.fmt = Payload.I64; quant = Payload.No_quant; data };
+      }
+  in
+  let result =
+    let open Err.Syntax in
+    let* json = encode_tensor original in
+    let* decoded = decode_tensor json in
+    Err.return (json, decoded)
+  in
+  Format.printf "%a@."
+    (pp_result (fun ppf (json, decoded) ->
+         Format.fprintf ppf "%s@.%a" json Tensor.pp decoded))
+    result;
+  [%expect
+    {|
+    {
+      "data": {
+        "Array": [
+          "-9223372036854775808",
+          "9007199254740993",
+          "9223372036854775807"
+        ]
+      },
+      "fmt": "i64",
+      "quant": null,
+      "shape": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        3
+      ]
+    }
+    tensor i64 [C=3] {-9223372036854775808, 9007199254740993, 9223372036854775807} |}]
+
 let%expect_test "tensor: payload elided when numel exceeds max_elts" =
   let t = Tensor.materialize (s1c 8) (fun c -> float_of_int (chan c)) in
   let result =
