@@ -143,13 +143,11 @@ follow:
 - **The rank comes from the ATen tensor, before conversion.** `of_aten`
   right-aligns into the six-axis frame, after which the rank is not recoverable,
   so `dim` must be normalised against `aten_rank` and not against the frame.
-- **A non-f32 operand is refused, not reinterpreted.** The engine computes in
-  f32 and `Graph_builder` gives every op output `Payload.F32`, while
-  `Tensor_bridge.of_aten` happily accepts i64 — so an i64 unbind would produce
-  f32 results that then fail the verifier's dtype pairing. The arm reports
-  `Unsupported_input_dtype` carrying ATen's own dtype. Native unbind results are
-  materialised values, not alias-preserving views; numerical equivalence is the
-  contract.
+- **Arithmetic non-f32 operands are refused, not reinterpreted.** The engine
+  materialises arithmetic outputs in f32. `unbind` is the exception: it copies
+  its storage cells into fresh dense slices, preserving an `I64` payload exactly.
+  Native unbind results are materialised values, not alias-preserving views;
+  numerical equivalence is the contract.
 
 **Relayout needed** (graph wraps the core op in `Permute` nodes; named
 `"<op>_relayout"`; see `.ai/native_aten_bridge_layout.md` for derivation of

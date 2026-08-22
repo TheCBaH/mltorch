@@ -67,14 +67,17 @@ let input ~shape ?name ?fmt ?quant () =
 let constant ~shape ?name ?fmt ?quant () =
   source ~kind:Input.Constant ~shape ?name ?fmt ?quant ()
 
-(* Allocate one fresh F32 output edge with [shape] (default-named from [kind]). *)
-let new_edge ?name ~kind:_ shape s =
+(* Allocate a fresh output edge. Arithmetic outputs use the default F32; view
+   ops such as [unbind] explicitly retain their source storage format. *)
+let new_edge ?name ?fmt ?quant ~kind:_ shape s =
   let tid_int = s.next_tid in
   let tid = Tensor_id.of_int tid_int in
   let sg =
     Tensor_sig.create ~id:tid
       ~name:(Option.value name ~default:"")
-      ~shape ~fmt:f32 ()
+      ~shape
+      ~fmt:(Option.value fmt ~default:f32)
+      ?quant ()
   in
   ( Ok tid,
     {
@@ -127,7 +130,7 @@ let op1 ?name ~kind op : Tensor_id.t t =
    for a single-output op a shape list of any other length is a bug worth
    naming. [max_pool2d_with_indices] keeps its own body too — it names its two
    edges with different kinds, which this cannot express. *)
-let opN ?name ~kind op : Tensor_id.t list t =
+let opN ?name ?fmt ?quant ~kind op : Tensor_id.t list t =
   let* s = get in
   let* shapes =
     lift_result
@@ -144,7 +147,7 @@ let opN ?name ~kind op : Tensor_id.t list t =
   let rec alloc acc = function
     | [] -> return (List.rev acc)
     | shape :: rest ->
-        let* tid = new_edge ?name ~kind shape in
+        let* tid = new_edge ?name ?fmt ?quant ~kind shape in
         alloc (tid :: acc) rest
   in
   let* ids = alloc [] shapes in
@@ -312,7 +315,10 @@ let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
    serialized graph's SSA name list be CHECKED against the node's arity instead
    of silently zipped against it. *)
 let unbind ?name params x =
-  opN ?name ~kind:"unbind" (Unbind { Split.Unbind.params; x })
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  opN ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant ~kind:"unbind"
+    (Unbind { Split.Unbind.params; x })
 
 let group ?label (body : 'a t) : 'a t =
  fun s ->

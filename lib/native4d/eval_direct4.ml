@@ -108,11 +108,18 @@ let eval_node (g : Graph.graph) env (node : Graph.node) =
   Err.List.fold_left
     (fun env (output, oid, out_shape) ->
       let result =
-        Schedule.evaluate (Shape4.to_vec6 out_shape)
-          (E.pixel op ~output
-             ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-             ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-             ~fill)
+        match op with
+        | Op.Unbind { Ops4.Unbind.params; x } ->
+            Tensor.unbind
+              (Tensor_id.Map.find x operand_env)
+              ~axis:(Axis4.to_axis params.axis)
+              ~output ~shape:(Shape4.to_vec6 out_shape)
+        | _ ->
+            Schedule.evaluate (Shape4.to_vec6 out_shape)
+              (E.pixel op ~output
+                 ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                 ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                 ~fill)
       in
       Err.return (Tensor_id.Map.add oid result env))
     env

@@ -199,13 +199,23 @@ let string_arg ~default node name =
 
 let packed_shape (Tensor.Tensor r) = r.shape
 
+let packed_metadata (Tensor.Tensor r) =
+  let fmt = Payload.Fmt r.payload.Payload.fmt in
+  let quant =
+    match r.payload.Payload.quant with
+    | Payload.No_quant -> None
+    | Payload.Quant q -> Some q
+  in
+  (fmt, quant)
+
 (* Monadically allocate one input edge per packed tensor, left to right.
    The resulting ids match graph.inputs in insertion order. *)
 let rec alloc_inputs = function
   | [] -> Graph_builder.return []
   | t :: rest ->
       let open Graph_builder in
-      let* id = input ~shape:(packed_shape t) () in
+      let fmt, quant = packed_metadata t in
+      let* id = input ~shape:(packed_shape t) ~fmt ?quant () in
       let+ ids = alloc_inputs rest in
       id :: ids
 
@@ -362,12 +372,10 @@ let dims_arg node ~op ~rank name =
   | Some (Argument.Ints xs) -> Err.List.map (dim_axis ~op ~rank) xs
   | _ -> return (Aten_shape.used_axes ~rank)
 
-(* The engine's compute domain is f32 and [Graph_builder] gives every op output
-   [Payload.F32], so an i64 operand would silently become an f32 result that
-   then fails the verifier's dtype pairing. [Tensor_bridge.of_aten] itself
-   accepts i64, so the refusal belongs to the arm that knows what it will build.
-   Read from the ATen tensor before conversion, so the error names the source
-   dtype. *)
+(* Arithmetic arms materialize f32 outputs, so an i64 operand would silently
+   become f32 and then fail the verifier's dtype pairing. [unbind] is excluded:
+   it is a storage-preserving view operation and retains its input format. Read
+   from the ATen tensor before conversion, so an error names the source dtype. *)
 (* [Tensor_bridge.of_aten] right-aligns an ATen shape into the six-axis frame, so
    a bias declared [1,Cout] arrives indistinguishable from [Cout] and the shared
    [Graph_shape] check passes it -- while ATen refuses a bias that is not 1-D.
@@ -1558,7 +1566,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.unbind.int" ->
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
-         let* () = require_f32 "self" aten_x in
          (* Rank comes from the ORIGINAL ATen tensor: [of_aten] right-aligns
             into the six-axis frame, after which the rank is not recoverable. *)
          let rank = aten_rank aten_x in

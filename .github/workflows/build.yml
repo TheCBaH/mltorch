@@ -121,14 +121,7 @@ jobs:
         ${{ env.EXEC }} make format
     - name: verify pristine
       run: |
-        ${{ env.EXEC }} bash -c '
-          git_status=$(git status --porcelain)
-          if [ -n "$git_status" ]; then
-            echo "Git directory is not pristine. Modified or created files:"
-            echo "$git_status"
-            exit 1
-          fi
-        '
+        ${{ env.EXEC }} make verify.pristine
     # Last two steps: both build under a different dune profile/env than
     # everything above (memtrace is the same build, landmarks rebuilds
     # lib/native under --profile landmarks — see lib/native/dune), so they

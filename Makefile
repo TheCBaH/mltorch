@@ -1,4 +1,4 @@
-.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
+.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
@@ -248,6 +248,14 @@ build:
 
 format:
 	opam exec -- dune fmt
+
+verify.pristine:
+	@git_status=$$(git status --porcelain); \
+	if [ -n "$$git_status" ]; then \
+		echo "Git directory is not pristine. Modified or created files:"; \
+		echo "$$git_status"; \
+		exit 1; \
+	fi
 
 test:
 	opam exec -- dune test
@@ -547,3 +555,6 @@ webapp.bridge-runtest: webapp.build
 
 webapp.browser-runtest: webapp.build
 	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" npm run webapp
+
+check: build format runtest melange.build melange.runtest
+	git diff --check HEAD
