@@ -673,7 +673,7 @@ let op_counts (g : Native4d.Graph.graph) =
     [] g.Graph_common.Graph.nodes
   |> List.sort (fun (a, _) (b, _) -> String.compare a b)
 
-let to4d model fold verify_symbolic : (unit, string) result =
+let to4d model fold verify_symbolic input : (unit, string) result =
   with_archive model (fun archive ->
       let* transformed =
         to_cli Native_interp.pp_error
@@ -684,7 +684,10 @@ let to4d model fold verify_symbolic : (unit, string) result =
         (List.length t.graph.Graph_common.Graph.nodes);
       let* snapshot = to_cli Graph_view.pp_error (Snapshot.create t.graph) in
       let (Snapshot.Pack src) = snapshot in
-      match Native4d.Lower.convert ~constants:t.constants src with
+      match
+        Native4d.Lower.convert ~constants:t.constants
+          ~constant_store:t.constant_store src
+      with
       | Error e ->
           (* Not a failure of the tool: a graph outside the dialect's
                      domain is the partiality the design is explicit about, so
@@ -693,7 +696,7 @@ let to4d model fold verify_symbolic : (unit, string) result =
           Format.printf "outside the dialect: %a@." Native4d.Error.pp
             (Err.Error.kind e);
           Ok ()
-      | Ok (Native4d.Lower.Pack r) ->
+      | Ok (Native4d.Lower.Pack r) -> (
           let dst = Native4d.Lower.graph r in
           Format.printf "native4d: nodes=%d inputs=%d@."
             (List.length dst.Graph_common.Graph.nodes)
@@ -733,7 +736,54 @@ let to4d model fold verify_symbolic : (unit, string) result =
               (Graph_ir.Tensor_id.Map.find_opt id verdicts)
           in
           Format.printf "%a@." (Native4d.Graph.pp_with ~annot) dst;
-          Ok ())
+          match input with
+          | None -> Ok ()
+          | Some path -> (
+              let* raw =
+                to_cli Pt2_archive.pp_error
+                  (Pt2_archive.load_first_pt_tensor path)
+              in
+              let* native_outputs, _ =
+                to_cli Native_interp.pp_error
+                  (Native_interp.evaluate archive transformed ~input:raw)
+              in
+              let* input =
+                to_cli Native_interp.pp_error (Native_interp.tensor_of_pt2 raw)
+              in
+              let user_inputs =
+                List.filter
+                  (fun id ->
+                    Graph_common.input_kind dst id = Graph_ir.Input.Input)
+                  dst.Graph_common.Graph.inputs
+              in
+              let* env, report =
+                match user_inputs with
+                | [ id ] ->
+                    to_cli Native4d.Lower.pp_eval_error
+                      (Native4d.Lower.evaluate
+                         (Native_interp.capture_resolver archive)
+                         r
+                         ~inputs:[ (id, input) ])
+                | ids ->
+                    Error
+                      (Printf.sprintf
+                         "Native4D graph has %d user inputs, expected one"
+                         (List.length ids))
+              in
+              match (native_outputs, dst.Graph_common.Graph.outputs) with
+              | [ native ], [ output ] -> (
+                  match Tensor_id.Map.find_opt output env with
+                  | None -> Error "Native4D graph did not evaluate its output"
+                  | Some native4d -> (
+                      match compare_tensor ~atol:1e-4 native native4d with
+                      | Ok distance ->
+                          Format.printf
+                            "materialized Native4D: applies=%d, native \
+                             agreement: %a@."
+                            report.applies pp_distance distance;
+                          Ok ()
+                      | Error (_, message) -> Error message))
+              | _ -> Error "expected exactly one Native and Native4D output")))
 
 let to4d_cmd =
   let doc =
@@ -741,7 +791,64 @@ let to4d_cmd =
      reporting what it converted to or which node put it outside the domain."
   in
   Cmd.v (Cmd.info "to4d" ~doc)
-    Term.(const to4d $ pt2_arg $ fold_arg $ verify_symbolic_arg)
+    Term.(
+      const to4d $ pt2_arg $ fold_arg $ verify_symbolic_arg $ optional_input_arg)
+
+(* The operation manifest for Gate 6 is deliberately emitted from a real,
+   payload-backed run. [Fold_const.Trace] records only successful direct folds,
+   and its canonical order erases incidental graph ids and pass sweep order, so
+   redirecting this command is a stable corpus measurement rather than a debug
+   log. *)
+let const_ssa_trace model : (unit, string) result =
+  with_archive model (fun archive ->
+      let events = ref [] in
+      (* This intentionally omits [transform_lowered]'s captured bindings. The
+         command measures the legacy materialized path against which the
+         Const-SSA language is being closed; seeding captures here would make
+         every fold symbolic and emit an empty, misleading manifest. *)
+      let* lowered =
+        to_cli Native_interp.pp_error (Native_interp.lower_archive archive)
+      in
+      let* constants =
+        to_cli Native_interp.pp_error (Native_interp.preload archive lowered)
+      in
+      let* (Rewrite.Origin origin) =
+        to_cli Rewrite.pp_error
+          (Rewrite.origin
+             ~constants:(Tensor_id.Map.bindings constants)
+             lowered.Pt2_native_graph.graph)
+      in
+      let* _ =
+        to_cli Pass.pp_error
+          (Pass.run_all origin
+             [
+               Pipeline.canonical_with_trace ~fold:true
+                 ~on_materialized_fold:(fun event -> events := event :: !events);
+             ])
+      in
+      let events = Fold_const.Trace.canonical !events in
+      match
+        List.find_opt
+          (fun event -> not (Const_ssa.allows (Fold_const.Trace.op event)))
+          events
+      with
+      | Some event ->
+          Error
+            (Format.asprintf
+               "Const-SSA registry is missing materialized fold: %a"
+               Fold_const.Trace.pp event)
+      | None ->
+          List.iter
+            (fun event -> Format.printf "%a@." Fold_const.Trace.pp event)
+            events;
+          Ok ())
+
+let const_ssa_trace_cmd =
+  let doc =
+    "Trace successful payload-backed Native constant folds in deterministic \
+     Const-SSA manifest order."
+  in
+  Cmd.v (Cmd.info "const-ssa-trace" ~doc) Term.(const const_ssa_trace $ pt2_arg)
 
 (* --- visualize: export a Model Explorer session ------------------------- *)
 
@@ -957,7 +1064,15 @@ let cmd =
   let doc = "Tools for the native inference engine's graph representation." in
   Cmd.group
     (Cmd.info "native_graph" ~doc)
-    [ print_cmd; eval_cmd; transform_cmd; to4d_cmd; visualize_cmd; detail_cmd ]
+    [
+      print_cmd;
+      eval_cmd;
+      transform_cmd;
+      to4d_cmd;
+      const_ssa_trace_cmd;
+      visualize_cmd;
+      detail_cmd;
+    ]
 
 (* The trace policy is chosen HERE, before any command runs, because this is
    the host: [Err] reads no environment of its own, and nothing under lib/ is

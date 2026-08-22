@@ -21,11 +21,39 @@ type ('src, 'dst) t = {
   dst : 'dst Framework.Snapshot4.t;
   map : ('src, 'dst) Graph_map.t;
   constants : Tensor.packed Tensor_id.Map.t;
+  constant_store : Constant_store.t;
 }
 
 type 'src packed = Pack : ('src, 'dst) t -> 'src packed
 
 let graph r = Framework.Snapshot4.graph r.dst
+
+type eval_error =
+  [ Const_ssa_materialize.error | `Direct4 of Eval_direct4.error ]
+
+let pp_eval_error ppf : [< eval_error ] -> unit = function
+  | #Const_ssa_materialize.error as e -> Const_ssa_materialize.pp_error ppf e
+  | `Direct4 e -> Eval_direct4.pp_error ppf e
+
+let evaluate resolver r ~inputs =
+  let open Err.Syntax in
+  let* store, report =
+    Const_ssa_materialize.materialize resolver r.constant_store
+    |> Err.map_error (fun e -> (e :> eval_error))
+  in
+  let constants =
+    Tensor_id.Map.union
+      (fun _ _ planned -> Some planned)
+      r.constants
+      (Constant_store.materialized store)
+  in
+  let+ env =
+    Eval_direct4.run (graph r)
+      ~constants:(Tensor_id.Map.bindings constants)
+      ~inputs
+    |> Err.map_error (fun e -> `Direct4 e)
+  in
+  (env, report)
 
 (* ---- what the walk accumulates -------------------------------------------- *)
 
@@ -667,7 +695,8 @@ let check_constants ~view constants =
 
 (* ---- the conversion ------------------------------------------------------- *)
 
-let convert ?(constants = Tensor_id.Map.empty) (src : 'src Snapshot.t) =
+let convert ?(constants = Tensor_id.Map.empty)
+    ?(constant_store = Constant_store.empty) (src : 'src Snapshot.t) =
   let view = Snapshot.view src in
   let g = Snapshot.graph src in
   let* () = (Domain.check view :> (unit, Error.t) Err.t) in
@@ -744,6 +773,15 @@ let convert ?(constants = Tensor_id.Map.empty) (src : 'src Snapshot.t) =
   in
   let* (Framework.Snapshot4.Pack dst) =
     Err.map_error (fun e -> `View e) (Framework.Snapshot4.create dst_graph)
+  in
+  let* constant_store =
+    Constant_store.restrict_and_rename_exports constant_store (fun id ->
+        if
+          Graph_common.input_kind dst_graph id = Input.Constant
+          && Tensor_id.Map.mem id dst_graph.G4.Graph.tensors
+        then Some id
+        else None)
+    |> Err.map_error (fun e -> `Constant_store e)
   in
   (* Claims, PROPAGATED FORWARD. One claim per legalized node is not enough: the
      moment any legalization is weaker than Identical every edge downstream is
@@ -850,4 +888,4 @@ let convert ?(constants = Tensor_id.Map.empty) (src : 'src Snapshot.t) =
       (Framework.Map_from_native.create ~src ~dst ~values:value_clusters
          ~nodes:node_clusters ~provenance)
   in
-  Pack { dst; map; constants = acc.constants }
+  Pack { dst; map; constants = acc.constants; constant_store }

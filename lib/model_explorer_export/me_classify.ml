@@ -35,7 +35,7 @@ let native4d : [< Native4d.Error.t ] -> verdict = function
   (* A payload that WAS supplied and is wrong, and a map or view invariant
      failure, are defects. Reporting either as "outside the dialect" tells the
      user to change their model to work around our bug. *)
-  | `Bad_constant_payload _ | `Map _ | `View _ -> Fatal
+  | `Bad_constant_payload _ | `Constant_store _ | `Map _ | `View _ -> Fatal
 
 (* Total over [Native_interp.error]. The row that decides whether there is a
    Native graph at all, so every OTHER capability's fate follows from it. *)
@@ -64,7 +64,7 @@ let lowering : [< Native_interp.error ] -> verdict = function
      [`Tensor_bridge] belong to execution, which export does not perform. *)
   | #Native_interp.malformed
   | `Tensor_bridge _ | `Eval _ | `Build _ | `Provenance _ | `Transform _
-  | `Verify _ | `Lens _ ->
+  | `Verify _ | `Lens _ | `Materialize _ ->
       Fatal
 
 let kernel : [< Kernel_adapt.error ] -> verdict = function

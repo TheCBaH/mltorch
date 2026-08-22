@@ -277,6 +277,7 @@ module Make (S : Side.S) : sig
      iterations produced. A callback handed only a graph could not express constant
      folding at all — it has to evaluate. *)
   type env = {
+    constant_store : Constant_store.t;
     constants : Tensor.packed Tensor_id.Map.t;
     view : Graph_view.Make(S.Dialect).t;
   }

@@ -531,7 +531,12 @@ module Make (S : Side.S) = struct
     run : 'v. ctx -> 'v Rw.t -> ('v outcome, error) Err.t;
   }
 
-  type env = { constants : Tensor.packed Tensor_id.Map.t; view : View.t }
+  type env = {
+    constant_store : Constant_store.t;
+    constants : Tensor.packed Tensor_id.Map.t;
+    view : View.t;
+  }
+
   type per_node = { on_node : 'v. env -> node -> ('v, unit) Rcp.t option }
   type 'a builder = { build : 'v. 'a -> Rgn.t -> ('v, unit) Rcp.t }
 
@@ -595,7 +600,9 @@ module Make (S : Side.S) = struct
         match
           Verify.run ?budget:ctx.budget ?probe:ctx.probe map
             ~src:(Rw.snapshot state) ~src_constants:(Rw.constants state)
+            ~src_constant_store:(Rw.constant_store state)
             ~dst:(Rw.snapshot after) ~dst_constants:(Rw.constants after)
+            ~dst_constant_store:(Rw.constant_store after)
         with
         | Error e ->
             Err.fail
@@ -626,7 +633,13 @@ module Make (S : Side.S) = struct
       name;
       run =
         (fun ctx state ->
-          let env = { constants = Rw.constants state; view = Rw.view state } in
+          let env =
+            {
+              constant_store = Rw.constant_store state;
+              constants = Rw.constants state;
+              view = Rw.view state;
+            }
+          in
           let* result = sweep state (collect env) in
           let step =
             match result with None -> identity_step state | Some step -> step

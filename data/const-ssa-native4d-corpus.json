@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "source": {
+    "release": "v0.0.3",
+    "manifest": "data/pt2-functional-manifest.json"
+  },
+  "native4d": [
+    {
+      "model": "mobilenetv2_050",
+      "canonical_native_nodes": 100,
+      "native4d_nodes": 100
+    }
+  ],
+  "considered": [
+    {
+      "model": "test_convnext2",
+      "outcome": "native_lowering_unsupported",
+      "operator": "torch.ops.aten.gelu.default"
+    },
+    {
+      "model": "mobilenetv2_050",
+      "outcome": "native4d"
+    },
+    {
+      "model": "regnetx_002",
+      "outcome": "outside_native4d_domain",
+      "detail": "convolution groups=3"
+    },
+    {
+      "model": "efficientnet_b0",
+      "outcome": "native_lowering_unsupported",
+      "operator": "torch.ops.aten.sigmoid.default"
+    },
+    {
+      "model": "fastvit_sa12",
+      "outcome": "native_lowering_unsupported",
+      "operator": "torch.ops.aten.gelu.default"
+    }
+  ]
+}

@@ -23,9 +23,9 @@ val pp_verdict : Format.formatter -> verdict -> unit
 
 val native4d : [< Native4d.Error.t ] -> verdict
 (** [`Missing_constant_payload] is [Requires_payloads]; the ten domain rows are
-    [Outside_dialect_domain]; [`Bad_constant_payload], [`Map] and [`View] are
-    fatal — a payload that was supplied and is wrong, or a map/view invariant
-    failure, is a defect rather than a partiality.
+    [Outside_dialect_domain]; [`Bad_constant_payload], [`Constant_store], [`Map]
+    and [`View] are fatal — a payload that was supplied and is wrong, or a
+    map/view invariant failure, is a defect rather than a partiality.
 
     Having payloads removes exactly ONE failure mode. It does not put a graph
     inside the dialect, which is why Native4D is conditional for a [.pt2] and a
@@ -40,9 +40,9 @@ val lowering : [< Native_interp.error ] -> verdict
     [Native_interp.lower] takes an [ExportedProgram.t] and gains no operator
     support from the archive payload. Everything else is fatal: a malformed
     graph is a decoder that accepted what it should not have, the builder,
-    provenance, transform, verify and lens rows are internal invariants, and
-    [`Eval]/[`Tensor_bridge] belong to execution, which export never performs.
-*)
+    provenance, transform, verify, lens and materialization rows are internal
+    invariants, and [`Eval]/[`Tensor_bridge] belong to execution, which export
+    never performs. *)
 
 val kernel : [< Kernel_adapt.error ] -> verdict
 (** [`Passthrough_output] is [Unsupported_graph_shape] and RECOVERABLE — a graph

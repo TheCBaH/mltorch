@@ -96,7 +96,8 @@ pt2.runtest:
 		done; \
 	done
 	PT2_DATA=$(abspath $(PT2_DIR)) NO_COLOR=1 opam exec -- dune runtest \
-		test/pt2_load_cram.t test/interp_functional_cram.t
+		test/pt2_load_cram.t test/interp_functional_cram.t test/const_ssa_trace_cram.t \
+		test/const_ssa_payload_free_cram.t test/const_ssa_evaluate_cram.t
 
 # Shared argument list for every interp_run.exe invocation below, so
 # inference-run and benchmark.inference can't drift apart.

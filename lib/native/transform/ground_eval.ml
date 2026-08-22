@@ -17,6 +17,7 @@ module Env = struct
   type t = {
     constant_ids : Tensor_id.Set.t;
     constants : Tensor.packed Tensor_id.Map.t;
+    constant_store : Constant_store.t option;
     consts : float Tensor_id.Map.t;
     fmts : Payload.packed_fmt Tensor_id.Map.t;
     inputs : Tensor_id.Set.t;
@@ -25,8 +26,8 @@ module Env = struct
     stages : Stage_program.Stage.t Tensor_id.Map.t;
   }
 
-  let of_program ?(constants = Tensor_id.Map.empty) (p : Stage_program.t) ~side
-      =
+  let of_program ?(constants = Tensor_id.Map.empty) ?constant_store
+      (p : Stage_program.t) ~side =
     let add_sig (sg : Tensor_sig.t) (fmts, shapes) =
       let id = sg.Tensor_sig.id in
       ( Tensor_id.Map.add id sg.Tensor_sig.fmt fmts,
@@ -77,7 +78,17 @@ module Env = struct
           | None | Some Input.Input -> acc)
         Tensor_id.Set.empty p.Stage_program.inputs
     in
-    { constant_ids; constants; consts; fmts; inputs; shapes; side; stages }
+    {
+      constant_ids;
+      constants;
+      constant_store;
+      consts;
+      fmts;
+      inputs;
+      shapes;
+      side;
+      stages;
+    }
 
   (* The cell this graph's [id] reads as. Side-qualified, always: turning it
      into a correspondence variable is [Ground_expr.project]'s business, and
@@ -105,9 +116,17 @@ module Env = struct
     | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 -> false
 
   let stored_f32 t (cell : Ground_expr.Cell.t) =
-    Option.bind (edge_of t cell.Ground_expr.Cell.origin) (fun id ->
-        Tensor_id.Map.find_opt id t.fmts)
-    |> Option.fold ~none:false ~some:fmt_is_f32_exact
+    let fmt =
+      match cell.Ground_expr.Cell.origin with
+      | Ground_expr.Origin.Capture capture ->
+          Option.bind t.constant_store (fun store ->
+              Const_ssa_symbolic.captured_fmt store capture)
+      | Ground_expr.Origin.Boundary _ | Ground_expr.Origin.Dst _
+      | Ground_expr.Origin.Src _ ->
+          Option.bind (edge_of t cell.Ground_expr.Cell.origin) (fun id ->
+              Tensor_id.Map.find_opt id t.fmts)
+    in
+    Option.fold ~none:false ~some:fmt_is_f32_exact fmt
 
   let const_of t id = Tensor_id.Map.find_opt id t.consts
   let constant_of t id = Tensor_id.Map.find_opt id t.constants
@@ -231,18 +250,23 @@ let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
    model constant is its stored element, read exactly the way [Expr.Eval.value] reads
    it; anything else is a free cell. *)
 and leaf ~env id at_axis : Ground_expr.t =
-  match (Env.const_of env id, Env.constant_of env id) with
-  | Some v, _ -> Ground_expr.Const v
-  | None, Some payload -> Ground_expr.Const (Tensor.read_at_raw payload at_axis)
-  | None, None ->
-      Ground_expr.Cell
-        {
-          Ground_expr.Cell.origin = Env.origin env id;
-          coord =
-            Vec6.coord ~n:(at_axis Axis.N) ~t:(at_axis Axis.T)
-              ~d:(at_axis Axis.D) ~h:(at_axis Axis.H) ~w:(at_axis Axis.W)
-              ~c:(at_axis Axis.C);
-        }
+  let coord =
+    Vec6.coord ~n:(at_axis Axis.N) ~t:(at_axis Axis.T) ~d:(at_axis Axis.D)
+      ~h:(at_axis Axis.H) ~w:(at_axis Axis.W) ~c:(at_axis Axis.C)
+  in
+  match
+    Option.bind env.Env.constant_store (fun store ->
+        Const_ssa_symbolic.ground store id coord)
+  with
+  | Some expr -> expr
+  | None -> (
+      match (Env.const_of env id, Env.constant_of env id) with
+      | Some v, _ -> Ground_expr.Const v
+      | None, Some payload ->
+          Ground_expr.Const (Tensor.read_at_raw payload at_axis)
+      | None, None ->
+          Ground_expr.Cell
+            { Ground_expr.Cell.origin = Env.origin env id; coord })
 
 (* The window is concrete, so the stencil expands into the same paired fold
    [Direct]/[Expr.Eval.value] run: one predicate advancing value and index together.
@@ -335,16 +359,23 @@ let at env id coord =
       (* An input edge can itself be a bound constant — [fold_const]'s whole
          output is one — so the same binding [leaf] applies inside a body has to
          apply here too, not just to [Load]s. *)
-      match (Env.const_of env id, Env.constant_of env id) with
-      | Some v, _ -> Ground_expr.Const v
-      | None, Some payload ->
-          Ground_expr.Const
-            (Tensor.read_at_raw payload (fun a -> Dim.to_int (Vec6.get coord a)))
-      | None, None ->
-          let origin = Env.origin env id in
-          if Option.is_none (Env.shape_of env origin) then
-            or_throw esc (Err.fail (`Unknown_edge id))
-          else Ground_expr.Cell { Ground_expr.Cell.origin; coord })
+      match
+        Option.bind env.Env.constant_store (fun store ->
+            Const_ssa_symbolic.ground store id coord)
+      with
+      | Some expr -> expr
+      | None -> (
+          match (Env.const_of env id, Env.constant_of env id) with
+          | Some v, _ -> Ground_expr.Const v
+          | None, Some payload ->
+              Ground_expr.Const
+                (Tensor.read_at_raw payload (fun a ->
+                     Dim.to_int (Vec6.get coord a)))
+          | None, None ->
+              let origin = Env.origin env id in
+              if Option.is_none (Env.shape_of env origin) then
+                or_throw esc (Err.fail (`Unknown_edge id))
+              else Ground_expr.Cell { Ground_expr.Cell.origin; coord }))
 
 (* [budget] bounds ONE round, and has to: a single substitution step is
    quadratic where a conv feeds a conv, so a term can reach tens of millions of

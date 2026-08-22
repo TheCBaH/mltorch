@@ -213,7 +213,7 @@ let build m _region =
         ];
       subst = [ (Old out, New y') ];
       value_claims = [ (out, Fresh y', Correspondence.Equivalent) ];
-      constants =
+      literals =
         ((Fresh eps, literal m.bn.params.eps) :: gamma_c) @ beta_c @ bias_c;
     }
 

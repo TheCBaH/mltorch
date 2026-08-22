@@ -239,6 +239,7 @@ type error =
   | `Output_count_over_limit of Shape_error.Output_count.t
   | malformed
   | `Tensor_bridge of tensor_bridge
+  | `Materialize of Const_ssa_materialize.error
   | `Eval of Eval_direct.error
   | `Build of Graph_builder.error
   | `Provenance of Pt2_native_graph.error
@@ -406,6 +407,7 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "PT2 graph over limit: %a" Shape_error.Output_count.pp e
   | #malformed as e -> Fmt.pf ppf "malformed PT2 graph: %a" pp_malformed e
   | `Tensor_bridge e -> Fmt.pf ppf "PT2 tensor bridge: %a" pp_tensor_bridge e
+  | `Materialize e -> Const_ssa_materialize.pp_error ppf e
   | `Eval e -> Eval_direct.pp_error ppf e
   | `Build e -> Graph_builder.pp_error ppf e
   | `Provenance e -> Pt2_native_graph.pp_error ppf e
@@ -2224,6 +2226,7 @@ let run ?hooks archive ~input =
 type transformed =
   | Transformed : {
       constants : Tensor.packed Tensor_id.Map.t;
+      constant_store : Constant_store.t;
       derived : (Tensor_id.t * string list) list;
       graph : Graph_ir.graph;
       lens : 'b Pt2_native_graph.lens;
@@ -2233,7 +2236,7 @@ type transformed =
     }
       -> transformed
 
-type loaded = { from_state : int; from_archive : int }
+type loaded = { from_state : int; from_archive : int; from_plan : int }
 
 let load_captured archive target =
   let open Err.Syntax in
@@ -2242,6 +2245,10 @@ let load_captured archive target =
     |> Err.map_error ~pos:__POS__ (fun e -> `Tensor_bridge (`Archive e))
   in
   tensor_of_pt2 raw
+
+let capture_resolver archive capture =
+  load_captured archive (Const_ssa.Capture.to_string capture)
+  |> Err.map_error (fun _ -> `Missing_capture capture)
 
 (* The PT2 names a destination constant derives from: its provenance sources,
    resolved in the sidecar the importer built. Asked only of an edge with no
@@ -2291,8 +2298,22 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
   let source = lowered.Pt2_native_graph.graph in
   let seeded = Tensor_id.Map.bindings constants in
   let transform_error e = `Transform ((e : Rewrite.error) :> Pass.error) in
+  let* constant_store =
+    Tensor_id.Map.fold
+      (fun id target acc ->
+        let* store = acc in
+        match Tensor_id.Map.find_opt id source.Graph_ir.Graph.tensors with
+        | None -> Err.return store
+        | Some tensor ->
+            Constant_store.bind_captured store ~tensor
+              (Const_ssa.Capture.of_string target)
+            |> Err.map_error (fun e -> (e :> Rewrite.error))
+            |> Err.map_error ~pos:__POS__ transform_error)
+      lowered.Pt2_native_graph.captured_targets
+      (Err.return Constant_store.empty)
+  in
   let* (Rewrite.Origin origin) =
-    Rewrite.origin ~constants:seeded source
+    Rewrite.origin ~constant_store ~constants:seeded source
     |> Err.map_error ~pos:__POS__ transform_error
   in
   let* {
@@ -2328,8 +2349,10 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
           Map_verify.run ?budget:verify_budget ?probe:verify_probe composed_map
             ~src:(Rewrite.snapshot origin)
             ~src_constants:(Rewrite.constants origin)
+            ~src_constant_store:(Rewrite.constant_store origin)
             ~dst:(Rewrite.snapshot packed)
             ~dst_constants:(Rewrite.constants packed)
+            ~dst_constant_store:(Rewrite.constant_store packed)
           |> Err.map_error ~pos:__POS__ (fun e -> `Verify e)
         in
         (* The policy applies here too. Composition and terminal packing are the
@@ -2352,6 +2375,7 @@ let transform_lowered ?(constants = Tensor_id.Map.empty) ?verify ?verify_budget
     {
       composed;
       constants = Rewrite.constants packed;
+      constant_store = Rewrite.constant_store packed;
       derived = List.rev derived;
       graph;
       lens;
@@ -2433,13 +2457,20 @@ let constants_for archive ~lens ~graph ~computed =
     List.length (List.filter (fun (_, _, s) -> s = source) loaded)
   in
   ( List.rev_map (fun (id, payload, _) -> (id, payload)) loaded,
-    { from_state = count `State; from_archive = count `Archive } )
+    { from_state = count `State; from_archive = count `Archive; from_plan = 0 }
+  )
 
 let evaluate archive (Transformed t) ~input =
   let open Err.Syntax in
   let* input = tensor_of_pt2 input in
+  let* store, materialized =
+    Const_ssa_materialize.materialize (capture_resolver archive)
+      t.constant_store
+    |> Err.map_error ~pos:__POS__ (fun e -> `Materialize e)
+  in
   let* constants, loaded =
-    constants_for archive ~lens:t.lens ~graph:t.graph ~computed:t.constants
+    constants_for archive ~lens:t.lens ~graph:t.graph
+      ~computed:(Constant_store.materialized store)
   in
   let user_ids =
     List.filter
@@ -2464,4 +2495,4 @@ let evaluate archive (Transformed t) ~input =
         |> Err.of_option (`Output_not_evaluated id))
       t.graph.Graph_ir.Graph.outputs
   in
-  (outputs, loaded)
+  (outputs, { loaded with from_plan = materialized.applies })

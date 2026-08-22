@@ -301,7 +301,8 @@ let%expect_test "verify: bmm, the two terms" =
             match o with
             | Ground_expr.Origin.Src id | Ground_expr.Origin.Dst id ->
                 Some (Cluster_var.of_int (Tensor_id.to_int id))
-            | Ground_expr.Origin.Boundary _ -> None
+            | Ground_expr.Origin.Boundary _ | Ground_expr.Origin.Capture _ ->
+                None
           in
           let lp = Ground_expr.project ~boundary ls
           and rp = Ground_expr.project ~boundary rs in

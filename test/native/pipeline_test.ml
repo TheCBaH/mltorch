@@ -73,7 +73,7 @@ let report ~fold g =
       Format.printf "%d nodes, first run changed=%b, second changed=%b@."
         (node_count g) first second
 
-let%expect_test "pipeline: both fold branches, each idempotent" =
+let%expect_test "pipeline: compatibility fold flag is idempotent" =
   let g = mixed () in
   Format.printf "before: %d nodes@." (node_count g);
   report ~fold:false g;
@@ -84,13 +84,11 @@ let%expect_test "pipeline: both fold branches, each idempotent" =
     fold=false: 2 nodes, first run changed=true, second changed=false
     fold=true: 2 nodes, first run changed=true, second changed=false |}]
 
-(* The two branches are not prefix and extension: [fold:false] still runs
-   [Fold_batch_norm], and differs only in the [Fold_const] rounds around it. With
-   no payloads bound those rounds decline every node, so the two agree here —
-   which is the point of checking, since a pipeline that silently dropped
-   [Fold_batch_norm] from one branch would look identical on this fixture and
-   differ on a real model. *)
-let%expect_test "pipeline: the fold branches agree when nothing is foldable" =
+(* [fold] is retained only for source compatibility. The two calls must produce
+   the same canonical graph even when a future fixture gives the pipeline
+   symbolic constants to fold. *)
+let%expect_test
+    "pipeline: the compatibility fold flag does not choose structure" =
   let g = mixed () in
   let printed fold =
     match twice ~fold g with

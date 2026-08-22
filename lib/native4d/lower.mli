@@ -21,6 +21,7 @@ type ('src, 'dst) t = {
   dst : 'dst Framework.Snapshot4.t;
   map : ('src, 'dst) Graph_map.t;
   constants : Tensor.packed Tensor_id.Map.t;
+  constant_store : Constant_store.t;
 }
 
 (* Packed for the same reason [Snapshot.create] packs: handing back an
@@ -28,6 +29,19 @@ type ('src, 'dst) t = {
 type 'src packed = Pack : ('src, 'dst) t -> 'src packed
 
 val graph : ('src, 'dst) t -> Graph.graph
+
+type eval_error =
+  [ Const_ssa_materialize.error | `Direct4 of Eval_direct4.error ]
+
+val pp_eval_error : Format.formatter -> [< eval_error ] -> unit
+
+val evaluate :
+  Const_ssa_materialize.resolver ->
+  ('src, 'dst) t ->
+  inputs:(Tensor_id.t * Tensor.packed) list ->
+  ( Tensor.packed Tensor_id.Map.t * Const_ssa_materialize.report,
+    eval_error )
+  Err.t
 
 (* [constants] is validated in full BEFORE any legalization — a payload that
    disagrees with its signature would otherwise be copied through into the
@@ -37,5 +51,6 @@ val graph : ('src, 'dst) t -> Graph.graph
    converts fine. *)
 val convert :
   ?constants:Tensor.packed Tensor_id.Map.t ->
+  ?constant_store:Constant_store.t ->
   'src Snapshot.t ->
   ('src packed, Error.t) Err.t

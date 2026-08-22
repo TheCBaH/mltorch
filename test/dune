@@ -360,6 +360,19 @@
     cat
     %{project_root}/../../modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/model.json))))
 
+; Gate 5's payload-free MobileNetV1-class conversion fixture. The model source
+; is committed with the devcontainer models, while tensor payloads remain out
+; of the test path by construction.
+
+(rule
+ (target mobilenetv1_100_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/mobilenetv1_100/models/model.json))))
+
 (rule
  (target test_convnext2_model.json)
  (action
@@ -387,6 +400,45 @@
   schema_runtime.cmi
   mobilenetv2_050_model.json
   test_convnext2_model.json))
+
+(cram
+ (applies_to const_ssa_mobilenetv1_cram)
+ (deps %{exe:../bin/native_graph.exe} mobilenetv1_100_model.json))
+
+; Gate 8 compares the same frozen Native4D corpus graph through its committed
+; payload-free source and its release archive, then evaluates its materialized
+; Native4D form.  These require the release payloads, unlike Gate 5's source
+; fixture above.
+
+(cram
+ (applies_to const_ssa_payload_free_cram)
+ (deps (universe) %{exe:../bin/native_graph.exe} mobilenetv2_050_model.json)
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+(cram
+ (applies_to const_ssa_evaluate_cram)
+ (deps (universe) %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+(rule
+ (target const_ssa_native4d_fold_manifest.txt)
+ (action
+  (copy %{project_root}/data/const-ssa-native4d-fold-manifest.txt %{target})))
+
+; Gate 6's payload-backed corpus trace. It is gated with the downloaded release
+; data, while the committed manifest stays a normal source artifact that can be
+; reviewed and updated independently.
+
+(cram
+ (applies_to const_ssa_trace_cram)
+ (deps
+  (universe)
+  %{exe:../bin/native_graph.exe}
+  const_ssa_native4d_fold_manifest.txt)
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
 
 (executable
  (name parse_weights_config)

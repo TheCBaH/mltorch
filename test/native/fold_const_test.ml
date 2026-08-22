@@ -120,6 +120,52 @@ let%expect_test "fold_const: a permuted constant weight becomes data" =
       provenance:
         {t1} -> t2 |}]
 
+let%expect_test "fold_const: a captured permute folds without payload bytes" =
+  let g = Graph_fixtures.const_permute () in
+  let weight = Tensor_id.Map.find (t_ 1) g.Graph.tensors in
+  let store =
+    match
+      Constant_store.bind_captured Constant_store.empty ~tensor:weight
+        (Const_ssa.Capture.of_string "layer.weight")
+    with
+    | Ok store -> store
+    | Error e ->
+        failwith
+          (Format.asprintf "%a" Constant_store.pp_error (Err.Error.kind e))
+  in
+  match Rewrite.origin ~constant_store:store g with
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
+  | Ok (Rewrite.Origin state) ->
+      (match
+         Pass.run_all ~verify:Map_verify.Policy.Require_proved state
+           [ Fold_const.pass ]
+       with
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
+      | Ok (Rewrite.Step (folded, _)) ->
+          Format.printf "%a@." Graph_ir.pp (Rewrite.graph folded);
+          Format.printf "plan:@,%a@." Const_ssa.pp
+            (Constant_store.plan (Rewrite.constant_store folded)));
+      [%expect
+        {|
+    graph
+    inputs:
+      [t0 f32 [H=3 W=3 C=2] ->[n1],
+       t2 f32 [N=3 T=1 D=1 H=2 W=2 C=2] ->[n1] constant]
+    nodes:
+      n1: [t3 f32 [H=2 W=2 C=3]] =
+        conv2d
+          x=t0
+          weight=t2
+          bias=none
+          params={h={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 in_channels=2;
+                 groups=1}
+    outputs: [t3 f32 [H=2 W=2 C=3] <-n1]
+    plan:
+    t1 = captured "layer.weight"
+    t2 = permute x=t1 perm=[H<-W, W<-H] |}]
+
 let%expect_test "fold_const: the folded graph computes the same output" =
   (* The property that matters: hoisting the permute to load time must not
      change what the graph computes. The input has to vary over H and W — a

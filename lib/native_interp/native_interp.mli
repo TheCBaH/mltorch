@@ -334,6 +334,7 @@ type error =
         [`Build (`Output_count_over_limit _)] carry the same payload. *)
   | malformed
   | `Tensor_bridge of tensor_bridge
+  | `Materialize of Const_ssa_materialize.error
   | `Eval of Eval_direct.error
   | `Build of Graph_builder.error
   | `Provenance of Pt2_native_graph.error
@@ -374,6 +375,7 @@ val run :
 type transformed =
   | Transformed : {
       constants : Tensor.packed Graph_ir.Tensor_id.Map.t;
+      constant_store : Constant_store.t;
           (* payloads the passes computed; a folded weight lives only here *)
       derived : (Graph_ir.Tensor_id.t * string list) list;
           (* constants with NO archive path, and the PT2 names they were computed
@@ -408,10 +410,11 @@ type transformed =
 (* Import, rewrite, pack, and build the lens onto the result.
 
    No payload is bound by default, so a structural pipeline never materialises a
-   weight — but [Fold_const] then declines every node, since it refuses a
-   constant whose payload is not bound. [~preload:true] binds every captured
-   payload a node reads, which is what lets folding hoist a permuted weight; it
-   reads the whole archive, so it is not the default.
+   weight — it records a Const-SSA definition instead. [~preload:true] only
+   warms the materialized cache for explicit evaluation or materialized-fold
+   tracing; canonical graph structure is independent of preload. It binds every
+   captured payload a node reads and reads the whole archive, so it is not the
+   default.
 
    [~verify] symbolically checks each pass's mapping as it is applied, against
    the state it came from and WITHOUT payloads for the graph inputs — so it says
@@ -432,8 +435,9 @@ val preload :
 
     Exposed because [transform]'s [~preload] is not the only caller any more:
     the exporter reaches [transform_lowered] directly, and without this it was
-    silently running a fold that declines every node. One implementation, so the
-    two cannot come to disagree about which payloads a fold gets. *)
+    silently missing the payload cache needed by explicit evaluation. One
+    implementation, so the two cannot come to disagree about which payloads a
+    materialized run gets. *)
 
 val transform :
   ?preload:bool ->
@@ -467,12 +471,13 @@ val transform_lowered :
     [~constants] seeds the transform state, as a map rather than
     [Rewrite.origin]'s association list: a duplicated id is not a case this
     boundary should have to answer for. [transform] passes the payloads a node
-    reads; a structural caller passes none, and [Fold_const] then declines every
-    node, exactly as it does under [transform] without [~preload]. *)
+    reads; a structural caller passes none and still gets the same symbolic
+    Const-SSA canonicalization. *)
 
 type loaded = {
   from_state : int; (* constants a pass computed *)
   from_archive : int; (* constants resolved back to a captured source *)
+  from_plan : int; (* Const-SSA applications evaluated explicitly *)
 }
 
 (* Execute a transformed graph. Payloads come from the two sources §10 of
@@ -488,3 +493,9 @@ val evaluate :
   transformed ->
   input:Pt2_tensor.t ->
   (Tensor.packed list * loaded, error) Err.t
+
+(* Narrow adapters for an explicit downstream materializer. They do not change
+   the direct evaluators: callers still provide a resolved constant map or a
+   capture resolver before evaluation begins. *)
+val tensor_of_pt2 : Pt2_tensor.t -> (Tensor.packed, error) Err.t
+val capture_resolver : Pt2_archive.t -> Const_ssa_materialize.resolver

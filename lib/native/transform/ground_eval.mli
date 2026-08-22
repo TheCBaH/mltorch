@@ -46,6 +46,7 @@ module Env : sig
      driver tries without it first. *)
   val of_program :
     ?constants:Tensor.packed Tensor_id.Map.t ->
+    ?constant_store:Constant_store.t ->
     Stage_program.t ->
     side:[ `Dst | `Src ] ->
     t

@@ -49,23 +49,25 @@ let prune =
   Pass.sequence ~name:"prune" [ Dce.pass; Drop_pool_indices.pass; Dce.pass ]
 
 (* Order is load-bearing. The importer emits every conv weight behind a relayout
-   permute, so the weight is a NODE OUTPUT until folding materialises it — and
-   batch-norm folding requires constant parameters. So constant folding runs
-   first to make the weights constant, then the batch-norm fold, then constant
-   folding again to collapse the parameter arithmetic that fold emits. Without
-   the first pass the batch-norm fold matches nothing at all.
+   permute, so the weight is a NODE OUTPUT until the first Const-SSA fold makes
+   it an effective constant. Batch-norm folding then emits parameter arithmetic,
+   and the second fold captures that arithmetic as one symbolic plan. This is
+   independent of whether payloads were preloaded: payloads are merely an
+   optional materialization cache, never a choice of canonical structure.
 
-   [fold:false] still folds batch norm. It is not a prefix of [fold:true] — a
-   structural caller with no payloads bound gets the same batch-norm treatment,
-   just without the [Fold_const] rounds that would decline every node anyway. *)
-let canonical ~fold =
+   [fold] remains temporarily for caller compatibility. It is deliberately
+   ignored; callers that need bytes must materialize the returned constant store
+   explicitly. *)
+let canonical_with_trace ~on_materialized_fold ~fold:_ =
   Pass.sequence ~name:"canonical"
-    ([ Reshape_to_permute.pass; relayout; prune ]
-    @
-    if fold then
-      [
-        Pass.fixpoint Fold_const.pass;
-        Fold_batch_norm.pass;
-        Pass.fixpoint Fold_const.pass;
-      ]
-    else [ Fold_batch_norm.pass ])
+    [
+      Reshape_to_permute.pass;
+      relayout;
+      prune;
+      Pass.fixpoint (Fold_const.pass_with_trace on_materialized_fold);
+      Fold_batch_norm.pass;
+      Pass.fixpoint (Fold_const.pass_with_trace on_materialized_fold);
+    ]
+
+let canonical ~fold =
+  canonical_with_trace ~on_materialized_fold:(fun _ -> ()) ~fold
