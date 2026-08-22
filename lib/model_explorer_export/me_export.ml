@@ -266,6 +266,10 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
               verify_symbolic)
          ?verify_budget:(Option.map Map_verify.Effort.budget verify_symbolic)
          ?verify_probe:(Option.map Map_verify.Effort.probe verify_symbolic)
+         ?max_verified_steps:
+           (Option.map Map_verify.Effort.max_verified_steps verify_symbolic)
+         ?max_verify_clusters:
+           (Option.map Map_verify.Effort.max_clusters verify_symbolic)
          ~passes:(passes ~fold))
   in
   let (Native_interp.Transformed t) = transformed in

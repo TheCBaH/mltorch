@@ -158,6 +158,10 @@ module Audit_log : sig
   (** Enforced BEFORE retention: a limit applied while PROJECTING an
       already-built log arrives after the memory is gone. *)
 
+  val omit : t -> (t, [> count_error ]) Err.t
+  (** Record one deliberately skipped audit. Its outcome counts are unknown,
+      unlike an audit dropped only after verification completed. *)
+
   val concat : max_reports:int -> t -> t -> (t, [> count_error ]) Err.t
 end
 
@@ -235,6 +239,7 @@ module Make (S : Side.S) : sig
     budget : Map_verify.Budget.t option;
     policy : Map_verify.Policy.t option;
     probe : int option;
+    max_verified_steps : int option;
     trace : bool;
     max_trace_entries : int;
     max_audit_reports : int;
@@ -331,6 +336,7 @@ module Make (S : Side.S) : sig
     ?verify:Map_verify.Policy.t ->
     ?verify_budget:Map_verify.Budget.t ->
     ?verify_probe:int ->
+    ?max_verified_steps:int ->
     'v Rewrite.Make(S).t ->
     t list ->
     ('v Rewrite.Make(S).step, error) Err.t
@@ -344,6 +350,7 @@ module Make (S : Side.S) : sig
     ?verify:Map_verify.Policy.t ->
     ?verify_budget:Map_verify.Budget.t ->
     ?verify_probe:int ->
+    ?max_verified_steps:int ->
     ?trace:bool ->
     ?max_trace_entries:int ->
     ?max_audit_reports:int ->

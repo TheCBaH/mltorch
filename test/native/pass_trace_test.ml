@@ -83,8 +83,8 @@ let pp_error ppf : [< error ] -> unit = function
 
 let pp_result = Core.Pretty.err_result ~ok:Summary.pp ~error:pp_error
 
-let summarize ?verify ?trace ?max_trace_entries ?max_audit_reports ?graph passes
-    =
+let summarize ?verify ?trace ?max_trace_entries ?max_audit_reports
+    ?max_verified_steps ?graph passes =
   let open Err.Syntax in
   let graph = Option.value graph ~default:(dead_branch ()) in
   let* (Rewrite.Origin state) =
@@ -92,15 +92,16 @@ let summarize ?verify ?trace ?max_trace_entries ?max_audit_reports ?graph passes
   in
   let+ out =
     Pass.run_reporting ?verify ?trace ?max_trace_entries ?max_audit_reports
-      state passes
+      ?max_verified_steps state passes
     |> Err.map_error (fun e -> (e :> error))
   in
   Summary.of_outcome out
 
-let run ?verify ?trace ?max_trace_entries ?max_audit_reports ?graph passes =
+let run ?verify ?trace ?max_trace_entries ?max_audit_reports ?max_verified_steps
+    ?graph passes =
   Format.printf "%a@." pp_result
-    (summarize ?verify ?trace ?max_trace_entries ?max_audit_reports ?graph
-       passes)
+    (summarize ?verify ?trace ?max_trace_entries ?max_audit_reports
+       ?max_verified_steps ?graph passes)
 
 (* --- the real nesting shape --- *)
 
@@ -209,6 +210,19 @@ let%expect_test "the audit log is bounded in CARDINALITY, not just in payload" =
   [%expect {|
     retained=3 omitted=9
     aggregate: vacuous=9
+    |}]
+
+let%expect_test "an exhausted verification-work budget skips audits visibly" =
+  (* Unlike [max_audit_reports], this limit applies BEFORE calling the verifier.
+     The changed pass and its trace still exist, while the omitted audit has no
+     made-up outcome counts. *)
+  run ~verify:Map_verify.Policy.Reject_refuted ~max_verified_steps:0 ~trace:true
+    [ nested ];
+  [%expect
+    {|
+    next_index=1 retained=0 omitted=1 traced=1 truncated=false
+    audits:
+    trace:  group[0]/group/dce[0]/dce#0
     |}]
 
 (* --- the trace --- *)

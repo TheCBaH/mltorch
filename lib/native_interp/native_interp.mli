@@ -453,6 +453,8 @@ val transform_lowered :
   ?verify:Map_verify.Policy.t ->
   ?verify_budget:Map_verify.Budget.t ->
   ?verify_probe:int ->
+  ?max_verified_steps:int ->
+  ?max_verify_clusters:int ->
   ?trace:bool ->
   ?max_trace_entries:int ->
   ?max_audit_reports:int ->

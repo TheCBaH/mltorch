@@ -51,6 +51,7 @@ let every_verdict : Verdict.t list =
       (Unproved.Exhausted { coord; lhs = member `Src; rhs = member `Dst });
     Unproved (Unproved.Max_nodes 1);
     Unproved Unproved.Max_rounds;
+    Unproved (Unproved.Max_clusters 1);
     Unproved (Unproved.Out_of_bounds cell);
     Unproved (Unproved.Too_large 1);
     Unproved (Unproved.Unbound_constant cell);
@@ -69,7 +70,7 @@ let%expect_test "every verdict's label is in Verdict.labels" =
   Printf.printf "verdicts=%d labels=%d\n"
     (List.length every_verdict)
     (List.length Verdict.labels);
-  [%expect {| verdicts=16 labels=16 |}]
+  [%expect {| verdicts=17 labels=17 |}]
 
 let%expect_test "every entry in Verdict.labels is reachable" =
   let produced = List.map Verdict.label every_verdict in
@@ -94,6 +95,7 @@ let%expect_test "Verdict.labels is the canonical order, printed once" =
     unproved (frontier exhausted)
     unproved (over max_nodes)
     unproved (over max_rounds)
+    unproved (global verification budget exhausted)
     unproved (out of bounds)
     unproved (too large)
     unproved (unbound constant)

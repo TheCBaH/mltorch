@@ -118,6 +118,18 @@ module Effort = struct
         }
 
   let probe = function Quick -> 2 | Standard -> 4 | Thorough -> 8
+
+  (* A per-cluster budget does not cap an export: a real model may rewrite many
+     times, and every changed rewrite used to receive a fresh budget.  Keep the
+     per-pass evidence useful, but bound how many such reports an interactive
+     export attempts.  The final composed report is still produced separately. *)
+  (* The browser already receives the composed report, which is the evidence it
+     renders on the final graph.  Auditing even one MobileNet rewrite can take
+     longer than an interactive export budget, so the interactive profiles
+     reserve their work for that end-to-end report.  Non-interactive callers do
+     not pass this option and keep the complete per-step audit trail. *)
+  let max_verified_steps = function Quick | Standard | Thorough -> 0
+  let max_clusters = function Quick -> 1 | Standard -> 4 | Thorough -> 16
   let pp fmt t = Fmt.string fmt (to_string t)
 end
 
@@ -186,6 +198,7 @@ module Unproved = struct
       }
     | Max_nodes of int
     | Max_rounds
+    | Max_clusters of int
     | Out_of_bounds of Ground_expr.Cell.t
     | Too_large of int
     | Unbound_constant of Ground_expr.Cell.t
@@ -202,6 +215,8 @@ module Unproved = struct
           Member.Erased.pp e.lhs Member.Erased.pp e.rhs
     | Max_nodes n -> Fmt.pf fmt "over max_nodes (%d)" n
     | Max_rounds -> Fmt.string fmt "over max_rounds"
+    | Max_clusters n ->
+        Fmt.pf fmt "global verification budget exhausted (%d clusters)" n
     | Out_of_bounds c ->
         Fmt.pf fmt "@[<h>out of bounds: %a@]" Ground_expr.Cell.pp c
     | Too_large n -> Fmt.pf fmt "too large (%d coords)" n
@@ -220,6 +235,7 @@ module Unproved = struct
     | Exhausted _ -> "frontier exhausted"
     | Max_nodes _ -> "over max_nodes"
     | Max_rounds -> "over max_rounds"
+    | Max_clusters _ -> "global verification budget exhausted"
     | Out_of_bounds _ -> "out of bounds"
     | Too_large _ -> "too large"
     | Unbound_constant _ -> "unbound constant"
@@ -238,6 +254,7 @@ module Unproved = struct
       "frontier exhausted";
       "over max_nodes";
       "over max_rounds";
+      "global verification budget exhausted";
       "out of bounds";
       "too large";
       "unbound constant";
@@ -1085,7 +1102,7 @@ let default_coefficient_tolerance = 1e-5
 module Make_pair (Src : Side.S) (Dst : Side.S) = struct
   module Map_pair = Graph_map.Make_pair (Src) (Dst)
 
-  let run ?(budget = Budget.default)
+  let run ?(budget = Budget.default) ?max_clusters
       ?(coefficient_tolerance = default_coefficient_tolerance) ?(probe = 4)
       ?(src_constants = Tensor_id.Map.empty)
       ?(dst_constants = Tensor_id.Map.empty) ?src_constant_store
@@ -1099,6 +1116,18 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
       (Map_pair.check_claim_closure map ~src ~dst :> (unit, error) Err.t)
     in
     let clusters = Map_pair.clusters_over map ~src ~dst in
+    let rec take n kept rest =
+      if n <= 0 then (List.rev kept, rest)
+      else
+        match rest with
+        | [] -> (List.rev kept, [])
+        | x :: xs -> take (n - 1) (x :: kept) xs
+    in
+    let checked_clusters, skipped_clusters =
+      match max_clusters with
+      | None -> (clusters, [])
+      | Some limit -> take (max 0 limit) [] clusters
+    in
     (* CLUSTER MEMBERSHIP decides what a raw id may mean, and nothing else does.
 
        The two layers this replaces — a static comparison of the graphs' own
@@ -1157,7 +1186,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
               sides c
           in
           outcome :: acc)
-        [] clusters
+        [] checked_clusters
     in
     let outcomes = List.rev checked in
     let dst_graph = Dst.Snapshot.graph dst in
@@ -1168,14 +1197,31 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
     Err.return
       {
         Report.entries =
-          List.map2
-            (fun cluster outcome ->
-              {
-                Entry.cluster = Correspondence.Cluster.erase cluster;
-                group = Group_path.of_cluster ~index ~producers cluster;
-                outcome;
-              })
-            clusters outcomes;
+          (List.map2
+             (fun cluster outcome ->
+               {
+                 Entry.cluster = Correspondence.Cluster.erase cluster;
+                 group = Group_path.of_cluster ~index ~producers cluster;
+                 outcome;
+               })
+             checked_clusters outcomes
+          @
+          match skipped_clusters with
+          | [] -> []
+          | cluster :: _ ->
+              [
+                {
+                  Entry.cluster = Correspondence.Cluster.erase cluster;
+                  group = Group_path.of_cluster ~index ~producers cluster;
+                  outcome =
+                    {
+                      coverage = Coverage.Not_applicable;
+                      verdict =
+                        Verdict.Unproved
+                          (Unproved.Max_clusters (List.length skipped_clusters));
+                    };
+                };
+              ]);
       }
 end
 

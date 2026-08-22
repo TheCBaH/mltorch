@@ -340,10 +340,9 @@ function countList(bindings) {
   return list;
 }
 
-/* Two keys, said as two things. `feature:verification` is a COMPOSED
- * whole-pipeline report counted in verifier clusters; `feature:pass_audits`
- * counts audit REPORTS, and an omitted audit report does not invalidate an
- * available composed summary. */
+/* Two keys, said as two things. `feature:verification` is a composed report
+ * counted in verifier clusters; `feature:pass_audits` counts audit REPORTS.
+ * Either may be bounded without invalidating the other evidence. */
 export function renderValidation(container, summary, index) {
   clear(container);
   const verification = index.capabilityByKey.get('feature:verification');
@@ -363,9 +362,16 @@ export function renderValidation(container, summary, index) {
 
   summary.textContent = 'Validation evidence';
   container.append(el('h3', 'Symbolic transformation verification'));
+  const globalBudgetExhausted = index.verification.some((binding) =>
+    binding.label.includes('global verification budget exhausted'));
   container.append(el('p',
-    'A composed, whole-pipeline report, counted in verifier clusters. Each label '
-    + 'carries its strength and coverage; neither is shortened.', 'note'));
+    globalBudgetExhausted
+      ? 'A composed report bounded by the global verification-work budget. The '
+        + 'unproved budget entry marks verifier clusters left unchecked; every '
+        + 'other label carries its own strength and coverage.'
+      : 'A composed, whole-pipeline report, counted in verifier clusters. Each '
+        + 'label carries its strength and coverage; neither is shortened.',
+    'note'));
   container.append(countList(index.verification));
 
   container.append(el('h3', 'Per-pass audits'));
@@ -376,7 +382,7 @@ export function renderValidation(container, summary, index) {
   const audits = index.passAudits;
   container.append(el('p',
     `Retained ${audits.retainedReports} audit reports; omitted ${audits.omittedReports}. `
-    + 'These count reports, not clusters — an omitted report does not invalidate the composed summary above.',
+    + 'These count reports, not clusters — omitted reports were either retained only as a summary or skipped when the verification-work budget was exhausted; neither invalidates the composed summary above.',
     'note'));
   if ((audits.omittedCounts ?? []).length > 0) {
     container.append(el('p', 'Clusters in the omitted reports:', 'note'));
