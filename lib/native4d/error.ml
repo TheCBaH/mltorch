@@ -16,6 +16,7 @@ type t =
   | `Unsupported_grouped_transposed_conv of Node_id.t * int
   | `Unsupported_op of Node_id.t * op
   | `Bad_constant_payload of Tensor_id.t
+  | `Constant_store of Constant_store.error
   | `Missing_constant_payload of Node_id.t * Tensor_id.t
   | `Map of Graph_map.error
   | `View of Framework.View4.error ]
@@ -25,6 +26,7 @@ let pp fmt : [< t ] -> unit = function
       Fmt.pf fmt
         "@[constant %a's payload does not match its recorded signature@]"
         Tensor_id.pp id
+  | `Constant_store e -> Constant_store.pp_error fmt e
   | `Missing_constant_payload (node, id) ->
       Fmt.pf fmt
         "@[node %a needs constant %a's payload at conversion time, and none \

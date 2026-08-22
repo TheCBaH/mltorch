@@ -37,6 +37,8 @@ module Make (S : Side.S) = struct
     subst : ('v edit_edge * 'v edit_edge) list;
     value_claims : ('v source * 'v target * Correspondence.relation) list;
     constants : ('v target * Tensor.packed) list;
+    literals : ('v target * Tensor.packed) list;
+    deferred : ('v target * Graph_ir.op) list;
     provenance : ('v source list * 'v target) list;
   }
 
@@ -49,6 +51,8 @@ module Make (S : Side.S) = struct
       subst = [];
       value_claims = [];
       constants = [];
+      literals = [];
+      deferred = [];
       provenance = [];
     }
 
@@ -193,6 +197,16 @@ module Make (S : Side.S) = struct
         provenance = [ (sources, Preserved output) ];
       }
 
+  let fold_to_deferred ~node ~output ~op ~sources =
+    emit
+      {
+        empty_replacement with
+        remove = Node_id.Set.singleton node;
+        deferred = [ (Preserved output, op) ];
+        value_claims = [ (output, Preserved output, Correspondence.Identical) ];
+        provenance = [ (sources, Preserved output) ];
+      }
+
   (* ---- printing ------------------------------------------------------------ *)
 
   let pp_replacement fmt r =
@@ -232,7 +246,7 @@ module Make (S : Side.S) = struct
           Tensor_id.compare (raw_edit_edge a) (raw_edit_edge b))
         r.subst
     in
-    Fmt.pf fmt "@[<v>@[<h>remove: %a@]%a%a%a%a%a@]" (pp_ids Node_id.pp)
+    Fmt.pf fmt "@[<v>@[<h>remove: %a@]%a%a%a%a%a%a@]" (pp_ids Node_id.pp)
       (Node_id.Set.elements r.remove)
       (section "insert" pp_insertion)
       (List.mapi (fun i x -> (i, x)) r.insert)
@@ -242,6 +256,11 @@ module Make (S : Side.S) = struct
       (section "constants" (fun fmt (id, _) ->
            Fmt.pf fmt "@[<h>%a = <payload>@]" Tensor_id.pp (raw_target id)))
       r.constants
+      (section "deferred" (fun fmt (id, op) ->
+           Fmt.pf fmt "@[<h>%a = %a@]" Tensor_id.pp (raw_target id)
+             (Graph_ir.pp_op_with ~pp_ref:Tensor_id.pp)
+             op))
+      r.deferred
       (section "provenance" pp_prov)
       r.provenance
 end

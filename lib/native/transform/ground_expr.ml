@@ -1,13 +1,22 @@
 (* See ground_expr.mli. *)
 
 module Origin = struct
-  type t = Boundary of Cluster_var.t | Dst of Tensor_id.t | Src of Tensor_id.t
+  type t =
+    | Boundary of Cluster_var.t
+    | Capture of Const_ssa.Capture.t
+    | Dst of Tensor_id.t
+    | Src of Tensor_id.t
 
-  let rank = function Boundary _ -> 0 | Dst _ -> 1 | Src _ -> 2
+  let rank = function
+    | Boundary _ -> 0
+    | Capture _ -> 1
+    | Dst _ -> 2
+    | Src _ -> 3
 
   let compare a b =
     match (a, b) with
     | Boundary x, Boundary y -> Cluster_var.compare x y
+    | Capture x, Capture y -> Const_ssa.Capture.compare x y
     | Dst x, Dst y | Src x, Src y -> Tensor_id.compare x y
     | _ -> Int.compare (rank a) (rank b)
 
@@ -17,10 +26,13 @@ module Origin = struct
      no single edge — that is the point of it, since the two graphs number the
      one value differently — which is why this is an option rather than a total
      projection, and why a boundary cell has no stage to expand. *)
-  let edge = function Dst id | Src id -> Some id | Boundary _ -> None
+  let edge = function
+    | Dst id | Src id -> Some id
+    | Boundary _ | Capture _ -> None
 
   let pp fmt = function
     | Boundary v -> Cluster_var.pp fmt v
+    | Capture capture -> Fmt.pf fmt "capture.%a" Const_ssa.Capture.pp capture
     | Dst id -> Fmt.pf fmt "dst.%a" Tensor_id.pp id
     | Src id -> Fmt.pf fmt "src.%a" Tensor_id.pp id
 
@@ -78,8 +90,10 @@ module Valuation = struct
   let origin_key (o : Origin.t) =
     match o with
     | Origin.Boundary v -> (0, Cluster_var.to_int v)
-    | Origin.Dst id -> (1, Tensor_id.to_int id)
-    | Origin.Src id -> (2, Tensor_id.to_int id)
+    | Origin.Capture capture ->
+        (1, Hashtbl.hash (Const_ssa.Capture.to_string capture))
+    | Origin.Dst id -> (2, Tensor_id.to_int id)
+    | Origin.Src id -> (3, Tensor_id.to_int id)
 
   let key (c : Cell.t) =
     let axis a = Dim.to_int (Vec6.get c.coord a) in

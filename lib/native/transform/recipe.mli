@@ -70,6 +70,8 @@ module Make (S : Side.S) : sig
            Directional, unlike [subst]: [Rewrite.apply] puts the first element into
            the cluster's SOURCE side unconditionally. *)
     constants : ('v target * Tensor.packed) list;
+    literals : ('v target * Tensor.packed) list;
+    deferred : ('v target * Graph_ir.op) list;
     provenance : ('v source list * 'v target) list;
   }
 
@@ -133,6 +135,15 @@ module Make (S : Side.S) : sig
     node:Node_id.t ->
     output:'v source ->
     value:Tensor.packed ->
+    sources:'v source list ->
+    ('v, unit) t
+
+  (* The payload-free counterpart of [fold_to_constant].  It preserves the
+     output edge as a graph constant and records its Native Const-SSA operation. *)
+  val fold_to_deferred :
+    node:Node_id.t ->
+    output:'v source ->
+    op:Graph_ir.op ->
     sources:'v source list ->
     ('v, unit) t
 

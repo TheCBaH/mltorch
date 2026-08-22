@@ -32,6 +32,118 @@ let outcome name ?constants g =
          Format.asprintf "converted, %d nodes"
            (List.length dst.Graph_common.Graph.nodes)))
 
+let%expect_test
+    "lower: carries a six-dimensional captured constant behind a \
+     four-dimensional export" =
+  let source_to_native4d =
+    Fixtures.perm_of
+      [ (Axis.N, Axis.T); (Axis.T, Axis.N); (Axis.H, Axis.W); (Axis.W, Axis.H) ]
+  in
+  let source =
+    build "symbolic_const"
+      (let open Graph_builder in
+       let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:3 ~w:3 ~c:2) () in
+       (* The captured source has T=3, so it is genuinely outside Native4D.
+          The Const-SSA permutation moves that axis onto N, leaving T=D=1 for
+          the exported convolution weight. *)
+       let* w = constant ~shape:(Fixtures.s 1 3 1 2 2 2) () in
+       let* wp = permute source_to_native4d w in
+       let base = Fixtures.conv_params ~in_channels:2 ~groups:1 in
+       let params =
+         {
+           base with
+           h = Fixtures.conv_axis ~kernel:2;
+           w = Fixtures.conv_axis ~kernel:2;
+         }
+       in
+       conv2d params ~x ~weight:wp ())
+  in
+  let weight =
+    Tensor_id.Map.find (Tensor_id.of_int 1) source.Graph_ir.Graph.tensors
+  in
+  let store =
+    Constant_store.bind_captured Constant_store.empty ~tensor:weight
+      (Const_ssa.Capture.of_string "layer.weight")
+    |> Err.or_raise ~pp_error:Constant_store.pp_error
+  in
+  match Rewrite.origin ~constant_store:store source with
+  | Error e -> Format.printf "%a@." Rewrite.pp_error (Err.Error.kind e)
+  | Ok (Rewrite.Origin state) ->
+      (match Pass.run_all state [ Fold_const.pass ] with
+      | Error e -> Format.printf "%a@." Pass.pp_error (Err.Error.kind e)
+      | Ok (Rewrite.Step (folded, _)) -> (
+          match
+            Lower.convert
+              ~constant_store:(Rewrite.constant_store folded)
+              (Rewrite.snapshot folded)
+          with
+          | Error e -> Format.printf "%a@." Error.pp (Err.Error.kind e)
+          | Ok (Lower.Pack lowered) -> (
+              Format.printf "%a@." Constant_store.pp
+                lowered.Lower.constant_store;
+              (match
+                 Framework.Verify_from_native.run
+                   ~src_constant_store:(Rewrite.constant_store folded)
+                   ~dst_constant_store:lowered.Lower.constant_store
+                   lowered.Lower.map ~src:(Rewrite.snapshot folded)
+                   ~dst:lowered.Lower.dst
+               with
+              | Error e ->
+                  Format.printf "verify: %a@." Map_verify.pp_error
+                    (Err.Error.kind e)
+              | Ok report
+                when Map_verify.Policy.accepts Map_verify.Policy.Require_proved
+                       report ->
+                  Format.printf "verify: %s@."
+                    (Map_verify.Report.summary report)
+              | Ok report ->
+                  Format.printf "verify rejected: %s@."
+                    (Map_verify.Report.summary report));
+              let input =
+                Tensor.materialize (Fixtures.nhwc ~n:1 ~h:3 ~w:3 ~c:2) (fun c ->
+                    float_of_int
+                      ((Dim.to_int (Vec6.get c Axis.H) * 10)
+                      + Dim.to_int (Vec6.get c Axis.W)))
+              in
+              (match
+                 Eval_direct4.run (Lower.graph lowered)
+                   ~constants:(Tensor_id.Map.bindings lowered.Lower.constants)
+                   ~inputs:[ (Tensor_id.of_int 0, input) ]
+               with
+              | Error e ->
+                  Format.printf "before materialization: %a@."
+                    Eval_direct4.pp_error (Err.Error.kind e)
+              | Ok _ ->
+                  Format.printf "before materialization: unexpectedly ran@.");
+              match
+                Lower.evaluate
+                  (fun _ ->
+                    Err.return
+                      (Tensor.materialize (Fixtures.s 1 3 1 2 2 2) (fun c ->
+                           float_of_int
+                             ((Dim.to_int (Vec6.get c Axis.H) * 10)
+                             + Dim.to_int (Vec6.get c Axis.W)))))
+                  lowered
+                  ~inputs:[ (Tensor_id.of_int 0, input) ]
+              with
+              | Error e ->
+                  Format.printf "%a@." Lower.pp_eval_error (Err.Error.kind e)
+              | Ok (env, report) ->
+                  Format.printf "applies=%d@." report.applies;
+                  Format.printf "%a@." Tensor.pp
+                    (Tensor_id.Map.find (Tensor_id.of_int 3) env))));
+      [%expect
+        {|
+    exports:
+    t2 -> t2
+    plan:
+    t1 = captured "layer.weight"
+    t2 = permute x=t1 perm=[N<-T, T<-N, H<-W, W<-H]
+    verify: 3 clusters: 3 proved (structural)
+    before materialization: missing constant tensor t2
+    applies=1
+    tensor f32 [H=2 W=2 C=3] {282, 282, 282, 326, 326, 326, 722, 722, ...} |}]
+
 (* ---- the direct legalizations --------------------------------------------- *)
 
 let%expect_test "lower: pointwise and pooling pass straight through" =

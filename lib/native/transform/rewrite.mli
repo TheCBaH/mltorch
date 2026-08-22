@@ -13,6 +13,7 @@ module Make (S : Side.S) : sig
     [ Graph_map.error
     | Graph_view.Make(S.Dialect).error
     | Recipe.Make(S).error
+    | Constant_store.error
     | `Bad_constant_payload of Tensor_id.t
     | `Constant_payload_overwrite of Tensor_id.t
     | `Cycle of Node_id.t
@@ -40,12 +41,14 @@ module Make (S : Side.S) : sig
      payloads: no duplicate ids, every id an effective [Constant] input, and each
      payload's shape and format matching its signature. *)
   val origin :
+    ?constant_store:Constant_store.t ->
     ?constants:(Tensor_id.t * Tensor.packed) list ->
     graph ->
     (origin, error) Err.t
 
   val graph : 'v t -> graph
   val constants : 'v t -> Tensor.packed Tensor_id.Map.t
+  val constant_store : 'v t -> Constant_store.t
   val view : 'v t -> Graph_view.Make(S.Dialect).t
 
   (* The version itself: the id universes a map into or out of this state is

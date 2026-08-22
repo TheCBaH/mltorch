@@ -27,7 +27,11 @@
    into [stored_f32], [expand] or a stage lookup, all of which need the real
    storage edge. See .ai/native_transform_verify.md §7. *)
 module Origin : sig
-  type t = Boundary of Cluster_var.t | Dst of Tensor_id.t | Src of Tensor_id.t
+  type t =
+    | Boundary of Cluster_var.t
+    | Capture of Const_ssa.Capture.t
+    | Dst of Tensor_id.t
+    | Src of Tensor_id.t
 
   val compare : t -> t -> int
   val edge : t -> Tensor_id.t option

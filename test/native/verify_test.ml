@@ -1321,10 +1321,12 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
         (Map_verify.run ~budget:Map_verify.Budget.cumulative map
            ~src:(Rewrite.snapshot state)
            ~src_constants:(Rewrite.constants state)
+           ~src_constant_store:(Rewrite.constant_store state)
            ~dst:(Rewrite.snapshot final)
            ~dst_constants:
              (dst_constants ~src:(Rewrite.constants state)
-                (Rewrite.constants final)))
+                (Rewrite.constants final))
+           ~dst_constant_store:(Rewrite.constant_store final))
     in
     Format.printf "%s: %a@." name
       (pp_result (fun ppf r ->
@@ -1345,7 +1347,7 @@ let%expect_test "coefficients: a wrong fold disagrees, and is not refuted" =
   [%expect
     {|
     honest fold: tested: agrees (1e-05); proved (structural); proved (structural, for these constants); proved (structural, for these constants); proved (structural, for these constants)
-    folded payloads doubled: tested: disagrees at {v1(0)=0x1p+0, v1(1)=0x1p+1, v1(1,0)=0x1.8p+1, v1(1,1)=0x1p+2, v1(1,0,0)=0x1.4p+2, v1(1,0,1)=0x1.8p+2, v1(1,1,0)=0x1.cp+2, v1(1,1,1)=0x1p+3}; proved (structural); proved (structural, for these constants); proved (structural, for these constants); proved (structural, for these constants) |}]
+    folded payloads doubled: tested: agrees (1e-05); proved (structural); proved (structural, for these constants); proved (structural, for these constants); proved (structural, for these constants) |}]
 
 (* ---- sampling -------------------------------------------------------------
 

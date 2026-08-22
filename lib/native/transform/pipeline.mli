@@ -8,12 +8,15 @@
    is outside the four-axis dialect entirely. Leaving the definition of
    "canonical" in a CLI would have meant two callers agreeing by coincidence. *)
 
-(* [fold] is not "run the extra passes at the end": both branches run
-   [Fold_batch_norm], and they differ only in the [Fold_const] rounds around it.
-   Structural callers with no payloads bound pass [~fold:false], since with
-   nothing to evaluate [Fold_const] would decline every node and including it
-   would suggest otherwise.
+(* [fold] no longer controls any pass. Const-SSA folding is part of the one
+   canonical graph, whether captures have materialized payloads or not.
 
    Idempotent: running the result twice produces the same graph as running it
-   once, on either branch. *)
+   once. *)
+val canonical_with_trace :
+  on_materialized_fold:(Fold_const.Trace.event -> unit) -> fold:bool -> Pass.t
+
 val canonical : fold:bool -> Pass.t
+(** [fold] is retained for source compatibility and has no effect on the
+    canonical graph. Payloads must be materialized explicitly after the symbolic
+    transform. *)

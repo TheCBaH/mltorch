@@ -541,7 +541,10 @@ let to4d label json =
           | Error e ->
               Format.printf "%a@." Graph_view.pp_error (Err.Error.kind e)
           | Ok (Snapshot.Pack src) -> (
-              match Native4d.Lower.convert ~constants:t.constants src with
+              match
+                Native4d.Lower.convert ~constants:t.constants
+                  ~constant_store:t.constant_store src
+              with
               | Error e ->
                   Format.printf "outside the dialect: %a@." Native4d.Error.pp
                     (Err.Error.kind e)

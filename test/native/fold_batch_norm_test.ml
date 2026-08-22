@@ -167,6 +167,48 @@ let run ?(show = true) ?(passes = [ Fold_batch_norm.pass ]) g ~constants k =
 
 let ignore_result _ _ = ()
 
+let captured_store g =
+  List.fold_left
+    (fun store id ->
+      let tensor = Tensor_id.Map.find id g.Graph.tensors in
+      Constant_store.bind_captured store ~tensor
+        (Const_ssa.Capture.of_string
+           (Format.asprintf "fixture.%a" Tensor_id.pp id))
+      |> Err.or_raise ~pp_error:Constant_store.pp_error)
+    Constant_store.empty
+    (List.filter
+       (fun id -> Graph_ir.input_kind g id = Input.Constant)
+       g.Graph.inputs)
+
+(* Gate 6's measurement seam. This deliberately starts from materialized
+   payloads, so the trace describes the old [Eval_direct]-backed cache path,
+   not the symbolic plan that now replaces it. The one BatchNorm block reaches
+   every current M1 arithmetic operation; sorting makes the checked-in manifest
+   independent of node ids and fixed-point sweep order. *)
+let materialized_trace g constants =
+  let events = ref [] in
+  match Rewrite.origin ~constants g with
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
+  | Ok (Rewrite.Origin state) -> (
+      match
+        Pass.run_all state
+          [
+            Pipeline.canonical_with_trace
+              ~on_materialized_fold:(fun e -> events := e :: !events)
+              ~fold:true;
+          ]
+      with
+      | Error e -> Format.printf "pass: %a@." Pass.pp_error (Err.Error.kind e)
+      | Ok _ ->
+          let events = Fold_const.Trace.canonical !events in
+          List.iter
+            (fun event -> Format.printf "%a@." Fold_const.Trace.pp event)
+            events;
+          Format.printf "registry covers trace: %b@."
+            (List.for_all
+               (fun event -> Const_ssa.allows (Fold_const.Trace.op event))
+               events))
+
 (* ---- the rewrite ---------------------------------------------------------- *)
 
 let%expect_test "fold_batch_norm: the normalisation moves into the conv" =
@@ -257,6 +299,21 @@ let%expect_test "fold_batch_norm: the normalisation moves into the conv" =
       provenance:
         none |}]
 
+let%expect_test "fold_batch_norm: materialized trace is covered by Const-SSA" =
+  let g = case ~conv_bias:true ~bn_weight:true ~bn_bias:true () in
+  materialized_trace g
+    (constants_of g ~conv_bias:true ~bn_weight:true ~bn_bias:true);
+  [%expect
+    {|
+    Add | add a=_ b=_ | f32 [C=3]
+    Div | div a=_ b=_ | f32 [C=3]
+    Mul | mul a=_ b=_ | f32 [C=3]
+    Mul | mul a=_ b=_ | f32 [N=3 T=1 D=1 H=2 W=2 C=2]
+    Permute | permute x=_ perm=[N<-C, C<-N] | f32 [N=3 T=1 D=1 H=1 W=1 C=1]
+    Sqrt | sqrt x=_ | f32 [C=3]
+    Sub | sub a=_ b=_ | f32 [C=3]
+    registry covers trace: true |}]
+
 let%expect_test "fold_batch_norm then fold_const leave two constants" =
   (* The point of emitting the parameter arithmetic as nodes: folding collapses
      all of it, and the result is a plain conv with a computed weight and bias. *)
@@ -303,6 +360,81 @@ let%expect_test "fold_batch_norm then fold_const leave two constants" =
       provenance:
         {t1, t3, t6} -> t15
         {t2, t3, t4, t5, t6} -> t18 |}]
+
+let%expect_test "fold_batch_norm: captured parameters stay symbolic" =
+  let g = case ~conv_bias:true ~bn_weight:true ~bn_bias:true () in
+  let store = captured_store g in
+  let source_constants =
+    constants_of g ~conv_bias:true ~bn_weight:true ~bn_bias:true
+  in
+  let input = hw_ramp x_shape in
+  let before = output g ~constants:source_constants ~inputs:[ input ] in
+  let resolver capture =
+    List.find_map
+      (fun (id, payload) ->
+        if
+          Const_ssa.Capture.equal capture
+            (Const_ssa.Capture.of_string
+               (Format.asprintf "fixture.%a" Tensor_id.pp id))
+        then Some payload
+        else None)
+      source_constants
+    |> Option.fold ~none:(Err.fail (`Missing_capture capture)) ~some:Err.return
+  in
+  match Rewrite.origin ~constant_store:store g with
+  | Error e -> Format.printf "origin: %a@." Rewrite.pp_error (Err.Error.kind e)
+  | Ok (Rewrite.Origin state) ->
+      (match
+         Pass.run_all state
+           [ Fold_batch_norm.pass; Pass.fixpoint Fold_const.pass ]
+       with
+      | Error e -> Format.printf "pass: %a@." Pass.pp_error (Err.Error.kind e)
+      | Ok (Rewrite.Step (final, _)) -> (
+          Format.printf "nodes=%d constants=%d@."
+            (List.length (Rewrite.graph final).Graph.nodes)
+            (List.length
+               (List.filter
+                  (fun id ->
+                    Graph_ir.input_kind (Rewrite.graph final) id
+                    = Input.Constant)
+                  (Rewrite.graph final).Graph.inputs));
+          Format.printf "%a@." Const_ssa.pp
+            (Constant_store.plan (Rewrite.constant_store final));
+          match
+            Const_ssa_materialize.materialize resolver
+              (Rewrite.constant_store final)
+          with
+          | Error e ->
+              Format.printf "materialize: %a@." Const_ssa_materialize.pp_error
+                (Err.Error.kind e)
+          | Ok (store, report) ->
+              let after =
+                output (Rewrite.graph final)
+                  ~constants:
+                    (Tensor_id.Map.bindings (Constant_store.materialized store))
+                  ~inputs:[ input ]
+              in
+              Format.printf "materialized applies=%d agrees=%b@." report.applies
+                (agrees before after)));
+      [%expect
+        {|
+    nodes=2 constants=2
+    t1 = captured "fixture.t1"
+    t2 = captured "fixture.t2"
+    t3 = captured "fixture.t3"
+    t4 = captured "fixture.t4"
+    t5 = captured "fixture.t5"
+    t6 = captured "fixture.t6"
+    t10 = literal
+    t11 = add a=t6 b=t10
+    t12 = sqrt x=t11
+    t13 = div a=t3 b=t12
+    t14 = permute x=t13 perm=[N<-C, C<-N]
+    t15 = mul a=t1 b=t14
+    t16 = sub a=t2 b=t5
+    t17 = mul a=t16 b=t13
+    t18 = add a=t17 b=t4
+    materialized applies=8 agrees=true |}]
 
 (* ---- numeric equivalence, all eight combinations -------------------------- *)
 

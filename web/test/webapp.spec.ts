@@ -607,11 +607,11 @@ test('capabilities are shown, and not-requested differs from unavailable', async
   const disclosure = page.locator('#unavailable');
   await disclosure.locator('summary').click();
 
-  // Native4D is outside this model's dialect domain, and says so with the
-  // exporter's own bounded detail.
-  await expect(disclosure).toContainText('Native4D');
+  // These choices remain distinct in the current MobileNet source: verification
+  // was omitted from the request, while folding cannot run without payloads.
+  await expect(disclosure).toContainText('Symbolic verification');
+  await expect(disclosure).toContainText('Not requested');
   await expect(disclosure).toContainText('Unavailable');
-  await expect(disclosure).toContainText('dialect');
   // Loop IR and code generation stay visibly unimplemented rather than reading
   // as "you did not ask".
   await expect(disclosure).toContainText('Loop IR');
@@ -621,8 +621,6 @@ test('capabilities are shown, and not-requested differs from unavailable', async
   await expect(page.locator('#fold')).toBeDisabled();
   await expect(page.locator('#fold-note')).toContainText('payload');
 
-  await page.locator('#diagnostics summary').click();
-  await expect(page.locator('#diagnostics-list')).toContainText('outside_dialect_domain');
 });
 
 /* Off installs no verification provider at all: an absent claim is said, never

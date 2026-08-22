@@ -32,6 +32,7 @@ type t =
     (* Stage 5's rows, arriving with the modules that name them — the set is
        built progressively for exactly this reason. *)
   | `Bad_constant_payload of Tensor_id.t
+  | `Constant_store of Constant_store.error
   | `Missing_constant_payload of Node_id.t * Tensor_id.t
   | `Map of Graph_map.error
   | `View of Framework.View4.error ]

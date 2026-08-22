@@ -247,11 +247,9 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
   let needed_kernel = wanted C.Kernel || wanted C.Fusion in
   let needed_stage_program = wanted C.Stage_program || needed_kernel in
   let needed_native4d = wanted C.Native4d in
-  (* [--fold] with no payloads bound is a fold that DECLINES every node:
-     [Fold_const] refuses a constant whose payload is not there. So a request
-     that asks to fold an archive has to preload it, and one that asks to fold a
-     payload-free model.json reports [Requires_payloads] instead -- the
-     capability and the pipeline saying the same thing. *)
+  (* Canonicalization is symbolic and archive-free. [fold] only controls
+     whether an archive-backed caller preloads a materialization cache for a
+     later explicit evaluation; it cannot select a different canonical graph. *)
   let* constants =
     match (fold, archive) with
     | false, _ | _, None -> Err.return Graph_ir.Tensor_id.Map.empty
@@ -309,7 +307,10 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
     else
       let* snapshot = wrap (fun e -> `View e) (Snapshot.create t.graph) in
       let (Snapshot.Pack src) = snapshot in
-      match Native4d.Lower.convert ~constants:t.constants src with
+      match
+        Native4d.Lower.convert ~constants:t.constants
+          ~constant_store:t.constant_store src
+      with
       | Error e -> (
           match Me_classify.native4d (Err.Error.kind e) with
           | Me_classify.Unavailable reason ->

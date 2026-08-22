@@ -30,6 +30,7 @@ module Make (S : Side.S) = struct
     [ Graph_map.error
     | View.error
     | Rcp.error
+    | Constant_store.error
     | `Bad_constant_payload of Tensor_id.t
     | `Constant_payload_overwrite of Tensor_id.t
     | `Cycle of Node_id.t
@@ -48,6 +49,7 @@ module Make (S : Side.S) = struct
     | #Graph_map.error as e -> Graph_map.pp_error ppf e
     | #View.error as e -> View.pp_error ppf e
     | #Rcp.error as e -> Rcp.pp_error ppf e
+    | #Constant_store.error as e -> Constant_store.pp_error ppf e
     | `Bad_constant_payload id ->
         Fmt.pf ppf "payload for %a does not match its signature" Tensor_id.pp id
     | `Constant_payload_overwrite id ->
@@ -83,7 +85,7 @@ module Make (S : Side.S) = struct
      universes, so a state and the maps into and out of it are indexed by the same
      ['v] and the graph is reachable through it rather than stored twice. *)
   type 'v t = {
-    constants : Tensor.packed Tensor_id.Map.t;
+    constant_store : Constant_store.t;
     ids : Id_supply.t;
     snapshot : 'v Snap.t;
   }
@@ -98,7 +100,8 @@ module Make (S : Side.S) = struct
     finish : Id_supply.t;
   }
 
-  let constants t = t.constants
+  let constants t = Constant_store.materialized t.constant_store
+  let constant_store t = t.constant_store
   let graph t = Snap.graph t.snapshot
   let snapshot t = t.snapshot
   let view t = Snap.view t.snapshot
@@ -143,16 +146,20 @@ module Make (S : Side.S) = struct
     let+ _ = r in
     ()
 
-  let origin ?(constants = []) g =
+  let origin ?(constant_store = Constant_store.empty) ?(constants = []) g =
     let* (Snap.Pack snapshot) = (Snap.create g :> (Snap.packed, error) Err.t) in
     let* () = check_payloads g constants in
-    let table =
-      List.fold_left
-        (fun m (id, p) -> Tensor_id.Map.add id p m)
-        Tensor_id.Map.empty constants
+    let* constant_store =
+      fold_result
+        (fun store (id, payload) ->
+          match Tensor_id.Map.find_opt id g.Graph.tensors with
+          | None -> Err.fail (`Bad_constant_payload id)
+          | Some tensor ->
+              Constant_store.bind_materialized store ~tensor payload
+              |> Err.map_error (fun e -> (e :> error)))
+        constant_store constants
     in
-    Err.return
-      (Origin { constants = table; ids = Id_supply.of_graph g; snapshot })
+    Err.return (Origin { constant_store; ids = Id_supply.of_graph g; snapshot })
 
   (* ---- planning ------------------------------------------------------------ *)
 
@@ -213,6 +220,12 @@ module Make (S : Side.S) = struct
 
   let constant_pairs (r : _ Rcp.replacement) =
     List.map (fun (t, p) -> (Rcp.raw_target t, p)) r.constants
+
+  let literal_pairs (r : _ Rcp.replacement) =
+    List.map (fun (t, p) -> (Rcp.raw_target t, p)) r.literals
+
+  let deferred_pairs (r : _ Rcp.replacement) =
+    List.map (fun (t, op) -> (Rcp.raw_target t, op)) r.deferred
 
   let provenance_pairs (r : _ Rcp.replacement) =
     List.map
@@ -483,7 +496,16 @@ module Make (S : Side.S) = struct
               if Graph_common.input_kind old_g id = Input.Constant then
                 Err.fail (`Constant_payload_overwrite id)
               else Err.return ())
-            () (constant_pairs r))
+            ()
+            (constant_pairs r @ literal_pairs r)
+          |> fun checked ->
+          Err.Syntax.( let* ) checked (fun () ->
+              fold_result
+                (fun () (id, _) ->
+                  if Graph_common.input_kind old_g id = Input.Constant then
+                    Err.fail (`Constant_payload_overwrite id)
+                  else Err.return ())
+                () (deferred_pairs r)))
         () recipe.replacements
     in
     (* 2. one normalised substitution, with every surviving source claimed *)
@@ -529,8 +551,13 @@ module Make (S : Side.S) = struct
         tensors recipe.replacements
     in
     let new_constants = List.concat_map constant_pairs recipe.replacements in
+    let new_literals = List.concat_map literal_pairs recipe.replacements in
+    let new_deferred = List.concat_map deferred_pairs recipe.replacements in
     let inputs =
-      dedup_ids (List.map sub old_g.Graph.inputs @ List.map fst new_constants)
+      dedup_ids
+        (List.map sub old_g.Graph.inputs
+        @ List.map fst new_constants @ List.map fst new_literals
+        @ List.map fst new_deferred)
     in
     let outputs = dedup_ids (List.map sub old_g.Graph.outputs) in
     let referenced =
@@ -543,8 +570,11 @@ module Make (S : Side.S) = struct
     (* A constant nobody reads is gone; a user input is kept even if unused,
        because the graph's signature is externally meaningful. *)
     let kind_of id =
-      if List.exists (fun (c, _) -> Tensor_id.equal c id) new_constants then
-        Input.Constant
+      if
+        List.exists (fun (c, _) -> Tensor_id.equal c id) new_constants
+        || List.exists (fun (c, _) -> Tensor_id.equal c id) new_literals
+        || List.exists (fun (c, _) -> Tensor_id.equal c id) new_deferred
+      then Input.Constant
       else Graph_common.input_kind old_g id
     in
     let inputs =
@@ -575,7 +605,8 @@ module Make (S : Side.S) = struct
           match Tensor_id.Map.find_opt id tensors with
           | Some sg when payload_matches sg payload -> Err.return ()
           | _ -> Err.fail (`Bad_constant_payload id))
-        () new_constants
+        ()
+        (new_constants @ new_literals)
     in
     let* () =
       check_signatures ~old_tensors:old_g.Graph.tensors ~new_tensors:tensors
@@ -760,15 +791,42 @@ module Make (S : Side.S) = struct
         ~nodes:node_clusters ~provenance
       |> Err.map_error (fun e -> (e :> error))
     in
-    let constants =
-      List.fold_left
-        (fun acc (id, payload) -> Tensor_id.Map.add id payload acc)
-        state.constants new_constants
+    let* constant_store =
+      Constant_store.restrict_and_rename_exports state.constant_store (fun id ->
+          if Tensor_id.Set.mem id live then Some id else None)
+      |> Err.map_error (fun e -> (e :> error))
     in
-    let constants =
-      Tensor_id.Map.filter (fun id _ -> Tensor_id.Set.mem id live) constants
+    let* constant_store =
+      fold_result
+        (fun store (id, payload) ->
+          match Tensor_id.Map.find_opt id tensors with
+          | None -> Err.fail (`Bad_constant_payload id)
+          | Some tensor ->
+              Constant_store.bind_materialized store ~tensor payload
+              |> Err.map_error (fun e -> (e :> error)))
+        constant_store new_constants
     in
-    Err.return (Step ({ constants; ids; snapshot = new_snap }, map))
+    let* constant_store =
+      fold_result
+        (fun store (id, payload) ->
+          match Tensor_id.Map.find_opt id tensors with
+          | None -> Err.fail (`Bad_constant_payload id)
+          | Some tensor ->
+              Constant_store.bind_literal store ~tensor payload
+              |> Err.map_error (fun e -> (e :> error)))
+        constant_store new_literals
+    in
+    let* constant_store =
+      fold_result
+        (fun store (id, op) ->
+          match Tensor_id.Map.find_opt id tensors with
+          | None -> Err.fail (`Bad_constant_payload id)
+          | Some tensor ->
+              Constant_store.bind_apply store ~tensor op
+              |> Err.map_error (fun e -> (e :> error)))
+        constant_store new_deferred
+    in
+    Err.return (Step ({ constant_store; ids; snapshot = new_snap }, map))
 
   (* ---- terminal packing ----------------------------------------------------- *)
 
@@ -878,10 +936,10 @@ module Make (S : Side.S) = struct
     let* (Snap.Pack new_snap) =
       (Snap.create new_g :> (Snap.packed, error) Err.t)
     in
-    let constants =
-      Tensor_id.Map.fold
-        (fun id payload acc -> Tensor_id.Map.add (tensor_id id) payload acc)
-        state.constants Tensor_id.Map.empty
+    let* constant_store =
+      Constant_store.restrict_and_rename_exports state.constant_store (fun id ->
+          Some (tensor_id id))
+      |> Err.map_error (fun e -> (e :> error))
     in
     (* Only ids that actually moved are mentioned; the untouched bulk stays
        implicit, which is the whole point of leaving origin ids alone. *)
@@ -927,7 +985,7 @@ module Make (S : Side.S) = struct
       Id_supply.repack state.ids ~tensor:tensor_next ~node:node_next
         ~group:group_next
     in
-    Err.return (Step ({ constants; ids; snapshot = new_snap }, map))
+    Err.return (Step ({ constant_store; ids; snapshot = new_snap }, map))
 end
 
 include Make (Native_side)

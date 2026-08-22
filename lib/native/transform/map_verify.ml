@@ -679,7 +679,9 @@ let frontier_vars e =
     (fun (c : Ground_expr.Cell.t) acc ->
       match c.Ground_expr.Cell.origin with
       | Ground_expr.Origin.Boundary v -> v :: acc
-      | Ground_expr.Origin.Dst _ | Ground_expr.Origin.Src _ -> acc)
+      | Ground_expr.Origin.Capture _ | Ground_expr.Origin.Dst _
+      | Ground_expr.Origin.Src _ ->
+          acc)
     (Ground_expr.cells e) []
   |> List.sort_uniq Cluster_var.compare
 
@@ -1086,7 +1088,8 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
   let run ?(budget = Budget.default)
       ?(coefficient_tolerance = default_coefficient_tolerance) ?(probe = 4)
       ?(src_constants = Tensor_id.Map.empty)
-      ?(dst_constants = Tensor_id.Map.empty) map ~(src : 'src Src.Snapshot.t)
+      ?(dst_constants = Tensor_id.Map.empty) ?src_constant_store
+      ?dst_constant_store map ~(src : 'src Src.Snapshot.t)
       ~(dst : 'dst Dst.Snapshot.t) : (Report.t, error) Err.t =
     let open Err.Syntax in
     (* Endpoint validation now happens in [Graph_map.create], but closure does not
@@ -1119,20 +1122,26 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
     let src_side =
       let program = Src.symbolic src in
       {
-        env = Ground_eval.Env.of_program program ~side:`Src;
+        env =
+          Ground_eval.Env.of_program ?constant_store:src_constant_store program
+            ~side:`Src;
         sig_of = Src.sig_of src;
         edges = Src.Snapshot.edges src;
         with_constants =
-          Ground_eval.Env.of_program ~constants:src_constants program ~side:`Src;
+          Ground_eval.Env.of_program ~constants:src_constants
+            ?constant_store:src_constant_store program ~side:`Src;
       }
     and dst_side =
       let program = Dst.symbolic dst in
       {
-        env = Ground_eval.Env.of_program program ~side:`Dst;
+        env =
+          Ground_eval.Env.of_program ?constant_store:dst_constant_store program
+            ~side:`Dst;
         sig_of = Dst.sig_of dst;
         edges = Dst.Snapshot.edges dst;
         with_constants =
-          Ground_eval.Env.of_program ~constants:dst_constants program ~side:`Dst;
+          Ground_eval.Env.of_program ~constants:dst_constants
+            ?constant_store:dst_constant_store program ~side:`Dst;
       }
     in
     let sides = { dst = dst_side; src = src_side } in

@@ -391,6 +391,8 @@ module Make_pair (Src : Side.S) (Dst : Side.S) : sig
     ?probe:int ->
     ?src_constants:Tensor.packed Tensor_id.Map.t ->
     ?dst_constants:Tensor.packed Tensor_id.Map.t ->
+    ?src_constant_store:Constant_store.t ->
+    ?dst_constant_store:Constant_store.t ->
     ('src, 'dst) Graph_map.t ->
     src:'src Src.Snapshot.t ->
     dst:'dst Dst.Snapshot.t ->
@@ -404,6 +406,8 @@ val run :
   ?probe:int ->
   ?src_constants:Tensor.packed Tensor_id.Map.t ->
   ?dst_constants:Tensor.packed Tensor_id.Map.t ->
+  ?src_constant_store:Constant_store.t ->
+  ?dst_constant_store:Constant_store.t ->
   ('src, 'dst) Graph_map.t ->
   src:'src Snapshot.t ->
   dst:'dst Snapshot.t ->
