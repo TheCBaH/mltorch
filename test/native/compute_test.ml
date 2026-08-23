@@ -240,6 +240,12 @@ let%expect_test "Direct: silu" =
    leading [x] factor, [exp(x)] instead of [exp(-x)], and [1 - exp(-x)] instead
    of [1 + exp(-x)] each change this golden. *)
 
+let%expect_test "Direct: sigmoid" =
+  let module S = Pointwise.Sigmoid.Compute (Direct) in
+  activation_case "sigmoid" Pointwise.Sigmoid.output_shape S.pixel;
+  [%expect
+    {| sigmoid: {0, 0.00247262, 0.0474259, 0.0474259, 0.0474259, 0.377541, 0.5, 0.5, 0.622459, 0.952574, 0.952574, 0.952574, 0.997527, 1} |}]
+
 let%expect_test "Direct: hardsigmoid" =
   let module H = Pointwise.Hardsigmoid.Compute (Direct) in
   activation_case "hardsigmoid" Pointwise.Hardsigmoid.output_shape H.pixel;
@@ -269,6 +275,35 @@ let%expect_test "Direct: hardswish" =
    that is why it is pinned — but it is not this test's job to prove the
    order is load-bearing at Direct's precision, only that it matches ATen's
    formula, and [test/native_bridge_test.ml] holds it against real ATen. *)
+
+let%expect_test "Direct: gelu" =
+  let module G = Pointwise.Gelu.Compute (Direct) in
+  activation_case "gelu" Pointwise.Gelu.output_shape G.pixel;
+  [%expect
+    {| gelu: {-0, -5.94073e-09, -0.0040499, -0.0040499, -0.00404991, -0.154269, -0, 0, 0.345731, 2.99595, 2.99595, 2.99595, 6, 10000} |}]
+
+(* [erf] saturates to +/-1 well before |x|=20, so the negative tail should
+   read as (numerically) exact zero and the positive tail as (numerically)
+   exact identity; signed zero and small |x| exercise the polynomial's [t]
+   term near its own regime rather than the saturated one. *)
+let gelu_boundary_fixture =
+  [| -20.; -5.; -1.; -0.5; -0.1; -1e-8; -0.; 0.; 1e-8; 0.1; 0.5; 1.; 5.; 20. |]
+
+let%expect_test "Direct: gelu boundary cases" =
+  let module G = Pointwise.Gelu.Compute (Direct) in
+  let x_shape = s1c (Array.length gelu_boundary_fixture) in
+  let x =
+    Tensor.materialize x_shape (fun c -> gelu_boundary_fixture.(chan c))
+  in
+  let tensor =
+    Schedule.evaluate
+      (Err.or_raise ~pp_error:Shape_error.pp
+         (Pointwise.Gelu.output_shape x_shape))
+      (G.pixel x)
+  in
+  Format.printf "gelu: %a@." (pp_activation x_shape) tensor;
+  [%expect
+    {| gelu: {-0, -1.43553e-06, -0.158655, -0.154269, -0.0460172, -5e-09, -0, 0, 5e-09, 0.0539828, 0.345731, 0.841345, 5, 20} |}]
 
 let%expect_test "Direct: clone" =
   let module C = Pointwise.Clone.Compute (Direct) in
@@ -310,6 +345,16 @@ let%expect_test "Direct: div_scalar by zero" =
        (Pointwise.Div_scalar.output_shape x_shape)
        (D.pixel ~scalar:0. x));
   [%expect {| tensor f32 [C=2] {-inf, inf} |}]
+
+let%expect_test "Direct: mul_scalar" =
+  let module M = Pointwise.Mul_scalar.Compute (Direct) in
+  let x_shape = s1c 3 in
+  let x = Tensor.materialize x_shape (fun c -> float_of_int (chan c) +. 1.) in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Mul_scalar.output_shape x_shape)
+       (M.pixel ~scalar:3. x));
+  [%expect {| tensor f32 [C=3] {3, 6, 9} |}]
 
 (* Broadcast: [b] has an extent-1 axis (W) where [a] does not;
    [Pointwise.broadcast_coord] reads b at index 0 there, so its per-channel value
@@ -1750,7 +1795,7 @@ let%expect_test
       (Direct.const scale)
   in
   Format.printf "split=%h unsplit=%h bit_equal=%b@." split unsplit
-    (Int64.equal (Int64.bits_of_float split) (Int64.bits_of_float unsplit));
+    (Core.Float_bits.equal_exact split unsplit);
   [%expect
     {| split=-0x1.f293333333333p+7 unsplit=-0x1.f293333333334p+7 bit_equal=false |}]
 

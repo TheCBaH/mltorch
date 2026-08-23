@@ -75,6 +75,7 @@ let samples : Op.t list =
       };
     Div { Pointwise.Bin.a = x; b = y };
     Div_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
+    Gelu { Pointwise.Gelu.x };
     Hardsigmoid { Pointwise.Hardsigmoid.x };
     Hardswish { Pointwise.Hardswish.x };
     Hardtanh { Pointwise.Hardtanh.params = { min_val = 0.; max_val = 6. }; x };
@@ -88,6 +89,7 @@ let samples : Op.t list =
     Max_pool2d { Pool.MaxPool2d.params = max_params; x };
     Mean_keepdims { Ops4.Mean_keepdims.params = { dims = [ H; W ] }; x };
     Mul { Pointwise.Bin.a = x; b = y };
+    Mul_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     (* Two axes, an asymmetric pad and a mixed pad/crop, so the codec is proved
        on a SIGNED amount rather than only on the padding half of the range. The
        fill is not f32-exact, so a narrowing round trip would be visible. *)
@@ -122,6 +124,7 @@ let samples : Op.t list =
         x;
         weight = Some w;
       };
+    Sigmoid { Pointwise.Sigmoid.x };
     Silu { Pointwise.Silu.x };
     (* Three distinct bounds and a step that is not 1, so an encoder that
        permuted the fields still decodes and prints differently. *)
@@ -154,7 +157,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 27, registry: 27 |}]
+  [%expect {| samples: 30, registry: 30 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -180,6 +183,7 @@ let%expect_test "op4: printed" =
              in_channels=4}
     div a=t0 b=t1
     div_scalar x=t0 scalar=2
+    gelu x=t0
     hardsigmoid x=t0
     hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}
@@ -187,11 +191,13 @@ let%expect_test "op4: printed" =
     max_pool2d x=t0 params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
     mean_keepdims x=t0 params={dims=[H, W]}
     mul a=t0 b=t1
+    mul_scalar x=t0 scalar=2
     pad4 x=t0 params={pads=[H:1,2, W:-1,3] mode=constant(0.1)}
     permute4 x=t0 perm=[H<-W, W<-H]
     relu x=t0
     reshape4 x=t0 params={shape=[N=1 H=1 W=1 C=12]}
     rms_norm x=t0 weight=t2 params={dims=[C]; eps=1e-05}
+    sigmoid x=t0
     silu x=t0
     slice4 x=t0 params={axis=W start=1 stop=8 step=3}
     sqrt x=t0
@@ -215,7 +221,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 27 ops |}]
+  [%expect {| round-tripped 30 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

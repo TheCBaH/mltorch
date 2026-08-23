@@ -40,8 +40,8 @@ val quantize : t -> c:int -> qmin:int -> qmax:int -> float -> int
 
 val equal : t -> t -> bool
 (** Granularity, array lengths, every zero point, and every scale by
-    [Int64.bits_of_float] — never [Float.equal], which equates -0. with 0. and
-    any NaN with any other. Same rule as [Tensor.equal_bits]. *)
+    [Core.Float_bits.exact] — never [Float.equal], which equates -0. with 0.
+    Same rule as [Tensor.equal_bits]. *)
 
 val pp : Format.formatter -> t -> unit
 val jsont : t Jsont.t

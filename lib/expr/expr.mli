@@ -211,7 +211,7 @@ end
 
 and Value : sig
   type binary_op = Add | Sub | Mul | Div
-  type unary_op = Exp | Sqrt
+  type unary_op = Exp | Sqrt | Erf
 
   type t = private
     | Const of float
@@ -231,6 +231,7 @@ and Value : sig
   val div : t -> t -> t
   val exp : t -> t
   val sqrt : t -> t
+  val erf : t -> t
   val select : Bool.t -> t -> t -> t
   val value_of_index : Role.Delta.t Index.t -> t
   val load : Source.t -> Role.Position.t Index.t Coord.t -> t
@@ -254,10 +255,10 @@ and Value : sig
       Expressions differing in nesting, bounds, kind, operand order or body do
       not compare equal — a reduction is an ordered fold, not a set.
 
-      Constants compare by [Int64.bits_of_float], never [( = )] or
-      [Float.compare]: both equate -0. with 0. and every NaN with every other,
-      and this is a claim about structural identity. Same rule
-      [Ground_expr.compare] already states for the ground language. *)
+      Constants compare by their IEEE-754 bits, except that all NaNs are
+      canonicalised. JavaScript [Number] values cannot portably preserve a NaN
+      payload, so canonicalisation keeps comparison reflexive across backends.
+      Signed zero and all distinct non-NaN representations remain distinct. *)
 
   val equal : t -> t -> bool
 

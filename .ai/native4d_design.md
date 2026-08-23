@@ -377,9 +377,9 @@ This section covers every operation currently in `Graph_ir.op`.
 | Native operation | Native4D result | Expected claim |
 |---|---|---|
 | `Add`, `Div`, `Mul`, `Sub` | Four-axis broadcast pointwise operation | `Identical` |
-| `Add_scalar`, `Div_scalar` | Scalar form, or binary op with a captured scalar constant | `Identical` |
+| `Add_scalar`, `Div_scalar`, `Mul_scalar` | Scalar form, or binary op with a captured scalar constant | `Identical` |
 | `Clamp`, `Hardtanh`, `Relu`, `Sqrt` | Direct counterpart | `Identical` |
-| `Silu`, `Hardsigmoid`, `Hardswish` | Direct counterpart | `Identical` |
+| `Silu`, `Sigmoid`, `Gelu`, `Hardsigmoid`, `Hardswish` | Direct counterpart | `Identical` |
 | `Clone` | Remove and tie its output to its input | `Identical` |
 | `Max_pool2d`, `Avg_pool2d`, `Adaptive_avg_pool2d` | Direct counterpart | `Identical` when shared compute is used |
 | `Permute` | `Permute4`, after proving it acts only on the four-axis domain | `Identical` |
@@ -684,9 +684,11 @@ graphs. A practical initial Native4D dialect also needs:
 - four-axis pointwise arithmetic with broadcasting;
 - scalar constants or scalar pointwise forms;
 - `Relu`, `Clamp`/`Hardtanh`, and `Sqrt`;
-- `Silu`, `Hardsigmoid`, `Hardswish` (op5.md's Group 5): retained fused ops,
-  none naming an axis or carrying a shape, so each reuses its Native payload
-  and `Compute` functor unchanged;
+- `Silu`, `Sigmoid`, `Gelu`, `Hardsigmoid`, `Hardswish` (op5.md's Group 5, plus
+  `Gelu`/`Sigmoid`): retained fused ops, none naming an axis or carrying a
+  shape, so each reuses its Native payload and `Compute` functor unchanged;
+- `Mul_scalar`: same shape as `Add_scalar`/`Div_scalar`, reusing
+  `Pointwise.Scalar_bin`;
 - `MaxPool2D` and `AvgPool2D`;
 - `MeanKeepDims`;
 - `Permute4`;

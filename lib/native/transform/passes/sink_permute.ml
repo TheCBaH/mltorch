@@ -26,9 +26,9 @@ open Graph_ir
    their parameters ([scalar], the clamp bounds) are per-op constants, not
    per-axis data, so permuting the operand permutes the result identically. *)
 let elementwise = function
-  | ( Add _ | Add_scalar _ | Clamp _ | Clone _ | Div _ | Div_scalar _
-    | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Mul _ | Relu _ | Silu _
-    | Sqrt _ | Sub _ ) as op ->
+  | ( Add _ | Add_scalar _ | Clamp _ | Clone _ | Div _ | Div_scalar _ | Gelu _
+    | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Mul _ | Mul_scalar _ | Relu _
+    | Sigmoid _ | Silu _ | Sqrt _ | Sub _ ) as op ->
       Some op
   | _ -> None
 

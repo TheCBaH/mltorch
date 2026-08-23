@@ -32,6 +32,7 @@ type op =
   | Depthwise_conv2d of Ops4.Depthwise_conv2d.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
+  | Gelu of Pointwise.Gelu.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
@@ -39,11 +40,13 @@ type op =
   | Max_pool2d of Pool.MaxPool2d.t
   | Mean_keepdims of Ops4.Mean_keepdims.t
   | Mul of Pointwise.Mul.t
+  | Mul_scalar of Pointwise.Mul_scalar.t
   | Pad4 of Ops4.Pad4.t
   | Permute4 of Ops4.Permute4.t
   | Relu of Pointwise.Relu.t
   | Reshape4 of Ops4.Reshape4.t
   | Rms_norm of Ops4.Rms_norm.t
+  | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   | Slice4 of Ops4.Slice4.t
   | Sqrt of Pointwise.Sqrt.t
@@ -128,6 +131,12 @@ let op_registry : (module OP) list =
       let project = function Div_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Gelu
+
+      let inject t = Gelu t
+      let project = function Gelu t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Hardsigmoid
 
       let inject t = Hardsigmoid t
@@ -170,6 +179,12 @@ let op_registry : (module OP) list =
       let project = function Mul t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Mul_scalar
+
+      let inject t = Mul_scalar t
+      let project = function Mul_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Ops4.Pad4
 
       let inject t = Pad4 t
@@ -198,6 +213,12 @@ let op_registry : (module OP) list =
 
       let inject t = Rms_norm t
       let project = function Rms_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Sigmoid
+
+      let inject t = Sigmoid t
+      let project = function Sigmoid t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Silu

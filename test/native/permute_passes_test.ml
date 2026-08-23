@@ -450,41 +450,47 @@ let%expect_test "sink_permute: every accepted op sinks" =
     after:
       graph
       inputs:
-        [t0 f32 [H=2 W=3 C=4] ->[n45, n47, n49, n51, n53, n55, n57, n59, n61,
-                                 n63, n65, n67, n69, n71],
-         t1 f32 [H=2 W=3 C=4] ->[n65, n67, n69, n71]]
+        [t0 f32 [H=2 W=3 C=4] ->[n54, n56, n58, n60, n62, n64, n66, n68, n70,
+                                 n72, n74, n76, n78, n80, n82, n84, n86],
+         t1 f32 [H=2 W=3 C=4] ->[n80, n82, n84, n86]]
       nodes:
-        n45: [t47 f32 [H=2 W=3 C=4] ->[n77]] = relu x=t0
-        n47: [t48 f32 [H=2 W=3 C=4] ->[n77]] = sqrt x=t0
-        n49: [t49 f32 [H=2 W=3 C=4] ->[n79]] = clone x=t0
-        n51: [t50 f32 [H=2 W=3 C=4] ->[n79]] = add_scalar x=t0 scalar=3
-        n53: [t51 f32 [H=2 W=3 C=4] ->[n81]] = div_scalar x=t0 scalar=6
-        n55: [t52 f32 [H=2 W=3 C=4] ->[n81]] = clamp x=t0 params={min=0; max=6}
-        n57: [t53 f32 [H=2 W=3 C=4] ->[n91]] =
+        n54: [t56 f32 [H=2 W=3 C=4] ->[n92]] = relu x=t0
+        n56: [t57 f32 [H=2 W=3 C=4] ->[n92]] = sqrt x=t0
+        n58: [t58 f32 [H=2 W=3 C=4] ->[n94]] = clone x=t0
+        n60: [t59 f32 [H=2 W=3 C=4] ->[n94]] = add_scalar x=t0 scalar=3
+        n62: [t60 f32 [H=2 W=3 C=4] ->[n96]] = div_scalar x=t0 scalar=6
+        n64: [t61 f32 [H=2 W=3 C=4] ->[n96]] = clamp x=t0 params={min=0; max=6}
+        n66: [t62 f32 [H=2 W=3 C=4] ->[n110]] =
           hardtanh x=t0 params={min_val=0; max_val=6}
-        n59: [t54 f32 [H=2 W=3 C=4] ->[n83]] = silu x=t0
-        n61: [t55 f32 [H=2 W=3 C=4] ->[n83]] = hardsigmoid x=t0
-        n63: [t56 f32 [H=2 W=3 C=4] ->[n89]] = hardswish x=t0
-        n65: [t57 f32 [H=2 W=3 C=4] ->[n73]] = add a=t0 b=t1
-        n67: [t58 f32 [H=2 W=3 C=4] ->[n73]] = sub a=t0 b=t1
-        n69: [t59 f32 [H=2 W=3 C=4] ->[n75]] = mul a=t0 b=t1
-        n71: [t60 f32 [H=2 W=3 C=4] ->[n75]] = div a=t0 b=t1
-        n77: [t63 f32 [H=2 W=3 C=4] ->[n93]] = add a=t47 <-n45 b=t48 <-n47
-        n79: [t64 f32 [H=2 W=3 C=4] ->[n87]] = add a=t49 <-n49 b=t50 <-n51
-        n81: [t65 f32 [H=2 W=3 C=4] ->[n87]] = add a=t51 <-n53 b=t52 <-n55
-        n83: [t66 f32 [H=2 W=3 C=4] ->[n89]] = add a=t54 <-n59 b=t55 <-n61
-        n73: [t61 f32 [H=2 W=3 C=4] ->[n85]] = add a=t57 <-n65 b=t58 <-n67
-        n75: [t62 f32 [H=2 W=3 C=4] ->[n85]] = add a=t59 <-n69 b=t60 <-n71
-        n89: [t69 f32 [H=2 W=3 C=4] ->[n97]] = add a=t66 <-n83 b=t56 <-n63
-        n87: [t68 f32 [H=2 W=3 C=4] ->[n91]] = add a=t64 <-n79 b=t65 <-n81
-        n85: [t67 f32 [H=2 W=3 C=4] ->[n93]] = add a=t61 <-n73 b=t62 <-n75
-        n91: [t70 f32 [H=2 W=3 C=4] ->[n95]] = add a=t68 <-n87 b=t53 <-n57
-        n93: [t71 f32 [H=2 W=3 C=4] ->[n95]] = add a=t67 <-n85 b=t63 <-n77
-        n95: [t72 f32 [H=2 W=3 C=4] ->[n97]] = add a=t71 <-n93 b=t70 <-n91
-        n97: [t73 f32 [H=2 W=3 C=4] ->[n98]] = add a=t72 <-n95 b=t69 <-n89
-        n98: [t46 f32 [H=3 W=4 C=2]] =
-          permute x=t73 <-n97 perm=[H<-W, W<-C, C<-H]
-      outputs: [t46 f32 [H=3 W=4 C=2] <-n98]
+        n68: [t63 f32 [H=2 W=3 C=4] ->[n98]] = silu x=t0
+        n70: [t64 f32 [H=2 W=3 C=4] ->[n100]] = sigmoid x=t0
+        n72: [t65 f32 [H=2 W=3 C=4] ->[n100]] = gelu x=t0
+        n74: [t66 f32 [H=2 W=3 C=4] ->[n108]] = mul_scalar x=t0 scalar=2
+        n76: [t67 f32 [H=2 W=3 C=4] ->[n98]] = hardsigmoid x=t0
+        n78: [t68 f32 [H=2 W=3 C=4] ->[n106]] = hardswish x=t0
+        n80: [t69 f32 [H=2 W=3 C=4] ->[n88]] = add a=t0 b=t1
+        n82: [t70 f32 [H=2 W=3 C=4] ->[n88]] = sub a=t0 b=t1
+        n84: [t71 f32 [H=2 W=3 C=4] ->[n90]] = mul a=t0 b=t1
+        n86: [t72 f32 [H=2 W=3 C=4] ->[n90]] = div a=t0 b=t1
+        n92: [t75 f32 [H=2 W=3 C=4] ->[n112]] = add a=t56 <-n54 b=t57 <-n56
+        n94: [t76 f32 [H=2 W=3 C=4] ->[n104]] = add a=t58 <-n58 b=t59 <-n60
+        n96: [t77 f32 [H=2 W=3 C=4] ->[n104]] = add a=t60 <-n62 b=t61 <-n64
+        n98: [t78 f32 [H=2 W=3 C=4] ->[n106]] = add a=t63 <-n68 b=t67 <-n76
+        n100: [t79 f32 [H=2 W=3 C=4] ->[n108]] = add a=t64 <-n70 b=t65 <-n72
+        n88: [t73 f32 [H=2 W=3 C=4] ->[n102]] = add a=t69 <-n80 b=t70 <-n82
+        n90: [t74 f32 [H=2 W=3 C=4] ->[n102]] = add a=t71 <-n84 b=t72 <-n86
+        n108: [t83 f32 [H=2 W=3 C=4] ->[n118]] = add a=t79 <-n100 b=t66 <-n74
+        n106: [t82 f32 [H=2 W=3 C=4] ->[n116]] = add a=t78 <-n98 b=t68 <-n78
+        n104: [t81 f32 [H=2 W=3 C=4] ->[n110]] = add a=t76 <-n94 b=t77 <-n96
+        n102: [t80 f32 [H=2 W=3 C=4] ->[n112]] = add a=t73 <-n88 b=t74 <-n90
+        n110: [t84 f32 [H=2 W=3 C=4] ->[n114]] = add a=t81 <-n104 b=t62 <-n66
+        n112: [t85 f32 [H=2 W=3 C=4] ->[n114]] = add a=t80 <-n102 b=t75 <-n92
+        n114: [t86 f32 [H=2 W=3 C=4] ->[n116]] = add a=t85 <-n112 b=t84 <-n110
+        n116: [t87 f32 [H=2 W=3 C=4] ->[n118]] = add a=t86 <-n114 b=t82 <-n106
+        n118: [t88 f32 [H=2 W=3 C=4] ->[n119]] = add a=t87 <-n116 b=t83 <-n108
+        n119: [t55 f32 [H=3 W=4 C=2]] =
+          permute x=t88 <-n118 perm=[H<-W, W<-C, C<-H]
+      outputs: [t55 f32 [H=3 W=4 C=2] <-n119]
     map:
       values:
         {t2} -> {} identical
@@ -531,15 +537,15 @@ let%expect_test "sink_permute: every accepted op sinks" =
         {t43} -> {} identical
         {t44} -> {} identical
         {t45} -> {} identical
-        {} -> {t47} identical
-        {} -> {t48} identical
-        {} -> {t49} identical
-        {} -> {t50} identical
-        {} -> {t51} identical
-        {} -> {t52} identical
-        {} -> {t53} identical
-        {} -> {t54} identical
-        {} -> {t55} identical
+        {t46} -> {} identical
+        {t47} -> {} identical
+        {t48} -> {} identical
+        {t49} -> {} identical
+        {t50} -> {} identical
+        {t51} -> {} identical
+        {t52} -> {} identical
+        {t53} -> {} identical
+        {t54} -> {} identical
         {} -> {t56} identical
         {} -> {t57} identical
         {} -> {t58} identical
@@ -558,36 +564,57 @@ let%expect_test "sink_permute: every accepted op sinks" =
         {} -> {t71} identical
         {} -> {t72} identical
         {} -> {t73} identical
+        {} -> {t74} identical
+        {} -> {t75} identical
+        {} -> {t76} identical
+        {} -> {t77} identical
+        {} -> {t78} identical
+        {} -> {t79} identical
+        {} -> {t80} identical
+        {} -> {t81} identical
+        {} -> {t82} identical
+        {} -> {t83} identical
+        {} -> {t84} identical
+        {} -> {t85} identical
+        {} -> {t86} identical
+        {} -> {t87} identical
+        {} -> {t88} identical
       nodes:
-        {n0, n2, n4, n6, n8, n10, n12, n14, n16, n18, n20, n21, n23, n24, n26,
-         n27, n29, n30} -> {n98}
-        {n1} -> {n45}
-        {n3} -> {n47}
-        {n5} -> {n49}
-        {n7} -> {n51}
-        {n9} -> {n53}
-        {n11} -> {n55}
-        {n13} -> {n57}
-        {n15} -> {n59}
-        {n17} -> {n61}
-        {n19} -> {n63}
-        {n22} -> {n65}
-        {n25} -> {n67}
-        {n28} -> {n69}
-        {n31} -> {n71}
-        {n32} -> {n73}
-        {n33} -> {n75}
-        {n34} -> {n77}
-        {n35} -> {n85}
-        {n36} -> {n79}
-        {n37} -> {n81}
-        {n38} -> {n87}
-        {n39} -> {n91}
-        {n40} -> {n93}
-        {n41} -> {n83}
-        {n42} -> {n89}
-        {n43} -> {n95}
-        {n44} -> {n97}
+        {n0, n2, n4, n6, n8, n10, n12, n14, n16, n18, n20, n22, n24, n26, n27,
+         n29, n30, n32, n33, n35, n36} -> {n119}
+        {n1} -> {n54}
+        {n3} -> {n56}
+        {n5} -> {n58}
+        {n7} -> {n60}
+        {n9} -> {n62}
+        {n11} -> {n64}
+        {n13} -> {n66}
+        {n15} -> {n68}
+        {n17} -> {n70}
+        {n19} -> {n72}
+        {n21} -> {n74}
+        {n23} -> {n76}
+        {n25} -> {n78}
+        {n28} -> {n80}
+        {n31} -> {n82}
+        {n34} -> {n84}
+        {n37} -> {n86}
+        {n38} -> {n88}
+        {n39} -> {n90}
+        {n40} -> {n92}
+        {n41} -> {n102}
+        {n42} -> {n94}
+        {n43} -> {n96}
+        {n44} -> {n104}
+        {n45} -> {n110}
+        {n46} -> {n112}
+        {n47} -> {n98}
+        {n48} -> {n106}
+        {n49} -> {n114}
+        {n50} -> {n100}
+        {n51} -> {n108}
+        {n52} -> {n116}
+        {n53} -> {n118}
       provenance:
         none |}]
 

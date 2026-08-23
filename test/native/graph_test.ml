@@ -351,6 +351,71 @@ let%expect_test "Direct graph: silu" =
   [%expect
     {| out = tensor f32 [C=4] {-0.0148357, -0.18877, 0.31123, 5.98516} |}]
 
+let%expect_test "Direct graph: sigmoid" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"sigmoid" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          sigmoid ~name:"out" a)
+    in
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect
+    {| out = tensor f32 [C=4] {0.00247262, 0.377541, 0.622459, 0.997527} |}]
+
+let%expect_test "Direct graph: gelu" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"gelu" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          gelu ~name:"out" a)
+    in
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=4] {-5.94073e-09, -0.154269, 0.345731, 6} |}]
+
+let%expect_test "Direct graph: mul_scalar" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"mul_scalar" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          mul_scalar ~name:"out" 3. a)
+    in
+    let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c) +. 1.) in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=3] {3, 6, 9} |}]
+
 let%expect_test "Direct graph: hardsigmoid" =
   let result =
     let open Err.Syntax in

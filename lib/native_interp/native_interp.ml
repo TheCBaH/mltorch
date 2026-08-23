@@ -104,7 +104,11 @@ type config_fault = Op_config.Bad.fault
 type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
 
 type unsupported_option =
-  [ `Alpha of float | `Memory_format | `Dilation of int list | `Ceil_mode ]
+  [ `Alpha of float
+  | `Memory_format
+  | `Dilation of int list
+  | `Ceil_mode
+  | `Approximate of string ]
 
 (* Own modules, per the record-namespace convention: three of these carry an
    [op] field and two an [arg], and distinct namespaces are how this repo keeps
@@ -338,7 +342,9 @@ let pp_malformed ppf : [< malformed ] -> unit = function
           Fmt.pf ppf "%s: dilation=[%a] is not supported (only 1)" op
             Fmt.(list ~sep:(any ",") int)
             d
-      | `Ceil_mode -> Fmt.pf ppf "%s: ceil_mode=true is not supported" op)
+      | `Ceil_mode -> Fmt.pf ppf "%s: ceil_mode=true is not supported" op
+      | `Approximate a ->
+          Fmt.pf ppf "%s: approximate=%S is not supported (only \"none\")" op a)
   | `Unsupported_padding_mode s ->
       Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
   | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
@@ -662,6 +668,23 @@ let scalar_opt_arg esc (node : Pytorch_types.Node.t) name =
       malformed esc
         (`Wrong_arg_kind
            { op = node.target; arg = name; expected = `Optional_scalar })
+
+(* A REQUIRED schema [Scalar]: no default, so omission is [`Missing_arg] and an
+   explicit none (or any other kind) is [`Wrong_arg_kind]. [mul.Scalar]'s
+   [other] has no schema default, so reusing [scalar_arg]'s [~default] -- which
+   treats both omission and an explicit none as the default -- would silently
+   read a missing multiplier as the caller's placeholder value; the same
+   mistake [float_arg]'s comment documents for batch-norm's [eps]. *)
+let required_scalar_arg esc (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> malformed esc (`Missing_arg { op = node.target; arg = name })
+  | Some { arg = Argument.Int i; _ } -> float_of_int i
+  | Some { arg = Argument.Float f; _ } -> f
+  | Some _ ->
+      malformed esc
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Scalar })
 
 (* [add.Tensor]/[sub.Tensor] carry `*, Scalar alpha=1` and compute
    [self + alpha * other]. Nothing in this model zoo serialises a non-default
@@ -1678,9 +1701,21 @@ let lower program =
         ->
           let* y = hardswish (get "self") in
           return [ y ]
+      | "torch.ops.aten.sigmoid.default" ->
+          let* y = sigmoid (get "self") in
+          return [ y ]
       | "torch.ops.aten.silu.default" | "torch.ops.aten.silu_.default" ->
           let* y = silu (get "self") in
           return [ y ]
+      | "torch.ops.aten.gelu.default" ->
+          let approximate = string_arg esc ~default:"none" node "approximate" in
+          if not (String.equal approximate "none") then
+            malformed esc
+              (`Unsupported_option
+                 { op = node.target; option = `Approximate approximate })
+          else
+            let* y = gelu (get "self") in
+            return [ y ]
       | "torch.ops.aten.hardtanh.default" ->
           (* Schema defaults are -1/1; MobileNet-v2 always serialises 0/6. *)
           let params : Pointwise.Hardtanh.params =
@@ -1691,8 +1726,17 @@ let lower program =
           in
           let* y = hardtanh params (get "self") in
           return [ y ]
-      | "torch.ops.aten.mul.Tensor" ->
-          let* y = mul (get "self") (get "other") in
+      | "torch.ops.aten.mul.Tensor" -> (
+          match tensor_or_scalar "other" with
+          | `Tensor other ->
+              let* y = mul (get "self") other in
+              return [ y ]
+          | `Scalar s ->
+              let* y = mul_scalar s (get "self") in
+              return [ y ])
+      | "torch.ops.aten.mul.Scalar" ->
+          let s = required_scalar_arg esc node "other" in
+          let* y = mul_scalar s (get "self") in
           return [ y ]
       (* The functional overload has ONE output and takes the generic path:
          [materialized_output_names] must not gain it, since that list is for

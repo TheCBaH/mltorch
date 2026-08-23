@@ -68,6 +68,16 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Silu_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Sigmoid_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (* [Direct.erf] and grounded [Symbolic]'s [erf] share one implementation
+       (see expr.ml), so this walk proves staging/scheduling agreement, not
+       the erf approximation's accuracy against ATen -- that proof is
+       native_bridge_test.ml's verify_print. *)
+    (module Gelu_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (module Mul_scalar_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Hardsigmoid_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Hardswish_nwalk.M : Walk_core.Walk.Op

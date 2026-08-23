@@ -48,6 +48,7 @@ type op =
        [Max_pool2d_with_indices] — so the op keeps its full ATen arity while the
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
+  | Gelu of Pointwise.Gelu.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
@@ -57,12 +58,14 @@ type op =
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean of Reduce.Mean.t
   | Mul of Pointwise.Mul.t
+  | Mul_scalar of Pointwise.Mul_scalar.t
   | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
   | Sdpa of Attention.Sdpa.t
+  | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   (* Selects a strided range along one axis and KEEPS it, so unlike [Unbind]
      the rank is unchanged and there is one output. Its bounds are canonical —

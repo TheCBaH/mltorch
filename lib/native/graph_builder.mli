@@ -110,6 +110,7 @@ val div_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 (* Route a dead edge into a [Discard] sink node (no output). Used to keep a
    multi-output op's full arity while marking an unused result for later pruning. *)
 val discard : tensor_ref -> unit t
+val gelu : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardsigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardswish : ?name:string -> tensor_ref -> Tensor_id.t t
 
@@ -151,6 +152,7 @@ val max_pool2d_with_indices :
 
 val mean : ?name:string -> Reduce.Mean.params -> tensor_ref -> Tensor_id.t t
 val mul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+val mul_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
 val pad : ?name:string -> Pad.Pad.params -> tensor_ref -> Tensor_id.t t
 (** Narrows a [Constant] fill to its f32-canonical value, as [add_scalar] does
@@ -183,6 +185,7 @@ val sdpa :
   unit ->
   Tensor_id.t t
 
+val sigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val silu : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val slice : ?name:string -> Split.Slice.params -> tensor_ref -> Tensor_id.t t

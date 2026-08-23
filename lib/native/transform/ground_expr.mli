@@ -89,7 +89,7 @@ and t =
 
 val cells : t -> Cell.Set.t
 
-(* [Const] is compared by [Int64.bits_of_float], never by [( = )] or
+(* [Const] is compared by [Core.Float_bits.exact], never by [( = )] or
    [Float.compare]: an [Identical] claim is about bits, and the ordinary
    comparisons equate -0. with +0. and every NaN with every other. *)
 val compare : t -> t -> int

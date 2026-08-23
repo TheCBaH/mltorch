@@ -31,17 +31,14 @@ let channel_count = function
   | Per_channel { scale; _ } -> Some (Array.length scale)
 
 let equal a b =
-  let bits x = Int64.bits_of_float x in
   match (a, b) with
   | Per_tensor x, Per_tensor y ->
-      Int64.equal (bits x.scale) (bits y.scale) && x.zero_point = y.zero_point
+      Core.Float_bits.equal_exact x.scale y.scale && x.zero_point = y.zero_point
   | Per_channel x, Per_channel y ->
       Array.length x.scale = Array.length y.scale
       (* [for_all2] would raise on a length mismatch, which the guard above
             already rules out; the explicit check keeps that local. *)
-      && Array.for_all2
-           (fun p q -> Int64.equal (bits p) (bits q))
-           x.scale y.scale
+      && Array.for_all2 Core.Float_bits.equal_exact x.scale y.scale
       && Array.for_all2 ( = ) x.zero_point y.zero_point
   | Per_tensor _, Per_channel _ | Per_channel _, Per_tensor _ -> false
 

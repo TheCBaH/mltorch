@@ -349,6 +349,22 @@
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
+; Committed, ungated regression: what stage:initial_native/stage:native4d
+; report for all six tracked release models' payload-free model.json, pinning
+; the frontier this change moves. Replaces a manual six-model probe run by
+; hand, which is not reproducible and does not turn into a regression.
+
+(cram
+ (applies_to me_visualize_frontier_cram)
+ (deps
+  %{exe:../bin/native_graph.exe}
+  mobilenetv2_050_model.json
+  regnetx_002_model.json
+  test_convnext2_model.json
+  efficientnet_b0_model.json
+  fastvit_sa12_model.json
+  csatv2_model.json))
+
 ; Functional source fixtures: only the two explicit ungated roles.
 
 (rule
@@ -381,6 +397,42 @@
    (run
     cat
     %{project_root}/../../modules/devcontainer.pytorch-image-models/models/test_convnext2/models/model.json))))
+
+(rule
+ (target regnetx_002_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/regnetx_002/models/model.json))))
+
+(rule
+ (target efficientnet_b0_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/efficientnet_b0/models/model.json))))
+
+(rule
+ (target fastvit_sa12_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/fastvit_sa12/models/model.json))))
+
+(rule
+ (target csatv2_model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/csatv2/models/model.json))))
 
 (rule
  (target mobilenetv2_050_weights_config.json)

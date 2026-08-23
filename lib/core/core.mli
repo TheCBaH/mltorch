@@ -6,7 +6,13 @@
    conventions built on Fmt, which [Err] does not and must not depend on.
 
    The library keeps the name [core] because renaming it would touch every
-   consumer to no effect. Read it as "the repo's shared printer glue". *)
+   consumer to no effect. Read it as "the repo's shared printer glue".
+
+   [Float_bits] is the other shared primitive in this library. Its explicit
+   exact and portable policies keep structural float identities from silently
+   choosing incompatible NaN semantics. *)
+
+module Float_bits : module type of Float_bits
 
 (* Handwritten printers should use Fmt directly for their structure; this
    module only factors out repo-wide conventions that would otherwise repeat

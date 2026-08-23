@@ -70,6 +70,26 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
        (let open Graph_builder in
         let* x = input ~shape:nhwc () in
         silu x));
+  check "sigmoid"
+    (build "sigmoid"
+       (let open Graph_builder in
+        let* x = input ~shape:nhwc () in
+        sigmoid x));
+  check "gelu"
+    (build "gelu"
+       (let open Graph_builder in
+        let* x = input ~shape:nhwc () in
+        gelu x));
+  check "mul_scalar"
+    (build "mul_scalar"
+       (let open Graph_builder in
+        let* x = input ~shape:nhwc () in
+        mul_scalar 2. x));
+  check "add_scalar"
+    (build "add_scalar"
+       (let open Graph_builder in
+        let* x = input ~shape:nhwc () in
+        add_scalar 0.5 x));
   check "hardsigmoid"
     (build "hardsigmoid"
        (let open Graph_builder in
@@ -108,6 +128,10 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
     add + relu               4 clusters: 4 proved (structural)
     clone removal            2 clusters: 2 proved (structural)
     silu                     2 clusters: 2 proved (structural)
+    sigmoid                  2 clusters: 2 proved (structural)
+    gelu                     2 clusters: 2 proved (structural)
+    mul_scalar               2 clusters: 2 proved (structural)
+    add_scalar               2 clusters: 2 proved (structural)
     hardsigmoid              2 clusters: 2 proved (structural)
     hardswish                2 clusters: 2 proved (structural)
     layer_norm               4 clusters: 2 proved (structural) [sampled 32], 2 unproved (unbound constant)

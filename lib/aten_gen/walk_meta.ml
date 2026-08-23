@@ -499,6 +499,79 @@ let sub_tensor =
       pcg )|};
   }
 
+(* add.Tensor: identical shape to [sub_tensor], giving the tensor-tensor form
+   real broadcast-shape ATen-walk coverage it currently lacks. [alpha] is held
+   at its schema default (1) for the same reason [sub_tensor]'s is: the
+   accept/reject boundary at a non-default alpha is pinned by hand fixtures
+   (test/native_bridge_test.ml), not walked. Does not and cannot cover the
+   scalar-in-tensor-slot configuration (`add.Tensor(x, 3)`) -- no walk over
+   real ATen calls can produce that, since the walk generator synthesises real
+   tensor arguments; that stays on native_bridge_test.ml's verify_print. *)
+let add_tensor =
+  {
+    module_name = "Add_tensor_walk";
+    target = "torch.ops.aten.add.Tensor";
+    recipe = "Recipe_binary";
+    initial =
+      "Aten_walk_recipes.Recipe_binary.{ n = 2; c = 4; h = 8; w = 8; pattern = \
+       Aten_walk_recipes.Recipe_binary.Equal }";
+    axes =
+      "Aten_walk_recipes.Recipe_binary.axes ~n:[ 1; 2; 4 ] ~c:[ 4; 8; 16 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] \
+       ~pattern:Aten_walk_recipes.Recipe_binary.all_patterns";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_binary.lhs_shape c) in
+    let other, pcg = Walk.tensor_spec pcg (Recipe_binary.rhs_shape c) in
+    ( Aten_op_spec.Op_add_Tensor.(
+        spec { self; other; alpha = Aten_spec.Scalar_value.Int 1 }),
+      pcg )|};
+  }
+
+(* mul.Tensor: identical shape to [sub_tensor]/[add_tensor] minus the [alpha]
+   field -- mul.Tensor's schema has none. Covers the genuine tensor-tensor
+   form; the scalar-in-a-tensor-slot configuration
+   (`mul.Tensor(x, 3)`/`mul.Tensor(x, 0.1)`) is, like add's, out of reach for
+   a walk over real ATen calls and stays on native_bridge_test.ml's
+   verify_print. *)
+let mul_tensor =
+  {
+    module_name = "Mul_tensor_walk";
+    target = "torch.ops.aten.mul.Tensor";
+    recipe = "Recipe_binary";
+    initial =
+      "Aten_walk_recipes.Recipe_binary.{ n = 2; c = 4; h = 8; w = 8; pattern = \
+       Aten_walk_recipes.Recipe_binary.Equal }";
+    axes =
+      "Aten_walk_recipes.Recipe_binary.axes ~n:[ 1; 2; 4 ] ~c:[ 4; 8; 16 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] \
+       ~pattern:Aten_walk_recipes.Recipe_binary.all_patterns";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_binary.lhs_shape c) in
+    let other, pcg = Walk.tensor_spec pcg (Recipe_binary.rhs_shape c) in
+    ( Aten_op_spec.Op_mul_Tensor.(spec { self; other }), pcg )|};
+  }
+
+(* mul.Scalar: `mul.Scalar(Tensor self, Scalar other)`'s [other] is a required
+   schema Scalar, a shape no existing recipe carries alone -- [Recipe_bounds]
+   carries an optional PAIR, for clamp/hardtanh. See
+   [Aten_walk_recipes.Recipe_scalar_value]. *)
+let mul_scalar =
+  {
+    module_name = "Mul_scalar_walk";
+    target = "torch.ops.aten.mul.Scalar";
+    recipe = "Recipe_scalar_value";
+    initial =
+      "Aten_walk_recipes.Recipe_scalar_value.{ n = 1; c = 4; h = 8; w = 8; \
+       value = Aten_spec.Scalar_value.Float 0.1 }";
+    axes =
+      "Aten_walk_recipes.Recipe_scalar_value.axes ~n:[ 1; 2 ] ~c:[ 3; 4; 8 ] \
+       ~h:[ 4; 8 ] ~w:[ 4; 8 ] \
+       ~value:Aten_walk_recipes.Recipe_scalar_value.candidates";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_scalar_value.self_shape c) in
+    ( Aten_op_spec.Op_mul_Scalar.(spec { self; other = Recipe_scalar_value.value c }), pcg )|};
+  }
+
 (* linear.default: the trailing axis is the feature axis and every leading axis
    passes through, so the [leading] candidates vary the input's RANK as well as
    its extents. A rank-2-only walk would never exercise the pass-through, and a
@@ -734,6 +807,9 @@ let entries =
     pad;
     slice_tensor;
     sub_tensor;
+    add_tensor;
+    mul_tensor;
+    mul_scalar;
     view_default;
     unsafe_view;
     transpose_int;

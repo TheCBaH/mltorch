@@ -103,6 +103,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       in
       [ out ]
   | Discard _ -> Err.return []
+  | Gelu { Pointwise.Gelu.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Gelu.output_shape x_shape) in
+      [ out ]
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Hardsigmoid.output_shape x_shape) in
@@ -175,6 +179,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Mul.output_shape a_shape b_shape) in
       [ out ]
+  | Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Mul_scalar.output_shape x_shape) in
+      [ out ]
   | Pad { Pad.Pad.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Pad.Pad.output_shape ~x_shape params) in
@@ -220,6 +228,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
           (Attention.Sdpa.output_shape ~query_shape ~key_shape ~value_shape
              ~mask_shape)
       in
+      [ out ]
+  | Sigmoid { Pointwise.Sigmoid.x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Sigmoid.output_shape x_shape) in
       [ out ]
   | Silu { Pointwise.Silu.x } ->
       let* x_shape = shape x in

@@ -213,6 +213,7 @@ let convolution ?name params ~x ~weight ?bias () =
 
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
+let gelu ?name x = op1 ?name ~kind:"gelu" (Gelu { Pointwise.Gelu.x })
 
 let hardsigmoid ?name x =
   op1 ?name ~kind:"hardsigmoid" (Hardsigmoid { Pointwise.Hardsigmoid.x })
@@ -275,6 +276,10 @@ let mean ?name params x =
 
 let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })
 
+let mul_scalar ?name scalar x =
+  op1 ?name ~kind:"mul_scalar"
+    (Mul_scalar { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
 (* The fill is narrowed to f32 HERE, at the one point every construction path
    goes through, exactly as [add_scalar]'s scalar is: an unnarrowed float64
    literal would compute in a precision the payload cannot store. *)
@@ -301,6 +306,9 @@ let rms_norm ?name params ~x ?weight () =
 let sdpa ?name params ~query ~key ~value ?mask () =
   op1 ?name ~kind:"sdpa"
     (Sdpa { Attention.Sdpa.params; query; key; value; mask })
+
+let sigmoid ?name x =
+  op1 ?name ~kind:"sigmoid" (Sigmoid { Pointwise.Sigmoid.x })
 
 let silu ?name x = op1 ?name ~kind:"silu" (Silu { Pointwise.Silu.x })
 let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })

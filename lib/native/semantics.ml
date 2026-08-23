@@ -32,8 +32,9 @@ module type SEMANTICS = sig
   val div : t -> t -> t
   val exp : t -> t
   val sqrt : t -> t
+  val erf : t -> t
   (* transcendental: genuinely primitive, not select-expressible (sqrt is the
-     rms-norm normaliser; rsqrt is just 1 / sqrt) *)
+     rms-norm normaliser; rsqrt is just 1 / sqrt; erf is gelu's exact form) *)
 
   (* boolean domain + selection — the scalable basis for activations/clamps.
      [select c a b] is [a] when [c] holds else [b]; e.g.

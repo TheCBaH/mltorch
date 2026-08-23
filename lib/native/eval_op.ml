@@ -93,6 +93,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Gelu { Pointwise.Gelu.x } ->
+        let module C = Pointwise.Gelu.Compute (S) in
+        C.pixel (operand x) out
     | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
         let module C = Pointwise.Hardsigmoid.Compute (S) in
         C.pixel (operand x) out
@@ -145,6 +148,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Mul.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Mul_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Mul_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Pad { Pad.Pad.params; x } ->
         let module C = Pad.Pad.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
@@ -184,6 +190,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel params ~query_shape:(shape_of query) ~key_shape:(shape_of key)
           ~mask_shape ~query:(operand query) ~key:(operand key)
           ~value:(operand value) ~mask out
+    | Sigmoid { Pointwise.Sigmoid.x } ->
+        let module C = Pointwise.Sigmoid.Compute (S) in
+        C.pixel (operand x) out
     | Silu { Pointwise.Silu.x } ->
         let module C = Pointwise.Silu.Compute (S) in
         C.pixel (operand x) out

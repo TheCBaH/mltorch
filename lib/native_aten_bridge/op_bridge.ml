@@ -977,6 +977,25 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let+ y = div_scalar scalar a_id in
                    [ y ]
                | _ -> assert false))
+  | "torch.ops.aten.gelu.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         let* approximate = string_arg ~default:"none" node "approximate" in
+         let* () =
+           if String.equal approximate "none" then return ()
+           else
+             fail
+               (`Validation_failure
+                  (Printf.sprintf
+                     "gelu approximate=%s is not supported (only \"none\")"
+                     approximate))
+         in
+         build_g ~name:"gelu" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = gelu x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.hardsigmoid.default" | "torch.ops.aten.hardsigmoid_.default"
     ->
       Some
@@ -1141,20 +1160,36 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = mean params x_id in
                [ y ]
            | _ -> assert false))
-  | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" -> (
-      match
-        ( native_tensor_arg aten_env node "self",
-          native_tensor_arg aten_env node "other" )
-      with
-      | Error e, _ | _, Error e -> Some (Error e)
-      | Ok a, Ok b ->
-          build_g ~name:"mul" [ a; b ] (function
-            | [ a_id; b_id ] ->
-                let open Graph_builder in
-                let+ y = mul a_id b_id in
-                [ y ]
-            | _ -> assert false)
-          |> some_graph)
+  | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* other = tensor_or_scalar aten_env node "other" in
+         match other with
+         | `Tensor b ->
+             build_g ~name:"mul" [ a; b ] (function
+               | [ a_id; b_id ] ->
+                   let open Graph_builder in
+                   let+ y = mul a_id b_id in
+                   [ y ]
+               | _ -> assert false)
+         | `Scalar scalar ->
+             build_g ~name:"mul_scalar" [ a ] (function
+               | [ a_id ] ->
+                   let open Graph_builder in
+                   let+ y = mul_scalar scalar a_id in
+                   [ y ]
+               | _ -> assert false))
+  | "torch.ops.aten.mul.Scalar" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* s = decode_result (D.scalar_arg_result node "other") in
+         let* scalar = float_of_aten_scalar "other" s in
+         build_g ~name:"mul_scalar" [ a ] (function
+           | [ a_id ] ->
+               let open Graph_builder in
+               let+ y = mul_scalar scalar a_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.permute.default" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
@@ -1449,6 +1484,15 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  in
                  [ y ]
              | _ -> assert false))
+  | "torch.ops.aten.sigmoid.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"sigmoid" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = sigmoid x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.silu.default" | "torch.ops.aten.silu_.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in

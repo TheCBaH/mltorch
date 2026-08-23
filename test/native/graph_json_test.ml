@@ -525,7 +525,7 @@ let%expect_test "op Permute: encode → decode" =
    once. The 0.1 scalar is not f32-exact, so this also pins that the builder's
    narrowing and [f32_jsont] agree — a double-precision 0.1 would come back as a
    different literal. *)
-let%expect_test "ops Add_scalar/Clamp/Div_scalar: encode → decode" =
+let%expect_test "ops Add_scalar/Clamp/Div_scalar/Mul_scalar: encode → decode" =
   let result =
     let open Err.Syntax in
     let* g =
@@ -537,7 +537,8 @@ let%expect_test "ops Add_scalar/Clamp/Div_scalar: encode → decode" =
           let* s = add_scalar 0.1 x in
           let* lo = clamp { Pointwise.Clamp.min = Some 0.; max = None } s in
           let* hi = clamp { Pointwise.Clamp.min = None; max = Some 6. } lo in
-          div_scalar ~name:"out" 6. hi)
+          let* d = div_scalar 6. hi in
+          mul_scalar ~name:"out" 2. d)
     in
     let* node = first_node g in
     let* op_json = encode_op node.Node.op in
@@ -566,8 +567,9 @@ let%expect_test "ops Add_scalar/Clamp/Div_scalar: encode → decode" =
       n0: [t1 f32 [C=3] ->[n1]] = add_scalar x=t0 scalar=0.1
       n1: [t2 f32 [C=3] ->[n2]] = clamp x=t1 <-n0 params={min=0; max=none}
       n2: [t3 f32 [C=3] ->[n3]] = clamp x=t2 <-n1 params={min=none; max=6}
-      n3: [t4 f32 [C=3]] = div_scalar x=t3 <-n2 scalar=6
-    outputs: [t4 f32 [C=3] <-n3] |}]
+      n3: [t4 f32 [C=3] ->[n4]] = div_scalar x=t3 <-n2 scalar=6
+      n4: [t5 f32 [C=3]] = mul_scalar x=t4 <-n3 scalar=2
+    outputs: [t5 f32 [C=3] <-n4] |}]
 
 let%expect_test "ops Hardtanh/Clone: encode → decode" =
   let result =
@@ -597,10 +599,11 @@ let%expect_test "ops Hardtanh/Clone: encode → decode" =
       n1: [t2 f32 [C=3]] = clone x=t1 <-n0
     outputs: [t2 f32 [C=3] <-n1] |}]
 
-(* Silu/Hardsigmoid/Hardswish carry no [params] -- byte-identical in JSON shape
-   to Relu/Sqrt/Clone -- so this is a codec sanity check (op5-impl), not new
-   codec coverage: chained so all three round-trip through one graph. *)
-let%expect_test "ops Silu/Hardsigmoid/Hardswish: encode → decode" =
+(* Silu/Sigmoid/Gelu/Hardsigmoid/Hardswish carry no [params] -- byte-identical
+   in JSON shape to Relu/Sqrt/Clone -- so this is a codec sanity check
+   (op5-impl), not new codec coverage: chained so all five round-trip through
+   one graph. *)
+let%expect_test "ops Silu/Sigmoid/Gelu/Hardsigmoid/Hardswish: encode → decode" =
   let result =
     let open Err.Syntax in
     let* g =
@@ -610,7 +613,9 @@ let%expect_test "ops Silu/Hardsigmoid/Hardswish: encode → decode" =
           @@
           let* x = input ~shape:(s1c 3) ~name:"x" () in
           let* s = silu x in
-          let* h = hardsigmoid s in
+          let* g = sigmoid s in
+          let* e = gelu g in
+          let* h = hardsigmoid e in
           hardswish ~name:"out" h)
     in
     let* json = encode_graph g in
@@ -624,9 +629,11 @@ let%expect_test "ops Silu/Hardsigmoid/Hardswish: encode → decode" =
     inputs: [t0 f32 [C=3] ->[n0]]
     nodes:
       n0: [t1 f32 [C=3] ->[n1]] = silu x=t0
-      n1: [t2 f32 [C=3] ->[n2]] = hardsigmoid x=t1 <-n0
-      n2: [t3 f32 [C=3]] = hardswish x=t2 <-n1
-    outputs: [t3 f32 [C=3] <-n2] |}]
+      n1: [t2 f32 [C=3] ->[n2]] = sigmoid x=t1 <-n0
+      n2: [t3 f32 [C=3] ->[n3]] = gelu x=t2 <-n1
+      n3: [t4 f32 [C=3] ->[n4]] = hardsigmoid x=t3 <-n2
+      n4: [t5 f32 [C=3]] = hardswish x=t4 <-n3
+    outputs: [t5 f32 [C=3] <-n4] |}]
 
 let%expect_test "graph with Mean op: encode → decode → pretty-print" =
   let result =

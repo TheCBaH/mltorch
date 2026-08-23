@@ -144,10 +144,9 @@ let to_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
 
 (* ---- comparison ----------------------------------------------------------- *)
 
-(* Bits, not [Float.compare]: [Identical] is a claim about bits, and the
+(* Exact bits, not [Float.compare]: [Identical] is a claim about bits, and the
    ordinary comparisons equate -0. with +0. and NaN with NaN. *)
-let compare_const a b =
-  Int64.compare (Int64.bits_of_float a) (Int64.bits_of_float b)
+let compare_const = Core.Float_bits.compare_exact
 
 (* Tags keep the constructor ordering explicit rather than depending on the
    declaration order of the variant. *)

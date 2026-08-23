@@ -1369,6 +1369,13 @@ let%expect_test "verify: add.Tensor with a serialized Int scalar" =
     ~inputs:[ in_tensor "self"; in_int "other" 3 ];
   [%expect {| aten and native agree |}]
 
+let%expect_test "verify: add.Tensor with a serialized Float scalar" =
+  let a = float_tensor [ 2; 3 ] [ -4.; -3.; 0.; 3.; 4.; 10. ] in
+  verify_print ~target:"torch.ops.aten.add.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 0.5 ];
+  [%expect {| aten and native agree |}]
+
 let%expect_test "verify: div.Tensor with a serialized Int scalar" =
   let a = float_tensor [ 2; 3 ] [ 0.; 1.; 3.; 6.; 9.; 12. ] in
   verify_print ~target:"torch.ops.aten.div.Tensor"
@@ -1555,6 +1562,53 @@ let%expect_test "dispatch: hardsigmoid.default elementwise" =
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=2] {0, 0.416667, 0.583333, 1} |}]
 
+let%expect_test "dispatch: sigmoid.default elementwise" =
+  let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.sigmoid.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect
+    {| tensor f32 [W=2 C=2] {0.00247262, 0.377541, 0.622459, 0.997527} |}]
+
+let%expect_test "dispatch: gelu.default elementwise" =
+  let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.gelu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {-5.94073e-09, -0.154269, 0.345731, 6} |}]
+
+let%expect_test "dispatch: mul.Tensor with a serialized scalar" =
+  let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.mul.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 3 ]
+    ~noutputs:1;
+  dispatch_print ~target:"torch.ops.aten.mul.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 0.1 ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor f32 [W=2 C=2] {-18, -1.5, 1.5, 18}
+    tensor f32 [W=2 C=2] {-0.6, -0.05, 0.05, 0.6} |}]
+
+let%expect_test "dispatch: mul.Scalar" =
+  let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.mul.Scalar"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 3 ]
+    ~noutputs:1;
+  dispatch_print ~target:"torch.ops.aten.mul.Scalar"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 0.1 ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor f32 [W=2 C=2] {-18, -1.5, 1.5, 18}
+    tensor f32 [W=2 C=2] {-0.6, -0.05, 0.05, 0.6} |}]
+
 let%expect_test "dispatch: hardswish.default elementwise" =
   let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
   dispatch_print ~target:"torch.ops.aten.hardswish.default"
@@ -1625,6 +1679,68 @@ let%expect_test "verify: hardswish against real ATen, functional and in-place" =
   verify_print ~target:"torch.ops.aten.hardswish_.default"
     ~bindings:[ ("self", a) ]
     ~inputs:[ in_tensor "self" ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "verify: sigmoid against real ATen, functional" =
+  let a = float_tensor [ 2; 7 ] activation_fixture in
+  verify_print ~target:"torch.ops.aten.sigmoid.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  [%expect {| aten and native agree |}]
+
+(* The boundary fixture (review point 8): large-magnitude positive and
+   negative inputs (erf saturates to +/-1, so the negative tail loses relative
+   precision), signed zero, and values near zero (the polynomial's [t] term
+   near its own regime). Only ATen comparison proves the approximation's
+   accuracy -- the Direct-vs-Symbolic walk only proves staging agreement,
+   since both sides share one [erf] implementation. *)
+let gelu_boundary_fixture =
+  [ -20.; -5.; -1.; -0.5; -0.1; -1e-8; -0.; 0.; 1e-8; 0.1; 0.5; 1.; 5.; 20. ]
+
+let%expect_test "verify: gelu against real ATen, functional" =
+  let a = float_tensor [ 2; 7 ] activation_fixture in
+  verify_print ~target:"torch.ops.aten.gelu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  let b = float_tensor [ 2; 7 ] gelu_boundary_fixture in
+  verify_print ~target:"torch.ops.aten.gelu.default"
+    ~bindings:[ ("self", b) ]
+    ~inputs:[ in_tensor "self" ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "dispatch: gelu.default rejects a non-none approximate" =
+  let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.gelu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_string "approximate" "tanh" ]
+    ~noutputs:1;
+  [%expect {| error: gelu approximate=tanh is not supported (only "none") |}]
+
+let%expect_test "verify: mul.Tensor with a serialized scalar against real ATen"
+    =
+  let a = float_tensor [ 2; 3 ] [ -4.; -3.; 0.; 3.; 4.; 10. ] in
+  verify_print ~target:"torch.ops.aten.mul.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 3 ];
+  verify_print ~target:"torch.ops.aten.mul.Tensor"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 0.1 ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "verify: mul.Scalar against real ATen" =
+  let a = float_tensor [ 2; 3 ] [ -4.; -3.; 0.; 3.; 4.; 10. ] in
+  verify_print ~target:"torch.ops.aten.mul.Scalar"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "other" 3 ];
+  verify_print ~target:"torch.ops.aten.mul.Scalar"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 0.1 ];
   [%expect {|
     aten and native agree
     aten and native agree |}]

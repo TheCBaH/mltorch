@@ -73,9 +73,15 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Div_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Div_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Mul_scalar { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Mul_scalar.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Clamp { Pointwise.Clamp.params; x } ->
         let module C = Pointwise.Clamp.Compute (S) in
         C.pixel params (operand x) out
+    | Gelu { Pointwise.Gelu.x } ->
+        let module C = Pointwise.Gelu.Compute (S) in
+        C.pixel (operand x) out
     | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
         let module C = Pointwise.Hardsigmoid.Compute (S) in
         C.pixel (operand x) out
@@ -87,6 +93,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel params (operand x) out
     | Relu { Pointwise.Relu.x } ->
         let module C = Pointwise.Relu.Compute (S) in
+        C.pixel (operand x) out
+    | Sigmoid { Pointwise.Sigmoid.x } ->
+        let module C = Pointwise.Sigmoid.Compute (S) in
         C.pixel (operand x) out
     | Silu { Pointwise.Silu.x } ->
         let module C = Pointwise.Silu.Compute (S) in

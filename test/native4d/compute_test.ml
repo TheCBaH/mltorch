@@ -293,15 +293,13 @@ let%expect_test "direct4: pad4, constant and reflect" =
 (* ---- direct versus grounded symbolic --------------------------------------- *)
 
 (* The stage-3 acceptance criterion, over one graph per op. Comparison is
-   BITWISE — [Int64.bits_of_float] — for the reason map_verify.mli gives about
+   BITWISE — [Core.Float_bits.exact] — for the reason map_verify.mli gives about
    [Float.equal] conflating -0./+0. and every NaN, which are exactly the
    distinctions a max-pool turns on. *)
 let same_bits a b =
   let va = values a and vb = values b in
   List.length va = List.length vb
-  && List.for_all2
-       (fun x y -> Int64.equal (Int64.bits_of_float x) (Int64.bits_of_float y))
-       va vb
+  && List.for_all2 Core.Float_bits.equal_exact va vb
 
 let agree name g ~inputs ~constants =
   let direct = run_direct g ~constants ~inputs in
@@ -338,7 +336,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 27, registry: 27 |}]
+  [%expect {| fixtures: 30, registry: 30 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -352,9 +350,12 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     div                    direct = symbolic
     add_scalar             direct = symbolic
     div_scalar             direct = symbolic
+    mul_scalar             direct = symbolic
     clamp                  direct = symbolic
     hardtanh               direct = symbolic
     relu                   direct = symbolic
+    gelu                   direct = symbolic
+    sigmoid                direct = symbolic
     silu                   direct = symbolic
     hardsigmoid            direct = symbolic
     hardswish              direct = symbolic
