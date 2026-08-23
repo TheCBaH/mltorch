@@ -117,6 +117,7 @@ let per_op () =
       ("div", binary ~shape:nhwc Builder.div);
       ("add_scalar", unary ~shape:nhwc (Builder.add_scalar 0.5));
       ("div_scalar", unary ~shape:nhwc (Builder.div_scalar 2.));
+      ("mul_scalar", unary ~shape:nhwc (Builder.mul_scalar 2.));
       ( "clamp",
         unary ~shape:nhwc
           (Builder.clamp { Pointwise.Clamp.min = Some 0.5; max = Some 2. }) );
@@ -125,6 +126,8 @@ let per_op () =
           (Builder.hardtanh { Pointwise.Hardtanh.min_val = 0.; max_val = 1. })
       );
       ("relu", unary ~shape:nhwc Builder.relu);
+      ("gelu", unary ~shape:nhwc Builder.gelu);
+      ("sigmoid", unary ~shape:nhwc Builder.sigmoid);
       ("silu", unary ~shape:nhwc Builder.silu);
       ("hardsigmoid", unary ~shape:nhwc Builder.hardsigmoid);
       ("hardswish", unary ~shape:nhwc Builder.hardswish);

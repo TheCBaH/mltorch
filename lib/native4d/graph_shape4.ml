@@ -138,6 +138,9 @@ let output_shape (op : Op.t)
       let* a_shape = shape a in
       let* b_shape = shape b in
       one (four (Pointwise.Mul.output_shape a_shape b_shape))
+  | Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Mul_scalar.output_shape x_shape))
   | Sub { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in
@@ -151,6 +154,9 @@ let output_shape (op : Op.t)
   | Clamp { Pointwise.Clamp.params; x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Clamp.output_shape params x_shape))
+  | Gelu { Pointwise.Gelu.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Gelu.output_shape x_shape))
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Hardsigmoid.output_shape x_shape))
@@ -163,6 +169,9 @@ let output_shape (op : Op.t)
   | Relu { Pointwise.Relu.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Relu.output_shape x_shape))
+  | Sigmoid { Pointwise.Sigmoid.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Sigmoid.output_shape x_shape))
   | Silu { Pointwise.Silu.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Silu.output_shape x_shape))

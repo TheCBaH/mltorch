@@ -495,6 +495,58 @@ module Relu = struct
   end
 end
 
+module Sigmoid = struct
+  (* [aten.sigmoid.default]: schema `sigmoid(Tensor self) -> Tensor`, no
+     parameters. sigmoid(x) = 1 / (1 + exp(-x)) -- the same denominator as
+     [Silu] with numerator 1 instead of x. *)
+  type t = { x : Tensor_ref.t }
+
+  let name = "Sigmoid"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>sigmoid@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      S.div (S.const 1.) (S.add (S.const 1.) (S.exp (S.sub (S.const 0.) v)))
+  end
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+  end
+end
+
 module Silu = struct
   (* [aten.silu.default]: schema `silu(Tensor self) -> Tensor`, no parameters. *)
   type t = { x : Tensor_ref.t }
@@ -575,6 +627,63 @@ module Sqrt = struct
        negative input yields NaN, as the float operation does. *)
     let pixel x (out : Semantics.position S.index Vec6.t) =
       S.sqrt (S.load x out)
+  end
+end
+
+module Gelu = struct
+  (* [aten.gelu.default]: schema `gelu(Tensor self, *, str approximate="none")
+     -> Tensor`. Only `approximate="none"` (the exact, erf-based form) is
+     implemented; `approximate` is validated and rejected at the import
+     boundary (Op_bridge/Native_interp), so it carries no information in this
+     payload -- the shape is identical to [Silu]'s. *)
+  type t = { x : Tensor_ref.t }
+
+  let name = "Gelu"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>gelu@ x=%a@]" pp_ref t.x
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2))), the exact ("none") form. *)
+    let pixel x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      S.mul
+        (S.mul (S.const 0.5) v)
+        (S.add (S.const 1.) (S.erf (S.div v (S.sqrt (S.const 2.)))))
+  end
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t }
+
+    let initial =
+      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun _ s -> { shape = s });
+        ]
+
+    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
   end
 end
 
@@ -810,6 +919,23 @@ module Mul = struct
 
     let pixel ~a_shape ~b_shape a b out =
       B.pixel ~combine:S.mul ~a_shape ~b_shape a b out
+  end
+end
+
+module Mul_scalar = struct
+  type t = Scalar_bin.t
+
+  let name = "Mul_scalar"
+  let jsont = Scalar_bin.jsont ~name
+  let operands = Scalar_bin.operands
+  let map_operands = Scalar_bin.map_operands
+  let pp pp_ref fmt t = Scalar_bin.pp ~op:"mul_scalar" pp_ref fmt t
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module B = Scalar_binary (S)
+
+    let pixel ~scalar x out = B.pixel ~combine:S.mul ~scalar x out
   end
 end
 

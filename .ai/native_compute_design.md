@@ -439,6 +439,38 @@ materialization, but does not manifest as an observable difference in this
 retained fused op's own `Compute` functor. The pinned association still
 matches the ATen kernel's literal source order, which is why it is pinned.
 
+### 2e′. `Sigmoid`, `Gelu`, `Mul_scalar` — the `erf` primitive
+
+`Sigmoid` is `Silu`'s denominator with numerator `1` instead of `x`:
+`sigmoid(x) = 1 / (1 + exp(-x))`, no new primitive. `Mul_scalar` is `Add_scalar`/
+`Div_scalar`'s twin, reusing `Scalar_bin`/`Scalar_binary` unchanged with
+`S.mul` as the combine.
+
+`Gelu` implements only the exact, erf-based form (`approximate="none"`, the
+ATen schema default): `gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))`. `erf` is a
+genuine third transcendental primitive alongside `exp`/`sqrt` — added to
+`Expr.Value.unary_op`, `SEMANTICS`, `Direct`, and `Symbolic` — implemented once
+as an Abramowitz–Stegun 7.1.26 rational approximation (max absolute error
+~1.5e-7, well inside `default_atol = 1e-5`) in `Expr.Value.apply_unary`'s `Erf`
+arm, and reused by `Direct.erf` rather than re-derived, so `Direct` and
+grounded `Symbolic` stay bit-identical and the `lib/native_op_walk` fuzz
+harness for `Gelu` proves staging/scheduling agreement rather than the
+approximation's numerical accuracy — that proof is
+`test/native_bridge_test.ml`'s `verify_print`, run over both the shared
+activation fixture and a boundary fixture (large ±magnitude, signed zero,
+near-zero) against real ATen.
+
+`approximate="tanh"` (the second gelu formula) is **not implemented**.
+`Op_bridge` and `Native_interp` both decode `approximate` and reject any
+non-`"none"` value with a typed error (`` `Validation_failure`` /
+`` `Unsupported_option``) rather than silently computing the wrong function
+under the right op name — matching the existing rule for `add`/`sub`'s
+`alpha`. This is a real gap in practice, not a hypothetical: `test_convnext2`
+(one of the models `Gelu` support was meant to unblock) serializes
+`gelu.default` with `approximate="tanh"`, so it stays blocked on this
+rejection rather than on a missing `Gelu` op — see
+`test/me_visualize_frontier_cram.t`, which pins this outcome.
+
 ### 2f. `RmsNorm` and `LayerNorm` — reductions over named axes, and two of them
 
 `Norm.RmsNorm` and `Norm.LayerNorm` (`lib/native/ops/norm.ml`) both reduce

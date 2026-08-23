@@ -29,6 +29,8 @@ let%expect_test "printed form matches the representation being replaced" =
   [%expect {| (t0[N,T,D,H,W,C] + t1[N,T,D,H,W,C]) |}];
   Fmt.pr "%a@." pp_v (Value.sqrt (Value.div x (Value.const 2.)));
   [%expect {| sqrt((t0[N,T,D,H,W,C] / 2)) |}];
+  Fmt.pr "%a@." pp_v (Value.erf (Value.div x (Value.const 2.)));
+  [%expect {| erf((t0[N,T,D,H,W,C] / 2)) |}];
   Fmt.pr "%a@." pp_v (Builder.run (nested ~kind:Reduction.Sum));
   [%expect
     {| sum(r1=0..2: sum(r2=0..3: (t0[N,T,D,r1,r2,C] * value_of_index(r2)))) |}];
@@ -112,19 +114,24 @@ let%expect_test "structural identity separates what it must" =
     (not (Value.equal (Value.sub x y) (Value.sub y x)));
   [%expect {| operand order: true |}]
 
-let%expect_test "constants compare by bits, not by float equality" =
-  (* Ordinary comparison equates -0. with 0. and every NaN with every other.
-     This is a claim about structural identity, so it must not. *)
+let%expect_test "constants distinguish signed zero and canonicalize NaNs" =
+  (* Ordinary comparison equates -0. with 0. Structural identity must retain
+     that distinction. NaN payloads, however, cannot survive a portable round
+     trip through a JavaScript Number, so structural identity canonicalizes
+     them. *)
   let c = Value.const in
   Fmt.pr "0. vs -0.: %b@." (Value.equal (c 0.) (c (-0.)));
   [%expect {| 0. vs -0.: false |}];
   let nan1 = Int64.float_of_bits 0x7ff8000000000001L in
   let nan2 = Int64.float_of_bits 0x7ff8000000000002L in
   Fmt.pr "two NaN payloads: %b@." (Value.equal (c nan1) (c nan2));
-  [%expect {| two NaN payloads: false |}];
+  [%expect {| two NaN payloads: true |}];
   Fmt.pr "a NaN with itself: %b@." (Value.equal (c nan1) (c nan1));
   [%expect {| a NaN with itself: true |}];
-  (* And the hash follows the bits too, or the two would disagree. *)
+  (* Hashing follows the same canonical representation. *)
+  Fmt.pr "two NaNs have the same hash: %b@."
+    (Value.hash (c nan1) = Value.hash (c nan2));
+  [%expect {| two NaNs have the same hash: true |}];
   Fmt.pr "hashes differ for +-0.: %b@."
     (Value.hash (c 0.) <> Value.hash (c (-0.)));
   [%expect {| hashes differ for +-0.: true |}]
@@ -346,10 +353,7 @@ let%expect_test "Round_f32 reference: the f32 storage round trip" =
   in
   Fmt.pr "agrees with an f32 store/load: %b@."
     (List.for_all
-       (fun x ->
-         Int64.equal
-           (Int64.bits_of_float (round x))
-           (Int64.bits_of_float (stored x)))
+       (fun x -> Core.Float_bits.equal_exact (round x) (stored x))
        cases);
   [%expect {| agrees with an f32 store/load: true |}];
   (* 0.1 is the case that matters: it is not f32-representable, so a no-op

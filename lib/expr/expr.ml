@@ -356,7 +356,7 @@ end
 
 and Value : sig
   type binary_op = Add | Sub | Mul | Div
-  type unary_op = Exp | Sqrt
+  type unary_op = Exp | Sqrt | Erf
 
   type t =
     | Const of float
@@ -376,6 +376,7 @@ and Value : sig
   val div : t -> t -> t
   val exp : t -> t
   val sqrt : t -> t
+  val erf : t -> t
   val select : Bool.t -> t -> t -> t
   val value_of_index : Role.Delta.t Index.t -> t
   val load : Source.t -> Role.Position.t Index.t Coord.t -> t
@@ -395,7 +396,7 @@ and Value : sig
   val hash : t -> int
 end = struct
   type binary_op = Add | Sub | Mul | Div
-  type unary_op = Exp | Sqrt
+  type unary_op = Exp | Sqrt | Erf
 
   type t =
     | Const of float
@@ -415,6 +416,7 @@ end = struct
   let div a b = Binary (Div, a, b)
   let exp a = Unary (Exp, a)
   let sqrt a = Unary (Sqrt, a)
+  let erf a = Unary (Erf, a)
   let select c a b = Select (c, a, b)
   let value_of_index i = Value_of_index i
   let load s c = Load (s, c)
@@ -428,9 +430,32 @@ end = struct
     | Mul -> ( *. )
     | Div -> ( /. )
 
-  let apply_unary = function Exp -> Stdlib.exp | Sqrt -> Stdlib.sqrt
+  (* Abramowitz-Stegun 7.1.26: max absolute error ~1.5e-7. This is a
+     documented numerical approximation of erf, not bit-exact libm erf
+     semantics -- the 1.5e-7 bound is why `default_atol = 1e-5`
+     (lib/aten_native_verify/verify.ml) is safe headroom against it. *)
+  let erf_approx x =
+    let p = 0.3275911 in
+    let a1 = 0.254829592 in
+    let a2 = -0.284496736 in
+    let a3 = 1.421413741 in
+    let a4 = -1.453152027 in
+    let a5 = 1.061405429 in
+    let sign = if x < 0. then -1. else 1. in
+    let ax = Stdlib.abs_float x in
+    let t = 1. /. (1. +. (p *. ax)) in
+    let poly =
+      t *. (a1 +. (t *. (a2 +. (t *. (a3 +. (t *. (a4 +. (t *. a5))))))))
+    in
+    sign *. (1. -. (poly *. Stdlib.exp (-.ax *. ax)))
+
+  let apply_unary = function
+    | Exp -> Stdlib.exp
+    | Sqrt -> Stdlib.sqrt
+    | Erf -> erf_approx
+
   let binary_sym = function Add -> "+" | Sub -> "-" | Mul -> "*" | Div -> "/"
-  let unary_name = function Exp -> "exp" | Sqrt -> "sqrt"
+  let unary_name = function Exp -> "exp" | Sqrt -> "sqrt" | Erf -> "erf"
 
   (* ---- structural identity, up to alpha-equivalence ----
 
@@ -444,10 +469,10 @@ end = struct
      Expressions that differ in nesting, bounds, kind, operand order or body do
      NOT compare equal: the reduction is an ordered fold, not a set.
 
-     Constants compare by [Int64.bits_of_float], never by [( = )] or
-     [Float.compare]. Both of those equate -0. with 0. and every NaN with every
-     other, and this is a claim about structural identity -- the same rule
-     [Ground_expr.compare] already states for the ground language. *)
+     Constants use [Core.Float_bits.portable]: every NaN is canonicalised
+     because JavaScript [Number] values cannot portably retain a NaN payload.
+     This keeps comparison reflexive across backends while still separating
+     -0. from 0. and every distinct non-NaN representation. *)
 
   let index_tag : type r. r Index.t -> int = function
     | Index.Output _ -> 0
@@ -532,8 +557,7 @@ end = struct
     let rec go ea eb n a b =
       Int.compare (tag a) (tag b) <?> fun () ->
       match (a, b) with
-      | Const x, Const y ->
-          Int64.compare (Int64.bits_of_float x) (Int64.bits_of_float y)
+      | Const x, Const y -> Core.Float_bits.compare_portable x y
       | Binary (o, x1, x2), Binary (p, y1, y2) ->
           Stdlib.compare o p <?> fun () ->
           go ea eb n x1 y1 <?> fun () -> go ea eb n x2 y2
@@ -601,7 +625,7 @@ end = struct
              the top 32 under js_of_ocaml, so hashing the raw conversion would
              collide -0. with 0. -- permitted by the contract, but avoidable,
              and that is exactly the pair this comparison exists to separate. *)
-          let b = Int64.bits_of_float x in
+          let b = Core.Float_bits.portable x in
           mix
             (mix h (Int64.to_int (Int64.logand b 0xFFFFFFFFL)))
             (Int64.to_int (Int64.shift_right_logical b 32))

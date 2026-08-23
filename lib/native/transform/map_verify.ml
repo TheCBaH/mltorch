@@ -913,8 +913,11 @@ and counterexample ~probe ~lhs ~rhs =
     if n >= probe then None
     else
       let v = Ground_expr.Valuation.draw n cells in
-      let bits e = Int64.bits_of_float (Ground_expr.eval e v) in
-      if Int64.equal (bits lhs) (bits rhs) then draw (n + 1) else Some v
+      if
+        Core.Float_bits.equal_exact (Ground_expr.eval lhs v)
+          (Ground_expr.eval rhs v)
+      then draw (n + 1)
+      else Some v
   in
   draw 0
 

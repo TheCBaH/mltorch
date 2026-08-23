@@ -249,6 +249,105 @@ let%expect_test "Symbolic graph: silu stage DAG + ground matches Direct" =
     ground = tensor f32 [C=4] {-0.0148357, -0.18877, 0.31123, 5.98516}
     ground matches direct: true |}]
 
+let%expect_test "Symbolic graph: sigmoid stage DAG + ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"sigmoid" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          sigmoid ~name:"out" a)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = (1 / (1 + exp((0 - t0[N,T,D,H,W,C]))))
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=4] {0.00247262, 0.377541, 0.622459, 0.997527}
+    ground matches direct: true |}]
+
+(* The first [S.erf] consumer to travel Symbolic -> Expr -> Stage_program;
+   proves the emitted expression tree actually contains an [erf] node, not
+   just that the numeric result matches. *)
+let%expect_test "Symbolic graph: gelu stage DAG + ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"gelu" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          gelu ~name:"out" a)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))
+    in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = ((0.5 * t0[N,T,D,H,W,C]) * (1 + erf((t0[N,T,D,H,W,C] / sqrt(2)))))
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=4] {-5.94073e-09, -0.154269, 0.345731, 6}
+    ground matches direct: true |}]
+
+let%expect_test "Symbolic graph: mul_scalar stage DAG + ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"mul_scalar" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          mul_scalar ~name:"out" 3. a)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c) +. 1.) in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect {|
+    inputs: t0
+    t1 = (t0[N,T,D,H,W,C] * 3)
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=3] {3, 6, 9}
+    ground matches direct: true |}]
+
 (* The retained Group 5 [Hardsigmoid] op (one node), not the decomposed
    add_scalar/clamp/div_scalar graph the test above builds by hand: it reuses
    [Clamp.apply] on the value [x + 3], not a load, so the staged form must show

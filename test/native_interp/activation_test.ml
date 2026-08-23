@@ -103,3 +103,152 @@ let%expect_test "hardswish_.default lowers to a Hardswish node" =
     nodes:
       n0: [t1 f32 [W=2 C=3]] = hardswish x=t0
     outputs: [t1 f32 [W=2 C=3] <-n0] |}]
+
+let%expect_test "sigmoid.default lowers to a Sigmoid node" =
+  dump "sigmoid.default:"
+    (prog (unary_node "torch.ops.aten.sigmoid.default" ~out:(as_tensor "y")));
+  [%expect
+    {|
+    sigmoid.default:
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = sigmoid x=t0
+    outputs: [t1 f32 [W=2 C=3] <-n0] |}]
+
+let gelu_node ?approximate () =
+  let arg name a = jstr {|{"name":"%s","arg":%s,"kind":1}|} name a in
+  let inputs =
+    [ arg "self" (as_tensor "x") ]
+    @
+    match approximate with
+    | None -> []
+    | Some a -> [ arg "approximate" (jstr {|{"as_string":"%s"}|} a) ]
+  in
+  jstr
+    {|{"target":"torch.ops.aten.gelu.default","inputs":[%s],"outputs":[%s],"metadata":{}}|}
+    (String.concat "," inputs) (as_tensor "y")
+
+let%expect_test "gelu.default lowers to a Gelu node" =
+  dump "approximate omitted:" (prog (gelu_node ()));
+  dump "approximate=\"none\":" (prog (gelu_node ~approximate:"none" ()));
+  [%expect
+    {|
+    approximate omitted:
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = gelu x=t0
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    approximate="none":
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = gelu x=t0
+    outputs: [t1 f32 [W=2 C=3] <-n0] |}]
+
+(* Only the exact, erf-based form is implemented; a non-"none" approximate
+   would silently compute a different function under the right op name, so it
+   is rejected by name rather than dropped. *)
+let%expect_test "gelu.default rejects approximate=\"tanh\"" =
+  dump "approximate=\"tanh\":" (prog (gelu_node ~approximate:"tanh" ()));
+  [%expect
+    {|
+    approximate="tanh":
+      malformed PT2 graph: torch.ops.aten.gelu.default: approximate="tanh" is not supported (only "none") |}]
+
+let mul_node ?(other = `Tensor) () =
+  let other_arg =
+    match other with
+    | `Tensor -> jstr {|{"name":"other","arg":%s,"kind":1}|} (as_tensor "other")
+    | `Int i -> jstr {|{"name":"other","arg":{"as_int":%d},"kind":1}|} i
+    | `Float f -> jstr {|{"name":"other","arg":{"as_float":%f},"kind":1}|} f
+  in
+  jstr
+    {|{"target":"torch.ops.aten.mul.Tensor","inputs":[{"name":"self","arg":%s,"kind":1},%s],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") other_arg (as_tensor "y")
+
+let mul_prog ?(x_sizes = [ 2; 3 ]) ?other_sizes node =
+  match other_sizes with
+  | None -> program ~x_sizes ~nodes:[ node ] ~graph_outputs:[ as_tensor "y" ] ()
+  | Some other_sizes ->
+      program ~x_sizes
+        ~extra_tensor_values:[ ("other", tensor_meta other_sizes) ]
+        ~params:[ "other" ] ~nodes:[ node ]
+        ~graph_outputs:[ as_tensor "y" ]
+        ()
+
+let%expect_test "mul.Tensor tensor/tensor lowers to a Mul node" =
+  dump "tensor/tensor:" (mul_prog ~other_sizes:[ 2; 3 ] (mul_node ()));
+  [%expect
+    {|
+    tensor/tensor:
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0], t1 f32 [W=2 C=3] ->[n0] constant]
+    nodes:
+      n0: [t2 f32 [W=2 C=3]] = mul a=t0 b=t1
+    outputs: [t2 f32 [W=2 C=3] <-n0] |}]
+
+let%expect_test
+    "mul.Tensor with a serialized scalar lowers to a Mul_scalar node" =
+  dump "Int 3:" (mul_prog (mul_node ~other:(`Int 3) ()));
+  dump "Float 0.1:" (mul_prog (mul_node ~other:(`Float 0.1) ()));
+  [%expect
+    {|
+    Int 3:
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = mul_scalar x=t0 scalar=3
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    Float 0.1:
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = mul_scalar x=t0 scalar=0.1
+    outputs: [t1 f32 [W=2 C=3] <-n0] |}]
+
+let mul_scalar_node ?other () =
+  let other_arg =
+    match other with
+    | None -> ""
+    | Some (`Int i) -> jstr {|,{"name":"other","arg":{"as_int":%d},"kind":1}|} i
+    | Some (`Float f) ->
+        jstr {|,{"name":"other","arg":{"as_float":%f},"kind":1}|} f
+    | Some `None -> jstr {|,{"name":"other","arg":{"as_none":true},"kind":1}|}
+  in
+  jstr
+    {|{"target":"torch.ops.aten.mul.Scalar","inputs":[{"name":"self","arg":%s,"kind":1}%s],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") other_arg (as_tensor "y")
+
+let%expect_test "mul.Scalar lowers to a Mul_scalar node" =
+  dump "Int 3:" (prog (mul_scalar_node ~other:(`Int 3) ()));
+  dump "Float 0.1:" (prog (mul_scalar_node ~other:(`Float 0.1) ()));
+  [%expect
+    {|
+    Int 3:
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = mul_scalar x=t0 scalar=3
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    Float 0.1:
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = mul_scalar x=t0 scalar=0.1
+    outputs: [t1 f32 [W=2 C=3] <-n0] |}]
+
+(* [other] has no schema default: omission and an explicit none must both be
+   rejected rather than silently read as multiplication by some placeholder
+   value (the same failure mode [required_scalar_arg]'s doc comment names for
+   batch-norm's [eps]). *)
+let%expect_test "mul.Scalar rejects a missing or explicit-none other" =
+  dump "omitted:" (prog (mul_scalar_node ()));
+  dump "explicit none:" (prog (mul_scalar_node ~other:`None ()));
+  [%expect
+    {|
+    omitted:
+      malformed PT2 graph: torch.ops.aten.mul.Scalar: missing argument "other"
+    explicit none:
+      malformed PT2 graph: torch.ops.aten.mul.Scalar.other is not a scalar |}]

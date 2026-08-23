@@ -34,7 +34,7 @@ let compare_symbolic out_shape_result ~iter_shape ~eval_direct ~eval_symbolic =
   (* Bitwise, not [Float.equal]: the latter equates -0. with +0. and any NaN
      with any other, which is precisely what the max-pool tests below have to
      tell apart. See [Tensor.equal_bits]. *)
-  let same a b = Int64.equal (Int64.bits_of_float a) (Int64.bits_of_float b) in
+  let same = Core.Float_bits.equal_exact in
   Vec6.iter iter_shape (fun c ->
       let d = eval_direct c in
       let s = eval_symbolic c in
@@ -809,9 +809,7 @@ let%expect_test "Symbolic max_reduce: agrees with Direct on signed zero and NaN"
       in
       let symbolic = eval_expr ~binding:(fun _ -> Some x) e Vec6.origin in
       Format.printf "%s: direct==symbolic=%b@." name
-        (Int64.equal
-           (Int64.bits_of_float direct)
-           (Int64.bits_of_float symbolic)))
+        (Core.Float_bits.equal_exact direct symbolic))
     [
       ("-0 then +0", [| -0.; 0. |]);
       ("+0 then -0", [| 0.; -0. |]);
@@ -885,7 +883,7 @@ let%expect_test "Symbolic: reusing a computation builds it twice" =
   in
   let symbolic = eval_expr ~binding:(fun _ -> Some x) e Vec6.origin in
   Format.printf "direct==symbolic: %b@."
-    (Int64.equal (Int64.bits_of_float direct) (Int64.bits_of_float symbolic));
+    (Core.Float_bits.equal_exact direct symbolic);
   [%expect {| direct==symbolic: true |}]
 
 let%expect_test "Symbolic ground: sdpa — two keys with a mask, matches Direct" =

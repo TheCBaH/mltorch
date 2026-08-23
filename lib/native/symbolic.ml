@@ -34,6 +34,7 @@ let mul a b = map2 Expr.Value.mul a b
 let div a b = map2 Expr.Value.div a b
 let exp a = Expr.Builder.map Expr.Value.exp a
 let sqrt a = Expr.Builder.map Expr.Value.sqrt a
+let erf a = Expr.Builder.map Expr.Value.erf a
 let lt a b = map2 Expr.Bool.value_lt a b
 let select c a b = map3 Expr.Value.select c a b
 let index_zero = Expr.Index.zero

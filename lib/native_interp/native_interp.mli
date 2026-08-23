@@ -120,7 +120,11 @@ type config_fault = Op_config.Bad.fault
     stride is zero" is one drift away from two contracts. *)
 
 type unsupported_option =
-  [ `Alpha of float | `Memory_format | `Dilation of int list | `Ceil_mode ]
+  [ `Alpha of float
+  | `Memory_format
+  | `Dilation of int list
+  | `Ceil_mode
+  | `Approximate of string ]
 (** Options this lowering rejects rather than silently drops: a non-unit [alpha]
     would compute the wrong thing, and a [memory_format] asks for a layout
     change the native IR cannot express.
@@ -130,7 +134,12 @@ type unsupported_option =
     an option and dropping them silently computed a different op under the right
     name. [`Dilation] keeps the whole offered list rather than a normalized
     pair, because the rejection happens before the arity check that would give
-    it one. *)
+    it one.
+
+    [`Approximate] is [gelu.default]'s [approximate] parameter: only ["none"]
+    (the exact, erf-based form) is implemented, so a ["tanh"] value is rejected
+    by name rather than silently computing the wrong formula under the right op.
+*)
 
 type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
 (** Two different rejections, not one with a message. Both recoverable — see

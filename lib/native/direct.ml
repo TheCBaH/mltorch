@@ -16,6 +16,7 @@ let mul = ( *. )
 let div = ( /. )
 let exp = Stdlib.exp
 let sqrt = Stdlib.sqrt
+let erf x = Expr.Value.apply_unary Expr.Value.Erf x
 
 type b = bool
 

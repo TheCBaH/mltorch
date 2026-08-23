@@ -160,6 +160,7 @@ let depthwise_conv2d params ~x ~weight ?bias () =
 
 let div a b = op1 (Op.Div { Pointwise.Bin.a; b })
 let div_scalar scalar x = op1 (Op.Div_scalar { Pointwise.Scalar_bin.x; scalar })
+let gelu x = op1 (Op.Gelu { Pointwise.Gelu.x })
 let hardsigmoid x = op1 (Op.Hardsigmoid { Pointwise.Hardsigmoid.x })
 let hardswish x = op1 (Op.Hardswish { Pointwise.Hardswish.x })
 let hardtanh params x = op1 (Op.Hardtanh { Pointwise.Hardtanh.params; x })
@@ -169,6 +170,7 @@ let mean_keepdims dims x =
   op1 (Op.Mean_keepdims { Ops4.Mean_keepdims.params = { dims }; x })
 
 let mul a b = op1 (Op.Mul { Pointwise.Bin.a; b })
+let mul_scalar scalar x = op1 (Op.Mul_scalar { Pointwise.Scalar_bin.x; scalar })
 
 (* Takes the dialect's own [Ops4.Pad4.params], whose entries are keyed by
    [Axis4.t]: a pad naming T or D is not constructible through this API, the
@@ -187,6 +189,7 @@ let layer_norm4 params ~x ?weight ?bias () =
 let rms_norm params ~x ?weight () =
   op1 (Op.Rms_norm { Ops4.Rms_norm.params; x; weight })
 
+let sigmoid x = op1 (Op.Sigmoid { Pointwise.Sigmoid.x })
 let silu x = op1 (Op.Silu { Pointwise.Silu.x })
 
 (* Takes the dialect's own [Ops4.Slice4.params], whose axis is [Axis4.t]: a

@@ -1,5 +1,7 @@
 (* See core.mli. *)
 
+module Float_bits = Float_bits
+
 module Pretty = struct
   let to_string pp v = Fmt.str "%a" pp v
   let pp_none none ppf () = Fmt.string ppf none

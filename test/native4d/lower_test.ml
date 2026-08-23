@@ -167,6 +167,16 @@ let%expect_test "lower: Group 5 activations pass straight through" =
        (let open Graph_builder in
         let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
         silu x));
+  show "sigmoid"
+    (build "sigmoid"
+       (let open Graph_builder in
+        let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        sigmoid x));
+  show "gelu"
+    (build "gelu"
+       (let open Graph_builder in
+        let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        gelu x));
   show "hardsigmoid"
     (build "hardsigmoid"
        (let open Graph_builder in
@@ -185,6 +195,18 @@ let%expect_test "lower: Group 5 activations pass straight through" =
     nodes:
       n0: [t1] = silu x=t0
     outputs: [t1 [H=2 W=2 C=3]]
+    sigmoid:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = sigmoid x=t0
+    outputs: [t1 [H=2 W=2 C=3]]
+    gelu:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = gelu x=t0
+    outputs: [t1 [H=2 W=2 C=3]]
     hardsigmoid:
       graph4
     inputs: [t0 [H=2 W=2 C=3]]
@@ -196,6 +218,32 @@ let%expect_test "lower: Group 5 activations pass straight through" =
     inputs: [t0 [H=2 W=2 C=3]]
     nodes:
       n0: [t1] = hardswish x=t0
+    outputs: [t1 [H=2 W=2 C=3]] |}]
+
+let%expect_test "lower: scalar pointwise ops pass straight through" =
+  show "add_scalar"
+    (build "add_scalar"
+       (let open Graph_builder in
+        let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        add_scalar 0.5 x));
+  show "mul_scalar"
+    (build "mul_scalar"
+       (let open Graph_builder in
+        let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        mul_scalar 2. x));
+  [%expect
+    {|
+    add_scalar:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = add_scalar x=t0 scalar=0.5
+    outputs: [t1 [H=2 W=2 C=3]]
+    mul_scalar:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = mul_scalar x=t0 scalar=2
     outputs: [t1 [H=2 W=2 C=3]] |}]
 
 (* §7.1: [Clone] contributes no node. Its output is tied to its input, which is

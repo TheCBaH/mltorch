@@ -175,10 +175,9 @@ let unbind (Tensor src) ~axis ~output ~shape =
    every storage format (so no case analysis on [Payload.fmt] is needed), and it
    still separates signed zeros and distinct NaN payloads. *)
 let equal_bits (Tensor a as ta) (Tensor b as tb) =
-  let bits x = Int64.bits_of_float x in
   Stdlib.( = ) a.shape b.shape
   && Vec6.fold_coords a.shape ~init:true ~f:(fun ok coord ->
-      ok && Int64.equal (bits (read ta coord)) (bits (read tb coord)))
+      ok && Core.Float_bits.equal_exact (read ta coord) (read tb coord))
 
 (* ---- JSON codec ----------------------------------------------------------- *)
 

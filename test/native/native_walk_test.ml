@@ -406,50 +406,86 @@ let%expect_test "native walk coverage" =
     step 5 [input]: [n=2 c=4 h=14 w=14]
     [native] silu: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4]
-    [native] hardsigmoid: direct==symbolic
+    [native] sigmoid: direct==symbolic
     step 1 [input]: [n=1 c=3 h=4 w=4]
-    [native] hardsigmoid: direct==symbolic
+    [native] sigmoid: direct==symbolic
     step 2 [input]: [n=1 c=3 h=1 w=4]
-    [native] hardsigmoid: direct==symbolic
+    [native] sigmoid: direct==symbolic
     step 3 [input]: [n=1 c=3 h=1 w=11]
-    [native] hardsigmoid: direct==symbolic
+    [native] sigmoid: direct==symbolic
     step 4 [input]: [n=1 c=3 h=1 w=6]
-    [native] hardsigmoid: direct==symbolic
+    [native] sigmoid: direct==symbolic
     step 5 [input]: [n=1 c=18 h=1 w=6]
+    [native] sigmoid: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4]
+    [native] gelu: direct==symbolic
+    step 1 [input]: [n=1 c=3 h=4 w=16]
+    [native] gelu: direct==symbolic
+    step 2 [input]: [n=1 c=3 h=3 w=16]
+    [native] gelu: direct==symbolic
+    step 3 [input]: [n=1 c=3 h=9 w=16]
+    [native] gelu: direct==symbolic
+    step 4 [input]: [n=1 c=26 h=9 w=16]
+    [native] gelu: direct==symbolic
+    step 5 [input]: [n=2 c=26 h=9 w=16]
+    [native] gelu: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4] scalar=3
+    [native] mul_scalar: direct==symbolic
+    step 1 [scalar]: [n=1 c=3 h=4 w=4] scalar=0.5
+    [native] mul_scalar: direct==symbolic
+    step 2 [scalar]: [n=1 c=3 h=4 w=4] scalar=3
+    [native] mul_scalar: direct==symbolic
+    step 3 [scalar]: [n=1 c=3 h=4 w=4] scalar=-2
+    [native] mul_scalar: direct==symbolic
+    step 4 [input]: [n=1 c=21 h=4 w=4] scalar=-2
+    [native] mul_scalar: direct==symbolic
+    step 5 [input]: [n=2 c=21 h=4 w=4] scalar=-2
+    [native] mul_scalar: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4]
+    [native] hardsigmoid: direct==symbolic
+    step 1 [input]: [n=1 c=3 h=4 w=2]
+    [native] hardsigmoid: direct==symbolic
+    step 2 [input]: [n=1 c=3 h=4 w=4]
+    [native] hardsigmoid: direct==symbolic
+    step 3 [input]: [n=1 c=3 h=2 w=4]
+    [native] hardsigmoid: direct==symbolic
+    step 4 [input]: [n=1 c=4 h=2 w=4]
+    [native] hardsigmoid: direct==symbolic
+    step 5 [input]: [n=1 c=4 h=2 w=2]
     [native] hardsigmoid: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4]
     [native] hardswish: direct==symbolic
-    step 1 [input]: [n=1 c=3 h=4 w=16]
+    step 1 [input]: [n=2 c=3 h=4 w=4]
     [native] hardswish: direct==symbolic
-    step 2 [input]: [n=1 c=3 h=3 w=16]
+    step 2 [input]: [n=1 c=3 h=4 w=4]
     [native] hardswish: direct==symbolic
-    step 3 [input]: [n=1 c=3 h=9 w=16]
+    step 3 [input]: [n=1 c=23 h=4 w=4]
     [native] hardswish: direct==symbolic
-    step 4 [input]: [n=1 c=26 h=9 w=16]
+    step 4 [input]: [n=1 c=23 h=13 w=4]
     [native] hardswish: direct==symbolic
-    step 5 [input]: [n=2 c=26 h=9 w=16]
+    step 5 [input]: [n=2 c=23 h=13 w=4]
     [native] hardswish: direct==symbolic
     step 0: {shape=[n=1 c=3 h=6 w=6] pattern=pad_hw}
     [native] pad: direct==symbolic
     step 1 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=reflect_hw}
     [native] pad: direct==symbolic
-    step 2 [input]: {shape=[n=1 c=3 h=6 w=8] pattern=reflect_hw}
+    step 2 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=reflect_hw}
     [native] pad: direct==symbolic
-    step 3 [pattern]: {shape=[n=1 c=3 h=6 w=8] pattern=crop_h}
+    step 3 [input]: {shape=[n=1 c=3 h=12 w=6] pattern=reflect_hw}
     [native] pad: direct==symbolic
-    step 4 [pattern]: {shape=[n=1 c=3 h=6 w=8] pattern=pad_asym_w}
+    step 4 [pattern]: {shape=[n=1 c=3 h=12 w=6] pattern=mixed_hw}
     [native] pad: direct==symbolic
-    step 5 [input]: {shape=[n=1 c=8 h=6 w=8] pattern=pad_asym_w}
+    step 5 [pattern]: {shape=[n=1 c=3 h=12 w=6] pattern=crop_h}
     [native] pad: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] axis=H start=0 stop=2 step=1}
     [native] slice: direct==symbolic
-    step 1 [pattern]: {shape=[n=2 c=4 h=4 w=4] axis=H start=1 stop=4 step=1}
+    step 1 [pattern]: {shape=[n=2 c=4 h=4 w=4] axis=H start=2 stop=4 step=1}
     [native] slice: direct==symbolic
-    step 2 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=H start=1 stop=4 step=1}
+    step 2 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=W start=2 stop=4 step=1}
     [native] slice: direct==symbolic
-    step 3 [pattern]: {shape=[n=2 c=4 h=4 w=4] axis=H start=0 stop=4 step=2}
+    step 3 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=N start=1 stop=2 step=1}
     [native] slice: direct==symbolic
-    step 4 [input]: {shape=[n=2 c=4 h=4 w=10] axis=H start=0 stop=4 step=2}
+    step 4 [input]: {shape=[n=2 c=4 h=4 w=8] axis=N start=1 stop=2 step=1}
     [native] slice: direct==symbolic
-    step 5 [input]: {shape=[n=2 c=4 h=7 w=10] axis=H start=0 stop=7 step=2}
+    step 5 [pattern]: {shape=[n=2 c=4 h=4 w=8] axis=N start=1 stop=2 step=1}
     [native] slice: direct==symbolic |}]
