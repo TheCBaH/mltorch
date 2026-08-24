@@ -93,6 +93,13 @@ jobs:
     - name: pt2 load test
       run: |
         ${{ env.EXEC }} make pt2.runtest
+    # Payload-free model-support sweep over the ~100 models in the pinned
+    # producer submodule (already checked out, no download) -- see
+    # bin/pt2_json_model_support.ml. Verified by "verify pristine" below,
+    # same as any other checked-in generated file.
+    - name: pt2 json model support
+      run: |
+        ${{ env.EXEC }} make pt2.json-model-support
     # The JS half of the same claim -- open a real .pt2, lower it and run
     # inference under node, diffed against native -- is js.yml's `jsoo pt2
     # inference test`. It could run here for free, since this job has already

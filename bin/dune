@@ -82,6 +82,18 @@
   unix))
 
 (executable
+ (name pt2_json_model_support)
+ (modules pt2_json_model_support)
+ (libraries
+  core
+  err_trace
+  err_host
+  jsont
+  jsont.bytesrw
+  model_explorer
+  model_explorer_export))
+
+(executable
  (name aten_graph_ref)
  (modules aten_graph_ref)
  (libraries

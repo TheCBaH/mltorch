@@ -70,6 +70,19 @@ let rec pp_jsont_expr_impl group fmt = function
 let pp_jsont_expr = pp_jsont_expr_impl String_set.empty
 let pp_jsont_expr_rec = pp_jsont_expr_impl
 
+(* Union arms only: an [int]-typed "as_*" case carries an unconstrained
+   Python scalar (Argument.as_int, ConstantValue.as_int, SymInt.as_int,
+   SymExprHint.as_int), where PyTorch's exporter can legitimately write
+   sys.maxsize as an "unbounded" sentinel -- see [Schema_runtime.python_int_jsont].
+   A struct's own [int] field (count/index/version) has no such sentinel and
+   stays on plain [pp_jsont_expr]/[Jsont.int]. *)
+let pp_union_jsont_expr_impl group fmt = function
+  | Type_expr.Int -> Format.pp_print_string fmt "python_int_jsont"
+  | t -> pp_jsont_expr_impl group fmt t
+
+let pp_union_jsont_expr = pp_union_jsont_expr_impl String_set.empty
+let pp_union_jsont_expr_rec = pp_union_jsont_expr_impl
+
 (* ---- Naming ---- *)
 
 let ocaml_keywords =
@@ -399,7 +412,7 @@ let pp_union_case fmt uf =
      <0 2>@[<v 0>(match Jsont.Json.decode %a value with@;\
      | Ok v -> %s v@;\
      | Error s -> Jsont.Error.msg Jsont.Meta.none s)@]"
-    uf.uf_name pp_jsont_expr uf.uf_type uf.uf_ctor
+    uf.uf_name pp_union_jsont_expr uf.uf_type uf.uf_ctor
 
 let pp_union_body fmt name fis =
   Format.fprintf fmt
@@ -553,7 +566,9 @@ let pp_union_case_rec group tmn fmt uf =
      <0 2>@[<v 0>(match Jsont.Json.decode %a value with@;\
      | Ok v -> %s.%s v@;\
      | Error s -> Jsont.Error.msg Jsont.Meta.none s)@]"
-    uf.uf_name (pp_jsont_expr_rec group) uf.uf_type tmn uf.uf_ctor
+    uf.uf_name
+    (pp_union_jsont_expr_rec group)
+    uf.uf_type tmn uf.uf_ctor
 
 let pp_jsont_decl fmt group name typedef kw =
   let tmn = type_module_name name in

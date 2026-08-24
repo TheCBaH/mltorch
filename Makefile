@@ -1,4 +1,4 @@
-.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
+.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
@@ -111,6 +111,25 @@ pt2.runtest:
 		test/pt2_load_cram.t test/interp_functional_cram.t test/const_ssa_trace_cram.t \
 		test/const_ssa_payload_free_cram.t test/const_ssa_evaluate_cram.t \
 		test/pt2_model_support_cram.t
+
+# The payload-free counterpart of test/pt2_model_support_cram.t, over every
+# model.json in the pinned producer submodule -- no download needed, so it
+# covers ~100 models where the cram (real .pt2 archives, gated on PT2_DATA)
+# covers 6. See bin/pt2_json_model_support.ml for the mechanism and why this
+# isn't a cram test: it calls Me_export.session directly (the library
+# native_graph's own `visualize` command calls), so the schema is the OCaml
+# record it emits, not a shell/jq reconstruction of one.
+#
+# Verification is `verify.pristine`, same as every other generated/checked-in
+# file in this repo: regenerate here, and CI's later `git status --porcelain`
+# check catches drift. Run `make pt2.json-model-support` locally and commit
+# the result when a model's frontier moves.
+PT2_JSON_MODELS_DIR := modules/devcontainer.pytorch-image-models/models
+PT2_JSON_MODEL_SUPPORT := test/data/pt2_json_model_support.jsonl
+pt2.json-model-support:
+	@mkdir -p $(dir $(PT2_JSON_MODEL_SUPPORT))
+	opam exec -- dune exec bin/pt2_json_model_support.exe -- \
+		$(PT2_JSON_MODELS_DIR) $(PT2_JSON_MODEL_SUPPORT)
 
 # Shared argument list for every interp_run.exe invocation below, so
 # inference-run and benchmark.inference can't drift apart.
