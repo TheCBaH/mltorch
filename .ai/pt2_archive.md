@@ -56,9 +56,10 @@ outside this inference-only boundary.
 ## Functional image-model release contract
 
 Runnable fixtures come from `TheCBaH/devcontainer.pytorch-image-models` at
-`0baf47c2903eabdd57aa3843e531d1d3c636c7a4` / `v0.0.3`. Downloaded assets live
+`a24c245fbd66214a7749806110186ef0a389391f` / `v0.0.4`. Downloaded assets live
 under `data/pt2-functional/<model>/` and contain `<model>.pt2`,
-`preprocessing.json`, `expected.json`, `inputs.pt`, and `outputs.pt`.
+`preprocessing.json`, `expected.json`, `contract.json`, `inputs.pt`, and
+`outputs.pt`.
 
 `inputs.pt` and `outputs.pt` are external `torch.save` `dict[str, Tensor]`
 archives, not the single tensor in `data/sample_inputs/model.pt`.
@@ -68,8 +69,22 @@ duplicates and missing storage, and returns lexical key order. ZIP file,
 per-entry, and aggregate bounds apply before pickle decoding on native and
 js_of_ocaml alike.
 
-The selected-release manifest records the producer pin, required files and
-GitHub SHA-256 values. `pt2.download` validates digest, contents and the
-canonicalized release graph against the pinned producer graph. `pt2.runtest`
-is network-free and only preflights existing assets before ordinary
-`dune runtest`; it never promotes downloaded output.
+`data/pt2-functional-manifest.json` is a vendored, byte-for-byte copy of the
+producer's own release `manifest.json` (schema at
+`modules/devcontainer.pytorch-image-models/schemas/manifest.schema.json`) --
+not a hand-authored subset. It covers every release-tier model (a superset of
+what mltorch selects), each with `archive.{url,sha256,bytes,members}`, plus a
+`retired` section giving a reason and migration target for models the
+producer has dropped. `pt2.download` reads the URL/digest/required-members
+for `PT2_MODEL` straight out of it (failing with the producer's own
+retirement message if the model isn't `current`), checks `PT2_RELEASE`
+against the vendored file's `producer.tag` so the two pins can't drift apart,
+and validates the canonicalized release graph against the pinned producer
+graph. `pt2.runtest` is network-free and only preflights existing assets
+before ordinary `dune runtest`; it never promotes downloaded output.
+
+The producer also publishes `catalogue.json` (browser-facing model picker
+metadata) and `compat-report.json` (per-model graph-vs-runnable
+classification) as release assets. Neither is consumed here yet -- vendoring
+`manifest.json` closes the archive-digest drift gap; catalogue/compat
+consumption is a separate, not-yet-needed piece of work.
