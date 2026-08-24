@@ -63,6 +63,7 @@ let selection =
     op "_softmax";
     op "gelu";
     op "cat";
+    op "stack";
     (* The FUNCTIONAL layer norm, distinct from the decomposed
        [native_layer_norm] below: one tensor back instead of three, an eps with
        a schema default instead of a required one, and a [cudnn_enable] flag

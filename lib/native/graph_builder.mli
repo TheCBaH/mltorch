@@ -77,6 +77,9 @@ val clamp :
 
 val clone : ?name:string -> tensor_ref -> Tensor_id.t t
 
+val concat :
+  ?name:string -> Concat.Concat.params -> tensor_ref list -> Tensor_id.t t
+
 val conv2d :
   ?name:string ->
   Conv.Conv2d.params ->
@@ -188,6 +191,11 @@ val sdpa :
   unit ->
   Tensor_id.t t
 
+val select : ?name:string -> Split.Select.params -> tensor_ref -> Tensor_id.t t
+(** Picks one index along one axis and drops it. Takes a CANONICAL,
+    already-in-range index — a caller holding ATen's spelling gets one from
+    {!Aten_shape.resolve_index}. *)
+
 val sigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val silu : ?name:string -> tensor_ref -> Tensor_id.t t
 
@@ -198,6 +206,13 @@ val slice : ?name:string -> Split.Slice.params -> tensor_ref -> Tensor_id.t t
     of bounds. *)
 
 val sqrt : ?name:string -> tensor_ref -> Tensor_id.t t
+
+val stack :
+  ?name:string -> Concat.Stack.params -> tensor_ref list -> Tensor_id.t t
+(** Inserts a new size-1 axis per operand at [params.axis], then joins them —
+    the single-node counterpart of an ATen [stack], which reshapes every operand
+    before concatenating them. *)
+
 val sub : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 (* Unbind returns EVERY slice, in ordinal order — the only builder whose result

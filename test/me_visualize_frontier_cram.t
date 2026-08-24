@@ -1,9 +1,28 @@
 Native lowering frontier over the six tracked release models, from their
 committed payload-free model.json (no PT2_DATA gate needed -- same as
 mobilenetv2_050/test_convnext2's existing rules). Pins the outcome AFTER
-`gelu.default`/`sigmoid.default`/scalar `mul.Tensor`/`mul.Scalar` support: a
-regression here means either the frontier moved backward (a real bug) or moved
-forward silently (this test not updated to match).
+`gelu.default`/`sigmoid.default`/scalar `mul.Tensor`/`mul.Scalar` support,
+after `select.int`/`unsqueeze.default` and `cat.default`/`stack.default`
+first landed, and after the design-goal fix gave `select.int`
+and `stack.default` their own single `Select`/`Stack` Native nodes (each had
+decomposed into a `Slice`+`Reshape` pair, resp. N `Reshape`s + `Concat`):
+a regression here means either the frontier moved backward (a real bug) or
+moved forward silently (this test not updated to match). This cram reports
+only capability/blocker status, not node counts, so the internal node-shape
+change is invisible here by design -- see `native_bridge_test.ml`'s
+"builds a single Select/Stack node" cases for that.
+
+`csatv2` moved past its `select.int` block to `stack.default`, and now past
+that too: its `stage:initial_native` frontier is
+`torch.ops.aten.clone.default: memory_format is not supported` (section 3 item
+8, not yet landed). This is a MALFORMED rejection, not an `unsupported_operator`
+capability -- the importer refuses the whole graph rather than degrading one
+capability's status -- so the script's `else` branch fires and the row reads
+"blocked: ..." instead of the two `stage:` lines every other model prints; that
+is the harness noticing a different *kind* of rejection, not a broken script.
+`unsqueeze.default` never showed up as a named blocker for any of the six
+models either before or after either change -- its coverage is
+`native_bridge_test.ml`'s dedicated verify/dispatch cases, not this cram.
 
 `test_convnext2` is the one surprise this test caught, in two stages. It
 serializes `gelu.default` with `approximate="tanh"`, not `"none"` -- an
@@ -46,8 +65,7 @@ lowering, structurally in `native4d/verify_test.ml`'s "gelu tanh" cluster), so
   efficientnet_b0 stage:native4d available graph
   fastvit_sa12 stage:initial_native available graph
   fastvit_sa12 stage:native4d unavailable outside_dialect_domain: node n604: axis T is outside the N/H/W/C dialect
-  csatv2 stage:initial_native unavailable unsupported_operator: unsupported PT2 operator: torch.ops.aten.select.int
-  csatv2 stage:native4d unavailable prerequisite_unavailable
+  csatv2 blocked: native_graph: malformed PT2 graph: torch.ops.aten.clone.default: memory_format is not supported
 
 `regnetx_002`'s `stage:native4d` was already `unavailable outside_dialect_domain`
 before this change (a 3-group convolution, neither 1 nor depthwise -- unrelated

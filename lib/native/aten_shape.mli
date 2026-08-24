@@ -41,6 +41,15 @@ module Slice_bounds : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* [aten.select.int]'s rejected index, reported as WRITTEN (not normalized) —
+   a caller who wrote -9 is better served by seeing -9 — alongside the axis
+   extent it was judged against. *)
+module Index_bound : sig
+  type t = { index : int; extent : int }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 (* Error set owned by this module: its own rank check, the [-1] convention's
    faults, the one thing slice-bound resolution can refuse, and [Dim.error]
    (from validating each dim/size entry). [pp_error] delegates to [Dim.pp_error]
@@ -54,6 +63,7 @@ type error =
     (* A bare int, not a record: PyTorch's rule is "slice step must be
        positive" and the offending value is the whole fact. Which axis and
        which node it was belongs to the importer's own row. *)
+  | `Index_out_of_range of Index_bound.t
   | Dim.error ]
 
 val pp_error : Format.formatter -> error -> unit
@@ -95,3 +105,10 @@ val resolve_slice :
   stop:int option ->
   step:int ->
   (Slice_bounds.t, [> error ]) Err.t
+
+(* Resolve [aten.select.int]'s index along one axis: normalize a negative
+   index by adding the extent, then REJECT (not clamp — unlike
+   [resolve_slice]) if it still falls outside [0, extent), matching ATen's
+   own IndexError. Returns the normalized, in-range position. *)
+val resolve_index :
+  extent:Dim.extent Dim.t -> index:int -> (int, [> error ]) Err.t

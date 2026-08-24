@@ -183,6 +183,63 @@ let%expect_test "Direct graph: add of two inputs" =
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
   [%expect {| out = tensor f32 [C=3] {10, 11, 12} |}]
 
+let%expect_test "Direct graph: concat of two inputs" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"concat" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 2) ~name:"a" () in
+          let* b = input ~shape:(s1c 3) ~name:"b" () in
+          concat ~name:"out" { Concat.Concat.axis = Axis.C } [ a; b ])
+    in
+    let a = Tensor.materialize (s1c 2) (fun c -> float_of_int (chan c)) in
+    let b = Tensor.materialize (s1c 3) (fun c -> float_of_int (10 + chan c)) in
+    let* env =
+      lift_eval
+        (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=5] {0, 1, 10, 11, 12} |}]
+
+(* Stack inserts a new axis per operand, unlike Concat above which joins an
+   existing one -- the fact worth pinning here is that a single [Stack] node
+   appears, not N [Reshape]s plus a [Concat]. *)
+let%expect_test "Direct graph: stack of two inputs" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"stack" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          let* b = input ~shape:(s1c 3) ~name:"b" () in
+          stack ~name:"out" { Concat.Stack.axis = Axis.W } [ a; b ])
+    in
+    Format.printf "%a@." Graph_ir.pp g;
+    let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
+    let b = Tensor.materialize (s1c 3) (fun c -> float_of_int (10 + chan c)) in
+    let* env =
+      lift_eval
+        (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a; b ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [C=3] ->[n0], t1 f32 [C=3] ->[n0]]
+    nodes:
+      n0: [t2 f32 [W=2 C=3]] = stack xs=[t0, t1] params={axis=W}
+    outputs: [t2 f32 [W=2 C=3] <-n0]
+    out = tensor f32 [W=2 C=3] {0, 1, 2, 10, 11, 12} |}]
+
 let%expect_test "Direct graph: div of two inputs" =
   let result =
     let open Err.Syntax in
@@ -1033,6 +1090,43 @@ let%expect_test "Direct graph: slice narrows one axis and keeps the rank" =
         slice x=t0 params={axis=W start=1 stop=5 step=2}
     outputs: [t1 f32 [H=2 W=2 C=1] <-n0]
     out = tensor f32 [H=2 W=2 C=1] {1, 3, 11, 13} |}]
+
+(* Select drops the axis it picks along, unlike Slice above, so the graph's
+   output rank is one less than the input's -- the fact worth pinning here is
+   that a single [Select] node appears, not a [Slice]+[Reshape]
+   pair. *)
+let%expect_test "Direct graph: select drops one axis" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"select" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 5 1) ~name:"x" () in
+          select ~name:"out" { Split.Select.axis = Axis.W; index = 3 } x)
+    in
+    Format.printf "%a@." Graph_ir.pp g;
+    let x =
+      Tensor.materialize (s 1 1 1 2 5 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 10)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [H=2 W=5 C=1] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=1]] = select x=t0 params={axis=W index=3}
+    outputs: [t1 f32 [W=2 C=1] <-n0]
+    out = tensor f32 [W=2 C=1] {3, 13} |}]
 
 let%expect_test "Direct graph: an empty slice is not buildable" =
   let result =

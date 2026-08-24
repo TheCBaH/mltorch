@@ -99,6 +99,89 @@ let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
     ground = tensor f32 [C=3] {0, 0, 4}
     ground matches direct: true |}]
 
+let%expect_test "Symbolic graph: concat stage DAG + ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"cat" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 2) ~name:"a" () in
+          let* b = input ~shape:(s1c 3) ~name:"b" () in
+          concat ~name:"out" { Concat.Concat.axis = Axis.C } [ a; b ])
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a = Tensor.materialize (s1c 2) (fun c -> float_of_int (chan c)) in
+    let b = Tensor.materialize (s1c 3) (fun c -> float_of_int (10 + chan c)) in
+    let inputs = List.combine g.Graph.inputs [ a; b ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0, t1
+    t2 = select((C = max(0,min(1,C))), t0[N,T,D,H,W,max(0,min(1,C))], t1[N,T,D,H,W,max(0,min(2,C+-2))])
+    outputs: t2 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=5] {0, 1, 10, 11, 12}
+    ground matches direct: true |}]
+
+(* The non-outermost-dim case, same as the Direct compute_test.ml regression:
+   [dim] relabels which axis carries each operand's real extent, so the
+   staged term is the evidence that [Stack] reads its OWN axis
+   ([source_coord]'s remap), not [out]'s coordinate unchanged the way a naive
+   [Concat] pass-through would. *)
+let%expect_test
+    "Symbolic graph: stack at a non-outermost dim, ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"stack" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s 1 1 1 1 3 4) ~name:"a" () in
+          let* b = input ~shape:(s 1 1 1 1 3 4) ~name:"b" () in
+          stack ~name:"out" { Concat.Stack.axis = Axis.W } [ a; b ])
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a =
+      Tensor.materialize (s 1 1 1 1 3 4) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.W) * 10)
+            + Dim.to_int (Vec6.get c Axis.C)))
+    in
+    let b =
+      Tensor.materialize (s 1 1 1 1 3 4) (fun c ->
+          float_of_int
+            (100
+            + (Dim.to_int (Vec6.get c Axis.W) * 10)
+            + Dim.to_int (Vec6.get c Axis.C)))
+    in
+    let inputs = List.combine g.Graph.inputs [ a; b ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0, t1
+    t2 = select((W = 0), t0[0,N,T,D,H,C], t1[0,N,T,D,H,C])
+    outputs: t2 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [H=3 W=2 C=4] {0, 1, 2, 3, 100, 101, 102, 103, ...}
+    ground matches direct: true |}]
+
 let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
   let result =
     let open Err.Syntax in
@@ -1107,4 +1190,45 @@ let%expect_test "Symbolic graph: slice ground matches Direct" =
   [%expect
     {|
     ground = tensor f32 [H=2 W=2 C=1] {1, 3, 11, 13}
+    ground matches direct: true |}]
+
+(* Select reuses [Slice]'s staged term over a one-wide window and folds the
+   dropped axis away, so the stage should show the same affine index shape
+   [Slice]'s does -- a fixed offset, no [select]/bound/arithmetic on the
+   value -- confirming the delegation carries into the Symbolic path too, not
+   just Direct. *)
+let%expect_test "Symbolic graph: select ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"select" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 5 1) ~name:"x" () in
+          select ~name:"out" { Split.Select.axis = Axis.W; index = 3 } x)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let x =
+      Tensor.materialize (s 1 1 1 2 5 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 10)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let inputs = List.combine g.Graph.inputs [ x ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = t0[T,D,H,W,max(0,3+0),C]
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [W=2 C=1] {3, 13}
     ground matches direct: true |}]

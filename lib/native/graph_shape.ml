@@ -67,6 +67,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Clone.output_shape x_shape) in
       [ out ]
+  | Concat { Concat.Concat.params; xs } ->
+      let* xs_shapes = Err.List.map shape xs in
+      let+ out = widen (Concat.Concat.output_shape ~xs_shapes params) in
+      [ out ]
   | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
@@ -229,6 +233,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
              ~mask_shape)
       in
       [ out ]
+  | Select { Split.Select.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Split.Select.output_shape ~x_shape params) in
+      [ out ]
   | Sigmoid { Pointwise.Sigmoid.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Sigmoid.output_shape x_shape) in
@@ -240,6 +248,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Sqrt { Pointwise.Sqrt.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Sqrt.output_shape x_shape) in
+      [ out ]
+  | Stack { Concat.Stack.params; xs } ->
+      let* xs_shapes = Err.List.map shape xs in
+      let+ out = widen (Concat.Stack.output_shape ~xs_shapes params) in
       [ out ]
   | Sub { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in

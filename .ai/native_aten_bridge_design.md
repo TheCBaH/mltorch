@@ -177,6 +177,17 @@ To add an op without relayout, add a match arm in `Op_bridge.dispatch`:
 3. Call `build_g ~name tensors body` where `body` uses `Graph_builder` ops
 4. Return `Some (Ok [result])`
 
+**`body` should call exactly one op-constructing `Graph_builder` function per
+ATen node**, even when an existing op's shape/compute logic would obviously
+cover most of the new target. Chaining two or more (a `Slice` into a
+`Reshape`, several `Reshape`s into a `Concat`, …) is a decomposition, not a
+legalization, and leaves the graph with no node naming the ATen op that
+produced it — see `.ai/native_add_op.md`'s "Design goal: Native stays one
+node per ATen op" for the sanctioned alternative (a new `Graph_ir` op whose
+implementation delegates) and for `select.int`/`stack.default` as the two
+current arms that need that fix. `Native_interp`'s importer mirrors whatever
+`op_bridge.ml` does here and must be fixed in the same change.
+
 For ops requiring `op_config` param types (`Op_config.Pos.t`, `Hw.t`), validate
 ATen args at the boundary and fail explicitly if out-of-range.  Rank-sensitive
 checks should stay typed as bridge errors rather than collapsing to ad hoc

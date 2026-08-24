@@ -40,6 +40,17 @@ module Dims_count = struct
   type t = { op : string; rank : int; got : int }
 end
 
+(* [cat.default]/[stack.default]: ATen requires every tensor in the list to
+   share one rank (there is no broadcasting between list entries), checked
+   here rather than left to [Concat]'s own shape rule -- that rule compares
+   FRAME axes, and two different ranks land their data on different frame
+   axes under [Aten_shape.of_aten]'s right-alignment, so a rank disagreement
+   would surface there as a confusing off-axis extent mismatch instead of
+   the rank fault it actually is. *)
+module Concat_rank_mismatch = struct
+  type t = { op : string; first : int; other : int }
+end
+
 (* Carries ATen's OWN dtype, read off the source tensor before conversion,
    rather than a Native [Payload.fmt]. Two reasons: [Payload.fmt] is a
    three-parameter GADT and cannot be a bare field type (its existential is
@@ -111,7 +122,9 @@ type error =
   | `Unsupported_padding_mode of string
   | `Aten_shape of Aten_shape.error
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
-  | `Sdpa_reject of Attention.Sdpa.Reject.t ]
+  | `Sdpa_reject of Attention.Sdpa.Reject.t
+  | `Concat_no_tensors of string
+  | `Concat_rank_mismatch of Concat_rank_mismatch.t ]
 
 (* Deliberately not [Fmt.brackets], which boxes its content and so may
    line-wrap; the original bare "[%s]" (String.concat) never did, regardless
@@ -178,12 +191,19 @@ let pp_error ppf : [< error ] -> unit = function
   | `Aten_shape e -> Aten_shape.pp_error ppf e
   | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
   | `Sdpa_reject e -> Attention.Sdpa.Reject.pp ppf e
+  | `Concat_no_tensors op -> Fmt.pf ppf "%s: at least one tensor is required" op
+  | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
+      Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
+        other
 
 let ( let* ) = Err.Syntax.( let* )
 let return = Err.return
 let fail = Err.fail
 let decode_result r = Err.map_error (fun e -> `Decode e) r
 let tensor_arg env node name = decode_result (D.tensor_arg_result env node name)
+
+let tensors_arg env node name =
+  decode_result (D.tensors_arg_result env node name)
 
 let int_arg ?default node name =
   decode_result (D.int_arg_result ?default node name)
@@ -364,6 +384,17 @@ let norm_dim ~op ~rank dim =
 let dim_axis ~op ~rank dim =
   let* d = norm_dim ~op ~rank dim in
   return (Aten_shape.axis_of_dim ~rank d)
+
+(* [unsqueeze.default]'s [dim] is judged against rank+1 valid positions (the
+   OUTPUT rank has one more axis than the operand), unlike every other
+   [dim]-taking arm here, which judges against the operand's own rank via
+   [norm_dim]. [Invalid_dim.rank] still reports the operand's real rank (its
+   documented meaning, see the comment above); only the upper bound of the
+   range check is relaxed by one to admit inserting past the last axis. *)
+let norm_unsqueeze_dim ~op ~rank dim =
+  let d = if dim < 0 then dim + rank + 1 else dim in
+  if d < 0 || d > rank then fail (`Invalid_dim { Invalid_dim.op; dim; rank })
+  else return d
 
 let dims_arg node ~op ~rank name =
   match D.find_arg node name with
@@ -1608,6 +1639,134 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    }
                    x_id
                in
+               [ y ]
+           | _ -> assert false))
+  (* The variadic Native [Concat] op, direct: every operand keeps its rank,
+     [dim] names an existing axis. ATen requires every tensor to share one
+     rank (no broadcasting across the list), checked explicitly rather than
+     left to [Concat.output_shape]'s own axis-agreement rule — see
+     [Concat_rank_mismatch]'s doc comment for why that rule would report the
+     wrong fault. *)
+  | "torch.ops.aten.cat.default" ->
+      Some
+        (let* aten_xs = tensors_arg aten_env node "tensors" in
+         let* () = Err.List.iter (require_f32 "tensors") aten_xs in
+         let* dim = int_arg ~default:0 node "dim" in
+         match aten_xs with
+         | [] -> fail (`Concat_no_tensors "cat.default")
+         | aten_x0 :: _ ->
+             let rank = aten_rank aten_x0 in
+             let* () =
+               Err.List.iter
+                 (fun t ->
+                   let got = aten_rank t in
+                   if got = rank then return ()
+                   else
+                     fail
+                       (`Concat_rank_mismatch
+                          {
+                            Concat_rank_mismatch.op = "cat.default";
+                            first = rank;
+                            other = got;
+                          }))
+                 aten_xs
+             in
+             let* d = norm_dim ~op:"cat.default" ~rank dim in
+             let axis = Aten_shape.axis_of_dim ~rank d in
+             let* xs = Err.List.map (native_of_aten "tensors") aten_xs in
+             build_g ~name:"cat" xs (fun ids ->
+                 let open Graph_builder in
+                 let+ y = concat { Concat.Concat.axis } ids in
+                 [ y ]))
+  (* One [Stack] node: inserts a size-1 axis per operand at [axis], then joins
+     them — ATen's own definition is exactly
+     `cat([t.unsqueeze(dim) for t in tensors], dim)`, which [Stack]'s shape
+     rule/[Compute] reuse from [Concat]/[Split.Select]'s implementations
+     rather than materializing as separate [Reshape] nodes. [dim] is judged
+     against rank+1 valid positions, the OUTPUT rank, same reasoning as
+     [norm_unsqueeze_dim]. *)
+  | "torch.ops.aten.stack.default" ->
+      Some
+        (let* aten_xs = tensors_arg aten_env node "tensors" in
+         let* () = Err.List.iter (require_f32 "tensors") aten_xs in
+         let* dim = int_arg ~default:0 node "dim" in
+         match aten_xs with
+         | [] -> fail (`Concat_no_tensors "stack.default")
+         | aten_x0 :: _ ->
+             let rank = aten_rank aten_x0 in
+             let* () =
+               Err.List.iter
+                 (fun t ->
+                   let got = aten_rank t in
+                   if got = rank then return ()
+                   else
+                     fail
+                       (`Concat_rank_mismatch
+                          {
+                            Concat_rank_mismatch.op = "stack.default";
+                            first = rank;
+                            other = got;
+                          }))
+                 aten_xs
+             in
+             let* d = norm_unsqueeze_dim ~op:"stack.default" ~rank dim in
+             let* xs = Err.List.map (native_of_aten "tensors") aten_xs in
+             let axis = Aten_shape.axis_of_dim ~rank:(rank + 1) d in
+             build_g ~name:"stack" xs (fun ids ->
+                 let open Graph_builder in
+                 let+ y = stack { Concat.Stack.axis } ids in
+                 [ y ]))
+  (* One [Select] node: picks index [idx] along [axis] and drops it. Unlike
+     [slice.Tensor], ATen REJECTS an out-of-range [index] rather than clamping
+     it -- [Aten_shape.resolve_index], not [resolve_slice]. *)
+  | "torch.ops.aten.select.int" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* () = require_f32 "self" aten_x in
+         let rank = aten_rank aten_x in
+         let* dim = int_arg node "dim" in
+         let* index = int_arg node "index" in
+         let* x = native_of_aten "self" aten_x in
+         let* d = norm_dim ~op:"select.int" ~rank dim in
+         let axis = Aten_shape.axis_of_dim ~rank d in
+         let extent = Vec6.get (packed_shape x) axis in
+         let* idx =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.resolve_index ~extent ~index)
+         in
+         build_g ~name:"select" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = select { Split.Select.axis; index = idx } x_id in
+               [ y ]
+           | _ -> assert false))
+  (* Legalized to [Reshape] alone: inserting a size-1 axis never changes the
+     linearized data order, so no [Slice] is needed, unlike [select.int]'s
+     axis removal. The target is [Aten_shape.to_aten]'s list with a bare [1]
+     spliced in at the normalized position -- the same round-trip
+     [select.int]/[view.default] use. *)
+  | "torch.ops.aten.unsqueeze.default" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* () = require_f32 "self" aten_x in
+         let rank = aten_rank aten_x in
+         let* dim = int_arg node "dim" in
+         let* x = native_of_aten "self" aten_x in
+         let* d = norm_unsqueeze_dim ~op:"unsqueeze.default" ~rank dim in
+         let aten_list =
+           Array.to_list (Aten_shape.to_aten ~rank (packed_shape x))
+         in
+         let front = List.filteri (fun i _ -> i < d) aten_list in
+         let back = List.filteri (fun i _ -> i >= d) aten_list in
+         let out_shape = Array.of_list (front @ [ 1 ] @ back) in
+         let* target =
+           Err.map_error (fun e -> `Aten_shape e) (Aten_shape.of_aten out_shape)
+         in
+         build_g ~name:"unsqueeze" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = reshape { Reshape.Reshape.shape = target } x_id in
                [ y ]
            | _ -> assert false))
   | "torch.ops.aten.unbind.int" ->

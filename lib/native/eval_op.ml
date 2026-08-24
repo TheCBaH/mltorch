@@ -63,6 +63,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Clone { Pointwise.Clone.x } ->
         let module C = Pointwise.Clone.Compute (S) in
         C.pixel (operand x) out
+    | Concat { Concat.Concat.params; xs } ->
+        let module C = Concat.Concat.Compute (S) in
+        C.pixel params ~xs:(List.map (fun r -> (shape_of r, operand r)) xs) out
     | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
         let module C = Conv.Conv2d.Compute (S) in
         let bias =
@@ -190,6 +193,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel params ~query_shape:(shape_of query) ~key_shape:(shape_of key)
           ~mask_shape ~query:(operand query) ~key:(operand key)
           ~value:(operand value) ~mask out
+    | Select { Split.Select.params; x } ->
+        let module C = Split.Select.Compute (S) in
+        C.pixel params ~x:(operand x) out
     | Sigmoid { Pointwise.Sigmoid.x } ->
         let module C = Pointwise.Sigmoid.Compute (S) in
         C.pixel (operand x) out
@@ -199,6 +205,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Sqrt { Pointwise.Sqrt.x } ->
         let module C = Pointwise.Sqrt.Compute (S) in
         C.pixel (operand x) out
+    | Stack { Concat.Stack.params; xs } ->
+        let module C = Concat.Stack.Compute (S) in
+        C.pixel params ~xs:(List.map operand xs) out
     | Sub { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Sub.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)

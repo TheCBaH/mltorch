@@ -76,6 +76,16 @@ Design decisions:
   graph structure is identified only by deterministic node/tensor ids.
   Importer-facing names and paths belong in a provenance sidecar, not the
   execution IR.
+- **One node per source ATen op — the dialect stays close to ATen by
+  construction, not by convention.** An importer arm that needs another op's
+  shape/compute logic reuses that *implementation* (a shared `Compute` functor
+  or shape rule, called from the new op's own module) rather than emitting
+  that op's node directly in place of its own; see `native_add_op.md`'s
+  "Design goal" section for the sanctioned pattern and the current exceptions
+  still owed a fix (`select.int`, `stack.default`). This is what lets
+  `Native_transform`, Native4D conversion, and provenance treat `op_registry`
+  as a faithful, closed inventory of "what the source program did" rather than
+  an inventory of "what the importer happened to build it from."
 - **PT2 provenance is a wrapper, not an IR field.** `Pt2_native_graph.t` pairs
   a native graph with qualified PT2 origins: tensor origins are
   `(graph_path, SSA name, TensorMeta)`, node origins are `(graph_path, node

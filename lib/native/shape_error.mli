@@ -117,6 +117,23 @@ module Permute : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* `aten.cat.default`'s two possible faults: no tensors at all, or a
+   non-concatenated axis that disagrees between two operands. The
+   concatenated axis's own overflow reuses [Window_over_limit]'s
+   [`Output_extent] row instead of a third fault here -- it IS the output
+   extent on that axis. *)
+module Concat : sig
+  type mismatch = {
+    axis : Axis.t;
+    first : Dim.extent Dim.t;
+    other : Dim.extent Dim.t;
+  }
+
+  type t = Empty | Axis_mismatch of mismatch
+
+  val pp : Format.formatter -> t -> unit
+end
+
 (* [Reshape.output_shape]'s numel-preservation precondition, violated: a target
    whose element count disagrees with the source's. *)
 module Reshape : sig
@@ -319,6 +336,7 @@ type t =
   | `Clamp of Clamp.error
   | `Linear of Linear.error
   | `Bmm of Bmm.error
+  | `Concat of Concat.t
   | `Output_count_over_limit of Output_count.t
   | `Pad of Pad.t
   | `Permute of Permute.t

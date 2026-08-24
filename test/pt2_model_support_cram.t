@@ -51,4 +51,4 @@ message).
   {"model":"efficientnet_b0","native_builds":true,"native4d_converts":true,"nodes":254,"blocker":null}
   {"model":"test_convnext2","native_builds":true,"native4d_converts":true,"nodes":49,"blocker":null}
   {"model":"fastvit_sa12","native_builds":true,"native4d_converts":false,"nodes":366,"blocker":"node n604: axis T is outside the N/H/W/C dialect"}
-  {"model":"csatv2","native_builds":false,"native4d_converts":null,"nodes":null,"blocker":"native_graph: unsupported PT2 operator: torch.ops.aten.select.int"}
+  {"model":"csatv2","native_builds":false,"native4d_converts":null,"nodes":null,"blocker":"native_graph: malformed PT2 graph: torch.ops.aten.clone.default: memory_format is not supported"}

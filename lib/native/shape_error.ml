@@ -238,6 +238,29 @@ module Pad = struct
         Fmt.pf ppf "axis %a has more than one pad entry" Axis.pp axis
 end
 
+(* `aten.cat.default`'s two possible faults: no tensors at all, or a
+   non-concatenated axis that disagrees between two operands. The
+   concatenated axis's own overflow reuses [Window_over_limit]'s
+   [`Output_extent] row instead of a third fault here -- it IS the output
+   extent on that axis. *)
+module Concat = struct
+  type mismatch = {
+    axis : Axis.t;
+    first : Dim.extent Dim.t;
+    other : Dim.extent Dim.t;
+  }
+
+  type t = Empty | Axis_mismatch of mismatch
+
+  let pp ppf = function
+    | Empty -> Fmt.string ppf "concat: at least one tensor is required"
+    | Axis_mismatch { axis; first; other } ->
+        Fmt.pf ppf
+          "concat: axis %a extent must agree across every tensor (it is not \
+           the concatenated axis): %a vs %a"
+          Axis.pp axis Dim.pp first Dim.pp other
+end
+
 module Convolution = struct
   type channels_divisibility = { channels : int; groups : int }
 
@@ -446,6 +469,7 @@ type t =
   | `Clamp of Clamp.error
   | `Linear of Linear.error
   | `Bmm of Bmm.error
+  | `Concat of Concat.t
   | `Output_count_over_limit of Output_count.t
   | `Pad of Pad.t
   | `Permute of Permute.t
@@ -464,6 +488,7 @@ let pp ppf = function
   | `Clamp e -> Clamp.pp_error ppf e
   | `Linear e -> Linear.pp_error ppf e
   | `Bmm e -> Bmm.pp_error ppf e
+  | `Concat e -> Concat.pp ppf e
   | `Output_count_over_limit e -> Output_count.pp ppf e
   | `Pad e -> Pad.pp ppf e
   | `Permute e -> Permute.pp ppf e

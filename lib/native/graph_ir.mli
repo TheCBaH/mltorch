@@ -37,6 +37,11 @@ type op =
   | Bmm of Matmul.Bmm.t
   | Clamp of Pointwise.Clamp.t
   | Clone of Pointwise.Clone.t
+  (* Variadic: joins its whole operand list along one axis. The only op
+     besides [Unbind] whose arity is not fixed by the op itself, but on the
+     INPUT side rather than the output — [operands]/[map_operands] already
+     generalise to a list, so nothing about them changed to admit it. *)
+  | Concat of Concat.Concat.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t
@@ -65,6 +70,11 @@ type op =
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
   | Sdpa of Attention.Sdpa.t
+  (* Picks one index along one axis and DROPS it, unlike [Slice] which keeps a
+     strided range at unchanged rank. Reuses [Slice]'s [output_shape]/[Compute]
+     over a one-wide window rather than naming its own shape/pixel rule, so it
+     never decomposes into a [Slice]+[Reshape] pair. *)
+  | Select of Split.Select.t
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   (* Selects a strided range along one axis and KEEPS it, so unlike [Unbind]
@@ -73,6 +83,11 @@ type op =
      payload exists. *)
   | Slice of Split.Slice.t
   | Sqrt of Pointwise.Sqrt.t
+  (* Variadic like [Concat], but inserts a new size-1 axis per operand before
+     joining rather than joining along an existing one. Reuses [Concat]'s
+     [output_shape] over each operand's unsqueezed shape rather than naming
+     its own shape rule, so it never decomposes into N [Reshape]s + [Concat]. *)
+  | Stack of Concat.Stack.t
   | Sub of Pointwise.Sub.t
   (* The only op whose output COUNT is not fixed by the op: it is the extent at
      the selected axis, so the arity comes from the operand signature.

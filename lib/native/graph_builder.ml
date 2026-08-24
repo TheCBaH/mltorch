@@ -200,6 +200,9 @@ let clamp ?name (params : Pointwise.Clamp.params) x =
 
 let clone ?name x = op1 ?name ~kind:"clone" (Clone { Pointwise.Clone.x })
 
+let concat ?name params xs =
+  op1 ?name ~kind:"concat" (Concat { Concat.Concat.params; xs })
+
 let conv2d ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"conv2d" (Conv2d { Conv.Conv2d.params; x; weight; bias })
 
@@ -309,6 +312,9 @@ let sdpa ?name params ~query ~key ~value ?mask () =
   op1 ?name ~kind:"sdpa"
     (Sdpa { Attention.Sdpa.params; query; key; value; mask })
 
+let select ?name params x =
+  op1 ?name ~kind:"select" (Select { Split.Select.params; x })
+
 let sigmoid ?name x =
   op1 ?name ~kind:"sigmoid" (Sigmoid { Pointwise.Sigmoid.x })
 
@@ -317,6 +323,9 @@ let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })
 
 let slice ?name params x =
   op1 ?name ~kind:"slice" (Slice { Split.Slice.params; x })
+
+let stack ?name params xs =
+  op1 ?name ~kind:"stack" (Stack { Concat.Stack.params; xs })
 
 let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
 
