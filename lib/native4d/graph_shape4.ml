@@ -154,7 +154,7 @@ let output_shape (op : Op.t)
   | Clamp { Pointwise.Clamp.params; x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Clamp.output_shape params x_shape))
-  | Gelu { Pointwise.Gelu.x } ->
+  | Gelu { Pointwise.Gelu.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Gelu.output_shape x_shape))
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->

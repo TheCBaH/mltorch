@@ -981,19 +981,22 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         (let* x = native_tensor_arg aten_env node "self" in
          let* approximate = string_arg ~default:"none" node "approximate" in
-         let* () =
-           if String.equal approximate "none" then return ()
-           else
-             fail
-               (`Validation_failure
-                  (Printf.sprintf
-                     "gelu approximate=%s is not supported (only \"none\")"
-                     approximate))
+         let* approximate =
+           match approximate with
+           | "none" -> return Pointwise.Gelu.Exact
+           | "tanh" -> return Pointwise.Gelu.Tanh
+           | _ ->
+               fail
+                 (`Validation_failure
+                    (Printf.sprintf
+                       "gelu approximate=%s is not supported (only \"none\" or \
+                        \"tanh\")"
+                       approximate))
          in
          build_g ~name:"gelu" [ x ] (function
            | [ x_id ] ->
                let open Graph_builder in
-               let+ y = gelu x_id in
+               let+ y = gelu approximate x_id in
                [ y ]
            | _ -> assert false))
   | "torch.ops.aten.hardsigmoid.default" | "torch.ops.aten.hardsigmoid_.default"

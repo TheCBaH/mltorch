@@ -632,45 +632,111 @@ end
 
 module Gelu = struct
   (* [aten.gelu.default]: schema `gelu(Tensor self, *, str approximate="none")
-     -> Tensor`. Only `approximate="none"` (the exact, erf-based form) is
-     implemented; `approximate` is validated and rejected at the import
-     boundary (Op_bridge/Native_interp), so it carries no information in this
-     payload -- the shape is identical to [Silu]'s. *)
-  type t = { x : Tensor_ref.t }
+     -> Tensor`. A closed variant, not a string: ATen's `approximate` argument
+     has two spellings and this engine implements both, so the payload names
+     them rather than carrying the ATen string through (same reasoning as
+     [Pad.mode]). Anything other than "none"/"tanh" is rejected at the import
+     boundary (Op_bridge/Native_interp) and never reaches this type. *)
+  type approximate =
+    | Exact  (** `approximate="none"`: the exact, erf-based form *)
+    | Tanh  (** `approximate="tanh"`: the tanh-based approximation *)
+
+  type t = { x : Tensor_ref.t; approximate : approximate }
 
   let name = "Gelu"
+
+  let pp_approximate fmt = function
+    | Exact -> Fmt.string fmt "none"
+    | Tanh -> Fmt.string fmt "tanh"
+
+  (* [{"none":null}] / [{"tanh":null}], the same single-key union
+     [Pad.mode_jsont] uses -- tagged with ATen's own strings so a decode error
+     or a raw dump of a native graph JSON reads directly against the PT2
+     schema. *)
+  let approximate_jsont : approximate Jsont.t =
+    Jsont.map ~kind:(name ^ ".approximate")
+      ~dec:
+        (Json_util.union ~kind:(name ^ ".approximate")
+           [ ("none", fun _ -> Exact); ("tanh", fun _ -> Tanh) ])
+      ~enc:(function
+        | Exact -> Json_util.single ~case:"none" Json_util.jnull
+        | Tanh -> Json_util.single ~case:"tanh" Json_util.jnull)
+      Jsont.json
 
   let jsont : t Jsont.t =
     Jsont.map ~kind:name
       ~dec:(fun json ->
         let ms = Json_util.req_obj json name in
-        { x = Json_util.req_field ms "x" Tensor_ref.jsont name })
+        {
+          x = Json_util.req_field ms "x" Tensor_ref.jsont name;
+          approximate =
+            Json_util.req_field ms "approximate" approximate_jsont name;
+        })
       ~enc:(fun t ->
-        Json_util.jobj [ ("x", Json_util.enc Tensor_ref.jsont t.x) ])
+        Json_util.jobj
+          [
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+            ("approximate", Json_util.enc approximate_jsont t.approximate);
+          ])
       Jsont.json
 
   let operands (t : t) = [ t.x ]
-  let map_operands f (t : t) = { x = f t.x }
+  let map_operands f (t : t) = { t with x = f t.x }
 
   let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
-    Fmt.pf fmt "@[<hv 2>gelu@ x=%a@]" pp_ref t.x
+    Fmt.pf fmt "@[<hv 2>gelu@ x=%a@ approximate=%a@]" pp_ref t.x pp_approximate
+      t.approximate
 
   let output_shape (x_shape : Vec6.shape) = Err.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct
-    (* gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2))), the exact ("none") form. *)
-    let pixel x (out : Semantics.position S.index Vec6.t) =
+    (* "none": gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2))), the exact form.
+
+       "tanh": gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))),
+       PyTorch's tanh approximation. [tanh] itself is select/exp-expressible
+       (tanh y = 2*sigmoid(2y) - 1), so it costs no new SEMANTICS primitive,
+       Expr.Value constructor, or eval/pp arm -- same reasoning as relu/max/min
+       in semantics.ml. Written as [Sigmoid]'s own stable form, 1/(1+exp(-2y)):
+       the naive (exp(2y)-1)/(exp(2y)+1) overflows to inf/inf = nan for large
+       positive [y] (observed: x=10000 in the activation fixture), where the
+       1/(1+exp(-2y)) form only ever divides a finite numerator by a sum that
+       saturates to 0 or +inf, never producing an indeterminate ratio. *)
+    let pixel (approximate : approximate) x
+        (out : Semantics.position S.index Vec6.t) =
       let v = S.load x out in
-      S.mul
-        (S.mul (S.const 0.5) v)
-        (S.add (S.const 1.) (S.erf (S.div v (S.sqrt (S.const 2.)))))
+      match approximate with
+      | Exact ->
+          S.mul
+            (S.mul (S.const 0.5) v)
+            (S.add (S.const 1.) (S.erf (S.div v (S.sqrt (S.const 2.)))))
+      | Tanh ->
+          let c0 =
+            0.7978845608028654
+            (* sqrt(2/pi) *)
+          in
+          let cubic = S.mul v (S.mul v v) in
+          let inner =
+            S.mul (S.const c0) (S.add v (S.mul (S.const 0.044715) cubic))
+          in
+          let sigmoid_2y =
+            S.div (S.const 1.)
+              (S.add (S.const 1.)
+                 (S.exp (S.sub (S.const 0.) (S.mul (S.const 2.) inner))))
+          in
+          let tanh_inner = S.sub (S.mul (S.const 2.) sigmoid_2y) (S.const 1.) in
+          S.mul (S.mul (S.const 0.5) v) (S.add (S.const 1.) tanh_inner)
   end
 
   module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t }
+    type cfg = { shape : Walk_core.Shape.t; approximate : approximate }
+
+    let candidates = [ Exact; Tanh ]
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
+        approximate = Exact;
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_bridge.vec6 c.shape
@@ -680,10 +746,13 @@ module Gelu = struct
         [
           shape_axis "input" L.limits
             ~get:(fun c -> c.shape)
-            ~set:(fun _ s -> { shape = s });
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "approximate" candidates (fun c a ->
+              { c with approximate = a });
         ]
 
-    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
+    let pp fmt (c : cfg) =
+      Fmt.pf fmt "%a %a" Walk_core.Shape.pp c.shape pp_approximate c.approximate
   end
 end
 

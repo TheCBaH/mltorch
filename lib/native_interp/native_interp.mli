@@ -137,9 +137,9 @@ type unsupported_option =
     it one.
 
     [`Approximate] is [gelu.default]'s [approximate] parameter: only ["none"]
-    (the exact, erf-based form) is implemented, so a ["tanh"] value is rejected
-    by name rather than silently computing the wrong formula under the right op.
-*)
+    (the exact, erf-based form) and ["tanh"] (PyTorch's tanh approximation) are
+    implemented, so any other spelling is rejected by name rather than silently
+    computing the wrong formula under the right op. *)
 
 type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
 (** Two different rejections, not one with a message. Both recoverable — see

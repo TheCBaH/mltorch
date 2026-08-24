@@ -79,9 +79,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Clamp { Pointwise.Clamp.params; x } ->
         let module C = Pointwise.Clamp.Compute (S) in
         C.pixel params (operand x) out
-    | Gelu { Pointwise.Gelu.x } ->
+    | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
-        C.pixel (operand x) out
+        C.pixel approximate (operand x) out
     | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
         let module C = Pointwise.Hardsigmoid.Compute (S) in
         C.pixel (operand x) out

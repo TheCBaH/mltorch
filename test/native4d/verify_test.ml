@@ -79,7 +79,12 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
     (build "gelu"
        (let open Graph_builder in
         let* x = input ~shape:nhwc () in
-        gelu x));
+        gelu Pointwise.Gelu.Exact x));
+  check "gelu tanh"
+    (build "gelu tanh"
+       (let open Graph_builder in
+        let* x = input ~shape:nhwc () in
+        gelu Pointwise.Gelu.Tanh x));
   check "mul_scalar"
     (build "mul_scalar"
        (let open Graph_builder in
@@ -130,6 +135,7 @@ let%expect_test "verify: the direct and reinterpreting legalizations" =
     silu                     2 clusters: 2 proved (structural)
     sigmoid                  2 clusters: 2 proved (structural)
     gelu                     2 clusters: 2 proved (structural)
+    gelu tanh                2 clusters: 2 proved (structural)
     mul_scalar               2 clusters: 2 proved (structural)
     add_scalar               2 clusters: 2 proved (structural)
     hardsigmoid              2 clusters: 2 proved (structural)

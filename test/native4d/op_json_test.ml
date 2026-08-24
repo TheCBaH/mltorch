@@ -75,7 +75,7 @@ let samples : Op.t list =
       };
     Div { Pointwise.Bin.a = x; b = y };
     Div_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
-    Gelu { Pointwise.Gelu.x };
+    Gelu { Pointwise.Gelu.x; approximate = Exact };
     Hardsigmoid { Pointwise.Hardsigmoid.x };
     Hardswish { Pointwise.Hardswish.x };
     Hardtanh { Pointwise.Hardtanh.params = { min_val = 0.; max_val = 6. }; x };
@@ -183,7 +183,7 @@ let%expect_test "op4: printed" =
              in_channels=4}
     div a=t0 b=t1
     div_scalar x=t0 scalar=2
-    gelu x=t0
+    gelu x=t0 approximate=none
     hardsigmoid x=t0
     hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}

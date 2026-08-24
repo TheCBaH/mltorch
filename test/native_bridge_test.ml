@@ -1579,6 +1579,14 @@ let%expect_test "dispatch: gelu.default elementwise" =
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=2] {-5.94073e-09, -0.154269, 0.345731, 6} |}]
 
+let%expect_test "dispatch: gelu.default elementwise (tanh)" =
+  let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
+  dispatch_print ~target:"torch.ops.aten.gelu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_string "approximate" "tanh" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {-8.43965e-11, -0.154286, 0.345714, 6} |}]
+
 let%expect_test "dispatch: mul.Tensor with a serialized scalar" =
   let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
   dispatch_print ~target:"torch.ops.aten.mul.Tensor"
@@ -1712,13 +1720,30 @@ let%expect_test "verify: gelu against real ATen, functional" =
     aten and native agree
     aten and native agree |}]
 
-let%expect_test "dispatch: gelu.default rejects a non-none approximate" =
+(* Same two fixtures, but [approximate="tanh"]: proves the tanh formula
+   against ATen's own tanh kernel, not just against Direct/Symbolic agreeing
+   with each other (native_op_walk's gelu walk only proves the latter). *)
+let%expect_test "verify: gelu (tanh) against real ATen, functional" =
+  let a = float_tensor [ 2; 7 ] activation_fixture in
+  verify_print ~target:"torch.ops.aten.gelu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_string "approximate" "tanh" ];
+  let b = float_tensor [ 2; 7 ] gelu_boundary_fixture in
+  verify_print ~target:"torch.ops.aten.gelu.default"
+    ~bindings:[ ("self", b) ]
+    ~inputs:[ in_tensor "self"; in_string "approximate" "tanh" ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "dispatch: gelu.default rejects an unrecognized approximate" =
   let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
   dispatch_print ~target:"torch.ops.aten.gelu.default"
     ~bindings:[ ("self", a) ]
-    ~inputs:[ in_tensor "self"; in_string "approximate" "tanh" ]
+    ~inputs:[ in_tensor "self"; in_string "approximate" "unsupported" ]
     ~noutputs:1;
-  [%expect {| error: gelu approximate=tanh is not supported (only "none") |}]
+  [%expect
+    {| error: gelu approximate=unsupported is not supported (only "none" or "tanh") |}]
 
 let%expect_test "verify: mul.Tensor with a serialized scalar against real ATen"
     =

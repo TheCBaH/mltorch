@@ -446,9 +446,15 @@ matches the ATen kernel's literal source order, which is why it is pinned.
 `Div_scalar`'s twin, reusing `Scalar_bin`/`Scalar_binary` unchanged with
 `S.mul` as the combine.
 
-`Gelu` implements only the exact, erf-based form (`approximate="none"`, the
-ATen schema default): `gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))`. `erf` is a
-genuine third transcendental primitive alongside `exp`/`sqrt` — added to
+`Gelu` implements both ATen `approximate` spellings, named by a closed
+`approximate = Exact | Tanh` field on `Pointwise.Gelu.t` (not the raw ATen
+string — the same reasoning as `Pad.mode`), encoded as the single-key JSON
+union `{"none":null}` / `{"tanh":null}` so a dump reads directly against the
+PT2 schema.
+
+`Exact` (`approximate="none"`, the ATen schema default) is the erf-based
+form: `gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))`. `erf` is a genuine third
+transcendental primitive alongside `exp`/`sqrt` — added to
 `Expr.Value.unary_op`, `SEMANTICS`, `Direct`, and `Symbolic` — implemented once
 as an Abramowitz–Stegun 7.1.26 rational approximation (max absolute error
 ~1.5e-7, well inside `default_atol = 1e-5`) in `Expr.Value.apply_unary`'s `Erf`
@@ -460,16 +466,28 @@ approximation's numerical accuracy — that proof is
 activation fixture and a boundary fixture (large ±magnitude, signed zero,
 near-zero) against real ATen.
 
-`approximate="tanh"` (the second gelu formula) is **not implemented**.
-`Op_bridge` and `Native_interp` both decode `approximate` and reject any
-non-`"none"` value with a typed error (`` `Validation_failure`` /
-`` `Unsupported_option``) rather than silently computing the wrong function
-under the right op name — matching the existing rule for `add`/`sub`'s
-`alpha`. This is a real gap in practice, not a hypothetical: `test_convnext2`
-(one of the models `Gelu` support was meant to unblock) serializes
-`gelu.default` with `approximate="tanh"`, so it stays blocked on this
-rejection rather than on a missing `Gelu` op — see
-`test/me_visualize_frontier_cram.t`, which pins this outcome.
+`Tanh` (`approximate="tanh"`) is PyTorch's tanh approximation:
+`gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))`. Unlike
+`erf`, `tanh` costs no new `SEMANTICS` primitive: it is
+select/exp-expressible (`tanh y = 2*sigmoid(2y) - 1`), so `Compute.pixel`
+writes it out in the existing basis, in `Sigmoid`'s own stable form
+(`1 / (1 + exp(-2y))`) rather than the textbook `(exp(2y)-1)/(exp(2y)+1)` —
+the latter overflows to `inf/inf = nan` for large positive `y` (observed at
+`x=10000` in the shared activation fixture before the fix), while the
+`Sigmoid` form only ever divides a finite numerator by a sum that saturates to
+`0` or `+inf`, never an indeterminate ratio. Proved against real ATen the same
+way as `Exact`, in `test/native_bridge_test.ml`'s "verify: gelu (tanh)..." over
+both fixtures, and structurally at the Native4D lowering in
+`test/native4d/verify_test.ml`'s "gelu tanh" cluster.
+
+Any `approximate` value other than `"none"`/`"tanh"` is rejected at the import
+boundary: `Op_bridge` and `Native_interp` both decode the string and raise a
+typed error (`` `Validation_failure`` / `` `Unsupported_option``) rather than
+silently computing the wrong function under the right op name — matching the
+existing rule for `add`/`sub`'s `alpha`. `test_convnext2` serializes
+`gelu.default` with `approximate="tanh"`; it is fully available end to end
+(see `test/me_visualize_frontier_cram.t`), which is what motivated implementing
+`Tanh` rather than leaving it as a documented gap.
 
 ### 2f. `RmsNorm` and `LayerNorm` — reductions over named axes, and two of them
 

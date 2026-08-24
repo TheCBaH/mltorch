@@ -176,7 +176,12 @@ let%expect_test "lower: Group 5 activations pass straight through" =
     (build "gelu"
        (let open Graph_builder in
         let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
-        gelu x));
+        gelu Pointwise.Gelu.Exact x));
+  show "gelu tanh"
+    (build "gelu tanh"
+       (let open Graph_builder in
+        let* x = input ~shape:(Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3) () in
+        gelu Pointwise.Gelu.Tanh x));
   show "hardsigmoid"
     (build "hardsigmoid"
        (let open Graph_builder in
@@ -205,7 +210,13 @@ let%expect_test "lower: Group 5 activations pass straight through" =
       graph4
     inputs: [t0 [H=2 W=2 C=3]]
     nodes:
-      n0: [t1] = gelu x=t0
+      n0: [t1] = gelu x=t0 approximate=none
+    outputs: [t1 [H=2 W=2 C=3]]
+    gelu tanh:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = gelu x=t0 approximate=tanh
     outputs: [t1 [H=2 W=2 C=3]]
     hardsigmoid:
       graph4

@@ -380,7 +380,7 @@ let sink_permute_allowlist () =
       in
       let* r_silu = single silu in
       let* r_sigmoid = single sigmoid in
-      let* r_gelu = single gelu in
+      let* r_gelu = single (gelu Pointwise.Gelu.Exact) in
       let* r_mul_scalar = single (mul_scalar 2.) in
       let* r_hardsigmoid = single hardsigmoid in
       let* r_hardswish = single hardswish in
