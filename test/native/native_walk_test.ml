@@ -488,4 +488,52 @@ let%expect_test "native walk coverage" =
     step 4 [input]: {shape=[n=2 c=4 h=4 w=8] axis=N start=1 stop=2 step=1}
     [native] slice: direct==symbolic
     step 5 [pattern]: {shape=[n=2 c=4 h=4 w=8] axis=N start=1 stop=2 step=1}
-    [native] slice: direct==symbolic |}]
+    [native] slice: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4]
+    [native] div: direct==symbolic
+    step 1 [input]: [n=1 c=3 h=4 w=9]
+    [native] div: direct==symbolic
+    step 2 [input]: [n=1 c=3 h=4 w=5]
+    [native] div: direct==symbolic
+    step 3 [input]: [n=1 c=3 h=4 w=6]
+    [native] div: direct==symbolic
+    step 4 [input]: [n=1 c=3 h=4 w=6]
+    [native] div: direct==symbolic
+    step 5 [input]: [n=1 c=4 h=4 w=6]
+    [native] div: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4]
+    [native] sqrt: direct==symbolic
+    step 1 [input]: [n=1 c=6 h=4 w=4]
+    [native] sqrt: direct==symbolic
+    step 2 [input]: [n=1 c=6 h=15 w=4]
+    [native] sqrt: direct==symbolic
+    step 3 [input]: [n=1 c=6 h=15 w=1]
+    [native] sqrt: direct==symbolic
+    step 4 [input]: [n=1 c=6 h=14 w=1]
+    [native] sqrt: direct==symbolic
+    step 5 [input]: [n=1 c=1 h=14 w=1]
+    [native] sqrt: direct==symbolic
+    step 0: {batch=1 n=2 m=3 p=4}
+    [native] bmm: direct==symbolic
+    step 1 [m]: {batch=1 n=2 m=1 p=4}
+    [native] bmm: direct==symbolic
+    step 2 [m]: {batch=1 n=2 m=1 p=4}
+    [native] bmm: direct==symbolic
+    step 3 [batch]: {batch=1 n=2 m=1 p=4}
+    [native] bmm: direct==symbolic
+    step 4 [batch]: {batch=2 n=2 m=1 p=4}
+    [native] bmm: direct==symbolic
+    step 5 [n]: {batch=2 n=8 m=1 p=4}
+    [native] bmm: direct==symbolic
+    step 0: {shape=[1,4,8,8] output_size=[4,4]}
+    [native] adaptive_avg_pool2d: direct==symbolic
+    step 1 [c]: {shape=[1,4,8,8] output_size=[4,4]}
+    [native] adaptive_avg_pool2d: direct==symbolic
+    step 2 [out_h]: {shape=[1,4,8,8] output_size=[3,4]}
+    [native] adaptive_avg_pool2d: direct==symbolic
+    step 3 [input_h]: {shape=[1,4,9,8] output_size=[3,4]}
+    [native] adaptive_avg_pool2d: direct==symbolic
+    step 4 [out_h]: {shape=[1,4,9,8] output_size=[5,4]}
+    [native] adaptive_avg_pool2d: direct==symbolic
+    step 5 [c]: {shape=[1,6,9,8] output_size=[5,4]}
+    [native] adaptive_avg_pool2d: direct==symbolic |}]
