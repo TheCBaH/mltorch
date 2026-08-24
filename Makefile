@@ -2,15 +2,17 @@
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
-PT2_MANIFEST_VERSION := 1
-PT2_RELEASE := v0.0.3
+# PT2_MANIFEST is now a vendored, byte-for-byte copy of the producer's own
+# release manifest.json (schemas/manifest.schema.json in the submodule) --
+# not a hand-authored subset -- so archive URLs/digests/required members and
+# retirement info all come from it instead of being re-typed here.
+PT2_MANIFEST_VERSION := 2
+PT2_RELEASE := v0.0.4
 PT2_REPO := TheCBaH/devcontainer.pytorch-image-models
 PT2_MODEL := mobilenetv2_050
 PT2_DIR := data/pt2-functional
 PT2_MANIFEST := data/pt2-functional-manifest.json
 PT2_MODEL_DIR = $(PT2_DIR)/$(PT2_MODEL)
-PT2_ZIP = $(PT2_MODEL_DIR)/$(PT2_MODEL).zip
-PT2_URL = https://github.com/$(PT2_REPO)/releases/download/$(PT2_RELEASE)/$(PT2_MODEL).zip
 
 # Roles are explicit compatibility claims, not a mirror of the producer zoo.
 PT2_MODELS_FIXTURES := mobilenetv2_050 test_convnext2
@@ -36,19 +38,7 @@ PT2_NATIVE_VERIFY_MODELS := $(PT2_MODELS_NATIVE_VERIFY)
 # Fetch one manifest-listed release asset.  Download is the only target allowed
 # to refresh assets; tests merely preflight what is already present.
 pt2.download:
-	mkdir -p $(PT2_MODEL_DIR)
-	test -f $(PT2_ZIP) || curl -fsSL -o $(PT2_ZIP) $(PT2_URL)
-	@expected=$$(jq -r '.assets["$(PT2_MODEL)"] // empty' $(PT2_MANIFEST)); \
-	test -n "$$expected" || { echo "pt2.download: $(PT2_MODEL) is not in $(PT2_MANIFEST)" >&2; exit 1; }; \
-	echo "$$expected  $(PT2_ZIP)" | sha256sum -c -
-	cd $(PT2_MODEL_DIR) && unzip -o $(PT2_MODEL).zip
-	@for f in $(PT2_MODEL).pt2 preprocessing.json expected.json inputs.pt outputs.pt; do \
-		test -f $(PT2_MODEL_DIR)/$$f || { echo "pt2.download: $(PT2_MODEL) archive lacks $$f" >&2; exit 1; }; \
-	done
-	@release=$$(mktemp); source=$$(mktemp); trap 'rm -f "$$release" "$$source"' EXIT; \
-	unzip -p $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 $(PT2_MODEL)/models/model.json | jq -S . >"$$release"; \
-	jq -S . modules/devcontainer.pytorch-image-models/models/$(PT2_MODEL)/models/model.json >"$$source"; \
-	cmp -s "$$release" "$$source" || { echo "pt2.download: release graph differs from pinned producer graph for $(PT2_MODEL)" >&2; exit 1; }
+	scripts/pt2-download.sh $(PT2_MODEL) $(PT2_MANIFEST) $(PT2_MODEL_DIR) $(PT2_RELEASE)
 
 # Download the models the cram tests need (cheap next to the full set: 5
 # models, ~410 MB).
