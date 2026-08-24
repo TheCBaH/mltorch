@@ -14,7 +14,8 @@ type arg_kind =
   | `Scalar
   | `Optional_scalar
   | `String
-  | `Tensor_or_scalar ]
+  | `Tensor_or_scalar
+  | `Tensor_list ]
 
 (* [Zero] is not a sub-case of [Negative]: the engine forbids an empty extent by
    construction ([Dim.extent] is >= 1), so a declared 0 is a shape this dialect
@@ -76,6 +77,10 @@ type metadata_role =
   | `Pad_input
   | `Slice_input
   | `Unbind_input
+  | `Select_input
+  | `Unsqueeze_input
+  | `Concat_input
+  | `Stack_input
   | `Addmm_weight
   | `Sdpa_query
   | `Sdpa_key
@@ -183,6 +188,20 @@ module Bad_slice = struct
   }
 end
 
+module Bad_select = struct
+  type t = { index : int; fault : [ `Aten_shape of Aten_shape.error ] }
+end
+
+(* [cat.default]/[stack.default]: every tensor in the list must share one
+   rank, the same check [Op_bridge]'s [Concat_rank_mismatch] makes and for
+   the same reason -- two different ranks land their data on different frame
+   axes, so a rank disagreement would otherwise surface as a confusing
+   off-axis extent mismatch from [Concat]'s own shape rule rather than the
+   rank fault it actually is. *)
+module Concat_rank_mismatch = struct
+  type t = { op : string; first : int; other : int }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
@@ -206,7 +225,10 @@ type malformed =
   | `Output_not_evaluated of Graph_ir.Tensor_id.t
   | `Bad_view of Bad_view.t
   | `Bad_slice of Bad_slice.t
-  | `Sdpa_reject of Attention.Sdpa.Reject.t ]
+  | `Bad_select of Bad_select.t
+  | `Sdpa_reject of Attention.Sdpa.Reject.t
+  | `Concat_no_tensors of string
+  | `Concat_rank_mismatch of Concat_rank_mismatch.t ]
 
 module Rank_mismatch = struct
   type t = { sizes : int; strides : int }
@@ -263,6 +285,7 @@ let pp_arg_kind ppf : arg_kind -> unit = function
   | `Optional_scalar -> Fmt.string ppf "an optional scalar"
   | `String -> Fmt.string ppf "a string"
   | `Tensor_or_scalar -> Fmt.string ppf "a tensor or scalar"
+  | `Tensor_list -> Fmt.string ppf "a tensor list"
 
 let pp_metadata_role ppf : metadata_role -> unit = function
   | `Tensor -> Fmt.string ppf "tensor"
@@ -285,6 +308,10 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Pad_input -> Fmt.string ppf "pad input"
   | `Slice_input -> Fmt.string ppf "slice input"
   | `Unbind_input -> Fmt.string ppf "unbind input"
+  | `Select_input -> Fmt.string ppf "select input"
+  | `Unsqueeze_input -> Fmt.string ppf "unsqueeze input"
+  | `Concat_input -> Fmt.string ppf "concat input"
+  | `Stack_input -> Fmt.string ppf "stack input"
   | `Addmm_weight -> Fmt.string ppf "addmm weight"
   | `Sdpa_query -> Fmt.string ppf "sdpa query"
   | `Sdpa_key -> Fmt.string ppf "sdpa key"
@@ -382,7 +409,15 @@ let pp_malformed ppf : [< malformed ] -> unit = function
           Fmt.pf ppf "view size [%a]: %a" ints size Aten_shape.pp_error e
       | `Numel_over_limit e ->
           Fmt.pf ppf "view size [%a]: %a" ints size Vec6.Numel_bound.pp e)
+  | `Bad_select { Bad_select.index; fault } -> (
+      match fault with
+      | `Aten_shape e ->
+          Fmt.pf ppf "select index %d: %a" index Aten_shape.pp_error e)
   | `Sdpa_reject e -> Attention.Sdpa.Reject.pp ppf e
+  | `Concat_no_tensors op -> Fmt.pf ppf "%s: at least one tensor is required" op
+  | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
+      Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
+        other
 
 let pp_tensor_bridge ppf : [< tensor_bridge ] -> unit = function
   | #malformed as e -> pp_malformed ppf e
@@ -480,6 +515,17 @@ let tensor_name esc (node : Pytorch_types.Node.t) name =
   | _ ->
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Tensor })
+
+(* [cat.default]/[stack.default]'s [tensors] argument, the first Tensor[]-typed
+   ARGUMENT this module decodes (every earlier [Argument.Tensors] use is on
+   the OUTPUT side, e.g. [output_names]). *)
+let tensor_names_arg esc (node : Pytorch_types.Node.t) name =
+  match find_arg esc node name with
+  | Argument.Tensors ts -> List.map (fun (t : TensorArgument.t) -> t.name) ts
+  | _ ->
+      malformed esc
+        (`Wrong_arg_kind
+           { op = node.target; arg = name; expected = `Tensor_list })
 
 (* [~absent_ok] distinguishes an argument that is PRESENT and None from one not
    in the node's input list at all. The schema default for every optional tensor
@@ -1241,6 +1287,17 @@ let resolve_slice_arg esc ~extent ~start ~stop ~step =
          `Bad_slice { Bad_slice.start; stop; step; fault = `Aten_shape e })
        (Aten_shape.resolve_slice ~extent ~start ~stop ~step))
 
+(* [aten.select.int]'s index, shared with [Op_bridge] the same way
+   [resolve_slice_arg] shares [Aten_shape.resolve_slice]: ATen REJECTS an
+   out-of-range index rather than clamping it, so this cannot reuse
+   [resolve_slice_arg]'s bound. *)
+let resolve_select_index esc ~extent ~index =
+  Err.Escape.or_throw esc
+    (Err.map_error
+       (fun e : error ->
+         `Bad_select { Bad_select.index; fault = `Aten_shape e })
+       (Aten_shape.resolve_index ~extent ~index))
+
 let lower program =
   Err.Escape.with_escape @@ fun esc ->
   Err.Escape.or_throw esc
@@ -1867,6 +1924,140 @@ let lower program =
                  ~value:(float_opt_arg_opt esc node "value"))
           in
           let* y = pad params (get "self") in
+          return [ y ]
+      (* The variadic Native [Concat] op, direct -- see [Op_bridge]'s
+         "torch.ops.aten.cat.default" arm for why the rank check runs BEFORE
+         [Concat]'s own axis-agreement shape rule rather than being left to
+         it. *)
+      | "torch.ops.aten.cat.default" -> (
+          match tensor_names_arg esc node "tensors" with
+          | [] -> malformed esc (`Concat_no_tensors node.target)
+          | name0 :: _ as names ->
+              let rank =
+                meta_rank (tensor_meta esc graph ~ssa:name0 ~role:`Concat_input)
+              in
+              List.iter
+                (fun name ->
+                  let got =
+                    meta_rank
+                      (tensor_meta esc graph ~ssa:name ~role:`Concat_input)
+                  in
+                  if got <> rank then
+                    malformed esc
+                      (`Concat_rank_mismatch
+                         {
+                           Concat_rank_mismatch.op = node.target;
+                           first = rank;
+                           other = got;
+                         }))
+                names;
+              let d =
+                let dim = int_arg esc ~default:0 node "dim" in
+                let dim = if dim < 0 then dim + rank else dim in
+                if dim < 0 || dim >= rank then
+                  malformed esc (`Axis_out_of_range { axis = dim; rank });
+                dim
+              in
+              let axis = List.nth (used_axes_for esc ~tensor:name0 rank) d in
+              let* y =
+                concat { Concat.Concat.axis }
+                  (List.map (env_find esc env) names)
+              in
+              return [ y ])
+      (* One [Stack] node: inserts a size-1 axis per operand at [axis], then
+         joins them -- see [Op_bridge]'s arm for why (ATen's own definition),
+         and [unsqueeze.default] below for the rank+1 [dim] convention this
+         reuses via the [d > rank] bound (not [>=]). *)
+      | "torch.ops.aten.stack.default" -> (
+          match tensor_names_arg esc node "tensors" with
+          | [] -> malformed esc (`Concat_no_tensors node.target)
+          | name0 :: _ as names ->
+              let rank =
+                meta_rank (tensor_meta esc graph ~ssa:name0 ~role:`Stack_input)
+              in
+              List.iter
+                (fun name ->
+                  let got =
+                    meta_rank
+                      (tensor_meta esc graph ~ssa:name ~role:`Stack_input)
+                  in
+                  if got <> rank then
+                    malformed esc
+                      (`Concat_rank_mismatch
+                         {
+                           Concat_rank_mismatch.op = node.target;
+                           first = rank;
+                           other = got;
+                         }))
+                names;
+              let d =
+                let dim = int_arg esc ~default:0 node "dim" in
+                let dim = if dim < 0 then dim + rank + 1 else dim in
+                if dim < 0 || dim > rank then
+                  malformed esc (`Axis_out_of_range { axis = dim; rank });
+                dim
+              in
+              let axis =
+                List.nth (used_axes_for esc ~tensor:name0 (rank + 1)) d
+              in
+              let* y =
+                stack { Concat.Stack.axis } (List.map (env_find esc env) names)
+              in
+              return [ y ])
+      (* One [Select] node: picks index [idx] along the normalized axis and
+         drops it. The normalized ATen-level position [d] is needed once, as
+         the frame axis via [used_axes_for], the same shape [transpose.int]'s
+         [norm_dim] takes below. *)
+      | "torch.ops.aten.select.int" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Select_input)
+          in
+          let d =
+            let dim = int_arg esc node "dim" in
+            let dim = if dim < 0 then dim + rank else dim in
+            if dim < 0 || dim >= rank then
+              malformed esc (`Axis_out_of_range { axis = dim; rank });
+            dim
+          in
+          let axis = List.nth (used_axes_for esc ~tensor:x_name rank) d in
+          let shape = tensor_shape esc graph x_name in
+          let extent = Vec6.get shape axis in
+          let idx =
+            resolve_select_index esc ~extent ~index:(int_arg esc node "index")
+          in
+          let* y = select { Split.Select.axis; index = idx } (get "self") in
+          return [ y ]
+      (* Legalized to [Reshape] alone: inserting a size-1 axis never changes
+         the linearized data order, so no [Slice] is needed, unlike
+         [select.int]'s axis removal. [dim] is judged against rank+1 valid
+         positions (the OUTPUT rank), so this does not reuse the local
+         [norm_dim] pattern above verbatim -- the upper bound is relaxed by
+         one, the same adjustment [Op_bridge.norm_unsqueeze_dim] makes. *)
+      | "torch.ops.aten.unsqueeze.default" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Unsqueeze_input)
+          in
+          let d =
+            let dim = int_arg esc node "dim" in
+            let dim = if dim < 0 then dim + rank + 1 else dim in
+            if dim < 0 || dim > rank then
+              malformed esc (`Axis_out_of_range { axis = dim; rank });
+            dim
+          in
+          let shape = tensor_shape esc graph x_name in
+          let aten_list = Array.to_list (Aten_shape.to_aten ~rank shape) in
+          let front = List.filteri (fun i _ -> i < d) aten_list in
+          let back = List.filteri (fun i _ -> i >= d) aten_list in
+          let out_sizes =
+            List.map (fun x -> SymInt.Int x) (front @ [ 1 ] @ back)
+          in
+          let* y =
+            reshape
+              { Reshape.Reshape.shape = shape_of_sizes esc x_name out_sizes }
+              (get "self")
+          in
           return [ y ]
       (* Everything after [Aten_shape.resolve_slice] is shared with the bridge
          arm; what differs is where the extent comes from, and that is the point

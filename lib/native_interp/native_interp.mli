@@ -17,7 +17,8 @@ type arg_kind =
   | `Scalar
   | `Optional_scalar
   | `String
-  | `Tensor_or_scalar ]
+  | `Tensor_or_scalar
+  | `Tensor_list ]
 (** What an argument had to be — exactly the set the decode helpers accept. *)
 
 (** A rank an arm requires against the rank the model declared. One row rather
@@ -93,6 +94,10 @@ type metadata_role =
   | `Pad_input
   | `Slice_input
   | `Unbind_input
+  | `Select_input
+  | `Unsqueeze_input
+  | `Concat_input
+  | `Stack_input
   | `Addmm_weight
   | `Sdpa_query
   | `Sdpa_key
@@ -253,6 +258,21 @@ module Bad_slice : sig
   }
 end
 
+(** A [select.int] index {!Aten_shape.resolve_index} refuses: unlike
+    {!Bad_slice}, ATen rejects an out-of-range index rather than clamping it, so
+    this cannot share that module's bound. Carries the SERIALIZED index for the
+    same reason {!Bad_slice} carries its raw spelling. *)
+module Bad_select : sig
+  type t = { index : int; fault : [ `Aten_shape of Aten_shape.error ] }
+end
+
+(** [cat.default]/[stack.default]: every tensor in the list must share one rank,
+    the same check {!Op_bridge}'s [Concat_rank_mismatch] makes and for the same
+    reason. *)
+module Concat_rank_mismatch : sig
+  type t = { op : string; first : int; other : int }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
@@ -302,7 +322,10 @@ type malformed =
   | `Output_not_evaluated of Graph_ir.Tensor_id.t
   | `Bad_view of Bad_view.t
   | `Bad_slice of Bad_slice.t
-  | `Sdpa_reject of Attention.Sdpa.Reject.t ]
+  | `Bad_select of Bad_select.t
+  | `Sdpa_reject of Attention.Sdpa.Reject.t
+  | `Concat_no_tensors of string
+  | `Concat_rank_mismatch of Concat_rank_mismatch.t ]
 (** A graph the decoder accepted and this lowering cannot read. FLAT-INCLUDED in
     {!error}: it is this module's own failure domain, not a crossed seam. *)
 

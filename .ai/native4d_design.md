@@ -45,6 +45,17 @@ representation:
 - operations outside the reduced dialect are either decomposed into legal
   Native4D operations or cause conversion to fail with a typed diagnostic.
 
+This carries forward the same closeness goal `native_add_op.md` states for the
+ATen↔Native boundary ("Native stays one node per ATen op"), restricted to the
+four nameable axes: §7's table below is direct, op-for-op, for every Native
+operation except `Linear` and single-batch `Bmm`, which have no distinct
+Native4D representation to be direct *onto* — the dialect has no matmul axis
+vocabulary, so folding them into `Conv2D` is the one remaining option, not a
+convenience decomposition of the kind `native_add_op.md` rules out at the
+ATen boundary. A Native op that is itself a multi-node ATen decomposition
+(see that doc's open items) carries no independent identity into Native4D
+either, which is one more reason to close those out in Native first.
+
 Native4D is not an alternative PT2 importer. The staging is always:
 
 ```text

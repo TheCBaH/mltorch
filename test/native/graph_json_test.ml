@@ -144,6 +144,13 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
           let* dead = sub ~name:"dead" act a in
           let* () = discard dead in
           let* _slices = unbind { Split.Unbind.axis = Axis.C } act in
+          let* selected =
+            select { Split.Select.axis = Axis.C; index = 0 } act
+          in
+          let* stacked =
+            stack { Concat.Stack.axis = Axis.C } [ selected; selected ]
+          in
+          let* () = discard stacked in
           let* padded =
             pad
               {
@@ -185,6 +192,9 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
     Sub        tag=Sub        agree=true
     Discard    tag=Discard    agree=true
     Unbind     tag=Unbind     agree=true
+    Select     tag=Select     agree=true
+    Stack      tag=Stack      agree=true
+    Discard    tag=Discard    agree=true
     Pad        tag=Pad        agree=true
     Slice      tag=Slice      agree=true
     Layer_norm tag=Layer_norm agree=true
@@ -909,6 +919,36 @@ let%expect_test "graph with Unbind op: encode → decode → pretty-print" =
     outputs:
       [t1 f32 [W=2 C=4] <-n0, t2 f32 [W=2 C=4] <-n0, t3 f32 [W=2 C=4] <-n0] |}]
 
+(* The [xs] field is the first variadic-OPERAND list codec any op has -- every
+   earlier op's [Tensor_ref.jsont] usage is for a single-arity field or (in
+   [Unbind]'s case) a single-input, multi-OUTPUT op, never a JSON array of
+   operand refs. *)
+let%expect_test "graph with Concat op: encode → decode → pretty-print" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"cat" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 2) ~name:"a" () in
+          let* b = input ~shape:(s1c 3) ~name:"b" () in
+          let* c = input ~shape:(s1c 1) ~name:"c" () in
+          concat ~name:"out" { Concat.Concat.axis = Axis.C } [ a; b; c ])
+    in
+    let* json = encode_graph g in
+    decode_graph json
+  in
+  Format.printf "%a@." (pp_result pp_decoded) result;
+  [%expect
+    {|
+    decoded:
+    graph
+    inputs: [t0 f32 [C=2] ->[n0], t1 f32 [C=3] ->[n0], t2 f32 [C=1] ->[n0]]
+    nodes:
+      n0: [t3 f32 [C=6]] = concat xs=[t0, t1, t2] params={axis=C}
+    outputs: [t3 f32 [C=6] <-n0] |}]
+
 (* ---- Group-2 non-default parameters through the codecs ------------------ *)
 
 (* Every op below already has a [params_jsont], so no new codec is expected --
@@ -1419,3 +1459,44 @@ let%expect_test "Slice: encode -> decode, bounds and a narrowed step" =
              n0: [t1 f32 [H=4 W=3 C=2]] =
                slice x=t0 params={axis=W start=1 stop=8 step=3}
            outputs: [t1 f32 [H=4 W=3 C=2] <-n0] |}]
+
+(* [Select]'s payload is an axis and a bare int [index] -- the new SHAPE here
+   (relative to [Slice]'s three-int/axis payload) is that a single int is
+   easy to confuse with the AXIS position it's judged against on a decode
+   with the fields permuted, so the two are given different values. *)
+let%expect_test "Select: encode -> decode, axis and index" =
+  round_trip "select"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* x = input ~shape:(s 1 1 1 4 9 2) ~name:"x" () in
+      select ~name:"y" { Split.Select.axis = Axis.W; index = 5 } x);
+  [%expect
+    {|
+    select: graph
+            inputs: [t0 f32 [H=4 W=9 C=2] ->[n0]]
+            nodes:
+              n0: [t1 f32 [W=4 C=2]] = select x=t0 params={axis=W index=5}
+            outputs: [t1 f32 [W=4 C=2] <-n0] |}]
+
+(* [Stack]'s payload is variadic like [Concat]'s, but the operand LIST itself
+   is the only field -- no per-op axis/shape metadata to permute -- so the
+   round trip that matters is arity: three operands, not silently truncated
+   or reordered by the codec. *)
+let%expect_test "Stack: encode -> decode, three operands" =
+  round_trip "stack"
+    Graph_builder.(
+      build ~name:"g" ~outputs:(fun r -> [ r ])
+      @@
+      let* a = input ~shape:(s1c 3) ~name:"a" () in
+      let* b = input ~shape:(s1c 3) ~name:"b" () in
+      let* c = input ~shape:(s1c 3) ~name:"c" () in
+      stack ~name:"y" { Concat.Stack.axis = Axis.W } [ a; b; c ]);
+  [%expect
+    {|
+    stack: graph
+           inputs:
+             [t0 f32 [C=3] ->[n0], t1 f32 [C=3] ->[n0], t2 f32 [C=3] ->[n0]]
+           nodes:
+             n0: [t3 f32 [W=3 C=3]] = stack xs=[t0, t1, t2] params={axis=W}
+           outputs: [t3 f32 [W=3 C=3] <-n0] |}]

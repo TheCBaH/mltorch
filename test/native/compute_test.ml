@@ -1245,6 +1245,79 @@ let%expect_test "Direct: unbind along an outer, a middle and an inner axis" =
       out0 [W=2 C=3] tensor f32 [W=2 C=3] {0, 10, 20, 100, 110, 120}
       out1 [W=2 C=3] tensor f32 [W=2 C=3] {1, 11, 21, 101, 111, 121} |}]
 
+(* --- Concat -----------------------------------------------------------
+
+   Hand-computed, same attribution discipline as the Unbind block above: each
+   operand's values carry a distinguishing base offset (a: none, b: 1000, c:
+   2000) so the printed output can be read straight off which operand and
+   local coordinate produced each entry. *)
+let%expect_test "Direct: concat along C, three operands of different width" =
+  let module Cc = Concat.Concat.Compute (Direct) in
+  let a_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let b_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:2 in
+  let c_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let a =
+    Tensor.materialize a_shape (fun c ->
+        float_of_int ((row c * 100) + (col c * 10)))
+  in
+  let b =
+    Tensor.materialize b_shape (fun c ->
+        float_of_int (1000 + (row c * 100) + (col c * 10) + chan c))
+  in
+  let c_ =
+    Tensor.materialize c_shape (fun c ->
+        float_of_int (2000 + (row c * 100) + (col c * 10)))
+  in
+  let params = { Concat.Concat.axis = Axis.C } in
+  let result =
+    eval_tensor
+      (Concat.Concat.output_shape
+         ~xs_shapes:[ a_shape; b_shape; c_shape ]
+         params)
+      (Cc.pixel params ~xs:[ (a_shape, a); (b_shape, b); (c_shape, c_) ])
+  in
+  Format.printf "%a@." (pp_result Tensor.pp) result;
+  [%expect
+    {| tensor f32 [H=2 W=2 C=4] {0, 1000, 1001, 2000, 10, 1010, 1011, 2010, ...} |}]
+
+(* Axis generality: the same op along an OUTER axis (H), two operands of
+   different height. [a]'s single row lands first (output h=0); [b]'s two
+   rows follow (output h=1,2). *)
+let%expect_test "Direct: concat along H, two operands of different height" =
+  let module Cc = Concat.Concat.Compute (Direct) in
+  let a_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:1 in
+  let b_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let a = Tensor.materialize a_shape (fun c -> float_of_int (col c * 10)) in
+  let b =
+    Tensor.materialize b_shape (fun c ->
+        float_of_int (1000 + (row c * 100) + (col c * 10)))
+  in
+  let params = { Concat.Concat.axis = Axis.H } in
+  let result =
+    eval_tensor
+      (Concat.Concat.output_shape ~xs_shapes:[ a_shape; b_shape ] params)
+      (Cc.pixel params ~xs:[ (a_shape, a); (b_shape, b) ])
+  in
+  Format.printf "%a@." (pp_result Tensor.pp) result;
+  [%expect {| tensor f32 [H=3 W=2 C=1] {0, 10, 1000, 1010, 1100, 1110} |}]
+
+(* The overflow/mismatch faults, checked at [output_shape] rather than
+   [Compute.pixel] (which trusts the shapes it is given, like every other
+   op). *)
+let%expect_test "concat output_shape: empty list and a non-concat-axis mismatch"
+    =
+  let a_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let b_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:2 ~c:1 in
+  let params = { Concat.Concat.axis = Axis.C } in
+  Format.printf "%a@." (pp_result Vec6.pp_shape)
+    (Concat.Concat.output_shape ~xs_shapes:[] params);
+  Format.printf "%a@." (pp_result Vec6.pp_shape)
+    (Concat.Concat.output_shape ~xs_shapes:[ a_shape; b_shape ] params);
+  [%expect
+    {|
+    concat: at least one tensor is required
+    concat: axis H extent must agree across every tensor (it is not the concatenated axis): 2 vs 3 |}]
+
 (* The ceiling is EXCLUSIVE, matching [Kernel.Limits.create]'s own [v >= hard]
    test, so 4095 is the largest accepted count. Checked here rather than in the
    builder because this is the boundary that runs BEFORE the list exists: a
@@ -1266,6 +1339,61 @@ let%expect_test "unbind output_shapes: the output-count ceiling is exclusive" =
     4095 -> 4095 outputs
     4096 -> 4096 outputs, above the maximum of 4095
     4097 -> 4097 outputs, above the maximum of 4095 |}]
+
+(* ---- Stack -----------------------------------------------------------
+
+   The case that caught the shape/coordinate direction bug during
+   development: [dim] is NOT the outermost insertion position,
+   so the real per-operand extent moves onto a DIFFERENT native axis than the
+   one the operand's own storage uses (here: native W -> native H), and a
+   naive pass-through of the output coordinate into the operand would read
+   the wrong, always-extent-1 slot. [a]'s values are row*10+col, [b]'s are
+   offset by +100, so a swapped operand or a misrouted coordinate is legible
+   rather than merely unequal. *)
+let%expect_test "Direct: stack at a non-outermost dim, two rank-2 operands" =
+  let module St = Concat.Stack.Compute (Direct) in
+  (* Native shape for a rank-2 ATen tensor [3,4]: the innermost two axes,
+     W (rows) and C (cols). *)
+  let a_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:4 in
+  let a =
+    Tensor.materialize a_shape (fun c -> float_of_int ((col c * 10) + chan c))
+  in
+  let b =
+    Tensor.materialize a_shape (fun c ->
+        float_of_int (100 + (col c * 10) + chan c))
+  in
+  (* ATen [torch.stack([a, b], dim=1)] on two [3,4] operands: axis_of_dim
+     ~rank:3 1 = W, the SAME axis each operand's real row extent already
+     occupies -- the case that exercises the direction bug. *)
+  let params = { Concat.Stack.axis = Axis.W } in
+  let result =
+    eval_tensor
+      (Concat.Stack.output_shape ~xs_shapes:[ a_shape; a_shape ] params)
+      (St.pixel params ~xs:[ a; b ])
+  in
+  Format.printf "%a@." (pp_result Tensor.pp) result;
+  [%expect
+    {|
+    tensor f32 [H=3 W=2 C=4] {0, 1, 2, 3, 100, 101, 102, 103, ...} |}]
+
+(* The boundary case, dim=0: here [Concat]'s and [Stack]'s coordinate spaces
+   coincide, since inserting the OUTERMOST axis relabels nothing -- this is
+   the case both fold directions agree on, so it alone would NOT have caught
+   the bug above; it is here to pin the boundary now that the general case is
+   covered. *)
+let%expect_test "Direct: stack at the outermost dim" =
+  let module St = Concat.Stack.Compute (Direct) in
+  let a_shape = s1c 3 in
+  let a = Tensor.materialize a_shape (fun c -> float_of_int (chan c)) in
+  let b = Tensor.materialize a_shape (fun c -> float_of_int (100 + chan c)) in
+  let params = { Concat.Stack.axis = Axis.W } in
+  let result =
+    eval_tensor
+      (Concat.Stack.output_shape ~xs_shapes:[ a_shape; a_shape ] params)
+      (St.pixel params ~xs:[ a; b ])
+  in
+  Format.printf "%a@." (pp_result Tensor.pp) result;
+  [%expect {| tensor f32 [W=2 C=3] {0, 1, 2, 100, 101, 102} |}]
 
 (* ---- Pad: hand-computed, one rule per test ------------------------------- *)
 
@@ -1601,6 +1729,52 @@ let%expect_test "Slice: the configurations with no Native result" =
     slice of axis W [0, 5) step 1 over extent 4 is not within 0 <= start <= stop <= extent
     slice of axis W [3, 1) step 1 over extent 4 is not within 0 <= start <= stop <= extent
     slice of axis W [-1, 2) step 1 over extent 4 is not within 0 <= start <= stop <= extent |}]
+
+(* ---- Select ----------------------------------------------------------------
+
+   [Select] DROPS the axis it picks along, unlike [Slice] which keeps the
+   same rank -- so unlike [slice_eval]'s tests above, this must also confirm
+   the surviving axes repack right-aligned exactly as [Unbind]'s do (it
+   reuses the same [Aten_shape.repack_dropped] pairing). Value at (h,w,c) is
+   h*100 + w*10 + c, so a wrong index reads a different row/column and a
+   wrong axis reads the wrong pair of survivors. *)
+let select_eval ~x_shape ~x (p : Split.Select.params) =
+  let module Se = Split.Select.Compute (Direct) in
+  eval_tensor (Split.Select.output_shape ~x_shape p) (Se.pixel p ~x)
+
+let%expect_test "Direct: select along an outer, a middle and an inner axis" =
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:2 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        float_of_int ((row c * 100) + (col c * 10) + chan c))
+  in
+  let run axis index =
+    let p = { Split.Select.axis; index } in
+    Format.printf "select %a=%d -> %a@." Axis.pp axis index
+      (pp_result Tensor.pp)
+      (select_eval ~x_shape ~x p)
+  in
+  run Axis.H 1;
+  run Axis.W 2;
+  run Axis.C 1;
+  [%expect
+    {|
+    select H=1 -> tensor f32 [W=3 C=2] {100, 101, 110, 111, 120, 121}
+    select W=2 -> tensor f32 [W=2 C=2] {20, 21, 120, 121}
+    select C=1 -> tensor f32 [W=2 C=3] {1, 11, 21, 101, 111, 121} |}]
+
+let%expect_test "Select: an out-of-range index has no Native result" =
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:4 in
+  let refuse index =
+    Format.printf "%a@." (pp_result Vec6.pp_shape)
+      (Split.Select.output_shape ~x_shape { Split.Select.axis = Axis.C; index })
+  in
+  refuse 4;
+  refuse (-1);
+  [%expect
+    {|
+    slice of axis C [4, 5) step 1 over extent 4 is not within 0 <= start <= stop <= extent
+    slice of axis C [-1, 0) step 1 over extent 4 is not within 0 <= start <= stop <= extent |}]
 
 (* LayerNorm's arithmetic, against values derived by hand rather than by a
    second run of the same functor. Direct-vs-Symbolic cannot see any of the

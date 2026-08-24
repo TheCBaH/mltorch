@@ -6,6 +6,42 @@ added `aten.mul` (the elementwise twin of `add`). For the design rationale of
 each layer see `native_compute_design.md`, `native_graph_design.md`, and
 `native_aten_bridge_design.md` / `native_aten_bridge_layout.md`.
 
+## Design goal: Native stays one node per ATen op, no decomposition
+
+Native is deliberately kept as close to ATen as the six-axis frame allows: a
+bridge (or `Native_interp`) arm for one ATen target builds **one** Native graph
+node, not a fixed subgraph of several. This is what makes the graph a faithful
+carrier of the source program — `Native_transform`, Native4D conversion, and
+provenance all walk `Graph_ir.op`, and a node that never existed cannot be
+matched, fused, or reported against.
+
+Two things look similar to "legalization" and are not the same:
+
+- **Sanctioned: map onto an existing op after translating parameters**, when
+  the two denote the same computation once translated, or when the target's
+  ATen-visible effect already has no other representation in the six-axis
+  frame. `sub.Tensor`'s scalar form legalizes to `Add_scalar` with a negated
+  scalar (`op_bridge.ml`, `x - s` = `x + (-s)`, IEEE-exact); `unsqueeze.default`
+  legalizes to `Reshape` alone, with no accompanying node, because inserting a
+  size-1 axis never changes the linearized data order — in the always-6D
+  frame this is not a decomposition, it is the same no-op-shape-change
+  `Reshape` already performs for `view.default`. Both are **one node**.
+- **Not sanctioned: decompose one ATen op into several Native nodes** so an
+  existing op's code can be reused. `select.int` lowering to a `Slice` node
+  followed by a separate `Reshape` node, and `stack.default` lowering to one
+  `Reshape` per operand followed by a `Concat` node, are the two current
+  instances of this (see `ops.md`'s design-goal audit) — both leave the graph
+  with no node that names the ATen op that produced them, which is exactly
+  the failure mode this section exists to rule out. The fix is not to give up
+  the code reuse; it is to reuse the *implementation* instead of the *node*:
+  add a distinct `Select`/`Stack` `Graph_ir` constructor whose `Compute`
+  functor and `output_shape` call into `Slice`'s / `Concat`'s, the same way
+  `Conv2d_padding` below calls into `Conv2d`'s.
+
+When in doubt: if the bridge arm needs `Graph_builder` to call more than one
+op-constructing function for a single ATen node, that is decomposition, and
+the target needs its own Native op instead.
+
 Worked example below: a pointwise binary op `Mul`. Structured ops
 (conv/pool/linear/norm) follow the same site list; only the per-op `Compute`
 functor and `output_shape` differ.
@@ -65,11 +101,13 @@ alphabetical position at every site below; don't append.
    below and nothing bounds it above.
 
    Keep the native graph surface one-to-one with ATen overloads when an overload
-   has a distinct target and user-visible parameter contract. It is fine for the
-   implementation to delegate internally after translating params (for example,
-   `Conv2d_padding` lowers `"valid"`/`"same"` into concrete `Conv2d` windows),
-   but the graph constructor, JSON tag, builder function, and bridge arm should
-   still name the distinct overload.
+   has a distinct target and user-visible parameter contract — see the design
+   goal above. It is fine for the implementation to delegate internally after
+   translating params (for example, `Conv2d_padding` lowers `"valid"`/`"same"`
+   into concrete `Conv2d` windows), but the graph constructor, JSON tag,
+   builder function, and bridge arm should still name the distinct overload,
+   and the bridge/importer must still build exactly the one node, never a
+   multi-node stand-in built from other ops.
    - `Mul`: `type t = Bin.t`, `jsont = Bin.jsont ~name`, etc.;
      `output_shape = broadcast_output_shape` (the shared equal-or-1 broadcast rule
      in `pointwise.ml`), and `pixel ~a_shape ~b_shape a b out` reads each operand

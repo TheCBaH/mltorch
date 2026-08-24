@@ -23,6 +23,7 @@ type op =
   | Bmm of Matmul.Bmm.t
   | Clamp of Pointwise.Clamp.t
   | Clone of Pointwise.Clone.t
+  | Concat of Concat.Concat.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t
@@ -46,10 +47,12 @@ type op =
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
   | Sdpa of Attention.Sdpa.t
+  | Select of Split.Select.t
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   | Slice of Split.Slice.t
   | Sqrt of Pointwise.Sqrt.t
+  | Stack of Concat.Stack.t
   | Sub of Pointwise.Sub.t
   | Unbind of Split.Unbind.t
 
@@ -144,6 +147,12 @@ let op_registry : (module OP) list =
 
       let inject t = Clone t
       let project = function Clone t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Concat.Concat
+
+      let inject t = Concat t
+      let project = function Concat t -> Some t | _ -> None
     end : OP);
     (module struct
       include Conv.Conv2d
@@ -278,6 +287,12 @@ let op_registry : (module OP) list =
       let project = function Sdpa t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Split.Select
+
+      let inject t = Select t
+      let project = function Select t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Sigmoid
 
       let inject t = Sigmoid t
@@ -300,6 +315,12 @@ let op_registry : (module OP) list =
 
       let inject t = Sqrt t
       let project = function Sqrt t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Concat.Stack
+
+      let inject t = Stack t
+      let project = function Stack t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Sub

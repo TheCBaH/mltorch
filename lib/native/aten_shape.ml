@@ -57,6 +57,17 @@ module Slice_bounds = struct
     Fmt.pf ppf "[%d, %d) step %d" start stop (step :> int)
 end
 
+(* [aten.select.int]'s index, after normalization -- reported as its INPUT
+   ([index]) and the axis extent it was judged against, not the normalized
+   position: a caller who wrote -9 is better served by seeing -9. *)
+module Index_bound = struct
+  type t = { index : int; extent : int }
+
+  let pp ppf { index; extent } =
+    Fmt.pf ppf "index %d is out of bounds for dimension with size %d" index
+      extent
+end
+
 (* Error set owned by this module: its own rank check, the [-1] convention's
    faults, the one refusal in slice-bound resolution, unioned with [Dim.error]
    (from validating each untrusted dim/size entry). The printer delegates to
@@ -67,6 +78,7 @@ type error =
   [ `Rank_out_of_range of rank_bound
   | `View_size of View_size.t
   | `Slice_step of int
+  | `Index_out_of_range of Index_bound.t
   | Dim.error ]
 
 let pp_error ppf : error -> unit = function
@@ -75,6 +87,7 @@ let pp_error ppf : error -> unit = function
   | `View_size e -> View_size.pp ppf e
   | `Slice_step step ->
       Format.fprintf ppf "slice step must be >= 1, got %d" step
+  | `Index_out_of_range e -> Index_bound.pp ppf e
   | #Dim.error as e -> Dim.pp_error ppf e
 
 (* Right-align an ATen shape into the frame; outer axes default to extent 1.
@@ -190,3 +203,16 @@ let resolve_slice ~extent ~start ~stop ~step =
     let stop = clamp (norm (Option.value stop ~default:n)) in
     let stop = if stop < start then start else stop in
     Err.return { Slice_bounds.start; stop; step = Op_config.Pos.of_int step }
+
+(* [aten.select.int]'s index resolution. Unlike [resolve_slice], ATen REJECTS
+   an out-of-range index rather than clamping it (TensorShape.cpp raises
+   IndexError: "index X is out of bounds for dimension Y with size Z"), so
+   this cannot share [resolve_slice]'s clamp-and-accept policy. Negative
+   indices count from the end, the same convention [norm_dim] uses on the
+   bridge and [axes_for_rank] uses in [Native_interp]. *)
+let resolve_index ~extent ~index =
+  let n = Dim.to_int extent in
+  let d = if index < 0 then index + n else index in
+  if d < 0 || d >= n then
+    Err.fail (`Index_out_of_range { Index_bound.index; extent = n })
+  else Err.return d

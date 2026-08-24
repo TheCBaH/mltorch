@@ -351,3 +351,99 @@ module Slice = struct
       S.load x (Vec6.set out p.axis src)
   end
 end
+
+(* `select.int(Tensor self, int dim, int index) -> Tensor`: narrows [axis] to
+   a single position AND drops it, unlike [Slice] (which narrows but keeps the
+   axis) and unlike [Unbind] (which drops every position of the axis, one
+   output per coordinate, rather than one caller-chosen position). Design-goal
+   fix (see .ai/native_add_op.md): this used to lower to a [Slice] node
+   followed by a separate [Reshape] node at the bridge, which left no node in
+   the graph naming [select.int]. Fixed by reusing [Slice]'s implementation —
+   its [output_shape] and [Compute.pixel] — rather than its node, the same way
+   [Unbind] reuses [Aten_shape.repack_dropped] to fold the dropped axis away.
+
+   THE INDEX IS CANONICAL, the same discipline [Slice]'s bounds follow: ATen
+   REJECTS an out-of-range index rather than clamping it (unlike [Slice]'s
+   defaulted/clamped bounds), so [index] is resolved by
+   [Aten_shape.resolve_index] before it reaches this payload, and is expected
+   non-negative and inside the axis. Reusing [Slice.output_shape] with
+   [start=index; stop=index+1] happens to enforce exactly that range
+   (`0 <= start <= stop <= extent`), so no separate check is needed here — the
+   op-owned check lives in [Slice], not duplicated. *)
+module Select = struct
+  type params = { axis : Axis.t; index : int }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"select_params" (fun axis index -> { axis; index })
+    |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.mem "index" Jsont.int ~enc:(fun p -> p.index)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a index=%d}@]" Axis.pp p.axis p.index
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Select"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>select@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+
+  (* [Unbind]'s [kept_map]/[slice_shape] shape, applied to the ONE-WIDE window
+     [Slice.output_shape] returns instead of to [x_shape] directly: fold the
+     selected axis away by repacking every surviving axis right-aligned. *)
+  let slice_params (p : params) : Slice.params =
+    {
+      axis = p.axis;
+      start = p.index;
+      stop = p.index + 1;
+      step = Op_config.Pos.of_int 1;
+    }
+
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
+    let open Err.Syntax in
+    let+ sliced = Slice.output_shape ~x_shape (slice_params p) in
+    let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
+    List.fold_left
+      (fun s (kin, oax) -> Vec6.copy sliced ~src:kin ~dst:oax s)
+      ones
+      (Aten_shape.repack_dropped ~dropped:[ p.axis ])
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* Build the SLICE-space coordinate ([Unbind.Compute]'s [base] idiom: fold
+       every surviving axis inward via [kept_map], leaving the dropped axis at
+       [S.index_zero] — which is exactly [Slice]'s own output coordinate at that
+       axis, since the sliced window is one wide) and hand it to [Slice]'s
+       [pixel] unchanged. *)
+    let pixel (p : params) ~x (out : Semantics.position S.index Vec6.t) =
+      let zero =
+        Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+          ~h:S.index_zero ~w:S.index_zero ~c:S.index_zero
+      in
+      let base =
+        List.fold_left
+          (fun v (kin, oax) -> Vec6.copy out ~src:oax ~dst:kin v)
+          zero
+          (Aten_shape.repack_dropped ~dropped:[ p.axis ])
+      in
+      let module SliceC = Slice.Compute (S) in
+      SliceC.pixel (slice_params p) ~x base
+  end
+end

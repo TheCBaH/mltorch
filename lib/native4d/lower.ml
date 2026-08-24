@@ -657,8 +657,12 @@ let lower_node ~view acc (n : node) =
            { Ops4.Unbind.params = { axis = List.hd axis4 }; x = op_of x })
         n.Node.outputs
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
-     domain check and this match disagree, which is a bug in one of them. *)
-  | Max_pool2d_with_indices _ | Discard _ | Sdpa _ ->
+     domain check and this match disagree, which is a bug in one of them.
+     [Concat]/[Select]/[Stack] join that set until [Concat4]/[Select4]/[Stack4]
+     exist (see [Domain.check_node]'s comment) rather than gaining a real
+     conversion arm here. *)
+  | Max_pool2d_with_indices _ | Discard _ | Sdpa _ | Concat _ | Select _
+  | Stack _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))
 
 (* ---- constants ------------------------------------------------------------ *)

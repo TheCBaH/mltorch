@@ -911,6 +911,7 @@ let%expect_test "bridge coverage" =
       torch.ops.aten.reshape.default
       torch.ops.aten._softmax.default
       torch.ops.aten.cat.default
+      torch.ops.aten.stack.default
       torch.ops.aten.batch_norm.default
       torch.ops.aten.dropout.default
       torch.ops.aten.dropout_.default
