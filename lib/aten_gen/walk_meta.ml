@@ -527,6 +527,36 @@ let add_tensor =
       pcg )|};
   }
 
+(* add_.Tensor: the in-place overload, same shape and [alpha] handling as
+   [add_tensor] (a required schema field held at its default, same reason).
+   It has its own generated [Op_add__Tensor] spec (target =
+   "torch.ops.aten.add_.Tensor"), so it needs its own [walk_meta] entry --
+   the generator keys off the exact target string, and doesn't infer this
+   one from [add_tensor]'s. The bridge lowers both through the same dispatch
+   arm (op_bridge.ml), and other in-place variants (relu_, hardsigmoid_,
+   silu_, …) already walk cleanly at the Default tier, so in-place dispatch
+   through real ATen is already exercised -- this was simply never given a
+   recipe. *)
+let add_inplace_tensor =
+  {
+    module_name = "Add_inplace_tensor_walk";
+    target = "torch.ops.aten.add_.Tensor";
+    recipe = "Recipe_binary";
+    initial =
+      "Aten_walk_recipes.Recipe_binary.{ n = 2; c = 4; h = 8; w = 8; pattern = \
+       Aten_walk_recipes.Recipe_binary.Equal }";
+    axes =
+      "Aten_walk_recipes.Recipe_binary.axes ~n:[ 1; 2; 4 ] ~c:[ 4; 8; 16 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] \
+       ~pattern:Aten_walk_recipes.Recipe_binary.all_patterns";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_binary.lhs_shape c) in
+    let other, pcg = Walk.tensor_spec pcg (Recipe_binary.rhs_shape c) in
+    ( Aten_op_spec.Op_add__Tensor.(
+        spec { self; other; alpha = Aten_spec.Scalar_value.Int 1 }),
+      pcg )|};
+  }
+
 (* mul.Tensor: identical shape to [sub_tensor]/[add_tensor] minus the [alpha]
    field -- mul.Tensor's schema has none. Covers the genuine tensor-tensor
    form; the scalar-in-a-tensor-slot configuration
@@ -736,6 +766,56 @@ let native_layer_norm =
       pcg )|};
   }
 
+(* _native_batch_norm_legit_no_training.default: rank-4 input, [c]-shaped
+   running stats and independently optional affine operands, see
+   [Aten_walk_recipes.Recipe_batch_norm]. [running_var] is drawn positive
+   ([Walk.tensor_spec_positive]) for the reason given there. *)
+let native_batch_norm =
+  {
+    module_name = "Native_batch_norm_walk";
+    target = "torch.ops.aten._native_batch_norm_legit_no_training.default";
+    recipe = "Recipe_batch_norm";
+    initial =
+      "Aten_walk_recipes.Recipe_batch_norm.{ n = 2; c = 4; h = 8; w = 8; eps = \
+       1e-5; weight = true; bias = true }";
+    axes =
+      "Aten_walk_recipes.Recipe_batch_norm.axes ~n:[ 1; 2; 4 ] ~c:[ 3; 4; 8 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] ~eps:[ 1e-5; 1e-3; 0. ] ~weight:[ true; \
+       false ] ~bias:[ true; false ]";
+    build =
+      {|let input, pcg = Walk.tensor_spec pcg (Recipe_batch_norm.input_shape c) in
+    let running_mean, pcg =
+      Walk.tensor_spec pcg (Recipe_batch_norm.channel_shape c)
+    in
+    let running_var, pcg =
+      Walk.tensor_spec_positive pcg (Recipe_batch_norm.channel_shape c)
+    in
+    let weight, pcg =
+      if Recipe_batch_norm.has_weight c then
+        let w, pcg = Walk.tensor_spec pcg (Recipe_batch_norm.channel_shape c) in
+        (Some w, pcg)
+      else (None, pcg)
+    in
+    let bias, pcg =
+      if Recipe_batch_norm.has_bias c then
+        let b, pcg = Walk.tensor_spec pcg (Recipe_batch_norm.channel_shape c) in
+        (Some b, pcg)
+      else (None, pcg)
+    in
+    ( Aten_op_spec.Op__native_batch_norm_legit_no_training.(
+        spec
+          {
+            input;
+            weight;
+            bias;
+            running_mean;
+            running_var;
+            momentum = Aten_spec.Float32.to_f32 Recipe_batch_norm.momentum;
+            eps = Aten_spec.Float32.to_f32 (Recipe_batch_norm.eps c);
+          }),
+      pcg )|};
+  }
+
 (* scaled_dot_product_attention.default (op8-impl.md commit 4, F9). Three
    tensor arguments plus an optional mask put this straight into
    [needs_meta] the moment the op is registered -- [fill_non_tensor] refuses
@@ -787,6 +867,100 @@ let sdpa =
       pcg )|};
   }
 
+(* div.Tensor: identical shape to [sub_tensor]/[mul_tensor] -- no [alpha]
+   field, same as mul.Tensor. Covers the genuine tensor-tensor form; the
+   scalar-in-a-tensor-slot configuration is out of reach for the same reason
+   given at [mul_tensor], and stays on native_bridge_test.ml's verify_print.
+   Unlike those, the rhs (divisor) is drawn via [Walk.tensor_spec_nonzero],
+   not [Walk.tensor_spec]: a plain uniform(-1,1) divisor is very likely to
+   land close to zero somewhere across a few hundred elements, and a
+   near-zero divisor amplifies an ordinary last-bit rounding difference
+   between ATen's kernel and native's into a reported mismatch. *)
+let div_tensor =
+  {
+    module_name = "Div_tensor_walk";
+    target = "torch.ops.aten.div.Tensor";
+    recipe = "Recipe_binary";
+    initial =
+      "Aten_walk_recipes.Recipe_binary.{ n = 2; c = 4; h = 8; w = 8; pattern = \
+       Aten_walk_recipes.Recipe_binary.Equal }";
+    axes =
+      "Aten_walk_recipes.Recipe_binary.axes ~n:[ 1; 2; 4 ] ~c:[ 4; 8; 16 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] \
+       ~pattern:Aten_walk_recipes.Recipe_binary.all_patterns";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_binary.lhs_shape c) in
+    let other, pcg = Walk.tensor_spec_nonzero pcg (Recipe_binary.rhs_shape c) in
+    ( Aten_op_spec.Op_div_Tensor.(spec { self; other }), pcg )|};
+  }
+
+(* permute.default: rank-correlated permutation, same shape as
+   [transpose_int] but exercising the bridge's variadic
+   [native_perm_of_aten] path (a full permutation) rather than a single swap
+   pair. *)
+let permute =
+  {
+    module_name = "Permute_walk";
+    target = "torch.ops.aten.permute.default";
+    recipe = "Recipe_permute";
+    initial =
+      "Aten_walk_recipes.Recipe_permute.{ n = 2; c = 3; h = 4; w = 5; config = \
+       List.hd Aten_walk_recipes.Recipe_permute.all_configs }";
+    axes =
+      "Aten_walk_recipes.Recipe_permute.axes ~n:[ 1; 2; 3 ] ~c:[ 2; 3; 4 ] \
+       ~h:[ 2; 3; 4 ] ~w:[ 2; 3; 4 ] \
+       ~config:Aten_walk_recipes.Recipe_permute.all_configs";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_permute.self_shape c) in
+    ( Aten_op_spec.Op_permute.(spec { self; dims = Recipe_permute.dims c }), pcg )|};
+  }
+
+(* addmm.default: see [Aten_walk_recipes.Recipe_addmm] for the shape
+   constraint the bridge's Linear-based lowering imposes on [self]. *)
+let addmm =
+  {
+    module_name = "Addmm_walk";
+    target = "torch.ops.aten.addmm.default";
+    recipe = "Recipe_addmm";
+    initial =
+      "Aten_walk_recipes.Recipe_addmm.{ n = 4; in_features = 8; out_features = \
+       6 }";
+    axes =
+      "Aten_walk_recipes.Recipe_addmm.axes ~n:[ 1; 2; 4 ] ~in_features:[ 3; 8; \
+       16 ] ~out_features:[ 1; 6; 12 ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_addmm.self_shape c) in
+    let mat1, pcg = Walk.tensor_spec pcg (Recipe_addmm.mat1_shape c) in
+    let mat2, pcg = Walk.tensor_spec pcg (Recipe_addmm.mat2_shape c) in
+    ( Aten_op_spec.Op_addmm.(
+        spec
+          {
+            self;
+            mat1;
+            mat2;
+            beta = Aten_spec.Scalar_value.Int 1;
+            alpha = Aten_spec.Scalar_value.Int 1;
+          }),
+      pcg )|};
+  }
+
+(* bmm.default: independent batch/row/contract/col axes, see
+   [Aten_walk_recipes.Recipe_bmm]. *)
+let bmm =
+  {
+    module_name = "Bmm_walk";
+    target = "torch.ops.aten.bmm.default";
+    recipe = "Recipe_bmm";
+    initial = "Aten_walk_recipes.Recipe_bmm.{ batch = 2; n = 3; m = 4; p = 5 }";
+    axes =
+      "Aten_walk_recipes.Recipe_bmm.axes ~batch:[ 1; 2; 3 ] ~n:[ 2; 3; 5 ] \
+       ~m:[ 2; 4; 6 ] ~p:[ 2; 5; 7 ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_bmm.self_shape c) in
+    let mat2, pcg = Walk.tensor_spec pcg (Recipe_bmm.mat2_shape c) in
+    (Aten_op_spec.Op_bmm.(spec { self; mat2 }), pcg)|};
+  }
+
 let entries =
   [
     conv2d;
@@ -808,11 +982,17 @@ let entries =
     slice_tensor;
     sub_tensor;
     add_tensor;
+    add_inplace_tensor;
     mul_tensor;
+    div_tensor;
     mul_scalar;
     view_default;
     unsafe_view;
     transpose_int;
+    permute;
+    addmm;
+    bmm;
+    native_batch_norm;
     sdpa;
   ]
 

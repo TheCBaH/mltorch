@@ -95,6 +95,15 @@ let all_walks : op list =
        rather than filtered out after the fact. *)
     (module Slice_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (* Unlike [Div_scalar], the divisor here is a random TENSOR, drawn via
+       [Native_tensor.synth_nonzero] to stay away from the flakiness that kept
+       this one out of the list until now (see its own doc comment). *)
+    (module Div_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
+    (module Sqrt_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
+    (module Bmm_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
+    (module Adaptive_avg_pool2d_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
   ]
 
 (* [native_op_walk.ml] shares the library's name, so it IS the library's

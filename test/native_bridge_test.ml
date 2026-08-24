@@ -1691,12 +1691,45 @@ let%expect_test "verify: hardswish against real ATen, functional and in-place" =
     aten and native agree
     aten and native agree |}]
 
+(* Saturation boundary fixture, the same ask [gelu_boundary_fixture] answers
+   for gelu: large +/- magnitude values reaching into f32's denormal range
+   at one tail and exact
+   saturation at the other, plus near-zero and signed zero -- the same
+   fixture [compute_test.ml]'s "Direct: sigmoid boundary cases" pins, here
+   checked against real ATen instead of a hand-verified golden. Unlike gelu,
+   sigmoid's formula has no piecewise/polynomial regime of its own --
+   1/(1+exp(-x)) is one expression everywhere -- so this saturation/denormal
+   boundary is the only one worth pinning. *)
+let sigmoid_boundary_fixture =
+  [
+    -1e4;
+    -100.;
+    -88.;
+    -50.;
+    -20.;
+    -1e-8;
+    -0.;
+    0.;
+    1e-8;
+    20.;
+    50.;
+    88.;
+    100.;
+    1e4;
+  ]
+
 let%expect_test "verify: sigmoid against real ATen, functional" =
   let a = float_tensor [ 2; 7 ] activation_fixture in
   verify_print ~target:"torch.ops.aten.sigmoid.default"
     ~bindings:[ ("self", a) ]
     ~inputs:[ in_tensor "self" ];
-  [%expect {| aten and native agree |}]
+  let b = float_tensor [ 2; 7 ] sigmoid_boundary_fixture in
+  verify_print ~target:"torch.ops.aten.sigmoid.default"
+    ~bindings:[ ("self", b) ]
+    ~inputs:[ in_tensor "self" ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
 
 (* The boundary fixture (review point 8): large-magnitude positive and
    negative inputs (erf saturates to +/-1, so the negative tail loses relative

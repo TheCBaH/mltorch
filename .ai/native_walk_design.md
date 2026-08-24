@@ -286,6 +286,29 @@ external PCG has exclusive control over tensor content.
    the `bridge coverage` block — every step should read `matched` or `skipped` (a `mismatched`/error
    line is a real native-vs-ATen divergence to investigate, not promote away).
 
+## A configuration no walk_meta recipe can reach
+
+`add.Tensor`/`sub.Tensor`/`mul.Tensor`/`div.Tensor` each have a Meta-tier walk (`Recipe_binary`,
+plus `Walk.tensor_spec_nonzero` for `div`'s divisor) covering their genuine tensor-tensor form. None
+of those recipes — and no recipe ever could — cover the *scalar-in-a-Tensor-slot* configuration the
+PT2 exporter also produces for these targets (`add.Tensor(x, 3)`, serialized with a bare `Int`/
+`Float` where the schema's second argument is `Tensor`). A `walk_meta` recipe still has to produce a
+real `Op_<name>.t` that `Aten_spec_run` dispatches through actual libtorch, and libtorch's
+`add.Tensor` takes two real tensors — there is no ATen call that reproduces "a Tensor argument
+holding a bare scalar", because that is a PT2 serialization choice, not an ATen calling convention.
+The walk generator synthesizes real tensor arguments for every `Tensor`-typed schema parameter, so
+this configuration is unreachable by construction, not merely unlikely to be drawn — the same
+distinction §"Cascade replaces filtering" draws between "improbable" and "impossible".
+
+This is not a coverage gap, for the same reason the `pad.default` bullet above says its own
+one-axis-of-five configuration space isn't one: the space is swept exhaustively against real ATen
+elsewhere. Here that's `test/native_bridge_test.ml`'s `verify_print` tests (`"verify: add.Tensor with
+a serialized Int/Float scalar"`, and the `sub`/`mul`/`div` equivalents), which go through
+`Interp_verify.dispatch` — real ATen materializing the scalar with `full_like` on one side,
+`Op_bridge` routing it into a Native scalar op parameter on the other. Both int and float literals
+are covered for all four targets. Don't add a `walk_meta` entry chasing this configuration; extend
+the `verify_print` fixtures instead.
+
 ## Files
 
 - `lib/aten_walk_recipes/` — pure recipes + `Walk.Op` signature (`walk.ml`, `window_math.ml`,

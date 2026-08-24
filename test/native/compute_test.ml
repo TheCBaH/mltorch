@@ -246,6 +246,49 @@ let%expect_test "Direct: sigmoid" =
   [%expect
     {| sigmoid: {0, 0.00247262, 0.0474259, 0.0474259, 0.0474259, 0.377541, 0.5, 0.5, 0.622459, 0.952574, 0.952574, 0.952574, 0.997527, 1} |}]
 
+(* Saturation boundary fixture, the sigmoid counterpart of
+   [gelu_boundary_fixture]: large +/- magnitude reaching into f32's denormal
+   range at one tail and exact saturation at the other (Direct computes
+   [exp(-x)] in OCaml's double, so nothing overflows before the f32-narrowing
+   store -- -100/-1e4 land in the denormal and flush-to-zero regions
+   respectively, which is the property this pins), plus near-zero and signed
+   zero. Unlike gelu, sigmoid's formula has no piecewise/polynomial regime of
+   its own, so this is the only boundary worth pinning here; ATen agreement
+   at the same fixture is native_bridge_test.ml's job. *)
+let sigmoid_boundary_fixture =
+  [|
+    -1e4;
+    -100.;
+    -88.;
+    -50.;
+    -20.;
+    -1e-8;
+    -0.;
+    0.;
+    1e-8;
+    20.;
+    50.;
+    88.;
+    100.;
+    1e4;
+  |]
+
+let%expect_test "Direct: sigmoid boundary cases" =
+  let module S = Pointwise.Sigmoid.Compute (Direct) in
+  let x_shape = s1c (Array.length sigmoid_boundary_fixture) in
+  let x =
+    Tensor.materialize x_shape (fun c -> sigmoid_boundary_fixture.(chan c))
+  in
+  let tensor =
+    Schedule.evaluate
+      (Err.or_raise ~pp_error:Shape_error.pp
+         (Pointwise.Sigmoid.output_shape x_shape))
+      (S.pixel x)
+  in
+  Format.printf "sigmoid: %a@." (pp_activation x_shape) tensor;
+  [%expect
+    {| sigmoid: {0, 3.78351e-44, 6.0546e-39, 1.92875e-22, 2.06115e-09, 0.5, 0.5, 0.5, 0.5, 1, 1, 1, 1, 1} |}]
+
 let%expect_test "Direct: hardsigmoid" =
   let module H = Pointwise.Hardsigmoid.Compute (Direct) in
   activation_case "hardsigmoid" Pointwise.Hardsigmoid.output_shape H.pixel;

@@ -511,6 +511,17 @@ let%expect_test "scaled_dot_product_attention.default: every mask kind" =
     {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=true,h=true,q=true,k=true) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched |}]
 
+(* Every target in the golden's `needs_meta:` list below has no Op_bridge
+   dispatch arm at all (confirmed by grepping op_bridge.ml for each target
+   string) -- there is nothing to walk yet, not a walk recipe someone forgot.
+   select.int/unsqueeze.default/cat.default/squeeze.dims/expand.default are
+   tracked as future structural-op work; the rest
+   (eq.Scalar/any.dim/where.self/full_like.default/reshape.default/
+   _softmax.default/batch_norm.default/dropout(_).default/argmax.default/
+   topk.default) are outside this repo's current op coverage entirely. A
+   target that DOES have a dispatch arm but still lands here is the real
+   bug this comment exists to keep visible -- check with grep before adding
+   a new entry to this list without a walk_meta recipe alongside it. *)
 let%expect_test "bridge coverage" =
   capture (fun ppf ->
       List.iteri
@@ -533,331 +544,373 @@ let%expect_test "bridge coverage" =
     step 3 [w]: {shape=[2,4,8,8] pattern=equal}
     [spec] torch.ops.aten.add.Tensor: matched
     step 0: {shape=[2,4,8,8] pattern=equal}
-    [spec] torch.ops.aten.sub.Tensor: matched
+    [spec] torch.ops.aten.add_.Tensor: matched
     step 1 [h]: {shape=[2,4,16,8] pattern=equal}
-    [spec] torch.ops.aten.sub.Tensor: matched
+    [spec] torch.ops.aten.add_.Tensor: matched
     step 2 [c]: {shape=[2,8,16,8] pattern=equal}
-    [spec] torch.ops.aten.sub.Tensor: matched
+    [spec] torch.ops.aten.add_.Tensor: matched
     step 3 [w]: {shape=[2,8,16,4] pattern=equal}
+    [spec] torch.ops.aten.add_.Tensor: matched
+    step 0: {shape=[2,4,8,8] pattern=equal}
+    [spec] torch.ops.aten.sub.Tensor: matched
+    step 1 [pattern]: {shape=[2,4,8,8] pattern=rhs[0]=1}
+    [spec] torch.ops.aten.sub.Tensor: matched
+    step 2 [pattern]: {shape=[2,4,8,8] pattern=lhs[3]=1}
+    [spec] torch.ops.aten.sub.Tensor: matched
+    step 3 [pattern]: {shape=[2,4,8,8] pattern=rhs[2]=1}
     [spec] torch.ops.aten.sub.Tensor: matched
     step 0: {shape=[2,4,8,8] pattern=equal}
     [spec] torch.ops.aten.mul.Tensor: matched
-    step 1 [pattern]: {shape=[2,4,8,8] pattern=rhs[0]=1}
+    step 1 [w]: {shape=[2,4,8,4] pattern=equal}
     [spec] torch.ops.aten.mul.Tensor: matched
-    step 2 [pattern]: {shape=[2,4,8,8] pattern=lhs[3]=1}
+    step 2 [h]: {shape=[2,4,4,4] pattern=equal}
     [spec] torch.ops.aten.mul.Tensor: matched
-    step 3 [pattern]: {shape=[2,4,8,8] pattern=rhs[2]=1}
+    step 3 [n]: {shape=[2,4,4,4] pattern=equal}
     [spec] torch.ops.aten.mul.Tensor: matched
     step 0: {shape=[1,4,8,8] value=float:0.1}
     [spec] torch.ops.aten.mul.Scalar: matched
-    step 1 [c]: {shape=[1,4,8,8] value=float:0.1}
+    step 1 [n]: {shape=[2,4,8,8] value=float:0.1}
     [spec] torch.ops.aten.mul.Scalar: matched
-    step 2 [h]: {shape=[1,4,8,8] value=float:0.1}
+    step 2 [w]: {shape=[2,4,8,8] value=float:0.1}
     [spec] torch.ops.aten.mul.Scalar: matched
-    step 3 [n]: {shape=[2,4,8,8] value=float:0.1}
+    step 3 [value]: {shape=[2,4,8,8] value=int:-3}
     [spec] torch.ops.aten.mul.Scalar: matched
+    step 0: {shape=[2,4,8,8] pattern=equal}
+    [spec] torch.ops.aten.div.Tensor: matched
+    step 1 [c]: {shape=[2,4,8,8] pattern=equal}
+    [spec] torch.ops.aten.div.Tensor: matched
+    step 2 [n]: {shape=[4,4,8,8] pattern=equal}
+    [spec] torch.ops.aten.div.Tensor: matched
+    step 3 [pattern]: {shape=[4,4,8,8] pattern=lhs[3]=1}
+    [spec] torch.ops.aten.div.Tensor: matched
     step 0: {shape=[1,4,8,8] min=0 max=6}
     [spec] torch.ops.aten.clamp.default: matched
-    step 1 [n]: {shape=[2,4,8,8] min=0 max=6}
-    [spec] torch.ops.aten.clamp.default: matched
-    step 2 [w]: {shape=[2,4,8,8] min=0 max=6}
-    [spec] torch.ops.aten.clamp.default: matched
-    step 3 [bounds]: {shape=[2,4,8,8] min=0 max=6}
-    [spec] torch.ops.aten.clamp.default: matched
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
-    step 1 [shape]: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
-    step 2 [shape]: {shape=[2,3,4,8]}
-    [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
-    step 3 [shape]: {shape=[2,3,8,8]}
-    [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.relu.default: matched
-    step 1 [shape]: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.relu.default: matched
-    step 2 [shape]: {shape=[2,6,4,4]}
-    [spec] torch.ops.aten.relu.default: matched
-    step 3 [shape]: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.relu.default: matched
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.relu_.default: matched
-    step 1 [shape]: {shape=[8,3,4,4]}
-    [spec] torch.ops.aten.relu_.default: matched
-    step 2 [shape]: {shape=[8,3,2,4]}
-    [spec] torch.ops.aten.relu_.default: matched
-    step 3 [shape]: {shape=[6,3,2,4]}
-    [spec] torch.ops.aten.relu_.default: matched
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.sigmoid.default: matched
-    step 1 [shape]: {shape=[8,3,4,4]}
-    [spec] torch.ops.aten.sigmoid.default: matched
-    step 2 [shape]: {shape=[8,3,4,4]}
-    [spec] torch.ops.aten.sigmoid.default: matched
-    step 3 [shape]: {shape=[8,4,4,4]}
-    [spec] torch.ops.aten.sigmoid.default: matched
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.hardsigmoid.default: matched
-    step 1 [shape]: {shape=[2,3,2,4]}
-    [spec] torch.ops.aten.hardsigmoid.default: matched
-    step 2 [shape]: {shape=[3,3,2,4]}
-    [spec] torch.ops.aten.hardsigmoid.default: matched
-    step 3 [shape]: {shape=[3,3,8,4]}
-    [spec] torch.ops.aten.hardsigmoid.default: matched
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.hardsigmoid_.default: matched
-    step 1 [shape]: {shape=[4,3,4,4]}
-    [spec] torch.ops.aten.hardsigmoid_.default: matched
-    step 2 [shape]: {shape=[4,3,3,4]}
-    [spec] torch.ops.aten.hardsigmoid_.default: matched
-    step 3 [shape]: {shape=[3,3,3,4]}
-    [spec] torch.ops.aten.hardsigmoid_.default: matched
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.hardswish.default: matched
-    step 1 [shape]: {shape=[8,3,4,4]}
-    [spec] torch.ops.aten.hardswish.default: matched
-    step 2 [shape]: {shape=[8,3,4,4]}
-    [spec] torch.ops.aten.hardswish.default: matched
-    step 3 [shape]: {shape=[4,3,4,4]}
-    [spec] torch.ops.aten.hardswish.default: matched
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.hardswish_.default: matched
-    step 1 [shape]: {shape=[2,3,2,4]}
-    [spec] torch.ops.aten.hardswish_.default: matched
-    step 2 [shape]: {shape=[2,6,2,4]}
-    [spec] torch.ops.aten.hardswish_.default: matched
-    step 3 [shape]: {shape=[2,2,2,4]}
-    [spec] torch.ops.aten.hardswish_.default: matched
-    step 0: {shape=[1,4,8,8] min=0 max=6}
-    [spec] torch.ops.aten.hardtanh.default: matched
     step 1 [n]: {shape=[1,4,8,8] min=0 max=6}
-    [spec] torch.ops.aten.hardtanh.default: matched
+    [spec] torch.ops.aten.clamp.default: matched
     step 2 [c]: {shape=[1,3,8,8] min=0 max=6}
-    [spec] torch.ops.aten.hardtanh.default: matched
-    step 3 [w]: {shape=[1,3,8,4] min=0 max=6}
-    [spec] torch.ops.aten.hardtanh.default: matched
+    [spec] torch.ops.aten.clamp.default: matched
+    step 3 [h]: {shape=[1,3,8,8] min=0 max=6}
+    [spec] torch.ops.aten.clamp.default: matched
     step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.hardtanh_.default: matched
-    step 1 [shape]: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.hardtanh_.default: matched
-    step 2 [shape]: {shape=[2,3,6,4]}
-    [spec] torch.ops.aten.hardtanh_.default: matched
-    step 3 [shape]: {shape=[2,3,6,4]}
-    [spec] torch.ops.aten.hardtanh_.default: matched
+    [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
+    step 1 [shape]: {shape=[8,3,4,4]}
+    [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
+    step 2 [shape]: {shape=[8,3,2,4]}
+    [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
+    step 3 [shape]: {shape=[6,3,2,4]}
+    [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
     step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.silu.default: matched
+    [spec] torch.ops.aten.relu.default: matched
+    step 1 [shape]: {shape=[8,3,4,4]}
+    [spec] torch.ops.aten.relu.default: matched
+    step 2 [shape]: {shape=[8,3,4,4]}
+    [spec] torch.ops.aten.relu.default: matched
+    step 3 [shape]: {shape=[8,4,4,4]}
+    [spec] torch.ops.aten.relu.default: matched
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.relu_.default: matched
     step 1 [shape]: {shape=[2,3,2,4]}
+    [spec] torch.ops.aten.relu_.default: matched
+    step 2 [shape]: {shape=[3,3,2,4]}
+    [spec] torch.ops.aten.relu_.default: matched
+    step 3 [shape]: {shape=[3,3,8,4]}
+    [spec] torch.ops.aten.relu_.default: matched
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.sigmoid.default: matched
+    step 1 [shape]: {shape=[4,3,4,4]}
+    [spec] torch.ops.aten.sigmoid.default: matched
+    step 2 [shape]: {shape=[4,3,3,4]}
+    [spec] torch.ops.aten.sigmoid.default: matched
+    step 3 [shape]: {shape=[3,3,3,4]}
+    [spec] torch.ops.aten.sigmoid.default: matched
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.hardsigmoid.default: matched
+    step 1 [shape]: {shape=[8,3,4,4]}
+    [spec] torch.ops.aten.hardsigmoid.default: matched
+    step 2 [shape]: {shape=[8,3,4,4]}
+    [spec] torch.ops.aten.hardsigmoid.default: matched
+    step 3 [shape]: {shape=[4,3,4,4]}
+    [spec] torch.ops.aten.hardsigmoid.default: matched
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.hardsigmoid_.default: matched
+    step 1 [shape]: {shape=[2,3,2,4]}
+    [spec] torch.ops.aten.hardsigmoid_.default: matched
+    step 2 [shape]: {shape=[2,6,2,4]}
+    [spec] torch.ops.aten.hardsigmoid_.default: matched
+    step 3 [shape]: {shape=[2,2,2,4]}
+    [spec] torch.ops.aten.hardsigmoid_.default: matched
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.hardswish.default: matched
+    step 1 [shape]: {shape=[2,3,4,2]}
+    [spec] torch.ops.aten.hardswish.default: matched
+    step 2 [shape]: {shape=[2,3,4,3]}
+    [spec] torch.ops.aten.hardswish.default: matched
+    step 3 [shape]: {shape=[2,3,4,3]}
+    [spec] torch.ops.aten.hardswish.default: matched
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.hardswish_.default: matched
+    step 1 [shape]: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.hardswish_.default: matched
+    step 2 [shape]: {shape=[2,3,6,4]}
+    [spec] torch.ops.aten.hardswish_.default: matched
+    step 3 [shape]: {shape=[2,3,6,4]}
+    [spec] torch.ops.aten.hardswish_.default: matched
+    step 0: {shape=[1,4,8,8] min=0 max=6}
+    [spec] torch.ops.aten.hardtanh.default: matched
+    step 1 [n]: {shape=[2,4,8,8] min=0 max=6}
+    [spec] torch.ops.aten.hardtanh.default: matched
+    step 2 [c]: {shape=[2,4,8,8] min=0 max=6}
+    [spec] torch.ops.aten.hardtanh.default: matched
+    step 3 [n]: {shape=[2,4,8,8] min=0 max=6}
+    [spec] torch.ops.aten.hardtanh.default: matched
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.hardtanh_.default: matched
+    step 1 [shape]: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.hardtanh_.default: matched
+    step 2 [shape]: {shape=[2,2,4,4]}
+    [spec] torch.ops.aten.hardtanh_.default: matched
+    step 3 [shape]: {shape=[2,2,6,4]}
+    [spec] torch.ops.aten.hardtanh_.default: matched
+    step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.silu.default: matched
-    step 2 [shape]: {shape=[2,8,2,4]}
+    step 1 [shape]: {shape=[2,3,6,4]}
     [spec] torch.ops.aten.silu.default: matched
-    step 3 [shape]: {shape=[2,8,6,4]}
+    step 2 [shape]: {shape=[2,3,6,4]}
+    [spec] torch.ops.aten.silu.default: matched
+    step 3 [shape]: {shape=[2,3,6,4]}
     [spec] torch.ops.aten.silu.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.silu_.default: matched
     step 1 [shape]: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.silu_.default: matched
-    step 2 [shape]: {shape=[2,2,4,4]}
+    step 2 [shape]: {shape=[2,3,4,6]}
     [spec] torch.ops.aten.silu_.default: matched
-    step 3 [shape]: {shape=[2,2,6,4]}
+    step 3 [shape]: {shape=[2,3,3,6]}
     [spec] torch.ops.aten.silu_.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.flatten.using_ints: skipped (no native impl)
-    step 1 [shape]: {shape=[2,3,6,4]}
+    step 1 [shape]: {shape=[6,3,4,4]}
     [spec] torch.ops.aten.flatten.using_ints: skipped (no native impl)
-    step 2 [shape]: {shape=[2,3,6,4]}
+    step 2 [shape]: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.flatten.using_ints: skipped (no native impl)
-    step 3 [shape]: {shape=[2,3,6,4]}
+    step 3 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.flatten.using_ints: skipped (no native impl)
+    step 0: {shape=[4,5] rank=2 dims=[0,1]}
+    [spec] torch.ops.aten.permute.default: matched
+    step 1 [c]: {shape=[4,5] rank=2 dims=[0,1]}
+    [spec] torch.ops.aten.permute.default: matched
+    step 2 [h]: {shape=[3,5] rank=2 dims=[0,1]}
+    [spec] torch.ops.aten.permute.default: matched
+    step 3 [h]: {shape=[2,5] rank=2 dims=[0,1]}
+    [spec] torch.ops.aten.permute.default: matched
     step 0: {shape=[4,5] rank=2 dims=(0,1)}
     [spec] torch.ops.aten.transpose.int: matched
-    step 1 [config]: {shape=[2,3,4,5] rank=4 dims=(2,2)}
+    step 1 [n]: {shape=[4,5] rank=2 dims=(0,1)}
     [spec] torch.ops.aten.transpose.int: matched
-    step 2 [c]: {shape=[2,3,4,5] rank=4 dims=(2,2)}
+    step 2 [w]: {shape=[4,3] rank=2 dims=(0,1)}
     [spec] torch.ops.aten.transpose.int: matched
-    step 3 [c]: {shape=[2,3,4,5] rank=4 dims=(2,2)}
+    step 3 [config]: {shape=[3,4,3] rank=3 dims=(1,2)}
     [spec] torch.ops.aten.transpose.int: matched
     step 0: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8}
     [spec] torch.ops.aten.convolution.default: matched
-    step 1 [stride_h]: {kernel=3x3 stride=2x1 pad=1x1 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8}
+    step 1 [out_channels]: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=1 in_c=4 out_c=4 n=1 H=8 W=8}
     [spec] torch.ops.aten.convolution.default: matched
-    step 2 [pad_w]: {kernel=3x3 stride=2x1 pad=1x0 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8}
+    step 2 [in_channels]: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=1 in_c=4 out_c=4 n=1 H=8 W=8}
     [spec] torch.ops.aten.convolution.default: matched
-    step 3 [pad_w]: {kernel=3x3 stride=2x1 pad=1x2 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8}
+    step 3 [input_h]: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=1 in_c=4 out_c=4 n=1 H=14 W=8}
     [spec] torch.ops.aten.convolution.default: matched
+    step 0: {mat1=[4,8] mat2=[8,6] self=[6]}
+    [spec] torch.ops.aten.addmm.default: matched
+    step 1 [out_features]: {mat1=[4,8] mat2=[8,1] self=[1]}
+    [spec] torch.ops.aten.addmm.default: matched
+    step 2 [n]: {mat1=[1,8] mat2=[8,1] self=[1]}
+    [spec] torch.ops.aten.addmm.default: matched
+    step 3 [in_features]: {mat1=[1,8] mat2=[8,1] self=[1]}
+    [spec] torch.ops.aten.addmm.default: matched
+    step 0: {self=[2,3,4] mat2=[2,4,5]}
+    [spec] torch.ops.aten.bmm.default: matched
+    step 1 [n]: {self=[2,3,4] mat2=[2,4,5]}
+    [spec] torch.ops.aten.bmm.default: matched
+    step 2 [n]: {self=[2,5,4] mat2=[2,4,5]}
+    [spec] torch.ops.aten.bmm.default: matched
+    step 3 [p]: {self=[2,5,4] mat2=[2,4,2]}
+    [spec] torch.ops.aten.bmm.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.gelu.default: matched
-    step 1 [shape]: {shape=[2,3,4,6]}
+    step 1 [shape]: {shape=[6,3,4,4]}
     [spec] torch.ops.aten.gelu.default: matched
-    step 2 [shape]: {shape=[6,3,4,6]}
+    step 2 [shape]: {shape=[6,3,4,3]}
     [spec] torch.ops.aten.gelu.default: matched
-    step 3 [shape]: {shape=[6,3,3,6]}
+    step 3 [shape]: {shape=[8,3,4,3]}
     [spec] torch.ops.aten.gelu.default: matched
     step 0: {input=[2,3,4] normalized=[4] eps=1e-05 weight=true bias=true cudnn=true}
     [spec] torch.ops.aten.layer_norm.default: matched
-    step 1 [normalized]: {input=[2,3,5] normalized=[5] eps=1e-05 weight=true bias=true cudnn=true}
+    step 1 [cudnn_enable]: {input=[2,3,4] normalized=[4] eps=1e-05 weight=true bias=true cudnn=true}
     [spec] torch.ops.aten.layer_norm.default: matched
-    step 2 [bias]: {input=[2,3,5] normalized=[5] eps=1e-05 weight=true bias=false cudnn=true}
+    step 2 [weight]: {input=[2,3,4] normalized=[4] eps=1e-05 weight=false bias=true cudnn=true}
     [spec] torch.ops.aten.layer_norm.default: matched
-    step 3 [leading]: {input=[2,3,4,5] normalized=[5] eps=1e-05 weight=true bias=false cudnn=true}
+    step 3 [cudnn_enable]: {input=[2,3,4] normalized=[4] eps=1e-05 weight=false bias=true cudnn=true}
     [spec] torch.ops.aten.layer_norm.default: matched
+    step 0: {input=[2,4,8,8] eps=1e-05 weight=true bias=true}
+    [spec] torch.ops.aten._native_batch_norm_legit_no_training.default: matched
+    step 1 [weight]: {input=[2,4,8,8] eps=1e-05 weight=false bias=true}
+    [spec] torch.ops.aten._native_batch_norm_legit_no_training.default: matched
+    step 2 [bias]: {input=[2,4,8,8] eps=1e-05 weight=false bias=true}
+    [spec] torch.ops.aten._native_batch_norm_legit_no_training.default: matched
+    step 3 [w]: {input=[2,4,8,8] eps=1e-05 weight=false bias=true}
+    [spec] torch.ops.aten._native_batch_norm_legit_no_training.default: matched
     step 0: {input=[2,3,4] normalized=[4] eps=1e-06 weight=true bias=true cudnn=false}
     [spec] torch.ops.aten.native_layer_norm.default: matched
-    step 1 [bias]: {input=[2,3,4] normalized=[4] eps=1e-06 weight=true bias=false cudnn=false}
+    step 1 [leading]: {input=[2,3,4,4] normalized=[4] eps=1e-06 weight=true bias=true cudnn=false}
     [spec] torch.ops.aten.native_layer_norm.default: matched
-    step 2 [leading]: {input=[2,4] normalized=[4] eps=1e-06 weight=true bias=false cudnn=false}
+    step 2 [eps]: {input=[2,3,4,4] normalized=[4] eps=1e-06 weight=true bias=true cudnn=false}
     [spec] torch.ops.aten.native_layer_norm.default: matched
-    step 3 [weight]: {input=[2,4] normalized=[4] eps=1e-06 weight=false bias=false cudnn=false}
+    step 3 [weight]: {input=[2,3,4,4] normalized=[4] eps=1e-06 weight=true bias=true cudnn=false}
     [spec] torch.ops.aten.native_layer_norm.default: matched
     step 0: {input=[2,3,4] normalized=[4] eps=default weight=true bias=false cudnn=false}
     [spec] torch.ops.aten.rms_norm.default: matched
-    step 1 [eps]: {input=[2,3,4] normalized=[4] eps=default weight=true bias=false cudnn=false}
+    step 1 [weight]: {input=[2,3,4] normalized=[4] eps=default weight=true bias=false cudnn=false}
     [spec] torch.ops.aten.rms_norm.default: matched
-    step 2 [weight]: {input=[2,3,4] normalized=[4] eps=default weight=true bias=false cudnn=false}
+    step 2 [weight]: {input=[2,3,4] normalized=[4] eps=default weight=false bias=false cudnn=false}
     [spec] torch.ops.aten.rms_norm.default: matched
-    step 3 [leading]: {input=[2,4] normalized=[4] eps=default weight=true bias=false cudnn=false}
+    step 3 [weight]: {input=[2,3,4] normalized=[4] eps=default weight=false bias=false cudnn=false}
     [spec] torch.ops.aten.rms_norm.default: matched
     step 0: {batch=1 heads=2 sq=3 sk=4 e=5 mask=none scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    step 1 [mask]: {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=true,q=true,k=true) scale=default}
+    step 1 [sk]: {batch=1 heads=2 sq=3 sk=1 e=5 mask=none scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    step 2 [scale]: {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=true,q=true,k=true) scale=default}
+    step 2 [mask]: {batch=1 heads=2 sq=3 sk=1 e=5 mask=4d(d=false,h=true,q=true,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    step 3 [sk]: {batch=1 heads=2 sq=3 sk=4 e=5 mask=4d(d=false,h=true,q=true,k=true) scale=default}
+    step 3 [sq]: {batch=1 heads=2 sq=5 sk=1 e=5 mask=4d(d=false,h=true,q=true,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
-    step 1 [pad_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 1 [pad_w]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
-    step 2 [input_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=10 W=8}
+    step 2 [kernel_w]: {kernel=2x3 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
-    step 3 [kernel_h]: {kernel=4x2 stride=2x2 pad=0x0 n=1 c=4 H=10 W=8}
+    step 3 [pad_w]: {kernel=2x3 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 1 [kernel_h]: {kernel=4x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 1 [input_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=12 W=8}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 2 [input_w]: {kernel=4x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 2 [stride_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=12 W=8}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 3 [input_w]: {kernel=4x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=16}
+    step 3 [n]: {kernel=2x2 stride=2x2 pad=0x0 n=2 c=4 H=12 W=8}
     [spec] torch.ops.aten.max_pool2d.default: matched
     step 0: {shape=[1,4,8,8] output_size=[4,4]}
     [spec] torch.ops.aten.adaptive_avg_pool2d.default: matched
-    step 1 [out_h]: {shape=[1,4,8,8] output_size=[1,4]}
+    step 1 [input_h]: {shape=[1,4,12,8] output_size=[4,4]}
     [spec] torch.ops.aten.adaptive_avg_pool2d.default: matched
-    step 2 [n]: {shape=[1,4,8,8] output_size=[1,4]}
+    step 2 [out_h]: {shape=[1,4,12,8] output_size=[7,4]}
     [spec] torch.ops.aten.adaptive_avg_pool2d.default: matched
-    step 3 [c]: {shape=[1,8,8,8] output_size=[1,4]}
+    step 3 [n]: {shape=[1,4,12,8] output_size=[7,4]}
     [spec] torch.ops.aten.adaptive_avg_pool2d.default: matched
     step 0: {input=[4,8] out_features=6 bias=true}
     [spec] torch.ops.aten.linear.default: matched
-    step 1 [out_features]: {input=[4,8] out_features=12 bias=true}
+    step 1 [in_features]: {input=[4,8] out_features=6 bias=true}
     [spec] torch.ops.aten.linear.default: matched
-    step 2 [in_features]: {input=[4,16] out_features=12 bias=true}
+    step 2 [leading]: {input=[2,3,8] out_features=6 bias=true}
     [spec] torch.ops.aten.linear.default: matched
-    step 3 [in_features]: {input=[4,8] out_features=12 bias=true}
+    step 3 [out_features]: {input=[2,3,8] out_features=1 bias=true}
     [spec] torch.ops.aten.linear.default: matched
     step 0: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8}
     [spec] torch.ops.aten.conv2d.default: matched
-    step 1 [n]: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8}
+    step 1 [pad_h]: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8}
     [spec] torch.ops.aten.conv2d.default: matched
     step 2 [groups]: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=4 in_c=4 out_c=8 n=1 H=8 W=8}
     [spec] torch.ops.aten.conv2d.default: matched
-    step 3 [groups]: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=4 in_c=4 out_c=8 n=1 H=8 W=8}
+    step 3 [pad_w]: {kernel=3x3 stride=1x1 pad=1x1 dilation=1x1 groups=4 in_c=4 out_c=8 n=1 H=8 W=8}
     [spec] torch.ops.aten.conv2d.default: matched
     step 0: {kernel=3x3 stride=1x1 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8 padding=same}
     [spec] torch.ops.aten.conv2d.padding: matched
-    step 1 [out_channels]: {kernel=3x3 stride=1x1 dilation=1x1 groups=1 in_c=4 out_c=4 n=1 H=8 W=8 padding=same}
+    step 1 [dilation_h]: {kernel=3x3 stride=1x1 dilation=1x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8 padding=same}
     [spec] torch.ops.aten.conv2d.padding: matched
-    step 2 [out_channels]: {kernel=3x3 stride=1x1 dilation=1x1 groups=1 in_c=4 out_c=16 n=1 H=8 W=8 padding=same}
+    step 2 [dilation_h]: {kernel=3x3 stride=1x1 dilation=2x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=8 padding=same}
     [spec] torch.ops.aten.conv2d.padding: matched
-    step 3 [groups]: {kernel=3x3 stride=1x1 dilation=1x1 groups=1 in_c=4 out_c=16 n=1 H=8 W=8 padding=same}
+    step 3 [input_w]: {kernel=3x3 stride=1x1 dilation=2x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=12 padding=same}
     [spec] torch.ops.aten.conv2d.padding: matched
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
-    step 1 [pad_w]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 1 [pad_w]: {kernel=2x2 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
-    step 2 [kernel_w]: {kernel=2x3 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 2 [kernel_h]: {kernel=2x2 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
-    step 3 [pad_w]: {kernel=2x3 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
+    step 3 [pad_h]: {kernel=2x2 stride=2x2 pad=1x1 n=1 c=4 H=8 W=8}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
     step 0: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten.view.default: matched
-    step 1 [h]: {shape=[1,4,2,4] pattern=flatten target=[32]}
+    step 1 [w]: {shape=[1,4,4,3] pattern=flatten target=[48]}
     [spec] torch.ops.aten.view.default: matched
-    step 2 [c]: {shape=[1,4,2,4] pattern=flatten target=[32]}
+    step 2 [c]: {shape=[1,4,4,3] pattern=flatten target=[48]}
     [spec] torch.ops.aten.view.default: matched
-    step 3 [w]: {shape=[1,4,2,3] pattern=flatten target=[24]}
+    step 3 [w]: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten.view.default: matched
     step 0: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten._unsafe_view.default: matched
     step 1 [h]: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten._unsafe_view.default: matched
-    step 2 [pattern]: {shape=[1,4,4,4] pattern=split_c target=[1,2,2,4,4]}
+    step 2 [n]: {shape=[2,4,4,4] pattern=flatten target=[128]}
     [spec] torch.ops.aten._unsafe_view.default: matched
-    step 3 [w]: {shape=[1,4,4,2] pattern=split_c target=[1,2,2,4,2]}
+    step 3 [h]: {shape=[2,4,2,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten._unsafe_view.default: matched
     step 0: {shape=[1,3,4,4] pattern=const_w pad=[1,2] mode=constant value=0.1}
     [spec] torch.ops.aten.pad.default: matched
-    step 1 [w]: {shape=[1,3,4,6] pattern=const_w pad=[1,2] mode=constant value=0.1}
+    step 1 [pattern]: {shape=[1,3,4,4] pattern=crop_and_pad pad=[-1,0,2,1] mode=constant value=0.1}
     [spec] torch.ops.aten.pad.default: matched
-    step 2 [pattern]: {shape=[1,3,4,6] pattern=const_w_no_value pad=[2,1] mode=constant value=none}
+    step 2 [w]: {shape=[1,3,4,4] pattern=crop_and_pad pad=[-1,0,2,1] mode=constant value=0.1}
     [spec] torch.ops.aten.pad.default: matched
-    step 3 [c]: {shape=[1,4,4,6] pattern=const_w_no_value pad=[2,1] mode=constant value=none}
+    step 3 [h]: {shape=[1,3,4,4] pattern=crop_and_pad pad=[-1,0,2,1] mode=constant value=0.1}
     [spec] torch.ops.aten.pad.default: matched
     step 0: {shape=[2,3,4,5] dim=0 pattern=head [0,1) step=1}
     [spec] torch.ops.aten.slice.Tensor: matched
-    step 1 [config]: {shape=[3,4,5] dim=1 pattern=clamp_high [0,9) step=1}
+    step 1 [h]: {shape=[2,3,4,5] dim=0 pattern=head [0,1) step=1}
     [spec] torch.ops.aten.slice.Tensor: matched
-    step 2 [w]: {shape=[3,4,5] dim=1 pattern=clamp_high [0,9) step=1}
+    step 2 [n]: {shape=[2,3,4,5] dim=0 pattern=head [0,1) step=1}
     [spec] torch.ops.aten.slice.Tensor: matched
-    step 3 [config]: {shape=[2,3,4,5] dim=-2 pattern=tail [2,none) step=1}
+    step 3 [h]: {shape=[2,3,4,5] dim=0 pattern=head [0,1) step=1}
     [spec] torch.ops.aten.slice.Tensor: matched
     step 0: {shape=[2,3,4,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 1 [w]: {shape=[2,3,4,2] dim=0}
+    step 1 [h]: {shape=[2,3,6,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 2 [c]: {shape=[2,4,4,2] dim=0}
+    step 2 [n]: {shape=[2,3,6,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 3 [h]: {shape=[2,4,2,2] dim=0}
+    step 3 [c]: {shape=[2,3,6,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
     step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 1 [n]: {shape=[4,4,8,8] dims=[2,3] keepdim=false}
+    step 1 [n]: {shape=[1,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 2 [keepdim]: {shape=[4,4,8,8] dims=[2,3] keepdim=true}
+    step 2 [keepdim]: {shape=[1,4,8,8] dims=[2,3] keepdim=false}
     [spec] torch.ops.aten.mean.dim: matched
-    step 3 [c]: {shape=[4,16,8,8] dims=[2,3] keepdim=true}
+    step 3 [keepdim]: {shape=[1,4,8,8] dims=[2,3] keepdim=true}
     [spec] torch.ops.aten.mean.dim: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 1 [shape]: {shape=[8,3,4,4]}
+    step 1 [shape]: {shape=[2,3,3,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 2 [shape]: {shape=[8,3,4,4]}
+    step 2 [shape]: {shape=[4,3,3,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 3 [shape]: {shape=[8,3,2,4]}
+    step 3 [shape]: {shape=[4,3,2,4]}
     [spec] torch.ops.aten.clone.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 1 [shape]: {shape=[2,8,4,4]}
+    step 1 [shape]: {shape=[6,3,4,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 2 [shape]: {shape=[2,8,4,2]}
+    step 2 [shape]: {shape=[6,3,2,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 3 [shape]: {shape=[2,8,4,2]}
+    step 3 [shape]: {shape=[6,3,4,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
     needs_meta:
-      torch.ops.aten.add_.Tensor
-      torch.ops.aten.div.Tensor
       torch.ops.aten.eq.Scalar
       torch.ops.aten.any.dim
       torch.ops.aten.where.self
       torch.ops.aten.full_like.default
       torch.ops.aten.reshape.default
-      torch.ops.aten.permute.default
-      torch.ops.aten.addmm.default
-      torch.ops.aten.bmm.default
       torch.ops.aten._softmax.default
       torch.ops.aten.cat.default
-      torch.ops.aten._native_batch_norm_legit_no_training.default
       torch.ops.aten.batch_norm.default
       torch.ops.aten.dropout.default
       torch.ops.aten.dropout_.default
