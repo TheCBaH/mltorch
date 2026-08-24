@@ -278,9 +278,17 @@ let%expect_test "Direct: hardswish" =
 
 let%expect_test "Direct: gelu" =
   let module G = Pointwise.Gelu.Compute (Direct) in
-  activation_case "gelu" Pointwise.Gelu.output_shape G.pixel;
+  activation_case "gelu" Pointwise.Gelu.output_shape
+    (G.pixel Pointwise.Gelu.Exact);
   [%expect
     {| gelu: {-0, -5.94073e-09, -0.0040499, -0.0040499, -0.00404991, -0.154269, -0, 0, 0.345731, 2.99595, 2.99595, 2.99595, 6, 10000} |}]
+
+let%expect_test "Direct: gelu tanh" =
+  let module G = Pointwise.Gelu.Compute (Direct) in
+  activation_case "gelu tanh" Pointwise.Gelu.output_shape
+    (G.pixel Pointwise.Gelu.Tanh);
+  [%expect
+    {| gelu tanh: {-0, -8.43965e-11, -0.00363739, -0.00363739, -0.0036374, -0.154286, -0, 0, 0.345714, 2.99636, 2.99636, 2.99636, 6, 10000} |}]
 
 (* [erf] saturates to +/-1 well before |x|=20, so the negative tail should
    read as (numerically) exact zero and the positive tail as (numerically)
@@ -299,11 +307,27 @@ let%expect_test "Direct: gelu boundary cases" =
     Schedule.evaluate
       (Err.or_raise ~pp_error:Shape_error.pp
          (Pointwise.Gelu.output_shape x_shape))
-      (G.pixel x)
+      (G.pixel Pointwise.Gelu.Exact x)
   in
   Format.printf "gelu: %a@." (pp_activation x_shape) tensor;
   [%expect
     {| gelu: {-0, -1.43553e-06, -0.158655, -0.154269, -0.0460172, -5e-09, -0, 0, 5e-09, 0.0539828, 0.345731, 0.841345, 5, 20} |}]
+
+let%expect_test "Direct: gelu tanh boundary cases" =
+  let module G = Pointwise.Gelu.Compute (Direct) in
+  let x_shape = s1c (Array.length gelu_boundary_fixture) in
+  let x =
+    Tensor.materialize x_shape (fun c -> gelu_boundary_fixture.(chan c))
+  in
+  let tensor =
+    Schedule.evaluate
+      (Err.or_raise ~pp_error:Shape_error.pp
+         (Pointwise.Gelu.output_shape x_shape))
+      (G.pixel Pointwise.Gelu.Tanh x)
+  in
+  Format.printf "gelu tanh: %a@." (pp_activation x_shape) tensor;
+  [%expect
+    {| gelu tanh: {-0, -2.2918e-07, -0.158808, -0.154286, -0.0460172, -5e-09, -0, 0, 5e-09, 0.0539828, 0.345714, 0.841192, 5, 20} |}]
 
 let%expect_test "Direct: clone" =
   let module C = Pointwise.Clone.Compute (Direct) in

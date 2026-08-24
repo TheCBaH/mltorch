@@ -213,7 +213,9 @@ let convolution ?name params ~x ~weight ?bias () =
 
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
-let gelu ?name x = op1 ?name ~kind:"gelu" (Gelu { Pointwise.Gelu.x })
+
+let gelu ?name (approximate : Pointwise.Gelu.approximate) x =
+  op1 ?name ~kind:"gelu" (Gelu { Pointwise.Gelu.x; approximate })
 
 let hardsigmoid ?name x =
   op1 ?name ~kind:"hardsigmoid" (Hardsigmoid { Pointwise.Hardsigmoid.x })

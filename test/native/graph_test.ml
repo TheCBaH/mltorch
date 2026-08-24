@@ -383,7 +383,7 @@ let%expect_test "Direct graph: gelu" =
           build ~name:"gelu" ~outputs:(fun r -> [ r ])
           @@
           let* a = input ~shape:(s1c 4) ~name:"a" () in
-          gelu ~name:"out" a)
+          gelu ~name:"out" Pointwise.Gelu.Exact a)
     in
     let a =
       Tensor.materialize (s1c 4) (fun c -> [| -6.; -0.5; 0.5; 6. |].(chan c))

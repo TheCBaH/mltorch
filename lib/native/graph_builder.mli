@@ -110,7 +110,10 @@ val div_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 (* Route a dead edge into a [Discard] sink node (no output). Used to keep a
    multi-output op's full arity while marking an unused result for later pruning. *)
 val discard : tensor_ref -> unit t
-val gelu : ?name:string -> tensor_ref -> Tensor_id.t t
+
+val gelu :
+  ?name:string -> Pointwise.Gelu.approximate -> tensor_ref -> Tensor_id.t t
+
 val hardsigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardswish : ?name:string -> tensor_ref -> Tensor_id.t t
 

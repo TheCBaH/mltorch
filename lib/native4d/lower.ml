@@ -312,7 +312,8 @@ let lower_node ~view acc (n : node) =
       simple (Op.Mul_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Clamp { Pointwise.Clamp.params; x } ->
       simple (Op.Clamp { Pointwise.Clamp.params; x = op_of x })
-  | Gelu { Pointwise.Gelu.x } -> simple (Op.Gelu { Pointwise.Gelu.x = op_of x })
+  | Gelu { Pointwise.Gelu.x; approximate } ->
+      simple (Op.Gelu { Pointwise.Gelu.x = op_of x; approximate })
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       simple (Op.Hardsigmoid { Pointwise.Hardsigmoid.x = op_of x })
   | Hardswish { Pointwise.Hardswish.x } ->

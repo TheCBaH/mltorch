@@ -417,17 +417,17 @@ let%expect_test "native walk coverage" =
     [native] sigmoid: direct==symbolic
     step 5 [input]: [n=1 c=18 h=1 w=6]
     [native] sigmoid: direct==symbolic
-    step 0: [n=1 c=3 h=4 w=4]
+    step 0: [n=1 c=3 h=4 w=4] none
     [native] gelu: direct==symbolic
-    step 1 [input]: [n=1 c=3 h=4 w=16]
+    step 1 [approximate]: [n=1 c=3 h=4 w=4] none
     [native] gelu: direct==symbolic
-    step 2 [input]: [n=1 c=3 h=3 w=16]
+    step 2 [approximate]: [n=1 c=3 h=4 w=4] tanh
     [native] gelu: direct==symbolic
-    step 3 [input]: [n=1 c=3 h=9 w=16]
+    step 3 [input]: [n=2 c=3 h=4 w=4] tanh
     [native] gelu: direct==symbolic
-    step 4 [input]: [n=1 c=26 h=9 w=16]
+    step 4 [approximate]: [n=2 c=3 h=4 w=4] tanh
     [native] gelu: direct==symbolic
-    step 5 [input]: [n=2 c=26 h=9 w=16]
+    step 5 [input]: [n=2 c=3 h=4 w=16] tanh
     [native] gelu: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4] scalar=3
     [native] mul_scalar: direct==symbolic

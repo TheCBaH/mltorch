@@ -93,9 +93,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
-    | Gelu { Pointwise.Gelu.x } ->
+    | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
-        C.pixel (operand x) out
+        C.pixel approximate (operand x) out
     | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
         let module C = Pointwise.Hardsigmoid.Compute (S) in
         C.pixel (operand x) out

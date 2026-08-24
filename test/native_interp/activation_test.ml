@@ -132,30 +132,39 @@ let gelu_node ?approximate () =
 let%expect_test "gelu.default lowers to a Gelu node" =
   dump "approximate omitted:" (prog (gelu_node ()));
   dump "approximate=\"none\":" (prog (gelu_node ~approximate:"none" ()));
+  dump "approximate=\"tanh\":" (prog (gelu_node ~approximate:"tanh" ()));
   [%expect
     {|
     approximate omitted:
     graph
     inputs: [t0 f32 [W=2 C=3] ->[n0]]
     nodes:
-      n0: [t1 f32 [W=2 C=3]] = gelu x=t0
+      n0: [t1 f32 [W=2 C=3]] = gelu x=t0 approximate=none
     outputs: [t1 f32 [W=2 C=3] <-n0]
     approximate="none":
     graph
     inputs: [t0 f32 [W=2 C=3] ->[n0]]
     nodes:
-      n0: [t1 f32 [W=2 C=3]] = gelu x=t0
+      n0: [t1 f32 [W=2 C=3]] = gelu x=t0 approximate=none
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    approximate="tanh":
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = gelu x=t0 approximate=tanh
     outputs: [t1 f32 [W=2 C=3] <-n0] |}]
 
-(* Only the exact, erf-based form is implemented; a non-"none" approximate
-   would silently compute a different function under the right op name, so it
-   is rejected by name rather than dropped. *)
-let%expect_test "gelu.default rejects approximate=\"tanh\"" =
-  dump "approximate=\"tanh\":" (prog (gelu_node ~approximate:"tanh" ()));
+(* The exact ("none") and tanh forms are the only two ATen spellings this
+   engine implements; any other value would silently compute a different
+   function under the right op name, so it is rejected by name rather than
+   dropped. *)
+let%expect_test "gelu.default rejects an unrecognized approximate" =
+  dump "approximate=\"unsupported\":"
+    (prog (gelu_node ~approximate:"unsupported" ()));
   [%expect
     {|
-    approximate="tanh":
-      malformed PT2 graph: torch.ops.aten.gelu.default: approximate="tanh" is not supported (only "none") |}]
+    approximate="unsupported":
+      malformed PT2 graph: torch.ops.aten.gelu.default: approximate="unsupported" is not supported (only "none" or "tanh") |}]
 
 let mul_node ?(other = `Tensor) () =
   let other_arg =

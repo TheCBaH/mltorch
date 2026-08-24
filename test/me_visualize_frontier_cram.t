@@ -5,15 +5,15 @@ mobilenetv2_050/test_convnext2's existing rules). Pins the outcome AFTER
 regression here means either the frontier moved backward (a real bug) or moved
 forward silently (this test not updated to match).
 
-`test_convnext2` is the one surprise this test caught: it serializes
-`gelu.default` with `approximate="tanh"`, not `"none"` -- the scope decision
-(confirmed with the user) implements only the exact, erf-based `"none"` form,
-so this model stays blocked, now on the `Unsupported_option` rejection rather
-than on a missing `Gelu` op entirely. [`Unsupported_option`] classifies as
-`Fatal` in [Me_classify.lowering] (the same as a non-default `alpha` or
-`ceil_mode=true` elsewhere), so `visualize` exits non-zero rather than
-producing a session with an `unavailable` capability row -- exactly as
-`me_visualize_unsupported_cram.t` documents for a malformed graph.
+`test_convnext2` is the one surprise this test caught, in two stages. It
+serializes `gelu.default` with `approximate="tanh"`, not `"none"` -- an
+earlier scope decision implemented only the exact, erf-based `"none"` form, so
+this model was blocked on the `Unsupported_option` rejection. `Gelu` now
+carries an `approximate` field (`Exact | Tanh`) and both dialects' `Compute`
+implement PyTorch's tanh formula (proved against real ATen in
+`native_bridge_test.ml`'s "verify: gelu (tanh)..." and, at the Native4D
+lowering, structurally in `native4d/verify_test.ml`'s "gelu tanh" cluster), so
+`test_convnext2` is now fully available at both stages.
 
   $ for m in mobilenetv2_050 regnetx_002 test_convnext2 efficientnet_b0 fastvit_sa12 csatv2; do
   >   if ../bin/native_graph.exe visualize --model ${m}_model.json --output ${m}-session.json 2>${m}.err; then
@@ -40,7 +40,8 @@ producing a session with an `unavailable` capability row -- exactly as
   mobilenetv2_050 stage:native4d available graph
   regnetx_002 stage:initial_native available graph
   regnetx_002 stage:native4d unavailable outside_dialect_domain: node n373: convolution has 3 groups, which is neither 1 nor depthwise
-  test_convnext2 blocked: native_graph: malformed PT2 graph: torch.ops.aten.gelu.default: approximate="tanh" is not supported (only "none")
+  test_convnext2 stage:initial_native available graph
+  test_convnext2 stage:native4d available graph
   efficientnet_b0 stage:initial_native available graph
   efficientnet_b0 stage:native4d available graph
   fastvit_sa12 stage:initial_native available graph

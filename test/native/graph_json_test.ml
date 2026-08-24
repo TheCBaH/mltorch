@@ -614,7 +614,7 @@ let%expect_test "ops Silu/Sigmoid/Gelu/Hardsigmoid/Hardswish: encode → decode"
           let* x = input ~shape:(s1c 3) ~name:"x" () in
           let* s = silu x in
           let* g = sigmoid s in
-          let* e = gelu g in
+          let* e = gelu Pointwise.Gelu.Exact g in
           let* h = hardsigmoid e in
           hardswish ~name:"out" h)
     in
@@ -630,7 +630,7 @@ let%expect_test "ops Silu/Sigmoid/Gelu/Hardsigmoid/Hardswish: encode → decode"
     nodes:
       n0: [t1 f32 [C=3] ->[n1]] = silu x=t0
       n1: [t2 f32 [C=3] ->[n2]] = sigmoid x=t1 <-n0
-      n2: [t3 f32 [C=3] ->[n3]] = gelu x=t2 <-n1
+      n2: [t3 f32 [C=3] ->[n3]] = gelu x=t2 <-n1 approximate=none
       n3: [t4 f32 [C=3] ->[n4]] = hardsigmoid x=t3 <-n2
       n4: [t5 f32 [C=3]] = hardswish x=t4 <-n3
     outputs: [t5 f32 [C=3] <-n4] |}]

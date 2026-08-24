@@ -344,7 +344,9 @@ let pp_malformed ppf : [< malformed ] -> unit = function
             d
       | `Ceil_mode -> Fmt.pf ppf "%s: ceil_mode=true is not supported" op
       | `Approximate a ->
-          Fmt.pf ppf "%s: approximate=%S is not supported (only \"none\")" op a)
+          Fmt.pf ppf
+            "%s: approximate=%S is not supported (only \"none\" or \"tanh\")" op
+            a)
   | `Unsupported_padding_mode s ->
       Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
   | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
@@ -1709,13 +1711,17 @@ let lower program =
           return [ y ]
       | "torch.ops.aten.gelu.default" ->
           let approximate = string_arg esc ~default:"none" node "approximate" in
-          if not (String.equal approximate "none") then
-            malformed esc
-              (`Unsupported_option
-                 { op = node.target; option = `Approximate approximate })
-          else
-            let* y = gelu (get "self") in
-            return [ y ]
+          let approximate =
+            match approximate with
+            | "none" -> Pointwise.Gelu.Exact
+            | "tanh" -> Pointwise.Gelu.Tanh
+            | _ ->
+                malformed esc
+                  (`Unsupported_option
+                     { op = node.target; option = `Approximate approximate })
+          in
+          let* y = gelu approximate (get "self") in
+          return [ y ]
       | "torch.ops.aten.hardtanh.default" ->
           (* Schema defaults are -1/1; MobileNet-v2 always serialises 0/6. *)
           let params : Pointwise.Hardtanh.params =

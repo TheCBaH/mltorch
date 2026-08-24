@@ -464,7 +464,7 @@ let%expect_test "sink_permute: every accepted op sinks" =
           hardtanh x=t0 params={min_val=0; max_val=6}
         n68: [t63 f32 [H=2 W=3 C=4] ->[n98]] = silu x=t0
         n70: [t64 f32 [H=2 W=3 C=4] ->[n100]] = sigmoid x=t0
-        n72: [t65 f32 [H=2 W=3 C=4] ->[n100]] = gelu x=t0
+        n72: [t65 f32 [H=2 W=3 C=4] ->[n100]] = gelu x=t0 approximate=none
         n74: [t66 f32 [H=2 W=3 C=4] ->[n108]] = mul_scalar x=t0 scalar=2
         n76: [t67 f32 [H=2 W=3 C=4] ->[n98]] = hardsigmoid x=t0
         n78: [t68 f32 [H=2 W=3 C=4] ->[n106]] = hardswish x=t0

@@ -294,7 +294,7 @@ let%expect_test "Symbolic graph: gelu stage DAG + ground matches Direct" =
           build ~name:"gelu" ~outputs:(fun r -> [ r ])
           @@
           let* a = input ~shape:(s1c 4) ~name:"a" () in
-          gelu ~name:"out" a)
+          gelu ~name:"out" Pointwise.Gelu.Exact a)
     in
     let prog = Eval_symbolic.run g in
     Format.printf "%a@." Stage_program.pp prog;

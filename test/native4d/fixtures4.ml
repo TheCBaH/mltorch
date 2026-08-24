@@ -126,7 +126,7 @@ let per_op () =
           (Builder.hardtanh { Pointwise.Hardtanh.min_val = 0.; max_val = 1. })
       );
       ("relu", unary ~shape:nhwc Builder.relu);
-      ("gelu", unary ~shape:nhwc Builder.gelu);
+      ("gelu", unary ~shape:nhwc (Builder.gelu Pointwise.Gelu.Exact));
       ("sigmoid", unary ~shape:nhwc Builder.sigmoid);
       ("silu", unary ~shape:nhwc Builder.silu);
       ("hardsigmoid", unary ~shape:nhwc Builder.hardsigmoid);
