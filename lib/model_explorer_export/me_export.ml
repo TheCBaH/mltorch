@@ -872,10 +872,8 @@ let load ~limits ~bytes =
           Some archive )
   | Model_json ->
       let* program =
-        Err.of_option (`Model_json_decode "not a well-formed ExportedProgram")
-          (Result.to_option
-             (Jsont_bytesrw.decode_string Pytorch_types.ExportedProgram.jsont
-                bytes))
+        Jsont_bytesrw.decode_string Pytorch_types.ExportedProgram.jsont bytes
+        |> Err.import ~pos:__POS__ (fun e -> `Model_json_decode e)
       in
       let* lowering = classify_lowering (Native_interp.lower program) in
       Err.return (program, lowering, Me_session.Model_summary.Json, None)

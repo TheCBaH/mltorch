@@ -260,7 +260,7 @@ let%expect_test "simple union" =
                 | Ok v -> Name v
                 | Error s -> Jsont.Error.msg Jsont.Meta.none s)
               | "as_int" ->
-                (match Jsont.Json.decode Jsont.int value with
+                (match Jsont.Json.decode python_int_jsont value with
                 | Ok v -> Int v
                 | Error s -> Jsont.Error.msg Jsont.Meta.none s)
               | k -> Jsont.Error.msgf Jsont.Meta.none "Unknown SymIntArgument case: %s" k)
@@ -306,7 +306,7 @@ let%expect_test "union with heterogeneous cases" =
             | Jsont.Object ([ ((key, _), value) ], _) ->
               (match key with
               | "as_int" ->
-                (match Jsont.Json.decode Jsont.int value with
+                (match Jsont.Json.decode python_int_jsont value with
                 | Ok v -> Int v
                 | Error s -> Jsont.Error.msg Jsont.Meta.none s)
               | "as_bool" ->
