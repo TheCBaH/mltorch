@@ -10,5 +10,17 @@
 ; are its business, not ours. [vendored_dirs] is what keeps them off our @all:
 ; only the src/ library is built, and only because lib/core depends on it.
 ; Its melange stanza is NOT used here -- see js/melange/vendor/err_trace/dune.
+;
+; [bytesrw] is NOT built by dune at all -- it carries no dune files (upstream
+; ships a topkg/ocamlbuild build), and this project consumes the real opam
+; package, unpatched (see .ai/model_explorer_design.md and
+; lib/model_explorer_export/me_export.ml's [encode_bounded] for why: the
+; installed `jsont` package is a fixed transitive consumer of bytesrw, and
+; this devcontainer's opam switch is read-only to this process, so there is
+; no way to rebuild it against a local patch here). This checkout exists
+; purely as a carrier for that patch -- a submodule pointing at
+; github.com/TheCBaH/bytesrw, a fork of github.com/dbuenzli/bytesrw -- kept
+; out of @fmt/@all the same way the others above are, since none of its
+; ~60 files are ours to reformat or build.
 
-(vendored_dirs ocaml-yamlt opickle ocaml-model-explorer err_trace)
+(vendored_dirs ocaml-yamlt opickle ocaml-model-explorer err_trace bytesrw)

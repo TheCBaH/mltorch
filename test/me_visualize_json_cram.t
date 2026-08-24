@@ -1,4 +1,4 @@
-Export a Model Explorer session from the committed resnet18 model.json.
+Export a Model Explorer session from the committed mobilenetv2_050 model.json.
 
 UNGATED: this model is a submodule file, not a downloaded weight, so the whole
 canonical path -- lower, transform, project, validate -- runs in every build.
@@ -17,7 +17,7 @@ pinned here is the shape, the counts, and the COMPLETE capability vector.
   > print('views=%d comparisons=%d capabilities=%d graphs=%d' % (
   >     len(s['views']), len(s['comparisons']), len(s['capabilities']),
   >     len(s['graphCollections'][0]['graphs'])))"
-  views=6 comparisons=2 capabilities=14 graphs=6
+  views=7 comparisons=2 capabilities=14 graphs=7
 
 The complete capability vector, which is what a drifting downstream row would
 show up in. A test asserting only the interesting key would let the rest move.
@@ -36,7 +36,7 @@ show up in. A test asserting only the interesting key would let the rest move.
   stage:source                 available graph
   stage:initial_native         available graph
   stage:canonical              available graph
-  stage:native4d               unavailable outside_dialect_domain
+  stage:native4d               available graph
   stage:stage_program          available graph
   stage:kernel                 available graph
   stage:fusion                 available graph
@@ -49,8 +49,8 @@ show up in. A test asserting only the interesting key would let the rest move.
   feature:codegen              unavailable not_implemented
 
 The source view is the exported program's OWN graph, so its node count is the
-model.json's -- 70 nodes plus one boundary per graph input and output, and the
-123 inputs are what a signature-driven input/constant split is for.
+model.json's -- 152 nodes plus one boundary per graph input and output, and the
+315 inputs are what a signature-driven input/constant split is for.
 
 The two comparisons are opposites, and the pairing of entry count with
 matchNodeIdFallback is what says so -- neither number alone does. Import carries
@@ -76,8 +76,8 @@ every node changed.
   >     print(i, 'entries', len(sync['entries']),
   >           'matchNodeIdFallback', sync['matchNodeIdFallback'],
   >           'showDiffHighlights', sync['showDiffHighlights'])"
-  source [('constant', 122), ('input', 1), ('op', 70), ('output', 1)]
-  c/import entries 70 matchNodeIdFallback False showDiffHighlights False
+  source [('constant', 314), ('input', 1), ('op', 152), ('output', 1)]
+  c/import entries 152 matchNodeIdFallback False showDiffHighlights False
   c/canonical entries 0 matchNodeIdFallback True showDiffHighlights True
 
 Namespaces come off nn_module_stack, one level RELATIVE to its parent -- the
@@ -92,14 +92,16 @@ naive join would repeat the whole dotted path at every depth.
   >     ns = n['namespace']
   >     if ns and ns not in seen: seen.append(ns)
   > print(seen[:6])"
-  ['conv1', 'bn1', 'relu', 'maxpool', 'layer1/0/conv1', 'layer1/0/bn1']
+  ['conv_stem', 'bn1', 'bn1/act', 'blocks/0/0/conv_dw', 'blocks/0/0/bn1', 'blocks/0/0/bn1/act']
 
-Native4D is the OTHER conditional row, and this is the payload-free half of it.
-The importer emits every conv weight right-aligned onto D/H/W/C, so an unfolded
-graph has non-unit D on every weight -- and folding is what relays them, which
-needs payloads this file does not have. Outside_dialect_domain rather than
-Requires_payloads because that is the first node that actually fails; the matrix
-admits either, and the classifier reports which.
+Native4D is the OTHER conditional row, and mobilenetv2_050's canonical graph
+converts fully -- payload-free, no folding needed -- into 36 Conv2D, 17
+DepthwiseConv2D, 35 Hardtanh, 10 Add, one Adaptive_avg_pool2d and one Permute4
+(the classifier's Linear legalizes to a 1x1 Conv2D, so it doesn't add a
+distinct kind). That is a property of THIS model, not a general guarantee --
+Requires_payloads and Outside_dialect_domain both remain live capability
+states the matrix admits, for a model whose weights genuinely need folding to
+fit, or don't fit the four-axis dialect at all.
 
   $ python3 -c "
   > import json
@@ -107,13 +109,14 @@ admits either, and the classifier reports which.
   > print([d['message'] for d in s['diagnostics'] if d['code'] == 'outside_dialect_domain'])
   > print('graphs', [g['id'] for g in s['graphCollections'][0]['graphs']])
   > print('states', [x['id'] for x in s['flow']['states']])"
-  ['node n1: axis D is outside the N/H/W/C dialect']
-  graphs ['pt2/root', 'g/native/000', 'g/native/001', 'g/symbolic/000', 'g/kernel/000', 'g/flow']
-  states ['s/pt2/000', 's/native/000', 's/native/001', 's/symbolic/000', 's/kernel/000']
+  []
+  graphs ['pt2/root', 'g/native/000', 'g/native/001', 'g/symbolic/000', 'g/native4d/000', 'g/kernel/000', 'g/flow']
+  states ['s/pt2/000', 's/native/000', 's/native/001', 's/native4d/000', 's/symbolic/000', 's/kernel/000']
 
-There is no Native4D graph and no Native4D flow state, which is the same rule the
-unlowered session follows: a spine node for a graph nobody can open asserts a
-navigability that is not there.
+The Native4D graph and its flow state ARE present here, which is the same rule
+the unlowered case follows in reverse: a spine node opens exactly the graphs the
+classifier actually produced, never fewer and never a placeholder for one it
+didn't.
 
 --fold on a payload-free model.json is a SUCCESSFUL structural session carrying
 a Requires_payloads capability, not a usage error: the browser cannot surface
@@ -136,8 +139,8 @@ transition node resolving to nothing.
   > f = json.load(open('session.json'))['flow']
   > print('states', [s['id'] for s in f['states']])
   > print('transitions', [(t['id'], t['kind']['kind'], t.get('comparison')) for t in f['transitions']])"
-  states ['s/pt2/000', 's/native/000', 's/native/001', 's/symbolic/000', 's/kernel/000']
-  transitions [('t/native/000', 'import', 'c/import'), ('t/native/001', 'pack', 'c/canonical'), ('t/symbolic/000', 'adapt', None), ('t/kernel/000', 'adapt', None)]
+  states ['s/pt2/000', 's/native/000', 's/native/001', 's/native4d/000', 's/symbolic/000', 's/kernel/000']
+  transitions [('t/native/000', 'import', 'c/import'), ('t/native/001', 'pack', 'c/canonical'), ('t/native4d/000', 'cross_dialect', None), ('t/symbolic/000', 'adapt', None), ('t/kernel/000', 'adapt', None)]
 
 The flow destination: the spine's graph is in the collection, exactly one
 View.Flow opens it, and feature:flow offers that same graph. Session.validate
@@ -160,8 +163,8 @@ than something the browser discovers.
   >       all(len(n.get('outputsMetadata', [])) == 1 for n in g['nodes']))"
   view [('v/flow', 'g/flow')]
   capability g/flow
-  nodes 9 states+transitions 9
-  edges 8 2*transitions 8
+  nodes 11 states+transitions 11
+  edges 10 2*transitions 10
   every node has one slot True
 
 v/flow is never the default: the browser stays source-first and the CLI keeps
@@ -187,6 +190,7 @@ named view is a declared stage view over that state's own graph.
   s/pt2/000 -> v/source stage:source graph-agrees True
   s/native/000 -> v/initial stage:initial_native graph-agrees True
   s/native/001 -> v/canonical stage:canonical graph-agrees True
+  s/native4d/000 -> v/native4d stage:native4d graph-agrees True
   s/symbolic/000 -> v/stage_program stage:stage_program graph-agrees True
   s/kernel/000 -> v/kernel stage:kernel graph-agrees True
 
@@ -195,6 +199,16 @@ rather than one because the composed report survives per-pass audit truncation:
 mapping that truncation to a single Verification -> Over_limit would hide a
 result that is still available, while Available alone would conceal that the
 per-pass detail is incomplete.
+
+mobilenetv2_050 is big enough (152 op nodes against resnet18's 70) that even
+`quick` exhausts the global verification budget almost immediately -- and
+`standard` hits the same ceiling, checked by hand (a few more vacuous
+verdicts squeeze in before it does, but the budget itself doesn't move): it
+is a fixed aggregate ceiling, not something effort raises. That is the same
+kind of real, deliberate
+limit as [small]'s rejection above, not a gap in this fixture; what is pinned
+here is that an exhausted budget still reaches the document as its own
+verdict, not silence or an error.
 
   $ ../bin/native_graph.exe visualize --model model.json --verify-symbolic quick --output verified.json
   $ python3 -c "
@@ -208,8 +222,8 @@ per-pass detail is incomplete.
   >         else:
   >             a = p['passAuditStatus']
   >             print(c['key'], a['retainedReports'], a['omittedReports'], a['omittedCounts'])"
-  feature:verification [('proved (structural) [sampled 4]', '1'), ('unproved (over max_rounds) [sampled 4]', '1'), ('unproved (too large)', '101'), ('unproved (unbound constant) [sampled 4]', '81'), ('vacuous', '98')]
-  feature:pass_audits 12 0 []
+  feature:verification [('unproved (global verification budget exhausted)', '1'), ('vacuous', '1')]
+  feature:pass_audits 0 13 []
 
 Verdicts reach the document twice, saying different things. The node data set is
 NODE-keyed, which is the only form that can colour a node; groupNodeAttributes is
@@ -218,8 +232,12 @@ to a group at all.
 
 Those namespaces are ID-QUALIFIED, which is why the exporter places clusters
 itself: Map_verify's own Group_path appends a group's label alone, and the
-importer labels every group with the PT2 target -- so the eight batch-norm groups
-below would have collapsed into one.
+importer labels every group with the PT2 target -- so same-named groups
+below would have collapsed into one. The exhausted budget above means almost
+nothing gets a per-node verdict at all here (unlike resnet18, where enough of
+the budget survived to reach real batch-norm groups) -- which is itself worth
+pinning: an empty verdict set is still a valid one node/group data set, not a
+missing one.
 
   $ python3 -c "
   > import json
@@ -231,13 +249,11 @@ below would have collapsed into one.
   > print('groups', len(gna))
   > print('root  ', sorted(gna[''].items()))
   > bn = sorted(k for k in gna if 'batch_norm' in k)
-  > print('batch_norm groups', len(bn))
-  > print('first ', bn[0], sorted(gna[bn[0]].items()))"
-  nodeData verification over g/native/001 90 nodes
-  groups 43
-  root   [('unproved (over max_rounds) [sampled 4]', '1'), ('unproved (too large)', '39'), ('unproved (unbound constant) [sampled 4]', '81'), ('vacuous', '98')]
-  batch_norm groups 20
-  first  torch.ops.aten._native_batch_norm_legit_no_training.default#g11 [('unproved (too large)', '1')]
+  > print('batch_norm groups', len(bn))"
+  nodeData verification over g/native/001 0 nodes
+  groups 1
+  root   [('unproved (global verification budget exhausted)', '1'), ('vacuous', '1')]
+  batch_norm groups 0
 
 Without --verify-symbolic there is no report, so both keys are not_requested and
 neither the verification node data nor the group attributes appear. A capability
@@ -279,9 +295,9 @@ say that. So the edges are the overlay and the values are the node data.
   >     by[k] = by.get(k, 0) + 1
   > print('placement', sorted(by.items()))
   > print([m['message'] for m in s['diagnostics'] if 'virtual' in m['message']])"
-  overlay fusion over g/kernel/000 [('virtual dependencies', 20)]
-  placement [('stored', 70), ('virtual', 20)]
-  ['20 virtual edges, 69 producers not fused']
+  overlay fusion over g/kernel/000 [('virtual dependencies', 10)]
+  placement [('stored', 90), ('virtual', 10)]
+  ['10 virtual edges, 89 producers not fused']
 
 A rejection is a fact about a VALUE, so it is on that value's own datum -- one
 diagnostic per rejection would be seventy on this model alone, against a
@@ -295,7 +311,7 @@ report. What reaches the diagnostics is one summary.
   > for r in d['results']:
   >     if '>= 2' in r['value']['label']:
   >         print(r['nodeId'], r['value']['label']); break"
-  v128 stored (t128 has >= 2 uses)
+  v834 stored (t834 has >= 2 uses)
 
 That count is rendered '>= 2' and never as a figure: the planner's counter
 saturates at two because the cross-body total is an int, and the per-value limits
@@ -311,7 +327,7 @@ dropping half the document.
   > import json
   > c = json.load(open('c.json'))
   > print(type(c).__name__, len(c), c[0]['label'], len(c[0]['graphs']))"
-  list 1 mltorch:model 6
+  list 1 mltorch:model 7
 
 Format detection is CONTENT, never the extension. The worker also carries a
 declared format and checks the two agree; the CLI has only the bytes.
@@ -323,15 +339,17 @@ declared format and checks the two agree; the CLI has only the bytes.
 
 Only the two wire-selectable profiles are offered, which is what makes
 Wire_limits a guarantee rather than a UI convention -- [large] and [trusted]
-exist for callers holding data they produced and cannot be named here. [small]
-accepts a real vision model, which is the fact worth pinning: a profile the
-browser may select and that no real input drives past.
+exist for callers holding data they produced and cannot be named here.
+mobilenetv2_050's full session is genuinely bigger than [small]'s
+max_session_bytes (0x8_0000 = 512 KiB): its [untrusted] session alone runs to
+roughly 750 KB before [small]'s tighter trace/diagnostic/audit ceilings even
+apply. [small] rejecting it, cleanly, is the fact worth pinning -- a ceiling
+that could never be exceeded would not be a guarantee, just an unenforced
+number.
 
   $ ../bin/native_graph.exe visualize --model model.json --limits small --output small.json
-  $ python3 -c "
-  > import json
-  > print(len(json.load(open('small.json'))['graphCollections'][0]['graphs']), 'graphs')"
-  6 graphs
+  native_graph: the encoded document is over the ceiling
+  [123]
 
 NO_COLOR, because this is the one assertion in the suite that pins CMDLINER's
 own text. Cmdliner styles by default and quotes only when styling is off, and

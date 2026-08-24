@@ -239,6 +239,12 @@ module Wire = struct
     | Ok () -> Err.return (Buffer.contents buf)
     | Error _ -> Err.fail `Meta_too_large
     | exception Bytesrw.Bytes.Stream.Error _ -> Err.fail `Meta_too_large
+    (* Same upstream bytesrw 0.3.0 off-by-one as [Me_export.encode_bounded]:
+       [Writer.limit] can raise [Invalid_argument] instead of its documented
+       [Stream.Error] when the remaining budget hits exactly 0 at a slice
+       boundary. See that function's comment for the mechanism and the fork
+       carrying the fix. *)
+    | exception Invalid_argument _ -> Err.fail `Meta_too_large
 
   let wrap ~max_meta_bytes meta payload =
     let open Err.Syntax in

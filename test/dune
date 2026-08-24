@@ -252,23 +252,21 @@
   schema_runtime.cmi
   model.json))
 
-; The Model Explorer export, over the committed resnet18 model.json. UNGATED:
+; The Model Explorer export, over the committed mobilenetv2_050 model.json. UNGATED:
 ; that file is a submodule checkout rather than a downloaded weight, so the
 ; whole lower/transform/project/validate path runs in every build. Its
 ; payload-free nature is the point -- it is the concrete Requires_payloads case.
 
 (cram
  (applies_to me_visualize_json_cram)
- (deps %{exe:../bin/native_graph.exe} model.json)
- (enabled_if false))
+ (deps %{exe:../bin/native_graph.exe} model.json))
 
-; One kernel value's expression, over the committed resnet18 model.json.
+; One kernel value's expression, over the committed mobilenetv2_050 model.json.
 ; UNGATED for the same reason the session cram is.
 
 (cram
  (applies_to me_detail_cram)
- (deps %{exe:../bin/native_graph.exe} model.json)
- (enabled_if false))
+ (deps %{exe:../bin/native_graph.exe} model.json))
 
 ; The five Group-2 functional overloads, over a graph built in the cram itself.
 ; UNGATED and hand-built for a reason specific to this group: no downloadable

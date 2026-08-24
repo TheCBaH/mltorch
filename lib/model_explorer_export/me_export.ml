@@ -124,6 +124,29 @@ let encode_bounded ~max_bytes jsont v =
   | Ok () -> Err.return (Buffer.contents buf)
   | Error _ -> Err.fail `Document_too_large
   | exception Bytesrw.Bytes.Stream.Error _ -> Err.fail `Document_too_large
+  (* bytesrw 0.3.0's own over-limit signal, [Bytesrw.Bytes.Stream.Error], is
+     what [Writer.limit] is DOCUMENTED to raise -- but its implementation has
+     an off-by-one: when the remaining budget lands on EXACTLY 0 right at a
+     slice boundary, it computes [Slice.take 0 s], which [Slice.take] treats
+     as an empty/invalid request and returns [None] (its [n <= 0] guard
+     doesn't distinguish "asked for nothing" from "asked for a valid
+     zero-length remainder"), and the writer immediately [Option.get]s that
+     -- raising [Invalid_argument] instead of the documented error. This is
+     an upstream bug, still present on bytesrw's main branch; patched at
+     vendored/bytesrw (a submodule pointing at
+     github.com/TheCBaH/bytesrw, a fork of github.com/dbuenzli/bytesrw --
+     see vendored/bytesrw's own git log). Not wired into this repo's own
+     build: bytesrw is also a fixed transitive dependency of the
+     opam-installed `jsont` package, and rebuilding that package against a
+     patched bytesrw needs `opam pin`, which needs write access to the opam
+     switch that this devcontainer doesn't grant this process. The OUTCOME
+     here is identical to the documented case (the
+     document didn't fit), so it gets the same diagnostic rather than
+     crashing the whole export. Caught by mobilenetv2_050 + `--limits small`,
+     whose session lands almost exactly on that boundary
+     (test/me_visualize_json_cram.t). Drop this arm once the opam-installed
+     bytesrw incorporates the upstream fix. *)
+  | exception Invalid_argument _ -> Err.fail `Document_too_large
 
 let passes ~fold = [ Pipeline.canonical ~fold ]
 let capability key status = { Me_session.Capability.key; status }
