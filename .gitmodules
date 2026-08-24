@@ -16,3 +16,6 @@
 [submodule "modules/devcontainer.pytorch-image-models"]
 	path = modules/devcontainer.pytorch-image-models
 	url = https://github.com/TheCBaH/devcontainer.pytorch-image-models.git
+[submodule "vendored/bytesrw"]
+	path = vendored/bytesrw
+	url = https://github.com/TheCBaH/bytesrw.git

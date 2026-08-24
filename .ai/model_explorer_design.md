@@ -996,8 +996,10 @@ payloads and of nothing else.
 
 **Only the two wire-selectable profiles are offered.** `large` and `trusted` exist for
 callers holding data they produced and cannot be named on the command line, which is what
-makes `Wire_limits` a guarantee rather than a UI convention. `small` accepts a real vision
-model, which the cram pins.
+makes `Wire_limits` a guarantee rather than a UI convention. `small`'s max_session_bytes
+(512 KiB) is a real ceiling, not a formality: mobilenetv2_050's full session runs to
+roughly 750 KB and `small` cleanly rejects it, which the cram pins -- a profile that no
+real input could ever exceed would not be a guarantee, just an unenforced number.
 
 **`--fold` on a payload-free `model.json` is a successful structural session** carrying
 `Feature Fold → Unavailable Requires_payloads`, not a usage error: the browser cannot
