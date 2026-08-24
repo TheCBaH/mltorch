@@ -626,6 +626,17 @@
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
+; Machine-readable model-support-matrix snapshot (JSON Lines), see
+; .ai/pt2_model_support.md. Gated on PT2_DATA like the other real-archive
+; crams; needs csatv2 too (not just PT2_MODELS_CRAM), so it isn't folded into
+; pt2_load_cram's deps.
+
+(cram
+ (applies_to pt2_model_support_cram)
+ (deps (universe) %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
 (cram
  (applies_to interp_functional_cram)
  (deps (universe) %{exe:pt2_tensor_map_load.exe} %{exe:interp_run.exe})

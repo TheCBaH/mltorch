@@ -16,7 +16,15 @@ PT2_URL = https://github.com/$(PT2_REPO)/releases/download/$(PT2_RELEASE)/$(PT2_
 PT2_MODELS_FIXTURES := mobilenetv2_050 test_convnext2
 PT2_MODELS_POOL := mobilenetv2_050 csatv2
 PT2_MODELS_CRAM := test_convnext2 mobilenetv2_050 regnetx_002 efficientnet_b0 fastvit_sa12
-PT2_MODELS_NATIVE_VERIFY := mobilenetv2_050 regnetx_002
+# efficientnet_b0/test_convnext2 joined once GELU/Sigmoid landed (see
+# .ai/pt2_model_support.md) -- both now pass native-infer-verify and
+# native-transform-verify identically to mobilenetv2_050/regnetx_002.
+# fastvit_sa12 (1218 nodes) isn't in this list purely because a full run takes
+# several minutes, not because of any known failure -- add it once that cost
+# is judged worth paying in CI. csatv2 doesn't fully lower into Native at all
+# yet (it's a deliberately graph-only fixture), so it can't join until that
+# lands.
+PT2_MODELS_NATIVE_VERIFY := mobilenetv2_050 regnetx_002 efficientnet_b0 test_convnext2
 # [csatv2] is selected for its real [7,7] adaptive-pool graph, not as a
 # whole-model interpreter claim: it currently reaches unsupported aten.stack.
 # Keep that distinction explicit so the CI runnable cohort cannot silently
@@ -95,9 +103,14 @@ pt2.runtest:
 			test -f $(PT2_DIR)/$$m/$$f || { echo "pt2.runtest: missing $(PT2_DIR)/$$m/$$f -- run 'make pt2.download-cram' first" >&2; exit 1; }; \
 		done; \
 	done
+	@test -f $(PT2_DIR)/csatv2/csatv2.pt2 || { \
+		echo "pt2.runtest: missing $(PT2_DIR)/csatv2/csatv2.pt2 -- run 'make pt2.download PT2_MODEL=csatv2' first" >&2; \
+		exit 1; \
+	}
 	PT2_DATA=$(abspath $(PT2_DIR)) NO_COLOR=1 opam exec -- dune runtest \
 		test/pt2_load_cram.t test/interp_functional_cram.t test/const_ssa_trace_cram.t \
-		test/const_ssa_payload_free_cram.t test/const_ssa_evaluate_cram.t
+		test/const_ssa_payload_free_cram.t test/const_ssa_evaluate_cram.t \
+		test/pt2_model_support_cram.t
 
 # Shared argument list for every interp_run.exe invocation below, so
 # inference-run and benchmark.inference can't drift apart.
