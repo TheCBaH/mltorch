@@ -89,6 +89,7 @@ jobs:
     - name: pt2 cram models download
       run: |
         make pt2.download-cram
+        make pt2.download PT2_MODEL=csatv2
     - name: pt2 load test
       run: |
         ${{ env.EXEC }} make pt2.runtest
