@@ -2493,6 +2493,71 @@ let%expect_test "verify: split_with_sizes.default agrees with ATen for int64" =
          ]);
   [%expect {| aten and native agree |}]
 
+(* --- group_norm.default -----------------------------------------------------
+
+   NOT bound to a real ATen C symbol (see the [Op_bridge] arm's own comment on
+   why), so no [Interp_dispatch]/[Interp_verify] layer here -- Op_bridge-only,
+   with hand-computed values the same way [compute_test.ml]'s tests are, not
+   leaning on ATen. *)
+
+(* NCHW input [N=1,C=4,H=2,W=1], x[c,h] = h*10+c, so the flat NCHW data is
+   [0,10, 1,11, 2,12, 3,13] -- group 0 is channels {0,1}, group 1 is {2,3},
+   the same values [compute_test.ml]'s hand-computed group_norm test uses
+   (there in native [H,W,C] order). No weight/bias: exercises the
+   optional-absent fill path through the bridge and the NCHW<->NHWC relayout
+   together. *)
+let%expect_test
+    "dispatch: group_norm.default splits channels into groups, no affine" =
+  dispatch_print ~target:"torch.ops.aten.group_norm.default"
+    ~bindings:
+      [
+        ( "input",
+          float_tensor [ 1; 4; 2; 1 ] [ 0.; 10.; 1.; 11.; 2.; 12.; 3.; 13. ] );
+      ]
+    ~inputs:[ in_tensor "input"; in_int "num_groups" 2; in_float "eps" 0. ]
+    ~noutputs:0;
+  [%expect
+    {| tensor f32 [H=4 W=2 C=1] {-1.09454, 0.895533, -0.895533, 1.09454, -1.09454, 0.895533, -0.895533, 1.09454} |}]
+
+(* The per-channel affine, applied AFTER the relayout back to NCHW -- weight
+   and bias are rank-1 [C] tensors, which right-align onto native C with no
+   permute needed, unlike [input]. *)
+let%expect_test "dispatch: group_norm.default applies weight/bias per channel" =
+  dispatch_print ~target:"torch.ops.aten.group_norm.default"
+    ~bindings:
+      [
+        ("input", float_tensor [ 1; 4; 1; 1 ] [ 0.; 1.; 2.; 3. ]);
+        ("weight", float_tensor [ 4 ] [ 10.; 20.; 30.; 40. ]);
+        ("bias", float_tensor [ 4 ] [ 100.; 200.; 300.; 400. ]);
+      ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_int "num_groups" 2;
+        in_tensor "weight";
+        in_tensor "bias";
+        in_float "eps" 0.;
+      ]
+    ~noutputs:0;
+  [%expect {| tensor f32 [H=4 W=1 C=1] {90, 220, 270, 440} |}]
+
+(* [num_groups] must be positive ([Op_config.Bad.pos], the bridge's own
+   check) and must divide the channel count ([Norm.GroupNorm.output_shape]'s
+   own check, not restated here). *)
+let%expect_test "dispatch: group_norm.default rejects a bad num_groups" =
+  dispatch_print ~target:"torch.ops.aten.group_norm.default"
+    ~bindings:[ ("input", float_tensor [ 1; 4; 1; 1 ] [ 0.; 1.; 2.; 3. ]) ]
+    ~inputs:[ in_tensor "input"; in_int "num_groups" 0 ]
+    ~noutputs:0;
+  dispatch_print ~target:"torch.ops.aten.group_norm.default"
+    ~bindings:[ ("input", float_tensor [ 1; 4; 1; 1 ] [ 0.; 1.; 2.; 3. ]) ]
+    ~inputs:[ in_tensor "input"; in_int "num_groups" 3 ]
+    ~noutputs:0;
+  [%expect
+    {|
+    error: group_norm.default: groups must be positive, got 0
+    error: group_norm: channel count 4 is not divisible by num_groups 3 |}]
+
 (* A TRANSPOSED convolution's ATen weight is [Cin, Cout/groups, kH, kW], so its
    output channel count -- and therefore its bias extent -- comes from
    [weight.C * groups], not from [weight.N] as it does for every other affine op.

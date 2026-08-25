@@ -71,7 +71,12 @@ end
 module Operand_shape : sig
   type t = {
     operand :
-      [ `Bias | `Rms_norm_weight | `Layer_norm_weight | `Layer_norm_bias ];
+      [ `Bias
+      | `Rms_norm_weight
+      | `Layer_norm_weight
+      | `Layer_norm_bias
+      | `Group_norm_weight
+      | `Group_norm_bias ];
     expected : Vec6.shape;
     actual : Vec6.shape;
   }
@@ -344,6 +349,14 @@ module Sdpa : sig
   val pp_error : Format.formatter -> error -> unit
 end
 
+(* `group_norm.default`'s own precondition: [num_groups] must divide the
+   channel count evenly. *)
+module Group_norm : sig
+  type t = { channels : Dim.extent Dim.t; groups : Op_config.Pos.t }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 type t =
   [ `Broadcast of Broadcast.t
   | `Adaptive_pool of Adaptive_pool.t
@@ -362,6 +375,7 @@ type t =
   | `Slice of Slice.t
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Convolution of Convolution.error
-  | `Sdpa of Sdpa.error ]
+  | `Sdpa of Sdpa.error
+  | `Group_norm of Group_norm.t ]
 
 val pp : Format.formatter -> [< t ] -> unit

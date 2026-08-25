@@ -76,6 +76,8 @@ type metadata_role =
         those extents can come from. *)
   | `Layer_norm_weight
   | `Layer_norm_bias
+  | `Group_norm_weight
+  | `Group_norm_bias
     (** layer_norm's two optional affine operands, read for their declared RANK
         for the same reason [`Rms_norm_weight] is. Separate tags rather than one
         shared "affine" role: they are separate arguments with separate checks,

@@ -109,7 +109,12 @@ end
 module Operand_shape = struct
   type t = {
     operand :
-      [ `Bias | `Rms_norm_weight | `Layer_norm_weight | `Layer_norm_bias ];
+      [ `Bias
+      | `Rms_norm_weight
+      | `Layer_norm_weight
+      | `Layer_norm_bias
+      | `Group_norm_weight
+      | `Group_norm_bias ];
     expected : Vec6.shape;
     actual : Vec6.shape;
   }
@@ -120,7 +125,9 @@ module Operand_shape = struct
       | `Bias -> "bias"
       | `Rms_norm_weight -> "rms_norm weight"
       | `Layer_norm_weight -> "layer_norm weight"
-      | `Layer_norm_bias -> "layer_norm bias")
+      | `Layer_norm_bias -> "layer_norm bias"
+      | `Group_norm_weight -> "group_norm weight"
+      | `Group_norm_bias -> "group_norm bias")
       Vec6.pp_shape expected Vec6.pp_shape actual
 end
 
@@ -481,6 +488,18 @@ module Sdpa = struct
           limit pp_work_factor factor prefix extent
 end
 
+(* `group_norm.default`'s own precondition: [num_groups] must divide the
+   channel count evenly, ATen's own contract. Nothing upstream proves it --
+   [num_groups] arrives as an ordinary int from a PT2 graph -- so it is
+   checked here rather than assumed. *)
+module Group_norm = struct
+  type t = { channels : Dim.extent Dim.t; groups : Op_config.Pos.t }
+
+  let pp ppf { channels; groups } =
+    Fmt.pf ppf "group_norm: channel count %a is not divisible by num_groups %a"
+      Dim.pp channels Op_config.Pos.pp groups
+end
+
 type t =
   [ `Broadcast of Broadcast.t
   | `Adaptive_pool of Adaptive_pool.t
@@ -499,7 +518,8 @@ type t =
   | `Slice of Slice.t
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Convolution of Convolution.error
-  | `Sdpa of Sdpa.error ]
+  | `Sdpa of Sdpa.error
+  | `Group_norm of Group_norm.t ]
 
 let pp ppf = function
   | `Broadcast e -> Broadcast.pp ppf e
@@ -520,3 +540,4 @@ let pp ppf = function
   | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
   | `Convolution e -> Convolution.pp_error ppf e
   | `Sdpa e -> Sdpa.pp_error ppf e
+  | `Group_norm e -> Group_norm.pp ppf e

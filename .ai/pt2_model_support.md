@@ -123,25 +123,25 @@ Run `make pt2.json-model-support` to regenerate; `make verify.pristine`
 + "verify pristine" steps) catches drift, the same as any other checked-in
 generated file in this repo -- no separate diff/check target needed.
 
-As of 2026-08-25: 100 models, 66 have `native_builds:true` (Native import
+As of 2026-08-25: 100 models, 69 have `native_builds:true` (Native import
 itself succeeded) -- up from the 50 this section originally reported: Native's
 own `cat.default`/`stack.default`/`select.int` support moved 9 models across
-that line, then `split_with_sizes.default` (below) moved 7 more (an 8th,
-`lambda_resnet26t`, still fails to build, now on `softmax.int` instead). Of
-the 34 that don't build, 28 stop on one missing ATen op each (`reason:
-"unsupported_operator"`, e.g. `avg_pool2d.default` non-adaptive (4),
-`split.Tensor` (3), `group_norm.default` (3), `alias.default` (3) -- a session
-still builds, so `nodes` is populated) and 6 are `"malformed"` (a real
-importer defect: `clone.default`'s `memory_format` or `max_pool2d`'s
-`ceil_mode=true` -- Fatal, so no session and `nodes` is `null`). This
-inventory has drifted since 2026-08-23 as other work landed; it is not
-re-audited op-by-op here, only re-totaled.
+that line, `split_with_sizes.default` moved 7 more (an 8th, `lambda_resnet26t`,
+still fails to build, now on `softmax.int` instead), then `group_norm.default`
+(below) moved the last 3. Of the 31 that don't build, 25 stop on one missing
+ATen op each (`reason: "unsupported_operator"`, e.g. `avg_pool2d.default`
+non-adaptive (4), `split.Tensor` (3), `alias.default` (3) -- a session still
+builds, so `nodes` is populated) and 6 are `"malformed"` (a real importer
+defect: `clone.default`'s `memory_format` or `max_pool2d`'s `ceil_mode=true`
+-- Fatal, so no session and `nodes` is `null`). This inventory has drifted
+since 2026-08-23 as other work landed; it is not re-audited op-by-op here,
+only re-totaled.
 
-Of the 66 that build, the two branches diverge for 32 of them -- proof the
+Of the 69 that build, the two branches diverge for 35 of them -- proof the
 fork is real, not just a modeling nicety. `native4d_converts` is `true` for 34
-and `false` for the other 32 (21 `outside_dialect_domain`, 11
+and `false` for the other 35 (24 `outside_dialect_domain`, 11
 `requires_payloads`, e.g. `regnetx_002` and `convmixer_1024_20_ks9_p14`).
-`kernel_converts` is `true` for 52 and `false` for 14, all `over_limit` -- a
+`kernel_converts` is `true` for 53 and `false` for 16, all `over_limit` -- a
 disjoint failure set from Native4D's: `regnetx_002` and
 `convmixer_1024_20_ks9_p14` both have `kernel_converts:true` despite failing
 Native4D, and conversely some models pass Native4D while `kernel_converts` is
@@ -166,6 +166,29 @@ answer `Concat4` used to get); `mixnet_l`/`mixnet_xl`/`mixnet_xxl`/
 `tf_mixnet_l`/`tf_mixnet_s` also fail `kernel_converts` (`over_limit`,
 disjoint as above; pre-existing for these models, not caused by this
 change).
+
+Landing Native's own `group_norm.default` (`Norm.GroupNorm` in
+`lib/native/ops/norm.ml`: its own reduction -- a WINDOWED sum over one
+group's channel slice nested inside a full-extent sum over every other
+non-batch axis, `S.sum`'s first windowed, non-compile-time-constant `lo` in
+the engine -- and its own shape rule, channel count must divide `num_groups`)
+moved the last 3 models with this blocker from `native_builds:false` to
+`true`: `efficientnet_b0_g8_gn`, `efficientnet_b3_g8_gn`,
+`test_efficientnet_gn`. All 3 now reach Native4D and stop there
+(`outside_dialect_domain`, "no legalization for group_norm" -- Native4D has
+no `Group_norm4` yet, the same "dialect does not have it at all" answer
+`Concat4`/`Split_with_sizes` used to get). `efficientnet_b0_g8_gn`/
+`efficientnet_b3_g8_gn` also fail `kernel_converts` (`over_limit`, disjoint as
+above; pre-existing, not caused by this change); `test_efficientnet_gn` passes
+it. Unlike `Concat4`/`Split_with_sizes`, `group_norm.default` has no real ATen
+C binding (`bin/aten_ops_gen.ml` does not select it): `at::native::group_norm`
+sits outside the hand-curated source closure `lib/aten/build_archive.sh`
+compiles, and adding it there undefined-symbol'd every binary linking `aten`.
+Native import and the payload-free sweep need no ATen binding at all, so this
+does not affect `native_builds`; only real-ATen verification
+(`Interp_verify`) is unavailable for this op, and its Native correctness is
+instead pinned by hand-computed values in `test/native/compute_test.ml`,
+cross-checked against an independent calculation.
 
 A previous version of this sweep reported `native_builds:true` for all but 5
 models -- 95, not 50 -- because it read the payload-free `visualize` CLI's

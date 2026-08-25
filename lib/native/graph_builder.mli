@@ -117,6 +117,17 @@ val discard : tensor_ref -> unit t
 val gelu :
   ?name:string -> Pointwise.Gelu.approximate -> tensor_ref -> Tensor_id.t t
 
+(* Both affine operands are independently optional, the same convention
+   [layer_norm]/[rms_norm] follow. *)
+val group_norm :
+  ?name:string ->
+  Norm.GroupNorm.params ->
+  x:tensor_ref ->
+  ?weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
 val hardsigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardswish : ?name:string -> tensor_ref -> Tensor_id.t t
 

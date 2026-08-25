@@ -71,6 +71,8 @@ type metadata_role =
   | `Layer_norm_input
   | `Layer_norm_weight
   | `Layer_norm_bias
+  | `Group_norm_weight
+  | `Group_norm_bias
   | `Mean_input
   | `Permute_input
   | `Transpose_input
@@ -303,6 +305,8 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Layer_norm_input -> Fmt.string ppf "layer_norm input"
   | `Layer_norm_weight -> Fmt.string ppf "layer_norm weight"
   | `Layer_norm_bias -> Fmt.string ppf "layer_norm bias"
+  | `Group_norm_weight -> Fmt.string ppf "group_norm weight"
+  | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Permute_input -> Fmt.string ppf "permute input"
   | `Transpose_input -> Fmt.string ppf "transpose input"
@@ -1466,6 +1470,37 @@ let lower program =
                    (optional_tensor_name esc node "bias"))
               ~running_mean:(get "running_mean")
               ~running_var:(get "running_var") ()
+          in
+          let* y = permute perm_nhwc_to_nchw y in
+          return [ y ]
+      (* [input] is right-aligned NCHW like [batch_norm]'s, so the same
+         permute pair relays it around the op -- the serialized counterpart of
+         [Op_bridge]'s [group_norm.default] arm: same checks, same node, same
+         treatment of the optional operands (NO ones/zeros tensors when
+         absent, for the reason the [layer_norm] arm below states). *)
+      | "torch.ops.aten.group_norm.default" ->
+          let* x = permute perm_nchw_to_nhwc (get "input") in
+          let num_groups = int_arg esc node "num_groups" in
+          let eps = float_arg esc ~default:1e-05 node "eps" in
+          (* Decoded, not ignored, then discarded -- matching the bridge and
+             matching ATen: a non-boolean here is a malformed node. *)
+          let (_ : bool) = bool_arg esc ~default:true node "cudnn_enabled" in
+          let groups =
+            pos esc ~op:"group_norm.default" ~param:`Groups num_groups
+          in
+          let params = { Norm.GroupNorm.channel = Axis.C; groups; eps } in
+          let affine name role =
+            let ssa = optional_tensor_name ~absent_ok:true esc node name in
+            Option.iter
+              (fun ssa -> require_rank esc graph ~ssa ~role ~expected:1)
+              ssa;
+            Option.map (env_find esc env) ssa
+          in
+          let* y =
+            group_norm params ~x
+              ?weight:(affine "weight" `Group_norm_weight)
+              ?bias:(affine "bias" `Group_norm_bias)
+              ()
           in
           let* y = permute perm_nhwc_to_nchw y in
           return [ y ]

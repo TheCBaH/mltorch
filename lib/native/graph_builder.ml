@@ -220,6 +220,10 @@ let discard x = push_node (Discard { x }) []
 let gelu ?name (approximate : Pointwise.Gelu.approximate) x =
   op1 ?name ~kind:"gelu" (Gelu { Pointwise.Gelu.x; approximate })
 
+let group_norm ?name params ~x ?weight ?bias () =
+  op1 ?name ~kind:"group_norm"
+    (Group_norm { Norm.GroupNorm.params; x; weight; bias })
+
 let hardsigmoid ?name x =
   op1 ?name ~kind:"hardsigmoid" (Hardsigmoid { Pointwise.Hardsigmoid.x })
 
