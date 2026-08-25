@@ -272,6 +272,15 @@ let%expect_test "domain: slice gates the sliced axis" =
     slice W                      in the dialect
     slice D                      node n0: axis D is outside the N/H/W/C dialect |}]
 
+(* Concat gates its ONE axis, the same rule slice applies to its sliced one.
+   The D case is refused by the axis rule and names D. *)
+let%expect_test "domain: concat gates the joined axis" =
+  table [ ("concat W", Fixtures.concat_w); ("concat D", Fixtures.concat_d) ];
+  [%expect
+    {|
+    concat W                     in the dialect
+    concat D                     node n0: axis D is outside the N/H/W/C dialect |}]
+
 (* [Unbind]'s axis check and its shape consequence are DIFFERENT rejections, and
    the ordering is what makes the first one useful: node predicates run before
    the shape rule, so a rank-five unbind naming T reports the axis rather than

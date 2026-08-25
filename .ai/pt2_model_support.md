@@ -123,23 +123,35 @@ Run `make pt2.json-model-support` to regenerate; `make verify.pristine`
 + "verify pristine" steps) catches drift, the same as any other checked-in
 generated file in this repo -- no separate diff/check target needed.
 
-As of 2026-08-23: 100 models, 50 have `native_builds:true` (Native import
-itself succeeded). Of the 50 that don't build: 45 stop on one missing ATen op
-each (`reason: "unsupported_operator"`, e.g. `cat.default` (16 models),
-`split_with_sizes.default` (7), `group_norm.default` (3) -- a session still
-builds, so `nodes` is populated) and 5 are `"malformed"` (a real importer
-defect: `clone.default`'s `memory_format` (3) or `max_pool2d`'s
-`ceil_mode=true` (2) -- Fatal, so no session and `nodes` is `null`).
+As of 2026-08-25: 100 models, 59 have `native_builds:true` (Native import
+itself succeeded) -- up from the 50 this section originally reported, because
+Native's own `cat.default`/`stack.default`/`select.int` support (landed since)
+moved 9 models across that line; `cat.default` no longer blocks anything. Of
+the 41 that don't build, 35 stop on one missing ATen op each (`reason:
+"unsupported_operator"`, e.g. `split_with_sizes.default` (8),
+`avg_pool2d.default` non-adaptive (4), `split.Tensor` (3), `group_norm.default`
+(3), `alias.default` (3) -- a session still builds, so `nodes` is populated)
+and 6 are `"malformed"` (a real importer defect: `clone.default`'s
+`memory_format` or `max_pool2d`'s `ceil_mode=true` -- Fatal, so no session and
+`nodes` is `null`). This inventory has drifted since 2026-08-23 as other work
+landed; it is not re-audited op-by-op here, only re-totaled.
 
-Of the 50 that build, the two branches diverge for 25 of them -- proof the
-fork is real, not just a modeling nicety. `native4d_converts` is `true` for
-25 and `false` for the other 25 (14 `outside_dialect_domain`, 11
+Of the 59 that build, the two branches diverge for 25 of them -- proof the
+fork is real, not just a modeling nicety. `native4d_converts` is `true` for 34
+and `false` for the other 25 (14 `outside_dialect_domain`, 11
 `requires_payloads`, e.g. `regnetx_002` and `convmixer_1024_20_ks9_p14`).
-`kernel_converts` is `true` for 42 and `false` for 8, all `over_limit` -- a
+`kernel_converts` is `true` for 50 and `false` for 9, all `over_limit` -- a
 disjoint failure set from Native4D's: `regnetx_002` and
 `convmixer_1024_20_ks9_p14` both have `kernel_converts:true` despite failing
 Native4D, and conversely some models pass Native4D while `kernel_converts` is
 `false`.
+
+Landing a Native4D `Concat4` op (`todo.md`'s §1 item 1, `Domain.check_node`
+gating its joined axis the same way `Slice`/`Unbind` gate theirs) moved 9 more
+models across the `native4d_converts` line in this run: `rdnet_tiny` and the 8
+`rexnet*`/`rexnetr*` variants, all previously blocked on "no legalization for
+concat". `rdnet_tiny` still fails `kernel_converts` (`over_limit`, disjoint as
+above); the 8 `rexnet*`/`rexnetr*` variants now pass both branches in full.
 
 A previous version of this sweep reported `native_builds:true` for all but 5
 models -- 95, not 50 -- because it read the payload-free `visualize` CLI's

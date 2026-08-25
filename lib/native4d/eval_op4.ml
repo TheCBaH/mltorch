@@ -176,6 +176,16 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           (Graph_shape4.rms_params params)
           ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    (* Through the same [concat_params] adapter [Graph_shape4] uses, so the
+       axis the shape rule joins along is the axis the compute reads. Every
+       operand's own shape is paired with its value, exactly the pairing
+       Native's [Concat.Compute.pixel] wants. *)
+    | Concat4 { Ops4.Concat4.params; xs } ->
+        let module C = Concat.Concat.Compute (S) in
+        C.pixel
+          (Graph_shape4.concat_params params)
+          ~xs:(List.map (fun r -> (shape_of r, operand r)) xs)
+          out
     | Pad4 { Ops4.Pad4.params; x } ->
         let module C = Pad.Pad.Compute (S) in
         C.pixel

@@ -411,6 +411,19 @@ let lower_node ~view acc (n : node) =
                };
              x = op_of x;
            })
+  (* A direct counterpart with only the axis converted: every operand's shape
+     already agrees off the joined axis (Native's own shape rule), and
+     [Eval_op4] runs the very same [Concat.Concat.Compute], so no value
+     changes and the claim is [Identical]. T and D have already been refused
+     by [Domain.check_node], for the reason the [Unbind] arm gives. *)
+  | Concat { Concat.Concat.params; xs } ->
+      let* axis = dims4 ~node [ params.axis ] in
+      simple
+        (Op.Concat4
+           {
+             Ops4.Concat4.params = { axis = List.hd axis };
+             xs = List.map op_of xs;
+           })
   | Pad { Pad.Pad.params; x } ->
       let* pads =
         Err.List.map
@@ -658,11 +671,10 @@ let lower_node ~view acc (n : node) =
         n.Node.outputs
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Concat]/[Select]/[Stack] join that set until [Concat4]/[Select4]/[Stack4]
-     exist (see [Domain.check_node]'s comment) rather than gaining a real
-     conversion arm here. *)
-  | Max_pool2d_with_indices _ | Discard _ | Sdpa _ | Concat _ | Select _
-  | Stack _ ->
+     [Select]/[Stack] join that set until [Select4]/[Stack4] exist (see
+     [Domain.check_node]'s comment) rather than gaining a real conversion arm
+     here. *)
+  | Max_pool2d_with_indices _ | Discard _ | Sdpa _ | Select _ | Stack _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))
 
 (* ---- constants ------------------------------------------------------------ *)

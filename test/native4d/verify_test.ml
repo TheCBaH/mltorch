@@ -420,6 +420,17 @@ let%expect_test "verify: slice, numerically, through the lowering" =
     native4d: tensor f32 [H=2 W=2 C=1] {2, 4, 7, 9}
     agree: true |}]
 
+(* The joining op, end to end, over operands of DIFFERENT extents along the
+   joined axis -- a wrong per-operand offset prints different numbers, not
+   only a different shape. *)
+let%expect_test "verify: concat, numerically, through the lowering" =
+  native_vs_four (Fixtures.concat_w ());
+  [%expect
+    {|
+    native:   tensor f32 [H=2 W=3 C=1] {1, 1, 2, 2, 3, 4}
+    native4d: tensor f32 [H=2 W=3 C=1] {1, 1, 2, 2, 3, 4}
+    agree: true |}]
+
 (* The boundary-synthesis op, end to end, on the one fixture whose whole output
    prints — [Tensor.pp] truncates after eight elements, and on a fixture large
    enough to need truncating every visible element is fill. Both the synthesized

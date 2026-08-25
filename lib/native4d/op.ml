@@ -28,6 +28,7 @@ type op =
   | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Clamp of Pointwise.Clamp.t
+  | Concat4 of Ops4.Concat4.t
   | Conv2d of Ops4.Conv2d.t
   | Depthwise_conv2d of Ops4.Depthwise_conv2d.t
   | Div of Pointwise.Div.t
@@ -105,6 +106,12 @@ let op_registry : (module OP) list =
 
       let inject t = Clamp t
       let project = function Clamp t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Concat4
+
+      let inject t = Concat4 t
+      let project = function Concat4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Conv2d

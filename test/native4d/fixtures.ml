@@ -387,6 +387,37 @@ let slice_d =
   slice_graph "slice_d" ~shape:(s 1 1 3 2 2 2) ~axis:Axis.D ~start:0 ~stop:2
     ~step:1
 
+(* [fold_left], not [fold_right]: the monadic actions are threaded through
+   STATE at run time, so building the accumulator on the wrong side reverses
+   which shape gets the lower tensor id -- appending onto the end here is what
+   keeps the graph's input order, [xs]'s order, and [shapes]' order all the
+   same list. *)
+let concat_graph name ~shapes ~axis () =
+  Graph_builder.build ~name
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* xs =
+       List.fold_left
+         (fun acc shape ->
+           let* rest = acc in
+           let* x = input ~shape () in
+           return (rest @ [ x ]))
+         (return []) shapes
+     in
+     concat { Concat.Concat.axis } xs)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* Joined on a dialect axis, with operands of DIFFERENT extents along it. *)
+let concat_w =
+  concat_graph "concat_w"
+    ~shapes:[ nhwc ~n:1 ~h:2 ~w:1 ~c:1; nhwc ~n:1 ~h:2 ~w:2 ~c:1 ]
+    ~axis:Axis.W
+
+(* The same op naming D, refused by the AXIS rule so the diagnostic names D. *)
+let concat_d =
+  concat_graph "concat_d" ~shapes:[ s 1 1 1 2 2 2; s 1 1 2 2 2 2 ] ~axis:Axis.D
+
 (* N=1, so unbinding C leaves every slice four-axis. *)
 let unbind_c_batch1 () =
   unbind_all "unbind_c_batch1" ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:3) Axis.C
