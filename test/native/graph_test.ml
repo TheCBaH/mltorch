@@ -1020,6 +1020,41 @@ let%expect_test "Direct graph: split_with_sizes divides one axis into windows" =
     out0 = tensor f32 [H=2 W=2 C=1] {0, 1, 10, 11}
     out1 = tensor f32 [H=2 W=3 C=1] {2, 3, 4, 12, 13, 14} |}]
 
+(* Through the builder with BOTH affine operands absent, so this exercises
+   [Eval_op]'s fill path (identity weight=1, bias=0) end to end -- the same
+   [H=2 W=1 C=4] two-group fixture [compute_test.ml]'s hand-computed test
+   uses, so the two can be cross-checked against each other. *)
+let%expect_test "Direct graph: group_norm splits C into groups, absent affine" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"gn" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 1 4) ~name:"x" () in
+          group_norm ~name:"out"
+            {
+              Norm.GroupNorm.channel = Axis.C;
+              groups = Op_config.Pos.of_int 2;
+              eps = 0.;
+            }
+            ~x ())
+    in
+    let x =
+      Tensor.materialize (s 1 1 1 2 1 4) (fun c ->
+          float_of_int ((Dim.to_int (Vec6.get c Axis.H) * 10) + chan c))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect
+    {|
+    out = tensor f32 [H=2 W=1 C=4] {-1.09454, -0.895533, -1.09454, -0.895533, 0.895533, 1.09454, 0.895533, 1.09454} |}]
+
 (* Pad through the builder: the fill is narrowed to f32 there, and the shape
    rule sees the input edge, so a graph whose pad empties an axis cannot be
    built at all. *)

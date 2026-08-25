@@ -54,6 +54,14 @@ type op =
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
   | Gelu of Pointwise.Gelu.t
+  (* Reshapes [channel] into [groups] equal chunks and normalises each
+     (N, group) slice over that chunk plus every axis but N and [channel] --
+     not a caller [dims] list the way [Layer_norm]/[Rms_norm] take one, since
+     ATen's group_norm has no axis-selection parameter. Its own shape rule
+     (channel count must divide by [groups]) and its own reduction (a
+     windowed [channel] sum, not a full-extent one), so it is not a
+     legalization onto either of them. *)
+  | Group_norm of Norm.GroupNorm.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t

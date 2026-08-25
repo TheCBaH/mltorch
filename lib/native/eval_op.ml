@@ -99,6 +99,17 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
         C.pixel approximate (operand x) out
+    | Group_norm { Norm.GroupNorm.params; x; weight; bias } ->
+        let module C = Norm.GroupNorm.Compute (S) in
+        (* Absent weight = identity scale, absent bias = identity shift,
+           filled HERE for the reason the [Layer_norm] arm's comment gives. *)
+        let weight =
+          match weight with Some w -> operand w | None -> fill 1. (shape_of x)
+        in
+        let bias =
+          match bias with Some b -> operand b | None -> fill 0. (shape_of x)
+        in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight ~bias out
     | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
         let module C = Pointwise.Hardsigmoid.Compute (S) in
         C.pixel (operand x) out

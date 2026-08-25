@@ -1980,6 +1980,84 @@ let%expect_test "Direct: layer_norm eps is inside the sqrt" =
     tensor f32 [C=4] {-0.438769, -0.438769, 0.438769, 0.438769}
     tensor f32 [C=4] {-0.1526, -0.1526, 0.1526, 0.1526} |}]
 
+(* ---- group_norm -------------------------------------------------------------
+
+   Hand-computed, same attribution discipline as the layer_norm block above.
+   Unlike layer_norm, the reduction is over a WINDOW of C (one group's slice)
+   plus the FULL extent of every other non-N axis -- so the fixture needs a
+   real spatial extent (H > 1) to exercise the "full extent" half at all;
+   layer_norm's single-axis-C fixtures would leave it untested. *)
+let%expect_test "Direct: group_norm splits C into two groups, reducing H too" =
+  let module G = Norm.GroupNorm.Compute (Direct) in
+  (* [H=2 W=1 C=4], x[h,c] = h*10+c: group 0 is channels {0,1}, group 1 is
+     {2,3}, and each group's window spans both rows of H. Group 0's four
+     values {0,1,10,11} have mean 5.5, var 25.25; group 1's {2,3,12,13} have
+     mean 7.5, the SAME variance (both groups are shifted copies of one
+     another by 2), so a wrong group boundary that swapped which four values
+     went together would still print a plausible-looking but different
+     result. *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:4 in
+  let x =
+    Tensor.materialize x_shape (fun c -> float_of_int ((row c * 10) + chan c))
+  in
+  let ones = Tensor.materialize x_shape (fun _ -> 1.) in
+  let zeros = Tensor.materialize x_shape (fun _ -> 0.) in
+  let p =
+    {
+      Norm.GroupNorm.channel = Axis.C;
+      groups = Op_config.Pos.of_int 2;
+      eps = 0.;
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Norm.GroupNorm.output_shape ~x_shape p)
+       (G.pixel p ~x_shape ~x ~weight:ones ~bias:zeros));
+  [%expect
+    {| tensor f32 [H=2 W=1 C=4] {-1.09454, -0.895533, -1.09454, -0.895533, 0.895533, 1.09454, 0.895533, 1.09454} |}]
+
+(* The per-channel affine, on the trivial-spatial [H=1 W=1] case so the
+   reduction itself is not also under test: with two channels per group and
+   H=W=1, group 0 is {0,1} and group 1 is {2,3}, each normalising to
+   [-1, 1]. weight/bias then apply PER CHANNEL (not per group, unlike
+   layer_norm's per-normalised-shape affine) in ATen's [y * weight + bias]
+   order. *)
+let%expect_test "Direct: group_norm applies weight/bias per channel" =
+  let module G = Norm.GroupNorm.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:4 in
+  let x = Tensor.materialize x_shape (fun c -> float_of_int (chan c)) in
+  let wa = [| 10.; 20.; 30.; 40. |] in
+  let ba = [| 100.; 200.; 300.; 400. |] in
+  let weight = Tensor.materialize x_shape (fun c -> wa.(chan c)) in
+  let bias = Tensor.materialize x_shape (fun c -> ba.(chan c)) in
+  let p =
+    {
+      Norm.GroupNorm.channel = Axis.C;
+      groups = Op_config.Pos.of_int 2;
+      eps = 0.;
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Norm.GroupNorm.output_shape ~x_shape p)
+       (G.pixel p ~x_shape ~x ~weight ~bias));
+  [%expect {| tensor f32 [C=4] {90, 220, 270, 440} |}]
+
+(* [num_groups] must divide the channel count exactly -- ATen's own contract,
+   checked at [output_shape] rather than assumed. *)
+let%expect_test "group_norm output_shape: indivisible channel count" =
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:5 in
+  let p =
+    {
+      Norm.GroupNorm.channel = Axis.C;
+      groups = Op_config.Pos.of_int 2;
+      eps = 0.;
+    }
+  in
+  Format.printf "%a@." (pp_result Vec6.pp_shape)
+    (Norm.GroupNorm.output_shape ~x_shape p);
+  [%expect {| group_norm: channel count 5 is not divisible by num_groups 2 |}]
+
 (* ---- sdpa ------------------------------------------------------------------
 
    op8-impl.md commit 1 step 9: since [Direct] vs [Symbolic] cannot see a wrong

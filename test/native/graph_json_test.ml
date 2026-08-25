@@ -174,7 +174,16 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
               { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-6 }
               ~x:narrowed ()
           in
-          relu ~name:"out" normed)
+          let* grouped =
+            group_norm
+              {
+                Norm.GroupNorm.channel = Axis.C;
+                groups = Op_config.Pos.of_int 2;
+                eps = 1e-6;
+              }
+              ~x:normed ()
+          in
+          relu ~name:"out" grouped)
     in
     Err.List.map
       (fun (node : Graph_ir.node) ->
@@ -204,6 +213,7 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
     Pad        tag=Pad        agree=true
     Slice      tag=Slice      agree=true
     Layer_norm tag=Layer_norm agree=true
+    Group_norm tag=Group_norm agree=true
     Relu       tag=Relu       agree=true
     |}]
 
@@ -956,6 +966,83 @@ let%expect_test "graph with Split_with_sizes op: encode → decode → pretty-pr
       n0: [t1 f32 [H=2 W=2 C=3], t2 f32 [H=2 W=3 C=3]] =
         split_with_sizes x=t0 params={axis=W sizes=[2, 3]}
     outputs: [t1 f32 [H=2 W=2 C=3] <-n0, t2 f32 [H=2 W=3 C=3] <-n0] |}]
+
+(* [groups] round-trips as a plain int inside [params], not [Op_config.Pos.t]'s
+   own codec, and the weight/bias PAIR states are exercised (both present,
+   both absent) since both options are independently reachable through
+   [Graph_ir]. *)
+let%expect_test "graph with Group_norm op: encode → decode → pretty-print" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"group_norm" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 2 4) ~name:"x" () in
+          let* w = constant ~shape:(s1c 4) ~name:"w" () in
+          let* b = constant ~shape:(s1c 4) ~name:"b" () in
+          group_norm ~name:"out"
+            {
+              Norm.GroupNorm.channel = Axis.C;
+              groups = Op_config.Pos.of_int 2;
+              eps = 1e-5;
+            }
+            ~x ~weight:w ~bias:b ())
+    in
+    let* json = encode_graph g in
+    decode_graph json
+  in
+  Format.printf "%a@." (pp_result pp_decoded) result;
+  [%expect
+    {|
+    decoded:
+    graph
+    inputs:
+      [t0 f32 [H=2 W=2 C=4] ->[n0], t1 f32 [C=4] ->[n0] constant,
+       t2 f32 [C=4] ->[n0] constant]
+    nodes:
+      n0: [t3 f32 [H=2 W=2 C=4]] =
+        group_norm x=t0 weight=t1 bias=t2 params={channel=C; groups=2; eps=1e-05}
+    outputs: [t3 f32 [H=2 W=2 C=4] <-n0] |}]
+
+(* No weight, no bias: the option-absent codec path, not exercised by the
+   fixture above. *)
+let%expect_test
+    "graph with Group_norm op, no affine: encode → decode → pretty-print" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"group_norm_bare" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s 1 1 1 2 2 4) ~name:"x" () in
+          group_norm ~name:"out"
+            {
+              Norm.GroupNorm.channel = Axis.C;
+              groups = Op_config.Pos.of_int 2;
+              eps = 1e-5;
+            }
+            ~x ())
+    in
+    let* json = encode_graph g in
+    decode_graph json
+  in
+  Format.printf "%a@." (pp_result pp_decoded) result;
+  [%expect
+    {|
+    decoded:
+    graph
+    inputs: [t0 f32 [H=2 W=2 C=4] ->[n0]]
+    nodes:
+      n0: [t1 f32 [H=2 W=2 C=4]] =
+        group_norm
+          x=t0
+          weight=none
+          bias=none
+          params={channel=C; groups=2; eps=1e-05}
+    outputs: [t1 f32 [H=2 W=2 C=4] <-n0] |}]
 
 (* The [xs] field is the first variadic-OPERAND list codec any op has -- every
    earlier op's [Tensor_ref.jsont] usage is for a single-arity field or (in

@@ -111,6 +111,26 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Gelu.output_shape x_shape) in
       [ out ]
+  (* Both affine operands are optional and share ONE expected layout (the
+     per-channel vector [check_affine] describes), the same division of labor
+     [Layer_norm]'s arm above uses. *)
+  | Group_norm { Norm.GroupNorm.params; x; weight; bias } ->
+      let* x_shape = shape x in
+      let opt_shape = function
+        | None -> Err.return None
+        | Some r ->
+            let+ s = shape r in
+            Some s
+      in
+      let* weight = opt_shape weight in
+      let* bias = opt_shape bias in
+      let* () =
+        widen
+          (Norm.GroupNorm.check_affine ~x_shape
+             ~channel:params.Norm.GroupNorm.channel ~weight ~bias)
+      in
+      let+ out = widen (Norm.GroupNorm.output_shape ~x_shape params) in
+      [ out ]
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Hardsigmoid.output_shape x_shape) in

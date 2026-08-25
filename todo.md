@@ -45,8 +45,30 @@ build, now on `softmax.int`) — all 7 now stop at Native4D's domain check
 instead. Neither `Concat4` nor `Split_with_sizes` has an ATen-vs-Native
 ops-walk or a Native Direct-vs-Symbolic fuzz-walk registration yet (same gap
 `cat.default`/`stack.default`/`select.int` already have — see the
-cross-cutting note below); not fixed in either of these changes. See
-`.ai/pt2_model_support.md`'s 2026-08-25 update for both.
+cross-cutting note below); not fixed in either of these changes. **And
+`group_norm.default`** (formerly item 1 below) — `Norm.GroupNorm` in
+`lib/native/ops/norm.ml`: its own reduction, a windowed `S.sum` over one
+group's channel slice (the engine's first non-compile-time-constant `S.sum`
+lower bound) nested inside a full-extent sum over every other non-batch
+axis, and its own shape rule (channel count must divide `num_groups`,
+bounded the same way `LayerNorm`/`RmsNorm`'s reduction counts are);
+per-channel (not per-normalized-shape) affine, checked via `check_affine`.
+ATen binding, `Op_bridge` and `Native_interp` arms landed, both permuting
+NCHW⇄NHWC around the op like `Batch_norm`'s. **No real ATen C binding**:
+`at::native::group_norm` sits outside `lib/aten/build_archive.sh`'s
+hand-curated source closure, and adding it undefined-symbol'd every binary
+linking `aten` — `bin/aten_ops_gen.ml` does not select it, so
+`Interp_verify` real-ATen verification is unavailable for this op; Native
+import needs no ATen binding at all, so `native_builds` is unaffected, and
+correctness is instead pinned by hand-computed values in
+`test/native/compute_test.ml`, cross-checked against an independent
+calculation, plus the Direct-vs-Symbolic bitwise-agreement test. Native4D
+`Group_norm4` is the deliberately-not-done half, same `unsupported()`
+treatment `Select4`/`Split4`/`Stack4` get. Regenerating the sweep after this
+landing moved the last 3 models with this blocker to `native_builds:true`
+(`efficientnet_b0_g8_gn`, `efficientnet_b3_g8_gn`, `test_efficientnet_gn`),
+all now stopping at Native4D's domain check instead. See
+`.ai/pt2_model_support.md`'s 2026-08-25 update for all three landings.
 
 Ordered: (1) the rest of CSATv2's medium-complexity structural set; then
 (2) the high-complexity matrix/attention/indexing set.
@@ -54,32 +76,27 @@ Ordered: (1) the rest of CSATv2's medium-complexity structural set; then
 ## 1. Medium complexity — remaining CSATv2 structural set
 
 Independent vertical slices, in this order (unchanged from `ops.md`, verified
-still unimplemented in `Graph_ir` — no `Group_norm`, `Amax`, `Pow_scalar`,
-`Vector_norm`, or `Upsample` node exists today):
+still unimplemented in `Graph_ir` — no `Amax`, `Pow_scalar`, `Vector_norm`, or
+`Upsample` node exists today):
 
-1. **`group_norm.default`** — not in CSATv2 either, blocks 3 models in the
-   sweep. A distinct normalization primitive (grouped-channel statistics),
-   not a legalization to existing `Batch_norm`/`Layer_norm` — needs its own
-   shape rule (channel groups must divide channel count) and Native4D axis
-   check.
-2. **`amax.default` (14)**, restricted to the observed `dim=[1]`,
+1. **`amax.default` (14)**, restricted to the observed `dim=[1]`,
    `keepdim=true` configuration — general empty/`None` dims deferred.
    `Max_keepdims` in Native4D only after axis-domain checking.
-3. **`pow.Tensor_Scalar` (1, exponent 0.5) + `linalg_vector_norm.default`
+2. **`pow.Tensor_Scalar` (1, exponent 0.5) + `linalg_vector_norm.default`
    (14, ord 2, dims `[1,2]`, keepdim)** — prefer a small explicit numeric
    kernel only if it matches ATen tolerance; otherwise fused `Pow_scalar` +
    `Vector_norm`. Needs reduction primitives beyond `Mean_keepdims`. The
    sweep hits both independently outside CSATv2 too (`mobilenetv5_base` on
    `pow.Tensor_Scalar`, `swiftformer_xs` on `linalg_vector_norm.default`) —
    corroborating evidence, not extra scope.
-4. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
+3. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
    `align_corners=true` — real bilinear-resize op (shape inference,
    coordinate transform, boundary handling); Native4D `ResizeBilinear4` must
    reject/diagnose unsupported axes rather than reinterpret them. Do not
    conflate with `upsample_bicubic2d.vec`, which the sweep shows blocking
    `sam2_hiera_tiny` separately — a different coordinate-transform/overload,
    not covered by this row.
-5. **`clone` with a supplied memory format (2 in CSATv2)** — decode the enum,
+4. **`clone` with a supplied memory format (2 in CSATv2)** — decode the enum,
    prove identity for the observed layout or represent the relayout; only
    admit a no-op proof in Native4D, never assume a requested layout
    conversion is a plain `Clone`. The sweep shows this same case hard-rejects
@@ -87,7 +104,7 @@ still unimplemented in `Graph_ir` — no `Group_norm`, `Amax`, `Pow_scalar`,
    `malformed` — i.e. the importer's refuse-rather-than-ignore choice is
    already correct there too; no separate design question, just more
    coverage once this row lands.
-6. **`max_pool2d.default` with `ceil_mode=true`** — not in CSATv2 at all; new
+5. **`max_pool2d.default` with `ceil_mode=true`** — not in CSATv2 at all; new
    from the sweep, blocks 2 models (`hgnetv2_b0`,
    `legacy_seresnext26_32x4d`), also currently a hard `malformed` reject.
    Same shape-computation family as the existing pooling ops: ceiling instead
@@ -97,10 +114,10 @@ Each row: ATen binding in `bin/aten_ops_gen.ml` if absent, `Aten_op_config`
 decoder/spec fixture, bridge lowering, Native implementation, dispatch audit.
 Add an ATen-vs-Native walk only where a non-vacuous recipe exists; otherwise a
 table-driven boundary suite. Keep CSATv2 graph-only in CI until a complete
-end-to-end execution test passes (`ops.md` explicit instruction) — items 1 and
-6 have no bearing on that CSATv2 gate since they don't appear in its graph,
-but should not be deferred behind it either given their independent
-cross-model leverage. Every new bridge arm here must build exactly one node
+end-to-end execution test passes (`ops.md` explicit instruction) — item 5 has
+no bearing on that CSATv2 gate since it does not appear in its graph, but
+should not be deferred behind it either given its independent cross-model
+leverage. Every new bridge arm here must build exactly one node
 per ATen op (the design-goal rule `select`/`stack`/`concat4`/
 `split_with_sizes` were fixed against or built to) — none of these targets
 has an obvious decomposition temptation the way `select`/`stack` did, but
