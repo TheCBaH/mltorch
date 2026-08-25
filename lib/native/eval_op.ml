@@ -222,6 +222,15 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Unbind { Split.Unbind.params; x } ->
         let module C = Split.Unbind.Compute (S) in
         C.pixel params ~output ~x:(operand x) out
+    (* [offset] is the sum of every EARLIER piece's size -- [output]'s ordinal
+       picks the prefix, [Compute.pixel] wants only the sum. *)
+    | Split_with_sizes { Split.Split_with_sizes.params; x } ->
+        let module C = Split.Split_with_sizes.Compute (S) in
+        let offset =
+          Split.Split_with_sizes.offset_of ~output
+            params.Split.Split_with_sizes.sizes
+        in
+        C.pixel ~offset params ~x:(operand x) out
     | Discard _ ->
         invalid_arg
           "Eval_op.pixel: Discard produces no output, so it has no pixel"

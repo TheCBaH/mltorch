@@ -167,6 +167,194 @@ module Unbind = struct
   end
 end
 
+(* `split_with_sizes`: divides [axis] into contiguous windows of the given SIZES,
+   KEEPING the axis in every output -- unlike [Unbind], which drops the axis
+   and produces one output per COORDINATE of it rather than per caller-chosen
+   window. Each output is exactly what [Slice] would produce for that
+   window, one after another with no gap and no overlap; this op exists
+   rather than N [Slice] nodes for the same reason [Concat]/[Stack] got their
+   own node (.ai/native_add_op.md): the "N contiguous windows summing to the
+   whole axis" relationship is this op's own shape rule, not something a
+   chain of [Slice] nodes states anywhere in the graph.
+
+   THE OUTPUT COUNT is part of the PARAMETERS, unlike [Unbind]'s (which is
+   derived from the input signature): [sizes] is untrusted model data, so its
+   length gets the same [Kernel.Limits.Hard.outputs] bound [Unbind]'s derived
+   count gets, just checked directly rather than read off a shape. Each size
+   must be positive (Native tensors have no empty extent, [Dim.extent] is
+   >= 1, the same rule [Slice]'s `Empty` enforces) and the sizes must sum
+   EXACTLY to the axis's extent -- ATen's own contract, checked explicitly
+   here rather than assumed, since [sizes] arrives as ordinary ints from a
+   PT2 graph, not as a value ATen has already validated. *)
+module Split_with_sizes = struct
+  type params = { axis : Axis.t; sizes : int list }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"split_with_sizes_params" (fun axis sizes ->
+        { axis; sizes })
+    |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.mem "sizes" (Jsont.list Jsont.int) ~enc:(fun p -> p.sizes)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a sizes=%a}@]" Axis.pp p.axis
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.int))
+      p.sizes
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "SplitWithSizes"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>split_with_sizes@ x=%a@ params=%a@]" pp_ref t.x
+      pp_params t.params
+
+  (* Same ceiling [Unbind.output_limit] checks, on the LIST length here rather
+     than on a derived count -- an untrusted aggregate either way, and the
+     same reason it has to be bounded before the output list is built: a
+     ceiling checked by the builder would already be too late. *)
+  let output_limit = Kernel.Limits.Hard.outputs
+
+  (* The sum of every EARLIER piece's size -- one definition, shared by
+     [Compute.pixel]'s generic path and [Eval_direct]'s dtype-preserving
+     bypass, so the two cannot compute [output]'s offset differently. *)
+  let offset_of ~output sizes =
+    List.filteri (fun i _ -> i < output) sizes |> List.fold_left ( + ) 0
+
+  let output_shapes ~(x_shape : Vec6.shape) (p : params) =
+    let open Err.Syntax in
+    let count = List.length p.sizes in
+    if count >= output_limit then
+      Err.fail
+        (`Output_count_over_limit
+           {
+             Shape_error.Output_count.limit = output_limit;
+             observed = Shape_error.Output_count.Exact count;
+           })
+    else
+      let in_extent = Vec6.get x_shape p.axis in
+      let fail fault =
+        Err.fail
+          (`Split_with_sizes
+             Shape_error.Split_with_sizes.{ axis = p.axis; in_extent; fault })
+      in
+      let* () =
+        Err.List.iter
+          (fun (index, size) ->
+            if size > 0 then Err.return ()
+            else
+              fail
+                (Shape_error.Split_with_sizes.Non_positive_size { index; size }))
+          (List.mapi (fun i size -> (i, size)) p.sizes)
+      in
+      (* Every size just proved positive, so [total] is a sum of positive
+         factors each individually well below [Kernel.Limits.Hard.extent]
+         (each is at most [in_extent], already bounded) -- summed in [int64]
+         per CLAUDE.md's aggregate rule, the same shape [Concat.output_shape]'s
+         own summation uses. *)
+      let total =
+        List.fold_left
+          (fun acc size -> Int64.add acc (Int64.of_int size))
+          0L p.sizes
+      in
+      if Int64.compare total (Int64.of_int (in_extent :> int)) <> 0 then
+        fail (Shape_error.Split_with_sizes.Size_mismatch { total })
+      else
+        Err.return
+          (List.map
+             (fun size -> Vec6.set x_shape p.axis (Dim.extent size))
+             p.sizes)
+
+  (* This op's random-walk config space: a 4D tensor split along one of the
+     four mutable axes into a small number of windows. [pattern] resolves
+     against whatever extent [Walk_core.Shape.t] draws for [axis] -- the same
+     "derive from the drawn extent" shape [Slice.Walk]'s [bounds] uses, and
+     for the same reason: an independent [sizes] axis would draw far more
+     configurations [output_shapes] refuses (wrong sum) than ones it accepts. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type pattern = Halves | Thirds | Head_and_rest | All_ones
+    type cfg = { shape : Walk_core.Shape.t; axis : Axis.t; pattern : pattern }
+
+    let initial =
+      {
+        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        axis = Axis.H;
+        pattern = Halves;
+      }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    (* Every pattern sums exactly to [n] for any [n >= 1]: the remainder of an
+       uneven split lands entirely in the LAST piece, so there is no pattern
+       here that [output_shapes] would refuse. *)
+    let sizes_for ~n = function
+      | Halves ->
+          let half = max 1 (n / 2) in
+          if half >= n then [ n ] else [ half; n - half ]
+      | Thirds ->
+          let third = max 1 (n / 3) in
+          if 2 * third >= n then [ third; n - third ]
+          else [ third; third; n - (2 * third) ]
+      | Head_and_rest -> if n <= 1 then [ n ] else [ 1; n - 1 ]
+      | All_ones -> List.init n (fun _ -> 1)
+
+    let params (c : cfg) : params =
+      let n = (Vec6.get (shape c) c.axis :> int) in
+      { axis = c.axis; sizes = sizes_for ~n c.pattern }
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "axis" Axis.[ N; H; W; C ] (fun r v -> { r with axis = v });
+          field_axis "pattern" [ Halves; Thirds; Head_and_rest; All_ones ]
+            (fun r v -> { r with pattern = v });
+        ]
+
+    let pp fmt (c : cfg) =
+      let p = params c in
+      Format.fprintf fmt "{shape=%a axis=%a sizes=%a}" Walk_core.Shape.pp
+        c.shape Axis.pp p.axis
+        (Fmt.brackets (Fmt.list ~sep:Fmt.comma Fmt.int))
+        p.sizes
+  end
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* Every output is a plain [Slice] window at a fixed offset -- the offset
+       is the sum of every EARLIER size, threaded in by the caller (the sum
+       of a prefix of a list already proved to fit the axis, so no further
+       bound is needed here) rather than recomputed per output. *)
+    let pixel ~offset (p : params) ~x (out : Semantics.position S.index Vec6.t)
+        : S.t =
+      let src =
+        S.clamp_low
+          (S.index_add (S.index_const offset)
+             (S.of_index (Vec6.get out p.axis)))
+      in
+      S.load x (Vec6.set out p.axis src)
+  end
+end
+
 (* A strided selection along one axis, keeping the axis:
    `slice.Tensor(Tensor self, int dim=0, SymInt? start=None, SymInt? end=None,
    SymInt step=1) -> Tensor`. Unlike [Unbind], the rank is unchanged, so there

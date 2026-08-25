@@ -261,6 +261,27 @@ module Concat = struct
           Axis.pp axis Dim.pp first Dim.pp other
 end
 
+module Split_with_sizes = struct
+  type fault =
+    | Non_positive_size of { index : int; size : int }
+    | Size_mismatch of { total : int64 }
+
+  type t = { axis : Axis.t; in_extent : Dim.extent Dim.t; fault : fault }
+
+  let pp ppf { axis; in_extent; fault } =
+    match fault with
+    | Non_positive_size { index; size } ->
+        Fmt.pf ppf
+          "split_with_sizes of axis %a over extent %a: size %d at index %d is \
+           not positive; the engine has no empty extent"
+          Axis.pp axis Dim.pp in_extent size index
+    | Size_mismatch { total } ->
+        Fmt.pf ppf
+          "split_with_sizes of axis %a: sizes sum to %Ld, not the axis's \
+           extent %a"
+          Axis.pp axis total Dim.pp in_extent
+end
+
 module Convolution = struct
   type channels_divisibility = { channels : int; groups : int }
 
@@ -470,6 +491,7 @@ type t =
   | `Linear of Linear.error
   | `Bmm of Bmm.error
   | `Concat of Concat.t
+  | `Split_with_sizes of Split_with_sizes.t
   | `Output_count_over_limit of Output_count.t
   | `Pad of Pad.t
   | `Permute of Permute.t
@@ -489,6 +511,7 @@ let pp ppf = function
   | `Linear e -> Linear.pp_error ppf e
   | `Bmm e -> Bmm.pp_error ppf e
   | `Concat e -> Concat.pp ppf e
+  | `Split_with_sizes e -> Split_with_sizes.pp ppf e
   | `Output_count_over_limit e -> Output_count.pp ppf e
   | `Pad e -> Pad.pp ppf e
   | `Permute e -> Permute.pp ppf e

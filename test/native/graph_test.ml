@@ -983,6 +983,43 @@ let%expect_test "Direct graph: unbind is a variable-arity node" =
     out1 = tensor f32 [W=2 C=1] {1, 11}
     out2 = tensor f32 [W=2 C=1] {2, 12} |}]
 
+(* Same variable-arity path as unbind above, except the arity comes from
+   [params.sizes]'s length rather than the input's own extent, and every
+   output KEEPS the split axis instead of dropping it. *)
+let%expect_test "Direct graph: split_with_sizes divides one axis into windows" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"sws" ~outputs:Fun.id
+          @@
+          let* x = input ~shape:(s 1 1 1 2 5 1) ~name:"x" () in
+          split_with_sizes ~name:"pieces"
+            { Split.Split_with_sizes.axis = Axis.W; sizes = [ 2; 3 ] }
+            x)
+    in
+    let x =
+      Tensor.materialize (s 1 1 1 2 5 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 10)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    Err.return
+      (List.map (fun oid -> Tensor_id.Map.find oid env) g.Graph.outputs)
+  in
+  (match result with
+  | Ok outs ->
+      List.iteri (fun i t -> Format.printf "out%d = %a@." i Tensor.pp t) outs
+  | Error e -> Format.printf "%a@." pp_error (Err.Error.kind e));
+  [%expect
+    {|
+    out0 = tensor f32 [H=2 W=2 C=1] {0, 1, 10, 11}
+    out1 = tensor f32 [H=2 W=3 C=1] {2, 3, 4, 12, 13, 14} |}]
+
 (* Pad through the builder: the fill is narrowed to f32 there, and the shape
    rule sees the input edge, so a graph whose pad empties an axis cannot be
    built at all. *)

@@ -94,6 +94,7 @@ type metadata_role =
   | `Pad_input
   | `Slice_input
   | `Unbind_input
+  | `Split_with_sizes_input
   | `Select_input
   | `Unsqueeze_input
   | `Concat_input

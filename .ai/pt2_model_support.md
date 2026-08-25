@@ -123,35 +123,49 @@ Run `make pt2.json-model-support` to regenerate; `make verify.pristine`
 + "verify pristine" steps) catches drift, the same as any other checked-in
 generated file in this repo -- no separate diff/check target needed.
 
-As of 2026-08-25: 100 models, 59 have `native_builds:true` (Native import
-itself succeeded) -- up from the 50 this section originally reported, because
-Native's own `cat.default`/`stack.default`/`select.int` support (landed since)
-moved 9 models across that line; `cat.default` no longer blocks anything. Of
-the 41 that don't build, 35 stop on one missing ATen op each (`reason:
-"unsupported_operator"`, e.g. `split_with_sizes.default` (8),
-`avg_pool2d.default` non-adaptive (4), `split.Tensor` (3), `group_norm.default`
-(3), `alias.default` (3) -- a session still builds, so `nodes` is populated)
-and 6 are `"malformed"` (a real importer defect: `clone.default`'s
-`memory_format` or `max_pool2d`'s `ceil_mode=true` -- Fatal, so no session and
-`nodes` is `null`). This inventory has drifted since 2026-08-23 as other work
-landed; it is not re-audited op-by-op here, only re-totaled.
+As of 2026-08-25: 100 models, 66 have `native_builds:true` (Native import
+itself succeeded) -- up from the 50 this section originally reported: Native's
+own `cat.default`/`stack.default`/`select.int` support moved 9 models across
+that line, then `split_with_sizes.default` (below) moved 7 more (an 8th,
+`lambda_resnet26t`, still fails to build, now on `softmax.int` instead). Of
+the 34 that don't build, 28 stop on one missing ATen op each (`reason:
+"unsupported_operator"`, e.g. `avg_pool2d.default` non-adaptive (4),
+`split.Tensor` (3), `group_norm.default` (3), `alias.default` (3) -- a session
+still builds, so `nodes` is populated) and 6 are `"malformed"` (a real
+importer defect: `clone.default`'s `memory_format` or `max_pool2d`'s
+`ceil_mode=true` -- Fatal, so no session and `nodes` is `null`). This
+inventory has drifted since 2026-08-23 as other work landed; it is not
+re-audited op-by-op here, only re-totaled.
 
-Of the 59 that build, the two branches diverge for 25 of them -- proof the
+Of the 66 that build, the two branches diverge for 32 of them -- proof the
 fork is real, not just a modeling nicety. `native4d_converts` is `true` for 34
-and `false` for the other 25 (14 `outside_dialect_domain`, 11
+and `false` for the other 32 (21 `outside_dialect_domain`, 11
 `requires_payloads`, e.g. `regnetx_002` and `convmixer_1024_20_ks9_p14`).
-`kernel_converts` is `true` for 50 and `false` for 9, all `over_limit` -- a
+`kernel_converts` is `true` for 52 and `false` for 14, all `over_limit` -- a
 disjoint failure set from Native4D's: `regnetx_002` and
 `convmixer_1024_20_ks9_p14` both have `kernel_converts:true` despite failing
 Native4D, and conversely some models pass Native4D while `kernel_converts` is
 `false`.
 
-Landing a Native4D `Concat4` op (`todo.md`'s §1 item 1, `Domain.check_node`
-gating its joined axis the same way `Slice`/`Unbind` gate theirs) moved 9 more
+Landing a Native4D `Concat4` op (`Domain.check_node` gating its joined axis
+the same way `Slice`/`Unbind` gate theirs) moved 9 more
 models across the `native4d_converts` line in this run: `rdnet_tiny` and the 8
 `rexnet*`/`rexnetr*` variants, all previously blocked on "no legalization for
 concat". `rdnet_tiny` still fails `kernel_converts` (`over_limit`, disjoint as
 above); the 8 `rexnet*`/`rexnetr*` variants now pass both branches in full.
+
+Landing Native's own `split_with_sizes.default` (a `Graph_ir.Split_with_sizes`
+node reusing `Slice`'s per-window shape/pixel
+logic and dtype-preserving `Eval_direct` bypass, the same treatment `Unbind`
+gets) moved 7 models from `native_builds:false` to `true`:
+`inception_next_atto`, `inception_next_tiny`, `mixnet_l`, `mixnet_xl`,
+`mixnet_xxl`, `tf_mixnet_l`, `tf_mixnet_s`. All 7 now reach Native4D and stop
+there (`outside_dialect_domain`, "no legalization for split_with_sizes" --
+Native4D has no `Split4` yet, the same "dialect does not have it at all"
+answer `Concat4` used to get); `mixnet_l`/`mixnet_xl`/`mixnet_xxl`/
+`tf_mixnet_l`/`tf_mixnet_s` also fail `kernel_converts` (`over_limit`,
+disjoint as above; pre-existing for these models, not caused by this
+change).
 
 A previous version of this sweep reported `native_builds:true` for all but 5
 models -- 95, not 50 -- because it read the payload-free `visualize` CLI's

@@ -144,6 +144,11 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
           let* dead = sub ~name:"dead" act a in
           let* () = discard dead in
           let* _slices = unbind { Split.Unbind.axis = Axis.C } act in
+          let* _pieces =
+            split_with_sizes
+              { Split.Split_with_sizes.axis = Axis.C; sizes = [ 1; 2 ] }
+              act
+          in
           let* selected =
             select { Split.Select.axis = Axis.C; index = 0 } act
           in
@@ -192,6 +197,7 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
     Sub        tag=Sub        agree=true
     Discard    tag=Discard    agree=true
     Unbind     tag=Unbind     agree=true
+    SplitWithSizes tag=SplitWithSizes agree=true
     Select     tag=Select     agree=true
     Stack      tag=Stack      agree=true
     Discard    tag=Discard    agree=true
@@ -918,6 +924,38 @@ let%expect_test "graph with Unbind op: encode → decode → pretty-print" =
         unbind x=t0 params={axis=C}
     outputs:
       [t1 f32 [W=2 C=4] <-n0, t2 f32 [W=2 C=4] <-n0, t3 f32 [W=2 C=4] <-n0] |}]
+
+(* Two DIFFERENT window sizes, so a codec that dropped or reordered a [sizes]
+   entry is visible in the shapes as well as the params -- and, like
+   [Unbind]'s test above, every output edge (not just the first) has to
+   survive. *)
+let%expect_test "graph with Split_with_sizes op: encode → decode → pretty-print"
+    =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"split_with_sizes" ~outputs:(fun ids -> ids)
+          @@
+          let* x = input ~shape:(s 1 1 1 2 5 3) ~name:"x" () in
+          split_with_sizes ~name:"pieces"
+            { Split.Split_with_sizes.axis = Axis.W; sizes = [ 2; 3 ] }
+            x)
+    in
+    let* json = encode_graph g in
+    decode_graph json
+  in
+  Format.printf "%a@." (pp_result pp_decoded) result;
+  [%expect
+    {|
+    decoded:
+    graph
+    inputs: [t0 f32 [H=2 W=5 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [H=2 W=2 C=3], t2 f32 [H=2 W=3 C=3]] =
+        split_with_sizes x=t0 params={axis=W sizes=[2, 3]}
+    outputs: [t1 f32 [H=2 W=2 C=3] <-n0, t2 f32 [H=2 W=3 C=3] <-n0] |}]
 
 (* The [xs] field is the first variadic-OPERAND list codec any op has -- every
    earlier op's [Tensor_ref.jsont] usage is for a single-arity field or (in

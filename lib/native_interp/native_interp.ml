@@ -77,6 +77,7 @@ type metadata_role =
   | `Pad_input
   | `Slice_input
   | `Unbind_input
+  | `Split_with_sizes_input
   | `Select_input
   | `Unsqueeze_input
   | `Concat_input
@@ -308,6 +309,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Pad_input -> Fmt.string ppf "pad input"
   | `Slice_input -> Fmt.string ppf "slice input"
   | `Unbind_input -> Fmt.string ppf "unbind input"
+  | `Split_with_sizes_input -> Fmt.string ppf "split_with_sizes input"
   | `Select_input -> Fmt.string ppf "select input"
   | `Unsqueeze_input -> Fmt.string ppf "unsqueeze input"
   | `Concat_input -> Fmt.string ppf "concat input"
@@ -2109,6 +2111,30 @@ let lower program =
           (* No arity check here: [bind] does it against the ids actually
              produced, which is both stronger and total over ops. *)
           unbind { Split.Unbind.axis } (get "self")
+      (* Divides [axis] into contiguous windows of [split_sizes], KEEPING the
+         axis in every output, unlike [unbind.int]. Same shape as that arm --
+         rank from the input's own metadata, [dim] resolved through
+         [axes_for_rank] -- with [split_sizes] read as an int list the way
+         [view.default]'s [size] is; [Split.Split_with_sizes.output_shapes] is
+         what checks the sizes are positive and sum to the axis's extent, not
+         this arm. No arity check here either, for the reason [unbind.int]'s
+         comment gives. *)
+      | "torch.ops.aten.split_with_sizes.default" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            meta_rank
+              (tensor_meta esc graph ~ssa:x_name ~role:`Split_with_sizes_input)
+          in
+          let axis =
+            match
+              axes_for_rank esc ~tensor:x_name rank
+                [ int_arg esc ~default:0 node "dim" ]
+            with
+            | [ a ] -> a
+            | _ -> invalid_arg "Native_interp: axes_for_rank lost its singleton"
+          in
+          let sizes = ints_arg esc node "split_sizes" in
+          split_with_sizes { Split.Split_with_sizes.axis; sizes } (get "self")
       (* Both overloads share this body -- same argument names, same shared
          resolver, same reason op_bridge.ml's arm does (drift risk, exact
          target still visible in every diagnostic via [tensor]/[node.target]).

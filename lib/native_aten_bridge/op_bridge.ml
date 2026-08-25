@@ -1785,6 +1785,28 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                unbind { Split.Unbind.axis } x_id
            | _ -> assert false))
+  (* One [Split_with_sizes] node: divides [axis] into contiguous windows of
+     [split_sizes], KEEPING the axis in every output, unlike [unbind.int]
+     which drops it. [split_sizes] is a required arg (no schema default), the
+     same as [view.default]'s [size]; [Split.Split_with_sizes.output_shapes]
+     is what checks the sizes are positive and sum to the axis's extent, not
+     this arm -- the same division of labor [cat.default]'s rank check and
+     [Concat.output_shape]'s axis-agreement check follow. Preserves the
+     input's own dtype like [unbind.int], not [require_f32]'d like
+     [cat.default]/[stack.default]. *)
+  | "torch.ops.aten.split_with_sizes.default" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let rank = aten_rank aten_x in
+         let* dim = int_arg ~default:0 node "dim" in
+         let* sizes = ints_arg node "split_sizes" in
+         let* x = native_of_aten "self" aten_x in
+         let* axis = dim_axis ~op:"split_with_sizes.default" ~rank dim in
+         build_g ~name:"split_with_sizes" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               split_with_sizes { Split.Split_with_sizes.axis; sizes } x_id
+           | _ -> assert false))
   (* Both overloads share this body: after commit 1's checked resolver the body
      is three calls, and two copies of it is exactly the drift risk this repo
      keeps warning about. Still exact-target dispatch in op3.md's sense -- both

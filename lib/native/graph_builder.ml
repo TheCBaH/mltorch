@@ -324,6 +324,15 @@ let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })
 let slice ?name params x =
   op1 ?name ~kind:"slice" (Slice { Split.Slice.params; x })
 
+(* Same shape as [unbind]: the output count comes from [params.sizes] via
+   [Graph_shape], and every piece carries the input's own dtype/quant. *)
+let split_with_sizes ?name params x =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  opN ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+    ~kind:"split_with_sizes"
+    (Split_with_sizes { Split.Split_with_sizes.params; x })
+
 let stack ?name params xs =
   op1 ?name ~kind:"stack" (Stack { Concat.Stack.params; xs })
 

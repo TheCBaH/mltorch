@@ -134,6 +134,17 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
             Tensor.unbind
               (Tensor_id.Map.find x operand_env)
               ~axis:params.axis ~output ~shape:out_shape
+        (* Same dtype-preserving bypass as [Unbind], and for the same reason:
+           [offset] is the sum of every earlier piece's size, computed the
+           same way [Eval_op]'s arm computes it for the generic path. *)
+        | Split_with_sizes { Split.Split_with_sizes.params; x } ->
+            let offset =
+              Split.Split_with_sizes.offset_of ~output
+                params.Split.Split_with_sizes.sizes
+            in
+            Tensor.split_with_sizes
+              (Tensor_id.Map.find x operand_env)
+              ~axis:params.Split.Split_with_sizes.axis ~offset ~shape:out_shape
         | _ ->
             Schedule.evaluate out_shape
               (E.pixel op ~output

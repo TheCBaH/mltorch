@@ -45,7 +45,8 @@ let classify (op : op) ~output =
      per-element, so a slice carries it exactly as a permutation does. *)
   (* [Concat] joins several operands' elements with no arithmetic either — the
      N-input dual of [Unbind]'s N-output selection, same reasoning. *)
-  | Concat _ | Select _ | Slice _ | Stack _ | Unbind _ -> Reindexing
+  | Concat _ | Select _ | Slice _ | Split_with_sizes _ | Stack _ | Unbind _ ->
+      Reindexing
   (* [Pad] is NOT reindexing, and the mode is why the honest answer is one class
      rather than two. In [Constant] mode the padded cells are a synthesized fill
      that is a copy of no input element, so a per-element [Approximate] claim

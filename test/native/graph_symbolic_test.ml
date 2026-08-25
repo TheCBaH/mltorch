@@ -1052,6 +1052,59 @@ let%expect_test "Symbolic graph: unbind emits one stage per slice" =
     tensor f32 [W=2 C=1] {1, 11}  ground matches direct: true
     tensor f32 [W=2 C=1] {2, 12}  ground matches direct: true |}]
 
+(* Same shape as the [unbind] test above, but the axis is KEPT and the pieces
+   are different widths, so the stage count comes from [sizes]'s length and
+   each stage's offset is a distinct constant rather than the ordinal
+   itself. *)
+let%expect_test "Symbolic graph: split_with_sizes emits one stage per piece" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"sws" ~outputs:Fun.id
+          @@
+          let* x = input ~shape:(s 1 1 1 2 5 1) ~name:"x" () in
+          split_with_sizes
+            { Split.Split_with_sizes.axis = Axis.W; sizes = [ 2; 3 ] }
+            x)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let x =
+      Tensor.materialize (s 1 1 1 2 5 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 10)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let inputs = List.combine g.Graph.inputs [ x ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    Err.return
+      (List.map
+         (fun oid ->
+           let d = Tensor_id.Map.find oid direct in
+           let gr = Tensor_id.Map.find oid grounded in
+           (d, Tensor.equal_bits d gr))
+         g.Graph.outputs)
+  in
+  (match result with
+  | Ok outs ->
+      List.iter
+        (fun (t, m) ->
+          Format.printf "%a  ground matches direct: %b@." Tensor.pp t m)
+        outs
+  | Error e -> Format.printf "%a@." pp_error (Err.Error.kind e));
+  [%expect
+    {|
+    inputs: t0
+    t1 = t0[N,T,D,H,max(0,W),C]
+    t2 = t0[N,T,D,H,max(0,2+W),C]
+    outputs: t1, t2
+    tensor f32 [H=2 W=2 C=1] {0, 1, 10, 11}  ground matches direct: true
+    tensor f32 [H=2 W=3 C=1] {2, 3, 4, 12, 13, 14}  ground matches direct: true |}]
+
 (* Pad staged symbolically. Reflect is the interesting mode: its coordinate map
    is the only one in the engine built from [index_max], so this is what proves
    [Symbolic]'s [Expr.Index.max] and [Direct]'s [Stdlib.max] agree. Constant
