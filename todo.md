@@ -28,8 +28,25 @@ outstanding remains against them. Regenerating the 100-model sweep
 (`make pt2.json-model-support`) after landing `Concat4` moved 9 more models
 across the `native4d_converts` line — `rdnet_tiny` and the 8
 `rexnet*`/`rexnetr*` variants, all previously blocked on "no legalization for
-concat" — confirming the cross-model leverage this item predicted; see
-`.ai/pt2_model_support.md`'s 2026-08-25 update.
+concat" — confirming the cross-model leverage this item predicted. **And
+`split_with_sizes.default`** (formerly item 1 below) — own `Graph_ir` node
+(`lib/native/ops/split.ml`'s `Split_with_sizes`, alongside `Unbind`),
+`output_shapes` checking positivity and the exact-sum-to-extent contract,
+ATen binding (`bin/aten_ops_gen.ml`), both bridge arms (`Op_bridge` and
+`Native_interp`), and dtype preservation through a new `Tensor.split_with_sizes`
+`Eval_direct` bypass sharing `copy_cells` with `Tensor.unbind`'s — verified
+against real ATen (`Interp_verify`) for f32 and int64. Native4D `Split4` is
+the deliberately-not-done half, same `unsupported()` treatment `Select4`/
+`Stack4` get. Regenerating the sweep after this landing moved 7 more models
+from `native_builds:false` to `true` (`inception_next_atto`,
+`inception_next_tiny`, `mixnet_l`, `mixnet_xl`, `mixnet_xxl`, `tf_mixnet_l`,
+`tf_mixnet_s`; the 8th predicted model, `lambda_resnet26t`, still fails to
+build, now on `softmax.int`) — all 7 now stop at Native4D's domain check
+instead. Neither `Concat4` nor `Split_with_sizes` has an ATen-vs-Native
+ops-walk or a Native Direct-vs-Symbolic fuzz-walk registration yet (same gap
+`cat.default`/`stack.default`/`select.int` already have — see the
+cross-cutting note below); not fixed in either of these changes. See
+`.ai/pt2_model_support.md`'s 2026-08-25 update for both.
 
 Ordered: (1) the rest of CSATv2's medium-complexity structural set; then
 (2) the high-complexity matrix/attention/indexing set.
@@ -40,34 +57,29 @@ Independent vertical slices, in this order (unchanged from `ops.md`, verified
 still unimplemented in `Graph_ir` — no `Group_norm`, `Amax`, `Pow_scalar`,
 `Vector_norm`, or `Upsample` node exists today):
 
-1. **`split_with_sizes.default`** — not in CSATv2 at all, but blocks 8 models
-   in the sweep (`ops.md`'s cross-model table). Variadic inverse of `cat`:
-   split a tensor into pieces of given sizes along an axis. Shares the same
-   axis-aware variadic data-movement shape rule as `Concat`/`Stack`; add
-   `Split4` now that `Concat4`'s handling exists as the template.
-2. **`group_norm.default`** — not in CSATv2 either, blocks 3 models in the
+1. **`group_norm.default`** — not in CSATv2 either, blocks 3 models in the
    sweep. A distinct normalization primitive (grouped-channel statistics),
    not a legalization to existing `Batch_norm`/`Layer_norm` — needs its own
    shape rule (channel groups must divide channel count) and Native4D axis
    check.
-3. **`amax.default` (14)**, restricted to the observed `dim=[1]`,
+2. **`amax.default` (14)**, restricted to the observed `dim=[1]`,
    `keepdim=true` configuration — general empty/`None` dims deferred.
    `Max_keepdims` in Native4D only after axis-domain checking.
-4. **`pow.Tensor_Scalar` (1, exponent 0.5) + `linalg_vector_norm.default`
+3. **`pow.Tensor_Scalar` (1, exponent 0.5) + `linalg_vector_norm.default`
    (14, ord 2, dims `[1,2]`, keepdim)** — prefer a small explicit numeric
    kernel only if it matches ATen tolerance; otherwise fused `Pow_scalar` +
    `Vector_norm`. Needs reduction primitives beyond `Mean_keepdims`. The
    sweep hits both independently outside CSATv2 too (`mobilenetv5_base` on
    `pow.Tensor_Scalar`, `swiftformer_xs` on `linalg_vector_norm.default`) —
    corroborating evidence, not extra scope.
-5. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
+4. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
    `align_corners=true` — real bilinear-resize op (shape inference,
    coordinate transform, boundary handling); Native4D `ResizeBilinear4` must
    reject/diagnose unsupported axes rather than reinterpret them. Do not
    conflate with `upsample_bicubic2d.vec`, which the sweep shows blocking
    `sam2_hiera_tiny` separately — a different coordinate-transform/overload,
    not covered by this row.
-6. **`clone` with a supplied memory format (2 in CSATv2)** — decode the enum,
+5. **`clone` with a supplied memory format (2 in CSATv2)** — decode the enum,
    prove identity for the observed layout or represent the relayout; only
    admit a no-op proof in Native4D, never assume a requested layout
    conversion is a plain `Clone`. The sweep shows this same case hard-rejects
@@ -75,7 +87,7 @@ still unimplemented in `Graph_ir` — no `Group_norm`, `Amax`, `Pow_scalar`,
    `malformed` — i.e. the importer's refuse-rather-than-ignore choice is
    already correct there too; no separate design question, just more
    coverage once this row lands.
-7. **`max_pool2d.default` with `ceil_mode=true`** — not in CSATv2 at all; new
+6. **`max_pool2d.default` with `ceil_mode=true`** — not in CSATv2 at all; new
    from the sweep, blocks 2 models (`hgnetv2_b0`,
    `legacy_seresnext26_32x4d`), also currently a hard `malformed` reject.
    Same shape-computation family as the existing pooling ops: ceiling instead
@@ -85,13 +97,14 @@ Each row: ATen binding in `bin/aten_ops_gen.ml` if absent, `Aten_op_config`
 decoder/spec fixture, bridge lowering, Native implementation, dispatch audit.
 Add an ATen-vs-Native walk only where a non-vacuous recipe exists; otherwise a
 table-driven boundary suite. Keep CSATv2 graph-only in CI until a complete
-end-to-end execution test passes (`ops.md` explicit instruction) — items 1,
-2, and 7 have no bearing on that CSATv2 gate since they don't appear in its
-graph, but should not be deferred behind it either given their independent
+end-to-end execution test passes (`ops.md` explicit instruction) — items 1 and
+6 have no bearing on that CSATv2 gate since they don't appear in its graph,
+but should not be deferred behind it either given their independent
 cross-model leverage. Every new bridge arm here must build exactly one node
-per ATen op (the design-goal rule `select`/`stack`/`concat4` were fixed
-against or built to) — none of these targets has an obvious decomposition
-temptation the way `select`/`stack` did, but check before landing.
+per ATen op (the design-goal rule `select`/`stack`/`concat4`/
+`split_with_sizes` were fixed against or built to) — none of these targets
+has an obvious decomposition temptation the way `select`/`stack` did, but
+check before landing.
 
 ## 2. High complexity — matrix/attention and indexing semantics
 

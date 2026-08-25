@@ -51,6 +51,7 @@ type op =
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   | Slice of Split.Slice.t
+  | Split_with_sizes of Split.Split_with_sizes.t
   | Sqrt of Pointwise.Sqrt.t
   | Stack of Concat.Stack.t
   | Sub of Pointwise.Sub.t
@@ -309,6 +310,12 @@ let op_registry : (module OP) list =
 
       let inject t = Slice t
       let project = function Slice t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Split.Split_with_sizes
+
+      let inject t = Split_with_sizes t
+      let project = function Split_with_sizes t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Sqrt

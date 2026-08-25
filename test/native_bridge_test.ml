@@ -2311,6 +2311,188 @@ let%expect_test "verify: unbind.int agrees with ATen for int64" =
          ]);
   [%expect {| aten and native agree |}]
 
+(* --- split_with_sizes.default ---------------------------------------------
+
+   Same two-layer structure as unbind.int just above: the generated
+   [Interp_dispatch] arm (real ATen, a [Tensor[]] output) first, then the
+   [Op_bridge] arm (hand-derived Native values), then [Interp_verify] as the
+   real oracle comparing the two. *)
+
+let split_with_sizes_dispatch ~inputs ~outputs ~self =
+  let env = Sm.add "self" self Sm.empty in
+  let node =
+    PT.Node.make "torch.ops.aten.split_with_sizes.default"
+      (PT.NamedArgument.make "self" (targ "self") None :: inputs)
+      outputs Sm.empty None (Some "test")
+  in
+  match Interp_dispatch.dispatch env node |> Err.payload with
+  | Error e -> Format.printf "Error: %a@." pp_dispatch_error e
+  | Ok env' ->
+      List.iter
+        (fun name ->
+          Format.printf "%s = %a@." name
+            (Core.Pretty.option_or ~none:"<unbound>" (fun ppf t ->
+                 Aten_tensor.pp_float32 ppf
+                   (Option.get
+                      (Aten_tensor.as_float32
+                         (Aten_tensor.materialize_for_raw_read t)))))
+            (Sm.find_opt name env'))
+        (Interp_decode.output_names node)
+
+let%expect_test
+    "dispatch: split_with_sizes.default with dim absent binds every name" =
+  split_with_sizes_dispatch
+    ~inputs:[ in_ints "split_sizes" [ 1; 2 ] ]
+    ~outputs:(tensors [ "a"; "b" ])
+    ~self:(float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]);
+  [%expect {|
+    a = [0; 1]
+    b = [2; 3; 4; 5] |}]
+
+let%expect_test "pp: split_with_sizes.default config" =
+  Aten_op_config.find "torch.ops.aten.split_with_sizes.default"
+  |> Format.printf "%a@."
+       (Core.Pretty.option_or ~none:"not found" Aten_op_config.pp);
+  [%expect
+    {|
+    torch.ops.aten.split_with_sizes.default (Tensor self, Int[] split_sizes,
+      Int dim=0) -> T[] |}]
+
+(* --- the native side of split_with_sizes ----------------------------------- *)
+
+(* Two DIFFERENT window sizes on the leading dim (W after right-alignment), so
+   a wrong per-piece offset shows up as wrong values, not just a wrong shape. *)
+let%expect_test
+    "dispatch: split_with_sizes.default divides the leading dim into windows" =
+  dispatch_print ~target:"torch.ops.aten.split_with_sizes.default"
+    ~bindings:[ ("self", float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]) ]
+    ~inputs:[ in_tensor "self"; in_ints "split_sizes" [ 1; 2 ] ]
+    ~noutputs:0;
+  [%expect
+    {|
+    tensor f32 [C=2] {0, 1}
+    tensor f32 [W=2 C=2] {2, 3, 4, 5} |}]
+
+(* dim=-1 on a rank-2 input is C, so each piece is a COLUMN RANGE rather than a
+   row range -- strided, not contiguous, the case a naive flat read gets
+   wrong. *)
+let%expect_test "dispatch: split_with_sizes.default with a negative dim" =
+  dispatch_print ~target:"torch.ops.aten.split_with_sizes.default"
+    ~bindings:[ ("self", float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]) ]
+    ~inputs:
+      [ in_tensor "self"; in_ints "split_sizes" [ 2; 1 ]; in_int "dim" (-1) ]
+    ~noutputs:0;
+  [%expect
+    {|
+    tensor f32 [W=2 C=2] {0, 1, 3, 4}
+    tensor f32 [W=2 C=1] {2, 5} |}]
+
+let%expect_test "dispatch: split_with_sizes.default rejects an out-of-range dim"
+    =
+  List.iter
+    (fun d ->
+      dispatch_print ~target:"torch.ops.aten.split_with_sizes.default"
+        ~bindings:[ ("self", float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]) ]
+        ~inputs:
+          [ in_tensor "self"; in_ints "split_sizes" [ 3 ]; in_int "dim" d ]
+        ~noutputs:0)
+    [ 2; -3 ];
+  [%expect
+    {|
+    error: split_with_sizes.default: invalid dimension 2 for rank 2
+    error: split_with_sizes.default: invalid dimension -3 for rank 2 |}]
+
+(* Sizes that do not sum to the axis's extent are a shape error, not an
+   [Invalid_dim] -- [Split.Split_with_sizes.output_shapes]'s own check, not
+   anything the bridge itself validates. *)
+let%expect_test
+    "dispatch: split_with_sizes.default rejects sizes that do not sum to the \
+     extent" =
+  dispatch_print ~target:"torch.ops.aten.split_with_sizes.default"
+    ~bindings:[ ("self", float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]) ]
+    ~inputs:[ in_tensor "self"; in_ints "split_sizes" [ 1; 3 ] ]
+    ~noutputs:0;
+  [%expect
+    {| error: split_with_sizes of axis W: sizes sum to 4, not the axis's extent 3 |}]
+
+(* Split_with_sizes is a view operation like unbind: it copies storage cells
+   and keeps the source format rather than taking the arithmetic f32
+   materialization path. Values around 2^53 and the signed endpoints prove
+   the result never went through an OCaml float. *)
+let%expect_test
+    "dispatch: split_with_sizes.default preserves int64 storage exactly" =
+  dispatch_print ~target:"torch.ops.aten.split_with_sizes.default"
+    ~bindings:
+      [
+        ( "self",
+          i64_tensor [ 3; 2 ]
+            [
+              Int64.min_int;
+              -1L;
+              9_007_199_254_740_993L;
+              9_007_199_254_740_995L;
+              Int64.max_int;
+              0L;
+            ] );
+      ]
+    ~inputs:[ in_tensor "self"; in_ints "split_sizes" [ 2; 1 ] ]
+    ~noutputs:0;
+  [%expect
+    {|
+    tensor i64 [W=2 C=2] {-9223372036854775808, -1, 9007199254740993, 9007199254740995}
+    tensor i64 [C=2] {9223372036854775807, 0} |}]
+
+(* The real oracle: ATen runs the op, the native side runs
+   [Graph_ir.Split_with_sizes] through [Eval_direct], and
+   [Verify.verify_node] compares EVERY piece, the same reason
+   [verify_unbind] does. *)
+let verify_split_with_sizes ~inputs ~outputs ~self =
+  let env = Sm.add "self" self Sm.empty in
+  let node =
+    PT.Node.make "torch.ops.aten.split_with_sizes.default"
+      (PT.NamedArgument.make "self" (targ "self") None :: inputs)
+      outputs Sm.empty None (Some "test")
+  in
+  match
+    Interp_verify.dispatch ~verify:true ~ppf:Format.std_formatter env node
+  with
+  | Error e ->
+      Format.printf "dispatch error: %a@." Interp_verify.pp_interp_error
+        (Err.Error.kind e)
+  | Ok _ -> print_string "aten and native agree\n"
+
+let%expect_test "verify: split_with_sizes.default agrees with ATen" =
+  let self = float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  verify_split_with_sizes
+    ~inputs:[ in_ints "split_sizes" [ 1; 2 ] ]
+    ~outputs:(tensors [ "a"; "b" ])
+    ~self;
+  (* And along the strided axis, where each piece is a column range. Dim -1
+     has extent 2 here, so the sizes are [1;1] rather than [2;1]. *)
+  verify_split_with_sizes
+    ~inputs:[ in_ints "split_sizes" [ 1; 1 ]; in_int "dim" (-1) ]
+    ~outputs:(tensors [ "a"; "b" ])
+    ~self:(float_tensor [ 3; 2 ] [ 0.; 1.; 2.; 3.; 4.; 5. ]);
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "verify: split_with_sizes.default agrees with ATen for int64" =
+  verify_split_with_sizes
+    ~inputs:[ in_ints "split_sizes" [ 1; 2 ] ]
+    ~outputs:(tensors [ "a"; "b" ])
+    ~self:
+      (i64_tensor [ 3; 2 ]
+         [
+           Int64.min_int;
+           -1L;
+           9_007_199_254_740_993L;
+           9_007_199_254_740_995L;
+           Int64.max_int;
+           0L;
+         ]);
+  [%expect {| aten and native agree |}]
+
 (* A TRANSPOSED convolution's ATen weight is [Cin, Cout/groups, kH, kW], so its
    output channel count -- and therefore its bias extent -- comes from
    [weight.C * groups], not from [weight.N] as it does for every other affine op.

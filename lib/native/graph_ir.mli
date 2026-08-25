@@ -82,6 +82,12 @@ type op =
      defaulted, normalized and clamped by [Aten_shape.resolve_slice] before the
      payload exists. *)
   | Slice of Split.Slice.t
+  (* Divides one axis into contiguous windows of the given SIZES, KEEPING the
+     axis in every output — unlike [Unbind], which drops it. Each output is
+     what [Slice] would give for that window; [Split_with_sizes] owns its own
+     shape rule (sizes sum exactly to the axis's extent) rather than being N
+     [Slice] nodes, the same design-goal reasoning [Concat]/[Stack] follow. *)
+  | Split_with_sizes of Split.Split_with_sizes.t
   | Sqrt of Pointwise.Sqrt.t
   (* Variadic like [Concat], but inserts a new size-1 axis per operand before
      joining rather than joining along an existing one. Reuses [Concat]'s

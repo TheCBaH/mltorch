@@ -917,6 +917,7 @@ let%expect_test "bridge coverage" =
       torch.ops.aten.dropout_.default
       torch.ops.aten.expand.default
       torch.ops.aten.select.int
+      torch.ops.aten.split_with_sizes.default
       torch.ops.aten.squeeze.dims
       torch.ops.aten.unsqueeze.default
       torch.ops.aten.argmax.default

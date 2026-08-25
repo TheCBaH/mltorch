@@ -207,6 +207,18 @@ val slice : ?name:string -> Split.Slice.params -> tensor_ref -> Tensor_id.t t
 
 val sqrt : ?name:string -> tensor_ref -> Tensor_id.t t
 
+(* Divides one axis into contiguous windows of [params.sizes], keeping the
+   axis in every output — the same "result length is not fixed by the op"
+   shape [unbind] has, and for the same reason its slices retain the input
+   format and quantization metadata. The sizes must be positive and sum
+   exactly to the axis's extent, checked by the shape rule rather than
+   assumed. *)
+val split_with_sizes :
+  ?name:string ->
+  Split.Split_with_sizes.params ->
+  tensor_ref ->
+  Tensor_id.t list t
+
 val stack :
   ?name:string -> Concat.Stack.params -> tensor_ref list -> Tensor_id.t t
 (** Inserts a new size-1 axis per operand at [params.axis], then joins them —

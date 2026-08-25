@@ -1245,6 +1245,91 @@ let%expect_test "Direct: unbind along an outer, a middle and an inner axis" =
       out0 [W=2 C=3] tensor f32 [W=2 C=3] {0, 10, 20, 100, 110, 120}
       out1 [W=2 C=3] tensor f32 [W=2 C=3] {1, 11, 21, 101, 111, 121} |}]
 
+(* --- Split_with_sizes -------------------------------------------------
+
+   Hand-computed, same attribution discipline as the Unbind block above.
+   Unlike [Unbind], the axis is KEPT in every output, so each piece is
+   exactly what [Slice] would give for its window -- windows of DIFFERENT
+   width here, so a wrong per-output offset is visible in which values land
+   in which piece, not only in the piece count. *)
+let%expect_test "Direct: split_with_sizes divides W into windows of 2 and 3" =
+  let module Sw = Split.Split_with_sizes.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:5 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c -> float_of_int ((row c * 10) + col c))
+  in
+  let params = { Split.Split_with_sizes.axis = Axis.W; sizes = [ 2; 3 ] } in
+  let shapes =
+    Split.Split_with_sizes.output_shapes ~x_shape params
+    |> Err.or_raise ~pp_error:Shape_error.pp
+  in
+  let _, offsets =
+    List.fold_left
+      (fun (acc, os) size -> (acc + size, os @ [ acc ]))
+      (0, []) params.Split.Split_with_sizes.sizes
+  in
+  List.iteri
+    (fun i (sh, offset) ->
+      Format.printf "out%d %a %a@." i Vec6.pp_shape sh Tensor.pp
+        (Schedule.evaluate sh (Sw.pixel ~offset params ~x)))
+    (List.combine shapes offsets);
+  [%expect
+    {|
+    out0 [H=2 W=2 C=1] tensor f32 [H=2 W=2 C=1] {0, 1, 10, 11}
+    out1 [H=2 W=3 C=1] tensor f32 [H=2 W=3 C=1] {2, 3, 4, 12, 13, 14} |}]
+
+(* The two shape faults, checked at [output_shapes] rather than
+   [Compute.pixel] (which trusts the shapes it is given, like every other
+   op): a non-positive size (Native has no empty extent, [Slice]'s [Empty]
+   rule) and a sizes list that does not sum to the axis's extent. *)
+let%expect_test
+    "split_with_sizes output_shapes: a non-positive size and a bad sum" =
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:5 ~c:1 in
+  let at sizes =
+    Format.printf "%a@."
+      (pp_result (fun ppf shapes ->
+           Format.fprintf ppf "%d outputs" (List.length shapes)))
+      (Split.Split_with_sizes.output_shapes ~x_shape
+         { Split.Split_with_sizes.axis = Axis.W; sizes })
+  in
+  at [ 2; 0; 3 ];
+  at [ 2; -1; 4 ];
+  at [ 2; 2 ];
+  at [ 2; 4 ];
+  at [ 2; 3 ];
+  [%expect
+    {|
+    split_with_sizes of axis W over extent 5: size 0 at index 1 is not positive; the engine has no empty extent
+    split_with_sizes of axis W over extent 5: size -1 at index 1 is not positive; the engine has no empty extent
+    split_with_sizes of axis W: sizes sum to 4, not the axis's extent 5
+    split_with_sizes of axis W: sizes sum to 6, not the axis's extent 5
+    2 outputs |}]
+
+(* Same ceiling [Unbind.output_shapes] checks, on the LIST LENGTH rather than
+   a derived count. *)
+let%expect_test
+    "split_with_sizes output_shapes: the output-count ceiling is exclusive" =
+  let limit = Kernel.Limits.Hard.outputs in
+  let at n =
+    let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:n ~w:1 ~c:1 in
+    Format.printf "%d -> %a@." n
+      (Core.Pretty.err_result
+         ~ok:(fun ppf shapes ->
+           Format.fprintf ppf "%d outputs" (List.length shapes))
+         ~error:Shape_error.pp)
+      (Split.Split_with_sizes.output_shapes ~x_shape
+         {
+           Split.Split_with_sizes.axis = Axis.H;
+           sizes = List.init n (fun _ -> 1);
+         })
+  in
+  List.iter at [ limit - 1; limit; limit + 1 ];
+  [%expect
+    {|
+    4095 -> 4095 outputs
+    4096 -> 4096 outputs, above the maximum of 4095
+    4097 -> 4097 outputs, above the maximum of 4095 |}]
+
 (* --- Concat -----------------------------------------------------------
 
    Hand-computed, same attribution discipline as the Unbind block above: each

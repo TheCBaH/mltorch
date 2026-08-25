@@ -134,6 +134,23 @@ module Concat : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* `aten.split_with_sizes.default`'s own fault: a size that is not positive
+   (Native tensors have no empty extent, the same rule [Slice]'s `Empty`
+   enforces), or a sizes list that does not sum EXACTLY to the split axis's
+   extent -- ATen's own contract, checked explicitly here because the sizes
+   are untrusted model data rather than assumed to already satisfy it. The
+   output COUNT's own overflow reuses [Output_count]'s row, the same one
+   [Unbind]'s derived count uses, rather than a third fault here. *)
+module Split_with_sizes : sig
+  type fault =
+    | Non_positive_size of { index : int; size : int }
+    | Size_mismatch of { total : int64 }
+
+  type t = { axis : Axis.t; in_extent : Dim.extent Dim.t; fault : fault }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 (* [Reshape.output_shape]'s numel-preservation precondition, violated: a target
    whose element count disagrees with the source's. *)
 module Reshape : sig
@@ -337,6 +354,7 @@ type t =
   | `Linear of Linear.error
   | `Bmm of Bmm.error
   | `Concat of Concat.t
+  | `Split_with_sizes of Split_with_sizes.t
   | `Output_count_over_limit of Output_count.t
   | `Pad of Pad.t
   | `Permute of Permute.t

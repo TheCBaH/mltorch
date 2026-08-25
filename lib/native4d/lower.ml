@@ -671,10 +671,11 @@ let lower_node ~view acc (n : node) =
         n.Node.outputs
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Select]/[Stack] join that set until [Select4]/[Stack4] exist (see
-     [Domain.check_node]'s comment) rather than gaining a real conversion arm
-     here. *)
-  | Max_pool2d_with_indices _ | Discard _ | Sdpa _ | Select _ | Stack _ ->
+     [Select]/[Split_with_sizes]/[Stack] join that set until
+     [Select4]/[Split4]/[Stack4] exist (see [Domain.check_node]'s comment)
+     rather than gaining a real conversion arm here. *)
+  | Max_pool2d_with_indices _ | Discard _ | Sdpa _ | Select _
+  | Split_with_sizes _ | Stack _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))
 
 (* ---- constants ------------------------------------------------------------ *)

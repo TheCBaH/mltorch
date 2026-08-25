@@ -268,3 +268,8 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Unbind { Split.Unbind.params; x } ->
       let* x_shape = shape x in
       widen (Split.Unbind.output_shapes ~x_shape params)
+  (* Same shape as [Unbind]'s arm: the LENGTH comes from [params.sizes], not
+     from the op, and [output_shapes] bounds it before the list exists. *)
+  | Split_with_sizes { Split.Split_with_sizes.params; x } ->
+      let* x_shape = shape x in
+      widen (Split.Split_with_sizes.output_shapes ~x_shape params)

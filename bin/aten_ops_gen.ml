@@ -98,6 +98,7 @@ let selection =
     (* The only Tensor[]-returning op bound so far: the ViT attention blocks
        split their packed qkv projection with it. *)
     op "unbind" ~overload:"int";
+    op "split_with_sizes";
     op "squeeze" ~overload:"dims";
     op "unsqueeze";
     op "mean" ~overload:"dim";

@@ -93,11 +93,62 @@ let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) =
       Payload.set_float payload ~c:(channel c) ~i (f c));
   Tensor { shape; payload }
 
+(* Shared by [unbind] and [split_with_sizes] below: allocate a same-format
+   destination buffer and fill it from [source_coord], one call per op rather
+   than one per storage format. Copying cells directly (never through
+   [Payload.get_float]) is what keeps an i64 value -- including one beyond
+   float's exact range -- out of the engine's f32 compute domain. Keeping
+   this primitive here also gives Native and Native4D one implementation of
+   the dtype-preserving path. *)
+let copy_cells (type e b q) (src : (e, b, q) Payload.payload)
+    ~(shape : Vec6.shape) ~src_shape ~source_coord : packed =
+  let copy_data data =
+    Vec6.iter shape (fun out ->
+        let dst = (Vec6.offset shape out :> int) in
+        let s = (Vec6.offset src_shape (source_coord out) :> int) in
+        data.{dst} <- src.data.{s})
+  in
+  let n = (Vec6.numel shape :> int) in
+  match src.fmt with
+  | Payload.F32 ->
+      let data = Bigarray.Array1.create Bigarray.float32 Bigarray.c_layout n in
+      copy_data data;
+      Tensor { shape; payload = { src with data } }
+  | Payload.I64 ->
+      let data = Bigarray.Array1.create Bigarray.int64 Bigarray.c_layout n in
+      copy_data data;
+      Tensor { shape; payload = { src with data } }
+  | Payload.I32 ->
+      let data = Bigarray.Array1.create Bigarray.int32 Bigarray.c_layout n in
+      copy_data data;
+      Tensor { shape; payload = { src with data } }
+  | Payload.F16 ->
+      let data =
+        Bigarray.Array1.create Bigarray.int16_unsigned Bigarray.c_layout n
+      in
+      copy_data data;
+      Tensor { shape; payload = { src with data } }
+  | Payload.BF16 ->
+      let data =
+        Bigarray.Array1.create Bigarray.int16_unsigned Bigarray.c_layout n
+      in
+      copy_data data;
+      Tensor { shape; payload = { src with data } }
+  | Payload.I16 ->
+      let data =
+        Bigarray.Array1.create Bigarray.int16_signed Bigarray.c_layout n
+      in
+      copy_data data;
+      Tensor { shape; payload = { src with data } }
+  | Payload.I8 ->
+      let data =
+        Bigarray.Array1.create Bigarray.int8_signed Bigarray.c_layout n
+      in
+      copy_data data;
+      Tensor { shape; payload = { src with data } }
+
 (* [Unbind] is a storage-preserving selection, unlike the arithmetic ops whose
-   results enter the engine's f32 compute domain.  Copy cells directly so an
-   i64 value (including one beyond float's exact range) is never routed through
-   [Payload.get_float].  Keeping this primitive here also gives Native and
-   Native4D one implementation of the dtype-preserving path. *)
+   results enter the engine's f32 compute domain. See [copy_cells]. *)
 let unbind (Tensor src) ~axis ~output ~shape =
   let source_coord out =
     let zero = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0 in
@@ -110,56 +161,17 @@ let unbind (Tensor src) ~axis ~output ~shape =
     in
     Vec6.set base axis (Dim.index output)
   in
-  let copy : type e b q. (e, b, q) Payload.payload -> packed =
-   fun payload ->
-    let copy_data data =
-      Vec6.iter shape (fun out ->
-          let dst = (Vec6.offset shape out :> int) in
-          let src = (Vec6.offset src.shape (source_coord out) :> int) in
-          data.{dst} <- payload.data.{src})
-    in
-    let n = (Vec6.numel shape :> int) in
-    match payload.fmt with
-    | Payload.F32 ->
-        let data =
-          Bigarray.Array1.create Bigarray.float32 Bigarray.c_layout n
-        in
-        copy_data data;
-        Tensor { shape; payload = { payload with data } }
-    | Payload.I64 ->
-        let data = Bigarray.Array1.create Bigarray.int64 Bigarray.c_layout n in
-        copy_data data;
-        Tensor { shape; payload = { payload with data } }
-    | Payload.I32 ->
-        let data = Bigarray.Array1.create Bigarray.int32 Bigarray.c_layout n in
-        copy_data data;
-        Tensor { shape; payload = { payload with data } }
-    | Payload.F16 ->
-        let data =
-          Bigarray.Array1.create Bigarray.int16_unsigned Bigarray.c_layout n
-        in
-        copy_data data;
-        Tensor { shape; payload = { payload with data } }
-    | Payload.BF16 ->
-        let data =
-          Bigarray.Array1.create Bigarray.int16_unsigned Bigarray.c_layout n
-        in
-        copy_data data;
-        Tensor { shape; payload = { payload with data } }
-    | Payload.I16 ->
-        let data =
-          Bigarray.Array1.create Bigarray.int16_signed Bigarray.c_layout n
-        in
-        copy_data data;
-        Tensor { shape; payload = { payload with data } }
-    | Payload.I8 ->
-        let data =
-          Bigarray.Array1.create Bigarray.int8_signed Bigarray.c_layout n
-        in
-        copy_data data;
-        Tensor { shape; payload = { payload with data } }
+  copy_cells src.payload ~shape ~src_shape:src.shape ~source_coord
+
+(* [Split_with_sizes] is a storage-preserving window, same reason as [unbind].
+   Unlike [unbind]'s [source_coord], there is no repack here --
+   [Split_with_sizes] KEEPS the axis, so every axis but the split one carries
+   over unchanged and only [axis] itself is shifted by [offset]. *)
+let split_with_sizes (Tensor src) ~axis ~offset ~shape =
+  let source_coord out =
+    Vec6.set out axis (Dim.index (offset + Dim.to_int (Vec6.get out axis)))
   in
-  copy src.payload
+  copy_cells src.payload ~shape ~src_shape:src.shape ~source_coord
 
 (* Bit-for-bit equality — the only correct notion when the engine claims two
    computations are *identical* rather than merely close.
