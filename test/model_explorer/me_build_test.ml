@@ -160,6 +160,136 @@ let%expect_test "an unlabelled group still names a level" =
     n1           Relu     ns=g1               in=[n0:0] params=relu x=t2
     out:t3       output   ns=                 in=[n1:0] |}]
 
+(* --- Const-SSA: constant properties and symbolic transformation --- *)
+
+let swap_hw =
+  [
+    (Axis.N, Axis.N);
+    (Axis.T, Axis.T);
+    (Axis.D, Axis.D);
+    (Axis.H, Axis.W);
+    (Axis.W, Axis.H);
+    (Axis.C, Axis.C);
+  ]
+
+let show_const_props ~constant_store g =
+  match Me_native.graph ~limits ~id:"g/native/000" ?constant_store g with
+  | Error e -> Format.printf "%a@." pp_err (Error e)
+  | Ok mg ->
+      List.iter
+        (fun (n : ME.GraphNode.t) ->
+          if
+            String.length n.ME.GraphNode.id >= 6
+            && String.sub n.ME.GraphNode.id 0 6 = "const:"
+          then begin
+            Printf.printf "%s\n" n.ME.GraphNode.id;
+            List.iter
+              (fun (m : ME.MetadataItem.t) ->
+                List.iter
+                  (fun (kv : ME.KeyValue.t) ->
+                    Printf.printf "  %s = %s\n" kv.ME.KeyValue.key
+                      kv.ME.KeyValue.value)
+                  m.ME.MetadataItem.attrs)
+              (Option.value n.ME.GraphNode.outputsMetadata ~default:[]);
+            List.iter
+              (fun (a : ME.NodeAttribute.t) ->
+                Printf.printf "  %s = %s\n" a.ME.NodeAttribute.key
+                  (match a.ME.NodeAttribute.value with
+                  | ME.NodeAttributeValue.Str s -> s
+                  | _ -> "<non-string>"))
+              (Option.value n.ME.GraphNode.attrs ~default:[])
+          end)
+        mg.ME.Graph.nodes
+
+(* t1: derived by folding [permute] over a captured weight nothing in the
+   graph names. t2: an ordinary captured constant nothing folded. *)
+let const_ssa_graph () =
+  let folded_sig =
+    Tensor_sig.create ~id:(tid 1) ~name:""
+      ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:4 ~w:3 ~c:1)
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let plain_sig =
+    Tensor_sig.create ~id:(tid 2) ~name:""
+      ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:5 ~c:1)
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let g =
+    {
+      Graph_ir.Graph.nodes = [];
+      root =
+        {
+          Graph_ir.Group.id = Graph_ir.Group_id.of_int 0;
+          label = None;
+          items = [];
+        };
+      tensors =
+        Graph_ir.Tensor_id.Map.add (tid 1) folded_sig
+          (Graph_ir.Tensor_id.Map.add (tid 2) plain_sig
+             Graph_ir.Tensor_id.Map.empty);
+      inputs = [ tid 1; tid 2 ];
+      input_kinds =
+        Graph_ir.Tensor_id.Map.add (tid 1) Graph_ir.Input.Constant
+          (Graph_ir.Tensor_id.Map.add (tid 2) Graph_ir.Input.Constant
+             Graph_ir.Tensor_id.Map.empty);
+      outputs = [ tid 1; tid 2 ];
+    }
+  in
+  (g, folded_sig, plain_sig)
+
+let%expect_test "a plain constant, with no Const-SSA store at all, is unchanged"
+    =
+  let g, _, _ = const_ssa_graph () in
+  show_const_props ~constant_store:None g;
+  [%expect
+    {|
+    const:t1
+      tensor_id = t1
+      shape = [H=4 W=3 C=1]
+      dtype = f32
+    const:t2
+      tensor_id = t2
+      shape = [W=5 C=1]
+      dtype = f32 |}]
+
+let%expect_test
+    "a constant shows its shape and dtype, and — only when Const-SSA actually \
+     folded it — its symbolic transformation" =
+  let g, folded_sig, plain_sig = const_ssa_graph () in
+  let captured_sig =
+    Tensor_sig.create ~id:(tid 100) ~name:""
+      ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:4 ~c:1)
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let store =
+    let open Err.Syntax in
+    let* store =
+      Constant_store.bind_captured Constant_store.empty ~tensor:captured_sig
+        (Const_ssa.Capture.of_string "p_conv1_weight")
+    in
+    let* store =
+      Constant_store.bind_apply store ~tensor:folded_sig
+        (Graph_ir.Permute { Permute.Permute.perm = swap_hw; x = tid 100 })
+    in
+    Constant_store.bind_captured store ~tensor:plain_sig
+      (Const_ssa.Capture.of_string "p_never_folded")
+  in
+  match store with
+  | Error e -> Format.printf "%a@." Constant_store.pp_error (Err.Error.kind e)
+  | Ok store ->
+      show_const_props ~constant_store:(Some store) g;
+      [%expect
+        {|
+    const:t1
+      tensor_id = t1
+      shape = [H=4 W=3 C=1]
+      dtype = f32
+      constant_transform = permute x=captured "p_conv1_weight" perm=[H<-W, W<-H]
+    const:t2
+      tensor_id = t2
+      shape = [W=5 C=1]
+      dtype = f32 |}]
+
 (* --- failures --- *)
 
 let%expect_test "an operand nothing produces is named, not silently dropped" =

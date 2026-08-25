@@ -58,6 +58,7 @@ module Make (S : SIDE) : sig
     id:string ->
     ?labels:(Graph_ir.Node_id.t -> string) ->
     ?group_attrs:(string * (string * string) list) list ->
+    ?constant_store:Constant_store.t ->
     S.op Graph_ir.Graph.t ->
     (Model_explorer.Graph.t, [> error ]) Err.t
   (** Every native node becomes one [GraphNode] with [Me_ids.op_node]'s id, plus
@@ -75,5 +76,16 @@ module Make (S : SIDE) : sig
       [group_attrs] becomes [groupNodeAttributes], which the renderer keys by
       NAMESPACE and shows in the side panel when a group is selected. That is
       where a per-group verification rollup belongs: it is the only place the
-      wire format lets a fact be attached to a group rather than to a node. *)
+      wire format lets a fact be attached to a group rather than to a node.
+
+      [constant_store] adds two things to every CONSTANT boundary node: its
+      tensor signature (shape, dtype and, where quantized, the quantization
+      parameters) in [outputsMetadata], and — only when the constant is a
+      Const-SSA [Apply], i.e. was actually derived by symbolic constant folding
+      — a [constant_transform] attribute holding its full symbolic definition
+      (e.g. [permute(captured "p_conv1_weight")]), expanded down to its
+      captured/literal leaves. A captured or literal constant that was never
+      folded gets the signature attributes but no transform: it was not "subject
+      to constant propagation". Omitted (or a constant with no binding in the
+      store) leaves a constant boundary node exactly as before. *)
 end

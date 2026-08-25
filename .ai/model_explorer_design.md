@@ -733,6 +733,25 @@ matches them by id like anything else.
 A tensor with no producer is **named**, not dropped: `Unknown_producer` carries the id.
 Node and edge ceilings are checked before the walks linear in them.
 
+**A constant boundary node carries its Const-SSA story, when one is threaded in.**
+`Make(S).graph`'s optional `?constant_store` adds two things to a `` `Const `` boundary
+node only — an ordinary input's and an output's rendering are untouched. First, its tensor
+signature (shape, dtype and, when quantized, the quantization parameters) as
+`outputsMetadata`, the same properties an op's own output already shows. Second, only when
+[`Constant_store.binding`](const-ssa-idea.md) resolves to a Const-SSA `Apply` — i.e. the
+constant was actually produced by symbolic constant folding, not merely captured or
+literal — a `constant_transform` node attribute holding its full symbolic definition,
+expanded recursively through nested `Apply`s down to their captured/literal leaves (e.g.
+`permute x=captured "p_conv1_weight" perm=[H<-W, W<-H]`), via `Graph_ir.pp_op_with`'s
+`~pp_ref` hook. `Constant_store.binding` is required rather than looking the tensor id up
+in the plan directly, because packing only remaps a plan's *exports*: the main-graph tensor
+id can differ from the stable internal plan id a definition was recorded under. A leaf
+constant (captured or literal, never folded) gets the signature attributes but no
+transform — it was not "subject to constant propagation". `Me_export` threads the
+canonical Native, the pre-fold initial Native, and the Native4D `constant_store` through
+their respective `graph` calls, so all three panes show whichever constants that stage's
+own store actually has bindings for.
+
 **The two halves are tested together.** `Me_build`'s output is fed through
 `Me_session.validate` in the same fixture, because neither test alone would show a
 disagreement — the projection would happily emit an output-slot index the session validator

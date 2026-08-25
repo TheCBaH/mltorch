@@ -116,7 +116,66 @@ module Make (S : SIDE) = struct
     in
     text
 
-  let graph ~limits ~id ?labels ?group_attrs (g : S.op Graph_ir.Graph.t) =
+  let dtype_attr (sig_ : Tensor_sig.t) =
+    let (Payload.Fmt f) = sig_.Tensor_sig.fmt in
+    Payload.fmt_name f
+
+  (* Every property a tensor signature can state, not only its shape: dtype
+     and, where quantized, the quantization parameters. *)
+  let tensor_sig_kv (sig_ : Tensor_sig.t) =
+    [ kv "shape" (shape_attr sig_); kv "dtype" (dtype_attr sig_) ]
+    @
+    match sig_.Tensor_sig.quant with
+    | None -> []
+    | Some q -> [ kv "quant" (Core.Pretty.to_string Quant.pp q) ]
+
+  (* A constant's symbolic definition, from Const-SSA. [Leaf] renders as what
+     it is (captured/literal/materialized); [Apply] recurses through its
+     operands so a folded constant shows its WHOLE derivation, e.g.
+     [permute(captured "p_conv1_weight")], not just its own last step. The
+     plan is acyclic by construction ([Const_ssa.validate]), so this
+     terminates. *)
+  let pp_const_leaf fmt : Const_ssa.leaf -> unit = function
+    | Const_ssa.Captured c -> Fmt.pf fmt "captured %a" Const_ssa.Capture.pp c
+    | Const_ssa.Literal _ -> Fmt.string fmt "literal"
+    | Const_ssa.Opaque_materialized _ -> Fmt.string fmt "materialized"
+
+  let rec pp_const_ref plan fmt (id : Graph_ir.Tensor_id.t) =
+    match Const_ssa.find plan (Const_ssa.Value_id.of_tensor_id id) with
+    | None -> Graph_ir.Tensor_id.pp fmt id
+    | Some (Const_ssa.Leaf { leaf; _ }) -> pp_const_leaf fmt leaf
+    | Some (Const_ssa.Apply { op; _ }) ->
+        Graph_ir.pp_op_with ~pp_ref:(pp_const_ref plan) fmt op
+
+  (* Only [Apply] counts as "subject to constant propagation": a bare
+     captured or literal leaf was not derived from anything, so it has no
+     transformation to show. [Constant_store.binding] is needed rather than
+     [Const_ssa.find] on [t] directly, because packing only remaps a plan's
+     EXPORTS — the main-graph tensor id can differ from the stable internal
+     plan id the definition was recorded under. *)
+  let constant_transform_attrs ~limits constant_store t =
+    match constant_store with
+    | None -> []
+    | Some store -> (
+        match Constant_store.binding store t with
+        | None -> []
+        | Some vid -> (
+            let plan = Constant_store.plan store in
+            match Const_ssa.find plan vid with
+            | Some (Const_ssa.Apply { op; _ }) ->
+                let text, capped =
+                  bounded ~max:limits.Me_limits.Limits.max_attr_chars
+                    (Graph_ir.pp_op_with ~pp_ref:(pp_const_ref plan))
+                    op
+                in
+                attr "constant_transform" text
+                ::
+                (if capped then [ attr "constant_transform_truncated" "true" ]
+                 else [])
+            | Some (Const_ssa.Leaf _) | None -> []))
+
+  let graph ~limits ~id ?labels ?group_attrs ?constant_store
+      (g : S.op Graph_ir.Graph.t) =
     let open Err.Syntax in
     let label_of = match labels with Some f -> f | None -> fun _ -> "" in
     let nodes = g.Graph_ir.Graph.nodes in
@@ -181,8 +240,23 @@ module Make (S : SIDE) = struct
           ME.MetadataItem.create ~id:(string_of_int slot) ~attrs)
         n.Graph_ir.Node.outputs
     in
-    (* Boundary nodes, pinned so a comparison matches them like any other. *)
+    (* Boundary nodes, pinned so a comparison matches them like any other.
+       Only a CONSTANT gets tensor-signature and Const-SSA attributes — an
+       ordinary input's properties and an output's are unaffected. *)
     let boundary kind t =
+      let sig_attrs, transform_attrs =
+        match kind with
+        | `In | `Out -> ([], [])
+        | `Const ->
+            let sig_attrs =
+              match
+                Graph_ir.Tensor_id.Map.find_opt t g.Graph_ir.Graph.tensors
+              with
+              | None -> []
+              | Some sg -> tensor_sig_kv sg
+            in
+            (sig_attrs, constant_transform_attrs ~limits constant_store t)
+      in
       ME.GraphNode.create ~id:(Me_ids.boundary kind t)
         ~label:
           (match kind with
@@ -194,10 +268,10 @@ module Make (S : SIDE) = struct
           [
             ME.MetadataItem.create ~id:"0"
               ~attrs:
-                [
-                  kv "tensor_id" (Core.Pretty.to_string Graph_ir.Tensor_id.pp t);
-                ];
+                (kv "tensor_id" (Core.Pretty.to_string Graph_ir.Tensor_id.pp t)
+                :: sig_attrs);
           ]
+        ?attrs:(if transform_attrs = [] then None else Some transform_attrs)
         ()
     in
     let input_nodes =

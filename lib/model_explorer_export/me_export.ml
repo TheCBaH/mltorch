@@ -301,7 +301,8 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
   let* initial =
     wrap
       (fun e -> `Project e)
-      (Me_native.graph ~limits ~id:initial_id lowered.Pt2_native_graph.graph)
+      (Me_native.graph ~limits ~id:initial_id ~constant_store:t.constant_store
+         lowered.Pt2_native_graph.graph)
   in
   (* The per-group rollup, keyed by the SAME namespaces the projection emits --
      which is why it comes from [Me_verify] rather than from [Map_verify]'s own
@@ -321,7 +322,8 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
   let* canonical =
     wrap
       (fun e -> `Project e)
-      (Me_native.graph ~limits ~id:canonical_id ?group_attrs t.graph)
+      (Me_native.graph ~limits ~id:canonical_id ?group_attrs
+         ~constant_store:t.constant_store t.graph)
   in
   (* The four-axis dialect, from CANONICAL Native -- the dataflow branches
      there, and this is one of the two branches. A graph outside the dialect's
@@ -352,6 +354,7 @@ let lowered_shape ~limits ~label ~source ~source_id ~source_view ~pt2_graph
             wrap
               (fun e -> `Project e)
               (Me_native4d.graph ~limits ~id:native4d_id
+                 ~constant_store:r.Native4d.Lower.constant_store
                  (Native4d.Lower.graph r))
           in
           Ready g
