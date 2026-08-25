@@ -80,6 +80,12 @@ let mean_params (p : Ops4.Mean_keepdims.params) : Reduce.Mean.params =
     keepdim = true (* the dialect has no other form *);
   }
 
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
+   axis is being joined along. *)
+let concat_params (p : Ops4.Concat4.params) : Concat.Concat.params =
+  { axis = Axis4.to_axis p.Ops4.Concat4.axis }
+
 (* Shared with [Eval_op4] for the same reason [unbind_params] is: one
    translation, so the shape rule and the compute cannot disagree about which
    axes carry which amounts. Only the axis type narrows -- the entries and the
@@ -250,6 +256,12 @@ let output_shape (op : Op.t)
   | Rms_norm { Ops4.Rms_norm.params; x; _ } ->
       let* x_shape = shape x in
       one (four (Norm.RmsNorm.output_shape ~x_shape (rms_params params)))
+  (* Variadic OPERANDS, not variadic outputs -- unlike [Unbind]'s [four_all],
+     this stays a single-shape arm, one [xs_shapes] gathered over every
+     operand rather than one [x_shape]. *)
+  | Concat4 { Ops4.Concat4.params; xs } ->
+      let* xs_shapes = Err.List.map shape xs in
+      one (four (Concat.Concat.output_shape ~xs_shapes (concat_params params)))
   | Pad4 { Ops4.Pad4.params; x } ->
       let* x_shape = shape x in
       one (four (Pad.Pad.output_shape ~x_shape (pad_params params)))

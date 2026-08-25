@@ -26,7 +26,8 @@ let classify (op : Op.t) ~output:_ =
      per-element and copying preserves it — the rule is not "the value multiset
      is unchanged", which holds only of the total case. See
      .ai/native_transform_design.md §8. *)
-  | Permute4 _ | Reshape4 _ | Slice4 _ | Unbind _ -> Output_transfer.Reindexing
+  | Concat4 _ | Permute4 _ | Reshape4 _ | Slice4 _ | Unbind _ ->
+      Output_transfer.Reindexing
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
   | Conv2d _ | Depthwise_conv2d _ | Div _ | Div_scalar _ | Gelu _
   | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Max_pool2d _

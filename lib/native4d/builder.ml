@@ -152,6 +152,11 @@ let adaptive_avg_pool2d params x =
 let avg_pool2d params x = op1 (Op.Avg_pool2d { Pool.AvgPool2d.params; x })
 let clamp params x = op1 (Op.Clamp { Pointwise.Clamp.params; x })
 
+(* Takes the dialect's own [Ops4.Concat4.params], whose axis is [Axis4.t]: a
+   concat naming T or D is not constructible through this API, the same rule
+   [unbind] below follows. *)
+let concat4 params xs = op1 (Op.Concat4 { Ops4.Concat4.params; xs })
+
 let conv2d params ~x ~weight ?bias () =
   op1 (Op.Conv2d { Ops4.Conv_payload.params; x; weight; bias })
 

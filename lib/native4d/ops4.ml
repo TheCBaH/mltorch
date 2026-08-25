@@ -573,6 +573,59 @@ module Slice4 = struct
     Fmt.pf fmt "@[<hv 2>slice4@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
 end
 
+(* ---- joining ---------------------------------------------------------------
+
+   Native's [Concat] with its axis narrowed to the dialect's four. Its own
+   payload for the FIRST reason in .ai/native4d_add_op.md -- it names an axis,
+   so the field is [Axis4.t] and T/D are unsayable in a four-axis graph.
+
+   [xs] is a variadic OPERAND list, unlike every other op above except
+   [Layer_norm]/[Depthwise_conv2d]'s fixed few -- the same "operand count is
+   not just output count" case Native's own [Concat] documents. Nothing here
+   restates the shape rule or the pixel map: both delegate to [Concat.Concat],
+   which is what keeps them from drifting apart. *)
+module Concat4 = struct
+  type params = { axis : Axis4.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"concat4_params" (fun axis -> { axis })
+    |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a}@]" Axis4.pp p.axis
+
+  type t = { params : params; xs : Tensor_ref.t list }
+
+  let name = "Concat4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          xs = get "xs" (Jsont.list Tensor_ref.jsont);
+        })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ( "xs",
+              Json_util.jarr (List.map (Json_util.enc Tensor_ref.jsont) t.xs) );
+          ])
+      Jsont.json
+
+  let operands (t : t) = t.xs
+  let map_operands f (t : t) = { t with xs = List.map f t.xs }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>concat4@ xs=%a@ params=%a@]"
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma pp_ref))
+      t.xs pp_params t.params
+end
+
 (* ---- splitting ------------------------------------------------------------ *)
 
 (* The dialect's first MULTI-OUTPUT op: one output per coordinate of [axis], so

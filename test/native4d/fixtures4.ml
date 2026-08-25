@@ -166,6 +166,23 @@ let per_op () =
                stop = 4;
                step = Op_config.Pos.of_int 2;
              }) );
+      (* Three operands of DIFFERENT extents along the joined axis (W), so a
+         fixture that only ever concatenated equal-sized pieces could not
+         catch a wrong per-operand offset. *)
+      ( "concat4",
+        let a_shape = s4 ~n:1 ~h:2 ~w:1 ~c:2 in
+        let b_shape = s4 ~n:1 ~h:2 ~w:2 ~c:2 in
+        let c_shape = s4 ~n:1 ~h:2 ~w:3 ~c:2 in
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* a = input ~shape:a_shape () in
+             let* b = input ~shape:b_shape () in
+             let* c = input ~shape:c_shape () in
+             concat4 { Ops4.Concat4.axis = Axis4.W } [ a; b; c ])
+        in
+        (g, [ a_shape; b_shape; c_shape ]) );
       ( "permute4",
         unary ~shape:nhwc
           (Builder.permute4

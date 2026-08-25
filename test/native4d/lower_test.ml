@@ -573,6 +573,23 @@ let%expect_test "lower: slice4 carries all three bounds" =
       n0: [t1] = slice4 x=t0 params={axis=W start=1 stop=5 step=2}
     outputs: [t1 [H=2 W=2 C=1]] |}]
 
+(* Only the axis converts; every operand crosses unchanged and in order, which
+   is what makes the claim [Identical] and what the printed op checks. A
+   lowering that dropped an operand or reordered the list still produces a
+   graph that validates -- concat's shape rule does not care about operand
+   ORDER along the non-joined axes -- so the golden is where it shows. *)
+let%expect_test "lower: concat4 carries the axis and every operand in order" =
+  show "concat" (Fixtures.concat_w ());
+  [%expect
+    {|
+    concat:
+      graph4
+    inputs: [t0 [H=2 W=1 C=1],
+    t1 [H=2 W=2 C=1]]
+    nodes:
+      n0: [t2] = concat4 xs=[t0, t1] params={axis=W}
+    outputs: [t2 [H=2 W=3 C=1]] |}]
+
 (* ---- op3-impl.md commit 8: Sub, Reshape4, Permute4 from transpose --------- *)
 
 (* Sub is a direct binary legalization, exactly like Add: no relayout, one

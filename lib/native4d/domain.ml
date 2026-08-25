@@ -258,13 +258,17 @@ let check_node view (n : node) =
           Err.fail (`Live_max_pool_indices (node, indices))
       | _ -> unsupported ())
   | Discard _ -> unsupported ()
-  (* The dialect has no [Concat4]/[Select4]/[Stack4] yet -- Native's own
-     [Concat]/[Select]/[Stack] landed first, each deliberately as an
-     independent slice; until they do, every occurrence is unsupported
-     regardless of axis, the same "dialect does not have it at all" answer
-     [Discard] gets rather than a [check_dims]-style axis rejection that would
-     promise a legalization this module cannot yet perform. *)
-  | Concat _ | Select _ | Stack _ -> unsupported ()
+  (* [Concat4] now exists, so [Concat] gets the same [check_dims]-style axis
+     rejection [Slice]/[Unbind] get: the JOINED axis is the one the dialect
+     must be able to name, and the rest of the domain -- every operand
+     already being four-axis -- is [check_shapes]'s business, not this arm's.
+
+     The dialect still has no [Select4]/[Stack4] -- Native's own [Select]/
+     [Stack] landed first, each deliberately as an independent slice; until
+     they do, every occurrence is unsupported regardless of axis, the same
+     "dialect does not have it at all" answer [Discard] gets. *)
+  | Concat { Concat.Concat.params; _ } -> check_dims node [ params.axis ]
+  | Select _ | Stack _ -> unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but
