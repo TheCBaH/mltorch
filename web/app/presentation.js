@@ -111,6 +111,49 @@ export function capabilityWording(capability) {
   return { key, name, state: 'unavailable', title: 'Unavailable', detail };
 }
 
+/* --------------------------------------------------------------- model support */
+
+/**
+ * Whether `stage` (one of `OPTIONAL_STAGES`) is known to work for a catalogue
+ * model, from the payload-free sweep `build-webapp.mjs` embeds as each
+ * model's `support`. `support` is `null` when the model was not in that
+ * sweep; callers must then treat every stage as `known: false` and never
+ * filter or disable on it -- absence of evidence is not evidence of failure.
+ *
+ * `stage_program` tracks `nativeBuilds` alone: `Me_export` gives it no
+ * `Unavailable` reason of its own (a failure there is Fatal, not a gradeable
+ * capability -- see `.ai/pt2_model_support.md`), so once Native import
+ * succeeds the stage program always builds. `kernel` and `fusion` share one
+ * signal because Fusion is a view over the same kernel graph and always
+ * mirrors its Ready/Refused outcome.
+ */
+export function stageSupport(support, stage) {
+  if (!support) return { known: false, available: true, blocker: null };
+  if (support.nativeBuilds !== true) {
+    const blocker = support.native4dBlocker ?? support.kernelBlocker ?? 'Native import fails for this model.';
+    return { known: true, available: false, blocker };
+  }
+  if (stage === 'native4d') {
+    const available = support.native4dConverts === true;
+    return { known: true, available, blocker: available ? null : support.native4dBlocker };
+  }
+  if (stage === 'stage_program') return { known: true, available: true, blocker: null };
+  const available = support.kernelConverts === true;
+  return { known: true, available, blocker: available ? null : support.kernelBlocker };
+}
+
+/**
+ * Whether a model should stay in the catalogue selector while `optional` is
+ * requested. A model is filtered out only when the sweep KNOWS a requested
+ * stage will not work; an unknown answer never hides a model.
+ */
+export function modelMatchesStages(support, optional) {
+  return (optional ?? []).every((stage) => {
+    const info = stageSupport(support, stage);
+    return !info.known || info.available;
+  });
+}
+
 /* --------------------------------------------------------------- the index */
 
 const isStageView = (view) => typeof view?.kind === 'string' && view.kind.startsWith(STAGE_KIND);

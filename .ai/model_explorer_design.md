@@ -1702,6 +1702,40 @@ showing with the name of one it may never be replaced by. The summary states the
 component count and never claims completeness, and for an empty mapping says so outright
 before saying which of §20's two regimes applies.
 
+**The catalogue carries capability, not just identity.** `build-webapp.mjs` reads
+`test/data/pt2_json_model_support.jsonl` — the payload-free sweep §"Cross-model signal"
+of `.ai/pt2_model_support.md` describes — and embeds each bundled model's `native_builds`,
+`native4d_converts`/`_blocker` and `kernel_converts`/`_blocker` on its catalogue entry as
+`support`. A model the sweep never covered (added after the sweep ran, or built with a
+`MODELS` list the sweep's own corpus does not name) carries `support: null`, and
+`presentation.js`'s `stageSupport`/`modelMatchesStages` treat that as `known: false`
+everywhere — **absence of evidence never filters or disables anything**, only a sweep row
+that actually says a stage fails does.
+
+`stageSupport` collapses the sweep's two independent branches (`.ai/pt2_model_support.md`'s
+fork at canonical Native) onto the four `OPTIONAL_STAGES`: `native4d` reads
+`native4d_converts` directly; `kernel` and `fusion` both read `kernel_converts`, since
+Fusion is a view over the same kernel graph and always mirrors its Ready/Refused outcome;
+`stage_program` tracks `native_builds` alone and nothing about the kernel branch, because
+`Me_export` gives it no `Unavailable` reason of its own — a failure there is Fatal, not a
+gradeable capability, so once Native import succeeds the stage program always builds. When
+`native_builds` is false every stage reads unavailable, with whichever blocker string the
+sweep recorded (`native4d_blocker`/`kernel_blocker` agree in that case, per `resolve_branch`
+in `bin/pt2_json_model_support.ml`).
+
+Two symmetric uses of the same function, both in `panels.js`. `renderStageControls` disables
+an optional-stage checkbox the *currently selected* model is known not to reach, with the
+blocker as its tooltip — never hidden, since requesting it anyway is harmless (the exporter
+reports the same `Unavailable` reason). `renderCatalogueOptions` filters the model selector
+to those not known to fail *every currently requested* optional stage — except the model
+`keepId` names, which is always kept and reselected, because the model behind the retained
+session (or the one a load is about to switch to in `applyUrl`) must never silently drop out
+of its own selector out from under it. `app.js` threads `selectedId`/`keepId` explicitly
+through `renderControls` rather than reading `select.value` implicitly at the filter site,
+for the same reason `applyUrl` no longer assigns `select.value` directly: the id a filter
+must keep is a fact the caller already holds, not one to reverse-engineer from the DOM after
+the fact.
+
 ## 20. The flow spine as a destination — `Me_flow.State.view`
 
 Phase 4 of `web-ui-4.md` makes the exported spine navigable. The first half of that

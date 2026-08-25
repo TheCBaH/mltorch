@@ -8,6 +8,26 @@ function decimal(value, field) {
   return BigInt(value);
 }
 
+/* A model's capability signal from the payload-free support sweep (see
+ * `presentation.js`'s `stageSupport`), or `null` when the model was not in
+ * that sweep. `native4dConverts`/`kernelConverts` are `true`/`false`/`null` --
+ * `null` only when Native import itself already failed, per
+ * `.ai/pt2_model_support.md`'s `resolve_branch` -- and the blockers are prose,
+ * so only their presence and type are checked here, never their content. */
+function validateSupport(raw) {
+  if (raw === null || raw === undefined) return null;
+  const boolOrNull = (v) => v === null || typeof v === 'boolean';
+  const stringOrNull = (v) => v === null || typeof v === 'string';
+  if (!raw || typeof raw.nativeBuilds !== 'boolean' ||
+      !boolOrNull(raw.native4dConverts) || !stringOrNull(raw.native4dBlocker) ||
+      !boolOrNull(raw.kernelConverts) || !stringOrNull(raw.kernelBlocker)) fail('invalid catalogue model support');
+  return Object.freeze({
+    nativeBuilds: raw.nativeBuilds,
+    native4dConverts: raw.native4dConverts, native4dBlocker: raw.native4dBlocker,
+    kernelConverts: raw.kernelConverts, kernelBlocker: raw.kernelBlocker,
+  });
+}
+
 export function validateCatalog(raw) {
   if (!raw || raw.schemaVersion !== 1 || typeof raw.sourceRef !== 'string' ||
       typeof raw.defaultModel !== 'string' || !Array.isArray(raw.models)) fail('invalid catalogue');
@@ -17,9 +37,10 @@ export function validateCatalog(raw) {
         typeof model.url !== 'string' || !/^[^/:?#][^?#]*$/.test(model.url) ||
         !SHA256.test(model.sha256)) fail('invalid catalogue model');
     const bytes = decimal(model.bytes, 'model bytes');
+    const support = validateSupport(model.support ?? null);
     if (model.id <= previous) fail('catalogue models must be unique and sorted');
     previous = model.id;
-    return Object.freeze({ ...model, bytes });
+    return Object.freeze({ ...model, bytes, support });
   });
   if (!models.some((m) => m.id === raw.defaultModel)) fail('unknown default model');
   return Object.freeze({ sourceRef: raw.sourceRef, defaultModel: raw.defaultModel, models });

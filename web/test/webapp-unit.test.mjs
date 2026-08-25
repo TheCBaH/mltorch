@@ -17,6 +17,22 @@ test('catalogue validation requires sorted, digested entries', () => {
   assert.throws(() => validateCatalog({ ...catalogue, defaultModel: 'missing' }));
 });
 
+test('catalogue model support is optional, but malformed when present', () => {
+  const support = {
+    nativeBuilds: true, native4dConverts: false, native4dBlocker: 'outside_dialect_domain',
+    kernelConverts: true, kernelBlocker: null,
+  };
+  const withSupport = { ...catalogue, models: [{ ...catalogue.models[0], support }] };
+  assert.deepEqual(validateCatalog(withSupport).models[0].support, support);
+  assert.equal(validateCatalog(catalogue).models[0].support, null);
+  assert.throws(() => validateCatalog({
+    ...catalogue, models: [{ ...catalogue.models[0], support: { ...support, nativeBuilds: 'yes' } }],
+  }));
+  assert.throws(() => validateCatalog({
+    ...catalogue, models: [{ ...catalogue.models[0], support: { ...support, native4dConverts: 'maybe' } }],
+  }));
+});
+
 test('coordinator transfers fresh request and source bytes exactly once', async () => {
   const worker = { postMessage(...args) { this.args = args; }, terminate() {} };
   const bridge = { request: { buildSession: () => ({ ok: true, request: new ArrayBuffer(2) }) }, session: {} };

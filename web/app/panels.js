@@ -11,7 +11,7 @@
 
 import {
   BACKBONE_STAGES, OPTIONAL_STAGES, EFFORTS, RANK_BUCKETS,
-  capabilityWording,
+  capabilityWording, modelMatchesStages, stageSupport,
 } from './presentation.js';
 
 const STAGE_NAMES = {
@@ -49,8 +49,15 @@ function checkbox(id, labelText, checked, disabled, onChange) {
 
 /* --------------------------------------------------------------- controls */
 
-/** Optional stages only. The three backbones are stated, never offered. */
-export function renderStageControls(container, backboneNote, controls, onChange) {
+/** Optional stages only. The three backbones are stated, never offered.
+ *
+ * `support` is the currently selected catalogue model's capability signal
+ * (`null` for a local file, or a model the sweep never covered) -- a stage
+ * the sweep KNOWS this model cannot reach is disabled and carries its
+ * blocker as a tooltip, never hidden: the box still names the output, and
+ * requesting it anyway is harmless (the exporter reports it `Unavailable`
+ * with the same reason). */
+export function renderStageControls(container, backboneNote, controls, support, onChange) {
   clear(container);
   backboneNote.textContent =
     `Always built: ${BACKBONE_STAGES.map((s) => STAGE_NAMES[s]).join(', ')}. `
@@ -61,9 +68,28 @@ export function renderStageControls(container, backboneNote, controls, onChange)
    * otherwise compute its change against a stale set and drop one. */
   const current = () => OPTIONAL_STAGES.filter((s) => container.querySelector(`#stage-${s}`)?.checked);
   for (const stage of OPTIONAL_STAGES) {
-    container.append(checkbox(`stage-${stage}`, STAGE_NAMES[stage], selected.has(stage), false,
-      () => onChange(current())));
+    const info = stageSupport(support, stage);
+    const disabled = info.known && !info.available;
+    const box = checkbox(`stage-${stage}`, STAGE_NAMES[stage], selected.has(stage), disabled,
+      () => onChange(current()));
+    if (disabled) box.title = `Unavailable for this model: ${info.blocker ?? 'not supported'}`;
+    container.append(box);
   }
+}
+
+/**
+ * The catalogue selector's option list, filtered to models the sweep does not
+ * already know will fail every currently requested optional stage.
+ * `keepId`, when it names a catalogue model, is always kept and reselected --
+ * the model behind the retained session, or the one about to be loaded, must
+ * never silently drop out of its own selector. */
+export function renderCatalogueOptions(select, catalog, optional, keepId) {
+  clear(select);
+  for (const model of catalog.models) {
+    if (model.id !== keepId && !modelMatchesStages(model.support, optional)) continue;
+    select.add(new Option(model.displayName, model.id));
+  }
+  if (keepId && catalog.models.some((m) => m.id === keepId)) select.value = keepId;
 }
 
 /** Off, Quick, Standard, Thorough — mapped exactly to `verifySymbolic`. */
