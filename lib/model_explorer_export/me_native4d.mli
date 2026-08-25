@@ -16,5 +16,6 @@ val graph :
   id:string ->
   ?labels:(Graph_ir.Node_id.t -> string) ->
   ?group_attrs:(string * (string * string) list) list ->
+  ?constant_store:Constant_store.t ->
   Native4d.Graph.graph ->
   (Model_explorer.Graph.t, [> Me_build.error ]) Err.t
