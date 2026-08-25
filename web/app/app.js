@@ -59,9 +59,17 @@ async function main() {
    * top of the document as a presentation change. */
   const preferFor = (presentation) => P.preferredViews(asView(presentation));
 
-  const renderControls = () => {
-    panels.renderStageControls($('stage-controls'), $('backbone-note'), controls, (optional) => {
+  /* The catalogue id whose capability signal should govern the stage controls
+   * and stay selected in the dropdown right now: the model behind the
+   * retained session, or -- before any session exists -- whatever the
+   * selector already shows. */
+  const currentCatalogueId = () => loadedModel ?? select.value ?? null;
+
+  const renderControls = (selectedId = currentCatalogueId()) => {
+    const support = catalog.models.find((m) => m.id === selectedId)?.support ?? null;
+    panels.renderStageControls($('stage-controls'), $('backbone-note'), controls, support, (optional) => {
       controls = { ...controls, optional };
+      panels.renderCatalogueOptions(select, catalog, optional, currentCatalogueId());
       reexport();
     });
     panels.renderEffortControls($('effort-controls'), controls, (effort) => {
@@ -70,6 +78,7 @@ async function main() {
     });
     panels.renderFoldControl($('fold'), $('fold-note'), index);
     panels.renderEffectiveOptions($('effective-options'), coordinator.effectiveOptions);
+    panels.renderCatalogueOptions(select, catalog, controls.optional, selectedId);
   };
 
   /* Everything that describes WHAT IS ON SCREEN, from the presentation actually
@@ -221,8 +230,7 @@ async function main() {
   const response = await fetch(new URL('./catalog.json', document.baseURI));
   if (!response.ok) throw new Error(`catalogue unavailable (${response.status})`);
   const catalog = validateCatalog(await response.json());
-  for (const model of catalog.models) { const option = new Option(model.displayName, model.id); select.add(option); }
-  renderControls();
+  renderControls(catalog.defaultModel);
 
   select.addEventListener('change', () => {
     loadCatalog(select.value, P.optionsFromControls(controls), null, true)
@@ -288,14 +296,16 @@ async function main() {
     const decoded = P.decodeUrl(location.search);
     const id = decoded.model ?? catalog.defaultModel;
     if (!catalog.models.some((model) => model.id === id)) return showError('unknown catalogue model');
-    select.value = id;
     const options = P.optionsFromUrl(decoded);
     const retained = coordinator.session && loadedModel
       ? P.requestKey(loadedModel, coordinator.effectiveOptions)
       : null;
     if (P.requestKey(id, options) !== retained) {
       controls = P.controlsFromOptions(options);
-      renderControls();
+      // Renders the selector with `id` kept and reselected, ahead of the load
+      // this triggers below -- the model about to load must already be the one
+      // on screen, not whatever the previous filtering left selected.
+      renderControls(id);
       // Never a push: startup has no entry to add to, and a `popstate` is
       // already navigating.
       return loadCatalog(id, options, decoded.presentation, false);

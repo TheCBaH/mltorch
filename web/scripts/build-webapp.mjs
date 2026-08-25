@@ -13,6 +13,33 @@ const ids = (process.env.MODELS === 'all'
   ? (await readdir(join(root, 'modules/devcontainer.pytorch-image-models/models'))).sort()
   : (process.env.MODELS || 'mobilenetv2_050').split(/\s+/).filter(Boolean).sort());
 
+/* The payload-free sweep (`.ai/pt2_model_support.md`) keyed by model id, so the
+ * catalogue can carry each model's known Native4D/Kernel capability alongside
+ * it. A model absent from the sweep -- stale relative to the submodule pin, or
+ * simply never swept -- carries `support: null`; the page must never filter or
+ * disable on an absent answer, only on one the sweep actually gives. */
+async function readSupport(root) {
+  const text = await readFile(join(root, 'test/data/pt2_json_model_support.jsonl'), 'utf8');
+  const byId = new Map();
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    const row = JSON.parse(line);
+    byId.set(row.model, row);
+  }
+  return byId;
+}
+
+function catalogSupport(row) {
+  if (!row) return null;
+  return {
+    nativeBuilds: row.native_builds === true,
+    native4dConverts: row.native4d_converts,
+    native4dBlocker: row.native4d_blocker,
+    kernelConverts: row.kernel_converts,
+    kernelBlocker: row.kernel_blocker,
+  };
+}
+
 async function assertArtifact(directory, relative = '') {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
@@ -43,6 +70,7 @@ try {
   }
   await cp(visualizer, join(temporary, 'vendor'), { recursive: true });
   await mkdir(join(temporary, 'models'));
+  const support = await readSupport(root);
 const models = [];
   for (const id of ids) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) throw new Error(`invalid model id: ${id}`);
@@ -50,7 +78,10 @@ const models = [];
     if (!(await stat(source)).isFile()) throw new Error(`unknown model: ${id}`);
     const data = await readFile(source);
     await cp(source, join(temporary, 'models', `${id}.json`));
-    models.push({ id, displayName: id, bytes: String(data.byteLength), sha256: createHash('sha256').update(data).digest('hex'), url: `models/${id}.json` });
+    models.push({
+      id, displayName: id, bytes: String(data.byteLength), sha256: createHash('sha256').update(data).digest('hex'),
+      url: `models/${id}.json`, support: catalogSupport(support.get(id)),
+    });
   }
   if (new Set(ids).size !== ids.length) throw new Error('duplicate model id');
   const { stdout: sourceRef } = await exec('git', ['rev-parse', 'HEAD:modules/devcontainer.pytorch-image-models'], { cwd: root });

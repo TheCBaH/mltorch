@@ -4,9 +4,10 @@ import {
   ALL_STAGES, BACKBONE_STAGES, OPTIONAL_STAGES, RANK_BUCKETS,
   bucketOfRank, buildIndex, capabilityWording, comparisonPresentation,
   controlsFromOptions, decodeUrl, defaultPresentation, encodeUrl,
-  optionsFromControls, optionsFromUrl, preferredViews, requestKey,
-  flowPresentation, resolvePresentation, samePresentation, singlePresentation,
-  staleNotice, staleComparisonNotice, staleFlowNotice,
+  modelMatchesStages, optionsFromControls, optionsFromUrl, preferredViews,
+  requestKey, flowPresentation, resolvePresentation, samePresentation,
+  singlePresentation, stageSupport, staleNotice, staleComparisonNotice,
+  staleFlowNotice,
 } from '../app/presentation.js';
 
 const view = (id, kind, graph) => ({ id, label: id, kind, collection: 'c', graph });
@@ -527,4 +528,54 @@ test('a stale flow says it fell out of flow mode', () => {
   assert.equal(staleFlowNotice('v/flow', null).includes('single view'), true);
   assert.equal(staleFlowNotice('v/flow', flowPresentation('v/flow')), '');
   assert.equal(staleFlowNotice(null, null), '');
+});
+
+/* ------------------------------------------------------------ model support */
+
+const supported = {
+  nativeBuilds: true, native4dConverts: true, native4dBlocker: null,
+  kernelConverts: true, kernelBlocker: null,
+};
+
+test('a model absent from the sweep is unknown, never known-unavailable', () => {
+  for (const stage of OPTIONAL_STAGES) {
+    assert.deepEqual(stageSupport(null, stage), { known: false, available: true, blocker: null });
+  }
+});
+
+test('a model that never builds Native is unavailable on every optional stage, blocker included', () => {
+  const support = { ...supported, nativeBuilds: false, native4dConverts: null, kernelConverts: null };
+  for (const stage of OPTIONAL_STAGES) {
+    const info = stageSupport(support, stage);
+    assert.equal(info.known, true);
+    assert.equal(info.available, false);
+  }
+  assert.equal(
+    stageSupport({ ...supported, nativeBuilds: false, native4dBlocker: 'bad op', native4dConverts: null }, 'kernel').blocker,
+    'bad op',
+  );
+});
+
+test('stage_program tracks Native import alone, independent of the Native4D/Kernel outcome', () => {
+  const support = { ...supported, native4dConverts: false, native4dBlocker: 'outside_dialect_domain', kernelConverts: false, kernelBlocker: 'over_limit' };
+  assert.deepEqual(stageSupport(support, 'stage_program'), { known: true, available: true, blocker: null });
+});
+
+test('native4d and kernel/fusion read their own converts flag and blocker', () => {
+  const support = { ...supported, native4dConverts: false, native4dBlocker: 'outside_dialect_domain', kernelConverts: false, kernelBlocker: 'over_limit' };
+  assert.deepEqual(stageSupport(support, 'native4d'), { known: true, available: false, blocker: 'outside_dialect_domain' });
+  assert.deepEqual(stageSupport(support, 'kernel'), { known: true, available: false, blocker: 'over_limit' });
+  assert.deepEqual(stageSupport(support, 'fusion'), { known: true, available: false, blocker: 'over_limit' });
+  assert.equal(stageSupport(supported, 'native4d').available, true);
+  assert.equal(stageSupport(supported, 'kernel').available, true);
+});
+
+test('a model matches the requested stages only when none is known to fail', () => {
+  const blocked = { ...supported, kernelConverts: false, kernelBlocker: 'over_limit' };
+  assert.equal(modelMatchesStages(supported, ['native4d', 'kernel']), true);
+  assert.equal(modelMatchesStages(blocked, ['native4d']), true);
+  assert.equal(modelMatchesStages(blocked, ['native4d', 'kernel']), false);
+  // Unknown support never excludes a model, and an empty request always matches.
+  assert.equal(modelMatchesStages(null, ['native4d', 'kernel']), true);
+  assert.equal(modelMatchesStages(blocked, []), true);
 });
