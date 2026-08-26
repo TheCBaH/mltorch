@@ -103,6 +103,8 @@ let selection =
     op "unsqueeze";
     op "mean" ~overload:"dim";
     op "amax";
+    op "pow" ~overload:"Tensor_Scalar";
+    op "linalg_vector_norm";
     op "argmax";
     op "topk";
     op "clone";

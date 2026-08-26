@@ -138,6 +138,63 @@ let amax =
       pcg )|};
   }
 
+(* pow.Tensor_Scalar: general support, one Native [Pow] node whose [Compute]
+   special-cases exactly the exponents ATen's own [PowKernel.cpp] does
+   (sqrt/rsqrt/reciprocal/square/cube/reciprocal-of-square) and falls back to
+   [exp(exponent * log x)] otherwise -- so [value]'s candidates deliberately
+   cover that whole special-cased set PLUS one generic exponent (1.5) that
+   exercises the fallback. [self] is drawn POSITIVE
+   ([Walk.tensor_spec_positive], not [tensor_spec]): several candidates
+   (0.5, -0.5, -1, -2) are undefined or singular at a non-positive base, and
+   a NaN/NaN or inf/inf pair is not something a tolerance-based comparator
+   can call "matched" -- the same reasoning [Recipe_reduce]'s siblings and
+   [Native_op_walk.Sqrt]'s own walk already follow. *)
+let pow_tensor_scalar =
+  {
+    module_name = "Pow_tensor_scalar_walk";
+    target = "torch.ops.aten.pow.Tensor_Scalar";
+    recipe = "Recipe_scalar_value";
+    initial =
+      "Aten_walk_recipes.Recipe_scalar_value.{ n = 1; c = 4; h = 8; w = 8; \
+       value = Aten_spec.Scalar_value.Float 0.5 }";
+    axes =
+      "Aten_walk_recipes.Recipe_scalar_value.axes ~n:[ 1; 2 ] ~c:[ 3; 4; 8 ] \
+       ~h:[ 4; 8 ] ~w:[ 4; 8 ] ~value:[ Aten_spec.Scalar_value.Int 2; Int 3; \
+       Int (-1); Int (-2); Float 0.5; Float (-0.5); Float 1.5 ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec_positive pcg (Recipe_scalar_value.self_shape c) in
+    ( Aten_op_spec.Op_pow_Tensor_Scalar.(spec { self; exponent = Recipe_scalar_value.value c }), pcg )|};
+  }
+
+(* linalg_vector_norm.default: same reduction-family recipe as [mean_dim]/
+   [amax] ("mean.dim and friends"). The bridge accepts only the schema
+   default `ord=2`, so [ord] is pinned rather than drawn. *)
+let linalg_vector_norm =
+  {
+    module_name = "Linalg_vector_norm_walk";
+    target = "torch.ops.aten.linalg_vector_norm.default";
+    recipe = "Recipe_reduce";
+    initial =
+      "Aten_walk_recipes.Recipe_reduce.{ n = 2; c = 4; h = 8; w = 8; dims = [ \
+       2; 3 ]; keepdim = false }";
+    axes =
+      "Aten_walk_recipes.Recipe_reduce.axes ~n:[ 1; 2; 4 ] ~c:[ 4; 8; 16 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] \
+       ~dims:Aten_walk_recipes.Recipe_reduce.all_dim_subsets ~keepdim:[ true; \
+       false ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_reduce.self_shape c) in
+    ( Aten_op_spec.Op_linalg_vector_norm.(
+        spec
+          {
+            self;
+            ord = Aten_spec.Scalar_value.Int 2;
+            dim = Some (Recipe_reduce.dims c);
+            keepdim = Recipe_reduce.keepdim c;
+          }),
+      pcg )|};
+  }
+
 (* convolution.default: a non-transposed grouped conv -- identical shape
    semantics to conv2d, so it reuses Recipe_conv and pins transposed=false /
    output_padding=[0;0] (PyTorch requires output_padding=0 when not transposed). *)
@@ -1006,6 +1063,8 @@ let entries =
     adaptive_avg_pool2d;
     mean_dim;
     amax;
+    pow_tensor_scalar;
+    linalg_vector_norm;
     clamp;
     hardtanh;
     unbind_int;

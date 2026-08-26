@@ -1008,6 +1008,47 @@ module Mul_scalar = struct
   end
 end
 
+module Pow = struct
+  (* [x ** scalar] -- ATen's `aten.pow.Tensor_Scalar`. [scalar] is a
+     compile-time constant: an ATen [Scalar] argument is never wired from
+     another node's output (a tensor-valued exponent traces to
+     `pow.Tensor_Tensor`, a different node this op does not cover), and the
+     bridge/importer reject anything else as a decode error. So the branch
+     below runs once per graph node, in OCaml, not once per pixel -- mirroring
+     ATen's own [PowKernel.cpp], which special-cases exactly these six
+     exponents (sqrt/rsqrt/reciprocal/square/cube/reciprocal-of-square) via
+     [sqrt_kernel]/[rsqrt_kernel]/[reciprocal_kernel]/multiplication rather
+     than [std::pow], for the same accuracy reason -- not a per-element
+     runtime check either engine has to make. Any other exponent falls back
+     to [exp(scalar * log x)], which -- unlike the six special cases -- is
+     only [Equivalent] to ATen's [std::pow], not bit-identical, and (like
+     [Sqrt]) is only correct for x > 0: [log] of a non-positive base is not
+     what [std::pow] returns for a negative base with a non-integer exponent
+     (NaN either way) or a base of exactly 0 ([std::pow(0, e)] is
+     well-defined; [log 0] is not). *)
+  type t = Scalar_bin.t
+
+  let name = "Pow"
+  let jsont = Scalar_bin.jsont ~name
+  let operands = Scalar_bin.operands
+  let map_operands = Scalar_bin.map_operands
+  let pp pp_ref fmt t = Scalar_bin.pp ~op:"pow" pp_ref fmt t
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel ~scalar x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      let reciprocal v = S.div (S.const 1.) v in
+      if scalar = 2.0 then S.mul v v
+      else if scalar = 3.0 then S.mul (S.mul v v) v
+      else if scalar = -2.0 then reciprocal (S.mul v v)
+      else if scalar = 0.5 then S.sqrt v
+      else if scalar = -0.5 then reciprocal (S.sqrt v)
+      else if scalar = -1.0 then reciprocal v
+      else S.exp (S.mul (S.const scalar) (S.log v))
+  end
+end
+
 module Sub = struct
   type t = Bin.t
 

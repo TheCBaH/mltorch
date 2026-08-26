@@ -888,6 +888,112 @@ let%expect_test "dispatch: amax.default rejects an out-of-range dim" =
     error: amax.default: invalid dimension 7 for rank 2
     error: amax.default: invalid dimension -3 for rank 2 |}]
 
+let%expect_test "dispatch: pow.Tensor_Scalar exponent=0.5 computes sqrt" =
+  let x = float_tensor [ 4 ] [ 0.; 1.; 4.; 9. ] in
+  dispatch_print ~target:"torch.ops.aten.pow.Tensor_Scalar"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_float "exponent" 0.5 ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=4] {0, 1, 2, 3} |}]
+
+(* [x] excludes 0: -1/-2/-0.5 are singular there, and every exponent here is
+   exercised on the same three values so the table is easy to eyeball against
+   [Reduce]'s hand computation. *)
+let%expect_test
+    "dispatch: pow.Tensor_Scalar over ATen's special-cased exponents" =
+  let x = float_tensor [ 3 ] [ 1.; 4.; 9. ] in
+  List.iter
+    (fun exponent ->
+      dispatch_print ~target:"torch.ops.aten.pow.Tensor_Scalar"
+        ~bindings:[ ("self", x) ]
+        ~inputs:[ in_tensor "self"; in_int "exponent" exponent ]
+        ~noutputs:1)
+    [ 2; 3; -1; -2 ];
+  List.iter
+    (fun exponent ->
+      dispatch_print ~target:"torch.ops.aten.pow.Tensor_Scalar"
+        ~bindings:[ ("self", x) ]
+        ~inputs:[ in_tensor "self"; in_float "exponent" exponent ]
+        ~noutputs:1)
+    [ 0.5; -0.5 ];
+  [%expect
+    {|
+    tensor f32 [C=3] {1, 16, 81}
+    tensor f32 [C=3] {1, 64, 729}
+    tensor f32 [C=3] {1, 0.25, 0.111111}
+    tensor f32 [C=3] {1, 0.0625, 0.0123457}
+    tensor f32 [C=3] {1, 2, 3}
+    tensor f32 [C=3] {1, 0.5, 0.333333} |}]
+
+(* A generic exponent falls back to [exp(exponent * log x)]: 1.5 on perfect
+   squares is exact in real arithmetic (x^1.5 = x * sqrt(x)), so a mismatch
+   here would be visible rather than lost in the fallback's own imprecision. *)
+let%expect_test
+    "dispatch: pow.Tensor_Scalar generic exponent falls back to exp/log" =
+  let x = float_tensor [ 3 ] [ 1.; 4.; 9. ] in
+  dispatch_print ~target:"torch.ops.aten.pow.Tensor_Scalar"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_float "exponent" 1.5 ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=3] {1, 8, 27} |}]
+
+let%expect_test "dispatch: linalg_vector_norm.default dim=[1] keepdim=true" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" true ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=1] {2.23607, 7.07107} |}]
+
+let%expect_test "dispatch: linalg_vector_norm.default dim=[1] keepdim=false" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" false ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=2] {2.23607, 7.07107} |}]
+
+let%expect_test
+    "dispatch: linalg_vector_norm.default omitted dim/ord reduces over all dims"
+    =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_bool "keepdim" false ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=1] {7.4162} |}]
+
+let%expect_test "dispatch: linalg_vector_norm.default rejects a non-2 ord" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_float "ord" 1.0;
+        in_ints "dim" [ 1 ];
+        in_bool "keepdim" false;
+      ]
+    ~noutputs:1;
+  [%expect
+    {| error: linalg_vector_norm.default: only ord=2 is supported, got 1 |}]
+
+let%expect_test "dispatch: linalg_vector_norm.default rejects a supplied dtype"
+    =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_ints "dim" [ 1 ];
+        in_bool "keepdim" false;
+        PT.NamedArgument.make "dtype"
+          (PT.Argument.Scalar_type PT.ScalarType.DOUBLE) None;
+      ]
+    ~noutputs:1;
+  [%expect {| error: unsupported scalar_type argument "dtype" |}]
+
 (* ---- the layer_norm.default arm ----------------------------------------- *)
 
 (* Both affine operands are optional in the schema and in [Graph_ir], so all

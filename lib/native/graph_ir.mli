@@ -75,6 +75,7 @@ type op =
   | Mul_scalar of Pointwise.Mul_scalar.t
   | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
+  | Pow of Pointwise.Pow.t
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
@@ -109,6 +110,7 @@ type op =
      [Graph_shape] returns one shape per slice and [Graph_builder.unbind]
      allocates one edge each. See .ai/native_multi_output_design.md §1a. *)
   | Unbind of Split.Unbind.t
+  | Vector_norm of Reduce.Vector_norm.t
 
 (* Aliases to [Graph_common], which owns the dialect-agnostic vocabulary so a
    second dialect can reuse it. The ID modules move with the records because

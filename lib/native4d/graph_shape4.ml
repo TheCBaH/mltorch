@@ -86,6 +86,13 @@ let max_params (p : Ops4.Max_keepdims.params) : Reduce.Amax.params =
     keepdim = true (* the dialect has no other form *);
   }
 
+let vector_norm_params (p : Ops4.Vector_norm_keepdims.params) :
+    Reduce.Vector_norm.params =
+  {
+    dims = List.map Axis4.to_axis p.Ops4.Vector_norm_keepdims.dims;
+    keepdim = true (* the dialect has no other form *);
+  }
+
 (* Shared with [Eval_op4], which needs the same translation for the same op:
    one adapter, so the shape rule and the compute cannot disagree about which
    axis is being joined along. *)
@@ -153,6 +160,9 @@ let output_shape (op : Op.t)
   | Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Mul_scalar.output_shape x_shape))
+  | Pow { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Pow.output_shape x_shape))
   | Sub { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in
@@ -297,3 +307,9 @@ let output_shape (op : Op.t)
                 Reshape.Reshape.shape =
                   Shape4.to_vec6 params.Ops4.Reshape4.shape;
               }))
+  | Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params; x } ->
+      let* x_shape = shape x in
+      one
+        (four
+           (Reduce.Vector_norm.output_shape ~x_shape
+              (vector_norm_params params)))

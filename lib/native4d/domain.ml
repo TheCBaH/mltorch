@@ -217,7 +217,7 @@ let check_node view (n : node) =
      tensors are covered by the shape rule above. *)
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
   | Clone _ | Div _ | Div_scalar _ | Gelu _ | Hardsigmoid _ | Hardswish _
-  | Hardtanh _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _ | Relu _
+  | Hardtanh _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _ | Relu _
   | Reshape _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _ ->
       Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
@@ -234,6 +234,8 @@ let check_node view (n : node) =
       else check_groups view node ~weight ~groups:params.Conv.Convolution.groups
   | Amax { Reduce.Amax.params; _ } -> check_dims node params.Reduce.Amax.dims
   | Mean { Reduce.Mean.params; _ } -> check_dims node params.Reduce.Mean.dims
+  | Vector_norm { Reduce.Vector_norm.params; _ } ->
+      check_dims node params.Reduce.Vector_norm.dims
   (* Only the PADDED axes are gated. An entry naming T or D is what the dialect
      cannot say; an unpadded T or D extent is not this arm's business, and
      [check_shapes] plus the lowerer's [Shape4.of_vec6] already cover it. *)

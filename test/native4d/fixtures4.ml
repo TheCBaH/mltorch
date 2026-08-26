@@ -118,6 +118,7 @@ let per_op () =
       ("add_scalar", unary ~shape:nhwc (Builder.add_scalar 0.5));
       ("div_scalar", unary ~shape:nhwc (Builder.div_scalar 2.));
       ("mul_scalar", unary ~shape:nhwc (Builder.mul_scalar 2.));
+      ("pow", unary ~shape:nhwc (Builder.pow 2.));
       ( "clamp",
         unary ~shape:nhwc
           (Builder.clamp { Pointwise.Clamp.min = Some 0.5; max = Some 2. }) );
@@ -258,6 +259,8 @@ let per_op () =
              unbind Axis4.C x)
         in
         (g, [ nhwc ]) );
+      ( "vector_norm_keepdims",
+        unary ~shape:nhwc (Builder.vector_norm_keepdims [ Axis4.H; Axis4.W ]) );
     ]
   in
   List.map

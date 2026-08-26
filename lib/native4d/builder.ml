@@ -183,6 +183,7 @@ let mean_keepdims dims x =
 
 let mul a b = op1 (Op.Mul { Pointwise.Bin.a; b })
 let mul_scalar scalar x = op1 (Op.Mul_scalar { Pointwise.Scalar_bin.x; scalar })
+let pow scalar x = op1 (Op.Pow { Pointwise.Scalar_bin.x; scalar })
 
 (* Takes the dialect's own [Ops4.Pad4.params], whose entries are keyed by
    [Axis4.t]: a pad naming T or D is not constructible through this API, the
@@ -223,6 +224,10 @@ let unbind axis x =
   let sg = Tensor_id.Map.find x s.tensors in
   opN ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
     (Op.Unbind { Ops4.Unbind.params = { axis }; x })
+
+let vector_norm_keepdims dims x =
+  op1
+    (Op.Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params = { dims }; x })
 
 let build ?(dtype = f32) ~outputs (m : 'a t) =
   let s0 =

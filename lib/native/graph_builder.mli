@@ -181,6 +181,7 @@ val pad : ?name:string -> Pad.Pad.params -> tensor_ref -> Tensor_id.t t
 val permute :
   ?name:string -> Permute.Permute.perm -> tensor_ref -> Tensor_id.t t
 
+val pow : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 val relu : ?name:string -> tensor_ref -> Tensor_id.t t
 
 val reshape :
@@ -248,6 +249,9 @@ val sub : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
    slices retain the input format and quantization metadata. *)
 val unbind :
   ?name:string -> Split.Unbind.params -> tensor_ref -> Tensor_id.t list t
+
+val vector_norm :
+  ?name:string -> Reduce.Vector_norm.params -> tensor_ref -> Tensor_id.t t
 
 (* Structurally group nodes emitted by [body].  The group shares the enclosing
    graph's global SSA namespace and has no inputs, outputs, or call semantics. *)

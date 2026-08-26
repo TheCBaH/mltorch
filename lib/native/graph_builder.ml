@@ -307,6 +307,10 @@ let pad ?name (params : Pad.Pad.params) x =
 let permute ?name perm x =
   op1 ?name ~kind:"permute" (Permute { Permute.Permute.perm; x })
 
+let pow ?name scalar x =
+  op1 ?name ~kind:"pow"
+    (Pow { Pointwise.Scalar_bin.x; scalar = f32_scalar scalar })
+
 let relu ?name x = op1 ?name ~kind:"relu" (Relu { Pointwise.Relu.x })
 
 let reshape ?name params x =
@@ -354,6 +358,9 @@ let unbind ?name params x =
   let sg = Tensor_id.Map.find x s.tensors in
   opN ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant ~kind:"unbind"
     (Unbind { Split.Unbind.params; x })
+
+let vector_norm ?name params x =
+  op1 ?name ~kind:"vector_norm" (Vector_norm { Reduce.Vector_norm.params; x })
 
 let group ?label (body : 'a t) : 'a t =
  fun s ->

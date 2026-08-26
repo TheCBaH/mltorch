@@ -310,6 +310,8 @@ let lower_node ~view acc (n : node) =
       simple (Op.Div_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Mul_scalar { Pointwise.Scalar_bin.x; scalar } ->
       simple (Op.Mul_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
+  | Pow { Pointwise.Scalar_bin.x; scalar } ->
+      simple (Op.Pow { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Clamp { Pointwise.Clamp.params; x } ->
       simple (Op.Clamp { Pointwise.Clamp.params; x = op_of x })
   | Gelu { Pointwise.Gelu.x; approximate } ->
@@ -574,6 +576,44 @@ let lower_node ~view acc (n : node) =
           emit acc ~from:node
             (Op.Max_keepdims
                { Ops4.Max_keepdims.params = { dims }; x = op_of x })
+            [ mid ]
+        in
+        let acc =
+          { acc with provenance = ([ op_of x ], mid) :: acc.provenance }
+        in
+        Err.return
+          (emit acc ~from:node
+             (Op.Reshape4
+                { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
+             [ single () ])
+  (* Same shape as [Mean]/[Amax] above, corrected by C1 the same way. *)
+  | Vector_norm { Reduce.Vector_norm.params; x } ->
+      let* dims = dims4 ~node params.Reduce.Vector_norm.dims in
+      if params.Reduce.Vector_norm.keepdim then
+        simple
+          (Op.Vector_norm_keepdims
+             { Ops4.Vector_norm_keepdims.params = { dims }; x = op_of x })
+      else
+        let* x_shape = sig_of x in
+        let* kept =
+          match
+            Reduce.Vector_norm.output_shape ~x_shape
+              {
+                Reduce.Vector_norm.dims = params.Reduce.Vector_norm.dims;
+                keepdim = true;
+              }
+          with
+          | Ok s -> Err.return s
+          | Error _ -> Err.fail (`Unsupported_op (node, n.Node.op))
+        in
+        let* packed = sig_of (single ()) in
+        let* kept4 = shape4 ~id:(single ()) kept in
+        let* packed4 = shape4 ~id:(single ()) packed in
+        let mid, acc = fresh_tensor acc kept4 in
+        let acc =
+          emit acc ~from:node
+            (Op.Vector_norm_keepdims
+               { Ops4.Vector_norm_keepdims.params = { dims }; x = op_of x })
             [ mid ]
         in
         let acc =

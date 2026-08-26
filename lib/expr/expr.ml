@@ -356,7 +356,7 @@ end
 
 and Value : sig
   type binary_op = Add | Sub | Mul | Div
-  type unary_op = Exp | Sqrt | Erf
+  type unary_op = Exp | Sqrt | Erf | Log
 
   type t =
     | Const of float
@@ -377,6 +377,7 @@ and Value : sig
   val exp : t -> t
   val sqrt : t -> t
   val erf : t -> t
+  val log : t -> t
   val select : Bool.t -> t -> t -> t
   val value_of_index : Role.Delta.t Index.t -> t
   val load : Source.t -> Role.Position.t Index.t Coord.t -> t
@@ -396,7 +397,7 @@ and Value : sig
   val hash : t -> int
 end = struct
   type binary_op = Add | Sub | Mul | Div
-  type unary_op = Exp | Sqrt | Erf
+  type unary_op = Exp | Sqrt | Erf | Log
 
   type t =
     | Const of float
@@ -417,6 +418,7 @@ end = struct
   let exp a = Unary (Exp, a)
   let sqrt a = Unary (Sqrt, a)
   let erf a = Unary (Erf, a)
+  let log a = Unary (Log, a)
   let select c a b = Select (c, a, b)
   let value_of_index i = Value_of_index i
   let load s c = Load (s, c)
@@ -453,9 +455,15 @@ end = struct
     | Exp -> Stdlib.exp
     | Sqrt -> Stdlib.sqrt
     | Erf -> erf_approx
+    | Log -> Stdlib.log
 
   let binary_sym = function Add -> "+" | Sub -> "-" | Mul -> "*" | Div -> "/"
-  let unary_name = function Exp -> "exp" | Sqrt -> "sqrt" | Erf -> "erf"
+
+  let unary_name = function
+    | Exp -> "exp"
+    | Sqrt -> "sqrt"
+    | Erf -> "erf"
+    | Log -> "log"
 
   (* ---- structural identity, up to alpha-equivalence ----
 

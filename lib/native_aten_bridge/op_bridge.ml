@@ -1208,6 +1208,40 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = mean params x_id in
                [ y ]
            | _ -> assert false))
+  (* ord=2 (the schema default) only: general ord needs its own `pow`, out of
+     scope. `dtype` is decoded and rejected rather than silently dropped
+     when present -- the same treatment `cudnn_enable` gets on
+     `layer_norm.default`/`group_norm.default`. *)
+  | "torch.ops.aten.linalg_vector_norm.default" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let* ord = scalar_arg ~default:(Aten_scalar.Int 2L) node "ord" in
+         let* () =
+           if Float.equal ord 2.0 then return ()
+           else
+             fail
+               (`Validation_failure
+                  (Printf.sprintf
+                     "linalg_vector_norm.default: only ord=2 is supported, got \
+                      %g"
+                     ord))
+         in
+         let* (_ : _ option) =
+           decode_result (D.scalar_type_opt_arg_result node "dtype")
+         in
+         let* dims =
+           dims_arg node ~op:"linalg_vector_norm.default" ~rank "dim"
+         in
+         let* keepdim = bool_arg node "keepdim" in
+         let* x = native_of_aten "self" t in
+         let params = { Reduce.Vector_norm.dims; keepdim } in
+         build_g ~name:"vector_norm" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = vector_norm params x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" ->
       Some
         (let* a = native_tensor_arg aten_env node "self" in
@@ -1274,6 +1308,17 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            | [ x_id ] ->
                let open Graph_builder in
                let+ y = permute perm x_id in
+               [ y ]
+           | _ -> assert false))
+  | "torch.ops.aten.pow.Tensor_Scalar" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* s = decode_result (D.scalar_arg_result node "exponent") in
+         let* exponent = float_of_aten_scalar "exponent" s in
+         build_g ~name:"pow" [ a ] (function
+           | [ a_id ] ->
+               let open Graph_builder in
+               let+ y = pow exponent a_id in
                [ y ]
            | _ -> assert false))
   | "torch.ops.aten.relu.default" | "torch.ops.aten.relu_.default" -> (
