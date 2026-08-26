@@ -275,6 +275,7 @@ let sdpa () =
 
 let pool_params : Pool.MaxPool2d.params =
   {
+    ceil_mode = false;
     kernel = hw (Dim.extent 2);
     stride = hw (Op_config.Pos.of_int 2);
     pad = hw (Op_config.Nonneg.of_int 0);

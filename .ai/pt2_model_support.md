@@ -107,8 +107,9 @@ branch's success):
 - `"native"`: the payload-free Native import failed -- recoverably (`reason:
   "unsupported_operator"`/`"unsupported_input"`/`"over_limit"`, a session
   still builds) or as a defect the importer flags outright (`reason:
-  "malformed"`: an argument value, e.g. `max_pool2d`'s `ceil_mode` or
-  `clone`'s `memory_format`, that the importer rejects rather than merely not
+  "malformed"`: an argument value, e.g. `clone`'s `memory_format` (as of
+  2026-08-26; `max_pool2d`'s `ceil_mode=true` was the other example here until
+  it landed, see below), that the importer rejects rather than merely not
   implementing). Shared by both triples too -- a `prerequisite_unavailable`
   reason on either branch's own capability (which carries no detail of its
   own) is ALWAYS resolved here, since neither branch can run at all without
@@ -137,15 +138,29 @@ defect: `clone.default`'s `memory_format` or `max_pool2d`'s `ceil_mode=true`
 since 2026-08-23 as other work landed; it is not re-audited op-by-op here,
 only re-totaled.
 
-Of the 69 that build, the two branches diverge for 35 of them -- proof the
-fork is real, not just a modeling nicety. `native4d_converts` is `true` for 34
-and `false` for the other 35 (24 `outside_dialect_domain`, 11
-`requires_payloads`, e.g. `regnetx_002` and `convmixer_1024_20_ks9_p14`).
-`kernel_converts` is `true` for 53 and `false` for 16, all `over_limit` -- a
-disjoint failure set from Native4D's: `regnetx_002` and
-`convmixer_1024_20_ks9_p14` both have `kernel_converts:true` despite failing
-Native4D, and conversely some models pass Native4D while `kernel_converts` is
-`false`.
+**Updated 2026-08-26** after landing `max_pool2d.default`'s `ceil_mode=true`:
+71 have `native_builds:true`, up 2. Both predicted
+models move: `hgnetv2_b0` clears every branch outright (`native4d_converts`
+and `kernel_converts` both `true`, all four `reason`/`blocker` fields `null`);
+`legacy_seresnext26_32x4d` now builds and passes `kernel_converts`, but stops
+at Native4D's pre-existing, already-tracked grouped-convolution domain limit
+(`reason: "outside_dialect_domain"`, "convolution has 32 groups, which is
+neither 1 nor depthwise" -- the same limit `regnetx_002`'s own frontier hits,
+not a new gap). Of the 29 that still don't build, the `"malformed"` bucket
+drops from 6 to 4 -- every remaining instance is `clone.default`'s
+`memory_format`, next in this row's own list.
+
+Of the 69 that build (71 as of 2026-08-26, see above), the two branches
+diverge for 35 of them -- proof the fork is real, not just a modeling nicety.
+`native4d_converts` is `true` for 34 and `false` for the other 35 (24
+`outside_dialect_domain`, 11 `requires_payloads`, e.g. `regnetx_002` and
+`convmixer_1024_20_ks9_p14`). `kernel_converts` is `true` for 53 and `false`
+for 16, all `over_limit` -- a disjoint failure set from Native4D's:
+`regnetx_002` and `convmixer_1024_20_ks9_p14` both have `kernel_converts:true`
+despite failing Native4D, and conversely some models pass Native4D while
+`kernel_converts` is `false`. (As of 2026-08-26: 35/36 and 55/16
+respectively, `hgnetv2_b0` and `legacy_seresnext26_32x4d` both added to the
+"build" denominator above.)
 
 Landing a Native4D `Concat4` op (`Domain.check_node` gating its joined axis
 the same way `Slice`/`Unbind` gate theirs) moved 9 more

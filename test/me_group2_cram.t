@@ -155,7 +155,10 @@ neither the capability vector nor any node count.
   n8  Permute          permute x=t14 perm=[H<-W, W<-C, C<-H]
   n9  Max_pool2d       max_pool2d
     x=t15
-    params={kernel={h=3; w=2}; stride={h=2; w=1}; pad={h=1; w=0}}
+    params={kernel={h=3; w=2};
+           stride={h=2; w=1};
+           pad={h=1; w=0};
+           ceil_mode=false}
   n10 Permute          permute x=t16 perm=[H<-C, W<-H, C<-W]
   n11 Rms_norm         rms_norm x=t17 weight=t4 params={dims=[W, C]; eps=1e-05}
   n12 Permute          permute x=t5 perm=[N<-W, W<-N]

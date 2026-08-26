@@ -186,14 +186,56 @@ stops on `clamp_min.default` — a previously-untracked op, not currently bound
 anywhere in this repo, and a natural next candidate (no existing `.ai`/todo
 mention; noted here only as a discovered lead, not scoped as a row).
 
+**And `max_pool2d.default` with `ceil_mode=true`** (formerly item 3 below,
+landed 2026-08-26) — not in CSATv2 at all; new from the 100-model sweep,
+blocking 2 models (`hgnetv2_b0`, `legacy_seresnext26_32x4d`), both a hard
+`malformed` reject. Same shape-computation family as the existing pooling
+ops, exactly as scoped: `Window_axis.output_extent` gained a required
+`~ceil_mode` argument implementing ATen's own
+`pooling_output_shape_pad_lr` — bias the numerator by `stride - 1` before the
+existing floor division, then decrement the result by one if that rounding
+would start the last window entirely past the real input plus its
+before-padding ("ensure the last pooling starts inside the image", ATen's own
+comment). No other engine code needed to change: the per-pixel window
+(`Window_axis.Compute.window` / `Direct.pool_bounds` / `Intrinsic.Max_pool`)
+already clips to the real input extent regardless of the nominal kernel size,
+and ATen's own correction is exactly what keeps that clipped window
+non-empty for every output position `ceil_mode` admits — proved by hand
+against a 5x5 input in `test/native_bridge_test.ml` and
+`test/native_interp/pool_test.ml` (floor gives a 2x2 output, ceil gives 3x3,
+values checked by hand) before ever reaching the ATen oracle. `ceil_mode`
+became a real field on `Pool.MaxPool2d.params` (shared with
+`MaxPool2dWithIndices`, encoded as an omit-if-`false` JSON member so every old
+fixture without the field still decodes unchanged); `Op_bridge` and
+`Native_interp` both now decode-and-carry it instead of decode-and-reject
+(the now-obsolete `` Pool_unsupported.Ceil_mode ``/`` `Ceil_mode ``
+rejection tags were deleted rather than left dead, per CLAUDE.md — `dilation`
+keeps its own rejection, since neither pooling op's params has a field for
+it). **No Native4D change was needed at all**: Native4D's `Max_pool2d`
+reuses `Pool.MaxPool2d.t` verbatim (`op.ml`'s `include Pool.MaxPool2d`) and
+`Domain.check_node`'s `Max_pool2d` arm already accepts the op unconditionally
+— the new field flows through for free. Verified against real ATen by
+extending the existing generated `Max_pool2d_walk`/
+`Max_pool2d_with_indices_walk` (a new `ceil_mode` axis in
+`Aten_walk_recipes.Recipe_pool`, drawn `[true; false]` alongside the existing
+kernel/stride/pad/shape axes) — every step "matched", including several
+consecutive `ceil_mode=true` steps in `test/pt2_op_native_walk_cram.t`'s
+`max_pool2d_with_indices.default` walk. Regenerating the 100-model sweep
+confirms both predicted models move: `hgnetv2_b0` now clears every branch
+(`native_builds`/`native4d_converts`/`kernel_converts` all `true`);
+`legacy_seresnext26_32x4d` now builds and passes `kernel_converts`, but stops
+at Native4D's pre-existing, already-tracked grouped-convolution domain limit
+(the same one `regnetx_002` hits) — not a new gap. See
+`.ai/pt2_model_support.md`'s 2026-08-26 update.
+
 Ordered: (1) the rest of CSATv2's medium-complexity structural set; then
 (2) the high-complexity matrix/attention/indexing set.
 
 ## 1. Medium complexity — remaining CSATv2 structural set
 
 Independent vertical slices, in this order (unchanged from `ops.md`, verified
-still unimplemented in `Graph_ir` — no `Upsample` node exists today; `Amax`
-and `Pow_scalar`/`Vector_norm` landed, see above):
+still unimplemented in `Graph_ir` — no `Upsample` node exists today; `Amax`,
+`Pow_scalar`/`Vector_norm` and `max_pool2d`'s `ceil_mode` landed, see above):
 
 1. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
    `align_corners=true` — real bilinear-resize op (shape inference,
@@ -209,25 +251,19 @@ and `Pow_scalar`/`Vector_norm` landed, see above):
    3 more models (`hiera_tiny_224`, `mobilevitv2_175`, `mvitv2_tiny`) as
    `malformed` — i.e. the importer's refuse-rather-than-ignore choice is
    already correct there too; no separate design question, just more
-   coverage once this row lands.
-3. **`max_pool2d.default` with `ceil_mode=true`** — not in CSATv2 at all; new
-   from the sweep, blocks 2 models (`hgnetv2_b0`,
-   `legacy_seresnext26_32x4d`), also currently a hard `malformed` reject.
-   Same shape-computation family as the existing pooling ops: ceiling instead
-   of floor division when computing output extent.
+   coverage once this row lands. Now the only source of `malformed` in the
+   100-model sweep (4 occurrences, all this same case) — see
+   `.ai/pt2_model_support.md`.
 
 Each row: ATen binding in `bin/aten_ops_gen.ml` if absent, `Aten_op_config`
 decoder/spec fixture, bridge lowering, Native implementation, dispatch audit.
 Add an ATen-vs-Native walk only where a non-vacuous recipe exists; otherwise a
 table-driven boundary suite. Keep CSATv2 graph-only in CI until a complete
-end-to-end execution test passes (`ops.md` explicit instruction) — item 3 has
-no bearing on that CSATv2 gate since it does not appear in its graph, but
-should not be deferred behind it either given its independent cross-model
-leverage. Every new bridge arm here must build exactly one node
-per ATen op (the design-goal rule `select`/`stack`/`concat4`/
-`split_with_sizes` were fixed against or built to) — none of these targets
-has an obvious decomposition temptation the way `select`/`stack` did, but
-check before landing.
+end-to-end execution test passes (`ops.md` explicit instruction). Every new
+bridge arm here must build exactly one node per ATen op (the design-goal rule
+`select`/`stack`/`concat4`/`split_with_sizes` were fixed against or built
+to) — neither remaining target has an obvious decomposition temptation the
+way `select`/`stack` did, but check before landing.
 
 ## 2. High complexity — matrix/attention and indexing semantics
 

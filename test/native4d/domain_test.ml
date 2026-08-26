@@ -205,7 +205,8 @@ let%expect_test "domain: max pool with indices" =
                                      x=t0
                                      params={kernel={h=2; w=2};
                                             stride={h=2; w=2};
-                                            pad={h=0; w=0}}
+                                            pad={h=0; w=0};
+                                            ceil_mode=false}
     indices live                 node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
 
 (* ---- the same graphs, after canonicalization ------------------------------ *)

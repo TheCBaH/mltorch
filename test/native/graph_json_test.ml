@@ -1200,6 +1200,10 @@ let%expect_test "Group 2: rectangular max_pool2d params survive a round trip" =
       max_pool2d ~name:"y"
         Pool.MaxPool2d.
           {
+            (* [true], not the default [false]: proves the codec actually
+               carries the field rather than always taking [dec_absent]'s
+               default. *)
+            ceil_mode = true;
             kernel = Op_config.Hw.{ h = Dim.extent 3; w = Dim.extent 2 };
             stride =
               Op_config.Hw.
@@ -1219,7 +1223,8 @@ let%expect_test "Group 2: rectangular max_pool2d params survive a round trip" =
                       x=t0
                       params={kernel={h=3; w=2};
                              stride={h=2; w=1};
-                             pad={h=1; w=0}}
+                             pad={h=1; w=0};
+                             ceil_mode=true}
                 outputs: [t1 f32 [H=5 W=6 C=3] <-n0] |}]
 
 (* layer_norm's payload is the first with TWO independently optional operands,

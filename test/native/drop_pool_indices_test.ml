@@ -16,6 +16,7 @@ let build name m =
 
 let pool_params : Pool.MaxPool2d.params =
   {
+    ceil_mode = false;
     kernel = { h = Dim.extent 2; w = Dim.extent 2 };
     stride = { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
     pad = { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
@@ -61,7 +62,10 @@ let%expect_test "drop_pool_indices: the narrowing, and its map" =
         n2: [t1 f32 [H=2 W=2 C=2] ->[n1]] =
           max_pool2d
             x=t0
-            params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
+            params={kernel={h=2; w=2};
+                   stride={h=2; w=2};
+                   pad={h=0; w=0};
+                   ceil_mode=false}
         n1: [t3 f32 [H=2 W=2 C=2]] = relu x=t1 <-n2
       outputs: [t3 f32 [H=2 W=2 C=2] <-n1]
     map:

@@ -42,10 +42,18 @@ let floor_div a b =
   if a >= 0L then Int64.div a b
   else Int64.neg (Int64.div (Int64.add (Int64.neg a) (Int64.sub b 1L)) b)
 
-let output_extent ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
-    ~(pad_before : Op_config.Nonneg.t) ~(pad_after : Op_config.Nonneg.t)
-    ~(dilation : Op_config.Pos.t) ~(in_extent : Dim.extent Dim.t) :
-    (Dim.extent Dim.t, Shape_error.t) Err.t =
+(* [ceil_mode] follows ATen's `pooling_output_shape_pad_lr`: round the
+   quotient up instead of down (by biasing the numerator with [stride - 1]
+   before the floor division this function already does), then pull the
+   result back by one if that rounding would start the last window entirely
+   past the real input plus its left/before padding -- "ensure the last
+   pooling starts inside the image", in ATen's own words. Required (not
+   optional-with-default), like every other window factor here: conv always
+   passes [false], the prior floor-only behavior, explicitly. *)
+let output_extent ~(ceil_mode : bool) ~(kernel : Dim.extent Dim.t)
+    ~(stride : Op_config.Pos.t) ~(pad_before : Op_config.Nonneg.t)
+    ~(pad_after : Op_config.Nonneg.t) ~(dilation : Op_config.Pos.t)
+    ~(in_extent : Dim.extent Dim.t) : (Dim.extent Dim.t, Shape_error.t) Err.t =
   let open Err.Syntax in
   let* k = factor ~what:`Kernel (kernel :> int) in
   let* d = factor ~what:`Dilation (dilation :> int) in
@@ -60,12 +68,17 @@ let output_extent ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
          Shape_error.Window_over_limit.
            { what = `Effective_kernel; value = effective_kernel; limit })
   else
+    let numerator =
+      Int64.sub (Int64.add (Int64.add i pb) pa) effective_kernel
+    in
+    let numerator =
+      if ceil_mode then Int64.add numerator (Int64.sub s 1L) else numerator
+    in
+    let out = Int64.add (floor_div numerator s) 1L in
     let out =
-      Int64.add
-        (floor_div
-           (Int64.sub (Int64.add (Int64.add i pb) pa) effective_kernel)
-           s)
-        1L
+      if ceil_mode && Int64.mul (Int64.sub out 1L) s >= Int64.add i pb then
+        Int64.sub out 1L
+      else out
     in
     if out < 1L then
       Err.fail

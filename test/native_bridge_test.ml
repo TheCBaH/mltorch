@@ -732,7 +732,10 @@ let%expect_test "dispatch: max_pool2d.default relayouts NCHW input and output" =
       n1: [t2 f32 [H=4 W=4 C=1] ->[n2]] =
         max_pool2d
           x=t1 <-n0
-          params={kernel={h=2; w=2}; stride={h=1; w=1}; pad={h=1; w=1}}
+          params={kernel={h=2; w=2};
+                 stride={h=1; w=1};
+                 pad={h=1; w=1};
+                 ceil_mode=false}
       n2: [t3 f32 [W=4 C=4]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
     outputs: [t3 f32 [W=4 C=4] <-n2]
     tensor f32 [W=4 C=4] {-1, -1, -2, -3, -1, -1, -2, -3, ...} |}]
@@ -785,7 +788,10 @@ let%expect_test "dispatch: max_pool2d_with_indices.default discards indices" =
       n1: [t2 f32 [H=2 W=2 C=1] ->[n3], t3 f32 [H=2 W=2 C=1] ->[n2]] =
         max_pool2d_with_indices
           x=t1 <-n0
-          params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
+          params={kernel={h=2; w=2};
+                 stride={h=2; w=2};
+                 pad={h=0; w=0};
+                 ceil_mode=false}
       n2: [] = discard x=t3 <-n1
       n3: [t4 f32 [W=2 C=2]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
     outputs: [t4 f32 [W=2 C=2] <-n3]
@@ -2916,17 +2922,23 @@ let%expect_test "dispatch: a leading-singleton bias is refused on rank" =
     error: bias must be rank-1, got rank-2
     tensor f32 [H=3 W=2 C=2] {5, 6, 7, 8, 14, 19, 24, 29, ...} |}]
 
-(* ---- pooling options the native params cannot hold ---------------------- *)
+(* ---- a pooling option the native params cannot hold, and one that they can *)
 
-(* Both arms decoded kernel/stride/padding and never read [dilation] or
-   [ceil_mode]. [Pool.MaxPool2d.params] has a field for neither, so a serialized
-   non-default value was not approximated -- it was DROPPED, and the bridge
-   computed an undilated floor-mode pool under the dilated or ceil-mode name.
+(* [dilation]: both arms decoded kernel/stride/padding and never read it.
+   [Pool.MaxPool2d.params] has no field for it, so a serialized non-default
+   value was not approximated -- it was DROPPED, and the bridge computed an
+   undilated pool under the dilated name. [ceil_mode] DOES have a field (see
+   [Pool.MaxPool2d.params.ceil_mode]) and is carried through, verified here by
+   hand against the 5x5 input's actual max values (odd extent, so floor and
+   ceil division disagree -- ATen's own real-oracle agreement is exercised
+   separately by the generated `max_pool2d(_with_indices)` walks, not by this
+   hand-derived fixture).
 
    The default spellings still pass, which is the half of this that a rejection
    test alone would not show: refusing every export that mentions the argument
    would be its own regression. *)
-let%expect_test "dispatch: max_pool2d dilation and ceil_mode are refused" =
+let%expect_test "dispatch: max_pool2d dilation is refused, ceil_mode is carried"
+    =
   let a =
     float_tensor [ 1; 1; 5; 5 ] (List.init 25 (fun i -> float_of_int i))
   in
@@ -2963,8 +2975,8 @@ let%expect_test "dispatch: max_pool2d dilation and ceil_mode are refused" =
     {|
     error: torch.ops.aten.max_pool2d.default: dilation=[2, 2] is not supported (only 1)
     error: torch.ops.aten.max_pool2d_with_indices.default: dilation=[2, 2] is not supported (only 1)
-    error: torch.ops.aten.max_pool2d.default: ceil_mode=true is not supported
-    error: torch.ops.aten.max_pool2d_with_indices.default: ceil_mode=true is not supported
+    tensor f32 [W=3 C=3] {6, 8, 9, 16, 18, 19, 21, 23, ...}
+    tensor f32 [W=3 C=3] {6, 8, 9, 16, 18, 19, 21, 23, ...}
     tensor f32 [W=2 C=2] {6, 8, 16, 18}
     tensor f32 [W=2 C=2] {6, 8, 16, 18}
     tensor f32 [W=2 C=2] {6, 8, 16, 18}

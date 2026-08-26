@@ -264,17 +264,17 @@ let%expect_test "max_pool2d.default walk 5 steps" =
           ~steps:5));
   [%expect
     {|
-    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 1 [stride_h]: {kernel=2x2 stride=1x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 1 [stride_h]: {kernel=2x2 stride=1x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 2 [stride_w]: {kernel=2x2 stride=1x1 pad=0x0 n=1 c=4 H=8 W=8}
+    step 2 [stride_w]: {kernel=2x2 stride=1x1 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 3 [stride_w]: {kernel=2x2 stride=1x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 3 [stride_h]: {kernel=2x2 stride=2x1 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 4 [n]: {kernel=2x2 stride=1x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 4 [input_h]: {kernel=2x2 stride=2x1 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 5 [pad_w]: {kernel=2x2 stride=1x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 5 [input_h]: {kernel=2x2 stride=2x1 pad=0x0 n=1 c=4 H=12 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched |}]
 
 let%expect_test "mean.dim walk 5 steps" =
@@ -783,21 +783,21 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
     step 3 [sq]: {batch=1 heads=2 sq=5 sk=1 e=5 mask=4d(d=false,h=true,q=true,k=false) scale=default}
     [spec] torch.ops.aten.scaled_dot_product_attention.default: matched
-    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
-    step 1 [pad_w]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 1 [c]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
-    step 2 [kernel_w]: {kernel=2x3 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 2 [stride_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
-    step 3 [pad_w]: {kernel=2x3 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
+    step 3 [stride_h]: {kernel=2x2 stride=3x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d_with_indices.default: matched
-    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 1 [input_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=12 W=8}
+    step 1 [kernel_w]: {kernel=2x3 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 2 [stride_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=12 W=8}
+    step 2 [kernel_h]: {kernel=3x3 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
-    step 3 [n]: {kernel=2x2 stride=2x2 pad=0x0 n=2 c=4 H=12 W=8}
+    step 3 [n]: {kernel=3x3 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched
     step 0: {shape=[1,4,8,8] output_size=[4,4]}
     [spec] torch.ops.aten.adaptive_avg_pool2d.default: matched
@@ -831,13 +831,13 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.conv2d.padding: matched
     step 3 [input_w]: {kernel=3x3 stride=1x1 dilation=2x1 groups=1 in_c=4 out_c=8 n=1 H=8 W=12 padding=same}
     [spec] torch.ops.aten.conv2d.padding: matched
-    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
-    step 1 [pad_w]: {kernel=2x2 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
+    step 1 [input_h]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=10 W=8 ceil_mode=false}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
-    step 2 [kernel_h]: {kernel=2x2 stride=2x2 pad=0x1 n=1 c=4 H=8 W=8}
+    step 2 [ceil_mode]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=10 W=8 ceil_mode=true}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
-    step 3 [pad_h]: {kernel=2x2 stride=2x2 pad=1x1 n=1 c=4 H=8 W=8}
+    step 3 [pad_w]: {kernel=2x2 stride=2x2 pad=0x1 n=1 c=4 H=10 W=8 ceil_mode=true}
     [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
     step 0: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten.view.default: matched

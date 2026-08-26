@@ -51,7 +51,10 @@ let%expect_test "max_pool2d.default lowers with a defaulted stride" =
         n1: [t2 f32 [H=4 W=4 C=3] ->[n2]] =
           max_pool2d
             x=t1 <-n0
-            params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
+            params={kernel={h=2; w=2};
+                   stride={h=2; w=2};
+                   pad={h=0; w=0};
+                   ceil_mode=false}
         n2: [t3 f32 [H=3 W=4 C=4]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
     outputs: [t3 f32 [H=3 W=4 C=4] <-n2] |}]
 
@@ -99,7 +102,10 @@ let%expect_test "rectangular kernel, stride and padding keep their axes" =
         n1: [t2 f32 [H=5 W=6 C=3] ->[n2]] =
           max_pool2d
             x=t1 <-n0
-            params={kernel={h=3; w=2}; stride={h=2; w=1}; pad={h=1; w=0}}
+            params={kernel={h=3; w=2};
+                   stride={h=2; w=1};
+                   pad={h=1; w=0};
+                   ceil_mode=false}
         n2: [t3 f32 [H=3 W=5 C=6]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
     outputs: [t3 f32 [H=3 W=5 C=6] <-n2] |}]
 
@@ -134,10 +140,12 @@ let%expect_test "a window wider than the padded input is refused" =
     3x1 in, 2x2 kernel:        output extent must be >= 1, got 0 (in=1 kernel=2 stride=2 pad_before=0 pad_after=0 dilation=1)
     1x1 in, padded to fit:     lowered, nodes=3 |}]
 
-(* [Pool.MaxPool2d.params] has no field for either, so silently dropping them
-   would compute a different op under the right name. Both spellings of the
-   default are accepted; anything else is refused. *)
-let%expect_test "dilation and ceil_mode are refused, not dropped" =
+(* [dilation] has no field on [Pool.MaxPool2d.params], so silently dropping a
+   non-default value would compute a different op under the right name --
+   refused rather than approximated. [ceil_mode] DOES have a field (see
+   [Pool.MaxPool2d.params.ceil_mode]), so both its spellings just lower; the
+   shape effect is exercised separately below. *)
+let%expect_test "dilation is refused, not dropped; ceil_mode is carried" =
   show "dilation 1,1:" (prog (pool ~dilation:(ints "[1,1]") ()));
   show "dilation 2,2:" (prog (pool ~dilation:(ints "[2,2]") ()));
   show "dilation 1,2:" (prog (pool ~dilation:(ints "[1,2]") ()));
@@ -157,10 +165,52 @@ let%expect_test "dilation and ceil_mode are refused, not dropped" =
     dilation 2,2:              malformed PT2 graph: torch.ops.aten.max_pool2d.default: dilation=[2,2] is not supported (only 1)
     dilation 1,2:              malformed PT2 graph: torch.ops.aten.max_pool2d.default: dilation=[1,2] is not supported (only 1)
     ceil_mode false:           lowered, nodes=3
-    ceil_mode true:            malformed PT2 graph: torch.ops.aten.max_pool2d.default: ceil_mode=true is not supported
+    ceil_mode true:            lowered, nodes=3
     dilation [1]:              lowered, nodes=3
     dilation [1,1,1]:          malformed PT2 graph: dilation must have one or two values, got 3
     dilation []:               malformed PT2 graph: dilation must have one or two values, got 0 |}]
+
+(* An odd input extent (5) with a 2x2 kernel/stride and no padding is the case
+   floor and ceil division disagree on: floor gives 2 ((5-2)/2 + 1), ceil gives
+   3 (ATen's `pooling_output_shape_pad_lr`, matching real ATen -- see
+   `test/pt2_op_native_walk_cram.t`'s `max_pool2d_with_indices.default` walk,
+   which fuzzes `ceil_mode=true` against libtorch directly). *)
+let%expect_test "ceil_mode changes the output extent" =
+  dump "floor (ceil_mode=false):"
+    (prog ~x_sizes:[ 1; 1; 5; 5 ] (pool ~ceil_mode:false ()));
+  dump "ceil (ceil_mode=true):"
+    (prog ~x_sizes:[ 1; 1; 5; 5 ] (pool ~ceil_mode:true ()));
+  [%expect
+    {|
+    floor (ceil_mode=false):
+    graph
+    inputs: [t0 f32 [W=5 C=5] ->[n0]]
+    nodes:
+      group g1 torch.ops.aten.max_pool2d.default:
+        n0: [t1 f32 [H=5 W=5 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=2 W=2 C=1] ->[n2]] =
+          max_pool2d
+            x=t1 <-n0
+            params={kernel={h=2; w=2};
+                   stride={h=2; w=2};
+                   pad={h=0; w=0};
+                   ceil_mode=false}
+        n2: [t3 f32 [W=2 C=2]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [W=2 C=2] <-n2]ceil (ceil_mode=true):
+    graph
+    inputs: [t0 f32 [W=5 C=5] ->[n0]]
+    nodes:
+      group g1 torch.ops.aten.max_pool2d.default:
+        n0: [t1 f32 [H=5 W=5 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=3 C=1] ->[n2]] =
+          max_pool2d
+            x=t1 <-n0
+            params={kernel={h=2; w=2};
+                   stride={h=2; w=2};
+                   pad={h=0; w=0};
+                   ceil_mode=true}
+        n2: [t3 f32 [W=3 C=3]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [W=3 C=3] <-n2] |}]
 
 let%expect_test "config faults are typed, not raised" =
   show "kernel 0:" (prog (pool ~kernel:(ints "[0,0]") ()));

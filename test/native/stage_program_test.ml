@@ -129,6 +129,7 @@ let%expect_test
           let* x = input ~shape:(s 1 1 1 4 4 2) () in
           let params : Pool.MaxPool2dWithIndices.params =
             {
+              ceil_mode = false;
               kernel = { h = Dim.extent 2; w = Dim.extent 2 };
               stride =
                 { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };

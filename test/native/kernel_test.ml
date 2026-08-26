@@ -494,6 +494,7 @@ let pool_chain () =
       let* r = relu x in
       let params : Pool.MaxPool2dWithIndices.params =
         {
+          ceil_mode = false;
           kernel = { h = Dim.extent 2; w = Dim.extent 2 };
           stride = { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
           pad = { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };

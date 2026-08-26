@@ -65,6 +65,7 @@ let discarded_indices () =
      let* values, indices =
        max_pool2d_with_indices
          {
+           ceil_mode = false;
            kernel = { h = Dim.extent 2; w = Dim.extent 2 };
            stride = { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
            pad =
@@ -86,7 +87,10 @@ let%expect_test "dce: a Discard sink is removed, its op left live" =
         n0: [t1 f32 [H=2 W=2 C=3], t2 f32 [H=2 W=2 C=3]] =
           max_pool2d_with_indices
             x=t0
-            params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
+            params={kernel={h=2; w=2};
+                   stride={h=2; w=2};
+                   pad={h=0; w=0};
+                   ceil_mode=false}
       outputs: [t1 f32 [H=2 W=2 C=3] <-n0]
     map:
       values:

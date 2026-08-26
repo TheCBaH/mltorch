@@ -642,7 +642,8 @@ let%expect_test "Symbolic graph: batch_norm ground matches Direct" =
    assert Direct==Symbolic on both outputs rather than pin the program text. *)
 let mp_params =
   {
-    Pool.MaxPool2d.kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+    Pool.MaxPool2d.ceil_mode = false;
+    kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
     stride =
       Op_config.Hw.{ h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
     pad =
