@@ -117,7 +117,6 @@ type unsupported_option =
   [ `Alpha of float
   | `Memory_format
   | `Dilation of int list
-  | `Ceil_mode
   | `Approximate of string
   | `Dtype
   | `Vector_norm_ord of float ]
@@ -381,7 +380,6 @@ let pp_malformed ppf : [< malformed ] -> unit = function
           Fmt.pf ppf "%s: dilation=[%a] is not supported (only 1)" op
             Fmt.(list ~sep:(any ",") int)
             d
-      | `Ceil_mode -> Fmt.pf ppf "%s: ceil_mode=true is not supported" op
       | `Approximate a ->
           Fmt.pf ppf
             "%s: approximate=%S is not supported (only \"none\" or \"tanh\")" op
@@ -1192,18 +1190,20 @@ let conv_params esc (graph : Pytorch_types.Graph.t)
     kh,
     kw )
 
-(* Shared by both pooling arms, which is why the two rejections below are here
-   rather than in either one: [max_pool2d_with_indices.default] dropped
-   [dilation] and [ceil_mode] exactly as silently as the functional overload
-   would have, and one copy of the check cannot come to disagree with the other.
+(* Shared by both pooling arms, which is why the [dilation] rejection below is
+   here rather than in either one: [max_pool2d_with_indices.default] dropped
+   it exactly as silently as the functional overload would have, and one copy
+   of the check cannot come to disagree with the other.
 
-   REJECTED, not carried. [Pool.MaxPool2d.params] (pool.ml:116-120) has a field
-   for neither, so a non-default value would compute a different op under the
-   right name. Extending the native IR instead is what op2.md permits only on a
-   measured need, and no model this repository can download serialises either
-   pooling target at all -- so there is nothing to measure and a rejection is
-   the honest answer. Revisit when avg_pool2d.default forces the same question
-   for [ceil_mode] and [count_include_pad]. *)
+   [dilation] is REJECTED, not carried: [Pool.MaxPool2d.params] has no field
+   for it, so a non-default value would compute a different op under the right
+   name. Extending the native IR is warranted only on a measured need, and no
+   model this repository can download serialises either pooling target with a
+   non-default dilation -- so there is nothing to measure and a rejection is
+   the honest answer. [ceil_mode] IS carried (see
+   [Pool.MaxPool2d.params.ceil_mode]) -- the 100-model sweep found real models
+   needing it. Revisit [dilation], and [count_include_pad], when
+   avg_pool2d.default forces the same question. *)
 let pool_params esc (node : Pytorch_types.Node.t) =
   let op = node.Node.target in
   let kh, kw = hw2 esc `Kernel_size (ints_arg esc node "kernel_size") in
@@ -1238,10 +1238,10 @@ let pool_params esc (node : Pytorch_types.Node.t) =
   (match hw2 esc `Dilation dilation with
   | 1, 1 -> ()
   | _ -> malformed esc (`Unsupported_option { op; option = `Dilation dilation }));
-  if bool_arg esc ~default:false node "ceil_mode" then
-    malformed esc (`Unsupported_option { op; option = `Ceil_mode });
+  let ceil_mode = bool_arg esc ~default:false node "ceil_mode" in
   {
-    Pool.MaxPool2d.kernel;
+    Pool.MaxPool2d.ceil_mode;
+    kernel;
     stride = pos_hw esc ~op ~param:`Stride stride;
     pad = nonneg_hw esc ~op ~param:`Padding padding;
   }

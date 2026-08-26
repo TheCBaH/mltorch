@@ -365,7 +365,10 @@ let%expect_test "fold_const: a multi-output node is out of scope" =
         n0: [t1 f32 [H=2 W=2 C=2] ->[n2], t2 f32 [H=2 W=2 C=2] ->[n1]] =
           max_pool2d_with_indices
             x=t0
-            params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
+            params={kernel={h=2; w=2};
+                   stride={h=2; w=2};
+                   pad={h=0; w=0};
+                   ceil_mode=false}
         n1: [] = discard x=t2 <-n0
         n2: [t3 f32 [H=2 W=2 C=2]] = relu x=t1 <-n0
       outputs: [t3 f32 [H=2 W=2 C=2] <-n2]

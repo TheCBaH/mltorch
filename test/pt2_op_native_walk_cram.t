@@ -119,60 +119,60 @@ elements, not a real 224x224 image.
     -> out0: [2,2,2,6] min=0 max=0.9443 mean=0.216
     status: matched
   === torch.ops.aten.max_pool2d_with_indices.default ===
-  step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
+  step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
   torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[2,2], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
     -> out0: [1,4,4,4] min=-0.4467 max=0.983 mean=0.616
     -> out1: [1,4,4,4] min=0 max=63 mean=31.73
     status: matched
-  step 1 [kernel_h]: {kernel=3x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[3,2], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,4,3,4] min=0.04437 max=0.9908 mean=0.6893
-    -> out1: [1,4,3,4] min=2 max=53 mean=26.88
+  step 1 [stride_w]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[2,2], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
+    -> out0: [1,4,4,4] min=-0.3017 max=0.9908 mean=0.6012
+    -> out1: [1,4,4,4] min=0 max=63 mean=31.38
     status: matched
-  step 2 [input_w]: {kernel=3x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[3,2], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,4,3,4] min=0.05388 max=0.9899 mean=0.7538
-    -> out1: [1,4,3,4] min=0 max=53 mean=28.27
+  step 2 [ceil_mode]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=true}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[2,2], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=true)
+    -> out0: [1,4,4,4] min=-0.07556 max=0.9899 mean=0.6308
+    -> out1: [1,4,4,4] min=0 max=63 mean=31.7
     status: matched
-  step 3 [stride_h]: {kernel=3x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[3,2], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,4,3,4] min=-0.3105 max=0.9986 mean=0.6724
-    -> out1: [1,4,3,4] min=0 max=54 mean=28.21
+  step 3 [stride_w]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=true}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[2,2], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=true)
+    -> out0: [1,4,4,4] min=-0.5801 max=0.9986 mean=0.5482
+    -> out1: [1,4,4,4] min=0 max=63 mean=31.67
     status: matched
-  step 4 [stride_h]: {kernel=3x2 stride=3x2 pad=0x0 n=1 c=4 H=8 W=8}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[3,2], stride=[3,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,4,2,4] min=0.01303 max=0.9858 mean=0.7516
-    -> out1: [1,4,2,4] min=3 max=46 mean=25.34
+  step 4 [pad_w]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=true}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[2,2], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=true)
+    -> out0: [1,4,4,4] min=-0.2323 max=0.9858 mean=0.5984
+    -> out1: [1,4,4,4] min=1 max=63 mean=32.59
     status: matched
-  step 5 [input_h]: {kernel=3x2 stride=3x2 pad=0x0 n=1 c=4 H=12 W=8}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,12,8]~values, kernel_size=[3,2], stride=[3,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,4,4,4] min=-0.06312 max=0.9858 mean=0.7079
-    -> out1: [1,4,4,4] min=1 max=94 mean=48.19
+  step 5 [kernel_w]: {kernel=2x3 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=true}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[2,3], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=true)
+    -> out0: [1,4,4,4] min=-0.4286 max=0.9806 mean=0.6591
+    -> out1: [1,4,4,4] min=0 max=63 mean=31.55
     status: matched
-  step 6 [c]: {kernel=3x2 stride=3x2 pad=0x0 n=1 c=16 H=12 W=8}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,16,12,8]~values, kernel_size=[3,2], stride=[3,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,16,4,4] min=-0.2421 max=0.9965 mean=0.7276
-    -> out1: [1,16,4,4] min=0 max=94 mean=47.33
+  step 6 [n]: {kernel=2x3 stride=2x2 pad=0x0 n=2 c=4 H=8 W=8 ceil_mode=true}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[2,4,8,8]~values, kernel_size=[2,3], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=true)
+    -> out0: [2,4,4,4] min=-0.1861 max=0.9937 mean=0.7066
+    -> out1: [2,4,4,4] min=0 max=63 mean=32.09
     status: matched
-  step 7 [pad_h]: {kernel=3x2 stride=3x2 pad=0x0 n=1 c=16 H=12 W=8}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,16,12,8]~values, kernel_size=[3,2], stride=[3,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,16,4,4] min=-0.5757 max=0.9962 mean=0.6829
-    -> out1: [1,16,4,4] min=0 max=95 mean=47.59
+  step 7 [input_h]: {kernel=2x3 stride=2x2 pad=0x0 n=2 c=4 H=8 W=8 ceil_mode=true}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[2,4,8,8]~values, kernel_size=[2,3], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=true)
+    -> out0: [2,4,4,4] min=-0.7068 max=0.9964 mean=0.6834
+    -> out1: [2,4,4,4] min=1 max=63 mean=32.57
     status: matched
-  step 8 [n]: {kernel=3x2 stride=3x2 pad=0x0 n=1 c=16 H=12 W=8}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,16,12,8]~values, kernel_size=[3,2], stride=[3,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,16,4,4] min=-0.1048 max=0.9988 mean=0.727
-    -> out1: [1,16,4,4] min=0 max=95 mean=47.67
+  step 8 [pad_w]: {kernel=2x3 stride=2x2 pad=0x1 n=2 c=4 H=8 W=8 ceil_mode=true}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[2,4,8,8]~values, kernel_size=[2,3], stride=[2,2], padding=[0,1], dilation=[1,1], ceil_mode=true)
+    -> out0: [2,4,4,5] min=-0.6059 max=0.9965 mean=0.6344
+    -> out1: [2,4,4,5] min=0 max=63 mean=31.73
     status: matched
-  step 9 [input_w]: {kernel=3x2 stride=3x2 pad=0x0 n=1 c=16 H=12 W=12}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,16,12,12]~values, kernel_size=[3,2], stride=[3,2], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,16,4,6] min=-0.189 max=0.9994 mean=0.6962
-    -> out1: [1,16,4,6] min=0 max=143 mean=72.24
+  step 9 [pad_w]: {kernel=2x3 stride=2x2 pad=0x0 n=2 c=4 H=8 W=8 ceil_mode=true}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[2,4,8,8]~values, kernel_size=[2,3], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=true)
+    -> out0: [2,4,4,4] min=-0.6785 max=0.9944 mean=0.6523
+    -> out1: [2,4,4,4] min=0 max=63 mean=31.8
     status: matched
-  step 10 [stride_w]: {kernel=3x2 stride=3x1 pad=0x0 n=1 c=16 H=12 W=12}
-  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,16,12,12]~values, kernel_size=[3,2], stride=[3,1], padding=[0,0], dilation=[1,1], ceil_mode=false)
-    -> out0: [1,16,4,11] min=-0.2943 max=0.9991 mean=0.732
-    -> out1: [1,16,4,11] min=1 max=143 mean=71.74
+  step 10 [n]: {kernel=2x3 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=true}
+  torch.ops.aten.max_pool2d_with_indices.default(self=f32[1,4,8,8]~values, kernel_size=[2,3], stride=[2,2], padding=[0,0], dilation=[1,1], ceil_mode=true)
+    -> out0: [1,4,4,4] min=-0.3443 max=0.9955 mean=0.6974
+    -> out1: [1,4,4,4] min=2 max=63 mean=31.45
     status: matched
   === torch.ops.aten.mean.dim ===
   step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}

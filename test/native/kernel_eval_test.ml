@@ -196,6 +196,7 @@ let%expect_test "Kernel_eval: conv, pool and reduce agree bitwise" =
             let* x = input ~shape:(s 1 1 1 4 4 2) () in
             max_pool2d_with_indices
               {
+                ceil_mode = false;
                 kernel = { h = Dim.extent 2; w = Dim.extent 2 };
                 stride =
                   { h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };

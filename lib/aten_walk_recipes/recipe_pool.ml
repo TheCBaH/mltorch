@@ -13,6 +13,7 @@ type t = {
   c : int;
   input_h : int;
   input_w : int;
+  ceil_mode : bool;
 }
 
 (* Clamp pad to <= kernel/2, then grow each input for a >=1 output (dilation 1). *)
@@ -38,10 +39,10 @@ let kernel_size c = [ c.kernel_h; c.kernel_w ]
 let strides c = [ c.stride_h; c.stride_w ]
 let pads c = [ c.pad_h; c.pad_w ]
 let dilation _c = [ 1; 1 ]
-let ceil_mode _c = false
+let ceil_mode c = c.ceil_mode
 
 let axes ~kernel_h ~kernel_w ~stride_h ~stride_w ~pad_h ~pad_w ~n ~c ~input_h
-    ~input_w =
+    ~input_w ~ceil_mode =
   Walk.
     [
       field_axis "kernel_h" kernel_h (fun c v -> { c with kernel_h = v });
@@ -54,9 +55,11 @@ let axes ~kernel_h ~kernel_w ~stride_h ~stride_w ~pad_h ~pad_w ~n ~c ~input_h
       field_axis "c" c (fun cf v -> { cf with c = v });
       field_axis "input_h" input_h (fun c v -> { c with input_h = v });
       field_axis "input_w" input_w (fun c v -> { c with input_w = v });
+      field_axis "ceil_mode" ceil_mode (fun c v -> { c with ceil_mode = v });
     ]
 
 let pp ppf c =
-  Format.fprintf ppf "{kernel=%dx%d stride=%dx%d pad=%dx%d n=%d c=%d H=%d W=%d}"
+  Format.fprintf ppf
+    "{kernel=%dx%d stride=%dx%d pad=%dx%d n=%d c=%d H=%d W=%d ceil_mode=%b}"
     c.kernel_h c.kernel_w c.stride_h c.stride_w c.pad_h c.pad_w c.n c.c
-    c.input_h c.input_w
+    c.input_h c.input_w c.ceil_mode

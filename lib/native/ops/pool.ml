@@ -14,14 +14,15 @@
    compatible): N/T/D/C pass through from [x_shape] unchanged (pooling never
    touches channels); only H/W shrink by [Window_axis.output_extent]. All
    extent-space, no [:> int] round-trips. See .ai/native_compute_design.md §2b. *)
-let window_output_shape ~(x_shape : Vec6.shape)
+let window_output_shape ~(ceil_mode : bool) ~(x_shape : Vec6.shape)
     ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
     ~(stride : Op_config.Pos.t Op_config.Hw.t)
     ~(pad : Op_config.Nonneg.t Op_config.Hw.t) =
   let open Err.Syntax in
   let out_extent axis ~kernel ~stride ~pad =
-    Window_axis.output_extent ~in_extent:(Vec6.get x_shape axis) ~kernel ~stride
-      ~pad_before:pad ~pad_after:pad ~dilation:(Op_config.Pos.of_int 1)
+    Window_axis.output_extent ~ceil_mode ~in_extent:(Vec6.get x_shape axis)
+      ~kernel ~stride ~pad_before:pad ~pad_after:pad
+      ~dilation:(Op_config.Pos.of_int 1)
   in
   let* h = out_extent Axis.H ~kernel:kernel.h ~stride:stride.h ~pad:pad.h in
   let+ w = out_extent Axis.W ~kernel:kernel.w ~stride:stride.w ~pad:pad.w in
@@ -107,21 +108,65 @@ module Window_cfg (L : Walk_core.Limits.S) = struct
       c.stride.Walk_core.Walk.h c.stride.w c.pad.Walk_core.Walk.h c.pad.w
 end
 
+(* [Window_cfg] plus a [ceil_mode] axis, for the two max-pool walks (not
+   [AvgPool2d]: its [params] has no such field, since [avg_pool2d.default]
+   isn't bridged yet -- see the module doc). A window valid under floor
+   division stays valid under ceiling division (ceil_mode only ever grows or
+   holds the output extent -- see [Window_axis.output_extent]), so no
+   [cascade] change is needed: [Window_cfg]'s existing floor-mode growth
+   already guarantees >=1 output for either mode. *)
+module Ceil_window_cfg (L : Walk_core.Limits.S) = struct
+  module Win = Window_cfg (L)
+
+  type cfg = { window : Win.cfg; ceil_mode : bool }
+
+  let initial = { window = Win.initial; ceil_mode = false }
+  let cascade c = { c with window = Win.cascade c.window }
+  let shape (c : cfg) = Win.shape c.window
+  let kernel (c : cfg) = Win.kernel c.window
+  let stride (c : cfg) = Win.stride c.window
+  let pad (c : cfg) = Win.pad c.window
+
+  let axes =
+    let lift (a : Win.cfg Walk_core.Walk.axis) : cfg Walk_core.Walk.axis =
+      {
+        Walk_core.Walk.name = a.name;
+        mutate =
+          (fun pcg c ->
+            let w, pcg = a.mutate pcg c.window in
+            ({ c with window = w }, pcg));
+      }
+    in
+    Walk_core.Walk.field_axis "ceil_mode" [ true; false ] (fun c v ->
+        { c with ceil_mode = v })
+    :: List.map lift Win.axes
+
+  let pp fmt (c : cfg) =
+    Format.fprintf fmt "%a ceil_mode=%b" Win.pp c.window c.ceil_mode
+end
+
 module MaxPool2d = struct
   (* Matches ATen's `max_pool2d` value-only overload. *)
 
   (* Same field shape as [Conv2d.params] minus [in_channels] (pooling never
-     reduces over channels). See .ai/native_op_config.md, which already
-     names this as the expected carry-over. *)
+     reduces over channels), plus [ceil_mode] (dilation stays unmodeled -- see
+     the module doc). See .ai/native_op_config.md, which already names the
+     kernel/stride/pad carry-over as expected. [ceil_mode] is omitted from the
+     encoded JSON when [false] (the pre-existing default), so every past
+     fixture without the field still decodes unchanged. *)
   type params = {
+    ceil_mode : bool;
     kernel : Dim.extent Dim.t Op_config.Hw.t;
     stride : Op_config.Pos.t Op_config.Hw.t;
     pad : Op_config.Nonneg.t Op_config.Hw.t;
   }
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"max_pool2d_params" (fun kernel pad stride ->
-        { kernel; stride; pad })
+    Jsont.Object.map ~kind:"max_pool2d_params"
+      (fun ceil_mode kernel pad stride -> { ceil_mode; kernel; stride; pad })
+    |> Jsont.Object.mem "ceil_mode" Jsont.bool ~dec_absent:false
+         ~enc:(fun p -> p.ceil_mode)
+         ~enc_omit:(fun b -> not b)
     |> Jsont.Object.mem "kernel" (Op_config.Hw.jsont Dim.extent_jsont)
          ~enc:(fun p -> p.kernel)
     |> Jsont.Object.mem "pad" (Op_config.Hw.jsont Op_config.Nonneg.jsont)
@@ -131,19 +176,24 @@ module MaxPool2d = struct
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{kernel=%a;@ stride=%a;@ pad=%a}@]"
+    Fmt.pf fmt "@[<hv>{kernel=%a;@ stride=%a;@ pad=%a;@ ceil_mode=%b}@]"
       (Op_config.Hw.pp Dim.pp) p.kernel
       (Op_config.Hw.pp Op_config.Pos.pp)
       p.stride
       (Op_config.Hw.pp Op_config.Nonneg.pp)
-      p.pad
+      p.pad p.ceil_mode
 
   module Walk (L : Walk_core.Limits.S) = struct
-    module W = Window_cfg (L)
+    module W = Ceil_window_cfg (L)
     include W
 
     let params (c : W.cfg) : params =
-      { kernel = W.kernel c; stride = W.stride c; pad = W.pad c }
+      {
+        kernel = W.kernel c;
+        stride = W.stride c;
+        pad = W.pad c;
+        ceil_mode = c.ceil_mode;
+      }
   end
 
   type t = { params : params; x : Tensor_ref.t }
@@ -172,9 +222,17 @@ module MaxPool2d = struct
       t.params
 
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
-    window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
+    window_output_shape ~ceil_mode:p.ceil_mode ~x_shape ~kernel:p.kernel
+      ~stride:p.stride ~pad:p.pad
 
   module Compute (S : Semantics.SEMANTICS) = struct
+    (* [ceil_mode] never reaches here: it only changes the OUTPUT EXTENT
+       (above), not which input pixels a given output position reads.
+       [S.max_pool2d]'s window is already clipped to the real input extent
+       regardless of the nominal kernel size, and ATen's own "last pooling
+       starts inside the image" correction (folded into [output_shape]'s
+       [ceil_mode] handling) is exactly what keeps that clipped window
+       non-empty for every output position ceil_mode admits. *)
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
       S.max_pool2d x ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad out
@@ -195,11 +253,16 @@ module MaxPool2dWithIndices = struct
   let pp_params = MaxPool2d.pp_params
 
   module Walk (L : Walk_core.Limits.S) = struct
-    module W = Window_cfg (L)
+    module W = Ceil_window_cfg (L)
     include W
 
     let params (c : W.cfg) : params =
-      { kernel = W.kernel c; stride = W.stride c; pad = W.pad c }
+      {
+        kernel = W.kernel c;
+        stride = W.stride c;
+        pad = W.pad c;
+        ceil_mode = c.ceil_mode;
+      }
   end
 
   type t = { params : params; x : Tensor_ref.t }
@@ -229,7 +292,8 @@ module MaxPool2dWithIndices = struct
 
   (* Both outputs (values, indices) share the pooled window shape. *)
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
-    window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
+    window_output_shape ~ceil_mode:p.ceil_mode ~x_shape ~kernel:p.kernel
+      ~stride:p.stride ~pad:p.pad
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let value_pixel (p : params) ~(x_shape : Vec6.shape) ~x
@@ -315,7 +379,11 @@ module AvgPool2d = struct
       t.params
 
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
-    window_output_shape ~x_shape ~kernel:p.kernel ~stride:p.stride ~pad:p.pad
+    (* [avg_pool2d.default] isn't bridged yet (no [ceil_mode]/[dilation]
+       field on this [params] either -- see the module doc), so this is
+       always floor mode. *)
+    window_output_shape ~ceil_mode:false ~x_shape ~kernel:p.kernel
+      ~stride:p.stride ~pad:p.pad
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x

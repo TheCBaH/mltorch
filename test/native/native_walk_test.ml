@@ -189,17 +189,17 @@ let%expect_test "native walk coverage" =
     [native] vector_norm: direct==symbolic
     step 5 [input]: {shape=[n=2 c=19 h=4 w=4] dims=[H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0}
+    step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
     [native] max_pool2d: direct==symbolic
-    step 1 [pad]: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=1x1}
+    step 1 [ceil_mode]: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
     [native] max_pool2d: direct==symbolic
-    step 2 [pad]: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=1x0}
+    step 2 [input]: {shape=[n=1 c=15 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
     [native] max_pool2d: direct==symbolic
-    step 3 [input]: {shape=[n=2 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=1x0}
+    step 3 [pad]: {shape=[n=1 c=15 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
     [native] max_pool2d: direct==symbolic
-    step 4 [stride]: {shape=[n=2 c=4 h=8 w=8] kernel=2x2 stride=2x3 pad=1x0}
+    step 4 [stride]: {shape=[n=1 c=15 h=8 w=8] kernel=2x2 stride=3x2 pad=0x0} ceil_mode=false
     [native] max_pool2d: direct==symbolic
-    step 5 [kernel]: {shape=[n=2 c=4 h=8 w=8] kernel=1x5 stride=2x3 pad=0x0}
+    step 5 [stride]: {shape=[n=1 c=15 h=8 w=8] kernel=2x2 stride=1x1 pad=0x0} ceil_mode=false
     [native] max_pool2d: direct==symbolic
     step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0}
     [native] avg_pool2d: direct==symbolic
@@ -309,17 +309,17 @@ let%expect_test "native walk coverage" =
     [native] sdpa: direct==symbolic
     step 5 [heads]: {batch=1 heads=2 wq=3 wk=6 e=1 mask=absent scale=default}
     [native] sdpa: direct==symbolic
-    step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0}
+    step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
     [native] max_pool2d_with_indices: direct==symbolic
-    step 1 [pad]: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=1x1}
+    step 1 [kernel]: {shape=[n=1 c=4 h=8 w=8] kernel=1x2 stride=2x2 pad=0x0} ceil_mode=false
     [native] max_pool2d_with_indices: direct==symbolic
-    step 2 [input]: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=1x1}
+    step 2 [stride]: {shape=[n=1 c=4 h=8 w=8] kernel=1x2 stride=3x2 pad=0x0} ceil_mode=false
     [native] max_pool2d_with_indices: direct==symbolic
-    step 3 [kernel]: {shape=[n=1 c=4 h=8 w=8] kernel=2x5 stride=2x2 pad=1x1}
+    step 3 [stride]: {shape=[n=1 c=4 h=8 w=8] kernel=1x2 stride=1x3 pad=0x0} ceil_mode=false
     [native] max_pool2d_with_indices: direct==symbolic
-    step 4 [kernel]: {shape=[n=1 c=4 h=8 w=8] kernel=1x3 stride=2x2 pad=0x1}
+    step 4 [ceil_mode]: {shape=[n=1 c=4 h=8 w=8] kernel=1x2 stride=1x3 pad=0x0} ceil_mode=false
     [native] max_pool2d_with_indices: direct==symbolic
-    step 5 [pad]: {shape=[n=1 c=4 h=8 w=8] kernel=1x3 stride=2x2 pad=0x1}
+    step 5 [pad]: {shape=[n=1 c=4 h=8 w=8] kernel=1x2 stride=1x3 pad=0x1} ceil_mode=false
     [native] max_pool2d_with_indices: direct==symbolic
     step 0: {shape=[n=1 c=4 h=4 w=4] -> flat}
     [native] reshape: direct==symbolic

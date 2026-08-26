@@ -314,9 +314,9 @@ module Conv2d = struct
       else Err.return ()
     in
     let out_extent axis (w : axis_window) =
-      Window_axis.output_extent ~in_extent:(Vec6.get x_shape axis)
-        ~kernel:w.kernel ~stride:w.stride ~pad_before:w.pad_before
-        ~pad_after:w.pad_after ~dilation:w.dilation
+      Window_axis.output_extent ~ceil_mode:false
+        ~in_extent:(Vec6.get x_shape axis) ~kernel:w.kernel ~stride:w.stride
+        ~pad_before:w.pad_before ~pad_after:w.pad_after ~dilation:w.dilation
     in
     (* Start from the input shape (N/T/D pass through unchanged) and replace only
        the axes the op resizes — all in extent-space, no [:> int] round-trips. *)

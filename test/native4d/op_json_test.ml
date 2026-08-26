@@ -40,6 +40,7 @@ let hw n : 'a Op_config.Hw.t = { h = n; w = n }
    annotation. *)
 let max_params : Pool.MaxPool2d.params =
   {
+    ceil_mode = false;
     kernel = hw (Dim.extent 2);
     stride = hw (Op_config.Pos.of_int 2);
     pad = hw (Op_config.Nonneg.of_int 0);
@@ -196,7 +197,12 @@ let%expect_test "op4: printed" =
     hardtanh x=t0 params={min_val=0; max_val=6}
     layer_norm x=t0 weight=t2 bias=t3 params={dims=[C]; eps=1e-05}
     max_keepdims x=t0 params={dims=[H, W]}
-    max_pool2d x=t0 params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
+    max_pool2d
+      x=t0
+      params={kernel={h=2; w=2};
+             stride={h=2; w=2};
+             pad={h=0; w=0};
+             ceil_mode=false}
     mean_keepdims x=t0 params={dims=[H, W]}
     mul a=t0 b=t1
     mul_scalar x=t0 scalar=2
@@ -306,6 +312,7 @@ let group2_samples =
       {
         Pool.MaxPool2d.params =
           {
+            ceil_mode = true;
             kernel = Op_config.Hw.{ h = Dim.extent 3; w = Dim.extent 2 };
             stride =
               Op_config.Hw.
@@ -340,5 +347,10 @@ let%expect_test "op4: Group-2 non-default payloads round-trip" =
       params={h={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
              w={kernel=2; stride=1; pad_before=0; pad_after=0; dilation=2};
              in_channels=4}
-    max_pool2d x=t0 params={kernel={h=3; w=2}; stride={h=2; w=1}; pad={h=1; w=0}}
+    max_pool2d
+      x=t0
+      params={kernel={h=3; w=2};
+             stride={h=2; w=1};
+             pad={h=1; w=0};
+             ceil_mode=true}
     round-tripped 7 ops |}]

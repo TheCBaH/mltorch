@@ -637,8 +637,8 @@ let%expect_test
   in
   let p =
     {
-      Pool.MaxPool2d.kernel =
-        Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      Pool.MaxPool2d.ceil_mode = false;
+      kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
       stride =
         Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
       pad =
@@ -665,8 +665,8 @@ let%expect_test "Direct: max_pool2d_with_indices 2x2 stride 2 — values + argma
   in
   let p =
     {
-      Pool.MaxPool2d.kernel =
-        Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      Pool.MaxPool2d.ceil_mode = false;
+      kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
       stride =
         Op_config.Hw.{ h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
       pad =
@@ -694,8 +694,8 @@ let%expect_test
   let x = Tensor.materialize x_shape (fun _ -> 7.) in
   let p =
     {
-      Pool.MaxPool2d.kernel =
-        Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      Pool.MaxPool2d.ceil_mode = false;
+      kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
       stride =
         Op_config.Hw.{ h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
       pad =
@@ -726,7 +726,8 @@ let pp_bits ppf tensor = Format.pp_print_string ppf (bits_of tensor)
 (* A 1xN window, so one output pixel reduces the whole row. *)
 let row_pool n =
   {
-    Pool.MaxPool2d.kernel = Op_config.Hw.{ h = Dim.extent 1; w = Dim.extent n };
+    Pool.MaxPool2d.ceil_mode = false;
+    kernel = Op_config.Hw.{ h = Dim.extent 1; w = Dim.extent n };
     stride =
       Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int n };
     pad =
@@ -992,8 +993,8 @@ let%expect_test "windowed axis: output_extent and window agree" =
     and pad = Op_config.Nonneg.of_int pad
     and in_extent = Dim.extent in_extent in
     let out_extent =
-      Window_axis.output_extent ~kernel ~stride ~pad_before:pad ~pad_after:pad
-        ~dilation:(Op_config.Pos.of_int 1) ~in_extent
+      Window_axis.output_extent ~ceil_mode:false ~kernel ~stride ~pad_before:pad
+        ~pad_after:pad ~dilation:(Op_config.Pos.of_int 1) ~in_extent
       |> Err.or_raise ~pp_error:Shape_error.pp
     in
     let non_empty out =

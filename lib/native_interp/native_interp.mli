@@ -136,7 +136,6 @@ type unsupported_option =
   [ `Alpha of float
   | `Memory_format
   | `Dilation of int list
-  | `Ceil_mode
   | `Approximate of string
   | `Dtype
   | `Vector_norm_ord of float ]

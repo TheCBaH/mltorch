@@ -60,10 +60,10 @@ module Unsupported_input_dtype = struct
   type t = { arg_name : string; dtype : Aten_scalar_type.t }
 end
 
-(* The two pooling options [Pool.MaxPool2d.params] has no field for. Own module
-   because the row carries the op alongside the value, and [op] would collide
-   with the other records here. A closed pair rather than one string tag: the
-   dilation has a value worth reporting and [ceil_mode] does not. *)
+(* The one pooling option [Pool.MaxPool2d.params] has no field for
+   ([ceil_mode] IS represented -- see [Pool.MaxPool2d.params.ceil_mode]).
+   Own module because the row carries the op alongside the value, and [op]
+   would collide with the other records here. *)
 (* The two [normalized_shape] faults, shared by every normalisation. The arm
    read the LENGTH of [normalized_shape] and nothing else, so a shape naming
    extents the input does not have normalized over the wrong axes and returned a
@@ -87,7 +87,7 @@ module Operand_rank = struct
 end
 
 module Pool_unsupported = struct
-  type option = Dilation of int list | Ceil_mode
+  type option = Dilation of int list
   type t = { op : string; option : option }
 end
 
@@ -163,9 +163,7 @@ let pp_error ppf : [< error ] -> unit = function
       match option with
       | Pool_unsupported.Dilation d ->
           Fmt.pf ppf "%s: dilation=%a is not supported (only 1)" op pp_int_list
-            d
-      | Pool_unsupported.Ceil_mode ->
-          Fmt.pf ppf "%s: ceil_mode=true is not supported" op)
+            d)
   | `Adaptive_pool_rank { Adaptive_pool_rank.got } ->
       Fmt.pf ppf
         "adaptive_avg_pool2d input must be rank-3 (CHW) or rank-4 (NCHW), got \
@@ -641,7 +639,7 @@ let make_convolution_params ~op sh sw ph pw dh dw transposed oph opw groups =
       groups;
     }
 
-let make_pool_params ~op kh kw sh sw ph pw =
+let make_pool_params ~op ~ceil_mode kh kw sh sw ph pw =
   let* kh = extent ~op ~param:`Kernel_size kh in
   let* kw = extent ~op ~param:`Kernel_size kw in
   let* sh = pos ~op ~param:`Stride sh in
@@ -650,7 +648,8 @@ let make_pool_params ~op kh kw sh sw ph pw =
   let* pw = nonneg ~op ~param:`Padding pw in
   return
     {
-      Pool.MaxPool2d.kernel = { h = kh; w = kw };
+      Pool.MaxPool2d.ceil_mode;
+      kernel = { h = kh; w = kw };
       stride = { h = sh; w = sw };
       pad = { h = ph; w = pw };
     }
@@ -660,11 +659,11 @@ let pool_stride kernel_size node =
   let* stride = ints_arg ~default:[] node "stride" in
   return (match stride with [] -> kernel_size | s -> s)
 
-(* [Pool.MaxPool2d.params] carries neither, so BOTH pooling arms decoded
-   kernel/stride/padding and left these two unread -- silently computing a
-   different op under the right name for any export that set them. Refused here
-   rather than approximated: the native params have nowhere to put them. *)
-let reject_pool_extras node =
+(* [Pool.MaxPool2d.params] has no field for [dilation], so a non-default value
+   is refused rather than approximated -- the native params have nowhere to
+   put it. [ceil_mode] IS represented (see [Pool.MaxPool2d.params.ceil_mode]),
+   so it is decoded and returned rather than rejected. *)
+let pool_dilation_and_ceil_mode node =
   let* dilation = ints_arg ~default:[ 1; 1 ] node "dilation" in
   (* Normalized through [hw2] first, so a wrong ARITY keeps the typed arity
      diagnostic every other H/W argument gets. Testing "does some element differ
@@ -680,15 +679,7 @@ let reject_pool_extras node =
            })
     else return ()
   in
-  let* ceil_mode = bool_arg ~default:false node "ceil_mode" in
-  if ceil_mode then
-    fail
-      (`Pool_unsupported
-         {
-           Pool_unsupported.op = node.Node.target;
-           option = Pool_unsupported.Ceil_mode;
-         })
-  else return ()
+  bool_arg ~default:false node "ceil_mode"
 
 (* --- Op dispatch --- *)
 
@@ -1119,7 +1110,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.max_pool2d.default" ->
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
-         let* () = reject_pool_extras node in
+         let* ceil_mode = pool_dilation_and_ceil_mode node in
          let* kernel_size = ints_arg node "kernel_size" in
          let* stride = pool_stride kernel_size node in
          let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
@@ -1128,7 +1119,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* ph, pw = hw2 "padding" padding in
          let* x = native_of_aten "self" aten_x in
          let* params =
-           make_pool_params ~op:node.Node.target kh kw sh sw ph pw
+           make_pool_params ~op:node.Node.target ~ceil_mode kh kw sh sw ph pw
          in
          try
            build_g ~name:"max_pool2d_relayout" [ x ] (function
@@ -1172,7 +1163,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
             value back to NCHW as the graph output, and route the dead indices
             edge into a Discard sink (see .ai/native_multi_output_design.md). *)
          let* aten_x = tensor_arg aten_env node "self" in
-         let* () = reject_pool_extras node in
+         let* ceil_mode = pool_dilation_and_ceil_mode node in
          let* kernel_size = ints_arg node "kernel_size" in
          let* stride = pool_stride kernel_size node in
          let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
@@ -1181,7 +1172,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let* ph, pw = hw2 "padding" padding in
          let* x = native_of_aten "self" aten_x in
          let* params =
-           make_pool_params ~op:node.Node.target kh kw sh sw ph pw
+           make_pool_params ~op:node.Node.target ~ceil_mode kh kw sh sw ph pw
          in
          try
            build_g ~name:"max_pool2d_with_indices_relayout" [ x ] (function
