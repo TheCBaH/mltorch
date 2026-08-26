@@ -172,6 +172,10 @@ let gelu (approximate : Pointwise.Gelu.approximate) x =
 let hardsigmoid x = op1 (Op.Hardsigmoid { Pointwise.Hardsigmoid.x })
 let hardswish x = op1 (Op.Hardswish { Pointwise.Hardswish.x })
 let hardtanh params x = op1 (Op.Hardtanh { Pointwise.Hardtanh.params; x })
+
+let max_keepdims dims x =
+  op1 (Op.Max_keepdims { Ops4.Max_keepdims.params = { dims }; x })
+
 let max_pool2d params x = op1 (Op.Max_pool2d { Pool.MaxPool2d.params; x })
 
 let mean_keepdims dims x =

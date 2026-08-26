@@ -18,6 +18,7 @@ type op =
   | Add of Pointwise.Add.t
   | Add_scalar of Pointwise.Add_scalar.t
   | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
+  | Amax of Reduce.Amax.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
   | Bmm of Matmul.Bmm.t
@@ -119,6 +120,12 @@ let op_registry : (module OP) list =
 
       let inject t = Adaptive_avg_pool2d t
       let project = function Adaptive_avg_pool2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Reduce.Amax
+
+      let inject t = Amax t
+      let project = function Amax t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pool.AvgPool2d

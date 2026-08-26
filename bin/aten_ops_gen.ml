@@ -102,6 +102,7 @@ let selection =
     op "squeeze" ~overload:"dims";
     op "unsqueeze";
     op "mean" ~overload:"dim";
+    op "amax";
     op "argmax";
     op "topk";
     op "clone";

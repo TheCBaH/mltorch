@@ -887,21 +887,29 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.mean.dim: matched
     step 3 [keepdim]: {shape=[1,4,8,8] dims=[2,3] keepdim=true}
     [spec] torch.ops.aten.mean.dim: matched
+    step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
+    [spec] torch.ops.aten.amax.default: matched
+    step 1 [w]: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
+    [spec] torch.ops.aten.amax.default: matched
+    step 2 [dims]: {shape=[2,4,8,8] dims=[2] keepdim=false}
+    [spec] torch.ops.aten.amax.default: matched
+    step 3 [h]: {shape=[2,4,4,8] dims=[2] keepdim=false}
+    [spec] torch.ops.aten.amax.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 1 [shape]: {shape=[2,3,3,4]}
-    [spec] torch.ops.aten.clone.default: matched
-    step 2 [shape]: {shape=[4,3,3,4]}
-    [spec] torch.ops.aten.clone.default: matched
-    step 3 [shape]: {shape=[4,3,2,4]}
-    [spec] torch.ops.aten.clone.default: matched
-    step 0: {shape=[2,3,4,4]}
-    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
     step 1 [shape]: {shape=[6,3,4,4]}
-    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    [spec] torch.ops.aten.clone.default: matched
     step 2 [shape]: {shape=[6,3,2,4]}
-    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    [spec] torch.ops.aten.clone.default: matched
     step 3 [shape]: {shape=[6,3,4,4]}
+    [spec] torch.ops.aten.clone.default: matched
+    step 0: {shape=[2,3,4,4]}
+    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    step 1 [shape]: {shape=[3,3,4,4]}
+    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    step 2 [shape]: {shape=[3,3,6,4]}
+    [spec] torch.ops.aten.cpu.default: skipped (no native impl)
+    step 3 [shape]: {shape=[3,3,6,8]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
     needs_meta:
       torch.ops.aten.eq.Scalar

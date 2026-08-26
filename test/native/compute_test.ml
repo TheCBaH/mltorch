@@ -1065,6 +1065,44 @@ let%expect_test "Direct: mean over W, keepdim=false shifts H's data onto W" =
     tensor f32 [H=2 W=1 C=1] {2, 6}
     tensor f32 [W=2 C=1] {2, 6} |}]
 
+let%expect_test "Direct: amax over spatial (H,W), per channel" =
+  let module M = Reduce.Amax.Compute (Direct) in
+  (* Same input as the mean fixture above: channel 0 is [1,2,3,4] (max 4),
+     channel 1 is 10x that (max 40). *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:2 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        let base = [| 1.; 2.; 3.; 4. |].((row c * 2) + col c) in
+        if chan c = 0 then base else base *. 10.)
+  in
+  let p = { Reduce.Amax.dims = [ Axis.H; Axis.W ]; keepdim = true } in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor (Reduce.Amax.output_shape ~x_shape p) (M.pixel p ~x_shape ~x));
+  [%expect {| tensor f32 [C=2] {4, 40} |}]
+
+let%expect_test "Direct: amax over W, keepdim=false shifts H's data onto W" =
+  let module M = Reduce.Amax.Compute (Direct) in
+  (* [H2 W2 C1]; value(h,w): row H0 = [1,3] (max 3), row H1 = [5,7] (max 7). *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| [| 1.; 3. |]; [| 5.; 7. |] |].(row c).(col c))
+  in
+  let run ~keepdim =
+    let p = { Reduce.Amax.dims = [ Axis.W ]; keepdim } in
+    Format.printf "%a@." (pp_result Tensor.pp)
+      (eval_tensor
+         (Reduce.Amax.output_shape ~x_shape p)
+         (M.pixel p ~x_shape ~x))
+  in
+  run ~keepdim:true;
+  run ~keepdim:false;
+  (* same maxes {3, 7}; keepdim=true keeps them on H, keepdim=false moves them to W. *)
+  [%expect
+    {|
+    tensor f32 [H=2 W=1 C=1] {3, 7}
+    tensor f32 [W=2 C=1] {3, 7} |}]
+
 let%expect_test "Direct: rms_norm over C (channel-wise normalise)" =
   let module R = Norm.RmsNorm.Compute (Direct) in
   let run ~vals ~w ~eps =

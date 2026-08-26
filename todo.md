@@ -70,33 +70,62 @@ landing moved the last 3 models with this blocker to `native_builds:true`
 all now stopping at Native4D's domain check instead. See
 `.ai/pt2_model_support.md`'s 2026-08-25 update for all three landings.
 
+**And `amax.default`** (formerly item 1 below) — `Reduce.Amax` in
+`lib/native/ops/reduce.ml`, alongside `Mean`: both now share their
+axis-list/`keepdim` shape rule through a new `Dims_keepdim` helper (params
+record, JSON codec, `kept_map`, `output_shape`) rather than each restating it,
+per the design goal's "share the implementation, not the node". Factoring
+`Dims_keepdim.output_shape` also closed a latent gap in `Mean`'s own rule: it
+now bounds the reduction count via `Vec6.numel_bounded` before folding it (the
+same 32-bit-aggregate rule `Norm.normalized_count` already followed —
+CLAUDE.md's aggregate rule — which `Mean.output_shape` had never applied).
+`Amax.Compute` nests one `S.max_reduce` per reduced axis (mirroring `Mean`'s
+`S.sum` nest) with no divisor. ATen binding (`bin/aten_ops_gen.ml: op "amax"`),
+bridge (`Op_bridge`) and importer (`Native_interp`) arms both reuse the same
+general `dims_arg`/`axes_for_rank` machinery `mean.dim` already has — general
+`dims`/`keepdim` is supported directly (not artificially restricted to the
+single observed configuration), since it costs nothing beyond what `Mean`
+already does. Native4D gets `Max_keepdims` (`Ops4.Max_keepdims`), the
+elementwise-maximum twin of `Mean_keepdims`: axis-domain checking in
+`Domain.check_node`'s new `Amax` arm (`check_dims`, same treatment
+`Mean`/`Slice`/`Unbind` get), and a keepdim=false legalization to
+`Max_keepdims` + `Reshape4` in `lower.ml`, textually mirroring `Mean`'s own
+correction-C1 legalization. Verified against real ATen via the generated
+`Amax_walk` (`lib/aten_gen/walk_meta.ml`, reusing `Recipe_reduce` — "mean.dim
+and friends" — unchanged); a Native Direct-vs-Symbolic fuzz walk
+(`lib/native_op_walk/amax_nwalk.ml`); hand-derived `dispatch:` fixtures in
+`test/native_bridge_test.ml` (keepdim true/false, empty/omitted `dim`
+reducing over all axes, out-of-range `dim` rejection); pinned values in
+`test/native/compute_test.ml`; and the mandatory per-op Native4D coverage
+(`test/native4d/{op_json_test,fixtures4,compute_test}.ml`). Regenerating the
+100-model sweep after this landing shows no movement: `amax.default` blocks no
+model in that corpus (its only known occurrence remains CSATv2's own 945-node
+graph, which stays graph-only for unrelated reasons — see §2 below).
+
 Ordered: (1) the rest of CSATv2's medium-complexity structural set; then
 (2) the high-complexity matrix/attention/indexing set.
 
 ## 1. Medium complexity — remaining CSATv2 structural set
 
 Independent vertical slices, in this order (unchanged from `ops.md`, verified
-still unimplemented in `Graph_ir` — no `Amax`, `Pow_scalar`, `Vector_norm`, or
-`Upsample` node exists today):
+still unimplemented in `Graph_ir` — no `Pow_scalar`, `Vector_norm`, or
+`Upsample` node exists today; `Amax` landed, see above):
 
-1. **`amax.default` (14)**, restricted to the observed `dim=[1]`,
-   `keepdim=true` configuration — general empty/`None` dims deferred.
-   `Max_keepdims` in Native4D only after axis-domain checking.
-2. **`pow.Tensor_Scalar` (1, exponent 0.5) + `linalg_vector_norm.default`
+1. **`pow.Tensor_Scalar` (1, exponent 0.5) + `linalg_vector_norm.default`
    (14, ord 2, dims `[1,2]`, keepdim)** — prefer a small explicit numeric
    kernel only if it matches ATen tolerance; otherwise fused `Pow_scalar` +
    `Vector_norm`. Needs reduction primitives beyond `Mean_keepdims`. The
    sweep hits both independently outside CSATv2 too (`mobilenetv5_base` on
    `pow.Tensor_Scalar`, `swiftformer_xs` on `linalg_vector_norm.default`) —
    corroborating evidence, not extra scope.
-3. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
+2. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
    `align_corners=true` — real bilinear-resize op (shape inference,
    coordinate transform, boundary handling); Native4D `ResizeBilinear4` must
    reject/diagnose unsupported axes rather than reinterpret them. Do not
    conflate with `upsample_bicubic2d.vec`, which the sweep shows blocking
    `sam2_hiera_tiny` separately — a different coordinate-transform/overload,
    not covered by this row.
-4. **`clone` with a supplied memory format (2 in CSATv2)** — decode the enum,
+3. **`clone` with a supplied memory format (2 in CSATv2)** — decode the enum,
    prove identity for the observed layout or represent the relayout; only
    admit a no-op proof in Native4D, never assume a requested layout
    conversion is a plain `Clone`. The sweep shows this same case hard-rejects
@@ -104,7 +133,7 @@ still unimplemented in `Graph_ir` — no `Amax`, `Pow_scalar`, `Vector_norm`, or
    `malformed` — i.e. the importer's refuse-rather-than-ignore choice is
    already correct there too; no separate design question, just more
    coverage once this row lands.
-5. **`max_pool2d.default` with `ceil_mode=true`** — not in CSATv2 at all; new
+4. **`max_pool2d.default` with `ceil_mode=true`** — not in CSATv2 at all; new
    from the sweep, blocks 2 models (`hgnetv2_b0`,
    `legacy_seresnext26_32x4d`), also currently a hard `malformed` reject.
    Same shape-computation family as the existing pooling ops: ceiling instead
@@ -114,7 +143,7 @@ Each row: ATen binding in `bin/aten_ops_gen.ml` if absent, `Aten_op_config`
 decoder/spec fixture, bridge lowering, Native implementation, dispatch audit.
 Add an ATen-vs-Native walk only where a non-vacuous recipe exists; otherwise a
 table-driven boundary suite. Keep CSATv2 graph-only in CI until a complete
-end-to-end execution test passes (`ops.md` explicit instruction) — item 5 has
+end-to-end execution test passes (`ops.md` explicit instruction) — item 4 has
 no bearing on that CSATv2 gate since it does not appear in its graph, but
 should not be deferred behind it either given its independent cross-model
 leverage. Every new bridge arm here must build exactly one node

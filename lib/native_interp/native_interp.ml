@@ -73,6 +73,7 @@ type metadata_role =
   | `Layer_norm_bias
   | `Group_norm_weight
   | `Group_norm_bias
+  | `Amax_input
   | `Mean_input
   | `Permute_input
   | `Transpose_input
@@ -307,6 +308,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Layer_norm_bias -> Fmt.string ppf "layer_norm bias"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
+  | `Amax_input -> Fmt.string ppf "amax input"
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Permute_input -> Fmt.string ppf "permute input"
   | `Transpose_input -> Fmt.string ppf "transpose input"
@@ -1897,6 +1899,20 @@ let lower program =
             }
           in
           let* y = mean params (get "self") in
+          return [ y ]
+      | "torch.ops.aten.amax.default" ->
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Amax_input)
+          in
+          let params =
+            {
+              Reduce.Amax.dims =
+                axes_for_rank esc ~tensor:x_name rank (ints_arg esc node "dim");
+              keepdim = bool_arg esc node "keepdim";
+            }
+          in
+          let* y = amax params (get "self") in
           return [ y ]
       | "torch.ops.aten.permute.default" ->
           let x_name = tensor_name esc node "self" in

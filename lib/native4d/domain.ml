@@ -232,6 +232,7 @@ let check_node view (n : node) =
       if params.Conv.Convolution.transposed then
         check_transposed node ~groups:params.Conv.Convolution.groups
       else check_groups view node ~weight ~groups:params.Conv.Convolution.groups
+  | Amax { Reduce.Amax.params; _ } -> check_dims node params.Reduce.Amax.dims
   | Mean { Reduce.Mean.params; _ } -> check_dims node params.Reduce.Mean.dims
   (* Only the PADDED axes are gated. An entry naming T or D is what the dialect
      cannot say; an unpadded T or D extent is not this arm's business, and

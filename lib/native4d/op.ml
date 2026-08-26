@@ -38,6 +38,7 @@ type op =
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
   | Layer_norm of Ops4.Layer_norm.t
+  | Max_keepdims of Ops4.Max_keepdims.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Mean_keepdims of Ops4.Mean_keepdims.t
   | Mul of Pointwise.Mul.t
@@ -166,6 +167,12 @@ let op_registry : (module OP) list =
 
       let inject t = Layer_norm t
       let project = function Layer_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Max_keepdims
+
+      let inject t = Max_keepdims t
+      let project = function Max_keepdims t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pool.MaxPool2d

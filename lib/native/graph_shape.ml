@@ -46,6 +46,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pool.AdaptiveAvgPool2d.output_shape ~x_shape params) in
       [ out ]
+  | Amax { Reduce.Amax.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Reduce.Amax.output_shape ~x_shape params) in
+      [ out ]
   | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Pool.AvgPool2d.output_shape ~x_shape params) in

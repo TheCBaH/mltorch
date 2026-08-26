@@ -148,6 +148,11 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           (Graph_shape4.mean_params params)
           ~x_shape:(shape_of x) ~x:(operand x) out
+    | Max_keepdims { Ops4.Max_keepdims.params; x } ->
+        let module C = Reduce.Amax.Compute (S) in
+        C.pixel
+          (Graph_shape4.max_params params)
+          ~x_shape:(shape_of x) ~x:(operand x) out
     (* Through the SAME adapter [Graph_shape4] uses, so the axis the shape rule
        drops is the axis the compute reads along, by construction. *)
     | Unbind { Ops4.Unbind.params; x } ->
