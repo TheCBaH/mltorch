@@ -228,14 +228,51 @@ at Native4D's pre-existing, already-tracked grouped-convolution domain limit
 (the same one `regnetx_002` hits) — not a new gap. See
 `.ai/pt2_model_support.md`'s 2026-08-26 update.
 
+**And `clone` with a supplied memory format** (formerly item 2 below, landed
+2026-08-26) — decoded the enum rather than rejecting on presence.
+Native's engine has exactly one physical layout per shape (no channels-last
+stride concept anywhere in the six-axis frame), so `ContiguousFormat` and
+`PreserveFormat` are always already true — "prove identity for the observed
+layout" turned out to mean nothing more than accepting those two spellings,
+alongside the pre-existing absent case — while `ChannelsLast`/
+`ChannelsLast3d` request an actual different physical arrangement this
+engine cannot represent and are refused, now naming which format was
+requested rather than a bare "not supported". Confirmed against the corpus
+before landing: every `clone.default` occurrence in the 100-model sweep
+requests either no format or exactly `ContiguousFormat` (245 occurrences,
+zero of any other value) — so this is not a narrow fix for the observed
+case, it is the general rule, verified to already cover everything this
+repository can currently see. `Op_bridge` reuses the existing
+`Interp_decode.memory_format_opt_arg_result` (already used by the real-ATen
+`clone` binding, so the two paths cannot decode the enum differently);
+`Native_interp` decodes `Pytorch_types.MemoryFormat.t` directly (it must not
+depend on `lib/aten`). Both report a closed two-tag payload
+(`` `Channels_last `` / `` `Channels_last_3d ``, plus `` `Unknown `` on the
+`Native_interp` side, per CLAUDE.md's "payloads carry data, not prose")
+rather than the bare, dataless `` `Memory_format `` tag each had before.
+**No Native4D change was needed at all**: `Graph_ir.Clone` is and remains
+paramless (`{ x : Tensor_ref.t }`) — the memory-format decision is resolved
+entirely at the import boundary, before a `Clone` node is ever built, so
+"never assume a requested layout conversion is a plain `Clone`" is satisfied
+by construction rather than by a Native4D-side check. Regenerating the
+100-model sweep confirms all 4 previously-`malformed` models move: `csatv2`
+now stops on `index.Tensor` and `mobilevitv2_175`/`mvitv2_tiny` on
+`softmax.int`/`matmul.default` — all three already tracked in §2 below, not
+new gaps. `hiera_tiny_224` surfaces a genuinely new, previously-hidden
+diagnostic instead — `getitem is rank 5, expected 4` (a conv weight whose
+declared rank the importer's `sizes_rank_4` rejects) — noted here only as a
+discovered lead, not scoped as a row. See `.ai/pt2_model_support.md`'s
+2026-08-26 update.
+
 Ordered: (1) the rest of CSATv2's medium-complexity structural set; then
 (2) the high-complexity matrix/attention/indexing set.
 
 ## 1. Medium complexity — remaining CSATv2 structural set
 
-Independent vertical slices, in this order (unchanged from `ops.md`, verified
-still unimplemented in `Graph_ir` — no `Upsample` node exists today; `Amax`,
-`Pow_scalar`/`Vector_norm` and `max_pool2d`'s `ceil_mode` landed, see above):
+Independent vertical slices (unchanged from `ops.md`, verified still
+unimplemented in `Graph_ir` — no `Upsample` node exists today; `Amax`,
+`Pow_scalar`/`Vector_norm`, `max_pool2d`'s `ceil_mode` and `clone`'s
+`memory_format` landed, see above):
 
 1. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
    `align_corners=true` — real bilinear-resize op (shape inference,
@@ -244,26 +281,16 @@ still unimplemented in `Graph_ir` — no `Upsample` node exists today; `Amax`,
    conflate with `upsample_bicubic2d.vec`, which the sweep shows blocking
    `sam2_hiera_tiny` separately — a different coordinate-transform/overload,
    not covered by this row.
-2. **`clone` with a supplied memory format (2 in CSATv2)** — decode the enum,
-   prove identity for the observed layout or represent the relayout; only
-   admit a no-op proof in Native4D, never assume a requested layout
-   conversion is a plain `Clone`. The sweep shows this same case hard-rejects
-   3 more models (`hiera_tiny_224`, `mobilevitv2_175`, `mvitv2_tiny`) as
-   `malformed` — i.e. the importer's refuse-rather-than-ignore choice is
-   already correct there too; no separate design question, just more
-   coverage once this row lands. Now the only source of `malformed` in the
-   100-model sweep (4 occurrences, all this same case) — see
-   `.ai/pt2_model_support.md`.
 
-Each row: ATen binding in `bin/aten_ops_gen.ml` if absent, `Aten_op_config`
+This row: ATen binding in `bin/aten_ops_gen.ml` if absent, `Aten_op_config`
 decoder/spec fixture, bridge lowering, Native implementation, dispatch audit.
 Add an ATen-vs-Native walk only where a non-vacuous recipe exists; otherwise a
 table-driven boundary suite. Keep CSATv2 graph-only in CI until a complete
 end-to-end execution test passes (`ops.md` explicit instruction). Every new
 bridge arm here must build exactly one node per ATen op (the design-goal rule
 `select`/`stack`/`concat4`/`split_with_sizes` were fixed against or built
-to) — neither remaining target has an obvious decomposition temptation the
-way `select`/`stack` did, but check before landing.
+to) — this remaining target has no obvious decomposition temptation the way
+`select`/`stack` did, but check before landing.
 
 ## 2. High complexity — matrix/attention and indexing semantics
 

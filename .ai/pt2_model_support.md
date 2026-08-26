@@ -107,10 +107,11 @@ branch's success):
 - `"native"`: the payload-free Native import failed -- recoverably (`reason:
   "unsupported_operator"`/`"unsupported_input"`/`"over_limit"`, a session
   still builds) or as a defect the importer flags outright (`reason:
-  "malformed"`: an argument value, e.g. `clone`'s `memory_format` (as of
-  2026-08-26; `max_pool2d`'s `ceil_mode=true` was the other example here until
-  it landed, see below), that the importer rejects rather than merely not
-  implementing). Shared by both triples too -- a `prerequisite_unavailable`
+  "malformed"`: an argument value the importer rejects rather than merely
+  not implementing, e.g. `clone`'s `memory_format=channels_last` (as of
+  2026-08-26; `ContiguousFormat`/`PreserveFormat` are accepted, and
+  `max_pool2d`'s `ceil_mode=true` was a third example here until both
+  landed, see below)). Shared by both triples too -- a `prerequisite_unavailable`
   reason on either branch's own capability (which carries no detail of its
   own) is ALWAYS resolved here, since neither branch can run at all without
   Native import.
@@ -149,6 +150,22 @@ neither 1 nor depthwise" -- the same limit `regnetx_002`'s own frontier hits,
 not a new gap). Of the 29 that still don't build, the `"malformed"` bucket
 drops from 6 to 4 -- every remaining instance is `clone.default`'s
 `memory_format`, next in this row's own list.
+
+**Updated again, same day,** after landing `clone.default`'s
+`memory_format`: `native_builds:true` stays at
+71 -- this row changes WHICH models are `"malformed"`, not how many build,
+since `ContiguousFormat`/`PreserveFormat`/absent were already accepted and
+only `ChannelsLast`/`ChannelsLast3d` remain refused. The `"malformed"`
+bucket drops from 4 to 1: `csatv2`, `mobilevitv2_175` and `mvitv2_tiny` all
+clear the `clone` blocker and move to `"unsupported_operator"` instead
+(`index.Tensor`, `softmax.int`, `matmul.default` respectively -- all three
+already tracked gaps, not new ones). `hiera_tiny_224` is the lone
+remaining `"malformed"` model, but on a DIFFERENT, previously-hidden defect
+now exposed by clearing `clone`: `getitem is rank 5, expected 4` (a conv
+weight tensor, named `getitem` because it is itself the result of an earlier
+multi-output op's `__getitem__`, declared at a rank `Native_interp`'s
+`sizes_rank_4` refuses) -- noted here only as a discovered lead, not yet
+investigated or scoped as a row.
 
 Of the 69 that build (71 as of 2026-08-26, see above), the two branches
 diverge for 35 of them -- proof the fork is real, not just a modeling nicety.

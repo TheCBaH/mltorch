@@ -124,7 +124,8 @@ type error =
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
   | `Sdpa_reject of Attention.Sdpa.Reject.t
   | `Concat_no_tensors of string
-  | `Concat_rank_mismatch of Concat_rank_mismatch.t ]
+  | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Unsupported_memory_format of [ `Channels_last | `Channels_last_3d ] ]
 
 (* Deliberately not [Fmt.brackets], which boxes its content and so may
    line-wrap; the original bare "[%s]" (String.concat) never did, regardless
@@ -193,6 +194,13 @@ let pp_error ppf : [< error ] -> unit = function
   | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
       Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
         other
+  | `Unsupported_memory_format mf ->
+      let name =
+        match mf with
+        | `Channels_last -> "channels_last"
+        | `Channels_last_3d -> "channels_last_3d"
+      in
+      Fmt.pf ppf "clone: memory_format=%s is not supported" name
 
 let ( let* ) = Err.Syntax.( let* )
 let return = Err.return
@@ -820,18 +828,32 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
   | "torch.ops.aten.clone.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
-         (* A requested memory_format is a layout change this op does not
-            perform; rejecting beats silently ignoring it. *)
-         match D.find_arg node "memory_format" with
-         | Some (Argument.None _) | None ->
+         (* Native's engine has exactly one physical layout per shape --
+            there is no channels-last stride concept anywhere in the six-axis
+            frame -- so a request to make the result CONTIGUOUS, or to
+            PRESERVE whatever format the input already has, is always already
+            true: every native tensor is already in that one dense layout.
+            (Confirmed against the corpus: every `clone.default` occurrence
+            across the 100-model sweep requests either no format or exactly
+            `ContiguousFormat` -- see `.ai/pt2_model_support.md`.) A request
+            for an actual different physical arrangement (channels-last) asks
+            for something this engine cannot represent, so it is refused
+            rather than silently treated as a no-op. *)
+         let* mf =
+           decode_result (D.memory_format_opt_arg_result node "memory_format")
+         in
+         match mf with
+         | None | Some (Aten_memory_format.Contiguous | Preserve) ->
              build_g ~name:"clone" [ x ] (function
                | [ x_id ] ->
                    let open Graph_builder in
                    let+ y = clone x_id in
                    [ y ]
                | _ -> assert false)
-         | Some _ ->
-             fail (`Validation_failure "clone: memory_format is not supported"))
+         | Some Aten_memory_format.ChannelsLast ->
+             fail (`Unsupported_memory_format `Channels_last)
+         | Some Aten_memory_format.ChannelsLast3d ->
+             fail (`Unsupported_memory_format `Channels_last_3d))
   | "torch.ops.aten.conv2d.default" ->
       Some
         (let* groups = int_arg ~default:1 node "groups" in

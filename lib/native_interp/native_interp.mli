@@ -18,7 +18,8 @@ type arg_kind =
   | `Optional_scalar
   | `String
   | `Tensor_or_scalar
-  | `Tensor_list ]
+  | `Tensor_list
+  | `Memory_format_opt ]
 (** What an argument had to be — exactly the set the decode helpers accept. *)
 
 (** A rank an arm requires against the rank the model declared. One row rather
@@ -134,7 +135,7 @@ type config_fault = Op_config.Bad.fault
 
 type unsupported_option =
   [ `Alpha of float
-  | `Memory_format
+  | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
   | `Dilation of int list
   | `Approximate of string
   | `Dtype
