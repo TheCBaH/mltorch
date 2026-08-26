@@ -63,3 +63,13 @@ let synth_nonzero pcg shape = synth_with pcg shape draw_nonzero
    both backends, which a tolerance-based comparator can't call "matched"). *)
 let draw_nonneg pcg = Pcg.uniform ~low:0. ~high:1. pcg
 let synth_nonneg pcg shape = synth_with pcg shape draw_nonneg
+
+(* Uniform in [0.25, 1.25] -- strictly POSITIVE and bounded away from zero,
+   unlike [draw_nonneg]. For an operand like [Pow]'s base under a negative or
+   fractional exponent: a negative base is a NaN for a non-integer exponent
+   (same hazard [draw_nonneg] exists for), and a base near zero blows up under
+   a negative exponent, amplifying an ordinary last-bit rounding difference
+   into a reported mismatch the same way [draw_nonzero] guards a divisor
+   against. Mirrors [Aten_walk_recipes.Walk.gen_values_positive]. *)
+let draw_positive pcg = Pcg.uniform ~low:0.25 ~high:1.25 pcg
+let synth_positive pcg shape = synth_with pcg shape draw_positive

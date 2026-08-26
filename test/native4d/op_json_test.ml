@@ -115,6 +115,7 @@ let samples : Op.t list =
           Ops4.Permute4.of_fn (function H -> W | W -> H | a -> a);
         x;
       };
+    Pow { Pointwise.Scalar_bin.x; scalar = 2. };
     Relu { Pointwise.Relu.x };
     Reshape4
       {
@@ -153,6 +154,8 @@ let samples : Op.t list =
         bias = None;
       };
     Unbind { Ops4.Unbind.params = { axis = C }; x };
+    Vector_norm_keepdims
+      { Ops4.Vector_norm_keepdims.params = { dims = [ H; W ] }; x };
   ]
 
 (* THE COVERAGE CHECK. Every constructor has exactly one registry entry, so if
@@ -160,7 +163,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 32, registry: 32 |}]
+  [%expect {| samples: 34, registry: 34 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -199,6 +202,7 @@ let%expect_test "op4: printed" =
     mul_scalar x=t0 scalar=2
     pad4 x=t0 params={pads=[H:1,2, W:-1,3] mode=constant(0.1)}
     permute4 x=t0 perm=[H<-W, W<-H]
+    pow x=t0 scalar=2
     relu x=t0
     reshape4 x=t0 params={shape=[N=1 H=1 W=1 C=12]}
     rms_norm x=t0 weight=t2 params={dims=[C]; eps=1e-05}
@@ -214,7 +218,8 @@ let%expect_test "op4: printed" =
              padding={h=1; w=1};
              dilation={h=1; w=1};
              output_padding={h=1; w=1}}
-    unbind x=t0 params={axis=C} |}]
+    unbind x=t0 params={axis=C}
+    vector_norm_keepdims x=t0 params={dims=[H, W]} |}]
 
 let%expect_test "op4: round-trips through JSON" =
   List.iter
@@ -226,7 +231,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 32 ops |}]
+  [%expect {| round-tripped 34 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

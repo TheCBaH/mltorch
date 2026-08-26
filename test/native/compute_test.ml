@@ -101,6 +101,23 @@ let%expect_test "Direct: sqrt" =
     (eval_tensor (Pointwise.Sqrt.output_shape x_shape) (Q.pixel x));
   [%expect {| tensor f32 [C=4] {0, 1, 2, 1.5} |}]
 
+let%expect_test "Direct: pow, special-cased and generic exponents" =
+  let module Q = Pointwise.Pow.Compute (Direct) in
+  let x_shape = s1c 3 in
+  let x = Tensor.materialize x_shape (fun c -> [| 1.; 4.; 9. |].(chan c)) in
+  let run scalar =
+    Format.printf "%a@." (pp_result Tensor.pp)
+      (eval_tensor (Pointwise.Pow.output_shape x_shape) (Q.pixel ~scalar x))
+  in
+  run 2.0 (* square *);
+  run (-1.0) (* reciprocal *);
+  run 1.5 (* generic: falls back to exp(scalar * log x) *);
+  [%expect
+    {|
+    tensor f32 [C=3] {1, 16, 81}
+    tensor f32 [C=3] {1, 0.25, 0.111111}
+    tensor f32 [C=3] {1, 8, 27} |}]
+
 let%expect_test "Direct: sub" =
   let module S = Pointwise.Sub.Compute (Direct) in
   let x_shape = s1c 3 and y_shape = s1c 3 in
@@ -1102,6 +1119,49 @@ let%expect_test "Direct: amax over W, keepdim=false shifts H's data onto W" =
     {|
     tensor f32 [H=2 W=1 C=1] {3, 7}
     tensor f32 [W=2 C=1] {3, 7} |}]
+
+let%expect_test "Direct: vector_norm over spatial (H,W), per channel" =
+  let module M = Reduce.Vector_norm.Compute (Direct) in
+  (* Same input as the mean/amax fixtures above: channel 0's L2 norm over
+     [1,2,3,4] is sqrt(30), channel 1's over 10x that is sqrt(3000). *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:2 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        let base = [| 1.; 2.; 3.; 4. |].((row c * 2) + col c) in
+        if chan c = 0 then base else base *. 10.)
+  in
+  let p = { Reduce.Vector_norm.dims = [ Axis.H; Axis.W ]; keepdim = true } in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Reduce.Vector_norm.output_shape ~x_shape p)
+       (M.pixel p ~x_shape ~x));
+  [%expect {| tensor f32 [C=2] {5.47723, 54.7723} |}]
+
+let%expect_test
+    "Direct: vector_norm over W, keepdim=false shifts H's data onto W" =
+  let module M = Reduce.Vector_norm.Compute (Direct) in
+  (* [H2 W2 C1]; value(h,w): row H0 = [1,3] (norm sqrt(10)), row H1 = [5,7]
+     (norm sqrt(74)). *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| [| 1.; 3. |]; [| 5.; 7. |] |].(row c).(col c))
+  in
+  let run ~keepdim =
+    let p = { Reduce.Vector_norm.dims = [ Axis.W ]; keepdim } in
+    Format.printf "%a@." (pp_result Tensor.pp)
+      (eval_tensor
+         (Reduce.Vector_norm.output_shape ~x_shape p)
+         (M.pixel p ~x_shape ~x))
+  in
+  run ~keepdim:true;
+  run ~keepdim:false;
+  (* same norms {sqrt(10), sqrt(74)}; keepdim=true keeps them on H, keepdim=false
+     moves them to W. *)
+  [%expect
+    {|
+    tensor f32 [H=2 W=1 C=1] {3.16228, 8.60233}
+    tensor f32 [W=2 C=1] {3.16228, 8.60233} |}]
 
 let%expect_test "Direct: rms_norm over C (channel-wise normalise)" =
   let module R = Norm.RmsNorm.Compute (Direct) in

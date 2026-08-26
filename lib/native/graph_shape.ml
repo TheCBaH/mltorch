@@ -219,6 +219,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Permute.Permute.output_shape ~x_shape perm) in
       [ out ]
+  | Pow { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Pow.output_shape x_shape) in
+      [ out ]
   | Relu { Pointwise.Relu.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Relu.output_shape x_shape) in
@@ -297,3 +301,7 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Split_with_sizes { Split.Split_with_sizes.params; x } ->
       let* x_shape = shape x in
       widen (Split.Split_with_sizes.output_shapes ~x_shape params)
+  | Vector_norm { Reduce.Vector_norm.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Reduce.Vector_norm.output_shape ~x_shape params) in
+      [ out ]

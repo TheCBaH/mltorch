@@ -382,6 +382,7 @@ let sink_permute_allowlist () =
       let* r_sigmoid = single sigmoid in
       let* r_gelu = single (gelu Pointwise.Gelu.Exact) in
       let* r_mul_scalar = single (mul_scalar 2.) in
+      let* r_pow = single (pow 2.) in
       let* r_hardsigmoid = single hardsigmoid in
       let* r_hardswish = single hardswish in
       let* a1, b1 = pair () in
@@ -407,7 +408,8 @@ let sink_permute_allowlist () =
       let* s13 = add r_sigmoid r_gelu in
       let* s14 = add s13 r_mul_scalar in
       let* s15 = add s12 s11 in
-      add s15 s14)
+      let* s16 = add s15 s14 in
+      add s16 r_pow)
 
 (* ---- transporting a permute through a keepdim=true Mean ------------------ *)
 

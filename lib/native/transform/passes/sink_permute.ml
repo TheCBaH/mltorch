@@ -27,8 +27,8 @@ open Graph_ir
    per-axis data, so permuting the operand permutes the result identically. *)
 let elementwise = function
   | ( Add _ | Add_scalar _ | Clamp _ | Clone _ | Div _ | Div_scalar _ | Gelu _
-    | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Mul _ | Mul_scalar _ | Relu _
-    | Sigmoid _ | Silu _ | Sqrt _ | Sub _ ) as op ->
+    | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Mul _ | Mul_scalar _ | Pow _
+    | Relu _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _ ) as op ->
       Some op
   | _ -> None
 

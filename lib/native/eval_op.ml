@@ -174,6 +174,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Permute { Permute.Permute.perm; x } ->
         let module C = Permute.Permute.Compute (S) in
         C.pixel perm ~x:(operand x) out
+    | Pow { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Pow.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Relu { Pointwise.Relu.x } ->
         let module C = Pointwise.Relu.Compute (S) in
         C.pixel (operand x) out
@@ -245,6 +248,9 @@ module Make (S : Semantics.SEMANTICS) = struct
             params.Split.Split_with_sizes.sizes
         in
         C.pixel ~offset params ~x:(operand x) out
+    | Vector_norm { Reduce.Vector_norm.params; x } ->
+        let module C = Reduce.Vector_norm.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Discard _ ->
         invalid_arg
           "Eval_op.pixel: Discard produces no output, so it has no pixel"

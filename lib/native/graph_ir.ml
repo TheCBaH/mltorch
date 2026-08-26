@@ -45,6 +45,7 @@ type op =
   | Mul_scalar of Pointwise.Mul_scalar.t
   | Pad of Pad.Pad.t
   | Permute of Permute.Permute.t
+  | Pow of Pointwise.Pow.t
   | Relu of Pointwise.Relu.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
@@ -58,6 +59,7 @@ type op =
   | Stack of Concat.Stack.t
   | Sub of Pointwise.Sub.t
   | Unbind of Split.Unbind.t
+  | Vector_norm of Reduce.Vector_norm.t
 
 (* A module ALIAS, so field access [n.Node.outputs] still resolves — the fields
    belong to the module this names. OCaml will not let a parameterised record be
@@ -278,6 +280,12 @@ let op_registry : (module OP) list =
       let project = function Permute t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Pow
+
+      let inject t = Pow t
+      let project = function Pow t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Relu
 
       let inject t = Relu t
@@ -354,6 +362,12 @@ let op_registry : (module OP) list =
 
       let inject t = Unbind t
       let project = function Unbind t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Reduce.Vector_norm
+
+      let inject t = Vector_norm t
+      let project = function Vector_norm t -> Some t | _ -> None
     end : OP);
   ]
 

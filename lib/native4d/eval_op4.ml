@@ -76,6 +76,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Mul_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Mul_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Pow { Pointwise.Scalar_bin.x; scalar } ->
+        let module C = Pointwise.Pow.Compute (S) in
+        C.pixel ~scalar (operand x) out
     | Clamp { Pointwise.Clamp.params; x } ->
         let module C = Pointwise.Clamp.Compute (S) in
         C.pixel params (operand x) out
@@ -206,5 +209,10 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Reshape.Reshape.Compute (S) in
         C.pixel
           { Reshape.Reshape.shape = Shape4.to_vec6 params.Ops4.Reshape4.shape }
+          ~x_shape:(shape_of x) ~x:(operand x) out
+    | Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params; x } ->
+        let module C = Reduce.Vector_norm.Compute (S) in
+        C.pixel
+          (Graph_shape4.vector_norm_params params)
           ~x_shape:(shape_of x) ~x:(operand x) out
 end

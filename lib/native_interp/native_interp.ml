@@ -90,7 +90,8 @@ type metadata_role =
   | `Sdpa_key
   | `Sdpa_value
   | `Sdpa_mask
-  | `Adaptive_avg_pool2d_input ]
+  | `Adaptive_avg_pool2d_input
+  | `Vector_norm_input ]
 
 type hw_param =
   [ `Stride
@@ -117,7 +118,9 @@ type unsupported_option =
   | `Memory_format
   | `Dilation of int list
   | `Ceil_mode
-  | `Approximate of string ]
+  | `Approximate of string
+  | `Dtype
+  | `Vector_norm_ord of float ]
 
 (* Own modules, per the record-namespace convention: three of these carry an
    [op] field and two an [arg], and distinct namespaces are how this repo keeps
@@ -326,6 +329,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Sdpa_value -> Fmt.string ppf "sdpa value"
   | `Sdpa_mask -> Fmt.string ppf "sdpa attn_mask"
   | `Adaptive_avg_pool2d_input -> Fmt.string ppf "adaptive_avg_pool2d input"
+  | `Vector_norm_input -> Fmt.string ppf "vector_norm input"
 
 let pp_hw_param ppf : hw_param -> unit = function
   | `Stride -> Fmt.string ppf "stride"
@@ -381,7 +385,10 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       | `Approximate a ->
           Fmt.pf ppf
             "%s: approximate=%S is not supported (only \"none\" or \"tanh\")" op
-            a)
+            a
+      | `Dtype -> Fmt.pf ppf "%s: dtype is not supported" op
+      | `Vector_norm_ord o ->
+          Fmt.pf ppf "%s: ord=%g is not supported (only 2)" op o)
   | `Unsupported_padding_mode s ->
       Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
   | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
@@ -767,6 +774,20 @@ let reject_memory_format esc (node : Pytorch_types.Node.t) =
   | Some _ ->
       malformed esc
         (`Unsupported_option { op = node.target; option = `Memory_format })
+
+(* [linalg_vector_norm.default]'s [dtype] casts before reducing; the native IR
+   has no dtype-conversion op, so honouring the request is impossible and
+   ignoring it would misreport what was computed -- same reasoning as
+   [reject_memory_format] above, for a different argument. *)
+let reject_dtype esc (node : Pytorch_types.Node.t) =
+  match
+    List.find_opt
+      (fun (a : NamedArgument.t) -> a.name = "dtype")
+      node.Node.inputs
+  with
+  | None | Some { arg = Argument.None _; _ } -> ()
+  | Some _ ->
+      malformed esc (`Unsupported_option { op = node.target; option = `Dtype })
 
 (* A `Tensor[]` return is ONE output of kind [Argument.Tensors] holding every
    result name in order — a different shape from a fixed tuple, whose elements
@@ -1745,6 +1766,10 @@ let lower program =
               ()
           in
           return [ y ]
+      | "torch.ops.aten.pow.Tensor_Scalar" ->
+          let exponent = required_scalar_arg esc node "exponent" in
+          let* y = pow exponent (get "self") in
+          return [ y ]
       | "torch.ops.aten.relu.default" ->
           let* y = relu (get "self") in
           return [ y ]
@@ -1913,6 +1938,27 @@ let lower program =
             }
           in
           let* y = amax params (get "self") in
+          return [ y ]
+      | "torch.ops.aten.linalg_vector_norm.default" ->
+          let ord = scalar_arg esc ~default:2. node "ord" in
+          if not (Float.equal ord 2.) then
+            malformed esc
+              (`Unsupported_option
+                 { op = node.target; option = `Vector_norm_ord ord });
+          reject_dtype esc node;
+          let x_name = tensor_name esc node "self" in
+          let rank =
+            meta_rank
+              (tensor_meta esc graph ~ssa:x_name ~role:`Vector_norm_input)
+          in
+          let params =
+            {
+              Reduce.Vector_norm.dims =
+                axes_for_rank esc ~tensor:x_name rank (ints_arg esc node "dim");
+              keepdim = bool_arg esc node "keepdim";
+            }
+          in
+          let* y = vector_norm params (get "self") in
           return [ y ]
       | "torch.ops.aten.permute.default" ->
           let x_name = tensor_name esc node "self" in

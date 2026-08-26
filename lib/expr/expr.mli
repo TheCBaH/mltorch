@@ -211,7 +211,7 @@ end
 
 and Value : sig
   type binary_op = Add | Sub | Mul | Div
-  type unary_op = Exp | Sqrt | Erf
+  type unary_op = Exp | Sqrt | Erf | Log
 
   type t = private
     | Const of float
@@ -232,6 +232,7 @@ and Value : sig
   val exp : t -> t
   val sqrt : t -> t
   val erf : t -> t
+  val log : t -> t
   val select : Bool.t -> t -> t -> t
   val value_of_index : Role.Delta.t Index.t -> t
   val load : Source.t -> Role.Position.t Index.t Coord.t -> t

@@ -17,6 +17,8 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Amax_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Vector_norm_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Max_pool2d_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Avg_pool2d_nwalk.M : Walk_core.Walk.Op
@@ -106,6 +108,7 @@ let all_walks : op list =
     (module Bmm_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
     (module Adaptive_avg_pool2d_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Pow_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
   ]
 
 (* [native_op_walk.ml] shares the library's name, so it IS the library's

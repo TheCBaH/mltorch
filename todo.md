@@ -102,30 +102,107 @@ reducing over all axes, out-of-range `dim` rejection); pinned values in
 model in that corpus (its only known occurrence remains CSATv2's own 945-node
 graph, which stays graph-only for unrelated reasons — see §2 below).
 
+**And `pow.Tensor_Scalar` + `linalg_vector_norm.default`** (formerly item 1
+below) — two independent landings sharing one commit since both were the
+same todo row. `pow.Tensor_Scalar` shipped twice in the same session:
+initially restricted to the observed exponent 0.5, legalized to the existing
+`Sqrt` node (`pow(x, 0.5) = sqrt(x)` exactly once translated — the "map onto
+an existing op" legalization `sub.Tensor`'s scalar form already gets), then
+**generalized to every exponent** the same session, once the 100-model sweep
+showed a second real model (`mobilenetv5_base`) needing exponent 2 — a
+`Validation_failure` for anything but 0.5 would have been a second artificial
+restriction discovered the moment the first one was tested against the
+corpus, not a real scope boundary. The general form is one Native op,
+`Pointwise.Pow` (`lib/native/ops/pointwise.ml`), whose `Compute` special-cases
+exactly the six exponents ATen's own `PowKernel.cpp` special-cases —
+`0.5`/`-0.5`/`-1`/`2`/`3`/`-2` via `sqrt`/reciprocal-of-sqrt/reciprocal/`mul`
+combinations, matched in an OCaml `if` chain evaluated once per graph node
+(the exponent is a compile-time constant: `D.scalar_arg`/`required_scalar_arg`
+only decode `Argument.Int`/`Argument.Float`, rejecting `Argument.Sym_float`
+and everything else as a typed decode error, and a tensor-derived exponent
+would trace to the different `pow.Tensor_Tensor` target this arm does not
+handle) — and falls back to `exp(exponent * log x)` for anything else, adding
+one new `SEMANTICS` primitive (`log`, threaded through `Expr.Value`/`Direct`/
+`Symbolic` the same four sites `erf` required). The fallback is only
+`Equivalent` to ATen's `std::pow`, not bit-identical, and (like `Sqrt`)
+correct only for `x > 0` — both documented in `Pow`'s own comment rather than
+asserted implicitly. Reused directly in Native4D (`Ops4.op.ml`'s `Pow of
+Pointwise.Pow.t`, alongside `Add_scalar`/`Mul_scalar`/`Div_scalar` — no axis
+semantics, so no wrapper payload needed) with matching domain/shape/eval/
+lower/output-transfer arms. The ATen walk (`Pow_tensor_scalar_walk`) now
+draws from a candidate list covering the whole special-cased set plus one
+generic exponent (1.5, exercising the fallback), over a POSITIVE-only base
+(`Walk.tensor_spec_positive`, not `tensor_spec`) since several candidates are
+singular or NaN-producing at a non-positive base — mirroring
+`Recipe_reduce`'s siblings and `Sqrt`'s own walk's existing domain-hazard
+avoidance; a new Native fuzz walk (`lib/native_op_walk/pow_nwalk.ml`, via a
+new `Native_tensor.synth_positive`) reuses `Pointwise.Scalar_bin.Walk`'s
+shared shape/scalar config space, the same one `Add_scalar`/`Div_scalar`/
+`Mul_scalar` already reuse. Both walks are "matched"/"direct==symbolic" for
+every candidate, including the generic-exponent fallback case. Added to
+`Sink_permute.elementwise` (a fixed-exponent `Pow` reads and writes each
+output slot independently, like `Sqrt`/`Add_scalar`), confirmed by extending
+the `sink_permute_allowlist` fixture. The now-obsolete `Unsupported_option`
+`` `Pow_exponent `` rejection tag (native_interp.ml) was deleted rather than
+left dead, per CLAUDE.md.
+`linalg_vector_norm.default` (ord=2 only — the schema default; a general
+`ord` needs a `pow` of its own and stays out of scope) is the genuinely new
+op: `Reduce.Vector_norm` in `lib/native/ops/reduce.ml`, the third op sharing
+`Dims_keepdim` alongside `Mean`/`Amax`. Its `Compute` needs no new `SEMANTICS`
+primitive — the leaf squares the loaded value (`S.mul v v`) under one `S.sum`
+nest per reduced axis (mirroring `Mean`'s nest), with a final `S.sqrt` in
+place of a division. ATen binding (`bin/aten_ops_gen.ml: op "linalg_vector_norm"`),
+bridge and importer arms decode-and-reject a non-2 `ord` and a present
+`dtype` (the latter via a new `reject_dtype` importer helper mirroring
+`reject_memory_format`, and `Interp_decode.scalar_type_opt_arg_result` on the
+bridge side) rather than silently dropping either, per
+`.ai/native_add_op.md`'s "decode every argument" rule. Native4D gets
+`Vector_norm_keepdims` (`Ops4.Vector_norm_keepdims`), the third op sharing the
+`Mean_keepdims`/`Max_keepdims` keep-dimensions-only shape, with the same
+axis-domain check and keepdim=false-to-`+Reshape4` legalization. Verified
+against real ATen via generated walks (`Pow_tensor_scalar_walk`, pinning the
+scalar to exactly 0.5 rather than drawing it, since any other value is a
+rejection not a config to explore; `Linalg_vector_norm_walk`, reusing
+`Recipe_reduce` and pinning `ord=2` the same way) — both "matched", confirming
+the straightforward sum-of-squares-then-sqrt implementation is within ATen's
+tolerance without needing a scaled/stable reformulation; a Native
+Direct-vs-Symbolic fuzz walk (`lib/native_op_walk/vector_norm_nwalk.ml`);
+hand-derived `dispatch:` fixtures (`test/native_bridge_test.ml`, covering
+`pow`'s special-cased exponents and its generic fallback, plus the `ord`/
+`dtype` rejections); pinned `Compute` values (`test/native/compute_test.ml`);
+and the mandatory per-op Native4D coverage. Regenerating the 100-model sweep
+after each stage shows real, moving evidence, not a vacuous restriction:
+against the exponent-0.5-only `pow.Tensor_Scalar`, `mobilenetv5_base`'s
+diagnostic sharpened from "unsupported PT2 operator" to a `malformed`-graph
+rejection naming the actual value — `pow.Tensor_Scalar: exponent=2 is not
+supported (only 0.5)` — confirming its occurrence is a genuine `x^2`, not a
+disguised sqrt; after generalizing `pow.Tensor_Scalar` to every exponent in
+the same session, `mobilenetv5_base` clears that blocker entirely and now
+stops on `rsqrt.default` — a distinct, currently-unbound ATen op (notably the
+same operation `Pow`'s own `-0.5` special case computes internally, just not
+yet reachable as its own bound target) and a natural next lead.
+`swiftformer_xs` advances past `linalg_vector_norm.default` entirely and now
+stops on `clamp_min.default` — a previously-untracked op, not currently bound
+anywhere in this repo, and a natural next candidate (no existing `.ai`/todo
+mention; noted here only as a discovered lead, not scoped as a row).
+
 Ordered: (1) the rest of CSATv2's medium-complexity structural set; then
 (2) the high-complexity matrix/attention/indexing set.
 
 ## 1. Medium complexity — remaining CSATv2 structural set
 
 Independent vertical slices, in this order (unchanged from `ops.md`, verified
-still unimplemented in `Graph_ir` — no `Pow_scalar`, `Vector_norm`, or
-`Upsample` node exists today; `Amax` landed, see above):
+still unimplemented in `Graph_ir` — no `Upsample` node exists today; `Amax`
+and `Pow_scalar`/`Vector_norm` landed, see above):
 
-1. **`pow.Tensor_Scalar` (1, exponent 0.5) + `linalg_vector_norm.default`
-   (14, ord 2, dims `[1,2]`, keepdim)** — prefer a small explicit numeric
-   kernel only if it matches ATen tolerance; otherwise fused `Pow_scalar` +
-   `Vector_norm`. Needs reduction primitives beyond `Mean_keepdims`. The
-   sweep hits both independently outside CSATv2 too (`mobilenetv5_base` on
-   `pow.Tensor_Scalar`, `swiftformer_xs` on `linalg_vector_norm.default`) —
-   corroborating evidence, not extra scope.
-2. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
+1. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
    `align_corners=true` — real bilinear-resize op (shape inference,
    coordinate transform, boundary handling); Native4D `ResizeBilinear4` must
    reject/diagnose unsupported axes rather than reinterpret them. Do not
    conflate with `upsample_bicubic2d.vec`, which the sweep shows blocking
    `sam2_hiera_tiny` separately — a different coordinate-transform/overload,
    not covered by this row.
-3. **`clone` with a supplied memory format (2 in CSATv2)** — decode the enum,
+2. **`clone` with a supplied memory format (2 in CSATv2)** — decode the enum,
    prove identity for the observed layout or represent the relayout; only
    admit a no-op proof in Native4D, never assume a requested layout
    conversion is a plain `Clone`. The sweep shows this same case hard-rejects
@@ -133,7 +210,7 @@ still unimplemented in `Graph_ir` — no `Pow_scalar`, `Vector_norm`, or
    `malformed` — i.e. the importer's refuse-rather-than-ignore choice is
    already correct there too; no separate design question, just more
    coverage once this row lands.
-4. **`max_pool2d.default` with `ceil_mode=true`** — not in CSATv2 at all; new
+3. **`max_pool2d.default` with `ceil_mode=true`** — not in CSATv2 at all; new
    from the sweep, blocks 2 models (`hgnetv2_b0`,
    `legacy_seresnext26_32x4d`), also currently a hard `malformed` reject.
    Same shape-computation family as the existing pooling ops: ceiling instead
@@ -143,7 +220,7 @@ Each row: ATen binding in `bin/aten_ops_gen.ml` if absent, `Aten_op_config`
 decoder/spec fixture, bridge lowering, Native implementation, dispatch audit.
 Add an ATen-vs-Native walk only where a non-vacuous recipe exists; otherwise a
 table-driven boundary suite. Keep CSATv2 graph-only in CI until a complete
-end-to-end execution test passes (`ops.md` explicit instruction) — item 4 has
+end-to-end execution test passes (`ops.md` explicit instruction) — item 3 has
 no bearing on that CSATv2 gate since it does not appear in its graph, but
 should not be deferred behind it either given its independent cross-model
 leverage. Every new bridge arm here must build exactly one node

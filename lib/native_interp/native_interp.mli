@@ -110,7 +110,8 @@ type metadata_role =
   | `Sdpa_key
   | `Sdpa_value
   | `Sdpa_mask
-  | `Adaptive_avg_pool2d_input ]
+  | `Adaptive_avg_pool2d_input
+  | `Vector_norm_input ]
 (** Why the missing [tensor_values] entry was wanted. *)
 
 type hw_param =
@@ -136,7 +137,9 @@ type unsupported_option =
   | `Memory_format
   | `Dilation of int list
   | `Ceil_mode
-  | `Approximate of string ]
+  | `Approximate of string
+  | `Dtype
+  | `Vector_norm_ord of float ]
 (** Options this lowering rejects rather than silently drops: a non-unit [alpha]
     would compute the wrong thing, and a [memory_format] asks for a layout
     change the native IR cannot express.

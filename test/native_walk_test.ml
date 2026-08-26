@@ -895,21 +895,37 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.amax.default: matched
     step 3 [h]: {shape=[2,4,4,8] dims=[2] keepdim=false}
     [spec] torch.ops.aten.amax.default: matched
+    step 0: {shape=[1,4,8,8] value=float:0.5}
+    [spec] torch.ops.aten.pow.Tensor_Scalar: matched
+    step 1 [value]: {shape=[1,4,8,8] value=float:1.5}
+    [spec] torch.ops.aten.pow.Tensor_Scalar: matched
+    step 2 [n]: {shape=[2,4,8,8] value=float:1.5}
+    [spec] torch.ops.aten.pow.Tensor_Scalar: matched
+    step 3 [w]: {shape=[2,4,8,4] value=float:1.5}
+    [spec] torch.ops.aten.pow.Tensor_Scalar: matched
+    step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
+    [spec] torch.ops.aten.linalg_vector_norm.default: matched
+    step 1 [w]: {shape=[2,4,8,4] dims=[2,3] keepdim=false}
+    [spec] torch.ops.aten.linalg_vector_norm.default: matched
+    step 2 [n]: {shape=[2,4,8,4] dims=[2,3] keepdim=false}
+    [spec] torch.ops.aten.linalg_vector_norm.default: matched
+    step 3 [h]: {shape=[2,4,4,4] dims=[2,3] keepdim=false}
+    [spec] torch.ops.aten.linalg_vector_norm.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 1 [shape]: {shape=[6,3,4,4]}
+    step 1 [shape]: {shape=[8,3,4,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 2 [shape]: {shape=[6,3,2,4]}
+    step 2 [shape]: {shape=[8,2,4,4]}
     [spec] torch.ops.aten.clone.default: matched
-    step 3 [shape]: {shape=[6,3,4,4]}
+    step 3 [shape]: {shape=[8,3,4,4]}
     [spec] torch.ops.aten.clone.default: matched
     step 0: {shape=[2,3,4,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 1 [shape]: {shape=[3,3,4,4]}
+    step 1 [shape]: {shape=[2,3,8,4]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 2 [shape]: {shape=[3,3,6,4]}
+    step 2 [shape]: {shape=[2,3,8,6]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
-    step 3 [shape]: {shape=[3,3,6,8]}
+    step 3 [shape]: {shape=[2,3,4,6]}
     [spec] torch.ops.aten.cpu.default: skipped (no native impl)
     needs_meta:
       torch.ops.aten.eq.Scalar

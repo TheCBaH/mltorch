@@ -45,6 +45,7 @@ type op =
   | Mul_scalar of Pointwise.Mul_scalar.t
   | Pad4 of Ops4.Pad4.t
   | Permute4 of Ops4.Permute4.t
+  | Pow of Pointwise.Pow.t
   | Relu of Pointwise.Relu.t
   | Reshape4 of Ops4.Reshape4.t
   | Rms_norm of Ops4.Rms_norm.t
@@ -55,6 +56,7 @@ type op =
   | Sub of Pointwise.Sub.t
   | Transposed_conv2d of Ops4.Transposed_conv2d.t
   | Unbind of Ops4.Unbind.t
+  | Vector_norm_keepdims of Ops4.Vector_norm_keepdims.t
 
 type t = op
 
@@ -211,6 +213,12 @@ let op_registry : (module OP) list =
       let project = function Permute4 t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Pow
+
+      let inject t = Pow t
+      let project = function Pow t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Pointwise.Relu
 
       let inject t = Relu t
@@ -269,6 +277,12 @@ let op_registry : (module OP) list =
 
       let inject t = Unbind t
       let project = function Unbind t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Vector_norm_keepdims
+
+      let inject t = Vector_norm_keepdims t
+      let project = function Vector_norm_keepdims t -> Some t | _ -> None
     end : OP);
   ]
 

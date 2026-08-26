@@ -33,8 +33,11 @@ module type SEMANTICS = sig
   val exp : t -> t
   val sqrt : t -> t
   val erf : t -> t
+  val log : t -> t
   (* transcendental: genuinely primitive, not select-expressible (sqrt is the
-     rms-norm normaliser; rsqrt is just 1 / sqrt; erf is gelu's exact form) *)
+     rms-norm normaliser; rsqrt is just 1 / sqrt; erf is gelu's exact form;
+     log is Pow's general fallback, exp(exponent * log x) -- see
+     [Pointwise.Pow]) *)
 
   (* boolean domain + selection — the scalable basis for activations/clamps.
      [select c a b] is [a] when [c] holds else [b]; e.g.
