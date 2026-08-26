@@ -175,6 +175,9 @@ let adaptive_avg_pool2d ?name params x =
   op1 ?name ~kind:"adaptive_avg_pool2d"
     (Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x })
 
+let amax ?name params x =
+  op1 ?name ~kind:"amax" (Amax { Reduce.Amax.params; x })
+
 let avg_pool2d ?name params x =
   op1 ?name ~kind:"avg_pool2d" (Avg_pool2d { Pool.AvgPool2d.params; x })
 

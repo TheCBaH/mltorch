@@ -231,6 +231,50 @@ module Mean_keepdims = struct
       t.params
 end
 
+(* Elementwise-maximum twin of [Mean_keepdims], same keep-dimensions-only
+   representation and the same reason: .ai/native4d_design.md §1's reduction
+   rule is not specific to the mean. A Native [Amax keepdim=false] legalizes to
+   this plus a [Reshape4], exactly as [Mean keepdim=false] does (correction
+   C1). *)
+module Max_keepdims = struct
+  type params = { dims : Axis4.t list }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"max_keepdims_params" (fun dims -> { dims })
+    |> Jsont.Object.mem "dims" (Jsont.list Axis4.jsont) ~enc:(fun p -> p.dims)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{dims=%a}@]"
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis4.pp))
+      p.dims
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "MaxKeepDims"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>max_keepdims@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
+end
+
 (* ---- normalisation -------------------------------------------------------- *)
 
 (* Retained fused rather than decomposed, so the legalization claims [Identical]

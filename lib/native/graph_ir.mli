@@ -32,6 +32,7 @@ type op =
   | Add of Pointwise.Add.t
   | Add_scalar of Pointwise.Add_scalar.t
   | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
+  | Amax of Reduce.Amax.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
   | Bmm of Matmul.Bmm.t

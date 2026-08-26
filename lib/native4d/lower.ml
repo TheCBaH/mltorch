@@ -548,6 +548,42 @@ let lower_node ~view acc (n : node) =
              (Op.Reshape4
                 { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
              [ single () ])
+  (* Same shape as [Mean] above, corrected by C1 the same way: keepdim=false
+     becomes MaxKeepDims + Reshape4, and the reshape target re-enters the
+     dialect only when the packed Native output shape stays four-axis. *)
+  | Amax { Reduce.Amax.params; x } ->
+      let* dims = dims4 ~node params.Reduce.Amax.dims in
+      if params.Reduce.Amax.keepdim then
+        simple
+          (Op.Max_keepdims { Ops4.Max_keepdims.params = { dims }; x = op_of x })
+      else
+        let* x_shape = sig_of x in
+        let* kept =
+          match
+            Reduce.Amax.output_shape ~x_shape
+              { Reduce.Amax.dims = params.Reduce.Amax.dims; keepdim = true }
+          with
+          | Ok s -> Err.return s
+          | Error _ -> Err.fail (`Unsupported_op (node, n.Node.op))
+        in
+        let* packed = sig_of (single ()) in
+        let* kept4 = shape4 ~id:(single ()) kept in
+        let* packed4 = shape4 ~id:(single ()) packed in
+        let mid, acc = fresh_tensor acc kept4 in
+        let acc =
+          emit acc ~from:node
+            (Op.Max_keepdims
+               { Ops4.Max_keepdims.params = { dims }; x = op_of x })
+            [ mid ]
+        in
+        let acc =
+          { acc with provenance = ([ op_of x ], mid) :: acc.provenance }
+        in
+        Err.return
+          (emit acc ~from:node
+             (Op.Reshape4
+                { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
+             [ single () ])
   (* §7.4. Only a single batch legalizes: for batch > 1 mat2 varies with the
      output's H coordinate while convolution weights are shared across spatial
      positions. mat2[H=1,W=contract,C=cols] permutes to the weight layout

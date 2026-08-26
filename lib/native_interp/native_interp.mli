@@ -86,6 +86,10 @@ type metadata_role =
     (** Both `layer_norm` and `native_layer_norm` read it, and one role covers
         them: the metadata question is identical, and the target string is
         already in the diagnostic that carries this role. *)
+  | `Amax_input
+    (** Its own role, not shared with [`Mean_input]: [amax.default] and
+        [mean.dim] have separate arms, and a shared label would leave the row
+        unable to say which one failed. *)
   | `Mean_input
   | `Permute_input
   | `Transpose_input

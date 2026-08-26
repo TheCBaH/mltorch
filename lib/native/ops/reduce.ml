@@ -1,6 +1,84 @@
-(* Reductions over a set of axes (NHWC). Currently just [Mean] (ATen's
-   `aten.mean.dim`); a category file so future `aten.sum`/`amax`/… land beside
-   it, the way [Pool] holds Max/AvgPool2d. *)
+(* Reductions over a set of axes (NHWC): [Mean] (ATen's `aten.mean.dim`) and
+   [Amax] (`aten.amax.default`); a category file so a future `aten.sum`/…
+   lands beside them, the way [Pool] holds Max/AvgPool2d. *)
+
+(* Params shared by every reduction that folds a set of named axes down with a
+   [keepdim] flag: the axis list, its output-shape rule, and the (input axis,
+   output axis) map a [Compute] functor folds its output coordinate through.
+   One definition, so [Mean] and [Amax] cannot drift on how [keepdim]/axis
+   dropping behaves — see .ai/native_add_op.md's payload-boilerplate reuse
+   note. *)
+module Dims_keepdim = struct
+  type t = { dims : Axis.t list; keepdim : bool }
+
+  let jsont ~kind : t Jsont.t =
+    Jsont.Object.map ~kind (fun dims keepdim -> { dims; keepdim })
+    |> Jsont.Object.mem "dims" (Jsont.list Axis.jsont) ~enc:(fun p -> p.dims)
+    |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
+    |> Jsont.Object.finish
+
+  (* Transports [dims] through an axis mapping (e.g. a permutation's
+     [lookup]): every entry is remapped, in place, order preserved. Used by
+     [Sink_permute_mean] to move a reduction past an input permute without
+     touching [keepdim]. See .ai/native_transform_design.md §12f. *)
+  let map_dims f (p : t) = { p with dims = List.map f p.dims }
+
+  let pp fmt (p : t) =
+    Fmt.pf fmt "@[<hv>{dims=%a;@ keepdim=%a}@]"
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis.pp))
+      p.dims Fmt.bool p.keepdim
+
+  (* Maps each surviving INPUT axis to the OUTPUT axis that carries its data.
+     keepdim=true: identity (collapse in place). keepdim=false: the survivors
+     (all axes minus the reduced ones, in canonical order) re-pack
+     right-aligned into the innermost positions. Depends only on [p], not on
+     extents. *)
+  let kept_map (p : t) =
+    if p.keepdim then
+      List.filter_map
+        (fun a -> if List.mem a p.dims then None else Some (a, a))
+        Axis.all
+    else Aten_shape.repack_dropped ~dropped:p.dims
+
+  (* Shape of the reduced axes alone (extent on each of [dims], 1 elsewhere) --
+     the layout [Norm.normalized_shape] computes for the affine/normalized
+     case, specialised here to a plain axis list. Its numel is the reduction's
+     element count. *)
+  let reduced_shape ~(x_shape : Vec6.shape) (p : t) =
+    List.fold_left
+      (fun acc a -> Vec6.set acc a (Vec6.get x_shape a))
+      (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
+      p.dims
+
+  (* BOUNDED, and that is not decoration: see [Norm.normalized_count]. This is
+     a product of up to six extents each bounded only by
+     [Kernel.Limits.Hard.extent] (2^31), so folding it into an [int] and
+     checking afterwards is a post-overflow comparison on the 32-bit
+     js_of_ocaml backend, not a bound (CLAUDE.md's aggregate rule).
+     [Vec6.numel_bounded] divides each factor into the ceiling before
+     multiplying. Called from [output_shape], the one place [Graph_builder]
+     and a JSON-decoded graph both reach. *)
+  let reduced_count ~(x_shape : Vec6.shape) (p : t) =
+    Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel
+      (reduced_shape ~x_shape p)
+
+  (* Same product as an [int], for [Compute], which has no error channel.
+     Sound only because [output_shape] already ran [reduced_count] on this
+     node -- see [Norm.normalized_count_unchecked]'s identical precondition. *)
+  let reduced_count_unchecked ~(x_shape : Vec6.shape) (p : t) =
+    List.fold_left (fun acc d -> acc * (Vec6.get x_shape d :> int)) 1 p.dims
+
+  (* Output = surviving input extents packed onto their output axes;
+     reduced axes (and, for keepdim=false, the vacated outer axes) are
+     extent 1. *)
+  let output_shape ~(x_shape : Vec6.shape) (p : t) =
+    let open Err.Syntax in
+    let+ (_ : int64) = reduced_count ~x_shape p in
+    let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
+    List.fold_left
+      (fun s (kin, oax) -> Vec6.copy x_shape ~src:kin ~dst:oax s)
+      ones (kept_map p)
+end
 
 module Mean = struct
   (* Arithmetic mean over [dims]: each reduced axis is summed over its full
@@ -25,24 +103,11 @@ module Mean = struct
      (real or size-1 padding) inward by the number of removed axes outer to it
      lands the real data on exactly the right-aligned axes. (Recovering the ATen
      output *rank* is a separate concern — [Aten_shape.to_aten], not the op's.) *)
-  type params = { dims : Axis.t list; keepdim : bool }
+  type params = Dims_keepdim.t = { dims : Axis.t list; keepdim : bool }
 
-  let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"mean_params" (fun dims keepdim -> { dims; keepdim })
-    |> Jsont.Object.mem "dims" (Jsont.list Axis.jsont) ~enc:(fun p -> p.dims)
-    |> Jsont.Object.mem "keepdim" Jsont.bool ~enc:(fun p -> p.keepdim)
-    |> Jsont.Object.finish
-
-  (* Transports [params] through an axis mapping (e.g. a permutation's
-     [lookup]): every entry of [dims] is remapped, in place, order preserved.
-     Used by [Sink_permute_mean] to move a reduction past an input permute
-     without touching [keepdim]. See .ai/native_transform_design.md §12f. *)
-  let map_dims f (p : params) = { p with dims = List.map f p.dims }
-
-  let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{dims=%a;@ keepdim=%a}@]"
-      (Fmt.brackets (Fmt.list ~sep:Fmt.comma Axis.pp))
-      p.dims Fmt.bool p.keepdim
+  let params_jsont : params Jsont.t = Dims_keepdim.jsont ~kind:"mean_params"
+  let map_dims = Dims_keepdim.map_dims
+  let pp_params = Dims_keepdim.pp
 
   type t = { params : params; x : Tensor_ref.t }
 
@@ -68,25 +133,13 @@ module Mean = struct
   let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>mean@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
 
-  (* Maps each surviving INPUT axis to the OUTPUT axis that carries its data.
-     keepdim=true: identity (collapse in place). keepdim=false: the survivors
-     (all axes minus the reduced ones, in canonical order) re-pack right-aligned
-     into the innermost positions. Depends only on [p], not on extents. *)
-  let kept_map (p : params) =
-    if p.keepdim then
-      List.filter_map
-        (fun a -> if List.mem a p.dims then None else Some (a, a))
-        Axis.all
-    else Aten_shape.repack_dropped ~dropped:p.dims
+  let kept_map = Dims_keepdim.kept_map
 
   (* Output = surviving input extents packed onto their output axes (§1d);
-     reduced axes (and, for keepdim=false, the vacated outer axes) are extent 1. *)
-  let output_shape ~(x_shape : Vec6.shape) (p : params) =
-    let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
-    Err.return
-      (List.fold_left
-         (fun s (kin, oax) -> Vec6.copy x_shape ~src:kin ~dst:oax s)
-         ones (kept_map p))
+     reduced axes (and, for keepdim=false, the vacated outer axes) are extent
+     1. Bounds the reduction count as a side effect — see
+     [Dims_keepdim.reduced_count]. *)
+  let output_shape = Dims_keepdim.output_shape
 
   (* This op's random-walk config space: a 4D NHWC tensor reduced over a curated
      set of axis subsets with keepdim toggled. Any non-empty subset is valid, so
@@ -160,9 +213,114 @@ module Mean = struct
               (fun i -> reduce rest ((d, i) :: override))
       in
       let total = reduce p.dims [] in
-      let count =
-        List.fold_left (fun acc d -> acc * (Vec6.get x_shape d :> int)) 1 p.dims
-      in
+      let count = Dims_keepdim.reduced_count_unchecked ~x_shape p in
       S.div total (S.const (float_of_int count))
+  end
+end
+
+module Amax = struct
+  (* Elementwise maximum over [dims] -- ATen's `aten.amax.default`. Same
+     axis/keepdim shape rule as [Mean] ([Dims_keepdim]); the only difference is
+     the leaf combinator ([S.max_reduce] nested per axis, no divisor). Bridge
+     scope for now is the observed `dim=[1]` (a single axis), `keepdim=true`
+     model configuration (see todo.md item 1); the op itself stays the general
+     rank-free function of a dims list, like [Mean]. *)
+  type params = Dims_keepdim.t = { dims : Axis.t list; keepdim : bool }
+
+  let params_jsont : params Jsont.t = Dims_keepdim.jsont ~kind:"amax_params"
+  let map_dims = Dims_keepdim.map_dims
+  let pp_params = Dims_keepdim.pp
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Amax"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>amax@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+
+  let kept_map = Dims_keepdim.kept_map
+  let output_shape = Dims_keepdim.output_shape
+
+  (* Same config space as [Mean]'s walk, minus the divisor -- any non-empty
+     dim subset is valid, so [cascade] is identity. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t; dims : Axis.t list; keepdim : bool }
+
+    let initial =
+      {
+        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        dims = [ Axis.H; Axis.W ];
+        keepdim = false;
+      }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+    let params (c : cfg) : params = { dims = c.dims; keepdim = c.keepdim }
+
+    let dim_sets =
+      Axis.[ [ H; W ]; [ H; W; C ]; [ C ]; [ H ]; [ W ]; [ N; H; W ] ]
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "dims" dim_sets (fun r v -> { r with dims = v });
+          field_axis "keepdim" [ true; false ] (fun r v ->
+              { r with keepdim = v });
+        ]
+
+    let pp fmt (c : cfg) =
+      Format.fprintf fmt "{shape=%a dims=[%a] keepdim=%b}" Walk_core.Shape.pp
+        c.shape
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt ",")
+           Axis.pp)
+        c.dims c.keepdim
+  end
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let zero =
+        Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+          ~h:S.index_zero ~w:S.index_zero ~c:S.index_zero
+      in
+      let base =
+        List.fold_left
+          (fun v (kin, oax) -> Vec6.copy out ~src:oax ~dst:kin v)
+          zero (kept_map p)
+      in
+      (* Nest one [max_reduce] per reduced axis, mirroring [Mean]'s [sum]
+         nest -- see .ai/native_add_op.md's "reductions over named axes". *)
+      let rec reduce dims override =
+        match dims with
+        | [] ->
+            S.load x
+              (List.fold_left (fun v (a, i) -> Vec6.set v a i) base override)
+        | d :: rest ->
+            S.max_reduce ~lo:S.index_zero
+              ~hi:(S.index_extent (Vec6.get x_shape d))
+              (fun i -> reduce rest ((d, i) :: override))
+      in
+      reduce p.dims []
   end
 end

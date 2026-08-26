@@ -80,6 +80,12 @@ let mean_params (p : Ops4.Mean_keepdims.params) : Reduce.Mean.params =
     keepdim = true (* the dialect has no other form *);
   }
 
+let max_params (p : Ops4.Max_keepdims.params) : Reduce.Amax.params =
+  {
+    dims = List.map Axis4.to_axis p.Ops4.Max_keepdims.dims;
+    keepdim = true (* the dialect has no other form *);
+  }
+
 (* Shared with [Eval_op4], which needs the same translation for the same op:
    one adapter, so the shape rule and the compute cannot disagree about which
    axis is being joined along. *)
@@ -219,6 +225,9 @@ let output_shape (op : Op.t)
   | Mean_keepdims { Ops4.Mean_keepdims.params; x } ->
       let* x_shape = shape x in
       one (four (Reduce.Mean.output_shape ~x_shape (mean_params params)))
+  | Max_keepdims { Ops4.Max_keepdims.params; x } ->
+      let* x_shape = shape x in
+      one (four (Reduce.Amax.output_shape ~x_shape (max_params params)))
   (* The one arm returning a list whose length is not the op's. Native has
      already bounded the count against [Kernel.Limits.Hard.outputs], so this
      path only carries the row through. *)

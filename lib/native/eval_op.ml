@@ -36,6 +36,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x } ->
         let module C = Pool.AdaptiveAvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Amax { Reduce.Amax.params; x } ->
+        let module C = Reduce.Amax.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Avg_pool2d { Pool.AvgPool2d.params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

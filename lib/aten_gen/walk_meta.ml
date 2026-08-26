@@ -108,6 +108,36 @@ let mean_dim =
       pcg )|};
   }
 
+(* amax.default: same reduction-family recipe as [mean_dim] ("mean.dim and
+   friends" -- Recipe_reduce's own doc comment). Unlike [mean_dim]'s [dim],
+   ATen's `amax` declares [dim] as a required (defaulted, not optional)
+   int list, so the generated [Op_amax.t] field is a plain [int list], not an
+   [int list option] -- no [Some] wrapper here. *)
+let amax =
+  {
+    module_name = "Amax_walk";
+    target = "torch.ops.aten.amax.default";
+    recipe = "Recipe_reduce";
+    initial =
+      "Aten_walk_recipes.Recipe_reduce.{ n = 2; c = 4; h = 8; w = 8; dims = [ \
+       2; 3 ]; keepdim = false }";
+    axes =
+      "Aten_walk_recipes.Recipe_reduce.axes ~n:[ 1; 2; 4 ] ~c:[ 4; 8; 16 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] \
+       ~dims:Aten_walk_recipes.Recipe_reduce.all_dim_subsets ~keepdim:[ true; \
+       false ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_reduce.self_shape c) in
+    ( Aten_op_spec.Op_amax.(
+        spec
+          {
+            self;
+            dim = Recipe_reduce.dims c;
+            keepdim = Recipe_reduce.keepdim c;
+          }),
+      pcg )|};
+  }
+
 (* convolution.default: a non-transposed grouped conv -- identical shape
    semantics to conv2d, so it reuses Recipe_conv and pins transposed=false /
    output_padding=[0;0] (PyTorch requires output_padding=0 when not transposed). *)
@@ -975,6 +1005,7 @@ let entries =
     avg_pool2d;
     adaptive_avg_pool2d;
     mean_dim;
+    amax;
     clamp;
     hardtanh;
     unbind_int;

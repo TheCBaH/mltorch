@@ -759,6 +759,20 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let+ y = add_scalar scalar a_id in
                    [ y ]
                | _ -> assert false))
+  | "torch.ops.aten.amax.default" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let* dims = dims_arg node ~op:"amax.default" ~rank "dim" in
+         let* keepdim = bool_arg node "keepdim" in
+         let* x = native_of_aten "self" t in
+         let params = { Reduce.Amax.dims; keepdim } in
+         build_g ~name:"amax" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = amax params x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.addmm.default" ->
       Some
         ((* addmm(bias, mat1, mat2) = bias + mat1 @ mat2; alpha=beta=1 assumed. *)
