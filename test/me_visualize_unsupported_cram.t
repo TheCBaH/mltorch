@@ -240,7 +240,7 @@ is model data, checked against a count derived from the operand's extent.
   native_graph: malformed PT2 graph: x has rank greater than six
   native_graph: malformed PT2 graph: invalid dimension 9 for rank 2
   native_graph: malformed PT2 graph: torch.ops.aten.add.Tensor: alpha=2 is not supported (only 1)
-  native_graph: malformed PT2 graph: torch.ops.aten.clone.default: memory_format is not supported
+  native_graph: malformed PT2 graph: torch.ops.aten.clone.default: memory_format=channels_last is not supported
   native_graph: malformed PT2 graph: stride must have one or two values, got 3
   native_graph: malformed PT2 graph: w is rank 2, expected 4
   native_graph: malformed PT2 graph: torch.ops.aten.convolution.default: groups must be positive, got 0

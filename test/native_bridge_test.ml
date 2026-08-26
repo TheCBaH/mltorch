@@ -289,6 +289,9 @@ let in_float name f = PT.NamedArgument.make name (PT.Argument.Float f) None
 let in_none name = PT.NamedArgument.make name (PT.Argument.None false) None
 let in_string name s = PT.NamedArgument.make name (PT.Argument.String s) None
 
+let in_memory_format name (mf : PT.MemoryFormat.t) =
+  PT.NamedArgument.make name (PT.Argument.Memory_format mf) None
+
 (* Bind each (name, ATen tensor) into an env and dispatch a one-node graph;
    print each native output as "shape {values}".  The env key and the input's
    TensorArgument name are the same [name], which is how the bridge resolves it. *)
@@ -1652,21 +1655,50 @@ let%expect_test "dispatch: a non-default alpha is rejected, not ignored" =
     error: alpha=2 is not supported (only 1)
     tensor f32 [W=2 C=3] {2, 3, 4, 5, 6, 7} |}]
 
-(* A requested memory_format is a layout change clone does not perform. *)
-let%expect_test "dispatch: clone with a memory_format is rejected" =
+(* Native's engine has exactly one physical layout per shape, so `contiguous`
+   and `preserve` are always already true (a no-op, same as omitting the
+   argument); `channels_last`/`channels_last_3d` request an actual different
+   physical arrangement this engine cannot represent, and are refused. Every
+   `clone.default` occurrence in the 100-model sweep requests either no
+   format or exactly `contiguous` -- see `.ai/pt2_model_support.md`. *)
+let%expect_test
+    "dispatch: clone's memory_format is a no-op when it can be, rejected \
+     otherwise" =
+  let a = float_tensor [ 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  let clone mf =
+    dispatch_print ~target:"torch.ops.aten.clone.default"
+      ~bindings:[ ("self", a) ]
+      ~inputs:
+        ([ in_tensor "self" ]
+        @
+        match mf with
+        | None -> []
+        | Some m -> [ in_memory_format "memory_format" m ])
+  in
+  clone None ~noutputs:1;
+  clone (Some PT.MemoryFormat.ContiguousFormat) ~noutputs:1;
+  clone (Some PT.MemoryFormat.PreserveFormat) ~noutputs:1;
+  clone (Some PT.MemoryFormat.ChannelsLast) ~noutputs:1;
+  clone (Some PT.MemoryFormat.ChannelsLast3d) ~noutputs:1;
+  [%expect
+    {|
+    tensor f32 [W=2 C=2] {1, 2, 3, 4}
+    tensor f32 [W=2 C=2] {1, 2, 3, 4}
+    tensor f32 [W=2 C=2] {1, 2, 3, 4}
+    error: clone: memory_format=channels_last is not supported
+    error: clone: memory_format=channels_last_3d is not supported |}]
+
+(* A wrong-kind argument under this name is still flagged as a decode
+   error, not silently accepted or misreported as an unsupported format. *)
+let%expect_test
+    "dispatch: clone's memory_format rejects the wrong argument kind" =
   let a = float_tensor [ 2; 2 ] [ 1.; 2.; 3.; 4. ] in
   dispatch_print ~target:"torch.ops.aten.clone.default"
     ~bindings:[ ("self", a) ]
     ~inputs:[ in_tensor "self"; in_int "memory_format" 0 ]
     ~noutputs:1;
-  dispatch_print ~target:"torch.ops.aten.clone.default"
-    ~bindings:[ ("self", a) ]
-    ~inputs:[ in_tensor "self"; in_none "memory_format" ]
-    ~noutputs:1;
   [%expect
-    {|
-    error: clone: memory_format is not supported
-    tensor f32 [W=2 C=2] {1, 2, 3, 4} |}]
+    {| error: argument "memory_format": expected memory_format?, got Int |}]
 
 (* clamp with neither bound is refused where the node is built, mirroring
    ATen's own meta-function check. *)

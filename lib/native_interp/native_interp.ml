@@ -15,7 +15,8 @@ type arg_kind =
   | `Optional_scalar
   | `String
   | `Tensor_or_scalar
-  | `Tensor_list ]
+  | `Tensor_list
+  | `Memory_format_opt ]
 
 (* [Zero] is not a sub-case of [Negative]: the engine forbids an empty extent by
    construction ([Dim.extent] is >= 1), so a declared 0 is a shape this dialect
@@ -115,7 +116,7 @@ type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
 
 type unsupported_option =
   [ `Alpha of float
-  | `Memory_format
+  | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
   | `Dilation of int list
   | `Approximate of string
   | `Dtype
@@ -292,6 +293,7 @@ let pp_arg_kind ppf : arg_kind -> unit = function
   | `String -> Fmt.string ppf "a string"
   | `Tensor_or_scalar -> Fmt.string ppf "a tensor or scalar"
   | `Tensor_list -> Fmt.string ppf "a tensor list"
+  | `Memory_format_opt -> Fmt.string ppf "an optional memory format"
 
 let pp_metadata_role ppf : metadata_role -> unit = function
   | `Tensor -> Fmt.string ppf "tensor"
@@ -375,7 +377,12 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Unsupported_option { Unsupported_option.op; option } -> (
       match option with
       | `Alpha a -> Fmt.pf ppf "%s: alpha=%g is not supported (only 1)" op a
-      | `Memory_format -> Fmt.pf ppf "%s: memory_format is not supported" op
+      | `Memory_format mf ->
+          Fmt.pf ppf "%s: memory_format=%s is not supported" op
+            (match mf with
+            | `Channels_last -> "channels_last"
+            | `Channels_last_3d -> "channels_last_3d"
+            | `Unknown -> "unknown")
       | `Dilation d ->
           Fmt.pf ppf "%s: dilation=[%a] is not supported (only 1)" op
             Fmt.(list ~sep:(any ",") int)
@@ -759,19 +766,46 @@ let reject_alpha esc (node : Pytorch_types.Node.t) =
       malformed esc
         (`Unsupported_option { op = node.target; option = `Alpha a })
 
-(* [clone] with a [memory_format] asks for a layout change this op does not
-   perform. The native IR has one layout per shape, so honouring the request is
-   impossible and ignoring it would misreport what was computed. *)
-let reject_memory_format esc (node : Pytorch_types.Node.t) =
+(* [clone]'s [memory_format]. Native's engine has exactly one physical layout
+   per shape -- there is no channels-last stride concept anywhere in the
+   six-axis frame -- so a request to make the result CONTIGUOUS, or to
+   PRESERVE whatever format the input already has, is always already true:
+   every native tensor is already in that one dense layout. (Confirmed
+   against the corpus: every `clone.default` occurrence across the 100-model
+   sweep requests either no format or exactly `ContiguousFormat` -- see
+   `.ai/pt2_model_support.md`.) A request for an actual different physical
+   arrangement (channels-last) asks for something this engine cannot
+   represent, so it is refused rather than silently treated as a no-op. *)
+let check_clone_memory_format esc (node : Pytorch_types.Node.t) =
   match
     List.find_opt
       (fun (a : NamedArgument.t) -> a.name = "memory_format")
       node.Node.inputs
   with
   | None | Some { arg = Argument.None _; _ } -> ()
+  | Some { arg = Argument.Memory_format mf; _ } -> (
+      match mf with
+      | MemoryFormat.ContiguousFormat | MemoryFormat.PreserveFormat -> ()
+      | MemoryFormat.ChannelsLast ->
+          malformed esc
+            (`Unsupported_option
+               { op = node.target; option = `Memory_format `Channels_last })
+      | MemoryFormat.ChannelsLast3d ->
+          malformed esc
+            (`Unsupported_option
+               { op = node.target; option = `Memory_format `Channels_last_3d })
+      | MemoryFormat.Unknown ->
+          malformed esc
+            (`Unsupported_option
+               { op = node.target; option = `Memory_format `Unknown }))
   | Some _ ->
       malformed esc
-        (`Unsupported_option { op = node.target; option = `Memory_format })
+        (`Wrong_arg_kind
+           {
+             op = node.target;
+             arg = "memory_format";
+             expected = `Memory_format_opt;
+           })
 
 (* [linalg_vector_norm.default]'s [dtype] casts before reducing; the native IR
    has no dtype-conversion op, so honouring the request is impossible and
@@ -1805,7 +1839,7 @@ let lower program =
           let* y = clamp params (get "self") in
           return [ y ]
       | "torch.ops.aten.clone.default" ->
-          reject_memory_format esc node;
+          check_clone_memory_format esc node;
           let* y = clone (get "self") in
           return [ y ]
       | "torch.ops.aten.div.Tensor" -> (
