@@ -10,6 +10,7 @@ type arg_kind =
   [ `Tensor
   | `Optional_tensor
   | `Int_list
+  | `Float_list
   | `Int
   | `Int_opt
   | `Bool
@@ -112,7 +113,8 @@ type metadata_role =
   | `Sdpa_value
   | `Sdpa_mask
   | `Adaptive_avg_pool2d_input
-  | `Vector_norm_input ]
+  | `Vector_norm_input
+  | `Upsample_bilinear2d_input ]
 (** Why the missing [tensor_values] entry was wanted. *)
 
 type hw_param =
@@ -283,6 +285,14 @@ module Concat_rank_mismatch : sig
   type t = { op : string; first : int; other : int }
 end
 
+(** `upsample_bilinear2d.vec`'s own contract, mirroring ATen's own
+    `compute_output_size`: exactly one of [output_size]/[scale_factors] must be
+    given, and a given [scale_factors] must name both spatial axes. *)
+module Bad_upsample_size : sig
+  type fault = Neither | Both | Bad_scale_arity of int
+  type t = { op : string; fault : fault }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
@@ -335,7 +345,8 @@ type malformed =
   | `Bad_select of Bad_select.t
   | `Sdpa_reject of Attention.Sdpa.Reject.t
   | `Concat_no_tensors of string
-  | `Concat_rank_mismatch of Concat_rank_mismatch.t ]
+  | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Bad_upsample_size of Bad_upsample_size.t ]
 (** A graph the decoder accepted and this lowering cannot read. FLAT-INCLUDED in
     {!error}: it is this module's own failure domain, not a crossed seam. *)
 

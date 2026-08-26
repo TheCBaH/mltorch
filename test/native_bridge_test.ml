@@ -284,6 +284,7 @@ let targ name = PT.Argument.Tensor (PT.TensorArgument.make name)
 let in_tensor name = PT.NamedArgument.make name (targ name) None
 let in_int name i = PT.NamedArgument.make name (PT.Argument.Int i) None
 let in_ints name xs = PT.NamedArgument.make name (PT.Argument.Ints xs) None
+let in_floats name xs = PT.NamedArgument.make name (PT.Argument.Floats xs) None
 let in_bool name b = PT.NamedArgument.make name (PT.Argument.Bool b) None
 let in_float name f = PT.NamedArgument.make name (PT.Argument.Float f) None
 let in_none name = PT.NamedArgument.make name (PT.Argument.None false) None
@@ -765,6 +766,102 @@ let%expect_test
       n2: [t3 f32 [C=1]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
     outputs: [t3 f32 [C=1] <-n2]
     tensor f32 [C=1] {8.5} |}]
+
+let%expect_test
+    "dispatch: upsample_bilinear2d.vec explicit output_size, align_corners=true"
+    =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.upsample_bilinear2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_ints "output_size" [ 3; 3 ];
+        in_bool "align_corners" true;
+        in_none "scale_factors";
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=2] ->[n0]]
+    nodes:
+      n0: [t1 f32 [H=2 W=2 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t2 f32 [H=3 W=3 C=1] ->[n2]] =
+        upsample_bilinear2d
+          x=t1 <-n0
+          params={output_size={h=3; w=3};
+          align_corners=true}
+      n2: [t3 f32 [W=3 C=3]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [W=3 C=3] <-n2]
+    tensor f32 [W=3 C=3] {1, 1.5, 2, 2, 2.5, 3, 3, 3.5, ...} |}]
+
+(* Same [2x2 -> 3x3] geometry, but resolved from [scale_factors] rather than
+   an explicit [output_size] -- the import-time resolution [Op_bridge] and
+   [Native_interp] both perform (ATen's own `floor(input_size *
+   scale_factor)`), so the Native op sees the identical params either way.
+   [align_corners=false] here, so this also exercises the other
+   [Bilinear_axis.endpoints] branch. *)
+let%expect_test "dispatch: upsample_bilinear2d.vec via scale_factors" =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.upsample_bilinear2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_none "output_size";
+        in_bool "align_corners" false;
+        in_floats "scale_factors" [ 1.5; 1.5 ];
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=2] ->[n0]]
+    nodes:
+      n0: [t1 f32 [H=2 W=2 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t2 f32 [H=3 W=3 C=1] ->[n2]] =
+        upsample_bilinear2d
+          x=t1 <-n0
+          params={output_size={h=3; w=3};
+          align_corners=false}
+      n2: [t3 f32 [W=3 C=3]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [W=3 C=3] <-n2]
+    tensor f32 [W=3 C=3] {1, 1.5, 2, 2, 2.5, 3, 3, 3.5, ...} |}]
+
+let%expect_test "dispatch: upsample_bilinear2d.vec rejects neither size arg" =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print ~target:"torch.ops.aten.upsample_bilinear2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_none "output_size";
+        in_bool "align_corners" true;
+        in_none "scale_factors";
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    error: upsample_bilinear2d.vec: exactly one of output_size or scale_factors must be given |}]
+
+let%expect_test "dispatch: upsample_bilinear2d.vec rejects both size args" =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print ~target:"torch.ops.aten.upsample_bilinear2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_ints "output_size" [ 3; 3 ];
+        in_bool "align_corners" true;
+        in_floats "scale_factors" [ 1.5; 1.5 ];
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    error: upsample_bilinear2d.vec: output_size and scale_factors are mutually exclusive |}]
 
 let%expect_test "dispatch: max_pool2d_with_indices.default discards indices" =
   (* NCHW [1,1,4,4], value(h,w)=h*4+w. 2x2/stride-2 windows: max is each

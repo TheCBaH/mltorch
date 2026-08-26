@@ -500,6 +500,27 @@ module Group_norm = struct
       Dim.pp channels Op_config.Pos.pp groups
 end
 
+(* `upsample_bilinear2d.vec`'s own aggregate: the coordinate transform scales
+   the output index by [in_extent - 1] before dividing by [out_extent - 1]
+   (see [Resize.Bilinear_axis]), and that product is a model-supplied
+   aggregate the same way [Adaptive_pool]'s [input_extent * output_size] is --
+   checked here, before [Resize]'s [Compute] ever multiplies the two. *)
+module Resize = struct
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    out_extent : Op_config.Pos.t;
+    aggregate : int64;
+    limit : int64;
+  }
+
+  let pp ppf { axis; in_extent; out_extent; aggregate; limit } =
+    Fmt.pf ppf
+      "upsample_bilinear2d: (input extent %a - 1) times (output_size %a - 1) \
+       on axis %a is %Ld, which must be below the engine maximum of %Ld"
+      Dim.pp in_extent Op_config.Pos.pp out_extent Axis.pp axis aggregate limit
+end
+
 type t =
   [ `Broadcast of Broadcast.t
   | `Adaptive_pool of Adaptive_pool.t
@@ -519,7 +540,8 @@ type t =
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Convolution of Convolution.error
   | `Sdpa of Sdpa.error
-  | `Group_norm of Group_norm.t ]
+  | `Group_norm of Group_norm.t
+  | `Resize of Resize.t ]
 
 let pp ppf = function
   | `Broadcast e -> Broadcast.pp ppf e
@@ -541,3 +563,4 @@ let pp ppf = function
   | `Convolution e -> Convolution.pp_error ppf e
   | `Sdpa e -> Sdpa.pp_error ppf e
   | `Group_norm e -> Group_norm.pp ppf e
+  | `Resize e -> Resize.pp ppf e

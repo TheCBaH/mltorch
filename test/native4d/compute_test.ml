@@ -336,7 +336,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 34, registry: 34 |}]
+  [%expect {| fixtures: 35, registry: 35 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -378,6 +378,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     transposed_conv2d      direct = symbolic
     unbind                 out0 direct = symbolic
     unbind                 out1 direct = symbolic
+    upsample_bilinear2d    direct = symbolic
     vector_norm_keepdims   direct = symbolic |}]
 
 (* Hand values, not Native-as-oracle: both sides would instantiate the same

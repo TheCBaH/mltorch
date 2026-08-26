@@ -33,7 +33,7 @@ let classify (op : Op.t) ~output:_ =
   | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Max_keepdims _
   | Max_pool2d _ | Mean_keepdims _ | Mul _ | Mul_scalar _ | Pad4 _ | Pow _
   | Relu _ | Rms_norm _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _
-  | Transposed_conv2d _ | Vector_norm_keepdims _ ->
+  | Transposed_conv2d _ | Upsample_bilinear2d _ | Vector_norm_keepdims _ ->
       Output_transfer.Continuous
 
 module Transfer = Output_transfer.Make (struct

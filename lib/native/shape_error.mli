@@ -357,6 +357,23 @@ module Group_norm : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** `upsample_bilinear2d.vec`'s own aggregate: the coordinate transform scales
+    the output index by [in_extent - 1] before dividing by [out_extent - 1] (see
+    [Resize.Bilinear_axis]), and that product is a model-supplied aggregate the
+    same way {!Adaptive_pool}'s [input_extent * output_size] is -- checked
+    before [Resize]'s [Compute] ever multiplies the two. *)
+module Resize : sig
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    out_extent : Op_config.Pos.t;
+    aggregate : int64;
+    limit : int64;
+  }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 type t =
   [ `Broadcast of Broadcast.t
   | `Adaptive_pool of Adaptive_pool.t
@@ -376,6 +393,7 @@ type t =
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Convolution of Convolution.error
   | `Sdpa of Sdpa.error
-  | `Group_norm of Group_norm.t ]
+  | `Group_norm of Group_norm.t
+  | `Resize of Resize.t ]
 
 val pp : Format.formatter -> [< t ] -> unit

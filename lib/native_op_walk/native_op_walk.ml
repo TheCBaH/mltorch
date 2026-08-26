@@ -109,6 +109,8 @@ let all_walks : op list =
     (module Adaptive_avg_pool2d_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Pow_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
+    (module Upsample_bilinear2d_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
   ]
 
 (* [native_op_walk.ml] shares the library's name, so it IS the library's

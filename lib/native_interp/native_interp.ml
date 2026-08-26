@@ -7,6 +7,7 @@ type arg_kind =
   [ `Tensor
   | `Optional_tensor
   | `Int_list
+  | `Float_list
   | `Int
   | `Int_opt
   | `Bool
@@ -92,7 +93,8 @@ type metadata_role =
   | `Sdpa_value
   | `Sdpa_mask
   | `Adaptive_avg_pool2d_input
-  | `Vector_norm_input ]
+  | `Vector_norm_input
+  | `Upsample_bilinear2d_input ]
 
 type hw_param =
   [ `Stride
@@ -209,6 +211,14 @@ module Concat_rank_mismatch = struct
   type t = { op : string; first : int; other : int }
 end
 
+(* `upsample_bilinear2d.vec`'s own contract, mirroring ATen's own
+   `compute_output_size`: exactly one of [output_size]/[scale_factors] must be
+   given, and a given [scale_factors] must name both spatial axes. *)
+module Bad_upsample_size = struct
+  type fault = Neither | Both | Bad_scale_arity of int
+  type t = { op : string; fault : fault }
+end
+
 type malformed =
   [ `Missing_arg of Missing_arg.t
   | `Wrong_arg_kind of Wrong_arg_kind.t
@@ -235,7 +245,8 @@ type malformed =
   | `Bad_select of Bad_select.t
   | `Sdpa_reject of Attention.Sdpa.Reject.t
   | `Concat_no_tensors of string
-  | `Concat_rank_mismatch of Concat_rank_mismatch.t ]
+  | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Bad_upsample_size of Bad_upsample_size.t ]
 
 module Rank_mismatch = struct
   type t = { sizes : int; strides : int }
@@ -284,6 +295,7 @@ let pp_arg_kind ppf : arg_kind -> unit = function
   | `Tensor -> Fmt.string ppf "a tensor"
   | `Optional_tensor -> Fmt.string ppf "an optional tensor"
   | `Int_list -> Fmt.string ppf "an int list"
+  | `Float_list -> Fmt.string ppf "a float list"
   | `Int -> Fmt.string ppf "an int"
   | `Int_opt -> Fmt.string ppf "an optional int"
   | `Bool -> Fmt.string ppf "a bool"
@@ -331,6 +343,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Sdpa_mask -> Fmt.string ppf "sdpa attn_mask"
   | `Adaptive_avg_pool2d_input -> Fmt.string ppf "adaptive_avg_pool2d input"
   | `Vector_norm_input -> Fmt.string ppf "vector_norm input"
+  | `Upsample_bilinear2d_input -> Fmt.string ppf "upsample_bilinear2d input"
 
 let pp_hw_param ppf : hw_param -> unit = function
   | `Stride -> Fmt.string ppf "stride"
@@ -438,6 +451,17 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
       Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
         other
+  | `Bad_upsample_size { Bad_upsample_size.op; fault } -> (
+      match fault with
+      | Bad_upsample_size.Neither ->
+          Fmt.pf ppf
+            "%s: exactly one of output_size or scale_factors must be given" op
+      | Bad_upsample_size.Both ->
+          Fmt.pf ppf "%s: output_size and scale_factors are mutually exclusive"
+            op
+      | Bad_upsample_size.Bad_scale_arity got ->
+          Fmt.pf ppf "%s: scale_factors must have exactly 2 elements, got %d" op
+            got)
 
 let pp_tensor_bridge ppf : [< tensor_bridge ] -> unit = function
   | #malformed as e -> pp_malformed ppf e
@@ -594,6 +618,23 @@ let ints_arg esc ?(default = []) (node : Pytorch_types.Node.t) name =
   | Some _ ->
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int_list })
+
+(* [float[]?]: no [Sym_floats] resolution the way [ints_arg] resolves
+   [Sym_ints] -- a schema [float[]] is never symbolic. Absent/[None] both
+   collapse to [default], the same convention [ints_arg] uses for e.g.
+   `upsample_bilinear2d.vec`'s [scale_factors] when [output_size] is given
+   instead. *)
+let floats_arg esc ?(default = []) (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> default
+  | Some { arg = Argument.Floats xs; _ } -> xs
+  | Some { arg = Argument.None _; _ } -> default
+  | Some _ ->
+      malformed esc
+        (`Wrong_arg_kind
+           { op = node.target; arg = name; expected = `Float_list })
 
 (* A resolved [SymInt] is accepted and a NAMED one is refused as an unresolved
    symbol -- the same rule [Interp_decode.sym_int_value] applies on the ATen
@@ -897,7 +938,8 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
   | "torch.ops.aten.max_pool2d_with_indices.default"
   | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.layer_norm.default"
   | "torch.ops.aten.native_layer_norm.default" | "torch.ops.aten.addmm.default"
-  | "torch.ops.aten.scaled_dot_product_attention.default" ->
+  | "torch.ops.aten.scaled_dot_product_attention.default"
+  | "torch.ops.aten.upsample_bilinear2d.vec" ->
       true
   | _ -> false
 
@@ -2266,6 +2308,78 @@ let lower program =
           in
           let sizes = ints_arg esc node "split_sizes" in
           split_with_sizes { Split.Split_with_sizes.axis; sizes } (get "self")
+      (* Schema: `upsample_bilinear2d.vec(Tensor input, SymInt[]? output_size,
+         bool align_corners, float[]? scale_factors)`. Exactly one of
+         [output_size]/[scale_factors] is ever given (ATen's own
+         `compute_output_size` rejects both-or-neither); a [scale_factors]
+         node is resolved to an explicit size here, at import time, using
+         ATen's own `floor(input_size * scale_factor)` -- the Native op only
+         ever sees a concrete size, since Native shapes are static. Same
+         resolution [Op_bridge]'s arm performs, restated here only because
+         this importer reads serialized metadata where that one reads a live
+         tensor. *)
+      | "torch.ops.aten.upsample_bilinear2d.vec" ->
+          let x_name = tensor_name esc node "input" in
+          let _n, _c, in_h, in_w =
+            sizes_rank_4 esc ~tensor:x_name
+              (static_sizes esc ~tensor:x_name
+                 (tensor_meta esc graph ~ssa:x_name
+                    ~role:`Upsample_bilinear2d_input))
+          in
+          let output_size = ints_arg esc node "output_size" in
+          let scale_factors = floats_arg esc node "scale_factors" in
+          let align_corners = bool_arg esc node "align_corners" in
+          let out_h, out_w =
+            match (output_size, scale_factors) with
+            | [ h; w ], [] -> (h, w)
+            | [], [ sh; sw ] ->
+                ( int_of_float (float_of_int in_h *. sh),
+                  int_of_float (float_of_int in_w *. sw) )
+            | [], [] ->
+                malformed esc
+                  (`Bad_upsample_size
+                     {
+                       Bad_upsample_size.op = node.target;
+                       fault = Bad_upsample_size.Neither;
+                     })
+            | (_ :: _ :: _ | [ _ ]), [] ->
+                malformed esc
+                  (`Bad_arity
+                     {
+                       Bad_arity.param = `Output_size;
+                       got = List.length output_size;
+                     })
+            | [], _ ->
+                malformed esc
+                  (`Bad_upsample_size
+                     {
+                       Bad_upsample_size.op = node.target;
+                       fault =
+                         Bad_upsample_size.Bad_scale_arity
+                           (List.length scale_factors);
+                     })
+            | _ :: _, _ :: _ ->
+                malformed esc
+                  (`Bad_upsample_size
+                     {
+                       Bad_upsample_size.op = node.target;
+                       fault = Bad_upsample_size.Both;
+                     })
+          in
+          let params =
+            {
+              Resize.Bilinear2d.output_size =
+                {
+                  h = pos esc ~op:node.target ~param:`Output_size out_h;
+                  w = pos esc ~op:node.target ~param:`Output_size out_w;
+                };
+              align_corners;
+            }
+          in
+          let* x = permute perm_nchw_to_nhwc (get "input") in
+          let* y = upsample_bilinear2d params x in
+          let* y = permute perm_nhwc_to_nchw y in
+          return [ y ]
       (* Both overloads share this body -- same argument names, same shared
          resolver, same reason op_bridge.ml's arm does (drift risk, exact
          target still visible in every diagnostic via [tensor]/[node.target]).

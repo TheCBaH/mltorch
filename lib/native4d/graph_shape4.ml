@@ -307,6 +307,9 @@ let output_shape (op : Op.t)
                 Reshape.Reshape.shape =
                   Shape4.to_vec6 params.Ops4.Reshape4.shape;
               }))
+  | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
+      let* x_shape = shape x in
+      one (four (Resize.Bilinear2d.output_shape ~x_shape params))
   | Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params; x } ->
       let* x_shape = shape x in
       one
