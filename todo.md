@@ -264,33 +264,93 @@ declared rank the importer's `sizes_rank_4` rejects) — noted here only as a
 discovered lead, not scoped as a row. See `.ai/pt2_model_support.md`'s
 2026-08-26 update.
 
-Ordered: (1) the rest of CSATv2's medium-complexity structural set; then
-(2) the high-complexity matrix/attention/indexing set.
+**And `upsample_bilinear2d.vec`** (formerly item 1 below, landed
+2026-08-26) — CSATv2's real bilinear-resize op, and the section-1 backlog's
+last remaining row. `Resize.Bilinear2d` (`lib/native/ops/resize.ml`): the
+per-axis coordinate transform (`Bilinear_axis.endpoints`) needs no new
+`SEMANTICS` primitive and no `Expr.Intrinsic` node (unlike `Max_pool2d`'s
+own window geometry) — `in_extent`/`out_extent` are static shape extents at
+graph-construction time, not tensor data, so the source coordinate is an
+EXACT rational number and its floor/fractional parts are exactly an integer
+floor division and remainder, expressed with the same `index_scale`/
+`index_floor_div_pos` idiom `Window_axis`/`Pool.Adaptive_axis` already use.
+One aggregate bound (`Shape_error.Resize`, checked in `output_shape` before
+`Compute` ever multiplies the two factors) covers both `align_corners`
+formulas' numerators, following CLAUDE.md's divide-before-multiply rule.
+**Scope widened before landing, twice, from the original "explicit output
+sizes, `align_corners=true`" note below**: `align_corners` is a real `bool`
+field, not a fixed constant — the `align_corners=false` transform
+(`(out_idx+0.5)*in/out-0.5`, clamped) is a second, comparably-sized closed
+form over the same integer machinery, and fixing it to `true` was exactly
+the kind of narrow, unevidenced restriction `pow.Tensor_Scalar`'s exponent
+and `clone`'s `memory_format` were both corrected out of earlier in this
+file — see the "remove unnecessary specialization" audit below. Once the op
+itself no longer cares which entry point produced its size,
+`scale_factors` costs nothing extra either: `Op_bridge` and `Native_interp`
+both resolve it to an explicit `output_size` at import time (ATen's own
+`floor(input_size * scale_factor)`, against the real input shape each
+importer already has), so the Native op only ever sees an explicit size —
+the sanctioned "translate params, still one node" pattern, not a
+decomposition. Both importers reject a graph giving neither or both of
+`output_size`/`scale_factors`, matching ATen's own `compute_output_size`
+contract, with a closed `Bad_upsample_size`/`Validation_failure` payload
+rather than a silent default. **No real ATen C binding**: unlike
+`group_norm`, `UpSampleBilinear2d.cpp` and `cpu/UpSampleKernel.cpp` compile
+cleanly against this repo's curated archive in isolation, but
+`scale_factors`'s `float[]?` argument exposed a real gap in the binding
+generator's optional-list convention — `Optional (List (Base Int/Float,
+_))` collapses "absent" and "present-but-empty" to the same decoded `[]`,
+which is harmless for `mean.dim`'s dim list (ATen treats both the same way)
+but would silently turn a genuinely absent `scale_factors` into a
+present-empty `ArrayRef`, failing ATen's own `TORCH_CHECK` on every
+accepted graph. Fixing that generally (a real null-encoding for optional
+lists, not just this op) is out of scope here, so `bin/aten_ops_gen.ml`
+does not select this op — same treatment `group_norm.default` got, and for
+an analogous reason (a gap in shared machinery, not a per-op shortcut).
+Correctness is instead pinned by hand-derived `compute_test.ml` fixtures
+(both `align_corners` values, plus the `out_extent=1` degenerate case) cross-
+checked against ATen's published coordinate-transform formulas by hand, the
+mandatory Direct-vs-Symbolic bitwise agreement (`test/native/compute_test.ml`
+graph fixtures, the mandatory per-op Native4D coverage, and a new
+`lib/native_op_walk/upsample_bilinear2d_nwalk.ml` fuzzing shape/output-size/
+`align_corners` together), plus hand-derived `dispatch:` fixtures in both
+`test/native_bridge_test.ml` (the ATen-linked bridge) and the new
+`test/native_interp/upsample_test.ml` (the metadata-only importer) — the
+latter two include one fixture proving the `output_size` and `scale_factors`
+entry points build the identical graph. Native4D needs no new payload at
+all (same reasoning as `Adaptive_avg_pool2d`: `output_size`/`align_corners`
+name no axis and carry no shape), so `Ops4`/`Domain`/`Output_transfer4`
+reuse `Resize.Bilinear2d.t` unchanged and `lower.ml`'s arm is a direct,
+unconditional passthrough like `Max_pool2d`'s. **The 100-model sweep was
+not regenerated for this landing** (gated on downloading the release
+archives, not run this session) — unlike every other row above, this entry
+has no fresh sweep evidence attached; re-run `make pt2.json-model-support`
+before relying on a "N models move" claim for it.
 
-## 1. Medium complexity — remaining CSATv2 structural set
+**Remove-unnecessary-specialization audit (requested alongside this
+landing).** Two other "only X is supported" notes in this file were checked
+for the same pattern the `upsample_bilinear2d` `align_corners` fix and the
+`pow.Tensor_Scalar`/`clone` `memory_format` landings above already closed —
+an arbitrary narrowing with no real cost to lifting it, versus a genuine
+scope boundary that needs new op-shaped work:
+- `linalg_vector_norm.default`'s `ord=2`-only restriction (its own landing
+  note above) stays as is. A general `ord` needs its own `pow`-of-a-
+  reduction kernel — new arithmetic, not a parameter unlocked by machinery
+  the op already has (contrast `align_corners`, which reused
+  `index_floor_div_pos` unchanged) — so this is a real scope boundary, not
+  an arbitrary one, and is left untouched.
+- Pooling's `dilation` is still a hard rejection (`op_bridge.ml`'s
+  `Pool_unsupported.Dilation`), even though `Window_axis.output_extent`/
+  `.window` — the shape/read machinery `MaxPool2d`/`AvgPool2d` already call
+  — already takes a `dilation` parameter generically (`Conv2d` already
+  passes a real one). Extending `MaxPool2d.params`/`AvgPool2d.params` with a
+  real `dilation` field looks likely to be similarly cheap, but is a
+  distinct unit of work from this change (three param records, JSON/bridge/
+  importer/walk plumbing each) with no corpus evidence driving it yet.
+  Flagged here as a follow-up lead, not opened as a row.
 
-Independent vertical slices (unchanged from `ops.md`, verified still
-unimplemented in `Graph_ir` — no `Upsample` node exists today; `Amax`,
-`Pow_scalar`/`Vector_norm`, `max_pool2d`'s `ceil_mode` and `clone`'s
-`memory_format` landed, see above):
-
-1. **`upsample_bilinear2d.vec` (14)**, explicit output sizes,
-   `align_corners=true` — real bilinear-resize op (shape inference,
-   coordinate transform, boundary handling); Native4D `ResizeBilinear4` must
-   reject/diagnose unsupported axes rather than reinterpret them. Do not
-   conflate with `upsample_bicubic2d.vec`, which the sweep shows blocking
-   `sam2_hiera_tiny` separately — a different coordinate-transform/overload,
-   not covered by this row.
-
-This row: ATen binding in `bin/aten_ops_gen.ml` if absent, `Aten_op_config`
-decoder/spec fixture, bridge lowering, Native implementation, dispatch audit.
-Add an ATen-vs-Native walk only where a non-vacuous recipe exists; otherwise a
-table-driven boundary suite. Keep CSATv2 graph-only in CI until a complete
-end-to-end execution test passes (`ops.md` explicit instruction). Every new
-bridge arm here must build exactly one node per ATen op (the design-goal rule
-`select`/`stack`/`concat4`/`split_with_sizes` were fixed against or built
-to) — this remaining target has no obvious decomposition temptation the way
-`select`/`stack` did, but check before landing.
+Ordered: the high-complexity matrix/attention/indexing set (§2) is what
+remains of this file's backlog.
 
 ## 2. High complexity — matrix/attention and indexing semantics
 
@@ -351,9 +411,10 @@ verification target piecemeal.
   (`efficientnet_b1/b2/b3_pruned`, `fbnetv3_g`, `regnetz_005/040/d8`,
   `repvit_m1_0`), disjoint from every operator/domain gap above (`ops.md`'s
   "Cross-model signal" section). It's a `Kernel_adapt` evaluation-depth
-  ceiling, not a missing operation or a Native4D domain limit, so none of §1-2
-  touches it. Noted here only so it isn't mistaken for one of these items if
-  it shows up again; no owner assigned yet.
+  ceiling, not a missing operation or a Native4D domain limit, so none of this
+  file's backlog (the landed rows above, or §2) touches it. Noted here only so
+  it isn't mistaken for one of these items if it shows up again; no owner
+  assigned yet.
 - **Grouped convolution and `requires_payloads`** — the 100-model sweep
   confirms both are widespread (13 and 11 models respectively) but both are
   already-closed design decisions (`.ai/native4d_design.md` for grouped

@@ -43,6 +43,12 @@ let avg_params : Pool.AvgPool2d.params =
 let adaptive_params : Pool.AdaptiveAvgPool2d.params =
   { output_size = hw (Op_config.Pos.of_int 3) }
 
+(* [align_corners=true], the other value the JSON-round-trip fixture in
+   op_json_test.ml already exercises with [false] -- between them, both
+   [Bilinear_axis.endpoints] branches get a Direct-vs-Symbolic comparison. *)
+let upsample_params : Resize.Bilinear2d.params =
+  { output_size = hw (Op_config.Pos.of_int 7); align_corners = true }
+
 let conv_params ~in_channels ~kernel : Ops4.Conv_params.t =
   {
     h = axis_window ~kernel;
@@ -260,6 +266,8 @@ let per_op () =
              unbind Axis4.C x)
         in
         (g, [ nhwc ]) );
+      ( "upsample_bilinear2d",
+        unary ~shape:nhwc (Builder.upsample_bilinear2d upsample_params) );
       ( "vector_norm_keepdims",
         unary ~shape:nhwc (Builder.vector_norm_keepdims [ Axis4.H; Axis4.W ]) );
     ]

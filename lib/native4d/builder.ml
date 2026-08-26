@@ -225,6 +225,9 @@ let unbind axis x =
   opN ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
     (Op.Unbind { Ops4.Unbind.params = { axis }; x })
 
+let upsample_bilinear2d params x =
+  op1 (Op.Upsample_bilinear2d { Resize.Bilinear2d.params; x })
+
 let vector_norm_keepdims dims x =
   op1
     (Op.Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params = { dims }; x })

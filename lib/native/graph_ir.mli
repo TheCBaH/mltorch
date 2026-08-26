@@ -110,6 +110,10 @@ type op =
      [Graph_shape] returns one shape per slice and [Graph_builder.unbind]
      allocates one edge each. See .ai/native_multi_output_design.md §1a. *)
   | Unbind of Split.Unbind.t
+  (* Bilinear resize to an explicit output size, either `align_corners`
+     value. The per-axis coordinate transform is its own shape/compute
+     concern, not a legalization onto any existing op. *)
+  | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Vector_norm of Reduce.Vector_norm.t
 
 (* Aliases to [Graph_common], which owns the dialect-agnostic vocabulary so a

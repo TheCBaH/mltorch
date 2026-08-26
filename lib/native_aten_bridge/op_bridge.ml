@@ -217,6 +217,9 @@ let int_arg ?default node name =
 let ints_arg ?(default = []) node name =
   decode_result (D.ints_arg_result ~default node name)
 
+let floats_arg ?(default = []) node name =
+  decode_result (D.floats_arg_result ~default node name)
+
 let bool_arg ?(default = false) node name =
   decode_result (D.bool_arg_result ~default node name)
 
@@ -1961,6 +1964,64 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      materialization, not alias-identical: ATen may return a view over the
      same storage, native graph edges are values. See
      .ai/native_aten_bridge_layout.md. *)
+  (* Schema: `upsample_bilinear2d.vec(Tensor input, SymInt[]? output_size,
+     bool align_corners, float[]? scale_factors)`. Exactly one of
+     [output_size]/[scale_factors] is ever given (ATen's own
+     `compute_output_size` rejects both-or-neither); a [scale_factors] graph
+     is resolved to an explicit size here, at import time, using ATen's own
+     `floor(input_size * scale_factor)` -- the Native op only ever sees a
+     concrete size, since Native shapes are static. *)
+  | "torch.ops.aten.upsample_bilinear2d.vec" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "input" in
+         let* () = require_rank "input" ~expected:4 aten_x in
+         let* output_size = ints_arg node "output_size" in
+         let* scale_factors = floats_arg node "scale_factors" in
+         let* align_corners = bool_arg node "align_corners" in
+         let w_shape = Aten_tensor.shape aten_x in
+         let in_h = w_shape.(2) and in_w = w_shape.(3) in
+         let* out_h, out_w =
+           match (output_size, scale_factors) with
+           | [ h; w ], [] -> return (h, w)
+           | [], [ sh; sw ] ->
+               return
+                 ( int_of_float (float_of_int in_h *. sh),
+                   int_of_float (float_of_int in_w *. sw) )
+           | [], [] ->
+               fail
+                 (`Validation_failure
+                    "upsample_bilinear2d.vec: exactly one of output_size or \
+                     scale_factors must be given")
+           | (_ :: _ :: _ | [ _ ]), [] ->
+               fail
+                 (`Invalid_hw_arg { name = "output_size"; values = output_size })
+           | [], _ ->
+               fail
+                 (`Validation_failure
+                    (Printf.sprintf
+                       "upsample_bilinear2d.vec: scale_factors must have \
+                        exactly 2 elements, got %d"
+                       (List.length scale_factors)))
+           | _ :: _, _ :: _ ->
+               fail
+                 (`Validation_failure
+                    "upsample_bilinear2d.vec: output_size and scale_factors \
+                     are mutually exclusive")
+         in
+         let* h = pos ~op:node.Node.target ~param:`Output_size out_h in
+         let* w = pos ~op:node.Node.target ~param:`Output_size out_w in
+         let params =
+           { Resize.Bilinear2d.output_size = { h; w }; align_corners }
+         in
+         let* x = native_of_aten "input" aten_x in
+         build_g ~name:"upsample_bilinear2d_relayout" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let* x' = permute perm_nchw_to_nhwc x_id in
+               let* y' = upsample_bilinear2d params x' in
+               let+ y = permute perm_nhwc_to_nchw y' in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.view.default" | "torch.ops.aten._unsafe_view.default" ->
       Some
         ((* Contiguous reshape. [of_aten] inputs are already ATen-row-major, so

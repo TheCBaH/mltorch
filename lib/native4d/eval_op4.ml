@@ -210,6 +210,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           { Reshape.Reshape.shape = Shape4.to_vec6 params.Ops4.Reshape4.shape }
           ~x_shape:(shape_of x) ~x:(operand x) out
+    | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
+        let module C = Resize.Bilinear2d.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params; x } ->
         let module C = Reduce.Vector_norm.Compute (S) in
         C.pixel

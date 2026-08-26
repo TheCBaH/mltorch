@@ -56,6 +56,9 @@ let avg_params : Pool.AvgPool2d.params =
 let adaptive_params : Pool.AdaptiveAvgPool2d.params =
   { output_size = hw (Op_config.Pos.of_int 3) }
 
+let upsample_params : Resize.Bilinear2d.params =
+  { output_size = hw (Op_config.Pos.of_int 5); align_corners = false }
+
 (* Deliberately in the variant's own alphabetical order, so a reader can check
    the list against [Op.op] by eye. *)
 let samples : Op.t list =
@@ -155,6 +158,7 @@ let samples : Op.t list =
         bias = None;
       };
     Unbind { Ops4.Unbind.params = { axis = C }; x };
+    Upsample_bilinear2d { Resize.Bilinear2d.params = upsample_params; x };
     Vector_norm_keepdims
       { Ops4.Vector_norm_keepdims.params = { dims = [ H; W ] }; x };
   ]
@@ -164,7 +168,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 34, registry: 34 |}]
+  [%expect {| samples: 35, registry: 35 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -225,6 +229,7 @@ let%expect_test "op4: printed" =
              dilation={h=1; w=1};
              output_padding={h=1; w=1}}
     unbind x=t0 params={axis=C}
+    upsample_bilinear2d x=t0 params={output_size={h=5; w=5}; align_corners=false}
     vector_norm_keepdims x=t0 params={dims=[H, W]} |}]
 
 let%expect_test "op4: round-trips through JSON" =
@@ -237,7 +242,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 34 ops |}]
+  [%expect {| round-tripped 35 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

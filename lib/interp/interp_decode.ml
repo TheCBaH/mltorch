@@ -38,6 +38,7 @@ type expected_kind =
   | `Int
   | `Int_opt
   | `Int_list
+  | `Float_list
   | `Bool
   | `Bool_opt
   | `Float
@@ -118,6 +119,7 @@ let expected_kind_name : expected_kind -> string = function
   | `Int -> "int"
   | `Int_opt -> "int?"
   | `Int_list -> "int[]"
+  | `Float_list -> "float[]"
   | `Bool -> "bool"
   | `Bool_opt -> "bool?"
   | `Float -> "float"
@@ -271,6 +273,18 @@ let ints_arg ?(default = []) node name =
       Err.List.map (fun s -> sym_int_value ~arg:name s) xs
   | Some (Argument.None _) | None -> Err.return default
   | Some arg -> wrong_kind name `Int_list arg
+
+(* [float[]?]: no [Sym_floats] resolution needed the way [ints_arg] resolves
+   [Sym_ints] -- a schema [float[]] is never symbolic (only sizes are), so
+   [Argument.Floats] is the one live case. Absent/[None] both mean "not this
+   overload variant" (e.g. `upsample_bilinear2d.vec`'s [scale_factors] when
+   [output_size] is given instead), collapsed to [default] the same way
+   [ints_arg] collapses [mean.dim]'s absent [dim]. *)
+let floats_arg ?(default = []) node name =
+  match find_arg node name with
+  | Some (Argument.Floats xs) -> Err.return xs
+  | Some (Argument.None _) | None -> Err.return default
+  | Some arg -> wrong_kind name `Float_list arg
 
 let require name = Err.of_option (`Missing_argument name)
 
@@ -513,6 +527,7 @@ let resolve_result = resolve
 let tensor_arg_result = tensor_arg
 let tensor_or_scalar_arg_result = tensor_or_scalar_arg
 let ints_arg_result = ints_arg
+let floats_arg_result = floats_arg
 let int_arg_result = int_arg
 let int_opt_ptr_result = int_opt_ptr
 let int_opt_arg_result = int_opt_arg

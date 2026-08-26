@@ -334,6 +334,10 @@ let lower_node ~view acc (n : node) =
         (Op.Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x = op_of x })
   | Max_pool2d { Pool.MaxPool2d.params; x } ->
       simple (Op.Max_pool2d { Pool.MaxPool2d.params; x = op_of x })
+  (* Direct counterpart, like [Max_pool2d] above: [Resize.Bilinear2d.params]
+     names no axis and carries no shape, so it crosses unchanged. *)
+  | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
+      simple (Op.Upsample_bilinear2d { Resize.Bilinear2d.params; x = op_of x })
   (* The axes were gated on the NATIVE [Axis.t] by [Domain.check_dims] before
      this walk started, so [dims4] here only converts what is already known to
      be inside the dialect -- which is what lets the diagnostic name the

@@ -250,6 +250,10 @@ val sub : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val unbind :
   ?name:string -> Split.Unbind.params -> tensor_ref -> Tensor_id.t list t
 
+val upsample_bilinear2d :
+  ?name:string -> Resize.Bilinear2d.params -> tensor_ref -> Tensor_id.t t
+(** Bilinear resize to an explicit output size, [align_corners=true] only. *)
+
 val vector_norm :
   ?name:string -> Reduce.Vector_norm.params -> tensor_ref -> Tensor_id.t t
 

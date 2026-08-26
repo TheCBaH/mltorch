@@ -572,4 +572,16 @@ let%expect_test "native walk coverage" =
     step 4 [scalar]: [n=1 c=3 h=3 w=4] scalar=6
     [native] pow: direct==symbolic
     step 5 [input]: [n=1 c=3 h=5 w=4] scalar=6
-    [native] pow: direct==symbolic |}]
+    [native] pow: direct==symbolic
+    step 0: {shape=[1,4,8,8] output_size=[4,4] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 1 [input_h]: {shape=[1,4,6,8] output_size=[4,4] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 2 [out_w]: {shape=[1,4,6,8] output_size=[4,6] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 3 [out_h]: {shape=[1,4,6,8] output_size=[7,6] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 4 [align_corners]: {shape=[1,4,6,8] output_size=[7,6] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic
+    step 5 [n]: {shape=[2,4,6,8] output_size=[7,6] align_corners=true}
+    [native] upsample_bilinear2d: direct==symbolic |}]
