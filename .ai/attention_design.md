@@ -150,7 +150,7 @@ corpus confirms it independently: `vit_b_32` node 30 is
 operands, and `0.35355... = 64 ** -0.25` for `head_dim = 64` (i.e.
 `sqrt(1/sqrt(64))`). `scale * dot(q,k)` and `dot(q*sqrt(scale), k*sqrt(scale))`
 are mathematically equal in exact arithmetic but NOT f32-identical — proven
-bitwise in `test/native/compute_test.ml`'s dedicated split-vs-single-multiply
+bitwise in `test/native/sdpa_test.ml`'s dedicated split-vs-single-multiply
 case — so implementing `op8.md`'s literal formula is a required MUTATION
 target, not the contract, and is exercised as one.
 

@@ -506,7 +506,7 @@ is to stop throwing the guarantee away in the first place:
 Validated against the full native/`aten_spec_run` test suite; three tests
 needed small, mechanical updates for the new types, not behavior changes
 (`test/native/tensor_test.ml`'s `idx` closure now returns `Dim.index Dim.t`;
-`test/native/compute_test.ml` coerces `Dim.t` values to `int` before `<`/
+`test/native/pool_test.ml` coerces `Dim.t` values to `int` before `<`/
 `List.init`; `test/native/symbolic_test.ml`'s `eval_direct` closures use
 `coord_index_dim`). No diffs anywhere, including the exact-error-message
 expect test.
@@ -808,10 +808,10 @@ Dim.t Vec6.t` — an exact match, no coercion. For `Symbolic`, `position index
   comparison against `Symbolic`) simplified to a direct partial application
   (`~eval_direct:(Pd.pixel p ~x_shape ~x)` etc.) — the coord no longer needs
   adapting, since `pixel`'s type already matches what `compare_symbolic`
-  wants. `test/native/compute_test.ml` and `graph_test.ml` needed zero
-  changes: both already called `pixel` through `Schedule.evaluate` (or
-  built inputs via `Tensor.materialize`, unrelated to `out`), so they
-  transparently picked up the new type.
+  wants. `test/native`'s split compute-test files and
+  `graph_test.ml` needed zero changes: both already called `pixel` through
+  `Schedule.evaluate` (or built inputs via `Tensor.materialize`, unrelated to
+  `out`), so they transparently picked up the new type.
 
 Validated against the full native/`aten_spec_run`/`native_walk`/
 `native_bridge` test suites (no diffs) and the conv2d benchmark (unaffected,

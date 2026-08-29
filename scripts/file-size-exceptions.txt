@@ -1,0 +1,9 @@
+# Exception list for scripts/check-file-size.sh.
+#
+# Format: path|review-by|reason
+#   - path is repo-relative, matched exactly against the checked-out tree.
+#   - review-by is a date; re-justify or remove the entry when it passes.
+#
+# A file listed here is exempt from both the 1000-line tree check and the
+# 750-line new-file check. Splitting a listed file back under the threshold
+# should remove its line here in the same change.

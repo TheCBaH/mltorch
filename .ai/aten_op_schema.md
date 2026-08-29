@@ -98,7 +98,7 @@ a symbolic *tensor dimension* (`` `Bad_dimension { fault = `Symbolic } ``).
 `Op_bridge` inherits this by construction — its `int_arg`/`ints_arg` are
 `decode_result` wrappers over `Interp_decode`'s. `Native_interp` has its own
 hand-written decoders and must state the rule separately. Evidence for all of it
-is in `test/native_bridge_test.ml` §"SymInt-spelled arguments on the ATen path".
+is in `test/native_bridge/shape_ops_test.ml` §"SymInt-spelled arguments on the ATen path".
 
 ## Schema text is not comment-safe
 

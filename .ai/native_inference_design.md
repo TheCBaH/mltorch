@@ -119,7 +119,7 @@ the bound `O.*` op.
   while one-to-one mappings remain flat. `Native_interp.run` materialises
   static float32 PT2 storage (including
   strides) into native tensors, binds constants through the sidecar, and calls
-  `Eval_direct`; `native_graph print`/`eval` and `native_graph_cram.t` verify
+  `Eval_direct`; `native_graph print`/`eval` and `native_graph_*_cram.t` verify
   lowering of the real archive without the ATen bridge. Dynamic shape guards
   remain next.
 

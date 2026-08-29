@@ -18,7 +18,7 @@ order a composition, but the *contents* erase them: `Cluster.t` holds plain
 `.mli` said so itself: they "cannot tie a map to two PARTICULAR graphs —
 `of_clusters` is polymorphic in them — which is why `validate` exists".
 
-The cost is on record three times. `map_verify.ml:316` fixed a source id looked up
+The cost is on record three times. `map_verify_types.ml:11` fixed a source id looked up
 in the destination producer map. `symbol-impl-2.md` records a **false proof**: a
 map swapping a graph's two inputs was reported structurally proved, output
 included, because src and dst share one numeric namespace. And the third was found
@@ -144,7 +144,7 @@ nothing implemented it — `check_signatures` compares an id against *itself* ac
 versions, which is §4's preserved-id rule, not a statement about two ids in one
 cluster. Enforcing it found a real contradiction in the suite: a permute's output
 is materialized as f32, so `Trim_permute` on a non-f32 input claimed an i32 edge
-`Identical` to an f32 one. `verify_test.ml`'s own comment already said that claim
+`Identical` to an f32 one. `verify_rounding_test.ml`'s own comment already said that claim
 was false; it is now rejected rather than merely unproven.
 
 **Claim closure.** The same propagation §8 uses to *label* a map, re-run to
@@ -202,7 +202,7 @@ exactly one line to `COMPILES` and leaves the other six untouched.
 
 ## 5a. Where the evidence is mutation, not a test
 
-Stage 3's protection is entirely inside `map_verify.ml`: `Member`'s constructors
+Stage 3's protection is entirely inside `map_verify_types.ml`: `Member`'s constructors
 are not public — only `Member.Erased` is — so the cram harness cannot reach them,
 and there is nothing for a runtime test to observe either, since the printed form
 is deliberately unchanged. The evidence is that the two crossings do not compile,
@@ -276,7 +276,7 @@ The verifier's fast path stopped expansion at any cell whose raw id matched on
 both sides. That is not an induction, it is an **unchecked fixed-point
 assumption**: every same-numbered edge treated as one variable, all at once, with
 no argument for well-foundedness and no regard for whether the cluster was
-proved. It is the assumption `map_verify.ml`'s sigma note declines to make when
+proved. It is the assumption `map_verify_check.ml`'s sigma note declines to make when
 it refuses to rename both sides of an internal cluster to one representative —
 made silently, by numbering.
 
@@ -333,7 +333,7 @@ The cost at sampled efforts is therefore real and is the honest price: the old
 speed there rested entirely on the unsound assumption, and no sound rule recovers
 it, because at a sampled budget there is nothing exhaustive to induct from. Where
 the budget does not sample, the induction is worth a great deal —
-`verify_test.ml`'s "a proved cluster licenses the edges below it" closes a
+`verify_boundary_test.ml`'s "a proved cluster licenses the edges below it" closes a
 four-node chain at `max_rounds = 1` that otherwise exhausts it.
 
 **Coverage.** Each component of the static key has a soundness case paired with

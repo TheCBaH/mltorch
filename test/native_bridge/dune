@@ -1,0 +1,28 @@
+; ATen<->Native conversion and verification tests, one module per bridge
+; operation family (split from a single native_bridge_test.ml).
+
+(library
+ (name native_bridge_test)
+ ; [interp] is a DIRECT dependency: these tests call Interp_decode /
+ ; Interp_dispatch themselves. It was previously reached transitively through
+ ; aten_native_verify, which is exactly the layering a direct user should not
+ ; lean on.
+ (libraries
+  aten
+  interp
+  native
+  native_graph
+  native_aten_bridge
+  ; [native_interp] is the OTHER importer, and the conv2d.default agreement
+  ; test at the foot of this file is the only place the two are compared. It
+  ; needs the JSON decode too, since its fixture is a serialized program.
+  native_interp
+  jsont.bytesrw
+  aten_native_verify
+  aten_config
+  pytorch_types
+  schema_runtime
+  fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

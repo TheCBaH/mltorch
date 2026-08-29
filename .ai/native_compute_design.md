@@ -204,7 +204,7 @@ Two things worth stating because they are easy to miss reading the code cold:
 
 `Schedule.evaluate shape pixel` (§5) iterates the *output* coordinate space —
 so that shape has to exist before iteration can start. Today nothing computes
-it: every call site just writes the answer by hand. `test/native/compute_test.ml`
+it: every call site just writes the answer by hand. `test/native/conv_test.ml`
 has a 3×3 input through a 2×2 kernel (stride 1, no pad) and passes
 `Vec6.shape ~h:2 ~w:2 ...` to `Schedule.evaluate` as a *separate*, unconnected
 literal — get the arithmetic wrong (or change the kernel/stride/pad and forget
@@ -305,7 +305,7 @@ Two things fall out of writing the arithmetic down:
   even true in general, see the test below), so full algebraic unification
   isn't achievable, only co-location — which is now real co-location in one
   shared module, not just "side by side in the same file." What's load-bearing
-  for staying correct: `test/native/compute_test.ml`'s "windowed axis:
+  for staying correct: `test/native/pool_test.ml`'s "windowed axis:
   output_extent and bounds agree" cross-checks them against each other for
   several `(kernel,stride,pad,in_extent)` configs — if the two formulas'
   relationship broke, this is what would catch it, the practical mitigation
@@ -352,7 +352,7 @@ For max-pooling, the clipped bounds aren't just architecturally cleaner than a
 guarded read — they're *required* for correctness. `max_reduce` over real,
 possibly-negative activations cannot tolerate the padding region silently
 contributing `0`: `0` would beat every real value in a window of all-negative
-inputs, which is exactly what `test/native/compute_test.ml`'s "negative
+inputs, which is exactly what `test/native/pool_test.ml`'s "negative
 inputs catch a padding=0 bug" test checks (and what `Direct`'s `load`-based
 fallback used to be vulnerable to, before §4's fix — conv tolerated it
 because `0` is sum's identity; pooling would not have).
@@ -367,7 +367,7 @@ p.kernel.w`, a position-independent constant). That constant divisor is the
 ATen default (`count_include_pad=true`, `divisor_override=None`): every
 window divides by the FULL kernel area even where part of it falls in
 padding, so a 2x2 kernel touching a padded corner with only one real tap
-still divides by 4, not 1 (`test/native/compute_test.ml`'s
+still divides by 4, not 1 (`test/native/pool_test.ml`'s
 "count_include_pad=true divides by the full kernel area" test exercises this
 directly with a constant-1 input, where the result is otherwise just the
 real-tap count). This is also why `AvgPool2d` tolerates `sum`'s ordinary
@@ -432,7 +432,7 @@ delegating through `pixel` unchanged; `Hardsigmoid`/`Hardswish` call `apply`
 directly on `S.add (S.load x out) (S.const 3.)`.
 
 Empirically, at `Direct`'s double precision, `(x * c) / 6` and `x * (c / 6)`
-are bit-identical for the fixture `test/native/compute_test.ml` uses (and
+are bit-identical for the fixture `test/native/activation_test.ml` uses (and
 agree with real ATen over a 20-step random walk) — the decomposed-graph
 rounding hazard above is real for a 3-node graph with per-node f32
 materialization, but does not manifest as an observable difference in this
@@ -462,7 +462,7 @@ arm, and reused by `Direct.erf` rather than re-derived, so `Direct` and
 grounded `Symbolic` stay bit-identical and the `lib/native_op_walk` fuzz
 harness for `Gelu` proves staging/scheduling agreement rather than the
 approximation's numerical accuracy — that proof is
-`test/native_bridge_test.ml`'s `verify_print`, run over both the shared
+`test/native_bridge/activation_test.ml`'s `verify_print`, run over both the shared
 activation fixture and a boundary fixture (large ±magnitude, signed zero,
 near-zero) against real ATen.
 
@@ -476,7 +476,7 @@ the latter overflows to `inf/inf = nan` for large positive `y` (observed at
 `x=10000` in the shared activation fixture before the fix), while the
 `Sigmoid` form only ever divides a finite numerator by a sum that saturates to
 `0` or `+inf`, never an indeterminate ratio. Proved against real ATen the same
-way as `Exact`, in `test/native_bridge_test.ml`'s "verify: gelu (tanh)..." over
+way as `Exact`, in `test/native_bridge/activation_test.ml`'s "verify: gelu (tanh)..." over
 both fixtures, and structurally at the Native4D lowering in
 `test/native4d/verify_test.ml`'s "gelu tanh" cluster.
 

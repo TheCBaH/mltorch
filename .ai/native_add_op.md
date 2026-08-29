@@ -21,7 +21,8 @@ Two things look similar to "legalization" and are not the same:
   the two denote the same computation once translated, or when the target's
   ATen-visible effect already has no other representation in the six-axis
   frame. `sub.Tensor`'s scalar form legalizes to `Add_scalar` with a negated
-  scalar (`op_bridge.ml`, `x - s` = `x + (-s)`, IEEE-exact); `unsqueeze.default`
+  scalar (`op_bridge_pointwise.ml`, split from op_bridge.ml;
+  `x - s` = `x + (-s)`, IEEE-exact); `unsqueeze.default`
   legalizes to `Reshape` alone, with no accompanying node, because inserting a
   size-1 axis never changes the linearized data order — in the always-6D
   frame this is not a decomposition, it is the same no-op-shape-change
@@ -68,8 +69,10 @@ alphabetical position at every site below; don't append.
    - `output_shape` and a `Compute (S : Semantics.SEMANTICS)` functor with a `pixel`
      function written against the abstract `S` value/index domain (so it runs
      unchanged under `Direct` and `Symbolic`).
-   Elementwise ops live in `pointwise.ml`; reductions in `reduce.ml`; etc.
-   `pointwise.ml` has two shared payload helpers: `Bin` (`{ a; b }`, for the
+   Elementwise ops live in `pointwise.ml` and its split files (`pointwise_unary.ml`,
+   `pointwise_activation.ml`, `pointwise_binary.ml` —; `Pointwise.<name>`
+   still resolves through the facade regardless); reductions in `reduce.ml`; etc.
+   `pointwise_binary.ml` has two shared payload helpers: `Bin` (`{ a; b }`, for the
    binary ops) and `Scalar_bin` (`{ x; scalar }`, for the scalar-parameter twins
    `Add_scalar`/`Div_scalar`). Reuse whichever fits rather than restating the
    codec/dataflow/pp boilerplate. Reuse the value basis in
@@ -110,7 +113,7 @@ alphabetical position at every site below; don't append.
    multi-node stand-in built from other ops.
    - `Mul`: `type t = Bin.t`, `jsont = Bin.jsont ~name`, etc.;
      `output_shape = broadcast_output_shape` (the shared equal-or-1 broadcast rule
-     in `pointwise.ml`), and `pixel ~a_shape ~b_shape a b out` reads each operand
+     in `pointwise_binary.ml`), and `pixel ~a_shape ~b_shape a b out` reads each operand
      through `Pointwise.broadcast_coord ~index_zero:S.index_zero <shape> out`. `load` is
      **strict** (an out-of-bounds index raises), so a binary elementwise op must
      reduce the output coord against each operand's own shape first — that is what
@@ -165,7 +168,7 @@ alphabetical position at every site below; don't append.
    it has more than one tensor operand. Unlike the `Output_transfer` match these
    have a default arm, so omitting an op is silent: nothing breaks, but the op
    becomes a barrier that strands a permute at every occurrence, which for an
-   activation means one per layer. `permute_passes_test.ml`'s
+   activation means one per layer. `sink_permute_test.ml`'s
    `sink_permute_allowlist` fixture is the regression — extend it, and the
    whole graph should collapse to a single trailing permute.
 
@@ -178,10 +181,21 @@ alphabetical position at every site below; don't append.
    computed by `Graph_shape`, never passed in.
    - `let mul ?name a b = op1 ?name ~kind:"mul" (Mul { Pointwise.Bin.a; b })`
 
-7. **ATen bridge** — `lib/native_aten_bridge/op_bridge.ml`
-   - One `dispatch` arm (alphabetical by op name) matching the ATen
+7. **ATen bridge** — `lib/native_aten_bridge/op_bridge*.ml` (split from a
+   single `op_bridge.ml` by operation family)
+   - One `dispatch` arm, alphabetical by op name within its family file
+     (`op_bridge_pointwise.ml`, `op_bridge_conv.ml`, `op_bridge_pool.ml`,
+     `op_bridge_norm.ml`, `op_bridge_reduce.ml`, `op_bridge_linalg.ml`,
+     `op_bridge_attention.ml`, `op_bridge_shape.ml`) matching the ATen
      `node.target` string(s) — include both the functional and in-place variants
      when they share semantics (e.g. `"…aten.mul.Tensor" | "…aten.mul_.Tensor"`).
+     `op_bridge.ml` itself is now a thin facade whose `dispatch` tries every
+     family's `dispatch` in turn and returns the first non-`None` result; add
+     a new family file (and list it in `op_bridge.ml`'s `dispatchers`) only
+     when a new op genuinely doesn't belong to an existing family.
+   - Argument-decoding/permutation/param helpers (`native_tensor_arg`,
+     `build_g`, `hw2`, the `perm_*` constants, `make_conv2d_params`, …) live
+     in `op_bridge_decode.ml`, shared by every family file above it.
    - The arm builds a small native graph rather than calling the `Compute`
      functor itself: `native_tensor_arg` for each tensor operand, then
      `build_g ~name [operands] (function [ids] -> … | _ -> assert false)` with a
@@ -195,7 +209,8 @@ alphabetical position at every site below; don't append.
    - A schema `Scalar` arg crosses as either `Argument.Int` or `Argument.Float`
      — never assume one. Decode with `D.scalar_arg_result` /
      `D.scalar_opt_arg_result` (importer side: the local `scalar_arg` /
-     `scalar_opt_arg` in `native_interp.ml`), not `float_arg`, which rejects
+     `scalar_opt_arg` in `native_interp_decode.ml`, split from
+     native_interp.ml), not `float_arg`, which rejects
      the integer spelling. Both hand back an `Aten_scalar.t`, which also admits
      `Bool`, so narrowing to a native float is an explicit checked step.
    - A **Tensor-typed arg may hold a bare scalar**: the exporter writes
@@ -304,23 +319,37 @@ Most ops produce one output; a few ATen ops return a tuple. If yours does:
 
 ## Tests (mirror the existing `add` cases)
 
-- `test/native/compute_test.ml` — `Direct: <op>`: evaluate `Compute (Direct)`
-  on a small hand-made tensor, pin the result with `[%expect]`.
-- `test/native/graph_test.ml` — `Direct graph: <op> of …`: build a one-node graph
-  with `Graph_builder`, run `Eval_direct.run`, pin the output.
-- `test/native/graph_symbolic_test.ml` — `Symbolic graph: <op> …`: print the
-  `Stage_program` DAG and assert `ground` matches `Eval_direct` for the same
-  inputs (covers the Symbolic path through the shared `Eval_op` functor).
-- `test/native/graph_json_test.ml` — a codec round-trip, if the payload
+- `test/native/<family>_test.ml` — `Direct: <op>`: evaluate `Compute (Direct)`
+  on a small hand-made tensor, pin the result with `[%expect]`. One file per
+  operation family (`pointwise_test.ml`, `conv_test.ml`, `pool_test.ml`, ...),
+  split from a single `compute_test.ml` —; add to the file for
+  the op's family, or start a new one if it begins a family of its own.
+- `test/native/graph_direct_<family>_test.ml` — `Direct graph: <op> of …`: build
+  a one-node graph with `Graph_builder`, run `Eval_direct.run`, pin the output.
+  One file per operation family (`graph_direct_pointwise_test.ml`,
+  `graph_direct_conv_test.ml`, ...), split from a single `graph_test.ml` —; add to the file for the op's family.
+  `graph_direct_fixtures.ml` has the shared error/naming/printing helpers.
+- `test/native/graph_symbolic_<family>_test.ml` — `Symbolic graph: <op> …`:
+  print the `Stage_program` DAG and assert `ground` matches `Eval_direct` for
+  the same inputs (covers the Symbolic path through the shared `Eval_op`
+  functor). One file per operation family (`pointwise_test.ml`,
+  `activation_test.ml`, `conv_test.ml`, `pool_test.ml`, ...), split from a
+  single `graph_symbolic_test.ml` —; add to the file for the
+  op's family, or start a new one if it begins a family of its own.
+  `graph_symbolic_fixtures.ml` has the shared error/shape/comparison helpers.
+- `test/native/codec_ops_test.ml` (or `params_roundtrip_test.ml` for a
+  non-default-parameters round trip; both split from a single
+  graph_json_test.ml) — a codec round-trip, if the payload
   introduces a JSON shape the other ops do not already have (a bare number, an
   independently-optional field). Use a value that is not f32-exact (0.1) so the
   test distinguishes a narrowed scalar from an unnarrowed one — printing alone
   does not.
-- `test/native/permute_passes_test.ml` — extend the `sink_permute_allowlist`
+- `test/native/sink_permute_test.ml` — extend the `sink_permute_allowlist`
   fixture (site 5b).
-- `test/native_bridge_test.ml` — `dispatch: <op>…`: drive `Op_bridge.dispatch`
-  through `dispatch_print` with hand-derived expected values (independent of ATen
-  as oracle). Needs the `aten` C++ build.
+- `test/native_bridge/*_test.ml` (whichever module matches the op's family,
+  e.g. `dispatch_test.ml` for a general elementwise/reduction op) — `dispatch:
+  <op>…`: drive `Op_bridge.dispatch` through `dispatch_print` with hand-derived
+  expected values (independent of ATen as oracle). Needs the `aten` C++ build.
 
 The first suites are pure OCaml (`dune runtest test/native`); the bridge test
 needs the libtorch-backed `aten` library.
@@ -339,7 +368,10 @@ deliberately rather than assuming coverage:
   impl)` to `matched`. Check whether yours is in the `needs_meta` list at the
   end of `native_walk_test.ml` — if it is, the generator could not synthesise a
   valid config (clamp's schema defaults are the both-`None` pair ATen rejects),
-  and you must add a `Walk_meta` entry in `lib/aten_gen/walk_meta.ml` plus a
+  and you must add a `Walk_meta` entry in the appropriate
+  `lib/aten_gen/walk_meta_<family>.ml` file (`_conv`, `_pool`, `_reduce`,
+  `_pointwise`, `_shape`, `_linalg`, `_norm`, `_attention` —;
+  `walk_meta.ml` is now just the registry) plus a
   recipe under `lib/aten_walk_recipes/`. Even when a default walk exists it may
   only exercise the schema defaults — hardtanh's are `(-1, 1)`, never
   MobileNet's `(0, 6)` — so an override is worth it when the parameters you
@@ -352,14 +384,14 @@ deliberately rather than assuming coverage:
   but only over `test/data/resnet18/`. Note that `bin/pt2_spec_gen` **skips** any
   node whose Tensor-typed argument holds a bare scalar, so the tensor-or-scalar
   path is unreachable from fixtures. Cover that with a dual-path expect test in
-  `test/native_bridge_test.ml`: `Interp_verify.dispatch ~verify:true` runs the
+  `test/native_bridge/scalar_verify_test.ml`: `Interp_verify.dispatch ~verify:true` runs the
   node through real ATen *and* through `Op_bridge` + `Eval_direct` and compares
   with `Verify.verify_node`. Silence means agreement — so confirm the test can
   fail before trusting it.
 
 **An in-place target needs a NON-idempotent value to actually exercise the
 oracle.** `Interp_verify.dispatch` and `Aten_spec_run.run` (the engines behind
-`test/native_bridge_test.ml`'s `verify_print`/`verify` and every generated ATen
+`test/native_bridge/helpers.ml`'s `verify_print`/`verify` and every generated ATen
 walk) both now capture native's `Op_bridge` read of the input BEFORE calling
 `Interp_dispatch.dispatch`, because a real in-place ATen op (`Tensor(a!) self`)
 mutates its argument through the very handle the harness holds — comparing

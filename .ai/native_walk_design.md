@@ -182,7 +182,7 @@ applied after every mutation — not by filtering candidate values. Examples:
   golden makes it look otherwise.** The configuration is one axis of five and `field_axis` redraws
   uniformly including the value already held, so twenty steps reach six of the seven configurations
   and five steps reach one. That is not a gap: the configuration space is swept exhaustively, and
-  against the same ATen oracle, by `test/native_bridge_test.ml`. What the walk adds is shape and
+  against the same ATen oracle, by `test/native_bridge/shape_ops_test.ml`. What the walk adds is shape and
   tensor-value variation *under* each configuration. Both halves are needed, and neither is the
   other — the same division `.ai/native4d_design.md` draws between hand values and the
   direct-versus-symbolic table.
@@ -223,7 +223,7 @@ applied after every mutation — not by filtering candidate values. Examples:
   broadcasting both operands independently in the native walk too would move goldens for `add`/`mul`
   (which share `Bin.Walk`) to prove a property neither of those rows claims. Broadcast evidence for
   the native side is the ATen recipe (an independent oracle) plus the hand-written fixtures in
-  test/native_bridge_test.ml (op3-impl.md Part IV #4).
+  test/native_bridge/dispatch_test.ml (op3-impl.md Part IV #4).
 
 - **Sdpa** (`Recipe_sdpa`, `scaled_dot_product_attention.default`, op8-impl.md commit 4): the first
   **three-tensor-plus-optional-mask** recipe, and the first where an uncorrelated axis would degrade
@@ -302,7 +302,7 @@ distinction §"Cascade replaces filtering" draws between "improbable" and "impos
 
 This is not a coverage gap, for the same reason the `pad.default` bullet above says its own
 one-axis-of-five configuration space isn't one: the space is swept exhaustively against real ATen
-elsewhere. Here that's `test/native_bridge_test.ml`'s `verify_print` tests (`"verify: add.Tensor with
+elsewhere. Here that's `test/native_bridge/scalar_verify_test.ml`'s `verify_print` tests (`"verify: add.Tensor with
 a serialized Int/Float scalar"`, and the `sub`/`mul`/`div` equivalents), which go through
 `Interp_verify.dispatch` — real ATen materializing the scalar with `full_like` on one side,
 `Op_bridge` routing it into a Native scalar op parameter on the other. Both int and float literals

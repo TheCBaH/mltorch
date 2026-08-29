@@ -51,35 +51,6 @@
  (preprocess
   (pps ppx_expect)))
 
-; ATen<->Native conversion and verification tests.
-
-(library
- (name native_bridge_test)
- (modules native_bridge_test)
- ; [interp] is a DIRECT dependency: these tests call Interp_decode /
- ; Interp_dispatch themselves. It was previously reached transitively through
- ; aten_native_verify, which is exactly the layering a direct user should not
- ; lean on.
- (libraries
-  aten
-  interp
-  native
-  native_graph
-  native_aten_bridge
-  ; [native_interp] is the OTHER importer, and the conv2d.default agreement
-  ; test at the foot of this file is the only place the two are compared. It
-  ; needs the JSON decode too, since its fixture is a serialized program.
-  native_interp
-  jsont.bytesrw
-  aten_native_verify
-  aten_config
-  pytorch_types
-  schema_runtime
-  fmt)
- (inline_tests)
- (preprocess
-  (pps ppx_expect)))
-
 ; Pure-OCaml pt2 reader: zip, strided tensor, pickle (no libtorch dependency).
 
 ; [opickle] is here for one reason: opickle's own test suite has no js mode, so
@@ -336,16 +307,6 @@
 (cram
  (applies_to unbind_native_cram)
  (deps %{exe:../bin/native_graph.exe}))
-
-; The same export over a real .pt2. Gated on PT2_DATA, since it needs
-; downloaded weights; it adds the archive path and the payload-dependent
-; capabilities, which the committed model.json cannot reach.
-
-(cram
- (applies_to me_visualize_cram)
- (deps (universe) %{exe:../bin/native_graph.exe})
- (enabled_if
-  (<> %{env:PT2_DATA=} "")))
 
 ; Committed, ungated regression: what stage:initial_native/stage:native4d
 ; report for all six tracked release models' payload-free model.json, pinning
@@ -652,63 +613,62 @@
  ; the same flow.
  (libraries core err_trace infer_report interp pt2 unix))
 
-(cram
- (applies_to interp_resnet_cram)
- (deps (universe) %{exe:interp_run.exe})
- (enabled_if
-  (<> %{env:PT2_DATA=} "")))
+; The structural crams below (native_graph_*, native_transform_*,
+; native_transform_verify, native4d_to4d, me_visualize) used to run against
+; resnet18/mobilenet_v2/mobilenet_v3_small. That role models' download path
+; (`modules/pytorch.models.pt2`, `PT2_DIR := data/pt2`) was retired when the
+; PT2-functional-ATen release replaced it (see .ai/pt2_archive.md's
+; "Functional image-model release contract" and .ai/pt2_model_support.md), so
+; they were recreated against the closest architectural analogs in the
+; replacement set: regnetx_002 (residual/batch-norm CNN, standing in for
+; resnet18), mobilenetv2_050 (the same architecture, just narrower) and
+; mobilenetv3_small_050 (same hardswish decomposition as mobilenet_v3_small).
+; regnetx_002 is the primary/detailed model, matching resnet18's old role.
 
 (cram
- (applies_to interp_efficientnet_cram)
- (deps (universe) %{exe:interp_run.exe})
- (enabled_if
-  (<> %{env:PT2_DATA=} "")))
-
-(cram
- (applies_to interp_mobilenet_cram)
- (deps (universe) %{exe:interp_run.exe})
- (enabled_if
-  (<> %{env:PT2_DATA=} "")))
-
-(cram
- (applies_to interp_vit_cram)
- (deps (universe) %{exe:interp_run.exe})
- (enabled_if
-  (<> %{env:PT2_DATA=} "")))
-
-; Import resnet18's real exported graph as one pure native Graph_ir plus its
-; PT2 provenance sidecar (`native_graph print`; see
-; .ai/native_aten_bridge_layout.md).
-
-(cram
- (applies_to native_graph_cram)
+ (applies_to native_graph_regnetx_002_cram)
  (deps (universe) %{exe:../bin/native_graph.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
-; Rewrite resnet18's graph with the transformation framework and execute it,
-; resolving PT2 provenance through the composed map (see
-; .ai/native_transform_design.md §10).
-
 (cram
- (applies_to native_transform_cram)
+ (applies_to native_graph_mobilenetv2_050_cram)
  (deps (universe) %{exe:../bin/native_graph.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
-; Same rewrite, but with `--fold` so constant folding and batch-norm folding
-; also run (see .ai/native_transform_design.md §12b-§12c).
-
 (cram
- (applies_to native_transform_fold_cram)
+ (applies_to native_graph_mobilenetv3_small_050_cram)
  (deps (universe) %{exe:../bin/native_graph.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
-; The same two pipelines under symbolic verification, per pass and per group
-; (see .ai/native_transform_verify.md). Separate from the two above because
-; those pin the resulting GRAPH and these pin what verification found; sharing
-; a golden would mean a 300-line dump in both.
+; `--fold` is unconditionally applied by the canonical pipeline regardless of
+; this flag (see lib/native/transform/pipeline.ml's `~fold:_`), so a plain
+; `transform` dump already reflects the folded structure; there is no
+; separate `native_transform_fold_*_cram.t` any more.
+
+(cram
+ (applies_to native_transform_regnetx_002_cram)
+ (deps (universe) %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+(cram
+ (applies_to native_transform_mobilenetv2_050_cram)
+ (deps (universe) %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+(cram
+ (applies_to native_transform_mobilenetv3_small_050_cram)
+ (deps (universe) %{exe:../bin/native_graph.exe})
+ (enabled_if
+  (<> %{env:PT2_DATA=} "")))
+
+; Per-pass/per-group symbolic verification, pinned separately from the
+; structural dump above because sharing a golden would mean the same 300-line
+; proof-summary duplicated in both (see .ai/native_transform_verify.md).
 
 (cram
  (applies_to native_transform_verify_cram)
@@ -716,19 +676,27 @@
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
+; Native4D conversion of two real models, plus the conversion map's symbolic
+; verification: regnetx_002 hits the grouped-convolution domain limit
+; (.ai/native4d_design.md), mobilenetv2_050 converts fully -- showing both
+; outcomes is more informative than the old resnet18/mobilenet_v2 pair, which
+; both happened to succeed.
+
 (cram
- (applies_to native_transform_verify_fold_cram)
+ (applies_to native4d_to4d_cram)
  (deps (universe) %{exe:../bin/native_graph.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))
 
-; Native4D conversion of two real models, plus the conversion map's symbolic
-; verification. Separate from the native_transform crams because those pin what
-; the NATIVE pipeline produces and this pins what crossing the dialect boundary
-; produces; the two move for different reasons.
+; The same Model Explorer export as `me_visualize_json_cram.t`, but over a
+; real .pt2 archive so the archive path and `--fold`-dependent capabilities
+; are reached too (see .ai/model_explorer_design.md's "Three crams" section).
+; Uses mobilenetv2_050, not regnetx_002: the --fold/no-fold contrast this file
+; pins depends on the model actually reaching Native4D when folded, which
+; regnetx_002 never does (see test/native4d_to4d_cram.t).
 
 (cram
- (applies_to native4d_to4d_cram)
+ (applies_to me_visualize_cram)
  (deps (universe) %{exe:../bin/native_graph.exe})
  (enabled_if
   (<> %{env:PT2_DATA=} "")))

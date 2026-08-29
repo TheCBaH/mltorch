@@ -171,7 +171,9 @@ formula; native `"same"` matches PyTorch's stride restriction: stride must be 1.
 
 ### Extending coverage
 
-To add an op without relayout, add a match arm in `Op_bridge.dispatch`:
+To add an op without relayout, add a match arm to the appropriate
+`op_bridge_*.ml` family module's `dispatch` (`Op_bridge.dispatch` itself is
+now a facade that tries each family in turn):
 1. Decode tensor args via `native_tensor_arg` / `native_of_aten`
 2. Decode non-tensor args via `D.int_arg`, `D.ints_arg`, etc.
 3. Call `build_g ~name tensors body` where `body` uses `Graph_builder` ops
@@ -204,7 +206,8 @@ unnormalised `dim`), where `op` names the calling arm so the same row serves
 without a per-arm vocabulary. Before this helper existed, `mean.dim` and
 `permute.default` called `axis_of_dim` directly on decoded data with no guard,
 so an out-of-range `dim` escaped `Op_bridge.dispatch` as an uncaught
-`Invalid_argument` instead of a typed row (`test/native_bridge_test.ml`, the
+`Invalid_argument` instead of a typed row (`test/native_bridge/dispatch_test.ml`'s
+`mean.dim` and `test/native_bridge/norm_test.ml`'s `permute.default`, both
 "rejects an out-of-range dim" cases). `native_perm_of_aten` also now checks that
 a decoded `dims` list has exactly `rank` entries, reporting
 `` `Dims_count { op; rank; got } `` — previously a short/long list produced a

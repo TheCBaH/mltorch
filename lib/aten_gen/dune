@@ -12,5 +12,14 @@
   aten_config_gen
   aten_spec_gen
   aten_walk_gen
-  walk_meta)
+  walk_meta
+  walk_meta_entry
+  walk_meta_conv
+  walk_meta_pool
+  walk_meta_reduce
+  walk_meta_pointwise
+  walk_meta_shape
+  walk_meta_linalg
+  walk_meta_norm
+  walk_meta_attention)
  (libraries err_trace aten_schema))

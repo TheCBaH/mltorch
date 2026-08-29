@@ -32,7 +32,7 @@ re-deriving the shape inline.
 ### 1. Delegating error printers
 
 `lib/interp/interp.ml`, `lib/interp/interp_decode.ml`,
-`lib/native_aten_bridge/op_bridge.ml`, `lib/pt2/pt2_archive.ml`,
+`lib/native_aten_bridge/op_bridge_error.ml` (split from op_bridge.ml), `lib/pt2/pt2_archive.ml`,
 `lib/pt2/pt2_tensor.ml`, `lib/native/shape_error.ml`:
 
 ```ocaml
@@ -73,7 +73,7 @@ used consistently when building exception and error messages.
 
 ### 4. Result printers in tests
 
-`test/native/*`, `test/native_bridge_test.ml` and friends all need the same
+`test/native/*`, `test/native_bridge/*` and friends all need the same
 `Err.Error.kind` unwrap:
 
 ```ocaml
@@ -95,7 +95,8 @@ Three silent behaviour changes, each found by a cram golden that moved:
   A bare `Format.fprintf ppf "[%a]" ...` with no box never wraps, whatever the
   width. When the original was unboxed and must stay on one line, write
   `Fmt.pf ppf "[%a]" (Fmt.list ~sep:... ...) x`. This bit `aten_spec_run.ml`'s
-  `pp_op_call` and `op_bridge.ml`'s `pp_int_list`.
+  `pp_op_call` and `op_bridge_error.ml`'s `pp_int_list` (split from
+  op_bridge.ml).
 - **`Fmt.float` prints `%g`** (6 significant digits); `Format.pp_print_float`
   round-trips full precision. They are not interchangeable — keep
   `Format.pp_print_float` wherever the value must survive exactly, e.g. a scalar
@@ -191,7 +192,7 @@ Three silent behaviour changes, each found by a cram golden that moved:
   `(_, string) result`, Jsont wants a raised decode error, and the pattern monad
   has its own `failure` type — but an anonymous
   `| Error e -> Error (… Err.Error.kind e …)` is textually indistinguishable
-  from the defect above. The named helpers are `to_cli` (`bin/native_graph.ml`),
+  from the defect above. The named helpers are `to_cli` (`bin/native_graph_common.ml`),
   `Pattern.of_err`, `Quant.of_err_for_jsont`, `Me_request.or_jsont`,
   `Pass.Outcome.to_jsont`, and `Me_limits`' wire decoder; each is
   `Err.export ~pos:__POS__`, which marks `Export` and *then* unwraps, so the

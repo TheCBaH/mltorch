@@ -109,12 +109,12 @@ coverage already lives:
 
 | what | where |
 |---|---|
-| pixel semantics, both outputs | `test/native/compute_test.ml` |
-| graph build + `Discard` of the dead output | `test/native/graph_test.ml` |
-| Symbolic path agrees with Direct | `test/native/graph_symbolic_test.ml` |
-| dispatch from a real ATen node | `test/native_bridge_test.ml` |
+| pixel semantics, both outputs | `test/native/pool_test.ml` |
+| graph build + `Discard` of the dead output | `test/native/graph_direct_shape_test.ml` |
+| Symbolic path agrees with Direct | `test/native/graph_symbolic_pool_test.ml` |
+| dispatch from a real ATen node | `test/native_bridge/*_test.ml` |
 | ATen-vs-native over a random config space | the generated `Max_pool2d_with_indices_walk` |
-| whole-graph import, structurally | `test/native_graph_cram.t` (still ResNet-18) |
+| whole-graph import, structurally | `test/native_graph_regnetx_002_cram.t` (resnet18 itself was retired) |
 
 What is genuinely lost is only whole-model *numeric* agreement for ResNet-18,
 which is why it stays one command away: `make native-infer-verify.resnet18`.

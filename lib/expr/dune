@@ -15,5 +15,5 @@
 
 (library
  (name expr)
- (private_modules checked)
- (libraries core err_trace fmt))
+ (private_modules expr_api)
+ (libraries expr_internal))

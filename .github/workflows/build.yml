@@ -24,6 +24,10 @@ jobs:
         # data — we never run its tests). pytorch's third_party is needed by the
         # aten build, so it is initialised recursively on its own below.
         submodules: true
+        # 2, not the default 1: scripts/check-file-size.sh diffs HEAD against
+        # HEAD^ to find files added by this commit, which needs the parent
+        # commit present.
+        fetch-depth: 2
     # Named, not --recursive. lib/aten/dune documents the prerequisite as
     # exactly these two, and pytorch declares 37 nested submodules -- 306MB of
     # the 403MB object store, against ~97MB for pytorch itself. Neither fmt nor
@@ -33,6 +37,10 @@ jobs:
       run: |
         git -C modules/pytorch submodule update --init --depth 1 \
           third_party/fmt third_party/cpuinfo
+    # The file-size regression check has no toolchain dependency, so it runs
+    # before the devcontainer is up and fails fast on an oversized file.
+    - name: file size check
+      run: make check.file-size
     - name: devcontainer
       uses: ./.github/workflows/actions/devcontainer
       id: devcontainer
@@ -153,7 +161,7 @@ jobs:
     # native-infer-verify above checks the UNTRANSFORMED interpreter path
     # against ATen; the transform pipeline (permute simplification, folding,
     # ...) is otherwise only checked structurally, by the golden text in
-    # native_transform_cram.t/native_transform_fold_cram.t. This runs both the
+    # native_transform_*_cram.t/native_transform_fold_*_cram.t. This runs both the
     # structural and --fold pipelines and numerically compares each against
     # the untransformed graph, so a transformation that silently changes
     # output values (rather than node structure) is still caught. See

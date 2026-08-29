@@ -458,7 +458,7 @@ Status: **implemented** — `rewrite.ml`. In order:
    > Moving it here found a real one. A permute's output is materialized as f32,
    > so `Trim_permute` on a **non-f32 input** produced the cluster
    > `{t0(i32), t1(f32)} ↔ {t0}` labelled `Identical` — which is false, as
-   > `verify_test.ml`'s own comment already said. That rewrite is now rejected
+   > `verify_rounding_test.ml`'s own comment already said. That rewrite is now rejected
    > rather than left unprovable. `check_signatures` does not cover this: it
    > compares an id against *itself* across versions, which is §4's preserved-id
    > rule, not a statement about two different ids in one cluster.
@@ -668,9 +668,9 @@ the first if the enumeration depends on something other than the graph.
 ## 10. PT2 provenance — recovered, never carried
 
 Status: **implemented** — `pt2_native_graph.ml`'s `lens` and its queries,
-`native_interp.ml`'s `transform`/`evaluate`, and the `native_graph transform`
-subcommand; tests in `test/native/lens_test.ml`, `test/native_transform_cram.t`
-(structure) and `make native-transform-verify` (numbers).
+`native_interp_exec.ml`'s `transform`/`evaluate` (split from native_interp.ml), and the `native_graph transform`
+subcommand; tests in `test/native/lens_test.ml`, the `test/native_transform_*_cram.t`
+family (structure) and `make native-transform-verify` (numbers).
 
 **The sidecar is not transformed.** `Pt2_native_graph.t` stays anchored to the
 original graph exactly as the importer built it; a destination id's origin is
@@ -742,8 +742,9 @@ test pin structure without paying for, or depending on, arithmetic.
 > engine has no reason to support the dtype. Filtering to operands is both the fix
 > and the cheaper thing to do.
 
-**On a real model** (`test/native_transform_cram.t`), the ResNet-18 import goes
-from 174 nodes to 112 with identical outputs. The 41 nodes the permute passes
+**On a real model** (ResNet-18 — retired since; the surviving
+golden of this shape is `test/native_transform_regnetx_002_cram.t`), the
+ResNet-18 import goes from 174 nodes to 112 with identical outputs. The 41 nodes the permute passes
 remove are the inverse pairs the relayout lowering emits at each op boundary —
 §1's second case — and the 21 the fold removes are the constant weight permutes,
 §1's motivating case. Each hoisted weight reports `captured_target = None` and
@@ -771,7 +772,7 @@ arithmetic, rounds differently", and the same comparison reports
 first case and a tolerance in the second, which is exactly what §3 exists to let
 it decide.
 
-**Structure is pinned; numbers are checked.** `test/native_transform_cram.t`
+**Structure is pinned; numbers are checked.** `test/native_transform_*_cram.t`
 prints the transformed graph — exact, fast, and annotated with provenance
 recovered through the lens — while `make native-transform-verify` executes it
 and compares against the untransformed run. The split is deliberate: a full
@@ -921,7 +922,7 @@ delta. Stages 1–5 are the framework, 6–9 the transformations, 10–11 integr
 ### 12a. The permute simplifications
 
 Status: **implemented** — `lib/native/transform/passes/`, tests in
-`test/native/permute_passes_test.ml`.
+`test/native/trim_chain_permute_test.ml`.
 
 Perm algebra (`compose`, `identity`, `is_identity`, `lookup`, `of_fn`) lives on
 `Permute.Permute`, not in the transform layer: composing two permutations is a
@@ -1134,7 +1135,7 @@ the numeric test runs all eight rather than a representative few.
 ### 12d. Sinking a permute through an elementwise op
 
 Status: **implemented** — `lib/native/transform/passes/sink_permute.ml`, tests
-in `test/native/permute_passes_test.ml`.
+in `test/native/sink_permute_test.ml`.
 
 §12a's permute passes only cancel *adjacent* permutes. The relayout lowering
 also produces runs like `permute → relu → permute` and `permute a, permute b →
@@ -1205,7 +1206,7 @@ alternate-layout edge the graph already computes rather than declining.
 ### 12e. Reusing an existing layout, and bypassing individual inverse consumers
 
 Status: **implemented** — `lib/native/transform/passes/reuse_permute.ml` and
-`bypass_permute.ml`, tests in `test/native/permute_passes_test.ml`. Design record:
+`bypass_permute.ml`, tests in `test/native/reuse_permute_test.ml` and `test/native/bypass_permute_test.ml`. Design record:
 `.ai/native_layout_reuse_plan.md`.
 
 `Sink_permute` declines a mixed elementwise op outright: `add(P(a), b)` has no
@@ -1279,7 +1280,7 @@ inserts a new relayout, it only reuses one the graph already pays for.
 > `scan`'s read/write conflict rule are for: several matches that only
 > `claim_shared` the same node no longer conflict with EACH OTHER, only with
 > a `claim` on it, so the sixteen-way fixture now resolves in a single,
-> non-`fixpoint`ed sweep (`test/native/permute_passes_test.ml`,
+> non-`fixpoint`ed sweep (`test/native/reuse_permute_test.ml`,
 > `reuse_permute_wide_fanout`).
 
 > **Found in review: `claim` alone does not stop ONE match from conflicting
@@ -1387,7 +1388,7 @@ right after the initial chain/trim cleanup, since transporting a permutation
 through `Mean` is a local rewrite with no fan-out interaction of its own, and
 its output feeds the same sink/reuse/bypass machinery either way.)
 
-**On ResNet-18** (`test/native_transform_cram.t`), the structural pipeline
+**On ResNet-18** (retired since), the structural pipeline
 goes from 174 nodes to **91** (down from 112 with `Sink_permute` alone, 93
 before `Sink_permute_mean`) — the identity-skip residual blocks' `Add`/`Relu`
 now run in native layout without a speculative relayout, and `Bypass_permute`
@@ -1406,7 +1407,7 @@ alternate-layout edge to begin with are expected to remain.
 ### 12f. Transporting a permutation through a keepdim=true Mean
 
 Status: **implemented** — `lib/native/transform/passes/sink_permute_mean.ml`,
-`Reduce.Mean.map_dims`, tests in `test/native/permute_passes_test.ml`.
+`Reduce.Mean.map_dims`, tests in `test/native/sink_permute_mean_test.ml`.
 
 `Mean` reduces over *named* axes, so `Sink_permute` (§12d) deliberately excludes
 it: naively sinking a permute through `Mean` and reducing the same axis names
@@ -1468,8 +1469,11 @@ later in `relayout_pass`, do that. On ResNet-18's global-average-pool `Mean`
 (the motivating case: a permute, a `keepdim=true` `Mean` over two axes, and its
 exact inverse permute), the three passes together collapse the whole
 three-node run to one `Mean` reducing the correctly-mapped dimensions, with no
-permute left around it at all — see the `Sink_permute_mean.pass` result quoted
-in `test/native_transform_cram.t` under `torch.ops.aten.mean.dim`.
+permute left around it at all — see the same collapsed pattern (a single
+`adaptive_avg_pool2d` node with no flanking permutes) in
+`test/native_transform_regnetx_002_cram.t` under
+`torch.ops.aten.adaptive_avg_pool2d.default` (ResNet-18's own exporter used
+`torch.ops.aten.mean.dim` for the same reduction; that fixture was retired, see but the pass's effect is the same either way).
 
 ### 12g. Pruning: dead code, and narrowing a multi-output op
 
@@ -1553,7 +1557,7 @@ same signal `Pass.fixpoint` uses to detect convergence — on both branches.
 ## 13. Tests
 
 `test/native/` is `ppx_expect` inline tests in the `native_test` library. New tests
-follow the house idiom (`graph_test.ml`): a local `type error = [ … ]` row,
+follow the house idiom (`graph_direct_fixtures.ml`): a local `type error = [ … ]` row,
 `pp_error`, `let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok
 ~error:pp_error`, `lift_*` adapters, one `Err.Syntax` chain, one `Format.printf`,
 one `[%expect]`.

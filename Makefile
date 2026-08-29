@@ -17,7 +17,7 @@ PT2_MODEL_DIR = $(PT2_DIR)/$(PT2_MODEL)
 # Roles are explicit compatibility claims, not a mirror of the producer zoo.
 PT2_MODELS_FIXTURES := mobilenetv2_050 test_convnext2
 PT2_MODELS_POOL := mobilenetv2_050 csatv2
-PT2_MODELS_CRAM := test_convnext2 mobilenetv2_050 regnetx_002 efficientnet_b0 fastvit_sa12
+PT2_MODELS_CRAM := test_convnext2 mobilenetv2_050 regnetx_002 efficientnet_b0 fastvit_sa12 mobilenetv3_small_050
 # efficientnet_b0/test_convnext2 joined once GELU/Sigmoid landed (see
 # .ai/pt2_model_support.md) -- both now pass native-infer-verify and
 # native-transform-verify identically to mobilenetv2_050/regnetx_002.
@@ -25,7 +25,10 @@ PT2_MODELS_CRAM := test_convnext2 mobilenetv2_050 regnetx_002 efficientnet_b0 fa
 # several minutes, not because of any known failure -- add it once that cost
 # is judged worth paying in CI. csatv2 doesn't fully lower into Native at all
 # yet (it's a deliberately graph-only fixture), so it can't join until that
-# lands.
+# lands. mobilenetv3_small_050 joined for the native_graph_*/native_transform_*
+# structural crams: it is the closest available architectural match
+# to the retired mobilenet_v3_small role model (hardswish decomposition), and
+# at ~8MB it is cheap next to the others.
 PT2_MODELS_NATIVE_VERIFY := mobilenetv2_050 regnetx_002 efficientnet_b0 test_convnext2
 # [csatv2] is selected for its real [7,7] adaptive-pool graph, not as a
 # whole-model interpreter claim: it currently reaches unsupported aten.stack.
@@ -40,8 +43,8 @@ PT2_NATIVE_VERIFY_MODELS := $(PT2_MODELS_NATIVE_VERIFY)
 pt2.download:
 	scripts/pt2-download.sh $(PT2_MODEL) $(PT2_MANIFEST) $(PT2_MODEL_DIR) $(PT2_RELEASE)
 
-# Download the models the cram tests need (cheap next to the full set: 5
-# models, ~410 MB).
+# Download the models the cram tests need (cheap next to the full set: 6
+# models, ~418 MB).
 pt2.download-cram:
 	for m in $(PT2_MODELS_CRAM); do $(MAKE) pt2.download PT2_MODEL=$$m; done
 
@@ -100,7 +103,12 @@ pt2.runtest:
 	PT2_DATA=$(abspath $(PT2_DIR)) NO_COLOR=1 opam exec -- dune runtest \
 		test/pt2_load_cram.t test/interp_functional_cram.t test/const_ssa_trace_cram.t \
 		test/const_ssa_payload_free_cram.t test/const_ssa_evaluate_cram.t \
-		test/pt2_model_support_cram.t
+		test/pt2_model_support_cram.t \
+		test/native_graph_regnetx_002_cram.t test/native_graph_mobilenetv2_050_cram.t \
+		test/native_graph_mobilenetv3_small_050_cram.t \
+		test/native_transform_regnetx_002_cram.t test/native_transform_mobilenetv2_050_cram.t \
+		test/native_transform_mobilenetv3_small_050_cram.t \
+		test/native_transform_verify_cram.t test/native4d_to4d_cram.t test/me_visualize_cram.t
 
 # The payload-free counterpart of test/pt2_model_support_cram.t, over every
 # model.json in the pinned producer submodule -- no download needed, so it
@@ -271,6 +279,12 @@ build:
 
 format:
 	opam exec -- dune fmt
+
+# File-size regression check: no tracked .ml/.mli file over 1000 lines (tree
+# check) and no file added by HEAD over 750 lines (new-file check), unless
+# listed in scripts/file-size-exceptions.txt.
+check.file-size:
+	bash scripts/check-file-size.sh
 
 verify.pristine:
 	@git_status=$$(git status --porcelain); \

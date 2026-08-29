@@ -362,7 +362,7 @@ verifier (`.ai/native_transform_verify.md`) probes against both. Before the
 module existed they did not: `Direct` pooled with `Float.max` while `Expr.eval`
 pooled with a strict `>`, so the two disagreed on `-0.` vs `+0.` and on NaN, and
 `Direct`'s own value and index paths disagreed with each other (the value
-propagated a NaN, the index did not). `test/native/compute_test.ml` pins the
+propagated a NaN, the index did not). `test/native/pool_test.ml` pins the
 ATen answer in f32 bits; `test/native/symbolic_test.ml` pins Direct == Symbolic.
 
 `Max_op.Float_max` — generic `Reduce Max_reduce` — is a **different** operator

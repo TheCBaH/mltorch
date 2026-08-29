@@ -1515,10 +1515,10 @@ emitted by `lib/model_explorer_export` and was **silently dropped** by
 
 | Field we emit | 0.1.2 | upstream |
 | --- | --- | --- |
-| `Graph.tasksData` — `me_export.ml:383-388` | absent from `src` *and* `dist` | `split_pane.ts:108-117` |
+| `Graph.tasksData` — `me_export_shape.ml:217-223` | absent from `src` *and* `dist` | `split_pane.ts:108-117` |
 | `EdgeOverlaysData.graphName` — `me_fusion.ml:121` | absent | `edge_overlays.ts:35` |
 | `EdgeOverlay.showEdgesConnectedToSelectedNodeOnly`, `.visibleEdgeHops` | absent | `edge_overlays.ts:69,88` |
-| `SyncNavigationData.showDiffHighlights` — `me_pt2.ml:135`, `me_export.ml:428` | absent | `sync_navigation.ts:103` |
+| `SyncNavigationData.showDiffHighlights` — `me_pt2.ml:135`, `me_export_shape.ml:273` | absent | `sync_navigation.ts:103` |
 
 `tasksData` was the one with a visible cost: `Me_fusion`'s overlay rides on the kernel
 graph and rendered nothing at all. `test/session.spec.ts` now asserts the loaded bundle

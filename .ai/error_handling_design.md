@@ -66,7 +66,8 @@ the same rule `poly_errors.ml` demonstrates:
 - **Wrap when crossing a real domain seam** (`` `Eval of Eval_direct.error ``,
   `` `Transform of Pass.error ``) — the example's `` `A of A.local_error ``, through
   `Err.map_error ~pos:__POS__` so the detection origin survives.
-  `lib/native_interp/native_interp.ml` wraps its six upstream domains this way.
+  `lib/native_interp/native_interp_error.ml` wraps its six upstream domains
+  this way (split from native_interp.ml).
 
 ### An escape may carry a typed row
 
@@ -103,7 +104,8 @@ branches on. Three lessons generalise:
   raised straight through the `Err.Escape` frame and out of `lower`, so a
   serialized `groups: 0` reached the Model Explorer boundary as an exception
   rather than as the row that boundary exists to classify. The fix is one
-  approved route — `pos`/`nonneg`/`extent`/`dim_extent` in `native_interp.ml`,
+  approved route — `pos`/`nonneg`/`extent`/`dim_extent` in
+  `native_interp_decode.ml` (split from native_interp.ml),
   throwing `` `Bad_config `` (a config field) or `` `Bad_dimension `` (a
   metadata extent) — and the rule that no decoded argument may reach those
   constructors directly. `Dim.extent_checked` already existed for exactly this
@@ -114,7 +116,7 @@ branches on. Three lessons generalise:
 ## Escaping a recursive walk: `Err.Escape`
 
 Five modules — `kernel_eval.ml`, `transform/ground_eval.ml`, `expr.ml` (twice)
-and `native_interp.ml` — had independently declared the same private exception
+and `native_interp.ml` (now `native_interp_lower.ml`, split from it) — had independently declared the same private exception
 plus catcher. They are now one idiom: `Err.Escape.with_escape` establishes the
 frame, `throw` detects at the throw site, `throw_error` re-throws a wrapper
 already built, and `or_throw` bridges an ordinary result-returning call into the

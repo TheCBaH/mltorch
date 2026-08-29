@@ -189,7 +189,7 @@ emits go through `Aten_ident.ml_id`, shared with `Aten_spec_gen`, because
   optionals — but `layer_norm`'s `weight`/`bias` both default to `None` in the
   schema, so a hand-written or re-exported node legitimately omits them, and the
   generated ATen path then cannot decode a node both native importers accept.
-  It shows up in `test/native_bridge_test.ml` as the `omitted:` line reading
+  It shows up in `test/native_bridge/layer_norm_importer_test.ml` as the `omitted:` line reading
   `aten: missing required argument "weight"`: a decoder limitation, not a finding
   about the arm under test.
 

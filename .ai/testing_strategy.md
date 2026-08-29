@@ -123,8 +123,8 @@ golden on purpose and confirm `dune runtest` catches it. An empty stanza exits 0
 
 ### PT2_DATA-gated crams: `(universe)` is required, not optional
 
-`pt2_load_cram.t`, `interp_*_cram.t`, `native_graph_cram.t`, `native_transform*_cram.t`
-and `native4d_to4d_cram.t` all read files under `$PT2_DATA` (set by `make pt2.runtest`)
+`pt2_load_cram.t`, `pt2_model_support_cram.t`, `interp_functional_cram.t` and the
+`const_ssa_*_cram.t` trio all read files under `$PT2_DATA` (set by `make pt2.runtest`)
 from inside their `$`-line shell commands, not from a dune-visible path — the `(cram
 (deps ...))` stanza only lists the exe being tested. Dune's incremental build treats a
 rule as up to date whenever its *declared* deps are unchanged, so without an explicit
@@ -180,7 +180,7 @@ Do **not** turn a fixture failure into `None` or a default — the test then
 reports a wrong answer instead of a broken setup. Where a helper genuinely must
 return an `option` (because every caller pattern-matches it), say in a comment
 why the diagnostic is discarded and what still detects the failure;
-`test/native/permute_passes_test.ml` and
+`test/native/permute_pass_fixtures.ml` (`rewritten`/`output_tensor`) and
 `lib/native/transform/passes/fold_const.ml` are the models.
 
 Per-directory helpers are deliberately **not** consolidated: they cross
@@ -264,19 +264,23 @@ From `models_cram.t` expected output:
 ResNet uses `relu_` (in-place ReLU) and `add_` (in-place residual add).
 EfficientNet uses `silu_` (Swish) and `sigmoid+mul` for SE blocks.
 
-**None of the five downloadable models serializes the FUNCTIONAL spelling of
-any Group 5 activation (op5.md).** `silu_.default` is real coverage (the table
-above), but `silu.default` and `hardsigmoid.default` appear nowhere, and
-`hardswish.default` appears nowhere either — mobilenet_v3_small exports it
-pre-decomposed as `mul(x, div_scalar(clamp(add_scalar(x,3),0,6), 6))`
-(`test/native_graph_cram.t:1003`). So `test/native/compute_test.ml`'s
-deterministic fixture, `test/native_bridge_test.ml`'s dispatch/verify tests,
-`test/native_interp/activation_test.ml` and `test/me_group5_cram.t` are the
-coverage for the three functional targets, not a supplement to a zoo model —
-the same shape as Group 2 (`op2.md`) and Group 3 (`op3.md`) before them. The
-in-place spellings (`silu_.default` etc.) get the same bridge/importer arm as
-their functional twin and are additionally checked against the real
-efficientnet counts above via `make pt2.runtest`.
+**All three Group 5 functional activations (op5.md) now have real-model
+coverage among the six downloadable `PT2_MODELS_CRAM` models**, none of it
+via the in-place spellings: `efficientnet_b0` exports Swish as the functional
+`silu.default` (49 occurrences), not `silu_.default` (0 occurrences), and
+`mobilenetv3_small_050` (added to `PT2_MODELS_CRAM` for the
+native_graph_*/native_transform_* structural crams —) exports
+hardswish directly as `hardswish.default` (19) and its SE-block gate as
+`hardsigmoid.default` (9), rather than the decomposed
+`mul(x, div_scalar(clamp(add_scalar(x,3),0,6), 6))` form the retired
+mobilenet_v3_small used (see `test/native_graph_mobilenetv3_small_050_cram.t`).
+This real-model coverage is incidental, though: `test/native/activation_test.ml`'s
+deterministic fixture, `test/native_bridge/activation_test.ml`'s dispatch/verify tests,
+`test/native_interp/activation_test.ml` and `test/me_group5_cram.t` remain the
+deliberate, gate-independent coverage for the three functional targets — the
+same shape as Group 2 (`op2.md`) and Group 3 (`op3.md`) before them — and are
+additionally checked against the real efficientnet/mobilenetv3 counts above
+via `make pt2.runtest`.
 
 **Group 6 (`op6.md`) is worse: neither target occurs in ANY graph this checkout
 can reach.** `pad.default` and `slice.Tensor` appear in none of the 23 core-ATen
@@ -293,7 +297,7 @@ reach neither target. What stands in for real-model evidence:
 
 | layer | evidence |
 |---|---|
-| numeric, independent oracle | `test/native_bridge_test.ml` — 14 pad and 20 slice configurations against real ATen |
+| numeric, independent oracle | `test/native_bridge/shape_ops_test.ml` — 14 pad and 20 slice configurations against real ATen |
 | numeric, fuzzed | the `Recipe_pad` / `Recipe_slice` ATen walks (`test/native_walk_test.ml`) |
 | staging | `Pad_nwalk` / `Slice_nwalk` (Direct vs Symbolic — **not** an oracle: both sides run the same `Compute` functor) |
 | serialized lowering | `test/native_interp/{pad,slice}_test.ml` |
@@ -341,9 +345,9 @@ What stands in for real-model evidence, for both targets:
 
 | layer | evidence |
 |---|---|
-| numeric, independent oracle | `test/native_bridge_test.ml` — 11 `layer_norm` and 4 `native_layer_norm` configurations against real ATen, including the corpus-shaped `[1, 50, 768]` |
+| numeric, independent oracle | `test/native_bridge/layer_norm_importer_test.ml` — 11 `layer_norm` and 4 `native_layer_norm` configurations against real ATen, including the corpus-shaped `[1, 50, 768]` |
 | numeric, fuzzed | the `Recipe_norm` ATen walks for both targets (`test/native_walk_test.ml`), 20 and 26 steps, all four affine states reached |
-| numeric, hand-computed | `test/native/compute_test.ml` — the formula itself, which no Direct-vs-Symbolic or Native-vs-Native4D comparison can check |
+| numeric, hand-computed | `test/native/norm_test.ml` — the formula itself, which no Direct-vs-Symbolic or Native-vs-Native4D comparison can check |
 | staging | `Layer_norm_nwalk` (Direct vs Symbolic — **not** an oracle: both sides run the same `Compute` functor) |
 | serialized lowering | `test/native_interp/layer_norm_test.ml`, both targets |
 | dialect | `test/native4d/{compute,lower,verify,mutation,domain}_test.ml` |
@@ -372,10 +376,10 @@ fixture below, at every layer, is hand-built:
 
 | layer | evidence |
 |---|---|
-| numeric, independent oracle | `test/native_bridge_test.ml` (the ATen-live-tensor importer) and `test/native_interp/sdpa_test.ml` (the serialized-metadata importer) |
+| numeric, independent oracle | `test/native_bridge/sdpa_test.ml` (the ATen-live-tensor importer) and `test/native_interp/sdpa_test.ml` (the serialized-metadata importer) |
 | numeric, real ATen kernel | five fixtures under `test/data/sdpa/`, run through `aten_spec_verify --eval` (`test/sdpa_spec_cram.t`) — every flash-admissible mask/scale form, since no model serializes one |
 | numeric, fuzzed against real ATen | `Recipe_sdpa` (`test/native_walk_test.ml`) — the recipe's types make an off-oracle (non-flash) configuration unrepresentable, checked independently with a one-time scratch probe over the recipe's full axis product (op8-impl.md commit 4) |
-| numeric, hand-computed | `test/native/compute_test.ml` — the formula itself, PLUS an 11-mutation battery each observed changing a result then reverted, since neither Direct-vs-Symbolic nor Native-vs-Native4D can see a wrong formula |
+| numeric, hand-computed | `test/native/sdpa_test.ml` — the formula itself, PLUS an 11-mutation battery each observed changing a result then reverted, since neither Direct-vs-Symbolic nor Native-vs-Native4D can see a wrong formula |
 | staging | `Sdpa_nwalk` (Direct vs Symbolic — **not** an oracle, same caveat as `Layer_norm_nwalk` above) |
 | serialized lowering | `test/native_interp/sdpa_test.ml` |
 | dialect | `test/native4d/domain_test.ml` — unconditional rejection, no legalization at any batch extent (unlike Bmm's `batch = 1` case) |

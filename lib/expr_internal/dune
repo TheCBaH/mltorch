@@ -1,0 +1,6 @@
+; Implementation library for [Expr].  It contains the raw AST and all
+; operations; [lib/expr] is the only supported public façade.
+
+(library
+ (name expr_internal)
+ (libraries core err_trace fmt))

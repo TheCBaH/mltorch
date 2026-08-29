@@ -101,7 +101,8 @@ and maps `"same"` to PyTorch's left/right padding convention before reusing the
 `output_padding`; internally it reuses `Conv2d` for the forward 2D path and
 evaluates transposed 2D convolution with the same native weight relayout.
 
-The six permutations are defined as module-level constants in `op_bridge.ml`.
+The six permutations are defined as module-level constants in
+`op_bridge_decode.ml` (split from op_bridge.ml).
 All are full 6-axis bijections so `Permute.Compute` never hits `Not_found`.
 
 | Permutation | From | To |
@@ -163,7 +164,7 @@ generated walks, and `test/me_group2_cram.t` are the whole coverage.
 
 ### The permutations are shared, and two of them are near-identical on purpose
 
-`Native_interp` defines the same constants `op_bridge.ml` does, with the same
+`Native_interp` defines the same constants `op_bridge_decode.ml` does, with the same
 names and the same meanings — including **both** rank-2 weight permutations.
 `perm_addmm_weight` and `perm_linear_weight` are *not* a rename of each other:
 `addmm`'s `mat2` is `[In, Out]` and `linear`'s `weight` is `[Out, In]`, the
@@ -172,7 +173,7 @@ builds for a square weight and computes the wrong thing — which is why every
 `linear` fixture uses a non-square weight.
 
 `in_channels = weight.C * groups` has three definitions
-(`Op_bridge.make_conv2d_params`, `Conv2d_padding.to_conv2d_params`,
+(`Op_bridge_decode.make_conv2d_params`, split from op_bridge.ml; `Conv2d_padding.to_conv2d_params`,
 `Native_interp.conv_in_channels`). The third is **computed in `int64` and
 bounded against `Kernel.Limits.Hard.extent` before narrowing**: both factors are
 model-supplied, `lib/native_interp` is js_of_ocaml-reachable, and 0x8000_0000 is
@@ -185,7 +186,7 @@ product is its own quantity. See `.ai/js_backends_design.md`.
 neither importer — not approximated, *dropped*, so a serialized
 `dilation=[2,2]` computed an undilated pool under the dilated name. Both now
 reject, with one check (`Native_interp.pool_params`,
-`Op_bridge.reject_pool_extras`) shared by the functional overload and by
+`Op_bridge_decode.pool_dilation_and_ceil_mode`, split from op_bridge.ml) shared by the functional overload and by
 `max_pool2d_with_indices.default`.
 
 Rejection rather than an IR extension is the deliberate choice: an extension is
@@ -208,7 +209,7 @@ the fixtures pin where.
 `total - total/2` after). Nothing else pinned which side got the extra cell:
 Direct-vs-Symbolic agreement resolves through the same function, and an
 output-shape check is invariant under a reversal. It is pinned against
-hand-computed values in `test/native/compute_test.ml`.
+hand-computed values in `test/native/pad_test.ml`.
 
 > **Stale constraint, now lifted.** This section used to add "and ATen reaches
 > `constant_pad_nd`, which this repository's minimal static-dispatch build does
@@ -253,7 +254,7 @@ and `Eval_op` fills the absent ones (`fill 1.` / `fill 0.`), for the reason the
 a structurally different graph from the other's for the same node. There are
 **four** states, not two, and "bias but no weight" is the one no exported model
 produces — it is dispatched explicitly in both arms and in
-`test/native_bridge_test.ml` rather than folded into a paired encoding, which is
+`test/native_bridge/norm_test.ml` rather than folded into a paired encoding, which is
 where a two-state assumption would get it wrong.
 
 An *entirely absent* `Tensor?` key is read as `None` by both native arms
@@ -327,7 +328,8 @@ Both overloads decode identically (`self`, `size`) and legalize to the same
 contract (it skips the alias-safety check `view` performs, since the exporter
 has already proven the reshape is the only consumer), which has no native
 counterpart to differ over. Both importers dispatch the two targets through one
-match arm (`op_bridge.ml`, `native_interp.ml`) rather than two copies of an
+match arm (`op_bridge_shape.ml`, `native_interp_lower.ml` — both split from
+op_bridge.ml/native_interp.ml respectively) rather than two copies of an
 identical body — CLAUDE.md's rule against restating a shape/build rule a
 second time free to drift, applied to dispatch rather than to a shape formula.
 This is still exact-target dispatch in `op3.md`'s sense: both targets are
@@ -436,7 +438,7 @@ before conversion: `Op_bridge` from `Aten_tensor.shape` (the same array
 `Tensor_bridge.of_aten` reads), `Native_interp` from the serialized
 `TensorMeta.sizes` length. The rank-3 fixture above is what proves the
 ordering — it passes every frame-level check and is caught only if raw rank
-is read first (`test/native_bridge_test.ml`'s and `sdpa_test.ml`'s "rank is
+is read first (`test/native_bridge/sdpa_test.ml`'s and `test/native_interp/sdpa_test.ml`'s "rank is
 checked on the declared metadata, not the normalized frame" cases both carry
 it deliberately).
 
@@ -502,7 +504,7 @@ metadata already applied, and it is implemented once —
 `Interp_decode.sym_int_value` for the generated ATen path and for `Op_bridge`,
 `Native_interp.sym_int_value` for the importer, which cannot share a module
 because it reports through the escape token. Both are asserted, on both
-spellings, in `test/native_bridge_test.ml` and
+spellings, in `test/native_bridge/shape_ops_test.ml` and
 `test/native_interp/slice_test.ml`. Before this target the three decoders agreed
 only by refusing every `Sym_int` alike, which satisfied the requirement by
 accident.

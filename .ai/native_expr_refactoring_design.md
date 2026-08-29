@@ -1,5 +1,27 @@
 # Native `Expr` language refactoring
 
+**Update, August 2026.** The "Library namespace and directory layout" section
+below concluded that `Builder`/`Rewrite`/`Fold`/`Check`/`Eval`/`Pp` "cannot live
+in their own files" because they close over the `Bool`/`Reduction`/`Value`
+`module rec` group, and `lib/expr/expr.ml` (1,694 lines) initially carried a
+documented file-size exception on that basis. That conclusion has
+since been superseded: `lib/expr_internal/expr_repr.ml` isolates the mutually
+recursive knot as one small module of **raw, unexported** type definitions
+(`value`, `bool_expr`, `reduction`, all `and`-joined), and every other public
+module (`lib/expr_internal/bool.ml`, `reduction.ml`, `value.ml`, ...) declares
+its own slice as a **manifest re-declaration** — `type t = Expr_repr.value = |
+Const of float | ...` — rather than an alias or a fresh recursive definition.
+Because the recursive tie lives entirely inside `Expr_repr`, every downstream
+file is ordinary (non-recursive) OCaml and can be its own compilation unit.
+`lib/expr` itself is now a thin façade (`expr.ml`/`expr.mli`, 27/4 lines,
+`include Expr_api.S`) over the separate `expr_internal` library, which holds
+the implementation and is `(wrapped false)` internally but never exposed
+directly — `expr`'s `dune` marks `expr_api` `private_modules` and depends on
+`expr_internal` only to re-export it under the `Expr.*` namespace; the
+file-size exception entry for `expr.ml` has been removed. The rest of this
+document describes the state before that follow-up split and remains
+accurate for the language design itself.
+
 Status: **implemented**, August 2026. This document defines the `Expr` language:
 its library boundary, syntax, semantics, construction, interpretation,
 rewriting, migration, and validation. Written as a proposal; the sections marked

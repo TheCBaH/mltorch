@@ -86,7 +86,7 @@ strictly earlier step) and `native_builds` (is `stage:initial_native`
 Past Canonical the pipeline FORKS into two independent branches -- this is
 also what the Model Explorer web UI's four graph options are: Native4D is one
 branch, and Stage Program / Kernel / Kernel Fusion is the other, entirely
-unrelated to Native4D's four-axis dialect check (`me_export.ml`'s "the OTHER
+unrelated to Native4D's four-axis dialect check (`me_export_shape.ml`'s "the OTHER
 branch from canonical Native"). A model can succeed on one and fail the
 other, so the file carries two independent, self-contained
 `(converts, stage, reason, blocker)` triples rather than one flat set of
@@ -219,7 +219,7 @@ compiles, and adding it there undefined-symbol'd every binary linking `aten`.
 Native import and the payload-free sweep need no ATen binding at all, so this
 does not affect `native_builds`; only real-ATen verification
 (`Interp_verify`) is unavailable for this op, and its Native correctness is
-instead pinned by hand-computed values in `test/native/compute_test.ml`,
+instead pinned by hand-computed values in `test/native/norm_test.ml`,
 cross-checked against an independent calculation.
 
 A previous version of this sweep reported `native_builds:true` for all but 5

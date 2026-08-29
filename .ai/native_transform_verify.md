@@ -78,6 +78,7 @@ being assumed equal to its counterpart.
 
 What this replaces: nine passes whose legality rested on prose plus a handful of
 `Eval_direct` spot checks with one hand-made input (`fold_batch_norm_test.ml`,
+`sink_permute_test.ml` and its siblings, split from a single
 `permute_passes_test.ml`). Those need a payload for every input, only inspect the
 graph *output*, and never check the map's claim at all.
 
@@ -136,7 +137,7 @@ it is observable.
 
 This is why the permute family stays provable — a permute or reshape body grounds
 to a bare `Cell`, so rule 1 collapses the removed stage — while a value-changing
-fusion correctly does not. And `verify_test.ml` shows the condition earning its
+fusion correctly does not. And `verify_rounding_test.ml` shows the condition earning its
 keep: trimming an identity permute off an **i32** input reports
 `format blocks collapse` rather than `proved`, and that is not conservatism, it
 is correct — the transformation is genuinely false for a large enough i32 value.
@@ -161,12 +162,12 @@ member is chosen and **every other member is compared against it** —
 
 Members are side-tagged for two reasons: `{src=t0} ↔ {dst=t0}` holds two distinct
 members sharing a raw id, and a comparison can legitimately run **source against
-source**. `verify_test.ml`'s non-canonical-member test reports exactly that:
+source**. `verify_unsound_maps_test.ml`'s non-canonical-member test reports exactly that:
 `src.t0 vs src.t1`.
 
 The tag is a GADT over the two graph versions, which **deletes** the old
 `Member.id : t -> Tensor_id.t` rather than typing it — that accessor erased
-exactly the distinction the type exists to keep, and `map_verify.ml:316` was a
+exactly the distinction the type exists to keep, and `map_verify_types.ml:11` was a
 source id resolved in the destination's producer map:
 
 ```ocaml
@@ -353,7 +354,7 @@ this relation asserts none, so a cluster that does not close structurally is
 without also giving `settle` this arm is a real defect, not a hypothetical: the
 comparison falls through to `Coeff_form.agree` and the probe, and since the label
 is not `Identical` the cluster is reported `tested: disagrees at …` — a numerical
-verdict on a claim nobody made. `verify_test.ml`'s "an unverifiable cluster is
+verdict on a claim nobody made. `verify_relation_test.ml`'s "an unverifiable cluster is
 never numerically tested" is that mutation.
 
 Two consequences worth stating. `Coverage` for these clusters moves from
@@ -405,7 +406,7 @@ member used to receive the hypothesis on that basis, constants included. That
 is a false proof, and a live one: two graphs with the same constant id and
 **different payloads** both ground to one variable, the cluster comes back
 `proved (structural)`, and a pass that rewrote a payload in place ships
-unnoticed. `verify_test.ml`'s "a payload change under one id is not assumed
+unnoticed. `verify_obligations_test.ml`'s "a payload change under one id is not assumed
 equal" is that case.
 
 σ is now gated on `Input.kind = Input`, so a constant is compared by its payload
@@ -462,7 +463,7 @@ provenance edges carry no value claim at all, and a cluster set that is wrong bu
 endpoint-consistent still passes. Associativity, identity-extension and the
 created/deleted guard remain `graph_map_test.ml`'s job.
 
-**One law, pinned in `verify_test.ml`:** if every step verifies `Proved`, the
+**One law, pinned in `verify_cumulative_test.ml`:** if every step verifies `Proved`, the
 composed verification must not be `Refuted`.
 
 Its converse is **not** a law. A composed `Unproved` with every step `Proved` is
@@ -493,7 +494,7 @@ its report rejected — and names the pass in both.
 
 `Policy.Reject_refuted` fails only on an actual counterexample;
 `Policy.Require_proved` fails on anything short of a proof. They are not
-redundant, and the i32 trim in `verify_test.ml` is the case that separates them:
+redundant, and the i32 trim in `verify_pipeline_test.ml` is the case that separates them:
 it is genuinely unproven — false, in fact, for a value above 2²⁴ — but the
 verifier has exhibited no counterexample, so the release bar tolerates it while
 the development bar does not. Shipping only `Reject_refuted` would let an
@@ -654,12 +655,14 @@ nothing, so its inline verdict is `vacuous origins=0` — while the fold itself
 `proved (for these constants)` in that pass's summary. The per-pass summaries
 and the inline annotation answer different questions, which is why both print.
 
-`test/native_transform_verify_cram.t` and its `--fold` companion pin all of this
-on ResNet-18. The contrast between them is the point of having both: without
-folding everything provable is `proved (structural)`, and with it the
-constant-shaped clusters become `proved (for these constants)` — a weaker claim,
-labelled apart, that holds for every input but only for the weights this model
-carries.
+`test/native_transform_verify_cram.t` pins all of this, over RegNetX-002
+(ResNet-18 itself was retired). There is no separate `--fold`
+companion any more: the canonical pipeline folds unconditionally regardless of
+that flag (`lib/native/transform/pipeline.ml`'s `~fold:_`), so a single run
+already shows both verdict tiers side by side — `proved (structural)` for
+clusters the rewrite proves for every input, and the weaker
+`proved (for these constants)` for the constant-shaped clusters a fold made
+provable only for the weights this model carries.
 
 ## 15. Verdicts
 

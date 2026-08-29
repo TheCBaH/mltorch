@@ -215,10 +215,10 @@ way `op_bridge.native_perm_of_aten` builds a `Permute.perm`:
 x_nchw --Permute(NCHW->NHWC)--> x_nhwc --Conv2d--> y_nhwc --Permute(NHWC->NCHW)--> y_nchw
 ```
 
-Constructed directly with the builder (`test/native/graph_test.ml`). Direct eval
+Constructed directly with the builder (`test/native/graph_direct_conv_test.ml`). Direct eval
 returns `x_nhwc`/`y_nhwc` as intermediates (printed), and `y_nhwc` is asserted
 equal to a single native conv on the equivalently-laid input. Symbolically
-(`graph_symbolic_test.ml`) the conv stage loads the permute stage's signature and
+(`graph_symbolic_conv_test.ml`) the conv stage loads the permute stage's signature and
 the final permute loads the conv stage's — the stage DAG made visible.
 
 ## 7. Transformation framework
@@ -256,9 +256,10 @@ the dump shows only the semantic moves, e.g. `perm=[H<-W, W<-C, C<-H]`.
 
 ## 9. Tests
 
-`test/native/graph_test.ml` (Direct): sequence (add→relu, intermediate shown),
-add, conv decomposition (NHWC intermediate + NCHW result + match vs reference
-conv), optional bias omitted (None→zeros vs explicit zero), nested group
-(matches the flat build). `test/native/graph_symbolic_test.ml`: the add→relu and
-conv-decomposition stage DAGs printed, then chain-grounded and checked equal to
-Direct.
+`test/native/graph_direct_basic_test.ml` (Direct): sequence (add→relu,
+intermediate shown); `graph_direct_conv_test.ml`: conv decomposition (NHWC
+intermediate + NCHW result + match vs reference conv), optional bias omitted
+(None→zeros vs explicit zero), nested group (matches the flat build).
+`test/native/graph_symbolic_pointwise_test.ml`: the
+add→relu stage DAG, and `graph_symbolic_conv_test.ml`: the conv-decomposition
+stage DAG, printed then chain-grounded and checked equal to Direct.
