@@ -9,4 +9,7 @@ lib/native_graph
 lib/native_interp
 lib/native_op_walk
 lib/native_predict
+lib/ssa_bridge
+lib/ssa_ir
+lib/ssa_lower
 lib/walk_core

@@ -1,0 +1,11 @@
+; Direct lowering of a validated [Fusion_plan.t] to the structured SSA IR, and
+; the runner that executes a lowered program over bound tensors. Source adapters
+; live here, never in [ssa_ir], which owns no tensor, kernel or graph type.
+;
+; Depends on [native] (Kernel, Fusion_plan, Tensor) and [ssa_ir], and on neither
+; the Loop IR nor any emitter: the Loop comparison bridge is a separate
+; library over both. See the SSA design and implementation plan in .ai/.
+
+(library
+ (name ssa_lower)
+ (libraries core err_trace expr fmt native ssa_ir))

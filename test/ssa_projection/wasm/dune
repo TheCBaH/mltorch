@@ -1,0 +1,31 @@
+; The SSA projection suite for one backend: the source-direct and bridge SSA
+; programs, projected to the Loop IR and run by this backend's executor, against
+; the reference. The case table is test/ssa_projection/projection.ml, copied
+; rather than forked, so every backend is asked the same questions.
+
+(copy_files %{workspace_root}/test/ssa_projection/projection.ml)
+
+; Needs node, so it runs under `make wasm.runtest` (which sets MLTORCH_WASM), not
+; plain `make runtest`; inside it a missing node is a failure, never a skip.
+
+(library
+ (name ssa_projection_wasm_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  loop_wasm_exec
+  native
+  ssa_bridge
+  ssa_bridge_test
+  ssa_ir
+  ssa_lower
+  unix)
+ (inline_tests
+  (enabled_if
+   (<> %{env:MLTORCH_WASM=} "")))
+ (preprocess
+  (pps ppx_expect)))

@@ -1,4 +1,6 @@
+_ai_/
 ai/
+auth*
 _build/
 .ccache/
 .claude/

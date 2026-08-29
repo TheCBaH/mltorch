@@ -1,0 +1,27 @@
+; Tests for lib/ssa_lower and lib/ssa_bridge: direct lowering of source plans
+; to SSA, compared against Kernel_eval and the Loop interpreter. Reuses the
+; Loop IR suite's kernel fixtures. [js] alongside [best]: the reference's
+; checked index domain is its host int, so the overflow rows are exercised
+; under js_of_ocaml's 32-bit int as well.
+
+(library
+ (name ssa_bridge_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  native
+  native_op_walk
+  native_test
+  walk_core
+  ssa_bridge
+  ssa_ir
+  ssa_ir_test
+  ssa_lower)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

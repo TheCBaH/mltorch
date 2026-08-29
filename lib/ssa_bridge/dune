@@ -1,0 +1,9 @@
+; The comparison layer between the structured SSA IR and the executors it must
+; agree with: the differential harness against [Kernel_eval] (and, for the
+; Loop IR, its interpreter), and the temporary Loop <-> SSA converters. A
+; migration instrument: it depends on [loop_ir] and [ssa_ir] so neither depends
+; on the other, and it is never a prerequisite of a production consumer.
+
+(library
+ (name ssa_bridge)
+ (libraries core err_trace expr fmt loop_ir native ssa_ir ssa_lower))
