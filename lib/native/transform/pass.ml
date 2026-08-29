@@ -30,13 +30,13 @@ module Count_overflow = struct
   (* ONE payload naming the counter, rather than three near-identical error
      rows. Every counter here is [int64] and every increment is checked BEFORE
      the addition: a check on a wrapped sum is not a bound. *)
-  type counter = Audit_reports | Outcome_bucket of string | Execution_index
+  type counter = Audit_reports | Execution_index | Outcome_bucket of string
   type t = { counter : counter }
 
   let pp_counter fmt = function
     | Audit_reports -> Fmt.string fmt "audit reports"
-    | Outcome_bucket label -> Fmt.pf fmt "outcome bucket %S" label
     | Execution_index -> Fmt.string fmt "execution index"
+    | Outcome_bucket label -> Fmt.pf fmt "outcome bucket %S" label
 
   let pp fmt t = Fmt.pf fmt "@[<h>%a overflowed@]" pp_counter t.counter
 end
@@ -193,18 +193,18 @@ module Outcome_counts = struct
 
   module Invalid = struct
     type kind =
-      | Negative_count
       | Duplicate_label
-      | Malformed_label
       | Label_too_long
+      | Malformed_label
+      | Negative_count
 
     type t = { label : string; kind : kind }
 
     let pp_kind fmt = function
-      | Negative_count -> Fmt.string fmt "negative count"
       | Duplicate_label -> Fmt.string fmt "duplicate label"
-      | Malformed_label -> Fmt.string fmt "not an outcome label"
       | Label_too_long -> Fmt.string fmt "label too long"
+      | Malformed_label -> Fmt.string fmt "not an outcome label"
+      | Negative_count -> Fmt.string fmt "negative count"
   end
 
   type invalid = [ `Invalid_counts of Invalid.t ]
@@ -442,19 +442,19 @@ module Make (S : Side.S) = struct
      [`Transform of Pass.error], so widening here reaches the interpreter's
      result with no further change there. *)
   type error =
-    [ Rw.error
+    [ count_error
+    | `Malformed_outcome of string
     | `Not_converged of string
-    | `Verification of Verification.t
-    | count_error
-    | `Malformed_outcome of string ]
+    | Rw.error
+    | `Verification of Verification.t ]
 
   let pp_error ppf : [< error ] -> unit = function
-    | #Rw.error as e -> Rw.pp_error ppf e
-    | `Not_converged name -> Fmt.pf ppf "@[<h>pass %s did not converge@]" name
-    | `Verification v -> Verification.pp ppf v
     | `Count_overflow c -> Count_overflow.pp ppf c
     | `Malformed_outcome name ->
         Fmt.pf ppf "@[<h>pass %s returned a malformed outcome@]" name
+    | `Not_converged name -> Fmt.pf ppf "@[<h>pass %s did not converge@]" name
+    | #Rw.error as e -> Rw.pp_error ppf e
+    | `Verification v -> Verification.pp ppf v
 
   (* What verification a run is under. Threaded THROUGH the pass tree rather than
      applied at the top, because a composite verified only at its boundary is

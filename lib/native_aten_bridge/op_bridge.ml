@@ -27,13 +27,13 @@ let pp_error = Op_bridge_error.pp_error
 
 let dispatchers =
   [
+    Op_bridge_attention.dispatch;
+    Op_bridge_conv.dispatch;
+    Op_bridge_linalg.dispatch;
     Op_bridge_norm.dispatch;
     Op_bridge_pointwise.dispatch;
-    Op_bridge_linalg.dispatch;
-    Op_bridge_conv.dispatch;
     Op_bridge_pool.dispatch;
     Op_bridge_reduce.dispatch;
-    Op_bridge_attention.dispatch;
     Op_bridge_shape.dispatch;
   ]
 

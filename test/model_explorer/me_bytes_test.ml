@@ -1,10 +1,10 @@
 let render = function
-  | Ok n -> Printf.sprintf "ok %d" n
   | Error e -> (
       let kind = Err.Error.kind e in
       match kind with
       | `Bad_length n -> Printf.sprintf "bad %.0f" n
       | `Over_limit n -> Printf.sprintf "over %Ld" n)
+  | Ok n -> Printf.sprintf "ok %d" n
 
 let check n =
   print_endline

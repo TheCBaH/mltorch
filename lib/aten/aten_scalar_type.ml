@@ -1,6 +1,11 @@
-(* OCaml encoding of c10::ScalarType / atc_scalar_type from shim.h. *)
-type t = Byte | Char | Short | Int | Long | Half | Float | Double | Bool
+(* OCaml encoding of c10::ScalarType / atc_scalar_type from shim.h.
 
+   [to_string] is alphabetical. The numeric conversion tables retain c10's
+   stable enum values. *)
+type t = Bool | Byte | Char | Double | Float | Half | Int | Long | Short
+
+(** This conversion table deliberately follows c10's stable numeric enum values;
+    do not alphabetize its branches. *)
 let to_int = function
   | Byte -> 0
   | Char -> 1
@@ -27,12 +32,12 @@ let of_int = function
 (* For diagnostics. The names are ATen's own spelling, so an error naming a
    dtype reads the same as the schema and the Python side do. *)
 let to_string = function
+  | Bool -> "Bool"
   | Byte -> "Byte"
   | Char -> "Char"
-  | Short -> "Short"
+  | Double -> "Double"
+  | Float -> "Float"
+  | Half -> "Half"
   | Int -> "Int"
   | Long -> "Long"
-  | Half -> "Half"
-  | Float -> "Float"
-  | Double -> "Double"
-  | Bool -> "Bool"
+  | Short -> "Short"

@@ -9,7 +9,7 @@
 
 module SMap = Map.Make (String)
 
-type mode = Natural | Cram
+type mode = Cram | Natural
 
 module Paths = struct
   type t = {
@@ -42,25 +42,25 @@ module Prediction = struct
 end
 
 type 'eval error =
-  [ Pt2_archive.error
-  | `Results_decode of string
+  [ `Eval of 'eval
   | `Expected_decode of string
-  | `No_reference of string
   | `Mismatch of Mismatch.t
-  | `Eval of 'eval ]
+  | `No_reference of string
+  | Pt2_archive.error
+  | `Results_decode of string ]
 
 let pp_error pp_eval ppf : 'eval error -> unit = function
-  | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
-  | `Results_decode msg -> Fmt.pf ppf "results.json: %s" msg
+  (* No prefix: an evaluator failure has to read exactly as it did before this
+     library existed, since that is what the interpreter crams' stderr shows. *)
+  | `Eval e -> pp_eval ppf e
   | `Expected_decode msg -> Fmt.pf ppf "expected.json: %s" msg
-  | `No_reference key -> Fmt.pf ppf "no reference for %S" key
   | `Mismatch { Mismatch.sample; local; reference } ->
       let pp_indices = Fmt.(list ~sep:(any ", ") int) in
       Fmt.pf ppf "@[<h>%s: top-%d [%a] does not match reference [%a]@]" sample
         (List.length local) pp_indices local pp_indices reference
-  (* No prefix: an evaluator failure has to read exactly as it did before this
-     library existed, since that is what the interpreter crams' stderr shows. *)
-  | `Eval e -> pp_eval ppf e
+  | `No_reference key -> Fmt.pf ppf "no reference for %S" key
+  | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
+  | `Results_decode msg -> Fmt.pf ppf "results.json: %s" msg
 
 (* --- label files --- *)
 
@@ -88,12 +88,12 @@ let names_of_metadata path =
 (* --- reference results.json: { "images/<f>.pt": [ {rank,class_index,...} ] } --- *)
 
 let prediction_jsont =
-  Jsont.Object.map ~kind:"pred" (fun rank class_index label probability ->
+  Jsont.Object.map ~kind:"pred" (fun class_index label probability rank ->
       { Prediction.rank; class_index; label; probability })
-  |> Jsont.Object.mem "rank" Jsont.int
   |> Jsont.Object.mem "class_index" Jsont.int
   |> Jsont.Object.mem "label" Jsont.string
   |> Jsont.Object.mem "probability" Jsont.number
+  |> Jsont.Object.mem "rank" Jsont.int
   |> Jsont.Object.finish
 
 let results_jsont = Jsont.Object.as_string_map (Jsont.list prediction_jsont)
@@ -103,10 +103,10 @@ module Expected = struct
 end
 
 let expected_jsont =
-  Jsont.Object.map ~kind:"expected" (fun top5 logits ->
+  Jsont.Object.map ~kind:"expected" (fun logits top5 ->
       { Expected.top5; logits })
-  |> Jsont.Object.mem "top5" (Jsont.list Jsont.int)
   |> Jsont.Object.mem "logits" (Jsont.list Jsont.number)
+  |> Jsont.Object.mem "top5" (Jsont.list Jsont.int)
   |> Jsont.Object.finish
 
 let expected_map_jsont = Jsont.Object.as_string_map expected_jsont
@@ -114,14 +114,14 @@ let expected_map_jsont = Jsont.Object.as_string_map expected_jsont
 let decode_results path =
   let s = In_channel.with_open_bin path In_channel.input_all in
   match Jsont_bytesrw.decode_string results_jsont s with
-  | Ok m -> Err.return m
   | Error e -> Err.fail (`Results_decode e)
+  | Ok m -> Err.return m
 
 let decode_expected path =
   let s = In_channel.with_open_bin path In_channel.input_all in
   match Jsont_bytesrw.decode_string expected_map_jsont s with
-  | Ok m -> Err.return m
   | Error e -> Err.fail (`Expected_decode e)
+  | Ok m -> Err.return m
 
 (* --- command line --- *)
 
@@ -260,8 +260,8 @@ let report ~label ~reference ~samples ~infer (options : Options.t) =
   if not options.strict then Err.return ()
   else
     match strict_verdict (List.rev mismatches) with
-    | Ok () -> Err.return ()
     | Error m -> Err.fail (`Mismatch m)
+    | Ok () -> Err.return ()
 
 (* --- the host shell --- *)
 

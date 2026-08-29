@@ -144,9 +144,9 @@ let%expect_test "view4: an input with a non-four-axis signature is rejected" =
   let check label shape =
     Format.printf "%-14s %s@." label
       (match Framework.View4.of_graph (graph_with shape) with
-      | Ok _ -> "accepted"
       | Error e ->
-          Format.asprintf "%a" Framework.View4.pp_error (Err.Error.kind e))
+          Format.asprintf "%a" Framework.View4.pp_error (Err.Error.kind e)
+      | Ok _ -> "accepted")
   in
   check "four-axis" (s 1 1 1 4 4 3);
   check "extent on D" (s 1 1 5 4 4 3);

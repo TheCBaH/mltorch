@@ -6,4 +6,4 @@
  (name native_graph)
  (modules pt2_native_graph)
  (wrapped false)
- (libraries err_trace pt2 pytorch_types schema_runtime native))
+ (libraries err_trace native pt2 pytorch_types schema_runtime))

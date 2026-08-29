@@ -110,11 +110,11 @@ let of_bigarray : type a b.
  fun dt src shape ->
   let t = create ~dtype:(Aten_dtype.scalar_type dt) shape in
   (match data dt t with
+  | None -> raise (Error "of_bigarray: dtype mismatch")
   | Some dst ->
       if Array1.dim dst <> Array1.dim src then
         raise (Error "of_bigarray: element-count mismatch");
-      Array1.blit src dst
-  | None -> raise (Error "of_bigarray: dtype mismatch"));
+      Array1.blit src dst);
   t
 
 (* A managed tensor owning a copy of [src] interpreted with PyTorch's native
@@ -187,8 +187,8 @@ let pp_int64 fmt (ba : int64_array) =
    footer). [pp] is the Format pretty-printer over it. *)
 let to_string t =
   match F.to_string t with
-  | Some s -> s
   | None -> raise (Error (Option.value (F.last_error ()) ~default:"to_string"))
+  | Some s -> s
 
 let pp fmt t = Format.pp_print_string fmt (to_string t)
 

@@ -10,11 +10,7 @@ module Make (S : Side.S) : sig
   type node = S.op Graph_common.Node.t
 
   type error =
-    [ Graph_map.error
-    | Graph_view.Make(S.Dialect).error
-    | Recipe.Make(S).error
-    | Constant_store.error
-    | `Bad_constant_payload of Tensor_id.t
+    [ `Bad_constant_payload of Tensor_id.t
     | `Constant_payload_overwrite of Tensor_id.t
     | `Cycle of Node_id.t
     | `Discontiguous_allocation
@@ -26,7 +22,11 @@ module Make (S : Side.S) : sig
     | `Substitution_cycle of Tensor_id.t
     | `Unclaimed_redefinition of Tensor_id.t
     | `Unclaimed_substitution of Tensor_id.t
-    | `Unknown_node of Node_id.t ]
+    | `Unknown_node of Node_id.t
+    | Constant_store.error
+    | Graph_map.error
+    | Recipe.Make(S).error
+    | Graph_view.Make(S.Dialect).error ]
 
   val pp_error : Format.formatter -> [< error ] -> unit
 

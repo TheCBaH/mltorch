@@ -8,11 +8,11 @@ let max_external_bytes_var = "MLTORCH_ERROR_MAX_EXTERNAL_BYTES"
 
 let vars =
   [
-    trace_var;
     backtrace_var;
     max_events_var;
-    max_frames_var;
     max_external_bytes_var;
+    max_frames_var;
+    trace_var;
   ]
 
 let pp_error = Err.Config.pp_of_strings_error
@@ -29,7 +29,7 @@ let parse lookup =
      chosen for itself. *)
   if
     List.for_all Option.is_none
-      [ trace; backtrace; max_events; max_frames; max_external_bytes ]
+      [ backtrace; max_events; max_external_bytes; max_frames; trace ]
   then Err.return None
   else
     Err.map

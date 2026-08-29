@@ -19,7 +19,7 @@ module Producer : sig
 end
 
 module Model_summary : sig
-  type source_kind = Pt2 | Json
+  type source_kind = Json | Pt2
 
   type t = {
     name : string;
@@ -93,7 +93,7 @@ module Flow_destination : sig
   (** Which of the two facts that must agree with the spine disagreed. A closed
       variant, not a string: a caller that only reads the rendered text cannot
       act on it. *)
-  type part = Flow_view | Flow_capability
+  type part = Flow_capability | Flow_view
 
   type t = { part : part; declared : string; named : string option }
   (** [declared] is the graph the spine names; [named] is the graph that part
@@ -128,27 +128,27 @@ end
 
 module Capability : sig
   type graph_stage =
-    | Source
-    | Initial_native
     | Canonical
-    | Native4d
-    | Stage_program
-    | Kernel
     | Fusion
+    | Initial_native
+    | Kernel
+    | Native4d
+    | Source
+    | Stage_program
         (** Which exported GRAPH a capability is about. Not [Me_ids.Layer.t]:
             initial and canonical Native are two stages of one layer, and fusion
             is a stage of the Kernel layer. *)
 
   type feature =
-    | Flow
-    | Verification
-    | Pass_audits
-    | Fold
-    | Expression_detail
-    | Loop_ir
     | Codegen
+    | Expression_detail
+    | Flow
+    | Fold
+    | Loop_ir
+    | Pass_audits
+    | Verification
 
-  type key = Graph_stage of graph_stage | Feature of feature
+  type key = Feature of feature | Graph_stage of graph_stage
 
   val key_name : key -> string
   val stage_name : graph_stage -> string
@@ -176,25 +176,25 @@ module Capability : sig
 
   type payload =
     | Graph of string
-    | Verification_summary of Pass.Outcome_counts.t
-        (** the COMPOSED whole-pipeline report *)
     | Pass_audit_status of Pass_audit_status.t  (** per-pass, may be partial *)
     | Present
+    | Verification_summary of Pass.Outcome_counts.t
+        (** the COMPOSED whole-pipeline report *)
 
   type reason =
-    | Unsupported_operator
-    | Unsupported_input
-    | Unsupported_graph_shape
+    | Not_implemented
     | Outside_dialect_domain
     | Over_limit
-    | Requires_payloads
     | Prerequisite_unavailable
-    | Not_implemented
+    | Requires_payloads
+    | Unsupported_graph_shape
+    | Unsupported_input
+    | Unsupported_operator
 
   type status =
     | Available of payload
-    | Unavailable of { reason : reason; detail : string option }
     | Not_requested
+    | Unavailable of { reason : reason; detail : string option }
 
   type t = { key : key; status : status }
 
@@ -222,13 +222,13 @@ end
 
 module View : sig
   type kind =
+    | Compare  (** names a {!Comparison} by the same id *)
+    | Flow
     | Stage of Capability.graph_stage
         (** the exported graph this view shows; "canonical" is a VIEW naming the
             final Native state's graph, not a separate projection, and when
             every pass and the pack are identities that graph is the initial one
         *)
-    | Flow
-    | Compare  (** names a {!Comparison} by the same id *)
 
   type t = {
     id : string;
@@ -266,36 +266,37 @@ module Session : sig
   type mapped_node = { comparison : string; node : string }
 
   type error =
-    [ `Duplicate_graph of string
-    | `Duplicate_node of graph_node
-    | `Unknown_graph of string
-    | `Unknown_node of graph_node
-    | `Wrong_collection of placed_graph  (** [collection] is the DECLARED one *)
-    | `Slot_mismatch of graph_node
-    | `Unknown_view of string
-    | `Duplicate_view of string
+    [ `Comparison_panes_disagree of string  (** transition id *)
+    | `Duplicate_capability of string
     | `Duplicate_comparison of string
-    | `Unknown_comparison of string
-    | `Node_in_two_entries of mapped_node
     | `Duplicate_flow_view of string
+    | `Duplicate_graph of string
+    | `Duplicate_node of graph_node
+    | `Duplicate_view of string
     | `Flow_destination_disagrees of Flow_destination.t
-    | `Unexpected_flow_view of string  (** [flow = None] *)
-    | `Unexpected_flow_capability of string  (** [flow = None] *)
-    | `Flow_view_unknown of Flow_state_view.t
+    | `Flow_view_graph_disagrees of Flow_view_graph.t
     | `Flow_view_not_stage of Flow_state_view.t
       (** a [View.Flow] or [View.Compare] is not a state destination *)
-    | `Flow_view_graph_disagrees of Flow_view_graph.t
-    | `Comparison_panes_disagree of string  (** transition id *)
-    | `Duplicate_capability of string
-    | `Missing_capability of string
+    | `Flow_view_unknown of Flow_state_view.t
     | `Incompatible_capability of string
+    | `Missing_capability of string
+    | `Node_in_two_entries of mapped_node
+    | `Slot_mismatch of graph_node
+    | `Unexpected_flow_capability of string  (** [flow = None] *)
+    | `Unexpected_flow_view of string  (** [flow = None] *)
+    | `Unknown_comparison of string
+    | `Unknown_graph of string
+    | `Unknown_node of graph_node
+    | `Unknown_view of string
+    | `Wrong_collection of placed_graph  (** [collection] is the DECLARED one *)
+    | Me_flow.error
     | Me_limits.over_limit_error
       (* counted under [Me_limits.Scope.Session]. ONE tag for both widths: the
          [int64]-ceiling aggregates ([max_total_nodes]/[max_total_edges], the
          overlay-edges total) are aggregates no real model can approach but
          which an untrusted document is not trusted not to claim, and
          [Over_limit.count] is [int64] so they need no tag of their own. *)
-    | Me_flow.error ]
+    ]
 
   val pp_error : Format.formatter -> [< error ] -> unit
 

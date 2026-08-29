@@ -5,10 +5,10 @@ let is_out_arg (a : Argument.t) =
   match a.annotation with Some ann -> ann.is_write | None -> false
 %}
 
-%token GENERATOR SCALAR_TYPE TENSOR INT_TY DIMNAME DIM_VECTOR FLOAT_TY STR_TY BOOL_TY
-%token LAYOUT DEVICE DEVICE_INDEX SCALAR MEMORY_FORMAT QSCHEME STORAGE STREAM
-%token SYM_INT SYM_BOOL GRAPH_MODULE
-%token NONE TRUE FALSE
+%token BOOL_TY DEVICE DEVICE_INDEX DIMNAME DIM_VECTOR FLOAT_TY GENERATOR GRAPH_MODULE
+%token INT_TY LAYOUT MEMORY_FORMAT QSCHEME SCALAR SCALAR_TYPE STORAGE STREAM STR_TY
+%token SYM_BOOL SYM_INT TENSOR
+%token FALSE NONE TRUE
 %token <string> IDENT
 %token <int>    INT_LIT
 %token <string> FLOAT_LIT
@@ -43,29 +43,29 @@ name_part:
 ;
 
 type_kw_str:
-  | GENERATOR     { "Generator" }
-  | SCALAR_TYPE   { "ScalarType" }
-  | TENSOR        { "Tensor" }
-  | INT_TY        { "int" }
-  | DIMNAME       { "Dimname" }
-  | DIM_VECTOR    { "DimVector" }
-  | FLOAT_TY      { "float" }
-  | STR_TY        { "str" }
   | BOOL_TY       { "bool" }
-  | LAYOUT        { "Layout" }
   | DEVICE        { "Device" }
   | DEVICE_INDEX  { "DeviceIndex" }
-  | SCALAR        { "Scalar" }
-  | MEMORY_FORMAT { "MemoryFormat" }
-  | QSCHEME       { "QScheme" }
-  | STORAGE       { "Storage" }
-  | STREAM        { "Stream" }
-  | SYM_INT       { "SymInt" }
-  | SYM_BOOL      { "SymBool" }
-  | GRAPH_MODULE  { "GraphModule" }
-  | NONE          { "None" }
-  | TRUE          { "True" }
+  | DIMNAME       { "Dimname" }
+  | DIM_VECTOR    { "DimVector" }
   | FALSE         { "False" }
+  | FLOAT_TY      { "float" }
+  | GENERATOR     { "Generator" }
+  | GRAPH_MODULE  { "GraphModule" }
+  | INT_TY        { "int" }
+  | LAYOUT        { "Layout" }
+  | MEMORY_FORMAT { "MemoryFormat" }
+  | NONE          { "None" }
+  | QSCHEME       { "QScheme" }
+  | SCALAR        { "Scalar" }
+  | SCALAR_TYPE   { "ScalarType" }
+  | STORAGE       { "Storage" }
+  | STR_TY        { "str" }
+  | STREAM        { "Stream" }
+  | SYM_BOOL      { "SymBool" }
+  | SYM_INT       { "SymInt" }
+  | TENSOR        { "Tensor" }
+  | TRUE          { "True" }
 ;
 
 (* ---- argument list: returns (positional, kwarg_only, out) ---- *)
@@ -121,26 +121,26 @@ reg_ty:
 ;
 
 base_ty:
-  | GENERATOR     { Base.Generator }
-  | SCALAR_TYPE   { Base.ScalarType }
-  | TENSOR        { Base.Tensor }
-  | INT_TY        { Base.Int }
+  | BOOL_TY       { Base.Bool }
+  | DEVICE        { Base.Device }
+  | DEVICE_INDEX  { Base.DeviceIndex }
   | DIMNAME       { Base.Dimname }
   | DIM_VECTOR    { Base.DimVector }
   | FLOAT_TY      { Base.Float }
-  | STR_TY        { Base.Str }
-  | BOOL_TY       { Base.Bool }
+  | GENERATOR     { Base.Generator }
+  | GRAPH_MODULE  { Base.GraphModule }
+  | INT_TY        { Base.Int }
   | LAYOUT        { Base.Layout }
-  | DEVICE        { Base.Device }
-  | DEVICE_INDEX  { Base.DeviceIndex }
-  | SCALAR        { Base.Scalar }
   | MEMORY_FORMAT { Base.MemoryFormat }
   | QSCHEME       { Base.QScheme }
+  | SCALAR        { Base.Scalar }
+  | SCALAR_TYPE   { Base.ScalarType }
   | STORAGE       { Base.Storage }
+  | STR_TY        { Base.Str }
   | STREAM        { Base.Stream }
-  | SYM_INT       { Base.SymInt }
   | SYM_BOOL      { Base.SymBool }
-  | GRAPH_MODULE  { Base.GraphModule }
+  | SYM_INT       { Base.SymInt }
+  | TENSOR        { Base.Tensor }
 ;
 
 (* ---- annotation: letter(s) + optional ! + optional -> alias_after ---- *)
@@ -183,15 +183,15 @@ opt_default:
 ;
 
 default_val:
-  | NONE                              { Default.None }
-  | TRUE                              { Default.Bool true }
   | FALSE                             { Default.Bool false }
-  | n=INT_LIT                         { Default.Int n }
+  | TRUE                              { Default.Bool true }
   | s=FLOAT_LIT                       { Default.Float s }
-  | s=STR_LIT                         { Default.Str s }
+  | s=IDENT                           { Default.Ident s }
+  | n=INT_LIT                         { Default.Int n }
   | LBRACKET RBRACKET                 { Default.IntList [] }
   | LBRACKET ns=int_list RBRACKET     { Default.IntList ns }
-  | s=IDENT                           { Default.Ident s }
+  | NONE                              { Default.None }
+  | s=STR_LIT                         { Default.Str s }
 ;
 
 int_list:

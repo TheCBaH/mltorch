@@ -80,7 +80,7 @@ end
 
 (* A schema type definition, dispatched on the "kind" member. *)
 module Type_def = struct
-  type t = Struct of Struct.t | Union of Union.t | Enum of Enum.t
+  type t = Enum of Enum.t | Struct of Struct.t | Union of Union.t
 
   let jsont : t Jsont.t =
     let struct_body =
@@ -116,9 +116,9 @@ module Type_def = struct
     Jsont.Object.map ~kind:"TypeDef" Fun.id
     |> Jsont.Object.case_mem "kind" Jsont.string
          [
+           Jsont.Object.Case.make enum_case;
            Jsont.Object.Case.make struct_case;
            Jsont.Object.Case.make union_case;
-           Jsont.Object.Case.make enum_case;
          ]
     |> Jsont.Object.finish
 end

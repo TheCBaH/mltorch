@@ -4,4 +4,4 @@
 (library
  (name native_walk)
  (wrapped false)
- (libraries walk_core aten_spec aten_spec_run aten_walk_recipes))
+ (libraries aten_spec aten_spec_run aten_walk_recipes walk_core))

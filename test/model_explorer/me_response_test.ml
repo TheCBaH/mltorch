@@ -107,8 +107,8 @@ let round_trip w =
   (* The re-encode reaches Jsont directly, so lift its bare message into the
      same row [Meta.decode] uses. *)
   match Jsont_bytesrw.encode_string Rsp.Meta.jsont m with
-  | Ok again -> Err.return (String.equal w.Rsp.Wire.meta again)
   | Error msg -> Err.fail (`Jsont msg)
+  | Ok again -> Err.return (String.equal w.Rsp.Wire.meta again)
 
 let%expect_test "every kind survives the seam" =
   List.iter

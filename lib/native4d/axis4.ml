@@ -24,10 +24,10 @@ let to_axis = function C -> Axis.C | H -> Axis.H | N -> Axis.N | W -> Axis.W
    say what it does with the two the dialect has no name for. *)
 let of_axis : Axis.t -> t option = function
   | Axis.C -> Some C
+  | Axis.D | Axis.T -> None
   | Axis.H -> Some H
   | Axis.N -> Some N
   | Axis.W -> Some W
-  | Axis.D | Axis.T -> None
 
 let equal a b = a = b
 let compare a b = Stdlib.compare (to_axis a) (to_axis b)
@@ -39,9 +39,9 @@ let jsont : t Jsont.t =
     ~dec:(fun json ->
       let axis = Json_util.dec Axis.jsont json in
       match of_axis axis with
-      | Some a -> a
       | None ->
           Jsont.Error.msgf Jsont.Meta.none "axis %a is outside the dialect"
-            Axis.pp axis)
+            Axis.pp axis
+      | Some a -> a)
     ~enc:(fun a -> Json_util.enc Axis.jsont (to_axis a))
     Jsont.json

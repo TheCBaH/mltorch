@@ -26,7 +26,7 @@ type arg = {
    distinct from [Tensors_ret] even though both surface as an OCaml list at the
    top: their schema shape, C ABI, and SERIALIZED GRAPH shape all differ (a tuple
    is N separate node outputs, a Tensor[] is one output carrying N names). *)
-type ret = Tensors_ret of int | Tensor_list_ret
+type ret = Tensor_list_ret | Tensors_ret of int
 
 let unsupported = None
 

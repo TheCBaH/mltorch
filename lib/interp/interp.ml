@@ -24,23 +24,23 @@ module TG = Aten_types_generated
 let tget = Aten_operation_description.tensors_get
 
 type error =
-  [ Pt2_archive.error
+  [ `Aten_runtime_failure of string * int
   | Interp_decode.error
-  | `Aten_runtime_failure of string * int
-  | `Unhandled_op of string
+  | Pt2_archive.error
+  | `Topk_read_failed
   | `Unexpected_graph_output of string
-  | `Topk_read_failed ]
+  | `Unhandled_op of string ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
-  | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
   | `Aten_runtime_failure (op, st) ->
       Fmt.pf ppf "ATen op %s failed with status %d" op st
-  | `Unhandled_op target -> Fmt.pf ppf "unhandled op %S" target
-  | `Unexpected_graph_output summary ->
-      Fmt.pf ppf "expected a single tensor graph output, got %s" summary
+  | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
+  | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
   | `Topk_read_failed ->
       Fmt.string ppf "failed to read topk outputs back from ATen"
+  | `Unexpected_graph_output summary ->
+      Fmt.pf ppf "expected a single tensor graph output, got %s" summary
+  | `Unhandled_op target -> Fmt.pf ppf "unhandled op %S" target
 
 (* --- driver --- *)
 

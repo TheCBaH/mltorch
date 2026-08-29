@@ -2,9 +2,11 @@
 
 module ME = Model_explorer
 
-type error = [ Me_limits.over_limit_error | Me_flow.error ]
+type error = [ Me_flow.error | Me_limits.over_limit_error ]
 
 let pp_error fmt : [< error ] -> unit = function
+  (* [Me_flow.error] includes [`Over_limit], so this narrower arm must precede
+     its catch-all even though the declarations above are alphabetical. *)
   | `Over_limit o -> Me_limits.Over_limit.pp fmt o
   | #Me_flow.error as e -> Me_flow.pp_error fmt e
 

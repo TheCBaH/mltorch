@@ -53,17 +53,17 @@ end
 (* Inference source classification. [Input] is supplied by the caller per run;
    [Constant] is model-bound state. *)
 module Input = struct
-  type kind = Input | Constant
+  type kind = Constant | Input
 
   let pp_kind fmt = function
-    | Input -> Format.pp_print_string fmt "input"
     | Constant -> Format.pp_print_string fmt "constant"
+    | Input -> Format.pp_print_string fmt "input"
 end
 
 (* An authoritative structural hierarchy over nodes, never a call boundary. No
    type parameter: grouping names node ids, not operations. *)
 module Group = struct
-  type item = Node of Node_id.t | Group of t
+  type item = Group of t | Node of Node_id.t
   and t = { id : Group_id.t; label : string option; items : item list }
 end
 

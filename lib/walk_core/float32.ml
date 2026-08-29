@@ -35,12 +35,11 @@ let enc_json f =
 let jsont : t Jsont.t =
   Jsont.map ~kind:"f32"
     ~dec:(function
+      | Jsont.Number (n, _) -> to_f32 n
       | Jsont.String (s, _) -> (
           match Int32.of_string_opt s with
-          | Some b -> Int32.float_of_bits b
           | None -> Jsont.Error.msgf Jsont.Meta.none "invalid float32 hex: %S" s
-          )
-      | Jsont.Number (n, _) -> to_f32 n
+          | Some b -> Int32.float_of_bits b)
       | _ ->
           Jsont.Error.msgf Jsont.Meta.none
             "float32: expected an int32 hex string or a number")

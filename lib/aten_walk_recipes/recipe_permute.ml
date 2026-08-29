@@ -23,6 +23,8 @@ let self_shape c =
 
 let dims c = c.config.dims
 
+(* Stable rank/scenario order for the seeded walk trace. The configurations are
+   coverage cases, not an alphabetizable vocabulary. *)
 let all_configs =
   [
     (* rank 2: identity, swap *)

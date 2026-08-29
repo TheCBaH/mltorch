@@ -42,13 +42,13 @@ module Make (D : Dialect.S) : sig
      Native4D's four-axis rule on graph inputs and captured constants — can be
      enforced. *)
   type error =
-    [ `Graph_shape of D.shape_error
-    | `Invalid_sig of Tensor_id.t * D.shape_error
-    | `Duplicate_group_id of Group_id.t
+    [ `Duplicate_group_id of Group_id.t
     | `Duplicate_group_item of Node_id.t
     | `Duplicate_node_id of Node_id.t
     | `Duplicate_tensor_def of Tensor_id.t
+    | `Graph_shape of D.shape_error
     | `Input_defined_by_node of Tensor_id.t
+    | `Invalid_sig of Tensor_id.t * D.shape_error
     | `Node_not_grouped of Node_id.t
     | `Not_topological of Node_id.t
     | `Output_arity of arity

@@ -6,7 +6,7 @@
    [Float] (rounded to f32) — but a bare number can't be an [Int] (JSON has one
    number type), so use the object form when an integer scalar is required. *)
 
-type t = Int of int | Float of Float32.t | Bool of bool
+type t = Bool of bool | Float of Float32.t | Int of int
 
 let jsont : t Jsont.t =
   Jsont.map ~kind:"scalar"
@@ -17,17 +17,17 @@ let jsont : t Jsont.t =
       | Jsont.Object _ ->
           Spec_util.union ~kind:"scalar"
             [
-              ("int", fun v -> Int (Spec_util.dec Jsont.int v));
-              ("float", fun v -> Float (Spec_util.dec Float32.jsont v));
               ("bool", fun v -> Bool (Spec_util.dec Jsont.bool v));
+              ("float", fun v -> Float (Spec_util.dec Float32.jsont v));
+              ("int", fun v -> Int (Spec_util.dec Jsont.int v));
             ]
             json
       | _ ->
           Jsont.Error.msgf Jsont.Meta.none
             "scalar: expected a number, bool, or single-key object")
     ~enc:(function
-      | Int i -> Spec_util.single ~case:"int" (Spec_util.jint i)
+      | Bool b -> Spec_util.single ~case:"bool" (Spec_util.jbool b)
       | Float f ->
           Spec_util.single ~case:"float" (Spec_util.enc Float32.jsont f)
-      | Bool b -> Spec_util.single ~case:"bool" (Spec_util.jbool b))
+      | Int i -> Spec_util.single ~case:"int" (Spec_util.jint i))
     Jsont.json

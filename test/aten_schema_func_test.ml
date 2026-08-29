@@ -14,10 +14,10 @@ let () =
       List.iter
         (fun (e : Aten_raw.t) ->
           match Aten_func_schema.parse e.func with
-          | Ok _ -> ()
           | Error msg ->
               incr errors;
-              Printf.eprintf "FAIL: %s\n  error: %s\n" e.func msg)
+              Printf.eprintf "FAIL: %s\n  error: %s\n" e.func msg
+          | Ok _ -> ())
         entries;
       Printf.printf "total: %d\n" total;
       Printf.printf "errors: %d\n" !errors

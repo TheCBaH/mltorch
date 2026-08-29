@@ -13,9 +13,9 @@
 
 module Binding_mismatch : sig
   type kind =
-    | Shape
     | Format
     | Quant
+    | Shape
     | Storage_length of { expected : int; actual : int }
 
   type t = { id : Tensor_id.t; kind : kind }
@@ -25,10 +25,10 @@ end
 
 type error =
   [ Expr.Eval.error
-  | `Unbound_input of Tensor_id.t
   | `Binding_mismatch of Binding_mismatch.t
-  | `Unknown_value of Tensor_id.t
-  | `Recursion_too_deep of int ]
+  | `Recursion_too_deep of int
+  | `Unbound_input of Tensor_id.t
+  | `Unknown_value of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 (** [`Recursion_too_deep] carries [Kernel.Limits.Hard.eval_recursion]. It is a

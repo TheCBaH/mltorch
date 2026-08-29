@@ -17,12 +17,12 @@
 open Op
 
 type error =
-  [ Shape_error.t | Shape4.error | `Missing_tensor_sig of Tensor_id.t ]
+  [ `Missing_tensor_sig of Tensor_id.t | Shape4.error | Shape_error.t ]
 
 let pp_error fmt : [< error ] -> unit = function
-  | #Shape_error.t as e -> Shape_error.pp fmt e
-  | #Shape4.error as e -> Shape4.pp_error fmt e
   | `Missing_tensor_sig id -> Fmt.pf fmt "missing tensor sig %a" Tensor_id.pp id
+  | #Shape4.error as e -> Shape4.pp_error fmt e
+  | #Shape_error.t as e -> Shape_error.pp fmt e
 
 let widen (r : ('a, [< error ]) Err.t) : ('a, error) Err.t =
   (r :> ('a, error) Err.t)
@@ -149,66 +149,24 @@ let output_shape (op : Op.t)
       let* a_shape = shape a in
       let* b_shape = shape b in
       one (four (Pointwise.Add.output_shape a_shape b_shape))
-  | Div { Pointwise.Bin.a; b } ->
-      let* a_shape = shape a in
-      let* b_shape = shape b in
-      one (four (Pointwise.Div.output_shape a_shape b_shape))
-  | Mul { Pointwise.Bin.a; b } ->
-      let* a_shape = shape a in
-      let* b_shape = shape b in
-      one (four (Pointwise.Mul.output_shape a_shape b_shape))
-  | Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Mul_scalar.output_shape x_shape))
-  | Pow { Pointwise.Scalar_bin.x; _ } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Pow.output_shape x_shape))
-  | Sub { Pointwise.Bin.a; b } ->
-      let* a_shape = shape a in
-      let* b_shape = shape b in
-      one (four (Pointwise.Sub.output_shape a_shape b_shape))
   | Add_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Add_scalar.output_shape x_shape))
-  | Div_scalar { Pointwise.Scalar_bin.x; _ } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Div_scalar.output_shape x_shape))
-  | Clamp { Pointwise.Clamp.params; x } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Clamp.output_shape params x_shape))
-  | Gelu { Pointwise.Gelu.x; _ } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Gelu.output_shape x_shape))
-  | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Hardsigmoid.output_shape x_shape))
-  | Hardswish { Pointwise.Hardswish.x } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Hardswish.output_shape x_shape))
-  | Hardtanh { Pointwise.Hardtanh.x; _ } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Hardtanh.output_shape x_shape))
-  | Relu { Pointwise.Relu.x } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Relu.output_shape x_shape))
-  | Sigmoid { Pointwise.Sigmoid.x } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Sigmoid.output_shape x_shape))
-  | Silu { Pointwise.Silu.x } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Silu.output_shape x_shape))
-  | Sqrt { Pointwise.Sqrt.x } ->
-      let* x_shape = shape x in
-      one (four (Pointwise.Sqrt.output_shape x_shape))
-  | Avg_pool2d { Pool.AvgPool2d.params; x } ->
-      let* x_shape = shape x in
-      one (four (Pool.AvgPool2d.output_shape ~x_shape params))
   | Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x } ->
       let* x_shape = shape x in
       one (four (Pool.AdaptiveAvgPool2d.output_shape ~x_shape params))
-  | Max_pool2d { Pool.MaxPool2d.params; x } ->
+  | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       let* x_shape = shape x in
-      one (four (Pool.MaxPool2d.output_shape ~x_shape params))
+      one (four (Pool.AvgPool2d.output_shape ~x_shape params))
+  | Clamp { Pointwise.Clamp.params; x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Clamp.output_shape params x_shape))
+  (* Variadic OPERANDS, not variadic outputs -- unlike [Unbind]'s [four_all],
+     this stays a single-shape arm, one [xs_shapes] gathered over every
+     operand rather than one [x_shape]. *)
+  | Concat4 { Ops4.Concat4.params; xs } ->
+      let* xs_shapes = Err.List.map shape xs in
+      one (four (Concat.Concat.output_shape ~xs_shapes (concat_params params)))
   | Conv2d { Ops4.Conv_payload.params; x; weight; _ } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
@@ -225,25 +183,25 @@ let output_shape (op : Op.t)
         (four
            (Conv.Conv2d.output_shape ~x_shape ~weight_shape
               (conv2d_params params ~groups)))
-  | Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; _ } ->
+  | Div { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      one (four (Pointwise.Div.output_shape a_shape b_shape))
+  | Div_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
-      let* weight_shape = shape weight in
-      one
-        (four
-           (Conv.Convolution.output_shape ~x_shape ~weight_shape
-              (transposed_params params)))
-  | Mean_keepdims { Ops4.Mean_keepdims.params; x } ->
+      one (four (Pointwise.Div_scalar.output_shape x_shape))
+  | Gelu { Pointwise.Gelu.x; _ } ->
       let* x_shape = shape x in
-      one (four (Reduce.Mean.output_shape ~x_shape (mean_params params)))
-  | Max_keepdims { Ops4.Max_keepdims.params; x } ->
+      one (four (Pointwise.Gelu.output_shape x_shape))
+  | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       let* x_shape = shape x in
-      one (four (Reduce.Amax.output_shape ~x_shape (max_params params)))
-  (* The one arm returning a list whose length is not the op's. Native has
-     already bounded the count against [Kernel.Limits.Hard.outputs], so this
-     path only carries the row through. *)
-  | Unbind { Ops4.Unbind.params; x } ->
+      one (four (Pointwise.Hardsigmoid.output_shape x_shape))
+  | Hardswish { Pointwise.Hardswish.x } ->
       let* x_shape = shape x in
-      four_all (Split.Unbind.output_shapes ~x_shape (unbind_params params))
+      one (four (Pointwise.Hardswish.output_shape x_shape))
+  | Hardtanh { Pointwise.Hardtanh.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Hardtanh.output_shape x_shape))
   (* The affine check that Native's own [Graph_shape] runs and this file's
      [Rms_norm] arm does NOT (see below). A JSON-decoded Native4D graph reaches
      this rule and no other, so leaving it out means an operand of the wrong
@@ -267,29 +225,34 @@ let output_shape (op : Op.t)
              ~weight ~bias)
       in
       one (four (Norm.LayerNorm.output_shape ~x_shape p))
-  (* Asymmetric with the arm above ON PURPOSE, and worth stating rather than
-     quietly copying: [Rms_norm] does not re-run [check_weight] here, so a
-     JSON-decoded Native4D rms_norm skips the affine validation Native's
-     [Graph_shape] performs. Noted in .ai/native4d_design.md; not fixed in the
-     same change that adds a different op. *)
-  | Rms_norm { Ops4.Rms_norm.params; x; _ } ->
+  | Max_keepdims { Ops4.Max_keepdims.params; x } ->
       let* x_shape = shape x in
-      one (four (Norm.RmsNorm.output_shape ~x_shape (rms_params params)))
-  (* Variadic OPERANDS, not variadic outputs -- unlike [Unbind]'s [four_all],
-     this stays a single-shape arm, one [xs_shapes] gathered over every
-     operand rather than one [x_shape]. *)
-  | Concat4 { Ops4.Concat4.params; xs } ->
-      let* xs_shapes = Err.List.map shape xs in
-      one (four (Concat.Concat.output_shape ~xs_shapes (concat_params params)))
+      one (four (Reduce.Amax.output_shape ~x_shape (max_params params)))
+  | Max_pool2d { Pool.MaxPool2d.params; x } ->
+      let* x_shape = shape x in
+      one (four (Pool.MaxPool2d.output_shape ~x_shape params))
+  | Mean_keepdims { Ops4.Mean_keepdims.params; x } ->
+      let* x_shape = shape x in
+      one (four (Reduce.Mean.output_shape ~x_shape (mean_params params)))
+  | Mul { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      one (four (Pointwise.Mul.output_shape a_shape b_shape))
+  | Mul_scalar { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Mul_scalar.output_shape x_shape))
   | Pad4 { Ops4.Pad4.params; x } ->
       let* x_shape = shape x in
       one (four (Pad.Pad.output_shape ~x_shape (pad_params params)))
-  | Slice4 { Ops4.Slice4.params; x } ->
-      let* x_shape = shape x in
-      one (four (Split.Slice.output_shape ~x_shape (slice_params params)))
   | Permute4 { Ops4.Permute4.perm; x } ->
       let* x_shape = shape x in
       one (four (Permute.Permute.output_shape ~x_shape (perm6 perm)))
+  | Pow { Pointwise.Scalar_bin.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Pow.output_shape x_shape))
+  | Relu { Pointwise.Relu.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Relu.output_shape x_shape))
   | Reshape4 { Ops4.Reshape4.params; x } ->
       (* The target is already a [Shape4.t]: a reshape cannot leave the
          dialect, which is why the target is typed rather than validated for
@@ -307,6 +270,43 @@ let output_shape (op : Op.t)
                 Reshape.Reshape.shape =
                   Shape4.to_vec6 params.Ops4.Reshape4.shape;
               }))
+  (* Asymmetric with the arm above ON PURPOSE, and worth stating rather than
+     quietly copying: [Rms_norm] does not re-run [check_weight] here, so a
+     JSON-decoded Native4D rms_norm skips the affine validation Native's
+     [Graph_shape] performs. Noted in .ai/native4d_design.md; not fixed in the
+     same change that adds a different op. *)
+  | Rms_norm { Ops4.Rms_norm.params; x; _ } ->
+      let* x_shape = shape x in
+      one (four (Norm.RmsNorm.output_shape ~x_shape (rms_params params)))
+  | Sigmoid { Pointwise.Sigmoid.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Sigmoid.output_shape x_shape))
+  | Silu { Pointwise.Silu.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Silu.output_shape x_shape))
+  | Slice4 { Ops4.Slice4.params; x } ->
+      let* x_shape = shape x in
+      one (four (Split.Slice.output_shape ~x_shape (slice_params params)))
+  | Sqrt { Pointwise.Sqrt.x } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Sqrt.output_shape x_shape))
+  | Sub { Pointwise.Bin.a; b } ->
+      let* a_shape = shape a in
+      let* b_shape = shape b in
+      one (four (Pointwise.Sub.output_shape a_shape b_shape))
+  | Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; _ } ->
+      let* x_shape = shape x in
+      let* weight_shape = shape weight in
+      one
+        (four
+           (Conv.Convolution.output_shape ~x_shape ~weight_shape
+              (transposed_params params)))
+  (* The one arm returning a list whose length is not the op's. Native has
+     already bounded the count against [Kernel.Limits.Hard.outputs], so this
+     path only carries the row through. *)
+  | Unbind { Ops4.Unbind.params; x } ->
+      let* x_shape = shape x in
+      four_all (Split.Unbind.output_shapes ~x_shape (unbind_params params))
   | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
       let* x_shape = shape x in
       one (four (Resize.Bilinear2d.output_shape ~x_shape params))

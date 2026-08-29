@@ -142,11 +142,11 @@ end
 
 module Path_rejection = struct
   type kind =
-    | Too_long of int  (** the limit *)
-    | Too_deep of int  (** the limit *)
     | Absolute
-    | Parent_segment
     | Control_byte
+    | Parent_segment
+    | Too_deep of int  (** the limit *)
+    | Too_long of int  (** the limit *)
 
   type t = { path : string; kind : kind }
   (** [path] is an [excerpt]. *)
@@ -156,7 +156,7 @@ end
    produced-length disagreement this module detects. The second is the whole
    point of the post-check (see [read]), and a caller could only tell them
    apart by matching on the message text. *)
-type zip_read_cause = [ `Zipc of string | `Size_disagrees ]
+type zip_read_cause = [ `Size_disagrees | `Zipc of string ]
 
 module Zip_read_failure = struct
   type t = { name : string; cause : zip_read_cause }
@@ -166,18 +166,18 @@ end
 type t = { zip : Zipc.t; prefix : string }
 
 type error =
-  [ `Zip_parse_failed of string
-  | `Zip_read_failed of Zip_read_failure.t
+  [ `Zip_bad_path of Path_rejection.t
+  | `Zip_duplicate_paths of int
+  | `Zip_encrypted_entry of string
+  | `Zip_entry_too_large of Entry_bound.t
   | `Zip_missing_entry of string
   | `Zip_no_eocd
+  | `Zip_parse_failed of string
+  | `Zip_read_failed of Zip_read_failure.t
+  | `Zip_stored_size_mismatch of string
   | `Zip_too_many_entries of int
-  | `Zip_duplicate_paths of int
-  | `Zip_bad_path of Path_rejection.t
-  | `Zip_encrypted_entry of string
-  | `Zip_unsupported_method of string
-  | `Zip_entry_too_large of Entry_bound.t
   | `Zip_total_too_large of int64
-  | `Zip_stored_size_mismatch of string ]
+  | `Zip_unsupported_method of string ]
 
 let entries_of zip = Zipc.fold (fun m acc -> Zipc.Member.path m :: acc) zip []
 
@@ -196,41 +196,41 @@ let compute_prefix zip =
 
 let pp_path_rejection ppf ({ path; kind } : Path_rejection.t) =
   match kind with
-  | Path_rejection.Too_long limit ->
-      Fmt.pf ppf "zip path %S exceeds %d bytes" path limit
-  | Path_rejection.Too_deep limit ->
-      Fmt.pf ppf "zip path %S is deeper than %d components" path limit
   | Path_rejection.Absolute -> Fmt.pf ppf "zip path %S is absolute" path
-  | Path_rejection.Parent_segment ->
-      Fmt.pf ppf "zip path %S has a %S component" path Filename.parent_dir_name
   | Path_rejection.Control_byte ->
       Fmt.pf ppf "zip path %S has a control byte" path
+  | Path_rejection.Parent_segment ->
+      Fmt.pf ppf "zip path %S has a %S component" path Filename.parent_dir_name
+  | Path_rejection.Too_deep limit ->
+      Fmt.pf ppf "zip path %S is deeper than %d components" path limit
+  | Path_rejection.Too_long limit ->
+      Fmt.pf ppf "zip path %S exceeds %d bytes" path limit
 
 let pp_error ppf : error -> unit = function
-  | `Zip_parse_failed msg -> Fmt.pf ppf "zip parse failed: %s" msg
-  | `Zip_read_failed { Zip_read_failure.name; cause } ->
-      Fmt.pf ppf "zip entry %S read failed: %s" name
-        (match cause with
-        | `Zipc m -> m
-        | `Size_disagrees -> "decompressed size disagrees")
-  | `Zip_missing_entry name -> Fmt.pf ppf "zip entry %S is missing" name
-  | `Zip_no_eocd -> Fmt.pf ppf "zip has no end-of-central-directory record"
-  | `Zip_too_many_entries limit ->
-      Fmt.pf ppf "zip declares more than %d entries" limit
+  | `Zip_bad_path r -> pp_path_rejection ppf r
   | `Zip_duplicate_paths declared ->
       Fmt.pf ppf "zip declares %d entries but has fewer distinct paths" declared
-  | `Zip_bad_path r -> pp_path_rejection ppf r
   | `Zip_encrypted_entry path -> Fmt.pf ppf "zip entry %S is encrypted" path
-  | `Zip_unsupported_method path ->
-      Fmt.pf ppf "zip entry %S uses an unsupported compression method" path
   | `Zip_entry_too_large { Entry_bound.path; kind; limit } ->
       Fmt.pf ppf "zip entry %S declares %s size over %Ld bytes" path
         (Entry_bound.kind_name kind)
         limit
-  | `Zip_total_too_large limit ->
-      Fmt.pf ppf "zip entries total over %Ld bytes" limit
+  | `Zip_missing_entry name -> Fmt.pf ppf "zip entry %S is missing" name
+  | `Zip_no_eocd -> Fmt.pf ppf "zip has no end-of-central-directory record"
+  | `Zip_parse_failed msg -> Fmt.pf ppf "zip parse failed: %s" msg
+  | `Zip_read_failed { Zip_read_failure.name; cause } ->
+      Fmt.pf ppf "zip entry %S read failed: %s" name
+        (match cause with
+        | `Size_disagrees -> "decompressed size disagrees"
+        | `Zipc m -> m)
   | `Zip_stored_size_mismatch path ->
       Fmt.pf ppf "zip entry %S is stored with disagreeing sizes" path
+  | `Zip_too_many_entries limit ->
+      Fmt.pf ppf "zip declares more than %d entries" limit
+  | `Zip_total_too_large limit ->
+      Fmt.pf ppf "zip entries total over %Ld bytes" limit
+  | `Zip_unsupported_method path ->
+      Fmt.pf ppf "zip entry %S uses an unsupported compression method" path
 
 (* CHECKPOINT 2 — before [Zipc.of_binary_string].
 

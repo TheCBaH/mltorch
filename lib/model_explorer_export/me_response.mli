@@ -18,7 +18,7 @@
    See .ai/model_explorer_design.md. *)
 
 module Phase : sig
-  type t = Decode | Lower | Project | Encode
+  type t = Decode | Encode | Lower | Project
 
   val to_string : t -> string
   val of_string : string -> t option
@@ -79,9 +79,9 @@ end
 
 module Handle_result : sig
   type t =
-    | Session of Session.t
     | Delta of Delta.t
     | Failed of Failed.t
+    | Session of Session.t
         (** What a handler may return: narrower than {!Final.t} by one
             constructor, and that constructor is the point. A protocol failure
             means the request was never understood, so a function that received
@@ -92,10 +92,10 @@ end
 
 module Final : sig
   type t =
-    | Session of Session.t
     | Delta of Delta.t
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t
+    | Session of Session.t
         (** Exactly one of these ends a request from the SHELL's point of view.
             {!Progress} is deliberately absent: it does not end anything. *)
 
@@ -131,11 +131,11 @@ module Meta : sig
   end
 
   type t = private
-    | Progress of Progress.t
-    | Session of Session.t
     | Delta of Delta.t
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t
+    | Progress of Progress.t
+    | Session of Session.t
         (** {!Progress}, {!Failed} and {!Protocol_failure} have no document, so
             their final payloads ARE their metadata and are reused unchanged. *)
 

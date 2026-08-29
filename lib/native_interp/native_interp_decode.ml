@@ -480,20 +480,20 @@ let hw2 esc param = function
    have no checked form, so the test is written out here. *)
 let pos esc ~op ~param n =
   match Op_config.Bad.pos ~op ~param n with
-  | Ok v -> v
   | Error e -> malformed esc (`Bad_config e)
+  | Ok v -> v
 
 let nonneg esc ~op ~param n =
   match Op_config.Bad.nonneg ~op ~param n with
-  | Ok v -> v
   | Error e -> malformed esc (`Bad_config e)
+  | Ok v -> v
 
 let extent esc ~op ~param n =
   match Dim.extent_checked n with
-  | Ok e -> e
   | Error _ ->
       malformed esc
         (`Bad_config { Op_config.Bad.op; param; fault = `Not_positive n })
+  | Ok e -> e
 
 (* The same asserting constructor reached from tensor METADATA rather than from
    an op-configuration field, so it gets the row that already describes that:
@@ -501,11 +501,11 @@ let extent esc ~op ~param n =
    as distinct because only [`Zero] arrives from real models. *)
 let dim_extent esc ~tensor n =
   match Dim.extent_checked n with
-  | Ok e -> e
   | Error _ ->
       malformed esc
         (`Bad_dimension
            { tensor; fault = (if n = 0 then `Zero else `Negative n) })
+  | Ok e -> e
 
 let pos_hw esc ~op ~param (h, w) =
   { Op_config.Hw.h = pos esc ~op ~param h; w = pos esc ~op ~param w }
@@ -718,8 +718,8 @@ let conv2d_padding_params esc (graph : Pytorch_types.Graph.t)
       Conv.Conv2d_padding.of_string
         (string_arg esc ~default:"valid" node "padding")
     with
-    | Ok p -> p
     | Error s -> malformed esc (`Unsupported_padding_mode s)
+    | Ok p -> p
   in
   let stride = hw2 esc `Stride (ints_arg esc ~default:[ 1; 1 ] node "stride") in
   let dilation =

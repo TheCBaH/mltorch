@@ -59,13 +59,13 @@ module Transition : sig
       and nothing else — before it existed the table matched on string literals,
       so a typo there silently made a legal transition illegal. *)
   module Kind_tag : sig
-    type t = Import | Pass | Pack | Cross_dialect | Adapt
+    type t = Adapt | Cross_dialect | Import | Pack | Pass
 
     val to_string : t -> string
     val all : t list
   end
 
-  type kind = Import | Pass of Pass_execution.t | Pack | Cross_dialect | Adapt
+  type kind = Adapt | Cross_dialect | Import | Pack | Pass of Pass_execution.t
 
   val tag : kind -> Kind_tag.t
 
@@ -128,20 +128,20 @@ module Pass_layer_disagreement : sig
 end
 
 type error =
-  [ `Duplicate_state of string
-  | `Duplicate_transition of string
-  | `Unknown_state of string  (** named by a transition endpoint *)
-  | `No_root  (** no [Pt2] state without a producer *)
-  | `Multiple_roots of int
-  | `Unreachable_state of string
-  | `Cycle of string
+  [ `Cycle of string
     (** A state on a cycle. Not reachable through the other checks — see
         {!validate} — and retained as a termination guard. *)
-  | `Multiple_producers of string
-  | `Producer_disagrees of string  (** [produced_by] is not the transition *)
-  | `Illegal_transition of Illegal_transition.t
-  | `Pass_layer_disagrees of Pass_layer_disagreement.t
   | `Duplicate_pass_execution of Pass_execution.t
+  | `Duplicate_state of string
+  | `Duplicate_transition of string
+  | `Illegal_transition of Illegal_transition.t
+  | `Multiple_producers of string
+  | `Multiple_roots of int
+  | `No_root  (** no [Pt2] state without a producer *)
+  | `Pass_layer_disagrees of Pass_layer_disagreement.t
+  | `Producer_disagrees of string  (** [produced_by] is not the transition *)
+  | `Unknown_state of string  (** named by a transition endpoint *)
+  | `Unreachable_state of string
   | Me_limits.over_limit_error (* counted under [Me_limits.Scope.Flow] *) ]
 
 val pp_error : Format.formatter -> [< error ] -> unit

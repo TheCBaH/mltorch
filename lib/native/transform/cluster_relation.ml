@@ -219,6 +219,9 @@ module Make (Id : ID) (Label : LABEL) = struct
   module Tag = struct
     type t = Dst of Id.t | Mid of Id.t | Src of Id.t
 
+    (* Comparison follows the composition direction, source -> middle ->
+       destination, not constructor spelling. It fixes [Tset]'s traversal and
+       therefore the deterministic normal form of a composed relation. *)
     let rank = function Src _ -> 0 | Mid _ -> 1 | Dst _ -> 2
 
     let compare a b =

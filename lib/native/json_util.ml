@@ -21,13 +21,13 @@ let single ~case v = jobj [ (case, v) ]
 
 let dec codec value =
   match Jsont.Json.decode codec value with
-  | Ok v -> v
   | Error s -> Jsont.Error.msg meta s
+  | Ok v -> v
 
 let enc codec v =
   match Jsont.Json.encode codec v with
-  | Ok j -> j
   | Error s -> Jsont.Error.msg meta s
+  | Ok j -> j
 
 (* ---- Object helpers ------------------------------------------------------- *)
 
@@ -41,14 +41,14 @@ let find_member ms key =
 (* Require a field by name; error if absent. *)
 let req_field ms key codec ctx =
   match find_member ms key with
-  | Some v -> dec codec v
   | None -> Jsont.Error.msgf meta "%s: missing %S" ctx key
+  | Some v -> dec codec v
 
 (* Extract the members list from an object, error if not an object. *)
 let req_obj json ctx =
   match members json with
-  | Some ms -> ms
   | None -> Jsont.Error.msgf meta "%s: expected object" ctx
+  | Some ms -> ms
 
 (* Optional field: [None] when the key is absent. *)
 let opt_field ms key codec = Option.map (dec codec) (find_member ms key)
@@ -57,8 +57,8 @@ let opt_field ms key codec = Option.map (dec codec) (find_member ms key)
 let union ~kind cases = function
   | Jsont.Object ([ ((key, _), value) ], _) -> (
       match List.assoc_opt key cases with
-      | Some f -> f value
-      | None -> Jsont.Error.msgf meta "%s: unknown variant %S" kind key)
+      | None -> Jsont.Error.msgf meta "%s: unknown variant %S" kind key
+      | Some f -> f value)
   | Jsont.Object _ ->
       Jsont.Error.msgf meta "%s: expected a single-key object" kind
   | _ -> Jsont.Error.msgf meta "%s: expected an object" kind
@@ -86,10 +86,10 @@ let enc_f32 f =
 let f32_jsont : float Jsont.t =
   Jsont.map ~kind:"f32"
     ~dec:(function
+      | Jsont.Number (n, _) -> f32_to_f32 n
       | Jsont.String (s, _) -> (
           match Int32.of_string_opt s with
-          | Some b -> Int32.float_of_bits b
-          | None -> Jsont.Error.msgf meta "f32: invalid hex %S" s)
-      | Jsont.Number (n, _) -> f32_to_f32 n
+          | None -> Jsont.Error.msgf meta "f32: invalid hex %S" s
+          | Some b -> Int32.float_of_bits b)
       | _ -> Jsont.Error.msgf meta "f32: expected number or hex string")
     ~enc:enc_f32 Jsont.json

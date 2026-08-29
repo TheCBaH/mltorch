@@ -350,14 +350,14 @@ let hw2 name = function
    boundary is not enough on its own: it yields a [`Validation_failure] STRING,
    which a caller cannot classify without parsing prose, and which says nothing
    about which parameter of which op held what value. *)
-let cfg = function Ok v -> return v | Error e -> fail (`Bad_config e)
+let cfg = function Error e -> fail (`Bad_config e) | Ok v -> return v
 let pos ~op ~param n = cfg (Op_config.Bad.pos ~op ~param n)
 let nonneg ~op ~param n = cfg (Op_config.Bad.nonneg ~op ~param n)
 
 let extent ~op ~param n =
   match Dim.extent_checked n with
-  | Ok e -> return e
   | Error _ -> cfg (Error { Op_config.Bad.op; param; fault = `Not_positive n })
+  | Ok e -> return e
 
 let conv_axis_window ~op ~kernel ~stride ~pad ~dilation :
     (Conv.Conv2d.axis_window, [> `Bad_config of Op_config.Bad.t ]) Err.t =
@@ -417,8 +417,8 @@ let make_conv2d_padding_params ~op sh sw padding dh dw groups =
     cannot drift between the two importers. *)
   let* padding =
     match Conv.Conv2d_padding.of_string padding with
-    | Ok p -> return p
     | Error s -> fail (`Unsupported_padding_mode s)
+    | Ok p -> return p
   in
   let* sh = pos ~op ~param:`Stride sh in
   let* sw = pos ~op ~param:`Stride sw in

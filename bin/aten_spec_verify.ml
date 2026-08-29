@@ -20,7 +20,7 @@
    and a compact summary of the output tensor(s) — see
    Aten_spec_run.walk_eval. *)
 
-type mode = Verify | Print | Eval
+type mode = Eval | Print | Verify
 
 let read_source path =
   if path = "-" then In_channel.input_all stdin
@@ -40,11 +40,11 @@ let handle ~mode ~walk path =
       | Some _, (Print | Verify) ->
           prerr_endline "aten_spec_verify: --walk currently requires --eval";
           false
-      | None, Print ->
-          Aten_spec_run.eval_print spec;
-          true
       | None, Eval ->
           Aten_spec_run.eval_report spec;
+          true
+      | None, Print ->
+          Aten_spec_run.eval_print spec;
           true
       | None, Verify -> Aten_spec_run.compare_report spec)
 
@@ -66,11 +66,11 @@ let () =
     if i < Array.length argv then
       let next =
         match argv.(i) with
-        | "--print" ->
-            mode := Print;
-            i + 1
         | "--eval" ->
             mode := Eval;
+            i + 1
+        | "--print" ->
+            mode := Print;
             i + 1
         | "--walk" ->
             walk := Some (int_of_string argv.(i + 1));

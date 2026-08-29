@@ -75,7 +75,7 @@ module Summary = struct
       t.trace_ids
 end
 
-type error = [ Pass.error | `Origin of Rewrite.error ]
+type error = [ `Origin of Rewrite.error | Pass.error ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Origin e -> Rewrite.pp_error ppf e

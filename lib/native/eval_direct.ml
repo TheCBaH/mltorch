@@ -9,10 +9,10 @@ type arity_mismatch = { expected : int; actual : int }
 
 type error =
   [ Graph_shape.error
-  | `Missing_tensor of missing_tensor
-  | `Output_arity_mismatch of arity_mismatch
+  | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
-  | `Missing_constant of Tensor_id.t ]
+  | `Missing_tensor of missing_tensor
+  | `Output_arity_mismatch of arity_mismatch ]
 
 type hooks =
   | Hooks : { on_start : node -> 'a; on_end : node -> 'a -> unit } -> hooks
@@ -23,6 +23,10 @@ let pp_context ppf = function
 
 let pp_error ppf : [< error ] -> unit = function
   | #Graph_shape.error as e -> Graph_shape.pp_error ppf e
+  | `Missing_constant id ->
+      Format.fprintf ppf "missing constant tensor t%d" (Tensor_id.to_int id)
+  | `Missing_input id ->
+      Format.fprintf ppf "missing input tensor t%d" (Tensor_id.to_int id)
   | `Missing_tensor { context; id } ->
       Format.fprintf ppf "missing %a tensor t%d" pp_context context
         (Tensor_id.to_int id)
@@ -30,10 +34,6 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "node output arity mismatch: %d output shapes for %d output ids"
         expected actual
-  | `Missing_input id ->
-      Format.fprintf ppf "missing input tensor t%d" (Tensor_id.to_int id)
-  | `Missing_constant id ->
-      Format.fprintf ppf "missing constant tensor t%d" (Tensor_id.to_int id)
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
@@ -62,12 +62,12 @@ let bind_constants g constants env =
   Err.List.fold_left
     (fun env id ->
       match Graph_ir.input_kind g id with
-      | Input.Input -> Err.return env
       | Input.Constant when not (constant_is_used g id) -> Err.return env
       | Input.Constant -> (
           match List.assoc_opt id constants with
-          | Some tensor -> Err.return (Tensor_id.Map.add id tensor env)
-          | None -> Err.fail (`Missing_constant id)))
+          | None -> Err.fail (`Missing_constant id)
+          | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
+      | Input.Input -> Err.return env)
     env g.Graph.inputs
 
 let rec run_graph ?hooks ~constants (g : graph)
@@ -167,8 +167,8 @@ let run ?hooks ?(constants = []) (g : graph)
     Err.List.fold_left
       (fun env id ->
         match Tensor_id.Map.find_opt id provided with
-        | Some tensor -> Err.return (Tensor_id.Map.add id tensor env)
-        | None -> Err.fail (`Missing_input id))
+        | None -> Err.fail (`Missing_input id)
+        | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
       Tensor_id.Map.empty (input_ids g)
   in
   run_graph ?hooks ~constants g env0

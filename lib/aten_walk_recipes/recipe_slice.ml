@@ -24,16 +24,16 @@
    valid slice. *)
 
 type pattern =
-  | Whole  (** every bound absent: the identity, and a real ATen answer *)
-  | Head  (** [0, n/2) *)
-  | Tail  (** [n/2, n) *)
-  | Negative_start  (** [-2, n), so the normalization is exercised *)
-  | Negative_end  (** [0, -1) *)
-  | Both_negative  (** [-3, -1) *)
-  | Clamp_high  (** end past the extent: ATen clamps, it does not reject *)
-  | Clamp_low  (** start below -extent: clamps to 0 *)
-  | Stride2  (** whole axis, step 2 *)
-  | Stride3_offset  (** [1, n) step 3 -- span and step share no factor *)
+  | Both_negative (* [-3, -1) *)
+  | Clamp_high (* end past the extent: ATen clamps, it does not reject *)
+  | Clamp_low (* start below -extent: clamps to 0 *)
+  | Head (* [0, n/2) *)
+  | Negative_end (* [0, -1) *)
+  | Negative_start (* [-2, n), so the normalization is exercised *)
+  | Stride2 (* whole axis, step 2 *)
+  | Stride3_offset (* [1, n) step 3 -- span and step share no factor *)
+  | Tail (* [n/2, n) *)
+  | Whole (* every bound absent: the identity, and a real ATen answer *)
 
 type config = { rank : int; dim : int; pattern : pattern }
 type t = { n : int; c : int; h : int; w : int; config : config }
@@ -63,16 +63,16 @@ let extent c =
 let bounds c =
   let n = extent c in
   match c.config.pattern with
-  | Whole -> (None, None, 1)
-  | Head -> (Some 0, Some (max 1 (n / 2)), 1)
-  | Tail -> (Some (min (n - 1) (n / 2)), None, 1)
-  | Negative_start -> (Some (-min n 2), None, 1)
-  | Negative_end -> (Some 0, Some (-1), 1)
   | Both_negative -> (Some (-min n 3), Some (-1), 1)
   | Clamp_high -> (Some 0, Some (n + 5), 1)
   | Clamp_low -> (Some (-(n + 5)), None, 1)
+  | Head -> (Some 0, Some (max 1 (n / 2)), 1)
+  | Negative_end -> (Some 0, Some (-1), 1)
+  | Negative_start -> (Some (-min n 2), None, 1)
   | Stride2 -> (None, None, 2)
   | Stride3_offset -> (Some 1, None, 3)
+  | Tail -> (Some (min (n - 1) (n / 2)), None, 1)
+  | Whole -> (None, None, 1)
 
 let start c =
   let s, _, _ = bounds c in
@@ -99,6 +99,9 @@ let all_configs =
         (fun dim ->
           List.map
             (fun pattern -> { rank; dim; pattern })
+            (* Stable scenario-family order; this sequence determines the walk
+               trace and intentionally differs from [pattern]'s declaration
+               order. *)
             [
               Whole;
               Head;
@@ -125,16 +128,16 @@ let axes ~n ~c ~h ~w ~config =
     ]
 
 let pp_pattern = function
-  | Whole -> "whole"
-  | Head -> "head"
-  | Tail -> "tail"
-  | Negative_start -> "neg_start"
-  | Negative_end -> "neg_end"
   | Both_negative -> "both_neg"
   | Clamp_high -> "clamp_high"
   | Clamp_low -> "clamp_low"
+  | Head -> "head"
+  | Negative_end -> "neg_end"
+  | Negative_start -> "neg_start"
   | Stride2 -> "stride2"
   | Stride3_offset -> "stride3_offset"
+  | Tail -> "tail"
+  | Whole -> "whole"
 
 let pp ppf c =
   let ints l = String.concat "," (List.map string_of_int l) in

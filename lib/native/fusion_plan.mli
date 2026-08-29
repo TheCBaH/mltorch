@@ -8,6 +8,11 @@
 
 module Rejection : sig
   type t =
+    | Budget_exceeded of {
+        use : Kernel.Use.t;
+        error : Kernel_elab.error Err.Error.t;
+      }
+    | Intrinsic_use of Kernel.Use.t
     | Multiple_uses of { producer : Tensor_id.t; at_least : int }
         (** A LOWER BOUND, not a count. The planner's counter saturates at two,
             because the cross-body total is an [int] and the per-value limits
@@ -15,8 +20,6 @@ module Rejection : sig
             under js_of_ocaml and would read as unique-use. Legality only asks
             one versus more than one, so nothing needs the exact figure, and the
             field is named and printed so the diagnostic does not claim it. *)
-    | Intrinsic_use of Kernel.Use.t
-    | Reducing_consumer of Kernel.Use.t
     | Non_pointwise_use of {
         use : Kernel.Use.t;
         reason : Kernel_elab.error Err.Error.t;
@@ -27,18 +30,15 @@ module Rejection : sig
             *)
       }
     | Overlaps_selected of { rejected : Kernel.Use.t; selected : Kernel.Use.t }
-    | Budget_exceeded of {
-        use : Kernel.Use.t;
-        error : Kernel_elab.error Err.Error.t;
-      }
+    | Reducing_consumer of Kernel.Use.t
 
   val pp : Format.formatter -> t -> unit
 end
 
 module Decision : sig
   type t = private
-    | Virtualize of { use : Kernel.Use.t; also_stored : bool }
     | Reject of { producer : Tensor_id.t; reason : Rejection.t }
+    | Virtualize of { use : Kernel.Use.t; also_stored : bool }
 
   val pp : Format.formatter -> t -> unit
 end
@@ -86,7 +86,7 @@ val plan : Kernel.t -> t * Decision.t list
 
     Reporting is equally fixed: one decision per produced value with at least
     one downstream dependency, ordered by producer topology, and the first
-    failing check in the [Rejection] order above is the reason.
+    failing check in the planner's explicit precedence order is the reason.
 
     An externally live producer is NOT a rejection — it is virtualized for its
     consumer and keeps its store, with [also_stored = true]. *)

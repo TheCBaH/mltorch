@@ -10,21 +10,15 @@ type ('src, 'dst) t = {
 
 type error =
   [ `Cluster_format of Tensor_id.t * Tensor_id.t
+  | `Cluster_shape of Tensor_id.t * Tensor_id.t
   | `Graph_output_arity of int * int
   | `Graph_output_mismatch of Tensor_id.t * Tensor_id.t
-  | `Cluster_shape of Tensor_id.t * Tensor_id.t
   | `Node_endpoint of Node_id.t Cluster_relation.issue
   | `Provenance_endpoint of Tensor_id.t Cluster_relation.issue
   | `Unclosed_claim of Tensor_id.t
   | `Value_endpoint of Tensor_id.t Cluster_relation.issue ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Graph_output_arity (s, d) ->
-      Fmt.pf ppf "graph outputs differ in arity: %d source, %d destination" s d
-  | `Graph_output_mismatch (s, d) ->
-      Fmt.pf ppf
-        "source output %a and destination output %a are not in one cluster"
-        Tensor_id.pp s Tensor_id.pp d
   | `Cluster_format (a, b) ->
       Fmt.pf ppf
         "@[<h>value map: %a and %a are claimed identical across different \
@@ -33,6 +27,12 @@ let pp_error ppf : [< error ] -> unit = function
   | `Cluster_shape (a, b) ->
       Fmt.pf ppf "@[<h>value map: %a and %a correspond but differ in shape@]"
         Tensor_id.pp a Tensor_id.pp b
+  | `Graph_output_arity (s, d) ->
+      Fmt.pf ppf "graph outputs differ in arity: %d source, %d destination" s d
+  | `Graph_output_mismatch (s, d) ->
+      Fmt.pf ppf
+        "source output %a and destination output %a are not in one cluster"
+        Tensor_id.pp s Tensor_id.pp d
   | `Node_endpoint issue ->
       Fmt.pf ppf "@[<h>node map: %a@]"
         (Cluster_relation.pp_issue Node_id.pp)

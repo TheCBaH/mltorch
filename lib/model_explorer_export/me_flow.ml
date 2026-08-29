@@ -39,15 +39,17 @@ end
 
 module Transition = struct
   module Kind_tag = struct
-    type t = Import | Pass | Pack | Cross_dialect | Adapt
+    type t = Adapt | Cross_dialect | Import | Pack | Pass
 
     let to_string = function
-      | Import -> "import"
-      | Pass -> "pass"
-      | Pack -> "pack"
-      | Cross_dialect -> "cross_dialect"
       | Adapt -> "adapt"
+      | Cross_dialect -> "cross_dialect"
+      | Import -> "import"
+      | Pack -> "pack"
+      | Pass -> "pass"
 
+    (* The successor relation and [all] deliberately follow execution phase,
+       rather than alphabetical tag order: they construct the public timeline. *)
     let next = function
       | Import -> Some Pass
       | Pass -> Some Pack
@@ -64,14 +66,14 @@ module Transition = struct
       walk [] Import
   end
 
-  type kind = Import | Pass of Pass_execution.t | Pack | Cross_dialect | Adapt
+  type kind = Adapt | Cross_dialect | Import | Pack | Pass of Pass_execution.t
 
   let tag : kind -> Kind_tag.t = function
-    | Import -> Kind_tag.Import
-    | Pass _ -> Kind_tag.Pass
-    | Pack -> Kind_tag.Pack
-    | Cross_dialect -> Kind_tag.Cross_dialect
     | Adapt -> Kind_tag.Adapt
+    | Cross_dialect -> Kind_tag.Cross_dialect
+    | Import -> Kind_tag.Import
+    | Pack -> Kind_tag.Pack
+    | Pass _ -> Kind_tag.Pass
 
   let kind_name k = Kind_tag.to_string (tag k)
 
@@ -112,33 +114,26 @@ module Pass_layer_disagreement = struct
 end
 
 type error =
-  [ `Duplicate_state of string
-  | `Duplicate_transition of string
-  | `Unknown_state of string
-  | `No_root
-  | `Multiple_roots of int
-  | `Unreachable_state of string
-  | `Cycle of string
-  | `Multiple_producers of string
-  | `Producer_disagrees of string
-  | `Illegal_transition of Illegal_transition.t
-  | `Pass_layer_disagrees of Pass_layer_disagreement.t
+  [ `Cycle of string
   | `Duplicate_pass_execution of Pass_execution.t
+  | `Duplicate_state of string
+  | `Duplicate_transition of string
+  | `Illegal_transition of Illegal_transition.t
+  | `Multiple_producers of string
+  | `Multiple_roots of int
+  | `No_root
+  | `Pass_layer_disagrees of Pass_layer_disagreement.t
+  | `Producer_disagrees of string
+  | `Unknown_state of string
+  | `Unreachable_state of string
   | Me_limits.over_limit_error ]
 
 let pp_error fmt : [< error ] -> unit = function
+  | `Cycle id -> Fmt.pf fmt "flow is cyclic at state %s" id
+  | `Duplicate_pass_execution e ->
+      Fmt.pf fmt "pass execution %a occurs more than once" Pass_execution.pp e
   | `Duplicate_state id -> Fmt.pf fmt "duplicate flow state %s" id
   | `Duplicate_transition id -> Fmt.pf fmt "duplicate flow transition %s" id
-  | `Unknown_state id -> Fmt.pf fmt "transition names unknown state %s" id
-  | `No_root -> Fmt.pf fmt "no pt2 root state"
-  | `Multiple_roots n -> Fmt.pf fmt "%d root states, expected one" n
-  | `Unreachable_state id ->
-      Fmt.pf fmt "state %s is unreachable from the root" id
-  | `Cycle id -> Fmt.pf fmt "flow is cyclic at state %s" id
-  | `Multiple_producers id ->
-      Fmt.pf fmt "state %s has more than one producer" id
-  | `Producer_disagrees id ->
-      Fmt.pf fmt "state %s names a producer that does not produce it" id
   | `Illegal_transition { Illegal_transition.transition; before; kind; after }
     ->
       Fmt.pf fmt "transition %s crosses layers illegally: %s -%s-> %s"
@@ -146,6 +141,10 @@ let pp_error fmt : [< error ] -> unit = function
         (Me_ids.Layer.to_string before)
         (Transition.Kind_tag.to_string kind)
         (Me_ids.Layer.to_string after)
+  | `Multiple_producers id ->
+      Fmt.pf fmt "state %s has more than one producer" id
+  | `Multiple_roots n -> Fmt.pf fmt "%d root states, expected one" n
+  | `No_root -> Fmt.pf fmt "no pt2 root state"
   | `Pass_layer_disagrees
       { Pass_layer_disagreement.transition; execution; before; after } ->
       Fmt.pf fmt
@@ -155,8 +154,11 @@ let pp_error fmt : [< error ] -> unit = function
         (Me_ids.Layer.to_string execution)
         (Me_ids.Layer.to_string before)
         (Me_ids.Layer.to_string after)
-  | `Duplicate_pass_execution e ->
-      Fmt.pf fmt "pass execution %a occurs more than once" Pass_execution.pp e
+  | `Producer_disagrees id ->
+      Fmt.pf fmt "state %s names a producer that does not produce it" id
+  | `Unknown_state id -> Fmt.pf fmt "transition names unknown state %s" id
+  | `Unreachable_state id ->
+      Fmt.pf fmt "state %s is unreachable from the root" id
   | `Over_limit o -> Me_limits.Over_limit.pp fmt o
 
 let count = Me_limits.check ~scope:Me_limits.Scope.Flow
@@ -170,16 +172,16 @@ let legal_triples =
   let open Me_ids.Layer in
   let open Transition.Kind_tag in
   [
-    (Pt2, Import, Native);
-    (Native, Pass, Native);
-    (Native, Pack, Native);
-    (Native, Cross_dialect, Native4d);
-    (Native4d, Pass, Native4d);
-    (Native4d, Pack, Native4d);
-    (Native, Adapt, Symbolic);
-    (Symbolic, Pass, Symbolic);
-    (Symbolic, Adapt, Kernel);
     (Kernel, Pass, Kernel);
+    (Native, Adapt, Symbolic);
+    (Native, Cross_dialect, Native4d);
+    (Native, Pack, Native);
+    (Native, Pass, Native);
+    (Native4d, Pack, Native4d);
+    (Native4d, Pass, Native4d);
+    (Pt2, Import, Native);
+    (Symbolic, Adapt, Kernel);
+    (Symbolic, Pass, Symbolic);
   ]
 
 let is_legal ~before ~kind ~after =

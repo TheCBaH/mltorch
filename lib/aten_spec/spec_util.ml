@@ -24,14 +24,14 @@ let single ~case v = jobj [ (case, v) ]
 (* Decode [value] with [codec], raising a jsont decode error on failure. *)
 let dec codec value =
   match Jsont.Json.decode codec value with
-  | Ok v -> v
   | Error s -> Jsont.Error.msg meta s
+  | Ok v -> v
 
 (* Encode [v] with [codec] to generic JSON, for nesting under a union key. *)
 let enc codec v =
   match Jsont.Json.encode codec v with
-  | Ok j -> j
   | Error s -> Jsont.Error.msg meta s
+  | Ok j -> j
 
 let members = function Jsont.Object (ms, _) -> Some ms | _ -> None
 let is_null = function Jsont.Null _ -> true | _ -> false
@@ -45,9 +45,9 @@ let find_member ms key =
 let union ~kind cases = function
   | Jsont.Object ([ ((key, _), value) ], _) -> (
       match List.assoc_opt key cases with
-      | Some f -> f value
       | None ->
-          Jsont.Error.msgf Jsont.Meta.none "%s: unknown variant %S" kind key)
+          Jsont.Error.msgf Jsont.Meta.none "%s: unknown variant %S" kind key
+      | Some f -> f value)
   | Jsont.Object _ ->
       Jsont.Error.msgf Jsont.Meta.none "%s: expected a single-key object" kind
   | _ -> Jsont.Error.msgf Jsont.Meta.none "%s: expected an object" kind

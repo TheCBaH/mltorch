@@ -1,16 +1,16 @@
-type binary_op = Expr_repr.binary_op = Add | Sub | Mul | Div
-type unary_op = Expr_repr.unary_op = Exp | Sqrt | Erf | Log
+type binary_op = Expr_repr.binary_op = Add | Div | Mul | Sub
+type unary_op = Expr_repr.unary_op = Erf | Exp | Log | Sqrt
 
 type t = Expr_repr.value =
-  | Const of float
   | Binary of binary_op * t * t
-  | Unary of unary_op * t
-  | Select of Expr_repr.bool_expr * t * t
-  | Value_of_index of Role.Delta.t Index.t
-  | Load of Source.t * Role.Position.t Index.t Coord.t
-  | Round_f32 of t
-  | Reduce of Expr_repr.reduction
+  | Const of float
   | Intrinsic of Intrinsic.t
+  | Load of Source.t * Role.Position.t Index.t Coord.t
+  | Reduce of Expr_repr.reduction
+  | Round_f32 of t
+  | Select of Expr_repr.bool_expr * t * t
+  | Unary of unary_op * t
+  | Value_of_index of Role.Delta.t Index.t
 
 let const x = Const x
 let add a b = Binary (Add, a, b)
@@ -30,9 +30,9 @@ let reduce r = Reduce r
 
 let apply_binary = function
   | Add -> ( +. )
-  | Sub -> ( -. )
-  | Mul -> ( *. )
   | Div -> ( /. )
+  | Mul -> ( *. )
+  | Sub -> ( -. )
 
 let erf_approx x =
   let p = 0.3275911 in
@@ -50,33 +50,33 @@ let erf_approx x =
   sign *. (1. -. (poly *. Stdlib.exp (-.ax *. ax)))
 
 let apply_unary = function
-  | Exp -> Stdlib.exp
-  | Sqrt -> Stdlib.sqrt
   | Erf -> erf_approx
+  | Exp -> Stdlib.exp
   | Log -> Stdlib.log
+  | Sqrt -> Stdlib.sqrt
 
-let binary_sym = function Add -> "+" | Sub -> "-" | Mul -> "*" | Div -> "/"
+let binary_sym = function Add -> "+" | Div -> "/" | Mul -> "*" | Sub -> "-"
 
 let unary_name = function
-  | Exp -> "exp"
-  | Sqrt -> "sqrt"
   | Erf -> "erf"
+  | Exp -> "exp"
   | Log -> "log"
+  | Sqrt -> "sqrt"
 
 let index_tag : type r. r Index.t -> int = function
+  | Index.Add _ -> 5
+  | Index.Assume_position _ -> 12
+  | Index.Ceil_div_pos _ -> 8
+  | Index.Clamp_low _ -> 11
+  | Index.Const _ -> 3
+  | Index.Floor_div_pos _ -> 7
+  | Index.Max _ -> 10
+  | Index.Min _ -> 9
+  | Index.Of_position _ -> 4
   | Index.Output _ -> 0
   | Index.Reduce _ -> 1
-  | Index.Zero -> 2
-  | Index.Const _ -> 3
-  | Index.Of_position _ -> 4
-  | Index.Add _ -> 5
   | Index.Scale _ -> 6
-  | Index.Floor_div_pos _ -> 7
-  | Index.Ceil_div_pos _ -> 8
-  | Index.Min _ -> 9
-  | Index.Max _ -> 10
-  | Index.Clamp_low _ -> 11
-  | Index.Assume_position _ -> 12
+  | Index.Zero -> 2
 
 let level env v =
   match Reduce_var.Map.find_opt v env with
@@ -94,24 +94,31 @@ let rec cmp_index : type r s.
  fun ea eb a b ->
   Int.compare (index_tag a) (index_tag b) <?> fun () ->
   match (a, b) with
-  | Index.Output x, Index.Output y -> Axis.compare x y
-  | Index.Reduce x, Index.Reduce y -> Int.compare (level ea x) (level eb y)
-  | Index.Zero, Index.Zero -> 0
-  | Index.Const x, Index.Const y -> Int.compare x y
-  | Index.Of_position x, Index.Of_position y -> cmp_index ea eb x y
-  | Index.Clamp_low x, Index.Clamp_low y -> cmp_index ea eb x y
+  | Index.Add (x1, x2), Index.Add (y1, y2) ->
+      cmp_index ea eb x1 y1 <?> fun () -> cmp_index ea eb x2 y2
   | Index.Assume_position x, Index.Assume_position y -> cmp_index ea eb x y
-  | Index.Scale (k, x), Index.Scale (l, y) ->
-      Int.compare k l <?> fun () -> cmp_index ea eb x y
-  | Index.Floor_div_pos (x, k), Index.Floor_div_pos (y, l)
   | Index.Ceil_div_pos (x, k), Index.Ceil_div_pos (y, l) ->
       Int.compare k l <?> fun () -> cmp_index ea eb x y
-  | Index.Add (x1, x2), Index.Add (y1, y2)
-  | Index.Min (x1, x2), Index.Min (y1, y2)
+  | Index.Clamp_low x, Index.Clamp_low y -> cmp_index ea eb x y
+  | Index.Const x, Index.Const y -> Int.compare x y
+  | Index.Floor_div_pos (x, k), Index.Floor_div_pos (y, l) ->
+      Int.compare k l <?> fun () -> cmp_index ea eb x y
   | Index.Max (x1, x2), Index.Max (y1, y2) ->
       cmp_index ea eb x1 y1 <?> fun () -> cmp_index ea eb x2 y2
+  | Index.Min (x1, x2), Index.Min (y1, y2) ->
+      cmp_index ea eb x1 y1 <?> fun () -> cmp_index ea eb x2 y2
+  | Index.Of_position x, Index.Of_position y -> cmp_index ea eb x y
+  | Index.Output x, Index.Output y -> Axis.compare x y
+  | Index.Reduce x, Index.Reduce y -> Int.compare (level ea x) (level eb y)
+  | Index.Scale (k, x), Index.Scale (l, y) ->
+      Int.compare k l <?> fun () -> cmp_index ea eb x y
+  | Index.Zero, Index.Zero -> 0
   | _ -> 0
 
+(* This is the stable structural-comparison encoding, not a display table: the
+   assigned integers determine [compare]'s ordering and therefore must remain
+   unchanged. Its branch order deliberately follows that encoding rather than
+   the alphabetized [t] declaration. *)
 let tag = function
   | Const _ -> 0
   | Binary _ -> 1
@@ -188,17 +195,19 @@ let hash e =
    fun env h i ->
     let h = mix h (index_tag i) in
     match i with
+    | Index.Add (a, b) -> idx env (idx env h a) b
+    | Index.Assume_position a -> idx env h a
+    | Index.Ceil_div_pos (a, d) -> idx env (mix h d) a
+    | Index.Clamp_low a -> idx env h a
+    | Index.Const n -> mix h n
+    | Index.Floor_div_pos (a, d) -> idx env (mix h d) a
+    | Index.Max (a, b) -> idx env (idx env h a) b
+    | Index.Min (a, b) -> idx env (idx env h a) b
+    | Index.Of_position a -> idx env h a
     | Index.Output a -> mix h (Axis.to_int a)
     | Index.Reduce v -> mix h (level env v)
-    | Index.Zero -> h
-    | Index.Const n -> mix h n
-    | Index.Of_position a -> idx env h a
-    | Index.Clamp_low a | Index.Assume_position a -> idx env h a
     | Index.Scale (k, a) -> idx env (mix h k) a
-    | Index.Floor_div_pos (a, d) | Index.Ceil_div_pos (a, d) ->
-        idx env (mix h d) a
-    | Index.Add (a, b) | Index.Min (a, b) | Index.Max (a, b) ->
-        idx env (idx env h a) b
+    | Index.Zero -> h
   in
   let rec go env n h (e : t) =
     let h = mix h (tag e) in

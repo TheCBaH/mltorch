@@ -5,9 +5,9 @@
 let show env =
   let lookup name = List.assoc_opt name env in
   match Err_host.parse lookup with
+  | Error e -> Format.printf "error: %a@." Err_host.pp_error (Err.Error.kind e)
   | Ok None -> print_endline "unset (policy left alone)"
   | Ok (Some config) -> Format.printf "%a@." Err.Config.pp config
-  | Error e -> Format.printf "error: %a@." Err_host.pp_error (Err.Error.kind e)
 
 (* The distinction the whole design turns on: no variable set means DO NOT
    TOUCH the policy, which is not the same as installing Err's defaults. A host

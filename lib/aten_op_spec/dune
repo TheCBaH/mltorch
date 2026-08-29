@@ -17,4 +17,4 @@
  (name aten_op_spec)
  (wrapped false)
  (modules aten_op_spec)
- (libraries jsont aten_spec))
+ (libraries aten_spec jsont))

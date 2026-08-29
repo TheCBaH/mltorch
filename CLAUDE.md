@@ -11,6 +11,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Conventions
 
+- **Order closed variants, static lists, and exhaustive match arms
+  alphabetically.** This keeps a vocabulary searchable and lets a reader
+  compare a type with its consumers by eye. Preserve a non-alphabetical order
+  only when it carries behavior (for example, a numeric ABI, priority, or an
+  exported traversal sequence), and document that reason at the declaration or
+  other single ordering source.
+
 - **Record types get their own module, named `t`** (e.g. `Node.t`, `Graph.t`),
   matching the existing `Module.t` style (`Tensor.t`, `Vec6.t`). This guarantees
   field-label uniqueness by construction (`Node.outputs` vs `Graph.outputs`).

@@ -11,14 +11,16 @@
    Complex and symbolic scalars are out of scope (no CPU op in the bound set
    produces them). *)
 
-type t = Int of int64 | Float of float | Bool of bool
+type t = Bool of bool | Float of float | Int of int64
 
 (* OCaml image of [enum atc_scalar_tag] (atg_shim.h): which union arm is live.
    [None_] is only produced by the optional-Scalar encoding (an absent
    [Scalar?]); a present scalar is never tagged [None_]. *)
 module Tag = struct
-  type t = Int | Float | Bool | None_
+  type t = Bool | Float | Int | None_
 
+  (* These conversion functions follow the [atc_scalar_tag] ABI; their numeric
+     branches are deliberately not alphabetical. *)
   let to_int = function Int -> 0 | Float -> 1 | Bool -> 2 | None_ -> 3
 
   let of_int = function
@@ -31,6 +33,6 @@ end
 
 (* The live tag of a present scalar (never [None_]). *)
 let tag : t -> Tag.t = function
-  | Int _ -> Tag.Int
-  | Float _ -> Tag.Float
   | Bool _ -> Tag.Bool
+  | Float _ -> Tag.Float
+  | Int _ -> Tag.Int

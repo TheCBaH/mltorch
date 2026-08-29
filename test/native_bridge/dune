@@ -9,20 +9,20 @@
  ; lean on.
  (libraries
   aten
+  aten_config
+  aten_native_verify
+  fmt
   interp
+  jsont.bytesrw
   native
-  native_graph
   native_aten_bridge
+  native_graph
   ; [native_interp] is the OTHER importer, and the conv2d.default agreement
   ; test at the foot of this file is the only place the two are compared. It
   ; needs the JSON decode too, since its fixture is a serialized program.
   native_interp
-  jsont.bytesrw
-  aten_native_verify
-  aten_config
   pytorch_types
-  schema_runtime
-  fmt)
+  schema_runtime)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))

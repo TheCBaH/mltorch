@@ -5,29 +5,27 @@ module Unknown_stage = struct
 end
 
 module Program_error = struct
-  type kind = Duplicate_definition | Signature_id | Forward_source
+  type kind = Duplicate_definition | Forward_source | Signature_id
   type t = { at : Tensor_id.t; kind : kind }
 
   let kind_name = function
     | Duplicate_definition -> "defined twice"
-    | Signature_id -> "signature id disagrees"
     | Forward_source -> "reads a later stage"
+    | Signature_id -> "signature id disagrees"
 end
 
 type error =
   [ Kernel.error
-  | `Unknown_stage_source of Unknown_stage.t
   | `Missing_live_output of Tensor_id.t
   | `Output_not_selected of Tensor_id.t
-  | `Unknown_selection of Tensor_id.t
   | `Passthrough_output of Tensor_id.t
+  | `Program_invalid of Program_error.t
   | `Unknown_program_output of Tensor_id.t
-  | `Program_invalid of Program_error.t ]
+  | `Unknown_selection of Tensor_id.t
+  | `Unknown_stage_source of Unknown_stage.t ]
 
 let pp_error fmt : [< error ] -> unit = function
-  | `Unknown_stage_source { Unknown_stage.at; source } ->
-      Fmt.pf fmt "stage %a reads unknown source %a" Tensor_id.pp at Tensor_id.pp
-        (Expr_bridge.id_of_source source)
+  | #Kernel.error as e -> Kernel.pp_error fmt e
   | `Missing_live_output id ->
       (* Three categories reach here — a graph output, a value used outside the
          selection, and a dead terminal — so the message names the requirement
@@ -36,18 +34,20 @@ let pp_error fmt : [< error ] -> unit = function
         Tensor_id.pp id
   | `Output_not_selected id ->
       Fmt.pf fmt "output %a is not a selected stage" Tensor_id.pp id
-  | `Unknown_selection id ->
-      Fmt.pf fmt "selection names %a, which is not a stage" Tensor_id.pp id
   | `Passthrough_output id ->
       Fmt.pf fmt "graph output %a is a boundary input, not a stage result"
-        Tensor_id.pp id
-  | `Unknown_program_output id ->
-      Fmt.pf fmt "graph output %a is neither a stage nor a boundary"
         Tensor_id.pp id
   | `Program_invalid { Program_error.at; kind } ->
       Fmt.pf fmt "stage program invalid at %a: %s" Tensor_id.pp at
         (Program_error.kind_name kind)
-  | #Kernel.error as e -> Kernel.pp_error fmt e
+  | `Unknown_program_output id ->
+      Fmt.pf fmt "graph output %a is neither a stage nor a boundary"
+        Tensor_id.pp id
+  | `Unknown_selection id ->
+      Fmt.pf fmt "selection names %a, which is not a stage" Tensor_id.pp id
+  | `Unknown_stage_source { Unknown_stage.at; source } ->
+      Fmt.pf fmt "stage %a reads unknown source %a" Tensor_id.pp at Tensor_id.pp
+        (Expr_bridge.id_of_source source)
 
 (* ---- the shared checked analysis ------------------------------------------
 
@@ -374,9 +374,9 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
                 sg;
                 binding =
                   (match kind_of id with
-                  | Graph_common.Input.Input -> Kernel.Binding.Caller
                   | Graph_common.Input.Constant ->
-                      Kernel.Binding.Captured_constant);
+                      Kernel.Binding.Captured_constant
+                  | Graph_common.Input.Input -> Kernel.Binding.Caller);
               }
           else None)
         p.Stage_program.inputs

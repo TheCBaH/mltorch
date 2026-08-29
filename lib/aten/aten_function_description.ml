@@ -22,8 +22,8 @@ let scalar_type =
   view int8_t
     ~read:(fun c ->
       match Aten_scalar_type.of_int c with
-      | Some s -> s
-      | None -> Printf.ksprintf failwith "unknown ScalarType code %d" c)
+      | None -> Printf.ksprintf failwith "unknown ScalarType code %d" c
+      | Some s -> s)
     ~write:Aten_scalar_type.to_int
 
 module Functions (F : Ctypes.FOREIGN) = struct

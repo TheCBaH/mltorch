@@ -24,50 +24,41 @@ module Session = struct
   type mapped_node = { comparison : string; node : string }
 
   type error =
-    [ `Duplicate_graph of string
+    [ `Comparison_panes_disagree of string
+    | `Duplicate_capability of string
+    | `Duplicate_comparison of string
+    | `Duplicate_flow_view of string
+    | `Duplicate_graph of string
     | `Duplicate_node of graph_node
+    | `Duplicate_view of string
+    | `Flow_destination_disagrees of Flow_destination.t
+    | `Flow_view_graph_disagrees of Flow_view_graph.t
+    | `Flow_view_not_stage of Flow_state_view.t
+    | `Flow_view_unknown of Flow_state_view.t
+    | `Incompatible_capability of string
+    | `Missing_capability of string
+    | `Node_in_two_entries of mapped_node
+    | `Slot_mismatch of graph_node
+    | `Unexpected_flow_capability of string
+    | `Unexpected_flow_view of string
+    | `Unknown_comparison of string
     | `Unknown_graph of string
     | `Unknown_node of graph_node
-    | `Wrong_collection of placed_graph
-    | `Slot_mismatch of graph_node
     | `Unknown_view of string
-    | `Duplicate_view of string
-    | `Duplicate_comparison of string
-    | `Unknown_comparison of string
-    | `Node_in_two_entries of mapped_node
-    | `Duplicate_flow_view of string
-    | `Flow_destination_disagrees of Flow_destination.t
-    | `Unexpected_flow_view of string
-    | `Unexpected_flow_capability of string
-    | `Flow_view_unknown of Flow_state_view.t
-    | `Flow_view_not_stage of Flow_state_view.t
-    | `Flow_view_graph_disagrees of Flow_view_graph.t
-    | `Comparison_panes_disagree of string
-    | `Duplicate_capability of string
-    | `Missing_capability of string
-    | `Incompatible_capability of string
-    | Me_limits.over_limit_error
-    | Me_flow.error ]
+    | `Wrong_collection of placed_graph
+    | Me_flow.error
+    | Me_limits.over_limit_error ]
 
   let pp_error fmt : [< error ] -> unit = function
+    | `Comparison_panes_disagree t ->
+        Fmt.pf fmt "transition %s names a comparison over other graphs" t
+    | `Duplicate_capability k -> Fmt.pf fmt "duplicate capability %s" k
+    | `Duplicate_comparison id -> Fmt.pf fmt "duplicate comparison id %s" id
+    | `Duplicate_flow_view id -> Fmt.pf fmt "duplicate flow view %s" id
     | `Duplicate_graph id -> Fmt.pf fmt "duplicate graph id %s" id
     | `Duplicate_node { graph; node } ->
         Fmt.pf fmt "duplicate node id %s in graph %s" node graph
-    | `Unknown_graph id -> Fmt.pf fmt "unknown graph %s" id
-    | `Unknown_node { graph; node } ->
-        Fmt.pf fmt "unknown node %s in graph %s" node graph
-    | `Wrong_collection { graph; collection } ->
-        Fmt.pf fmt "graph %s is not in collection %s" graph collection
-    | `Slot_mismatch { graph; node } ->
-        Fmt.pf fmt "edge in graph %s names no output slot of node %s" graph node
-    | `Unknown_view id -> Fmt.pf fmt "unknown view %s" id
     | `Duplicate_view id -> Fmt.pf fmt "duplicate view id %s" id
-    | `Duplicate_comparison id -> Fmt.pf fmt "duplicate comparison id %s" id
-    | `Unknown_comparison id -> Fmt.pf fmt "unknown comparison %s" id
-    | `Node_in_two_entries { comparison; node } ->
-        Fmt.pf fmt "node %s appears in two mapping entries of comparison %s"
-          node comparison
-    | `Duplicate_flow_view id -> Fmt.pf fmt "duplicate flow view %s" id
     | `Flow_destination_disagrees { Flow_destination.part; declared; named }
       -> (
         let what =
@@ -82,26 +73,37 @@ module Session = struct
         | Some g ->
             Fmt.pf fmt "the flow declares graph %s but its %s names %s" declared
               what g)
-    | `Unexpected_flow_view id ->
-        Fmt.pf fmt "flow view %s in a session that declares no flow" id
-    | `Unexpected_flow_capability g ->
-        Fmt.pf fmt
-          "feature:flow offers graph %s in a session that declares no flow" g
-    | `Flow_view_unknown { Flow_state_view.state; view } ->
-        Fmt.pf fmt "flow state %s names unknown view %s" state view
-    | `Flow_view_not_stage { Flow_state_view.state; view } ->
-        Fmt.pf fmt "flow state %s names view %s, which is not a stage view"
-          state view
     | `Flow_view_graph_disagrees
         { Flow_view_graph.state; view; state_graph; view_graph } ->
         Fmt.pf fmt "flow state %s is graph %s but its view %s shows graph %s"
           state state_graph view view_graph
-    | `Comparison_panes_disagree t ->
-        Fmt.pf fmt "transition %s names a comparison over other graphs" t
-    | `Duplicate_capability k -> Fmt.pf fmt "duplicate capability %s" k
-    | `Missing_capability k -> Fmt.pf fmt "missing capability %s" k
+    | `Flow_view_not_stage { Flow_state_view.state; view } ->
+        Fmt.pf fmt "flow state %s names view %s, which is not a stage view"
+          state view
+    | `Flow_view_unknown { Flow_state_view.state; view } ->
+        Fmt.pf fmt "flow state %s names unknown view %s" state view
     | `Incompatible_capability k ->
         Fmt.pf fmt "capability %s carries a payload its key does not admit" k
+    | `Missing_capability k -> Fmt.pf fmt "missing capability %s" k
+    | `Node_in_two_entries { comparison; node } ->
+        Fmt.pf fmt "node %s appears in two mapping entries of comparison %s"
+          node comparison
+    | `Slot_mismatch { graph; node } ->
+        Fmt.pf fmt "edge in graph %s names no output slot of node %s" graph node
+    | `Unexpected_flow_capability g ->
+        Fmt.pf fmt
+          "feature:flow offers graph %s in a session that declares no flow" g
+    | `Unexpected_flow_view id ->
+        Fmt.pf fmt "flow view %s in a session that declares no flow" id
+    | `Unknown_comparison id -> Fmt.pf fmt "unknown comparison %s" id
+    | `Unknown_graph id -> Fmt.pf fmt "unknown graph %s" id
+    | `Unknown_node { graph; node } ->
+        Fmt.pf fmt "unknown node %s in graph %s" node graph
+    | `Unknown_view id -> Fmt.pf fmt "unknown view %s" id
+    | `Wrong_collection { graph; collection } ->
+        Fmt.pf fmt "graph %s is not in collection %s" graph collection
+    (* [Me_flow.error] includes [Me_limits.over_limit_error], so this narrower
+       arm must precede the broader row to remain reachable. *)
     | `Over_limit o -> Me_limits.Over_limit.pp fmt o
     | #Me_flow.error as e -> Me_flow.pp_error fmt e
 

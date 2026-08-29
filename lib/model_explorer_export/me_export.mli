@@ -21,43 +21,43 @@ val detect : bytes:string -> (source_format, [> `Unrecognised_format ]) Err.t
     on each other's input. [PK\x03\x04] is an archive, ['{'] a [model.json]. *)
 
 type error =
-  [ `Unrecognised_format
+  [ `Archive of Pt2_archive.error
   | `Declared_format_disagrees
     (** the request declared a format the bytes are not. DECLARED is a hint; the
         content decides, and a disagreement is a fact about the source *)
-  | `Too_large of int64  (** the byte count offered *)
+  | `Document of Me_session.Session.error
   | `Document_too_large
     (** the ENCODED document overran [max_session_bytes]/[max_detail_bytes]. No
         byte count: the writer aborts mid-stream once the limit is hit, so
         unlike [`Too_large] there is no final length to report. *)
-  | `Model_json_decode of string
-    (** the model.json decoder's own message — a THIRD-PARTY payload, named for
-        its source so it is not mistaken for a case this module declined to
-        classify *)
-  | `Archive of Pt2_archive.error
+  | `Flow_graph of Me_flow_graph.error
+  | `Fusion of Me_fusion.error
+  | `Identifier of Me_ids.error
+  | `Kernel of Kernel_adapt.error
+    (** a FATAL row only, again: an over-limit or unsupported-shape kernel is a
+        capability carrying the reason *)
   | `Lowering of Native_interp.error
     (** a FATAL row only. A row [Me_classify.lowering] calls recoverable never
         reaches here: it becomes a session whose capabilities say what is
         missing. *)
+  | `Model_json_decode of string
+    (** the model.json decoder's own message — a THIRD-PARTY payload, named for
+        its source so it is not mistaken for a case this module declined to
+        classify *)
   | `Native4d of Native4d.Error.t
     (** a FATAL row only, for the same reason as [`Lowering]: a graph outside
         the dialect's domain is a capability carrying a reason, not an error *)
-  | `Kernel of Kernel_adapt.error
-    (** a FATAL row only, again: an over-limit or unsupported-shape kernel is a
-        capability carrying the reason *)
+  | `Navigation of Me_pt2.error
+  | `Project of Me_build.error
+  | `Source_view of Me_source.error
+  | `Too_large of int64  (** the byte count offered *)
+  | `Unrecognised_format
   | `Unsupported_detail_key
     (** a detail request naming a value this model does not produce — or one it
         could not lower to a kernel at all *)
   | `Value_graph of Me_kernel.error
-  | `Fusion of Me_fusion.error
-  | `Source_view of Me_source.error
-  | `View of Graph_view.error
-  | `Project of Me_build.error
-  | `Navigation of Me_pt2.error
-  | `Flow_graph of Me_flow_graph.error
   | `Verification of Me_verify.error
-  | `Identifier of Me_ids.error
-  | `Document of Me_session.Session.error ]
+  | `View of Graph_view.error ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

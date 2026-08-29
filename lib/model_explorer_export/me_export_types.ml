@@ -25,55 +25,55 @@ let max_bytes_for ~limits bytes =
   | Ok Pt2_archive | Error _ -> limits.Me_limits.Limits.max_pt2_bytes
 
 type error =
-  [ `Unrecognised_format
+  [ `Archive of Pt2_archive.error
   | `Declared_format_disagrees
-  | `Too_large of int64
+  | `Document of Me_session.Session.error
   | `Document_too_large
     (** the ENCODED document overran [max_session_bytes]/[max_detail_bytes]. No
         byte count: the writer aborts mid-stream once the limit is hit, so
         unlike [`Too_large] there is no final length to report. *)
-  | `Model_json_decode of string
-  | `Archive of Pt2_archive.error
-  | `Lowering of Native_interp.error
-  | `Native4d of Native4d.Error.t
+  | `Flow_graph of Me_flow_graph.error
+  | `Fusion of Me_fusion.error
+  | `Identifier of Me_ids.error
   | `Kernel of Kernel_adapt.error
+  | `Lowering of Native_interp.error
+  | `Model_json_decode of string
+  | `Native4d of Native4d.Error.t
+  | `Navigation of Me_pt2.error
+  | `Project of Me_build.error
+  | `Source_view of Me_source.error
+  | `Too_large of int64
+  | `Unrecognised_format
   | `Unsupported_detail_key
   | `Value_graph of Me_kernel.error
-  | `Fusion of Me_fusion.error
-  | `Source_view of Me_source.error
-  | `View of Graph_view.error
-  | `Project of Me_build.error
-  | `Navigation of Me_pt2.error
-  | `Flow_graph of Me_flow_graph.error
   | `Verification of Me_verify.error
-  | `Identifier of Me_ids.error
-  | `Document of Me_session.Session.error ]
+  | `View of Graph_view.error ]
 
 let pp_error fmt : [< error ] -> unit = function
-  | `Unrecognised_format ->
-      Fmt.string fmt "not a zip archive and not a JSON object"
+  | `Archive e -> Pt2_archive.pp_error fmt e
   | `Declared_format_disagrees ->
       Fmt.string fmt "the bytes are not the format the request declared"
-  | `Too_large n -> Fmt.pf fmt "%Ld bytes is over the ceiling" n
+  | `Document e -> Me_session.Session.pp_error fmt e
   | `Document_too_large ->
       Fmt.string fmt "the encoded document is over the ceiling"
-  | `Model_json_decode m -> Fmt.pf fmt "model.json: %s" m
-  | `Archive e -> Pt2_archive.pp_error fmt e
-  | `Lowering e -> Native_interp.pp_error fmt e
-  | `Native4d e -> Native4d.Error.pp fmt e
+  | `Flow_graph e -> Me_flow_graph.pp_error fmt e
+  | `Fusion e -> Me_fusion.pp_error fmt e
+  | `Identifier e -> Me_ids.pp_error fmt e
   | `Kernel e -> Kernel_adapt.pp_error fmt e
+  | `Lowering e -> Native_interp.pp_error fmt e
+  | `Model_json_decode m -> Fmt.pf fmt "model.json: %s" m
+  | `Native4d e -> Native4d.Error.pp fmt e
+  | `Navigation e -> Me_pt2.pp_error fmt e
+  | `Project e -> Me_build.pp_error fmt e
+  | `Source_view e -> Me_source.pp_error fmt e
+  | `Too_large n -> Fmt.pf fmt "%Ld bytes is over the ceiling" n
+  | `Unrecognised_format ->
+      Fmt.string fmt "not a zip archive and not a JSON object"
   | `Unsupported_detail_key ->
       Fmt.string fmt "the key names no value this model produces"
   | `Value_graph e -> Me_kernel.pp_error fmt e
-  | `Fusion e -> Me_fusion.pp_error fmt e
-  | `Source_view e -> Me_source.pp_error fmt e
-  | `View e -> Graph_view.pp_error fmt e
-  | `Project e -> Me_build.pp_error fmt e
-  | `Navigation e -> Me_pt2.pp_error fmt e
-  | `Flow_graph e -> Me_flow_graph.pp_error fmt e
   | `Verification e -> Me_verify.pp_error fmt e
-  | `Identifier e -> Me_ids.pp_error fmt e
-  | `Document e -> Me_session.Session.pp_error fmt e
+  | `View e -> Graph_view.pp_error fmt e
 
 (* The same line [Me_classify] draws: a model that is not what it claimed is
    [Invalid_source], a ceiling is [Over_limit], and an invariant of ours is
@@ -81,24 +81,26 @@ let pp_error fmt : [< error ] -> unit = function
    real model can be too big, and that is a bound doing its job. *)
 let diagnostic_code : [< error ] -> Me_limits.Diagnostic.Code.t =
   let module Code = Me_limits.Diagnostic.Code in
+  (* Grouped by the diagnostic outcome, not alphabetically: each branch names
+     one code category that crosses the wire. *)
   function
-  | `Unrecognised_format | `Declared_format_disagrees | `Model_json_decode _
-  | `Archive _ ->
+  | `Archive _ | `Declared_format_disagrees | `Model_json_decode _
+  | `Unrecognised_format ->
       Code.Invalid_source
-  | `Too_large _ | `Document_too_large -> Code.Over_limit
+  | `Document_too_large | `Too_large _ -> Code.Over_limit
   | `Unsupported_detail_key -> Code.Unsupported_detail_key
-  | `Lowering _ | `Native4d _ | `Kernel _ -> Code.Internal
-  | `Fusion (`Over_limit _)
-  | `Value_graph (`Over_limit _)
-  | `Source_view (`Over_limit _)
-  | `Project (`Over_limit _)
-  | `Navigation (`Over_limit _)
+  | `Kernel _ | `Lowering _ | `Native4d _ -> Code.Internal
+  | `Document (`Over_limit _)
   | `Flow_graph (`Over_limit _)
-  | `Verification (`Over_limit _)
-  | `Document (`Over_limit _) ->
+  | `Fusion (`Over_limit _)
+  | `Navigation (`Over_limit _)
+  | `Project (`Over_limit _)
+  | `Source_view (`Over_limit _)
+  | `Value_graph (`Over_limit _)
+  | `Verification (`Over_limit _) ->
       Code.Over_limit
-  | `Value_graph _ | `Source_view _ | `View _ | `Project _ | `Navigation _
-  | `Flow_graph _ | `Verification _ | `Identifier _ | `Document _ ->
+  | `Document _ | `Flow_graph _ | `Identifier _ | `Navigation _ | `Project _
+  | `Source_view _ | `Value_graph _ | `Verification _ | `View _ ->
       Code.Internal
 
 (* The one place a component's error is widened into this module's. Named,
@@ -164,17 +166,17 @@ let capability key status = { Me_session.Capability.key; status }
    place the two-case version already collapsed [Error] to "leave it out" --
    only the capability row needs to tell them apart. *)
 type ('a, 'reason) staged =
-  | Skipped
-  | Refused of 'reason * string
   | Ready of 'a
+  | Refused of 'reason * string
+  | Skipped
 
 let staged_status ~wanted staged payload =
   match (wanted, staged) with
   | false, _ -> Me_session.Capability.Not_requested
-  | true, Skipped -> Me_session.Capability.Not_requested
+  | true, Ready a -> Me_session.Capability.Available (payload a)
   | true, Refused (reason, detail) ->
       Me_session.Capability.Unavailable { reason; detail = Some detail }
-  | true, Ready a -> Me_session.Capability.Available (payload a)
+  | true, Skipped -> Me_session.Capability.Not_requested
 
 (* The exported program's own distinct op targets -- what the field NAMES, and
    the one figure both shapes below can produce, since a session whose lowering

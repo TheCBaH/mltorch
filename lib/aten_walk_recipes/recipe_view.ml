@@ -13,8 +13,8 @@
 type pattern =
   | Flatten  (** rank 4 -> 1: the whole source on C *)
   | Merge_hw  (** rank 4 -> 3: H and W merged onto one axis *)
-  | Split_c  (** rank 4 -> 5: C split into two factors *)
   | Minus_one_c  (** rank 4 -> 3: [-1; h; w], inferring n*c *)
+  | Split_c  (** rank 4 -> 5: C split into two factors *)
 
 type t = {
   n : int;
@@ -31,8 +31,8 @@ let target_of pattern c =
   match pattern with
   | Flatten -> [ numel c ]
   | Merge_hw -> [ c.n; c.c; c.h * c.w ]
-  | Split_c -> [ c.n; c.c / 2; 2; c.h; c.w ]
   | Minus_one_c -> [ -1; c.h; c.w ]
+  | Split_c -> [ c.n; c.c / 2; 2; c.h; c.w ]
 
 (* [Split_c] needs an even [c] to split exactly; every other pattern accepts
    any positive [c]. Repairing here (rather than filtering the [c] candidate
@@ -45,6 +45,8 @@ let cascade t =
   in
   { t with target = target_of t.pattern t }
 
+(* Stable scenario order; this sequence determines the seeded trace and
+   intentionally differs from [pattern]'s declaration order. *)
 let all_patterns = [ Flatten; Merge_hw; Split_c; Minus_one_c ]
 let self_shape c = [ c.n; c.c; c.h; c.w ]
 let target c = c.target
@@ -62,8 +64,8 @@ let axes ~n ~c ~h ~w ~pattern =
 let pp_pattern ppf = function
   | Flatten -> Format.fprintf ppf "flatten"
   | Merge_hw -> Format.fprintf ppf "merge_hw"
-  | Split_c -> Format.fprintf ppf "split_c"
   | Minus_one_c -> Format.fprintf ppf "minus_one_c"
+  | Split_c -> Format.fprintf ppf "split_c"
 
 let pp ppf c =
   let target_str =

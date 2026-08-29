@@ -1,22 +1,22 @@
 open Graph_ir
 
 type error =
-  [ `Missing_capture of Const_ssa.Capture.t
+  [ Constant_store.error
   | `Direct of Eval_direct.error
-  | `Signature_mismatch of Const_ssa.Value_id.t
-  | Constant_store.error ]
+  | `Missing_capture of Const_ssa.Capture.t
+  | `Signature_mismatch of Const_ssa.Value_id.t ]
 
 type report = { captures : int; applies : int; cache_hits : int }
 type resolver = Const_ssa.Capture.t -> (Tensor.packed, error) Err.t
 
 let pp_error ppf : [< error ] -> unit = function
+  | #Constant_store.error as e -> Constant_store.pp_error ppf e
+  | `Direct e -> Eval_direct.pp_error ppf e
   | `Missing_capture capture ->
       Fmt.pf ppf "missing captured constant %a" Const_ssa.Capture.pp capture
-  | `Direct e -> Eval_direct.pp_error ppf e
   | `Signature_mismatch value ->
       Fmt.pf ppf "materialized %a disagrees with its signature"
         Const_ssa.Value_id.pp value
-  | #Constant_store.error as e -> Constant_store.pp_error ppf e
 
 let same_shape a b =
   List.for_all

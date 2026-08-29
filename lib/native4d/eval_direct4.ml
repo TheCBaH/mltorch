@@ -16,10 +16,10 @@ type arity_mismatch = { expected : int; actual : int }
 
 type error =
   [ Graph_shape4.error
-  | `Missing_tensor of missing_tensor
-  | `Output_arity_mismatch of arity_mismatch
+  | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
-  | `Missing_constant of Tensor_id.t ]
+  | `Missing_tensor of missing_tensor
+  | `Output_arity_mismatch of arity_mismatch ]
 
 let pp_context ppf = function
   | Operand -> Fmt.string ppf "operand"
@@ -27,15 +27,15 @@ let pp_context ppf = function
 
 let pp_error ppf : [< error ] -> unit = function
   | #Graph_shape4.error as e -> Graph_shape4.pp_error ppf e
+  | `Missing_constant id ->
+      Fmt.pf ppf "missing constant tensor %a" Tensor_id.pp id
+  | `Missing_input id -> Fmt.pf ppf "missing input tensor %a" Tensor_id.pp id
   | `Missing_tensor { context; id } ->
       Fmt.pf ppf "missing %a tensor %a" pp_context context Tensor_id.pp id
   | `Output_arity_mismatch { expected; actual } ->
       Fmt.pf ppf
         "node output arity mismatch: %d output shapes for %d output ids"
         expected actual
-  | `Missing_input id -> Fmt.pf ppf "missing input tensor %a" Tensor_id.pp id
-  | `Missing_constant id ->
-      Fmt.pf ppf "missing constant tensor %a" Tensor_id.pp id
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
@@ -65,13 +65,13 @@ let bind_constants (g : Graph.graph) constants env =
   Err.List.fold_left
     (fun env id ->
       match Graph.input_kind g id with
-      | Graph_ir.Input.Input -> Err.return env
       | Graph_ir.Input.Constant when not (constant_is_used g id) ->
           Err.return env
       | Graph_ir.Input.Constant -> (
           match List.assoc_opt id constants with
-          | Some tensor -> Err.return (Tensor_id.Map.add id tensor env)
-          | None -> Err.fail (`Missing_constant id)))
+          | None -> Err.fail (`Missing_constant id)
+          | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
+      | Graph_ir.Input.Input -> Err.return env)
     env g.Graph.Graph.inputs
 
 let eval_node (g : Graph.graph) env (node : Graph.node) =
@@ -137,8 +137,8 @@ let run ?(constants = []) (g : Graph.graph)
     Err.List.fold_left
       (fun env id ->
         match Tensor_id.Map.find_opt id provided with
-        | Some tensor -> Err.return (Tensor_id.Map.add id tensor env)
-        | None -> Err.fail (`Missing_input id))
+        | None -> Err.fail (`Missing_input id)
+        | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
       Tensor_id.Map.empty (input_ids g)
   in
   let* env = bind_constants g constants env0 in

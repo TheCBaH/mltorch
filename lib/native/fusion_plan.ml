@@ -2,29 +2,30 @@
 
 module Rejection = struct
   type t =
-    | Multiple_uses of { producer : Tensor_id.t; at_least : int }
+    | Budget_exceeded of {
+        use : Kernel.Use.t;
+        error : Kernel_elab.error Err.Error.t;
+      }
     | Intrinsic_use of Kernel.Use.t
-    | Reducing_consumer of Kernel.Use.t
+    | Multiple_uses of { producer : Tensor_id.t; at_least : int }
     | Non_pointwise_use of {
         use : Kernel.Use.t;
         reason : Kernel_elab.error Err.Error.t;
       }
     | Overlaps_selected of { rejected : Kernel.Use.t; selected : Kernel.Use.t }
-    | Budget_exceeded of {
-        use : Kernel.Use.t;
-        error : Kernel_elab.error Err.Error.t;
-      }
+    | Reducing_consumer of Kernel.Use.t
 
   let pp fmt = function
-    | Multiple_uses { producer; at_least } ->
-        Fmt.pf fmt "%a has at least %d ordinary uses" Tensor_id.pp producer
-          at_least
+    | Budget_exceeded { use; error } ->
+        Fmt.pf fmt "%a exceeds the budget (%a)" Kernel.Use.pp use
+          (Core.Pretty.error_kind Kernel_elab.pp_error)
+          error
     | Intrinsic_use u ->
         Fmt.pf fmt "%a is reached through an intrinsic descriptor" Kernel.Use.pp
           u
-    | Reducing_consumer u ->
-        Fmt.pf fmt "%a has a reducing or intrinsic-bearing consumer"
-          Kernel.Use.pp u
+    | Multiple_uses { producer; at_least } ->
+        Fmt.pf fmt "%a has at least %d ordinary uses" Tensor_id.pp producer
+          at_least
     | Non_pointwise_use { use; reason } ->
         Fmt.pf fmt "%a is not a pointwise site (%a)" Kernel.Use.pp use
           (Core.Pretty.error_kind Kernel_elab.pp_error)
@@ -32,23 +33,22 @@ module Rejection = struct
     | Overlaps_selected { rejected; selected } ->
         Fmt.pf fmt "%a overlaps the already-selected %a" Kernel.Use.pp rejected
           Kernel.Use.pp selected
-    | Budget_exceeded { use; error } ->
-        Fmt.pf fmt "%a exceeds the budget (%a)" Kernel.Use.pp use
-          (Core.Pretty.error_kind Kernel_elab.pp_error)
-          error
+    | Reducing_consumer u ->
+        Fmt.pf fmt "%a has a reducing or intrinsic-bearing consumer"
+          Kernel.Use.pp u
 end
 
 module Decision = struct
   type t =
-    | Virtualize of { use : Kernel.Use.t; also_stored : bool }
     | Reject of { producer : Tensor_id.t; reason : Rejection.t }
+    | Virtualize of { use : Kernel.Use.t; also_stored : bool }
 
   let pp fmt = function
+    | Reject { producer; reason } ->
+        Fmt.pf fmt "reject %a: %a" Tensor_id.pp producer Rejection.pp reason
     | Virtualize { use; also_stored } ->
         Fmt.pf fmt "virtualize %a%s" Kernel.Use.pp use
           (if also_stored then " (also stored)" else "")
-    | Reject { producer; reason } ->
-        Fmt.pf fmt "reject %a: %a" Tensor_id.pp producer Rejection.pp reason
 end
 
 type t = {

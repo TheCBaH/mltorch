@@ -15,16 +15,16 @@
 open Graph_ir
 
 type error =
-  [ `Build of Graph_builder.error
-  | `Adapt of Kernel_adapt.error
-  | `Eval of Kernel_eval.error
-  | `Direct of Eval_direct.error ]
+  [ `Adapt of Kernel_adapt.error
+  | `Build of Graph_builder.error
+  | `Direct of Eval_direct.error
+  | `Eval of Kernel_eval.error ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Build e -> Graph_builder.pp_error ppf e
   | `Adapt e -> Kernel_adapt.pp_error ppf e
-  | `Eval e -> Kernel_eval.pp_error ppf e
+  | `Build e -> Graph_builder.pp_error ppf e
   | `Direct e -> Eval_direct.pp_error ppf e
+  | `Eval e -> Kernel_eval.pp_error ppf e
 
 let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 let lift f r = Err.map_error (fun e -> f e) r

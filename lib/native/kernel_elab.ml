@@ -2,20 +2,20 @@
 
 type error =
   [ `Body of Kernel.Body_error.t
-  | `Unknown_use of Kernel.Use.t
   | `Not_a_dependency of Kernel.Use.t
+  | `Unknown_use of Kernel.Use.t
   | `Unsupported_use of Kernel.Use.t ]
 
 let pp_error fmt : [< error ] -> unit = function
   | `Body { Kernel.Body_error.at; error } ->
       Fmt.pf fmt "%a: %a" Tensor_id.pp at Expr.Check.pp_error error
+  | `Not_a_dependency u ->
+      Fmt.pf fmt "%a is not an ordinary-load edge" Kernel.Use.pp u
   | `Unknown_use u ->
       (* Includes a boundary input as producer: the kernel defines that id, but
          not as a VALUE, so there is no body or result conversion to
          substitute. *)
       Fmt.pf fmt "%a does not name a value at both ends" Kernel.Use.pp u
-  | `Not_a_dependency u ->
-      Fmt.pf fmt "%a is not an ordinary-load edge" Kernel.Use.pp u
   | `Unsupported_use u ->
       Fmt.pf fmt "%a is outside the supported site class" Kernel.Use.pp u
 

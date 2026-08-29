@@ -16,12 +16,12 @@
    verify_constants_test.ml, [payloads]/[run_with_payloads] in
    verify_obligations_test.ml) stays local to the one file that needs it. *)
 
-type error = [ Map_verify.error | Pass.error | `Origin of Rewrite.error ]
+type error = [ Map_verify.error | `Origin of Rewrite.error | Pass.error ]
 
 let pp_error ppf : [< error ] -> unit = function
+  | #Map_verify.error as e -> Map_verify.pp_error ppf e
   | `Origin e -> Rewrite.pp_error ppf e
   | #Pass.error as e -> Pass.pp_error ppf e
-  | #Map_verify.error as e -> Map_verify.pp_error ppf e
 
 let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 

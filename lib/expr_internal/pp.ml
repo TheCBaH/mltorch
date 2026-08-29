@@ -11,19 +11,19 @@
 let index ~names fmt e =
   let rec go : type r. Format.formatter -> r Index.t -> unit =
    fun fmt -> function
+     | Index.Add (a, b) -> Fmt.pf fmt "%a+%a" go a go b
+     | Index.Assume_position a -> go fmt a
+     | Index.Ceil_div_pos (a, d) -> Fmt.pf fmt "ceil_div(%a,%d)" go a d
+     | Index.Clamp_low a -> Fmt.pf fmt "max(0,%a)" go a
+     | Index.Const n -> Fmt.int fmt n
+     | Index.Floor_div_pos (a, d) -> Fmt.pf fmt "floor_div(%a,%d)" go a d
+     | Index.Max (a, b) -> Fmt.pf fmt "max(%a,%a)" go a go b
+     | Index.Min (a, b) -> Fmt.pf fmt "min(%a,%a)" go a go b
+     | Index.Of_position i -> go fmt i
      | Index.Output a -> Axis.pp fmt a
      | Index.Reduce v -> Fmt.string fmt (names v)
-     | Index.Zero -> Fmt.int fmt 0
-     | Index.Const n -> Fmt.int fmt n
-     | Index.Of_position i -> go fmt i
-     | Index.Add (a, b) -> Fmt.pf fmt "%a+%a" go a go b
      | Index.Scale (k, a) -> Fmt.pf fmt "%d*%a" k go a
-     | Index.Floor_div_pos (a, d) -> Fmt.pf fmt "floor_div(%a,%d)" go a d
-     | Index.Ceil_div_pos (a, d) -> Fmt.pf fmt "ceil_div(%a,%d)" go a d
-     | Index.Min (a, b) -> Fmt.pf fmt "min(%a,%a)" go a go b
-     | Index.Max (a, b) -> Fmt.pf fmt "max(%a,%a)" go a go b
-     | Index.Clamp_low a -> Fmt.pf fmt "max(0,%a)" go a
-     | Index.Assume_position a -> go fmt a
+     | Index.Zero -> Fmt.int fmt 0
   in
   go fmt e
 
@@ -72,9 +72,6 @@ let value fmt e =
          a position and its [hi] a delta. *)
     let idxe fmt i = idx env fmt i in
     match e with
-    | Value.Const x ->
-        Fmt.float fmt x;
-        n
     | Value.Binary (op, a, b) ->
         Fmt.pf fmt "(";
         let n = at env n fmt a in
@@ -82,27 +79,16 @@ let value fmt e =
         let n = at env n fmt b in
         Fmt.pf fmt ")";
         n
-    | Value.Unary (op, a) ->
-        Fmt.pf fmt "%s(" (Value.unary_name op);
-        let n = at env n fmt a in
-        Fmt.pf fmt ")";
+    | Value.Const x ->
+        Fmt.float fmt x;
         n
-    | Value.Round_f32 a ->
-        Fmt.pf fmt "f32(";
-        let n = at env n fmt a in
-        Fmt.pf fmt ")";
-        n
-    | Value.Select (c, a, b) ->
-        Fmt.pf fmt "select(";
-        let n = guard_at env n fmt c in
-        Fmt.pf fmt ", ";
-        let n = at env n fmt a in
-        Fmt.pf fmt ", ";
-        let n = at env n fmt b in
-        Fmt.pf fmt ")";
-        n
-    | Value.Value_of_index i ->
-        Fmt.pf fmt "value_of_index(%a)" idxe i;
+    | Value.Intrinsic (Intrinsic.Max_pool d) ->
+        Fmt.pf fmt "max_pool2d_%s(%a; k=%dx%d s=%dx%d p=%dx%d; out=[%a])"
+          (Intrinsic.Max_pool.result_name d.Intrinsic.Max_pool.result)
+          Source.pp d.Intrinsic.Max_pool.source d.Intrinsic.Max_pool.kernel_h
+          d.Intrinsic.Max_pool.kernel_w d.Intrinsic.Max_pool.stride_h
+          d.Intrinsic.Max_pool.stride_w d.Intrinsic.Max_pool.pad_h
+          d.Intrinsic.Max_pool.pad_w (Coord.pp idxe) d.Intrinsic.Max_pool.out;
         n
     | Value.Load (s, c) ->
         Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idxe) c;
@@ -119,24 +105,38 @@ let value fmt e =
         let n = at inner (n + 1) fmt r.Reduction.body in
         Fmt.pf fmt ")";
         n
-    | Value.Intrinsic (Intrinsic.Max_pool d) ->
-        Fmt.pf fmt "max_pool2d_%s(%a; k=%dx%d s=%dx%d p=%dx%d; out=[%a])"
-          (Intrinsic.Max_pool.result_name d.Intrinsic.Max_pool.result)
-          Source.pp d.Intrinsic.Max_pool.source d.Intrinsic.Max_pool.kernel_h
-          d.Intrinsic.Max_pool.kernel_w d.Intrinsic.Max_pool.stride_h
-          d.Intrinsic.Max_pool.stride_w d.Intrinsic.Max_pool.pad_h
-          d.Intrinsic.Max_pool.pad_w (Coord.pp idxe) d.Intrinsic.Max_pool.out;
+    | Value.Round_f32 a ->
+        Fmt.pf fmt "f32(";
+        let n = at env n fmt a in
+        Fmt.pf fmt ")";
+        n
+    | Value.Select (c, a, b) ->
+        Fmt.pf fmt "select(";
+        let n = guard_at env n fmt c in
+        Fmt.pf fmt ", ";
+        let n = at env n fmt a in
+        Fmt.pf fmt ", ";
+        let n = at env n fmt b in
+        Fmt.pf fmt ")";
+        n
+    | Value.Unary (op, a) ->
+        Fmt.pf fmt "%s(" (Value.unary_name op);
+        let n = at env n fmt a in
+        Fmt.pf fmt ")";
+        n
+    | Value.Value_of_index i ->
+        Fmt.pf fmt "value_of_index(%a)" idxe i;
         n
   and guard_at env n fmt = function
+    | Bool.Index_eq (a, b) ->
+        Fmt.pf fmt "(%a = %a)" (idx env) a (idx env) b;
+        n
     | Bool.Value_lt (a, b) ->
         Fmt.pf fmt "(";
         let n = at env n fmt a in
         Fmt.pf fmt " < ";
         let n = at env n fmt b in
         Fmt.pf fmt ")";
-        n
-    | Bool.Index_eq (a, b) ->
-        Fmt.pf fmt "(%a = %a)" (idx env) a (idx env) b;
         n
   in
   ignore (at Reduce_var.Map.empty 1 fmt e : int)

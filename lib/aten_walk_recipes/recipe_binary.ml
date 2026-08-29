@@ -14,7 +14,9 @@ type t = { n : int; c : int; h : int; w : int; pattern : pattern }
 
 let cascade c = c
 
-(* Every 1-axis pattern, once per rank-4 axis, on each side. *)
+(* Every 1-axis pattern, once per rank-4 axis, on each side. The list groups
+   the two sides by axis rather than alphabetically; that deterministic pairing
+   is part of the walk's coverage trace. *)
 let all_patterns =
   Equal :: List.concat_map (fun i -> [ Lhs_axis i; Rhs_axis i ]) [ 0; 1; 2; 3 ]
 
@@ -23,13 +25,13 @@ let with_axis_one shape i = List.mapi (fun j v -> if i = j then 1 else v) shape
 
 let lhs_shape c =
   match c.pattern with
-  | Equal | Rhs_axis _ -> base c
   | Lhs_axis i -> with_axis_one (base c) i
+  | Equal | Rhs_axis _ -> base c
 
 let rhs_shape c =
   match c.pattern with
-  | Equal | Lhs_axis _ -> base c
   | Rhs_axis i -> with_axis_one (base c) i
+  | Equal | Lhs_axis _ -> base c
 
 let axes ~n ~c ~h ~w ~pattern =
   Walk.

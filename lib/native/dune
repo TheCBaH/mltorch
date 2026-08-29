@@ -23,14 +23,14 @@
  (name native)
  (enabled_if
   (<> %{profile} landmarks))
- (libraries err_trace core expr fmt jsont jsont.bytesrw walk_core)
+ (libraries core err_trace expr fmt jsont jsont.bytesrw walk_core)
  (wrapped false))
 
 (library
  (name native)
  (enabled_if
   (= %{profile} landmarks))
- (libraries core err_trace expr fmt jsont jsont.bytesrw walk_core landmarks)
+ (libraries core err_trace expr fmt jsont jsont.bytesrw landmarks walk_core)
  (preprocess
   (pps landmarks-ppx --auto))
  (wrapped false))

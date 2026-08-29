@@ -27,11 +27,7 @@ module Make (S : Side.S) = struct
   open Err.Syntax
 
   type error =
-    [ Graph_map.error
-    | View.error
-    | Rcp.error
-    | Constant_store.error
-    | `Bad_constant_payload of Tensor_id.t
+    [ `Bad_constant_payload of Tensor_id.t
     | `Constant_payload_overwrite of Tensor_id.t
     | `Cycle of Node_id.t
     | `Discontiguous_allocation
@@ -43,13 +39,13 @@ module Make (S : Side.S) = struct
     | `Substitution_cycle of Tensor_id.t
     | `Unclaimed_redefinition of Tensor_id.t
     | `Unclaimed_substitution of Tensor_id.t
-    | `Unknown_node of Node_id.t ]
+    | `Unknown_node of Node_id.t
+    | Constant_store.error
+    | Graph_map.error
+    | Rcp.error
+    | View.error ]
 
   let pp_error ppf : [< error ] -> unit = function
-    | #Graph_map.error as e -> Graph_map.pp_error ppf e
-    | #View.error as e -> View.pp_error ppf e
-    | #Rcp.error as e -> Rcp.pp_error ppf e
-    | #Constant_store.error as e -> Constant_store.pp_error ppf e
     | `Bad_constant_payload id ->
         Fmt.pf ppf "payload for %a does not match its signature" Tensor_id.pp id
     | `Constant_payload_overwrite id ->
@@ -80,6 +76,10 @@ module Make (S : Side.S) = struct
         Fmt.pf ppf "%a is substituted away without a value claim" Tensor_id.pp
           id
     | `Unknown_node id -> Fmt.pf ppf "unknown node %a" Node_id.pp id
+    | #Constant_store.error as e -> Constant_store.pp_error ppf e
+    | #Graph_map.error as e -> Graph_map.pp_error ppf e
+    | #Rcp.error as e -> Rcp.pp_error ppf e
+    | #View.error as e -> View.pp_error ppf e
 
   (* The snapshot IS the version: it carries the validated view and the two id
      universes, so a state and the maps into and out of it are indexed by the same
@@ -393,13 +393,13 @@ module Make (S : Side.S) = struct
       let items =
         List.filter_map
           (function
-            | Group.Node id ->
-                if Node_id.Set.mem id removed then None
-                else Some (Group.Node id)
             | Group.Group child ->
                 Option.map
                   (fun c -> Group.Group c)
-                  (rebuild ~is_root:false child))
+                  (rebuild ~is_root:false child)
+            | Group.Node id ->
+                if Node_id.Set.mem id removed then None
+                else Some (Group.Node id))
           grp.Group.items
         @ additions grp.Group.id
       in
@@ -407,13 +407,15 @@ module Make (S : Side.S) = struct
       else Some { grp with Group.items = sort_items items }
     and sort_items items =
       let key = function
-        | Group.Node id -> position id
         | Group.Group g ->
             List.fold_left
               (fun acc item ->
                 min acc
-                  (match item with Group.Node id -> position id | _ -> acc))
+                  (match item with
+                  | Group.Group _ -> acc
+                  | Group.Node id -> position id))
               max_int g.Group.items
+        | Group.Node id -> position id
       in
       List.stable_sort (fun a b -> Int.compare (key a) (key b)) items
     in
@@ -867,7 +869,7 @@ module Make (S : Side.S) = struct
   let rec group_order (grp : Group.t) =
     grp.Group.id
     :: List.concat_map
-         (function Group.Node _ -> [] | Group.Group c -> group_order c)
+         (function Group.Group c -> group_order c | Group.Node _ -> [])
          grp.Group.items
 
   let rec rename_group ~node_id ~group_id (grp : Group.t) =
@@ -877,8 +879,8 @@ module Make (S : Side.S) = struct
       items =
         List.map
           (function
-            | Group.Node id -> Group.Node (node_id id)
-            | Group.Group c -> Group.Group (rename_group ~node_id ~group_id c))
+            | Group.Group c -> Group.Group (rename_group ~node_id ~group_id c)
+            | Group.Node id -> Group.Node (node_id id))
           grp.Group.items;
     }
 

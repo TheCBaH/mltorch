@@ -32,24 +32,24 @@ type env = tensor String_map.t
    depends on the other and a common module for two closed lists would be
    speculative. *)
 type expected_kind =
-  [ `Tensor_opt
-  | `Tensor_list
-  | `Tensor_or_scalar
-  | `Int
-  | `Int_opt
-  | `Int_list
-  | `Float_list
-  | `Bool
+  [ `Bool
   | `Bool_opt
+  | `Device_opt
   | `Float
+  | `Float_list
   | `Float_opt
+  | `Int
+  | `Int_list
+  | `Int_opt
+  | `Layout_opt
+  | `Memory_format_opt
   | `Scalar
   | `Scalar_opt
-  | `String
-  | `Memory_format_opt
   | `Scalar_type_opt
-  | `Layout_opt
-  | `Device_opt ]
+  | `String
+  | `Tensor_list
+  | `Tensor_opt
+  | `Tensor_or_scalar ]
 
 module Wrong_argument_kind = struct
   type t = { arg : string; expected : expected_kind; actual : string }
@@ -92,69 +92,51 @@ module Tensor_list_arity = struct
 end
 
 type error =
-  [ `Undefined_value of string
+  [ `Expected_tensor_list_output of Tensor_list_output.t
   | `Missing_argument of string
-  | `Wrong_argument_kind of Wrong_argument_kind.t
-  | `Unresolved_sym_arg of Unresolved_sym_arg.t
-  | `Unsupported_scalar_type_arg of string
-  | `Unsupported_layout_arg of string
-  | `Unsupported_device_arg of string
-  | `Unknown_memory_format of string
-  | `Unexpected_output_kind of Unexpected_output_kind.t
   | `Missing_output of int
     (* Was [`Unexpected_output_kind (i, "missing")]: no output at that index at
        all is a different fact from one of the wrong kind, and a sentinel
        string in the payload is not a way to say so. *)
-  | `Expected_tensor_list_output of Tensor_list_output.t
   | `Tensor_list_output_arity_mismatch of Tensor_list_arity.t
     (* NOT [`Output_arity_mismatch]: that tag already exists in Eval_direct and
        Eval_direct4 with a different payload, and sharing the name across
        disjoint rows is a trap for whoever later composes them. *)
-  ]
+  | `Undefined_value of string
+  | `Unexpected_output_kind of Unexpected_output_kind.t
+  | `Unknown_memory_format of string
+  | `Unresolved_sym_arg of Unresolved_sym_arg.t
+  | `Unsupported_device_arg of string
+  | `Unsupported_layout_arg of string
+  | `Unsupported_scalar_type_arg of string
+  | `Wrong_argument_kind of Wrong_argument_kind.t ]
 
 let expected_kind_name : expected_kind -> string = function
-  | `Tensor_opt -> "tensor?"
-  | `Tensor_list -> "tensor[]"
-  | `Tensor_or_scalar -> "tensor|scalar"
-  | `Int -> "int"
-  | `Int_opt -> "int?"
-  | `Int_list -> "int[]"
-  | `Float_list -> "float[]"
   | `Bool -> "bool"
   | `Bool_opt -> "bool?"
+  | `Device_opt -> "device?"
   | `Float -> "float"
+  | `Float_list -> "float[]"
   | `Float_opt -> "float?"
+  | `Int -> "int"
+  | `Int_list -> "int[]"
+  | `Int_opt -> "int?"
+  | `Layout_opt -> "layout?"
+  | `Memory_format_opt -> "memory_format?"
   | `Scalar -> "scalar"
   | `Scalar_opt -> "scalar?"
-  | `String -> "string"
-  | `Memory_format_opt -> "memory_format?"
   | `Scalar_type_opt -> "scalar_type?"
-  | `Layout_opt -> "layout?"
-  | `Device_opt -> "device?"
+  | `String -> "string"
+  | `Tensor_list -> "tensor[]"
+  | `Tensor_opt -> "tensor?"
+  | `Tensor_or_scalar -> "tensor|scalar"
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Undefined_value name -> Fmt.pf ppf "undefined SSA value %S" name
-  | `Missing_argument name -> Fmt.pf ppf "missing required argument %S" name
-  | `Wrong_argument_kind { Wrong_argument_kind.arg; expected; actual } ->
-      Fmt.pf ppf "argument %S: expected %s, got %s" arg
-        (expected_kind_name expected)
-        actual
-  | `Unresolved_sym_arg { Unresolved_sym_arg.arg; symbol } ->
-      Fmt.pf ppf "argument %S: unresolved symbolic value %S" arg symbol
-  | `Unsupported_scalar_type_arg name ->
-      Fmt.pf ppf "unsupported scalar_type argument %S" name
-  | `Unsupported_layout_arg name ->
-      Fmt.pf ppf "unsupported layout argument %S" name
-  | `Unsupported_device_arg name ->
-      Fmt.pf ppf "unsupported device argument %S" name
-  | `Unknown_memory_format name ->
-      Fmt.pf ppf "unknown memory_format for argument %S" name
-  | `Unexpected_output_kind { Unexpected_output_kind.index; actual } ->
-      Fmt.pf ppf "output %d: expected tensor/None, got %s" index actual
-  | `Missing_output i -> Fmt.pf ppf "output %d: missing" i
   | `Expected_tensor_list_output { Tensor_list_output.actual } ->
       Fmt.pf ppf "expected one Tensor[] output, got [%s]"
         (String.concat "; " actual)
+  | `Missing_argument name -> Fmt.pf ppf "missing required argument %S" name
+  | `Missing_output i -> Fmt.pf ppf "output %d: missing" i
   | `Tensor_list_output_arity_mismatch { Tensor_list_arity.names; tensors } ->
       Fmt.pf ppf
         "tensor-list output arity: %d serialized name%s, %d tensor%s returned"
@@ -162,6 +144,23 @@ let pp_error ppf : [< error ] -> unit = function
         (if names = 1 then "" else "s")
         tensors
         (if tensors = 1 then "" else "s")
+  | `Undefined_value name -> Fmt.pf ppf "undefined SSA value %S" name
+  | `Unexpected_output_kind { Unexpected_output_kind.index; actual } ->
+      Fmt.pf ppf "output %d: expected tensor/None, got %s" index actual
+  | `Unknown_memory_format name ->
+      Fmt.pf ppf "unknown memory_format for argument %S" name
+  | `Unresolved_sym_arg { Unresolved_sym_arg.arg; symbol } ->
+      Fmt.pf ppf "argument %S: unresolved symbolic value %S" arg symbol
+  | `Unsupported_device_arg name ->
+      Fmt.pf ppf "unsupported device argument %S" name
+  | `Unsupported_layout_arg name ->
+      Fmt.pf ppf "unsupported layout argument %S" name
+  | `Unsupported_scalar_type_arg name ->
+      Fmt.pf ppf "unsupported scalar_type argument %S" name
+  | `Wrong_argument_kind { Wrong_argument_kind.arg; expected; actual } ->
+      Fmt.pf ppf "argument %S: expected %s, got %s" arg
+        (expected_kind_name expected)
+        actual
 
 let argument_kind_name = function
   | Argument.None _ -> "None"
@@ -216,14 +215,14 @@ let wrong_kind arg expected a =
 
 let tensor_arg env node name =
   match find_arg node name with
-  | Some (Argument.Tensor ta) -> resolve env ta.TensorArgument.name
+  | None -> Err.fail (`Missing_argument name)
   | Some (Argument.None _) -> Err.return null_tensor
   | Some (Argument.Optional_tensor (OptionalTensorArgument.Tensor ta)) ->
       resolve env ta.TensorArgument.name
   | Some (Argument.Optional_tensor (OptionalTensorArgument.None _)) ->
       Err.return null_tensor
+  | Some (Argument.Tensor ta) -> resolve env ta.TensorArgument.name
   | Some arg -> wrong_kind name `Tensor_opt arg
-  | None -> Err.fail (`Missing_argument name)
 
 (* Functional ATen graphs omit a Tensor argument whose schema default is None
    instead of serialising [as_none].  Keep the required decoder strict and make
@@ -240,17 +239,17 @@ let tensor_arg_opt env node name =
    [like]. *)
 let tensor_or_scalar_arg env node name ~like =
   match find_arg node name with
-  | Some (Argument.Tensor ta) -> resolve env ta.TensorArgument.name
+  | None -> Err.fail (`Missing_argument name)
+  | Some (Argument.Float f) ->
+      Err.return
+        (O.full_like like (Aten_scalar.Float f) None None None None None)
   | Some (Argument.Int i) ->
       Err.return
         (O.full_like like
            (Aten_scalar.Int (Int64.of_int i))
            None None None None None)
-  | Some (Argument.Float f) ->
-      Err.return
-        (O.full_like like (Aten_scalar.Float f) None None None None None)
+  | Some (Argument.Tensor ta) -> resolve env ta.TensorArgument.name
   | Some arg -> wrong_kind name `Tensor_or_scalar arg
-  | None -> Err.fail (`Missing_argument name)
 
 (* A schema [SymInt] slot crosses as either [Argument.Int] -- the spelling every
    graph in the corpus uses, and the one [Aten_spec_run] emits -- or as
@@ -268,10 +267,11 @@ let sym_int_value ~arg = function
 
 let ints_arg ?(default = []) node name =
   match find_arg node name with
+  | None -> Err.return default
   | Some (Argument.Ints xs) -> Err.return xs
+  | Some (Argument.None _) -> Err.return default
   | Some (Argument.Sym_ints xs) ->
       Err.List.map (fun s -> sym_int_value ~arg:name s) xs
-  | Some (Argument.None _) | None -> Err.return default
   | Some arg -> wrong_kind name `Int_list arg
 
 (* [float[]?]: no [Sym_floats] resolution needed the way [ints_arg] resolves
@@ -282,29 +282,30 @@ let ints_arg ?(default = []) node name =
    [ints_arg] collapses [mean.dim]'s absent [dim]. *)
 let floats_arg ?(default = []) node name =
   match find_arg node name with
+  | None -> Err.return default
   | Some (Argument.Floats xs) -> Err.return xs
-  | Some (Argument.None _) | None -> Err.return default
+  | Some (Argument.None _) -> Err.return default
   | Some arg -> wrong_kind name `Float_list arg
 
 let require name = Err.of_option (`Missing_argument name)
 
 let int_arg ?default node name =
   match find_arg node name with
+  | None -> require name default
   | Some (Argument.Int i) -> Err.return i
   | Some (Argument.Sym_int s) -> sym_int_value ~arg:name s
-  | None -> require name default
   | Some arg -> wrong_kind name `Int arg
 
 let bool_arg ?(default = false) node name =
   match find_arg node name with
-  | Some (Argument.Bool b) -> Err.return b
   | None -> Err.return default
+  | Some (Argument.Bool b) -> Err.return b
   | Some arg -> wrong_kind name `Bool arg
 
 let float_arg ?default node name =
   match find_arg node name with
-  | Some (Argument.Float f) -> Err.return f
   | None -> require name default
+  | Some (Argument.Float f) -> Err.return f
   | Some arg -> wrong_kind name `Float arg
 
 (* A float? argument crosses as a [double ptr] (map_type lowers float? to a
@@ -314,8 +315,8 @@ let float_arg ?default node name =
    rms_norm's eps. *)
 let float_opt_ptr node name =
   match find_arg node name with
-  | Some (Argument.Float f) -> Err.return (allocate double f)
   | Some (Argument.None _) | None -> Err.return (from_voidp double null)
+  | Some (Argument.Float f) -> Err.return (allocate double f)
   | Some arg -> wrong_kind name `Float_opt arg
 
 (* int? / SymInt?: the integer twin of [float_opt_ptr], and the same encoding --
@@ -330,11 +331,11 @@ let float_opt_ptr node name =
 let int_opt_ptr node name =
   let open Err.Syntax in
   match find_arg node name with
+  | Some (Argument.None _) | None -> Err.return (from_voidp int64_t null)
   | Some (Argument.Int i) -> Err.return (allocate int64_t (Int64.of_int i))
   | Some (Argument.Sym_int s) ->
       let+ i = sym_int_value ~arg:name s in
       allocate int64_t (Int64.of_int i)
-  | Some (Argument.None _) | None -> Err.return (from_voidp int64_t null)
   | Some arg -> wrong_kind name `Int_opt arg
 
 (* The same rule as [int_opt_ptr], as an OCaml option rather than a C pointer.
@@ -346,39 +347,39 @@ let int_opt_ptr node name =
 let int_opt_arg node name =
   let open Err.Syntax in
   match find_arg node name with
+  | Some (Argument.None _) | None -> Err.return None
   | Some (Argument.Int i) -> Err.return (Some i)
   | Some (Argument.Sym_int s) ->
       let+ i = sym_int_value ~arg:name s in
       Some i
-  | Some (Argument.None _) | None -> Err.return None
   | Some arg -> wrong_kind name `Int_opt arg
 
 (* A schema Scalar arg crosses as either an Int or a Float argument. *)
 let scalar_arg ?default node name =
   match find_arg node name with
-  | Some (Argument.Int i) -> Err.return (Aten_scalar.Int (Int64.of_int i))
-  | Some (Argument.Float f) -> Err.return (Aten_scalar.Float f)
   | None -> require name default
+  | Some (Argument.Float f) -> Err.return (Aten_scalar.Float f)
+  | Some (Argument.Int i) -> Err.return (Aten_scalar.Int (Int64.of_int i))
   | Some arg -> wrong_kind name `Scalar arg
 
 let scalar_opt_arg node name =
   match find_arg node name with
+  | Some (Argument.None _) | None -> Err.return None
+  | Some (Argument.Float f) -> Err.return (Some (Aten_scalar.Float f))
   | Some (Argument.Int i) ->
       Err.return (Some (Aten_scalar.Int (Int64.of_int i)))
-  | Some (Argument.Float f) -> Err.return (Some (Aten_scalar.Float f))
-  | Some (Argument.None _) | None -> Err.return None
   | Some arg -> wrong_kind name `Scalar_opt arg
 
 let bool_opt_arg node name =
   match find_arg node name with
-  | Some (Argument.Bool b) -> Err.return (Some b)
   | Some (Argument.None _) | None -> Err.return None
+  | Some (Argument.Bool b) -> Err.return (Some b)
   | Some arg -> wrong_kind name `Bool_opt arg
 
 let string_arg ~default node name =
   match find_arg node name with
-  | Some (Argument.String s) -> Err.return s
   | None -> Err.return default
+  | Some (Argument.String s) -> Err.return s
   | Some arg -> wrong_kind name `String arg
 
 (* The schema MemoryFormat enum crosses as Pytorch_types.MemoryFormat (the
@@ -388,14 +389,14 @@ let memory_format_opt_arg node name =
   match find_arg node name with
   | Some (Argument.Memory_format mf) -> (
       match mf with
-      | MemoryFormat.ContiguousFormat ->
-          Err.return (Some Aten_memory_format.Contiguous)
-      | MemoryFormat.PreserveFormat ->
-          Err.return (Some Aten_memory_format.Preserve)
       | MemoryFormat.ChannelsLast ->
           Err.return (Some Aten_memory_format.ChannelsLast)
       | MemoryFormat.ChannelsLast3d ->
           Err.return (Some Aten_memory_format.ChannelsLast3d)
+      | MemoryFormat.ContiguousFormat ->
+          Err.return (Some Aten_memory_format.Contiguous)
+      | MemoryFormat.PreserveFormat ->
+          Err.return (Some Aten_memory_format.Preserve)
       | MemoryFormat.Unknown -> Err.fail (`Unknown_memory_format name))
   | Some (Argument.None _) | None -> Err.return None
   | Some arg -> wrong_kind name `Memory_format_opt arg
@@ -425,10 +426,10 @@ let device_opt_arg node name =
 
 let tensors_arg env node name =
   match find_arg node name with
+  | None -> Err.fail (`Missing_argument name)
   | Some (Argument.Tensors tas) ->
       Err.List.map (fun (ta : TensorArgument.t) -> resolve env ta.name) tas
   | Some arg -> wrong_kind name `Tensor_list arg
-  | None -> Err.fail (`Missing_argument name)
 
 (* A Tensor[] binding takes a (data, length) pair: build the ctypes array of
    handles for the [data] argument. *)
@@ -439,24 +440,24 @@ let tensor_carray tensors =
 
 let out_name (node : Node.t) i =
   match List.nth_opt node.outputs i with
-  | Some (Argument.Tensor ta) -> Err.return (Some ta.TensorArgument.name)
+  | None -> Err.fail (`Missing_output i)
   | Some (Argument.None _) -> Err.return None
+  | Some (Argument.Tensor ta) -> Err.return (Some ta.TensorArgument.name)
   | Some arg ->
       Err.fail
         (`Unexpected_output_kind
            { Unexpected_output_kind.index = i; actual = argument_kind_name arg })
-  | None -> Err.fail (`Missing_output i)
 
 let bind1 (env : env) node tensor =
   let open Err.Syntax in
   let* name = out_name node 0 in
   match name with
+  | None -> Err.return env
   | Some name ->
       Err.return
         (String_map.add name
            (Aten_tensor.manage (Aten_tensor.check tensor))
            env)
-  | None -> Err.return env
 
 (* Every SSA name a node's outputs bind, flattening a Tensor[] output's names in
    place. [Argument.None] outputs stay ignored (a dead result the op computes but
@@ -515,8 +516,8 @@ let bind_many (env : env) node tensors =
         let* name = out_name node i in
         let env =
           match name with
-          | Some name -> String_map.add name (Aten_tensor.manage tensor) env
           | None -> env
+          | Some name -> String_map.add name (Aten_tensor.manage tensor) env
         in
         Err.return (i + 1, env))
       (0, env) tensors

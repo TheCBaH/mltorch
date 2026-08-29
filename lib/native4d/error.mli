@@ -18,23 +18,21 @@ open Graph_ir
 
 type t =
   [ `Axis_outside_dialect of Node_id.t * Axis.t
+  | `Bad_constant_payload of Tensor_id.t
   | `Batch_norm_extent of
     Node_id.t * Tensor_id.t * Dim.extent Dim.t * Dim.extent Dim.t
+  | `Constant_store of Constant_store.error
   | `Dynamic_batch_norm of Node_id.t
   | `Live_max_pool_indices of Node_id.t * Tensor_id.t
   | `Lossy_bmm_operand of Node_id.t * Tensor_id.t
+  | `Map of Graph_map.error
+  | `Missing_constant_payload of Node_id.t * Tensor_id.t
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
   | `Sdpa_batch_axis of Node_id.t
   | `Unsupported_bmm_batch of Node_id.t * Dim.extent Dim.t
   | `Unsupported_grouped_conv of Node_id.t * int
   | `Unsupported_grouped_transposed_conv of Node_id.t * int
   | `Unsupported_op of Node_id.t * op
-    (* Stage 5's rows, arriving with the modules that name them — the set is
-       built progressively for exactly this reason. *)
-  | `Bad_constant_payload of Tensor_id.t
-  | `Constant_store of Constant_store.error
-  | `Missing_constant_payload of Node_id.t * Tensor_id.t
-  | `Map of Graph_map.error
   | `View of Framework.View4.error ]
 (* Carries the op, per design §10, not just its name: an op is rejected for
        what it is, and the payload printed through [Graph_ir.pp_op_with] shows

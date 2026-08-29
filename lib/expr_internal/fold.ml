@@ -4,44 +4,51 @@
 
 let rec index_reducers : type r. Reduce_var.Set.t -> r Index.t -> _ =
  fun acc -> function
-  | Index.Output _ | Index.Zero | Index.Const _ -> acc
-  | Index.Reduce v -> Reduce_var.Set.add v acc
+  | Index.Add (a, b) -> index_reducers (index_reducers acc a) b
+  | Index.Assume_position a -> index_reducers acc a
+  | Index.Ceil_div_pos (a, _) -> index_reducers acc a
+  | Index.Clamp_low a -> index_reducers acc a
+  | Index.Const _ -> acc
+  | Index.Floor_div_pos (a, _) -> index_reducers acc a
+  | Index.Max (a, b) -> index_reducers (index_reducers acc a) b
+  | Index.Min (a, b) -> index_reducers (index_reducers acc a) b
   | Index.Of_position a -> index_reducers acc a
-  | Index.Scale (_, a)
-  | Index.Floor_div_pos (a, _)
-  | Index.Ceil_div_pos (a, _)
-  | Index.Clamp_low a
-  | Index.Assume_position a ->
-      index_reducers acc a
-  | Index.Add (a, b) | Index.Min (a, b) | Index.Max (a, b) ->
-      index_reducers (index_reducers acc a) b
+  | Index.Output _ -> acc
+  | Index.Reduce v -> Reduce_var.Set.add v acc
+  | Index.Scale (_, a) -> index_reducers acc a
+  | Index.Zero -> acc
 
 let rec index_axes : type r. Axis.t list -> r Index.t -> Axis.t list =
  fun acc -> function
-  | Index.Output a -> if List.mem a acc then acc else a :: acc
-  | Index.Reduce _ | Index.Zero | Index.Const _ -> acc
+  | Index.Add (a, b) -> index_axes (index_axes acc a) b
+  | Index.Assume_position a -> index_axes acc a
+  | Index.Ceil_div_pos (a, _) -> index_axes acc a
+  | Index.Clamp_low a -> index_axes acc a
+  | Index.Const _ -> acc
+  | Index.Floor_div_pos (a, _) -> index_axes acc a
+  | Index.Max (a, b) -> index_axes (index_axes acc a) b
+  | Index.Min (a, b) -> index_axes (index_axes acc a) b
   | Index.Of_position a -> index_axes acc a
-  | Index.Scale (_, a)
-  | Index.Floor_div_pos (a, _)
-  | Index.Ceil_div_pos (a, _)
-  | Index.Clamp_low a
-  | Index.Assume_position a ->
-      index_axes acc a
-  | Index.Add (a, b) | Index.Min (a, b) | Index.Max (a, b) ->
-      index_axes (index_axes acc a) b
+  | Index.Output a -> if List.mem a acc then acc else a :: acc
+  | Index.Reduce _ -> acc
+  | Index.Scale (_, a) -> index_axes acc a
+  | Index.Zero -> acc
 
 let rec index_assume_sites : type r. int -> r Index.t -> int =
  fun acc -> function
-  | Index.Output _ | Index.Reduce _ | Index.Zero | Index.Const _ -> acc
+  | Index.Add (a, b) -> index_assume_sites (index_assume_sites acc a) b
   | Index.Assume_position a -> index_assume_sites (acc + 1) a
+  | Index.Ceil_div_pos (a, _) -> index_assume_sites acc a
+  | Index.Clamp_low a -> index_assume_sites acc a
+  | Index.Const _ -> acc
+  | Index.Floor_div_pos (a, _) -> index_assume_sites acc a
+  | Index.Max (a, b) -> index_assume_sites (index_assume_sites acc a) b
+  | Index.Min (a, b) -> index_assume_sites (index_assume_sites acc a) b
   | Index.Of_position a -> index_assume_sites acc a
-  | Index.Scale (_, a)
-  | Index.Floor_div_pos (a, _)
-  | Index.Ceil_div_pos (a, _)
-  | Index.Clamp_low a ->
-      index_assume_sites acc a
-  | Index.Add (a, b) | Index.Min (a, b) | Index.Max (a, b) ->
-      index_assume_sites (index_assume_sites acc a) b
+  | Index.Output _ -> acc
+  | Index.Reduce _ -> acc
+  | Index.Scale (_, a) -> index_assume_sites acc a
+  | Index.Zero -> acc
 
 (* The index callback has to be RANK-2: a [Load]'s coordinate components are
      [Role.Position.t Index.t] while a reduction's upper bound is
@@ -59,25 +66,26 @@ let rec walk ~value ~index ~intrinsic acc (e : Value.t) =
   let acc = value acc e in
   let recur = walk ~value ~index ~intrinsic in
   match e with
-  | Value.Const _ -> acc
   | Value.Binary (_, a, b) -> recur (recur acc a) b
-  | Value.Unary (_, a) | Value.Round_f32 a -> recur acc a
-  | Value.Select (c, a, b) ->
-      let acc =
-        match c with
-        | Bool.Value_lt (x, y) -> recur (recur acc x) y
-        | Bool.Index_eq (x, y) -> index.idx (index.idx acc x) y
-      in
-      recur (recur acc a) b
-  | Value.Value_of_index i -> index.idx acc i
-  | Value.Load (_, c) -> Coord.fold (fun acc i -> index.idx acc i) acc c
-  | Value.Reduce r ->
-      let acc = index.idx (index.idx acc r.Reduction.lo) r.Reduction.hi in
-      recur acc r.Reduction.body
+  | Value.Const _ -> acc
   | Value.Intrinsic i ->
       let acc = intrinsic acc i in
       let (Intrinsic.Max_pool d) = i in
       Coord.fold (fun acc x -> index.idx acc x) acc d.Intrinsic.Max_pool.out
+  | Value.Load (_, c) -> Coord.fold (fun acc i -> index.idx acc i) acc c
+  | Value.Reduce r ->
+      let acc = index.idx (index.idx acc r.Reduction.lo) r.Reduction.hi in
+      recur acc r.Reduction.body
+  | Value.Round_f32 a -> recur acc a
+  | Value.Select (c, a, b) ->
+      let acc =
+        match c with
+        | Bool.Index_eq (x, y) -> index.idx (index.idx acc x) y
+        | Bool.Value_lt (x, y) -> recur (recur acc x) y
+      in
+      recur (recur acc a) b
+  | Value.Unary (_, a) -> recur acc a
+  | Value.Value_of_index i -> index.idx acc i
 
 let nothing acc _ = acc
 let no_index = { idx = (fun acc _ -> acc) }
@@ -98,7 +106,7 @@ let no_index = { idx = (fun acc _ -> acc) }
      [size] and [depth] are this same walk with both budgets at [max_int], which
      never trip — so there is exactly one description of what counts as a node
      and what counts as a level. *)
-exception Over of [ `Size | `Depth ]
+exception Over of [ `Depth | `Size ]
 
 (* The node budget is THREADED, not held in a ref: every traversal takes the
      count still available and returns what it left, so a sibling is measured
@@ -121,20 +129,30 @@ let measure ~max_size ~max_depth e =
       (1 + d, left)
     in
     match i with
-    | Index.Output _ | Index.Reduce _ | Index.Zero | Index.Const _ -> (1, left)
-    (* Separate arm: [Of_position]'s operand is a position, the rest are
-         deltas, and an or-pattern cannot bind [a] at both roles. *)
-    | Index.Of_position a -> one a
-    | Index.Scale (_, a)
-    | Index.Floor_div_pos (a, _)
-    | Index.Ceil_div_pos (a, _)
-    | Index.Clamp_low a
-    | Index.Assume_position a ->
-        one a
-    | Index.Add (a, b) | Index.Min (a, b) | Index.Max (a, b) ->
+    | Index.Add (a, b) ->
         let da, left = index sub left a in
         let db, left = index sub left b in
         (1 + Stdlib.max da db, left)
+    | Index.Assume_position a -> one a
+    | Index.Ceil_div_pos (a, _) -> one a
+    | Index.Clamp_low a -> one a
+    | Index.Const _ -> (1, left)
+    | Index.Floor_div_pos (a, _) -> one a
+    | Index.Max (a, b) ->
+        let da, left = index sub left a in
+        let db, left = index sub left b in
+        (1 + Stdlib.max da db, left)
+    | Index.Min (a, b) ->
+        let da, left = index sub left a in
+        let db, left = index sub left b in
+        (1 + Stdlib.max da db, left)
+    (* [Of_position]'s operand is a position, unlike the delta operands in the
+       surrounding unary cases. *)
+    | Index.Of_position a -> one a
+    | Index.Output _ -> (1, left)
+    | Index.Reduce _ -> (1, left)
+    | Index.Scale (_, a) -> one a
+    | Index.Zero -> (1, left)
   in
   let coord budget left c =
     Coord.fold
@@ -147,43 +165,46 @@ let measure ~max_size ~max_depth e =
     let left = node budget left in
     let sub = budget - 1 in
     match e with
-    | Value.Const _ -> (1, left)
-    | Value.Value_of_index i ->
-        let d, left = index sub left i in
-        (1 + d, left)
-    | Value.Load (_, c) ->
-        let d, left = coord sub left c in
-        (1 + d, left)
-    | Value.Unary (_, a) | Value.Round_f32 a ->
-        let d, left = value sub left a in
-        (1 + d, left)
     | Value.Binary (_, a, b) ->
         let da, left = value sub left a in
         let db, left = value sub left b in
         (1 + Stdlib.max da db, left)
-    | Value.Select (c, a, b) ->
-        let g, left =
-          match c with
-          | Bool.Value_lt (x, y) ->
-              let dx, left = value sub left x in
-              let dy, left = value sub left y in
-              (Stdlib.max dx dy, left)
-          | Bool.Index_eq (x, y) ->
-              let dx, left = index sub left x in
-              let dy, left = index sub left y in
-              (Stdlib.max dx dy, left)
-        in
-        let da, left = value sub left a in
-        let db, left = value sub left b in
-        (1 + Stdlib.max g (Stdlib.max da db), left)
+    | Value.Const _ -> (1, left)
+    | Value.Intrinsic (Intrinsic.Max_pool d) ->
+        let dc, left = coord sub left d.Intrinsic.Max_pool.out in
+        (1 + dc, left)
+    | Value.Load (_, c) ->
+        let d, left = coord sub left c in
+        (1 + d, left)
     | Value.Reduce r ->
         let dlo, left = index sub left r.Reduction.lo in
         let dhi, left = index sub left r.Reduction.hi in
         let dbody, left = value sub left r.Reduction.body in
         (1 + Stdlib.max (Stdlib.max dlo dhi) dbody, left)
-    | Value.Intrinsic (Intrinsic.Max_pool d) ->
-        let dc, left = coord sub left d.Intrinsic.Max_pool.out in
-        (1 + dc, left)
+    | Value.Round_f32 a ->
+        let d, left = value sub left a in
+        (1 + d, left)
+    | Value.Select (c, a, b) ->
+        let g, left =
+          match c with
+          | Bool.Index_eq (x, y) ->
+              let dx, left = index sub left x in
+              let dy, left = index sub left y in
+              (Stdlib.max dx dy, left)
+          | Bool.Value_lt (x, y) ->
+              let dx, left = value sub left x in
+              let dy, left = value sub left y in
+              (Stdlib.max dx dy, left)
+        in
+        let da, left = value sub left a in
+        let db, left = value sub left b in
+        (1 + Stdlib.max g (Stdlib.max da db), left)
+    | Value.Unary (_, a) ->
+        let d, left = value sub left a in
+        (1 + d, left)
+    | Value.Value_of_index i ->
+        let d, left = index sub left i in
+        (1 + d, left)
   in
   let d, left = value max_depth max_size e in
   (max_size - left, d)
@@ -250,25 +271,26 @@ let free_reducers e =
       |> Reduce_var.Set.union acc
     in
     match e with
-    | Value.Const _ -> acc
     | Value.Binary (_, a, b) -> go bound (go bound acc a) b
-    | Value.Unary (_, a) | Value.Round_f32 a -> go bound acc a
-    | Value.Select (c, a, b) ->
-        let acc =
-          match c with
-          | Bool.Value_lt (x, y) -> go bound (go bound acc x) y
-          | Bool.Index_eq (x, y) -> idx (idx acc x) y
-        in
-        go bound (go bound acc a) b
-    | Value.Value_of_index i -> idx acc i
+    | Value.Const _ -> acc
+    | Value.Intrinsic (Intrinsic.Max_pool d) ->
+        Coord.fold idx acc d.Intrinsic.Max_pool.out
     | Value.Load (_, c) -> Coord.fold idx acc c
     | Value.Reduce r ->
         (* The bounds are OUTSIDE the binder: they may mention enclosing
              reducers but not this one. *)
         let acc = idx (idx acc r.Reduction.lo) r.Reduction.hi in
         go (Reduce_var.Set.add r.Reduction.var bound) acc r.Reduction.body
-    | Value.Intrinsic (Intrinsic.Max_pool d) ->
-        Coord.fold idx acc d.Intrinsic.Max_pool.out
+    | Value.Round_f32 a -> go bound acc a
+    | Value.Select (c, a, b) ->
+        let acc =
+          match c with
+          | Bool.Index_eq (x, y) -> idx (idx acc x) y
+          | Bool.Value_lt (x, y) -> go bound (go bound acc x) y
+        in
+        go bound (go bound acc a) b
+    | Value.Unary (_, a) -> go bound acc a
+    | Value.Value_of_index i -> idx acc i
   in
   go Reduce_var.Set.empty Reduce_var.Set.empty e
 
@@ -280,16 +302,20 @@ let free_reducers e =
 let binders e =
   let rec go acc (e : Value.t) =
     match e with
-    | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
-      ->
-        acc
     | Value.Binary (_, a, b) -> go (go acc a) b
-    | Value.Unary (_, a) | Value.Round_f32 a -> go acc a
+    | Value.Const _ -> acc
+    | Value.Intrinsic _ -> acc
+    | Value.Load _ -> acc
+    | Value.Reduce r -> go (r.Reduction.var :: acc) r.Reduction.body
+    | Value.Round_f32 a -> go acc a
     | Value.Select (c, a, b) ->
         let acc =
-          match c with Bool.Value_lt (x, y) -> go (go acc x) y | _ -> acc
+          match c with
+          | Bool.Index_eq _ -> acc
+          | Bool.Value_lt (x, y) -> go (go acc x) y
         in
         go (go acc a) b
-    | Value.Reduce r -> go (r.Reduction.var :: acc) r.Reduction.body
+    | Value.Unary (_, a) -> go acc a
+    | Value.Value_of_index _ -> acc
   in
   List.rev (go [] e)

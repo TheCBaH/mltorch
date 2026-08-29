@@ -30,14 +30,14 @@ end
     value the engine has no representation for at all. *)
 module Window_over_limit : sig
   type quantity =
-    [ `Kernel
-    | `Dilation
-    | `Stride
-    | `Padding
-    | `Input_extent
+    [ `Dilation
     | `Effective_kernel
+    | `In_channels
+    | `Input_extent
+    | `Kernel
     | `Output_extent
-    | `In_channels ]
+    | `Padding
+    | `Stride ]
   (** Which quantity ran past the ceiling. A closed set rather than a string:
       each is a specific field or a specific derived product, and a reader has
       to know which. [`In_channels] is the conv weight's per-group extent times
@@ -72,11 +72,11 @@ module Operand_shape : sig
   type t = {
     operand :
       [ `Bias
-      | `Rms_norm_weight
-      | `Layer_norm_weight
-      | `Layer_norm_bias
+      | `Group_norm_bias
       | `Group_norm_weight
-      | `Group_norm_bias ];
+      | `Layer_norm_bias
+      | `Layer_norm_weight
+      | `Rms_norm_weight ];
     expected : Vec6.shape;
     actual : Vec6.shape;
   }
@@ -134,7 +134,7 @@ module Concat : sig
     other : Dim.extent Dim.t;
   }
 
-  type t = Empty | Axis_mismatch of mismatch
+  type t = Axis_mismatch of mismatch | Empty
 
   val pp : Format.formatter -> t -> unit
 end
@@ -221,7 +221,7 @@ end
     supported, [int64] because their sum with the extent is a model-supplied
     aggregate. *)
 module Pad : sig
-  type fault = [ `Empty | `Reflect_width | `Duplicate_axis ]
+  type fault = [ `Duplicate_axis | `Empty | `Reflect_width ]
 
   type t = {
     axis : Axis.t;
@@ -273,16 +273,16 @@ module Convolution : sig
 
   type error =
     | In_channels_not_divisible_by_groups of channels_divisibility
+    | Input_channels_mismatch of input_channels_mismatch
     | Out_channels_not_divisible_by_groups of channels_divisibility
+    | Output_padding_nonzero of output_padding
+    | Same_padding_requires_stride_one of { stride : Op_config.Pos.t }
+    | Transposed_input_channels_not_divisible_by_groups of channels_divisibility
+    | Transposed_not_supported
+    | Transposed_output_non_positive of transposed_window_output
+    | Transposed_weight_input_mismatch of transposed_weight_input_mismatch
     | Weight_channels_mismatch of weight_channels_mismatch
     | Weight_kernel_mismatch of weight_kernel_mismatch
-    | Input_channels_mismatch of input_channels_mismatch
-    | Same_padding_requires_stride_one of { stride : Op_config.Pos.t }
-    | Transposed_not_supported
-    | Output_padding_nonzero of output_padding
-    | Transposed_weight_input_mismatch of transposed_weight_input_mismatch
-    | Transposed_input_channels_not_divisible_by_groups of channels_divisibility
-    | Transposed_output_non_positive of transposed_window_output
 
   val pp_error : Format.formatter -> error -> unit
 end
@@ -299,7 +299,7 @@ end
    stops AT the exclusive limit and never learns the real length, so it reports
    [At_least] — recording that as exact would claim evidence nobody gathered. *)
 module Output_count : sig
-  type observed = Exact of int | At_least of int
+  type observed = At_least of int | Exact of int
   type t = { limit : int; observed : observed }
 
   val pp : Format.formatter -> t -> unit
@@ -310,7 +310,7 @@ end
     and the sixth-factor total-work bound (op8-impl.md F12) that neither the
     score-count nor the output-numel [`Numel_over_limit] bound implies. *)
 module Sdpa : sig
-  type check = [ `Query_key | `Query_value | `Key_value ]
+  type check = [ `Key_value | `Query_key | `Query_value ]
 
   type dims_mismatch = {
     axis : Axis.t;
@@ -326,13 +326,13 @@ module Sdpa : sig
   }
 
   type work_factor =
+    | Batch
+    | Head_dim
+    | Heads
+    | Key_len
     | Outer_n
     | Outer_t
-    | Batch
-    | Heads
     | Query_len
-    | Key_len
-    | Head_dim
 
   type work_over_limit = {
     factor : work_factor;
@@ -375,25 +375,25 @@ module Resize : sig
 end
 
 type t =
-  [ `Broadcast of Broadcast.t
-  | `Adaptive_pool of Adaptive_pool.t
-  | `Window of Window.t
-  | `Window_over_limit of Window_over_limit.t
-  | `Operand_shape of Operand_shape.t
-  | `Clamp of Clamp.error
-  | `Linear of Linear.error
+  [ `Adaptive_pool of Adaptive_pool.t
   | `Bmm of Bmm.error
+  | `Broadcast of Broadcast.t
+  | `Clamp of Clamp.error
   | `Concat of Concat.t
-  | `Split_with_sizes of Split_with_sizes.t
+  | `Convolution of Convolution.error
+  | `Group_norm of Group_norm.t
+  | `Linear of Linear.error
+  | `Numel_over_limit of Vec6.Numel_bound.t
+  | `Operand_shape of Operand_shape.t
   | `Output_count_over_limit of Output_count.t
   | `Pad of Pad.t
   | `Permute of Permute.t
   | `Reshape of Reshape.t
-  | `Slice of Slice.t
-  | `Numel_over_limit of Vec6.Numel_bound.t
-  | `Convolution of Convolution.error
+  | `Resize of Resize.t
   | `Sdpa of Sdpa.error
-  | `Group_norm of Group_norm.t
-  | `Resize of Resize.t ]
+  | `Slice of Slice.t
+  | `Split_with_sizes of Split_with_sizes.t
+  | `Window of Window.t
+  | `Window_over_limit of Window_over_limit.t ]
 
 val pp : Format.formatter -> [< t ] -> unit

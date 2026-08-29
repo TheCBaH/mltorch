@@ -83,7 +83,7 @@ end
 
 (* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
    arithmetic can fail where it previously wrapped. *)
-type error = [ `Unknown_edge of Tensor_id.t | Expr.Eval.error ]
+type error = [ Expr.Eval.error | `Unknown_edge of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

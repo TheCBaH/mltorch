@@ -340,8 +340,8 @@ let relu_of op () =
 
 let show_create r =
   match r with
-  | Ok _ -> Fmt.pf Fmt.stdout "ok@."
   | Error e -> Fmt.pf Fmt.stdout "%a@." Graph_map.pp_error (Err.Error.kind e)
+  | Ok _ -> Fmt.pf Fmt.stdout "ok@."
 
 let%expect_test "create: a map of the graph onto itself passes" =
   let module A = (val Version_fixture.of_graph (two_input_graph ())) in

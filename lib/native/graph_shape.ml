@@ -7,12 +7,12 @@
 
 open Graph_ir
 
-type error = [ Shape_error.t | `Missing_tensor_sig of Tensor_id.t ]
+type error = [ `Missing_tensor_sig of Tensor_id.t | Shape_error.t ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | #Shape_error.t as e -> Shape_error.pp ppf e
   | `Missing_tensor_sig id ->
       Format.fprintf ppf "missing tensor sig t%d" (Tensor_id.to_int id)
+  | #Shape_error.t as e -> Shape_error.pp ppf e
 
 let widen (r : ('a, [< error ]) Err.t) : ('a, error) Err.t =
   (r :> ('a, error) Err.t)

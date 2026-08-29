@@ -18,15 +18,15 @@ module Phase = struct
      share one error row because they share one failure: a sum that cannot be
      represented, reported by name so the formula that overflowed is
      identifiable without re-deriving it. *)
-  type t = Convert | Encode | Copy | Decode | Build | Commit | Install
+  type t = Build | Commit | Convert | Copy | Decode | Encode | Install
 
   let name = function
-    | Convert -> "P_convert"
-    | Encode -> "P_encode"
-    | Copy -> "P_copy"
-    | Decode -> "R_decode"
     | Build -> "R_build"
     | Commit -> "R_commit"
+    | Convert -> "P_convert"
+    | Copy -> "P_copy"
+    | Decode -> "R_decode"
+    | Encode -> "P_encode"
     | Install -> "R_install"
 end
 

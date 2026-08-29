@@ -60,14 +60,14 @@ module Scope : sig
       the printer: "which of the nine counted this" is a fact about the failure,
       and a caller that only reads the rendered string cannot act on it. *)
   type t =
-    | Session
-    | Graph
-    | Value_graph
-    | Source_graph
     | Detail
-    | Navigation
-    | Fusion
     | Flow
+    | Fusion
+    | Graph
+    | Navigation
+    | Session
+    | Source_graph
+    | Value_graph
     | Verification
 
   val to_string : t -> string
@@ -81,31 +81,31 @@ module Field : sig
       appears exactly once, so adding a ceiling without giving it a name here is
       a compile error at the call site rather than a new string. *)
   type t =
-    | Views
-    | Comparisons
-    | Node_data_sets
-    | Diagnostics
-    | Graphs
-    | Nodes
-    | Edges
-    | Total_nodes
-    | Total_edges
     | Attrs_per_node
-    | Metadata_items_per_node
-    | Outputs_metadata_per_node
-    | Namespace_depth
+    | Comparisons
+    | Detail_graphs
+    | Detail_nodes
+    | Diagnostics
+    | Edges
+    | Expression_nodes
+    | Graphs
+    | Group_node_attributes
     | Mapping_entries_per_comparison
     | Mapping_members
     | Mapping_members_per_entry
-    | States
-    | Transitions
-    | Detail_graphs
-    | Detail_nodes
-    | Expression_nodes
-    | Group_node_attributes
+    | Metadata_items_per_node
+    | Namespace_depth
     | Node_data_results
+    | Node_data_sets
+    | Nodes
+    | Outputs_metadata_per_node
     | Overlay_edges
     | Overlay_edges_total
+    | States
+    | Total_edges
+    | Total_nodes
+    | Transitions
+    | Views
 
   val to_string : t -> string
   (** The wire spelling — ["nodeDataResults"], not ["Node_data_results"]. *)
@@ -575,21 +575,7 @@ module Diagnostic : sig
 
   module Code : sig
     type t =
-      | Over_limit
-      | Malformed_request
-      | Invalid_limits
-      | Invalid_source
-      | Malformed_response
-          (** DIRECTIONAL, and that is the point of having two:
-              [Malformed_request] describes bytes the WORKER received,
-              [Malformed_response] bytes the COORDINATOR received. Reporting
-              both as one, inside a closed vocabulary meant to be switched on,
-              turns a worker defect and a page defect into the same telemetry.
-          *)
-      | Request_in_flight
-          (** Separated from [Malformed_request] for the same reason: a second
-              concurrent submission is well-formed and refused by a coordinator
-              invariant, not malformed. *)
+      | Buffer_mismatch
       | Inconsistent_mount
           (** The mount could not be returned to a known state after a failed
               visible replacement. Distinct from [Internal] because it is the
@@ -597,24 +583,38 @@ module Diagnostic : sig
               neither can repair it: it requires an explicit disposal. A JS
               [switch] that could not name this case would report a
               recoverable-looking failure for the one that is not. *)
+      | Internal
+      | Invalid_limits
+      | Invalid_source
+      | Key_disagrees_with_ids
+      | Malformed_request
+      | Malformed_response
+          (** DIRECTIONAL, and that is the point of having two:
+              [Malformed_request] describes bytes the WORKER received,
+              [Malformed_response] bytes the COORDINATOR received. Reporting
+              both as one, inside a closed vocabulary meant to be switched on,
+              turns a worker defect and a page defect into the same telemetry.
+          *)
+      | Not_an_array_buffer
+      | Not_implemented
+      | Outside_dialect_domain
+      | Over_limit
+      | Prerequisite_unavailable
+      | Request_in_flight
+          (** Separated from [Malformed_request] for the same reason: a second
+              concurrent submission is well-formed and refused by a coordinator
+              invariant, not malformed. *)
+      | Requires_payloads
       | Settlement_mismatch
           (** The token names the most recent settlement and the caller asked
               for the other one. Not [Malformed_response]: the token is genuine
               and the caller is not confused about which transaction it means,
               only about how it ended. *)
-      | Buffer_mismatch
-      | Not_an_array_buffer
       | Stale_epoch
       | Unsupported_detail_key
-      | Key_disagrees_with_ids
-      | Unsupported_operator
-      | Unsupported_input
       | Unsupported_graph_shape
-      | Outside_dialect_domain
-      | Requires_payloads
-      | Prerequisite_unavailable
-      | Not_implemented
-      | Internal
+      | Unsupported_input
+      | Unsupported_operator
 
     val to_string : t -> string
     (** The wire tag. *)

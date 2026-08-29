@@ -29,8 +29,8 @@ type leaf =
   | Opaque_materialized of Tensor.packed
 
 type definition =
-  | Leaf of { leaf : leaf; output : Tensor_sig.t }
   | Apply of { op : Graph_ir.op; output : Tensor_sig.t }
+  | Leaf of { leaf : leaf; output : Tensor_sig.t }
 
 type error =
   [ `Duplicate_definition of Value_id.t

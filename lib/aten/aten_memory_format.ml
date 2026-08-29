@@ -1,6 +1,8 @@
 (* OCaml encoding of c10::MemoryFormat (torch/headeronly/core/MemoryFormat.h). *)
-type t = Contiguous | Preserve | ChannelsLast | ChannelsLast3d
+type t = ChannelsLast | ChannelsLast3d | Contiguous | Preserve
 
+(** This conversion table deliberately follows c10's numeric ABI; do not
+    alphabetize its branches. *)
 let to_int = function
   | Contiguous -> 0
   | Preserve -> 1

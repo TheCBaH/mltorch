@@ -1,59 +1,59 @@
 module Base = struct
   type t =
-    | Generator
-    | ScalarType
-    | Tensor
-    | Int
+    | Bool
+    | Device
+    | DeviceIndex
     | Dimname
     | DimVector
     | Float
-    | Str
-    | Bool
+    | Generator
+    | GraphModule
+    | Int
     | Layout
-    | Device
-    | DeviceIndex
-    | Scalar
     | MemoryFormat
     | QScheme
+    | Scalar
+    | ScalarType
     | Storage
     | Stream
-    | SymInt
+    | Str
     | SymBool
-    | GraphModule
+    | SymInt
+    | Tensor
 
   let to_string = function
-    | Generator -> "Generator"
-    | ScalarType -> "ScalarType"
-    | Tensor -> "Tensor"
-    | Int -> "int"
+    | Bool -> "bool"
+    | Device -> "Device"
+    | DeviceIndex -> "DeviceIndex"
     | Dimname -> "Dimname"
     | DimVector -> "DimVector"
     | Float -> "float"
-    | Str -> "str"
-    | Bool -> "bool"
+    | Generator -> "Generator"
+    | GraphModule -> "GraphModule"
+    | Int -> "int"
     | Layout -> "Layout"
-    | Device -> "Device"
-    | DeviceIndex -> "DeviceIndex"
-    | Scalar -> "Scalar"
     | MemoryFormat -> "MemoryFormat"
     | QScheme -> "QScheme"
+    | Scalar -> "Scalar"
+    | ScalarType -> "ScalarType"
     | Storage -> "Storage"
     | Stream -> "Stream"
-    | SymInt -> "SymInt"
+    | Str -> "str"
     | SymBool -> "SymBool"
-    | GraphModule -> "GraphModule"
+    | SymInt -> "SymInt"
+    | Tensor -> "Tensor"
 
   let pp fmt t = Format.pp_print_string fmt (to_string t)
 end
 
 module Type = struct
-  type t = Base of Base.t | Optional of t | List of t * int option
+  type t = Base of Base.t | List of t * int option | Optional of t
 
   let rec pp fmt = function
     | Base b -> Base.pp fmt b
-    | Optional t -> Format.fprintf fmt "%a?" pp t
     | List (t, None) -> Format.fprintf fmt "%a[]" pp t
     | List (t, Some n) -> Format.fprintf fmt "%a[%d]" pp t n
+    | Optional t -> Format.fprintf fmt "%a?" pp t
 end
 
 module Annotation = struct
@@ -77,23 +77,23 @@ end
 
 module Default = struct
   type t =
-    | None
     | Bool of bool
-    | Int of int
     | Float of string (* preserved as-is to keep exact representation *)
-    | Str of string
-    | IntList of int list
     | Ident of string (* bare identifier, e.g. contiguous_format, Mean *)
+    | Int of int
+    | IntList of int list
+    | None
+    | Str of string
 
   let to_string = function
-    | None -> "None"
-    | Bool true -> "True"
     | Bool false -> "False"
-    | Int n -> string_of_int n
+    | Bool true -> "True"
     | Float s -> s
-    | Str s -> Printf.sprintf "%S" s
-    | IntList ns -> "[" ^ String.concat "," (List.map string_of_int ns) ^ "]"
     | Ident s -> s
+    | Int n -> string_of_int n
+    | IntList ns -> "[" ^ String.concat "," (List.map string_of_int ns) ^ "]"
+    | None -> "None"
+    | Str s -> Printf.sprintf "%S" s
 
   let pp fmt t = Format.pp_print_string fmt (to_string t)
 end

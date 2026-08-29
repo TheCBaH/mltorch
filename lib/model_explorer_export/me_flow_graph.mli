@@ -7,8 +7,8 @@
    See .ai/model_explorer_design.md. *)
 
 type error =
-  [ Me_limits.over_limit_error (* counted under [Me_limits.Scope.Flow] *)
-  | Me_flow.error ]
+  [ Me_flow.error
+  | Me_limits.over_limit_error (* counted under [Me_limits.Scope.Flow] *) ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

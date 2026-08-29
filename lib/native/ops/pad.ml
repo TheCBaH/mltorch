@@ -311,13 +311,13 @@ module Pad = struct
        op rejects would be reported as a walk mismatch rather than as the
        refusal it is. *)
     type pattern =
-      | Pad_hw  (** symmetric spatial padding, the common convolution shape *)
-      | Pad_asymmetric_w  (** before <> after, so a swap is observable *)
       | Crop_h  (** both entries negative *)
       | Mixed_hw  (** pad one axis while cropping another *)
-      | Reflect_hw  (** the mirror, on both spatial axes *)
+      | Pad_asymmetric_w  (** before <> after, so a swap is observable *)
+      | Pad_hw  (** symmetric spatial padding, the common convolution shape *)
       | Reflect_asymmetric_w  (** the mirror with unequal sides *)
       | Reflect_crop_h  (** reflect mode with a negative entry *)
+      | Reflect_hw  (** the mirror, on both spatial axes *)
 
     type cfg = { shape : Walk_core.Shape.t; pattern : pattern }
 
@@ -349,29 +349,39 @@ module Pad = struct
       let third n = Stdlib.min (Stdlib.max 1 (n / 3)) (n - 1) in
       let pads =
         match c.pattern with
-        | Pad_hw | Reflect_hw ->
-            [
-              (Axis.H, { before = third h; after = third h });
-              (Axis.W, { before = third w; after = third w });
-            ]
-        | Pad_asymmetric_w | Reflect_asymmetric_w ->
-            [ (Axis.W, { before = third w; after = 0 }) ]
         | Crop_h -> [ (Axis.H, { before = -third h; after = 0 }) ]
-        | Reflect_crop_h ->
-            [
-              (Axis.H, { before = -third h; after = 0 });
-              (Axis.W, { before = third w; after = 0 });
-            ]
         | Mixed_hw ->
             [
               (Axis.H, { before = -third h; after = 0 });
               (Axis.W, { before = 0; after = third w });
             ]
+        | Pad_asymmetric_w -> [ (Axis.W, { before = third w; after = 0 }) ]
+        | Pad_hw ->
+            [
+              (Axis.H, { before = third h; after = third h });
+              (Axis.W, { before = third w; after = third w });
+            ]
+        | Reflect_asymmetric_w -> [ (Axis.W, { before = third w; after = 0 }) ]
+        | Reflect_crop_h ->
+            [
+              (Axis.H, { before = -third h; after = 0 });
+              (Axis.W, { before = third w; after = 0 });
+            ]
+        | Reflect_hw ->
+            [
+              (Axis.H, { before = third h; after = third h });
+              (Axis.W, { before = third w; after = third w });
+            ]
       in
       let mode =
         match c.pattern with
-        | Reflect_hw | Reflect_asymmetric_w | Reflect_crop_h -> Reflect
-        | Pad_hw | Pad_asymmetric_w | Crop_h | Mixed_hw -> Constant 0.5
+        | Crop_h -> Constant 0.5
+        | Mixed_hw -> Constant 0.5
+        | Pad_asymmetric_w -> Constant 0.5
+        | Pad_hw -> Constant 0.5
+        | Reflect_asymmetric_w -> Reflect
+        | Reflect_crop_h -> Reflect
+        | Reflect_hw -> Reflect
       in
       { pads; mode }
 
@@ -394,13 +404,13 @@ module Pad = struct
         ]
 
     let pp_pattern = function
-      | Pad_hw -> "pad_hw"
-      | Pad_asymmetric_w -> "pad_asym_w"
       | Crop_h -> "crop_h"
       | Mixed_hw -> "mixed_hw"
-      | Reflect_hw -> "reflect_hw"
+      | Pad_asymmetric_w -> "pad_asym_w"
+      | Pad_hw -> "pad_hw"
       | Reflect_asymmetric_w -> "reflect_asym_w"
       | Reflect_crop_h -> "reflect_crop_h"
+      | Reflect_hw -> "reflect_hw"
 
     let pp fmt (c : cfg) =
       Format.fprintf fmt "{shape=%a pattern=%s}" Walk_core.Shape.pp c.shape

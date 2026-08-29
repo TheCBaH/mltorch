@@ -1,9 +1,9 @@
 open Payload
 
 let%expect_test "format names" =
-  Format.printf "%a %a %a %a %a %a %a@." pp_fmt F32 pp_fmt I64 pp_fmt I32 pp_fmt
-    F16 pp_fmt BF16 pp_fmt I16 pp_fmt I8;
-  [%expect {| f32 i64 i32 f16 bf16 i16 i8 |}]
+  Format.printf "%a %a %a %a %a %a %a@." pp_fmt BF16 pp_fmt F16 pp_fmt F32
+    pp_fmt I16 pp_fmt I32 pp_fmt I64 pp_fmt I8;
+  [%expect {| bf16 f16 f32 i16 i32 i64 i8 |}]
 
 let%expect_test "decode f32 and bf16 (real, no metadata)" =
   let f32 =

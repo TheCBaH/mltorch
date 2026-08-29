@@ -9,58 +9,53 @@ open Me_limits_profile
 module Diagnostic = struct
   module Code = struct
     type t =
-      | Over_limit
-      | Malformed_request
+      | Buffer_mismatch
+      | Inconsistent_mount
+      | Internal
       | Invalid_limits
       | Invalid_source
+      | Key_disagrees_with_ids
+      | Malformed_request
       | Malformed_response
-      | Request_in_flight
-      | Inconsistent_mount
-      | Settlement_mismatch
-      | Buffer_mismatch
       | Not_an_array_buffer
+      | Not_implemented
+      | Outside_dialect_domain
+      | Over_limit
+      | Prerequisite_unavailable
+      | Request_in_flight
+      | Requires_payloads
+      | Settlement_mismatch
       | Stale_epoch
       | Unsupported_detail_key
-      | Key_disagrees_with_ids
-      | Unsupported_operator
-      | Unsupported_input
       | Unsupported_graph_shape
-      | Outside_dialect_domain
-      | Requires_payloads
-      | Prerequisite_unavailable
-      | Not_implemented
-      | Internal
+      | Unsupported_input
+      | Unsupported_operator
 
     let to_string = function
-      | Over_limit -> "over_limit"
-      | Malformed_request -> "malformed_request"
+      | Buffer_mismatch -> "buffer_mismatch"
+      | Inconsistent_mount -> "inconsistent_mount"
+      | Internal -> "internal"
       | Invalid_limits -> "invalid_limits"
       | Invalid_source -> "invalid_source"
+      | Key_disagrees_with_ids -> "key_disagrees_with_ids"
+      | Malformed_request -> "malformed_request"
       | Malformed_response -> "malformed_response"
-      | Request_in_flight -> "request_in_flight"
-      | Inconsistent_mount -> "inconsistent_mount"
-      | Settlement_mismatch -> "settlement_mismatch"
-      | Buffer_mismatch -> "buffer_mismatch"
       | Not_an_array_buffer -> "not_an_array_buffer"
+      | Not_implemented -> "not_implemented"
+      | Outside_dialect_domain -> "outside_dialect_domain"
+      | Over_limit -> "over_limit"
+      | Prerequisite_unavailable -> "prerequisite_unavailable"
+      | Request_in_flight -> "request_in_flight"
+      | Requires_payloads -> "requires_payloads"
+      | Settlement_mismatch -> "settlement_mismatch"
       | Stale_epoch -> "stale_epoch"
       | Unsupported_detail_key -> "unsupported_detail_key"
-      | Key_disagrees_with_ids -> "key_disagrees_with_ids"
-      | Unsupported_operator -> "unsupported_operator"
-      | Unsupported_input -> "unsupported_input"
       | Unsupported_graph_shape -> "unsupported_graph_shape"
-      | Outside_dialect_domain -> "outside_dialect_domain"
-      | Requires_payloads -> "requires_payloads"
-      | Prerequisite_unavailable -> "prerequisite_unavailable"
-      | Not_implemented -> "not_implemented"
-      | Internal -> "internal"
+      | Unsupported_input -> "unsupported_input"
+      | Unsupported_operator -> "unsupported_operator"
 
-    (* [all] is built by walking this successor chain rather than being written
-       out beside the type, so that adding a constructor cannot leave the
-       vocabulary behind: the match below is exhaustive, so the new code needs
-       an arm, and reaching it needs a predecessor to name it. A hand-written
-       list would compile perfectly while [of_string] silently stopped
-       recognising the new tag — which, for a closed vocabulary meant to be
-       switched on, turns a named condition into an unknown one. *)
+    (* This successor relation defines the public vocabulary timeline used by
+       [all]; the declaration and printer above remain alphabetical. *)
     let next = function
       | Over_limit -> Some Malformed_request
       | Malformed_request -> Some Invalid_limits

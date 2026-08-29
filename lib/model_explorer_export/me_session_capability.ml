@@ -4,50 +4,49 @@
 
 module Capability = struct
   type graph_stage =
-    | Source
-    | Initial_native
     | Canonical
-    | Native4d
-    | Stage_program
-    | Kernel
     | Fusion
+    | Initial_native
+    | Kernel
+    | Native4d
+    | Source
+    | Stage_program
 
   type feature =
-    | Flow
-    | Verification
-    | Pass_audits
-    | Fold
-    | Expression_detail
-    | Loop_ir
     | Codegen
+    | Expression_detail
+    | Flow
+    | Fold
+    | Loop_ir
+    | Pass_audits
+    | Verification
 
-  type key = Graph_stage of graph_stage | Feature of feature
+  type key = Feature of feature | Graph_stage of graph_stage
 
   let stage_name = function
-    | Source -> "source"
-    | Initial_native -> "initial_native"
     | Canonical -> "canonical"
-    | Native4d -> "native4d"
-    | Stage_program -> "stage_program"
-    | Kernel -> "kernel"
     | Fusion -> "fusion"
+    | Initial_native -> "initial_native"
+    | Kernel -> "kernel"
+    | Native4d -> "native4d"
+    | Source -> "source"
+    | Stage_program -> "stage_program"
 
   let feature_name = function
-    | Flow -> "flow"
-    | Verification -> "verification"
-    | Pass_audits -> "pass_audits"
-    | Fold -> "fold"
-    | Expression_detail -> "expression_detail"
-    | Loop_ir -> "loop_ir"
     | Codegen -> "codegen"
+    | Expression_detail -> "expression_detail"
+    | Flow -> "flow"
+    | Fold -> "fold"
+    | Loop_ir -> "loop_ir"
+    | Pass_audits -> "pass_audits"
+    | Verification -> "verification"
 
   let key_name = function
-    | Graph_stage s -> "stage:" ^ stage_name s
     | Feature f -> "feature:" ^ feature_name f
+    | Graph_stage s -> "stage:" ^ stage_name s
 
-  (* Successor chains again, for the reason [Diagnostic.Code] has one: a key
-     added to the type and not to [all_keys] is a key [validate] would never
-     miss, so completeness would silently stop meaning what it says. *)
+  (* These successor relations define the stage and feature timelines used by
+     the public [all_*] lists; their declarations remain alphabetical. *)
   let next_stage = function
     | Source -> Some Initial_native
     | Initial_native -> Some Canonical
@@ -107,24 +106,24 @@ module Capability = struct
 
   type payload =
     | Graph of string
-    | Verification_summary of Pass.Outcome_counts.t
     | Pass_audit_status of Pass_audit_status.t
     | Present
+    | Verification_summary of Pass.Outcome_counts.t
 
   type reason =
-    | Unsupported_operator
-    | Unsupported_input
-    | Unsupported_graph_shape
+    | Not_implemented
     | Outside_dialect_domain
     | Over_limit
-    | Requires_payloads
     | Prerequisite_unavailable
-    | Not_implemented
+    | Requires_payloads
+    | Unsupported_graph_shape
+    | Unsupported_input
+    | Unsupported_operator
 
   type status =
     | Available of payload
-    | Unavailable of { reason : reason; detail : string option }
     | Not_requested
+    | Unavailable of { reason : reason; detail : string option }
 
   type t = { key : key; status : status }
 
@@ -132,12 +131,12 @@ module Capability = struct
      a set of guards: a key added to [key] stops this compiling. *)
   let compatible c =
     match (c.key, c.status) with
-    | Feature Loop_ir, Unavailable { reason = Not_implemented; _ }
-    | Feature Codegen, Unavailable { reason = Not_implemented; _ } ->
+    | Feature Codegen, Unavailable { reason = Not_implemented; _ }
+    | Feature Loop_ir, Unavailable { reason = Not_implemented; _ } ->
         true
     (* Never available and never merely unrequested: there is nothing to
        request. *)
-    | Feature Loop_ir, _ | Feature Codegen, _ -> false
+    | Feature Codegen, _ | Feature Loop_ir, _ -> false
     | _, Not_requested -> true
     | _, Unavailable _ -> true
     | Graph_stage _, Available (Graph _) -> true
@@ -162,14 +161,14 @@ module Capability = struct
   let reason_jsont =
     Jsont.enum ~kind:"capability_reason"
       [
-        ("unsupported_operator", Unsupported_operator);
-        ("unsupported_input", Unsupported_input);
-        ("unsupported_graph_shape", Unsupported_graph_shape);
+        ("not_implemented", Not_implemented);
         ("outside_dialect_domain", Outside_dialect_domain);
         ("over_limit", Over_limit);
-        ("requires_payloads", Requires_payloads);
         ("prerequisite_unavailable", Prerequisite_unavailable);
-        ("not_implemented", Not_implemented);
+        ("requires_payloads", Requires_payloads);
+        ("unsupported_graph_shape", Unsupported_graph_shape);
+        ("unsupported_input", Unsupported_input);
+        ("unsupported_operator", Unsupported_operator);
       ]
 
   (* A tagged union rather than four optional members, so a payload that names
@@ -177,17 +176,17 @@ module Capability = struct
   let payload_jsont =
     let kind_of = function
       | Graph _ -> "graph"
-      | Verification_summary _ -> "verification_summary"
       | Pass_audit_status _ -> "pass_audit_status"
       | Present -> "present"
+      | Verification_summary _ -> "verification_summary"
     in
     Jsont.Object.map ~kind:"capability_payload"
       (fun kind graph verification pass_audits ->
         match (kind, graph, verification, pass_audits) with
-        | "graph", Some g, None, None -> Graph g
-        | "verification_summary", None, Some v, None -> Verification_summary v
         | "pass_audit_status", None, None, Some p -> Pass_audit_status p
+        | "graph", Some g, None, None -> Graph g
         | "present", None, None, None -> Present
+        | "verification_summary", None, Some v, None -> Verification_summary v
         | _ ->
             Jsont.Error.msgf Jsont.Meta.none
               "capability payload %S does not carry its own field" kind)
@@ -210,15 +209,15 @@ module Capability = struct
       (fun state payload reason detail ->
         match (state, payload, reason) with
         | "available", Some p, None -> Available p
-        | "unavailable", None, Some reason -> Unavailable { reason; detail }
         | "not_requested", None, None -> Not_requested
+        | "unavailable", None, Some reason -> Unavailable { reason; detail }
         | _ ->
             Jsont.Error.msgf Jsont.Meta.none
               "capability status %S does not carry its own field" state)
     |> Jsont.Object.mem "state" Jsont.string ~enc:(function
       | Available _ -> "available"
-      | Unavailable _ -> "unavailable"
-      | Not_requested -> "not_requested")
+      | Not_requested -> "not_requested"
+      | Unavailable _ -> "unavailable")
     |> Jsont.Object.opt_mem "payload" payload_jsont ~enc:(function
       | Available p -> Some p
       | _ -> None)
@@ -238,7 +237,7 @@ module Capability = struct
 end
 
 module View = struct
-  type kind = Stage of Capability.graph_stage | Flow | Compare
+  type kind = Compare | Flow | Stage of Capability.graph_stage
 
   type t = {
     id : string;
@@ -253,7 +252,7 @@ module View = struct
       (List.map
          (fun s -> ("stage:" ^ Capability.stage_name s, Stage s))
          Capability.all_stages
-      @ [ ("flow", Flow); ("compare", Compare) ])
+      @ [ ("compare", Compare); ("flow", Flow) ])
 
   let jsont =
     Jsont.Object.map ~kind:"view" (fun id label kind collection graph ->

@@ -22,7 +22,7 @@ module View_size : sig
   type t = {
     size : int list;
     numel : int64;
-    fault : [ `Multiple_inferred | `Not_divisible | `Count_mismatch ];
+    fault : [ `Count_mismatch | `Multiple_inferred | `Not_divisible ];
   }
 
   val pp : Format.formatter -> t -> unit
@@ -57,14 +57,14 @@ end
 type rank_bound = { rank : int; lo : int; hi : int }
 
 type error =
-  [ `Rank_out_of_range of rank_bound
-  | `View_size of View_size.t
+  [ Dim.error
+  | `Index_out_of_range of Index_bound.t
+  | `Rank_out_of_range of rank_bound
   | `Slice_step of int
     (* A bare int, not a record: PyTorch's rule is "slice step must be
        positive" and the offending value is the whole fact. Which axis and
        which node it was belongs to the importer's own row. *)
-  | `Index_out_of_range of Index_bound.t
-  | Dim.error ]
+  | `View_size of View_size.t ]
 
 val pp_error : Format.formatter -> error -> unit
 

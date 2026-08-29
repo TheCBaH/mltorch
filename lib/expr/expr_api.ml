@@ -17,7 +17,7 @@ module type S = sig
       the exact duplication that produced the divergence it exists to prevent.
   *)
 
-  type index_op = [ `Add | `Sub | `Mul ]
+  type index_op = [ `Add | `Mul | `Sub ]
   (** The three checked-arithmetic operations that can overflow. *)
 
   module Index_overflow : sig
@@ -52,19 +52,19 @@ module type S = sig
        recorded claim, provable only against a caller's coordinate domain) cross
        back to [Role.Position.t], which is what [Value.load] accepts. *)
     type _ t = private
+      | Add : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
+      | Assume_position : Role.Delta.t t -> Role.Position.t t
+      | Ceil_div_pos : Role.Delta.t t * int -> Role.Delta.t t
+      | Clamp_low : Role.Delta.t t -> Role.Position.t t
+      | Const : int -> Role.Delta.t t
+      | Floor_div_pos : Role.Delta.t t * int -> Role.Delta.t t
+      | Max : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
+      | Min : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
+      | Of_position : Role.Position.t t -> Role.Delta.t t
       | Output : Axis.t -> Role.Position.t t
       | Reduce : Reduce_var.t -> Role.Position.t t
-      | Zero : Role.Position.t t
-      | Const : int -> Role.Delta.t t
-      | Of_position : Role.Position.t t -> Role.Delta.t t
-      | Add : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
       | Scale : int * Role.Delta.t t -> Role.Delta.t t
-      | Floor_div_pos : Role.Delta.t t * int -> Role.Delta.t t
-      | Ceil_div_pos : Role.Delta.t t * int -> Role.Delta.t t
-      | Min : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
-      | Max : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
-      | Clamp_low : Role.Delta.t t -> Role.Position.t t
-      | Assume_position : Role.Delta.t t -> Role.Position.t t
+      | Zero : Role.Position.t t
 
     type error = [ `Non_positive_divisor of int ]
 
@@ -101,7 +101,7 @@ module type S = sig
     end
 
     module Max_pool : sig
-      type result = Value | Index
+      type result = Index | Value
 
       val result_name : result -> string
       (** The spelling used in printed output, alongside [Value.unary_name] and
@@ -130,13 +130,13 @@ module type S = sig
       | `In_w
       | `Kernel_h
       | `Kernel_w
-      | `Stride_h
-      | `Stride_w
       | `Pad_h
-      | `Pad_w ]
+      | `Pad_w
+      | `Stride_h
+      | `Stride_w ]
     (** The eight parameters {!max_pool} validates, closed. *)
 
-    type geometry_bound = [ `Positive | `Non_negative ]
+    type geometry_bound = [ `Non_negative | `Positive ]
     (** Which bound the value failed. Recorded nowhere before: the message said
         only "must be valid", so the row could not say what would have been. *)
 
@@ -145,9 +145,9 @@ module type S = sig
     end
 
     type error =
-      [ `Index_overflow of Index_overflow.t
-      | `Non_positive_divisor of int
-      | `Bad_geometry of Bad_geometry.t ]
+      [ `Bad_geometry of Bad_geometry.t
+      | `Index_overflow of Index_overflow.t
+      | `Non_positive_divisor of int ]
 
     val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -187,15 +187,15 @@ module type S = sig
 
   module rec Bool : sig
     type t = private
-      | Value_lt of Value.t * Value.t
       | Index_eq of Role.Delta.t Index.t * Role.Delta.t Index.t
+      | Value_lt of Value.t * Value.t
 
     val value_lt : Value.t -> Value.t -> t
     val index_eq : Role.Delta.t Index.t -> Role.Delta.t Index.t -> t
   end
 
   and Reduction : sig
-    type kind = Sum | Max
+    type kind = Max | Sum
 
     val kind_name : kind -> string
     (** [max_reduce], not [max]: this is the generic ordered reduction, distinct
@@ -212,19 +212,19 @@ module type S = sig
   end
 
   and Value : sig
-    type binary_op = Add | Sub | Mul | Div
-    type unary_op = Exp | Sqrt | Erf | Log
+    type binary_op = Add | Div | Mul | Sub
+    type unary_op = Erf | Exp | Log | Sqrt
 
     type t = private
-      | Const of float
       | Binary of binary_op * t * t
-      | Unary of unary_op * t
-      | Select of Bool.t * t * t
-      | Value_of_index of Role.Delta.t Index.t
-      | Load of Source.t * Role.Position.t Index.t Coord.t
-      | Round_f32 of t
-      | Reduce of Reduction.t
+      | Const of float
       | Intrinsic of Intrinsic.t
+      | Load of Source.t * Role.Position.t Index.t Coord.t
+      | Reduce of Reduction.t
+      | Round_f32 of t
+      | Select of Bool.t * t * t
+      | Unary of unary_op * t
+      | Value_of_index of Role.Delta.t Index.t
 
     val const : float -> t
     val add : t -> t -> t
@@ -430,10 +430,10 @@ module type S = sig
 
   module Check : sig
     type error =
-      [ `Free_reducer of Reduce_var.t
-      | `Duplicate_binder of Reduce_var.t
-      | `Too_large of int
-      | `Too_deep of int ]
+      [ `Duplicate_binder of Reduce_var.t
+      | `Free_reducer of Reduce_var.t
+      | `Too_deep of int
+      | `Too_large of int ]
     (** [`Too_large] and [`Too_deep] carry the LIMIT, not the measure: reporting
         the actual size would mean measuring the whole tree, which is what the
         limit is there to avoid. *)
@@ -465,10 +465,10 @@ module type S = sig
 
   module Eval : sig
     type index_error =
-      [ `Index_overflow of Index_overflow.t
+      [ `Index_not_exact_in_float of int
+      | `Index_overflow of Index_overflow.t
       | `Non_positive_divisor of int
-      | `Unbound_reducer of Reduce_var.t
-      | `Index_not_exact_in_float of int ]
+      | `Unbound_reducer of Reduce_var.t ]
     (** Everything index evaluation can raise, and no more. [error] widens this
         in stage 4 with the load and intrinsic cases. The first two come from
         the library-private checked arithmetic; a public row may name a private
@@ -494,10 +494,10 @@ module type S = sig
         does not make the conversion that follows it exact. *)
 
     type error =
-      [ index_error
+      [ `Coord_out_of_range of Source.t * Axis.t * int * int Coord.t
+      | index_error
       | Intrinsic.error
-      | `Unknown_source of Source.t
-      | `Coord_out_of_range of Source.t * Axis.t * int * int Coord.t ]
+      | `Unknown_source of Source.t ]
     (** The last two are raised by the host's [Env.load], not by the language,
         which knows nothing about what a source is. *)
 

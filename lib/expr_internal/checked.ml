@@ -39,7 +39,7 @@
 (* The three operations that can overflow. A closed set rather than the name
    each site used to pass as a literal: the row is the whole of what a caller
    can act on. *)
-type index_op = [ `Add | `Sub | `Mul ]
+type index_op = [ `Add | `Mul | `Sub ]
 
 module Index_overflow = struct
   type t = { op : index_op; lhs : int; rhs : int }
@@ -50,8 +50,8 @@ type error =
 
 let index_op_name : index_op -> string = function
   | `Add -> "add"
-  | `Sub -> "sub"
   | `Mul -> "mul"
+  | `Sub -> "sub"
 
 let pp_error fmt : [< error ] -> unit = function
   | `Index_overflow { Index_overflow.op; lhs; rhs } ->

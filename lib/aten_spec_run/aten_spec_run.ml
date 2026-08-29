@@ -20,15 +20,15 @@ module Pcg = Aten_spec.Pcg
 let numel shape = List.fold_left ( * ) 1 shape
 
 let scalar_to_float = function
-  | Sv.Int i -> Aten_spec.Float32.to_f32 (float_of_int i)
-  | Sv.Float f -> f
   | Sv.Bool b -> if b then 1.0 else 0.0
+  | Sv.Float f -> f
+  | Sv.Int i -> Aten_spec.Float32.to_f32 (float_of_int i)
 
 (* Sample one f32 from a distribution, advancing the RNG. *)
 let sample_f32 (d : Aten_spec.Distribution.t) pcg =
   match d with
-  | Uniform { low; high } -> Pcg.uniform ~low ~high pcg
   | Normal { mean; variance } -> Pcg.normal ~mean ~std:(sqrt variance) pcg
+  | Uniform { low; high } -> Pcg.uniform ~low ~high pcg
 
 (* Fill a float32 Bigarray from a payload source, threading [pcg]. *)
 let fill_f32 shape (source : Tspec.source) pcg =
@@ -36,6 +36,24 @@ let fill_f32 shape (source : Tspec.source) pcg =
   let ba = Bigarray.Array1.create Bigarray.float32 Bigarray.c_layout n in
   let pcg =
     match source with
+    | Tspec.Random dist ->
+        let rec go i pcg =
+          if i >= n then pcg
+          else
+            let v, pcg = sample_f32 dist pcg in
+            ba.{i} <- v;
+            go (i + 1) pcg
+        in
+        go 0 pcg
+    | Tspec.Sequence { start; step } ->
+        let rec go i =
+          if i < n then (
+            ba.{i} <-
+              Aten_spec.Float32.to_f32 (start +. (float_of_int i *. step));
+            go (i + 1))
+        in
+        go 0;
+        pcg
     | Tspec.Values vs ->
         let arr = Array.of_list vs in
         if Array.length arr <> n then
@@ -49,24 +67,6 @@ let fill_f32 shape (source : Tspec.source) pcg =
         in
         go 0;
         pcg
-    | Tspec.Sequence { start; step } ->
-        let rec go i =
-          if i < n then (
-            ba.{i} <-
-              Aten_spec.Float32.to_f32 (start +. (float_of_int i *. step));
-            go (i + 1))
-        in
-        go 0;
-        pcg
-    | Tspec.Random dist ->
-        let rec go i pcg =
-          if i >= n then pcg
-          else
-            let v, pcg = sample_f32 dist pcg in
-            ba.{i} <- v;
-            go (i + 1) pcg
-        in
-        go 0 pcg
   in
   (pcg, ba)
 
@@ -75,6 +75,15 @@ let fill_i64 shape (source : Tspec.source) pcg =
   let n = numel shape in
   let ba = Bigarray.Array1.create Bigarray.int64 Bigarray.c_layout n in
   (match source with
+  | Tspec.Random _ ->
+      failwith "spec: random payloads are only supported for f32 tensors"
+  | Tspec.Sequence { start; step } ->
+      let rec go i =
+        if i < n then (
+          ba.{i} <- Int64.of_float (start +. (float_of_int i *. step));
+          go (i + 1))
+      in
+      go 0
   | Tspec.Values vs ->
       let arr = Array.of_list vs in
       if Array.length arr <> n then
@@ -86,16 +95,7 @@ let fill_i64 shape (source : Tspec.source) pcg =
           ba.{i} <- Int64.of_float (scalar_to_float arr.(i));
           go (i + 1))
       in
-      go 0
-  | Tspec.Sequence { start; step } ->
-      let rec go i =
-        if i < n then (
-          ba.{i} <- Int64.of_float (start +. (float_of_int i *. step));
-          go (i + 1))
-      in
-      go 0
-  | Tspec.Random _ ->
-      failwith "spec: random payloads are only supported for f32 tensors");
+      go 0);
   (pcg, ba)
 
 let synthesize pcg (ts : Tspec.t) =
@@ -109,9 +109,9 @@ let synthesize pcg (ts : Tspec.t) =
   | _ -> failwith "spec: tensor synthesis supports f32 and i64 only"
 
 let scalar_to_arg = function
-  | Sv.Int i -> Argument.Int i
-  | Sv.Float f -> Argument.Float f
   | Sv.Bool b -> Argument.Bool b
+  | Sv.Float f -> Argument.Float f
+  | Sv.Int i -> Argument.Int i
 
 (* Lower one argument: synthesize tensors (binding them in [env] under [name])
    and translate everything to a Pytorch_types.Argument. *)
@@ -121,11 +121,23 @@ let lower pcg env name (av : Av.t) =
     (pcg, String_map.add nm t env, TensorArgument.make nm)
   in
   match av with
+  | Av.Bool b -> (pcg, env, Argument.Bool b)
+  | Av.Bool_opt None -> (pcg, env, Argument.None false)
+  | Av.Bool_opt (Some b) -> (pcg, env, Argument.Bool b)
+  | Av.Float f -> (pcg, env, Argument.Float f)
+  | Av.Float_opt None -> (pcg, env, Argument.None false)
+  | Av.Float_opt (Some f) -> (pcg, env, Argument.Float f)
+  | Av.Int i -> (pcg, env, Argument.Int i)
+  | Av.Int_list xs -> (pcg, env, Argument.Ints xs)
+  | Av.Int_list_opt None -> (pcg, env, Argument.None false)
+  | Av.Int_list_opt (Some xs) -> (pcg, env, Argument.Ints xs)
+  | Av.Int_opt None -> (pcg, env, Argument.None false)
+  | Av.Int_opt (Some i) -> (pcg, env, Argument.Int i)
+  | Av.Scalar sv -> (pcg, env, scalar_to_arg sv)
+  | Av.Scalar_opt None -> (pcg, env, Argument.None false)
+  | Av.Scalar_opt (Some sv) -> (pcg, env, scalar_to_arg sv)
+  | Av.Str s -> (pcg, env, Argument.String s)
   | Av.Tensor spec ->
-      let pcg, env, ta = tensor pcg env name spec in
-      (pcg, env, Argument.Tensor ta)
-  | Av.Tensor_opt None -> (pcg, env, Argument.None false)
-  | Av.Tensor_opt (Some spec) ->
       let pcg, env, ta = tensor pcg env name spec in
       (pcg, env, Argument.Tensor ta)
   | Av.Tensor_list specs ->
@@ -138,22 +150,10 @@ let lower pcg env name (av : Av.t) =
           (pcg, env, [], 0) specs
       in
       (pcg, env, Argument.Tensors (List.rev tas))
-  | Av.Int i -> (pcg, env, Argument.Int i)
-  | Av.Int_opt None -> (pcg, env, Argument.None false)
-  | Av.Int_opt (Some i) -> (pcg, env, Argument.Int i)
-  | Av.Int_list xs -> (pcg, env, Argument.Ints xs)
-  | Av.Int_list_opt None -> (pcg, env, Argument.None false)
-  | Av.Int_list_opt (Some xs) -> (pcg, env, Argument.Ints xs)
-  | Av.Float f -> (pcg, env, Argument.Float f)
-  | Av.Float_opt None -> (pcg, env, Argument.None false)
-  | Av.Float_opt (Some f) -> (pcg, env, Argument.Float f)
-  | Av.Bool b -> (pcg, env, Argument.Bool b)
-  | Av.Bool_opt None -> (pcg, env, Argument.None false)
-  | Av.Bool_opt (Some b) -> (pcg, env, Argument.Bool b)
-  | Av.Scalar sv -> (pcg, env, scalar_to_arg sv)
-  | Av.Scalar_opt None -> (pcg, env, Argument.None false)
-  | Av.Scalar_opt (Some sv) -> (pcg, env, scalar_to_arg sv)
-  | Av.Str s -> (pcg, env, Argument.String s)
+  | Av.Tensor_opt None -> (pcg, env, Argument.None false)
+  | Av.Tensor_opt (Some spec) ->
+      let pcg, env, ta = tensor pcg env name spec in
+      (pcg, env, Argument.Tensor ta)
 
 let out_name i = TensorArgument.make (Printf.sprintf "out%d" i)
 
@@ -236,9 +236,9 @@ let to_node ?(pcg0 = Pcg.default) (spec : Aten_spec.Op_spec.t) =
   (env, node)
 
 let pp_interp_error ppf = function
-  | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
   | `Aten_runtime_failure (op, st) ->
       Fmt.pf ppf "ATen op %s failed with status %d" op st
+  | #Interp_decode.error as e -> Interp_decode.pp_error ppf e
   | `Unhandled_op target -> Fmt.pf ppf "unhandled op %S" target
 
 (* The native side of the comparison, captured before [Interp_dispatch.dispatch]
@@ -253,10 +253,10 @@ let pp_interp_error ppf = function
    exposed by [silu_]/[hardsigmoid_]/[hardswish_], none of which are idempotent
    (op5-impl). *)
 type 'a native_result =
-  | Skipped
   | Bridge_error of Op_bridge.error
-  | Eval_error of Eval_direct.error
   | Computed of 'a
+  | Eval_error of Eval_direct.error
+  | Skipped
 
 let native_result env node =
   match Op_bridge.dispatch ~aten_env:env node with
@@ -290,16 +290,9 @@ let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
           false)
   | Ok env' -> (
       match native with
-      | Skipped ->
-          Format.fprintf ppf "[spec] %s: skipped (no native impl)@." node.target;
-          true
       | Bridge_error kind ->
           Format.fprintf ppf "[spec] %s: bridge error: %a@." node.target
             Op_bridge.pp_error kind;
-          false
-      | Eval_error kind ->
-          Format.fprintf ppf "[spec] %s: eval error: %a@." node.target
-            Eval_direct.pp_error kind;
           false
       | Computed native_outputs ->
           let atol = Verify.atol_for_target node.target in
@@ -311,7 +304,14 @@ let run ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) : bool =
             true)
           else (
             Verify.report ppf node.target errors;
-            false))
+            false)
+      | Eval_error kind ->
+          Format.fprintf ppf "[spec] %s: eval error: %a@." node.target
+            Eval_direct.pp_error kind;
+          false
+      | Skipped ->
+          Format.fprintf ppf "[spec] %s: skipped (no native impl)@." node.target;
+          true)
 
 (* [as_float32]/[as_int64] are flat reads off the storage base, so a view has to
    be materialized first or this prints the wrong elements — a strided one in
@@ -394,13 +394,13 @@ let pp_shape ppf shape =
    the concrete draw from it differs. *)
 let pp_source ppf (s : Tspec.source) =
   match s with
-  | Tspec.Values _ -> Fmt.string ppf "values"
-  | Tspec.Sequence { start; step } ->
-      Fmt.pf ppf "sequence(start=%g,step=%g)" start step
-  | Tspec.Random (Uniform { low; high }) ->
-      Fmt.pf ppf "uniform(low=%g,high=%g)" low high
   | Tspec.Random (Normal { mean; variance }) ->
       Fmt.pf ppf "normal(mean=%g,variance=%g)" mean variance
+  | Tspec.Random (Uniform { low; high }) ->
+      Fmt.pf ppf "uniform(low=%g,high=%g)" low high
+  | Tspec.Sequence { start; step } ->
+      Fmt.pf ppf "sequence(start=%g,step=%g)" start step
+  | Tspec.Values _ -> Fmt.string ppf "values"
 
 let pp_tensor_spec ppf (ts : Tspec.t) =
   Fmt.pf ppf "%s%a~%a"
@@ -408,9 +408,9 @@ let pp_tensor_spec ppf (ts : Tspec.t) =
     pp_shape ts.shape pp_source ts.source
 
 let pp_scalar_value ppf = function
-  | Sv.Int i -> Fmt.int ppf i
-  | Sv.Float f -> Format.pp_print_float ppf f
   | Sv.Bool b -> Fmt.bool ppf b
+  | Sv.Float f -> Format.pp_print_float ppf f
+  | Sv.Int i -> Fmt.int ppf i
 
 let pp_int_list ppf xs =
   Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ",") Fmt.int) xs
@@ -422,21 +422,21 @@ let pp_opt_none pp ppf opt = Core.Pretty.option_or ~none:"none" pp ppf opt
    literal value. *)
 let pp_arg_value ppf (av : Av.t) =
   match av with
-  | Av.Tensor ts -> pp_tensor_spec ppf ts
-  | Av.Tensor_opt opt -> pp_opt_none pp_tensor_spec ppf opt
-  | Av.Tensor_list ts ->
-      Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any "; ") pp_tensor_spec) ts
-  | Av.Int i -> Fmt.int ppf i
-  | Av.Int_opt opt -> pp_opt_none Fmt.int ppf opt
-  | Av.Int_list xs -> pp_int_list ppf xs
-  | Av.Int_list_opt opt -> pp_opt_none pp_int_list ppf opt
-  | Av.Float f -> Format.pp_print_float ppf f
-  | Av.Float_opt opt -> pp_opt_none Format.pp_print_float ppf opt
   | Av.Bool b -> Fmt.bool ppf b
   | Av.Bool_opt opt -> pp_opt_none Fmt.bool ppf opt
+  | Av.Float f -> Format.pp_print_float ppf f
+  | Av.Float_opt opt -> pp_opt_none Format.pp_print_float ppf opt
+  | Av.Int i -> Fmt.int ppf i
+  | Av.Int_list xs -> pp_int_list ppf xs
+  | Av.Int_list_opt opt -> pp_opt_none pp_int_list ppf opt
+  | Av.Int_opt opt -> pp_opt_none Fmt.int ppf opt
   | Av.Scalar sv -> pp_scalar_value ppf sv
   | Av.Scalar_opt opt -> pp_opt_none pp_scalar_value ppf opt
   | Av.Str s -> Fmt.pf ppf "%S" s
+  | Av.Tensor ts -> pp_tensor_spec ppf ts
+  | Av.Tensor_list ts ->
+      Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any "; ") pp_tensor_spec) ts
+  | Av.Tensor_opt opt -> pp_opt_none pp_tensor_spec ppf opt
 
 let pp_op_call ppf (spec : Aten_spec.Op_spec.t) =
   Fmt.pf ppf "%s(%a)" spec.target

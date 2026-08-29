@@ -49,7 +49,9 @@ let pick pcg lst =
 (* A field axis: pick a candidate value with the PCG and set it via [setter].
    No validity filtering -- the engine applies [cascade] after the mutation.
    The enumerated form, for genuinely non-numeric axes (padding mode, dim
-   subsets, bool); numeric dimensions should use the range/compound axes below. *)
+   subsets, bool); numeric dimensions should use the range/compound axes below.
+   Candidate LIST order is part of the seeded walk trace: do not alphabetize a
+   supplied list unless its trace is intentionally being changed. *)
 let field_axis name candidates setter =
   {
     name;

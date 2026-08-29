@@ -73,10 +73,10 @@ let namespaces ~limits (root : Graph_ir.Group.t) =
     Err.List.iter
       (fun (item : Graph_ir.Group.item) ->
         match item with
+        | Graph_ir.Group.Group sub -> walk path sub
         | Graph_ir.Group.Node id ->
             Hashtbl.replace table id (String.concat "/" path);
-            Err.return ()
-        | Graph_ir.Group.Group sub -> walk path sub)
+            Err.return ())
       g.Graph_ir.Group.items
   in
   (* The root's own component is dropped: every node would otherwise sit one
@@ -86,10 +86,10 @@ let namespaces ~limits (root : Graph_ir.Group.t) =
     Err.List.iter
       (fun (item : Graph_ir.Group.item) ->
         match item with
+        | Graph_ir.Group.Group sub -> walk [] sub
         | Graph_ir.Group.Node id ->
             Hashtbl.replace table id "";
-            Err.return ()
-        | Graph_ir.Group.Group sub -> walk [] sub)
+            Err.return ())
       root.Graph_ir.Group.items
   in
   table

@@ -92,32 +92,32 @@ end
    two importers must reject the same values. *)
 
 type error =
-  [ `Decode of Interp_decode.error
-  | `Tensor_bridge of tensor_bridge_error
-  | `Build of Graph_builder.error
-  | `Invalid_hw_arg of invalid_hw_arg
-  | `Validation_failure of string
-  | `Invalid_dim of Invalid_dim.t
-  | `Dims_count of Dims_count.t
-  | `Unsupported_input_dtype of Unsupported_input_dtype.t
+  [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Addmm_invalid_weight_rank of int array
+  | `Aten_shape of Aten_shape.error
+  | `Bad_config of Op_config.Bad.t
+  | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
+  | `Build of Graph_builder.error
+  | `Concat_no_tensors of string
+  | `Concat_rank_mismatch of Concat_rank_mismatch.t
   | `Conv2d_invalid_weight_rank of int array
   | `Conv2d_padding_invalid_weight_rank of int array
   | `Convolution_invalid_weight_rank of int array
+  | `Decode of Interp_decode.error
+  | `Dims_count of Dims_count.t
+  | `Invalid_dim of Invalid_dim.t
+  | `Invalid_hw_arg of invalid_hw_arg
   | `Linear_invalid_weight_rank of int array
-  | `Pool_unsupported of Pool_unsupported.t
-  | `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Normalized_rank of Normalized_rank.t
   | `Normalized_shape of Normalized_shape.t
   | `Operand_rank of Operand_rank.t
-  | `Bad_config of Op_config.Bad.t
-  | `Unsupported_padding_mode of string
-  | `Aten_shape of Aten_shape.error
-  | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
+  | `Pool_unsupported of Pool_unsupported.t
   | `Sdpa_reject of Attention.Sdpa.Reject.t
-  | `Concat_no_tensors of string
-  | `Concat_rank_mismatch of Concat_rank_mismatch.t
-  | `Unsupported_memory_format of [ `Channels_last | `Channels_last_3d ] ]
+  | `Tensor_bridge of tensor_bridge_error
+  | `Unsupported_input_dtype of Unsupported_input_dtype.t
+  | `Unsupported_memory_format of [ `Channels_last | `Channels_last_3d ]
+  | `Unsupported_padding_mode of string
+  | `Validation_failure of string ]
 
 (* Deliberately not [Fmt.brackets], which boxes its content and so may
    line-wrap; the original bare "[%s]" (String.concat) never did, regardless
@@ -128,45 +128,21 @@ let pp_int_list ppf xs =
 let pp_int_array ppf xs = pp_int_list ppf (Array.to_list xs)
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Decode e -> Interp_decode.pp_error ppf e
-  | `Tensor_bridge { arg_name; cause } ->
-      Fmt.pf ppf "%s: %a" arg_name Tensor_bridge.pp_error cause
-  | `Build e -> Graph_builder.pp_error ppf e
-  | `Invalid_hw_arg { name; values } ->
-      Fmt.pf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list values
-  | `Validation_failure msg -> Fmt.string ppf msg
-  | `Invalid_dim { Invalid_dim.op; dim; rank } ->
-      Fmt.pf ppf "%s: invalid dimension %d for rank %d" op dim rank
-  | `Dims_count { Dims_count.op; rank; got } ->
-      Fmt.pf ppf "%s: expected %d dims, got %d" op rank got
-  | `Bad_config e -> Op_config.Bad.pp ppf e
-  | `Unsupported_padding_mode s ->
-      Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
-  | `Operand_rank { Operand_rank.arg_name; expected; got } ->
-      Fmt.pf ppf "%s must be rank-%d, got rank-%d" arg_name expected got
-  | `Normalized_rank { Normalized_rank.op; rank; got } ->
-      Fmt.pf ppf
-        "%a: normalized_shape has %d entries, outside [1, %d] for this rank"
-        Norm.Target.pp op got rank
-  | `Normalized_shape { Normalized_shape.op; expected; got } ->
-      Fmt.pf ppf
-        "%a: normalized_shape %a does not match the input's trailing extents %a"
-        Norm.Target.pp op pp_int_list got pp_int_list expected
-  | `Pool_unsupported { Pool_unsupported.op; option } -> (
-      match option with
-      | Pool_unsupported.Dilation d ->
-          Fmt.pf ppf "%s: dilation=%a is not supported (only 1)" op pp_int_list
-            d)
   | `Adaptive_pool_rank { Adaptive_pool_rank.got } ->
       Fmt.pf ppf
         "adaptive_avg_pool2d input must be rank-3 (CHW) or rank-4 (NCHW), got \
          rank-%d"
         got
-  | `Unsupported_input_dtype { Unsupported_input_dtype.arg_name; dtype } ->
-      Fmt.pf ppf "%s: the native engine computes in f32, got %s" arg_name
-        (Aten_scalar_type.to_string dtype)
   | `Addmm_invalid_weight_rank shape ->
       Fmt.pf ppf "addmm: mat2 must be rank-2, got shape %a" pp_int_array shape
+  | `Aten_shape e -> Aten_shape.pp_error ppf e
+  | `Bad_config e -> Op_config.Bad.pp ppf e
+  | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
+  | `Build e -> Graph_builder.pp_error ppf e
+  | `Concat_no_tensors op -> Fmt.pf ppf "%s: at least one tensor is required" op
+  | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
+      Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
+        other
   | `Conv2d_invalid_weight_rank shape ->
       Fmt.pf ppf "conv2d: weight must be rank-4, got shape %a" pp_int_array
         shape
@@ -176,16 +152,37 @@ let pp_error ppf : [< error ] -> unit = function
   | `Convolution_invalid_weight_rank shape ->
       Fmt.pf ppf "convolution: weight must be rank-4, got shape %a" pp_int_array
         shape
+  | `Decode e -> Interp_decode.pp_error ppf e
+  | `Dims_count { Dims_count.op; rank; got } ->
+      Fmt.pf ppf "%s: expected %d dims, got %d" op rank got
+  | `Invalid_dim { Invalid_dim.op; dim; rank } ->
+      Fmt.pf ppf "%s: invalid dimension %d for rank %d" op dim rank
+  | `Invalid_hw_arg { name; values } ->
+      Fmt.pf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list values
   | `Linear_invalid_weight_rank shape ->
       Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
         shape
-  | `Aten_shape e -> Aten_shape.pp_error ppf e
-  | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
+  | `Normalized_rank { Normalized_rank.op; rank; got } ->
+      Fmt.pf ppf
+        "%a: normalized_shape has %d entries, outside [1, %d] for this rank"
+        Norm.Target.pp op got rank
+  | `Normalized_shape { Normalized_shape.op; expected; got } ->
+      Fmt.pf ppf
+        "%a: normalized_shape %a does not match the input's trailing extents %a"
+        Norm.Target.pp op pp_int_list got pp_int_list expected
+  | `Operand_rank { Operand_rank.arg_name; expected; got } ->
+      Fmt.pf ppf "%s must be rank-%d, got rank-%d" arg_name expected got
+  | `Pool_unsupported { Pool_unsupported.op; option } -> (
+      match option with
+      | Pool_unsupported.Dilation d ->
+          Fmt.pf ppf "%s: dilation=%a is not supported (only 1)" op pp_int_list
+            d)
   | `Sdpa_reject e -> Attention.Sdpa.Reject.pp ppf e
-  | `Concat_no_tensors op -> Fmt.pf ppf "%s: at least one tensor is required" op
-  | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
-      Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
-        other
+  | `Tensor_bridge { arg_name; cause } ->
+      Fmt.pf ppf "%s: %a" arg_name Tensor_bridge.pp_error cause
+  | `Unsupported_input_dtype { Unsupported_input_dtype.arg_name; dtype } ->
+      Fmt.pf ppf "%s: the native engine computes in f32, got %s" arg_name
+        (Aten_scalar_type.to_string dtype)
   | `Unsupported_memory_format mf ->
       let name =
         match mf with
@@ -193,3 +190,6 @@ let pp_error ppf : [< error ] -> unit = function
         | `Channels_last_3d -> "channels_last_3d"
       in
       Fmt.pf ppf "clone: memory_format=%s is not supported" name
+  | `Unsupported_padding_mode s ->
+      Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
+  | `Validation_failure msg -> Fmt.string ppf msg

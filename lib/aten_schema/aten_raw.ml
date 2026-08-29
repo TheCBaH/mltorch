@@ -18,20 +18,17 @@ end
 
 module Backend = struct
   type t =
+    | CompositeExplicitAutograd
+    | CompositeExplicitAutogradNonFunctional
+    | CompositeImplicitAutograd
+    | CompositeImplicitAutogradNestedTensor
     | CPU
     | CUDA
+    | Generic
     | Meta
+    | MkldnnCPU
     | MPS
     | MTIA
-    | MkldnnCPU
-    | SparseCPU
-    | SparseCUDA
-    | SparseMPS
-    | SparseMeta
-    | SparseCsrCPU
-    | SparseCsrCUDA
-    | SparseCsrMPS
-    | SparseCsrMeta
     | NestedTensorCPU
     | NestedTensorCUDA
     | NestedTensorHPU
@@ -39,30 +36,32 @@ module Backend = struct
     | QuantizedCPU
     | QuantizedCUDA
     | QuantizedMeta
+    | ScalarOnly
+    | SparseCPU
+    | SparseCsrCPU
+    | SparseCsrCUDA
+    | SparseCsrMPS
+    | SparseCsrMeta
+    | SparseCUDA
+    | SparseMPS
+    | SparseMeta
     | XPU
     | ZeroTensor
-    | CompositeImplicitAutograd
-    | CompositeImplicitAutogradNestedTensor
-    | CompositeExplicitAutograd
-    | CompositeExplicitAutogradNonFunctional
-    | Generic
-    | ScalarOnly
 
   let of_string = function
+    | "CompositeExplicitAutograd" -> Some CompositeExplicitAutograd
+    | "CompositeExplicitAutogradNonFunctional" ->
+        Some CompositeExplicitAutogradNonFunctional
+    | "CompositeImplicitAutograd" -> Some CompositeImplicitAutograd
+    | "CompositeImplicitAutogradNestedTensor" ->
+        Some CompositeImplicitAutogradNestedTensor
     | "CPU" -> Some CPU
     | "CUDA" -> Some CUDA
+    | "Generic" -> Some Generic
     | "Meta" -> Some Meta
+    | "MkldnnCPU" -> Some MkldnnCPU
     | "MPS" -> Some MPS
     | "MTIA" -> Some MTIA
-    | "MkldnnCPU" -> Some MkldnnCPU
-    | "SparseCPU" -> Some SparseCPU
-    | "SparseCUDA" -> Some SparseCUDA
-    | "SparseMPS" -> Some SparseMPS
-    | "SparseMeta" -> Some SparseMeta
-    | "SparseCsrCPU" -> Some SparseCsrCPU
-    | "SparseCsrCUDA" -> Some SparseCsrCUDA
-    | "SparseCsrMPS" -> Some SparseCsrMPS
-    | "SparseCsrMeta" -> Some SparseCsrMeta
     | "NestedTensorCPU" -> Some NestedTensorCPU
     | "NestedTensorCUDA" -> Some NestedTensorCUDA
     | "NestedTensorHPU" -> Some NestedTensorHPU
@@ -70,33 +69,33 @@ module Backend = struct
     | "QuantizedCPU" -> Some QuantizedCPU
     | "QuantizedCUDA" -> Some QuantizedCUDA
     | "QuantizedMeta" -> Some QuantizedMeta
+    | "ScalarOnly" -> Some ScalarOnly
+    | "SparseCPU" -> Some SparseCPU
+    | "SparseCsrCPU" -> Some SparseCsrCPU
+    | "SparseCsrCUDA" -> Some SparseCsrCUDA
+    | "SparseCsrMPS" -> Some SparseCsrMPS
+    | "SparseCsrMeta" -> Some SparseCsrMeta
+    | "SparseCUDA" -> Some SparseCUDA
+    | "SparseMPS" -> Some SparseMPS
+    | "SparseMeta" -> Some SparseMeta
     | "XPU" -> Some XPU
     | "ZeroTensor" -> Some ZeroTensor
-    | "CompositeImplicitAutograd" -> Some CompositeImplicitAutograd
-    | "CompositeImplicitAutogradNestedTensor" ->
-        Some CompositeImplicitAutogradNestedTensor
-    | "CompositeExplicitAutograd" -> Some CompositeExplicitAutograd
-    | "CompositeExplicitAutogradNonFunctional" ->
-        Some CompositeExplicitAutogradNonFunctional
-    | "Generic" -> Some Generic
-    | "ScalarOnly" -> Some ScalarOnly
     | _ -> None
 
   let to_string = function
+    | CompositeExplicitAutograd -> "CompositeExplicitAutograd"
+    | CompositeExplicitAutogradNonFunctional ->
+        "CompositeExplicitAutogradNonFunctional"
+    | CompositeImplicitAutograd -> "CompositeImplicitAutograd"
+    | CompositeImplicitAutogradNestedTensor ->
+        "CompositeImplicitAutogradNestedTensor"
     | CPU -> "CPU"
     | CUDA -> "CUDA"
+    | Generic -> "Generic"
     | Meta -> "Meta"
+    | MkldnnCPU -> "MkldnnCPU"
     | MPS -> "MPS"
     | MTIA -> "MTIA"
-    | MkldnnCPU -> "MkldnnCPU"
-    | SparseCPU -> "SparseCPU"
-    | SparseCUDA -> "SparseCUDA"
-    | SparseMPS -> "SparseMPS"
-    | SparseMeta -> "SparseMeta"
-    | SparseCsrCPU -> "SparseCsrCPU"
-    | SparseCsrCUDA -> "SparseCsrCUDA"
-    | SparseCsrMPS -> "SparseCsrMPS"
-    | SparseCsrMeta -> "SparseCsrMeta"
     | NestedTensorCPU -> "NestedTensorCPU"
     | NestedTensorCUDA -> "NestedTensorCUDA"
     | NestedTensorHPU -> "NestedTensorHPU"
@@ -104,30 +103,31 @@ module Backend = struct
     | QuantizedCPU -> "QuantizedCPU"
     | QuantizedCUDA -> "QuantizedCUDA"
     | QuantizedMeta -> "QuantizedMeta"
+    | ScalarOnly -> "ScalarOnly"
+    | SparseCPU -> "SparseCPU"
+    | SparseCsrCPU -> "SparseCsrCPU"
+    | SparseCsrCUDA -> "SparseCsrCUDA"
+    | SparseCsrMPS -> "SparseCsrMPS"
+    | SparseCsrMeta -> "SparseCsrMeta"
+    | SparseCUDA -> "SparseCUDA"
+    | SparseMPS -> "SparseMPS"
+    | SparseMeta -> "SparseMeta"
     | XPU -> "XPU"
     | ZeroTensor -> "ZeroTensor"
-    | CompositeImplicitAutograd -> "CompositeImplicitAutograd"
-    | CompositeImplicitAutogradNestedTensor ->
-        "CompositeImplicitAutogradNestedTensor"
-    | CompositeExplicitAutograd -> "CompositeExplicitAutograd"
-    | CompositeExplicitAutogradNonFunctional ->
-        "CompositeExplicitAutogradNonFunctional"
-    | Generic -> "Generic"
-    | ScalarOnly -> "ScalarOnly"
 
   let pp fmt b = Format.pp_print_string fmt (to_string b)
 end
 
 module Device_check = struct
   (* torchgen DeviceCheckType; default when absent is ExactSame *)
-  type t = NoCheck | ExactSame
+  type t = ExactSame | NoCheck
 
   let of_string = function
-    | "NoCheck" -> Some NoCheck
     | "ExactSame" -> Some ExactSame
+    | "NoCheck" -> Some NoCheck
     | _ -> None
 
-  let to_string = function NoCheck -> "NoCheck" | ExactSame -> "ExactSame"
+  let to_string = function ExactSame -> "ExactSame" | NoCheck -> "NoCheck"
   let pp fmt d = Format.pp_print_string fmt (to_string d)
 end
 
@@ -135,61 +135,61 @@ module Tag = struct
   (* All valid tags from aten/src/ATen/native/tags.yaml *)
   type t =
     | Core
-    | Pointwise
-    | Inplace_view
-    | View_copy
-    | Dynamic_output_shape
-    | Data_dependent_output
-    | Generated
-    | Nondeterministic_seeded
-    | Nondeterministic_bitwise
-    | Needs_exact_strides
-    | Needs_contiguous_strides
-    | Needs_fixed_stride_order
-    | Flexible_layout
-    | Maybe_aliasing_or_mutating
-    | Pt2_compliant_tag
     | Cudagraph_unsafe
+    | Data_dependent_output
+    | Dynamic_output_shape
+    | Flexible_layout
+    | Generated
+    | Inplace_view
+    | Maybe_aliasing_or_mutating
+    | Needs_contiguous_strides
+    | Needs_exact_strides
+    | Needs_fixed_stride_order
+    | Nondeterministic_bitwise
+    | Nondeterministic_seeded
+    | Pointwise
+    | Pt2_compliant_tag
     | Reduction
+    | View_copy
 
   let of_string = function
     | "core" -> Some Core
-    | "pointwise" -> Some Pointwise
-    | "inplace_view" -> Some Inplace_view
-    | "view_copy" -> Some View_copy
-    | "dynamic_output_shape" -> Some Dynamic_output_shape
-    | "data_dependent_output" -> Some Data_dependent_output
-    | "generated" -> Some Generated
-    | "nondeterministic_seeded" -> Some Nondeterministic_seeded
-    | "nondeterministic_bitwise" -> Some Nondeterministic_bitwise
-    | "needs_exact_strides" -> Some Needs_exact_strides
-    | "needs_contiguous_strides" -> Some Needs_contiguous_strides
-    | "needs_fixed_stride_order" -> Some Needs_fixed_stride_order
-    | "flexible_layout" -> Some Flexible_layout
-    | "maybe_aliasing_or_mutating" -> Some Maybe_aliasing_or_mutating
-    | "pt2_compliant_tag" -> Some Pt2_compliant_tag
     | "cudagraph_unsafe" -> Some Cudagraph_unsafe
+    | "data_dependent_output" -> Some Data_dependent_output
+    | "dynamic_output_shape" -> Some Dynamic_output_shape
+    | "flexible_layout" -> Some Flexible_layout
+    | "generated" -> Some Generated
+    | "inplace_view" -> Some Inplace_view
+    | "maybe_aliasing_or_mutating" -> Some Maybe_aliasing_or_mutating
+    | "needs_contiguous_strides" -> Some Needs_contiguous_strides
+    | "needs_exact_strides" -> Some Needs_exact_strides
+    | "needs_fixed_stride_order" -> Some Needs_fixed_stride_order
+    | "nondeterministic_bitwise" -> Some Nondeterministic_bitwise
+    | "nondeterministic_seeded" -> Some Nondeterministic_seeded
+    | "pointwise" -> Some Pointwise
+    | "pt2_compliant_tag" -> Some Pt2_compliant_tag
     | "reduction" -> Some Reduction
+    | "view_copy" -> Some View_copy
     | _ -> None
 
   let to_string = function
     | Core -> "core"
-    | Pointwise -> "pointwise"
-    | Inplace_view -> "inplace_view"
-    | View_copy -> "view_copy"
-    | Dynamic_output_shape -> "dynamic_output_shape"
-    | Data_dependent_output -> "data_dependent_output"
-    | Generated -> "generated"
-    | Nondeterministic_seeded -> "nondeterministic_seeded"
-    | Nondeterministic_bitwise -> "nondeterministic_bitwise"
-    | Needs_exact_strides -> "needs_exact_strides"
-    | Needs_contiguous_strides -> "needs_contiguous_strides"
-    | Needs_fixed_stride_order -> "needs_fixed_stride_order"
-    | Flexible_layout -> "flexible_layout"
-    | Maybe_aliasing_or_mutating -> "maybe_aliasing_or_mutating"
-    | Pt2_compliant_tag -> "pt2_compliant_tag"
     | Cudagraph_unsafe -> "cudagraph_unsafe"
+    | Data_dependent_output -> "data_dependent_output"
+    | Dynamic_output_shape -> "dynamic_output_shape"
+    | Flexible_layout -> "flexible_layout"
+    | Generated -> "generated"
+    | Inplace_view -> "inplace_view"
+    | Maybe_aliasing_or_mutating -> "maybe_aliasing_or_mutating"
+    | Needs_contiguous_strides -> "needs_contiguous_strides"
+    | Needs_exact_strides -> "needs_exact_strides"
+    | Needs_fixed_stride_order -> "needs_fixed_stride_order"
+    | Nondeterministic_bitwise -> "nondeterministic_bitwise"
+    | Nondeterministic_seeded -> "nondeterministic_seeded"
+    | Pointwise -> "pointwise"
+    | Pt2_compliant_tag -> "pt2_compliant_tag"
     | Reduction -> "reduction"
+    | View_copy -> "view_copy"
 
   let pp fmt t = Format.pp_print_string fmt (to_string t)
 end

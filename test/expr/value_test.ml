@@ -299,18 +299,18 @@ let%expect_test "max-pool geometry: the window both interpreters share" =
         ~stride_h:1 ~stride_w:1 ~pad_h:1 ~pad_w:1 ~out
         ~result:Intrinsic.Max_pool.Value
     with
-    | Ok d -> d
     | Error _ -> assert false
+    | Ok d -> d
   in
   let show out_h out_w =
     match Intrinsic.window d ~out_h ~out_w with
+    | Error e ->
+        Fmt.pr "(%d,%d) -> %a@." out_h out_w Intrinsic.pp_error
+          (Err.Error.kind e)
     | Ok w ->
         Fmt.pr "(%d,%d) -> h[%d,%d) w[%d,%d)@." out_h out_w
           w.Intrinsic.Window.hlo w.Intrinsic.Window.hhi w.Intrinsic.Window.wlo
           w.Intrinsic.Window.whi
-    | Error e ->
-        Fmt.pr "(%d,%d) -> %a@." out_h out_w Intrinsic.pp_error
-          (Err.Error.kind e)
   in
   (* Padding clips at the low edge, the extent clips at the high edge -- the
      same bounds the current implementation computes. *)
@@ -333,8 +333,8 @@ let%expect_test "max-pool geometry: the window both interpreters share" =
      instead of recomputing the products itself. *)
   Fmt.pr "aggregate overflow caught: %b@."
     (match Intrinsic.window d ~out_h:Stdlib.max_int ~out_w:0 with
-    | Ok _ -> false
-    | Error _ -> true);
+    | Error _ -> true
+    | Ok _ -> false);
   [%expect {| aggregate overflow caught: true |}]
 
 let%expect_test "Round_f32 reference: the f32 storage round trip" =

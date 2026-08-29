@@ -16,37 +16,37 @@ type rebuild = {
 }
 
 type error =
-  [ Pt2_dtype.error
-  | `Malformed_pickle of string
+  [ `Duplicate_tensor_map_key of string
   | `Expected_int of string
-  | `Int_out_of_range of string * int64
-  | `Unexpected_storage_persistent_id
-  | `Unexpected_rebuild_args
-  | `No_tensor_found
   | `Expected_tensor_map
+  | `Int_out_of_range of string * int64
+  | `Malformed_pickle of string
+  | `No_tensor_found
+  | Pt2_dtype.error
   | `Tensor_map_key_not_string
   | `Tensor_map_value_not_tensor of string
-  | `Duplicate_tensor_map_key of string ]
+  | `Unexpected_rebuild_args
+  | `Unexpected_storage_persistent_id ]
 
 let pp_error ppf : error -> unit = function
-  | #Pt2_dtype.error as e -> Pt2_dtype.pp_error ppf e
-  | `Malformed_pickle msg -> Fmt.pf ppf "pickle decode failed: %s" msg
+  | `Duplicate_tensor_map_key key ->
+      Fmt.pf ppf "tensor map contains duplicate key %S" key
   | `Expected_int what -> Fmt.pf ppf "expected int for %s" what
+  | `Expected_tensor_map -> Fmt.string ppf "pickle did not yield a tensor map"
   | `Int_out_of_range (what, i) ->
       Fmt.pf ppf "%s is %Ld, outside the representable int range [%d, %d]" what
         i min_int max_int
-  | `Unexpected_storage_persistent_id ->
-      Fmt.string ppf "unexpected storage persistent id"
-  | `Unexpected_rebuild_args ->
-      Fmt.string ppf "unexpected _rebuild_tensor_v2 arguments"
+  | `Malformed_pickle msg -> Fmt.pf ppf "pickle decode failed: %s" msg
   | `No_tensor_found -> Fmt.string ppf "pickle did not yield a tensor"
-  | `Expected_tensor_map -> Fmt.string ppf "pickle did not yield a tensor map"
+  | #Pt2_dtype.error as e -> Pt2_dtype.pp_error ppf e
   | `Tensor_map_key_not_string ->
       Fmt.string ppf "tensor map key is not a string"
   | `Tensor_map_value_not_tensor key ->
       Fmt.pf ppf "tensor map value for %S is not a tensor" key
-  | `Duplicate_tensor_map_key key ->
-      Fmt.pf ppf "tensor map contains duplicate key %S" key
+  | `Unexpected_rebuild_args ->
+      Fmt.string ppf "unexpected _rebuild_tensor_v2 arguments"
+  | `Unexpected_storage_persistent_id ->
+      Fmt.string ppf "unexpected storage persistent id"
 
 (* A distinct tag from [`Expected_int]: the value here IS an integer, it just
    does not fit this backend's [int]. Under js_of_ocaml that is 32 bits, so a

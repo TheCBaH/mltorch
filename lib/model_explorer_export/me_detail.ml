@@ -3,18 +3,18 @@
 module ME = Model_explorer
 
 type error =
-  [ `Key_disagrees_with_ids
-  | `Unsupported_detail_key
+  [ `Document of Me_session.Session.error
+  | `Key_disagrees_with_ids
   | Me_limits.over_limit_error
-  | `Document of Me_session.Session.error ]
+  | `Unsupported_detail_key ]
 
 let pp_error fmt : [< error ] -> unit = function
+  | `Document e -> Me_session.Session.pp_error fmt e
   | `Key_disagrees_with_ids ->
       Fmt.string fmt "the delta's graph and view do not carry the key's id"
+  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
   | `Unsupported_detail_key ->
       Fmt.string fmt "the key names no value in that graph"
-  | `Over_limit o -> Me_limits.Over_limit.pp fmt o
-  | `Document e -> Me_session.Session.pp_error fmt e
 
 let count = Me_limits.check ~scope:Me_limits.Scope.Detail
 
@@ -27,15 +27,15 @@ let attr key value =
    because "binary" alone tells a reader nothing a picture needs. *)
 let label (v : Expr.Value.t) =
   match v with
-  | Expr.Value.Const c -> Printf.sprintf "const %g" c
   | Expr.Value.Binary (op, _, _) -> Expr.Value.binary_sym op
-  | Expr.Value.Unary (op, _) -> Expr.Value.unary_name op
-  | Expr.Value.Select _ -> "select"
-  | Expr.Value.Value_of_index _ -> "index"
-  | Expr.Value.Load (src, _) -> Core.Pretty.to_string Expr.Source.pp src
-  | Expr.Value.Round_f32 _ -> "round_f32"
-  | Expr.Value.Reduce r -> Expr.Reduction.kind_name r.Expr.Reduction.kind
+  | Expr.Value.Const c -> Printf.sprintf "const %g" c
   | Expr.Value.Intrinsic _ -> "max_pool"
+  | Expr.Value.Load (src, _) -> Core.Pretty.to_string Expr.Source.pp src
+  | Expr.Value.Reduce r -> Expr.Reduction.kind_name r.Expr.Reduction.kind
+  | Expr.Value.Round_f32 _ -> "round_f32"
+  | Expr.Value.Select _ -> "select"
+  | Expr.Value.Unary (op, _) -> Expr.Value.unary_name op
+  | Expr.Value.Value_of_index _ -> "index"
 
 (* The children a node has AS VALUES. A [Select]'s condition and a [Reduce]'s
    bounds are index-level terms, not value-level ones, so they become attributes
@@ -43,15 +43,15 @@ let label (v : Expr.Value.t) =
    picture claim a dataflow the expression does not have. *)
 let children (v : Expr.Value.t) =
   match v with
-  | Expr.Value.Const _ | Expr.Value.Value_of_index _ | Expr.Value.Load _
-  | Expr.Value.Intrinsic _ ->
-      []
   | Expr.Value.Binary (_, a, b) -> [ a; b ]
-  | Expr.Value.Unary (_, a) -> [ a ]
-  | Expr.Value.Round_f32 a -> [ a ]
-  | Expr.Value.Select (Expr.Bool.Value_lt (a, b), t, f) -> [ a; b; t; f ]
-  | Expr.Value.Select (Expr.Bool.Index_eq _, t, f) -> [ t; f ]
+  | Expr.Value.Const _ | Expr.Value.Intrinsic _ | Expr.Value.Load _
+  | Expr.Value.Value_of_index _ ->
+      []
   | Expr.Value.Reduce r -> [ r.Expr.Reduction.body ]
+  | Expr.Value.Round_f32 a -> [ a ]
+  | Expr.Value.Select (Expr.Bool.Index_eq _, t, f) -> [ t; f ]
+  | Expr.Value.Select (Expr.Bool.Value_lt (a, b), t, f) -> [ a; b; t; f ]
+  | Expr.Value.Unary (_, a) -> [ a ]
 
 (* What a node says beyond its label: the subtree rooted there, rendered and
    bounded.

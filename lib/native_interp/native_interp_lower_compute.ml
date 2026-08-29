@@ -9,41 +9,41 @@ open Native_interp_decode
 
 let targets =
   [
+    "torch.ops.aten._native_batch_norm_legit_no_training.default";
+    "torch.ops.aten.add.Tensor";
+    "torch.ops.aten.adaptive_avg_pool2d.default";
+    "torch.ops.aten.addmm.default";
+    "torch.ops.aten.amax.default";
+    "torch.ops.aten.clamp.default";
+    "torch.ops.aten.clone.default";
     "torch.ops.aten.conv2d.default";
     "torch.ops.aten.conv2d.padding";
     "torch.ops.aten.convolution.default";
-    "torch.ops.aten._native_batch_norm_legit_no_training.default";
-    "torch.ops.aten.group_norm.default";
-    "torch.ops.aten.layer_norm.default";
-    "torch.ops.aten.native_layer_norm.default";
-    "torch.ops.aten.rms_norm.default";
-    "torch.ops.aten.scaled_dot_product_attention.default";
-    "torch.ops.aten.pow.Tensor_Scalar";
-    "torch.ops.aten.relu.default";
-    "torch.ops.aten.add.Tensor";
-    "torch.ops.aten.sub.Tensor";
-    "torch.ops.aten.clamp.default";
-    "torch.ops.aten.clone.default";
     "torch.ops.aten.div.Tensor";
+    "torch.ops.aten.gelu.default";
+    "torch.ops.aten.group_norm.default";
     "torch.ops.aten.hardsigmoid.default";
     "torch.ops.aten.hardsigmoid_.default";
     "torch.ops.aten.hardswish.default";
     "torch.ops.aten.hardswish_.default";
+    "torch.ops.aten.hardtanh.default";
+    "torch.ops.aten.layer_norm.default";
+    "torch.ops.aten.linalg_vector_norm.default";
+    "torch.ops.aten.linear.default";
+    "torch.ops.aten.max_pool2d.default";
+    "torch.ops.aten.max_pool2d_with_indices.default";
+    "torch.ops.aten.mean.dim";
+    "torch.ops.aten.mul.Scalar";
+    "torch.ops.aten.mul.Tensor";
+    "torch.ops.aten.native_layer_norm.default";
+    "torch.ops.aten.pow.Tensor_Scalar";
+    "torch.ops.aten.relu.default";
+    "torch.ops.aten.rms_norm.default";
+    "torch.ops.aten.scaled_dot_product_attention.default";
     "torch.ops.aten.sigmoid.default";
     "torch.ops.aten.silu.default";
     "torch.ops.aten.silu_.default";
-    "torch.ops.aten.gelu.default";
-    "torch.ops.aten.hardtanh.default";
-    "torch.ops.aten.mul.Tensor";
-    "torch.ops.aten.mul.Scalar";
-    "torch.ops.aten.max_pool2d.default";
-    "torch.ops.aten.adaptive_avg_pool2d.default";
-    "torch.ops.aten.max_pool2d_with_indices.default";
-    "torch.ops.aten.mean.dim";
-    "torch.ops.aten.amax.default";
-    "torch.ops.aten.linalg_vector_norm.default";
-    "torch.ops.aten.linear.default";
-    "torch.ops.aten.addmm.default";
+    "torch.ops.aten.sub.Tensor";
   ]
 
 let dispatch ~ctx ~env (node : Node.t) =
@@ -484,6 +484,10 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* y = hardtanh params (get "self") in
            return [ y ]
+       | "torch.ops.aten.mul.Scalar" ->
+           let s = required_scalar_arg esc node "other" in
+           let* y = mul_scalar s (get "self") in
+           return [ y ]
        | "torch.ops.aten.mul.Tensor" -> (
            match tensor_or_scalar "other" with
            | `Tensor other ->
@@ -492,10 +496,6 @@ let dispatch ~ctx ~env (node : Node.t) =
            | `Scalar s ->
                let* y = mul_scalar s (get "self") in
                return [ y ])
-       | "torch.ops.aten.mul.Scalar" ->
-           let s = required_scalar_arg esc node "other" in
-           let* y = mul_scalar s (get "self") in
-           return [ y ]
        (* The functional overload has ONE output and takes the generic path:
          [materialized_output_names] must not gain it, since that list is for
          nodes whose trailing outputs are dropped. *)

@@ -19,8 +19,8 @@
 
 type error =
   [ `Body of Kernel.Body_error.t
-  | `Unknown_use of Kernel.Use.t
   | `Not_a_dependency of Kernel.Use.t
+  | `Unknown_use of Kernel.Use.t
   | `Unsupported_use of Kernel.Use.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit

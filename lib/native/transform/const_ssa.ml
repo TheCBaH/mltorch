@@ -32,8 +32,8 @@ type leaf =
   | Opaque_materialized of Tensor.packed
 
 type definition =
-  | Leaf of { leaf : leaf; output : Tensor_sig.t }
   | Apply of { op : Graph_ir.op; output : Tensor_sig.t }
+  | Leaf of { leaf : leaf; output : Tensor_sig.t }
 
 type error =
   [ `Duplicate_definition of Value_id.t
@@ -49,7 +49,7 @@ type t = definition Value_id.Map.t
 let empty = Value_id.Map.empty
 let find t id = Value_id.Map.find_opt id t
 let bindings = Value_id.Map.bindings
-let output = function Leaf { output; _ } | Apply { output; _ } -> output
+let output = function Apply { output; _ } | Leaf { output; _ } -> output
 let signature_of t id = Option.map output (find t id)
 let sig_of = signature_of
 

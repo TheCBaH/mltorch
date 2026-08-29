@@ -4,8 +4,8 @@
 open Graph_ir
 
 type error =
-  [ Const_ssa.error
-  | `Binding_overwrite of Tensor_id.t
+  [ `Binding_overwrite of Tensor_id.t
+  | Const_ssa.error
   | `Missing_export of Const_ssa.Value_id.t ]
 
 type t

@@ -1,4 +1,4 @@
-type kind = Expr_repr.reduction_kind = Sum | Max
+type kind = Expr_repr.reduction_kind = Max | Sum
 
 type t = Expr_repr.reduction = {
   kind : kind;
@@ -8,4 +8,4 @@ type t = Expr_repr.reduction = {
   body : Expr_repr.value;
 }
 
-let kind_name = function Sum -> "sum" | Max -> "max_reduce"
+let kind_name = function Max -> "max_reduce" | Sum -> "sum"

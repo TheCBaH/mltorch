@@ -13,11 +13,11 @@
   (:standard \ me_bytes)
   me_bytes)
  (libraries
+  bytesrw
   core
   err_trace
   expr
   fmt
-  bytesrw
   jsont
   jsont.bytesrw
   model_explorer

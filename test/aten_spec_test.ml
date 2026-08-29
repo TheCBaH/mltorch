@@ -29,13 +29,13 @@ let%expect_test "float32 hex round-trip" =
 
 let encode codec v =
   match Jsont_bytesrw.encode_string codec v with
-  | Ok s -> s
   | Error e -> failwith e
+  | Ok s -> s
 
 let decode codec s =
   match Jsont_bytesrw.decode_string codec s with
-  | Ok v -> v
   | Error e -> failwith e
+  | Ok v -> v
 
 let%expect_test "float32 json encoding uses numbers except exceptional bits" =
   List.iter

@@ -41,96 +41,98 @@ let kind_string (op : A.t) =
    Device?): dropped from the record entirely (the interpreter defaults it to
    None), so it never appears in JSON. *)
 type sty =
-  | T_tensor
-  | T_tensor_opt
-  | T_tensor_list
-  | T_int
-  | T_int_opt
-  | T_int_list
-  | T_int_list_opt
-  | T_float
-  | T_float_opt
   | T_bool
   | T_bool_opt
+  | T_float
+  | T_float_opt
+  | T_int
+  | T_int_list
+  | T_int_list_opt
+  | T_int_opt
   | T_scalar
   | T_scalar_opt
-  | T_str
   | T_skip
+  | T_str
+  | T_tensor
+  | T_tensor_list
+  | T_tensor_opt
 
 let classify (ty : A.Type.t) : sty option =
   match ty with
-  | Base Tensor -> Some T_tensor
-  | Optional (Base Tensor) -> Some T_tensor_opt
-  | List (Base Tensor, _) -> Some T_tensor_list
+  | Base Bool -> Some T_bool
+  | Optional (Base Bool) -> Some T_bool_opt
+  | Base Float -> Some T_float
+  | Optional (Base Float) -> Some T_float_opt
   | Base Int | Base SymInt -> Some T_int
-  | Optional (Base Int) | Optional (Base SymInt) -> Some T_int_opt
   | List (Base Int, _) | List (Base SymInt, _) -> Some T_int_list
   | Optional (List (Base Int, _)) | Optional (List (Base SymInt, _)) ->
       Some T_int_list_opt
-  | Base Float -> Some T_float
-  | Optional (Base Float) -> Some T_float_opt
-  | Base Bool -> Some T_bool
-  | Optional (Base Bool) -> Some T_bool_opt
+  | Optional (Base Int) | Optional (Base SymInt) -> Some T_int_opt
   | Base Scalar -> Some T_scalar
   | Optional (Base Scalar) -> Some T_scalar_opt
-  | Base Str -> Some T_str
   | Optional (Base ScalarType)
   | Optional (Base Layout)
   | Optional (Base MemoryFormat)
   | Optional (Base Device) ->
       Some T_skip
+  | Base Str -> Some T_str
+  | Base Tensor -> Some T_tensor
+  | List (Base Tensor, _) -> Some T_tensor_list
+  | Optional (Base Tensor) -> Some T_tensor_opt
   | _ -> None
 
 (* OCaml record-field type for a kept argument. *)
 let field_ty = function
-  | T_tensor -> "Aten_spec.Tensor_spec.t"
-  | T_tensor_opt -> "Aten_spec.Tensor_spec.t option"
-  | T_tensor_list -> "Aten_spec.Tensor_spec.t list"
-  | T_int -> "int"
-  | T_int_opt -> "int option"
-  | T_int_list -> "int list"
-  | T_int_list_opt -> "int list option"
-  | T_float -> "Aten_spec.Float32.t"
-  | T_float_opt -> "Aten_spec.Float32.t option"
   | T_bool -> "bool"
   | T_bool_opt -> "bool option"
+  | T_float -> "Aten_spec.Float32.t"
+  | T_float_opt -> "Aten_spec.Float32.t option"
+  | T_int -> "int"
+  | T_int_list -> "int list"
+  | T_int_list_opt -> "int list option"
+  | T_int_opt -> "int option"
   | T_scalar -> "Aten_spec.Scalar_value.t"
   | T_scalar_opt -> "Aten_spec.Scalar_value.t option"
-  | T_str -> "string"
   | T_skip -> assert false
+  | T_str -> "string"
+  | T_tensor -> "Aten_spec.Tensor_spec.t"
+  | T_tensor_list -> "Aten_spec.Tensor_spec.t list"
+  | T_tensor_opt -> "Aten_spec.Tensor_spec.t option"
 
 (* The element codec (for opt fields, opt_mem wraps the option itself). *)
 let field_codec = function
-  | T_tensor | T_tensor_opt -> "Aten_spec.Tensor_spec.jsont"
-  | T_tensor_list -> "(Jsont.list Aten_spec.Tensor_spec.jsont)"
-  | T_int | T_int_opt -> "Jsont.int"
-  | T_int_list | T_int_list_opt -> "(Jsont.list Jsont.int)"
-  | T_float | T_float_opt -> "Aten_spec.Float32.jsont"
   | T_bool | T_bool_opt -> "Jsont.bool"
+  | T_float | T_float_opt -> "Aten_spec.Float32.jsont"
+  | T_int -> "Jsont.int"
+  | T_int_list | T_int_list_opt -> "(Jsont.list Jsont.int)"
+  | T_int_opt -> "Jsont.int"
   | T_scalar | T_scalar_opt -> "Aten_spec.Scalar_value.jsont"
-  | T_str -> "Jsont.string"
   | T_skip -> assert false
+  | T_str -> "Jsont.string"
+  | T_tensor -> "Aten_spec.Tensor_spec.jsont"
+  | T_tensor_list -> "(Jsont.list Aten_spec.Tensor_spec.jsont)"
+  | T_tensor_opt -> "Aten_spec.Tensor_spec.jsont"
 
 let arg_ctor = function
-  | T_tensor -> "Tensor"
-  | T_tensor_opt -> "Tensor_opt"
-  | T_tensor_list -> "Tensor_list"
-  | T_int -> "Int"
-  | T_int_opt -> "Int_opt"
-  | T_int_list -> "Int_list"
-  | T_int_list_opt -> "Int_list_opt"
-  | T_float -> "Float"
-  | T_float_opt -> "Float_opt"
   | T_bool -> "Bool"
   | T_bool_opt -> "Bool_opt"
+  | T_float -> "Float"
+  | T_float_opt -> "Float_opt"
+  | T_int -> "Int"
+  | T_int_list -> "Int_list"
+  | T_int_list_opt -> "Int_list_opt"
+  | T_int_opt -> "Int_opt"
   | T_scalar -> "Scalar"
   | T_scalar_opt -> "Scalar_opt"
-  | T_str -> "Str"
   | T_skip -> assert false
+  | T_str -> "Str"
+  | T_tensor -> "Tensor"
+  | T_tensor_list -> "Tensor_list"
+  | T_tensor_opt -> "Tensor_opt"
 
 let is_opt = function
-  | T_tensor_opt | T_int_opt | T_int_list_opt | T_float_opt | T_bool_opt
-  | T_scalar_opt ->
+  | T_bool_opt | T_float_opt | T_int_list_opt | T_int_opt | T_scalar_opt
+  | T_tensor_opt ->
       true
   | _ -> false
 
@@ -141,26 +143,26 @@ let lit s = if String.length s > 0 && s.[0] = '-' then "(" ^ s ^ ")" else s
    can't be rendered for this field type (then the field is left required). *)
 let dec_absent (sty : sty) (d : A.Default.t) : string option =
   match (sty, d) with
-  | T_int, Int n -> Some (lit (string_of_int n))
+  | T_bool, Bool b -> Some (Printf.sprintf "%b" b)
   | T_float, Float s ->
       Some (Printf.sprintf "(Aten_spec.Float32.to_f32 %s)" (lit s))
-  | T_bool, Bool b -> Some (Printf.sprintf "%b" b)
-  | T_str, Str s -> Some (Printf.sprintf "%S" s)
+  | T_int, Int n -> Some (lit (string_of_int n))
   | T_int_list, IntList ns ->
       Some
         (Printf.sprintf "[ %s ]"
            (String.concat "; " (List.map string_of_int ns)))
-  | T_scalar, Int n ->
-      Some
-        (Printf.sprintf "(Aten_spec.Scalar_value.Int %s)"
-           (lit (string_of_int n)))
+  | T_scalar, Bool b ->
+      Some (Printf.sprintf "(Aten_spec.Scalar_value.Bool %b)" b)
   | T_scalar, Float s ->
       Some
         (Printf.sprintf
            "(Aten_spec.Scalar_value.Float (Aten_spec.Float32.to_f32 %s))"
            (lit s))
-  | T_scalar, Bool b ->
-      Some (Printf.sprintf "(Aten_spec.Scalar_value.Bool %b)" b)
+  | T_scalar, Int n ->
+      Some
+        (Printf.sprintf "(Aten_spec.Scalar_value.Int %s)"
+           (lit (string_of_int n)))
+  | T_str, Str s -> Some (Printf.sprintf "%S" s)
   | _ -> None
 
 (* Moved to [Aten_ident] when the decode generator needed the same escape: two

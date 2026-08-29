@@ -8,19 +8,19 @@ open Native_interp_decode
 
 let targets =
   [
-    "torch.ops.aten.permute.default";
-    "torch.ops.aten.transpose.int";
-    "torch.ops.aten.pad.default";
+    "torch.ops.aten._unsafe_view.default";
     "torch.ops.aten.cat.default";
-    "torch.ops.aten.stack.default";
+    "torch.ops.aten.pad.default";
+    "torch.ops.aten.permute.default";
     "torch.ops.aten.select.int";
-    "torch.ops.aten.unsqueeze.default";
     "torch.ops.aten.slice.Tensor";
-    "torch.ops.aten.unbind.int";
     "torch.ops.aten.split_with_sizes.default";
+    "torch.ops.aten.stack.default";
+    "torch.ops.aten.transpose.int";
+    "torch.ops.aten.unbind.int";
+    "torch.ops.aten.unsqueeze.default";
     "torch.ops.aten.upsample_bilinear2d.vec";
     "torch.ops.aten.view.default";
-    "torch.ops.aten._unsafe_view.default";
   ]
 
 let dispatch ~ctx ~env (node : Node.t) =
@@ -386,7 +386,7 @@ let dispatch ~ctx ~env (node : Node.t) =
          resolver, same reason op_bridge.ml's arm does (drift risk, exact
          target still visible in every diagnostic via [tensor]/[node.target]).
          [Identical] AFTER materialization; see .ai/native_aten_bridge_layout.md. *)
-       | "torch.ops.aten.view.default" | "torch.ops.aten._unsafe_view.default"
+       | "torch.ops.aten._unsafe_view.default" | "torch.ops.aten.view.default"
          ->
            let tensor = tensor_name esc node "self" in
            let shape = tensor_shape esc graph tensor in

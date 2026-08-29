@@ -14,11 +14,11 @@
    have to know the other exists. *)
 
 type mode =
-  | Natural  (** probabilities at natural precision, for reading *)
   | Cram
       (** probabilities dropped when the ranking matches. They differ in their
           low-order digits across systems, so no fixed rounding is exact-match
           safe; on a match the ranking is the whole assertion. *)
+  | Natural  (** probabilities at natural precision, for reading *)
 
 (* [mode] is a variant and stays here; the records below get their own modules
    per the record-namespace convention. *)
@@ -65,12 +65,12 @@ module Prediction : sig
 end
 
 type 'eval error =
-  [ Pt2_archive.error
-  | `Results_decode of string
+  [ `Eval of 'eval
   | `Expected_decode of string
-  | `No_reference of string
   | `Mismatch of Mismatch.t  (** strict mode only *)
-  | `Eval of 'eval ]
+  | `No_reference of string
+  | Pt2_archive.error
+  | `Results_decode of string ]
 
 val pp_error :
   (Format.formatter -> 'eval -> unit) -> Format.formatter -> 'eval error -> unit

@@ -1,14 +1,16 @@
 (* OCaml encoding of c10::Layout (torch/headeronly/core/Layout.h). *)
 type t =
-  | Strided
-  | Sparse
-  | SparseCsr
-  | Mkldnn
-  | SparseCsc
-  | SparseBsr
-  | SparseBsc
   | Jagged
+  | Mkldnn
+  | Sparse
+  | SparseBsc
+  | SparseBsr
+  | SparseCsc
+  | SparseCsr
+  | Strided
 
+(** This conversion table deliberately follows c10's stable numeric enum values;
+    do not alphabetize its branches. *)
 let to_int = function
   | Strided -> 0
   | Sparse -> 1

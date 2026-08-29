@@ -407,16 +407,16 @@ let%expect_test "every legal triple, enumerated" =
     F.legal_triples;
   [%expect
     {|
-    pt2       --import        -> native
-    native    --pass          -> native
-    native    --pack          -> native
-    native    --cross_dialect -> native4d
-    native4d  --pass          -> native4d
-    native4d  --pack          -> native4d
+    kernel    --pass          -> kernel
     native    --adapt         -> symbolic
-    symbolic  --pass          -> symbolic
+    native    --cross_dialect -> native4d
+    native    --pack          -> native
+    native    --pass          -> native
+    native4d  --pack          -> native4d
+    native4d  --pass          -> native4d
+    pt2       --import        -> native
     symbolic  --adapt         -> kernel
-    kernel    --pass          -> kernel |}]
+    symbolic  --pass          -> symbolic |}]
 
 (* --- the projection --- *)
 

@@ -1,8 +1,8 @@
 open Graph_ir
 
 type error =
-  [ Const_ssa.error
-  | `Binding_overwrite of Tensor_id.t
+  [ `Binding_overwrite of Tensor_id.t
+  | Const_ssa.error
   | `Missing_export of Const_ssa.Value_id.t ]
 
 type t = {
@@ -27,9 +27,9 @@ let is_effective_constant t id =
   Tensor_id.Map.mem id t.materialized || Option.is_some (binding t id)
 
 let pp_error ppf : [< error ] -> unit = function
-  | #Const_ssa.error as e -> Const_ssa.pp_error ppf e
   | `Binding_overwrite id ->
       Fmt.pf ppf "constant binding for %a already exists" Tensor_id.pp id
+  | #Const_ssa.error as e -> Const_ssa.pp_error ppf e
   | `Missing_export value ->
       Fmt.pf ppf "Const-SSA export %a has no definition" Const_ssa.Value_id.pp
         value

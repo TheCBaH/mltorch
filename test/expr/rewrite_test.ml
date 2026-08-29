@@ -30,8 +30,8 @@ let ev ?(output = origin) e = Eval.value env ~output e
    to float equality would be a weaker claim than the one being made. *)
 let same_value a b =
   match (a, b) with
-  | Ok x, Ok y -> Core.Float_bits.equal_exact x y
   | Error _, Error _ -> true
+  | Ok x, Ok y -> Core.Float_bits.equal_exact x y
   | _ -> false
 
 let over_samples f =

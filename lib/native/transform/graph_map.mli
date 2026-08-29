@@ -22,10 +22,10 @@ type ('src, 'dst) t
 type error =
   [ `Cluster_format of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t
   | `Cluster_shape of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t
-  | `Node_endpoint of Graph_ir.Node_id.t Cluster_relation.issue
-  | `Provenance_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue
   | `Graph_output_arity of int * int
   | `Graph_output_mismatch of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t
+  | `Node_endpoint of Graph_ir.Node_id.t Cluster_relation.issue
+  | `Provenance_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue
   | `Unclosed_claim of Graph_ir.Tensor_id.t
   | `Value_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue ]
 (* [`Graph_output_*], not [`Output_arity]: [Graph_view.error] already owns that

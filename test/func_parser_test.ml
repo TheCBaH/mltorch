@@ -30,3 +30,27 @@ let%expect_test "defaults: float, bool, list" =
         float eps=1e-05, bool cudnn_enabled=True) -> Tensor");
   [%expect
     {| batch_norm(Tensor input, Tensor? weight, Tensor? bias, Tensor? running_mean, Tensor? running_var, bool training, float momentum, float eps=1e-05, bool cudnn_enabled=True) -> Tensor |}]
+
+let%expect_test "default vocabulary renders every constructor" =
+  List.iter
+    (fun default -> print_endline (Default.to_string default))
+    [
+      Default.Bool false;
+      Default.Bool true;
+      Default.Float "1e-05";
+      Default.Ident "contiguous_format";
+      Default.Int 3;
+      Default.IntList [ 1; 2 ];
+      Default.None;
+      Default.Str "quoted";
+    ];
+  [%expect
+    {|
+    False
+    True
+    1e-05
+    contiguous_format
+    3
+    [1,2]
+    None
+    "quoted" |}]

@@ -15,10 +15,10 @@
    oracle. *)
 
 type mask_kind =
-  | No_mask
   | M2 of { q : bool; k : bool } (* [Wq|1, Wk|1] *)
   | M4 of { d : bool; h : bool; q : bool; k : bool }
-(* [D|1, H|1, Wq|1, Wk|1] *)
+  (* [D|1, H|1, Wq|1, Wk|1] *)
+  | No_mask
 
 type t = {
   batch : int;
@@ -40,10 +40,10 @@ let value_shape c = key_shape c
 let mask_shape c =
   let axis real broadcast = if broadcast then 1 else real in
   match c.mask with
-  | No_mask -> None
   | M2 { q; k } -> Some [ axis c.sq q; axis c.sk k ]
   | M4 { d; h; q; k } ->
       Some [ axis c.batch d; axis c.heads h; axis c.sq q; axis c.sk k ]
+  | No_mask -> None
 
 let scale c = c.scale
 
@@ -55,7 +55,10 @@ let scale c = c.scale
    just as readily, and so needed exercising against the real kernel just as
    much. 1 (No_mask) + 4 (M2) + 16 (M4) = 21 points; each mask_kind's
    booleans still make it flash-admissible by construction, so enumerating
-   every combination costs nothing beyond the walk step count. *)
+   every combination costs nothing beyond the walk step count. The outer
+   sequence remains rank-grouped (no mask, then 2D, then 4D): it determines
+   the seeded walk trace and intentionally differs from [mask_kind]'s
+   declaration order. *)
 let all_mask_kinds =
   let bools = [ false; true ] in
   No_mask
@@ -83,9 +86,9 @@ let axes ~batch ~heads ~sq ~sk ~e ~mask ~scale () =
     ]
 
 let pp_mask ppf = function
-  | No_mask -> Fmt.string ppf "none"
   | M2 { q; k } -> Fmt.pf ppf "2d(q=%b,k=%b)" q k
   | M4 { d; h; q; k } -> Fmt.pf ppf "4d(d=%b,h=%b,q=%b,k=%b)" d h q k
+  | No_mask -> Fmt.string ppf "none"
 
 let pp ppf c =
   Format.fprintf ppf "{batch=%d heads=%d sq=%d sk=%d e=%d mask=%a scale=%s}"

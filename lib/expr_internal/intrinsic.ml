@@ -6,9 +6,9 @@ module Window = struct
 end
 
 module Max_pool = struct
-  type result = Value | Index
+  type result = Index | Value
 
-  let result_name = function Value -> "value" | Index -> "index"
+  let result_name = function Index -> "index" | Value -> "value"
 
   type t = {
     source : Source.t;
@@ -32,36 +32,36 @@ type geometry_field =
   | `In_w
   | `Kernel_h
   | `Kernel_w
-  | `Stride_h
-  | `Stride_w
   | `Pad_h
-  | `Pad_w ]
+  | `Pad_w
+  | `Stride_h
+  | `Stride_w ]
 
-type geometry_bound = [ `Positive | `Non_negative ]
+type geometry_bound = [ `Non_negative | `Positive ]
 
 module Bad_geometry = struct
   type t = { field : geometry_field; value : int; bound : geometry_bound }
 end
 
-type error = [ Checked.error | `Bad_geometry of Bad_geometry.t ]
+type error = [ `Bad_geometry of Bad_geometry.t | Checked.error ]
 
 let geometry_field_name : geometry_field -> string = function
   | `In_h -> "in_h"
   | `In_w -> "in_w"
   | `Kernel_h -> "kernel_h"
   | `Kernel_w -> "kernel_w"
-  | `Stride_h -> "stride_h"
-  | `Stride_w -> "stride_w"
   | `Pad_h -> "pad_h"
   | `Pad_w -> "pad_w"
+  | `Stride_h -> "stride_h"
+  | `Stride_w -> "stride_w"
 
 let pp_error fmt : [< error ] -> unit = function
-  | #Checked.error as e -> Checked.pp_error fmt e
   | `Bad_geometry { Bad_geometry.field; value; bound } ->
       Fmt.pf fmt "%s must be %s, got %d"
         (geometry_field_name field)
-        (match bound with `Positive -> "> 0" | `Non_negative -> ">= 0")
+        (match bound with `Non_negative -> ">= 0" | `Positive -> "> 0")
         value
+  | #Checked.error as e -> Checked.pp_error fmt e
 
 let max_pool ~source ~in_h ~in_w ~kernel_h ~kernel_w ~stride_h ~stride_w ~pad_h
     ~pad_w ~out ~result =

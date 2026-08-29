@@ -4,4 +4,4 @@
 (library
  (name pt2_aten)
  (wrapped false)
- (libraries pt2 aten))
+ (libraries aten pt2))

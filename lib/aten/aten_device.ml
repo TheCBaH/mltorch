@@ -9,26 +9,28 @@ module Type = struct
   type t =
     | CPU
     | CUDA
-    | MKLDNN
-    | OPENGL
-    | OPENCL
-    | IDEEP
-    | HIP
     | FPGA
-    | MAIA
-    | XLA
-    | Vulkan
-    | Metal
-    | XPU
-    | MPS
-    | Meta
+    | HIP
     | HPU
-    | VE
-    | Lazy
+    | IDEEP
     | IPU
+    | Lazy
+    | MAIA
+    | MKLDNN
+    | Meta
+    | Metal
+    | MPS
     | MTIA
+    | OPENCL
+    | OPENGL
     | PrivateUse1
+    | VE
+    | Vulkan
+    | XLA
+    | XPU
 
+  (** This conversion table deliberately follows c10's numeric ABI; do not
+      alphabetize its branches. *)
   let to_int = function
     | CPU -> 0
     | CUDA -> 1

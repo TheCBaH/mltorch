@@ -3,14 +3,14 @@
      equation naming a module that arrives in the next one. *)
 type index_error =
   [ Checked.error
-  | `Unbound_reducer of Reduce_var.t
-  | `Index_not_exact_in_float of int ]
+  | `Index_not_exact_in_float of int
+  | `Unbound_reducer of Reduce_var.t ]
 
 let pp_index_error fmt : [< index_error ] -> unit = function
   | #Checked.error as e -> Checked.pp_error fmt e
-  | `Unbound_reducer v -> Fmt.pf fmt "unbound reducer %a" Reduce_var.pp v
   | `Index_not_exact_in_float n ->
       Fmt.pf fmt "index %d is not exactly representable as a float" n
+  | `Unbound_reducer v -> Fmt.pf fmt "unbound reducer %a" Reduce_var.pp v
 
 (* The recursion escapes and the public entry point converts once, rather than
      allocating an [Ok] per AST node per output pixel. The design permits this
@@ -34,22 +34,22 @@ let eval_index (type r) (esc : index_error Err.Escape.t) ~(output : int Coord.t)
     | Error e -> Err.Escape.throw_error esc (e :> index_error Err.Error.t)
   in
   let rec go : type r. r Index.t -> int = function
+    | Index.Add (a, b) -> chk (Checked.add (go a) (go b))
+    | Index.Assume_position a -> go a
+    | Index.Ceil_div_pos (a, d) -> chk (Checked.ceil_div_pos (go a) d)
+    | Index.Clamp_low a -> Stdlib.max 0 (go a)
+    | Index.Const n -> n
+    | Index.Floor_div_pos (a, d) -> chk (Checked.floor_div_pos (go a) d)
+    | Index.Max (a, b) -> Stdlib.max (go a) (go b)
+    | Index.Min (a, b) -> Stdlib.min (go a) (go b)
+    | Index.Of_position i -> go i
     | Index.Output a -> Coord.get output a
     | Index.Reduce v -> (
         match reducers v with
         | Some i -> i
         | None -> fail_with (`Unbound_reducer v))
-    | Index.Zero -> 0
-    | Index.Const n -> n
-    | Index.Of_position i -> go i
-    | Index.Add (a, b) -> chk (Checked.add (go a) (go b))
     | Index.Scale (k, a) -> chk (Checked.mul k (go a))
-    | Index.Floor_div_pos (a, d) -> chk (Checked.floor_div_pos (go a) d)
-    | Index.Ceil_div_pos (a, d) -> chk (Checked.ceil_div_pos (go a) d)
-    | Index.Min (a, b) -> Stdlib.min (go a) (go b)
-    | Index.Max (a, b) -> Stdlib.max (go a) (go b)
-    | Index.Clamp_low a -> Stdlib.max 0 (go a)
-    | Index.Assume_position a -> go a
+    | Index.Zero -> 0
   in
   go e
 
@@ -77,18 +77,18 @@ let float_of_index i =
      are raised by the host's [load], not here -- the language knows nothing
      about what a source is. *)
 type error =
-  [ index_error
+  [ `Coord_out_of_range of Source.t * Axis.t * int * int Coord.t
+  | index_error
   | Intrinsic.error
-  | `Unknown_source of Source.t
-  | `Coord_out_of_range of Source.t * Axis.t * int * int Coord.t ]
+  | `Unknown_source of Source.t ]
 
 let pp_error fmt : [< error ] -> unit = function
-  | #index_error as e -> pp_index_error fmt e
-  | #Intrinsic.error as e -> Intrinsic.pp_error fmt e
-  | `Unknown_source s -> Fmt.pf fmt "unknown source %a" Source.pp s
   | `Coord_out_of_range (s, a, v, c) ->
       Fmt.pf fmt "%a[%a] out of range on axis %a: %d" Source.pp s
         (Coord.pp Fmt.int) c Axis.pp a v
+  | #index_error as e -> pp_index_error fmt e
+  | #Intrinsic.error as e -> Intrinsic.pp_error fmt e
+  | `Unknown_source s -> Fmt.pf fmt "unknown source %a" Source.pp s
 
 module Env = struct
   (* The whole boundary between the language and its host. [Expr] supplies
@@ -115,27 +115,18 @@ let value (env : Env.t) ~output e =
   let idx reducers i = eval_index index_esc ~output ~reducers i in
   let rec go reducers (e : Value.t) : float =
     match e with
-    | Value.Const x -> x
     | Value.Binary (op, a, b) ->
         Value.apply_binary op (go reducers a) (go reducers b)
-    | Value.Unary (op, a) -> Value.apply_unary op (go reducers a)
-    (* Only the SELECTED branch is evaluated -- the other may divide by zero
-         or read out of bounds, and guarding is what the caller built it for. *)
-    | Value.Select (c, a, b) ->
-        if guard reducers c then go reducers a else go reducers b
-    | Value.Value_of_index i -> vchk (float_of_index (idx reducers i))
+    | Value.Const x -> x
+    | Value.Intrinsic i -> intrinsic reducers i
     | Value.Load (s, c) -> vchk (env.Env.load s (Coord.map (idx reducers) c))
-    | Value.Round_f32 a ->
-        (* Convert to binary32 and widen back. The one value expression that
-             changes a value without being arithmetic. *)
-        Int32.float_of_bits (Int32.bits_of_float (go reducers a))
     | Value.Reduce r ->
         let lo = idx reducers r.Reduction.lo
         and hi = idx reducers r.Reduction.hi in
         let combine, init =
           match r.Reduction.kind with
-          | Reduction.Sum -> (( +. ), 0.)
           | Reduction.Max -> (Max_op.apply Max_op.Float_max, Float.neg_infinity)
+          | Reduction.Sum -> (( +. ), 0.)
         in
         (* The ordered half-open left fold the denotation specifies. Same seed
              and same association as the engine's own reduction -- a rewrite that
@@ -149,10 +140,19 @@ let value (env : Env.t) ~output e =
             fold (i + 1) (combine acc (go bound r.Reduction.body))
         in
         fold lo init
-    | Value.Intrinsic i -> intrinsic reducers i
+    | Value.Round_f32 a ->
+        (* Convert to binary32 and widen back. The one value expression that
+             changes a value without being arithmetic. *)
+        Int32.float_of_bits (Int32.bits_of_float (go reducers a))
+    (* Only the SELECTED branch is evaluated -- the other may divide by zero
+         or read out of bounds, and guarding is what the caller built it for. *)
+    | Value.Select (c, a, b) ->
+        if guard reducers c then go reducers a else go reducers b
+    | Value.Unary (op, a) -> Value.apply_unary op (go reducers a)
+    | Value.Value_of_index i -> vchk (float_of_index (idx reducers i))
   and guard reducers = function
-    | Bool.Value_lt (a, b) -> go reducers a < go reducers b
     | Bool.Index_eq (a, b) -> Int.equal (idx reducers a) (idx reducers b)
+    | Bool.Value_lt (a, b) -> go reducers a < go reducers b
   and intrinsic reducers (Intrinsic.Max_pool d as i) =
     let open Intrinsic.Max_pool in
     let at a = idx reducers (Coord.get d.out a) in

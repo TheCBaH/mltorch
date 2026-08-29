@@ -12,7 +12,8 @@
 
 type t = { n : int; c : int; h : int; w : int; dim : int }
 
-(* Both spellings of every axis. A negative dim normalises to the same axis as
+(* Both spellings of every axis. This positive-then-negative sequence is the
+   seeded walk trace's stable coverage order. A negative dim normalises to the same axis as
    its non-negative twin, which is the property the bridge's own normalisation
    has to preserve — and the reason both spellings are walked rather than just
    one of each pair. *)

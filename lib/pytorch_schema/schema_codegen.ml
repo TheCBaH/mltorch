@@ -238,7 +238,7 @@ let struct_field_info_of (f : Field.t) =
     sf_default = Field.default f;
   }
 
-type mem_kind = Mem_required | Mem_optional | Mem_default of string
+type mem_kind = Mem_default of string | Mem_optional | Mem_required
 
 let classify_field (fi : struct_field_info) : mem_kind =
   match fi.sf_type with
@@ -283,6 +283,9 @@ let pp_struct_field_type_rec = pp_struct_field_type_impl
    Within that outer v0-at-col-2 box, @; breaks to col 2 and @;<0 2> goes to col 4. *)
 
 let pp_enum_body fmt name fields =
+  (* [fields] is schema-declared numeric order. The generated constructors and
+     conversion arms must preserve it: reordering would change the enum's wire
+     encoding, so this is deliberately not an alphabetical presentation. *)
   let ctors =
     List.map
       (fun f -> (enum_ctor_of_name (Enum_field.name f), Enum_field.value f))
@@ -366,13 +369,13 @@ let pp_struct_jsont_constructor fmt kinds =
          ~pp_sep:(fun fmt () -> Format.fprintf fmt "@ ; ")
          (fun fmt ((fi, k), param) ->
            match k with
-           | Mem_required -> Format.pp_print_string fmt fi.sf_ocaml
-           | Mem_optional ->
-               Format.fprintf fmt "%s = Option.join %s" fi.sf_ocaml param
            | Mem_default e ->
                Format.fprintf fmt
                  "%s = (match %s with None -> %s | Some v -> v)" fi.sf_ocaml
-                 param e))
+                 param e
+           | Mem_optional ->
+               Format.fprintf fmt "%s = Option.join %s" fi.sf_ocaml param
+           | Mem_required -> Format.pp_print_string fmt fi.sf_ocaml))
       (List.combine kinds lam_params)
   else Format.pp_print_string fmt "make"
 
@@ -388,14 +391,14 @@ let pp_struct_jsont fmt name fis =
        (fun fmt (fi, k) ->
          let te = match fi.sf_type with Type_expr.Optional t -> t | t -> t in
          match k with
-         | Mem_required ->
-             Format.fprintf fmt "@;|> Jsont.Object.mem %S %a" fi.sf_name
+         | Mem_default _ ->
+             Format.fprintf fmt "@;|> Jsont.Object.opt_mem %S %a" fi.sf_name
                pp_jsont_expr te
          | Mem_optional ->
              Format.fprintf fmt "@;|> Jsont.Object.opt_mem %S (Jsont.option %a)"
                fi.sf_name pp_jsont_expr te
-         | Mem_default _ ->
-             Format.fprintf fmt "@;|> Jsont.Object.opt_mem %S %a" fi.sf_name
+         | Mem_required ->
+             Format.fprintf fmt "@;|> Jsont.Object.mem %S %a" fi.sf_name
                pp_jsont_expr te))
     kinds
 
@@ -549,13 +552,13 @@ let pp_struct_jsont_constructor_rec fmt tmn kinds =
          ~pp_sep:(fun fmt () -> Format.fprintf fmt "@ ; ")
          (fun fmt ((fi, k), param) ->
            match k with
-           | Mem_required -> Format.pp_print_string fmt fi.sf_ocaml
-           | Mem_optional ->
-               Format.fprintf fmt "%s = Option.join %s" fi.sf_ocaml param
            | Mem_default e ->
                Format.fprintf fmt
                  "%s = (match %s with None -> %s | Some v -> v)" fi.sf_ocaml
-                 param e))
+                 param e
+           | Mem_optional ->
+               Format.fprintf fmt "%s = Option.join %s" fi.sf_ocaml param
+           | Mem_required -> Format.pp_print_string fmt fi.sf_ocaml))
       (List.combine kinds lam_params)
       tmn
   else Format.fprintf fmt "%s.make" tmn
@@ -617,16 +620,16 @@ let pp_jsont_decl fmt group name typedef kw =
                    match fi.sf_type with Type_expr.Optional t -> t | t -> t
                  in
                  match k with
-                 | Mem_required ->
-                     Format.fprintf fmt "@;|> Jsont.Object.mem %S %a" fi.sf_name
-                       (pp_jsont_expr_rec group) te
+                 | Mem_default _ ->
+                     Format.fprintf fmt "@;|> Jsont.Object.opt_mem %S %a"
+                       fi.sf_name (pp_jsont_expr_rec group) te
                  | Mem_optional ->
                      Format.fprintf fmt
                        "@;|> Jsont.Object.opt_mem %S (Jsont.option %a)"
                        fi.sf_name (pp_jsont_expr_rec group) te
-                 | Mem_default _ ->
-                     Format.fprintf fmt "@;|> Jsont.Object.opt_mem %S %a"
-                       fi.sf_name (pp_jsont_expr_rec group) te))
+                 | Mem_required ->
+                     Format.fprintf fmt "@;|> Jsont.Object.mem %S %a" fi.sf_name
+                       (pp_jsont_expr_rec group) te))
             kinds
       | Type_def.Union u ->
           let fis = List.map union_field_info_of (Union.fields u) in

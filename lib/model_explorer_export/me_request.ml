@@ -8,8 +8,8 @@ module Hard = Me_limits.Hard
    supplies the [Export] mark that makes the drop visible. *)
 let or_jsont pp r =
   match Err.export ~pos:__POS__ r with
-  | Ok v -> v
   | Error k -> Jsont.Error.msgf Jsont.Meta.none "%a" pp k
+  | Ok v -> v
 
 (* --- request identity --------------------------------------------------- *)
 
@@ -74,11 +74,11 @@ end
 
 module Detail_key = struct
   type t = { parent_graph : string; value : Graph_ir.Tensor_id.t }
-  type invalid = [ `Parent_too_long | `Derived_id_too_long ]
+  type invalid = [ `Derived_id_too_long | `Parent_too_long ]
 
   let pp_invalid fmt : [< invalid ] -> unit = function
-    | `Parent_too_long -> Fmt.string fmt "detail key parent graph is too long"
     | `Derived_id_too_long -> Fmt.string fmt "derived detail id is too long"
+    | `Parent_too_long -> Fmt.string fmt "detail key parent graph is too long"
 
   let parent_node t = Core.Pretty.to_string Graph_ir.Tensor_id.pp t.value
 
@@ -132,7 +132,7 @@ module Source = struct
       type t = { url : string; ref_ : string; verified_sha256 : string }
     end
 
-    type t = Local | Catalog of Catalog.t
+    type t = Catalog of Catalog.t | Local
   end
 
   type t = {
@@ -144,11 +144,11 @@ module Source = struct
 
   module Invalid = struct
     type kind =
-      | Negative_bytes
       | Bad_digest
       | Name_too_long
-      | Url_too_long
+      | Negative_bytes
       | Ref_too_long
+      | Url_too_long
 
     type t = { kind : kind }
   end
@@ -156,11 +156,11 @@ module Source = struct
   let pp_invalid fmt (i : Invalid.t) =
     Fmt.string fmt
       (match i.Invalid.kind with
-      | Invalid.Negative_bytes -> "source byte count is negative"
       | Invalid.Bad_digest -> "source digest is not 64 lowercase hex bytes"
       | Invalid.Name_too_long -> "source name is too long"
-      | Invalid.Url_too_long -> "source url is too long"
-      | Invalid.Ref_too_long -> "source ref is too long")
+      | Invalid.Negative_bytes -> "source byte count is negative"
+      | Invalid.Ref_too_long -> "source ref is too long"
+      | Invalid.Url_too_long -> "source url is too long")
 
   let fail kind = Err.fail (`Invalid_source { Invalid.kind })
 
@@ -238,7 +238,7 @@ end
 (* --- what changes the projection ---------------------------------------- *)
 
 module Options = struct
-  type namespace = Structural | Module
+  type namespace = Module | Structural
 
   type t = {
     stages : Me_session.Capability.graph_stage list;
@@ -275,7 +275,7 @@ module Options = struct
 
   let namespace_jsont =
     Jsont.enum ~kind:"namespaceMode"
-      [ ("structural", Structural); ("module", Module) ]
+      [ ("module", Module); ("structural", Structural) ]
 
   let jsont =
     Jsont.Object.map ~kind:"options"
@@ -315,22 +315,22 @@ module Request = struct
     }
   end
 
-  type t = Build_session of Build_session.t | Build_detail of Build_detail.t
+  type t = Build_detail of Build_detail.t | Build_session of Build_session.t
 
   type error =
-    [ `Malformed_request_id
+    [ `Invalid_detail_key of Detail_key.invalid
+    | `Invalid_limits of Me_limits.error
     | `Invalid_options
     | `Invalid_source of Source.Invalid.t
-    | `Invalid_limits of Me_limits.error
-    | `Invalid_detail_key of Detail_key.invalid ]
+    | `Malformed_request_id ]
 
   let pp_error fmt : [< error ] -> unit = function
-    | `Malformed_request_id -> Fmt.string fmt "malformed request id"
+    | `Invalid_detail_key i -> Detail_key.pp_invalid fmt i
+    | `Invalid_limits e -> Me_limits.pp_error fmt e
     | `Invalid_options ->
         Fmt.string fmt "a request must ask for at least one stage"
     | `Invalid_source i -> Source.pp_invalid fmt i
-    | `Invalid_limits e -> Me_limits.pp_error fmt e
-    | `Invalid_detail_key i -> Detail_key.pp_invalid fmt i
+    | `Malformed_request_id -> Fmt.string fmt "malformed request id"
 
   (* REVALIDATION, not a witness check. A [Source.t] keeps no record of the
      profile it was built under, so "was it built under this one" is
@@ -359,26 +359,26 @@ module Request = struct
     Build_detail { Build_detail.id; source; options; limits; key }
 
   let id = function
-    | Build_session s -> s.Build_session.id
     | Build_detail d -> d.Build_detail.id
+    | Build_session s -> s.Build_session.id
 
   let epoch t = Request_id.epoch (id t)
 
   let key = function
-    | Build_session _ -> None
     | Build_detail d -> Some d.Build_detail.key
+    | Build_session _ -> None
 
   let limits = function
-    | Build_session s -> s.Build_session.limits
     | Build_detail d -> d.Build_detail.limits
+    | Build_session s -> s.Build_session.limits
 
   let source = function
-    | Build_session s -> s.Build_session.source
     | Build_detail d -> d.Build_detail.source
+    | Build_session s -> s.Build_session.source
 
   let options = function
-    | Build_session s -> s.Build_session.options
     | Build_detail d -> d.Build_detail.options
+    | Build_session s -> s.Build_session.options
 
   (* STAGED. Jsont decodes an object's fields independently, but [Source.create]
      and [Detail_key.validate] need the DECODED profile -- so the members are

@@ -26,25 +26,25 @@ let target (op : A.t) =
    produces the config enum name instead of C fragments. *)
 let param_type_of (ty : Aten_func_ast.Type.t) =
   match ty with
-  | Base Tensor -> Some "Tensor"
-  | Optional (Base Tensor) -> Some "Tensor_opt"
-  | List (Base Tensor, _) -> Some "Tensor_list"
+  | Base Bool -> Some "Bool"
+  | Optional (Base Bool) -> Some "Bool_opt"
+  | Optional (Base Device) -> Some "Device_opt"
+  | Base Float -> Some "Float"
+  | Optional (Base Float) -> Some "Float_opt"
   | Base Int | Base SymInt -> Some "Int"
-  | Optional (Base Int) | Optional (Base SymInt) -> Some "Int_opt"
   | List (Base Int, _) | List (Base SymInt, _) -> Some "Int_list"
   | Optional (List (Base Int, _)) | Optional (List (Base SymInt, _)) ->
       Some "Int_list_opt"
-  | Base Float -> Some "Float"
-  | Optional (Base Float) -> Some "Float_opt"
-  | Base Bool -> Some "Bool"
-  | Optional (Base Bool) -> Some "Bool_opt"
+  | Optional (Base Int) | Optional (Base SymInt) -> Some "Int_opt"
+  | Optional (Base Layout) -> Some "Layout_opt"
+  | Optional (Base MemoryFormat) -> Some "Memory_format_opt"
   | Base Scalar -> Some "Scalar"
   | Optional (Base Scalar) -> Some "Scalar_opt"
   | Optional (Base ScalarType) -> Some "Scalar_type_opt"
-  | Optional (Base Layout) -> Some "Layout_opt"
-  | Optional (Base MemoryFormat) -> Some "Memory_format_opt"
-  | Optional (Base Device) -> Some "Device_opt"
   | Base Str -> Some "Str"
+  | Base Tensor -> Some "Tensor"
+  | List (Base Tensor, _) -> Some "Tensor_list"
+  | Optional (Base Tensor) -> Some "Tensor_opt"
   | _ -> None
 
 let litf s = if String.length s > 0 && s.[0] = '-' then "(" ^ s ^ ")" else s
@@ -53,17 +53,17 @@ let litf s = if String.length s > 0 && s.[0] = '-' then "(" ^ s ^ ")" else s
    as their original YAML string so no precision is lost in the generated source. *)
 let default_expr (d : Aten_func_ast.Default.t) =
   match d with
-  | None -> "D_none"
   | Bool b -> Printf.sprintf "D_bool %b" b
+  | Float s -> Printf.sprintf "D_float %s" (litf s)
+  | Ident s -> Printf.sprintf "D_ident %S" s
   | Int n ->
       if n < 0 then Printf.sprintf "D_int (%d)" n
       else Printf.sprintf "D_int %d" n
-  | Float s -> Printf.sprintf "D_float %s" (litf s)
-  | Str s -> Printf.sprintf "D_str %S" s
   | IntList ns ->
       Printf.sprintf "D_ints [ %s ]"
         (String.concat "; " (List.map string_of_int ns))
-  | Ident s -> Printf.sprintf "D_ident %S" s
+  | None -> "D_none"
+  | Str s -> Printf.sprintf "D_str %S" s
 
 (* Emit one param record, or None if the argument type is unsupported. *)
 let emit_param (a : Aten_func_ast.Argument.t) ~kwonly =
@@ -136,22 +136,24 @@ let banner =
 
 let header =
   {|type param_type =
-  | Tensor | Tensor_opt | Tensor_list
-  | Int | Int_opt | Int_list | Int_list_opt
-  | Float | Float_opt
   | Bool | Bool_opt
-  | Scalar | Scalar_opt
-  | Scalar_type_opt | Layout_opt | Memory_format_opt | Device_opt
+  | Device_opt
+  | Float | Float_opt
+  | Int | Int_list | Int_list_opt | Int_opt
+  | Layout_opt
+  | Memory_format_opt
+  | Scalar | Scalar_opt | Scalar_type_opt
   | Str
+  | Tensor | Tensor_list | Tensor_opt
 
 type default_ =
-  | D_none
   | D_bool of bool
-  | D_int of int
   | D_float of float
-  | D_str of string
-  | D_ints of int list
   | D_ident of string
+  | D_int of int
+  | D_ints of int list
+  | D_none
+  | D_str of string
 
 type param = {
   name    : string;
@@ -163,7 +165,7 @@ type param = {
 (* [Tensor_list_return] is a Tensor[] return: ONE output whose length is a
    runtime property of the call, so unlike the others it does not name a count.
    Not [Tensor_list] -- that constructor is taken by [param_type] above. *)
-type return_arity = Single | Tuple2 | Tuple3 | Tensor_list_return
+type return_arity = Single | Tensor_list_return | Tuple2 | Tuple3
 
 type t = {
   target   : string;   (* "torch.ops.aten.add.Tensor" *)
@@ -174,34 +176,34 @@ type t = {
 }
 
 let pp_param_type ppf = function
-  | Tensor -> Format.pp_print_string ppf "Tensor"
-  | Tensor_opt -> Format.pp_print_string ppf "Tensor?"
-  | Tensor_list -> Format.pp_print_string ppf "Tensor[]"
-  | Int -> Format.pp_print_string ppf "Int"
-  | Int_opt -> Format.pp_print_string ppf "Int?"
-  | Int_list -> Format.pp_print_string ppf "Int[]"
-  | Int_list_opt -> Format.pp_print_string ppf "Int[]?"
-  | Float -> Format.pp_print_string ppf "Float"
-  | Float_opt -> Format.pp_print_string ppf "Float?"
   | Bool -> Format.pp_print_string ppf "Bool"
   | Bool_opt -> Format.pp_print_string ppf "Bool?"
+  | Device_opt -> Format.pp_print_string ppf "Device?"
+  | Float -> Format.pp_print_string ppf "Float"
+  | Float_opt -> Format.pp_print_string ppf "Float?"
+  | Int -> Format.pp_print_string ppf "Int"
+  | Int_list -> Format.pp_print_string ppf "Int[]"
+  | Int_list_opt -> Format.pp_print_string ppf "Int[]?"
+  | Int_opt -> Format.pp_print_string ppf "Int?"
+  | Layout_opt -> Format.pp_print_string ppf "Layout?"
+  | Memory_format_opt -> Format.pp_print_string ppf "MemoryFormat?"
   | Scalar -> Format.pp_print_string ppf "Scalar"
   | Scalar_opt -> Format.pp_print_string ppf "Scalar?"
   | Scalar_type_opt -> Format.pp_print_string ppf "ScalarType?"
-  | Layout_opt -> Format.pp_print_string ppf "Layout?"
-  | Memory_format_opt -> Format.pp_print_string ppf "MemoryFormat?"
-  | Device_opt -> Format.pp_print_string ppf "Device?"
   | Str -> Format.pp_print_string ppf "Str"
+  | Tensor -> Format.pp_print_string ppf "Tensor"
+  | Tensor_list -> Format.pp_print_string ppf "Tensor[]"
+  | Tensor_opt -> Format.pp_print_string ppf "Tensor?"
 
 let pp_default_ ppf = function
-  | D_none -> Format.pp_print_string ppf "none"
   | D_bool b -> Format.pp_print_bool ppf b
-  | D_int n -> Format.pp_print_int ppf n
   | D_float f -> Format.fprintf ppf "%g" f
-  | D_str s -> Format.fprintf ppf "%S" s
+  | D_ident s -> Format.pp_print_string ppf s
+  | D_int n -> Format.pp_print_int ppf n
   | D_ints ns ->
       Format.fprintf ppf "[%s]" (String.concat "," (List.map string_of_int ns))
-  | D_ident s -> Format.pp_print_string ppf s
+  | D_none -> Format.pp_print_string ppf "none"
+  | D_str s -> Format.fprintf ppf "%S" s
 
 let pp_param ppf p =
   pp_param_type ppf p.ty;
@@ -222,9 +224,9 @@ let pp ppf t =
     t.params
     (match t.returns with
      | Single -> "T"
+     | Tensor_list_return -> "T[]"
      | Tuple2 -> "(T, T)"
-     | Tuple3 -> "(T, T, T)"
-     | Tensor_list_return -> "T[]")|}
+     | Tuple3 -> "(T, T, T)")|}
 
 let file (ops : A.t list) =
   let records = List.filter_map config_record ops in

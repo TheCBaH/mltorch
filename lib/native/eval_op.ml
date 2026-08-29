@@ -73,8 +73,8 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Conv.Conv2d.Compute (S) in
         let bias =
           match bias with
-          | Some b -> operand b
           | None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+          | Some b -> operand b
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
@@ -82,8 +82,8 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Conv.Conv2d_padding.Compute (S) in
         let bias =
           match bias with
-          | Some b -> operand b
           | None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+          | Some b -> operand b
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
@@ -91,11 +91,11 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Conv.Convolution.Compute (S) in
         let bias =
           match bias with
-          | Some b -> operand b
           | None ->
               fill 0.
                 (Conv.Convolution.bias_shape ~weight_shape:(shape_of weight)
                    params)
+          | Some b -> operand b
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
@@ -107,10 +107,10 @@ module Make (S : Semantics.SEMANTICS) = struct
         (* Absent weight = identity scale, absent bias = identity shift,
            filled HERE for the reason the [Layer_norm] arm's comment gives. *)
         let weight =
-          match weight with Some w -> operand w | None -> fill 1. (shape_of x)
+          match weight with None -> fill 1. (shape_of x) | Some w -> operand w
         in
         let bias =
-          match bias with Some b -> operand b | None -> fill 0. (shape_of x)
+          match bias with None -> fill 0. (shape_of x) | Some b -> operand b
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight ~bias out
     | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
@@ -130,18 +130,18 @@ module Make (S : Semantics.SEMANTICS) = struct
            would make the two import paths build structurally different graphs
            for the same node. *)
         let weight =
-          match weight with Some w -> operand w | None -> fill 1. (shape_of x)
+          match weight with None -> fill 1. (shape_of x) | Some w -> operand w
         in
         let bias =
-          match bias with Some b -> operand b | None -> fill 0. (shape_of x)
+          match bias with None -> fill 0. (shape_of x) | Some b -> operand b
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight ~bias out
     | Linear { Linear.Linear.params; x; weight; bias } ->
         let module C = Linear.Linear.Compute (S) in
         let bias =
           match bias with
-          | Some b -> operand b
           | None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+          | Some b -> operand b
         in
         C.pixel params ~x:(operand x) ~weight:(operand weight) ~bias out
     | Max_pool2d { Pool.MaxPool2d.params; x } ->
@@ -186,7 +186,7 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Rms_norm { Norm.RmsNorm.params; x; weight } ->
         let module C = Norm.RmsNorm.Compute (S) in
         let weight =
-          match weight with Some w -> operand w | None -> fill 1. (shape_of x)
+          match weight with None -> fill 1. (shape_of x) | Some w -> operand w
           (* absent weight = identity scale *)
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight out
@@ -202,10 +202,10 @@ module Make (S : Semantics.SEMANTICS) = struct
            (add nothing when no mask was given), not 1. *)
         let mask_shape, mask =
           match mask with
-          | Some m -> (shape_of m, operand m)
           | None ->
               let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
               (ones, fill 0. ones)
+          | Some m -> (shape_of m, operand m)
         in
         C.pixel params ~query_shape:(shape_of query) ~key_shape:(shape_of key)
           ~mask_shape ~query:(operand query) ~key:(operand key)

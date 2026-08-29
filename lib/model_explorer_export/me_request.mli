@@ -61,7 +61,7 @@ module Detail_key : sig
       body, so carrying [parent_node] alongside would admit a mismatched pair
       that validation would then have to reject; here it is DERIVED. *)
 
-  type invalid = [ `Parent_too_long | `Derived_id_too_long ]
+  type invalid = [ `Derived_id_too_long | `Parent_too_long ]
 
   val pp_invalid : Format.formatter -> [< invalid ] -> unit
 
@@ -116,7 +116,6 @@ module Source : sig
     end
 
     type t =
-      | Local
       | Catalog of Catalog.t
           (** The digest lives INSIDE [Catalog]. A sibling
               [verified_sha256 option] would permit a [Local] source claiming a
@@ -124,6 +123,7 @@ module Source : sig
               deterministic session — and a [Catalog] source with none. Neither
               is constructible, so the session's digest rule needs no validation
               at all. *)
+      | Local
   end
 
   type t = private {
@@ -135,11 +135,11 @@ module Source : sig
 
   module Invalid : sig
     type kind =
-      | Negative_bytes
       | Bad_digest
       | Name_too_long
-      | Url_too_long
+      | Negative_bytes
       | Ref_too_long
+      | Url_too_long
 
     type t = { kind : kind }
   end
@@ -172,7 +172,7 @@ end
 (** {1 What changes the projection} *)
 
 module Options : sig
-  type namespace = Structural | Module
+  type namespace = Module | Structural
 
   type t = private {
     stages : Me_session.Capability.graph_stage list;
@@ -223,15 +223,15 @@ module Request : sig
   end
 
   type t = private
-    | Build_session of Build_session.t
     | Build_detail of Build_detail.t
+    | Build_session of Build_session.t
 
   type error =
-    [ `Malformed_request_id
+    [ `Invalid_detail_key of Detail_key.invalid
+    | `Invalid_limits of Me_limits.error
     | `Invalid_options
     | `Invalid_source of Source.Invalid.t
-    | `Invalid_limits of Me_limits.error
-    | `Invalid_detail_key of Detail_key.invalid ]
+    | `Malformed_request_id ]
 
   val pp_error : Format.formatter -> [< error ] -> unit
 

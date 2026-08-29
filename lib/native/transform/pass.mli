@@ -32,7 +32,7 @@ module Frame : sig
 end
 
 module Count_overflow : sig
-  type counter = Audit_reports | Outcome_bucket of string | Execution_index
+  type counter = Audit_reports | Execution_index | Outcome_bucket of string
   type t = { counter : counter }
 
   val pp : Format.formatter -> t -> unit
@@ -62,10 +62,10 @@ module Outcome_counts : sig
 
   module Invalid : sig
     type kind =
-      | Negative_count
       | Duplicate_label
-      | Malformed_label  (** not a [Verdict] label, optionally [sampled <n>] *)
       | Label_too_long
+      | Malformed_label  (** not a [Verdict] label, optionally [sampled <n>] *)
+      | Negative_count
 
     type t = { label : string; kind : kind }
   end
@@ -184,11 +184,11 @@ module Make (S : Side.S) : sig
      [Native_interp] already carries [`Transform of Pass.error], so this reaches
      the interpreter's result with no change there. *)
   type error =
-    [ Rewrite.Make(S).error
+    [ count_error
+    | `Malformed_outcome of string
     | `Not_converged of string
-    | `Verification of Verification.t
-    | count_error
-    | `Malformed_outcome of string ]
+    | Rewrite.Make(S).error
+    | `Verification of Verification.t ]
 
   val pp_error : Format.formatter -> [< error ] -> unit
 

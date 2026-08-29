@@ -18,7 +18,7 @@ module Producer = struct
 end
 
 module Model_summary = struct
-  type source_kind = Pt2 | Json
+  type source_kind = Json | Pt2
 
   type t = {
     name : string;
@@ -30,7 +30,7 @@ module Model_summary = struct
   }
 
   let source_kind_jsont =
-    Jsont.enum ~kind:"source_kind" [ ("pt2", Pt2); ("json", Json) ]
+    Jsont.enum ~kind:"source_kind" [ ("json", Json); ("pt2", Pt2) ]
 
   let jsont =
     Jsont.Object.map ~kind:"model_summary"
@@ -127,7 +127,7 @@ end
    variant rather than a string: the printer needs to say which, and a caller
    that only reads the rendered text cannot act on it. *)
 module Flow_destination = struct
-  type part = Flow_view | Flow_capability
+  type part = Flow_capability | Flow_view
   type t = { part : part; declared : string; named : string option }
 end
 

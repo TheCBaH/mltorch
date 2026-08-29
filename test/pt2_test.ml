@@ -16,19 +16,19 @@ let make_zip entries =
   let add z (path, data) =
     let file =
       match Zipc.File.stored_of_binary_string data with
-      | Ok file -> file
       | Error e -> failwith ("Zipc.File.stored_of_binary_string: " ^ e)
+      | Ok file -> file
     in
     let m =
       match Zipc.Member.make ~path (Zipc.Member.File file) with
-      | Ok m -> m
       | Error e -> failwith ("Zipc.Member.make: " ^ e)
+      | Ok m -> m
     in
     Zipc.add m z
   in
   match Zipc.to_binary_string (List.fold_left add Zipc.empty entries) with
-  | Ok s -> s
   | Error e -> failwith ("Zipc.to_binary_string: " ^ e)
+  | Ok s -> s
 
 let%expect_test "zip round-trips STORED entries (incl. relative prefix)" =
   match
@@ -40,14 +40,14 @@ let%expect_test "zip round-trips STORED entries (incl. relative prefix)" =
   | Ok zip ->
       Printf.printf "prefix=%s\n" (Pt2_zip.prefix zip);
       (match Pt2_zip.read_rel_required zip "models/model.json" with
-      | Ok s -> Printf.printf "model.json=%s\n" s
-      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e));
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e)
+      | Ok s -> Printf.printf "model.json=%s\n" s);
       (match Pt2_zip.read_rel_required zip "data/0" with
-      | Ok s -> Printf.printf "data/0=%s\n" s
-      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e));
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e)
+      | Ok s -> Printf.printf "data/0=%s\n" s);
       (match Pt2_zip.read zip "m/nope" with
-      | Ok missing -> Printf.printf "missing=%b\n" (missing = None)
-      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e));
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e)
+      | Ok missing -> Printf.printf "missing=%b\n" (missing = None));
       [%expect
         {|
     prefix=m
@@ -61,8 +61,8 @@ let%expect_test "zip missing entry is typed" =
   | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e)
   | Ok zip ->
       (match Pt2_zip.read_rel_required zip "models/model.json" with
-      | Ok _ -> print_endline "unexpected success"
-      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e));
+      | Error e -> Format.printf "%a@." Pt2_zip.pp_error (Err.Error.kind e)
+      | Ok _ -> print_endline "unexpected success");
       [%expect {| zip entry "m/models/model.json" is missing |}]
 
 (* --- Pt2_tensor --- *)
@@ -91,8 +91,8 @@ let%expect_test "metadata: numel, contiguity, pp" =
 
 let%expect_test "dtype and tensor metadata failures are typed" =
   (match Pt2_dtype.of_scalar_type Pytorch_types.ScalarType.HALF with
-  | Ok _ -> print_endline "unexpected success"
-  | Error e -> Format.printf "%a@." Pt2_dtype.pp_error (Err.Error.kind e));
+  | Error e -> Format.printf "%a@." Pt2_dtype.pp_error (Err.Error.kind e)
+  | Ok _ -> print_endline "unexpected success");
   Pt2_tensor.int_of_symint ~field:"sizes"
     (Pytorch_types.SymInt.Expr (Pytorch_types.SymExpr.make "s0" None))
   |> Format.printf "%a@."
@@ -168,11 +168,11 @@ let%expect_test "pickle yields rebuild descriptor" =
 
 let%expect_test "pickle failures are typed" =
   match Pt2_pickle.parse_tensor "not a pickle" with
-  | Ok _ -> print_endline "unexpected success"
   | Error e ->
       Format.printf "%a@." Pt2_pickle.pp_error (Err.Error.kind e);
       [%expect
         {| pickle decode failed: pickle error at byte 1: unknown opcode 0x6e |}]
+  | Ok _ -> print_endline "unexpected success"
 
 (* ---------------------------------------------------------------------------
    32-bit int portability. These two blocks are the reason this suite carries
@@ -234,8 +234,8 @@ let int_of_agrees i64 =
     && Int64.compare i64 (Int64.of_int max_int) <= 0
   in
   match Pt2_pickle.int_of "size" (Opickle.Value.Int i64) with
-  | Ok v -> representable && Int64.equal (Int64.of_int v) i64
   | Error _ -> not representable
+  | Ok v -> representable && Int64.equal (Int64.of_int v) i64
 
 let%expect_test "Pt2_pickle.int_of bounds both ends" =
   Printf.printf "zero=%b small=%b negative=%b max=%b min=%b\n"

@@ -240,8 +240,8 @@ let jsont ?(max_elts : int option) () : packed Jsont.t =
     let fmt = get "fmt" Payload.packed_fmt_jsont in
     let data_json =
       match Json_util.find_member ms "data" with
-      | Some v -> v
       | None -> Jsont.Error.msgf Jsont.Meta.none "tensor: missing \"data\""
+      | Some v -> v
     in
     match data_json with
     | Jsont.Object ([ (("None", _), _) ], _) ->
@@ -297,8 +297,8 @@ let pp fmt (Tensor t) =
          if !count > 0 then Format.fprintf fmt ", ";
          let i = (Vec6.offset t.shape c :> int) in
          (match t.payload.Payload.fmt with
-         | Payload.I64 -> Format.fprintf fmt "%Ld" t.payload.data.{i}
          | Payload.I32 -> Format.fprintf fmt "%ld" t.payload.data.{i}
+         | Payload.I64 -> Format.fprintf fmt "%Ld" t.payload.data.{i}
          | _ ->
              Format.fprintf fmt "%g"
                (Payload.get_float t.payload ~c:(channel c) ~i));

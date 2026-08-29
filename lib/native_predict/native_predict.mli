@@ -17,13 +17,13 @@ end
 
 type error =
   [ `Invalid_k of int  (** [k <= 0]; caught before the [classes >= k] test *)
-  | `Output_count of int  (** outputs <> 1 *)
+  | `Non_finite_logit of Non_finite.t
   | `Not_class_logits of Vec6.shape
     (** Some non-class extent <> 1. PT2 sizes right-align into [Vec6], so a
         [[1; classes]] logits tensor is [~w:1 ~c:classes] and a [[2; classes]]
         batch is [~w:2 ~c:classes] — the rejected extent is [W], not [N]. *)
-  | `Too_few_classes of Too_few_classes.t
-  | `Non_finite_logit of Non_finite.t ]
+  | `Output_count of int  (** outputs <> 1 *)
+  | `Too_few_classes of Too_few_classes.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

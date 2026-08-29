@@ -692,8 +692,8 @@ let%expect_test "a flow state opens a declared stage view over its own graph" =
 
 let encode s =
   match Jsont_bytesrw.encode_string S.Session.jsont s with
-  | Ok j -> j
   | Error e -> failwith ("encode: " ^ e)
+  | Ok j -> j
 
 let%expect_test "the epoch is runtime state and never reaches the document" =
   (* Two loads of the same bytes under different runtime epochs must produce

@@ -26,10 +26,10 @@ let%expect_test "vec6: iter visits dense offsets 0..numel-1 (C innermost)" =
    unchecked [Vec6.numel] results is exactly what wraps two DIFFERENT
    products to the same 32-bit value under js_of_ocaml. *)
 let pp_bounded ppf = function
-  | Ok n -> Fmt.pf ppf "Ok %Ld" n
   | Error e -> (
       match Err.Error.kind e with
       | `Numel_over_limit b -> Fmt.pf ppf "Error %a" Vec6.Numel_bound.pp b)
+  | Ok n -> Fmt.pf ppf "Ok %Ld" n
 
 let numel_bounded s = Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel s
 

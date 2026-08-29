@@ -7,20 +7,20 @@
     sites, so a caller could read the failure but never branch on it. *)
 
 type arg_kind =
-  [ `Tensor
-  | `Optional_tensor
-  | `Int_list
+  [ `Bool
+  | `Float
   | `Float_list
   | `Int
+  | `Int_list
   | `Int_opt
-  | `Bool
-  | `Float
-  | `Scalar
+  | `Memory_format_opt
   | `Optional_scalar
+  | `Optional_tensor
+  | `Scalar
   | `String
-  | `Tensor_or_scalar
+  | `Tensor
   | `Tensor_list
-  | `Memory_format_opt ]
+  | `Tensor_or_scalar ]
 (** What an argument had to be — exactly the set the decode helpers accept. *)
 
 (** A rank an arm requires against the rank the model declared. One row rather
@@ -32,39 +32,60 @@ module Expected_rank : sig
 end
 
 type dim_fault =
-  [ `Negative of int
+  [ `Expected_rank of Expected_rank.t
+  | `Negative of int
+  | `Over_max_extent of int64
+  | `Rank_over_six
+  | `Symbolic
   | `Zero
     (** Not a sub-case of [`Negative]: the engine forbids an empty extent by
         construction ([Dim.extent] is >= 1), so a declared 0 is a shape this
         dialect has no form for rather than a nonsensical number — and it
         arrives from real models (ATen's unbind of a zero-length dim), where a
-        negative size never does. *)
-  | `Symbolic
-  | `Rank_over_six
-  | `Expected_rank of Expected_rank.t
-  | `Over_max_extent of int64
-    (** A derived extent past [Kernel.Limits.Hard.extent]. Carried as [int64]
-        because that is the only width it is guaranteed to fit: the value is a
-        product of model-supplied factors, and js_of_ocaml's [int] is 32 bits,
-        so reporting it as an [int] would print the wrapped number that made it
-        a defect. *) ]
+        negative size never does. *) ]
 
 type metadata_role =
-  [ `Tensor
-  | `Convolution_weight
+  [ `Addmm_weight
+  | `Adaptive_avg_pool2d_input
+  | `Amax_input
+    (** Its own role, not shared with [`Mean_input]: [amax.default] and
+        [mean.dim] have separate arms, and a shared label would leave the row
+        unable to say which one failed. *)
+  | `Concat_input
+  | `Conv2d_bias
+  | `Conv2d_padding_bias
+  | `Conv2d_padding_weight
+    (** Same reasoning as [`Conv2d_weight] applies: [conv2d.padding] reads the
+        weight for its RANK only, so a report naming the [conv2d] role would
+        send a reader looking for a channel check that arm does not perform. *)
   | `Conv2d_weight
     (** Its own role, not shared with [`Convolution_weight]: the two overloads
         have separate arms and a shared label would leave the row unable to say
         which one failed. *)
-  | `Conv2d_padding_weight
-    (** Same reasoning again, and not an over-refinement: [conv2d.padding] reads
-        the weight for its RANK only, so a report naming the [conv2d] role would
-        send a reader looking for a channel check that arm does not perform. *)
-  | `Linear_weight
-  | `Conv2d_bias
-  | `Conv2d_padding_bias
   | `Convolution_bias
+  | `Convolution_weight
+  | `Group_norm_bias
+  | `Group_norm_weight
+    (** [layer_norm]'s and [group_norm]'s optional affine operands are read for
+        their declared RANK, for the same reason [`Rms_norm_weight] is. Separate
+        tags rather than one shared "affine" role: they are separate arguments
+        with separate checks, and a shared label could not say which disagreed.
+    *)
+  | `Layer_norm_bias
+  | `Layer_norm_input
+    (** Both [layer_norm] and [native_layer_norm] read it, and one role covers
+        them: the metadata question is identical, and the target string is
+        already in the diagnostic that carries this role. *)
+  | `Layer_norm_weight
   | `Linear_bias
+  | `Linear_weight
+  | `Mean_input
+  | `Pad_input
+  | `Permute_input
+  | `Rms_norm_input
+    (** [rms_norm] reads the INPUT's metadata, not a weight's:
+        [normalized_shape] is checked against the input's trailing extents,
+        which is the only place those extents can come from. *)
   | `Rms_norm_weight
     (** The OPTIONAL operands, whose metadata is read for its declared RANK.
         [shape_of_sizes] right-aligns a size list into the six-axis frame, so
@@ -72,58 +93,33 @@ type metadata_role =
         check cannot separate them — while ATen refuses a bias that is not 1-D.
         The rank exists only before that conversion, so each importer checks its
         own. *)
-  | `Rms_norm_input
-    (** rms_norm reads the INPUT's metadata, not a weight's: [normalized_shape]
-        is checked against the input's trailing extents, which is the only place
-        those extents can come from. *)
-  | `Layer_norm_weight
-  | `Layer_norm_bias
-  | `Group_norm_weight
-  | `Group_norm_bias
-    (** layer_norm's two optional affine operands, read for their declared RANK
-        for the same reason [`Rms_norm_weight] is. Separate tags rather than one
-        shared "affine" role: they are separate arguments with separate checks,
-        and a shared label could not say which one disagreed. *)
-  | `Layer_norm_input
-    (** Both `layer_norm` and `native_layer_norm` read it, and one role covers
-        them: the metadata question is identical, and the target string is
-        already in the diagnostic that carries this role. *)
-  | `Amax_input
-    (** Its own role, not shared with [`Mean_input]: [amax.default] and
-        [mean.dim] have separate arms, and a shared label would leave the row
-        unable to say which one failed. *)
-  | `Mean_input
-  | `Permute_input
+  | `Sdpa_key
+  | `Sdpa_mask
+  | `Sdpa_query
+  | `Sdpa_value
+  | `Select_input
+  | `Slice_input
+  | `Split_with_sizes_input
+  | `Stack_input
+  | `Tensor
   | `Transpose_input
     (** Its own role, not shared with [`Permute_input]: [transpose.int] and
         [permute.default] have separate arms, and a shared label would leave the
         row unable to say which one failed -- the same reasoning as
         [`Conv2d_weight] vs [`Convolution_weight] above. *)
-  | `Pad_input
-  | `Slice_input
   | `Unbind_input
-  | `Split_with_sizes_input
-  | `Select_input
   | `Unsqueeze_input
-  | `Concat_input
-  | `Stack_input
-  | `Addmm_weight
-  | `Sdpa_query
-  | `Sdpa_key
-  | `Sdpa_value
-  | `Sdpa_mask
-  | `Adaptive_avg_pool2d_input
-  | `Vector_norm_input
-  | `Upsample_bilinear2d_input ]
+  | `Upsample_bilinear2d_input
+  | `Vector_norm_input ]
 (** Why the missing [tensor_values] entry was wanted. *)
 
 type hw_param =
-  [ `Stride
-  | `Padding
-  | `Output_padding
-  | `Dilation
+  [ `Dilation
   | `Kernel_size
-  | `Output_size ]
+  | `Output_padding
+  | `Output_size
+  | `Padding
+  | `Stride ]
 (** The parameters read as an [h, w] pair. Not the same set as
     {!Op_config.Bad.param}, which adds [`Groups]: a group count is a lone int
     and so can be a bad VALUE but never a bad arity. *)
@@ -137,10 +133,10 @@ type config_fault = Op_config.Bad.fault
 
 type unsupported_option =
   [ `Alpha of float
-  | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
-  | `Dilation of int list
   | `Approximate of string
+  | `Dilation of int list
   | `Dtype
+  | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
   | `Vector_norm_ord of float ]
 (** Options this lowering rejects rather than silently drops: a non-unit [alpha]
     would compute the wrong thing, and a [memory_format] asks for a layout
@@ -289,19 +285,14 @@ end
     `compute_output_size`: exactly one of [output_size]/[scale_factors] must be
     given, and a given [scale_factors] must name both spatial axes. *)
 module Bad_upsample_size : sig
-  type fault = Neither | Both | Bad_scale_arity of int
+  type fault = Bad_scale_arity of int | Both | Neither
   type t = { op : string; fault : fault }
 end
 
 type malformed =
-  [ `Missing_arg of Missing_arg.t
-  | `Wrong_arg_kind of Wrong_arg_kind.t
-  | `Unresolved_sym_arg of Unresolved_sym_arg.t
-  | `Missing_metadata of Missing_metadata.t
-  | `Bad_dimension of Bad_dimension.t
+  [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
-  | `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Bad_config of Bad_config.t
     (** An op-configuration value the engine's guarded types have no form for.
         Its own row rather than a [`Bad_dimension] variant: a stride is not a
@@ -310,18 +301,6 @@ type malformed =
         [Op_config.Pos.of_int]/[Nonneg.of_int] directly and left [lower] as an
         uncaught [Invalid_argument] — past the boundary that is supposed to
         classify them. *)
-  | `Normalized_rank of Normalized_rank.t
-  | `Live_layer_norm_stats of Live_layer_norm_stats.t
-    (** [native_layer_norm]'s [mean]/[rstd] are dropped, and this is what
-        refuses a graph that reads one. Not the batch-norm case: those trailing
-        outputs are recorded size-0, these are real tensors that simply happen
-        to be dead in every occurrence the corpus contains. *)
-  | `Normalized_shape of Normalized_shape.t
-    (** The check [Op_bridge] does not do. It reads [normalized_shape]'s LENGTH
-        and nothing else, so a shape naming the wrong extents normalizes over
-        the wrong axes and returns a plausible wrong answer rather than an
-        error. *)
-  | `Unsupported_padding_mode of string
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
     (** The mode [conv2d.padding] offered. A string because it is a third-party
         value out of the export rather than a case this module declined to
@@ -329,24 +308,41 @@ type malformed =
         and the tag names which argument produced the outlier. Its own row
         rather than an [`Unsupported_option]: that record means "recognised and
         refused", while an unknown mode is not recognised at all. *)
-  | `Unsupported_option of Unsupported_option.t
+  | `Bad_dimension of Bad_dimension.t
+  | `Bad_select of Bad_select.t
+  | `Bad_slice of Bad_slice.t
+  | `Bad_upsample_size of Bad_upsample_size.t
+  | `Bad_view of Bad_view.t
+  | `Concat_no_tensors of string
+  | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Live_layer_norm_stats of Live_layer_norm_stats.t
+    (** [native_layer_norm]'s [mean]/[rstd] are dropped, and this is what
+        refuses a graph that reads one. Not the batch-norm case: those trailing
+        outputs are recorded size-0, these are real tensors that simply happen
+        to be dead in every occurrence the corpus contains. *)
+  | `Missing_arg of Missing_arg.t
+  | `Missing_metadata of Missing_metadata.t
+  | `Non_tensor_graph_output
+  | `Non_tensor_node_output of string  (** the node's target *)
+  | `Normalized_rank of Normalized_rank.t
+  | `Normalized_shape of Normalized_shape.t
+    (** The check [Op_bridge] does not do. It reads [normalized_shape]'s LENGTH
+        and nothing else, so a shape naming the wrong extents normalizes over
+        the wrong axes and returns a plausible wrong answer rather than an
+        error. *)
   | `Output_arity of Output_arity.t
     (** A `Tensor[]`-returning node's arity is model data on one side (the names
         in its single [Argument.Tensors] output) and derived from the operand's
         extent on the other. Disagreement is a malformed graph, checked before
         [add_env], whose [Invalid_argument] stays an invariant about this module
         rather than a report about the graph. *)
-  | `Non_tensor_node_output of string  (** the node's target *)
-  | `Non_tensor_graph_output
-  | `Undefined_ssa of string
   | `Output_not_evaluated of Graph_ir.Tensor_id.t
-  | `Bad_view of Bad_view.t
-  | `Bad_slice of Bad_slice.t
-  | `Bad_select of Bad_select.t
   | `Sdpa_reject of Attention.Sdpa.Reject.t
-  | `Concat_no_tensors of string
-  | `Concat_rank_mismatch of Concat_rank_mismatch.t
-  | `Bad_upsample_size of Bad_upsample_size.t ]
+  | `Undefined_ssa of string
+  | `Unresolved_sym_arg of Unresolved_sym_arg.t
+  | `Unsupported_option of Unsupported_option.t
+  | `Unsupported_padding_mode of string
+  | `Wrong_arg_kind of Wrong_arg_kind.t ]
 (** A graph the decoder accepted and this lowering cannot read. FLAT-INCLUDED in
     {!error}: it is this module's own failure domain, not a crossed seam. *)
 
@@ -359,24 +355,28 @@ module Storage_range : sig
 end
 
 type tensor_bridge =
-  [ malformed
-    (* [shape_of_sizes] is written for graph metadata and the bridge reuses it,
-       so its rows arrive here re-labelled rather than flattened. *)
-  | `Rank_mismatch of Rank_mismatch.t
-  | `Storage_index_overflow
-  | `Storage_out_of_range of Storage_range.t
+  [ `Archive of Pt2_archive.error
+    (** a real seam, so the whole row crosses it; this was
+        [Format.asprintf "%a"] of the same value *)
   | `Materialize_failed of string
     (** [Invalid_argument]'s own message — a third-party payload, named for its
         source rather than left to read as a case declined to classify *)
+  | `Rank_mismatch of Rank_mismatch.t
+  | `Storage_index_overflow
+  | `Storage_out_of_range of Storage_range.t
   | `Unsupported_dtype of Pt2_dtype.t
-  | `Archive of Pt2_archive.error
-    (** a real seam, so the whole row crosses it; this was
-        [Format.asprintf "%a"] of the same value *) ]
+  | malformed
+    (* [shape_of_sizes] is written for graph metadata and the bridge reuses it,
+       so its rows arrive here re-labelled rather than flattened. *)
+  ]
 (** Loading a captured tensor — a different job from reading graph metadata. *)
 
 type error =
-  [ `Unsupported_input of unsupported_input
-  | `Unsupported_operator of string  (** the target *)
+  [ `Build of Graph_builder.error
+  | `Eval of Eval_direct.error
+  | `Lens of Pt2_native_graph.lens_error
+  | `Materialize of Const_ssa_materialize.error
+  | malformed
   | `Output_count_over_limit of Shape_error.Output_count.t
     (** A RESOURCE rejection, deliberately outside {!malformed}: a perfectly
         well-formed graph can still ask for more outputs than the engine will
@@ -385,15 +385,12 @@ type error =
         [Unavailable Over_limit] ("your model is too big"). [Shape_error]'s row
         is reused rather than restated, so this spelling and the nested
         [`Build (`Output_count_over_limit _)] carry the same payload. *)
-  | malformed
-  | `Tensor_bridge of tensor_bridge
-  | `Materialize of Const_ssa_materialize.error
-  | `Eval of Eval_direct.error
-  | `Build of Graph_builder.error
   | `Provenance of Pt2_native_graph.error
+  | `Tensor_bridge of tensor_bridge
   | `Transform of Pass.error
-  | `Verify of Map_verify.error
-  | `Lens of Pt2_native_graph.lens_error ]
+  | `Unsupported_input of unsupported_input
+  | `Unsupported_operator of string  (** the target *)
+  | `Verify of Map_verify.error ]
 
 type hooks =
   | Hooks : {

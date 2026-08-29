@@ -7,15 +7,15 @@ open Graph_ir
 type error =
   [ `Build of Graph_builder.error
   | `Eval of Eval_direct.error
-  | `Shape of Shape_error.t
-  | `Missing_named_tensor of string ]
+  | `Missing_named_tensor of string
+  | `Shape of Shape_error.t ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Build e -> Graph_builder.pp_error ppf e
   | `Eval e -> Eval_direct.pp_error ppf e
-  | `Shape e -> Shape_error.pp ppf e
   | `Missing_named_tensor name ->
       Format.fprintf ppf "missing named tensor %S" name
+  | `Shape e -> Shape_error.pp ppf e
 
 let pp_result pp_ok = Core.Pretty.err_result ~ok:pp_ok ~error:pp_error
 

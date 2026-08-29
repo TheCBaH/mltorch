@@ -4,8 +4,8 @@
    in [qmin, qmax], not Dim sizes). See .ai/native_tensor_design.md §3. *)
 
 type t =
-  | Per_tensor of { scale : float; zero_point : int }
   | Per_channel of { scale : float array; zero_point : int array }
+  | Per_tensor of { scale : float; zero_point : int }
 (* equal lengths, by construction *)
 
 type error = [ `Quant_array_lengths of int * int ]
@@ -27,20 +27,20 @@ let per_channel ~scale ~zero_point =
          { scale = Array.copy scale; zero_point = Array.copy zero_point })
 
 let channel_count = function
-  | Per_tensor _ -> None
   | Per_channel { scale; _ } -> Some (Array.length scale)
+  | Per_tensor _ -> None
 
 let equal a b =
   match (a, b) with
-  | Per_tensor x, Per_tensor y ->
-      Core.Float_bits.equal_exact x.scale y.scale && x.zero_point = y.zero_point
   | Per_channel x, Per_channel y ->
       Array.length x.scale = Array.length y.scale
       (* [for_all2] would raise on a length mismatch, which the guard above
             already rules out; the explicit check keeps that local. *)
       && Array.for_all2 Core.Float_bits.equal_exact x.scale y.scale
       && Array.for_all2 ( = ) x.zero_point y.zero_point
-  | Per_tensor _, Per_channel _ | Per_channel _, Per_tensor _ -> false
+  | Per_channel _, Per_tensor _ | Per_tensor _, Per_channel _ -> false
+  | Per_tensor x, Per_tensor y ->
+      Core.Float_bits.equal_exact x.scale y.scale && x.zero_point = y.zero_point
 
 let of_err_for_jsont r =
   match Err.export ~pos:__POS__ r with
@@ -49,8 +49,8 @@ let of_err_for_jsont r =
 
 let params t ~c =
   match t with
-  | Per_tensor { scale; zero_point } -> (scale, zero_point)
   | Per_channel { scale; zero_point } -> (scale.(c), zero_point.(c))
+  | Per_tensor { scale; zero_point } -> (scale, zero_point)
 
 let dequantize t ~c ~q =
   let scale, zero_point = params t ~c in
@@ -62,10 +62,10 @@ let quantize t ~c ~qmin ~qmax x =
   if v < qmin then qmin else if v > qmax then qmax else v
 
 let pp fmt = function
-  | Per_tensor { scale; zero_point } ->
-      Format.fprintf fmt "Per_tensor s=%g zero_point=%d" scale zero_point
   | Per_channel { scale; _ } ->
       Format.fprintf fmt "Per_channel(%d)" (Array.length scale)
+  | Per_tensor { scale; zero_point } ->
+      Format.fprintf fmt "Per_tensor s=%g zero_point=%d" scale zero_point
 
 let jsont : t Jsont.t =
   Jsont.map ~kind:"quant"

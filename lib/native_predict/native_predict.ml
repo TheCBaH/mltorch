@@ -22,23 +22,25 @@ end
 
 type error =
   [ `Invalid_k of int
-  | `Output_count of int
+  | `Non_finite_logit of Non_finite.t
   | `Not_class_logits of Vec6.shape
-  | `Too_few_classes of Too_few_classes.t
-  | `Non_finite_logit of Non_finite.t ]
+  | `Output_count of int
+  | `Too_few_classes of Too_few_classes.t ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Invalid_k k -> Fmt.pf ppf "top-k needs k >= 1, got %d" k
-  | `Output_count n -> Fmt.pf ppf "expected exactly one output tensor, got %d" n
+  | `Non_finite_logit { Non_finite.index; value } ->
+      Fmt.pf ppf "non-finite logit at class %d: %h" index value
   | `Not_class_logits shape ->
       Fmt.pf ppf "not one batch of class logits: %a" Vec6.pp_shape shape
+  | `Output_count n -> Fmt.pf ppf "expected exactly one output tensor, got %d" n
   | `Too_few_classes { Too_few_classes.classes; wanted } ->
       Fmt.pf ppf "top-%d requested, only %d class%s" wanted classes
         (if classes = 1 then "" else "es")
-  | `Non_finite_logit { Non_finite.index; value } ->
-      Fmt.pf ppf "non-finite logit at class %d: %h" index value
 
-(* Every axis but [C] must be a single element: one batch of class logits. *)
+(* Every axis but [C] must be a single element: one batch of class logits.
+   This list is in the tensor frame's canonical order (not alphabetical), so
+   diagnostics inspect the outer dimensions consistently. *)
 let batch_axes = [ Axis.N; Axis.T; Axis.D; Axis.H; Axis.W ]
 
 let logits_of_output (Tensor.Tensor t as packed) =

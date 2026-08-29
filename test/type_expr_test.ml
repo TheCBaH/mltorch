@@ -8,6 +8,30 @@ let%expect_test "primitives" =
     float
     bool |}]
 
+let%expect_test "every type expression constructor prints" =
+  List.iter
+    (fun t -> print_endline (Type_expr.to_string t))
+    [
+      Type_expr.Bool;
+      Type_expr.Dict Type_expr.Int;
+      Type_expr.Float;
+      Type_expr.Int;
+      Type_expr.List Type_expr.Str;
+      Type_expr.Optional Type_expr.Str;
+      Type_expr.Ref "TensorArgument";
+      Type_expr.Str;
+    ];
+  [%expect
+    {|
+    bool
+    Dict[str, int]
+    float
+    int
+    List[str]
+    Optional[str]
+    TensorArgument
+    str |}]
+
 let%expect_test "List and Optional" =
   List.iter
     (fun s -> print_endline (parse s))

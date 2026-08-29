@@ -186,8 +186,8 @@ let%expect_test "round trip" =
      no [Err.Error.t]. *)
   let encode d =
     match Jsont_bytesrw.encode_string D.jsont d with
-    | Ok s -> s
     | Error e -> failwith ("encode: " ^ e)
+    | Ok s -> s
   in
   let pp_reencoded s =
     Core.Pretty.result

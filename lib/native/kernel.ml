@@ -189,22 +189,22 @@ module Body_error = struct
 end
 
 type error =
-  [ `Duplicate_id of Tensor_id.t
-  | `Signature_id_mismatch of Sig_mismatch.t
-  | `Unresolved_source of Unresolved.t
-  | `Forward_reference of Forward_ref.t
-  | `Unknown_output of Tensor_id.t
-  | `Unreachable_value of Tensor_id.t
-  | `Too_many_values of int
-  | `Too_many_inputs of int
-  | `Too_many_outputs of int
+  [ `Body of Body_error.t
   | `Dependency_too_deep of int
+  | `Duplicate_id of Tensor_id.t
   | `Eval_too_deep of int
   | `Extent_too_large of Extent_bound.t
-  | `Numel_too_large of Tensor_id.t
+  | `Forward_reference of Forward_ref.t
   | `Not_materializable of Format_rule.t
+  | `Numel_too_large of Tensor_id.t
   | `Quant_contract of Tensor_id.t
-  | `Body of Body_error.t ]
+  | `Signature_id_mismatch of Sig_mismatch.t
+  | `Too_many_inputs of int
+  | `Too_many_outputs of int
+  | `Too_many_values of int
+  | `Unknown_output of Tensor_id.t
+  | `Unreachable_value of Tensor_id.t
+  | `Unresolved_source of Unresolved.t ]
 
 let pp_error fmt : [< error ] -> unit = function
   | `Duplicate_id id -> Fmt.pf fmt "duplicate id %a" Tensor_id.pp id

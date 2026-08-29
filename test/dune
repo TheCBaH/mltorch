@@ -25,7 +25,7 @@
 (library
  (name aten_gen_test)
  (modules aten_gen_test)
- (libraries aten_schema aten_gen)
+ (libraries aten_gen aten_schema)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
@@ -62,7 +62,7 @@
 (library
  (name pt2_test)
  (modules pt2_test)
- (libraries core err_trace pt2 zipc opickle bytesrw)
+ (libraries bytesrw core err_trace opickle pt2 zipc)
  ; See test/native4d/dune for why [js] carries no `enabled_if`.
  (inline_tests
   (modes best js))
@@ -121,7 +121,7 @@
 (library
  (name aten_spec_test)
  (modules aten_spec_test)
- (libraries aten_spec aten_op_spec jsont jsont.bytesrw)
+ (libraries aten_op_spec aten_spec jsont jsont.bytesrw)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
@@ -133,11 +133,11 @@
  (name native_walk_test)
  (modules native_walk_test)
  (libraries
-  native_walk
   aten_op_walk
   aten_spec
   aten_spec_run
-  aten_walk_recipes)
+  aten_walk_recipes
+  native_walk)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
@@ -149,7 +149,7 @@
 (library
  (name aten_spec_run_test)
  (modules aten_spec_run_test)
- (libraries aten_spec_run aten_op_spec jsont jsont.bytesrw)
+ (libraries aten_op_spec aten_spec_run jsont jsont.bytesrw)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
@@ -454,14 +454,18 @@
 (executable
  (name parse_weights_config)
  (modules parse_weights_config)
- (libraries pytorch_types jsont jsont.bytesrw schema_runtime))
+ (libraries jsont jsont.bytesrw pytorch_types schema_runtime))
 
 ; aten_schema stage 1: raw YAML parse
 
 (rule
  (target native_functions.yaml)
  (action
-  (copy ../data/native_functions.yaml %{target})))
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/pytorch/aten/src/ATen/native/native_functions.yaml))))
 
 (executable
  (name aten_schema_raw_test)
@@ -471,6 +475,13 @@
 (cram
  (applies_to aten_schema_raw_cram)
  (deps %{exe:aten_schema_raw_test.exe} native_functions.yaml))
+
+; The generator's lookup table is searched by humans as well as by
+; [List.assoc_opt], so preserve its alphabetical target-name order.
+
+(cram
+ (applies_to aten_ops_gen_order_cram)
+ (deps %{exe:../bin/aten_ops_gen.exe} native_functions.yaml))
 
 ; Verify JSON op-specs end-to-end (ATen vs native). Needs the C++ ATen build
 ; (via the bin exe) but no downloaded model weights.

@@ -6,8 +6,8 @@
 
 let decode s =
   match Jsont_bytesrw.decode_string Aten_op_spec.jsont s with
-  | Ok spec -> spec
   | Error e -> failwith ("decode: " ^ e)
+  | Ok spec -> spec
 
 (* Run an action that prints through a Format formatter, capturing to stdout so
    ppx_expect sees it. *)

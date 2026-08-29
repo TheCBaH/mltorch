@@ -38,35 +38,35 @@ end
 
 module Bad = struct
   type param =
-    [ `Stride
-    | `Padding
-    | `Output_padding
-    | `Dilation
+    [ `Dilation
+    | `Groups
     | `Kernel_size
+    | `Output_padding
     | `Output_size
-    | `Groups ]
+    | `Padding
+    | `Stride ]
 
-  type fault = [ `Not_positive of int | `Negative of int ]
+  type fault = [ `Negative of int | `Not_positive of int ]
   type t = { op : string; param : param; fault : fault }
 
   let pp_param ppf : param -> unit =
    fun p ->
     Fmt.string ppf
       (match p with
-      | `Stride -> "stride"
-      | `Padding -> "padding"
-      | `Output_padding -> "output_padding"
       | `Dilation -> "dilation"
+      | `Groups -> "groups"
       | `Kernel_size -> "kernel_size"
+      | `Output_padding -> "output_padding"
       | `Output_size -> "output_size"
-      | `Groups -> "groups")
+      | `Padding -> "padding"
+      | `Stride -> "stride")
 
   let pp ppf { op; param; fault } =
     match fault with
-    | `Not_positive n ->
-        Fmt.pf ppf "%s: %a must be positive, got %d" op pp_param param n
     | `Negative n ->
         Fmt.pf ppf "%s: %a must not be negative, got %d" op pp_param param n
+    | `Not_positive n ->
+        Fmt.pf ppf "%s: %a must be positive, got %d" op pp_param param n
 
   let pos ~op ~param n =
     if n < 1 then Error { op; param; fault = `Not_positive n }

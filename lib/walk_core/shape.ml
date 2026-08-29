@@ -7,24 +7,24 @@
 
 type t = { n : int; t : int; d : int; h : int; w : int; c : int }
 
-type axis = [ `N | `H | `W | `C ]
+type axis = [ `C | `H | `N | `W ]
 (** The mutable axes for the 4D ops (T/D stay 1). *)
 
 let numel s = s.n * s.t * s.d * s.h * s.w * s.c
 
 let cap (l : Limits.t) = function
-  | `N -> l.max_batch
-  | `H | `W -> l.max_extent
   | `C -> l.max_channels
+  | `H | `W -> l.max_extent
+  | `N -> l.max_batch
 
-let get s = function `N -> s.n | `H -> s.h | `W -> s.w | `C -> s.c
+let get s = function `C -> s.c | `H -> s.h | `N -> s.n | `W -> s.w
 
 let set s axis v =
   match axis with
-  | `N -> { s with n = v }
-  | `H -> { s with h = v }
-  | `W -> { s with w = v }
   | `C -> { s with c = v }
+  | `H -> { s with h = v }
+  | `N -> { s with n = v }
+  | `W -> { s with w = v }
 
 let valid (l : Limits.t) s =
   s.n >= 1 && s.t >= 1 && s.d >= 1 && s.h >= 1 && s.w >= 1 && s.c >= 1

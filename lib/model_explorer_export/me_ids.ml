@@ -1,18 +1,18 @@
 (* Deterministic external identifiers. See the .mli. *)
 
 type error =
-  [ `Control_byte of int | `Label_too_long of int | `Id_too_long of int ]
+  [ `Control_byte of int | `Id_too_long of int | `Label_too_long of int ]
 
 let pp_error fmt : [< error ] -> unit = function
   | `Control_byte b -> Fmt.pf fmt "control byte 0x%02X in label" b
-  | `Label_too_long n -> Fmt.pf fmt "label of %d bytes is over the ceiling" n
   | `Id_too_long n -> Fmt.pf fmt "encoded id of %d bytes is over the ceiling" n
+  | `Label_too_long n -> Fmt.pf fmt "label of %d bytes is over the ceiling" n
 
 (* The characters the renderer's own grammar reads, plus [%] itself. Encoded in
    ONE pass, which is what makes the map injective: a two-pass scheme that
    escaped [%] after the others would turn ["%2F"] and ["/"] into the same
-   output. Their order in this list is irrelevant for the same reason. *)
-let reserved = [ '%'; '/'; ';'; '\\'; '#'; ':' ]
+   output. Membership is order-independent, so the list is sorted by codepoint. *)
+let reserved = [ '#'; '%'; '/'; ':'; ';'; '\\' ]
 let is_control c = Char.code c < 0x20 || Char.code c = 0x7F
 
 let component s =
@@ -32,18 +32,17 @@ let component s =
   go 0
 
 module Layer = struct
-  type t = Pt2 | Native | Native4d | Symbolic | Kernel
+  type t = Kernel | Native | Native4d | Pt2 | Symbolic
 
   let to_string = function
-    | Pt2 -> "pt2"
+    | Kernel -> "kernel"
     | Native -> "native"
     | Native4d -> "native4d"
+    | Pt2 -> "pt2"
     | Symbolic -> "symbolic"
-    | Kernel -> "kernel"
 
-  (* The same successor chain [Me_limits.Diagnostic.Code] uses, and for the
-     same reason: a list written beside the type compiles while everything that
-     iterates the vocabulary quietly stops seeing the new member. *)
+  (* This successor relation defines the externally visible conversion timeline;
+     the declaration above remains alphabetical. *)
   let next = function
     | Pt2 -> Some Native
     | Native -> Some Native4d
@@ -104,7 +103,7 @@ let pt2_node path index =
 let pt2_boundary ~limits kind name =
   let open Err.Syntax in
   let prefix =
-    match kind with `In -> "in" | `Const -> "const" | `Out -> "out"
+    match kind with `Const -> "const" | `In -> "in" | `Out -> "out"
   in
   (* The SSA name is a dynamic component and goes through the encoder; the [:]
      that separates it from the prefix does not, being structural. *)

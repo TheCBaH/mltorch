@@ -3,8 +3,8 @@
    the *sampled* values need f32-canonical treatment (see [Pcg]). *)
 
 type t =
-  | Uniform of { low : float; high : float }
   | Normal of { mean : float; variance : float }
+  | Uniform of { low : float; high : float }
 
 let uniform_payload : t Jsont.t =
   Jsont.Object.map ~kind:"uniform" (fun low high -> Uniform { low; high })
@@ -24,19 +24,19 @@ let jsont : t Jsont.t =
     ~dec:
       (Spec_util.union ~kind:"distribution"
          [
-           ("uniform", fun v -> Spec_util.dec uniform_payload v);
            ("normal", fun v -> Spec_util.dec normal_payload v);
+           ("uniform", fun v -> Spec_util.dec uniform_payload v);
          ])
     ~enc:(function
-      | Uniform { low; high } ->
-          Spec_util.single ~case:"uniform"
-            (Spec_util.jobj
-               [ ("low", Spec_util.jnum low); ("high", Spec_util.jnum high) ])
       | Normal { mean; variance } ->
           Spec_util.single ~case:"normal"
             (Spec_util.jobj
                [
                  ("mean", Spec_util.jnum mean);
                  ("variance", Spec_util.jnum variance);
-               ]))
+               ])
+      | Uniform { low; high } ->
+          Spec_util.single ~case:"uniform"
+            (Spec_util.jobj
+               [ ("low", Spec_util.jnum low); ("high", Spec_util.jnum high) ]))
     Jsont.json

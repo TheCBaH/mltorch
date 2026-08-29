@@ -2,29 +2,29 @@
 open Aten_func_parser
 
 let kw_or_ident s = match s with
-  | "Generator"    -> GENERATOR
-  | "ScalarType"   -> SCALAR_TYPE
-  | "Tensor"       -> TENSOR
-  | "int"          -> INT_TY
-  | "Dimname"      -> DIMNAME
-  | "DimVector"    -> DIM_VECTOR
-  | "float"        -> FLOAT_TY
-  | "str"          -> STR_TY
   | "bool"         -> BOOL_TY
-  | "Layout"       -> LAYOUT
   | "Device"       -> DEVICE
   | "DeviceIndex"  -> DEVICE_INDEX
-  | "Scalar"       -> SCALAR
-  | "MemoryFormat" -> MEMORY_FORMAT
-  | "QScheme"      -> QSCHEME
-  | "Storage"      -> STORAGE
-  | "Stream"       -> STREAM
-  | "SymInt"       -> SYM_INT
-  | "SymBool"      -> SYM_BOOL
-  | "GraphModule"  -> GRAPH_MODULE
-  | "None"         -> NONE
-  | "True"         -> TRUE
+  | "Dimname"      -> DIMNAME
+  | "DimVector"    -> DIM_VECTOR
   | "False"        -> FALSE
+  | "float"        -> FLOAT_TY
+  | "Generator"    -> GENERATOR
+  | "GraphModule"  -> GRAPH_MODULE
+  | "int"          -> INT_TY
+  | "Layout"       -> LAYOUT
+  | "MemoryFormat" -> MEMORY_FORMAT
+  | "None"         -> NONE
+  | "QScheme"      -> QSCHEME
+  | "Scalar"       -> SCALAR
+  | "ScalarType"   -> SCALAR_TYPE
+  | "Storage"      -> STORAGE
+  | "str"          -> STR_TY
+  | "Stream"       -> STREAM
+  | "SymBool"      -> SYM_BOOL
+  | "SymInt"       -> SYM_INT
+  | "Tensor"       -> TENSOR
+  | "True"         -> TRUE
   | s              -> IDENT s
 }
 

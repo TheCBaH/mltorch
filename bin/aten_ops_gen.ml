@@ -27,7 +27,9 @@ type selection =
 let op ?overload base = Allow { base; overload }
 let custom ?(style = `Function) signature = Override { signature; style }
 
-let selection =
+(* Grouped by why an operation is bound; [selection] below is the alphabetical
+   registry consumed by every generator. *)
+let curated_selection =
   [
     op "add" ~overload:"Tensor";
     op "add_" ~overload:"Tensor";
@@ -114,6 +116,16 @@ let selection =
        Tensor::cpu() method is nullary, so this signature is exact, not trimmed. *)
     custom ~style:`Method "cpu(Tensor self) -> Tensor";
   ]
+
+let selection_key = function
+  | Allow { base; overload = None } -> base
+  | Allow { base; overload = Some overload } -> base ^ "." ^ overload
+  | Override { signature; _ } -> signature
+
+let selection =
+  List.sort
+    (fun a b -> String.compare (selection_key a) (selection_key b))
+    curated_selection
 
 let die fmt =
   Printf.ksprintf

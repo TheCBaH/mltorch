@@ -289,7 +289,7 @@ module Split_with_sizes = struct
      for the same reason: an independent [sizes] axis would draw far more
      configurations [output_shapes] refuses (wrong sum) than ones it accepts. *)
   module Walk (L : Walk_core.Limits.S) = struct
-    type pattern = Halves | Thirds | Head_and_rest | All_ones
+    type pattern = All_ones | Halves | Head_and_rest | Thirds
     type cfg = { shape : Walk_core.Shape.t; axis : Axis.t; pattern : pattern }
 
     let initial =
@@ -306,15 +306,15 @@ module Split_with_sizes = struct
        uneven split lands entirely in the LAST piece, so there is no pattern
        here that [output_shapes] would refuse. *)
     let sizes_for ~n = function
+      | All_ones -> List.init n (fun _ -> 1)
       | Halves ->
           let half = max 1 (n / 2) in
           if half >= n then [ n ] else [ half; n - half ]
+      | Head_and_rest -> if n <= 1 then [ n ] else [ 1; n - 1 ]
       | Thirds ->
           let third = max 1 (n / 3) in
           if 2 * third >= n then [ third; n - third ]
           else [ third; third; n - (2 * third) ]
-      | Head_and_rest -> if n <= 1 then [ n ] else [ 1; n - 1 ]
-      | All_ones -> List.init n (fun _ -> 1)
 
     let params (c : cfg) : params =
       let n = (Vec6.get (shape c) c.axis :> int) in
@@ -475,7 +475,7 @@ module Slice = struct
      configuration a Default-tier walk would produce, kept here so the golden
      shows it beside the configurations that actually move data. *)
   module Walk (L : Walk_core.Limits.S) = struct
-    type pattern = Prefix | Head | Tail | Interior | Stride2 | Stride3
+    type pattern = Head | Interior | Prefix | Stride2 | Stride3 | Tail
     type cfg = { shape : Walk_core.Shape.t; axis : Axis.t; pattern : pattern }
 
     let initial =
@@ -492,12 +492,12 @@ module Slice = struct
        least one element because [max 1] and [min (n-1)] pin them, and the
        strided forms start at 0. *)
     let bounds ~n = function
-      | Prefix -> (0, n, 1)
       | Head -> (0, max 1 (n / 2), 1)
-      | Tail -> (min (n - 1) (n / 2), n, 1)
       | Interior -> (min (n - 1) 1, n, 1)
+      | Prefix -> (0, n, 1)
       | Stride2 -> (0, n, 2)
       | Stride3 -> (0, n, 3)
+      | Tail -> (min (n - 1) (n / 2), n, 1)
 
     let params (c : cfg) : params =
       let n = (Vec6.get (shape c) c.axis :> int) in

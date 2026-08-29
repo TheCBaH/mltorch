@@ -23,14 +23,14 @@
    See .ai/model_explorer_design.md. *)
 
 type error =
-  [ `Key_disagrees_with_ids
+  [ `Document of Me_session.Session.error
+  | `Key_disagrees_with_ids
     (** the delta's graph or view id is not [Detail_key.id key] *)
+  | Me_limits.over_limit_error (* counted under [Me_limits.Scope.Detail] *)
   | `Unsupported_detail_key
     (** well-formed, but names no value in that graph. Distinct from a malformed
         key: one is a bad request, the other a valid request about something
-        absent *)
-  | Me_limits.over_limit_error (* counted under [Me_limits.Scope.Detail] *)
-  | `Document of Me_session.Session.error ]
+        absent *) ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

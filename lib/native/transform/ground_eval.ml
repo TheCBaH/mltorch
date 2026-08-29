@@ -74,8 +74,9 @@ module Env = struct
       List.fold_left
         (fun acc ((id : Tensor_id.t), _) ->
           match Tensor_id.Map.find_opt id p.Stage_program.input_kinds with
+          | None -> acc
           | Some Input.Constant -> Tensor_id.Set.add id acc
-          | None | Some Input.Input -> acc)
+          | Some Input.Input -> acc)
         Tensor_id.Set.empty p.Stage_program.inputs
     in
     {
@@ -157,11 +158,11 @@ end
 
 (* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
    arithmetic can now fail where it previously wrapped. *)
-type error = [ `Unknown_edge of Tensor_id.t | Expr.Eval.error ]
+type error = [ Expr.Eval.error | `Unknown_edge of Tensor_id.t ]
 
 let pp_error fmt : [< error ] -> unit = function
-  | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
   | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
+  | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
 
 (* Index evaluation is result-returning, but [ground] and [expand] are
    recursive rebuilds threading a node budget; converting at every step would

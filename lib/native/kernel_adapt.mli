@@ -33,19 +33,19 @@ module Unknown_stage : sig
 end
 
 module Program_error : sig
-  type kind = Duplicate_definition | Signature_id | Forward_source
+  type kind = Duplicate_definition | Forward_source | Signature_id
   type t = { at : Tensor_id.t; kind : kind }
 end
 
 type error =
   [ Kernel.error
-  | `Unknown_stage_source of Unknown_stage.t
   | `Missing_live_output of Tensor_id.t
   | `Output_not_selected of Tensor_id.t
-  | `Unknown_selection of Tensor_id.t
   | `Passthrough_output of Tensor_id.t
+  | `Program_invalid of Program_error.t
   | `Unknown_program_output of Tensor_id.t
-  | `Program_invalid of Program_error.t ]
+  | `Unknown_selection of Tensor_id.t
+  | `Unknown_stage_source of Unknown_stage.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

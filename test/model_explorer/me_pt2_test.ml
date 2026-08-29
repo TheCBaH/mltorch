@@ -163,16 +163,16 @@ let%expect_test "the member ceilings" =
   in
   let l = [ (0, [ origin 0 ]); (1, [ origin 1 ]) ] in
   (match P.of_origins ~limits:tight ~source_nodes:[] (origins l) with
-  | Ok _ -> print_endline "total: ok"
-  | Error e -> Format.printf "total: %a@." P.pp_error (Err.Error.kind e));
+  | Error e -> Format.printf "total: %a@." P.pp_error (Err.Error.kind e)
+  | Ok _ -> print_endline "total: ok");
   let tight_e =
     Err.or_raise ~pp_error:Me_limits.pp_error
       (Me_limits.Limits.create ~max_mapping_members_per_entry:2 limits)
   in
   let big = [ (0, [ origin 0; origin 1; origin 2 ]) ] in
   (match P.of_origins ~limits:tight_e ~source_nodes:[] (origins big) with
-  | Ok _ -> print_endline "per entry: ok"
-  | Error e -> Format.printf "per entry: %a@." P.pp_error (Err.Error.kind e));
+  | Error e -> Format.printf "per entry: %a@." P.pp_error (Err.Error.kind e)
+  | Ok _ -> print_endline "per entry: ok");
   [%expect
     {|
     total: navigation mappingMembers = 4 is over the ceiling

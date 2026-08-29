@@ -3,19 +3,19 @@
    without adding public unsafe constructors. *)
 
 type _ t =
+  | Add : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
+  | Assume_position : Role.Delta.t t -> Role.Position.t t
+  | Ceil_div_pos : Role.Delta.t t * int -> Role.Delta.t t
+  | Clamp_low : Role.Delta.t t -> Role.Position.t t
+  | Const : int -> Role.Delta.t t
+  | Floor_div_pos : Role.Delta.t t * int -> Role.Delta.t t
+  | Max : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
+  | Min : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
+  | Of_position : Role.Position.t t -> Role.Delta.t t
   | Output : Axis.t -> Role.Position.t t
   | Reduce : Reduce_var.t -> Role.Position.t t
-  | Zero : Role.Position.t t
-  | Const : int -> Role.Delta.t t
-  | Of_position : Role.Position.t t -> Role.Delta.t t
-  | Add : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
   | Scale : int * Role.Delta.t t -> Role.Delta.t t
-  | Floor_div_pos : Role.Delta.t t * int -> Role.Delta.t t
-  | Ceil_div_pos : Role.Delta.t t * int -> Role.Delta.t t
-  | Min : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
-  | Max : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
-  | Clamp_low : Role.Delta.t t -> Role.Position.t t
-  | Assume_position : Role.Delta.t t -> Role.Position.t t
+  | Zero : Role.Position.t t
 
 type error = [ `Non_positive_divisor of int ]
 

@@ -31,7 +31,7 @@ module Node_origin : sig
   }
 end
 
-type tensor_origin = Source of Tensor_origin.t | Derived
+type tensor_origin = Derived | Source of Tensor_origin.t
 
 type t = {
   graph : graph;
@@ -41,9 +41,9 @@ type t = {
 }
 
 type error =
-  [ `Unknown_tensor_id of Tensor_id.t
+  [ `Captured_target_for_non_constant of Tensor_id.t
   | `Unknown_node_id of Node_id.t
-  | `Captured_target_for_non_constant of Tensor_id.t ]
+  | `Unknown_tensor_id of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -66,11 +66,11 @@ val make :
    See .ai/native_transform_design.md §10. *)
 
 type lens_error =
-  [ error
-  | Graph_map.error
-  | `Sidecar_graph_mismatch
+  [ `Sidecar_graph_mismatch
   | `Unknown_destination_node of Node_id.t
-  | `Unknown_destination_tensor of Tensor_id.t ]
+  | `Unknown_destination_tensor of Tensor_id.t
+  | error
+  | Graph_map.error ]
 
 val pp_lens_error : Format.formatter -> [< lens_error ] -> unit
 

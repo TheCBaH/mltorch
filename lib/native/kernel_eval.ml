@@ -2,20 +2,20 @@
 
 module Binding_mismatch = struct
   type kind =
-    | Shape
     | Format
     | Quant
+    | Shape
     | Storage_length of { expected : int; actual : int }
 
   type t = { id : Tensor_id.t; kind : kind }
 
   let pp fmt { id; kind } =
     match kind with
-    | Shape -> Fmt.pf fmt "%a: bound tensor has the wrong shape" Tensor_id.pp id
     | Format ->
         Fmt.pf fmt "%a: bound tensor has the wrong format" Tensor_id.pp id
     | Quant ->
         Fmt.pf fmt "%a: bound tensor has the wrong quantization" Tensor_id.pp id
+    | Shape -> Fmt.pf fmt "%a: bound tensor has the wrong shape" Tensor_id.pp id
     | Storage_length { expected; actual } ->
         Fmt.pf fmt "%a: bound tensor holds %d cells, expected %d" Tensor_id.pp
           id actual expected
@@ -23,18 +23,18 @@ end
 
 type error =
   [ Expr.Eval.error
-  | `Unbound_input of Tensor_id.t
   | `Binding_mismatch of Binding_mismatch.t
-  | `Unknown_value of Tensor_id.t
-  | `Recursion_too_deep of int ]
+  | `Recursion_too_deep of int
+  | `Unbound_input of Tensor_id.t
+  | `Unknown_value of Tensor_id.t ]
 
 let pp_error fmt : [< error ] -> unit = function
-  | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
+  | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
   | `Binding_mismatch m -> Binding_mismatch.pp fmt m
-  | `Unknown_value id -> Fmt.pf fmt "%a names no value" Tensor_id.pp id
   | `Recursion_too_deep n ->
       Fmt.pf fmt "recursive evaluation nested more than %d producers deep" n
-  | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
+  | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
+  | `Unknown_value id -> Fmt.pf fmt "%a names no value" Tensor_id.pp id
 
 (* ---- the per-run input environment ----------------------------------------
 

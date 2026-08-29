@@ -2,21 +2,21 @@
 
 module C = Me_session.Capability
 
-type verdict = Unavailable of C.reason | Fatal
+type verdict = Fatal | Unavailable of C.reason
 
 let pp_verdict fmt = function
   | Fatal -> Fmt.pf fmt "fatal"
   | Unavailable r ->
       Fmt.pf fmt "unavailable %s"
         (match r with
-        | C.Unsupported_operator -> "unsupported_operator"
-        | C.Unsupported_input -> "unsupported_input"
-        | C.Unsupported_graph_shape -> "unsupported_graph_shape"
+        | C.Not_implemented -> "not_implemented"
         | C.Outside_dialect_domain -> "outside_dialect_domain"
         | C.Over_limit -> "over_limit"
-        | C.Requires_payloads -> "requires_payloads"
         | C.Prerequisite_unavailable -> "prerequisite_unavailable"
-        | C.Not_implemented -> "not_implemented")
+        | C.Requires_payloads -> "requires_payloads"
+        | C.Unsupported_graph_shape -> "unsupported_graph_shape"
+        | C.Unsupported_input -> "unsupported_input"
+        | C.Unsupported_operator -> "unsupported_operator")
 
 (* Total over [Native4d.Error.t]. No wildcard: a row added upstream must be
    classified here rather than defaulting to whichever answer happened to be
@@ -62,9 +62,9 @@ let lowering : [< Native_interp.error ] -> verdict = function
      one included row rather than listed; the builder, provenance, transform,
      verify and lens rows are internal invariants; and [`Eval] and
      [`Tensor_bridge] belong to execution, which export does not perform. *)
-  | #Native_interp.malformed
-  | `Tensor_bridge _ | `Eval _ | `Build _ | `Provenance _ | `Transform _
-  | `Verify _ | `Lens _ | `Materialize _ ->
+  | `Build _ | `Eval _ | `Lens _ | `Materialize _ | `Provenance _
+  | `Tensor_bridge _ | `Transform _ | `Verify _
+  | #Native_interp.malformed ->
       Fatal
 
 let kernel : [< Kernel_adapt.error ] -> verdict = function
@@ -74,19 +74,19 @@ let kernel : [< Kernel_adapt.error ] -> verdict = function
   | `Passthrough_output _ -> Unavailable C.Unsupported_graph_shape
   (* [Kernel]'s limit rows: a real model can be too big, and that is a bound
      doing its job rather than a defect. *)
-  | `Too_many_values _ | `Too_many_inputs _ | `Too_many_outputs _
   | `Dependency_too_deep _ | `Eval_too_deep _ | `Extent_too_large _
-  | `Numel_too_large _ ->
+  | `Numel_too_large _ | `Too_many_inputs _ | `Too_many_outputs _
+  | `Too_many_values _ ->
       Unavailable C.Over_limit
   (* Everything else is a defect. The stage program is repository-generated, so
      a structural failure in it is ours; and the two selection rows are
      reachable only through [?select], which whole-program export never
      passes. *)
-  | `Program_invalid _ | `Unknown_stage_source _ | `Missing_live_output _
-  | `Unknown_program_output _ | `Output_not_selected _ | `Unknown_selection _
-  | `Duplicate_id _ | `Signature_id_mismatch _ | `Unresolved_source _
-  | `Forward_reference _ | `Unknown_output _ | `Unreachable_value _
-  | `Not_materializable _ | `Quant_contract _ | `Body _ ->
+  | `Body _ | `Duplicate_id _ | `Forward_reference _ | `Missing_live_output _
+  | `Not_materializable _ | `Output_not_selected _ | `Program_invalid _
+  | `Quant_contract _ | `Signature_id_mismatch _ | `Unknown_output _
+  | `Unknown_program_output _ | `Unknown_selection _ | `Unknown_stage_source _
+  | `Unreachable_value _ | `Unresolved_source _ ->
       Fatal
 
 let requires_payloads_without_them = C.Requires_payloads
@@ -98,16 +98,16 @@ let requires_payloads_without_them = C.Requires_payloads
    capability reason. *)
 let diagnostic_code (r : C.reason) : Me_limits.Diagnostic.Code.t =
   match r with
-  | C.Unsupported_operator -> Me_limits.Diagnostic.Code.Unsupported_operator
-  | C.Unsupported_input -> Me_limits.Diagnostic.Code.Unsupported_input
-  | C.Unsupported_graph_shape ->
-      Me_limits.Diagnostic.Code.Unsupported_graph_shape
+  | C.Not_implemented -> Me_limits.Diagnostic.Code.Not_implemented
   | C.Outside_dialect_domain -> Me_limits.Diagnostic.Code.Outside_dialect_domain
   | C.Over_limit -> Me_limits.Diagnostic.Code.Over_limit
-  | C.Requires_payloads -> Me_limits.Diagnostic.Code.Requires_payloads
   | C.Prerequisite_unavailable ->
       Me_limits.Diagnostic.Code.Prerequisite_unavailable
-  | C.Not_implemented -> Me_limits.Diagnostic.Code.Not_implemented
+  | C.Requires_payloads -> Me_limits.Diagnostic.Code.Requires_payloads
+  | C.Unsupported_graph_shape ->
+      Me_limits.Diagnostic.Code.Unsupported_graph_shape
+  | C.Unsupported_input -> Me_limits.Diagnostic.Code.Unsupported_input
+  | C.Unsupported_operator -> Me_limits.Diagnostic.Code.Unsupported_operator
 
 (* Which keys have no meaning without a Native graph.
 

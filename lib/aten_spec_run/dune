@@ -7,15 +7,15 @@
  (name aten_spec_run)
  (wrapped false)
  (libraries
-  err_trace
-  core
   aten
+  aten_config
+  aten_native_verify
+  aten_op_spec
+  aten_spec
+  core
+  err_trace
   interp
   native
   native_aten_bridge
-  aten_native_verify
-  aten_config
   pytorch_types
-  schema_runtime
-  aten_spec
-  aten_op_spec))
+  schema_runtime))

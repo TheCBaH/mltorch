@@ -63,26 +63,22 @@ module Sdpa = struct
     type rank = { arg_name : string; expected : int list; got : int }
 
     type t =
-      | Dropout of float (* dropout_p <> 0 *)
-      | Causal (* is_causal = true *)
-      | Gqa (* enable_gqa = true *)
       | Boolean_mask (* attn_mask is bool: additive f32 only (F10) *)
-      | Rank of rank
+      | Causal (* is_causal = true *)
+      | Dropout of float (* dropout_p <> 0 *)
+      | Gqa (* enable_gqa = true *)
       | Negative_scale of float (* legal in ATen, specially handled; F3 *)
       | Non_finite_scale of float
+      | Rank of rank
 
     let pp fmt = function
-      | Dropout p -> Fmt.pf fmt "sdpa: dropout_p=%g is not supported (only 0)" p
-      | Causal -> Fmt.string fmt "sdpa: is_causal=true is not supported"
-      | Gqa -> Fmt.string fmt "sdpa: enable_gqa=true is not supported"
       | Boolean_mask ->
           Fmt.string fmt
             "sdpa: a boolean attn_mask is not supported; only an additive f32 \
              mask is (never reinterpreted from bool)"
-      | Rank { arg_name; expected; got } ->
-          Fmt.pf fmt "sdpa: %s has rank %d, expected %a" arg_name got
-            Fmt.(list ~sep:(any " or ") int)
-            expected
+      | Causal -> Fmt.string fmt "sdpa: is_causal=true is not supported"
+      | Dropout p -> Fmt.pf fmt "sdpa: dropout_p=%g is not supported (only 0)" p
+      | Gqa -> Fmt.string fmt "sdpa: enable_gqa=true is not supported"
       | Negative_scale s ->
           Fmt.pf fmt
             "sdpa: explicit scale=%g is negative; ATen handles this specially \
@@ -90,6 +86,10 @@ module Sdpa = struct
             s
       | Non_finite_scale s ->
           Fmt.pf fmt "sdpa: explicit scale=%g is not finite" s
+      | Rank { arg_name; expected; got } ->
+          Fmt.pf fmt "sdpa: %s has rank %d, expected %a" arg_name got
+            Fmt.(list ~sep:(any " or ") int)
+            expected
   end
 
   type params = { scale : Scale.t }

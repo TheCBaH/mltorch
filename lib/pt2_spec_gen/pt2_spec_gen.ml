@@ -23,38 +23,39 @@ module Stats = struct
 end
 
 type error =
-  [ Pt2_tensor.error
-  | Pt2_archive.error
-  | `Unsupported_pt2_dtype of Pt2_dtype.t
-  | `Non_contiguous_tensor
+  [ `Missing_arg of string
   | `No_tensor_meta of string
-  | `Missing_arg of string
+  | `Non_contiguous_tensor
+  | Pt2_archive.error
+  | Pt2_tensor.error
+  | `Unbound_op of string
   | `Unexpected_arg of string
-  | `Unbound_op of string ]
+  | `Unsupported_pt2_dtype of Pt2_dtype.t ]
 
 let pp_error ppf : error -> unit = function
-  | #Pt2_tensor.error as e -> Pt2_tensor.pp_error ppf e
-  | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
-  | `Unsupported_pt2_dtype d ->
-      Format.fprintf ppf "unsupported dtype %s" (Pt2_dtype.to_string d)
-  | `Non_contiguous_tensor ->
-      Format.fprintf ppf "cannot compute stats of a non-contiguous tensor"
+  | `Missing_arg name -> Format.fprintf ppf "missing required arg %S" name
   | `No_tensor_meta name ->
       Format.fprintf ppf "no tensor_values entry for %S" name
-  | `Missing_arg name -> Format.fprintf ppf "missing required arg %S" name
+  | `Non_contiguous_tensor ->
+      Format.fprintf ppf "cannot compute stats of a non-contiguous tensor"
+  | #Pt2_archive.error as e -> Pt2_archive.pp_error ppf e
+  | #Pt2_tensor.error as e -> Pt2_tensor.pp_error ppf e
+  | `Unbound_op target -> Format.fprintf ppf "unbound op %S" target
   | `Unexpected_arg name ->
       Format.fprintf ppf "unexpected value for arg %S" name
-  | `Unbound_op target -> Format.fprintf ppf "unbound op %S" target
+  | `Unsupported_pt2_dtype d ->
+      Format.fprintf ppf "unsupported dtype %s" (Pt2_dtype.to_string d)
 
 let dtype_of_pt2 : Pt2_dtype.t -> (Aten_spec.Dtype.t, [> error ]) Err.t =
   function
+  | Pt2_dtype.Bool -> Err.return Aten_spec.Dtype.Bool
   | Pt2_dtype.Float32 -> Err.return Aten_spec.Dtype.F32
   | Pt2_dtype.Float64 -> Err.return Aten_spec.Dtype.F64
-  | Pt2_dtype.Int64 -> Err.return Aten_spec.Dtype.I64
+  | Pt2_dtype.Int16 as d -> Err.fail (`Unsupported_pt2_dtype d)
   | Pt2_dtype.Int32 -> Err.return Aten_spec.Dtype.I32
-  | Pt2_dtype.Bool -> Err.return Aten_spec.Dtype.Bool
-  | (Pt2_dtype.Int16 | Pt2_dtype.Int8 | Pt2_dtype.UInt8) as d ->
-      Err.fail (`Unsupported_pt2_dtype d)
+  | Pt2_dtype.Int64 -> Err.return Aten_spec.Dtype.I64
+  | Pt2_dtype.Int8 as d -> Err.fail (`Unsupported_pt2_dtype d)
+  | Pt2_dtype.UInt8 as d -> Err.fail (`Unsupported_pt2_dtype d)
 
 let dtype_of_scalar_type st =
   let* d =

@@ -50,7 +50,7 @@ let precision_equal (a : Tensor_sig.t) (b : Tensor_sig.t) =
    can be checked against it: the SAME node must never be both removed by one
    operand's [Unwrap] and read-while-kept by another's [Reuse]. *)
 module Resolution = struct
-  type kind = Unwrap | Reuse
+  type kind = Reuse | Unwrap
 
   type t = {
     edge : Tensor_id.t;
@@ -149,24 +149,24 @@ let rec resolve_operands ~target_perm ~(committed : Committed.t) = function
              let* () =
                guard
                  (match r.kind with
-                 | Resolution.Unwrap ->
-                     not (Node_id.Set.mem r.node committed.Committed.kept)
                  | Resolution.Reuse ->
-                     not (Node_id.Set.mem r.node committed.Committed.removed))
+                     not (Node_id.Set.mem r.node committed.Committed.removed)
+                 | Resolution.Unwrap ->
+                     not (Node_id.Set.mem r.node committed.Committed.kept))
              in
              let committed' =
                match r.kind with
-               | Resolution.Unwrap ->
-                   {
-                     committed with
-                     Committed.removed =
-                       Node_id.Set.add r.node committed.Committed.removed;
-                   }
                | Resolution.Reuse ->
                    {
                      committed with
                      Committed.kept =
                        Node_id.Set.add r.node committed.Committed.kept;
+                   }
+               | Resolution.Unwrap ->
+                   {
+                     committed with
+                     Committed.removed =
+                       Node_id.Set.add r.node committed.Committed.removed;
                    }
              in
              let+ rs =
@@ -212,7 +212,7 @@ let try_candidate op op_node operands anchor target_perm =
     resolve_operands ~target_perm ~committed:no_commitments operands
   in
   let is_unwrap (r : Resolution.t) =
-    match r.kind with Resolution.Unwrap -> true | Resolution.Reuse -> false
+    match r.kind with Resolution.Reuse -> false | Resolution.Unwrap -> true
   in
   let* () =
     guard
@@ -260,8 +260,8 @@ let build (m : Match.t) _region =
     List.filter_map
       (fun (r : Resolution.t) ->
         match r.kind with
-        | Resolution.Unwrap -> Some r.node
-        | Resolution.Reuse -> None)
+        | Resolution.Reuse -> None
+        | Resolution.Unwrap -> Some r.node)
       m.Match.resolutions
   in
   replace

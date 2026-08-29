@@ -43,26 +43,26 @@ let atol_for_target = function
 type point = { coord : Vec6.coord; aten_val : float; native_val : float }
 
 type error =
-  | Output_count of { expected : int; got : int }
-  | Missing_output of { name : string }
-  | Shape_mismatch of { output : string; aten : int array; native : Vec6.shape }
   | Fmt_mismatch of {
       output : string;
       aten_dtype : Aten_scalar_type.t;
       native_fmt : string;
     }
+  | Missing_output of { name : string }
+  | Output_count of { expected : int; got : int }
   | Payload_mismatch of { output : string; total : int; points : point list }
+  | Shape_mismatch of { output : string; aten : int array; native : Vec6.shape }
 
 let scalar_type_name = function
+  | Aten_scalar_type.Bool -> "bool"
   | Aten_scalar_type.Byte -> "uint8"
   | Aten_scalar_type.Char -> "int8"
-  | Aten_scalar_type.Short -> "int16"
+  | Aten_scalar_type.Double -> "float64"
+  | Aten_scalar_type.Float -> "float32"
+  | Aten_scalar_type.Half -> "float16"
   | Aten_scalar_type.Int -> "int32"
   | Aten_scalar_type.Long -> "int64"
-  | Aten_scalar_type.Half -> "float16"
-  | Aten_scalar_type.Float -> "float32"
-  | Aten_scalar_type.Double -> "float64"
-  | Aten_scalar_type.Bool -> "bool"
+  | Aten_scalar_type.Short -> "int16"
 
 let pp_point ppf p =
   Fmt.pf ppf "%a aten=%g native=%g" Vec6.pp_coord p.coord p.aten_val
@@ -71,21 +71,21 @@ let pp_point ppf p =
 let pp_dims = Fmt.list ~sep:(Fmt.any "x") Fmt.int
 
 let pp_error ppf = function
-  | Output_count { expected; got } ->
-      Fmt.pf ppf "output count: expected %d got %d" expected got
-  | Missing_output { name } -> Fmt.pf ppf "missing ATen output %S" name
-  | Shape_mismatch { output; aten; native } ->
-      Fmt.pf ppf "%s: shape mismatch: aten [%a] native %a" output pp_dims
-        (Array.to_list aten) Vec6.pp_shape native
   | Fmt_mismatch { output; aten_dtype; native_fmt } ->
       Fmt.pf ppf "%s: type mismatch: aten %s native %s" output
         (scalar_type_name aten_dtype)
         native_fmt
+  | Missing_output { name } -> Fmt.pf ppf "missing ATen output %S" name
+  | Output_count { expected; got } ->
+      Fmt.pf ppf "output count: expected %d got %d" expected got
   | Payload_mismatch { output; total; points } ->
       Fmt.pf ppf "%s: payload mismatch (%d/%d shown):@ @[<v>%a@]" output
         (List.length points) total
         (Fmt.list ~sep:Fmt.cut pp_point)
         points
+  | Shape_mismatch { output; aten; native } ->
+      Fmt.pf ppf "%s: shape mismatch: aten [%a] native %a" output pp_dims
+        (Array.to_list aten) Vec6.pp_shape native
 
 (* Scan the 6D shape calling [f coord i] at every element; collect up to
    [max_points] points where [f] returns [Some], counting the total. *)

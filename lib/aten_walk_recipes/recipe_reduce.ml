@@ -4,8 +4,8 @@
 
 type t = { n : int; c : int; h : int; w : int; dims : int list; keepdim : bool }
 
-(* All 15 non-empty subsets of the rank-4 dims [0;1;2;3], a ready candidate set
-   for the dims axis. *)
+(* All 15 non-empty subsets of the rank-4 dims [0;1;2;3], in the recursive
+   enumeration order that supplies the seeded walk trace. *)
 let all_dim_subsets =
   let rec subs = function
     | [] -> [ [] ]

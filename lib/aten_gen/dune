@@ -22,4 +22,4 @@
   walk_meta_linalg
   walk_meta_norm
   walk_meta_attention)
- (libraries err_trace aten_schema))
+ (libraries aten_schema err_trace))

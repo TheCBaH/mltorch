@@ -11,4 +11,4 @@
 
 (library
  (name core)
- (libraries fmt err_trace))
+ (libraries err_trace fmt))

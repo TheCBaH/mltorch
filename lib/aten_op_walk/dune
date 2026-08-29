@@ -17,4 +17,4 @@
  (name aten_op_walk)
  (wrapped false)
  (modules aten_op_walk)
- (libraries aten_spec aten_op_spec aten_walk_recipes))
+ (libraries aten_op_spec aten_spec aten_walk_recipes))

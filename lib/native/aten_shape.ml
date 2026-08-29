@@ -32,7 +32,7 @@ module View_size = struct
   type t = {
     size : int list;
     numel : int64;
-    fault : [ `Multiple_inferred | `Not_divisible | `Count_mismatch ];
+    fault : [ `Count_mismatch | `Multiple_inferred | `Not_divisible ];
   }
 
   let pp_size ppf size =
@@ -40,14 +40,14 @@ module View_size = struct
 
   let pp ppf { size; numel; fault } =
     match fault with
+    | `Count_mismatch ->
+        Fmt.pf ppf "view size %a does not match %Ld elements" pp_size size numel
     | `Multiple_inferred ->
         Fmt.pf ppf "view size %a has more than one inferred (-1) dimension"
           pp_size size
     | `Not_divisible ->
         Fmt.pf ppf "view size %a does not divide %Ld elements" pp_size size
           numel
-    | `Count_mismatch ->
-        Fmt.pf ppf "view size %a does not match %Ld elements" pp_size size numel
 end
 
 module Slice_bounds = struct
@@ -75,20 +75,20 @@ end
 type rank_bound = { rank : int; lo : int; hi : int }
 
 type error =
-  [ `Rank_out_of_range of rank_bound
-  | `View_size of View_size.t
-  | `Slice_step of int
+  [ Dim.error
   | `Index_out_of_range of Index_bound.t
-  | Dim.error ]
+  | `Rank_out_of_range of rank_bound
+  | `Slice_step of int
+  | `View_size of View_size.t ]
 
 let pp_error ppf : error -> unit = function
+  | #Dim.error as e -> Dim.pp_error ppf e
+  | `Index_out_of_range e -> Index_bound.pp ppf e
   | `Rank_out_of_range { rank; lo; hi } ->
       Format.fprintf ppf "rank %d out of [%d, %d]" rank lo hi
-  | `View_size e -> View_size.pp ppf e
   | `Slice_step step ->
       Format.fprintf ppf "slice step must be >= 1, got %d" step
-  | `Index_out_of_range e -> Index_bound.pp ppf e
-  | #Dim.error as e -> Dim.pp_error ppf e
+  | `View_size e -> View_size.pp ppf e
 
 (* Right-align an ATen shape into the frame; outer axes default to extent 1.
    Validates the untrusted rank and each dim, so it returns a [result]. *)

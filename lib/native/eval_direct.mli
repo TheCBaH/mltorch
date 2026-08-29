@@ -12,10 +12,10 @@ type arity_mismatch = { expected : int; actual : int }
 
 type error =
   [ Graph_shape.error
-  | `Missing_tensor of missing_tensor
-  | `Output_arity_mismatch of arity_mismatch
+  | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
-  | `Missing_constant of Tensor_id.t ]
+  | `Missing_tensor of missing_tensor
+  | `Output_arity_mismatch of arity_mismatch ]
 
 type hooks =
   | Hooks : { on_start : node -> 'a; on_end : node -> 'a -> unit } -> hooks

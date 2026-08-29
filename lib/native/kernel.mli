@@ -190,22 +190,22 @@ module Body_error : sig
 end
 
 type error =
-  [ `Duplicate_id of Tensor_id.t
-  | `Signature_id_mismatch of Sig_mismatch.t
-  | `Unresolved_source of Unresolved.t
-  | `Forward_reference of Forward_ref.t
-  | `Unknown_output of Tensor_id.t
-  | `Unreachable_value of Tensor_id.t
-  | `Too_many_values of int
-  | `Too_many_inputs of int
-  | `Too_many_outputs of int
+  [ `Body of Body_error.t
   | `Dependency_too_deep of int
+  | `Duplicate_id of Tensor_id.t
   | `Eval_too_deep of int
   | `Extent_too_large of Extent_bound.t
-  | `Numel_too_large of Tensor_id.t
+  | `Forward_reference of Forward_ref.t
   | `Not_materializable of Format_rule.t
+  | `Numel_too_large of Tensor_id.t
   | `Quant_contract of Tensor_id.t
-  | `Body of Body_error.t ]
+  | `Signature_id_mismatch of Sig_mismatch.t
+  | `Too_many_inputs of int
+  | `Too_many_outputs of int
+  | `Too_many_values of int
+  | `Unknown_output of Tensor_id.t
+  | `Unreachable_value of Tensor_id.t
+  | `Unresolved_source of Unresolved.t ]
 (** [`Too_*] and [`*_too_deep] carry the LIMIT, not the measure, for the reason
     [Expr.Check] does: reporting the actual figure would mean measuring the
     whole input the limit exists to avoid walking. *)

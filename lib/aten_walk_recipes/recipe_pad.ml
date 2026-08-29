@@ -26,13 +26,13 @@
    importer fixtures against every rank ATen accepts. *)
 
 type pattern =
+  | Const_hw  (** two pairs, so the pair-reversal is observable *)
   | Const_w  (** one pair, asymmetric, explicit non-zero fill *)
   | Const_w_no_value  (** the same pair with [value] ABSENT: ATen fills 0 *)
-  | Const_hw  (** two pairs, so the pair-reversal is observable *)
-  | Crop_h  (** a negative pair: ATen crops, and nothing is synthesized *)
   | Crop_and_pad  (** crop one axis while padding the other *)
-  | Reflect_hw  (** symmetric mirror on both axes *)
+  | Crop_h  (** a negative pair: ATen crops, and nothing is synthesized *)
   | Reflect_asym_w  (** asymmetric mirror, zero pair on the other axis *)
+  | Reflect_hw  (** symmetric mirror on both axes *)
 
 type t = { n : int; c : int; h : int; w : int; pattern : pattern }
 
@@ -50,22 +50,22 @@ let mirror ~extent want = min want (extent - 1)
    convention against itself. *)
 let pads c =
   match c.pattern with
+  | Const_hw -> [ 1; 2; 3; 1 ]
   | Const_w -> [ 1; 2 ]
   | Const_w_no_value -> [ 2; 1 ]
-  | Const_hw -> [ 1; 2; 3; 1 ]
-  | Crop_h -> [ 0; 0; -1; -1 ]
   | Crop_and_pad -> [ -1; 0; 2; 1 ]
-  | Reflect_hw ->
-      let mw = mirror ~extent:c.w 1 and mh = mirror ~extent:c.h 1 in
-      [ mw; mw; mh; mh ]
+  | Crop_h -> [ 0; 0; -1; -1 ]
   | Reflect_asym_w ->
       let mw = mirror ~extent:c.w 2 in
       [ mw; mirror ~extent:c.w 1; 0; 0 ]
+  | Reflect_hw ->
+      let mw = mirror ~extent:c.w 1 and mh = mirror ~extent:c.h 1 in
+      [ mw; mw; mh; mh ]
 
 let mode c =
   match c.pattern with
-  | Reflect_hw | Reflect_asym_w -> "reflect"
-  | Const_w | Const_w_no_value | Const_hw | Crop_h | Crop_and_pad -> "constant"
+  | Const_hw | Const_w | Const_w_no_value | Crop_and_pad | Crop_h -> "constant"
+  | Reflect_asym_w | Reflect_hw -> "reflect"
 
 (* Non-zero, and not f32-exact, so a fill that was dropped or narrowed on the
    way through is a value difference rather than a coincidence. [None] for
@@ -73,12 +73,15 @@ let mode c =
    because absent must mean 0 and that is a rule worth exercising. *)
 let value c =
   match c.pattern with
-  | Const_w -> Some (Aten_spec.Float32.to_f32 0.1)
   | Const_hw -> Some (Aten_spec.Float32.to_f32 (-2.5))
-  | Crop_h -> Some (Aten_spec.Float32.to_f32 7.)
+  | Const_w -> Some (Aten_spec.Float32.to_f32 0.1)
+  | Const_w_no_value -> None
   | Crop_and_pad -> Some (Aten_spec.Float32.to_f32 0.1)
-  | Const_w_no_value | Reflect_hw | Reflect_asym_w -> None
+  | Crop_h -> Some (Aten_spec.Float32.to_f32 7.)
+  | Reflect_asym_w | Reflect_hw -> None
 
+(* Stable scenario-family order; this sequence determines the seeded trace and
+   intentionally differs from [pattern]'s declaration order. *)
 let all_patterns =
   [
     Const_w;
@@ -101,13 +104,13 @@ let axes ~n ~c ~h ~w ~pattern =
     ]
 
 let pp_pattern = function
+  | Const_hw -> "const_hw"
   | Const_w -> "const_w"
   | Const_w_no_value -> "const_w_no_value"
-  | Const_hw -> "const_hw"
-  | Crop_h -> "crop_h"
   | Crop_and_pad -> "crop_and_pad"
-  | Reflect_hw -> "reflect_hw"
+  | Crop_h -> "crop_h"
   | Reflect_asym_w -> "reflect_asym_w"
+  | Reflect_hw -> "reflect_hw"
 
 let pp ppf c =
   let ints l = String.concat "," (List.map string_of_int l) in

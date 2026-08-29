@@ -406,8 +406,8 @@ module Group_path = struct
       in
       List.fold_left
         (fun acc -> function
-          | Graph_ir.Group.Node id -> Node_id.Map.add id path acc
-          | Graph_ir.Group.Group sub -> walk path sub acc)
+          | Graph_ir.Group.Group sub -> walk path sub acc
+          | Graph_ir.Group.Node id -> Node_id.Map.add id path acc)
         acc group.Graph_ir.Group.items
     in
     walk [] g.Graph.root Node_id.Map.empty
@@ -558,6 +558,6 @@ end
 type error = [ Graph_map.error | `Missing_signature of Tensor_id.t ]
 
 let pp_error fmt : [< error ] -> unit = function
+  | #Graph_map.error as e -> Graph_map.pp_error fmt e
   | `Missing_signature id ->
       Fmt.pf fmt "missing signature for %a" Tensor_id.pp id
-  | #Graph_map.error as e -> Graph_map.pp_error fmt e

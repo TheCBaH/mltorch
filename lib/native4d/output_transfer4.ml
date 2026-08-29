@@ -26,15 +26,21 @@ let classify (op : Op.t) ~output:_ =
      per-element and copying preserves it — the rule is not "the value multiset
      is unchanged", which holds only of the total case. See
      .ai/native_transform_design.md §8. *)
-  | Concat4 _ | Permute4 _ | Reshape4 _ | Slice4 _ | Unbind _ ->
-      Output_transfer.Reindexing
-  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
+  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _ ->
+      Output_transfer.Continuous
+  | Concat4 _ -> Output_transfer.Reindexing
   | Conv2d _ | Depthwise_conv2d _ | Div _ | Div_scalar _ | Gelu _
   | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Max_keepdims _
-  | Max_pool2d _ | Mean_keepdims _ | Mul _ | Mul_scalar _ | Pad4 _ | Pow _
-  | Relu _ | Rms_norm _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _
-  | Transposed_conv2d _ | Upsample_bilinear2d _ | Vector_norm_keepdims _ ->
+  | Max_pool2d _ | Mean_keepdims _ | Mul _ | Mul_scalar _ | Pad4 _ ->
       Output_transfer.Continuous
+  | Permute4 _ -> Output_transfer.Reindexing
+  | Pow _ | Relu _ -> Output_transfer.Continuous
+  | Reshape4 _ -> Output_transfer.Reindexing
+  | Rms_norm _ | Sigmoid _ | Silu _ -> Output_transfer.Continuous
+  | Slice4 _ -> Output_transfer.Reindexing
+  | Sqrt _ | Sub _ | Transposed_conv2d _ -> Output_transfer.Continuous
+  | Unbind _ -> Output_transfer.Reindexing
+  | Upsample_bilinear2d _ | Vector_norm_keepdims _ -> Output_transfer.Continuous
 
 module Transfer = Output_transfer.Make (struct
   type nonrec op = Op.t

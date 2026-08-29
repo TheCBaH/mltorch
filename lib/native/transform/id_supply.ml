@@ -43,7 +43,7 @@ let marks_of_graph : 'op. 'op Graph_common.Graph.t -> marks =
     let acc = max acc (Group_id.to_int grp.Group.id + 1) in
     List.fold_left
       (fun acc -> function
-        | Group.Node _ -> acc | Group.Group child -> group_marks acc child)
+        | Group.Group child -> group_marks acc child | Group.Node _ -> acc)
       acc grp.Group.items
   in
   { tensor; node; group = group_marks 0 g.Graph.root }

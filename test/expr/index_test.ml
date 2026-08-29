@@ -21,8 +21,8 @@ let ev ?(output = origin) ?(reducers = no_reducers) e =
    evaluator's; widen rather than rebuild, so the detection backtrace survives. *)
 let div build n d =
   match build (Index.const n) d with
-  | Ok e -> ev e
   | Error e -> Error (e :> Eval.index_error Err.Error.t)
+  | Ok e -> ev e
 
 let%expect_test "every current index form has a typed equivalent" =
   (* The nine constructors of the representation this replaces, in order, each

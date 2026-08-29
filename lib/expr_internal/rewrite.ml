@@ -9,40 +9,44 @@ let rec map_index_reducers : type r.
     (Reduce_var.t -> Reduce_var.t) -> r Index.t -> r Index.t =
  fun f i ->
   match i with
-  | Index.Output _ | Index.Zero | Index.Const _ -> i
-  | Index.Reduce v -> Index.Reduce (f v)
-  | Index.Of_position a -> Index.Of_position (map_index_reducers f a)
-  | Index.Clamp_low a -> Index.Clamp_low (map_index_reducers f a)
-  | Index.Assume_position a -> Index.Assume_position (map_index_reducers f a)
-  | Index.Scale (k, a) -> Index.Scale (k, map_index_reducers f a)
-  | Index.Floor_div_pos (a, d) -> Index.Floor_div_pos (map_index_reducers f a, d)
-  | Index.Ceil_div_pos (a, d) -> Index.Ceil_div_pos (map_index_reducers f a, d)
   | Index.Add (a, b) ->
       Index.Add (map_index_reducers f a, map_index_reducers f b)
-  | Index.Min (a, b) ->
-      Index.Min (map_index_reducers f a, map_index_reducers f b)
+  | Index.Assume_position a -> Index.Assume_position (map_index_reducers f a)
+  | Index.Ceil_div_pos (a, d) -> Index.Ceil_div_pos (map_index_reducers f a, d)
+  | Index.Clamp_low a -> Index.Clamp_low (map_index_reducers f a)
+  | Index.Const _ -> i
+  | Index.Floor_div_pos (a, d) -> Index.Floor_div_pos (map_index_reducers f a, d)
   | Index.Max (a, b) ->
       Index.Max (map_index_reducers f a, map_index_reducers f b)
+  | Index.Min (a, b) ->
+      Index.Min (map_index_reducers f a, map_index_reducers f b)
+  | Index.Of_position a -> Index.Of_position (map_index_reducers f a)
+  | Index.Output _ -> i
+  | Index.Reduce v -> Index.Reduce (f v)
+  | Index.Scale (k, a) -> Index.Scale (k, map_index_reducers f a)
+  | Index.Zero -> i
 
 let rec subst_index : type r.
     Role.Position.t Index.t Coord.t -> r Index.t -> r Index.t =
  fun c i ->
   match i with
+  | Index.Add (a, b) -> Index.Add (subst_index c a, subst_index c b)
+  | Index.Assume_position a -> Index.Assume_position (subst_index c a)
+  | Index.Ceil_div_pos (a, d) -> Index.Ceil_div_pos (subst_index c a, d)
+  | Index.Clamp_low a -> Index.Clamp_low (subst_index c a)
+  | Index.Const _ -> i
+  | Index.Floor_div_pos (a, d) -> Index.Floor_div_pos (subst_index c a, d)
+  | Index.Max (a, b) -> Index.Max (subst_index c a, subst_index c b)
+  | Index.Min (a, b) -> Index.Min (subst_index c a, subst_index c b)
+  | Index.Of_position a -> Index.Of_position (subst_index c a)
   (* The one substituted form. Role-preserving: an output variable is a
        position and so is its replacement. *)
   | Index.Output a -> Coord.get c a
   (* Deliberately NOT substituted -- a reducer is bound by its reduction, and
        replacing one here is precisely the capture this module prevents. *)
-  | Index.Reduce _ | Index.Zero | Index.Const _ -> i
-  | Index.Of_position a -> Index.Of_position (subst_index c a)
-  | Index.Clamp_low a -> Index.Clamp_low (subst_index c a)
-  | Index.Assume_position a -> Index.Assume_position (subst_index c a)
+  | Index.Reduce _ -> i
   | Index.Scale (k, a) -> Index.Scale (k, subst_index c a)
-  | Index.Floor_div_pos (a, d) -> Index.Floor_div_pos (subst_index c a, d)
-  | Index.Ceil_div_pos (a, d) -> Index.Ceil_div_pos (subst_index c a, d)
-  | Index.Add (a, b) -> Index.Add (subst_index c a, subst_index c b)
-  | Index.Min (a, b) -> Index.Min (subst_index c a, subst_index c b)
-  | Index.Max (a, b) -> Index.Max (subst_index c a, subst_index c b)
+  | Index.Zero -> i
 
 (* Rank-2, for the same reason as [Fold.walk]: a [Load]'s components are
      [Role.Position.t Index.t] while a reduction's upper bound is

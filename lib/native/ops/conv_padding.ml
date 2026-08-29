@@ -4,7 +4,7 @@
 open Conv_conv2d
 
 module Conv2d_padding = struct
-  type padding = Valid | Same
+  type padding = Same | Valid
 
   (* The CHECKED form, and the one every importer must use: the mode arrives as
      model data, so an unknown one is a fact about the graph and not a broken
@@ -12,8 +12,8 @@ module Conv2d_padding = struct
      report it -- and both importers report it in their own row rather than
      sharing one, since the two error domains are separate. *)
   let of_string = function
-    | "valid" -> Ok Valid
     | "same" -> Ok Same
+    | "valid" -> Ok Valid
     | s -> Error s
 
   (* Asserting, for the Jsont decoder alone: a mode read back out of a graph the
@@ -23,7 +23,7 @@ module Conv2d_padding = struct
     | Ok p -> p
     | Error s -> invalid_arg ("Conv2d_padding: invalid padding " ^ s)
 
-  let string_of_padding = function Valid -> "valid" | Same -> "same"
+  let string_of_padding = function Same -> "same" | Valid -> "valid"
 
   let padding_jsont : padding Jsont.t =
     Jsont.map ~kind:"conv2d_padding_mode"
@@ -270,9 +270,9 @@ module Conv2d_padding = struct
     let open Err.Syntax in
     let* pad_before, pad_after =
       match padding with
+      | Same -> same_padding ~kernel ~stride ~dilation
       | Valid ->
           Err.return (Op_config.Nonneg.of_int 0, Op_config.Nonneg.of_int 0)
-      | Same -> same_padding ~kernel ~stride ~dilation
     in
     Err.return { Conv2d.kernel; stride; pad_before; pad_after; dilation }
 

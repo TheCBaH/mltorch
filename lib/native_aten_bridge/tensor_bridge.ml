@@ -27,17 +27,17 @@ open Bigarray
 type error =
   [ Aten_shape.error
   | `Null_data_ptr of Aten_scalar_type.t
-  | `Unsupported_dtype of Aten_scalar_type.t
-  | `Numel_over_limit of Vec6.Numel_bound.t ]
+  | `Numel_over_limit of Vec6.Numel_bound.t
+  | `Unsupported_dtype of Aten_scalar_type.t ]
 
 let pp_error ppf : [< error ] -> unit = function
   | #Aten_shape.error as e -> Aten_shape.pp_error ppf e
   | `Null_data_ptr t ->
       Fmt.pf ppf "data_ptr returned null for ATen dtype (code %d)"
         (Aten_scalar_type.to_int t)
+  | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
   | `Unsupported_dtype t ->
       Fmt.pf ppf "unsupported ATen dtype (code %d)" (Aten_scalar_type.to_int t)
-  | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
 
 let of_aten t : (Tensor.packed, [> error ]) Err.t =
   (* Read the shape off the ORIGINAL handle and bound its element count

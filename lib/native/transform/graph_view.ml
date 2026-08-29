@@ -22,13 +22,13 @@ module Make (D : Dialect.S) = struct
      Native4D's [Shape4.error] — is inherited directly elsewhere, and two
      same-named tags with different payloads cannot union. *)
   type error =
-    [ `Graph_shape of D.shape_error
-    | `Invalid_sig of Tensor_id.t * D.shape_error
-    | `Duplicate_group_id of Group_id.t
+    [ `Duplicate_group_id of Group_id.t
     | `Duplicate_group_item of Node_id.t
     | `Duplicate_node_id of Node_id.t
     | `Duplicate_tensor_def of Tensor_id.t
+    | `Graph_shape of D.shape_error
     | `Input_defined_by_node of Tensor_id.t
+    | `Invalid_sig of Tensor_id.t * D.shape_error
     | `Node_not_grouped of Node_id.t
     | `Not_topological of Node_id.t
     | `Output_arity of arity
@@ -40,10 +40,6 @@ module Make (D : Dialect.S) = struct
     | `Unknown_output of Tensor_id.t ]
 
   let pp_error ppf : [< error ] -> unit = function
-    | `Graph_shape e -> D.pp_shape_error ppf e
-    | `Invalid_sig (id, e) ->
-        Fmt.pf ppf "tensor %a is not a legal signature for this dialect: %a"
-          Tensor_id.pp id D.pp_shape_error e
     | `Duplicate_group_id id ->
         Fmt.pf ppf "duplicate group id %a" Group_id.pp id
     | `Duplicate_group_item id ->
@@ -51,8 +47,12 @@ module Make (D : Dialect.S) = struct
     | `Duplicate_node_id id -> Fmt.pf ppf "duplicate node id %a" Node_id.pp id
     | `Duplicate_tensor_def id ->
         Fmt.pf ppf "tensor %a is defined more than once" Tensor_id.pp id
+    | `Graph_shape e -> D.pp_shape_error ppf e
     | `Input_defined_by_node id ->
         Fmt.pf ppf "input %a is also defined by a node" Tensor_id.pp id
+    | `Invalid_sig (id, e) ->
+        Fmt.pf ppf "tensor %a is not a legal signature for this dialect: %a"
+          Tensor_id.pp id D.pp_shape_error e
     | `Node_not_grouped id -> Fmt.pf ppf "node %a is in no group" Node_id.pp id
     | `Not_topological id ->
         Fmt.pf ppf "node %a reads an edge defined after it" Node_id.pp id
@@ -156,14 +156,14 @@ module Make (D : Dialect.S) = struct
       fold_result
         (fun (owners, parents, seen) item ->
           match item with
+          | Group.Group child ->
+              walk (owners, parents, seen) (Some grp.Group.id) child
           | Group.Node id ->
               if Node_id.Map.mem id owners then
                 Err.fail (`Duplicate_group_item id)
               else
                 Err.return
-                  (Node_id.Map.add id grp.Group.id owners, parents, seen)
-          | Group.Group child ->
-              walk (owners, parents, seen) (Some grp.Group.id) child)
+                  (Node_id.Map.add id grp.Group.id owners, parents, seen))
         (owners, parents, seen) grp.Group.items
     in
     walk

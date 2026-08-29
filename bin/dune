@@ -14,7 +14,7 @@
 (executable
  (name aten_ops_gen)
  (modules aten_ops_gen)
- (libraries aten_schema aten_gen))
+ (libraries aten_gen aten_schema))
 
 ; CLI to verify JSON op-specs against the ATen-vs-native harness.
 ;
@@ -31,12 +31,12 @@
  (name aten_spec_verify)
  (modules aten_spec_verify)
  (libraries
-  memtrace
-  landmarks
+  aten_op_spec
+  aten_spec_run
   jsont
   jsont.bytesrw
-  aten_op_spec
-  aten_spec_run))
+  landmarks
+  memtrace))
 
 ; CLI to derive per-node ATen op-spec JSON fixtures from a real .pt2 model
 ; graph. Pure OCaml, no ATen/libtorch build needed.
@@ -44,7 +44,7 @@
 (executable
  (name pt2_spec_gen)
  (modules pt2_spec_gen)
- (libraries pt2 core err_trace pt2_spec_gen))
+ (libraries core err_trace pt2 pt2_spec_gen))
 
 ; CLI wrapper around the existing generated ATen-vs-native walk modules
 ; (lib/aten_op_walk, see .ai/native_walk_design.md) — same machinery
@@ -54,7 +54,7 @@
 (executable
  (name native_walk_run)
  (modules native_walk_run)
- (libraries aten_op_walk aten_walk_recipes aten_spec aten_spec_run))
+ (libraries aten_op_walk aten_spec aten_spec_run aten_walk_recipes))
 
 ; General-purpose CLI for the native engine's graph representation (see
 ; lib/native_graph); cmdliner-based so more subcommands can land alongside
@@ -75,7 +75,6 @@
   native_graph_visualize)
  (libraries
   cmdliner
-  pt2
   core
   err_trace
   err_host
@@ -84,9 +83,10 @@
   model_explorer
   model_explorer_export
   native
+  native4d
   native_graph
   native_interp
-  native4d
+  pt2
   pytorch_types
   unix))
 
@@ -108,9 +108,9 @@
  (libraries
   core
   err_trace
-  pt2
   interp
-  native_aten_bridge
-  native
   jsont
-  jsont.bytesrw))
+  jsont.bytesrw
+  native
+  native_aten_bridge
+  pt2))

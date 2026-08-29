@@ -1,8 +1,8 @@
 type error =
-  [ `Missing_capture of Const_ssa.Capture.t
+  [ Constant_store.error
   | `Direct of Eval_direct.error
-  | `Signature_mismatch of Const_ssa.Value_id.t
-  | Constant_store.error ]
+  | `Missing_capture of Const_ssa.Capture.t
+  | `Signature_mismatch of Const_ssa.Value_id.t ]
 
 type report = { captures : int; applies : int; cache_hits : int }
 type resolver = Const_ssa.Capture.t -> (Tensor.packed, error) Err.t

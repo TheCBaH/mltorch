@@ -22,48 +22,48 @@ module Io = struct
 end
 
 type error =
-  [ `Io of Io.t
+  [ `Constants_config_decode of string
+  | `Empty_tensor_map of string
+  | `Io of Io.t
   | `Io_too_large of string * int64
-  | `Zip_open of string * Pt2_zip.error
-  | `Read_archive_member of string * Pt2_zip.error
-  | `Model_json_decode of string
-  | `Weights_config_decode of string
-  | `Constants_config_decode of string
-  | `Missing_weight of string
   | `Missing_captured_tensor of string
-  | `Weight_tensor of string * Pt2_tensor.error
+  | `Missing_weight of string
+  | `Model_json_decode of string
   | `Pt_pickle of string * Pt2_pickle.error
-  | `Empty_tensor_map of string ]
+  | `Read_archive_member of string * Pt2_zip.error
+  | `Weight_tensor of string * Pt2_tensor.error
+  | `Weights_config_decode of string
+  | `Zip_open of string * Pt2_zip.error ]
 
 let pp_error ppf : error -> unit = function
+  | `Constants_config_decode msg ->
+      Fmt.pf ppf
+        "failed to decode data/constants/model_constants_config.json: %s" msg
+  | `Empty_tensor_map path -> Fmt.pf ppf "tensor map %S is empty" path
   | `Io { Io.path; cause } ->
       Fmt.pf ppf "failed to read %S: %s" path
         (match cause with `Short_read -> "short read" | `Sys_error m -> m)
   | `Io_too_large (path, limit) ->
       Fmt.pf ppf "%S is larger than %Ld bytes" path limit
-  | `Zip_open (path, error) ->
-      Fmt.pf ppf "failed to open zip %S: %a" path Pt2_zip.pp_error error
-  | `Read_archive_member (path, error) ->
-      Fmt.pf ppf "failed to read archive member %S: %a" path Pt2_zip.pp_error
-        error
-  | `Model_json_decode msg ->
-      Fmt.pf ppf "failed to decode models/model.json: %s" msg
-  | `Weights_config_decode msg ->
-      Fmt.pf ppf "failed to decode data/weights/model_weights_config.json: %s"
-        msg
-  | `Constants_config_decode msg ->
-      Fmt.pf ppf
-        "failed to decode data/constants/model_constants_config.json: %s" msg
-  | `Missing_weight name -> Fmt.pf ppf "no weight named %S" name
   | `Missing_captured_tensor name ->
       Fmt.pf ppf "no captured tensor named %S" name
-  | `Weight_tensor (name, error) ->
-      Fmt.pf ppf "invalid tensor metadata for weight %S: %a" name
-        Pt2_tensor.pp_error error
+  | `Missing_weight name -> Fmt.pf ppf "no weight named %S" name
+  | `Model_json_decode msg ->
+      Fmt.pf ppf "failed to decode models/model.json: %s" msg
   | `Pt_pickle (path, error) ->
       Fmt.pf ppf "failed to decode tensor pickle %S: %a" path
         Pt2_pickle.pp_error error
-  | `Empty_tensor_map path -> Fmt.pf ppf "tensor map %S is empty" path
+  | `Read_archive_member (path, error) ->
+      Fmt.pf ppf "failed to read archive member %S: %a" path Pt2_zip.pp_error
+        error
+  | `Weight_tensor (name, error) ->
+      Fmt.pf ppf "invalid tensor metadata for weight %S: %a" name
+        Pt2_tensor.pp_error error
+  | `Weights_config_decode msg ->
+      Fmt.pf ppf "failed to decode data/weights/model_weights_config.json: %s"
+        msg
+  | `Zip_open (path, error) ->
+      Fmt.pf ppf "failed to open zip %S: %a" path Pt2_zip.pp_error error
 
 (* CHECKPOINT 1 — before the OCaml string exists.
 

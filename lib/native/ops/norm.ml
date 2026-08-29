@@ -13,12 +13,12 @@
    value set is a variant). Here rather than in either importer because both
    need it and two copies is one drift away from two vocabularies. *)
 module Target = struct
-  type t = Rms_norm | Layer_norm | Native_layer_norm
+  type t = Layer_norm | Native_layer_norm | Rms_norm
 
   let pp fmt = function
-    | Rms_norm -> Fmt.string fmt "rms_norm"
     | Layer_norm -> Fmt.string fmt "layer_norm"
     | Native_layer_norm -> Fmt.string fmt "native_layer_norm"
+    | Rms_norm -> Fmt.string fmt "rms_norm"
 end
 
 (* The layout ATen gives an operand indexed by the NORMALIZED axes only: the

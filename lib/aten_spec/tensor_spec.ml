@@ -8,9 +8,9 @@
 type seq = { start : float; step : float }
 
 type source =
-  | Values of Scalar_value.t list
   | Random of Distribution.t
   | Sequence of seq
+  | Values of Scalar_value.t list
 
 type t = { dtype : Dtype.t; shape : int list; source : source }
 
@@ -28,29 +28,29 @@ let jsont : t Jsont.t =
       | Some ms ->
           let dtype =
             match Spec_util.find_member ms "dtype" with
-            | Some v -> Spec_util.dec Dtype.jsont v
             | None ->
                 Jsont.Error.msgf Jsont.Meta.none "tensor: missing \"dtype\""
+            | Some v -> Spec_util.dec Dtype.jsont v
           in
           let shape =
             match Spec_util.find_member ms "shape" with
-            | Some v -> Spec_util.dec (Jsont.list Jsont.int) v
             | None ->
                 Jsont.Error.msgf Jsont.Meta.none "tensor: missing \"shape\""
+            | Some v -> Spec_util.dec (Jsont.list Jsont.int) v
           in
           let source =
             match
-              ( Spec_util.find_member ms "values",
-                Spec_util.find_member ms "random",
-                Spec_util.find_member ms "sequence" )
+              ( Spec_util.find_member ms "random",
+                Spec_util.find_member ms "sequence",
+                Spec_util.find_member ms "values" )
             with
-            | Some v, None, None ->
+            | Some v, None, None -> Random (Spec_util.dec Distribution.jsont v)
+            | None, Some v, None -> Sequence (Spec_util.dec seq_payload v)
+            | None, None, Some v ->
                 Values (Spec_util.dec (Jsont.list Scalar_value.jsont) v)
-            | None, Some v, None -> Random (Spec_util.dec Distribution.jsont v)
-            | None, None, Some v -> Sequence (Spec_util.dec seq_payload v)
             | None, None, None ->
                 Jsont.Error.msgf Jsont.Meta.none
-                  "tensor: needs one of \"values\"/\"random\"/\"sequence\""
+                  "tensor: needs one of \"random\"/\"sequence\"/\"values\""
             | _ ->
                 Jsont.Error.msgf Jsont.Meta.none
                   "tensor: at most one payload source"
@@ -59,9 +59,6 @@ let jsont : t Jsont.t =
     ~enc:(fun t ->
       let source_kv =
         match t.source with
-        | Values vs ->
-            ( "values",
-              Spec_util.jarr (List.map (Spec_util.enc Scalar_value.jsont) vs) )
         | Random d -> ("random", Spec_util.enc Distribution.jsont d)
         | Sequence { start; step } ->
             ( "sequence",
@@ -69,6 +66,9 @@ let jsont : t Jsont.t =
                 [
                   ("start", Spec_util.jnum start); ("step", Spec_util.jnum step);
                 ] )
+        | Values vs ->
+            ( "values",
+              Spec_util.jarr (List.map (Spec_util.enc Scalar_value.jsont) vs) )
       in
       Spec_util.jobj
         [

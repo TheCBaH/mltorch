@@ -15,9 +15,9 @@
    See .ai/model_explorer_design.md. *)
 
 type verdict =
+  | Fatal  (** a defect: the session fails rather than reporting a capability *)
   | Unavailable of Me_session.Capability.reason
       (** recoverable: a capability the session reports as unavailable *)
-  | Fatal  (** a defect: the session fails rather than reporting a capability *)
 
 val pp_verdict : Format.formatter -> verdict -> unit
 

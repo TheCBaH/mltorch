@@ -7,27 +7,28 @@
 
 module Scope = struct
   type t =
-    | Session
-    | Graph
-    | Value_graph
-    | Source_graph
     | Detail
-    | Navigation
-    | Fusion
     | Flow
+    | Fusion
+    | Graph
+    | Navigation
+    | Session
+    | Source_graph
+    | Value_graph
     | Verification
 
   let to_string = function
-    | Session -> "session"
-    | Graph -> "graph"
-    | Value_graph -> "value graph"
-    | Source_graph -> "source graph"
     | Detail -> "detail"
-    | Navigation -> "navigation"
-    | Fusion -> "fusion"
     | Flow -> "flow"
+    | Fusion -> "fusion"
+    | Graph -> "graph"
+    | Navigation -> "navigation"
+    | Session -> "session"
+    | Source_graph -> "source graph"
+    | Value_graph -> "value graph"
     | Verification -> "verification"
 
+  (* This successor relation defines the stable traversal exported by [all]. *)
   let next = function
     | Session -> Some Graph
     | Graph -> Some Value_graph
@@ -50,62 +51,60 @@ end
 
 module Field = struct
   type t =
-    | Views
-    | Comparisons
-    | Node_data_sets
-    | Diagnostics
-    | Graphs
-    | Nodes
-    | Edges
-    | Total_nodes
-    | Total_edges
     | Attrs_per_node
-    | Metadata_items_per_node
-    | Outputs_metadata_per_node
-    | Namespace_depth
+    | Comparisons
+    | Detail_graphs
+    | Detail_nodes
+    | Diagnostics
+    | Edges
+    | Expression_nodes
+    | Graphs
+    | Group_node_attributes
     | Mapping_entries_per_comparison
     | Mapping_members
     | Mapping_members_per_entry
-    | States
-    | Transitions
-    | Detail_graphs
-    | Detail_nodes
-    | Expression_nodes
-    | Group_node_attributes
+    | Metadata_items_per_node
+    | Namespace_depth
     | Node_data_results
+    | Node_data_sets
+    | Nodes
+    | Outputs_metadata_per_node
     | Overlay_edges
     | Overlay_edges_total
+    | States
+    | Total_edges
+    | Total_nodes
+    | Transitions
+    | Views
 
   let to_string = function
-    | Views -> "views"
-    | Comparisons -> "comparisons"
-    | Node_data_sets -> "nodeDataSets"
-    | Diagnostics -> "diagnostics"
-    | Graphs -> "graphs"
-    | Nodes -> "nodes"
-    | Edges -> "edges"
-    | Total_nodes -> "totalNodes"
-    | Total_edges -> "totalEdges"
     | Attrs_per_node -> "attrsPerNode"
-    | Metadata_items_per_node -> "metadataItemsPerNode"
-    | Outputs_metadata_per_node -> "outputsMetadataPerNode"
-    | Namespace_depth -> "namespaceDepth"
+    | Comparisons -> "comparisons"
+    | Detail_graphs -> "detailGraphs"
+    | Detail_nodes -> "detailNodes"
+    | Diagnostics -> "diagnostics"
+    | Edges -> "edges"
+    | Expression_nodes -> "expressionNodes"
+    | Graphs -> "graphs"
+    | Group_node_attributes -> "groupNodeAttributes"
     | Mapping_entries_per_comparison -> "mappingEntriesPerComparison"
     | Mapping_members -> "mappingMembers"
     | Mapping_members_per_entry -> "mappingMembersPerEntry"
-    | States -> "states"
-    | Transitions -> "transitions"
-    | Detail_graphs -> "detailGraphs"
-    | Detail_nodes -> "detailNodes"
-    | Expression_nodes -> "expressionNodes"
-    | Group_node_attributes -> "groupNodeAttributes"
+    | Metadata_items_per_node -> "metadataItemsPerNode"
+    | Namespace_depth -> "namespaceDepth"
     | Node_data_results -> "nodeDataResults"
+    | Node_data_sets -> "nodeDataSets"
+    | Nodes -> "nodes"
+    | Outputs_metadata_per_node -> "outputsMetadataPerNode"
     | Overlay_edges -> "overlayEdges"
     | Overlay_edges_total -> "overlayEdgesTotal"
+    | States -> "states"
+    | Total_edges -> "totalEdges"
+    | Total_nodes -> "totalNodes"
+    | Transitions -> "transitions"
+    | Views -> "views"
 
-  (* The successor chain [Scope] and [Me_ids.Layer] use, and for the same
-     reason: a list written beside the type compiles while everything that
-     iterates the vocabulary quietly stops seeing the new member. *)
+  (* This successor relation defines the stable traversal exported by [all]. *)
   let next = function
     | Views -> Some Comparisons
     | Comparisons -> Some Node_data_sets

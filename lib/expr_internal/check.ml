@@ -5,20 +5,20 @@
      which has never failed is not evidence. What remains is exactly what
      COMPOSITION can still violate. *)
 type error =
-  [ `Free_reducer of Reduce_var.t
-  | `Duplicate_binder of Reduce_var.t
-  | `Too_large of int
-  | `Too_deep of int ]
+  [ `Duplicate_binder of Reduce_var.t
+  | `Free_reducer of Reduce_var.t
+  | `Too_deep of int
+  | `Too_large of int ]
 
 (* The payload is the LIMIT, not the measure. Reporting the actual size would
      mean measuring the whole tree, which is the thing the limit exists to
      avoid. *)
 let pp_error fmt : [< error ] -> unit = function
-  | `Free_reducer v -> Fmt.pf fmt "free reducer %a" Reduce_var.pp v
   | `Duplicate_binder v ->
       Fmt.pf fmt "reducer %a is bound twice on one path" Reduce_var.pp v
-  | `Too_large limit -> Fmt.pf fmt "size exceeds limit %d" limit
+  | `Free_reducer v -> Fmt.pf fmt "free reducer %a" Reduce_var.pp v
   | `Too_deep limit -> Fmt.pf fmt "depth exceeds limit %d" limit
+  | `Too_large limit -> Fmt.pf fmt "size exceeds limit %d" limit
 
 (* A variable bound again inside its own scope. Two independently built
      fragments composed without freshening is how this arises in practice, and

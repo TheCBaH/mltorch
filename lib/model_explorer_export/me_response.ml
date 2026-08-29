@@ -3,17 +3,16 @@
 module Hard = Me_limits.Hard
 
 module Phase = struct
-  type t = Decode | Lower | Project | Encode
+  type t = Decode | Encode | Lower | Project
 
   let to_string = function
     | Decode -> "decode"
+    | Encode -> "encode"
     | Lower -> "lower"
     | Project -> "project"
-    | Encode -> "encode"
 
-  (* The same successor chain the other closed vocabularies here use: a list
-     written beside the type compiles while everything iterating it quietly
-     stops seeing the new member. *)
+  (* This successor relation defines the externally visible pipeline timeline;
+     the declaration above remains alphabetical. *)
   let next = function
     | Decode -> Some Lower
     | Lower -> Some Project
@@ -72,20 +71,20 @@ module Protocol_failure = struct
 end
 
 module Handle_result = struct
-  type t = Session of Session.t | Delta of Delta.t | Failed of Failed.t
+  type t = Delta of Delta.t | Failed of Failed.t | Session of Session.t
 end
 
 module Final = struct
   type t =
-    | Session of Session.t
     | Delta of Delta.t
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t
+    | Session of Session.t
 
   let of_handle_result = function
-    | Handle_result.Session s -> Session s
     | Handle_result.Delta d -> Delta d
     | Handle_result.Failed f -> Failed f
+    | Handle_result.Session s -> Session s
 end
 
 module Meta = struct
@@ -106,18 +105,18 @@ module Meta = struct
   end
 
   type t =
-    | Progress of Progress.t
-    | Session of Session.t
     | Delta of Delta.t
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t
+    | Progress of Progress.t
+    | Session of Session.t
 
   let kind = function
-    | Progress _ -> "progress"
-    | Session _ -> "session"
     | Delta _ -> "delta"
     | Failed _ -> "failed"
     | Protocol_failure _ -> "protocol_failure"
+    | Progress _ -> "progress"
+    | Session _ -> "session"
 
   (* A "kind" discriminant over the five constructors, every optional member
      belonging to exactly one of them. This is the ONLY thing that crosses to

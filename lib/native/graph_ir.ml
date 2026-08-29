@@ -566,9 +566,9 @@ let pp_graph_header fmt (_g : graph) = Fmt.pf fmt "graph"
 let pp_graph_inputs ?printer ~index fmt (g : graph) =
   let pp_input fmt id =
     match input_kind g id with
-    | Input.Input -> pp_tensor_def ?printer ~index g fmt id
     | Input.Constant ->
         Fmt.pf fmt "%a constant" (pp_tensor_def ?printer ~index g) id
+    | Input.Input -> pp_tensor_def ?printer ~index g fmt id
   in
   Fmt.pf fmt "@[<hv 2>inputs:@ %a@]" (pp_list pp_input) g.Graph.inputs
 
@@ -593,21 +593,21 @@ let rec pp_graph ?printer ~index fmt (g : graph) =
 
 and pp_root ?printer ~index g fmt (root : Group.t) =
   let pp_item fmt = function
+    | Group.Group child -> pp_group ?printer ~index g fmt child
     | Group.Node id -> (
         match Index.node_by_id index id with
         | Some node -> pp_node_header ?printer ~index g fmt node
         | None -> Fmt.pf fmt "%a <missing>" Node_id.pp id)
-    | Group.Group child -> pp_group ?printer ~index g fmt child
   in
   Fmt.pf fmt "@[<v 2>nodes:@,%a@]" (Fmt.list ~sep:Fmt.cut pp_item) root.items
 
 and pp_group ?printer ~index g fmt (group : Group.t) =
   let pp_item fmt = function
+    | Group.Group child -> pp_group ?printer ~index g fmt child
     | Group.Node id -> (
         match Index.node_by_id index id with
         | Some node -> pp_node_header ?printer ~index g fmt node
         | None -> Fmt.pf fmt "%a <missing>" Node_id.pp id)
-    | Group.Group child -> pp_group ?printer ~index g fmt child
   in
   let label = Option.value group.label ~default:"" in
   Fmt.pf fmt "@[<v 2>group %a%s:@,%a@]" Group_id.pp group.id
@@ -699,9 +699,9 @@ let rec dec_group (json : Jsont.json) : Group.t =
   let dec_item json =
     Json_util.union ~kind:"group item"
       [
+        ("Group", fun v -> Group.Group (dec_group v));
         ( "Node",
           fun v -> Group.Node (Json_util.dec Jsont.int v |> Node_id.of_int) );
-        ("Group", fun v -> Group.Group (dec_group v));
       ]
       json
   in
@@ -759,9 +759,9 @@ let dec_graph (json : Jsont.json) : graph =
 
 let rec enc_group (group : Group.t) : Jsont.json =
   let enc_item = function
+    | Group.Group child -> Json_util.single ~case:"Group" (enc_group child)
     | Group.Node id ->
         Json_util.single ~case:"Node" (Json_util.jint (Node_id.to_int id))
-    | Group.Group child -> Json_util.single ~case:"Group" (enc_group child)
   in
   Json_util.jobj
     ([
@@ -781,9 +781,9 @@ let enc_graph (g : graph) : Jsont.json =
     List.filter_map
       (fun id ->
         match input_kind g id with
-        | Input.Input -> None
         | Input.Constant ->
-            Some (Json_util.jobj [ ("id", Json_util.enc tensor_ref_jsont id) ]))
+            Some (Json_util.jobj [ ("id", Json_util.enc tensor_ref_jsont id) ])
+        | Input.Input -> None)
       g.Graph.inputs
   in
   let fields =

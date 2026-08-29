@@ -20,8 +20,8 @@
 
 type error =
   [ `Control_byte of int  (** the offending byte *)
-  | `Label_too_long of int  (** raw bytes offered *)
-  | `Id_too_long of int  (** encoded bytes produced *) ]
+  | `Id_too_long of int  (** encoded bytes produced *)
+  | `Label_too_long of int  (** raw bytes offered *) ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -55,7 +55,7 @@ val component : string -> (string, [> error ]) Err.t
     unable to name the two Native graphs that share a layer. *)
 
 module Layer : sig
-  type t = Pt2 | Native | Native4d | Symbolic | Kernel
+  type t = Kernel | Native | Native4d | Pt2 | Symbolic
 
   val to_string : t -> string
   val of_string : string -> t option
@@ -83,7 +83,7 @@ val pt2_node : Pt2_native_graph.Graph_path.t -> int -> string
 
 val pt2_boundary :
   limits:Me_limits.Limits.t ->
-  [ `In | `Const | `Out ] ->
+  [ `Const | `In | `Out ] ->
   string ->
   (string, [> error ]) Err.t
 (** [in:<ssa>] / [const:<ssa>] / [out:<ssa>], the source graph's boundary nodes.

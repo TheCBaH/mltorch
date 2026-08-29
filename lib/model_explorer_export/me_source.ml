@@ -24,27 +24,45 @@ let tname (t : PT.TensorArgument.t) = t.PT.TensorArgument.name
    difference by looking. *)
 let rec tensor_names (a : A.t) =
   match a with
-  | A.Tensor t -> [ tname t ]
-  | Tensors ts -> List.map tname ts
+  (* A [sym_int] names an entry in [sym_int_values] and a graph argument a
+     nested body; neither is a node output here. Other scalar and metadata
+     forms likewise add no dataflow edge. *)
+  | Bool _ -> []
+  | Bools _ -> []
+  | Complex _ -> []
+  | Custom_obj _ -> []
+  | Device _ -> []
+  | Float _ -> []
+  | Float_lists _ -> []
+  | Floats _ -> []
+  | Graph _ -> []
+  | Int _ -> []
+  | Int_lists _ -> []
+  | Ints _ -> []
+  | Layout _ -> []
+  | Memory_format _ -> []
   | Nested_tensors tss -> List.concat_map (List.map tname) tss
+  | None _ -> []
+  | Operator _ -> []
   | Optional_tensor o -> optional_tensor_name o
   | Optional_tensors os -> List.concat_map optional_tensor_name os
+  | Scalar_type _ -> []
+  | String _ -> []
   | String_to_argument m -> SM.fold (fun _ v acc -> acc @ tensor_names v) m []
-  (* Values and non-tensor references. A [sym_int] names an entry in
-     [sym_int_values] and a graph argument a nested body; neither is a node
-     output here, and drawing an edge for one would assert a dataflow
-     dependency the graph does not have. *)
-  | None _ | Int _ | Ints _ | Int_lists _ | Float _ | Floats _ | Float_lists _
-  | String _ | Strings _ | Bool _ | Bools _ | Sym_int _ | Sym_ints _
-  | Sym_bool _ | Sym_bools _ | Sym_float _ | Sym_floats _ | Scalar_type _
-  | Memory_format _ | Layout _ | Device _ | Graph _ | Custom_obj _ | Operator _
-  | Complex _ ->
-      []
+  | Strings _ -> []
+  | Sym_bool _ -> []
+  | Sym_bools _ -> []
+  | Sym_float _ -> []
+  | Sym_floats _ -> []
+  | Sym_int _ -> []
+  | Sym_ints _ -> []
+  | A.Tensor t -> [ tname t ]
+  | Tensors ts -> List.map tname ts
 
 and optional_tensor_name (o : PT.OptionalTensorArgument.t) =
   match o with
-  | PT.OptionalTensorArgument.Tensor t -> [ tname t ]
   | None _ -> []
+  | PT.OptionalTensorArgument.Tensor t -> [ tname t ]
 
 (* --- rendering an argument ---------------------------------------------- *)
 
@@ -60,23 +78,23 @@ let pp_quoted fmt s = Fmt.pf fmt "%S" s
 let pp_layout fmt (l : PT.Layout.t) =
   Fmt.string fmt
     (match l with
-    | PT.Layout.Unknown -> "unknown"
-    | SparseCoo -> "sparse_coo"
-    | SparseCsr -> "sparse_csr"
-    | SparseCsc -> "sparse_csc"
-    | SparseBsr -> "sparse_bsr"
-    | SparseBsc -> "sparse_bsc"
     | Mkldnn -> "mkldnn"
-    | Strided -> "strided")
+    | SparseBsc -> "sparse_bsc"
+    | SparseBsr -> "sparse_bsr"
+    | SparseCoo -> "sparse_coo"
+    | SparseCsc -> "sparse_csc"
+    | SparseCsr -> "sparse_csr"
+    | Strided -> "strided"
+    | PT.Layout.Unknown -> "unknown")
 
 let pp_memory_format fmt (m : PT.MemoryFormat.t) =
   Fmt.string fmt
     (match m with
-    | PT.MemoryFormat.Unknown -> "unknown"
-    | ContiguousFormat -> "contiguous"
     | ChannelsLast -> "channels_last"
     | ChannelsLast3d -> "channels_last_3d"
-    | PreserveFormat -> "preserve")
+    | ContiguousFormat -> "contiguous"
+    | PreserveFormat -> "preserve"
+    | PT.MemoryFormat.Unknown -> "unknown")
 
 let pp_device fmt (d : PT.Device.t) =
   match d.PT.Device.index with
@@ -100,8 +118,8 @@ let pp_sym_float_arg fmt (s : PT.SymFloatArgument.t) =
 
 let pp_optional_tensor fmt (o : PT.OptionalTensorArgument.t) =
   match o with
-  | PT.OptionalTensorArgument.Tensor t -> Fmt.string fmt (tname t)
   | None _ -> Fmt.string fmt "none"
+  | PT.OptionalTensorArgument.Tensor t -> Fmt.string fmt (tname t)
 
 let pp_sym_int fmt (s : PT.SymInt.t) =
   match s with
@@ -114,44 +132,44 @@ let pp_sym_int fmt (s : PT.SymInt.t) =
    inlining it here would put a whole subgraph in one attribute. *)
 let rec pp_arg fmt (a : A.t) =
   match a with
-  | A.None _ -> Fmt.string fmt "none"
-  | Tensor t -> Fmt.string fmt (tname t)
-  | Tensors ts -> pp_seq Fmt.string fmt (List.map tname ts)
-  | Nested_tensors tss ->
-      pp_seq (pp_seq Fmt.string) fmt (List.map (List.map tname) tss)
-  | Optional_tensor o -> pp_optional_tensor fmt o
-  | Optional_tensors os -> pp_seq pp_optional_tensor fmt os
-  | Int i -> Fmt.int fmt i
-  | Ints is -> pp_seq Fmt.int fmt is
-  | Int_lists iss -> pp_seq (pp_seq Fmt.int) fmt iss
-  | Float f -> pp_float fmt f
-  | Floats fs -> pp_seq pp_float fmt fs
-  | Float_lists fss -> pp_seq (pp_seq pp_float) fmt fss
-  | String s -> pp_quoted fmt s
-  | Strings ss -> pp_seq pp_quoted fmt ss
   | Bool b -> Fmt.bool fmt b
   | Bools bs -> pp_seq Fmt.bool fmt bs
-  | Sym_int s -> pp_sym_int_arg fmt s
-  | Sym_ints ss -> pp_seq pp_sym_int_arg fmt ss
-  | Sym_bool s -> pp_sym_bool_arg fmt s
-  | Sym_bools ss -> pp_seq pp_sym_bool_arg fmt ss
-  | Sym_float s -> pp_sym_float_arg fmt s
-  | Sym_floats ss -> pp_seq pp_sym_float_arg fmt ss
-  | Scalar_type st -> Fmt.string fmt (Pt2_dtype.scalar_type_name st)
-  | Memory_format m -> pp_memory_format fmt m
-  | Layout l -> pp_layout fmt l
-  | Device d -> pp_device fmt d
-  | Graph g -> Fmt.pf fmt "graph %s" g.PT.GraphArgument.name
+  | Complex c ->
+      Fmt.pf fmt "%g+%gi" c.PT.ComplexValue.real c.PT.ComplexValue.imag
   | Custom_obj c ->
       Fmt.pf fmt "%s : %s" c.PT.CustomObjArgument.name
         c.PT.CustomObjArgument.class_fqn
+  | Device d -> pp_device fmt d
+  | Float f -> pp_float fmt f
+  | Float_lists fss -> pp_seq (pp_seq pp_float) fmt fss
+  | Floats fs -> pp_seq pp_float fmt fs
+  | Graph g -> Fmt.pf fmt "graph %s" g.PT.GraphArgument.name
+  | Int i -> Fmt.int fmt i
+  | Int_lists iss -> pp_seq (pp_seq Fmt.int) fmt iss
+  | Ints is -> pp_seq Fmt.int fmt is
+  | Layout l -> pp_layout fmt l
+  | Memory_format m -> pp_memory_format fmt m
+  | Nested_tensors tss ->
+      pp_seq (pp_seq Fmt.string) fmt (List.map (List.map tname) tss)
+  | A.None _ -> Fmt.string fmt "none"
   | Operator o -> Fmt.pf fmt "operator %s" o
-  | Complex c ->
-      Fmt.pf fmt "%g+%gi" c.PT.ComplexValue.real c.PT.ComplexValue.imag
+  | Optional_tensor o -> pp_optional_tensor fmt o
+  | Optional_tensors os -> pp_seq pp_optional_tensor fmt os
+  | Scalar_type st -> Fmt.string fmt (Pt2_dtype.scalar_type_name st)
+  | String s -> pp_quoted fmt s
   | String_to_argument m ->
       Fmt.pf fmt "{%a}"
         (Fmt.list ~sep:comma (fun fmt (k, v) -> Fmt.pf fmt "%s=%a" k pp_arg v))
         (SM.bindings m)
+  | Strings ss -> pp_seq pp_quoted fmt ss
+  | Sym_bool s -> pp_sym_bool_arg fmt s
+  | Sym_bools ss -> pp_seq pp_sym_bool_arg fmt ss
+  | Sym_float s -> pp_sym_float_arg fmt s
+  | Sym_floats ss -> pp_seq pp_sym_float_arg fmt ss
+  | Sym_int s -> pp_sym_int_arg fmt s
+  | Sym_ints ss -> pp_seq pp_sym_int_arg fmt ss
+  | Tensor t -> Fmt.string fmt (tname t)
+  | Tensors ts -> pp_seq Fmt.string fmt (List.map tname ts)
 
 (* --- the module hierarchy ------------------------------------------------ *)
 
@@ -212,28 +230,28 @@ let input_kinds (s : PT.GraphSignature.t) : (string, [ `In | `Const ]) Hashtbl.t
   List.iter
     (fun (spec : PT.InputSpec.t) ->
       match spec with
-      | PT.InputSpec.User_input u ->
-          List.iter
-            (fun n -> Hashtbl.replace table n `In)
-            (tensor_names u.PT.UserInputSpec.arg)
-      | Parameter p ->
-          Hashtbl.replace table (tname p.PT.InputToParameterSpec.arg) `Const
       | Buffer b ->
           Hashtbl.replace table (tname b.PT.InputToBufferSpec.arg) `Const
+      | Constant_input c ->
+          Hashtbl.replace table c.PT.InputToConstantInputSpec.name `Const
+      | Custom_obj c ->
+          Hashtbl.replace table
+            c.PT.InputToCustomObjSpec.arg.PT.CustomObjArgument.name `Const
+      | Parameter p ->
+          Hashtbl.replace table (tname p.PT.InputToParameterSpec.arg) `Const
       | Tensor_constant c ->
           Hashtbl.replace table
             (tname c.PT.InputToTensorConstantSpec.arg)
             `Const
-      | Custom_obj c ->
-          Hashtbl.replace table
-            c.PT.InputToCustomObjSpec.arg.PT.CustomObjArgument.name `Const
       (* A token is an effect ordering edge the caller supplies, and a constant
          input is a value rather than a tensor; neither is a weight. *)
       | Token t ->
           Hashtbl.replace table t.PT.InputTokenSpec.arg.PT.TokenArgument.name
             `In
-      | Constant_input c ->
-          Hashtbl.replace table c.PT.InputToConstantInputSpec.name `Const)
+      | PT.InputSpec.User_input u ->
+          List.iter
+            (fun n -> Hashtbl.replace table n `In)
+            (tensor_names u.PT.UserInputSpec.arg))
     s.PT.GraphSignature.input_specs;
   table
 
@@ -241,8 +259,8 @@ let input_kinds (s : PT.GraphSignature.t) : (string, [ `In | `Const ]) Hashtbl.t
    the widening is written here rather than as a dead [`Out] arm wherever an
    input kind is displayed. *)
 let boundary_kind : [ `In | `Const ] -> [ `In | `Const | `Out ] = function
-  | `In -> `In
   | `Const -> `Const
+  | `In -> `In
 
 let shape_of (g : PT.Graph.t) name =
   match SM.find_opt name g.PT.Graph.tensor_values with
@@ -303,8 +321,8 @@ let graph ~limits (gm : PT.GraphModule.t) =
     nodes;
   let resolve name =
     match Hashtbl.find_opt producer name with
-    | Some p -> Err.return p
     | None -> Err.fail (`Unknown_producer name)
+    | Some p -> Err.return p
   in
   let* input_nodes =
     Err.List.map
@@ -312,7 +330,7 @@ let graph ~limits (gm : PT.GraphModule.t) =
         let kind = Option.value (Hashtbl.find_opt kinds name) ~default:`In in
         let+ id = Me_ids.pt2_boundary ~limits (boundary_kind kind) name in
         ME.GraphNode.create ~id
-          ~label:(match kind with `In -> "input" | `Const -> "constant")
+          ~label:(match kind with `Const -> "constant" | `In -> "input")
           ~namespace:"" ~incomingEdges:[]
           ~outputsMetadata:[ output_metadata g 0 name ]
           ())

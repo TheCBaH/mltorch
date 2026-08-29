@@ -33,7 +33,7 @@ module Node_origin = struct
   }
 end
 
-type tensor_origin = Source of Tensor_origin.t | Derived
+type tensor_origin = Derived | Source of Tensor_origin.t
 
 type t = {
   graph : graph;
@@ -43,19 +43,19 @@ type t = {
 }
 
 type error =
-  [ `Unknown_tensor_id of Tensor_id.t
+  [ `Captured_target_for_non_constant of Tensor_id.t
   | `Unknown_node_id of Node_id.t
-  | `Captured_target_for_non_constant of Tensor_id.t ]
+  | `Unknown_tensor_id of Tensor_id.t ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Unknown_tensor_id id ->
-      Format.fprintf ppf "PT2 provenance refers to unknown tensor %a"
+  | `Captured_target_for_non_constant id ->
+      Format.fprintf ppf "captured target attached to non-constant tensor %a"
         Tensor_id.pp id
   | `Unknown_node_id id ->
       Format.fprintf ppf "PT2 provenance refers to unknown node %a" Node_id.pp
         id
-  | `Captured_target_for_non_constant id ->
-      Format.fprintf ppf "captured target attached to non-constant tensor %a"
+  | `Unknown_tensor_id id ->
+      Format.fprintf ppf "PT2 provenance refers to unknown tensor %a"
         Tensor_id.pp id
 
 let graph_ids (g : graph) =
@@ -100,15 +100,13 @@ let make ~graph ~tensor_origins ~node_origins ~captured_targets =
 (* ---- the transformation lens ---------------------------------------------- *)
 
 type lens_error =
-  [ error
-  | Graph_map.error
-  | `Sidecar_graph_mismatch
+  [ `Sidecar_graph_mismatch
   | `Unknown_destination_node of Node_id.t
-  | `Unknown_destination_tensor of Tensor_id.t ]
+  | `Unknown_destination_tensor of Tensor_id.t
+  | error
+  | Graph_map.error ]
 
 let pp_lens_error ppf : [< lens_error ] -> unit = function
-  | #error as e -> pp_error ppf e
-  | #Graph_map.error as e -> Graph_map.pp_error ppf e
   | `Sidecar_graph_mismatch ->
       Format.fprintf ppf "the sidecar does not describe the map's source graph"
   | `Unknown_destination_node id ->
@@ -117,6 +115,8 @@ let pp_lens_error ppf : [< lens_error ] -> unit = function
   | `Unknown_destination_tensor id ->
       Format.fprintf ppf "%a is not an edge of the destination graph"
         Tensor_id.pp id
+  | #error as e -> pp_error ppf e
+  | #Graph_map.error as e -> Graph_map.pp_error ppf e
 
 type 'dst lens =
   | Lens : {
@@ -188,8 +188,8 @@ let tensor_origins (Lens l as lens) id =
   List.filter_map
     (fun s ->
       match Tensor_id.Map.find_opt s l.sidecar.tensor_origins with
-      | Some (Source o) -> Some o
-      | Some Derived | None -> None)
+      | Some Derived | None -> None
+      | Some (Source o) -> Some o)
     sources
   |> dedup_by (fun (o : Tensor_origin.t) -> (o.graph_path, o.ssa_name))
 

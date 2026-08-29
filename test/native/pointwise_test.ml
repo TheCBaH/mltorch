@@ -233,6 +233,6 @@ let%expect_test "Direct: add broadcasts an extent-1 axis" =
 let%expect_test "Direct: add of incompatible extents raises" =
   let a_shape = s1c 3 and b_shape = s1c 5 in
   (match Pointwise.Add.output_shape a_shape b_shape with
-  | Ok _ -> print_string "no error"
-  | Error e -> Format.printf "error: %a@." Shape_error.pp (Err.Error.kind e));
+  | Error e -> Format.printf "error: %a@." Shape_error.pp (Err.Error.kind e)
+  | Ok _ -> print_string "no error");
   [%expect {| error: incompatible broadcast extents on axis C: 3 vs 5 |}]
