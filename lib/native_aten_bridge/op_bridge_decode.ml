@@ -149,6 +149,30 @@ let perm_nhwc_to_nchw : Permute.Permute.perm =
   let open Axis in
   [ (N, N); (T, T); (D, D); (H, C); (W, H); (C, W) ]
 
+(* ATen batch normalization always names dimension 1 as channels, while the
+   frame right-aligns an arbitrary ATen rank.  The fixed NCHW permutation above
+   is its rank-4 instance; this pair also covers rank-3 [N,C,L] activations. *)
+let batch_norm_channel_perms ~rank : Permute.Permute.perm * Permute.Permute.perm
+    =
+  match Aten_shape.used_axes ~rank with
+  | first :: channel :: rest ->
+      let before_last xs = List.rev xs |> List.tl |> List.rev in
+      let destinations =
+        match rest with
+        | [] -> [ first; Axis.C ]
+        | _ -> first :: Axis.C :: channel :: before_last rest
+      in
+      let pairs = List.combine destinations (first :: channel :: rest) in
+      let inverse_pairs = List.map (fun (dst, src) -> (src, dst)) pairs in
+      let complete pairs =
+        List.map
+          (fun dst ->
+            (dst, Option.value (List.assoc_opt dst pairs) ~default:dst))
+          Axis.all
+      in
+      (complete pairs, complete inverse_pairs)
+  | _ -> invalid_arg "batch_norm_channel_perms: ATen rank must be at least 2"
+
 (* OIHW conv weight (D=Cout, H=Cin, W=Kh, C=Kw) ->
    native [N=Cout, H=Kh, W=Kw, C=Cin].  Unlike activations, weights must move
    Cout onto N because Conv2d.output_shape reads output channels from weight N. *)

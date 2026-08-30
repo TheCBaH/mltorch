@@ -110,6 +110,7 @@ module Operand_shape = struct
   type t = {
     operand :
       [ `Bias
+      | `Batch_norm_no_stats_affine
       | `Group_norm_bias
       | `Group_norm_weight
       | `Layer_norm_bias
@@ -123,6 +124,7 @@ module Operand_shape = struct
     Fmt.pf ppf "%s shape must be %a, got %a"
       (match operand with
       | `Bias -> "bias"
+      | `Batch_norm_no_stats_affine -> "batch_norm_no_stats affine"
       | `Group_norm_bias -> "group_norm bias"
       | `Group_norm_weight -> "group_norm weight"
       | `Layer_norm_bias -> "layer_norm bias"

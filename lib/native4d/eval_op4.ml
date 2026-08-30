@@ -64,6 +64,17 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Avg_pool2d { Pool.AvgPool2d.params; x } ->
         let module C = Pool.AvgPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Batch_norm_no_stats { Ops4.Batch_norm_no_stats.params; x; weight; bias }
+      ->
+        let module C = Norm.BatchNormNoStats.Compute (S) in
+        let fill_or v = function
+          | None -> fill v (shape_of x)
+          | Some r -> operand r
+        in
+        C.pixel ~output
+          (Graph_shape4.batch_norm_no_stats_params params)
+          ~x_shape:(shape_of x) ~x:(operand x) ~weight:(fill_or 1. weight)
+          ~bias:(fill_or 0. bias) out
     | Clamp { Pointwise.Clamp.params; x } ->
         let module C = Pointwise.Clamp.Compute (S) in
         C.pixel params (operand x) out

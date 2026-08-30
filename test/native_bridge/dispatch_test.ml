@@ -282,6 +282,53 @@ let%expect_test "dispatch: _native_batch_norm_legit_no_training per-channel" =
     outputs: [t7 f32 [H=2 W=1 C=2] <-n2]
     tensor f32 [H=2 W=1 C=2] {1, 3, -1, 9} |}]
 
+let%expect_test "dispatch: _native_batch_norm_legit.no_stats preserves outputs"
+    =
+  (* NCHW [1,2,1,2] has per-channel batch means [2,6] and biased variance 1.
+     Unlike the inference overload, all three real tensors are graph outputs. *)
+  let x = float_tensor [ 1; 2; 1; 2 ] [ 1.; 3.; 5.; 7. ] in
+  let w = float_tensor [ 2 ] [ 2.; 10. ] in
+  let b = float_tensor [ 2 ] [ 1.; -1. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten._native_batch_norm_legit.no_stats"
+    ~bindings:[ ("input", x); ("weight", w); ("bias", b) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_tensor "weight";
+        in_tensor "bias";
+        in_bool "training" true;
+        in_float "momentum" 0.;
+        in_float "eps" 0.;
+      ]
+    ~noutputs:3;
+  [%expect
+    {|
+    graph
+    inputs:
+      [t0 f32 [H=2 W=1 C=2] ->[n0], t1 f32 [C=2] ->[n1], t2 f32 [C=2] ->[n1]]
+    nodes:
+      n0: [t3 f32 [W=2 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t4 f32 [W=2 C=2] ->[n2], t5 f32 [C=2], t6 f32 [C=2]] =
+        batch_norm_no_stats x=t3 <-n0 weight=t1 bias=t2 params={channel=C; eps=0}
+      n2: [t7 f32 [H=2 W=1 C=2]] = permute x=t4 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t7 f32 [H=2 W=1 C=2] <-n2, t5 f32 [C=2] <-n1, t6 f32 [C=2] <-n1]
+    tensor f32 [H=2 W=1 C=2] {-1, 3, -11, 9}
+    tensor f32 [C=2] {2, 6}
+    tensor f32 [C=2] {1, 1} |}]
+
+let%expect_test "dispatch: _native_batch_norm_legit.no_stats rejects options" =
+  let run inputs =
+    dispatch_print ~target:"torch.ops.aten._native_batch_norm_legit.no_stats"
+      ~bindings:[] ~inputs ~noutputs:3
+  in
+  run [ in_bool "training" false ];
+  run [ in_bool "training" true; in_float "momentum" 0.1 ];
+  [%expect
+    {|
+    error: _native_batch_norm_legit.no_stats: training=false is not supported (only true)
+    error: _native_batch_norm_legit.no_stats: momentum=0.1 is not supported (only 0) |}]
+
 let%expect_test "dispatch: conv2d.default relayouts NCHW/OIHW with bias" =
   let x = float_tensor [ 1; 1; 3; 3 ] (List.init 9 float_of_int) in
   let w = float_tensor [ 1; 1; 2; 2 ] [ 1.; 1.; 1.; 1. ] in

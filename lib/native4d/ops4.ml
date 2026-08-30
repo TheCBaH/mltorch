@@ -364,6 +364,72 @@ end
 
 (* ---- normalisation -------------------------------------------------------- *)
 
+(* Training batch norm cannot use inference [Batch_norm]'s depthwise-conv
+   legalization: its mean and inverse standard deviation are reductions of the
+   live input and are exposed as two additional outputs.  Keeping the channel
+   as [Axis4.t] makes T/D unrepresentable in this dialect. *)
+module Batch_norm_no_stats = struct
+  type params = { channel : Axis4.t; eps : float }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"batch_norm_no_stats4_params" (fun channel eps ->
+        { channel; eps })
+    |> Jsont.Object.mem "channel" Axis4.jsont ~enc:(fun p -> p.channel)
+    |> Jsont.Object.mem "eps" Json_util.f32_jsont ~enc:(fun p -> p.eps)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{channel=%a;@ eps=%a}@]" Axis4.pp p.channel Fmt.float
+      p.eps
+
+  type t = {
+    params : params;
+    x : Tensor_ref.t;
+    weight : Tensor_ref.t option;
+    bias : Tensor_ref.t option;
+  }
+
+  let name = "BatchNormNoStats"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          x = get "x" Tensor_ref.jsont;
+          weight = Json_util.opt_field ms "weight" Tensor_ref.jsont;
+          bias = Json_util.opt_field ms "bias" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        let ref_ = Json_util.enc Tensor_ref.jsont in
+        let opt k = function None -> [] | Some r -> [ (k, ref_ r) ] in
+        Json_util.jobj
+          (opt "bias" t.bias @ opt "weight" t.weight
+          @ [ ("params", Json_util.enc params_jsont t.params); ("x", ref_ t.x) ]
+          ))
+      Jsont.json
+
+  let operands (t : t) =
+    (t.x :: Option.to_list t.weight) @ Option.to_list t.bias
+
+  let map_operands f (t : t) =
+    {
+      t with
+      x = f t.x;
+      weight = Option.map f t.weight;
+      bias = Option.map f t.bias;
+    }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>batch_norm_no_stats@ x=%a%a%a@ params=%a@]" pp_ref t.x
+      (Fmt.option (fun fmt w -> Fmt.pf fmt "@ weight=%a" pp_ref w))
+      t.weight
+      (Fmt.option (fun fmt b -> Fmt.pf fmt "@ bias=%a" pp_ref b))
+      t.bias pp_params t.params
+end
+
 (* Retained fused rather than decomposed, so the legalization claims [Identical]
    and the verifier proves it structurally. The decomposition in §7.7
    materialises the squares before the reduction and so moves an f32 rounding

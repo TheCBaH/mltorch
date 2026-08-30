@@ -161,6 +161,17 @@ let per_op () =
                  fmt = Payload.Fmt Payload.F32;
                }),
           [] ) );
+      ( "batch_norm_no_stats",
+        ( build ~outputs:Fun.id
+            (let open Builder in
+             let* x = input ~shape:nhwc () in
+             let c_shape = s4 ~n:1 ~h:1 ~w:1 ~c:2 in
+             let* weight = input ~shape:c_shape () in
+             let* bias = input ~shape:c_shape () in
+             batch_norm_no_stats
+               { Ops4.Batch_norm_no_stats.channel = Axis4.C; eps = 1e-5 }
+               ~x ~weight ~bias ()),
+          [ nhwc; s4 ~n:1 ~h:1 ~w:1 ~c:2; s4 ~n:1 ~h:1 ~w:1 ~c:2 ] ) );
       ("relu", unary ~shape:nhwc Builder.relu);
       ("gelu", unary ~shape:nhwc (Builder.gelu Pointwise.Gelu.Exact));
       ("sigmoid", unary ~shape:nhwc Builder.sigmoid);

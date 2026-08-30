@@ -11,6 +11,7 @@ open Native_interp_decode_conv
 let targets =
   [
     "torch.ops.aten._native_batch_norm_legit_no_training.default";
+    "torch.ops.aten._native_batch_norm_legit.no_stats";
     "torch.ops.aten.add.Tensor";
     "torch.ops.aten.adaptive_avg_pool2d.default";
     "torch.ops.aten.addcmul.default";
@@ -133,6 +134,52 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* y = permute perm_nhwc_to_nchw y in
            return [ y ]
+       | "torch.ops.aten._native_batch_norm_legit.no_stats" -> (
+           (* Training batch norm without running statistics is not the
+              inference target above: its three real outputs retain the batch
+              reductions, so no running-stat fold or output dropping is valid. *)
+           let training = bool_arg esc node "training" in
+           let momentum = float_arg esc node "momentum" in
+           let () =
+             if not training then
+               malformed esc
+                 (`Unsupported_option
+                    { op = node.target; option = `Training training })
+             else if not (Float.equal momentum 0.) then
+               malformed esc
+                 (`Unsupported_option
+                    { op = node.target; option = `Momentum momentum })
+           in
+           let params =
+             {
+               Norm.BatchNormNoStats.channel = Axis.C;
+               eps = float_arg esc node "eps";
+             }
+           in
+           let x_name = tensor_name esc node "input" in
+           let rank =
+             meta_rank
+               (tensor_meta esc graph ~ssa:x_name
+                  ~role:`Batch_norm_no_stats_input)
+           in
+           let to_channel_last, from_channel_last =
+             batch_norm_channel_perms ~rank
+           in
+           let* x = permute to_channel_last (get "input") in
+           let weight =
+             Option.map (env_find esc env)
+               (optional_tensor_name esc node "weight")
+           in
+           let bias =
+             Option.map (env_find esc env)
+               (optional_tensor_name esc node "bias")
+           in
+           let* ys = batch_norm_no_stats params ~x ?weight ?bias () in
+           match ys with
+           | [ y'; mean; invstd ] ->
+               let+ y = permute from_channel_last y' in
+               [ y; mean; invstd ]
+           | _ -> assert false)
        (* [input] is right-aligned NCHW like [batch_norm]'s, so the same
          permute pair relays it around the op -- the serialized counterpart of
          [Op_bridge]'s [group_norm.default] arm: same checks, same node, same

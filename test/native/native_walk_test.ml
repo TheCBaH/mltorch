@@ -656,4 +656,16 @@ let%expect_test "native walk coverage" =
     step 4 [dims]: {shape=[n=2 c=23 h=4 w=4] dims=[C] keepdim=true}
     [native] vector_norm: direct==symbolic
     step 5 [input]: {shape=[n=2 c=23 h=3 w=4] dims=[C] keepdim=true}
-    [native] vector_norm: direct==symbolic |}]
+    [native] vector_norm: direct==symbolic
+    step 0: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=true}
+    [native] batch_norm_no_stats: direct==symbolic
+    step 1 [bias]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=false}
+    [native] batch_norm_no_stats: direct==symbolic
+    step 2 [eps]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=false}
+    [native] batch_norm_no_stats: direct==symbolic
+    step 3 [bias]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=true}
+    [native] batch_norm_no_stats: direct==symbolic
+    step 4 [input]: {shape=[n=2 c=21 h=3 w=2] eps=1e-05 weight=true bias=true}
+    [native] batch_norm_no_stats: direct==symbolic
+    step 5 [input]: {shape=[n=2 c=21 h=3 w=12] eps=1e-05 weight=true bias=true}
+    [native] batch_norm_no_stats: direct==symbolic |}]

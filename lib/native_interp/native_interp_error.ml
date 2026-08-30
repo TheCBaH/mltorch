@@ -65,6 +65,7 @@ type metadata_role =
   [ `Addmm_weight
   | `Adaptive_avg_pool2d_input
   | `Amax_input
+  | `Batch_norm_no_stats_input
   | `Concat_input
   | `Conv2d_bias
   | `Conv2d_padding_bias
@@ -135,6 +136,8 @@ type unsupported_option =
   | `Divisor_override of int
   | `Dtype
   | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
+  | `Momentum of float
+  | `Training of bool
   | `Vector_norm_ord of float ]
 
 (* Own modules, per the record-namespace convention: three of these carry an
@@ -366,6 +369,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Addmm_weight -> Fmt.string ppf "addmm weight"
   | `Adaptive_avg_pool2d_input -> Fmt.string ppf "adaptive_avg_pool2d input"
   | `Amax_input -> Fmt.string ppf "amax input"
+  | `Batch_norm_no_stats_input -> Fmt.string ppf "batch_norm_no_stats input"
   | `Concat_input -> Fmt.string ppf "concat input"
   | `Conv2d_bias -> Fmt.string ppf "conv2d bias"
   | `Conv2d_padding_bias -> Fmt.string ppf "conv2d padding bias"
@@ -553,6 +557,10 @@ let pp_malformed ppf : [< malformed ] -> unit = function
             | `Channels_last -> "channels_last"
             | `Channels_last_3d -> "channels_last_3d"
             | `Unknown -> "unknown")
+      | `Momentum momentum ->
+          Fmt.pf ppf "%s: momentum=%g is not supported (only 0)" op momentum
+      | `Training training ->
+          Fmt.pf ppf "%s: training=%b is not supported (only true)" op training
       | `Vector_norm_ord o ->
           Fmt.pf ppf "%s: ord=%g is not supported (only 2)" op o)
   | `Unsupported_padding_mode s ->

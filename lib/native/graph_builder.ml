@@ -186,6 +186,10 @@ let batch_norm ?name params ~x ?weight ?bias ~running_mean ~running_var () =
     (Batch_norm
        { Norm.BatchNorm.params; x; weight; bias; running_mean; running_var })
 
+let batch_norm_no_stats ?name params ~x ?weight ?bias () =
+  opN ?name ~kind:"batch_norm_no_stats"
+    (Batch_norm_no_stats { Norm.BatchNormNoStats.params; x; weight; bias })
+
 let batched_matmul ?name input mat2 =
   op1 ?name ~kind:"batched_matmul"
     (Batched_matmul { Matmul.Batched_matmul.input; mat2 })

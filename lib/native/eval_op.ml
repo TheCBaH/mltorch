@@ -56,6 +56,16 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel params ~x:(operand x) ~weight ~bias
           ~running_mean:(operand running_mean)
           ~running_var:(operand running_var) out
+    | Batch_norm_no_stats { Norm.BatchNormNoStats.params; x; weight; bias } ->
+        let module C = Norm.BatchNormNoStats.Compute (S) in
+        let weight =
+          match weight with Some w -> operand w | None -> fill 1. (shape_of x)
+        in
+        let bias =
+          match bias with Some b -> operand b | None -> fill 0. (shape_of x)
+        in
+        C.pixel ~output params ~x_shape:(shape_of x) ~x:(operand x) ~weight
+          ~bias out
     | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
         let module C = Matmul.Batched_matmul.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~input:(operand input)

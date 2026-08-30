@@ -210,6 +210,59 @@ let%expect_test "direct4: arange4 preserves Float start and endpoint" =
   Format.printf "%a@." Tensor.pp (single g ~inputs:[] ());
   [%expect {| tensor f32 [C=4] {0.5, 1.5, 2.5, 3.5} |}]
 
+let%expect_test "direct4: batch_norm_no_stats keeps activation and statistics" =
+  let x_shape = s4 ~n:1 ~h:2 ~w:1 ~c:2 in
+  let c_shape = s4 ~n:1 ~h:1 ~w:1 ~c:2 in
+  let g =
+    build ~outputs:Fun.id
+      (let open Builder in
+       let* x = input ~shape:x_shape () in
+       let* weight = input ~shape:c_shape () in
+       let* bias = input ~shape:c_shape () in
+       batch_norm_no_stats
+         { Ops4.Batch_norm_no_stats.channel = Axis4.C; eps = 0. }
+         ~x ~weight ~bias ())
+  in
+  let x =
+    Tensor.materialize (Shape4.to_vec6 x_shape) (fun c ->
+        [| [| 1.; 3. |]; [| 5.; 7. |] |].(chan c).(Dim.to_int
+                                                     (Vec6.get c Axis.H)))
+  in
+  let vec2 a b =
+    Tensor.materialize (Shape4.to_vec6 c_shape) (fun c -> [| a; b |].(chan c))
+  in
+  let env =
+    run_direct g
+      ~inputs:
+        (List.combine g.Graph.Graph.inputs [ x; vec2 2. 10.; vec2 1. (-1.) ])
+  in
+  List.iter
+    (fun id ->
+      Format.printf "%a@." pp_values (values (Tensor_id.Map.find id env)))
+    g.Graph.Graph.outputs;
+  [%expect {|
+    [-1 -11 3 9]
+    [2 6]
+    [1 1] |}]
+
+let%expect_test "symbolic4: batch_norm_no_stats reaches the kernel adapter" =
+  let x_shape = s4 ~n:1 ~h:2 ~w:1 ~c:2 in
+  let c_shape = s4 ~n:1 ~h:1 ~w:1 ~c:2 in
+  let g =
+    build ~outputs:Fun.id
+      (let open Builder in
+       let* x = input ~shape:x_shape () in
+       let* weight = input ~shape:c_shape () in
+       let* bias = input ~shape:c_shape () in
+       batch_norm_no_stats
+         { Ops4.Batch_norm_no_stats.channel = Axis4.C; eps = 1e-5 }
+         ~x ~weight ~bias ())
+  in
+  (match Kernel_adapt.of_stage_program (Eval_symbolic4.run g) with
+  | Ok _ -> print_endline "kernel accepted"
+  | Error e -> Format.printf "%a@." Kernel_adapt.pp_error (Err.Error.kind e));
+  [%expect {| kernel accepted |}]
+
 (* Depthwise is the arm where a wrong group count is invisible without a hand
    value: with in_channels = 2 and a 1x1 weight, output channel i is
    x[i] * w[i], whereas groups=1 would sum both channels into each output. *)
@@ -373,7 +426,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 40, registry: 40 |}]
+  [%expect {| fixtures: 41, registry: 41 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -394,6 +447,9 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     leaky_relu             direct = symbolic
     zeros4                 direct = symbolic
     arange4                direct = symbolic
+    batch_norm_no_stats    out0 direct = symbolic
+    batch_norm_no_stats    out1 direct = symbolic
+    batch_norm_no_stats    out2 direct = symbolic
     relu                   direct = symbolic
     gelu                   direct = symbolic
     sigmoid                direct = symbolic

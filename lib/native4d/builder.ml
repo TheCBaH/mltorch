@@ -141,6 +141,10 @@ let opN ?fmt ?quant op : Tensor_id.t list t =
   let* () = push_node op ids in
   return ids
 
+let batch_norm_no_stats ?fmt params ~x ?weight ?bias () =
+  opN ?fmt
+    (Op.Batch_norm_no_stats { Ops4.Batch_norm_no_stats.params; x; weight; bias })
+
 (* Op constructors in global alphabetical order, as in [Graph_builder]. *)
 
 let add a b = op1 (Op.Add { Pointwise.Bin.a; b })

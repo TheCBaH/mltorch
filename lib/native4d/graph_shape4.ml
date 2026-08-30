@@ -143,6 +143,10 @@ let rms_params (p : Ops4.Rms_norm.params) : Norm.RmsNorm.params =
     eps = p.Ops4.Rms_norm.eps;
   }
 
+let batch_norm_no_stats_params (p : Ops4.Batch_norm_no_stats.params) :
+    Norm.BatchNormNoStats.params =
+  { channel = Axis4.to_axis p.Ops4.Batch_norm_no_stats.channel; eps = p.eps }
+
 (* Exhaustive with no default arm, as [Graph_shape] is. *)
 let output_shape (op : Op.t)
     ~(sig_of : Tensor_ref.t -> (Tensor_sig.t, error) Err.t) :
@@ -164,6 +168,18 @@ let output_shape (op : Op.t)
   | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       let* x_shape = shape x in
       one (four (Pool.AvgPool2d.output_shape ~x_shape params))
+  | Batch_norm_no_stats { Ops4.Batch_norm_no_stats.params; x; weight; bias } ->
+      let* x_shape = shape x in
+      let p = batch_norm_no_stats_params params in
+      let* () =
+        Err.List.iter
+          (fun r ->
+            let* actual = shape r in
+            widen (Norm.BatchNormNoStats.check_affine ~x_shape p ~actual))
+          (Option.to_list weight @ Option.to_list bias)
+      in
+      let* shapes = widen (Norm.BatchNormNoStats.output_shapes ~x_shape p) in
+      Err.List.map (fun shape -> widen (Shape4.of_vec6 shape)) shapes
   | Clamp { Pointwise.Clamp.params; x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Clamp.output_shape params x_shape))

@@ -223,6 +223,9 @@ let check_node view (n : node) =
       Err.return ()
   | Arange _ | Zeros _ -> Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
+  | Batch_norm_no_stats { Norm.BatchNormNoStats.params; _ } ->
+      if Axis.equal params.channel Axis.C then Err.return ()
+      else Err.fail (`Axis_outside_dialect (node, params.channel))
   | Layer_norm { Norm.LayerNorm.params; _ } ->
       check_dims node params.Norm.LayerNorm.dims
   (* Its batch axes are D and H UNCONDITIONALLY (its own landing note,

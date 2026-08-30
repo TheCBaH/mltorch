@@ -51,6 +51,66 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = permute perm_nhwc_to_nchw y' in
                [ y ]
            | _ -> assert false))
+  | "torch.ops.aten._native_batch_norm_legit.no_stats" ->
+      Some
+        (let* training = bool_arg node "training" in
+         if not training then
+           fail
+             (`Validation_failure
+                "_native_batch_norm_legit.no_stats: training=false is not \
+                 supported (only true)")
+         else
+           let* momentum = float_arg node "momentum" in
+           if not (Float.equal momentum 0.) then
+             fail
+               (`Validation_failure
+                  (Format.sprintf
+                     "_native_batch_norm_legit.no_stats: momentum=%g is not \
+                      supported (only 0)"
+                     momentum))
+           else
+             let* eps = float_arg node "eps" in
+             let* aten_x = tensor_arg aten_env node "input" in
+             let to_channel_last, from_channel_last =
+               batch_norm_channel_perms ~rank:(aten_rank aten_x)
+             in
+             let* x = native_of_aten "input" aten_x in
+             let* affine =
+               Err.List.map
+                 (fun name ->
+                   if optional_tensor_present node name then
+                     let* t = tensor_arg aten_env node name in
+                     let* t = native_of_aten name t in
+                     return (Some t)
+                   else return None)
+                 [ "weight"; "bias" ]
+             in
+             let weight, bias =
+               match affine with
+               | [ weight; bias ] -> (weight, bias)
+               | _ -> assert false
+             in
+             let params = { Norm.BatchNormNoStats.channel = Axis.C; eps } in
+             build_g ~name:"batch_norm_no_stats_relayout"
+               (([ x ] @ Option.to_list weight) @ Option.to_list bias)
+               (fun ids ->
+                 let open Graph_builder in
+                 let x_id, weight, bias =
+                   match (ids, weight, bias) with
+                   | [ x_id; weight; bias ], Some _, Some _ ->
+                       (x_id, Some weight, Some bias)
+                   | [ x_id; weight ], Some _, None -> (x_id, Some weight, None)
+                   | [ x_id; bias ], None, Some _ -> (x_id, None, Some bias)
+                   | [ x_id ], None, None -> (x_id, None, None)
+                   | _ -> assert false
+                 in
+                 let* x' = permute to_channel_last x_id in
+                 let* ys = batch_norm_no_stats params ~x:x' ?weight ?bias () in
+                 match ys with
+                 | [ y'; mean; invstd ] ->
+                     let+ y = permute from_channel_last y' in
+                     [ y; mean; invstd ]
+                 | _ -> assert false))
   (* [input] is right-aligned NCHW like [batch_norm]'s, so the same
      [perm_nchw_to_nhwc]/[perm_nhwc_to_nchw] pair relays it around the op --
      [Group_norm.Compute] reads its window on native C, which is where the

@@ -38,6 +38,42 @@ let%expect_test "Direct graph: batch_norm per-channel over C" =
   Format.printf "%a@." (pp_result (pp_named_tensor "y")) result;
   [%expect {| y = tensor f32 [H=2 W=1 C=2] {1, -1, 3, 9} |}]
 
+let%expect_test "Direct graph: batch_norm_no_stats preserves all three outputs"
+    =
+  let vec2 a0 a1 =
+    Tensor.materialize (s1c 2) (fun c -> [| a0; a1 |].(chan c))
+  in
+  let g =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"bn_no_stats" ~outputs:Fun.id
+        @@
+        let* x = input ~shape:(s 1 1 1 2 1 2) () in
+        let* w = input ~shape:(s1c 2) () in
+        let* b = input ~shape:(s1c 2) () in
+        batch_norm_no_stats
+          { Norm.BatchNormNoStats.channel = Axis.C; eps = 0. }
+          ~x ~weight:w ~bias:b ())
+  in
+  let x =
+    Tensor.materialize (s 1 1 1 2 1 2) (fun c ->
+        [| [| 1.; 3. |]; [| 5.; 7. |] |].(chan c).(Dim.to_int
+                                                     (Vec6.get c Axis.H)))
+  in
+  let env =
+    Eval_direct.run g
+      ~inputs:(List.combine g.Graph.inputs [ x; vec2 2. 10.; vec2 1. (-1.) ])
+    |> Err.or_raise ~pp_error:Eval_direct.pp_error
+  in
+  List.iter
+    (fun id -> Format.printf "%a@." Tensor.pp (Tensor_id.Map.find id env))
+    g.Graph.outputs;
+  [%expect
+    {|
+    tensor f32 [H=2 W=1 C=2] {-1, -11, 3, 9}
+    tensor f32 [C=2] {2, 6}
+    tensor f32 [C=2] {1, 1} |}]
+
 (* max_pool2d_with_indices produces TWO outputs — exercising the multi-output
    eval loop. value(h,w)=h*4+w; each 2x2/stride-2 window's max is its
    bottom-right corner, and the argmax index is that corner's flat position. *)

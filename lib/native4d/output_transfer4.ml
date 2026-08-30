@@ -30,9 +30,9 @@ let classify (op : Op.t) ~output:_ =
       Output_transfer.Continuous
   | Concat4 _ -> Output_transfer.Reindexing
   | Conv2d _ | Depthwise_conv2d _ | Div _ | Div_scalar _ | Gelu _
-  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _
-  | Max_keepdims _ | Max_pool2d _ | Mean_keepdims _ | Mul _ | Mul_scalar _
-  | Pad4 _ ->
+  | Batch_norm_no_stats _ | Hardsigmoid _ | Hardswish _ | Hardtanh _
+  | Layer_norm _ | Leaky_relu _ | Max_keepdims _ | Max_pool2d _
+  | Mean_keepdims _ | Mul _ | Mul_scalar _ | Pad4 _ ->
       Output_transfer.Continuous
   | Permute4 _ -> Output_transfer.Reindexing
   | Pow _ | Relu _ -> Output_transfer.Continuous

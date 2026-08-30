@@ -49,6 +49,7 @@ type metadata_role =
   [ `Addmm_weight
   | `Adaptive_avg_pool2d_input
   | `Amax_input
+  | `Batch_norm_no_stats_input
     (** Its own role, not shared with [`Mean_input]: [amax.default] and
         [mean.dim] have separate arms, and a shared label would leave the row
         unable to say which one failed. *)
@@ -148,6 +149,8 @@ type unsupported_option =
   | `Divisor_override of int
   | `Dtype
   | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
+  | `Momentum of float
+  | `Training of bool
   | `Vector_norm_ord of float ]
 (** Options this lowering rejects rather than silently drops: a non-unit [alpha]
     would compute the wrong thing, and a [memory_format] asks for a layout

@@ -72,6 +72,13 @@ let samples : Op.t list =
     Add_scalar { Pointwise.Scalar_bin.x; scalar = 0.1 };
     Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params = adaptive_params; x };
     Avg_pool2d { Pool.AvgPool2d.params = avg_params; x };
+    Batch_norm_no_stats
+      {
+        Ops4.Batch_norm_no_stats.params = { channel = C; eps = 1e-5 };
+        x;
+        weight = Some w;
+        bias = Some b;
+      };
     Clamp { Pointwise.Clamp.params = { min = Some 0.; max = Some 6. }; x };
     (* Three operands, so a codec that dropped or reordered one is visible. *)
     Concat4 { Ops4.Concat4.params = { axis = W }; xs = [ x; y; w ] };
@@ -189,7 +196,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 40, registry: 40 |}]
+  [%expect {| samples: 41, registry: 41 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -205,6 +212,7 @@ let%expect_test "op4: printed" =
              pad={h=0; w=0};
              ceil_mode=false;
              count_include_pad=true}
+    batch_norm_no_stats x=t0 weight=t2 bias=t3 params={channel=C; eps=1e-05}
     clamp x=t0 params={min=0; max=6}
     concat4 xs=[t0, t1, t2] params={axis=W}
     conv2d
@@ -274,7 +282,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 40 ops |}]
+  [%expect {| round-tripped 41 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

@@ -119,6 +119,10 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Vector_norm_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (* Appended to preserve the historical per-index walk seeds above.  [find]
+       resolves target names, so this has no public ordering contract. *)
+    (module Batch_norm_no_stats_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
   ]
 
 (* [native_op_walk.ml] shares the library's name, so it IS the library's

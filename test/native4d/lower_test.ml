@@ -72,6 +72,36 @@ let%expect_test "lower: Arange becomes the direct Arange4 counterpart" =
       n0: [t0] = arange4 start=0.5 stop=4 step=1 fmt=f32
     outputs: [t0 [C=4]] |}]
 
+let%expect_test "lower: batch_norm_no_stats retains all three reductions" =
+  let source =
+    Graph_builder.build ~name:"batch_norm_no_stats" ~outputs:Fun.id
+      (let open Graph_builder in
+       let* x = input ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:2) () in
+       let c_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2 in
+       let* weight = input ~shape:c_shape () in
+       let* bias = input ~shape:c_shape () in
+       batch_norm_no_stats
+         { Norm.BatchNormNoStats.channel = Axis.C; eps = 1e-5 }
+         ~x ~weight ~bias ())
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
+  in
+  show "batch_norm_no_stats" source;
+  [%expect
+    {|
+    batch_norm_no_stats:
+      graph4
+    inputs: [t0 [H=2 W=1 C=2],
+    t1 [C=2],
+    t2 [C=2]]
+    nodes:
+      n0: [t3,
+        t4,
+        t5] =
+        batch_norm_no_stats x=t0 weight=t1 bias=t2 params={channel=C; eps=1e-05}
+    outputs: [t3 [H=2 W=1 C=2],
+    t4 [C=2],
+    t5 [C=2]] |}]
+
 let%expect_test
     "lower: carries a six-dimensional captured constant behind a \
      four-dimensional export" =

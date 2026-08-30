@@ -13,6 +13,12 @@
 
 open Programs
 
+let batch_norm_no_stats_node ?(training = true) ?(momentum = 0.) () =
+  jstr
+    {|{"target":"torch.ops.aten._native_batch_norm_legit.no_stats","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":%s,"kind":1},{"name":"bias","arg":%s,"kind":1},{"name":"training","arg":{"as_bool":%b},"kind":1},{"name":"momentum","arg":{"as_float":%g},"kind":1},{"name":"eps","arg":{"as_float":0.0},"kind":1}],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") (as_tensor "weight") (as_tensor "bias") training momentum
+    (as_tensors [ "y"; "mean"; "invstd" ])
+
 let rms ?(normalized = "[4]") ?(weight = `Absent) ?eps () =
   let weight_arg =
     match weight with
@@ -45,6 +51,46 @@ let dump label json =
   match lower json with
   | Error e -> Format.printf "  %a@." Native_interp.pp_error (Err.Error.kind e)
   | Ok l -> Format.printf "%a@." Graph_ir.pp l.Pt2_native_graph.graph
+
+let%expect_test "_native_batch_norm_legit.no_stats retains its output tuple" =
+  let json =
+    program ~x_sizes:[ 1; 2; 1; 2 ]
+      ~extra_tensor_values:
+        [ ("weight", tensor_meta [ 2 ]); ("bias", tensor_meta [ 2 ]) ]
+      ~params:[ "weight"; "bias" ]
+      ~nodes:[ batch_norm_no_stats_node () ]
+      ~graph_outputs:[ as_tensor "y"; as_tensor "mean"; as_tensor "invstd" ]
+      ()
+  in
+  dump "no stats:" json;
+  [%expect
+    {|
+    no stats:
+    graph
+    inputs:
+      [t0 f32 [H=2 W=1 C=2] ->[n0], t1 f32 [C=2] ->[n1] constant,
+       t2 f32 [C=2] ->[n1] constant]
+    nodes:
+      n0: [t3 f32 [W=2 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t4 f32 [W=2 C=2] ->[n2], t5 f32 [C=2], t6 f32 [C=2]] =
+        batch_norm_no_stats x=t3 <-n0 weight=t1 bias=t2 params={channel=C; eps=0}
+      n2: [t7 f32 [H=2 W=1 C=2]] = permute x=t4 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t7 f32 [H=2 W=1 C=2] <-n2, t5 f32 [C=2] <-n1, t6 f32 [C=2] <-n1] |}]
+
+let%expect_test "_native_batch_norm_legit.no_stats rejects unsupported options"
+    =
+  let program_for node =
+    program ~x_sizes:[ 1; 2; 1; 2 ] ~nodes:[ node ]
+      ~graph_outputs:[ as_tensor "y" ]
+      ()
+  in
+  show "training=false:"
+    (program_for (batch_norm_no_stats_node ~training:false ()));
+  show "momentum=0.1:" (program_for (batch_norm_no_stats_node ~momentum:0.1 ()));
+  [%expect
+    {|
+    training=false:            malformed PT2 graph: torch.ops.aten._native_batch_norm_legit.no_stats: training=false is not supported (only true)
+    momentum=0.1:              malformed PT2 graph: torch.ops.aten._native_batch_norm_legit.no_stats: momentum=0.1 is not supported (only 0) |}]
 
 (* The single-axis case, which is what a per-channel rms_norm looks like. The
    frame axes matter: a rank-3 input is right-aligned onto D/H/W... C, so the

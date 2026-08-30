@@ -72,6 +72,7 @@ module Operand_shape : sig
   type t = {
     operand :
       [ `Bias
+      | `Batch_norm_no_stats_affine
       | `Group_norm_bias
       | `Group_norm_weight
       | `Layer_norm_bias

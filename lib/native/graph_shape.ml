@@ -58,6 +58,16 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Norm.BatchNorm.output_shape ~x_shape) in
       [ out ]
+  | Batch_norm_no_stats { Norm.BatchNormNoStats.params; x; weight; bias } ->
+      let* x_shape = shape x in
+      let* () =
+        Err.List.iter
+          (fun r ->
+            let* actual = shape r in
+            widen (Norm.BatchNormNoStats.check_affine ~x_shape params ~actual))
+          (Option.to_list weight @ Option.to_list bias)
+      in
+      widen (Norm.BatchNormNoStats.output_shapes ~x_shape params)
   | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
       let* input_shape = shape input in
       let* mat2_shape = shape mat2 in

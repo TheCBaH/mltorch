@@ -35,6 +35,7 @@ type op =
   | Amax of Reduce.Amax.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
+  | Batch_norm_no_stats of Norm.BatchNormNoStats.t
   | Batched_matmul of Matmul.Batched_matmul.t
   | Bmm of Matmul.Bmm.t
   | Clamp of Pointwise.Clamp.t

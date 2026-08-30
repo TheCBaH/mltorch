@@ -71,6 +71,15 @@ val batch_norm :
   unit ->
   Tensor_id.t t
 
+val batch_norm_no_stats :
+  ?name:string ->
+  Norm.BatchNormNoStats.params ->
+  x:tensor_ref ->
+  ?weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  unit ->
+  Tensor_id.t list t
+
 val batched_matmul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val bmm : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
