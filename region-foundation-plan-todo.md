@@ -67,6 +67,10 @@ completed gate is committed only after its focused validation succeeds.
   callback closes over the already-converted `Expr.Value.t` and calls only
   `Expr.Eval.value`; Region classification, key derivation, local slots, and
   arrays occur only in the separate Region branch.
+- The closest pre-Region commit (`261222c`) has the compatible `Kernel_eval`
+  body representation, but cannot build under the current switch because its
+  Dune graph references a then-absent `err_trace` library. No legacy timing is
+  recorded: a failed build is evidence about reproducibility, not a baseline.
 
 ## Validation record
 
@@ -88,3 +92,4 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 6 | `opam exec -- dune runtest test/model_explorer` | pass | Region detail includes a root for each scalar local and a separate emitter root while existing Pixel detail remains unchanged. |
 | 2026-08-30 | 6 | `make jsoo.runtest && make jsoo.inline-runtest` | pass | Native/JavaScript probe output matches and all JS inline expectations pass after Region detail rendering. |
 | 2026-08-30 | 6 | `make benchmark.region_pixel` | pass | Hot-path audit run: identity 0.378 ms, add 0.679 ms; fixed output/load counts remain 2,048/2,048 and 2,048/4,096 respectively. |
+| 2026-08-30 | 0/6 | isolated `261222c` benchmark build | unavailable | The closest comparable pre-Region tree fails Dune resolution: `Library "err_trace" not found`; temporary worktree removed without recording timings. |
