@@ -69,6 +69,7 @@ let index_tag : type r. r Index.t -> int = function
   | Index.Ceil_div_pos _ -> 8
   | Index.Clamp_low _ -> 11
   | Index.Const _ -> 3
+  | Index.Data _ -> 13
   | Index.Floor_div_pos _ -> 7
   | Index.Max _ -> 10
   | Index.Min _ -> 9
@@ -101,6 +102,12 @@ let rec cmp_index : type r s.
       Int.compare k l <?> fun () -> cmp_index ea eb x y
   | Index.Clamp_low x, Index.Clamp_low y -> cmp_index ea eb x y
   | Index.Const x, Index.Const y -> Int.compare x y
+  | Index.Data (s1, c1, e1), Index.Data (s2, c2, e2) ->
+      Source.compare s1 s2 <?> fun () ->
+      List.fold_left2
+        (fun acc x y -> acc <?> fun () -> cmp_index ea eb x y)
+        0 (Coord.to_list c1) (Coord.to_list c2)
+      <?> fun () -> Int.compare e1 e2
   | Index.Floor_div_pos (x, k), Index.Floor_div_pos (y, l) ->
       Int.compare k l <?> fun () -> cmp_index ea eb x y
   | Index.Max (x1, x2), Index.Max (y1, y2) ->
@@ -200,6 +207,10 @@ let hash e =
     | Index.Ceil_div_pos (a, d) -> idx env (mix h d) a
     | Index.Clamp_low a -> idx env h a
     | Index.Const n -> mix h n
+    | Index.Data (s, c, e) ->
+        let h = mix h (Source.hash s) in
+        let h = Coord.fold (fun h i -> idx env h i) h c in
+        mix h e
     | Index.Floor_div_pos (a, d) -> idx env (mix h d) a
     | Index.Max (a, b) -> idx env (idx env h a) b
     | Index.Min (a, b) -> idx env (idx env h a) b

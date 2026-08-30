@@ -371,6 +371,16 @@ module Group_norm : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* `index.Tensor`'s round-12 [Graph_ir]-level enforcement of the rank-1
+   restriction: an index frame axis other than [C] with a non-unit extent,
+   reachable from a direct [Graph_builder] call or a JSON-decoded graph even
+   though neither importer can ever produce one. *)
+module Index_tensor : sig
+  type t = { axis : Axis.t; extent : Dim.extent Dim.t }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 (** `upsample_bilinear2d.vec`'s own aggregate: the coordinate transform scales
     the output index by [in_extent - 1] before dividing by [out_extent - 1] (see
     [Resize.Bilinear_axis]), and that product is a model-supplied aggregate the
@@ -414,6 +424,7 @@ type t =
   | `Concat of Concat.t
   | `Convolution of Convolution.error
   | `Group_norm of Group_norm.t
+  | `Index_tensor of Index_tensor.t
   | `Linear of Linear.error
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Operand_shape of Operand_shape.t

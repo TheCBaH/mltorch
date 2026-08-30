@@ -49,7 +49,13 @@ let nest n =
   done;
   !e
 
-let env = Expr.Eval.Env.{ load = (fun _ _ -> Err.return 1.0) }
+let env =
+  Expr.Eval.Env.
+    {
+      load = (fun _ _ -> Err.return 1.0);
+      load_index = (fun _ _ -> assert false);
+    }
+
 let origin = Expr.Coord.make ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0
 
 (* Every recursive traversal applied to a body AFTER it has passed [Check]. A

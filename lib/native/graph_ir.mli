@@ -68,6 +68,12 @@ type op =
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
+  (* `index.Tensor`'s runtime gather, scoped to a rank-1 live index (see
+     .ai/index_tensor_design.md): the gathered axis's position is resolved
+     from the VALUE stored in [index], not known at graph-construction time --
+     the one op in this engine whose index arithmetic is genuinely
+     data-dependent, via [Semantics.load_index]/[Index.Data]. *)
+  | Index_tensor of Index_tensor.Index_tensor.t
   | Layer_norm of Norm.LayerNorm.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t

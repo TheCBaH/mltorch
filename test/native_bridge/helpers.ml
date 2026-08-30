@@ -78,6 +78,19 @@ let in_string name s = PT.NamedArgument.make name (PT.Argument.String s) None
 let in_memory_format name (mf : PT.MemoryFormat.t) =
   PT.NamedArgument.make name (PT.Argument.Memory_format mf) None
 
+(* [index.Tensor]'s [indices : Tensor?[]] -- a mix of live tensor entries
+   ([`T name]) and explicit [None]s. *)
+let in_optional_tensors name entries =
+  PT.NamedArgument.make name
+    (PT.Argument.Optional_tensors
+       (List.map
+          (function
+            | `T tname ->
+                PT.OptionalTensorArgument.Tensor (PT.TensorArgument.make tname)
+            | `None -> PT.OptionalTensorArgument.None false)
+          entries))
+    None
+
 (* Bind each (name, ATen tensor) into an env and dispatch a one-node graph;
    print each native output as "shape {values}".  The env key and the input's
    TensorArgument name are the same [name], which is how the bridge resolves it. *)

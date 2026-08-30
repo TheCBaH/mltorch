@@ -711,11 +711,14 @@ let lower_node ~view acc (n : node) =
         n.Node.outputs
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Expand]/[Group_norm]/[Select]/[Softmax]/[Split_with_sizes]/[Stack] join
-     that set until [Group_norm4]/[Select4]/[Softmax4]/[Split4]/[Stack4] exist
-     (see [Domain.check_node]'s comment) rather than gaining a real conversion
-     arm here. *)
-  | Batched_matmul _ | Discard _ | Expand _ | Group_norm _
+     [Expand]/[Group_norm]/[Index_tensor]/[Select]/[Softmax]/
+     [Split_with_sizes]/[Stack] join that set until
+     [Group_norm4]/[Select4]/[Softmax4]/[Split4]/[Stack4] exist (see
+     [Domain.check_node]'s comment) rather than gaining a real conversion arm
+     here -- [Index_tensor] has no Native4D counterpart at all, the same
+     "dialect does not have it" answer, and CSATv2 stays a graph-only target
+     regardless. *)
+  | Batched_matmul _ | Discard _ | Expand _ | Group_norm _ | Index_tensor _
   | Max_pool2d_with_indices _ | Sdpa _ | Select _ | Softmax _
   | Split_with_sizes _ | Stack _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

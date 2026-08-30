@@ -72,6 +72,31 @@ let read_at_raw packed (idx : Axis.t -> int) =
     (Vec6.coord ~n:(idx N) ~t:(idx T) ~d:(idx D) ~h:(idx H) ~w:(idx W)
        ~c:(idx C))
 
+(* Exact single-cell read of an [I64]-format tensor, typed-rejecting every
+   other format via a real [Err.t] rather than a bare [int64] — the value a
+   [Data] index component reads must be the real stored integer, never a
+   lossy [Payload.get_float] round trip through the engine's f32 compute
+   domain. The coordinate is expected in bounds by construction (the caller's
+   own index tensor coordinate); an out-of-bounds coordinate is a bug
+   elsewhere and raises, matching [read]'s own [Invalid_argument] contract. *)
+let read_i64_at6 (Tensor t) (idx : Axis.t -> int) :
+    (int64, [> `Wrong_format of Payload.packed_fmt ]) Err.t =
+  match t.payload.Payload.fmt with
+  | Payload.I64 ->
+      let coord =
+        Vec6.coord ~n:(idx N) ~t:(idx T) ~d:(idx D) ~h:(idx H) ~w:(idx W)
+          ~c:(idx C)
+      in
+      if not (Vec6.in_bounds t.shape coord) then
+        invalid_arg
+          (Format.asprintf
+             "Tensor.read_i64_at6: coord %a out of bounds for shape %a"
+             Vec6.pp_coord coord Vec6.pp_shape t.shape)
+      else
+        let i = (Vec6.offset t.shape coord :> int) in
+        Err.return t.payload.data.{i}
+  | fmt -> Err.fail (`Wrong_format (Payload.Fmt fmt))
+
 (* tap helper: the source coord = [base] + per-axis signed [deltas], guarded into
    the source extents. [None] is the pad region. *)
 let shift_in_bounds (Tensor t) (base : Vec6.coord) (deltas : Vec6.deltas) =
@@ -92,6 +117,23 @@ let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) =
       let i = (Vec6.offset shape c :> int) in
       Payload.set_float payload ~c:(channel c) ~i (f c));
   Tensor { shape; payload }
+
+(* Same as [materialize], for an [I64]-format destination: writes cells
+   directly rather than through [Payload.set_float] (which would round-trip
+   an exact int64 through the engine's f32 compute domain) — the leaf
+   constructor for a captured Long tensor, e.g. [Native_interp_tensor]'s
+   Int64 arm. *)
+let materialize_i64 (shape : Vec6.shape) (f : Vec6.coord -> int64) =
+  let n = (Vec6.numel shape :> int) in
+  let data = Bigarray.(Array1.create int64 c_layout n) in
+  Vec6.iter shape (fun c ->
+      let i = (Vec6.offset shape c :> int) in
+      data.{i} <- f c);
+  Tensor
+    {
+      shape;
+      payload = { Payload.fmt = Payload.I64; quant = Payload.No_quant; data };
+    }
 
 (* Shared by [unbind] and [split_with_sizes] below: allocate a same-format
    destination buffer and fill it from [source_coord], one call per op rather

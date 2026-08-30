@@ -158,6 +158,15 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Hardtanh.output_shape x_shape) in
       [ out ]
+  | Index_tensor { Index_tensor.Index_tensor.params; self; index } ->
+      let* self_shape = shape self in
+      let* index_shape = shape index in
+      let+ out =
+        widen
+          (Index_tensor.Index_tensor.output_shape ~self_shape ~index_shape
+             params)
+      in
+      [ out ]
   (* Both affine operands are optional, so both go through the op's own
      [check_affine] rather than [check_bias]: they share ONE expected layout
      (the normalized_shape), which is not the per-channel vector

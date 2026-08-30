@@ -77,6 +77,30 @@ let load inp (v : Semantics.position index Vec6.t) =
 
 let load6 inp ~n ~t ~d ~h ~w ~c = Tensor.read_at6 inp ~n ~t ~d ~h ~w ~c
 
+(* [Direct]'s pixels already raise out of [Dim.index]/[Tensor.read] for other
+   invariant violations, so a dtype mismatch or an out-of-range gather value
+   discovered here follows the identical, already-established contract:
+   convert the [Err.t] failure into a raised exception via [Err.or_raise],
+   rather than inventing a new "Direct can fail" channel -- see
+   .ai/index_tensor_design.md's Direct/ground split. [Dim.index] is exact
+   (never raises) on the result: [resolve_gather_index] already normalized it
+   into [0, extent). *)
+let load_index (inp : input) (v : Semantics.position index Vec6.t)
+    ~(extent : Dim.extent Dim.t) : Semantics.position index =
+  let open Err.Syntax in
+  let result =
+    let* raw = Tensor.read_i64_at6 inp (fun a -> (Vec6.get v a :> int)) in
+    Expr.Eval.resolve_gather_index raw ~extent:(extent :> int)
+  in
+  Dim.index
+    (Err.or_raise
+       ~pp_error:(fun fmt -> function
+         | `Wrong_format (Payload.Fmt f) ->
+             Fmt.pf fmt "Data source must be I64, got %s" (Payload.fmt_name f)
+         | `Gather_index_out_of_range e ->
+             Expr.Eval.pp_gather_index_out_of_range fmt e)
+       result)
+
 let pool_bounds ~out ~kernel ~stride ~pad ~extent =
   let start = (out * stride) - pad in
   (Stdlib.max 0 start, Stdlib.min extent (start + kernel))

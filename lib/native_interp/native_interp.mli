@@ -16,6 +16,7 @@ type arg_kind =
   | `Memory_format_opt
   | `Optional_scalar
   | `Optional_tensor
+  | `Optional_tensor_list
   | `Scalar
   | `String
   | `Tensor
@@ -72,6 +73,8 @@ type metadata_role =
         tags rather than one shared "affine" role: they are separate arguments
         with separate checks, and a shared label could not say which disagreed.
     *)
+  | `Index_tensor_index  (** [index.Tensor]'s [indices] live entry. *)
+  | `Index_tensor_self  (** [index.Tensor]'s [self]. *)
   | `Layer_norm_bias
   | `Layer_norm_input
     (** Both [layer_norm] and [native_layer_norm] read it, and one role covers
@@ -314,6 +317,22 @@ module Matmul_unsupported_shape : sig
   type t = { self : int list; other : int list }
 end
 
+(** `index.Tensor`'s locked list-acceptance rule (`.ai/index_tensor_design.md`
+    round 3): [indices] is accepted iff its length equals [self]'s ATen rank,
+    exactly one entry is a Long-dtype tensor of ATen rank exactly 1, and every
+    other entry is an explicit [None]. Mirrors {!Op_bridge}'s [Index_list]
+    exactly -- the two importers must reject the same graphs the same way. *)
+module Index_list : sig
+  type fault =
+    | Length_mismatch of { expected : int; got : int }
+    | Multiple_live_entries of int list
+    | No_live_entry
+    | Wrong_dtype of { position : int; dtype : string }
+    | Wrong_rank of { position : int; rank : int }
+
+  type t = { fault : fault }
+end
+
 type malformed =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Axis_out_of_range of Axis_out_of_range.t
@@ -341,6 +360,7 @@ type malformed =
   | `Bad_view of Bad_view.t
   | `Concat_no_tensors of string
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Index_list of Index_list.t
   | `Live_layer_norm_stats of Live_layer_norm_stats.t
     (** [native_layer_norm]'s [mean]/[rstd] are dropped, and this is what
         refuses a graph that reads one. Not the batch-norm case: those trailing

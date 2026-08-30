@@ -2,12 +2,25 @@
    this unit without an [.mli] lets trusted transformations rebuild syntax
    without adding public unsafe constructors. *)
 
+(* [Data]'s coordinate field is [Role.Position.t t Coord.t] -- a [Coord.t]
+   whose six per-axis components are themselves [Role.Position.t t]
+   expressions in THIS SAME GADT. That makes [Data] self-recursive within
+   [Index.t], not mutually recursive with [Value.t]: a [Load]'s own
+   coordinate is still [Role.Position.t Index.t Coord.t] one level up, in
+   [Value.t], unaffected. [Data]'s third field is the gathered axis's extent;
+   it is a plain [int] here (checked positive only where it originates,
+   [Dim.extent] on the [native] side that builds this node) rather than
+   [Dim.extent Dim.t], since [expr_internal] must not depend on [native] --
+   see CLAUDE.md's dependency-direction rule and dim.mli's own comment on why
+   [index]/[delta] are the shared vocabulary but [extent] stays local to
+   [native]. *)
 type _ t =
   | Add : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
   | Assume_position : Role.Delta.t t -> Role.Position.t t
   | Ceil_div_pos : Role.Delta.t t * int -> Role.Delta.t t
   | Clamp_low : Role.Delta.t t -> Role.Position.t t
   | Const : int -> Role.Delta.t t
+  | Data : Source.t * Role.Position.t t Coord.t * int -> Role.Position.t t
   | Floor_div_pos : Role.Delta.t t * int -> Role.Delta.t t
   | Max : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
   | Min : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
@@ -27,6 +40,11 @@ let reduce v = Reduce v
 let zero = Zero
 let const n = Const n
 let of_position i = Of_position i
+
+(* No folding: unlike [add]/[scale], [Data] has no exact integer identity to
+   collapse to, and its value is not known until resolved (never at
+   construction time -- see the [Index.Data] design record). *)
+let data source coord extent = Data (source, coord, extent)
 let add a b = match (a, b) with Const 0, x | x, Const 0 -> x | _ -> Add (a, b)
 
 let scale k a =

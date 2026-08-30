@@ -38,6 +38,7 @@ type op =
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
+  | Index_tensor of Index_tensor.Index_tensor.t
   | Layer_norm of Norm.LayerNorm.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
@@ -242,6 +243,12 @@ let op_registry : (module OP) list =
 
       let inject t = Hardtanh t
       let project = function Hardtanh t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Index_tensor.Index_tensor
+
+      let inject t = Index_tensor t
+      let project = function Index_tensor t -> Some t | _ -> None
     end : OP);
     (module struct
       include Norm.LayerNorm

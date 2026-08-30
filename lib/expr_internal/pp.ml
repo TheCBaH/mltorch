@@ -16,6 +16,8 @@ let index ~names fmt e =
      | Index.Ceil_div_pos (a, d) -> Fmt.pf fmt "ceil_div(%a,%d)" go a d
      | Index.Clamp_low a -> Fmt.pf fmt "max(0,%a)" go a
      | Index.Const n -> Fmt.int fmt n
+     | Index.Data (s, c, extent) ->
+         Fmt.pf fmt "data(%a[%a],%d)" Source.pp s (Coord.pp go) c extent
      | Index.Floor_div_pos (a, d) -> Fmt.pf fmt "floor_div(%a,%d)" go a d
      | Index.Max (a, b) -> Fmt.pf fmt "max(%a,%a)" go a go b
      | Index.Min (a, b) -> Fmt.pf fmt "min(%a,%a)" go a go b

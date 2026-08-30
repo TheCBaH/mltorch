@@ -252,6 +252,16 @@ let hardtanh ?name (params : Pointwise.Hardtanh.params) x =
          x;
        })
 
+(* Plain [op1], the same choice [slice]/[select] make: the output dtype
+   defaults to F32 rather than preserving [self]'s, a pre-existing
+   [Graph_builder.op1] characteristic (round 6 of the design record) that is
+   correct for the one evidenced occurrence ([self] is ordinary F32 data;
+   [index] is the separate Long operand supplying positions, never itself
+   becoming the output) and not in scope to fix generally here. *)
+let index_tensor ?name params ~self ~index =
+  op1 ?name ~kind:"index_tensor"
+    (Index_tensor { Index_tensor.Index_tensor.params; self; index })
+
 let layer_norm ?name params ~x ?weight ?bias () =
   op1 ?name ~kind:"layer_norm"
     (Layer_norm { Norm.LayerNorm.params; x; weight; bias })

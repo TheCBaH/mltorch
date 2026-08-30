@@ -15,6 +15,8 @@ let rec map_index_reducers : type r.
   | Index.Ceil_div_pos (a, d) -> Index.Ceil_div_pos (map_index_reducers f a, d)
   | Index.Clamp_low a -> Index.Clamp_low (map_index_reducers f a)
   | Index.Const _ -> i
+  | Index.Data (s, c, extent) ->
+      Index.Data (s, Coord.map (map_index_reducers f) c, extent)
   | Index.Floor_div_pos (a, d) -> Index.Floor_div_pos (map_index_reducers f a, d)
   | Index.Max (a, b) ->
       Index.Max (map_index_reducers f a, map_index_reducers f b)
@@ -35,6 +37,8 @@ let rec subst_index : type r.
   | Index.Ceil_div_pos (a, d) -> Index.Ceil_div_pos (subst_index c a, d)
   | Index.Clamp_low a -> Index.Clamp_low (subst_index c a)
   | Index.Const _ -> i
+  | Index.Data (s, dc, extent) ->
+      Index.Data (s, Coord.map (subst_index c) dc, extent)
   | Index.Floor_div_pos (a, d) -> Index.Floor_div_pos (subst_index c a, d)
   | Index.Max (a, b) -> Index.Max (subst_index c a, subst_index c b)
   | Index.Min (a, b) -> Index.Min (subst_index c a, subst_index c b)
@@ -198,10 +202,36 @@ let substitute_output c e =
        ~src:Fun.id ~on_load:keep_load ~on_reduce:keep_reducer () e
        Builder.initial)
 
+(* [Data]'s own source is a real source dependency too (per [Fold.sources]),
+   so [map_sources] cannot rewrite it via [keep_indices] the way it did before
+   [Data] existed -- unlike [subst_index]/[map_index_reducers] above, this
+   recursion changes a SOURCE, not a coordinate or a reducer identity, so it
+   gets its own traversal rather than overloading either of those. *)
+let rec map_index_sources : type r.
+    (Source.t -> Source.t) -> r Index.t -> r Index.t =
+ fun f i ->
+  match i with
+  | Index.Add (a, b) -> Index.Add (map_index_sources f a, map_index_sources f b)
+  | Index.Assume_position a -> Index.Assume_position (map_index_sources f a)
+  | Index.Ceil_div_pos (a, d) -> Index.Ceil_div_pos (map_index_sources f a, d)
+  | Index.Clamp_low a -> Index.Clamp_low (map_index_sources f a)
+  | Index.Const _ -> i
+  | Index.Data (s, c, extent) ->
+      Index.Data (f s, Coord.map (map_index_sources f) c, extent)
+  | Index.Floor_div_pos (a, d) -> Index.Floor_div_pos (map_index_sources f a, d)
+  | Index.Max (a, b) -> Index.Max (map_index_sources f a, map_index_sources f b)
+  | Index.Min (a, b) -> Index.Min (map_index_sources f a, map_index_sources f b)
+  | Index.Of_position a -> Index.Of_position (map_index_sources f a)
+  | Index.Output _ -> i
+  | Index.Reduce _ -> i
+  | Index.Scale (k, a) -> Index.Scale (k, map_index_sources f a)
+  | Index.Zero -> i
+
 let map_sources f e =
   fst
-    (rebuild ~idx:keep_indices ~src:f ~on_load:keep_load ~on_reduce:keep_reducer
-       () e Builder.initial)
+    (rebuild
+       ~idx:{ on_index = (fun _ i -> map_index_sources f i) }
+       ~src:f ~on_load:keep_load ~on_reduce:keep_reducer () e Builder.initial)
 
 (* Replaces ordinary [Load] nodes with whole subtrees, in the SAME builder
      namespace as the destination — which is the point of returning a

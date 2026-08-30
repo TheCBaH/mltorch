@@ -82,8 +82,13 @@ module Env : sig
 end
 
 (* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
-   arithmetic can fail where it previously wrapped. *)
-type error = [ Expr.Eval.error | `Unknown_edge of Tensor_id.t ]
+   arithmetic can fail where it previously wrapped.
+   [`Data_index_unresolved] is a [Data] source [resolve_data_source] cannot
+   resolve to an exact value (anything but a directly-bound constant) -- it
+   feeds [map_verify_check.ml]'s existing generic
+   [Ground_eval.error -> Unproved] conversion unchanged. *)
+type error =
+  [ Expr.Eval.error | `Data_index_unresolved | `Unknown_edge of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

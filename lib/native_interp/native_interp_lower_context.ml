@@ -14,6 +14,14 @@ type t = {
   esc : error Err.Escape.t;
   graph : Graph.t;
   reads : unit String_map.t Lazy.t;
+  (* SSA names of Parameter/Buffer/Tensor_constant-kind graph inputs -- model
+     data fixed across every run, as opposed to a genuine [User_input]. Used
+     only by [index.Tensor]'s trace-past-Clone rule
+     ([Native_interp_decode.resolve_index_source]): only a directly-bound
+     captured constant can hold a non-F32 dtype in this engine, so that is
+     the one condition under which tracing past a wrapping [clone.default]
+     has anything to gain. *)
+  constant_names : unit String_map.t;
 }
 
 let get ctx env node name = env_find ctx.esc env (tensor_name ctx.esc node name)

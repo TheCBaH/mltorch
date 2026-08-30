@@ -157,12 +157,46 @@ module Env = struct
 end
 
 (* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
-   arithmetic can now fail where it previously wrapped. *)
-type error = [ Expr.Eval.error | `Unknown_edge of Tensor_id.t ]
+   arithmetic can now fail where it previously wrapped.
+   [`Data_index_unresolved] is [resolve_data_source]'s own conservative
+   catch-all (below): a [Data] source this grounder cannot resolve to an
+   exact value. It feeds [map_verify_check.ml]'s existing generic
+   [Ground_eval.error -> Unproved] conversion unchanged -- an unresolved
+   [Data] source makes a cluster [Unproved], never a build failure. *)
+type error =
+  [ Expr.Eval.error | `Data_index_unresolved | `Unknown_edge of Tensor_id.t ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
+  | `Data_index_unresolved ->
+      Fmt.string fmt
+        "Data index source could not be resolved to a directly-bound I64 \
+         constant"
   | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
+
+(* The exact resolver for a [Data] source during grounding: succeeds ONLY for
+   a DIRECTLY BOUND constant, with no stage-walking fallback. An earlier draft
+   also followed any stage whose body was structurally an identity load,
+   reasoning that a value-preserving expression implies a storage-preserving
+   read -- it does not: [Stage_program.ground] evaluates every stage through
+   [Tensor.materialize], which unconditionally allocates F32, so an
+   identity-load stage sitting between an I64 constant and a [Data] read would
+   produce an F32-rounded value under real symbolic execution while the
+   stage-walk bypassed that boundary and returned the exact original I64
+   value instead -- a verification/execution mismatch. Sufficient for
+   CSATv2's real occurrence, since the round-6 import-time trace-back already
+   makes [Index_tensor]'s [index] operand the original constant directly,
+   with no intervening stage at all. Everything else -- a stage in the way,
+   a Const-SSA-backed capture, a non-constant edge -- conservatively falls
+   through to [`Data_index_unresolved] rather than computing an answer that
+   could disagree with real execution. *)
+let resolve_data_source (env : Env.t) (id : Tensor_id.t)
+    (coord : int Expr.Coord.t) : (int64, [> error ]) Err.t =
+  match Env.constant_of env id with
+  | Some t ->
+      Tensor.read_i64_at6 t (fun a -> Expr.Coord.get coord a)
+      |> Err.map_error (fun _ -> `Data_index_unresolved)
+  | None -> Err.fail `Data_index_unresolved
 
 (* Index evaluation is result-returning, but [ground] and [expand] are
    recursive rebuilds threading a node budget; converting at every step would
@@ -186,15 +220,25 @@ let or_throw esc : ('a, [< error ]) Err.t -> 'a = function
    binders. *)
 let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
   let recur = ground esc ~env ~coord ~rvars in
+  (* Calls [eval_index] directly (not the public [Expr.Eval.index]), passing
+     THIS module's own escape token: both use the identical escape-based
+     non-local-exit pattern, so a [Data] failure inside [eval_index] throws
+     straight through to this function's caller with no extra conversion.
+     [~widen] lifts the ordinary arithmetic/reducer failures ([index_error])
+     up to this row; [~resolve_data] is [resolve_data_source], converting the
+     [Source.t] it receives back to a [Tensor_id.t] first. *)
   let index : type r. r Expr.Index.t -> int =
    fun i ->
-    or_throw esc
-      (Expr.Eval.index ~output:coord
-         ~reducers:(fun v ->
-           List.find_map
-             (fun (w, n) -> if Expr.Reduce_var.equal v w then Some n else None)
-             rvars)
-         i)
+    Expr.Eval.eval_index esc
+      ~widen:(fun (e : Expr.Eval.index_error) -> (e :> error))
+      ~output:coord
+      ~reducers:(fun v ->
+        List.find_map
+          (fun (w, n) -> if Expr.Reduce_var.equal v w then Some n else None)
+          rvars)
+      ~resolve_data:(fun src coord ->
+        resolve_data_source env (Expr_bridge.id_of_source src) coord)
+      i
   in
   match e with
   | Expr.Value.Const x -> Ground_expr.Const x
@@ -278,13 +322,16 @@ and max_pool esc ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
   let open Expr.Intrinsic.Max_pool in
   let index : type r. r Expr.Index.t -> int =
    fun x ->
-    or_throw esc
-      (Expr.Eval.index ~output:coord
-         ~reducers:(fun v ->
-           List.find_map
-             (fun (w, n) -> if Expr.Reduce_var.equal v w then Some n else None)
-             rvars)
-         x)
+    Expr.Eval.eval_index esc
+      ~widen:(fun (e : Expr.Eval.index_error) -> (e :> error))
+      ~output:coord
+      ~reducers:(fun v ->
+        List.find_map
+          (fun (w, n) -> if Expr.Reduce_var.equal v w then Some n else None)
+          rvars)
+      ~resolve_data:(fun src coord ->
+        resolve_data_source env (Expr_bridge.id_of_source src) coord)
+      x
   in
   (* Through the shared geometry helpers, not recomputed here. [out_h * stride]
      and [ih * in_w] are aggregates of individually valid factors, so they need

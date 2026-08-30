@@ -15,6 +15,7 @@ type arg_kind =
   | `Memory_format_opt
   | `Optional_scalar
   | `Optional_tensor
+  | `Optional_tensor_list
   | `Scalar
   | `String
   | `Tensor
@@ -74,6 +75,8 @@ type metadata_role =
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
+  | `Index_tensor_index
+  | `Index_tensor_self
   | `Layer_norm_bias
   | `Layer_norm_input
   | `Layer_norm_weight
@@ -248,6 +251,25 @@ module Bad_upsample_size = struct
   type t = { op : string; fault : fault }
 end
 
+(* `index.Tensor`'s locked list-acceptance rule (`.ai/index_tensor_design.md`
+   round 3): [indices] is accepted iff its length equals [self]'s ATen rank,
+   exactly one entry is a Long-dtype tensor of ATen rank exactly 1, and every
+   other entry is an explicit [None]. Mirrors [Op_bridge_error.Index_list]
+   exactly -- the two importers must reject the same graphs the same way. *)
+module Index_list = struct
+  type fault =
+    | Length_mismatch of { expected : int; got : int }
+    | Multiple_live_entries of int list
+    | No_live_entry
+    | Wrong_dtype of { position : int; dtype : string }
+      (* Already stringified ([Pt2_dtype.scalar_type_name]) by the caller:
+           this file has no dependency on [Pytorch_types], the same reason
+           [Op_bridge_error.Wrong_argument_kind.actual] stays a string. *)
+    | Wrong_rank of { position : int; rank : int }
+
+  type t = { fault : fault }
+end
+
 type malformed =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Axis_out_of_range of Axis_out_of_range.t
@@ -262,6 +284,7 @@ type malformed =
   | `Bad_view of Bad_view.t
   | `Concat_no_tensors of string
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Index_list of Index_list.t
   | `Live_layer_norm_stats of Live_layer_norm_stats.t
   | `Matmul_unsupported_shape of Matmul_unsupported_shape.t
   | `Missing_arg of Missing_arg.t
@@ -332,6 +355,7 @@ let pp_arg_kind ppf : arg_kind -> unit = function
   | `Memory_format_opt -> Fmt.string ppf "an optional memory format"
   | `Optional_scalar -> Fmt.string ppf "an optional scalar"
   | `Optional_tensor -> Fmt.string ppf "an optional tensor"
+  | `Optional_tensor_list -> Fmt.string ppf "an optional tensor list"
   | `Scalar -> Fmt.string ppf "a scalar"
   | `String -> Fmt.string ppf "a string"
   | `Tensor -> Fmt.string ppf "a tensor"
@@ -352,6 +376,8 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Expand_input -> Fmt.string ppf "expand input"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"
+  | `Index_tensor_index -> Fmt.string ppf "index.Tensor indices live entry"
+  | `Index_tensor_self -> Fmt.string ppf "index.Tensor self"
   | `Layer_norm_bias -> Fmt.string ppf "layer_norm bias"
   | `Layer_norm_input -> Fmt.string ppf "layer_norm input"
   | `Layer_norm_weight -> Fmt.string ppf "layer_norm weight"
@@ -453,6 +479,26 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
       Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
         other
+  | `Index_list { Index_list.fault } -> (
+      match fault with
+      | Index_list.Length_mismatch { expected; got } ->
+          Fmt.pf ppf
+            "index.Tensor: indices has %d entries, expected %d (self's rank)"
+            got expected
+      | Index_list.Multiple_live_entries positions ->
+          Fmt.pf ppf
+            "index.Tensor: indices has more than one live entry, at positions \
+             %a"
+            Fmt.(list ~sep:(any ", ") int)
+            positions
+      | Index_list.No_live_entry ->
+          Fmt.string ppf "index.Tensor: indices has no live (non-None) entry"
+      | Index_list.Wrong_dtype { position; dtype } ->
+          Fmt.pf ppf "index.Tensor: indices[%d] must be Long, got %s" position
+            dtype
+      | Index_list.Wrong_rank { position; rank } ->
+          Fmt.pf ppf "index.Tensor: indices[%d] must be rank 1, got rank %d"
+            position rank)
   | `Live_layer_norm_stats { Live_layer_norm_stats.op; stat; ssa } ->
       Fmt.pf ppf "%s: %s output %S is read, and this graph does not have it" op
         (match stat with `Mean -> "mean" | `Rstd -> "rstd")
@@ -525,7 +571,8 @@ let pp_tensor_bridge ppf : [< tensor_bridge ] -> unit = function
       Fmt.pf ppf "storage index range [%Ld, %Ld] is outside %d bytes of data" lo
         hi data_bytes
   | `Unsupported_dtype d ->
-      Fmt.pf ppf "only float32 is supported, got %s" (Pt2_dtype.to_string d)
+      Fmt.pf ppf "only float32/int64 are supported, got %s"
+        (Pt2_dtype.to_string d)
   | #malformed as e -> pp_malformed ppf e
 
 let pp_error ppf : [< error ] -> unit = function

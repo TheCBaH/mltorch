@@ -58,6 +58,12 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Hardtanh_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (* [index]'s values are drawn as random non-negative in-range int64s, not
+       arbitrary floats -- this walk proves Direct/Symbolic agreement on
+       [Compute.pixel], not ATen's negative-index normalization (already
+       pinned by hand-derived fixtures elsewhere). *)
+    (module Index_tensor_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (* The affine operands are options, so this walk builds all four graph
        shapes rather than merely checking arithmetic. *)
     (module Layer_norm_nwalk.M : Walk_core.Walk.Op

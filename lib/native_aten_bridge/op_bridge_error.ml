@@ -104,6 +104,23 @@ end
    [Native_interp] (op8-impl.md commit 3) for [Op_config.Bad]'s reason: the
    two importers must reject the same values. *)
 
+(* `index.Tensor`'s locked list-acceptance rule (`.ai/index_tensor_design.md`
+   round 3): [indices] is accepted iff its length equals [self]'s ATen rank,
+   exactly one entry is a Long-dtype tensor of ATen rank exactly 1, and every
+   other entry is an explicit [None]. Every fault names what was actually
+   found, not just that the rule failed -- round 9's own required proof that
+   the rank-1 restriction is a real, provable typed rejection. *)
+module Index_list = struct
+  type fault =
+    | Length_mismatch of { expected : int; got : int }
+    | Multiple_live_entries of int list (* positions, in order found *)
+    | No_live_entry
+    | Wrong_dtype of { position : int; dtype : Aten_scalar_type.t }
+    | Wrong_rank of { position : int; rank : int }
+
+  type t = { fault : fault }
+end
+
 type error =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Addmm_invalid_weight_rank of int array
@@ -118,6 +135,7 @@ type error =
   | `Convolution_invalid_weight_rank of int array
   | `Decode of Interp_decode.error
   | `Dims_count of Dims_count.t
+  | `Index_list of Index_list.t
   | `Invalid_dim of Invalid_dim.t
   | `Invalid_hw_arg of invalid_hw_arg
   | `Linear_invalid_weight_rank of int array
@@ -169,6 +187,25 @@ let pp_error ppf : [< error ] -> unit = function
   | `Decode e -> Interp_decode.pp_error ppf e
   | `Dims_count { Dims_count.op; rank; got } ->
       Fmt.pf ppf "%s: expected %d dims, got %d" op rank got
+  | `Index_list { Index_list.fault } -> (
+      match fault with
+      | Index_list.Length_mismatch { expected; got } ->
+          Fmt.pf ppf
+            "index.Tensor: indices has %d entries, expected %d (self's rank)"
+            got expected
+      | Index_list.Multiple_live_entries positions ->
+          Fmt.pf ppf
+            "index.Tensor: indices has more than one live entry, at positions \
+             %a"
+            pp_int_list positions
+      | Index_list.No_live_entry ->
+          Fmt.string ppf "index.Tensor: indices has no live (non-None) entry"
+      | Index_list.Wrong_dtype { position; dtype } ->
+          Fmt.pf ppf "index.Tensor: indices[%d] must be Long, got %s" position
+            (Aten_scalar_type.to_string dtype)
+      | Index_list.Wrong_rank { position; rank } ->
+          Fmt.pf ppf "index.Tensor: indices[%d] must be rank 1, got rank %d"
+            position rank)
   | `Invalid_dim { Invalid_dim.op; dim; rank } ->
       Fmt.pf ppf "%s: invalid dimension %d for rank %d" op dim rank
   | `Invalid_hw_arg { name; values } ->

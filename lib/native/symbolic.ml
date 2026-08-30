@@ -77,6 +77,16 @@ let load6 (s : input) ~n ~t ~d ~h ~w ~c =
        (Expr_bridge.source_of_id s.Tensor_sig.id)
        (Expr.Coord.make ~n ~t ~d ~h ~w ~c))
 
+(* Construction only, no check -- resolution (dtype/bounds) happens once,
+   uniformly, wherever the node is evaluated ([Eval.eval_index]'s own [Data]
+   arm), never at [Symbolic]'s own construction step. *)
+let load_index (s : input) (v : Semantics.position index Vec6.t)
+    ~(extent : Dim.extent Dim.t) : Semantics.position index =
+  Expr.Index.data
+    (Expr_bridge.source_of_id s.Tensor_sig.id)
+    (Expr_bridge.coord_of_vec6 v)
+    (extent :> int)
+
 (* The descriptor carries [in_h]/[in_w] explicitly, because an opaque source
    cannot be asked for its shape the way the embedded [Tensor_sig.t] could.
    They come from [~x_shape], which the older instance ignores precisely

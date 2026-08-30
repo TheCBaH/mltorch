@@ -200,6 +200,20 @@ module Batched_matmul = struct
           lhs Dim.pp rhs
 end
 
+(* `index.Tensor`'s round-12 [Graph_ir]-level enforcement of the rank-1
+   restriction: an index frame axis other than [C] with a non-unit extent,
+   reachable from a direct [Graph_builder] call or a JSON-decoded graph even
+   though neither importer can ever produce one. *)
+module Index_tensor = struct
+  type t = { axis : Axis.t; extent : Dim.extent Dim.t }
+
+  let pp ppf { axis; extent } =
+    Fmt.pf ppf
+      "index.Tensor: index axis %a must have extent 1 (only axis C carries \
+       real data), got %a"
+      Axis.pp axis Dim.pp extent
+end
+
 module Permute = struct
   type t = { side : perm_side; axis : Axis.t; count : int }
 
@@ -576,6 +590,7 @@ type t =
   | `Concat of Concat.t
   | `Convolution of Convolution.error
   | `Group_norm of Group_norm.t
+  | `Index_tensor of Index_tensor.t
   | `Linear of Linear.error
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Operand_shape of Operand_shape.t
@@ -600,6 +615,7 @@ let pp ppf = function
   | `Concat e -> Concat.pp ppf e
   | `Convolution e -> Convolution.pp_error ppf e
   | `Group_norm e -> Group_norm.pp ppf e
+  | `Index_tensor e -> Index_tensor.pp ppf e
   | `Linear e -> Linear.pp_error ppf e
   | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
   | `Operand_shape e -> Operand_shape.pp ppf e

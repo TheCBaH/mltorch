@@ -207,15 +207,33 @@ let machine esc (k : Kernel.t) ~bind ~virtual_uses =
                 Hashtbl.add memo key x;
                 x))
   and env_for ~depth consumer =
+    let bridge () =
+      Expr_bridge.env ~binding:(fun i -> Tensor_id.Map.find_opt i !bound)
+    in
     {
       Expr.Eval.Env.load =
         (fun src c ->
           let producer = Expr_bridge.id_of_source src in
           if is_virtual ~consumer ~producer then
             Err.return (eval_value ~depth:(depth + 1) producer c)
-          else
-            (Expr_bridge.env ~binding:(fun i -> Tensor_id.Map.find_opt i !bound))
-              .Expr.Eval.Env.load src c);
+          else (bridge ()).Expr.Eval.Env.load src c);
+      Expr.Eval.Env.load_index =
+        (fun src c ->
+          let producer = Expr_bridge.id_of_source src in
+          if is_virtual ~consumer ~producer then
+            (* Dead: a [Data] index component is never fusion-admitted --
+               [kernel_elab.ml]'s pointwise-admission predicate rejects it via
+               its existing catch-all, so no consumer can ever recurse into a
+               virtual producer through this arm. But [Env.t]'s [load_index]
+               field has a fixed, non-polymorphic row ([Expr.Eval.error]), so
+               this function must still type-check against it regardless.
+               Reuses the same [`Data_index_unexpected_here] tag the public
+               [Eval.index]'s own "impossible resolver" uses (rather than a
+               second, separately-typed tag) -- both call sites mean exactly
+               the same thing: a [Data] index reached a context that
+               structurally cannot produce one. *)
+            Err.fail `Data_index_unexpected_here
+          else (bridge ()).Expr.Eval.Env.load_index src c);
     }
   in
   (* Materialising one value, and evaluating one cell on demand: the same

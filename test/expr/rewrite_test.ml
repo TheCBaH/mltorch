@@ -21,6 +21,9 @@ let env =
           Coord.foldi (fun a acc i -> (acc * 7) + Axis.to_int a + i) 1 c
         in
         Err.return (float_of_int ((Source.to_int s * 13) + (mix mod 11)) /. 4.));
+    (* No generated expression here ever contains a [Data] node -- this
+       fixture only builds and evaluates ordinary [Value.t]/[Index.t] terms. *)
+    load_index = (fun _ _ -> assert false);
   }
 
 let origin = Coord.of_fn (fun a -> Axis.to_int a mod 3)

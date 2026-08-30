@@ -515,4 +515,73 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ () = discard x_id in
                []
            | _ -> assert false))
+  (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`, restricted to
+     the one evidenced shape family (`.ai/index_tensor_design.md`): [indices]
+     has exactly one live (non-None) entry, of ATen rank 1, at every other
+     position [None]. Unlike [Native_interp] (metadata-only import, below),
+     this bridge is reached with [indices]' live entry ALREADY RESOLVED to a
+     real ATen tensor VALUE by [aten_env] -- whatever node produced it,
+     `clone.default` included, since ATen's own [clone] preserves both value
+     and dtype exactly. So there is no "trace past Clone" step to take here:
+     [Op_bridge.dispatch] sees only this one node (no surrounding graph to
+     trace through, unlike [Native_interp]'s importer, which retains the
+     whole node list), and reading the live entry's real, already-correct
+     value via [native_of_aten] is enough on its own -- the round-6 problem
+     that trace-back exists to solve is specifically about [Native_interp]'s
+     metadata-only import stamping a wrong dtype on a *newly built* [Clone]
+     node's OWN output signature, which never happens here. *)
+  | "torch.ops.aten.index.Tensor" ->
+      Some
+        (let* self_t = tensor_arg aten_env node "self" in
+         let rank = aten_rank self_t in
+         let* entries =
+           decode_result (D.optional_tensors_arg_result aten_env node "indices")
+         in
+         let got = List.length entries in
+         let index_list_fail (fault : Op_bridge_error.Index_list.fault) =
+           fail (`Index_list { Op_bridge_error.Index_list.fault })
+         in
+         if got <> rank then
+           index_list_fail
+             (Op_bridge_error.Index_list.Length_mismatch
+                { expected = rank; got })
+         else
+           let live_positions =
+             List.mapi (fun i e -> (i, e)) entries
+             |> List.filter_map (fun (i, e) ->
+                 if Option.is_some e then Some i else None)
+           in
+           match live_positions with
+           | [] -> index_list_fail Op_bridge_error.Index_list.No_live_entry
+           | _ :: _ :: _ ->
+               index_list_fail
+                 (Op_bridge_error.Index_list.Multiple_live_entries
+                    live_positions)
+           | [ p ] ->
+               let index_t = Option.get (List.nth entries p) in
+               let dtype = Aten_tensor.scalar_type index_t in
+               if not (dtype = Aten_scalar_type.Long) then
+                 index_list_fail
+                   (Op_bridge_error.Index_list.Wrong_dtype
+                      { position = p; dtype })
+               else
+                 let index_rank = aten_rank index_t in
+                 if index_rank <> 1 then
+                   index_list_fail
+                     (Op_bridge_error.Index_list.Wrong_rank
+                        { position = p; rank = index_rank })
+                 else
+                   let* axis = dim_axis ~op:"index.Tensor" ~rank p in
+                   let* self_n = native_of_aten "self" self_t in
+                   let* index_n = native_of_aten "index" index_t in
+                   build_g ~name:"index_tensor" [ self_n; index_n ] (function
+                     | [ self_id; index_id ] ->
+                         let open Graph_builder in
+                         let+ y =
+                           index_tensor
+                             { Index_tensor.Index_tensor.axis }
+                             ~self:self_id ~index:index_id
+                         in
+                         [ y ]
+                     | _ -> assert false))
   | _ -> None

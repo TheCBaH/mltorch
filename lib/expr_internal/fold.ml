@@ -9,6 +9,7 @@ let rec index_reducers : type r. Reduce_var.Set.t -> r Index.t -> _ =
   | Index.Ceil_div_pos (a, _) -> index_reducers acc a
   | Index.Clamp_low a -> index_reducers acc a
   | Index.Const _ -> acc
+  | Index.Data (_, c, _) -> Coord.fold (fun acc i -> index_reducers acc i) acc c
   | Index.Floor_div_pos (a, _) -> index_reducers acc a
   | Index.Max (a, b) -> index_reducers (index_reducers acc a) b
   | Index.Min (a, b) -> index_reducers (index_reducers acc a) b
@@ -25,6 +26,7 @@ let rec index_axes : type r. Axis.t list -> r Index.t -> Axis.t list =
   | Index.Ceil_div_pos (a, _) -> index_axes acc a
   | Index.Clamp_low a -> index_axes acc a
   | Index.Const _ -> acc
+  | Index.Data (_, c, _) -> Coord.fold (fun acc i -> index_axes acc i) acc c
   | Index.Floor_div_pos (a, _) -> index_axes acc a
   | Index.Max (a, b) -> index_axes (index_axes acc a) b
   | Index.Min (a, b) -> index_axes (index_axes acc a) b
@@ -41,6 +43,8 @@ let rec index_assume_sites : type r. int -> r Index.t -> int =
   | Index.Ceil_div_pos (a, _) -> index_assume_sites acc a
   | Index.Clamp_low a -> index_assume_sites acc a
   | Index.Const _ -> acc
+  | Index.Data (_, c, _) ->
+      Coord.fold (fun acc i -> index_assume_sites acc i) acc c
   | Index.Floor_div_pos (a, _) -> index_assume_sites acc a
   | Index.Max (a, b) -> index_assume_sites (index_assume_sites acc a) b
   | Index.Min (a, b) -> index_assume_sites (index_assume_sites acc a) b
@@ -48,6 +52,31 @@ let rec index_assume_sites : type r. int -> r Index.t -> int =
   | Index.Output _ -> acc
   | Index.Reduce _ -> acc
   | Index.Scale (_, a) -> index_assume_sites acc a
+  | Index.Zero -> acc
+
+(* [Data]'s own source, plus whatever further [Data] nodes are nested inside
+   its coordinate (an ordinary [Role.Position.t Index.t] recursion, per
+   [Index.Data]'s self-recursive shape). Unlike [index_reducers]/[index_axes]
+   above, this is not threaded through [Fold.walk]'s no-op [no_index] --
+   [sources] passes it as a real [idx_fn] below, since a [Data] embedded in a
+   [Value.Load]'s coordinate would otherwise be invisible to a traversal that
+   is supposed to answer "every source this expression depends on". *)
+let rec index_sources : type r. Source.Set.t -> r Index.t -> Source.Set.t =
+ fun acc -> function
+  | Index.Add (a, b) -> index_sources (index_sources acc a) b
+  | Index.Assume_position a -> index_sources acc a
+  | Index.Ceil_div_pos (a, _) -> index_sources acc a
+  | Index.Clamp_low a -> index_sources acc a
+  | Index.Const _ -> acc
+  | Index.Data (s, c, _) ->
+      Coord.fold (fun acc i -> index_sources acc i) (Source.Set.add s acc) c
+  | Index.Floor_div_pos (a, _) -> index_sources acc a
+  | Index.Max (a, b) -> index_sources (index_sources acc a) b
+  | Index.Min (a, b) -> index_sources (index_sources acc a) b
+  | Index.Of_position a -> index_sources acc a
+  | Index.Output _ -> acc
+  | Index.Reduce _ -> acc
+  | Index.Scale (_, a) -> index_sources acc a
   | Index.Zero -> acc
 
 (* The index callback has to be RANK-2: a [Load]'s coordinate components are
@@ -137,6 +166,15 @@ let measure ~max_size ~max_depth e =
     | Index.Ceil_div_pos (a, _) -> one a
     | Index.Clamp_low a -> one a
     | Index.Const _ -> (1, left)
+    | Index.Data (_, c, _) ->
+        let dmax, left =
+          Coord.fold
+            (fun (m, left) x ->
+              let d, left = index sub left x in
+              (Stdlib.max m d, left))
+            (0, left) c
+        in
+        (1 + dmax, left)
     | Index.Floor_div_pos (a, _) -> one a
     | Index.Max (a, b) ->
         let da, left = index sub left a in
@@ -228,7 +266,7 @@ let sources e =
       | Value.Intrinsic (Intrinsic.Max_pool d) ->
           Source.Set.add d.Intrinsic.Max_pool.source acc
       | _ -> acc)
-    ~index:no_index ~intrinsic:nothing Source.Set.empty e
+    ~index:{ idx = index_sources } ~intrinsic:nothing Source.Set.empty e
 
 (* Ordinary [Load] SITES, with their coordinates, in lexical order and with
      repeats. [sources] answers a different question and cannot serve here: it

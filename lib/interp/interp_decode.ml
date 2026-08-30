@@ -43,6 +43,7 @@ type expected_kind =
   | `Int_opt
   | `Layout_opt
   | `Memory_format_opt
+  | `Optional_tensor_list
   | `Scalar
   | `Scalar_opt
   | `Scalar_type_opt
@@ -123,6 +124,7 @@ let expected_kind_name : expected_kind -> string = function
   | `Int_opt -> "int?"
   | `Layout_opt -> "layout?"
   | `Memory_format_opt -> "memory_format?"
+  | `Optional_tensor_list -> "tensor?[]"
   | `Scalar -> "scalar"
   | `Scalar_opt -> "scalar?"
   | `Scalar_type_opt -> "scalar_type?"
@@ -431,6 +433,23 @@ let tensors_arg env node name =
       Err.List.map (fun (ta : TensorArgument.t) -> resolve env ta.name) tas
   | Some arg -> wrong_kind name `Tensor_list arg
 
+(* [index.Tensor]'s [indices : Tensor?[]] -- a list mixing live tensor entries
+   with explicit [None]s, unlike [tensors_arg]'s all-live [Tensor[]]. Each
+   live entry resolves through [env] exactly as an ordinary [Tensor] argument
+   does; [None] survives as [None]. *)
+let optional_tensors_arg env node name =
+  match find_arg node name with
+  | None -> Err.fail (`Missing_argument name)
+  | Some (Argument.Optional_tensors ts) ->
+      Err.List.map
+        (fun (t : OptionalTensorArgument.t) ->
+          match t with
+          | OptionalTensorArgument.Tensor ta ->
+              Err.map (fun t -> Some t) (resolve env ta.TensorArgument.name)
+          | OptionalTensorArgument.None _ -> Err.return None)
+        ts
+  | Some arg -> wrong_kind name `Optional_tensor_list arg
+
 (* A Tensor[] binding takes a (data, length) pair: build the ctypes array of
    handles for the [data] argument. *)
 let tensor_carray tensors =
@@ -544,3 +563,4 @@ let scalar_type_opt_arg_result = scalar_type_opt_arg
 let layout_opt_arg_result = layout_opt_arg
 let device_opt_arg_result = device_opt_arg
 let tensors_arg_result = tensors_arg
+let optional_tensors_arg_result = optional_tensors_arg

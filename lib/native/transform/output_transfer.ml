@@ -74,6 +74,14 @@ let classify (op : op) ~output =
   | Pad _ -> Continuous
   | Max_pool2d_with_indices _ ->
       if output = 0 then Continuous else Discontinuous
+  (* Which input element is read is DATA-DEPENDENT -- the gathered position
+     comes from the value stored in [index], not from the output coordinate
+     alone -- so an arbitrarily small change to [index]'s content can switch
+     the entire gathered result, the same argmax-shaped reasoning that makes
+     [Max_pool2d_with_indices]'s index output [Discontinuous]. Unlike that op,
+     there is no separate continuous "value" output here to distinguish by
+     [output]. *)
+  | Index_tensor _ -> Discontinuous
   (* No outputs at all, so this is unreachable from propagation; answer
      conservatively rather than inventing a guarantee. *)
   | Discard _ -> Discontinuous

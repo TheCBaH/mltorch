@@ -142,6 +142,13 @@ val hardswish : ?name:string -> tensor_ref -> Tensor_id.t t
 val hardtanh :
   ?name:string -> Pointwise.Hardtanh.params -> tensor_ref -> Tensor_id.t t
 
+val index_tensor :
+  ?name:string ->
+  Index_tensor.Index_tensor.params ->
+  self:tensor_ref ->
+  index:tensor_ref ->
+  Tensor_id.t t
+
 val layer_norm :
   ?name:string ->
   Norm.LayerNorm.params ->

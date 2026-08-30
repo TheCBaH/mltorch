@@ -52,6 +52,14 @@ let lower program =
                (fun acc (t : TensorArgument.t) ->
                  String_map.add t.TensorArgument.name () acc)
                acc ts
+         | Argument.Optional_tensors ts ->
+             List.fold_left
+               (fun acc (t : OptionalTensorArgument.t) ->
+                 match t with
+                 | OptionalTensorArgument.Tensor (t : TensorArgument.t) ->
+                     String_map.add t.name () acc
+                 | OptionalTensorArgument.None _ -> acc)
+               acc ts
          | _ -> acc
        in
        List.fold_left
@@ -61,6 +69,14 @@ let lower program =
              acc n.Node.inputs)
          (List.fold_left add String_map.empty graph.outputs)
          graph.nodes)
+  in
+  let constant_names =
+    List.fold_left
+      (fun acc (kind, name, _) ->
+        match kind with
+        | `Constant -> String_map.add name () acc
+        | `Input -> acc)
+      String_map.empty source_specs
   in
   let tensor_origins = ref Tensor_id.Map.empty in
   let captured_targets = ref Tensor_id.Map.empty in
@@ -75,7 +91,7 @@ let lower program =
           let* id =
             match kind with
             | `Input -> input ~shape ()
-            | `Constant -> constant ~shape ()
+            | `Constant -> constant ~shape ~fmt:(tensor_fmt graph name) ()
           in
           tensor_origins :=
             Tensor_id.Map.add id
@@ -93,7 +109,9 @@ let lower program =
           return (String_map.add name id env))
         (return String_map.empty) source_specs
     in
-    let ctx : Native_interp_lower_context.t = { esc; graph; reads } in
+    let ctx : Native_interp_lower_context.t =
+      { esc; graph; reads; constant_names }
+    in
     let lower_op env node =
       match
         List.find_map

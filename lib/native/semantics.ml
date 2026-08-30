@@ -111,6 +111,17 @@ module type SEMANTICS = sig
     c:position index ->
     t
 
+  (* Reads a tensor's own stored VALUE at a coordinate and reports it as a
+     POSITION index for further indexing -- [index.Tensor]'s runtime gather,
+     the value-to-index bridge going the opposite direction from
+     [value_of_index]. [extent] is the gathered axis's extent, for
+     bounds-checking/negative-index normalization: [Direct] resolves it
+     eagerly (raising on failure, since [SEMANTICS]' index domain is
+     total-by-type — see direct.ml); [Symbolic] defers it to grounding
+     (construction only, no check, via [Expr.Index.data]). *)
+  val load_index :
+    input -> position index Vec6.t -> extent:Dim.extent Dim.t -> position index
+
   (* Fixed-window pool primitives.  These stay scalar operations so symbolic
      semantics can retain the complete window geometry in one expression node
      rather than expanding it into nested generic reductions. *)

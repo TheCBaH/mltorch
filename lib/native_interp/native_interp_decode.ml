@@ -54,6 +54,22 @@ let tensor_shape esc (graph : Pytorch_types.Graph.t) name =
   | Some meta -> shape_of_sizes esc name meta.TensorMeta.sizes
   | None -> malformed esc (`Missing_metadata { ssa = name; role = `Tensor })
 
+(* A captured [Parameter]/[Buffer]/[Tensor_constant]'s declared element
+   format, read from its own SSA metadata rather than defaulted to the
+   graph's F32 compute format: an archive constant genuinely materializes as
+   LONG (e.g. an [index.Tensor] gather index kept off a wrapping
+   [clone.default]'s always-F32 edge, `.ai/index_tensor_design.md` round 6),
+   and [Rewrite.origin]'s payload check would otherwise reject every such
+   constant's real int64 bytes against a wrongly-declared F32 signature.
+   Every other dtype (including one an op-specific check downstream, e.g.
+   [Index_list.Wrong_dtype], rejects with a more specific message) keeps the
+   engine's F32 default -- this is a signature fix for the one dtype the
+   engine actually models, not a general dtype validator. *)
+let tensor_fmt (graph : Pytorch_types.Graph.t) name =
+  match String_map.find_opt name graph.tensor_values with
+  | Some { TensorMeta.dtype = ScalarType.LONG; _ } -> Payload.Fmt Payload.I64
+  | Some _ | None -> Payload.Fmt Payload.F32
+
 let find_arg esc (node : Pytorch_types.Node.t) name =
   match
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
@@ -78,6 +94,82 @@ let tensor_names_arg esc (node : Pytorch_types.Node.t) name =
       malformed esc
         (`Wrong_arg_kind
            { op = node.target; arg = name; expected = `Tensor_list })
+
+(* [index.Tensor]'s [indices : Tensor?[]] -- a list mixing live-entry names
+   with explicit [None]s, kept raw (not resolved to native ids) since the
+   caller must inspect each live entry's own name before binding, to trace
+   past a wrapping [clone.default] (see [Native_interp_lower_compute]). *)
+let optional_tensor_names_arg esc (node : Pytorch_types.Node.t) name =
+  match find_arg esc node name with
+  | Argument.Optional_tensors ts ->
+      List.map
+        (function
+          | OptionalTensorArgument.Tensor (t : TensorArgument.t) -> Some t.name
+          | OptionalTensorArgument.None _ -> None)
+        ts
+  | _ ->
+      malformed esc
+        (`Wrong_arg_kind
+           { op = node.target; arg = name; expected = `Optional_tensor_list })
+
+(* [index.Tensor]'s trace-past-Clone rule (`.ai/index_tensor_design.md` round
+   6): an ATen [clone.default] with no format change is a value- AND
+   dtype-preserving identity, so if the live [indices] entry is exactly a
+   plain clone of a captured/constant tensor, bind the ORIGINAL pre-clone
+   name instead of Clone's own output. Never a stage-walk and never applied
+   to a computed (non-constant) input -- only a directly-bound captured
+   constant can hold a non-F32 dtype in this engine at all (every computed
+   intermediate is F32), so tracing past anything else would have nothing to
+   gain. This is what keeps [Index_tensor]'s [index] operand off Clone's own
+   native edge, whose signature [Graph_builder.op1] defaults to F32
+   regardless of the source dtype -- a pre-existing, unrelated characteristic
+   of every [clone.default] occurrence in this codebase, not something this
+   op fixes generally. *)
+let node_produces (node : Pytorch_types.Node.t) name =
+  List.exists
+    (function
+      | Argument.Tensor (t : TensorArgument.t) -> String.equal t.name name
+      | Argument.Tensors ts ->
+          List.exists
+            (fun (t : TensorArgument.t) -> String.equal t.name name)
+            ts
+      | _ -> false)
+    node.Node.outputs
+
+let clone_no_format_change (node : Pytorch_types.Node.t) =
+  match
+    List.find_opt
+      (fun (a : NamedArgument.t) -> a.name = "memory_format")
+      node.Node.inputs
+  with
+  | None -> true
+  | Some { NamedArgument.arg = Argument.None _; _ } -> true
+  | Some { NamedArgument.arg = Argument.Memory_format mf; _ } -> (
+      match mf with
+      | MemoryFormat.ContiguousFormat | MemoryFormat.PreserveFormat -> true
+      | MemoryFormat.ChannelsLast | MemoryFormat.ChannelsLast3d
+      | MemoryFormat.Unknown ->
+          false)
+  | Some _ -> false
+
+let resolve_index_source (graph : Pytorch_types.Graph.t) ~constant_names
+    (live_name : string) =
+  match
+    List.find_opt (fun n -> node_produces n live_name) graph.Graph.nodes
+  with
+  | Some producer
+    when String.equal producer.Node.target "torch.ops.aten.clone.default"
+         && clone_no_format_change producer -> (
+      match
+        List.find_opt
+          (fun (a : NamedArgument.t) -> a.name = "self")
+          producer.Node.inputs
+      with
+      | Some { NamedArgument.arg = Argument.Tensor (t : TensorArgument.t); _ }
+        when String_map.mem t.name constant_names ->
+          t.name
+      | _ -> live_name)
+  | _ -> live_name
 
 (* [~absent_ok] distinguishes an argument that is PRESENT and None from one not
    in the node's input list at all. The schema default for every optional tensor

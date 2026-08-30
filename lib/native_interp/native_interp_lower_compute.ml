@@ -31,6 +31,7 @@ let targets =
     "torch.ops.aten.hardswish.default";
     "torch.ops.aten.hardswish_.default";
     "torch.ops.aten.hardtanh.default";
+    "torch.ops.aten.index.Tensor";
     "torch.ops.aten.layer_norm.default";
     "torch.ops.aten.linalg_vector_norm.default";
     "torch.ops.aten.linear.default";
@@ -768,4 +769,74 @@ let dispatch ~ctx ~env (node : Node.t) =
                ~x:(get "mat1") ~weight:w ~bias:(get "self") ()
            in
            return [ y ]
+       (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`, restricted
+          to the one evidenced shape family (`.ai/index_tensor_design.md`):
+          [indices] has exactly one live entry, of ATen rank 1, every other
+          position [None]. Metadata-only, unlike [Op_bridge]'s arm: the live
+          entry's dtype/rank come from [tensor_meta], never a materialized
+          value, and its NAME may need tracing past a wrapping
+          [clone.default] before it can be bound (round 6) -- a step
+          [Op_bridge] does not need, since it already resolves the live
+          entry's real ATen VALUE directly, clone or not. *)
+       | "torch.ops.aten.index.Tensor" ->
+           let self_name = tensor_name esc node "self" in
+           let self_rank =
+             meta_rank
+               (tensor_meta esc graph ~ssa:self_name ~role:`Index_tensor_self)
+           in
+           let entries = optional_tensor_names_arg esc node "indices" in
+           let got = List.length entries in
+           let index_list_fail (fault : Index_list.fault) =
+             malformed esc (`Index_list { Index_list.fault })
+           in
+           if got <> self_rank then
+             index_list_fail
+               (Index_list.Length_mismatch { expected = self_rank; got })
+           else
+             let live_positions =
+               List.mapi (fun i e -> (i, e)) entries
+               |> List.filter_map (fun (i, e) -> Option.map (fun _ -> i) e)
+             in
+             let p =
+               match live_positions with
+               | [] -> index_list_fail Index_list.No_live_entry
+               | _ :: _ :: _ ->
+                   index_list_fail
+                     (Index_list.Multiple_live_entries live_positions)
+               | [ p ] -> p
+             in
+             let live_name = Option.get (List.nth entries p) in
+             let meta =
+               tensor_meta esc graph ~ssa:live_name ~role:`Index_tensor_index
+             in
+             (match meta.TensorMeta.dtype with
+             | ScalarType.LONG -> ()
+             | dtype ->
+                 index_list_fail
+                   (Index_list.Wrong_dtype
+                      { position = p; dtype = Pt2_dtype.scalar_type_name dtype }));
+             let index_rank = meta_rank meta in
+             if index_rank <> 1 then
+               index_list_fail
+                 (Index_list.Wrong_rank { position = p; rank = index_rank })
+             else
+               let axis =
+                 match axes_for_rank esc ~tensor:self_name self_rank [ p ] with
+                 | [ a ] -> a
+                 | _ ->
+                     invalid_arg
+                       "Native_interp: axes_for_rank lost its singleton"
+               in
+               let index_name =
+                 Native_interp_decode.resolve_index_source graph
+                   ~constant_names:
+                     ctx.Native_interp_lower_context.constant_names live_name
+               in
+               let* y =
+                 index_tensor
+                   { Index_tensor.Index_tensor.axis }
+                   ~self:(get "self")
+                   ~index:(env_find esc env index_name)
+               in
+               return [ y ]
        | _ -> assert false)

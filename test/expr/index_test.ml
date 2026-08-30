@@ -293,3 +293,67 @@ let%expect_test "smart constructors fold only exact integer identities" =
     pp_res
     (ev (Index.scale Stdlib.min_int (Index.const 0)));
   [%expect {| 0 0 |}]
+
+(* [Eval.resolve_gather_index]: validates a raw [int64] gather value against
+   ATen's own per-index range [-extent, extent-1] BEFORE narrowing to [int].
+   Round 15's split test contract: this function can only ever REJECT a
+   [2^53]-scale or [Int64.min_int]/[Int64.max_int] value, since a real
+   [extent] is always far below that scale -- so there is no "round trip"
+   case to exercise here, only rejection, and the payload must preserve the
+   exact original [raw] (not a rounded/truncated one) even while refusing it. *)
+let%expect_test
+    "resolve_gather_index: ordinary in-range and negative-index normalization" =
+  let pp_gather fmt (`Gather_index_out_of_range e) =
+    Eval.pp_gather_index_out_of_range fmt e
+  in
+  let pp fmt r = Core.Pretty.err_result ~ok:Fmt.int ~error:pp_gather fmt r in
+  let show raw =
+    Fmt.pr "%Ld -> %a@." raw pp (Eval.resolve_gather_index raw ~extent:8)
+  in
+  show 0L;
+  show 7L;
+  (* -1 normalizes to the last element, -8 (= -extent) to the first. *)
+  show (-1L);
+  show (-8L);
+  [%expect {|
+    0 -> 0
+    7 -> 7
+    -1 -> 7
+    -8 -> 0
+    |}]
+
+let%expect_test "resolve_gather_index: rejects positive/negative out-of-range" =
+  let pp_gather fmt (`Gather_index_out_of_range e) =
+    Eval.pp_gather_index_out_of_range fmt e
+  in
+  let pp fmt r = Core.Pretty.err_result ~ok:Fmt.int ~error:pp_gather fmt r in
+  let show raw =
+    Fmt.pr "%Ld -> %a@." raw pp (Eval.resolve_gather_index raw ~extent:8)
+  in
+  show 8L;
+  show (-9L);
+  [%expect
+    {|
+    8 -> gather index 8 out of range [-8, 7]
+    -9 -> gather index -9 out of range [-8, 7]
+    |}]
+
+let%expect_test
+    "resolve_gather_index: rejects 2^53-scale and Int64 extrema, preserving \
+     the exact raw value in the rejection payload" =
+  let pp_gather fmt (`Gather_index_out_of_range e) =
+    Eval.pp_gather_index_out_of_range fmt e
+  in
+  let pp fmt r = Core.Pretty.err_result ~ok:Fmt.int ~error:pp_gather fmt r in
+  let show raw =
+    Fmt.pr "%Ld -> %a@." raw pp (Eval.resolve_gather_index raw ~extent:8)
+  in
+  show (Int64.shift_left 1L 53);
+  show Int64.max_int;
+  show Int64.min_int;
+  [%expect
+    {|
+    9007199254740992 -> gather index 9007199254740992 out of range [-8, 7]
+    9223372036854775807 -> gather index 9223372036854775807 out of range [-8, 7]
+    -9223372036854775808 -> gather index -9223372036854775808 out of range [-8, 7]
+    |}]

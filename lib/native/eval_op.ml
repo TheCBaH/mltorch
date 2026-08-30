@@ -129,6 +129,10 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Hardtanh { Pointwise.Hardtanh.params; x } ->
         let module C = Pointwise.Hardtanh.Compute (S) in
         C.pixel params (operand x) out
+    | Index_tensor { Index_tensor.Index_tensor.params; self; index } ->
+        let module C = Index_tensor.Index_tensor.Compute (S) in
+        C.pixel params ~self_shape:(shape_of self) ~self:(operand self)
+          ~index:(operand index) out
     | Layer_norm { Norm.LayerNorm.params; x; weight; bias } ->
         let module C = Norm.LayerNorm.Compute (S) in
         (* Absent weight = identity scale, absent bias = identity shift. Filled

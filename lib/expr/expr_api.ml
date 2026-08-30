@@ -57,6 +57,7 @@ module type S = sig
       | Ceil_div_pos : Role.Delta.t t * int -> Role.Delta.t t
       | Clamp_low : Role.Delta.t t -> Role.Position.t t
       | Const : int -> Role.Delta.t t
+      | Data : Source.t * Role.Position.t t Coord.t * int -> Role.Position.t t
       | Floor_div_pos : Role.Delta.t t * int -> Role.Delta.t t
       | Max : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
       | Min : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t
@@ -80,6 +81,15 @@ module type S = sig
     val max : Role.Delta.t t -> Role.Delta.t t -> Role.Delta.t t
     val clamp_low : Role.Delta.t t -> Role.Position.t t
     val assume_position : Role.Delta.t t -> Role.Position.t t
+
+    val data : Source.t -> Role.Position.t t Coord.t -> int -> Role.Position.t t
+    (** The one primitive that reads a tensor's own stored VALUE and uses it as
+        an index component -- [index.Tensor]'s runtime gather. [extent] is a
+        plain [int] (the gathered axis's extent), not the host's own typed
+        extent representation: this library must not depend on [native], where
+        that type lives. No folding, and no validation at construction time --
+        resolution happens once, where the value becomes concrete
+        ([Eval.eval_index]'s own [Data] arm), never here. *)
 
     (* Result-returning: the divisor is a raw [int], and a zero or negative one
        must never reach the AST. [d = 1] folds to the operand.
@@ -464,16 +474,45 @@ module type S = sig
   end
 
   module Eval : sig
+    module Gather_index_out_of_range : sig
+      type t = { raw : int64; extent : int }
+    end
+
+    val pp_gather_index_out_of_range :
+      Format.formatter -> Gather_index_out_of_range.t -> unit
+
+    val resolve_gather_index :
+      int64 ->
+      extent:int ->
+      ( int,
+        [> `Gather_index_out_of_range of Gather_index_out_of_range.t ] )
+      Err.t
+    (** [index.Tensor]'s per-element gather-value validation: checks a raw
+        stored [int64] against ATen's own valid range for a single index,
+        [-extent, extent-1], BEFORE narrowing to [int] -- narrowing first would
+        let a value near [Int64.min_int]/[Int64.max_int] wrap into a spuriously
+        in-range [int]. Normalizes a negative value the way ATen does ([-1] =
+        last element). Shared by every caller that resolves a [Data] index
+        component ([Direct.load_index], [Eval]'s own [Data] arm, native's
+        [Ground_eval]), so the bound is checked identically regardless of which
+        evaluation path reaches it. *)
+
     type index_error =
-      [ `Index_not_exact_in_float of int
+      [ `Data_index_unexpected_here
+      | `Gather_index_out_of_range of Gather_index_out_of_range.t
+      | `Index_not_exact_in_float of int
       | `Index_overflow of Index_overflow.t
       | `Non_positive_divisor of int
       | `Unbound_reducer of Reduce_var.t ]
     (** Everything index evaluation can raise, and no more. [error] widens this
-        in stage 4 with the load and intrinsic cases. The first two come from
-        the library-private checked arithmetic; a public row may name a private
-        module's variants without consumers needing to reach the module, so they
-        are spelled out here rather than aliased. *)
+        in stage 4 with the load and intrinsic cases. The first two [Index_*]
+        rows come from the library-private checked arithmetic; a public row may
+        name a private module's variants without consumers needing to reach the
+        module, so they are spelled out here rather than aliased.
+        [`Data_index_unexpected_here] is the public [index]'s own "impossible
+        resolver" tag -- a [Data] node cannot appear in an expression that never
+        constructs one, so callers with no such node never see it in practice,
+        but the public [index] entry point still has to name it. *)
 
     val pp_index_error : Format.formatter -> [< index_error ] -> unit
 
@@ -485,7 +524,36 @@ module type S = sig
     (** Interprets an index at a concrete output coordinate. Every addition,
         scaling and division is bounds-checked BEFORE it is performed, so an
         intermediate cannot wrap back into range and sail past a later check --
-        which is the whole point of the checked domain. *)
+        which is the whole point of the checked domain. Instantiates
+        [eval_index] with a resolver that can never legitimately be called: a
+        [Data] node cannot appear in a caller's input by construction unless
+        that caller builds one itself, via [eval_index] directly. *)
+
+    val eval_index :
+      ([> index_error ] as 'e) Err.Escape.t ->
+      widen:(index_error -> 'e) ->
+      output:int Coord.t ->
+      reducers:(Reduce_var.t -> int option) ->
+      resolve_data:(Source.t -> int Coord.t -> (int64, 'e) Err.t) ->
+      'role Index.t ->
+      int
+    (** [index]'s private evaluator, generalized over the caller's own error row
+        ['e] (which must be at least as wide as [index_error]) and given an
+        explicit resolver for [Data] sources. [~widen] lifts a bare
+        [index_error] (from the ordinary checked-arithmetic/unbound-reducer
+        arms) into ['e]; it has to be an explicit function rather than an inline
+        coercion, since ['e] is still abstract at the point this function's own
+        arithmetic-error arms are defined -- every real caller supplies it as
+        [(fun e -> (e :> 'e))] at ITS OWN call site, where its concrete ['e] is
+        already known. Two real callers instantiate this directly, each at their
+        own row, with no extra error-mapping beyond that one [~widen] closure:
+        [value] below (at ['e = error], via [Env.load_index]) and native's
+        [Ground_eval] (at ['e = Ground_eval.error], via its own
+        [resolve_data_source]). [resolve_data] is a RAW fetch -- it returns the
+        stored [int64], not an already-validated [int] -- because
+        normalization/bounds-checking (via [resolve_gather_index]) happens
+        exactly once, uniformly, inside this function's own [Data] arm,
+        regardless of which caller's resolver produced the raw value. *)
 
     val float_of_index : int -> (float, index_error) Err.t
     (** Carries an index into the value domain, failing rather than rounding
@@ -495,20 +563,30 @@ module type S = sig
 
     type error =
       [ `Coord_out_of_range of Source.t * Axis.t * int * int Coord.t
+      | `Data_source_wrong_format of string
       | index_error
       | Intrinsic.error
       | `Unknown_source of Source.t ]
-    (** The last two are raised by the host's [Env.load], not by the language,
-        which knows nothing about what a source is. *)
+    (** [`Coord_out_of_range]/[`Unknown_source] are raised by the host's
+        [Env.load], not by the language, which knows nothing about what a source
+        is. [`Data_source_wrong_format] is raised the same way by
+        [Env.load_index]: the bound tensor is not the [I64] format a [Data]
+        source requires. Its payload is a bare format-name [string], not the
+        host's own structured format type -- this library must not depend on
+        [native], where that type lives. *)
 
     val pp_error : Format.formatter -> [< error ] -> unit
 
     module Env : sig
-      type t = { load : Source.t -> int Coord.t -> (float, error) Err.t }
+      type t = {
+        load : Source.t -> int Coord.t -> (float, error) Err.t;
+        load_index : Source.t -> int Coord.t -> (int64, error) Err.t;
+      }
       (** The whole boundary between the language and its host: [Expr] supplies
-          evaluated coordinates and consumes a working float, while storage
-          format, quantization and tensor ownership stay on the other side. This
-          is what keeps the library independent of [native], and what makes the
+          evaluated coordinates and consumes a working float (or, for
+          [load_index], a raw stored integer), while storage format,
+          quantization and tensor ownership stay on the other side. This is what
+          keeps the library independent of [native], and what makes the
           evaluator testable against a plain map. *)
     end
 
