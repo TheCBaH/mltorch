@@ -235,6 +235,17 @@ blocker: `upsample_nearest2d.vec` -- a distinct overload from the already-
 landed `upsample_bilinear2d.vec`, noted here only as a discovered lead, not
 yet investigated or scoped as a row.
 
+**Updated again, same day,** after landing `split.Tensor` (the equal-chunk-
+size sibling of the already-supported `split_with_sizes.default`, legalized
+onto that *existing* `Split_with_sizes` node by deriving its sizes list from
+`split_size`/the axis extent -- no new Native surface): `native_builds:true`
+stays at 77 -- this landing changes WHICH op blocks each of the 4 models it
+was predicted to unblock, not how many build. All 4 (`edgenext_xx_small`,
+`efficientvit_b0`, `maxxvitv2_nano_rw_256`, `skresnet18`) clear `split.Tensor`
+cleanly and move to independent, already-tracked blockers
+(`zeros.default`, `_assert_tensor_metadata.default`, `index.Tensor`,
+`sum.dim_IntList` respectively) -- none a new gap.
+
 **Updated again, same day,** after landing `upsample_nearest2d.vec` (a new
 Native op, `Resize.Nearest2d` in `lib/native/ops/resize.ml`, alongside
 `Bilinear2d`: no `align_corners` at all, since nearest-neighbor has nothing

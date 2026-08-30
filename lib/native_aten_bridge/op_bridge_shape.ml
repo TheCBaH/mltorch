@@ -313,6 +313,29 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                split_with_sizes { Split.Split_with_sizes.axis; sizes } x_id
            | _ -> assert false))
+  (* `split.Tensor(self, split_size, dim)` -- the equal-chunk-size sibling of
+     [split_with_sizes.default] just above. Binds to the *existing*
+     [Split_with_sizes] node: [chunk_sizes] derives the same sizes list ATen
+     itself would split into, so this is "translate params, still one node",
+     not a decomposition. *)
+  | "torch.ops.aten.split.Tensor" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let rank = aten_rank aten_x in
+         let* dim = int_arg ~default:0 node "dim" in
+         let* split_size = int_arg node "split_size" in
+         let* x = native_of_aten "self" aten_x in
+         let* axis = dim_axis ~op:"split.Tensor" ~rank dim in
+         let* split_size =
+           pos ~op:"split.Tensor" ~param:`Split_size split_size
+         in
+         let extent = (Vec6.get (packed_shape x) axis :> int) in
+         let sizes = chunk_sizes ~extent ~split_size:(split_size :> int) in
+         build_g ~name:"split" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               split_with_sizes { Split.Split_with_sizes.axis; sizes } x_id
+           | _ -> assert false))
   (* Both overloads share this body: after commit 1's checked resolver the body
      is three calls, and two copies of it is exactly the drift risk this repo
      keeps warning about. Still exact-target dispatch in op3.md's sense -- both

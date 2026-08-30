@@ -399,6 +399,31 @@ let over_limit esc =
          observed = Shape_error.Output_count.At_least output_limit;
        })
 
+(* [split.Tensor(self, split_size, dim)]'s chunk-size list -- the equal-
+   chunk-size sibling of [split_with_sizes.default], which legalizes onto the
+   *existing* [Split.Split_with_sizes] node the same way ([chunk_sizes] in
+   [Op_bridge_decode] derives the identical sizes list). Unlike that ATen-
+   linked path, [extent] here is a METADATA-only declared size with no real
+   tensor backing it, so a small [extent]/[split_size] pair can name an
+   arbitrarily large chunk count for free -- the same resource-preflight
+   reasoning [output_allowance]'s own header gives for
+   [materialized_output_names]: the count must be bounded BEFORE the list is
+   built, not after. *)
+let split_tensor_sizes esc ~extent ~split_size =
+  let full = extent / split_size in
+  let remainder = extent - (full * split_size) in
+  let count = full + if remainder > 0 then 1 else 0 in
+  if count >= output_limit then
+    Err.Escape.throw esc
+      (`Output_count_over_limit
+         {
+           Shape_error.Output_count.limit = output_limit;
+           observed = Shape_error.Output_count.Exact count;
+         })
+  else
+    let sizes = List.init full (fun _ -> split_size) in
+    if remainder > 0 then sizes @ [ remainder ] else sizes
+
 (* Prepend [xs]'s names to [acc] while [budget] lasts; throws on the element
    that would reach the limit. Counting rather than [List.length]-then-check is
    the point: the list may be arbitrarily long, and this never walks past the

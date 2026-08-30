@@ -79,3 +79,8 @@ let unbind_program count =
     ~nodes:[ unbind_node ~dim:0 ~outs:(slice_names count) ]
     ~graph_outputs:[ as_tensor "u0" ]
     ()
+
+let split_tensor_node ~split_size ~outs =
+  jstr
+    {|{"target":"torch.ops.aten.split.Tensor","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"split_size","arg":{"as_int":%d},"kind":1}],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") split_size (as_tensors outs)

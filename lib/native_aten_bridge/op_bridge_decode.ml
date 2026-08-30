@@ -201,6 +201,23 @@ let dim_axis ~op ~rank dim =
   let* d = norm_dim ~op ~rank dim in
   return (Aten_shape.axis_of_dim ~rank d)
 
+(* [split.Tensor(self, split_size, dim)]'s chunk-size list: ATen divides
+   [extent] into as many [split_size]-sized pieces as fit, plus one final
+   smaller piece for the remainder (or none, if [split_size] divides
+   [extent] exactly) -- the natural inverse of what [Split_with_sizes]
+   already checks (every size positive, summing exactly to the axis extent),
+   so this legalizes onto that *existing* node rather than adding one, the
+   same "map onto an existing op" pattern [rsqrt.default]/[clamp_min.default]
+   use. No output-count preflight is needed here the way
+   [Native_interp]'s own [split_tensor_sizes] needs one: [extent] is a REAL
+   ATen tensor's dimension, already bounded by how much memory that tensor
+   could be allocated with, unlike a metadata-only declared extent. *)
+let chunk_sizes ~extent ~split_size =
+  let full = extent / split_size in
+  let remainder = extent - (full * split_size) in
+  let sizes = List.init full (fun _ -> split_size) in
+  if remainder > 0 then sizes @ [ remainder ] else sizes
+
 (* [unsqueeze.default]'s [dim] is judged against rank+1 valid positions (the
    OUTPUT rank has one more axis than the operand), unlike every other
    [dim]-taking arm here, which judges against the operand's own rank via

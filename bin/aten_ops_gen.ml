@@ -105,6 +105,7 @@ let curated_selection =
        split their packed qkv projection with it. *)
     op "unbind" ~overload:"int";
     op "split_with_sizes";
+    op "split" ~overload:"Tensor";
     op "squeeze" ~overload:"dims";
     op "unsqueeze";
     op "mean" ~overload:"dim";

@@ -44,6 +44,7 @@ module Bad = struct
     | `Output_padding
     | `Output_size
     | `Padding
+    | `Split_size
     | `Stride ]
 
   type fault = [ `Negative of int | `Not_positive of int ]
@@ -59,6 +60,7 @@ module Bad = struct
       | `Output_padding -> "output_padding"
       | `Output_size -> "output_size"
       | `Padding -> "padding"
+      | `Split_size -> "split_size"
       | `Stride -> "stride")
 
   let pp ppf { op; param; fault } =

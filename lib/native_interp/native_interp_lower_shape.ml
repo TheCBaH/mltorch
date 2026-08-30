@@ -15,6 +15,7 @@ let targets =
     "torch.ops.aten.permute.default";
     "torch.ops.aten.select.int";
     "torch.ops.aten.slice.Tensor";
+    "torch.ops.aten.split.Tensor";
     "torch.ops.aten.split_with_sizes.default";
     "torch.ops.aten.stack.default";
     "torch.ops.aten.transpose.int";
@@ -311,6 +312,37 @@ let dispatch ~ctx ~env (node : Node.t) =
                  invalid_arg "Native_interp: axes_for_rank lost its singleton"
            in
            let sizes = ints_arg esc node "split_sizes" in
+           split_with_sizes { Split.Split_with_sizes.axis; sizes } (get "self")
+       (* `split.Tensor(self, split_size, dim)` -- the equal-chunk-size
+         sibling of [split_with_sizes.default] just above, binding to the
+         *same* [Split_with_sizes] node via [split_tensor_sizes] (which also
+         bounds the derived chunk count before building the list -- see its
+         own comment in native_interp_decode.ml). *)
+       | "torch.ops.aten.split.Tensor" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank
+               (tensor_meta esc graph ~ssa:x_name ~role:`Split_tensor_input)
+           in
+           let axis =
+             match
+               axes_for_rank esc ~tensor:x_name rank
+                 [ int_arg esc ~default:0 node "dim" ]
+             with
+             | [ a ] -> a
+             | _ ->
+                 invalid_arg "Native_interp: axes_for_rank lost its singleton"
+           in
+           let extent =
+             (Vec6.get (tensor_shape esc graph x_name) axis :> int)
+           in
+           let split_size =
+             pos esc ~op:node.target ~param:`Split_size
+               (int_arg esc node "split_size")
+           in
+           let sizes =
+             split_tensor_sizes esc ~extent ~split_size:(split_size :> int)
+           in
            split_with_sizes { Split.Split_with_sizes.axis; sizes } (get "self")
        (* Schema: `upsample_bilinear2d.vec(Tensor input, SymInt[]? output_size,
          bool align_corners, float[]? scale_factors)`. Exactly one of

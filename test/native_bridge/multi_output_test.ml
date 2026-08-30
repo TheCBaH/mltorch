@@ -479,3 +479,74 @@ let%expect_test "verify: split_with_sizes.default agrees with ATen for int64" =
            0L;
          ]);
   [%expect {| aten and native agree |}]
+
+(* --- split.Tensor -----------------------------------------------------------
+
+   The equal-chunk-size sibling of split_with_sizes.default just above:
+   legalizes onto the *existing* [Split_with_sizes] node ([chunk_sizes]
+   derives the sizes list ATen itself would split into), so this is
+   "translate params, still one node", not a decomposition. Correctness of
+   the NATIVE kernel itself is already pinned by split_with_sizes.default's
+   own fixtures above; what this section verifies is that [chunk_sizes]'s
+   derived sizes list is the one ATen itself produces, including the SMALLER
+   FINAL chunk when [split_size] does not evenly divide the axis extent --
+   the one behavior split_with_sizes.default itself cannot exercise (its
+   sizes list is given directly, not derived). *)
+let verify_split_tensor ~inputs ~outputs ~self =
+  let env = Sm.add "self" self Sm.empty in
+  let node =
+    PT.Node.make "torch.ops.aten.split.Tensor"
+      (PT.NamedArgument.make "self" (targ "self") None :: inputs)
+      outputs Sm.empty None (Some "test")
+  in
+  match
+    Interp_verify.dispatch ~verify:true ~ppf:Format.std_formatter env node
+  with
+  | Error e ->
+      Format.printf "dispatch error: %a@." Interp_verify.pp_interp_error
+        (Err.Error.kind e)
+  | Ok _ -> print_string "aten and native agree\n"
+
+let%expect_test "verify: split.Tensor agrees with ATen, evenly-dividing" =
+  (* Leading dim (W after right-alignment) has extent 6, split_size 2: three
+     equal 2-row chunks, no remainder. *)
+  verify_split_tensor
+    ~inputs:[ in_int "split_size" 2 ]
+    ~outputs:(tensors [ "a"; "b"; "c" ])
+    ~self:(float_tensor [ 6; 2 ] (List.init 12 float_of_int));
+  [%expect {| aten and native agree |}]
+
+(* The case split_with_sizes.default's own fixtures cannot exercise: a
+   smaller FINAL chunk, since its sizes list is given directly rather than
+   derived from a single [split_size]. Extent 5 / split_size 2 = chunks of
+   [2; 2; 1], not [2; 2; 2] -- a wrong [chunk_sizes] (e.g. rounding up, or
+   dropping the remainder) would either crash the shape check or disagree
+   with ATen's own output arity/values here. *)
+let%expect_test "verify: split.Tensor agrees with ATen, remainder chunk" =
+  verify_split_tensor
+    ~inputs:[ in_int "split_size" 2 ]
+    ~outputs:(tensors [ "a"; "b"; "c" ])
+    ~self:(float_tensor [ 5; 2 ] (List.init 10 float_of_int));
+  (* And along the strided axis (dim=-1, extent 2): split_size 5 exceeds the
+     extent, so ATen's own rule ("one chunk of the whole axis") applies --
+     exactly [chunk_sizes]'s [remaining <= split_size] base case. *)
+  verify_split_tensor
+    ~inputs:[ in_int "split_size" 5; in_int "dim" (-1) ]
+    ~outputs:(tensors [ "a" ])
+    ~self:(float_tensor [ 5; 2 ] (List.init 10 float_of_int));
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "dispatch: split.Tensor rejects a non-positive split_size" =
+  List.iter
+    (fun split_size ->
+      dispatch_print ~target:"torch.ops.aten.split.Tensor"
+        ~bindings:[ ("self", float_tensor [ 4; 2 ] (List.init 8 float_of_int)) ]
+        ~inputs:[ in_tensor "self"; in_int "split_size" split_size ]
+        ~noutputs:0)
+    [ 0; -1 ];
+  [%expect
+    {|
+    error: split.Tensor: split_size must be positive, got 0
+    error: split.Tensor: split_size must be positive, got -1 |}]

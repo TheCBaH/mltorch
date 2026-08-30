@@ -102,6 +102,7 @@ type metadata_role =
   | `Select_input
   | `Slice_input
   | `Softmax_input
+  | `Split_tensor_input
   | `Split_with_sizes_input
   | `Stack_input
   | `Tensor

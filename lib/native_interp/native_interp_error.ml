@@ -92,6 +92,7 @@ type metadata_role =
   | `Select_input
   | `Slice_input
   | `Softmax_input
+  | `Split_tensor_input
   | `Split_with_sizes_input
   | `Stack_input
   | `Tensor
@@ -357,6 +358,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Select_input -> Fmt.string ppf "select input"
   | `Slice_input -> Fmt.string ppf "slice input"
   | `Softmax_input -> Fmt.string ppf "softmax input"
+  | `Split_tensor_input -> Fmt.string ppf "split.Tensor input"
   | `Split_with_sizes_input -> Fmt.string ppf "split_with_sizes input"
   | `Stack_input -> Fmt.string ppf "stack input"
   | `Tensor -> Fmt.string ppf "tensor"

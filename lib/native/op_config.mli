@@ -49,6 +49,7 @@ module Bad : sig
     | `Output_padding
     | `Output_size
     | `Padding
+    | `Split_size
     | `Stride ]
 
   type fault = [ `Negative of int | `Not_positive of int ]
