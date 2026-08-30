@@ -50,6 +50,52 @@ module View_size = struct
           numel
 end
 
+(* [aten.expand.default]'s [size] resolution: right-aligned against [self]'s
+   OWN declared rank (ATen's [inferExpandGeometryImpl], ExpandUtils.cpp),
+   which is why this needs [self_dims] rather than [self]'s already-erased
+   Vec6 shape — an outer frame axis at extent 1 is ambiguous between "self's
+   own rank-1 dim" and "beyond self's rank" (see this module's header), and
+   only the raw ATen dims disambiguate them. Two faults, matching ATen's own
+   two [TORCH_CHECK]s in [expand]/[inferExpandGeometryImpl]:
+
+   - [size] must name at least as many entries as [self] has dims (expand
+     never REDUCES rank).
+   - a [-1] may only stand for a dim [self] actually has; one in a leading
+     position [size] adds beyond [self]'s rank names nothing to copy.
+
+   What this does NOT check: whether a non-[-1] entry is actually
+   broadcast-compatible with [self]'s extent there (equal, or [self]'s is 1).
+   That is a general graph invariant, not an ATen-argument-only concern, so it
+   lives in [Pointwise.Expand.output_shape] instead — reachable from a raw
+   [Graph_builder] call or a JSON-decoded graph too, not just this resolver
+   (the same split [resolve_slice]'s clamp vs. [Slice.output_shape]'s empty
+   check makes). *)
+module Expand_size = struct
+  type t = {
+    size : int list;
+    self_dims : int array;
+    fault : [ `Leading_inferred of int | `Rank_too_small ];
+  }
+
+  let pp_ints ppf l = Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Fmt.int) l
+
+  let pp_dims ppf a =
+    Fmt.pf ppf "[%a]" (Fmt.array ~sep:(Fmt.any ", ") Fmt.int) a
+
+  let pp ppf { size; self_dims; fault } =
+    match fault with
+    | `Rank_too_small ->
+        Fmt.pf ppf
+          "expand size %a must have at least as many entries as self's shape \
+           %a (rank %d)"
+          pp_ints size pp_dims self_dims (Array.length self_dims)
+    | `Leading_inferred i ->
+        Fmt.pf ppf
+          "expand size %a: -1 at position %d is not allowed for a leading \
+           dimension self (shape %a) does not have"
+          pp_ints size i pp_dims self_dims
+end
+
 module Slice_bounds = struct
   type t = { start : int; stop : int; step : Op_config.Pos.t }
 
@@ -76,6 +122,7 @@ type rank_bound = { rank : int; lo : int; hi : int }
 
 type error =
   [ Dim.error
+  | `Expand_size of Expand_size.t
   | `Index_out_of_range of Index_bound.t
   | `Rank_out_of_range of rank_bound
   | `Slice_step of int
@@ -83,6 +130,7 @@ type error =
 
 let pp_error ppf : error -> unit = function
   | #Dim.error as e -> Dim.pp_error ppf e
+  | `Expand_size e -> Expand_size.pp ppf e
   | `Index_out_of_range e -> Index_bound.pp ppf e
   | `Rank_out_of_range { rank; lo; hi } ->
       Format.fprintf ppf "rank %d out of [%d, %d]" rank lo hi
@@ -216,3 +264,28 @@ let resolve_index ~extent ~index =
   if d < 0 || d >= n then
     Err.fail (`Index_out_of_range { Index_bound.index; extent = n })
   else Err.return d
+
+(* [aten.expand.default]'s [size], resolved against [self_dims] (see
+   [Expand_size]'s own comment for the two faults and what is deliberately
+   NOT checked here). Right alignment matches ATen's own
+   [inferExpandGeometryImpl]: position [i] of [size] (0-indexed from the
+   left) corresponds to [self_dims] position [i - (List.length size -
+   Array.length self_dims)] when that is [>= 0], else [size] names a
+   dimension beyond [self]'s rank. A non-[-1] entry passes through
+   unvalidated (positivity is [of_aten]'s job downstream, the same split
+   [resolve_view_size] leaves to its own caller's [Aten_shape.of_aten]). *)
+let resolve_expand_size ~(self_dims : int array) ~(size : int list) =
+  let fail fault =
+    Err.fail (`Expand_size { Expand_size.size; self_dims; fault })
+  in
+  let k = List.length size and r = Array.length self_dims in
+  if k < r then fail `Rank_too_small
+  else
+    Err.List.map
+      (fun (i, v) ->
+        if v <> -1 then Err.return v
+        else
+          let dim = r - k + i in
+          if dim < 0 then fail (`Leading_inferred i)
+          else Err.return self_dims.(dim))
+      (List.mapi (fun i v -> (i, v)) size)

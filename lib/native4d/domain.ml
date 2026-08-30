@@ -280,7 +280,12 @@ let check_node view (n : node) =
      `Ops4` counterpart to legalize onto), Softmax has no `Ops4` counterpart
      at any axis, so there is no admissible case to let through -- see
      .ai/matmul_softmax_design.md §3. *)
-  | Group_norm _ | Select _ | Softmax _ | Split_with_sizes _ | Stack _ ->
+  (* [Expand] joins the same bucket for the same reason: no [Ops4]
+     counterpart at any axis (a broadcast that may ADD leading axes has no
+     four-axis shape to check against), so there is no admissible case to
+     let through. *)
+  | Expand _ | Group_norm _ | Select _ | Softmax _ | Split_with_sizes _
+  | Stack _ ->
       unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic

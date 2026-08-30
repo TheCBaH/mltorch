@@ -64,6 +64,7 @@ type metadata_role =
         which one failed. *)
   | `Convolution_bias
   | `Convolution_weight
+  | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
     (** [layer_norm]'s and [group_norm]'s optional affine operands are read for
@@ -258,6 +259,14 @@ module Bad_view : sig
   }
 end
 
+(** An [expand.default] [size] {!Aten_shape.resolve_expand_size} refuses: fewer
+    entries than [self]'s own rank, or a [-1] naming a leading position beyond
+    it. Carries the SERIALIZED [size], the same reason {!Bad_view} carries its
+    raw spelling. *)
+module Bad_expand : sig
+  type t = { size : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+end
+
 (** A [slice.Tensor] request {!Aten_shape.resolve_slice} refuses — today only a
     non-positive step, which ATen refuses too. Carries the SERIALIZED spelling,
     optionals and all, because that is what a reader has to change; the
@@ -325,6 +334,7 @@ type malformed =
         rather than an [`Unsupported_option]: that record means "recognised and
         refused", while an unknown mode is not recognised at all. *)
   | `Bad_dimension of Bad_dimension.t
+  | `Bad_expand of Bad_expand.t
   | `Bad_select of Bad_select.t
   | `Bad_slice of Bad_slice.t
   | `Bad_upsample_size of Bad_upsample_size.t

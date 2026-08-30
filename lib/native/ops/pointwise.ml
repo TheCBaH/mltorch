@@ -14,6 +14,7 @@ let broadcast_coord = Pointwise_binary.broadcast_coord
 
 module Clamp = Pointwise_unary.Clamp
 module Clone = Pointwise_unary.Clone
+module Expand = Pointwise_unary.Expand
 module Sqrt = Pointwise_unary.Sqrt
 module Hardsigmoid = Pointwise_activation.Hardsigmoid
 module Hardswish = Pointwise_activation.Hardswish

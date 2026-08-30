@@ -38,6 +38,7 @@ module Live_layer_norm_stats = Native_interp_error.Live_layer_norm_stats
 module Unsupported_option = Native_interp_error.Unsupported_option
 module Output_arity = Native_interp_error.Output_arity
 module Bad_view = Native_interp_error.Bad_view
+module Bad_expand = Native_interp_error.Bad_expand
 module Bad_slice = Native_interp_error.Bad_slice
 module Bad_select = Native_interp_error.Bad_select
 module Concat_rank_mismatch = Native_interp_error.Concat_rank_mismatch

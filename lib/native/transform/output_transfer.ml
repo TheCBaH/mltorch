@@ -53,8 +53,14 @@ let classify (op : op) ~output =
      whether the map is injective or surjective — unlike [Upsample_bilinear2d]
      just below, whose output is a weighted BLEND of up to four input elements
      and is therefore [Continuous], not [Reindexing]. *)
-  | Concat _ | Select _ | Slice _ | Split_with_sizes _ | Stack _ | Unbind _
-  | Upsample_nearest2d _ ->
+  (* [Expand] is a third kind of gather, the pure-broadcast case: every output
+     reads exactly one input element ([Pointwise_binary.broadcast_coord]), with
+     a broadcast axis read repeatedly and a non-broadcast axis read once each
+     -- no arithmetic on any of them, so [Reindexing] for the same reason
+     [Upsample_nearest2d] is, not [Continuous] the way a binary op that READS
+     through the same helper but then combines two operands would be. *)
+  | Concat _ | Expand _ | Select _ | Slice _ | Split_with_sizes _ | Stack _
+  | Unbind _ | Upsample_nearest2d _ ->
       Reindexing
   (* [Pad] is NOT reindexing, and the mode is why the honest answer is one class
      rather than two. In [Constant] mode the padded cells are a synthesized fill

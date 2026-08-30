@@ -456,4 +456,36 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = clone x_id in
                [ y ]
            | _ -> assert false))
+  (* `expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) ->
+     Tensor(a)`. [implicit] is read-and-discarded: ATen's own
+     [at::native::expand] (TensorShape.cpp) takes it as a literally UNUSED
+     parameter, so decoding it proves the schema shape without pretending it
+     affects the result -- the same treatment [cudnn_enabled] gets in the
+     batch_norm arm. Binds to a genuinely new op, [Pointwise.Expand]:
+     broadcasts [self] to the resolved [size] by reading through
+     [Pointwise_binary.broadcast_coord], the same one-sided reduction a
+     binary op's own operand already uses. *)
+  | "torch.ops.aten.expand.default" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let* size = ints_arg node "size" in
+         let* (_ : bool) = bool_arg node "implicit" in
+         let* resolved =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.resolve_expand_size ~self_dims:(Aten_tensor.shape t)
+                ~size)
+         in
+         let* target =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.of_aten (Array.of_list resolved))
+         in
+         let* x = native_of_aten "self" t in
+         build_g ~name:"expand" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = expand { Pointwise.Expand.size = target } x_id in
+               [ y ]
+           | _ -> assert false))
   | _ -> None

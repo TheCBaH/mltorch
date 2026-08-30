@@ -28,6 +28,23 @@ module View_size : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* [aten.expand.default]'s [size] resolution against [self]'s OWN declared
+   rank ([self_dims]), matching ATen's own [inferExpandGeometryImpl]
+   (ExpandUtils.cpp). Two faults: [size] shorter than [self]'s rank (expand
+   never reduces rank), and a [-1] naming a leading position beyond [self]'s
+   rank (nothing to copy). Does NOT check broadcast compatibility of a
+   concrete entry — that is [Pointwise.Expand.output_shape]'s job; see
+   [resolve_expand_size]'s own comment. *)
+module Expand_size : sig
+  type t = {
+    size : int list;
+    self_dims : int array;
+    fault : [ `Leading_inferred of int | `Rank_too_small ];
+  }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 (* The canonical bounds of an [aten.slice.Tensor] along one axis: defaults
    applied, negatives normalized against the extent, both ends clamped into it.
    [start <= stop], both in [0, extent], and [step >= 1] by construction. What
@@ -58,6 +75,7 @@ type rank_bound = { rank : int; lo : int; hi : int }
 
 type error =
   [ Dim.error
+  | `Expand_size of Expand_size.t
   | `Index_out_of_range of Index_bound.t
   | `Rank_out_of_range of rank_bound
   | `Slice_step of int
@@ -87,6 +105,17 @@ val axis_of_dim : rank:int -> int -> Axis.t
    bound (below [Kernel.Limits.Hard.numel], via [Vec6.numel_bounded]) before
    calling: this function trusts it and therefore never multiplies past it. *)
 val resolve_view_size : numel:int64 -> int list -> (int list, [> error ]) Err.t
+
+(* Resolve [aten.expand.default]'s [size] against [self_dims] (its OWN
+   declared ATen shape, not the frame's already-erased Vec6 one — see
+   [Expand_size]'s comment for why). Returns the raw resolved [int list]
+   (length = [List.length size]), each [-1] substituted with the
+   corresponding entry of [self_dims]; every other entry passes through
+   UNVALIDATED for positivity, left to the caller's own [of_aten] /
+   [shape_of_sizes], the same split [resolve_view_size] leaves to its own
+   callers. *)
+val resolve_expand_size :
+  self_dims:int array -> size:int list -> (int list, [> error ]) Err.t
 
 (* Resolve [aten.slice.Tensor]'s bounds along one axis, in PyTorch's own order:
    refuse a non-positive [step]; supply the defaults for an absent [start] (0)

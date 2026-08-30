@@ -142,6 +142,22 @@
  (preprocess
   (pps ppx_expect)))
 
+; Split from native_walk_test.ml (scripts/check-file-size.sh's 1000-line
+; ceiling): the every-generated-walk sweep and its [needs_meta] backlog.
+
+(library
+ (name native_walk_coverage_test)
+ (modules native_walk_coverage_test)
+ (libraries
+  aten_op_walk
+  aten_spec
+  aten_spec_run
+  aten_walk_recipes
+  native_walk)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
 ; Spec runner: decode + verify/eval through the ATen-vs-native harness. Links the
 ; C++ ATen build (via aten_spec_run); runs in-process so the add-generator
 ; coverage is fast (the cram keeps a couple of end-to-end CLI cases).

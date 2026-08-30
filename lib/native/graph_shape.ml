@@ -111,6 +111,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       in
       [ out ]
   | Discard _ -> Err.return []
+  | Expand { Pointwise.Expand.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Expand.output_shape ~x_shape params) in
+      [ out ]
   | Gelu { Pointwise.Gelu.x; _ } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Gelu.output_shape x_shape) in

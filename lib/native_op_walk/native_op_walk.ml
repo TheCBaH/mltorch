@@ -39,6 +39,11 @@ let all_walks : op list =
        omits zero. *)
     (module Div_scalar_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (* The drawn shape is the TARGET; the source forces [H] to 1, so every
+       step exercises a real broadcast read, not the degenerate identity
+       case. *)
+    (module Expand_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (* [Direct.erf] and grounded [Symbolic]'s [erf] share one implementation
        (see expr.ml), so this walk proves staging/scheduling agreement, not
        the erf approximation's accuracy against ATen -- that proof is

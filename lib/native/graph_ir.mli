@@ -54,6 +54,7 @@ type op =
        [Max_pool2d_with_indices] — so the op keeps its full ATen arity while the
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
+  | Expand of Pointwise.Expand.t
   | Gelu of Pointwise.Gelu.t
   (* Reshapes [channel] into [groups] equal chunks and normalises each
      (N, group) slice over that chunk plus every axis but N and [channel] --

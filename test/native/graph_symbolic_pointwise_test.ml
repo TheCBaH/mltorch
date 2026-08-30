@@ -106,6 +106,44 @@ let%expect_test "Symbolic graph: mul_scalar stage DAG + ground matches Direct" =
     ground = tensor f32 [C=3] {3, 6, 9}
     ground matches direct: true |}]
 
+(* [a]'s H axis is 1; [size]'s is 2 -- so the staged read must show [H] pinned
+   to the constant 0 ([broadcast_coord]'s substitution) even though the OTHER
+   axes read the live loop coordinate, which is what proves the broadcast is
+   really happening rather than merely printing trivially for a size-1 axis
+   (as every other axis here does anyway, since [s1c] itself is all-1 outside
+   C). *)
+let%expect_test "Symbolic graph: expand stage DAG + ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"expand" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          expand ~name:"out"
+            { Pointwise.Expand.size = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:3 }
+            a)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect {|
+    inputs: t0
+    t1 = t0[0,0,0,0,0,C]
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [H=2 W=1 C=3] {0, 1, 2, 0, 1, 2}
+    ground matches direct: true |}]
+
 (* The retained Group 5 [Hardsigmoid] op (one node), not the decomposed
    add_scalar/clamp/div_scalar graph the test above builds by hand: it reuses
    [Clamp.apply] on the value [x + 3], not a load, so the staged form must show

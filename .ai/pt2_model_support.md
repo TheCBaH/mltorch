@@ -295,6 +295,27 @@ independent gaps (see the "Cross-model signal" list in `ops.md`), not new
 ones. 72/100 now build; of those, `native4d_converts` is `true` for 36 and
 `false` for 36, and `kernel_converts` is `true` for 56 and `false` for 16.
 
+**Updated again, same day,** after landing `alias.default`, `upsample_nearest2d.vec`,
+`split.Tensor`, `sum.dim_IntList`, and finally `expand.default`:
+`native_builds:true` moves from 72 to 81 across
+the five. `expand.default` (`Pointwise.Expand`, broadcasting `self` to a
+resolved target `size` via the existing `Pointwise_binary.broadcast_coord`)
+was the last of the five and unblocks all 3 models it was predicted to:
+`convit_tiny` builds past this stage and now stops on `zeros.default`
+(already tracked, not new); `swiftformer_xs` builds in full and reaches
+Native4D's own `no legalization for expand` rejection (`Expand` has no
+`Ops4` counterpart at any axis -- a broadcast that may ADD leading axes has
+no four-axis shape to check against, so it joins the `Group_norm`/`Select`/
+`Softmax`/`Split_with_sizes`/`Stack` bucket); `mobilevitv2_175` (already
+unblocked once by `sum.dim_IntList`, independently blocked again by this op)
+now builds in full and reaches Native4D's pre-existing `D`-axis domain
+limit, then the already-tracked Kernel `over_limit`. `test_vit4` surfaces a
+genuinely new gap one stage later: `Const_ssa.allows`
+(`lib/native/transform/const_ssa.ml`), the small curated whitelist of ops a
+CONSTANT subgraph may fold through (`Add`/`Sub`/`Mul`/`Div`/`Sqrt`/`Permute`
+only), does not include `Expand` -- a distinct unit of work, not opened as a
+row anywhere yet.
+
 A previous version of this sweep reported `native_builds:true` for all but 5
 models -- 95, not 50 -- because it read the payload-free `visualize` CLI's
 exit code (which stays 0 whenever `stage:initial_native` degrades gracefully

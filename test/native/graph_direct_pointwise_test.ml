@@ -94,6 +94,28 @@ let%expect_test "Direct graph: sqrt of an input" =
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
   [%expect {| out = tensor f32 [C=4] {0, 1, 2, 1.5} |}]
 
+let%expect_test "Direct graph: expand broadcasts a size-1 axis" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"expand" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          expand ~name:"out"
+            { Pointwise.Expand.size = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:3 }
+            a)
+    in
+    let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [H=2 W=1 C=3] {0, 1, 2, 0, 1, 2} |}]
+
 let%expect_test "Direct graph: sub of two inputs" =
   let result =
     let open Err.Syntax in

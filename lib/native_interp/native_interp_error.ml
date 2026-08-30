@@ -71,6 +71,7 @@ type metadata_role =
   | `Conv2d_weight
   | `Convolution_bias
   | `Convolution_weight
+  | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
   | `Layer_norm_bias
@@ -197,6 +198,13 @@ module Bad_view = struct
   }
 end
 
+(* [aten.expand.default]'s own resolution failures, wrapping
+   [Aten_shape.resolve_expand_size]'s errors the same way [Bad_view] wraps
+   [resolve_view_size]'s -- see that module's comment. *)
+module Bad_expand = struct
+  type t = { size : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+end
+
 module Bad_slice = struct
   type t = {
     start : int option;
@@ -245,6 +253,7 @@ type malformed =
   | `Bad_config of Bad_config.t
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
   | `Bad_dimension of Bad_dimension.t
+  | `Bad_expand of Bad_expand.t
   | `Bad_select of Bad_select.t
   | `Bad_slice of Bad_slice.t
   | `Bad_upsample_size of Bad_upsample_size.t
@@ -338,6 +347,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Conv2d_weight -> Fmt.string ppf "conv2d weight"
   | `Convolution_bias -> Fmt.string ppf "convolution bias"
   | `Convolution_weight -> Fmt.string ppf "convolution weight"
+  | `Expand_input -> Fmt.string ppf "expand input"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"
   | `Layer_norm_bias -> Fmt.string ppf "layer_norm bias"
@@ -404,6 +414,11 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       | `Rank_over_six -> Fmt.pf ppf "%s has rank greater than six" tensor
       | `Symbolic -> Fmt.pf ppf "%s has a symbolic dimension" tensor
       | `Zero -> Fmt.pf ppf "%s has a zero-length dimension" tensor)
+  | `Bad_expand { Bad_expand.size; fault } -> (
+      let ints = Fmt.(list ~sep:(any ", ") int) in
+      match fault with
+      | `Aten_shape e ->
+          Fmt.pf ppf "expand size [%a]: %a" ints size Aten_shape.pp_error e)
   | `Bad_select { Bad_select.index; fault } -> (
       match fault with
       | `Aten_shape e ->

@@ -116,6 +116,11 @@ val div_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
    multi-output op's full arity while marking an unused result for later pruning. *)
 val discard : tensor_ref -> unit t
 
+(* Broadcasts [x] to [params.size]. [Graph_shape] rejects a target that is not
+   broadcast-compatible with [x]'s own shape (see [Pointwise.Expand.output_shape]). *)
+val expand :
+  ?name:string -> Pointwise.Expand.params -> tensor_ref -> Tensor_id.t t
+
 val gelu :
   ?name:string -> Pointwise.Gelu.approximate -> tensor_ref -> Tensor_id.t t
 

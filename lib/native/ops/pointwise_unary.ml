@@ -188,6 +188,82 @@ module Clone = struct
   end
 end
 
+(* [aten.expand.default]: broadcasts [x] to [params.size] with no arithmetic
+   -- a genuinely new op, not a decomposition (no existing node reads a
+   smaller operand through a target shape it does not itself carry). [size]
+   is already resolved (any [-1] substituted, right-aligned) by the two
+   importers via [Aten_shape.resolve_expand_size]; see that module's comment
+   for why the resolution needs [self]'s true ATen rank and this op's own
+   [output_shape] does not. *)
+module Expand = struct
+  type params = { size : Vec6.shape }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"expand_params" (fun size -> { size })
+    |> Jsont.Object.mem "size" Vec6.shape_jsont ~enc:(fun p -> p.size)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{size=%a}@]" Vec6.pp_shape p.size
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Expand"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>expand@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+
+  (* Per axis, [x_shape] must already be broadcast-compatible with the
+     target: equal, or [x_shape] is 1 (the axis that fans out). Not delegated
+     to the two importers -- reachable from a raw [Graph_builder] call or a
+     JSON-decoded graph too, so it is the invariant [Compute]'s
+     [broadcast_coord] read actually relies on staying true. Reuses
+     [`Broadcast], the same row [Pointwise_binary.broadcast_output_shape]
+     reports for the symmetric two-operand case -- one axis, one lhs/rhs
+     mismatch, regardless of which side is fixed. *)
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
+    let open Err.Syntax in
+    let+ () =
+      Err.List.iter
+        (fun axis ->
+          let x = Vec6.get x_shape axis and target = Vec6.get p.size axis in
+          if Dim.equal x target || Dim.equal x Dim.one then Err.return ()
+          else
+            Err.fail
+              (`Broadcast Shape_error.Broadcast.{ axis; lhs = x; rhs = target }))
+        Axis.all
+    in
+    p.size
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* [out] already ranges over [params.size] (the output shape [Eval_op]
+       drives this functor with), so no target-shape argument is needed here
+       -- only [x_shape] decides which axes broadcast, the same one-sided
+       reduction [Pointwise_binary.Binary]'s own operand read performs. *)
+    let pixel ~(x_shape : Vec6.shape) x
+        (out : Semantics.position S.index Vec6.t) =
+      S.load x
+        (Pointwise_binary.broadcast_coord ~index_zero:S.index_zero x_shape out)
+  end
+end
+
 module Sqrt = struct
   type t = { x : Tensor_ref.t }
 

@@ -220,6 +220,9 @@ let convolution ?name params ~x ~weight ?bias () =
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
 
+let expand ?name params x =
+  op1 ?name ~kind:"expand" (Expand { Pointwise.Expand.params; x })
+
 let gelu ?name (approximate : Pointwise.Gelu.approximate) x =
   op1 ?name ~kind:"gelu" (Gelu { Pointwise.Gelu.x; approximate })
 

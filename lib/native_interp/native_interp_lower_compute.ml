@@ -6,6 +6,7 @@ open Pytorch_types
 open Schema_runtime
 open Native_interp_error
 open Native_interp_decode
+open Native_interp_decode_conv
 
 let targets =
   [

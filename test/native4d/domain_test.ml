@@ -203,6 +203,15 @@ let%expect_test "domain: softmax has no dialect counterpart at any axis" =
     softmax over D               node n0: no legalization for
                                    softmax x=t0 params={axis=D} |}]
 
+(* [Expand] has no [Ops4] counterpart at any axis, the same treatment
+   [Softmax] gets just above. *)
+let%expect_test "domain: expand has no dialect counterpart at any axis" =
+  table [ ("expand", Fixtures.expand) ];
+  [%expect
+    {|
+    expand                       node n0: no legalization for
+                                   expand x=t0 params={size=[H=4 W=4 C=3]} |}]
+
 (* ---- ops the pipeline is supposed to have removed ------------------------- *)
 
 (* Both reject, for different reasons and with different futures: the discarded

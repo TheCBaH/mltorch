@@ -49,6 +49,7 @@ let entries =
     mul_scalar;
     view_default;
     unsafe_view;
+    expand;
     transpose_int;
     permute;
     addmm;

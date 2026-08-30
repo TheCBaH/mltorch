@@ -11,6 +11,7 @@ let targets =
     "torch.ops.aten._unsafe_view.default";
     "torch.ops.aten.alias.default";
     "torch.ops.aten.cat.default";
+    "torch.ops.aten.expand.default";
     "torch.ops.aten.pad.default";
     "torch.ops.aten.permute.default";
     "torch.ops.aten.select.int";
@@ -439,6 +440,32 @@ let dispatch ~ctx ~env (node : Node.t) =
          so this legalization costs nothing there either. *)
        | "torch.ops.aten.alias.default" ->
            let* y = clone (get "self") in
+           return [ y ]
+       (* `expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) ->
+         Tensor(a)`. [implicit] is read-and-discarded -- ATen's own
+         [at::native::expand] never reads it either (TensorShape.cpp), so
+         decoding it proves the schema shape without pretending it affects
+         the result, the same treatment [cudnn_enabled] gets in the
+         batch_norm arm. Binds to [Pointwise.Expand] via [resolve_expand],
+         which needs [self]'s own ATen rank (not just its already-erased
+         Vec6 shape) for the [-1] convention -- see that helper's comment. *)
+       | "torch.ops.aten.expand.default" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Expand_input)
+           in
+           let shape = tensor_shape esc graph x_name in
+           let self_dims = Aten_shape.to_aten ~rank shape in
+           let (_ : bool) = bool_arg esc ~default:false node "implicit" in
+           let* y =
+             expand
+               {
+                 Pointwise.Expand.size =
+                   resolve_expand esc ~tensor:x_name ~self_dims
+                     (ints_arg esc node "size");
+               }
+               (get "self")
+           in
            return [ y ]
        (* Not mergeable with [addmm.default] below, though both build a [Linear]:
          there [self] IS the bias and is required, here the bias is optional,

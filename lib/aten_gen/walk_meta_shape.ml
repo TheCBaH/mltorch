@@ -137,6 +137,33 @@ let unsafe_view =
       pcg )|};
   }
 
+(* expand.default: [SymInt[] size] has no schema default, so like view/
+   _unsafe_view it never reaches the generated Default tier -- and unlike
+   them, an independently-drawn [size] would almost always be
+   broadcast-incompatible with [self] rather than merely a different valid
+   factorization, so this needs its own recipe rather than sharing
+   [Recipe_view]'s. [Recipe_expand] draws which axis (if any) [self] holds at
+   1 as one correlated [pattern] axis, the same shape [Recipe_view]'s own
+   [pattern] takes for its target factorization. *)
+let expand =
+  {
+    module_name = "Expand_walk";
+    target = "torch.ops.aten.expand.default";
+    recipe = "Recipe_expand";
+    initial =
+      "Aten_walk_recipes.Recipe_expand.{ n = 2; c = 3; h = 4; w = 4; pattern = \
+       Aten_walk_recipes.Recipe_expand.No_broadcast; self = []; size = [] }";
+    axes =
+      "Aten_walk_recipes.Recipe_expand.axes ~n:[ 1; 2; 3 ] ~c:[ 1; 2; 4 ] ~h:[ \
+       1; 3; 4 ] ~w:[ 1; 3; 4 ] \
+       ~pattern:Aten_walk_recipes.Recipe_expand.all_patterns";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_expand.self_shape c) in
+    ( Aten_op_spec.Op_expand.(
+        spec { self; size = Recipe_expand.size c; implicit = false }),
+      pcg )|};
+  }
+
 (* transpose.int: [int dim0]/[int dim1] have no default (op3-impl.md F5), and
    a dim pair is only valid for a specific rank, so [Recipe_transpose] draws
    rank and the pair together as one correlated axis. *)

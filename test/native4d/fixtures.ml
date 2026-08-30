@@ -281,6 +281,16 @@ let softmax_over axis () =
      let* x = input ~shape:(nhwc ~n:1 ~h:4 ~w:4 ~c:3) () in
      softmax { Reduce.Softmax.axis } x)
 
+(* [Expand] has no [Ops4] counterpart at any axis, the same "dialect does not
+   have it at all" answer [Softmax]/[Group_norm]/[Select]/[Split_with_sizes]/
+   [Stack] get -- a broadcast that may ADD leading axes has no four-axis shape
+   to check against. [x]'s H axis is 1; the target's is 4. *)
+let expand () =
+  build "expand"
+    (let open Graph_builder in
+     let* x = input ~shape:(nhwc ~n:1 ~h:1 ~w:4 ~c:3) () in
+     expand { Pointwise.Expand.size = nhwc ~n:1 ~h:4 ~w:4 ~c:3 } x)
+
 (* ---- max pool with indices ------------------------------------------------ *)
 
 let pool_params : Pool.MaxPool2d.params =

@@ -168,6 +168,20 @@ let%expect_test "Direct: clone" =
     (eval_tensor (Pointwise.Clone.output_shape x_shape) (C.pixel x));
   [%expect {| tensor f32 [C=4] {-3, 0, 2.5, 7} |}]
 
+(* [x_shape]'s H axis is 1 (size-1, broadcast); [size]'s is 2. Each of the
+   two rows must be the SAME [x] element ([0,1,2]) -- a broadcast is a
+   repeated read, not two different ones. *)
+let%expect_test "Direct: expand broadcasts a size-1 axis" =
+  let module E = Pointwise.Expand.Compute (Direct) in
+  let x_shape = s1c 3 in
+  let x = Tensor.materialize x_shape (fun c -> float_of_int (chan c)) in
+  let size = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:3 in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pointwise.Expand.output_shape ~x_shape { Pointwise.Expand.size })
+       (E.pixel ~x_shape x));
+  [%expect {| tensor f32 [H=2 W=1 C=3] {0, 1, 2, 0, 1, 2} |}]
+
 let%expect_test "Direct: add_scalar" =
   let module A = Pointwise.Add_scalar.Compute (Direct) in
   let x_shape = s1c 3 in
