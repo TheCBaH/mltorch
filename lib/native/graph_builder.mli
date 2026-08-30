@@ -213,6 +213,10 @@ val select : ?name:string -> Split.Select.params -> tensor_ref -> Tensor_id.t t
 val sigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val silu : ?name:string -> tensor_ref -> Tensor_id.t t
 
+val softmax :
+  ?name:string -> Reduce.Softmax.params -> tensor_ref -> Tensor_id.t t
+(** Softmax over [params.axis], keeping the input's full shape. *)
+
 val slice : ?name:string -> Split.Slice.params -> tensor_ref -> Tensor_id.t t
 (** Takes CANONICAL bounds — non-negative, ordered, within the axis. A caller
     holding ATen's spelling gets them from {!Aten_shape.resolve_slice}; a caller

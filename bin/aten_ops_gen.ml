@@ -62,6 +62,7 @@ let curated_selection =
     op "convolution";
     op "addmm";
     op "bmm";
+    op "matmul";
     op "_softmax";
     op "gelu";
     op "cat";
@@ -105,6 +106,7 @@ let curated_selection =
     op "unsqueeze";
     op "mean" ~overload:"dim";
     op "amax";
+    op "softmax" ~overload:"int";
     op "pow" ~overload:"Tensor_Scalar";
     op "linalg_vector_norm";
     op "argmax";

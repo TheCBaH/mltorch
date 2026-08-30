@@ -1,5 +1,7 @@
-(* Reduction family (amax/mean/vector_norm) op-dispatch arms for [Op_bridge], split from op_bridge.ml. See op_bridge.ml for the [dispatch] facade that
-   folds every family module (including this one) into one lookup. *)
+(* Reduction family (amax/mean/softmax/vector_norm) op-dispatch arms for
+   [Op_bridge], split from op_bridge.ml. See op_bridge.ml for the [dispatch]
+   facade that folds every family module (including this one) into one
+   lookup. *)
 
 open Pytorch_types
 open Op_bridge_error
@@ -70,6 +72,29 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            | [ x_id ] ->
                let open Graph_builder in
                let+ y = vector_norm params x_id in
+               [ y ]
+           | _ -> assert false))
+  (* [dim] is required by the schema (no default) -- unlike [dims_arg]'s
+     dim-LIST convention for [amax]/[mean]/[vector_norm], which treats an
+     absent/empty/None list as "all dims", softmax always names exactly one
+     axis. `dtype` is decoded and rejected rather than silently dropped when
+     present, the same treatment `linalg_vector_norm.default`'s gets above.
+     See .ai/matmul_softmax_design.md §3. *)
+  | "torch.ops.aten.softmax.int" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let* dim = int_arg node "dim" in
+         let* axis = dim_axis ~op:"softmax.int" ~rank dim in
+         let* (_ : _ option) =
+           decode_result (D.scalar_type_opt_arg_result node "dtype")
+         in
+         let* x = native_of_aten "self" t in
+         let params = { Reduce.Softmax.axis } in
+         build_g ~name:"softmax" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = softmax params x_id in
                [ y ]
            | _ -> assert false))
   | _ -> None

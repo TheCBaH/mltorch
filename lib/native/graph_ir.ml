@@ -53,6 +53,7 @@ type op =
   | Select of Split.Select.t
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
+  | Softmax of Reduce.Softmax.t
   | Slice of Split.Slice.t
   | Split_with_sizes of Split.Split_with_sizes.t
   | Sqrt of Pointwise.Sqrt.t
@@ -327,6 +328,12 @@ let op_registry : (module OP) list =
 
       let inject t = Silu t
       let project = function Silu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Reduce.Softmax
+
+      let inject t = Softmax t
+      let project = function Softmax t -> Some t | _ -> None
     end : OP);
     (module struct
       include Split.Slice

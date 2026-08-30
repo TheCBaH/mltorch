@@ -87,6 +87,10 @@ type op =
   | Select of Split.Select.t
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
+  (* Softmax over a single axis, keeping the input's full shape -- unlike
+     [Amax]/[Mean]/[Vector_norm], which drop or collapse the reduced axes.
+     General, not attention-specific: see .ai/matmul_softmax_design.md. *)
+  | Softmax of Reduce.Softmax.t
   (* Selects a strided range along one axis and KEEPS it, so unlike [Unbind]
      the rank is unchanged and there is one output. Its bounds are canonical —
      defaulted, normalized and clamped by [Aten_shape.resolve_slice] before the

@@ -90,6 +90,8 @@ let all_walks : op list =
        out-of-range configurations unreachable. *)
     (module Slice_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Softmax_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Sqrt_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Sub_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);

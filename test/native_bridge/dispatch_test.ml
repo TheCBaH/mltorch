@@ -29,6 +29,64 @@ let%expect_test "dispatch: bmm 1x2x2 @ 1x2x2" =
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=2] {7, 10, 15, 22} |}]
 
+let%expect_test "dispatch: matmul.default 2D @ 2D (batch-less)" =
+  let a = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let b = float_tensor [ 3; 2 ] [ 1.; 0.; 0.; 1.; 1.; 1. ] in
+  dispatch_print ~target:"torch.ops.aten.matmul.default"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {4, 5, 10, 11} |}]
+
+(* Confirms the design claim, not just the value: [Tensor_bridge.of_aten]'s
+   own right-alignment already lands a rank-2 operand's data exactly where
+   [Bmm] reads it, so the arm needs no relayout permute around the op --
+   unlike [addmm.default]/[linear.default] above, whose graphs each need one.
+   Same values as the previous test. *)
+let%expect_test
+    "dispatch: matmul.default binds to the existing Bmm node, no relayout" =
+  let a = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let b = float_tensor [ 3; 2 ] [ 1.; 0.; 0.; 1.; 1.; 1. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.matmul.default"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0], t1 f32 [W=3 C=2] ->[n0]]
+    nodes:
+      n0: [t2 f32 [W=2 C=2]] = bmm input=t0 mat2=t1
+    outputs: [t2 f32 [W=2 C=2] <-n0]
+    tensor f32 [W=2 C=2] {4, 5, 10, 11} |}]
+
+(* Rank>=3 with every leading axis at extent 1 is the SAME shape family, not
+   a separate case: the extra unit axes land on [N]/[D] (never read by
+   [Bmm]), so this must produce identical values to the rank-2 test above. *)
+let%expect_test
+    "dispatch: matmul.default accepts rank>=3 with unit leading axes" =
+  let a = float_tensor [ 1; 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let b = float_tensor [ 1; 3; 2 ] [ 1.; 0.; 0.; 1.; 1.; 1. ] in
+  dispatch_print ~target:"torch.ops.aten.matmul.default"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {4, 5, 10, 11} |}]
+
+(* The batched/multi-head shape family (`D`/`H` > 1) is explicitly out of
+   scope (`.ai/matmul_softmax_design.md` §5) -- a typed rejection naming both
+   actual shapes, not a wrong answer or a bare "unsupported". *)
+let%expect_test "dispatch: matmul.default rejects a batched (>1) shape" =
+  let a = float_tensor [ 2; 2; 3 ] (List.init 12 float_of_int) in
+  let b = float_tensor [ 2; 3; 2 ] (List.init 12 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.matmul.default"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect
+    {| error: matmul.default: only rank-2-by-rank-2, or rank>=3 with every axis but the last two at extent 1, is supported, got self=[2, 2, 3] other=[2, 3, 2] |}]
+
 let%expect_test "dispatch: sqrt.default elementwise" =
   let a = float_tensor [ 2; 2 ] [ 0.; 1.; 4.; 2.25 ] in
   dispatch_print ~target:"torch.ops.aten.sqrt.default"
@@ -758,6 +816,56 @@ let%expect_test "dispatch: linalg_vector_norm.default rejects a supplied dtype"
         in_tensor "self";
         in_ints "dim" [ 1 ];
         in_bool "keepdim" false;
+        PT.NamedArgument.make "dtype"
+          (PT.Argument.Scalar_type PT.ScalarType.DOUBLE) None;
+      ]
+    ~noutputs:1;
+  [%expect {| error: unsupported scalar_type argument "dtype" |}]
+
+let%expect_test "dispatch: softmax.int dim=1" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.softmax.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim" 1 ]
+    ~noutputs:1;
+  [%expect
+    {| tensor f32 [W=2 C=3] {0.0900306, 0.244728, 0.665241, 0.0900306, 0.244728, 0.665241} |}]
+
+(* Negative [dim] normalizes the same as every other single-[dim] arm
+   ([slice.Tensor], [unbind.int]): -1 is the last axis, here the same one
+   [dim=1] names above -- same values, proving the normalization rather than
+   just that some diagnostic fires. *)
+let%expect_test "dispatch: softmax.int dim=-1 normalizes to the last axis" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.softmax.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_int "dim" (-1) ]
+    ~noutputs:1;
+  [%expect
+    {| tensor f32 [W=2 C=3] {0.0900306, 0.244728, 0.665241, 0.0900306, 0.244728, 0.665241} |}]
+
+let%expect_test "dispatch: softmax.int rejects an out-of-range dim" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  List.iter
+    (fun d ->
+      dispatch_print ~target:"torch.ops.aten.softmax.int"
+        ~bindings:[ ("self", x) ]
+        ~inputs:[ in_tensor "self"; in_int "dim" d ]
+        ~noutputs:1)
+    [ 7; -3 ];
+  [%expect
+    {|
+    error: softmax.int: invalid dimension 7 for rank 2
+    error: softmax.int: invalid dimension -3 for rank 2 |}]
+
+let%expect_test "dispatch: softmax.int rejects a supplied dtype" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.softmax.int"
+    ~bindings:[ ("self", x) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_int "dim" 1;
         PT.NamedArgument.make "dtype"
           (PT.Argument.Scalar_type PT.ScalarType.DOUBLE) None;
       ]

@@ -137,6 +137,22 @@ let%expect_test
     tensor f32 [H=2 W=1 C=1] {3.16228, 8.60233}
     tensor f32 [W=2 C=1] {3.16228, 8.60233} |}]
 
+let%expect_test "Direct: softmax over W (per row), shape unchanged" =
+  let module M = Reduce.Softmax.Compute (Direct) in
+  (* [H2 W2 C1]; row H0 = [1,3] (softmax([1,3]) = [1/(1+e^2), e^2/(1+e^2)]);
+     row H1 = [0,0] (uniform -> [0.5,0.5]). *)
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| [| 1.; 3. |]; [| 0.; 0. |] |].(row c).(col c))
+  in
+  let p = { Reduce.Softmax.axis = Axis.W } in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Reduce.Softmax.output_shape ~x_shape p)
+       (M.pixel p ~x_shape ~x));
+  [%expect {| tensor f32 [H=2 W=2 C=1] {0.119203, 0.880797, 0.5, 0.5} |}]
+
 let%expect_test "Direct: rms_norm over C (channel-wise normalise)" =
   let module R = Norm.RmsNorm.Compute (Direct) in
   let run ~vals ~w ~eps =

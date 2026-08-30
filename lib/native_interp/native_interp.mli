@@ -79,6 +79,8 @@ type metadata_role =
   | `Layer_norm_weight
   | `Linear_bias
   | `Linear_weight
+  | `Matmul_other
+  | `Matmul_self
   | `Mean_input
   | `Pad_input
   | `Permute_input
@@ -99,6 +101,7 @@ type metadata_role =
   | `Sdpa_value
   | `Select_input
   | `Slice_input
+  | `Softmax_input
   | `Split_with_sizes_input
   | `Stack_input
   | `Tensor
@@ -289,6 +292,15 @@ module Bad_upsample_size : sig
   type t = { op : string; fault : fault }
 end
 
+(** [matmul.default]'s supported shape family (`.ai/matmul_softmax_design.md`
+    §4): both operands rank-2, or both rank>=3 with every axis but the last two
+    at extent 1 -- the batch-less case that binds to the existing [Bmm] node
+    unchanged. Carries both declared size lists, the same reasoning
+    {!Op_bridge}'s [Matmul_unsupported_shape] gives on the ATen-linked side. *)
+module Matmul_unsupported_shape : sig
+  type t = { self : int list; other : int list }
+end
+
 type malformed =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Axis_out_of_range of Axis_out_of_range.t
@@ -320,6 +332,7 @@ type malformed =
         refuses a graph that reads one. Not the batch-norm case: those trailing
         outputs are recorded size-0, these are real tensors that simply happen
         to be dead in every occurrence the corpus contains. *)
+  | `Matmul_unsupported_shape of Matmul_unsupported_shape.t
   | `Missing_arg of Missing_arg.t
   | `Missing_metadata of Missing_metadata.t
   | `Non_tensor_graph_output

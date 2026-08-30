@@ -132,24 +132,41 @@ change, not a simplification. No new `SEMANTICS` primitive is needed:
 `exp`, `max_reduce`, `sum` already exist and are already exercised
 (`attention_design.md` §6 confirms all three).
 
-Import boundary: both `Op_bridge` and `Native_interp` decode `dim`, resolve
+Import boundary: `softmax.int`'s own schema (`native_functions.yaml:5509`,
+distinct from the internal `_softmax`/`_softmax.default` that SDPA's math
+backend calls) is `softmax.int(Tensor self, int dim, ScalarType? dtype=None)
+-> Tensor` — no `half_to_float` on this overload at all, so there is nothing
+to reject there. Both `Op_bridge` and `Native_interp` decode `dim`, resolve
 it to a Native `Axis.t` via the existing `axis_of_dim ~rank` helper
 (`native_aten_bridge_layout.md`:39 cites the same helper for `unbind.int`'s
-`dim`), and reject `half_to_float=true` (the corpus shows f32 throughout;
-ATen's `_softmax` decomposition of `softmax.int` always passes
-`half_to_float=false` for an already-f32 input, so this is expected to be a
-dead branch, not a live gap — confirm against the real dispatcher before
-relying on that, per `.ai/native_add_op.md`'s "decode every argument" rule).
+`dim`), and reject a present `dtype` rather than silently dropping it,
+matching `linalg_vector_norm.default`'s existing treatment.
 
-Native4D: typed rejection, `Domain.check_node`'s new `Softmax` arm following
-`Sdpa`'s precedent (`` `Softmax_no_dialect_primitive `` or similar —
-operation-specific reason, not the generic `Unsupported_op`, per
-`native4d_design.md` §7.9's own naming rule) — the reduced CNN dialect has
-no reduction primitive beyond `MeanKeepDims`, and nothing in the corpus
-needs a Native4D-converted softmax: every model that reaches this op is
-transformer-shaped and already stops at another Native4D domain limit
+Native4D: `Domain.check_node`'s `Softmax` arm joins the plain
+`` `Unsupported_op `` bucket `Group_norm`/`Select`/`Split_with_sizes`/`Stack`
+already get ("the dialect does not have this op at all"), **not**
+`Sdpa`'s named `` `Sdpa_batch_axis `` rejection: `Sdpa`'s named tag exists
+because `check_dims`-style per-axis reporting doesn't apply to it (every
+configuration names the same unconditionally-unrepresentable axis, `D`).
+Softmax's situation is different — it simply has no `Ops4` counterpart at
+any axis, the same absence `Group_norm4`/`Select4`/`Split4` have — so the
+generic bucket is the right, not the settled-for, answer. Nothing in the
+corpus needs a Native4D-converted softmax: every model that reaches this op
+is transformer-shaped and already stops at another Native4D domain limit
 (§7.9's `D`-axis argument, or the batched-matmul case below) regardless of
 whether `Softmax` itself converts.
+
+**Landed 2026-08-29** (`Reduce.Softmax` in `lib/native/ops/reduce.ml`):
+`Graph_ir.Softmax`, ATen binding (`bin/aten_ops_gen.ml: op "softmax"
+~overload:"int"`), both bridge arms (`Op_bridge_reduce`, `Native_interp`),
+Native4D's `Unsupported_op` rejection, a Direct-vs-Symbolic fuzz walk
+(`lib/native_op_walk/softmax_nwalk.ml`), the generated ATen-vs-Native walk
+(`Softmax_int_walk`, "matched" over shape/axis variation), hand-derived
+`dispatch:` fixtures (`test/native_bridge/dispatch_test.ml`, including the
+`dim=-1` normalization and the `dtype` rejection), a hand-computed `Compute`
+fixture (`test/native/reduce_test.ml`), and a Native4D rejection row
+(`test/native4d/domain_test.ml`). `make format`, `dune build`, and
+`dune runtest` all clean.
 
 ## 4. `matmul.default`, batch-less case: bind to the existing `Bmm`
 
@@ -178,6 +195,31 @@ Native4D needs **no change at all**: the resulting `Bmm` node is
 indistinguishable from any other `Bmm` node, and `native4d_design.md` §7.4's
 existing batch=1→`Conv2D` legalization already covers it (mat2 permuted to
 convolution-weight layout, 1x1 `Conv2D` applied to input, `Identical`).
+
+**Landed 2026-08-29.** ATen binding (`bin/aten_ops_gen.ml: op "matmul"`),
+both bridge arms (`Op_bridge_linalg`, reusing the existing `Bmm` builder
+unchanged; `Native_interp`, reading declared static sizes rather than a live
+ATen tensor), a typed `Matmul_unsupported_shape` rejection on both sides
+(carrying both raw shapes, not a bare "unsupported"), the generated
+ATen-vs-Native walk (`Matmul_walk`, rank-2-only per the bridge's own
+restriction, "matched" over shape variation), and hand-derived `dispatch:`
+fixtures (`test/native_bridge/dispatch_test.ml`, including a graph-printing
+fixture proving the claim in this section literally — one `bmm` node, no
+relayout permute — a rank≥3-with-unit-leading-axes fixture proving that
+shape family is the SAME case rather than a separate one, and the batched
+rejection). No Native4D test needed: the existing `domain: bmm batch extent`
+row already covers every `Bmm` node regardless of which ATen op built it.
+
+**Confirmed against the real corpus, not just hand fixtures**: before this
+change, `_build/default/bin/native_graph.exe print --pt2
+data/pt2-functional/csatv2/csatv2.pt2` failed at `matmul.default`; after
+both this and the `softmax.int` landing above, it imports past every
+`matmul.default`/`softmax.int` occurrence and now fails at `index.Tensor`
+(§2 item 3 of `todo.md`) — confirming both blockers are cleared for CSATv2's
+real 945-node graph, not merely for synthetic fixtures. The 100-model sweep
+itself was not regenerated (gated on downloading every release archive) —
+re-run `make pt2.json-model-support` before relying on a "N models move"
+claim.
 
 ## 5. `matmul.default`, batched/multi-head case: out of scope, its own row
 

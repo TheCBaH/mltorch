@@ -219,6 +219,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Silu { Pointwise.Silu.x } ->
         let module C = Pointwise.Silu.Compute (S) in
         C.pixel (operand x) out
+    | Softmax { Reduce.Softmax.params; x } ->
+        let module C = Reduce.Softmax.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Sqrt { Pointwise.Sqrt.x } ->
         let module C = Pointwise.Sqrt.Compute (S) in
         C.pixel (operand x) out

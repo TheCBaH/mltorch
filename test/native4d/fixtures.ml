@@ -271,6 +271,16 @@ let sdpa () =
        { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
        ~query:q ~key:k ~value:v ())
 
+(* [Softmax] has no [Ops4] counterpart at any axis (unlike [Mean]/[Amax]/
+   [Vector_norm], which have a [*_keepdims] target to legalize onto), so any
+   admissible axis exercises the plain "dialect does not have it" rejection
+   -- see .ai/matmul_softmax_design.md §3. *)
+let softmax_over axis () =
+  build "softmax_over"
+    (let open Graph_builder in
+     let* x = input ~shape:(nhwc ~n:1 ~h:4 ~w:4 ~c:3) () in
+     softmax { Reduce.Softmax.axis } x)
+
 (* ---- max pool with indices ------------------------------------------------ *)
 
 let pool_params : Pool.MaxPool2d.params =

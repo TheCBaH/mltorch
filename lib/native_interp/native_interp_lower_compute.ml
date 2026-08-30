@@ -30,6 +30,7 @@ let targets =
     "torch.ops.aten.layer_norm.default";
     "torch.ops.aten.linalg_vector_norm.default";
     "torch.ops.aten.linear.default";
+    "torch.ops.aten.matmul.default";
     "torch.ops.aten.max_pool2d.default";
     "torch.ops.aten.max_pool2d_with_indices.default";
     "torch.ops.aten.mean.dim";
@@ -43,6 +44,7 @@ let targets =
     "torch.ops.aten.sigmoid.default";
     "torch.ops.aten.silu.default";
     "torch.ops.aten.silu_.default";
+    "torch.ops.aten.softmax.int";
     "torch.ops.aten.sub.Tensor";
   ]
 
@@ -590,6 +592,60 @@ let dispatch ~ctx ~env (node : Node.t) =
              }
            in
            let* y = vector_norm params (get "self") in
+           return [ y ]
+       (* [dim] is required by the schema (no default), unlike [mean.dim]'s /
+          [amax.default]'s optional dim LIST -- but [int_arg]'s own default of
+          0 is the established treatment every other single-[dim] importer arm
+          here already gets ([unbind.int], [select.int], [slice.Tensor]), not
+          a shortcut introduced for this op. See .ai/matmul_softmax_design.md
+          §3. *)
+       | "torch.ops.aten.softmax.int" ->
+           reject_dtype esc node;
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Softmax_input)
+           in
+           let axis =
+             match
+               axes_for_rank esc ~tensor:x_name rank [ int_arg esc node "dim" ]
+             with
+             | [ a ] -> a
+             | _ ->
+                 invalid_arg "Native_interp: axes_for_rank lost its singleton"
+           in
+           let* y = softmax { Reduce.Softmax.axis } (get "self") in
+           return [ y ]
+       (* Batch-less shape family only (`.ai/matmul_softmax_design.md` §4):
+         rank-2 operands, or rank>=3 with every axis but the last two at
+         extent 1. Either way [get]'s existing metadata-only tensor already
+         lands its [H,W,C] triple exactly where [Bmm] reads it (the extra
+         leading unit axes land on [N,T,D], which [Bmm.output_shape] never
+         reads), so this binds to the EXISTING [Bmm] node unchanged -- same
+         restriction, same reasoning as [Op_bridge]'s arm. The
+         batched/multi-head shape family is a distinct, larger unit of work,
+         not handled here. *)
+       | "torch.ops.aten.matmul.default" ->
+           let a_name = tensor_name esc node "self" in
+           let b_name = tensor_name esc node "other" in
+           let a_sizes =
+             static_sizes esc ~tensor:a_name
+               (tensor_meta esc graph ~ssa:a_name ~role:`Matmul_self)
+           in
+           let b_sizes =
+             static_sizes esc ~tensor:b_name
+               (tensor_meta esc graph ~ssa:b_name ~role:`Matmul_other)
+           in
+           let batchless sizes =
+             let rank = List.length sizes in
+             rank >= 2
+             && List.for_all (( = ) 1)
+                  (List.filteri (fun i _ -> i < rank - 2) sizes)
+           in
+           if not (batchless a_sizes && batchless b_sizes) then
+             malformed esc
+               (`Matmul_unsupported_shape
+                  { Matmul_unsupported_shape.self = a_sizes; other = b_sizes });
+           let* y = bmm (get "self") (get "other") in
            return [ y ]
        | "torch.ops.aten.linear.default" ->
            let w_name = tensor_name esc node "weight" in

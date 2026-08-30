@@ -42,6 +42,7 @@ module Bad_slice = Native_interp_error.Bad_slice
 module Bad_select = Native_interp_error.Bad_select
 module Concat_rank_mismatch = Native_interp_error.Concat_rank_mismatch
 module Bad_upsample_size = Native_interp_error.Bad_upsample_size
+module Matmul_unsupported_shape = Native_interp_error.Matmul_unsupported_shape
 
 type malformed = Native_interp_error.malformed
 

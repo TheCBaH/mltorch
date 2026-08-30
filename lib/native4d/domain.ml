@@ -271,9 +271,15 @@ let check_node view (n : node) =
      they do, every occurrence is unsupported regardless of axis, the same
      "dialect does not have it at all" answer [Discard] gets. *)
   | Concat { Concat.Concat.params; _ } -> check_dims node [ params.axis ]
-  (* The dialect has no [Split4]/[Group_norm4] yet -- same "dialect does not
-     have it at all" answer, not an axis-domain rejection, until it does. *)
-  | Group_norm _ | Select _ | Split_with_sizes _ | Stack _ -> unsupported ()
+  (* The dialect has no [Split4]/[Group_norm4]/[Softmax4] yet -- same "dialect
+     does not have it at all" answer, not an axis-domain rejection, until it
+     does. Not [check_dims]: unlike [Amax]/[Mean]/[Vector_norm], which the
+     reduced dialect can legalize on N/H/W/C (there is a [*_keepdims]
+     `Ops4` counterpart to legalize onto), Softmax has no `Ops4` counterpart
+     at any axis, so there is no admissible case to let through -- see
+     .ai/matmul_softmax_design.md §3. *)
+  | Group_norm _ | Select _ | Softmax _ | Split_with_sizes _ | Stack _ ->
+      unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

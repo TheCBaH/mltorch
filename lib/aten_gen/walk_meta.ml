@@ -31,6 +31,7 @@ let entries =
     adaptive_avg_pool2d;
     mean_dim;
     amax;
+    softmax_int;
     pow_tensor_scalar;
     linalg_vector_norm;
     clamp;
@@ -50,6 +51,7 @@ let entries =
     permute;
     addmm;
     bmm;
+    matmul;
     native_batch_norm;
     sdpa;
   ]

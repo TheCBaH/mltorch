@@ -330,6 +330,10 @@ let sigmoid ?name x =
   op1 ?name ~kind:"sigmoid" (Sigmoid { Pointwise.Sigmoid.x })
 
 let silu ?name x = op1 ?name ~kind:"silu" (Silu { Pointwise.Silu.x })
+
+let softmax ?name params x =
+  op1 ?name ~kind:"softmax" (Softmax { Reduce.Softmax.params; x })
+
 let sqrt ?name x = op1 ?name ~kind:"sqrt" (Sqrt { Pointwise.Sqrt.x })
 
 let slice ?name params x =

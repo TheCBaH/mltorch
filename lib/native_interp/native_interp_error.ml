@@ -78,6 +78,8 @@ type metadata_role =
   | `Layer_norm_weight
   | `Linear_bias
   | `Linear_weight
+  | `Matmul_other
+  | `Matmul_self
   | `Mean_input
   | `Pad_input
   | `Permute_input
@@ -89,6 +91,7 @@ type metadata_role =
   | `Sdpa_value
   | `Select_input
   | `Slice_input
+  | `Softmax_input
   | `Split_with_sizes_input
   | `Stack_input
   | `Tensor
@@ -213,6 +216,16 @@ module Concat_rank_mismatch = struct
   type t = { op : string; first : int; other : int }
 end
 
+(* [matmul.default]'s supported shape family (`.ai/matmul_softmax_design.md`
+   §4): both operands rank-2, or both rank>=3 with every axis but the last
+   two at extent 1 -- the batch-less case that binds to the existing [Bmm]
+   node unchanged. Carries both declared size lists, the same reasoning
+   [Op_bridge_error.Matmul_unsupported_shape] gives on the ATen-linked side:
+   a reader needs the actual shapes, not just which check failed. *)
+module Matmul_unsupported_shape = struct
+  type t = { self : int list; other : int list }
+end
+
 (* `upsample_bilinear2d.vec`'s own contract, mirroring ATen's own
    `compute_output_size`: exactly one of [output_size]/[scale_factors] must be
    given, and a given [scale_factors] must name both spatial axes. *)
@@ -235,6 +248,7 @@ type malformed =
   | `Concat_no_tensors of string
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
   | `Live_layer_norm_stats of Live_layer_norm_stats.t
+  | `Matmul_unsupported_shape of Matmul_unsupported_shape.t
   | `Missing_arg of Missing_arg.t
   | `Missing_metadata of Missing_metadata.t
   | `Non_tensor_graph_output
@@ -327,6 +341,8 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Layer_norm_weight -> Fmt.string ppf "layer_norm weight"
   | `Linear_bias -> Fmt.string ppf "linear bias"
   | `Linear_weight -> Fmt.string ppf "linear weight"
+  | `Matmul_other -> Fmt.string ppf "matmul other"
+  | `Matmul_self -> Fmt.string ppf "matmul self"
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Pad_input -> Fmt.string ppf "pad input"
   | `Permute_input -> Fmt.string ppf "permute input"
@@ -338,6 +354,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Sdpa_value -> Fmt.string ppf "sdpa value"
   | `Select_input -> Fmt.string ppf "select input"
   | `Slice_input -> Fmt.string ppf "slice input"
+  | `Softmax_input -> Fmt.string ppf "softmax input"
   | `Split_with_sizes_input -> Fmt.string ppf "split_with_sizes input"
   | `Stack_input -> Fmt.string ppf "stack input"
   | `Tensor -> Fmt.string ppf "tensor"
@@ -416,6 +433,12 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       Fmt.pf ppf "%s: %s output %S is read, and this graph does not have it" op
         (match stat with `Mean -> "mean" | `Rstd -> "rstd")
         ssa
+  | `Matmul_unsupported_shape { Matmul_unsupported_shape.self; other } ->
+      let ints = Fmt.(list ~sep:(any ", ") int) in
+      Fmt.pf ppf
+        "matmul.default: only rank-2-by-rank-2, or rank>=3 with every axis but \
+         the last two at extent 1, is supported, got self=[%a] other=[%a]"
+        ints self ints other
   | `Missing_arg { Missing_arg.op; arg } ->
       Fmt.pf ppf "%s: missing argument %S" op arg
   | `Missing_metadata { Missing_metadata.ssa; role } ->

@@ -48,6 +48,39 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
+  (* Batch-less shape family only (`.ai/matmul_softmax_design.md` §4): rank-2
+     operands, or rank>=3 with every axis but the last two at extent 1. Every
+     such operand's [Tensor_bridge.of_aten] right-alignment already lands its
+     [H,W,C] triple exactly where [Bmm] reads it -- the extra leading unit
+     axes land on [N,T,D], which [Bmm.output_shape] never reads -- so this
+     binds to the EXISTING [Bmm] node unchanged, no new Native surface and no
+     relayout. The batched/multi-head shape family (`D`/`H` > 1) is a
+     distinct, larger unit of work, not handled here. *)
+  | "torch.ops.aten.matmul.default" ->
+      Some
+        (let* aten_a = tensor_arg aten_env node "self" in
+         let* aten_b = tensor_arg aten_env node "other" in
+         let batchless t =
+           let shape = Aten_tensor.shape t in
+           let rank = Array.length shape in
+           rank >= 2 && Array.for_all (( = ) 1) (Array.sub shape 0 (rank - 2))
+         in
+         if batchless aten_a && batchless aten_b then
+           let* a = native_of_aten "self" aten_a in
+           let* b = native_of_aten "other" aten_b in
+           build_g ~name:"matmul" [ a; b ] (function
+             | [ a_id; b_id ] ->
+                 let open Graph_builder in
+                 let+ y = bmm a_id b_id in
+                 [ y ]
+             | _ -> assert false)
+         else
+           fail
+             (`Matmul_unsupported_shape
+                {
+                  Matmul_unsupported_shape.self_shape = Aten_tensor.shape aten_a;
+                  other_shape = Aten_tensor.shape aten_b;
+                }))
   | "torch.ops.aten.linear.default" ->
       Some
         (let* aten_x = tensor_arg aten_env node "input" in

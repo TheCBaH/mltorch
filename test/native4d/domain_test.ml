@@ -187,6 +187,22 @@ let%expect_test "domain: sdpa is always outside the dialect" =
     {|
     sdpa                         node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native has no Bmm or softmax in Native4D) |}]
 
+(* [Softmax] has no [Ops4] counterpart at any axis, unlike [Mean]/[Amax]/
+   [Vector_norm]: every axis rejects with the plain "dialect does not have
+   it at all" answer, not [check_dims]'s per-axis one. *)
+let%expect_test "domain: softmax has no dialect counterpart at any axis" =
+  table
+    [
+      ("softmax over C", Fixtures.softmax_over Axis.C);
+      ("softmax over D", Fixtures.softmax_over Axis.D);
+    ];
+  [%expect
+    {|
+    softmax over C               node n0: no legalization for
+                                   softmax x=t0 params={axis=C}
+    softmax over D               node n0: no legalization for
+                                   softmax x=t0 params={axis=D} |}]
+
 (* ---- ops the pipeline is supposed to have removed ------------------------- *)
 
 (* Both reject, for different reasons and with different futures: the discarded

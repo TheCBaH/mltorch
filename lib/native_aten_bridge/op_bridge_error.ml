@@ -78,6 +78,16 @@ module Operand_rank = struct
   type t = { arg_name : string; expected : int; got : int }
 end
 
+(* [matmul.default]'s supported shape family (`.ai/matmul_softmax_design.md`
+   §4): both operands rank-2, or both rank>=3 with every axis but the last
+   two at extent 1 (the batch-less case that binds to the existing [Bmm]
+   node unchanged). Carries both raw ATen shapes -- not just "which check
+   failed" -- since a rank mismatch and a non-unit leading axis are two
+   different reasons a reader needs to see the actual shapes to tell apart. *)
+module Matmul_unsupported_shape = struct
+  type t = { self_shape : int array; other_shape : int array }
+end
+
 module Pool_unsupported = struct
   type option = Dilation of int list
   type t = { op : string; option : option }
@@ -108,6 +118,7 @@ type error =
   | `Invalid_dim of Invalid_dim.t
   | `Invalid_hw_arg of invalid_hw_arg
   | `Linear_invalid_weight_rank of int array
+  | `Matmul_unsupported_shape of Matmul_unsupported_shape.t
   | `Normalized_rank of Normalized_rank.t
   | `Normalized_shape of Normalized_shape.t
   | `Operand_rank of Operand_rank.t
@@ -162,6 +173,12 @@ let pp_error ppf : [< error ] -> unit = function
   | `Linear_invalid_weight_rank shape ->
       Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
         shape
+  | `Matmul_unsupported_shape
+      { Matmul_unsupported_shape.self_shape; other_shape } ->
+      Fmt.pf ppf
+        "matmul.default: only rank-2-by-rank-2, or rank>=3 with every axis but \
+         the last two at extent 1, is supported, got self=%a other=%a"
+        pp_int_array self_shape pp_int_array other_shape
   | `Normalized_rank { Normalized_rank.op; rank; got } ->
       Fmt.pf ppf
         "%a: normalized_shape has %d entries, outside [1, %d] for this rank"

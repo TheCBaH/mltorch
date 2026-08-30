@@ -273,6 +273,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Silu.output_shape x_shape) in
       [ out ]
+  | Softmax { Reduce.Softmax.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Reduce.Softmax.output_shape ~x_shape params) in
+      [ out ]
   | Sqrt { Pointwise.Sqrt.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Sqrt.output_shape x_shape) in

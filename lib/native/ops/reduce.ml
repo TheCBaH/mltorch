@@ -1,6 +1,9 @@
-(* Reductions over a set of axes (NHWC): [Mean] (ATen's `aten.mean.dim`) and
-   [Amax] (`aten.amax.default`); a category file so a future `aten.sum`/…
-   lands beside them, the way [Pool] holds Max/AvgPool2d. *)
+(* Reductions over a set of axes (NHWC): [Mean] (ATen's `aten.mean.dim`),
+   [Amax] (`aten.amax.default`), [Vector_norm]
+   (`aten.linalg_vector_norm.default`) and [Softmax] (`aten.softmax.int`,
+   which unlike the other three keeps the input's shape rather than dropping
+   the reduced axis -- see its own comment); a category file so a future
+   `aten.sum`/… lands beside them, the way [Pool] holds Max/AvgPool2d. *)
 
 (* Params shared by every reduction that folds a set of named axes down with a
    [keepdim] flag: the axis list, its output-shape rule, and the (input axis,
@@ -436,5 +439,112 @@ module Vector_norm = struct
               (fun i -> reduce rest ((d, i) :: override))
       in
       S.sqrt (reduce p.dims [])
+  end
+end
+
+module Softmax = struct
+  (* Softmax over a single axis (ATen's `aten.softmax.int`, `aten._softmax`),
+     keeping the input's full shape -- unlike [Mean]/[Amax]/[Vector_norm]
+     ([Dims_keepdim]), there is no axis to drop: ATen's `dim` always names
+     exactly one axis and softmax never changes rank. For each output pixel,
+
+       y = exp(x - max_axis(x)) / sum_axis(exp(x - max_axis(x)))
+
+     the max and the denominator computed over [axis] at the pixel's fixed
+     non-[axis] coordinates -- the ordinary numerically-stable softmax, NOT
+     [Attention.Sdpa]'s `_safe_softmax` all-`-inf` zero-row guard: that guard
+     is specific to SDPA's internal math-backend helper, not to plain
+     `torch.softmax`, which is free to (and does) produce `nan` on an
+     all-`-inf` row. No new [SEMANTICS] primitive is needed: [exp],
+     [max_reduce] and [sum] already exist and are already exercised
+     (`attention.ml`'s [Sdpa.Compute]). See .ai/matmul_softmax_design.md §3. *)
+  type params = { axis : Axis.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"softmax_params" (fun axis -> { axis })
+    |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) = Fmt.pf fmt "@[<hv>{axis=%a}@]" Axis.pp p.axis
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Softmax"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>softmax@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
+
+  (* Softmax rescales, it does not reduce: the output keeps the input's full
+     shape, exactly [Norm.RmsNorm.output_shape]'s reasoning. No aggregate to
+     bound here -- unlike [Dims_keepdim.reduced_count], this reduces over
+     exactly ONE axis, already individually bounded by
+     [Kernel.Limits.Hard.extent]; there is no product of several extents for
+     a mid-fold wrap to hide in. *)
+  let output_shape ~(x_shape : Vec6.shape) (_p : params) = Err.return x_shape
+
+  (* This op's random-walk config space: a 4D NHWC tensor, softmaxed over one
+     of the six frame axes. Any axis is valid at any extent (unlike
+     [Mean]/[Amax]'s [dims] SUBSET, there is nothing to combine), so
+     [cascade] is identity. Lives with the op (per backend). *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t; axis : Axis.t }
+
+    let initial =
+      {
+        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        axis = Axis.C;
+      }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+    let params (c : cfg) : params = { axis = c.axis }
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "axis" Axis.all (fun c v -> { c with axis = v });
+        ]
+
+    let pp fmt (c : cfg) =
+      Format.fprintf fmt "{shape=%a axis=%a}" Walk_core.Shape.pp c.shape Axis.pp
+        c.axis
+  end
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let extent = Vec6.get x_shape p.axis in
+      (* [score_at k]: the value at [out] with [axis] overridden to [k] --
+         mirrors [Attention.Sdpa.Compute]'s [score_at]. *)
+      let score_at k = S.load x (Vec6.set out p.axis k) in
+      let m =
+        S.max_reduce ~lo:S.index_zero ~hi:(S.index_extent extent) score_at
+      in
+      let z =
+        S.sum ~lo:S.index_zero ~hi:(S.index_extent extent) (fun k ->
+            S.exp (S.sub (score_at k) m))
+      in
+      S.div (S.exp (S.sub (S.load x out) m)) z
   end
 end

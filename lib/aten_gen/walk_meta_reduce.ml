@@ -58,6 +58,31 @@ let amax =
       pcg )|};
   }
 
+(* softmax.int: same reduction-family recipe as [mean_dim]/[amax]
+   ("mean.dim and friends"), restricted to the SINGLETON dim subsets --
+   ATen's `dim` is one required int, not a list, and softmax has no
+   `keepdim` at all (the output always keeps the input's full shape). See
+   .ai/matmul_softmax_design.md §3. *)
+let softmax_int =
+  {
+    module_name = "Softmax_int_walk";
+    target = "torch.ops.aten.softmax.int";
+    recipe = "Recipe_reduce";
+    initial =
+      "Aten_walk_recipes.Recipe_reduce.{ n = 2; c = 4; h = 8; w = 8; dims = [ \
+       3 ]; keepdim = false }";
+    axes =
+      "Aten_walk_recipes.Recipe_reduce.axes ~n:[ 1; 2; 4 ] ~c:[ 4; 8; 16 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] ~dims:(List.filter (fun s -> \
+       List.length s = 1) Aten_walk_recipes.Recipe_reduce.all_dim_subsets) \
+       ~keepdim:[ false ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_reduce.self_shape c) in
+    ( Aten_op_spec.Op_softmax_int.(
+        spec { self; dim = List.hd (Recipe_reduce.dims c) }),
+      pcg )|};
+  }
+
 (* linalg_vector_norm.default: same reduction-family recipe as [mean_dim]/
    [amax] ("mean.dim and friends"). The bridge accepts only the schema
    default `ord=2`, so [ord] is pinned rather than drawn. *)

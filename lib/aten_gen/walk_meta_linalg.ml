@@ -78,3 +78,23 @@ let bmm =
     let mat2, pcg = Walk.tensor_spec pcg (Recipe_bmm.mat2_shape c) in
     (Aten_op_spec.Op_bmm.(spec { self; mat2 }), pcg)|};
   }
+
+(* matmul.default: batch-less shape family only -- see
+   [Aten_walk_recipes.Recipe_matmul] and .ai/matmul_softmax_design.md §4. Both
+   operands rank-2, so the walk cannot generate the rank/shape the bridge
+   rejects (there is nothing to "cascade" out of the config space; every
+   [n,m,p] combination is admissible). *)
+let matmul =
+  {
+    module_name = "Matmul_walk";
+    target = "torch.ops.aten.matmul.default";
+    recipe = "Recipe_matmul";
+    initial = "Aten_walk_recipes.Recipe_matmul.{ n = 3; m = 4; p = 5 }";
+    axes =
+      "Aten_walk_recipes.Recipe_matmul.axes ~n:[ 2; 3; 5 ] ~m:[ 2; 4; 6 ] ~p:[ \
+       2; 5; 7 ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_matmul.self_shape c) in
+    let other, pcg = Walk.tensor_spec pcg (Recipe_matmul.other_shape c) in
+    (Aten_op_spec.Op_matmul.(spec { self; other }), pcg)|};
+  }
