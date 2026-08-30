@@ -11,8 +11,8 @@ completed gate is committed only after its focused validation succeeds.
 | 1 | `Expr` scalar-local leaf | complete | pending commit |
 | 2 | Region structure and validation | complete | pending commit |
 | 3 | Kernel representation migration | complete | pending commit |
-| 4 | Region reference execution | in progress | Kernel execution dispatch checkpoint pending commit |
-| 5 | Pixel specialization/reconstruction | in progress | specialization checkpoint pending commit |
+| 4 | Region reference execution | complete | `ccc7b1d` |
+| 5 | Pixel specialization/reconstruction | complete | `83397a7` |
 | 6 | Pixel regression closeout | pending | |
 
 ## Decisions
@@ -76,3 +76,4 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 4 | `make jsoo.runtest` | pass | Native and JavaScript probe output matches. |
 | 2026-08-30 | 4 | `make jsoo.inline-runtest` | pass | Region-dispatch-adjusted recursion guard passes the JS depth frontier without stack overflow. |
 | 2026-08-30 | 0 | `make benchmark.region_pixel` | pass | `region_pixel_bench`: 20 samples on OCaml 4.14.3, Linux aarch64; identity median 0.413 ms / 210.246 GC words per output, add 0.671 ms / 337.328; both over 2,048 cells. |
+| 2026-08-30 | 4–5 | `opam exec -- dune runtest test/expr test/native` | pass | A Region consumer of a stored Pixel producer agrees across `run`, default `run_plan`, and `value_at`; Pixel specialization retains the original expression and negative reconstruction returns `false`. |
