@@ -411,4 +411,21 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = reshape params x_id in
                [ y ]
            | _ -> assert false))
+  (* [alias(self) -> Tensor] is a pure identity view (same storage, same
+     size/strides) -- ATen's own schema takes no argument beyond [self]. Binds
+     to the *existing* [Clone] node: paramless, [output_shape] the identity,
+     and already the node this repo uses for "same value, no change" (see
+     [clone.default]'s own arm) -- Native4D already elides it entirely
+     (`.ai/native4d_design.md` §7.1), so this legalization costs nothing
+     there either. *)
+  | "torch.ops.aten.alias.default" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* x = native_of_aten "self" aten_x in
+         build_g ~name:"alias" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = clone x_id in
+               [ y ]
+           | _ -> assert false))
   | _ -> None

@@ -222,6 +222,19 @@ does not affect `native_builds`; only real-ATen verification
 instead pinned by hand-computed values in `test/native/norm_test.ml`,
 cross-checked against an independent calculation.
 
+**Updated again, same day,** after landing `alias.default` (binds to the
+*existing* `Graph_ir.Clone` node -- paramless, shape-preserving, already this
+repo's "same value, no change" node -- since ATen's `alias(self) -> Tensor`
+schema takes no argument beyond `self` and is a pure identity view; Native4D
+already elides `Clone` entirely, so this costs nothing there either):
+`native_builds:true` stays at 72 -- this landing changes WHICH models are
+blocked, not how many build. All 5 models `alias.default` blocked
+(`ghostnetv2_100`, `ghostnetv2_130`, `ghostnetv2_160`, `ghostnetv3_050`,
+`ghostnetv3_130`) clear it and move to a new, previously-undiscovered
+blocker: `upsample_nearest2d.vec` -- a distinct overload from the already-
+landed `upsample_bilinear2d.vec`, noted here only as a discovered lead, not
+yet investigated or scoped as a row.
+
 **Updated 2026-08-29** after landing `avg_pool2d.default` (`Pool.AvgPool2d`
 already existed as a Native op -- and already had an ATen binding and a
 generated ATen-vs-Native walk, both dormant -- but no `Op_bridge`/

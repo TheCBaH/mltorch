@@ -9,6 +9,7 @@ open Native_interp_decode
 let targets =
   [
     "torch.ops.aten._unsafe_view.default";
+    "torch.ops.aten.alias.default";
     "torch.ops.aten.cat.default";
     "torch.ops.aten.pad.default";
     "torch.ops.aten.permute.default";
@@ -398,6 +399,16 @@ let dispatch ~ctx ~env (node : Node.t) =
                }
                (get "self")
            in
+           return [ y ]
+       (* [alias(self) -> Tensor] is a pure identity view (same storage, same
+         size/strides) -- ATen's own schema takes no argument beyond [self].
+         Binds to the *existing* [Clone] node: paramless, shape-preserving,
+         and already the node this repo uses for "same value, no change" (see
+         [clone.default]'s own arm in native_interp_lower_compute.ml) --
+         Native4D already elides it entirely (`.ai/native4d_design.md` §7.1),
+         so this legalization costs nothing there either. *)
+       | "torch.ops.aten.alias.default" ->
+           let* y = clone (get "self") in
            return [ y ]
        (* Not mergeable with [addmm.default] below, though both build a [Linear]:
          there [self] IS the bias and is required, here the bias is optional,

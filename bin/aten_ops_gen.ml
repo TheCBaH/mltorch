@@ -94,6 +94,7 @@ let curated_selection =
     op "avg_pool2d";
     op "view";
     op "_unsafe_view";
+    op "alias";
     (* structural: boundary synthesis and strided selection (op6.md Group 6) *)
     op "pad";
     op "slice" ~overload:"Tensor";

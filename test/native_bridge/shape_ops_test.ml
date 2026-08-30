@@ -513,3 +513,44 @@ let%expect_test "dispatch: unsqueeze.default rejects pushing rank past six" =
     ~inputs:[ in_tensor "self"; in_int "dim" 0 ]
     ~noutputs:1;
   [%expect {| error: rank 7 out of [0, 6] |}]
+
+(* ---- aten.alias.default: ATen as the oracle ------------------------------ *)
+
+(* [alias(self) -> Tensor]: a pure identity view, ATen's own schema takes no
+   argument beyond [self]. Legalized to the *existing* [Clone] node --
+   paramless, shape-preserving, and already this repo's "same value, no
+   change" node (see [clone.default]'s own arm) -- rather than a same-shape
+   [Reshape], to keep the printed graph's node name matching what actually
+   happened: nothing was reshaped. *)
+let alias_verify ~sizes =
+  let n = List.fold_left ( * ) 1 sizes in
+  let x = float_tensor sizes (List.init n (fun i -> float_of_int (i + 1))) in
+  verify_print ~target:"torch.ops.aten.alias.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self" ]
+
+let%expect_test "verify: alias.default at several ranks" =
+  alias_verify ~sizes:[ 3; 4 ];
+  alias_verify ~sizes:[ 2; 3; 4 ];
+  alias_verify ~sizes:[ 5 ];
+  [%expect
+    {|
+    aten and native agree
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "dispatch: alias.default builds a single Clone node" =
+  let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.alias.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = clone x=t0
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    tensor f32 [W=2 C=3] {1, 2, 3, 4, 5, 6} |}]
