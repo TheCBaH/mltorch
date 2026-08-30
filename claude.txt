@@ -47,6 +47,23 @@ each commit. Avoid referencing to phases in the commit messages, remove referenc
 from documents in .ai directory and comments in code).
 
 reorder and group commits to smaller number of commits between HEAD~ and origin/main , use concise commit
-message (two concise paragraphs), run validation for each commit. Avoid referencing to phases in the commit
+message (two concise paragraphs), run validation for each commit (precommit). Avoid referencing to phases in the commit
 messages, remove references to top level .md files (like todo.md, next.md, from git history, and from
-documents in .ai directory and comments in code).
+documents in .ai directory and comments in code). Move group that introduced precommit rule in front.
+
+---
+Current computation domain, expresses per output pixel computation, and even it could express arbitrary computation, it leads to innefeiency,
+for many operations, where multiple output pixels depend on the same computation that is performed over the same group of input pixels.
+(normalization like RMS and Layer, Softmax). I think this could be improved by extending language. My idea is to extend language to allow
+computation of tiles (portion of outputs). Where first tiles computes temporary result over set of input pixels (this could be either scalar or tensor, 
+for normalization and softwax it's just scalar so perhaps it could be enough initially) and then uses this temporary result among with  input
+pixes to compute output tile. It should be noted that for the cases of normalization there is again simplification, since this tile is trivial where
+all its extends, except one are 1, and that extent covers whole tensor (btw, you may found better terms for tiles). Another note that even with
+pixel based computation output scan is arbitrary, with tile based computation, it may need to specify what is output scan.
+Also consider complicated cases of scaled_dot_product_attention. Another thing to consider are other idea for improving performace (dot-idea.md).
+And yet another thing, eventually this framework (in native and nativ4d forms) should support tiling, where both invidual operations (like conv are split
+is smaller tiles to achieve better locality), and sequence of operations (like conv + add + rmsnorm), split to group of tiles, where sequence of operations
+computed without realizing full intermediate tensors (small output tiles is computed to enough to compute the next operations, etc).
+
+Analyze plausibility of this idea, its effect on computation. Near term goal is extending compute language to allow effecient computation of normalization and softmax,
+with the next goal is efficient scaled_dot_product_attention. However desing should account also for farther goal. However desing should account also for futuree goals.

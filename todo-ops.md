@@ -12,7 +12,7 @@ records detailed implementation decisions and the latter defines the support
 contract.  This file is the compact, corpus-derived queue that connects that
 contract to the next work items.
 
-Status: 2026-08-30 (Rsub_scalar + Const-SSA Sigmoid/Rsub_scalar landing).
+Status: 2026-08-30 (`Select_scatter4` landing).
 
 ## Priority model: breadth first, then depth
 
@@ -312,13 +312,75 @@ clears ConViT's chain entirely: it now reaches `native_builds:true` (was
 own earlier landing). `native_builds` moves 87→88;
 `native4d_converts`/`kernel_converts`/all-three-stages unchanged (56/63/43).
 
-**Next priority**: `_to_copy.default` is now the highest-leverage target
-(2 models: EdgeNeXt, MViTv2) but needs the value-domain trunc/round
-`SEMANTICS` primitive first. Otherwise: `lstm.input` from the deferred
-backlog, P1's remaining one-model slices (`adaptive_max_pool2d`,
-`conv1d`/`unfold`, `im2col`/`col2im`, `upsample_bicubic2d`), or a
-`Repeat4`/`RepeatInterleave4` Native4D counterpart now that `convit_tiny`
-gives them a real corpus frontier to verify against.
+**2026-08-30, `_to_copy.default` landed** (full-stack Native + Native4D; see
+`ops-progress.md`'s landing record). New `Pointwise.To_copy` op, restricted
+to the three-way value-domain target the corpus actually uses: `Bool` (a
+genuine `x != 0` test), `Float` (identity), `Long` (truncation toward zero,
+matching ATen's `static_cast<int64_t>`). The `Long` case needed a genuinely
+new `SEMANTICS` primitive (`trunc`) — added as a new `unary_op` case
+(`Erf`/`Exp`/`Log`/`Sqrt`/`Trunc`) rather than a bespoke `Expr.Value`
+constructor like `Round_f32`, since every existing site pattern-matches
+`Unary (_, a)` generically and needed no change. `Bool` needed no new
+primitive: `select`/`lt` already express a nonzero test. Since the op
+carries no axis parameter, Native4D reuses Native's own payload directly
+(the `Add_scalar`/`Rsub_scalar` treatment), so this landed full-stack in one
+session including a curated `_to_copy` ATen binding for oracle verification.
+`edgenext_xx_small` moves to `bitwise_not.default` (next row of the
+"Pointwise / type" deferred-backlog family); `mvitv2_tiny` moves to
+`index.Tensor`'s already-tracked multi-entry case (`indices is not an
+optional tensor list`, the open MaxxViTv2 case this file's own "Factories,
+indexing, and copies" row already flagged). `native_builds`/
+`native4d_converts`/`kernel_converts`/all-three-stages unchanged
+(88/56/63/43) — depth moved, stage-completion did not, since neither model
+reaches `native_builds:true` yet.
+
+**2026-08-30, `Repeat4`/`RepeatInterleave4` landed** (full-stack Native4D;
+see `ops-progress.md`'s landing record). Both reuse `Shape4`'s own
+representation rather than adding an axis-domain check of their own:
+`Repeat4.params.repeats : Shape4.t` IS the "T/D multiplier is 1" condition
+by construction (the same treatment `Expand4.params.size` gets), so
+`Domain.check_node` admits `Repeat` unconditionally, the real gate being
+the lowerer's own `Shape4.of_vec6`. `RepeatInterleave4` gets the
+`check_dims`-style single-axis rejection `Select4`/`Slice4` get instead,
+for one consistent diagnostic across the named-axis op family, even though
+(unlike those two) it is not load-bearing here: `RepeatInterleave`
+multiplies its named axis rather than collapsing it, so a T/D target would
+already be caught by the blanket four-axis shape check. `convit_tiny` — the
+one corpus model whose Native4D frontier was `Repeat`'s missing
+counterpart — moves to `select_scatter.default`'s own already-tracked
+missing `Select_scatter4` counterpart (the next row of the Native4D
+counterpart backlog table), confirming both new ops against a real corpus
+graph rather than only synthetic fixtures.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages
+unchanged (88/56/63/43) — depth moved, stage-completion did not, since
+`convit_tiny` remains `native4d_converts:false` either way.
+
+**2026-08-30, `Select_scatter4` landed** (full-stack Native4D; see
+`ops-progress.md`'s landing record). Reuses `Split.Select_scatter`'s shape
+rule/pixel map unchanged, the same delegation `Select4` makes to
+`Split.Select`. Gets the same `check_dims`-style single-axis rejection
+`Select4` gets — genuinely load-bearing here, unlike `RepeatInterleave4`'s:
+the WRITTEN axis is real op-level data even though (unlike `Select`)
+`Select_scatter`'s own output shape (`self_shape`, unchanged) never
+depends on it, so there is no separate shape-consequence rejection to
+demonstrate. `convit_tiny` — the one corpus model gated on it — moves to an
+intrinsic `axis T is outside the N/H/W/C dialect` boundary, a genuine
+Native-only wall rather than a missing counterpart, confirming the corpus
+model's own Native4D story is otherwise complete up to that point.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages
+unchanged (88/56/63/43) — depth moved, stage-completion did not.
+`test/native4d/lower_test.ml` crossed the 1000-line file-size cap in this
+landing and was split into `lower_test.ml` (factory/norm/precondition rows)
++ `lower_shape_test.ml` (reshape/expand/repeat/transpose family), sharing
+rendering helpers via a new `lower_fixtures.ml`.
+
+**Next priority**: every row of the "Remaining Native4D counterpart
+backlog" table is now landed except `Softmax4` and live max-pool
+indices/`IndexTensor4` — both open-ended designs, not one-session slices.
+Otherwise: `lstm.input` from the deferred backlog (36 occurrences,
+Sequencer2D's own first frontier), or P1's remaining one-model slices
+(`adaptive_max_pool2d`, `conv1d`/`unfold`, `im2col`/`col2im`,
+`upsample_bicubic2d`).
 
 ### P1 — small vertical slices with one-model proof
 
@@ -357,8 +419,8 @@ an explicit, tested Native-only boundary.
 
 | Family | Targets (occurrences; models) |
 | --- | --- |
-| Factories, indexing, and copies | `_to_copy.default` (22; EdgeNeXt, MViTv2 — the first frontier for both), `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`, multi-entry case still open for MaxxViTv2), `eye.m` (12; Bat-ResNeXt), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
-| Pointwise / type | `neg.default` (24; DINOv3 ViT), `type_as.default` (24; DINOv3 ViT), `pow.Scalar` (1; EdgeNeXt), `sin.default` and `cos.default` (3 each; EdgeNeXt, DINOv3 ViT), `bitwise_not.default` (1; EdgeNeXt), `div.Tensor_mode` (1; EdgeNeXt) |
+| Factories, indexing, and copies | `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`; multi-entry case now confirmed as MViTv2's OWN first frontier too, not just MaxxViTv2's, after `_to_copy.default` landed — `"index.Tensor.indices is not an optional tensor list"`), `eye.m` (12; Bat-ResNeXt), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
+| Pointwise / type | `neg.default` (24; DINOv3 ViT), `type_as.default` (24; DINOv3 ViT), `pow.Scalar` (1; EdgeNeXt), `sin.default` and `cos.default` (3 each; EdgeNeXt, DINOv3 ViT), `bitwise_not.default` (1; EdgeNeXt — now its first frontier, after `_to_copy.default` landed), `div.Tensor_mode` (1; EdgeNeXt) |
 | Shape / sequence | `squeeze.dim` (3; Lambda-ResNet), `tile.default` (2; SAM2 Hiera, DINOv3 ViT), `lstm.input` (36; Sequencer2D — now its first frontier) |
 | Matrix / reduction | `einsum.default` (20; MViTv2), `cumsum.default` (2; EdgeNeXt), `max.dim` (1; VOLO) |
 | Higher-rank convolution | `conv3d.default` (3; Lambda-ResNet) |
@@ -389,6 +451,8 @@ work.
 | --- | --- | --- |
 | ~~`Select4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Native's `Select` gets a first-class `Select4` counterpart, the same `check_dims`-style axis-domain rejection `Slice`/`Concat`/`Split_with_sizes`/`Unbind` already had, and a real `Lower.convert` arm. `csatv2` is the one corpus model it was gating; its frontier moves to `Stack4` below rather than to `native4d_converts:true` (a later blocker in the same graph), so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
 | ~~`Stack4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Native's `Stack` gets a first-class `Stack4` counterpart, the same `check_dims`-style axis-domain rejection `Concat`/`Select`/`Slice`/`Split_with_sizes`/`Unbind` already had, and a real `Lower.convert` arm. Two corpus models were gated on it: `csatv2`'s frontier (`axis=H`) moves to a later node in the same graph — a `permute.default` mixing a non-unit `T` extent into `H`, an intrinsic Native-only boundary, not further Native4D work; `skresnet18`'s frontier (`axis=D`) now reports the dialect's own axis-domain diagnostic at the same node instead of the lowerer's generic catch-all. Neither reaches `native4d_converts:true`, so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
+| ~~`Repeat4` / `RepeatInterleave4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Both reuse `Shape4`'s own representation for `repeats` rather than a bespoke axis check; `RepeatInterleave4` also gets the `check_dims`-style single-axis rejection for diagnostic consistency, though it is not load-bearing for this particular op (see the landing note). `convit_tiny` is the one corpus model `Repeat4` was gating; its frontier moves to `select_scatter.default` below rather than to `native4d_converts:true`, so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
+| ~~`Select_scatter4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Reuses `Split.Select_scatter`'s shape rule/pixel map unchanged, the same delegation `Select4` makes to `Split.Select`, plus the same `check_dims`-style single-axis rejection. `convit_tiny` — the one corpus model gated on it — moves to an intrinsic `axis T is outside the N/H/W/C dialect` boundary, so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
 | `Softmax4` | Softmax has no Native4D counterpart at any axis; no corpus model is currently gated on it. | Add a counterpart with axis-domain checks on N/H/W/C, retaining the reduction semantics rather than becoming a different reduction. |
 | Live max-pool indices and `IndexTensor4` | `index.Tensor` is deferred at Native today; live pool indices are also unsupported at Native4D. | Treat both as a full gather/indexing design requiring a counterpart and kernel semantics, not as a reason to declare the operations impossible. |
 

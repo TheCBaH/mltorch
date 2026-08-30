@@ -19,11 +19,17 @@ Recomputed from `test/data/pt2_json_model_support.jsonl` after
 | All three stages succeed | 43 / 100 |
 
 `native_builds` moved 87→88 with the `Rsub_scalar` + Const-SSA
-`Sigmoid`/`Rsub_scalar` landing (below): `convit_tiny` now builds at Native,
-stopping at `Repeat`'s already-tracked missing `Repeat4` counterpart instead.
-Unchanged by every other landing below: `Select4`, `Stack4`,
-`repeat.default`, `repeat_interleave.self_int`, `copy.default`, and
-`select_scatter.default` each moved a model's *frontier* only.
+`Sigmoid`/`Rsub_scalar` landing: `convit_tiny` now builds at Native,
+stopping at `Repeat`'s then-missing `Repeat4` counterpart. Unchanged by
+every other landing below, including `_to_copy.default`,
+`Repeat4`/`RepeatInterleave4`, and `Select_scatter4` (most recent):
+`Select4`, `Stack4`, `repeat.default`, `repeat_interleave.self_int`,
+`copy.default`, `select_scatter.default`, `_to_copy.default`,
+`Repeat4`/`RepeatInterleave4`, and `Select_scatter4` each moved a model's
+*frontier* only — `edgenext_xx_small` to `bitwise_not.default`,
+`mvitv2_tiny` to `index.Tensor`'s multi-entry case, `convit_tiny` through
+`select_scatter.default`'s own `Select_scatter4` counterpart to a genuine
+intrinsic `axis T is outside the N/H/W/C dialect` wall.
 
 ## Per-operation breadth matrix
 
@@ -36,8 +42,338 @@ Unchanged by every other landing below: `Select4`, `Stack4`,
 | `copy.default` / `Expand` (direct bind, no new op) | **landed this entry**: `self`'s live shape read only, no ATen kernel call, `test/native_bridge/copy_test.ml` | **landed this entry**: `lib/native_aten_bridge/op_bridge_shape.ml` | **landed this entry**: `lib/native_interp/native_interp_lower_shape.ml` | reuses `Pointwise.Expand`'s own pre-existing Direct/Symbolic — no new Compute, `test/native_interp/copy_test.ml` pins the built graph structure | **full-stack already**: `Expand4` pre-exists, admitted unconditionally by `Domain.check_node` | reaches wherever `Expand4`'s own kernel path already reaches | `convit_tiny` (native-import frontier only; graph does not reach kernel path from here) |
 | `select_scatter.default` / `Select_scatter` | **landed this entry**: real `at::select_scatter` now a curated binding (`bin/aten_ops_gen.ml`), `test/native_bridge/shape_ops_test.ml`'s `verify_print` runs against it as the oracle | **landed this entry**: `lib/native_aten_bridge/op_bridge_shape.ml` | **landed this entry**: `lib/native_interp/native_interp_lower_shape.ml` | **landed this entry**: `lib/native/ops/split.ml` (new `Split.Select_scatter`, reuses `Select.output_shape` for the `src`-shape check, `S.index_eq`/`S.select` for the branch — no new `SEMANTICS` primitive), `test/native/{slice_select_test,graph_direct_pad_slice_test,graph_symbolic_pad_slice_test}.ml` | none yet — no `Select_scatter4` counterpart; tracked as backlog the same deliberate way `Repeat`/`RepeatInterleave` were at their own landing | not reachable without a Native4D counterpart | `convit_tiny` (native-import frontier only; graph does not reach kernel path from here) |
 | `rsub.Scalar` / `Rsub_scalar` | **landed this entry**: real `at::rsub.Scalar` now a curated binding, `test/native_bridge/dispatch_test.ml`'s `verify_print` runs against it as the oracle (default and non-default `alpha`) | **landed this entry**: `lib/native_aten_bridge/op_bridge_pointwise.ml` | **landed this entry**: `lib/native_interp/native_interp_lower_compute.ml` | **landed this entry**: `lib/native/ops/pointwise_binary.ml` (new `Rsub_scalar`, `other - alpha * x`, no new `SEMANTICS` primitive), `test/native/pointwise_test.ml` + `graph_direct_pointwise_test.ml` + `graph_symbolic_pointwise_test.ml` | **full-stack this entry**: reuses Native's own payload directly (no axis param, same treatment as `Add_scalar`/`Mul_scalar`/`Pow`), `test/native4d/{op_json_test,compute_test,fixtures4}.ml` | reaches wherever the reused Native4D pointwise path already reaches | `convit_tiny` (native-import frontier; also the corpus's own `1 - sigmoid(...)` use) |
+| `_to_copy.default` / `To_copy` | **landed this entry**: real `at::_to_copy` now a curated binding (`bin/aten_ops_gen.ml`), `test/native_bridge/to_copy_test.ml`'s `verify_print` runs against it as the oracle for the `dtype`-omitted case (the only case `Interp_decode.scalar_type_opt_arg` can decode) | **landed this entry**: `lib/native_aten_bridge/op_bridge_shape.ml` | **landed this entry**: `lib/native_interp/native_interp_lower_shape.ml` | **landed this entry**: `lib/native/ops/pointwise_unary.ml` (new `Pointwise.To_copy`, three-way `Bool`/`Float`/`Long` target domain; `Long` needed a genuinely new `SEMANTICS` primitive, `trunc`), `test/native/pointwise_test.ml` + `graph_direct_pointwise_test.ml` + `graph_symbolic_pointwise_test.ml` | **full-stack this entry**: reuses Native's own payload directly (no axis param, same treatment as `Rsub_scalar`), `test/native4d/{op_json_test,compute_test,fixtures4}.ml` | reaches wherever the reused Native4D pointwise path already reaches | `edgenext_xx_small` and `mvitv2_tiny` (native-import frontier for both; neither reaches the kernel path from here) |
+| `repeat.default` / `Repeat4` (Native4D counterpart) | pre-existing (this entry adds only the Native4D counterpart) | pre-existing | pre-existing | pre-existing | **landed this entry**: `Repeat4`, reusing `Shape4.t` for `repeats` directly (the same treatment `Expand4.size` gets) — `Domain.check_node` admits `Repeat` unconditionally, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `Repeat4` graph's own kernel path already reaches | `convit_tiny` (native4d frontier only; graph does not reach kernel path from here) |
+| `repeat_interleave.self_int` / `RepeatInterleave4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed this entry**: `RepeatInterleave4`, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4`/`Slice4` get, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `RepeatInterleave4` graph's own kernel path already reaches | no corpus model currently reaches this boundary (ConViT's own `repeat_interleave.self_int` occurrences sit behind `Repeat4`'s now-cleared frontier, in `native_builds`, not blocked at Native4D) |
+| `select_scatter.default` / `Select_scatter4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed this entry**: `Select_scatter4`, reusing `Split.Select_scatter`'s shape rule/pixel map unchanged, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4` gets, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `Select_scatter4` graph's own kernel path already reaches | `convit_tiny` (native4d frontier only; graph does not reach kernel path from here) |
 
 ## Landing records
+
+### 2026-08-30 — `Select_scatter4`, the Native4D counterpart to `Select_scatter`
+
+Closes the row [`todo-ops.md`](todo-ops.md)'s "Remaining Native4D
+counterpart backlog" table added for it in the previous entry —
+`convit_tiny`'s own Native4D frontier, exposed by the `Repeat4`/
+`RepeatInterleave4` landing moving it past `Repeat`'s own blocker.
+
+**What landed**
+
+- `lib/native4d/ops4_split.ml`: `Select_scatter4`, right after `Select4`.
+  `params = { axis : Axis4.t; index : int }` — the same shape `Select4`'s
+  own payload takes — plus `self`/`src` operands (two, unlike `Select4`'s
+  one). No shape rule or pixel map of its own: both delegate whole to
+  `Split.Select_scatter`, the same way `Select4` delegates to
+  `Split.Select`.
+- `lib/native4d/ops4.ml`: `module Select_scatter4 = Ops4_split.Select_scatter4`
+  re-export.
+- `lib/native4d/op.ml`: `Select_scatter4` constructor (between `Select4`
+  and `Sigmoid`) + registry entry.
+- `lib/native4d/domain.ml`: `Select_scatter` moved out of the "dialect does
+  not have it at all" bucket into its own new `check_dims node
+  [params.axis]` arm, the `Select`/`Slice`/`Stack`/`RepeatInterleave`
+  treatment — genuinely load-bearing here, unlike `RepeatInterleave`'s own
+  arm: the WRITTEN axis is real op-level data regardless of shape
+  consequence, but UNLIKE `Select`, this op's own output shape
+  (`self_shape`, unmodified — no drop, no repack) never depends on which
+  axis is named, so there is no separate shape-consequence rejection the
+  way `Select`'s own comment describes.
+- `lib/native4d/lower_engine.ml`: the conversion arm, converting only the
+  axis KEY (`dims4`, `Select`'s own pattern) — no post-hoc output re-check
+  the way `Select`'s own arm needs, because the output is `self`'s shape
+  unchanged: if `self` is already four-axis so is the output, whichever
+  axis this op names. Removed from the "rejected by `Domain.check` before
+  the walk starts" bucket.
+- `lib/native4d/graph_shape4.ml`: a new `select_scatter_params` adapter
+  (mirroring `select_params`) + the output-shape arm, delegating whole to
+  `Split.Select_scatter.output_shape`.
+- `lib/native4d/eval_op4.ml`: the matching compute arm, through
+  `Split.Select_scatter.Compute`, using the shared adapter so the shape
+  rule and the compute cannot disagree about which position is written.
+- `lib/native4d/output_transfer4.ml`: classified `Reindexing` — every
+  output is copied from ONE of `self`/`src` with no arithmetic, the same
+  argument Native's own `Output_transfer` already makes for
+  `Select_scatter`.
+- `lib/native4d/builder.ml`: `select_scatter4` builder function.
+- Tests: `test/native4d/op_json_test.ml` (JSON round-trip sample, axis/index
+  distinct from `Select4`'s own and two distinct operands),
+  `test/native4d/fixtures4.ml` (`select_scatter4` per-op Direct-vs-Symbolic
+  fixture — `self`/`src` at genuinely DIFFERENT shapes, `src` computed as
+  the actual repacked shape `Select4` would produce there, not a same-shape
+  pair the way `binary`'s helper assumes), `test/native4d/fixtures.ml` (new
+  `select_scatter_w`/`select_scatter_d` NATIVE-graph fixtures),
+  `test/native4d/domain_test.ml` (`select_scatter`'s own W/D axis-gate
+  pair, the `slice`/`concat` shape — not the `select`/`stack`/`unbind`
+  "axis rule and its shape consequence" shape, since there is no separate
+  shape consequence to demonstrate here), `test/native4d/lower_test.ml`
+  (one conversion golden, `select4`'s own single-test precedent, since no
+  other op in this directory duplicates a domain-level rejection as a
+  lowering-level test too).
+
+`test/native4d/lower_test.ml` crossed the tracked 1000-line file-size
+ceiling (`scripts/check-file-size.sh`) with this landing's addition. Split
+into `lower_test.ml` (factory/norm/precondition rows, including this
+entry's own new test) and a new `lower_shape_test.ml` (the
+reshape/expand/repeat/transpose family, op3-impl.md commit 8's own scope —
+unrelated to this entry, moved only to make room), sharing the file's
+`build`/`described`/`show`/`outcome` rendering helpers via a new
+`lower_fixtures.ml`. Mirrors the precedent `ops4_split.ml`/`ops4_conv.ml`
+set for `lib/native4d/ops4.ml` itself.
+
+**Classification**: Full-stack, per [`todo-ops.md`](todo-ops.md)'s
+completion rule — a Native4D counterpart to an already full-stack Native
+op, with shape/eval coverage and the Native-to-Native4D lowering arm, each
+with its own test evidence enumerated above.
+
+**Corpus effect**: `convit_tiny` is the one corpus model whose Native4D
+frontier was `Select_scatter`'s missing counterpart (`node n25: no
+legalization for select_scatter self=t191 src=t205
+params={axis=C index=2}` — axis C, confirming `Select_scatter4`'s design
+against a real graph, not only synthetic fixtures). Its frontier moves to
+`node n38: axis T is outside the N/H/W/C dialect` — a genuine intrinsic
+`T`/`D`-axis boundary, Native-only and deliberately bounded territory per
+`todo-ops.md`'s own classification table, not a missing counterpart.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages are
+unchanged (88/56/63/43) — depth moved, stage-completion did not, since
+`convit_tiny` was and remains `native4d_converts:false`.
+
+**Next**: every row of the "Remaining Native4D counterpart backlog" table
+is now landed except `Softmax4` and live max-pool indices/`IndexTensor4` —
+both open-ended designs the table itself scopes as such, not one-session
+slices. Otherwise: `lstm.input` from the deferred backlog, or P1's
+remaining one-model slices (`adaptive_max_pool2d`, `conv1d`/`unfold`,
+`im2col`/`col2im`, `upsample_bicubic2d`).
+
+### 2026-08-30 — `Repeat4` and `RepeatInterleave4`, the Native4D counterparts to `Repeat`/`RepeatInterleave`
+
+Closes the row [`todo-ops.md`](todo-ops.md)'s "Remaining Native4D
+counterpart backlog" table did not yet have (added and immediately marked
+landed in this entry) — `convit_tiny`'s own Native4D frontier was `Repeat`'s
+missing counterpart, ever since the `repeat.default` landing deliberately
+deferred it.
+
+**What landed**
+
+- `lib/native4d/ops4.ml`: two new modules next to `Expand4`.
+  `Repeat4.params = { repeats : Shape4.t }` — reuses `Shape4.t`'s own
+  representation (a `Vec6.shape` with T/D pinned to the unit extent)
+  directly for the repeat multiplier, since "repeats.T = 1, repeats.D = 1"
+  IS the representability condition a multiplier needs, the same
+  `Expand4.params.size` treatment. `RepeatInterleave4.params = { axis :
+  Axis4.t; repeats : Op_config.Pos.t }` — one named axis, the `Select4`/
+  `Slice4` treatment.
+- `lib/native4d/op.ml`: `Repeat4`/`RepeatInterleave4` constructors (between
+  `Relu` and `Reshape4`) + registry entries.
+- `lib/native4d/domain.ml`: `Repeat` moved into the "constrain nothing"
+  unconditional-admit bucket (`Expand`'s own bucket) — dropped out of the
+  "dialect does not have it at all" list it shared with `RepeatInterleave`/
+  `Select_scatter`/`Softmax`/`Index_tensor`. `RepeatInterleave` gets its own
+  new `check_dims node [params.axis]` arm, the same `Select`/`Slice`/`Stack`
+  treatment — not load-bearing here (unlike those three, `RepeatInterleave`
+  MULTIPLIES its named axis rather than collapsing it to 1, so a T/D target
+  would already be caught by the blanket four-axis shape check the same way
+  `Repeat`'s is), added anyway so every named-axis op in the `Split`/
+  `Repeat` family gets one consistent diagnostic rather than a silent
+  per-op difference in how good the error message is.
+- `lib/native4d/lower_engine.ml`: the two conversion arms. `Repeat`'s
+  converts `repeats` through the existing `shape4 ~id` helper (`Expand`'s
+  own pattern) and needs no post-hoc output re-check the way `Select`/
+  `Stack` do, because `Repeat` neither drops nor inserts an axis — every
+  axis keeps its own identity (repeat.ml's own doc comment), so a T/D-unit
+  `repeats` composed with a T/D-unit input `x` is always T/D-unit on
+  output, automatically. `RepeatInterleave`'s converts only the axis KEY
+  (`dims4`, `Select`'s own pattern) for the same reason: multiplying one
+  axis in place cannot shift a different axis into T/D. Both removed from
+  the file's "rejected by `Domain.check` before the walk starts" bucket.
+- `lib/native4d/graph_shape4.ml`: a new `repeat_interleave_params` adapter
+  (mirroring `select_params`) + two output-shape arms, delegating whole to
+  `Repeat.Repeat.output_shape`/`Repeat.RepeatInterleave.output_shape`.
+- `lib/native4d/eval_op4.ml`: the matching compute arms, through
+  `Repeat.Repeat.Compute`/`Repeat.RepeatInterleave.Compute` — `Repeat4`'s
+  needs no params argument at all (repeat.ml's own `Compute.pixel` reads
+  only `x_shape`), `RepeatInterleave4`'s reuses the shared
+  `Graph_shape4.repeat_interleave_params` adapter so the shape rule and the
+  compute cannot disagree about which axis is multiplied.
+- `lib/native4d/output_transfer4.ml`: both classified `Reindexing` — pure
+  data movement, no arithmetic, the same argument `Expand4` makes (and the
+  argument Native's own `Output_transfer` already makes for `Repeat`/
+  `RepeatInterleave`).
+- `lib/native4d/builder.ml`: `repeat4`/`repeat_interleave4` builder
+  functions.
+- Tests: `test/native4d/op_json_test.ml` (JSON round-trip samples, distinct
+  multipliers/axis so a codec bug is visible in the printed output, not
+  just the count), `test/native4d/fixtures4.ml` (`repeat4`/
+  `repeat_interleave4` per-op Direct-vs-Symbolic fixtures),
+  `test/native4d/fixtures.ml` (new `repeat`/`repeat_interleave_w`/
+  `repeat_interleave_d` NATIVE-graph fixtures, for the two tests below),
+  `test/native4d/domain_test.ml` (`Repeat`'s own "always admits; its
+  multiplier is checked as a shape" test, the same single-row shape
+  `Expand`'s gets; `RepeatInterleave`'s own W/D axis-gate pair, the same
+  shape `slice`'s gets), `test/native4d/lower_test.ml` (four new tests:
+  `Repeat4` converting and being refused on a D-tiling multiplier via
+  `Shape4.of_vec6`'s `Non_four_dimensional_tensor`, `RepeatInterleave4`
+  converting and being refused on a T-named axis via the domain check's
+  `Axis_outside_dialect` — proving the two failure PATHS are actually
+  different, not just asserting both eventually reject).
+
+**Classification**: Full-stack, per [`todo-ops.md`](todo-ops.md)'s
+completion rule — both are Native4D counterparts to already full-stack
+Native ops, with shape/eval coverage and the Native-to-Native4D lowering
+arm, each with its own test evidence enumerated above.
+
+**Corpus effect**: `convit_tiny` is the one corpus model whose Native4D
+frontier was `Repeat`'s missing counterpart (`node n16: no legalization for
+repeat x=t196 params={repeats=[W=14 C=14]}` — a genuine two-axis multiplier,
+both H/W/C-legal, confirming `Repeat4`'s design against a real graph rather
+than only synthetic fixtures). Its frontier moves to `select_scatter.default`
+(`node n25: ... params={axis=C index=2}`) — the next row of the same
+"Remaining Native4D counterpart backlog" table, `Select_scatter4`, now added
+there — rather than to `native4d_converts:true`, since it is a later blocker
+in the same graph. No corpus model reaches `RepeatInterleave4`'s own
+frontier: ConViT's `repeat_interleave.self_int` occurrences sit behind
+`Repeat4`'s now-cleared blocker in the SAME graph, at `native_builds` time,
+not at Native4D. `native_builds`/`native4d_converts`/`kernel_converts`/
+all-three-stages are unchanged (88/56/63/43) — depth moved, stage-completion
+did not, since `convit_tiny` was and remains `native4d_converts:false`.
+
+**Next**: `Select_scatter4` (convit_tiny's new frontier, and the last
+remaining row of the Native4D counterpart backlog alongside `Softmax4`/live
+max-pool indices). Otherwise: `lstm.input` from the deferred backlog, or
+P1's remaining one-model slices (`adaptive_max_pool2d`, `conv1d`/`unfold`,
+`im2col`/`col2im`, `upsample_bicubic2d`).
+
+### 2026-08-30 — `_to_copy.default`, the ATen dtype cast, plus a new `SEMANTICS` `trunc` primitive
+
+Closes `_to_copy.default`'s row in [`todo-ops.md`](todo-ops.md)'s "Next
+priority" note — the highest-leverage remaining target (EdgeNeXt and
+MViTv2 both gated on it as their first frontier), flagged since the
+`repeat.default` landing as needing a new value-domain trunc/round
+`SEMANTICS` primitive first.
+
+**What landed (`trunc`, the new `SEMANTICS` primitive)**
+
+- `lib/expr_internal/expr_repr.ml`: `Trunc` added to `unary_op` (now
+  `Erf | Exp | Log | Sqrt | Trunc`) — the representation's single source,
+  per that module's own comment.
+- `lib/expr_internal/value.ml`: `apply_unary`/`unary_name` arms (`Float.trunc`
+  / `"trunc"`) and the smart constructor `let trunc a = Unary (Trunc, a)`.
+  Every other site in `lib/expr_internal` (`fold.ml`, `check.ml`, `pp.ml`,
+  `rewrite.ml`, `eval.ml`) already pattern-matches `Unary (_, a)` generically,
+  so none of them needed a change — unlike `Round_f32`, which is a distinct
+  `Value.t` constructor (for the kernel elaborator's f32-storage-precision
+  concern, an unrelated need) and so touches all of those sites individually.
+  Adding to the existing `unary_op` variant, not a new `Value.t` case, is
+  what keeps this a ~10-line addition.
+- `lib/expr/expr_api.ml`: `Trunc` added to the public `unary_op` mirror,
+  `val trunc : t -> t` added to `Value`'s signature.
+- `lib/native/semantics.ml`: `val trunc : t -> t` added to `SEMANTICS`,
+  documented as genuinely primitive (unlike `max`/`min`/`relu`, no finite
+  `add`/`mul`/`select` composition discards a fractional part).
+- `lib/native/direct.ml`: `let trunc = Float.trunc`.
+- `lib/native/symbolic.ml`: `let trunc a = Expr.Builder.map Expr.Value.trunc a`.
+
+**What landed (`_to_copy.default` / `To_copy`)**
+
+- `lib/native/ops/pointwise_unary.ml`: a new `To_copy` module, `params =
+  { target : target }` where `target = Bool | Float | Long` — a closed
+  vocabulary scoped to this op (not `Payload.packed_fmt`, which has no Bool
+  case and whose `Real`/`Quant` tags describe storage formats this op never
+  materializes: `graph_builder.ml`'s own "op-output edges are F32" note means
+  every ordinary compute edge, this one included, stays F32 regardless of
+  the ATen-visible target dtype). `output_shape` is the identity, like
+  `Clone`. `Compute.pixel`: `Float` is the loaded value unchanged; `Long` is
+  `S.trunc`; `Bool` is `select (lt 0 v) 1 (select (lt v 0) 1 0)` — a genuine
+  nonzero test using only pre-existing primitives, not an overfit to the
+  corpus's own all-zero (`zeros`-sourced) BOOL-target operand.
+- `lib/native/ops/pointwise.ml`: `To_copy` facade re-export.
+- `lib/native/graph_ir.ml`/`.mli`: `To_copy` constructor (between `Sum` and
+  `Unbind`) + registry entry.
+- `lib/native/graph_shape.ml`, `lib/native/eval_op.ml`: shape/compute
+  dispatch arms.
+- `lib/native/transform/output_transfer.ml`: classified `Discontinuous`,
+  per-OP not per-target — the `Float` target is a true identity, but `Long`
+  (an integer boundary) and `Bool` (a zero boundary) can each flip their
+  result from an arbitrarily small input change, so the whole op answers
+  conservatively rather than reading the payload to special-case `Float`.
+- `lib/native/transform/passes/sink_permute.ml`: added to the `elementwise`
+  allowlist (a genuine per-slot unary transform, output shape equals input
+  shape); not added to `reuse_permute.ml`'s `binary_elementwise` (one tensor
+  operand).
+- `lib/native/graph_builder.ml`/`.mli`: `to_copy` builder function.
+- `lib/native4d/{op,domain,lower_engine,graph_shape4,eval_op4,
+  output_transfer4,builder}.ml`: full Native4D counterpart, the same six
+  trivial mirror sites `Rsub_scalar`'s own landing used — since the op
+  carries no axis parameter, Native4D reuses Native's own
+  `Pointwise.To_copy.t` payload directly (no `Ops4` module, no axis-domain
+  check). `output_transfer4.ml` needed its own `Discontinuous` arm (the
+  dialect's file previously had none — its own header comment, "there is no
+  argmax-pool, so nothing here is Discontinuous," needed updating to scope
+  that claim to pooling specifically). Full-stack in this single landing,
+  the same reasoning `Rsub_scalar` and `Add_scalar`/`Mul_scalar`/`Pow`
+  already get: no axis to design a dialect boundary around.
+- `bin/aten_ops_gen.ml`: `op "_to_copy"` added to the curated ATen binding
+  selection (right after `to.dtype`, which was already curated but is a
+  different overload — the public `Tensor.to` method, not the internal op
+  the exporter actually emits). The schema's `MemoryFormat?` last argument is
+  handled generically by the C-type generator (`Optional (Base
+  MemoryFormat)` in `aten_c_type.ml`), so no `Override`/hand-written
+  signature was needed — the generator emitted both the `atg__to_copy` C shim
+  and the matching `Interp_dispatch` arm unmodified.
+- `lib/native_aten_bridge/op_bridge_shape.ml`: `_to_copy.default` dispatch
+  arm, right after `clone.default`'s (both are single-operand,
+  identity-shape unary transforms of `self`). Decodes `dtype` into the
+  three-way `target` domain (`None`/`FLOAT` → `Float`, `BOOL` → `Bool`,
+  `LONG` → `Long`, anything else a typed `Validation_failure`); rejects
+  non-default `layout`/`device`/`pin_memory`/`memory_format` the same way
+  `zeros.default`/`clone.default` already do; reads-and-discards
+  `non_blocking`.
+- `lib/native_interp/native_interp_lower_shape.ml`: the matching
+  payload-free arm (the one `test/data/pt2_json_model_support.jsonl`
+  actually measures) — same dtype/reject/discard logic, using the existing
+  `` `Unsupported_option `` / `` `Dtype `` typed diagnostic
+  `zeros.default`/`arange.default` already share.
+- Tests: `test/native/pointwise_test.ml` (Direct compute, all three
+  targets, including the negative-fraction truncation case),
+  `graph_direct_pointwise_test.ml` + `graph_symbolic_pointwise_test.ml`
+  (one-node graph, Direct-vs-Symbolic agreement — the `Long` case is the one
+  that actually exercises `trunc`'s staged form), `test/native_bridge/
+  to_copy_test.ml` (**new file**: `dispatch_print` hand-derived values for
+  all three targets plus the dtype-omitted/rejection/non_blocking cases,
+  and a `verify_print` oracle test against real ATen for the dtype-omitted
+  case — the only configuration `Interp_decode.scalar_type_opt_arg` can
+  decode, since it refuses to decode ANY present `ScalarType` argument by
+  design; the `Long` truncation fact is independently cross-checked against
+  real ATen by the pre-existing `test/aten_tensor_test.ml` "to.dtype casts
+  float -> int64 (truncating)" test, which calls `Aten_tensor.O.to_dtype`
+  directly, bypassing that decoder), `test/native_interp/to_copy_test.ml`
+  (**new file**, payload-free, asserts the built graph structure for all
+  three targets, the dtype-omitted default, the rejection diagnostic, and
+  `non_blocking`'s no-effect proof — mirroring `copy_test.ml`'s own `dump`
+  pattern), `test/native4d/{op_json_test,compute_test,fixtures4}.ml` (JSON
+  round-trip sample, per-op Direct-vs-Symbolic fixture).
+
+**Classification**: Full-stack across every surface in
+[`todo-ops.md`](todo-ops.md)'s completion-rule table — ATen boundary (now a
+curated binding), both importers, Native Direct/Symbolic, and a full
+Native4D counterpart, each with its own test evidence.
+
+**Corpus effect**: both corpus models gated on `_to_copy.default` as their
+first frontier move to a new one. `edgenext_xx_small`'s BOOL-target
+occurrence (a `zeros`-sourced mask, immediately followed by
+`bitwise_not.default`) moves to `bitwise_not.default` itself — the next row
+of the "Pointwise / type" deferred-backlog family. `mvitv2_tiny`'s
+LONG-target occurrences (18 of them, `add` results cast for indexing) move
+to `index.Tensor`'s already-tracked multi-entry case
+(`"index.Tensor.indices is not an optional tensor list"`) — confirming
+MViTv2, not only MaxxViTv2, needs that open slice.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages are
+unchanged (88/56/63/43) — depth moved, stage-completion did not, since
+neither model reaches `native_builds:true` yet.
+
+**Next**: `lstm.input` from the deferred backlog (Sequencer2D's own first
+frontier), P1's remaining one-model slices (`adaptive_max_pool2d`,
+`conv1d`/`unfold`, `im2col`/`col2im`, `upsample_bicubic2d`), or a
+`Repeat4`/`RepeatInterleave4` Native4D counterpart now that `convit_tiny`
+gives them a real corpus frontier to verify against.
 
 ### 2026-08-30 — `rsub.Scalar`, the reverse of `sub.Tensor`'s scalar form, plus Const-SSA `Sigmoid`/`Rsub_scalar`
 
