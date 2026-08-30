@@ -228,3 +228,31 @@ let%expect_test "dispatch: hardtanh bound spellings" =
     tensor f32 [W=2 C=3] {-1, -1, 0, 0.5, 1, 1}
     tensor f32 [W=2 C=3] {0, 0, 0, 0.5, 2.5, 6}
     tensor f32 [W=2 C=3] {0, 0, 0, 0.5, 2.5, 6} |}]
+
+(* clamp_min(self, min) = clamp(self, min=min, max=None), the same
+   [Pointwise.Clamp] node [clamp.default] builds -- checked against real ATen
+   with both scalar spellings the schema admits. *)
+let%expect_test "verify: clamp_min.default with a serialized Int min" =
+  let a = float_tensor [ 2; 2 ] [ -1.; 0.; 3.; 9. ] in
+  verify_print ~target:"torch.ops.aten.clamp_min.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_int "min" 2 ];
+  [%expect {| aten and native agree |}]
+
+let%expect_test "verify: clamp_min.default with a serialized Float min" =
+  let a = float_tensor [ 2; 2 ] [ -1.; 0.; 3.; 9. ] in
+  verify_print ~target:"torch.ops.aten.clamp_min.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "min" 1.5 ];
+  [%expect {| aten and native agree |}]
+
+(* rsqrt(x) = x ** -0.5: legalizes onto the existing [Pow] node's own
+   reciprocal-of-sqrt special case (see op_bridge_pointwise.ml's arm
+   comment) -- checked against real ATen, which has its own dedicated
+   [rsqrt_kernel] rather than routing through [pow]. *)
+let%expect_test "verify: rsqrt.default against real ATen" =
+  let a = float_tensor [ 2; 3 ] [ 1.; 4.; 0.25; 16.; 2.; 100. ] in
+  verify_print ~target:"torch.ops.aten.rsqrt.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  [%expect {| aten and native agree |}]

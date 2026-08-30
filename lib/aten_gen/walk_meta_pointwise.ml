@@ -59,6 +59,28 @@ let clamp =
       pcg )|};
   }
 
+(* clamp_min.default has a required [min] Scalar the DEFAULT walk generator
+   cannot fill on its own (the same reason [mul_scalar] needs an override) --
+   [Recipe_scalar_value] carries exactly that shape. Legalizes onto the same
+   [Pointwise.Clamp] node as [clamp] (min-only), so this is genuine ATen
+   coverage of that legalization, not just of the shared node. *)
+let clamp_min =
+  {
+    module_name = "Clamp_min_walk";
+    target = "torch.ops.aten.clamp_min.default";
+    recipe = "Recipe_scalar_value";
+    initial =
+      "Aten_walk_recipes.Recipe_scalar_value.{ n = 1; c = 4; h = 8; w = 8; \
+       value = Aten_spec.Scalar_value.Float 0.1 }";
+    axes =
+      "Aten_walk_recipes.Recipe_scalar_value.axes ~n:[ 1; 2 ] ~c:[ 3; 4; 8 ] \
+       ~h:[ 4; 8 ] ~w:[ 4; 8 ] \
+       ~value:Aten_walk_recipes.Recipe_scalar_value.candidates";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_scalar_value.self_shape c) in
+    ( Aten_op_spec.Op_clamp_min.(spec { self; min = Recipe_scalar_value.value c }), pcg )|};
+  }
+
 (* hardtanh.default DOES get a generated default walk, but that only ever
    exercises the schema default (-1, 1). MobileNet-v2 uses (0, 6) exclusively,
    so this override widens the bound pair to the configurations the importer

@@ -95,6 +95,25 @@ let%expect_test "dispatch: sqrt.default elementwise" =
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=2] {0, 1, 2, 1.5} |}]
 
+(* rsqrt(x) = x ** -0.5 legalizes onto the existing [Pow] node -- see the
+   arm's comment in op_bridge_pointwise.ml. Printing the graph confirms no
+   new node is built. *)
+let%expect_test "dispatch: rsqrt.default legalizes to Pow exponent=-0.5" =
+  let a = float_tensor [ 2; 2 ] [ 1.; 4.; 0.25; 16. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.rsqrt.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=2] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=2]] = pow x=t0 scalar=-0.5
+    outputs: [t1 f32 [W=2 C=2] <-n0]
+    tensor f32 [W=2 C=2] {1, 0.5, 2, 0.25} |}]
+
 let%expect_test "dispatch: sub.Tensor elementwise" =
   let a = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
   let b = float_tensor [ 2; 3 ] [ 0.; 10.; 100.; 1.; 2.; 3. ] in
@@ -103,6 +122,46 @@ let%expect_test "dispatch: sub.Tensor elementwise" =
     ~inputs:[ in_tensor "self"; in_tensor "other" ]
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=3] {1, -8, -97, 3, 3, 3} |}]
+
+(* Default value=1: decomposes to [Mul]+[Add] only -- no [Mul_scalar] node,
+   the corpus's only observed [value]. *)
+let%expect_test
+    "dispatch: addcmul.default value=1 (default) decomposes to Mul+Add" =
+  let self = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let t1 = float_tensor [ 2; 3 ] [ 1.; 1.; 1.; 1.; 1.; 1. ] in
+  let t2 = float_tensor [ 2; 3 ] [ 2.; 3.; 4.; 5.; 6.; 7. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.addcmul.default"
+    ~bindings:[ ("self", self); ("tensor1", t1); ("tensor2", t2) ]
+    ~inputs:[ in_tensor "self"; in_tensor "tensor1"; in_tensor "tensor2" ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs:
+      [t0 f32 [W=2 C=3] ->[n1], t1 f32 [W=2 C=3] ->[n0], t2 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t3 f32 [W=2 C=3] ->[n1]] = mul a=t1 b=t2
+      n1: [t4 f32 [W=2 C=3]] = add a=t0 b=t3 <-n0
+    outputs: [t4 f32 [W=2 C=3] <-n1]
+    tensor f32 [W=2 C=3] {3, 5, 7, 9, 11, 13} |}]
+
+(* Non-unit value: an extra [Mul_scalar] node scales the product. *)
+let%expect_test "dispatch: addcmul.default value=2 scales via Mul_scalar" =
+  let self = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  let t1 = float_tensor [ 2; 3 ] [ 1.; 1.; 1.; 1.; 1.; 1. ] in
+  let t2 = float_tensor [ 2; 3 ] [ 2.; 3.; 4.; 5.; 6.; 7. ] in
+  dispatch_print ~target:"torch.ops.aten.addcmul.default"
+    ~bindings:[ ("self", self); ("tensor1", t1); ("tensor2", t2) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_tensor "tensor1";
+        in_tensor "tensor2";
+        in_float "value" 2.0;
+      ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=3] {5, 8, 11, 14, 17, 20} |}]
 
 let%expect_test "dispatch: addmm.default relayouts [In,Out] weight" =
   let bias = float_tensor [ 2 ] [ 10.; 100. ] in

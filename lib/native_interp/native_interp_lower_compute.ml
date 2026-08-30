@@ -12,9 +12,11 @@ let targets =
     "torch.ops.aten._native_batch_norm_legit_no_training.default";
     "torch.ops.aten.add.Tensor";
     "torch.ops.aten.adaptive_avg_pool2d.default";
+    "torch.ops.aten.addcmul.default";
     "torch.ops.aten.addmm.default";
     "torch.ops.aten.amax.default";
     "torch.ops.aten.clamp.default";
+    "torch.ops.aten.clamp_min.default";
     "torch.ops.aten.clone.default";
     "torch.ops.aten.conv2d.default";
     "torch.ops.aten.conv2d.padding";
@@ -40,6 +42,7 @@ let targets =
     "torch.ops.aten.pow.Tensor_Scalar";
     "torch.ops.aten.relu.default";
     "torch.ops.aten.rms_norm.default";
+    "torch.ops.aten.rsqrt.default";
     "torch.ops.aten.scaled_dot_product_attention.default";
     "torch.ops.aten.sigmoid.default";
     "torch.ops.aten.silu.default";
@@ -404,6 +407,12 @@ let dispatch ~ctx ~env (node : Node.t) =
        | "torch.ops.aten.relu.default" ->
            let* y = relu (get "self") in
            return [ y ]
+       (* Serialized twin of [Op_bridge_pointwise]'s [rsqrt.default] arm:
+          legalizes onto the existing [Pow] node at exponent -0.5, the exact
+          reciprocal-of-sqrt special case its [Compute] already implements. *)
+       | "torch.ops.aten.rsqrt.default" ->
+           let* y = pow (-0.5) (get "self") in
+           return [ y ]
        | "torch.ops.aten.add.Tensor" -> (
            reject_alpha esc node;
            match tensor_or_scalar "other" with
@@ -413,6 +422,19 @@ let dispatch ~ctx ~env (node : Node.t) =
            | `Scalar s ->
                let* y = add_scalar s (get "self") in
                return [ y ])
+       (* Serialized twin of [Op_bridge_pointwise]'s [addcmul.default] arm:
+          self + value * tensor1 * tensor2, decomposed to [Mul]/[Add]/
+          [Mul_scalar] rather than a new [Graph_ir] op -- see the bridge arm's
+          comment. [Mul_scalar] is skipped for the
+          verified default [value=1]. *)
+       | "torch.ops.aten.addcmul.default" ->
+           let value = scalar_arg esc ~default:1. node "value" in
+           let* prod = mul (get "tensor1") (get "tensor2") in
+           let* scaled =
+             if Float.equal value 1. then return prod else mul_scalar value prod
+           in
+           let* y = add (get "self") scaled in
+           return [ y ]
        (* [x - s] legalizes to [x + (-s)]: IEEE negation is exact and the
          builder narrows to f32 on both spellings either way, so the two are
          bit-identical (op3-impl.md F7). No [sub_scalar] builder exists and
@@ -434,6 +456,14 @@ let dispatch ~ctx ~env (node : Node.t) =
              }
            in
            let* y = clamp params (get "self") in
+           return [ y ]
+       (* clamp_min(self, min) = clamp(self, min=min, max=None): the same
+          [Pointwise.Clamp] node [clamp.default] builds, one bound only. *)
+       | "torch.ops.aten.clamp_min.default" ->
+           let min = required_scalar_arg esc node "min" in
+           let* y =
+             clamp { Pointwise.Clamp.min = Some min; max = None } (get "self")
+           in
            return [ y ]
        | "torch.ops.aten.clone.default" ->
            check_clone_memory_format esc node;

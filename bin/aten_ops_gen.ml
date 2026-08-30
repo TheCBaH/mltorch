@@ -38,6 +38,8 @@ let curated_selection =
     op "mul" ~overload:"Scalar";
     op "div" ~overload:"Tensor";
     op "clamp";
+    op "clamp_min";
+    op "rsqrt";
     (* masking ops used by the ViT models (attention-mask construction) *)
     op "eq" ~overload:"Scalar";
     op "logical_not";

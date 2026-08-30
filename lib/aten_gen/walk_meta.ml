@@ -35,6 +35,7 @@ let entries =
     pow_tensor_scalar;
     linalg_vector_norm;
     clamp;
+    clamp_min;
     hardtanh;
     unbind_int;
     pad;

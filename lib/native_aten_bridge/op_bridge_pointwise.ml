@@ -30,6 +30,31 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let+ y = add_scalar scalar a_id in
                    [ y ]
                | _ -> assert false))
+  (* addcmul(self, tensor1, tensor2, value=1) = self + value * tensor1 *
+     tensor2 -- decomposed to existing [Mul]/[Add]/[Mul_scalar] nodes rather
+     than a new [Graph_ir] op: the ATen semantics literally IS that
+     composition, with no shape/axis logic of its own to lose (unlike
+     select/stack, which had their own shape rule a decomposition would have
+     hidden). [Mul_scalar] is skipped entirely for
+     the verified default [value=1], the only value this corpus serialises,
+     rather than always emitting a `*1.` node. *)
+  | "torch.ops.aten.addcmul.default" ->
+      Some
+        (let* self = native_tensor_arg aten_env node "self" in
+         let* t1 = native_tensor_arg aten_env node "tensor1" in
+         let* t2 = native_tensor_arg aten_env node "tensor2" in
+         let* value = scalar_arg ~default:(Aten_scalar.Float 1.) node "value" in
+         build_g ~name:"addcmul" [ self; t1; t2 ] (function
+           | [ self_id; t1_id; t2_id ] ->
+               let open Graph_builder in
+               let* prod = mul t1_id t2_id in
+               let* scaled =
+                 if Float.equal value 1. then return prod
+                 else mul_scalar value prod
+               in
+               let+ y = add self_id scaled in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.clamp.default" | "torch.ops.aten.clamp_.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -42,6 +67,22 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            | [ x_id ] ->
                let open Graph_builder in
                let+ y = clamp { Pointwise.Clamp.min; max } x_id in
+               [ y ]
+           | _ -> assert false))
+  (* clamp_min(self, min) = clamp(self, min=min, max=None): one bound of the
+     same node [clamp.default] already builds, not a separate op -- reuses
+     [Pointwise.Clamp] unchanged. *)
+  | "torch.ops.aten.clamp_min.default" | "torch.ops.aten.clamp_min_.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         let* s = decode_result (D.scalar_arg_result node "min") in
+         let* min = float_of_aten_scalar "min" s in
+         build_g ~name:"clamp_min" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y =
+                 clamp { Pointwise.Clamp.min = Some min; max = None } x_id
+               in
                [ y ]
            | _ -> assert false))
   | "torch.ops.aten.div.Tensor" | "torch.ops.aten.div_.Tensor" ->
@@ -173,6 +214,21 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
+  (* rsqrt(x) = x ** -0.5: [Pow]'s own [Compute] already special-cases exponent
+     -0.5 as [reciprocal (sqrt x)], the same reciprocal-of-sqrt kernel ATen's
+     [PowKernel.cpp] uses for both `pow(x,-0.5)` and `rsqrt` -- so this legalizes
+     onto the existing [Pow] node rather than adding a new one, the same "map
+     onto an existing op" pattern [sub.Tensor]'s scalar form and the original
+     [pow(x,0.5) -> Sqrt] legalization used. *)
+  | "torch.ops.aten.rsqrt.default" | "torch.ops.aten.rsqrt_.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         build_g ~name:"rsqrt" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = pow (-0.5) x_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.sigmoid.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
