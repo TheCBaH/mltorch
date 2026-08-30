@@ -114,7 +114,8 @@ module Env = struct
   let fmt_is_f32_exact (Payload.Fmt fmt) =
     match fmt with
     | Payload.F32 | Payload.F16 | Payload.BF16 -> true
-    | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 -> false
+    | Payload.F64 | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 ->
+        false
 
   let stored_f32 t (cell : Ground_expr.Cell.t) =
     let fmt =

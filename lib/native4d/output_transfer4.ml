@@ -30,8 +30,9 @@ let classify (op : Op.t) ~output:_ =
       Output_transfer.Continuous
   | Concat4 _ -> Output_transfer.Reindexing
   | Conv2d _ | Depthwise_conv2d _ | Div _ | Div_scalar _ | Gelu _
-  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Max_keepdims _
-  | Max_pool2d _ | Mean_keepdims _ | Mul _ | Mul_scalar _ | Pad4 _ ->
+  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _
+  | Max_keepdims _ | Max_pool2d _ | Mean_keepdims _ | Mul _ | Mul_scalar _
+  | Pad4 _ ->
       Output_transfer.Continuous
   | Permute4 _ -> Output_transfer.Reindexing
   | Pow _ | Relu _ -> Output_transfer.Continuous
@@ -46,6 +47,7 @@ let classify (op : Op.t) ~output:_ =
      [Output_transfer]'s own [Upsample_nearest2d] arm for the full argument. *)
   | Upsample_nearest2d _ -> Output_transfer.Reindexing
   | Vector_norm_keepdims _ -> Output_transfer.Continuous
+  | Arange4 _ | Zeros4 _ -> Output_transfer.Continuous
 
 module Transfer = Output_transfer.Make (struct
   type nonrec op = Op.t

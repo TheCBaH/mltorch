@@ -119,6 +119,11 @@ let tensor_of_pt2 (tensor : Pt2_tensor.t) =
         ~read_cell:(fun data offset ->
           Int32.float_of_bits (Bytes.get_int32_le data offset))
         ~materialize:Tensor.materialize
+  | Pt2_dtype.Float64 ->
+      load_dense tensor ~element_size:8
+        ~read_cell:(fun data offset ->
+          Int64.float_of_bits (Bytes.get_int64_le data offset))
+        ~materialize:(Tensor.materialize_fmt (Payload.Fmt Payload.F64))
   | Pt2_dtype.Int64 ->
       load_dense tensor ~element_size:8
         ~read_cell:(fun data offset -> Bytes.get_int64_le data offset)

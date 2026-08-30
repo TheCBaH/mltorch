@@ -231,6 +231,9 @@ let output_shape (op : Op.t)
              ~weight ~bias)
       in
       one (four (Norm.LayerNorm.output_shape ~x_shape p))
+  | Leaky_relu { Pointwise.Leaky_relu.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Leaky_relu.output_shape x_shape))
   | Max_keepdims { Ops4.Max_keepdims.params; x } ->
       let* x_shape = shape x in
       one (four (Reduce.Amax.output_shape ~x_shape (max_params params)))
@@ -328,3 +331,15 @@ let output_shape (op : Op.t)
         (four
            (Reduce.Vector_norm.output_shape ~x_shape
               (vector_norm_params params)))
+  | Arange4 { Ops4.Arange4.params } ->
+      let native =
+        Factory.Arange.
+          {
+            start = params.start;
+            stop = params.stop;
+            step = params.step;
+            fmt = params.fmt;
+          }
+      in
+      one (four (Factory.Arange.output_shape native))
+  | Zeros4 { Ops4.Zeros4.params } -> Err.return [ params.shape ]

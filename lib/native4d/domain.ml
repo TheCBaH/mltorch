@@ -113,7 +113,7 @@ let check_transposed node ~groups =
 let fmt_is_f32_exact (Payload.Fmt fmt) =
   match fmt with
   | Payload.F32 | Payload.F16 | Payload.BF16 -> true
-  | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 -> false
+  | Payload.F64 | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 -> false
 
 (* Two preconditions, and the second is not about shape at all.
 
@@ -217,10 +217,11 @@ let check_node view (n : node) =
      tensors are covered by the shape rule above. *)
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
   | Clone _ | Div _ | Div_scalar _ | Gelu _ | Hardsigmoid _ | Hardswish _
-  | Hardtanh _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _ | Relu _
-  | Reshape _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _ | Upsample_bilinear2d _
-  | Upsample_nearest2d _ ->
+  | Hardtanh _ | Leaky_relu _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _
+  | Pow _ | Relu _ | Reshape _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _
+  | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
       Err.return ()
+  | Arange _ | Zeros _ -> Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
   | Layer_norm { Norm.LayerNorm.params; _ } ->
       check_dims node params.Norm.LayerNorm.dims

@@ -118,6 +118,29 @@ let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) =
       Payload.set_float payload ~c:(channel c) ~i (f c));
   Tensor { shape; payload }
 
+(* A tensor factory is allowed to preserve its requested storage format.  The
+   ordinary staged-operation path remains F32; this narrow constructor is for
+   factories such as [zeros] whose dtype is part of their ATen contract. *)
+let materialize_fmt (Payload.Fmt fmt) (shape : Vec6.shape)
+    (f : Vec6.coord -> float) : packed =
+  let n = (Vec6.numel shape :> int) in
+  match fmt with
+  | Payload.F32 ->
+      let data = Bigarray.(Array1.create float32 c_layout n) in
+      let payload = { Payload.fmt; quant = Payload.No_quant; data } in
+      Vec6.iter shape (fun c ->
+          let i = (Vec6.offset shape c :> int) in
+          Payload.set_float payload ~c:(channel c) ~i (f c));
+      Tensor { shape; payload }
+  | Payload.F64 ->
+      let data = Bigarray.(Array1.create float64 c_layout n) in
+      let payload = { Payload.fmt; quant = Payload.No_quant; data } in
+      Vec6.iter shape (fun c ->
+          let i = (Vec6.offset shape c :> int) in
+          Payload.set_float payload ~c:(channel c) ~i (f c));
+      Tensor { shape; payload }
+  | _ -> invalid_arg "Tensor.materialize_fmt: unsupported factory format"
+
 (* Same as [materialize], for an [I64]-format destination: writes cells
    directly rather than through [Payload.set_float] (which would round-trip
    an exact int64 through the engine's f32 compute domain) — the leaf
@@ -154,6 +177,10 @@ let copy_cells (type e b q) (src : (e, b, q) Payload.payload)
   match src.fmt with
   | Payload.F32 ->
       let data = Bigarray.Array1.create Bigarray.float32 Bigarray.c_layout n in
+      copy_data data;
+      Tensor { shape; payload = { src with data } }
+  | Payload.F64 ->
+      let data = Bigarray.Array1.create Bigarray.float64 Bigarray.c_layout n in
       copy_data data;
       Tensor { shape; payload = { src with data } }
   | Payload.I64 ->
@@ -306,6 +333,17 @@ let jsont ?(max_elts : int option) () : packed Jsont.t =
                 shape;
                 payload =
                   { Payload.fmt = Payload.F32; quant = Payload.No_quant; data };
+              }
+        | Payload.Fmt Payload.F64 ->
+            let data = Bigarray.(Array1.create float64 c_layout expected) in
+            List.iteri
+              (fun i v -> data.{i} <- Json_util.dec Json_util.f32_jsont v)
+              vs;
+            Tensor
+              {
+                shape;
+                payload =
+                  { Payload.fmt = Payload.F64; quant = Payload.No_quant; data };
               }
         | Payload.Fmt Payload.I64 ->
             let data = Bigarray.(Array1.create int64 c_layout expected) in

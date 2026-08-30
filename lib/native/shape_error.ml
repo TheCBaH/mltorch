@@ -231,6 +231,23 @@ module Reshape = struct
       Vec6.pp_shape target Vec6.pp_shape source
 end
 
+(* A factory range has no operand shape to constrain it, so its scalar bounds
+   are checked by the factory itself.  Native does not represent empty tensors,
+   and keeps every concrete extent below the same JS-safe limit as a graph
+   input. *)
+module Arange = struct
+  type fault = [ `Empty | `Non_finite | `Non_positive_step | `Over_limit ]
+  type t = { start : float; stop : float; step : float; fault : fault }
+
+  let pp ppf { start; stop; step; fault } =
+    Fmt.pf ppf "arange(%g, %g, %g): %s" start stop step
+      (match fault with
+      | `Empty -> "selects no elements; Native has no empty tensor"
+      | `Non_finite -> "bounds and step must be finite"
+      | `Non_positive_step -> "only a positive step is supported"
+      | `Over_limit -> "result extent exceeds the engine limit")
+end
+
 module Slice = struct
   type fault = [ `Empty | `Out_of_range ]
 
@@ -598,6 +615,7 @@ type t =
   | `Pad of Pad.t
   | `Permute of Permute.t
   | `Reshape of Reshape.t
+  | `Arange of Arange.t
   | `Resize of Resize.t
   | `Resize_nearest of Resize_nearest.t
   | `Sdpa of Sdpa.error
@@ -623,6 +641,7 @@ let pp ppf = function
   | `Pad e -> Pad.pp ppf e
   | `Permute e -> Permute.pp ppf e
   | `Reshape e -> Reshape.pp ppf e
+  | `Arange e -> Arange.pp ppf e
   | `Resize e -> Resize.pp ppf e
   | `Resize_nearest e -> Resize_nearest.pp ppf e
   | `Sdpa e -> Sdpa.pp_error ppf e

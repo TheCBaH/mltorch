@@ -55,6 +55,10 @@ let curated_selection =
     op "hardswish_";
     op "hardtanh";
     op "hardtanh_";
+    op "leaky_relu";
+    op "arange";
+    op "arange" ~overload:"start";
+    op "zeros";
     op "silu";
     op "silu_";
     op "reshape";

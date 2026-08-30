@@ -147,6 +147,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           match bias with None -> fill 0. (shape_of x) | Some b -> operand b
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight ~bias out
+    | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
+        let module C = Pointwise.Leaky_relu.Compute (S) in
+        C.pixel params (operand x) out
     | Linear { Linear.Linear.params; x; weight; bias } ->
         let module C = Linear.Linear.Compute (S) in
         let bias =
@@ -274,6 +277,12 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Vector_norm { Reduce.Vector_norm.params; x } ->
         let module C = Reduce.Vector_norm.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Arange { Factory.Arange.params } ->
+        let module C = Factory.Arange.Compute (S) in
+        C.pixel params out
+    | Zeros { Factory.Zeros.params } ->
+        let module C = Factory.Zeros.Compute (S) in
+        C.pixel params
     | Discard _ ->
         invalid_arg
           "Eval_op.pixel: Discard produces no output, so it has no pixel"

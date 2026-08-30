@@ -188,6 +188,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       in
       let+ out = widen (Norm.LayerNorm.output_shape ~x_shape params) in
       [ out ]
+  | Leaky_relu { Pointwise.Leaky_relu.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Leaky_relu.output_shape x_shape) in
+      [ out ]
   | Linear { Linear.Linear.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
@@ -340,4 +344,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Vector_norm { Reduce.Vector_norm.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reduce.Vector_norm.output_shape ~x_shape params) in
+      [ out ]
+  | Arange { Factory.Arange.params } ->
+      let+ out = widen (Factory.Arange.output_shape params) in
+      [ out ]
+  | Zeros { Factory.Zeros.params } ->
+      let+ out = widen (Factory.Zeros.output_shape params) in
       [ out ]

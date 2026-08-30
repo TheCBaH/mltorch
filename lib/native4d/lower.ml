@@ -360,6 +360,29 @@ let lower_node ~view acc (n : node) =
       simple (Op.Hardswish { Pointwise.Hardswish.x = op_of x })
   | Hardtanh { Pointwise.Hardtanh.params; x } ->
       simple (Op.Hardtanh { Pointwise.Hardtanh.params; x = op_of x })
+  | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
+      simple (Op.Leaky_relu { Pointwise.Leaky_relu.params; x = op_of x })
+  | Arange { Factory.Arange.params } ->
+      let* source = sig_of (single ()) in
+      let+ _ = shape4 ~id:(single ()) source in
+      emit acc ~from:node
+        (Op.Arange4
+           {
+             Ops4.Arange4.params =
+               {
+                 start = params.start;
+                 stop = params.stop;
+                 step = params.step;
+                 fmt = params.fmt;
+               };
+           })
+        [ single () ]
+  | Zeros { Factory.Zeros.params } ->
+      let* shape = sig_of (single ()) in
+      let+ shape = shape4 ~id:(single ()) shape in
+      emit acc ~from:node
+        (Op.Zeros4 { Ops4.Zeros4.params = { shape; fmt = params.fmt } })
+        [ single () ]
   | Relu { Pointwise.Relu.x } -> simple (Op.Relu { Pointwise.Relu.x = op_of x })
   | Sigmoid { Pointwise.Sigmoid.x } ->
       simple (Op.Sigmoid { Pointwise.Sigmoid.x = op_of x })

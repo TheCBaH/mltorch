@@ -808,3 +808,77 @@ module Unbind = struct
   let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>unbind@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
 end
+
+(* The four-axis counterpart of [Factory.Zeros].  Its result shape is typed as
+   [Shape4.t], so a factory cannot smuggle a T/D extent into this dialect. *)
+module Zeros4 = struct
+  type params = { shape : Shape4.t; fmt : Payload.packed_fmt }
+  type t = { params : params }
+
+  let name = "Zeros4"
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"zeros4_params" (fun shape fmt -> { shape; fmt })
+    |> Jsont.Object.mem "shape" Shape4.jsont ~enc:(fun p -> p.shape)
+    |> Jsont.Object.mem "fmt" Payload.packed_fmt_jsont ~enc:(fun p -> p.fmt)
+    |> Jsont.Object.finish
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { params = Json_util.req_field ms "params" params_jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("params", Json_util.enc params_jsont t.params) ])
+      Jsont.json
+
+  let operands _ = []
+  let map_operands _ t = t
+
+  let pp _ fmt (t : t) =
+    let (Payload.Fmt elt) = t.params.fmt in
+    Fmt.pf fmt "@[<hv 2>zeros4@ shape=%a@ fmt=%s@]" Shape4.pp t.params.shape
+      (Payload.fmt_name elt)
+end
+
+(* Four-axis form of [Factory.Arange].  A rank-one ATen range arrives as C,
+ * leaving N/H/W unit, so it remains a valid Native4D factory without an
+ * artificial reshape. *)
+module Arange4 = struct
+  type params = {
+    start : float;
+    stop : float;
+    step : float;
+    fmt : Payload.packed_fmt;
+  }
+
+  type t = { params : params }
+
+  let name = "Arange4"
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"arange4_params" (fun start stop step fmt ->
+        { start; stop; step; fmt })
+    |> Jsont.Object.mem "start" Json_util.f32_jsont ~enc:(fun p -> p.start)
+    |> Jsont.Object.mem "stop" Json_util.f32_jsont ~enc:(fun p -> p.stop)
+    |> Jsont.Object.mem "step" Json_util.f32_jsont ~enc:(fun p -> p.step)
+    |> Jsont.Object.mem "fmt" Payload.packed_fmt_jsont ~enc:(fun p -> p.fmt)
+    |> Jsont.Object.finish
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { params = Json_util.req_field ms "params" params_jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("params", Json_util.enc params_jsont t.params) ])
+      Jsont.json
+
+  let operands _ = []
+  let map_operands _ t = t
+
+  let pp _ fmt (t : t) =
+    let (Payload.Fmt elt) = t.params.fmt in
+    Fmt.pf fmt "@[<hv 2>arange4@ start=%g@ stop=%g@ step=%g@ fmt=%s@]"
+      t.params.start t.params.stop t.params.step (Payload.fmt_name elt)
+end

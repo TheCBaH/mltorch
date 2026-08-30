@@ -162,6 +162,20 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = hardtanh { Pointwise.Hardtanh.min_val; max_val } x_id in
                [ y ]
            | _ -> assert false))
+  | "torch.ops.aten.leaky_relu.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         let* negative_slope =
+           scalar_arg ~default:(Aten_scalar.Float 0.01) node "negative_slope"
+         in
+         build_g ~name:"leaky_relu" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y =
+                 leaky_relu { Pointwise.Leaky_relu.negative_slope } x_id
+               in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" ->
       Some
         (let* a = native_tensor_arg aten_env node "self" in

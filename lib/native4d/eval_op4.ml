@@ -126,6 +126,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           (Graph_shape4.layer_norm_params params)
           ~x_shape:(shape_of x) ~x:(operand x) ~weight:(fill_or 1. weight)
           ~bias:(fill_or 0. bias) out
+    | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
+        let module C = Pointwise.Leaky_relu.Compute (S) in
+        C.pixel params (operand x) out
     | Max_keepdims { Ops4.Max_keepdims.params; x } ->
         let module C = Reduce.Amax.Compute (S) in
         C.pixel
@@ -226,4 +229,22 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           (Graph_shape4.vector_norm_params params)
           ~x_shape:(shape_of x) ~x:(operand x) out
+    | Arange4 { Ops4.Arange4.params } ->
+        let module C = Factory.Arange.Compute (S) in
+        C.pixel
+          Factory.Arange.
+            {
+              start = params.start;
+              stop = params.stop;
+              step = params.step;
+              fmt = params.fmt;
+            }
+          out
+    | Zeros4 { Ops4.Zeros4.params } ->
+        let module C = Factory.Zeros.Compute (S) in
+        C.pixel
+          {
+            Factory.Zeros.shape = Shape4.to_vec6 params.shape;
+            fmt = params.fmt;
+          }
 end

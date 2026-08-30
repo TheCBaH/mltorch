@@ -14,6 +14,7 @@ type ('elt, 'ba, 'q) fmt =
         [ `Real ] )
       fmt (* IEEE half, raw bits *)
   | F32 : (float, Bigarray.float32_elt, [ `Real ]) fmt
+  | F64 : (float, Bigarray.float64_elt, [ `Real ]) fmt
   | I16 : (int, Bigarray.int16_signed_elt, [ `Quant ]) fmt
   | I32 : (int32, Bigarray.int32_elt, [ `Real ]) fmt
   | I64 : (int64, Bigarray.int64_elt, [ `Real ]) fmt
@@ -36,6 +37,7 @@ let fmt_name : type e b q. (e, b, q) fmt -> string = function
   | BF16 -> "bf16"
   | F16 -> "f16"
   | F32 -> "f32"
+  | F64 -> "f64"
   | I16 -> "i16"
   | I32 -> "i32"
   | I64 -> "i64"
@@ -57,6 +59,7 @@ let get_float : type e b q. (e, b, q) payload -> c:int -> i:int -> float =
   | BF16 -> Half.Bf16.to_float p.data.{i}
   | F16 -> Half.Half.to_float p.data.{i}
   | F32 -> p.data.{i}
+  | F64 -> p.data.{i}
   | I16 -> (
       match p.quant with Quant qz -> Quant.dequantize qz ~c ~q:p.data.{i})
   | I32 -> Int32.to_float p.data.{i}
@@ -72,6 +75,7 @@ let set_float : type e b q. (e, b, q) payload -> c:int -> i:int -> float -> unit
   | BF16 -> p.data.{i} <- Half.Bf16.of_float x
   | F16 -> p.data.{i} <- Half.Half.of_float x
   | F32 -> p.data.{i} <- x
+  | F64 -> p.data.{i} <- x
   | I16 -> (
       let qmin, qmax = qrange p.fmt in
       match p.quant with
@@ -96,7 +100,7 @@ let pp : type e b q. Format.formatter -> (e, b, q) payload -> unit =
    of a packed format — [Tensor_sig.t], whose [quant] field is a plain option
    the record cannot constrain — has no other way to ask. *)
 let is_quantized (Fmt f) =
-  match f with I16 | I8 -> true | BF16 | F16 | F32 | I32 | I64 -> false
+  match f with I16 | I8 -> true | BF16 | F16 | F32 | F64 | I32 | I64 -> false
 
 let packed_fmt_jsont : packed_fmt Jsont.t =
   Jsont.map ~kind:"fmt"
@@ -105,6 +109,7 @@ let packed_fmt_jsont : packed_fmt Jsont.t =
       | "bf16" -> Fmt BF16
       | "f16" -> Fmt F16
       | "f32" -> Fmt F32
+      | "f64" -> Fmt F64
       | "i16" -> Fmt I16
       | "i32" -> Fmt I32
       | "i64" -> Fmt I64

@@ -98,7 +98,7 @@ let push_node op outputs s =
 
 (* A single-output op: compute its output shape from the current edge metadata,
   allocate the output edge, append the node. *)
-let op1 ?name ~kind op : Tensor_id.t t =
+let op1 ?name ?fmt ~kind op : Tensor_id.t t =
   let* s = get in
   let* shapes =
     lift_result
@@ -115,7 +115,7 @@ let op1 ?name ~kind op : Tensor_id.t t =
               (`Expected_single_output_shape { count = List.length shapes }),
             s )
   in
-  let* tid = new_edge ?name ~kind shape in
+  let* tid = new_edge ?name ?fmt ~kind shape in
   let* () = push_node op [ tid ] in
   return tid
 
@@ -266,6 +266,9 @@ let layer_norm ?name params ~x ?weight ?bias () =
   op1 ?name ~kind:"layer_norm"
     (Layer_norm { Norm.LayerNorm.params; x; weight; bias })
 
+let leaky_relu ?name params x =
+  op1 ?name ~kind:"leaky_relu" (Leaky_relu { Pointwise.Leaky_relu.params; x })
+
 let linear ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"linear" (Linear { Linear.Linear.params; x; weight; bias })
 
@@ -391,6 +394,14 @@ let upsample_nearest2d ?name params x =
 
 let vector_norm ?name params x =
   op1 ?name ~kind:"vector_norm" (Vector_norm { Reduce.Vector_norm.params; x })
+
+let arange ?name params =
+  op1 ?name ~fmt:params.Factory.Arange.fmt ~kind:"arange"
+    (Arange { Factory.Arange.params })
+
+let zeros ?name params =
+  op1 ?name ~fmt:params.Factory.Zeros.fmt ~kind:"zeros"
+    (Zeros { Factory.Zeros.params })
 
 let group ?label (body : 'a t) : 'a t =
  fun s ->

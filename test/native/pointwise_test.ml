@@ -14,6 +14,17 @@ let%expect_test "Direct: relu pointwise" =
     (eval_tensor (Pointwise.Relu.output_shape x_shape) (R.pixel x));
   [%expect {| tensor f32 [C=4] {0, 0, 1, 3} |}]
 
+let%expect_test "Direct: leaky_relu pointwise" =
+  let module L = Pointwise.Leaky_relu.Compute (Direct) in
+  let x_shape = s1c 4 in
+  let x =
+    Tensor.materialize x_shape (fun c -> [| -2.; -0.5; 0.; 3. |].(chan c))
+  in
+  let params : Pointwise.Leaky_relu.params = { negative_slope = 0.2 } in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor (Pointwise.Leaky_relu.output_shape x_shape) (L.pixel params x));
+  [%expect {| tensor f32 [C=4] {-0.4, -0.1, 0, 3} |}]
+
 let%expect_test "Direct: add" =
   let module A = Pointwise.Add.Compute (Direct) in
   let x_shape = s1c 3 and y_shape = s1c 3 in

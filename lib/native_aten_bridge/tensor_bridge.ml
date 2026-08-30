@@ -7,7 +7,7 @@
    contiguous copy (via ATen's [contiguous]), so callers need not pre-flatten.
 
    Only dtypes with a clean ctypes ↔ Bigarray element correspondence are
-   supported (Float32 and Int64); others return an Error.
+   supported (Float32, Float64 and Int64); others return an Error.
 
    The ATen tensor type [Interp_decode.tensor = [`atc_tensor_opaque] structure ptr]
    is the same phantom type ctypes assigns to the opaque C struct, identical to
@@ -87,6 +87,23 @@ let of_aten t : (Tensor.packed, [> error ]) Err.t =
                              data;
                            };
                        }))
+          | Aten_scalar_type.Double -> (
+              match Aten_tensor.data Aten_dtype.float64 t with
+              | None -> Err.fail (`Null_data_ptr Aten_scalar_type.Double)
+              | Some src ->
+                  let data = Array1.create float64 c_layout n in
+                  Array1.blit src data;
+                  Err.return
+                    (Tensor.Tensor
+                       {
+                         Tensor.shape;
+                         payload =
+                           {
+                             Payload.fmt = Payload.F64;
+                             quant = Payload.No_quant;
+                             data;
+                           };
+                       }))
           | Aten_scalar_type.Long -> (
               match Aten_tensor.data Aten_dtype.int64 t with
               | None -> Err.fail (`Null_data_ptr Aten_scalar_type.Long)
@@ -106,7 +123,7 @@ let of_aten t : (Tensor.packed, [> error ]) Err.t =
                        }))
           | other -> Err.fail (`Unsupported_dtype other)))
 
-(* Convert a Native packed float32 or int64 tensor to a 1-D ATen tensor.
+(* Convert a Native packed float32, float64 or int64 tensor to a 1-D ATen tensor.
    The ATen tensor has a flat 1D shape [numel] to avoid rank-alignment
    ambiguity.  Callers compare element-wise, not shape-wise. *)
 type to_aten_error = [ `Unsupported_native_fmt of Payload.packed_fmt ]
@@ -122,6 +139,10 @@ let to_aten_flat (native : Tensor.packed) =
       let n = (Vec6.numel r.shape :> int) in
       Err.return
         (Aten_tensor.of_bigarray Aten_dtype.float32 r.payload.data [ n ])
+  | Payload.F64 ->
+      let n = (Vec6.numel r.shape :> int) in
+      Err.return
+        (Aten_tensor.of_bigarray Aten_dtype.float64 r.payload.data [ n ])
   | Payload.I64 ->
       let n = (Vec6.numel r.shape :> int) in
       Err.return (Aten_tensor.of_bigarray Aten_dtype.int64 r.payload.data [ n ])

@@ -94,7 +94,7 @@ let push_node op outputs s =
 (* Every op but [Unbind] is single-output, and this is the form they use: the
    arity check is not vestigial, it is what stops an op that grew an output from
    silently dropping it. [Unbind] uses [opN] below. *)
-let op1 op : Tensor_id.t t =
+let op1 ?fmt op : Tensor_id.t t =
   let* s = get in
   let* shapes =
     lift_result
@@ -111,7 +111,7 @@ let op1 op : Tensor_id.t t =
               (`Expected_single_output_shape { count = List.length shapes }),
             s )
   in
-  let* tid = new_edge shape in
+  let* tid = new_edge ?fmt shape in
   let* () = push_node op [ tid ] in
   return tid
 
@@ -172,6 +172,7 @@ let gelu (approximate : Pointwise.Gelu.approximate) x =
 let hardsigmoid x = op1 (Op.Hardsigmoid { Pointwise.Hardsigmoid.x })
 let hardswish x = op1 (Op.Hardswish { Pointwise.Hardswish.x })
 let hardtanh params x = op1 (Op.Hardtanh { Pointwise.Hardtanh.params; x })
+let leaky_relu params x = op1 (Op.Leaky_relu { Pointwise.Leaky_relu.params; x })
 
 let max_keepdims dims x =
   op1 (Op.Max_keepdims { Ops4.Max_keepdims.params = { dims }; x })
@@ -237,6 +238,12 @@ let upsample_nearest2d params x =
 let vector_norm_keepdims dims x =
   op1
     (Op.Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params = { dims }; x })
+
+let arange4 params =
+  op1 ~fmt:params.Ops4.Arange4.fmt (Op.Arange4 { Ops4.Arange4.params })
+
+let zeros4 params =
+  op1 ~fmt:params.Ops4.Zeros4.fmt (Op.Zeros4 { Ops4.Zeros4.params })
 
 let build ?(dtype = f32) ~outputs (m : 'a t) =
   let s0 =

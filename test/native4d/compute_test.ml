@@ -173,6 +173,43 @@ let%expect_test "direct4: hardswish" =
   Format.printf "%a@." pp_values vs;
   [%expect {| [-0 -0.208333 0.291667 6] |}]
 
+let%expect_test "direct4: leaky_relu" =
+  let vs =
+    activation_single
+      (Builder.leaky_relu { Pointwise.Leaky_relu.negative_slope = 0.2 })
+      ~values:[ -2.; -0.5; 0.; 3. ]
+  in
+  Format.printf "%a@." pp_values vs;
+  [%expect {| [-0.4 -0.1 0 3] |}]
+
+let%expect_test "direct4: zeros4 preserves requested F64 dtype" =
+  let g =
+    build
+      ~outputs:(fun y -> [ y ])
+      (Builder.zeros4
+         {
+           Ops4.Zeros4.shape = s4 ~n:1 ~h:1 ~w:2 ~c:2;
+           fmt = Payload.Fmt Payload.F64;
+         })
+  in
+  Format.printf "%a@." Tensor.pp (single g ~inputs:[] ());
+  [%expect {| tensor f64 [W=2 C=2] {0, 0, 0, 0} |}]
+
+let%expect_test "direct4: arange4 preserves Float start and endpoint" =
+  let g =
+    build
+      ~outputs:(fun y -> [ y ])
+      (Builder.arange4
+         {
+           Ops4.Arange4.start = 0.5;
+           stop = 4.;
+           step = 1.;
+           fmt = Payload.Fmt Payload.F32;
+         })
+  in
+  Format.printf "%a@." Tensor.pp (single g ~inputs:[] ());
+  [%expect {| tensor f32 [C=4] {0.5, 1.5, 2.5, 3.5} |}]
+
 (* Depthwise is the arm where a wrong group count is invisible without a hand
    value: with in_channels = 2 and a 1x1 weight, output channel i is
    x[i] * w[i], whereas groups=1 would sum both channels into each output. *)
@@ -336,7 +373,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 37, registry: 37 |}]
+  [%expect {| fixtures: 40, registry: 40 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -354,6 +391,9 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     pow                    direct = symbolic
     clamp                  direct = symbolic
     hardtanh               direct = symbolic
+    leaky_relu             direct = symbolic
+    zeros4                 direct = symbolic
+    arange4                direct = symbolic
     relu                   direct = symbolic
     gelu                   direct = symbolic
     sigmoid                direct = symbolic

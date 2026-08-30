@@ -20,6 +20,9 @@ let targets =
     "torch.ops.aten.split.Tensor";
     "torch.ops.aten.split_with_sizes.default";
     "torch.ops.aten.stack.default";
+    "torch.ops.aten.arange.default";
+    "torch.ops.aten.arange.start";
+    "torch.ops.aten.zeros.default";
     "torch.ops.aten.transpose.int";
     "torch.ops.aten.unbind.int";
     "torch.ops.aten.unsqueeze.default";
@@ -37,6 +40,115 @@ let dispatch ~ctx ~env (node : Node.t) =
        let graph = ctx.Native_interp_lower_context.graph in
        let get = Native_interp_lower_context.get ctx env node in
        match node.target with
+       | ("torch.ops.aten.arange.default" | "torch.ops.aten.arange.start") as
+         target ->
+           let optional name =
+             List.find_opt
+               (fun (a : NamedArgument.t) -> a.name = name)
+               node.Node.inputs
+             |> Option.map (fun a -> a.NamedArgument.arg)
+           in
+           let scalar_input_is_float =
+             List.exists
+               (fun name ->
+                 match optional name with
+                 | Some (Argument.Float _) -> true
+                 | _ -> false)
+               [ "start"; "end"; "step" ]
+           in
+           let fmt =
+             match optional "dtype" with
+             | None | Some (Argument.None _) ->
+                 if scalar_input_is_float then Payload.Fmt Payload.F32
+                 else Payload.Fmt Payload.I64
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.LONG) ->
+                 Payload.Fmt Payload.I64
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
+                 Payload.Fmt Payload.F32
+             | Some _ ->
+                 malformed esc
+                   (`Unsupported_option { op = node.target; option = `Dtype })
+           in
+           List.iter
+             (fun name ->
+               match optional name with
+               | None | Some (Argument.None _) -> ()
+               | Some _ ->
+                   malformed esc
+                     (`Wrong_arg_kind
+                        { op = node.target; arg = name; expected = `Tensor }))
+             [ "layout" ];
+           (match optional "device" with
+           | None | Some (Argument.None _) -> ()
+           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "device"; expected = `Tensor }));
+           (match optional "pin_memory" with
+           | None | Some (Argument.None _) | Some (Argument.Bool false) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "pin_memory"; expected = `Bool }));
+           let start, stop =
+             match target with
+             | "torch.ops.aten.arange.default" ->
+                 (0., required_scalar_arg esc node "end")
+             | "torch.ops.aten.arange.start" ->
+                 ( required_scalar_arg esc node "start",
+                   required_scalar_arg esc node "end" )
+             | _ -> assert false
+           in
+           let step = scalar_arg esc ~default:1. node "step" in
+           let* y = arange { Factory.Arange.start; stop; step; fmt } in
+           return [ y ]
+       | "torch.ops.aten.zeros.default" ->
+           let optional name =
+             List.find_opt
+               (fun (a : NamedArgument.t) -> a.name = name)
+               node.Node.inputs
+             |> Option.map (fun a -> a.NamedArgument.arg)
+           in
+           let fmt =
+             match optional "dtype" with
+             | None | Some (Argument.None _) -> Payload.Fmt Payload.F32
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
+                 Payload.Fmt Payload.F32
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.DOUBLE) ->
+                 Payload.Fmt Payload.F64
+             | Some _ ->
+                 malformed esc
+                   (`Unsupported_option { op = node.target; option = `Dtype })
+           in
+           List.iter
+             (fun name ->
+               match optional name with
+               | None | Some (Argument.None _) -> ()
+               | Some _ ->
+                   malformed esc
+                     (`Wrong_arg_kind
+                        { op = node.target; arg = name; expected = `Tensor }))
+             [ "layout" ];
+           (match optional "device" with
+           | None | Some (Argument.None _) -> ()
+           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "device"; expected = `Tensor }));
+           (match optional "pin_memory" with
+           | None | Some (Argument.None _) | Some (Argument.Bool false) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "pin_memory"; expected = `Bool }));
+           let shape =
+             shape_of_sizes esc "zeros.size"
+               (List.map (fun i -> SymInt.Int i) (ints_arg esc node "size"))
+           in
+           let* y = zeros { Factory.Zeros.shape; fmt } in
+           return [ y ]
        (* [_assert_tensor_metadata(Tensor a, SymInt[]? size=None, SymInt[]?
          stride=None, ScalarType? dtype=None, *, Device? device=None, Layout?
          layout=None) -> ()] is a pure debug assertion the exporter inserts to

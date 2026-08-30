@@ -40,6 +40,7 @@ type op =
   | Hardtanh of Pointwise.Hardtanh.t
   | Index_tensor of Index_tensor.Index_tensor.t
   | Layer_norm of Norm.LayerNorm.t
+  | Leaky_relu of Pointwise.Leaky_relu.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
@@ -67,6 +68,8 @@ type op =
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm of Reduce.Vector_norm.t
+  | Arange of Factory.Arange.t
+  | Zeros of Factory.Zeros.t
 
 (* A module ALIAS, so field access [n.Node.outputs] still resolves — the fields
    belong to the module this names. OCaml will not let a parameterised record be
@@ -257,6 +260,12 @@ let op_registry : (module OP) list =
       let project = function Layer_norm t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Leaky_relu
+
+      let inject t = Leaky_relu t
+      let project = function Leaky_relu t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Linear.Linear
 
       let inject t = Linear t
@@ -417,6 +426,18 @@ let op_registry : (module OP) list =
 
       let inject t = Vector_norm t
       let project = function Vector_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Factory.Arange
+
+      let inject t = Arange t
+      let project = function Arange t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Factory.Zeros
+
+      let inject t = Zeros t
+      let project = function Zeros t -> Some t | _ -> None
     end : OP);
   ]
 

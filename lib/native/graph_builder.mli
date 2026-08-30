@@ -163,6 +163,9 @@ val layer_norm :
     with an explicit ones tensor is a DIFFERENT graph, and the two importers
     have to agree on which one they build. *)
 
+val leaky_relu :
+  ?name:string -> Pointwise.Leaky_relu.params -> tensor_ref -> Tensor_id.t t
+
 val linear :
   ?name:string ->
   Linear.Linear.params ->
@@ -278,6 +281,9 @@ val upsample_nearest2d :
 
 val vector_norm :
   ?name:string -> Reduce.Vector_norm.params -> tensor_ref -> Tensor_id.t t
+
+val arange : ?name:string -> Factory.Arange.params -> Tensor_id.t t
+val zeros : ?name:string -> Factory.Zeros.params -> Tensor_id.t t
 
 (* Structurally group nodes emitted by [body].  The group shares the enclosing
    graph's global SSA namespace and has no inputs, outputs, or call semantics. *)

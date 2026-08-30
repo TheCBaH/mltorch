@@ -38,6 +38,7 @@ type op =
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
   | Layer_norm of Ops4.Layer_norm.t
+  | Leaky_relu of Pointwise.Leaky_relu.t
   | Max_keepdims of Ops4.Max_keepdims.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Mean_keepdims of Ops4.Mean_keepdims.t
@@ -60,6 +61,8 @@ type op =
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm_keepdims of Ops4.Vector_norm_keepdims.t
+  | Arange4 of Ops4.Arange4.t
+  | Zeros4 of Ops4.Zeros4.t
 
 type t = op
 
@@ -172,6 +175,12 @@ let op_registry : (module OP) list =
 
       let inject t = Layer_norm t
       let project = function Layer_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Leaky_relu
+
+      let inject t = Leaky_relu t
+      let project = function Leaky_relu t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Max_keepdims
@@ -304,6 +313,18 @@ let op_registry : (module OP) list =
 
       let inject t = Vector_norm_keepdims t
       let project = function Vector_norm_keepdims t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Arange4
+
+      let inject t = Arange4 t
+      let project = function Arange4 t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Zeros4
+
+      let inject t = Zeros4 t
+      let project = function Zeros4 t -> Some t | _ -> None
     end : OP);
   ]
 

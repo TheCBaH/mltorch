@@ -32,6 +32,46 @@ let outcome name ?constants g =
          Format.asprintf "converted, %d nodes"
            (List.length dst.Graph_common.Graph.nodes)))
 
+let%expect_test "lower: Zeros becomes the direct Zeros4 counterpart" =
+  let source =
+    build "zeros"
+      (Graph_builder.zeros
+         {
+           Factory.Zeros.shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:4;
+           fmt = Payload.Fmt Payload.F32;
+         })
+  in
+  show "zeros" source;
+  [%expect
+    {|
+    zeros:
+      graph4
+    inputs: []
+    nodes:
+      n0: [t0] = zeros4 shape=[N=1 H=2 W=3 C=4] fmt=f32
+    outputs: [t0 [H=2 W=3 C=4]] |}]
+
+let%expect_test "lower: Arange becomes the direct Arange4 counterpart" =
+  let source =
+    build "arange"
+      (Graph_builder.arange
+         {
+           Factory.Arange.start = 0.5;
+           stop = 4.;
+           step = 1.;
+           fmt = Payload.Fmt Payload.F32;
+         })
+  in
+  show "arange" source;
+  [%expect
+    {|
+    arange:
+      graph4
+    inputs: []
+    nodes:
+      n0: [t0] = arange4 start=0.5 stop=4 step=1 fmt=f32
+    outputs: [t0 [C=4]] |}]
+
 let%expect_test
     "lower: carries a six-dimensional captured constant behind a \
      four-dimensional export" =

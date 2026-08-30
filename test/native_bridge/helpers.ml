@@ -15,6 +15,12 @@ let float_tensor shape vals =
   List.iteri (fun i x -> v.{i} <- x) vals;
   t
 
+let double_tensor shape vals =
+  let t = T.create ~dtype:Stype.Double shape in
+  let v = Option.get (T.data D.float64 t) in
+  List.iteri (fun i x -> v.{i} <- x) vals;
+  t
+
 let i64_tensor shape vals =
   let t = T.create ~dtype:Stype.Long shape in
   let v = Option.get (T.data D.int64 t) in
@@ -73,6 +79,10 @@ let in_floats name xs = PT.NamedArgument.make name (PT.Argument.Floats xs) None
 let in_bool name b = PT.NamedArgument.make name (PT.Argument.Bool b) None
 let in_float name f = PT.NamedArgument.make name (PT.Argument.Float f) None
 let in_none name = PT.NamedArgument.make name (PT.Argument.None false) None
+
+let in_scalar_type name dtype =
+  PT.NamedArgument.make name (PT.Argument.Scalar_type dtype) None
+
 let in_string name s = PT.NamedArgument.make name (PT.Argument.String s) None
 
 let in_memory_format name (mf : PT.MemoryFormat.t) =

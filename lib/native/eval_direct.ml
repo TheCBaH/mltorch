@@ -145,6 +145,17 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
             Tensor.split_with_sizes
               (Tensor_id.Map.find x operand_env)
               ~axis:params.Split.Split_with_sizes.axis ~offset ~shape:out_shape
+        | Zeros { Factory.Zeros.params } ->
+            Tensor.materialize_fmt params.fmt out_shape (fun _ -> 0.)
+        | Arange { Factory.Arange.params } -> (
+            match params.fmt with
+            | Payload.Fmt Payload.I64 ->
+                Tensor.materialize_i64 out_shape (fun coord ->
+                    Int64.of_float
+                      (Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
+            | _ ->
+                Tensor.materialize_fmt params.fmt out_shape (fun coord ->
+                    Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
         | _ ->
             Schedule.evaluate out_shape
               (E.pixel op ~output

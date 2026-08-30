@@ -138,6 +138,29 @@ let per_op () =
         unary ~shape:nhwc
           (Builder.hardtanh { Pointwise.Hardtanh.min_val = 0.; max_val = 1. })
       );
+      ( "leaky_relu",
+        unary ~shape:nhwc
+          (Builder.leaky_relu { Pointwise.Leaky_relu.negative_slope = 0.2 }) );
+      ( "zeros4",
+        ( build
+            ~outputs:(fun y -> [ y ])
+            (Builder.zeros4
+               {
+                 Ops4.Zeros4.shape = s4 ~n:1 ~h:2 ~w:2 ~c:2;
+                 fmt = Payload.Fmt Payload.F32;
+               }),
+          [] ) );
+      ( "arange4",
+        ( build
+            ~outputs:(fun y -> [ y ])
+            (Builder.arange4
+               {
+                 Ops4.Arange4.start = 0.5;
+                 stop = 4.;
+                 step = 1.;
+                 fmt = Payload.Fmt Payload.F32;
+               }),
+          [] ) );
       ("relu", unary ~shape:nhwc Builder.relu);
       ("gelu", unary ~shape:nhwc (Builder.gelu Pointwise.Gelu.Exact));
       ("sigmoid", unary ~shape:nhwc Builder.sigmoid);

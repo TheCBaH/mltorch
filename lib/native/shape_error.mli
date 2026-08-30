@@ -415,6 +415,13 @@ module Resize_nearest : sig
   val pp : Format.formatter -> t -> unit
 end
 
+module Arange : sig
+  type fault = [ `Empty | `Non_finite | `Non_positive_step | `Over_limit ]
+  type t = { start : float; stop : float; step : float; fault : fault }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
   | `Batched_matmul of Batched_matmul.error
@@ -432,6 +439,7 @@ type t =
   | `Pad of Pad.t
   | `Permute of Permute.t
   | `Reshape of Reshape.t
+  | `Arange of Arange.t
   | `Resize of Resize.t
   | `Resize_nearest of Resize_nearest.t
   | `Sdpa of Sdpa.error

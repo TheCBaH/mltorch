@@ -45,6 +45,56 @@ let%expect_test "dispatch: gelu.default elementwise (tanh)" =
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=2] {-8.43965e-11, -0.154286, 0.345714, 6} |}]
 
+let%expect_test "dispatch: leaky_relu.default elementwise" =
+  let a = float_tensor [ 2; 2 ] [ -2.; -0.5; 0.; 3. ] in
+  dispatch_print ~target:"torch.ops.aten.leaky_relu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "negative_slope" 0.2 ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=2] {-0.4, -0.1, 0, 3} |}]
+
+let%expect_test "dispatch: zeros.default preserves default and DOUBLE dtypes" =
+  dispatch_print ~target:"torch.ops.aten.zeros.default" ~bindings:[]
+    ~inputs:[ in_ints "size" [ 2; 3 ] ]
+    ~noutputs:1;
+  dispatch_print ~target:"torch.ops.aten.zeros.default" ~bindings:[]
+    ~inputs:
+      [ in_ints "size" [ 2; 3 ]; in_scalar_type "dtype" PT.ScalarType.DOUBLE ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor f32 [W=2 C=3] {0, 0, 0, 0, 0, 0}
+    tensor f64 [W=2 C=3] {0, 0, 0, 0, 0, 0} |}]
+
+let%expect_test "verify: zeros.default against real ATen" =
+  verify_print ~target:"torch.ops.aten.zeros.default" ~bindings:[]
+    ~inputs:[ in_ints "size" [ 2; 3 ] ];
+  [%expect {|
+    aten and native agree |}]
+
+let%expect_test "dispatch: arange preserves Long and Float factory dtypes" =
+  dispatch_print ~target:"torch.ops.aten.arange.default" ~bindings:[]
+    ~inputs:[ in_int "end" 5 ]
+    ~noutputs:1;
+  dispatch_print ~target:"torch.ops.aten.arange.start" ~bindings:[]
+    ~inputs:
+      [
+        in_float "start" 0.5;
+        in_int "end" 4;
+        in_scalar_type "dtype" PT.ScalarType.FLOAT;
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor i64 [C=5] {0, 1, 2, 3, 4}
+    tensor f32 [C=4] {0.5, 1.5, 2.5, 3.5} |}]
+
+let%expect_test "verify: arange.start Float against real ATen" =
+  verify_print ~target:"torch.ops.aten.arange.start" ~bindings:[]
+    ~inputs:[ in_float "start" 0.5; in_int "end" 4 ];
+  [%expect {|
+    aten and native agree |}]
+
 let%expect_test "dispatch: mul.Tensor with a serialized scalar" =
   let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
   dispatch_print ~target:"torch.ops.aten.mul.Tensor"
@@ -207,6 +257,18 @@ let%expect_test "verify: gelu against real ATen, functional" =
   verify_print ~target:"torch.ops.aten.gelu.default"
     ~bindings:[ ("self", b) ]
     ~inputs:[ in_tensor "self" ];
+  [%expect {|
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "verify: leaky_relu against real ATen" =
+  let a = float_tensor [ 2; 7 ] activation_fixture in
+  verify_print ~target:"torch.ops.aten.leaky_relu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self" ];
+  verify_print ~target:"torch.ops.aten.leaky_relu.default"
+    ~bindings:[ ("self", a) ]
+    ~inputs:[ in_tensor "self"; in_float "negative_slope" 0.2 ];
   [%expect {|
     aten and native agree
     aten and native agree |}]

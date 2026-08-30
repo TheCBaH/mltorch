@@ -114,6 +114,28 @@ let eval_node (g : Graph.graph) env (node : Graph.node) =
               (Tensor_id.Map.find x operand_env)
               ~axis:(Axis4.to_axis params.axis)
               ~output ~shape:(Shape4.to_vec6 out_shape)
+        | Op.Zeros4 { Ops4.Zeros4.params } ->
+            Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
+              (fun _ -> 0.)
+        | Op.Arange4 { Ops4.Arange4.params } -> (
+            let params =
+              Factory.Arange.
+                {
+                  start = params.start;
+                  stop = params.stop;
+                  step = params.step;
+                  fmt = params.fmt;
+                }
+            in
+            match params.fmt with
+            | Payload.Fmt Payload.I64 ->
+                Tensor.materialize_i64 (Shape4.to_vec6 out_shape) (fun coord ->
+                    Int64.of_float
+                      (Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
+            | _ ->
+                Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
+                  (fun coord ->
+                    Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
         | _ ->
             Schedule.evaluate (Shape4.to_vec6 out_shape)
               (E.pixel op ~output

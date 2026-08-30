@@ -215,6 +215,80 @@ module Hardtanh = struct
   end
 end
 
+module Leaky_relu = struct
+  type params = { negative_slope : float }
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Leaky_relu"
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"leaky_relu_params" (fun negative_slope ->
+        { negative_slope })
+    |> Jsont.Object.mem "negative_slope" Json_util.f32_jsont ~enc:(fun p ->
+        p.negative_slope)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "{negative_slope=%a}" Fmt.float p.negative_slope
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        {
+          params = Json_util.req_field ms "params" params_jsont name;
+          x = Json_util.req_field ms "x" Tensor_ref.jsont name;
+        })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>leaky_relu@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel (p : params) x (out : Semantics.position S.index Vec6.t) =
+      let v = S.load x out in
+      S.select (S.lt v (S.const 0.)) (S.mul (S.const p.negative_slope) v) v
+  end
+
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t; params : params }
+
+    let initial =
+      {
+        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
+        params = { negative_slope = 0.01 };
+      }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "negative_slope" [ 0.; 0.01; 0.2 ] (fun c negative_slope ->
+              { c with params = { negative_slope } });
+        ]
+
+    let pp fmt (c : cfg) =
+      Fmt.pf fmt "%a %a" Walk_core.Shape.pp c.shape pp_params c.params
+  end
+end
+
 module Relu = struct
   type t = { x : Tensor_ref.t }
 

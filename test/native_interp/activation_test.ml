@@ -116,6 +116,95 @@ let%expect_test "sigmoid.default lowers to a Sigmoid node" =
       n0: [t1 f32 [W=2 C=3]] = sigmoid x=t0
     outputs: [t1 f32 [W=2 C=3] <-n0] |}]
 
+let leaky_relu_node ?negative_slope () =
+  let slope =
+    match negative_slope with
+    | None -> ""
+    | Some x ->
+        jstr {|,{"name":"negative_slope","arg":{"as_float":%f},"kind":1}|} x
+  in
+  jstr
+    {|{"target":"torch.ops.aten.leaky_relu.default","inputs":[{"name":"self","arg":%s,"kind":1}%s],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") slope (as_tensor "y")
+
+let%expect_test "leaky_relu.default lowers with its schema default and option" =
+  dump "default:" (prog (leaky_relu_node ()));
+  dump "explicit:" (prog (leaky_relu_node ~negative_slope:0.2 ()));
+  [%expect
+    {|
+    default:
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = leaky_relu x=t0 params={negative_slope=0.01}
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    explicit:
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = leaky_relu x=t0 params={negative_slope=0.2}
+    outputs: [t1 f32 [W=2 C=3] <-n0] |}]
+
+let zeros_node ?dtype () =
+  let dtype =
+    match dtype with
+    | None -> ""
+    | Some d ->
+        jstr {|,{"name":"dtype","arg":{"as_scalar_type":%d},"kind":1}|} d
+  in
+  jstr
+    {|{"target":"torch.ops.aten.zeros.default","inputs":[{"name":"size","arg":{"as_sym_ints":[{"as_int":2},{"as_int":3}]},"kind":1}%s,{"name":"device","arg":{"as_device":{"type":"cpu","index":null}},"kind":2},{"name":"pin_memory","arg":{"as_bool":false},"kind":2}],"outputs":[%s],"metadata":{}}|}
+    dtype (as_tensor "y")
+
+let%expect_test "zeros.default lowers with default and DOUBLE dtype" =
+  dump "default:" (prog (zeros_node ()));
+  dump "double:" (prog (zeros_node ~dtype:8 ()));
+  [%expect
+    {|
+    default:
+    graph
+    inputs: [t0 f32 [W=2 C=3]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = zeros params={shape=[W=2 C=3]; fmt=f32}
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    double:
+    graph
+    inputs: [t0 f32 [W=2 C=3]]
+    nodes:
+      n0: [t1 f64 [W=2 C=3]] = zeros params={shape=[W=2 C=3]; fmt=f64}
+    outputs: [t1 f64 [W=2 C=3] <-n0] |}]
+
+let arange_node target inputs =
+  jstr
+    {|{"target":"%s","inputs":[%s,{"name":"dtype","arg":{"as_scalar_type":%d},"kind":1},{"name":"device","arg":{"as_device":{"type":"cpu","index":null}},"kind":2},{"name":"pin_memory","arg":{"as_bool":false},"kind":2}],"outputs":[%s],"metadata":{}}|}
+    target inputs
+    (if target = "torch.ops.aten.arange.default" then 5 else 7)
+    (as_tensor "y")
+
+let%expect_test "arange default Long and start Float lower" =
+  dump "default:"
+    (prog
+       (arange_node "torch.ops.aten.arange.default"
+          {|{"name":"end","arg":{"as_int":5},"kind":1}|}));
+  dump "start:"
+    (prog
+       (arange_node "torch.ops.aten.arange.start"
+          {|{"name":"start","arg":{"as_float":0.5},"kind":1},{"name":"end","arg":{"as_int":4},"kind":1}|}));
+  [%expect
+    {|
+    default:
+    graph
+    inputs: [t0 f32 [W=2 C=3]]
+    nodes:
+      n0: [t1 i64 [C=5]] = arange params={start=0; stop=5; step=1; fmt=i64}
+    outputs: [t1 i64 [C=5] <-n0]
+    start:
+    graph
+    inputs: [t0 f32 [W=2 C=3]]
+    nodes:
+      n0: [t1 f32 [C=4]] = arange params={start=0.5; stop=4; step=1; fmt=f32}
+    outputs: [t1 f32 [C=4] <-n0] |}]
+
 let gelu_node ?approximate () =
   let arg name a = jstr {|{"name":"%s","arg":%s,"kind":1}|} name a in
   let inputs =

@@ -75,6 +75,7 @@ type op =
      data-dependent, via [Semantics.load_index]/[Index.Data]. *)
   | Index_tensor of Index_tensor.Index_tensor.t
   | Layer_norm of Norm.LayerNorm.t
+  | Leaky_relu of Pointwise.Leaky_relu.t
   | Linear of Linear.Linear.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
@@ -129,6 +130,8 @@ type op =
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm of Reduce.Vector_norm.t
+  | Arange of Factory.Arange.t
+  | Zeros of Factory.Zeros.t
 
 (* Aliases to [Graph_common], which owns the dialect-agnostic vocabulary so a
    second dialect can reuse it. The ID modules move with the records because

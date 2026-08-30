@@ -97,6 +97,7 @@ let samples : Op.t list =
         weight = Some w;
         bias = Some b;
       };
+    Leaky_relu { Pointwise.Leaky_relu.params = { negative_slope = 0.2 }; x };
     Max_keepdims { Ops4.Max_keepdims.params = { dims = [ H; W ] }; x };
     Max_pool2d { Pool.MaxPool2d.params = max_params; x };
     Mean_keepdims { Ops4.Mean_keepdims.params = { dims = [ H; W ] }; x };
@@ -168,6 +169,19 @@ let samples : Op.t list =
     Upsample_nearest2d { Resize.Nearest2d.params = nearest_params; x };
     Vector_norm_keepdims
       { Ops4.Vector_norm_keepdims.params = { dims = [ H; W ] }; x };
+    Arange4
+      {
+        Ops4.Arange4.params =
+          { start = 0.5; stop = 4.; step = 1.; fmt = Payload.Fmt Payload.F32 };
+      };
+    Zeros4
+      {
+        Ops4.Zeros4.params =
+          {
+            shape = Shape4.of_ints ~n:1 ~h:2 ~w:3 ~c:4;
+            fmt = Payload.Fmt Payload.F64;
+          };
+      };
   ]
 
 (* THE COVERAGE CHECK. Every constructor has exactly one registry entry, so if
@@ -175,7 +189,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 37, registry: 37 |}]
+  [%expect {| samples: 40, registry: 40 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -213,6 +227,7 @@ let%expect_test "op4: printed" =
     hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}
     layer_norm x=t0 weight=t2 bias=t3 params={dims=[C]; eps=1e-05}
+    leaky_relu x=t0 params={negative_slope=0.2}
     max_keepdims x=t0 params={dims=[H, W]}
     max_pool2d
       x=t0
@@ -245,7 +260,9 @@ let%expect_test "op4: printed" =
     unbind x=t0 params={axis=C}
     upsample_bilinear2d x=t0 params={output_size={h=5; w=5}; align_corners=false}
     upsample_nearest2d x=t0 params={output_size={h=5; w=5}}
-    vector_norm_keepdims x=t0 params={dims=[H, W]} |}]
+    vector_norm_keepdims x=t0 params={dims=[H, W]}
+    arange4 start=0.5 stop=4 step=1 fmt=f32
+    zeros4 shape=[N=1 H=2 W=3 C=4] fmt=f64 |}]
 
 let%expect_test "op4: round-trips through JSON" =
   List.iter
@@ -257,7 +274,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 37 ops |}]
+  [%expect {| round-tripped 40 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

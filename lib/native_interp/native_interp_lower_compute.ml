@@ -33,6 +33,7 @@ let targets =
     "torch.ops.aten.hardtanh.default";
     "torch.ops.aten.index.Tensor";
     "torch.ops.aten.layer_norm.default";
+    "torch.ops.aten.leaky_relu.default";
     "torch.ops.aten.linalg_vector_norm.default";
     "torch.ops.aten.linear.default";
     "torch.ops.aten.matmul.default";
@@ -536,6 +537,15 @@ let dispatch ~ctx ~env (node : Node.t) =
              }
            in
            let* y = hardtanh params (get "self") in
+           return [ y ]
+       | "torch.ops.aten.leaky_relu.default" ->
+           let params : Pointwise.Leaky_relu.params =
+             {
+               negative_slope =
+                 scalar_arg esc ~default:0.01 node "negative_slope";
+             }
+           in
+           let* y = leaky_relu params (get "self") in
            return [ y ]
        | "torch.ops.aten.mul.Scalar" ->
            let s = required_scalar_arg esc node "other" in

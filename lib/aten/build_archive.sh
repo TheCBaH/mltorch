@@ -214,7 +214,7 @@ mapfile -t SRCS_GLUE < <(
 mapfile -t SRCS_CAP < <(
   echo gen/ATen/UfuncCPUKernel_add.cpp
   for f in Fill Resize TypeProperties DispatchStub Scalar TensorCompare \
-           TensorConversions TensorFactories TensorProperties TensorShape \
+           TensorConversions TensorFactories RangeFactories TensorProperties TensorShape \
            BinaryOps; do
     echo "$PT/aten/src/ATen/native/$f.cpp"
   done
@@ -224,6 +224,8 @@ mapfile -t SRCS_CAP < <(
   echo "$PT/aten/src/ATen/native/cpu/TensorCompareKernel.cpp"
   # activation kernels (silu_stub for silu_; siblings --gc-section away).
   echo "$PT/aten/src/ATen/native/cpu/Activation.cpp"
+  # arange_stub, dispatched by RangeFactories.cpp for both scalar overloads.
+  echo "$PT/aten/src/ATen/native/cpu/RangeFactoriesKernel.cpp"
   # max_pool2d_kernel (the vectorized pooling kernel).
   echo "$PT/aten/src/ATen/native/cpu/MaxPoolKernel.cpp"
   # adaptive_avg_pool2d_kernel + the reduction kernels behind at::mean/sum

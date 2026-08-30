@@ -20,12 +20,12 @@ let%expect_test "of_aten: int64 round-trip preserves values" =
     (Tensor_bridge.of_aten t);
   [%expect {| tensor i64 [C=4] {10, 20, 30, 40} |}]
 
-let%expect_test "of_aten: unsupported dtype returns Error" =
-  let t = T.create ~dtype:Stype.Double [ 2 ] in
+let%expect_test "of_aten: float64 dtype is supported" =
+  let t = double_tensor [ 2 ] [ 1.5; -2.25 ] in
   Format.printf "%a@."
-    (pp_of_aten_result ~ok:(Fmt.any "unexpected Ok"))
+    (pp_of_aten_result ~ok:Tensor.pp)
     (Tensor_bridge.of_aten t);
-  [%expect {| Error: unsupported ATen dtype (code 7) |}]
+  [%expect {| tensor f64 [C=2] {1.5, -2.25} |}]
 
 let%expect_test "of_aten: shape is right-aligned to 6D" =
   let t = float_tensor [ 3; 4 ] (List.init 12 float_of_int) in
