@@ -116,6 +116,20 @@ module Bmm : sig
   val pp_error : Format.formatter -> error -> unit
 end
 
+module Batched_matmul : sig
+  type dims_mismatch = {
+    axis : Axis.t;
+    lhs : Dim.extent Dim.t;
+    rhs : Dim.extent Dim.t;
+  }
+
+  type error =
+    | Batch_mismatch of dims_mismatch
+    | Contract_mismatch of { lhs : Dim.extent Dim.t; rhs : Dim.extent Dim.t }
+
+  val pp_error : Format.formatter -> error -> unit
+end
+
 module Permute : sig
   type t = { side : perm_side; axis : Axis.t; count : int }
 
@@ -393,6 +407,7 @@ end
 
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
+  | `Batched_matmul of Batched_matmul.error
   | `Bmm of Bmm.error
   | `Broadcast of Broadcast.t
   | `Clamp of Clamp.error

@@ -78,12 +78,15 @@ module Operand_rank = struct
   type t = { arg_name : string; expected : int; got : int }
 end
 
-(* [matmul.default]'s supported shape family (`.ai/matmul_softmax_design.md`
-   §4): both operands rank-2, or both rank>=3 with every axis but the last
-   two at extent 1 (the batch-less case that binds to the existing [Bmm]
-   node unchanged). Carries both raw ATen shapes -- not just "which check
-   failed" -- since a rank mismatch and a non-unit leading axis are two
-   different reasons a reader needs to see the actual shapes to tell apart. *)
+(* [matmul.default]'s remaining unsupported shape family, now that both the
+   batch-less case (`.ai/matmul_softmax_design.md` §4, binds to the existing
+   [Bmm] node) and the batched/multi-head case (§5, binds to the new
+   [Batched_matmul] node) are supported: either operand is rank<2 (the
+   vector-matrix/matrix-vector/vector-vector forms ATen gives a different
+   output-rank rule, §6) or the two operands have different rank. Carries
+   both raw ATen shapes -- not just "which check failed" -- since a rank
+   mismatch and a too-low rank are two different reasons a reader needs to
+   see the actual shapes to tell apart. *)
 module Matmul_unsupported_shape = struct
   type t = { self_shape : int array; other_shape : int array }
 end
@@ -176,8 +179,8 @@ let pp_error ppf : [< error ] -> unit = function
   | `Matmul_unsupported_shape
       { Matmul_unsupported_shape.self_shape; other_shape } ->
       Fmt.pf ppf
-        "matmul.default: only rank-2-by-rank-2, or rank>=3 with every axis but \
-         the last two at extent 1, is supported, got self=%a other=%a"
+        "matmul.default: both operands must be rank>=2 and of equal rank, got \
+         self=%a other=%a"
         pp_int_array self_shape pp_int_array other_shape
   | `Normalized_rank { Normalized_rank.op; rank; got } ->
       Fmt.pf ppf

@@ -21,6 +21,7 @@ type op =
   | Amax of Reduce.Amax.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm of Norm.BatchNorm.t
+  | Batched_matmul of Matmul.Batched_matmul.t
   | Bmm of Matmul.Bmm.t
   | Clamp of Pointwise.Clamp.t
   | Clone of Pointwise.Clone.t
@@ -145,6 +146,12 @@ let op_registry : (module OP) list =
 
       let inject t = Batch_norm t
       let project = function Batch_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Matmul.Batched_matmul
+
+      let inject t = Batched_matmul t
+      let project = function Batched_matmul t -> Some t | _ -> None
     end : OP);
     (module struct
       include Matmul.Bmm

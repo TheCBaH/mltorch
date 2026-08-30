@@ -8,6 +8,7 @@ open Native_interp_decode
 
 let targets =
   [
+    "torch.ops.aten._assert_tensor_metadata.default";
     "torch.ops.aten._unsafe_view.default";
     "torch.ops.aten.alias.default";
     "torch.ops.aten.cat.default";
@@ -36,6 +37,27 @@ let dispatch ~ctx ~env (node : Node.t) =
        let graph = ctx.Native_interp_lower_context.graph in
        let get = Native_interp_lower_context.get ctx env node in
        match node.target with
+       (* [_assert_tensor_metadata(Tensor a, SymInt[]? size=None, SymInt[]?
+         stride=None, ScalarType? dtype=None, *, Device? device=None, Layout?
+         layout=None) -> ()] is a pure debug assertion the exporter inserts to
+         pin a tensor's metadata; ATen's own schema returns no [Tensor], and
+         this repo's own PT2 producer always serializes it with an empty
+         [outputs] list, so [materialized_output_names]'s default case
+         ([output_names]) already flattens to [[]] with no arm-local
+         special-casing needed here. Given an already-successfully-exported
+         graph with shapes resolved at parse time, the assertion is
+         unconditionally true -- Native has nothing to re-derive it against,
+         so [a] is routed to the same [Discard] sink
+         [max_pool2d_with_indices.default]'s dead indices edge uses
+         (native_interp_lower_compute.ml), rather than left dangling.
+         [size]/[stride]/[dtype]/[device]/[layout] restate facts already true
+         of [a] and have no existing typed decoder (unlike [implicit]'s or
+         [cudnn_enabled]'s plain [bool_arg]) -- decoding them would add new
+         accessor machinery for values Native never acts on, so they are left
+         unread. *)
+       | "torch.ops.aten._assert_tensor_metadata.default" ->
+           let* () = discard (get "a") in
+           return []
        | "torch.ops.aten.permute.default" ->
            let x_name = tensor_name esc node "self" in
            let rank =

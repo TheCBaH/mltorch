@@ -21,6 +21,8 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Batch_norm_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Batched_matmul_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Bmm_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
     (module Clamp_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);

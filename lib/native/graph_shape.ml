@@ -58,6 +58,13 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Norm.BatchNorm.output_shape ~x_shape) in
       [ out ]
+  | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
+      let* input_shape = shape input in
+      let* mat2_shape = shape mat2 in
+      let+ out =
+        widen (Matmul.Batched_matmul.output_shape ~input_shape ~mat2_shape)
+      in
+      [ out ]
   | Bmm { Matmul.Bmm.input; mat2 } ->
       let* input_shape = shape input in
       let* mat2_shape = shape mat2 in

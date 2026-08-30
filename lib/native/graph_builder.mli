@@ -71,6 +71,7 @@ val batch_norm :
   unit ->
   Tensor_id.t t
 
+val batched_matmul : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val bmm : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 
 (* Errors with [`Clamp No_bounds] if neither bound is given, as ATen does. *)

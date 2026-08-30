@@ -59,3 +59,79 @@ module Bmm = struct
                   ~w:k ~c:oc)))
   end
 end
+
+(* Batched matrix multiplication over the full attention frame `[D,H,W,C]`
+   (`matmul.default`'s batched/multi-head shape family -- `mvitv2_tiny`'s real
+   multi-head attention, `.ai/matmul_softmax_design.md` §5): input[D=batch,
+   H=heads, W=n, C=m] × mat2[D=batch, H=heads, W=m, C=p] -> output[D=batch,
+   H=heads, W=n, C=p], contracting [C] against [W] exactly like [Bmm]. The
+   generalization over [Bmm] is in which axes name the batch: [Bmm] hard-codes
+   N/T/D at index 0 on [mat2] (correct only because the batch-less importer
+   restriction keeps them at extent 1 on both operands); here every one of
+   [N]/[T]/[D]/[H] is read off the OUTPUT coordinate on both operands, exactly
+   the same generalization `attention_design.md` §2 made for [Sdpa] itself. *)
+module Batched_matmul = struct
+  type t = { input : Tensor_ref.t; mat2 : Tensor_ref.t }
+
+  let name = "Batched_matmul"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k = Json_util.req_field ms k Tensor_ref.jsont name in
+        { input = get "input"; mat2 = get "mat2" })
+      ~enc:(fun t ->
+        let ref_ = Json_util.enc Tensor_ref.jsont in
+        Json_util.jobj [ ("input", ref_ t.input); ("mat2", ref_ t.mat2) ])
+      Jsont.json
+
+  let operands (t : t) = [ t.input; t.mat2 ]
+  let map_operands f (t : t) = { input = f t.input; mat2 = f t.mat2 }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>batched_matmul@ input=%a@ mat2=%a@]" pp_ref t.input
+      pp_ref t.mat2
+
+  let check_extent ~axis (a : Vec6.shape) (b : Vec6.shape) =
+    let lhs = Vec6.get a axis and rhs = Vec6.get b axis in
+    if Dim.equal lhs rhs then Err.return ()
+    else
+      Err.fail
+        (`Batched_matmul
+           (Shape_error.Batched_matmul.Batch_mismatch
+              Shape_error.Batched_matmul.{ axis; lhs; rhs }))
+
+  (* [N]/[T]/[D]/[H] must all agree (no broadcasting -- `.ai/matmul_softmax_design.md`
+     §6 leaves an unequal-but-broadcastable batch axis a typed rejection, no
+     corpus evidence either way); [C]/[W] is the contraction, same as [Bmm]. *)
+  let output_shape ~(input_shape : Vec6.shape) ~(mat2_shape : Vec6.shape) =
+    let open Err.Syntax in
+    let* () = check_extent ~axis:Axis.N input_shape mat2_shape in
+    let* () = check_extent ~axis:Axis.T input_shape mat2_shape in
+    let* () = check_extent ~axis:Axis.D input_shape mat2_shape in
+    let* () = check_extent ~axis:Axis.H input_shape mat2_shape in
+    let input_contract = Vec6.get input_shape Axis.C in
+    let mat2_contract = Vec6.get mat2_shape Axis.W in
+    if not (Dim.equal input_contract mat2_contract) then
+      Err.fail
+        (`Batched_matmul
+           (Shape_error.Batched_matmul.Contract_mismatch
+              { lhs = input_contract; rhs = mat2_contract }))
+    else Err.return (Vec6.copy_axis mat2_shape Axis.C input_shape)
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* [mat2]'s index is [out] with [W] replaced by the contraction variable
+       [k] -- [N]/[T]/[D]/[H]/[C] are read straight off [out], since
+       [output_shape] already proved they equal [input]'s (and [mat2]'s [C]
+       is exactly [out]'s [C], the output feature). *)
+    let pixel ~(input_shape : Vec6.shape) ~input ~mat2
+        (out : Semantics.position S.index Vec6.t) =
+      S.sum ~lo:S.index_zero
+        ~hi:(S.index_extent (Vec6.get input_shape Axis.C))
+        (fun k ->
+          S.mul
+            (S.load input (out |> Vec6.set_c k))
+            (S.load mat2 (Vec6.set out Axis.W k)))
+  end
+end

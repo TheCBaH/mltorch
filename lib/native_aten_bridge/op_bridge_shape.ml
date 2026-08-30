@@ -488,4 +488,31 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = expand { Pointwise.Expand.size = target } x_id in
                [ y ]
            | _ -> assert false))
+  (* `_assert_tensor_metadata(Tensor a, SymInt[]? size=None, SymInt[]?
+     stride=None, ScalarType? dtype=None, *, Device? device=None, Layout?
+     layout=None) -> ()`: a pure debug assertion the exporter inserts to pin
+     a tensor's metadata -- it returns no [Tensor] at all (this repo's own
+     PT2 producer always serializes it with an empty node [outputs] list),
+     so [build_g]'s own body returns [[]] rather than [[y]]. Given an
+     already-successfully-exported graph with shapes resolved at parse time
+     the assertion is unconditionally true, so [a] is routed to the same
+     [Discard] sink [max_pool2d_with_indices.default]'s dead indices edge
+     uses rather than left dangling. [size]/[stride]/[dtype]/[device]/
+     [layout] restate facts already true of [a] and have no existing typed
+     decoder (unlike [implicit]'s or [cudnn_enabled]'s plain [bool_arg]) --
+     decoding them would add new accessor machinery for values Native never
+     acts on, so they are left unread, matching [Native_interp]'s arm. No
+     real ATen C call is made here: unlike every other bridge arm, this op's
+     "computation" is discarding a tensor [aten_env] already holds from an
+     earlier node's real dispatch, so there is nothing to link against and
+     no [bin/aten_ops_gen.ml] entry is needed. *)
+  | "torch.ops.aten._assert_tensor_metadata.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "a" in
+         build_g ~name:"assert_tensor_metadata" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ () = discard x_id in
+               []
+           | _ -> assert false))
   | _ -> None

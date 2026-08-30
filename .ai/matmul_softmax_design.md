@@ -30,15 +30,15 @@ support a single general `Matmul`:
      batch=1→`Conv2D` legalization (`native4d_design.md` §7.4) already
      covers it. See §4.
    - batched/multi-head (`D` and/or `H` > 1, exactly Sdpa's `[D,H,W,C]`
-     frame) needs a genuinely new Native op. **Not undertaken by this
-     decision** — scoped as its own follow-up row (§5), because it is
-     comparable in size to Sdpa's own landing, not a small extension of
-     `Bmm`.
+     frame) needs a genuinely new Native op. Scoped as its own follow-up
+     row and **landed 2026-08-29** (§5) as `Matmul.Batched_matmul`, once
+     `softmax.int` and the batch-less binding below had already landed in
+     the same session.
 3. Native4D gains **no new dialect richness** for either op. `Softmax` gets
    a typed rejection (no reduction primitive beyond `MeanKeepDims` exists in
    the reduced CNN dialect — the same absence §9 of `attention_design.md`
-   already used to reject Sdpa). The batched-matmul case gets a typed
-   rejection for the same reason `attention_design.md` §9 already proved for
+   already used to reject Sdpa). The batched-matmul case gets the same typed
+   rejection, for the same reason `attention_design.md` §9 already proved for
    Sdpa: it would name Native's `D` axis, and `Axis4.of_axis Axis.D = None`
    by construction — no amount of dialect work makes that representable.
    This means `ops.md` row 204's question ("decide whether Native4D remains
@@ -186,10 +186,12 @@ binding that:
    evidence covers;
 3. builds a `Graph_ir.Bmm` node against the two operands' already-`of_aten`
    rank-3-equivalent shapes (`H=1,W,C`) unchanged;
-4. rejects everything else (rank 1, or any leading axis > 1) with a typed
-   diagnostic naming which condition failed, not a bare "unsupported" —
-   §5 explains why the >1 case is deliberately out of scope here rather
-   than silently mishandled.
+4. (as landed with this decision) rejected everything else (rank 1, or any
+   leading axis > 1) with a typed diagnostic naming which condition
+   failed, not a bare "unsupported". §5's own later landing replaced this
+   step: the same-rank, leading-axis->1 case now binds to
+   `Batched_matmul` instead of being rejected; only rank<2 or a rank
+   mismatch between the two operands still hits the typed rejection.
 
 Native4D needs **no change at all**: the resulting `Bmm` node is
 indistinguishable from any other `Bmm` node, and `native4d_design.md` §7.4's
@@ -215,40 +217,67 @@ change, `_build/default/bin/native_graph.exe print --pt2
 data/pt2-functional/csatv2/csatv2.pt2` failed at `matmul.default`; after
 both this and the `softmax.int` landing above, it imports past every
 `matmul.default`/`softmax.int` occurrence and now fails at `index.Tensor`
-(§2 item 3 of `todo.md`) — confirming both blockers are cleared for CSATv2's
+— confirming both blockers are cleared for CSATv2's
 real 945-node graph, not merely for synthetic fixtures. The 100-model sweep
 itself was not regenerated (gated on downloading every release archive) —
 re-run `make pt2.json-model-support` before relying on a "N models move"
 claim.
 
-## 5. `matmul.default`, batched/multi-head case: out of scope, its own row
+## 5. `matmul.default`, batched/multi-head case: landed 2026-08-29
 
 §2c's evidence (`mvitv2_tiny`) is real batched multi-head attention in
 exactly `attention_design.md`'s `[D,H,W,C]` frame, decomposed into explicit
 `matmul.default`(QKᵀ) → `softmax.int` → `matmul.default`(·V) rather than one
-`scaled_dot_product_attention.default` call. Landing this needs:
+`scaled_dot_product_attention.default` call. This landed as a genuinely new
+Native op, `Matmul.Batched_matmul` (`lib/native/ops/matmul.ml`, alongside
+`Bmm`):
 
-- a new Native op (batched matmul over the `H`-and-inward frame, `D`
-  included per the observed shape even though no sample has `D > 1` —
-  restricting to `D = 1` would be exactly the kind of unevidenced
-  narrowing `todo.md`'s "remove-unnecessary-specialization audit" already
-  flagged elsewhere; `D` costs nothing extra here since the frame already
-  carries it and `Bmm`'s own `H=batch` shape rule generalizes directly by
-  adding one more batch-like axis, the same generalization
-  `attention_design.md` §2 made for Sdpa itself);
-- its own shape rule, `Compute`, ATen binding, both importer arms, and
-  verification (ATen-vs-Native walk + Direct-vs-Symbolic fuzz walk) — a
-  unit of work comparable to `Bmm` itself, not a small extension;
-- Native4D: **no work at all**, typed rejection by construction — same
-  argument `attention_design.md` §9 already proved for Sdpa (`D` has no
-  `Axis4` name), reachable here with zero new reasoning since the frame is
-  the same one.
+- **a new Native op** — batched matmul over the full `[N,T,D,H,W,C]` frame,
+  checking `N`/`T`/`D`/`H` agreement (no broadcasting — §6 below) and
+  contracting `C`(input) against `W`(mat2), exactly `Bmm`'s own rule
+  generalized by one more batch-like axis, the same generalization
+  `attention_design.md` §2 made for Sdpa itself. `D` is included
+  unconditionally (not restricted to the observed `D = 1`) — restricting it
+  would be exactly the kind of unevidenced narrowing an earlier
+  remove-unnecessary-specialization audit already flagged elsewhere. The
+  one real change from `Bmm`'s own `Compute`: `mat2`'s index is read
+  straight off the output coordinate (`Vec6.set out Axis.W k`) rather than
+  `Bmm`'s own hard-coded `N=T=D=0`, which only stayed correct because the
+  batch-less importer restriction (§4) keeps `mat2`'s own `N`/`T`/`D` at
+  extent 1 on every accepted graph;
+- its own shape rule, `Compute`, ATen binding (reuses the existing `op
+  "matmul"` entry — the SAME ATen target dispatches to either node, decided
+  by the importers' own rank/shape check, not a new schema overload), both
+  importer arms, and verification (a generalized `Recipe_matmul` covering
+  both shape families through the SAME ATen-vs-Native walk, since `d`/`h`
+  are shared between both operands so every combination is a valid
+  accepted graph — "matched" on every step, including a real `D=2` batched
+  step; a new Direct-vs-Symbolic fuzz walk,
+  `lib/native_op_walk/batched_matmul_nwalk.ml`);
+- Native4D: **no work at all beyond a typed rejection arm** — same argument
+  `attention_design.md` §9 already proved for Sdpa (`D` has no `Axis4`
+  name): `Domain.check_node`'s new `Batched_matmul` arm fails with
+  `` `Batched_matmul_batch_axis ``, mirroring `` `Sdpa_batch_axis `` exactly;
+  `lower.ml` never reaches it (rejected upstream), joining `Sdpa`'s own
+  "unreachable, domain already rejected this" catch-all arm.
 
-This is deliberately **not** landed by this decision. `ops.md`'s row and
-`todo.md` §2 should carry it as its own row once scheduled, separate from
-§3's `Softmax` and §4's batch-less `matmul` binding — those two are
-comparatively small (an existing reduction family / an existing node,
-respectively) and do not need to wait on this larger op.
+**The importer split** (`Op_bridge_linalg`, `Native_interp`): batch-less
+(rank-2, or rank>=3 with every leading axis at extent 1, §4) still binds to
+the existing `Bmm` node, UNCHANGED; both operands the same rank>=3 but not
+batch-less (a leading axis is >1 on either side) now binds to
+`Batched_matmul` instead of the prior typed rejection. Anything else
+(either operand rank<2, or the two operands' ranks differ) keeps the
+ORIGINAL `` `Matmul_unsupported_shape `` typed rejection, reworded since it
+no longer describes the batched case as unsupported.
+
+Verified against real ATen (the generalized `Recipe_matmul` walk, "matched"
+including a `D=2,H=1` step) and by hand (`test/native_bridge/dispatch_test.ml`'s
+`D=2,H=2` fixture, computed independently per `H` slice;
+`test/native/linear_test.ml`'s `D=2` Compute fixture, chosen specifically
+to catch a regression back to `Bmm`'s own `N=T=D=0` hard-code on the `mat2`
+read). `test/native_interp/matmul_test.ml` covers the metadata-only
+importer's own split the same way `test/native_bridge/dispatch_test.ml`
+covers `Op_bridge`'s.
 
 ## 6. What stays a typed rejection, no corpus evidence either way
 

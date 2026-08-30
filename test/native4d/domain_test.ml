@@ -177,6 +177,16 @@ let%expect_test "domain: bmm batch extent" =
     batch=1                      in the dialect
     batch=2                      node n0: bmm batch extent is 2; only a single batch legalizes to a 1x1 convolution |}]
 
+(* [Batched_matmul] has no admissible shape at all, the same argument as
+   [Sdpa]'s own test below: unlike [Bmm], whose single-batch case legalizes
+   to a 1x1 convolution, Native4D has no [Ops4] counterpart at any [D] extent
+   (including 1), so there is no escape hatch to check for. *)
+let%expect_test "domain: batched_matmul is always outside the dialect" =
+  table [ ("batched_matmul", Fixtures.batched_matmul) ];
+  [%expect
+    {|
+    batched_matmul               node n0: batched matmul's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (the same `D`-axis argument attention_design.md §9 already made for Sdpa) |}]
+
 (* [Sdpa] has no admissible shape at all: unlike [Bmm], whose single-batch
    case legalizes to a 1x1 convolution, Native4D has neither a [Bmm] nor a
    softmax to legalize through, and the op names D as batch regardless of

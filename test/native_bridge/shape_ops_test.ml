@@ -554,3 +554,30 @@ let%expect_test "dispatch: alias.default builds a single Clone node" =
       n0: [t1 f32 [W=2 C=3]] = clone x=t0
     outputs: [t1 f32 [W=2 C=3] <-n0]
     tensor f32 [W=2 C=3] {1, 2, 3, 4, 5, 6} |}]
+
+(* ---- aten._assert_tensor_metadata.default: routed to Discard -------------- *)
+
+(* [_assert_tensor_metadata(Tensor a, SymInt[]? size=None, SymInt[]?
+   stride=None, ScalarType? dtype=None, *, Device? device=None, Layout?
+   layout=None) -> ()]: ATen's own schema returns no [Tensor] at all, so there
+   is no ATen output to verify against ([verify_print] hardcodes exactly one
+   node output and has no counterpart here) -- the only meaningful check is
+   that the bridge routes [a] into the same [Discard] sink
+   [max_pool2d_with_indices.default]'s dead indices edge uses, and that the
+   built graph has zero outputs, matching the node's own empty serialized
+   [outputs] list. *)
+let%expect_test
+    "dispatch: _assert_tensor_metadata.default builds a single Discard node" =
+  let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten._assert_tensor_metadata.default"
+    ~bindings:[ ("a", x) ]
+    ~inputs:[ in_tensor "a" ]
+    ~noutputs:0;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=3] ->[n0]]
+    nodes:
+      n0: [] = discard x=t0
+    outputs: [] |}]

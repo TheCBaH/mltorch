@@ -74,18 +74,65 @@ let%expect_test
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=2] {4, 5, 10, 11} |}]
 
-(* The batched/multi-head shape family (`D`/`H` > 1) is explicitly out of
-   scope (`.ai/matmul_softmax_design.md` §5) -- a typed rejection naming both
-   actual shapes, not a wrong answer or a bare "unsupported". *)
-let%expect_test "dispatch: matmul.default rejects a batched (>1) shape" =
+(* The batched/multi-head shape family (`D`/`H` > 1, `.ai/matmul_softmax_design.md`
+   §5) binds to the new [Batched_matmul] node -- values checked by hand (two
+   independent 2x3 @ 3x2 products, one per H slice), not just shape/rejection. *)
+let%expect_test "dispatch: matmul.default accepts a batched (H>1) shape" =
   let a = float_tensor [ 2; 2; 3 ] (List.init 12 float_of_int) in
   let b = float_tensor [ 2; 3; 2 ] (List.init 12 float_of_int) in
   dispatch_print ~target:"torch.ops.aten.matmul.default"
     ~bindings:[ ("self", a); ("other", b) ]
     ~inputs:[ in_tensor "self"; in_tensor "other" ]
     ~noutputs:1;
+  [%expect {| tensor f32 [H=2 W=2 C=2] {10, 13, 28, 40, 172, 193, 244, 274} |}]
+
+(* Confirms the design claim, not just the value: a genuinely new
+   [Batched_matmul] node, not a decomposition or a relayout permute around
+   [Bmm]. *)
+let%expect_test "dispatch: matmul.default binds to the new Batched_matmul node"
+    =
+  let a = float_tensor [ 2; 2; 3 ] (List.init 12 float_of_int) in
+  let b = float_tensor [ 2; 3; 2 ] (List.init 12 float_of_int) in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.matmul.default"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
   [%expect
-    {| error: matmul.default: only rank-2-by-rank-2, or rank>=3 with every axis but the last two at extent 1, is supported, got self=[2, 2, 3] other=[2, 3, 2] |}]
+    {|
+    graph
+    inputs: [t0 f32 [H=2 W=2 C=3] ->[n0], t1 f32 [H=2 W=3 C=2] ->[n0]]
+    nodes:
+      n0: [t2 f32 [H=2 W=2 C=2]] = batched_matmul input=t0 mat2=t1
+    outputs: [t2 f32 [H=2 W=2 C=2] <-n0]
+    tensor f32 [H=2 W=2 C=2] {10, 13, 28, 40, 172, 193, 244, 274} |}]
+
+(* `mvitv2_tiny`'s real frame: [D=batch,H=heads,W,C], D>1 as well as H>1 --
+   [Batched_matmul] must not silently special-case D=1 the way the old [Bmm]
+   read did. batch=D*H=2*2=4 independent 2x2 @ 2x2 products; values chosen so
+   every one of the 4 slices produces a distinct, checkable result. *)
+let%expect_test "dispatch: matmul.default accepts D>1 and H>1 together" =
+  let a = float_tensor [ 2; 2; 2; 2 ] (List.init 16 float_of_int) in
+  let b = float_tensor [ 2; 2; 2; 2 ] (List.init 16 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.matmul.default"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect
+    {| tensor f32 [D=2 H=2 W=2 C=2] {2, 3, 6, 11, 46, 55, 66, 79, ...} |}]
+
+(* Rank<2 on either side, or unequal ranks, is still explicitly out of scope
+   (`.ai/matmul_softmax_design.md` §6) -- a typed rejection naming both actual
+   shapes, not a wrong answer or a bare "unsupported". *)
+let%expect_test "dispatch: matmul.default rejects unequal operand ranks" =
+  let a = float_tensor [ 2; 2; 3 ] (List.init 12 float_of_int) in
+  let b = float_tensor [ 3; 2 ] (List.init 6 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.matmul.default"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
+  [%expect
+    {| error: matmul.default: both operands must be rank>=2 and of equal rank, got self=[2, 2, 3] other=[3, 2] |}]
 
 let%expect_test "dispatch: sqrt.default elementwise" =
   let a = float_tensor [ 2; 2 ] [ 0.; 1.; 4.; 2.25 ] in

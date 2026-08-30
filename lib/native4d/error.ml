@@ -7,6 +7,7 @@ type t =
   | `Bad_constant_payload of Tensor_id.t
   | `Batch_norm_extent of
     Node_id.t * Tensor_id.t * Dim.extent Dim.t * Dim.extent Dim.t
+  | `Batched_matmul_batch_axis of Node_id.t
   | `Constant_store of Constant_store.error
   | `Dynamic_batch_norm of Node_id.t
   | `Live_max_pool_indices of Node_id.t * Tensor_id.t
@@ -34,6 +35,12 @@ let pp fmt : [< t ] -> unit = function
         "@[node %a: batch norm parameter %a has extent %a on C, but the \
          normalized axis has %a@]"
         Node_id.pp node Tensor_id.pp id Dim.pp extent Dim.pp channels
+  | `Batched_matmul_batch_axis node ->
+      Fmt.pf fmt
+        "@[node %a: batched matmul's batch axis is D, which the N/H/W/C \
+         dialect has no name for; no legalization is available (the same \
+         `D`-axis argument attention_design.md §9 already made for Sdpa)@]"
+        Node_id.pp node
   | `Constant_store e -> Constant_store.pp_error fmt e
   | `Dynamic_batch_norm node ->
       Fmt.pf fmt

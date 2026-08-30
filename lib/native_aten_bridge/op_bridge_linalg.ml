@@ -48,24 +48,34 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | _ -> assert false)
           |> some_graph)
-  (* Batch-less shape family only (`.ai/matmul_softmax_design.md` §4): rank-2
-     operands, or rank>=3 with every axis but the last two at extent 1. Every
-     such operand's [Tensor_bridge.of_aten] right-alignment already lands its
-     [H,W,C] triple exactly where [Bmm] reads it -- the extra leading unit
-     axes land on [N,T,D], which [Bmm.output_shape] never reads -- so this
-     binds to the EXISTING [Bmm] node unchanged, no new Native surface and no
-     relayout. The batched/multi-head shape family (`D`/`H` > 1) is a
-     distinct, larger unit of work, not handled here. *)
+  (* Two shape families (`.ai/matmul_softmax_design.md` §4-5), both binding to
+     an EXISTING/new node unchanged rather than a relayout:
+     - batch-less: rank-2 operands, or rank>=3 with every axis but the last
+       two at extent 1. Every such operand's [Tensor_bridge.of_aten]
+       right-alignment already lands its [H,W,C] triple exactly where [Bmm]
+       reads it -- the extra leading unit axes land on [N,T,D], which
+       [Bmm.output_shape] never reads -- so this binds to the EXISTING [Bmm]
+       node, no new Native surface.
+     - batched/multi-head (§5): both operands the same rank>=3 but not
+       batch-less (a leading axis is >1 on either side, e.g. `mvitv2_tiny`'s
+       real `[D,H,W,C]` attention). Binds to [Batched_matmul], which checks
+       full [N]/[T]/[D]/[H] agreement itself (`Matmul.Batched_matmul.output_shape`)
+       -- an unequal-but-broadcastable batch axis (§6, no corpus evidence) is
+       rejected there with a typed [`Batched_matmul] shape error, not here.
+     Anything else (either operand rank<2, or the two ranks differ) stays the
+     ORIGINAL typed rejection, unchanged. *)
   | "torch.ops.aten.matmul.default" ->
       Some
         (let* aten_a = tensor_arg aten_env node "self" in
          let* aten_b = tensor_arg aten_env node "other" in
-         let batchless t =
-           let shape = Aten_tensor.shape t in
+         let shape_a = Aten_tensor.shape aten_a in
+         let shape_b = Aten_tensor.shape aten_b in
+         let rank_a = Array.length shape_a and rank_b = Array.length shape_b in
+         let batchless shape =
            let rank = Array.length shape in
            rank >= 2 && Array.for_all (( = ) 1) (Array.sub shape 0 (rank - 2))
          in
-         if batchless aten_a && batchless aten_b then
+         if batchless shape_a && batchless shape_b then
            let* a = native_of_aten "self" aten_a in
            let* b = native_of_aten "other" aten_b in
            build_g ~name:"matmul" [ a; b ] (function
@@ -74,12 +84,21 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let+ y = bmm a_id b_id in
                  [ y ]
              | _ -> assert false)
+         else if rank_a = rank_b && rank_a >= 3 then
+           let* a = native_of_aten "self" aten_a in
+           let* b = native_of_aten "other" aten_b in
+           build_g ~name:"matmul" [ a; b ] (function
+             | [ a_id; b_id ] ->
+                 let open Graph_builder in
+                 let+ y = batched_matmul a_id b_id in
+                 [ y ]
+             | _ -> assert false)
          else
            fail
              (`Matmul_unsupported_shape
                 {
-                  Matmul_unsupported_shape.self_shape = Aten_tensor.shape aten_a;
-                  other_shape = Aten_tensor.shape aten_b;
+                  Matmul_unsupported_shape.self_shape = shape_a;
+                  other_shape = shape_b;
                 }))
   | "torch.ops.aten.linear.default" ->
       Some

@@ -278,13 +278,13 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
     step 3 [shape]: {shape=[8,6,8,4]}
     [spec] torch.ops.aten.logical_not.default: skipped (no native impl)
-    step 0: {self=[3,4] other=[4,5]}
+    step 0: {self=[1,1,3,4] other=[1,1,4,5]}
     [spec] torch.ops.aten.matmul.default: matched
-    step 1 [m]: {self=[3,6] other=[6,5]}
+    step 1 [p]: {self=[1,1,3,4] other=[1,1,4,7]}
     [spec] torch.ops.aten.matmul.default: matched
-    step 2 [n]: {self=[2,6] other=[6,5]}
+    step 2 [m]: {self=[1,1,3,2] other=[1,1,2,7]}
     [spec] torch.ops.aten.matmul.default: matched
-    step 3 [n]: {self=[5,6] other=[6,5]}
+    step 3 [d]: {self=[2,1,3,2] other=[2,1,2,7]}
     [spec] torch.ops.aten.matmul.default: matched
     step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
     [spec] torch.ops.aten.max_pool2d.default: matched

@@ -316,6 +316,16 @@ CONSTANT subgraph may fold through (`Add`/`Sub`/`Mul`/`Div`/`Sqrt`/`Permute`
 only), does not include `Expand` -- a distinct unit of work, not opened as a
 row anywhere yet.
 
+**Updated again, same day,** after landing `_assert_tensor_metadata.default`
+(no new `Graph_ir` op at all -- ATen's own schema returns no `Tensor`, so `a`
+is routed to the *existing* `Discard` sink `max_pool2d_with_indices.default`'s
+dead indices edge already uses, in both `Op_bridge` and `Native_interp`):
+`native_builds:true` stays at 81 -- `efficientvit_b0` was already
+`native_builds:false` (blocked here since the `split.Tensor` landing above),
+and this landing moves which op blocks it rather than clearing it outright.
+It now stops on the already-scoped, deliberately-deferred `matmul.default`
+batched/multi-head shape family -- not a new gap.
+
 A previous version of this sweep reported `native_builds:true` for all but 5
 models -- 95, not 50 -- because it read the payload-free `visualize` CLI's
 exit code (which stays 0 whenever `stage:initial_native` degrades gracefully

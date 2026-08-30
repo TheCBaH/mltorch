@@ -56,6 +56,10 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel params ~x:(operand x) ~weight ~bias
           ~running_mean:(operand running_mean)
           ~running_var:(operand running_var) out
+    | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
+        let module C = Matmul.Batched_matmul.Compute (S) in
+        C.pixel ~input_shape:(shape_of input) ~input:(operand input)
+          ~mat2:(operand mat2) out
     | Bmm { Matmul.Bmm.input; mat2 } ->
         let module C = Matmul.Bmm.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~input:(operand input)

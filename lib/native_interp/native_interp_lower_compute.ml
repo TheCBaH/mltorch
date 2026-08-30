@@ -670,15 +670,14 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* y = softmax { Reduce.Softmax.axis } (get "self") in
            return [ y ]
-       (* Batch-less shape family only (`.ai/matmul_softmax_design.md` §4):
-         rank-2 operands, or rank>=3 with every axis but the last two at
-         extent 1. Either way [get]'s existing metadata-only tensor already
-         lands its [H,W,C] triple exactly where [Bmm] reads it (the extra
-         leading unit axes land on [N,T,D], which [Bmm.output_shape] never
-         reads), so this binds to the EXISTING [Bmm] node unchanged -- same
-         restriction, same reasoning as [Op_bridge]'s arm. The
-         batched/multi-head shape family is a distinct, larger unit of work,
-         not handled here. *)
+       (* Two shape families (`.ai/matmul_softmax_design.md` §4-5), same
+         reasoning and same split as [Op_bridge]'s arm -- see there for the
+         full accounting. Batch-less (rank-2, or rank>=3 with every axis but
+         the last two at extent 1) binds to the EXISTING [Bmm] node;
+         batched/multi-head (both operands the same rank>=3 but not
+         batch-less) binds to [Batched_matmul], which validates full
+         [N]/[T]/[D]/[H] agreement itself. Anything else (rank<2 on either
+         side, or unequal ranks) is the ORIGINAL typed rejection, unchanged. *)
        | "torch.ops.aten.matmul.default" ->
            let a_name = tensor_name esc node "self" in
            let b_name = tensor_name esc node "other" in
@@ -696,12 +695,17 @@ let dispatch ~ctx ~env (node : Node.t) =
              && List.for_all (( = ) 1)
                   (List.filteri (fun i _ -> i < rank - 2) sizes)
            in
-           if not (batchless a_sizes && batchless b_sizes) then
+           let rank_a = List.length a_sizes and rank_b = List.length b_sizes in
+           if batchless a_sizes && batchless b_sizes then
+             let* y = bmm (get "self") (get "other") in
+             return [ y ]
+           else if rank_a = rank_b && rank_a >= 3 then
+             let* y = batched_matmul (get "self") (get "other") in
+             return [ y ]
+           else
              malformed esc
                (`Matmul_unsupported_shape
-                  { Matmul_unsupported_shape.self = a_sizes; other = b_sizes });
-           let* y = bmm (get "self") (get "other") in
-           return [ y ]
+                  { Matmul_unsupported_shape.self = a_sizes; other = b_sizes })
        | "torch.ops.aten.linear.default" ->
            let w_name = tensor_name esc node "weight" in
            let _out_features, in_features =

@@ -176,6 +176,30 @@ module Bmm = struct
           lhs Dim.pp rhs
 end
 
+(* [Bmm]'s batched/multi-head generalization (`Matmul.Batched_matmul`): the
+   batch mismatch names WHICH of [N]/[T]/[D]/[H] disagreed, since any of the
+   four can be the one an unequal-rank or unbroadcast import produces. *)
+module Batched_matmul = struct
+  type dims_mismatch = {
+    axis : Axis.t;
+    lhs : Dim.extent Dim.t;
+    rhs : Dim.extent Dim.t;
+  }
+
+  type error =
+    | Batch_mismatch of dims_mismatch
+    | Contract_mismatch of { lhs : Dim.extent Dim.t; rhs : Dim.extent Dim.t }
+
+  let pp_error ppf (e : error) =
+    match e with
+    | Batch_mismatch { axis; lhs; rhs } ->
+        Fmt.pf ppf "input %a extent must equal mat2 %a extent: %a vs %a" Axis.pp
+          axis Axis.pp axis Dim.pp lhs Dim.pp rhs
+    | Contract_mismatch { lhs; rhs } ->
+        Fmt.pf ppf "input C extent must equal mat2 W extent: %a vs %a" Dim.pp
+          lhs Dim.pp rhs
+end
+
 module Permute = struct
   type t = { side : perm_side; axis : Axis.t; count : int }
 
@@ -545,6 +569,7 @@ end
 
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
+  | `Batched_matmul of Batched_matmul.error
   | `Bmm of Bmm.error
   | `Broadcast of Broadcast.t
   | `Clamp of Clamp.error
@@ -568,6 +593,7 @@ type t =
 
 let pp ppf = function
   | `Adaptive_pool e -> Adaptive_pool.pp ppf e
+  | `Batched_matmul e -> Batched_matmul.pp_error ppf e
   | `Bmm e -> Bmm.pp_error ppf e
   | `Broadcast e -> Broadcast.pp ppf e
   | `Clamp e -> Clamp.pp_error ppf e

@@ -224,6 +224,13 @@ let check_node view (n : node) =
   | Batch_norm bn -> check_batch_norm view node bn
   | Layer_norm { Norm.LayerNorm.params; _ } ->
       check_dims node params.Norm.LayerNorm.dims
+  (* Its batch axes are D and H UNCONDITIONALLY (its own landing note,
+     `.ai/matmul_softmax_design.md` §5), the same argument [Sdpa]'s own arm
+     below makes for its D batch axis: not a parameter that happens to name D
+     in some configurations, so there is no admissible case to let through,
+     and legalization is unavailable too (Native4D has no Bmm and no
+     softmax). *)
+  | Batched_matmul _ -> Err.fail (`Batched_matmul_batch_axis node)
   | Bmm { Matmul.Bmm.input; mat2 } -> check_bmm view node ~input ~mat2
   | Conv2d { Conv.Conv2d.params; weight; _ } ->
       check_groups view node ~weight ~groups:params.Conv.Conv2d.groups

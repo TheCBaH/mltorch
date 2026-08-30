@@ -24,9 +24,11 @@ let pp_verdict fmt = function
 let native4d : [< Native4d.Error.t ] -> verdict = function
   (* The one failure mode payloads remove. *)
   | `Missing_constant_payload _ -> Unavailable C.Requires_payloads
-  (* The ten domain rejections. Having payloads does not put a graph inside the
-     dialect, which is why Native4D stays conditional for both input kinds. *)
-  | `Axis_outside_dialect _ | `Batch_norm_extent _ | `Dynamic_batch_norm _
+  (* The eleven domain rejections. Having payloads does not put a graph inside
+     the dialect, which is why Native4D stays conditional for both input
+     kinds. *)
+  | `Axis_outside_dialect _ | `Batch_norm_extent _
+  | `Batched_matmul_batch_axis _ | `Dynamic_batch_norm _
   | `Live_max_pool_indices _ | `Lossy_bmm_operand _
   | `Non_four_dimensional_tensor _ | `Sdpa_batch_axis _
   | `Unsupported_bmm_batch _ | `Unsupported_grouped_conv _

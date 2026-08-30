@@ -21,6 +21,7 @@ type t =
   | `Bad_constant_payload of Tensor_id.t
   | `Batch_norm_extent of
     Node_id.t * Tensor_id.t * Dim.extent Dim.t * Dim.extent Dim.t
+  | `Batched_matmul_batch_axis of Node_id.t
   | `Constant_store of Constant_store.error
   | `Dynamic_batch_norm of Node_id.t
   | `Live_max_pool_indices of Node_id.t * Tensor_id.t

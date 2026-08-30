@@ -1,5 +1,5 @@
-(* linear (addmm) and bmm (batched matrix multiply). Split from
-   compute_test.ml. *)
+(* linear (addmm), bmm and batched_matmul (batched matrix multiply). Split
+   from compute_test.ml. *)
 
 open Compute_fixtures
 
@@ -62,3 +62,42 @@ let%expect_test
   (* batch 0: [1,2,3]·[[1,0],[0,1],[1,1]] = [4,5]; [4,5,6]·same = [10,11]
      batch 1: [1,0,0]·[[2,0],[0,2],[0,0]] = [2,0]; [0,1,0]·same = [0,2] *)
   [%expect {| tensor f32 [H=2 W=2 C=2] {4, 5, 10, 11, 2, 0, 0, 2} |}]
+
+(* [Batched_matmul] generalizes [Bmm] by reading [mat2] at the OUTPUT's own
+   [D]/[H] rather than hard-coding 0 -- batch on [D] here (with [H]=1) is
+   chosen specifically to prove that: [mat2] varies per [D] slice (an
+   identity matrix at D=0, a swap matrix at D=1), so a regression back to
+   [Bmm]'s zero-based read would silently apply D=0's identity to BOTH
+   output slices, leaving D=1 unchanged instead of swapped. *)
+let%expect_test
+    "Direct: batched_matmul — D=2 batch isolation on the mat2 operand" =
+  let module B = Matmul.Batched_matmul.Compute (Direct) in
+  let input_shape = Vec6.shape ~n:1 ~t:1 ~d:2 ~h:1 ~w:2 ~c:2 in
+  let in0 = [| [| 1.; 2. |]; [| 3.; 4. |] |] in
+  let in1 = [| [| 0.; 1. |]; [| 1.; 0. |] |] in
+  let input =
+    Tensor.materialize input_shape (fun c ->
+        let d = Dim.to_int (Vec6.get c Axis.D) in
+        let r = Dim.to_int (Vec6.get c Axis.W) in
+        let k = Dim.to_int (Vec6.get c Axis.C) in
+        [| in0; in1 |].(d).(r).(k))
+  in
+  let mat2_shape = Vec6.shape ~n:1 ~t:1 ~d:2 ~h:1 ~w:2 ~c:2 in
+  let identity = [| [| 1.; 0. |]; [| 0.; 1. |] |] in
+  let swap = [| [| 0.; 1. |]; [| 1.; 0. |] |] in
+  let mat2 =
+    Tensor.materialize mat2_shape (fun c ->
+        let d = Dim.to_int (Vec6.get c Axis.D) in
+        let k = Dim.to_int (Vec6.get c Axis.W) in
+        let j = Dim.to_int (Vec6.get c Axis.C) in
+        [| identity; swap |].(d).(k).(j))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Matmul.Batched_matmul.output_shape ~input_shape ~mat2_shape)
+       (B.pixel ~input_shape ~input ~mat2));
+  (* D=0: input @ identity = input unchanged: [[1,2],[3,4]].
+     D=1: input @ swap = column-swap of input: [[1,0],[1,0]] @ ... =
+     [[0,1],[1,0]] @ [[0,1],[1,0]] = [[1,0],[0,1]] (NOT [[0,1],[1,0]], which
+     is what a D=0-hardcoded read would wrongly produce). *)
+  [%expect {| tensor f32 [D=2 H=1 W=2 C=2] {1, 2, 3, 4, 1, 0, 0, 1} |}]

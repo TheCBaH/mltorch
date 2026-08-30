@@ -257,6 +257,19 @@ let bmm_batch batch () =
      let* b = input ~shape:(s 1 1 1 batch 3 4) () in
      bmm a b)
 
+(* [Batched_matmul] is rejected unconditionally, the same argument as [Sdpa]
+   (its own landing note, `.ai/matmul_softmax_design.md` §5): unlike [Bmm]'s
+   single-batch escape hatch, D names no [Ops4] axis at any extent, including
+   1, so there is no configuration this legalizes to. *)
+let batched_matmul () =
+  build "batched_matmul"
+    (let open Graph_builder in
+     (* input[D=batch,H=heads,W=rows,C=contract] x
+        mat2[D=batch,H=heads,W=contract,C=cols] *)
+     let* a = input ~shape:(s 1 1 2 2 2 3) () in
+     let* b = input ~shape:(s 1 1 2 2 3 4) () in
+     batched_matmul a b)
+
 (* [Sdpa] is rejected unconditionally (op8-impl.md F8), so any admissible
    shape exercises it -- unlike [Bmm]'s single-batch escape hatch, there is no
    configuration this legalizes to. *)
