@@ -67,6 +67,10 @@ completed gate is committed only after its focused validation succeeds.
   callback closes over the already-converted `Expr.Value.t` and calls only
   `Expr.Eval.value`; Region classification, key derivation, local slots, and
   arrays occur only in the separate Region branch.
+- `Kernel_eval.run` exposes an opt-in ordinary-load observer solely for audit
+  tests. It is resolved into a load function once at evaluator setup, leaving
+  the normal Pixel loop without an observer branch; the test pins C-innermost
+  order and one input load per output cell.
 - The closest pre-Region commit (`261222c`) has the compatible `Kernel_eval`
   body representation, but cannot build under the current switch because its
   Dune graph references a then-absent `err_trace` library. No legacy timing is
@@ -93,3 +97,4 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 6 | `make jsoo.runtest && make jsoo.inline-runtest` | pass | Native/JavaScript probe output matches and all JS inline expectations pass after Region detail rendering. |
 | 2026-08-30 | 6 | `make benchmark.region_pixel` | pass | Hot-path audit run: identity 0.378 ms, add 0.679 ms; fixed output/load counts remain 2,048/2,048 and 2,048/4,096 respectively. |
 | 2026-08-30 | 0/6 | isolated `261222c` benchmark build | unavailable | The closest comparable pre-Region tree fails Dune resolution: `Library "err_trace" not found`; temporary worktree removed without recording timings. |
+| 2026-08-30 | 6 | `opam exec -- dune runtest test/native` | pass | Pixel hot-path audit test observes exactly three loads in canonical C order `0,1,2`. |
