@@ -10,7 +10,7 @@ completed gate is committed only after its focused validation succeeds.
 | 0 | Baseline and benchmark census | pending | |
 | 1 | `Expr` scalar-local leaf | complete | pending commit |
 | 2 | Region structure and validation | complete | pending commit |
-| 3 | Kernel representation migration | pending | |
+| 3 | Kernel representation migration | complete | pending commit |
 | 4 | Region reference execution | pending | |
 | 5 | Pixel specialization/reconstruction | pending | |
 | 6 | Pixel regression closeout | pending | |
@@ -34,6 +34,12 @@ completed gate is committed only after its focused validation succeeds.
   enumeration always starts from the original output shape.
 - Region source analysis folds local bodies and the emitter structurally. It
   never expands local references merely to discover dependencies or limits.
+- `Kernel.Value` now owns only `computation : Region_program.t`. Existing stage
+  adaptation applies `Region_program.pixel` directly, preserving the original
+  expression object and keeping operation modules unchanged.
+- Kernel elaboration and fusion remain Pixel-only. A non-degenerate Region
+  value is visible through structural dependencies but cannot enter existing
+  expression-substitution paths.
 
 ## Validation record
 
@@ -43,3 +49,5 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 1 | `opam exec -- dune build lib/expr lib/native` | pass | Exhaustive consumers updated, including grounding and Model Explorer detail labels. |
 | 2026-08-30 | 2 | `opam exec -- dune runtest test/expr test/native` | pass | Covers partition enumeration, local scope, invariance, and all existing native behavior. |
 | 2026-08-30 | 2 | `make build` | pass | Native Region modules compile in the normal repository build. |
+| 2026-08-30 | 3 | `opam exec -- dune runtest test/native test/model_explorer` | pass | Kernel, fusion, evaluator, and explorer compatibility coverage passed after the representation migration. |
+| 2026-08-30 | 3 | `make precommit` | pass | Ran after formatter promotion; includes build, full native test run, format verification, diff checks, and file-size checks. |
