@@ -13,7 +13,7 @@ completed gate is committed only after its focused validation succeeds.
 | 3 | Kernel representation migration | complete | pending commit |
 | 4 | Region reference execution | complete | `ccc7b1d` |
 | 5 | Pixel specialization/reconstruction | complete | `83397a7` |
-| 6 | Pixel regression closeout | in progress | Region detail visualization checkpoint pending commit |
+| 6 | Pixel regression closeout | in progress | Region detail: `b4c23f8`; hot-path audit and comparison closeout remain |
 
 ## Decisions
 
