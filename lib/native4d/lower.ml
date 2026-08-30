@@ -338,6 +338,10 @@ let lower_node ~view acc (n : node) =
      names no axis and carries no shape, so it crosses unchanged. *)
   | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
       simple (Op.Upsample_bilinear2d { Resize.Bilinear2d.params; x = op_of x })
+  (* Same reasoning as [Upsample_bilinear2d] just above: [Resize.Nearest2d.params]
+     names no axis and carries no shape either. *)
+  | Upsample_nearest2d { Resize.Nearest2d.params; x } ->
+      simple (Op.Upsample_nearest2d { Resize.Nearest2d.params; x = op_of x })
   (* The axes were gated on the NATIVE [Axis.t] by [Domain.check_dims] before
      this walk started, so [dims4] here only converts what is already known to
      be inside the dialect -- which is what lets the diagnostic name the

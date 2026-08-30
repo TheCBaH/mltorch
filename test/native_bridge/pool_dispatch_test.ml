@@ -228,6 +228,77 @@ let%expect_test "dispatch: upsample_bilinear2d.vec rejects both size args" =
     {|
     error: upsample_bilinear2d.vec: output_size and scale_factors are mutually exclusive |}]
 
+(* No [align_corners] argument at all, unlike [upsample_bilinear2d.vec]
+   above -- see [Resize.Nearest_axis]'s module doc. Otherwise the identical
+   output_size/scale_factors contract, sharing
+   [Op_bridge_decode.resolve_upsample_size] with the bilinear arm. *)
+let%expect_test "dispatch: upsample_nearest2d.vec explicit output_size" =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.upsample_nearest2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_ints "output_size" [ 4; 4 ];
+        in_none "scale_factors";
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=2 C=2] ->[n0]]
+    nodes:
+      n0: [t1 f32 [H=2 W=2 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t2 f32 [H=4 W=4 C=1] ->[n2]] =
+        upsample_nearest2d x=t1 <-n0 params={output_size={h=4; w=4}}
+      n2: [t3 f32 [W=4 C=4]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [W=4 C=4] <-n2]
+    tensor f32 [W=4 C=4] {1, 1, 2, 2, 1, 1, 2, 2, ...} |}]
+
+(* Same [2x2 -> 3x3] geometry as [upsample_bilinear2d.vec]'s own
+   scale_factors fixture above, but every output is an exact copy of its
+   nearest source pixel rather than a blend -- no value here is a fraction
+   the source values cannot produce. *)
+let%expect_test "dispatch: upsample_nearest2d.vec via scale_factors" =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print ~target:"torch.ops.aten.upsample_nearest2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_none "output_size";
+        in_floats "scale_factors" [ 1.5; 1.5 ];
+      ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=3 C=3] {1, 1, 2, 1, 1, 2, 3, 3, ...} |}]
+
+let%expect_test "dispatch: upsample_nearest2d.vec rejects neither size arg" =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print ~target:"torch.ops.aten.upsample_nearest2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [ in_tensor "input"; in_none "output_size"; in_none "scale_factors" ]
+    ~noutputs:1;
+  [%expect
+    {|
+    error: upsample_nearest2d.vec: exactly one of output_size or scale_factors must be given |}]
+
+let%expect_test "dispatch: upsample_nearest2d.vec rejects both size args" =
+  let x = float_tensor [ 1; 1; 2; 2 ] [ 1.; 2.; 3.; 4. ] in
+  dispatch_print ~target:"torch.ops.aten.upsample_nearest2d.vec"
+    ~bindings:[ ("input", x) ]
+    ~inputs:
+      [
+        in_tensor "input";
+        in_ints "output_size" [ 3; 3 ];
+        in_floats "scale_factors" [ 1.5; 1.5 ];
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    error: upsample_nearest2d.vec: output_size and scale_factors are mutually exclusive |}]
+
 let%expect_test "dispatch: max_pool2d_with_indices.default discards indices" =
   (* NCHW [1,1,4,4], value(h,w)=h*4+w. 2x2/stride-2 windows: max is each
      window's bottom-right; the graph output is the relayout'd values, and the

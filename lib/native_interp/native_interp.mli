@@ -113,6 +113,7 @@ type metadata_role =
   | `Unbind_input
   | `Unsqueeze_input
   | `Upsample_bilinear2d_input
+  | `Upsample_nearest2d_input
   | `Vector_norm_input ]
 (** Why the missing [tensor_values] entry was wanted. *)
 

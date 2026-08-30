@@ -310,6 +310,9 @@ let output_shape (op : Op.t)
   | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
       let* x_shape = shape x in
       one (four (Resize.Bilinear2d.output_shape ~x_shape params))
+  | Upsample_nearest2d { Resize.Nearest2d.params; x } ->
+      let* x_shape = shape x in
+      one (four (Resize.Nearest2d.output_shape ~x_shape params))
   | Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params; x } ->
       let* x_shape = shape x in
       one

@@ -45,7 +45,16 @@ let classify (op : op) ~output =
      per-element, so a slice carries it exactly as a permutation does. *)
   (* [Concat] joins several operands' elements with no arithmetic either — the
      N-input dual of [Unbind]'s N-output selection, same reasoning. *)
-  | Concat _ | Select _ | Slice _ | Split_with_sizes _ | Stack _ | Unbind _ ->
+  (* [Upsample_nearest2d] is a third shape, neither permutation nor partition:
+     a GATHER that may read one input element for several output positions
+     (upsampling) or never read others, per [Resize.Nearest_axis]'s per-axis
+     nearest-index computation. The soundness argument does not care which
+     shape the routing takes — "copied without arithmetic" holds regardless of
+     whether the map is injective or surjective — unlike [Upsample_bilinear2d]
+     just below, whose output is a weighted BLEND of up to four input elements
+     and is therefore [Continuous], not [Reindexing]. *)
+  | Concat _ | Select _ | Slice _ | Split_with_sizes _ | Stack _ | Unbind _
+  | Upsample_nearest2d _ ->
       Reindexing
   (* [Pad] is NOT reindexing, and the mode is why the honest answer is one class
      rather than two. In [Constant] mode the padded cells are a synthesized fill

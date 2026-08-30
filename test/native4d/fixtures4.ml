@@ -51,6 +51,9 @@ let adaptive_params : Pool.AdaptiveAvgPool2d.params =
 let upsample_params : Resize.Bilinear2d.params =
   { output_size = hw (Op_config.Pos.of_int 7); align_corners = true }
 
+let nearest_params : Resize.Nearest2d.params =
+  { output_size = hw (Op_config.Pos.of_int 7) }
+
 let conv_params ~in_channels ~kernel : Ops4.Conv_params.t =
   {
     h = axis_window ~kernel;
@@ -270,6 +273,8 @@ let per_op () =
         (g, [ nhwc ]) );
       ( "upsample_bilinear2d",
         unary ~shape:nhwc (Builder.upsample_bilinear2d upsample_params) );
+      ( "upsample_nearest2d",
+        unary ~shape:nhwc (Builder.upsample_nearest2d nearest_params) );
       ( "vector_norm_keepdims",
         unary ~shape:nhwc (Builder.vector_norm_keepdims [ Axis4.H; Axis4.W ]) );
     ]

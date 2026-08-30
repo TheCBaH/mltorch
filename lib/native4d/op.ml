@@ -57,6 +57,7 @@ type op =
   | Transposed_conv2d of Ops4.Transposed_conv2d.t
   | Unbind of Ops4.Unbind.t
   | Upsample_bilinear2d of Resize.Bilinear2d.t
+  | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm_keepdims of Ops4.Vector_norm_keepdims.t
 
 type t = op
@@ -284,6 +285,12 @@ let op_registry : (module OP) list =
 
       let inject t = Upsample_bilinear2d t
       let project = function Upsample_bilinear2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Resize.Nearest2d
+
+      let inject t = Upsample_nearest2d t
+      let project = function Upsample_nearest2d t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Vector_norm_keepdims

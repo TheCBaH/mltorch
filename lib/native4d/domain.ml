@@ -218,7 +218,8 @@ let check_node view (n : node) =
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
   | Clone _ | Div _ | Div_scalar _ | Gelu _ | Hardsigmoid _ | Hardswish _
   | Hardtanh _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _ | Relu _
-  | Reshape _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _ | Upsample_bilinear2d _ ->
+  | Reshape _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _ | Upsample_bilinear2d _
+  | Upsample_nearest2d _ ->
       Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
   | Layer_norm { Norm.LayerNorm.params; _ } ->

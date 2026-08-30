@@ -256,7 +256,11 @@ val unbind :
 
 val upsample_bilinear2d :
   ?name:string -> Resize.Bilinear2d.params -> tensor_ref -> Tensor_id.t t
-(** Bilinear resize to an explicit output size, [align_corners=true] only. *)
+(** Bilinear resize to an explicit output size, either [align_corners] value. *)
+
+val upsample_nearest2d :
+  ?name:string -> Resize.Nearest2d.params -> tensor_ref -> Tensor_id.t t
+(** Nearest-neighbor resize to an explicit output size. *)
 
 val vector_norm :
   ?name:string -> Reduce.Vector_norm.params -> tensor_ref -> Tensor_id.t t

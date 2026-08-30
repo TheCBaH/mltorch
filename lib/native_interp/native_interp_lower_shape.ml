@@ -21,6 +21,7 @@ let targets =
     "torch.ops.aten.unbind.int";
     "torch.ops.aten.unsqueeze.default";
     "torch.ops.aten.upsample_bilinear2d.vec";
+    "torch.ops.aten.upsample_nearest2d.vec";
     "torch.ops.aten.view.default";
   ]
 
@@ -333,41 +334,8 @@ let dispatch ~ctx ~env (node : Node.t) =
            let scale_factors = floats_arg esc node "scale_factors" in
            let align_corners = bool_arg esc node "align_corners" in
            let out_h, out_w =
-             match (output_size, scale_factors) with
-             | [ h; w ], [] -> (h, w)
-             | [], [ sh; sw ] ->
-                 ( int_of_float (float_of_int in_h *. sh),
-                   int_of_float (float_of_int in_w *. sw) )
-             | [], [] ->
-                 malformed esc
-                   (`Bad_upsample_size
-                      {
-                        Bad_upsample_size.op = node.target;
-                        fault = Bad_upsample_size.Neither;
-                      })
-             | (_ :: _ :: _ | [ _ ]), [] ->
-                 malformed esc
-                   (`Bad_arity
-                      {
-                        Bad_arity.param = `Output_size;
-                        got = List.length output_size;
-                      })
-             | [], _ ->
-                 malformed esc
-                   (`Bad_upsample_size
-                      {
-                        Bad_upsample_size.op = node.target;
-                        fault =
-                          Bad_upsample_size.Bad_scale_arity
-                            (List.length scale_factors);
-                      })
-             | _ :: _, _ :: _ ->
-                 malformed esc
-                   (`Bad_upsample_size
-                      {
-                        Bad_upsample_size.op = node.target;
-                        fault = Bad_upsample_size.Both;
-                      })
+             resolve_upsample_size esc ~op:node.target ~in_h ~in_w output_size
+               scale_factors
            in
            let params =
              {
@@ -381,6 +349,36 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* x = permute perm_nchw_to_nhwc (get "input") in
            let* y = upsample_bilinear2d params x in
+           let* y = permute perm_nhwc_to_nchw y in
+           return [ y ]
+       (* No [align_corners] at all, unlike [upsample_bilinear2d.vec] just
+         above -- see [Resize.Nearest_axis]'s module doc. Otherwise the
+         identical output_size/scale_factors resolution. *)
+       | "torch.ops.aten.upsample_nearest2d.vec" ->
+           let x_name = tensor_name esc node "input" in
+           let _n, _c, in_h, in_w =
+             sizes_rank_4 esc ~tensor:x_name
+               (static_sizes esc ~tensor:x_name
+                  (tensor_meta esc graph ~ssa:x_name
+                     ~role:`Upsample_nearest2d_input))
+           in
+           let output_size = ints_arg esc node "output_size" in
+           let scale_factors = floats_arg esc node "scale_factors" in
+           let out_h, out_w =
+             resolve_upsample_size esc ~op:node.target ~in_h ~in_w output_size
+               scale_factors
+           in
+           let params =
+             {
+               Resize.Nearest2d.output_size =
+                 {
+                   h = pos esc ~op:node.target ~param:`Output_size out_h;
+                   w = pos esc ~op:node.target ~param:`Output_size out_w;
+                 };
+             }
+           in
+           let* x = permute perm_nchw_to_nhwc (get "input") in
+           let* y = upsample_nearest2d params x in
            let* y = permute perm_nhwc_to_nchw y in
            return [ y ]
        (* Both overloads share this body -- same argument names, same shared

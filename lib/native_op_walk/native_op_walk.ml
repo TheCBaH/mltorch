@@ -101,6 +101,8 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Upsample_bilinear2d_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Upsample_nearest2d_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Vector_norm_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
   ]

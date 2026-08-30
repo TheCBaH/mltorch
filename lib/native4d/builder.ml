@@ -228,6 +228,9 @@ let unbind axis x =
 let upsample_bilinear2d params x =
   op1 (Op.Upsample_bilinear2d { Resize.Bilinear2d.params; x })
 
+let upsample_nearest2d params x =
+  op1 (Op.Upsample_nearest2d { Resize.Nearest2d.params; x })
+
 let vector_norm_keepdims dims x =
   op1
     (Op.Vector_norm_keepdims { Ops4.Vector_norm_keepdims.params = { dims }; x })

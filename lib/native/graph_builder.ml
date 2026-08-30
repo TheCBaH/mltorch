@@ -367,6 +367,10 @@ let upsample_bilinear2d ?name params x =
   op1 ?name ~kind:"upsample_bilinear2d"
     (Upsample_bilinear2d { Resize.Bilinear2d.params; x })
 
+let upsample_nearest2d ?name params x =
+  op1 ?name ~kind:"upsample_nearest2d"
+    (Upsample_nearest2d { Resize.Nearest2d.params; x })
+
 let vector_norm ?name params x =
   op1 ?name ~kind:"vector_norm" (Vector_norm { Reduce.Vector_norm.params; x })
 

@@ -254,6 +254,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Upsample_bilinear2d { Resize.Bilinear2d.params; x } ->
         let module C = Resize.Bilinear2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Upsample_nearest2d { Resize.Nearest2d.params; x } ->
+        let module C = Resize.Nearest2d.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Vector_norm { Reduce.Vector_norm.params; x } ->
         let module C = Reduce.Vector_norm.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

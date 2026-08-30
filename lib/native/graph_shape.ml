@@ -309,6 +309,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Resize.Bilinear2d.output_shape ~x_shape params) in
       [ out ]
+  | Upsample_nearest2d { Resize.Nearest2d.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Resize.Nearest2d.output_shape ~x_shape params) in
+      [ out ]
   | Vector_norm { Reduce.Vector_norm.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reduce.Vector_norm.output_shape ~x_shape params) in

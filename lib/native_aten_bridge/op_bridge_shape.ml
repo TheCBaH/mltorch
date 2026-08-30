@@ -339,32 +339,8 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          let w_shape = Aten_tensor.shape aten_x in
          let in_h = w_shape.(2) and in_w = w_shape.(3) in
          let* out_h, out_w =
-           match (output_size, scale_factors) with
-           | [ h; w ], [] -> return (h, w)
-           | [], [ sh; sw ] ->
-               return
-                 ( int_of_float (float_of_int in_h *. sh),
-                   int_of_float (float_of_int in_w *. sw) )
-           | [], [] ->
-               fail
-                 (`Validation_failure
-                    "upsample_bilinear2d.vec: exactly one of output_size or \
-                     scale_factors must be given")
-           | (_ :: _ :: _ | [ _ ]), [] ->
-               fail
-                 (`Invalid_hw_arg { name = "output_size"; values = output_size })
-           | [], _ ->
-               fail
-                 (`Validation_failure
-                    (Printf.sprintf
-                       "upsample_bilinear2d.vec: scale_factors must have \
-                        exactly 2 elements, got %d"
-                       (List.length scale_factors)))
-           | _ :: _, _ :: _ ->
-               fail
-                 (`Validation_failure
-                    "upsample_bilinear2d.vec: output_size and scale_factors \
-                     are mutually exclusive")
+           resolve_upsample_size ~op:"upsample_bilinear2d.vec" ~in_h ~in_w
+             output_size scale_factors
          in
          let* h = pos ~op:node.Node.target ~param:`Output_size out_h in
          let* w = pos ~op:node.Node.target ~param:`Output_size out_w in
@@ -377,6 +353,35 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let* x' = permute perm_nchw_to_nhwc x_id in
                let* y' = upsample_bilinear2d params x' in
+               let+ y = permute perm_nhwc_to_nchw y' in
+               [ y ]
+           | _ -> assert false))
+  (* Schema: `upsample_nearest2d.vec(Tensor input, SymInt[]? output_size,
+     float[]? scale_factors)` -- no [align_corners] at all, unlike
+     [upsample_bilinear2d.vec] just above (nothing to interpolate between;
+     see [Resize.Nearest_axis]'s module doc). Otherwise the identical
+     output_size/scale_factors resolution. *)
+  | "torch.ops.aten.upsample_nearest2d.vec" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "input" in
+         let* () = require_rank "input" ~expected:4 aten_x in
+         let* output_size = ints_arg node "output_size" in
+         let* scale_factors = floats_arg node "scale_factors" in
+         let w_shape = Aten_tensor.shape aten_x in
+         let in_h = w_shape.(2) and in_w = w_shape.(3) in
+         let* out_h, out_w =
+           resolve_upsample_size ~op:"upsample_nearest2d.vec" ~in_h ~in_w
+             output_size scale_factors
+         in
+         let* h = pos ~op:node.Node.target ~param:`Output_size out_h in
+         let* w = pos ~op:node.Node.target ~param:`Output_size out_w in
+         let params = { Resize.Nearest2d.output_size = { h; w } } in
+         let* x = native_of_aten "input" aten_x in
+         build_g ~name:"upsample_nearest2d_relayout" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let* x' = permute perm_nchw_to_nhwc x_id in
+               let* y' = upsample_nearest2d params x' in
                let+ y = permute perm_nhwc_to_nchw y' in
                [ y ]
            | _ -> assert false))

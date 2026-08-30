@@ -61,6 +61,7 @@ type op =
   | Sub of Pointwise.Sub.t
   | Unbind of Split.Unbind.t
   | Upsample_bilinear2d of Resize.Bilinear2d.t
+  | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm of Reduce.Vector_norm.t
 
 (* A module ALIAS, so field access [n.Node.outputs] still resolves — the fields
@@ -376,6 +377,12 @@ let op_registry : (module OP) list =
 
       let inject t = Upsample_bilinear2d t
       let project = function Upsample_bilinear2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Resize.Nearest2d
+
+      let inject t = Upsample_nearest2d t
+      let project = function Upsample_nearest2d t -> Some t | _ -> None
     end : OP);
     (module struct
       include Reduce.Vector_norm

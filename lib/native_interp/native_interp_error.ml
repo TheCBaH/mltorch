@@ -99,6 +99,7 @@ type metadata_role =
   | `Unbind_input
   | `Unsqueeze_input
   | `Upsample_bilinear2d_input
+  | `Upsample_nearest2d_input
   | `Vector_norm_input ]
 
 type hw_param =
@@ -363,6 +364,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Unbind_input -> Fmt.string ppf "unbind input"
   | `Unsqueeze_input -> Fmt.string ppf "unsqueeze input"
   | `Upsample_bilinear2d_input -> Fmt.string ppf "upsample_bilinear2d input"
+  | `Upsample_nearest2d_input -> Fmt.string ppf "upsample_nearest2d input"
   | `Vector_norm_input -> Fmt.string ppf "vector_norm input"
 
 let pp_hw_param ppf : hw_param -> unit = function

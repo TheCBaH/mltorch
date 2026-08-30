@@ -528,3 +528,38 @@ let avg_pool2d_options node =
   let* ceil_mode = bool_arg ~default:false node "ceil_mode" in
   let* count_include_pad = bool_arg ~default:true node "count_include_pad" in
   return (ceil_mode, count_include_pad)
+
+(* Shared by [upsample_bilinear2d.vec] and [upsample_nearest2d.vec]: both
+   schemas are `(Tensor input, SymInt[]? output_size, ..., float[]?
+   scale_factors)`, and ATen's own `compute_output_size` accepts exactly one
+   of the two, never both, never neither. [op] is the SHORT display name
+   (e.g. ["upsample_bilinear2d.vec"]), not [node.Node.target], to match the
+   diagnostics this repo already prints for these two ops. A [scale_factors]
+   graph is resolved to an explicit size here, at import time, using ATen's
+   own `floor(input_size * scale_factor)` -- the Native op only ever sees a
+   concrete size, since Native shapes are static. *)
+let resolve_upsample_size ~op ~in_h ~in_w output_size scale_factors =
+  match (output_size, scale_factors) with
+  | [ h; w ], [] -> return (h, w)
+  | [], [ sh; sw ] ->
+      return
+        ( int_of_float (float_of_int in_h *. sh),
+          int_of_float (float_of_int in_w *. sw) )
+  | [], [] ->
+      fail
+        (`Validation_failure
+           (Printf.sprintf
+              "%s: exactly one of output_size or scale_factors must be given" op))
+  | (_ :: _ :: _ | [ _ ]), [] ->
+      fail (`Invalid_hw_arg { name = "output_size"; values = output_size })
+  | [], _ ->
+      fail
+        (`Validation_failure
+           (Printf.sprintf
+              "%s: scale_factors must have exactly 2 elements, got %d" op
+              (List.length scale_factors)))
+  | _ :: _, _ :: _ ->
+      fail
+        (`Validation_failure
+           (Printf.sprintf
+              "%s: output_size and scale_factors are mutually exclusive" op))

@@ -585,15 +585,27 @@ let%expect_test "native walk coverage" =
     [native] upsample_bilinear2d: direct==symbolic
     step 5 [n]: {shape=[2,4,6,8] output_size=[7,6] align_corners=true}
     [native] upsample_bilinear2d: direct==symbolic
+    step 0: {shape=[1,4,8,8] output_size=[4,4]}
+    [native] upsample_nearest2d: direct==symbolic
+    step 1 [n]: {shape=[1,4,8,8] output_size=[4,4]}
+    [native] upsample_nearest2d: direct==symbolic
+    step 2 [input_h]: {shape=[1,4,7,8] output_size=[4,4]}
+    [native] upsample_nearest2d: direct==symbolic
+    step 3 [out_w]: {shape=[1,4,7,8] output_size=[4,4]}
+    [native] upsample_nearest2d: direct==symbolic
+    step 4 [n]: {shape=[1,4,7,8] output_size=[4,4]}
+    [native] upsample_nearest2d: direct==symbolic
+    step 5 [input_h]: {shape=[1,4,7,8] output_size=[4,4]}
+    [native] upsample_nearest2d: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 1 [input]: {shape=[n=2 c=4 h=4 w=12] dims=[H,W] keepdim=false}
+    step 1 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[N,H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 2 [input]: {shape=[n=2 c=28 h=4 w=12] dims=[H,W] keepdim=false}
+    step 2 [input]: {shape=[n=1 c=4 h=4 w=4] dims=[N,H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 3 [input]: {shape=[n=2 c=28 h=2 w=12] dims=[H,W] keepdim=false}
+    step 3 [keepdim]: {shape=[n=1 c=4 h=4 w=4] dims=[N,H,W] keepdim=true}
     [native] vector_norm: direct==symbolic
-    step 4 [keepdim]: {shape=[n=2 c=28 h=2 w=12] dims=[H,W] keepdim=false}
+    step 4 [dims]: {shape=[n=1 c=4 h=4 w=4] dims=[N,H,W] keepdim=true}
     [native] vector_norm: direct==symbolic
-    step 5 [keepdim]: {shape=[n=2 c=28 h=2 w=12] dims=[H,W] keepdim=true}
+    step 5 [keepdim]: {shape=[n=1 c=4 h=4 w=4] dims=[N,H,W] keepdim=true}
     [native] vector_norm: direct==symbolic |}]

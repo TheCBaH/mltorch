@@ -521,6 +521,28 @@ module Resize = struct
       Dim.pp in_extent Op_config.Pos.pp out_extent Axis.pp axis aggregate limit
 end
 
+(* `upsample_nearest2d.vec`'s own aggregate: the coordinate transform scales
+   the output index by [in_extent] directly (see [Resize.Nearest_axis]), no
+   [- 1] anywhere -- a different formula from [Resize.Bilinear_axis]'s, so a
+   distinct message rather than a shared field-compatible type that would
+   describe the wrong arithmetic. Same field shape as [Adaptive_pool]'s
+   [input_extent * output_size], and the same phrasing. *)
+module Resize_nearest = struct
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    out_extent : Op_config.Pos.t;
+    aggregate : int64;
+    limit : int64;
+  }
+
+  let pp ppf { axis; in_extent; out_extent; aggregate; limit } =
+    Fmt.pf ppf
+      "upsample_nearest2d: input extent %a times output_size %a on axis %a is \
+       %Ld, which must be below the engine maximum of %Ld"
+      Dim.pp in_extent Op_config.Pos.pp out_extent Axis.pp axis aggregate limit
+end
+
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
   | `Bmm of Bmm.error
@@ -537,6 +559,7 @@ type t =
   | `Permute of Permute.t
   | `Reshape of Reshape.t
   | `Resize of Resize.t
+  | `Resize_nearest of Resize_nearest.t
   | `Sdpa of Sdpa.error
   | `Slice of Slice.t
   | `Split_with_sizes of Split_with_sizes.t
@@ -559,6 +582,7 @@ let pp ppf = function
   | `Permute e -> Permute.pp ppf e
   | `Reshape e -> Reshape.pp ppf e
   | `Resize e -> Resize.pp ppf e
+  | `Resize_nearest e -> Resize_nearest.pp ppf e
   | `Sdpa e -> Sdpa.pp_error ppf e
   | `Slice e -> Slice.pp ppf e
   | `Split_with_sizes e -> Split_with_sizes.pp ppf e

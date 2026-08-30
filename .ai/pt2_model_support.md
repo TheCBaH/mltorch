@@ -235,6 +235,22 @@ blocker: `upsample_nearest2d.vec` -- a distinct overload from the already-
 landed `upsample_bilinear2d.vec`, noted here only as a discovered lead, not
 yet investigated or scoped as a row.
 
+**Updated again, same day,** after landing `upsample_nearest2d.vec` (a new
+Native op, `Resize.Nearest2d` in `lib/native/ops/resize.ml`, alongside
+`Bilinear2d`: no `align_corners` at all, since nearest-neighbor has nothing
+to interpolate between -- ATen's own `nearest_neighbor_compute_source_index`
+is an EXACT integer floor division over the same static graph-construction-
+time extents `Bilinear_axis`/`Window_axis`/`Adaptive_axis` already divide, so
+this is `Identical` to ATen, not merely `Equivalent`): `native_builds:true`
+moves from 72 to 77. All 5 models `alias.default` unblocked above now clear
+this new blocker too and build in full: the `ghostnetv2_100`/`_130`/`_160`
+trio reaches `native4d_converts:true` and stops only on the already-tracked,
+out-of-scope `kernel` `over_limit` ("evaluation depth exceeds 2048" --
+`.ai/native4d_design.md`'s Kernel/Fusion note, unrelated to this landing);
+the `ghostnetv3_050`/`_130` pair stops on the already-tracked, already-closed
+`requires_payloads` domain limit, then the same `over_limit`. Neither is a
+new gap.
+
 **Updated 2026-08-29** after landing `avg_pool2d.default` (`Pool.AvgPool2d`
 already existed as a Native op -- and already had an ATen binding and a
 generated ATen-vs-Native walk, both dormant -- but no `Op_bridge`/

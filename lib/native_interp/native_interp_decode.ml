@@ -447,7 +447,8 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
   | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.layer_norm.default"
   | "torch.ops.aten.native_layer_norm.default" | "torch.ops.aten.addmm.default"
   | "torch.ops.aten.scaled_dot_product_attention.default"
-  | "torch.ops.aten.upsample_bilinear2d.vec" ->
+  | "torch.ops.aten.upsample_bilinear2d.vec"
+  | "torch.ops.aten.upsample_nearest2d.vec" ->
       true
   | _ -> false
 
@@ -901,6 +902,40 @@ let resolve_view esc ~tensor shape size =
          (Aten_shape.resolve_view_size ~numel size))
   in
   shape_of_sizes esc tensor (List.map (fun x -> SymInt.Int x) resolved)
+
+(* Shared by [upsample_bilinear2d.vec]/[upsample_nearest2d.vec]'s arms: both
+   schemas are `(Tensor input, SymInt[]? output_size, ..., float[]?
+   scale_factors)`, and ATen's own `compute_output_size` accepts exactly one
+   of the two, never both, never neither. Same resolution [Op_bridge]'s
+   [resolve_upsample_size] performs, restated here only because this importer
+   reads serialized metadata where that one reads a live tensor. [op] is
+   [node.target] (the FULL name), matching [Bad_upsample_size]'s own field. *)
+let resolve_upsample_size esc ~op ~in_h ~in_w output_size scale_factors =
+  match (output_size, scale_factors) with
+  | [ h; w ], [] -> (h, w)
+  | [], [ sh; sw ] ->
+      ( int_of_float (float_of_int in_h *. sh),
+        int_of_float (float_of_int in_w *. sw) )
+  | [], [] ->
+      malformed esc
+        (`Bad_upsample_size
+           { Bad_upsample_size.op; fault = Bad_upsample_size.Neither })
+  | (_ :: _ :: _ | [ _ ]), [] ->
+      malformed esc
+        (`Bad_arity
+           { Bad_arity.param = `Output_size; got = List.length output_size })
+  | [], _ ->
+      malformed esc
+        (`Bad_upsample_size
+           {
+             Bad_upsample_size.op;
+             fault =
+               Bad_upsample_size.Bad_scale_arity (List.length scale_factors);
+           })
+  | _ :: _, _ :: _ ->
+      malformed esc
+        (`Bad_upsample_size
+           { Bad_upsample_size.op; fault = Bad_upsample_size.Both })
 
 (* The shared resolver, wrapped in this module's own row. Beside [resolve_view]
    and for its reason: the arm that calls it runs inside the builder monad,

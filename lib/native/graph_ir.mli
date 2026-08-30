@@ -118,6 +118,7 @@ type op =
      value. The per-axis coordinate transform is its own shape/compute
      concern, not a legalization onto any existing op. *)
   | Upsample_bilinear2d of Resize.Bilinear2d.t
+  | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm of Reduce.Vector_norm.t
 
 (* Aliases to [Graph_common], which owns the dialect-agnostic vocabulary so a

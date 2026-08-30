@@ -40,7 +40,11 @@ let classify (op : Op.t) ~output:_ =
   | Slice4 _ -> Output_transfer.Reindexing
   | Sqrt _ | Sub _ | Transposed_conv2d _ -> Output_transfer.Continuous
   | Unbind _ -> Output_transfer.Reindexing
-  | Upsample_bilinear2d _ | Vector_norm_keepdims _ -> Output_transfer.Continuous
+  | Upsample_bilinear2d _ -> Output_transfer.Continuous
+  (* A gather, not a blend, unlike [Upsample_bilinear2d] just above -- see
+     [Output_transfer]'s own [Upsample_nearest2d] arm for the full argument. *)
+  | Upsample_nearest2d _ -> Output_transfer.Reindexing
+  | Vector_norm_keepdims _ -> Output_transfer.Continuous
 
 module Transfer = Output_transfer.Make (struct
   type nonrec op = Op.t

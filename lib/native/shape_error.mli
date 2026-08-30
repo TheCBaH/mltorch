@@ -374,6 +374,23 @@ module Resize : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** `upsample_nearest2d.vec`'s own aggregate: the coordinate transform scales
+    the output index by [in_extent] directly (see {!Resize.Nearest_axis}), no
+    [- 1] anywhere -- a different formula from {!Resize}'s, so a distinct
+    message rather than a shared field-compatible type that would describe the
+    wrong arithmetic. *)
+module Resize_nearest : sig
+  type t = {
+    axis : Axis.t;
+    in_extent : Dim.extent Dim.t;
+    out_extent : Op_config.Pos.t;
+    aggregate : int64;
+    limit : int64;
+  }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 type t =
   [ `Adaptive_pool of Adaptive_pool.t
   | `Bmm of Bmm.error
@@ -390,6 +407,7 @@ type t =
   | `Permute of Permute.t
   | `Reshape of Reshape.t
   | `Resize of Resize.t
+  | `Resize_nearest of Resize_nearest.t
   | `Sdpa of Sdpa.error
   | `Slice of Slice.t
   | `Split_with_sizes of Split_with_sizes.t
