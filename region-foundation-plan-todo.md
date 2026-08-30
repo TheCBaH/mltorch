@@ -12,7 +12,7 @@ completed gate is committed only after its focused validation succeeds.
 | 2 | Region structure and validation | complete | pending commit |
 | 3 | Kernel representation migration | complete | pending commit |
 | 4 | Region reference execution | in progress | Kernel execution dispatch checkpoint pending commit |
-| 5 | Pixel specialization/reconstruction | pending | |
+| 5 | Pixel specialization/reconstruction | in progress | specialization checkpoint pending commit |
 | 6 | Pixel regression closeout | pending | |
 
 ## Decisions
@@ -49,6 +49,11 @@ completed gate is committed only after its focused validation succeeds.
   This keeps the Pixel hot path free of Region-key and local-array work while
   allowing stored Region values to read the same prior-value buffers as Pixel
   values.
+- Pixel specialization preflights substituted size and depth structurally. The
+  metered Expr fold treats each local leaf as its already-computed expanded
+  measure, so it stops at the caller's limits without allocating a duplicated
+  tree. Only a successful preflight starts the shared-state, capture-safe
+  rewrite.
 
 ## Validation record
 
@@ -62,3 +67,4 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 3 | `make precommit` | pass | Ran after formatter promotion; includes build, full native test run, format verification, diff checks, and file-size checks. |
 | 2026-08-30 | 4 | `make precommit` | pass | Reference evaluator and its whole-axis sharing test pass with the repository's full pre-commit suite. |
 | 2026-08-30 | 4 | `opam exec -- dune runtest test/native` | pass | Kernel-level whole-channel Region program agrees through buffered `run` and on-demand `value_at`. |
+| 2026-08-30 | 5 | `opam exec -- dune runtest test/expr test/native` | pass | Dependent-local specialization, reconstruction, and one-node-over-size rejection pass. |
