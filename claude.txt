@@ -1,0 +1,52 @@
+
+current constant folding requires access to payload, so unless weights are popilated, it makes impossible to analyze how graph would look
+like after constant foldind (and constant folding is required due to CHW to HWC graph conversion). I'm wondering whether this could be
+resolved by defining small dialect of operations that could be embedded into to the constant tensors, so instead of, let's say transposing
+constant tensor, constant tensor is attached with graph that describes what operations should be performend on the original tensor.
+Analyze and critique this proposal.
+
+now create const-ssa-plan.md which should be high level grounded plan that could be base for the implementation. It should define set of operations that
+constant SSA should support, and do it in stages, in first milestone minimal set, that could get through whole stack artificially constructed graph, so all 
+components would be excercised. On second  milestone, language should be expressible enough, to allow export of some simple model (like mobilenetv1) to Native4D,
+only from .json aten representation without weights, next milestone is extension of language to handle all models that could be currently exported to Native4D with
+payloads.
+
+Add end-to-end support for gelu.default, sigmoid.default, scalar `mul.Tensor`, scalar `add.Tensor` see ops.md for reference.
+
+
+could this be extended to model .json files without weights (I understand that inference is not supported, but loading, transformations to Native,
+Nativ4D, etc are possible). Also I'm trying to  enable to cram tersts in test/dune .
+
+HEAD in vendored/bytesrw/ adds fix for the issue.  Are there tests in the bytesrw, if so add test that reproduces issue.
+ Also create writeup suitable for github pull request.
+
+combine these two commits together on the devel branch, use concise commit message (not more the single short paragraph) with Co-authored line. Write
+  writeup to pr.md - do not commit it. writeup also should be concise. In the original change remove inline code comments (same in the test), to match the
+  project style.
+
+  combine these two commits together on the devel branch, use concise commit message (not more the single short paragraph) with Co-authored line. Write  writeup to pr.md - do not commit it. writeup also should be concise. In the original change remove inline code comments (same in the test), to match the  project style.  
+
+ Reneral idea of 'native' dialect to be as close as possible to Aten, as such there is should be no legalization.
+ If some operations are similar consider how to share implementation for these (versus expressing, for example, stack in terms of concat).
+ Also preferably it's caried to Native4D (it should be similar to native except restricted to 4D dimensions). It should be noted
+ that since in Native spahpes are always 6D some operations an no-op (for example reshape that just changes number of dimensions).
+ Investigate documents to ensure that they are updated to reflect this design goal. Then investigate implementation in regard to deviation
+ and update ops.md, and follow with update of todo.md (also remove from todo.md completed items).
+
+
+Current state: lib/native/ops/split.ml has a new Select module (reuses Slice's output_shape/Compute) and lib/native/ops/concat.ml has a new Stack module (reuses Concat's output_shape, with its own corrected Compute.pixel — I caught and fixed a real bug where naively delegating to Concat.Compute.pixel would silently misread data whenever stack's dim isn't the outermost position, since axis-relabeling collides with Concat's direct coordinate reuse). Neither is wired into the rest of the codebase yet.
+
+Most impactful remaining work:
+- Wire Select/Stack into graph_ir.ml/.mli (constructors + registry), graph_shape.ml, eval_op.ml, output_transfer.ml (classify both Reindexing), and graph_builder.ml/.mli (builder functions) — all exhaustive-match sites that won't compile until these arms exist.
+- Update lib/native_aten_bridge/op_bridge.ml and lib/native_interp/native_interp.ml to build one Select/Stack node instead of the current Slice+Reshape / Reshape×N+Concat decomposition.
+- Add tests (compute_test.ml, graph_test.ml, graph_symbolic_test.ml) proving Select/Stack match hand-computed values — especially a stack(dim=1) case, which is the exact scenario that exposed the coordinate bug, so it must be pinned as a regression; then make format, dune runtest test/native, and commit. 
+
+
+reorder and group commits to smaller number of commits between HEAD~ and origin/main , use concise commit message (two paragraphs), run validation for
+each commit. Avoid referencing to phases in the commit messages, remove references to top level .md files (like todo.md, next.md, from git history, and
+from documents in .ai directory and comments in code).
+
+reorder and group commits to smaller number of commits between HEAD~ and origin/main , use concise commit
+message (two concise paragraphs), run validation for each commit. Avoid referencing to phases in the commit
+messages, remove references to top level .md files (like todo.md, next.md, from git history, and from
+documents in .ai directory and comments in code).

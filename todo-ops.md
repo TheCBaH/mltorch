@@ -1,0 +1,413 @@
+# ATen operation coverage: breadth-first TODO
+
+This is the current operation backlog for the checked-in tracked-model
+corpus.  Its primary goal is **breadth**: make a small, useful operation or
+configuration work through every applicable surface of this project before
+adding another Native-only arm.  **Depth**—the number of target names, node
+occurrences, and graphs that get farther through the pipeline—matters, but is
+a secondary outcome and must not be reported as whole-project support.
+
+It supersedes neither [`todo.md`](todo.md) nor [`ops.md`](ops.md): the former
+records detailed implementation decisions and the latter defines the support
+contract.  This file is the compact, corpus-derived queue that connects that
+contract to the next work items.
+
+Status: 2026-08-30.
+
+## Priority model: breadth first, then depth
+
+An ATen target name is not a unit of support on its own.  A configuration is
+**full-stack supported** only when it has an accountable path through all of
+the relevant surfaces below:
+
+| Surface | What must be present for a breadth claim |
+| --- | --- |
+| ATen boundary | A curated binding where it can link, or a documented binding-closure exception with hand-derived bridge fixtures. |
+| Both imports | `Native_aten_bridge.Op_bridge` and `Native_interp` decode the same accepted domain and construct equivalent Native graphs. |
+| Native execution | A first-class `Graph_ir` operation that preserves the ATen operation's semantics, with its own shape checks, Direct evaluation, and Symbolic evaluation. |
+| Native4D | A first-class `Native4d.Op` counterpart for the Native operation, with its own builder/shape/evaluation/domain coverage and four-axis tests.  The Native-to-Native4D map should map that operation to its counterpart, not use legalization as a substitute for missing operation support. |
+| Kernel / explorer path | A legal Native4D graph reaches the Kernel/Stage-Program path; a representative graph exercises that path without an operation-specific failure. |
+| Evidence | ATen-vs-Native coverage when linkable, Native Direct-vs-Symbolic coverage, Native-to-Native4D map verification, and importer/domain regressions for every accepted or intentionally rejected configuration. |
+
+The preferred route into Native is therefore **addition, not legalization**:
+give the ATen operation a Native operation that keeps its semantics, rather
+than lowering it to a different operation or a replacement subgraph.  The
+Native4D path follows it with a corresponding Native4D operation.  Sharing a
+compute functor, scalar primitive, parameter type, or test generator is
+desirable; erasing the operation's identity is not.
+
+An exception needs a written proof that the ATen operation is a true identity
+or representation-only normalization in the accepted domain.  Such an
+exception is intentionally narrow: it must not change value semantics, lose an
+observable output, or use a decomposition merely because a direct operation is
+not yet implemented.  It is recorded as an exception in the landing note, not
+used as the default coverage route.
+
+The default for any Native operation with meaningful N/H/W/C semantics is a
+Native4D counterpart.  Reusing its parameter record or compute functor is
+encouraged; re-expressing it as a different operation or a small legalized
+subgraph is not a substitute for that counterpart.  Structural normalization
+such as dropping a proven pure identity is a separate representation concern
+and does not count as Native4D support for a missing semantic operation.
+
+Call a target **Native-only, deliberately bounded** only when an explicit
+design decision establishes that the operation inherently names a `D`/`T` axis
+or requires a new kernel semantic outside the current N/H/W/C dialect.  This
+is an exceptional, honest outcome, but it does not increment the full-stack
+breadth tally.  A missing counterpart, bridge arm, evaluator, or untested
+importer is simply incomplete—not an intentional boundary.
+
+Depth is measured separately and always labelled with its stage: distinct
+target/configuration count, graph-node count, `native_builds`,
+`native4d_converts`, and `kernel_converts`.  In particular, a high node count
+behind an earlier import failure is neither demonstrated support nor a reason
+to skip the breadth gates above.
+
+## Scope and method
+
+The corpus is the 100 selected `pytorch-image-models` exports under
+`modules/devcontainer.pytorch-image-models/models/*/models/model.json`, not a
+cross-modality benchmark.  `models-selected.yaml` selects 40 of 89 architecture
+families and calls out 70 release models; all are image-classification-style
+graphs.  “Modalities” in this checkout therefore means CNN, hybrid, ViT,
+attention, sequence-like, and resize/indexing *architectures*, not NLP, audio,
+or multimodal model suites.  Do not make general ATen or multimodal coverage
+claims from this data alone.
+
+The census was made by:
+
+1. counting every `.graph_module.graph.nodes[].target` in all 100 JSON files;
+2. comparing those names with the target lists in
+   `lib/native_interp/native_interp_lower_{compute,shape}.ml`; and
+3. reading `test/data/pt2_json_model_support.jsonl`, generated by
+   `bin/pt2_json_model_support.ml`, for the earliest actual import/conversion
+   frontier.
+
+This deliberately distinguishes a target-name census from support for every
+ATen configuration.  A target listed by an importer can still reject a shape
+or option; a target occurring later than a model's first failure is not yet a
+demonstrated end-to-end blocker.
+
+## Findings and scorecard
+
+| Measure | Result |
+| --- | ---: |
+| Tracked graphs / architecture families | 100 / 40 |
+| Raw ATen graph nodes | 30,717 |
+| Distinct ATen target names | 85 |
+| Target names lowered by Native and present in corpus | 51 (30,167 nodes) |
+| Present target names without a Native lowering arm | 34 (550 nodes) |
+| `native_builds:true` in the support sweep | 87 / 100 |
+| Native4D conversions / kernel conversions | 56 / 100; 63 / 100 |
+| Graphs successful in Native, Native4D, and Kernel | 43 / 100 |
+
+The first five rows are target/node **depth** measures.  The last three are
+graph-stage depth measures, not an operation breadth measure: a graph may
+reach a later stage while another operation in the same graph is only
+Native-only, and the kernel branch has limits independent of ATen support.
+Do not derive a count of full-stack operations from either number.  Until the
+per-operation matrix below is recorded for a landing, the only defensible
+whole-project claim is the verified graph-stage result.
+
+Every landing should leave a small matrix in its landing note (or in this
+file's refresh) with these columns: ATen boundary, `Op_bridge`,
+`Native_interp`, Native Direct/Symbolic, Native4D, Kernel, and a representative
+graph.  This makes a support gap visible even when the corpus count rises.
+
+The checked-in selection manifest currently says `total_nodes: 30217`, while
+the checked-in JSON graphs contain 30,717 target-bearing nodes.  Treat that
+500-node difference as selection/export metadata drift until the producer
+regenerates or explains it; do not use the manifest total as the operation
+census denominator.
+
+The 19 Native failures are not 19 unsupported target names.  Their earliest
+frontiers are: `zeros.default` (3 models),
+`_native_batch_norm_legit.no_stats` (2), `index.Tensor` (2), and one model
+each for `adaptive_max_pool2d.default`, `arange.default`, `arange.start`,
+`conv1d.default`, `im2col.default`, `leaky_relu.default`, and
+`upsample_bicubic2d.vec`; five are configuration/transform failures discussed
+below.  In particular, the 550-node missing-name count includes downstream
+operations hidden behind an earlier frontier.
+
+## Ordered breadth-first work
+
+Work is ordered by the number of graphs whose *first* frontier it removes,
+then by whether it can gain a direct Native4D counterpart and reach the kernel
+path.  Do not start a second operation in a family merely to increase the
+distinct-target count while the first one lacks an importer, evaluator,
+Native4D counterpart, or verification surface.  A Native-only outcome is
+allowed only after an exceptional boundary has been made explicit and
+regression-tested.
+
+### P0A — complete shared Native vertical slices
+
+**All three rows landed** (commits `2c4fc9c` "add full-stack leaky ReLU,
+zeros, and arange factory support" and `56516bf` "add full-stack batch norm
+no-stats support"), including their Native4D counterparts (`Zeros4`,
+`Arange4`, `BatchNormNoStats` all present in `lib/native4d/ops4.ml`) — despite
+the table below predating the strikethrough convention used in P0B.  Recensus
+(2026-08-30) confirms each op is resolved at its old frontier and the graph
+moves to a *new* first failure rather than reaching `native4d_converts`/
+`kernel_converts` (no corpus model exercises these ops' Native4D path yet, so
+that stage is unverified against real graphs — synthetic fixture coverage
+lives in the commits' `test/native4d/*` additions):
+
+| Work | Old frontier (3 models) | New frontier after landing |
+| --- | --- | --- |
+| `zeros.default` | `convit_tiny`, `edgenext_xx_small`, `sequencer2d_s` | `repeat.default` (ConViT), `_to_copy.default` (EdgeNeXt), `lstm.input` (Sequencer, as predicted) |
+| `arange.default` / `arange.start` | ConViT, EdgeNeXt, MViTv2 (`.default`); DINOv3 ViT (`.start`, model id `vit_small_patch16_dinov3_qkvb`) | Neither target is any tracked model's current frontier any more (MViTv2's is now `_to_copy.default`; DINOv3 ViT's is `meshgrid.indexing`, already in the deferred backlog) |
+| `_native_batch_norm_legit.no_stats` | `nf_regnet_b0`, `vit_tiny_r_s16_p8_224` | **New:** both now fail Native *construction* itself (not an unsupported operator) with `"Reshape is not a Const-SSA operation"` — see the Const-SSA gap below. This is a `native4d_reason: malformed` / `native_builds: false` failure, one stage earlier than an importer gap. |
+
+None of the six affected models reach `native_builds:true` yet, so the
+scorecard's `native_builds` 83/100 is unchanged by this landing alone — the
+83 already includes these commits (regenerated at `0f766f1`). Do not re-add
+these three rows as open work; promote their *new* frontiers instead per the
+deferred-backlog promotion rule.
+
+### P0B — clear present Native4D counterpart frontiers
+
+These graphs already reach Native.  They are therefore immediate breadth work:
+adding their Native4D counterparts improves full-pipeline graph support without
+waiting for another ATen-import target.
+
+| Native4D work | Corpus signal | Counterpart scope |
+| --- | --- | --- |
+| ~~`GroupedConv4`~~ | **Landed** (commit 61120ec): `GroupedConv2D`, groups carried as a genuine field, reusing Native's Conv2d compute unchanged. Moved 13 of the 14 frontier models to `native4d_converts:true` (`native4d_converts` 39→53); the 14th, `efficientvit_b0`, now stops at `split_with_sizes` instead — see `SplitWithSizes4` below. | Done. |
+| ~~`GroupNorm4`~~ | **Landed** (commit 4ec447b): reuses `Norm.GroupNorm`'s shape/check_affine/compute unchanged; `groups` is an ordinary field, channel restricted to C matching `Batch_norm_no_stats`'s precedent. All 3 frontier models (`efficientnet_b0_g8_gn`, `efficientnet_b3_g8_gn`, `test_efficientnet_gn`) reach `native4d_converts:true` (53→56); two of the three still hit the kernel depth ceiling independently, so only `test_efficientnet_gn` joins the all-three-stages count (42→43). | Done. |
+| ~~`SplitWithSizes4`~~ | **Landed** (commit 861855f): reuses `Split.Split_with_sizes`'s shape rule/offset unchanged; no N=1 precondition since the axis is kept, not dropped. All 9 frontier models moved to a LATER frontier rather than to `native4d_converts:true` -- `requires_payloads` for `inception_next_*`/`mixnet_*`/`tf_mixnet_*`, a batched-matmul D-axis rejection for `efficientvit_b0`, a `Stack` rejection for `skresnet18` -- so `native4d_converts` is unchanged at 53. Depth moved; the stage-completion count did not. | Done. |
+| ~~`Expand4`~~ | **Landed** (commit dc92db8): target typed `Shape4.t`, the same trigger `Reshape4` has; `Domain.check_node` admits every `Expand` unconditionally, the real gate is the `four` wrap plus the lowerer's `Shape4.of_vec6`. `swiftformer_xs` moved to a LATER frontier (`requires_payloads`) rather than to `native4d_converts:true` -- Expand was one of several blockers. `native4d_converts`/`kernel_converts`/all-three-stages unchanged at 56/61/43. | Done. |
+
+**P0B is now fully landed** (all four rows above).  Cumulative since P0B started: `native4d_converts` 39→56, all-three-stages 31→43 (see the P0A row history for `native_builds` 81→83, from the P0A landings that preceded this session).
+
+**2026-08-30 recensus.** P0A's three rows and P1's `leaky_relu.default` row
+are also already landed (see their tables above); the headline scorecard was
+already regenerated at `0f766f1` and does not change further from this
+recensus alone. The recensus surfaced one new frontier — the
+`_native_batch_norm_legit.no_stats` fold tripping `nf_regnet_b0` and
+`vit_tiny_r_s16_p8_224` on `"Reshape is not a Const-SSA operation"` — which
+turned out to be the first of five (Reshape, Expand, Mul_scalar, Pow,
+Add_scalar), now all landed; see "Configuration and transform gaps" below.
+That work is done: zero Const-SSA registry gaps remain in the 100-model
+corpus, and `native_builds` moved 83→87.
+
+**2026-08-30, `Select4` landed** (full-stack; see `ops-progress.md`'s landing
+record). `csatv2` — the one model `Select4` was gating — moves from
+`no legalization for select x=t405 params={axis=H index=0}` to
+`no legalization for stack xs=[t413, t416, t419] params={axis=H}`: the next
+row of the same "Remaining Native4D counterpart backlog" table (`Stack4`).
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages are
+unchanged (87/56/63/43) — depth moved, stage-completion did not, since
+`csatv2` was and remains `native4d_converts:false` and a graph-only CI target
+(`kernel_reason: over_limit`, unrelated to this change).
+
+**2026-08-30, `Stack4` landed** (full-stack; see `ops-progress.md`'s landing
+record). `csatv2` — one of the two models `Stack4` was gating — moves from
+`no legalization for stack xs=[t413, t416, t419] params={axis=H}` to a later
+node in the same graph: a `permute.default` mixing a non-unit `T` extent into
+`H`, an intrinsic Native-only boundary (see "Ordered breadth-first work"
+below), not further Native4D work. `skresnet18` — the other — now reports the
+dialect's own axis-domain diagnostic (`axis D is outside the N/H/W/C
+dialect`) at the same node instead of the lowerer's generic catch-all; it was
+already `native4d_converts:false` and stays so.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages are
+unchanged (87/56/63/43) — depth moved, stage-completion did not.
+
+**Next priority**: of the four models the Const-SSA work unblocked
+(`nf_regnet_b0`, `vit_tiny_r_s16_p8_224`, `test_vit4`, `csatv2`), all four now
+stop on an intrinsic `D`/`T` axis — Native-only, deliberately bounded
+territory, not further work here (`csatv2`'s own case is the `permute.default`
+above). `Softmax4` is the one remaining row of the Native4D counterpart
+backlog table, with no corpus model currently gated on it. Otherwise: P1's
+remaining one-model slices (`adaptive_max_pool2d`, `conv1d`/`unfold`,
+`im2col`/`col2im`, `upsample_bicubic2d`) and promoting
+`_to_copy.default`/`lstm.input` from the deferred backlog (first frontiers
+for EdgeNeXt/MViTv2 and Sequencer respectively, per the P0A table).
+
+**2026-08-30, `repeat.default` landed** (full-stack Native; see
+`ops-progress.md`'s landing record). `repeat` gets a first-class `Repeat`
+Native op (`lib/native/ops/repeat.ml`) reusing `Reshape.delinearize`'s
+per-axis "mod x d = x - d*(x/d)" idiom rather than its
+flatten-then-redistribute strategy, since every axis keeps its own identity
+under tiling. Both importers (`Op_bridge`, `Native_interp`) resolve
+`repeats` against `self`'s own ATen rank via a new
+`Aten_shape.resolve_repeat_size`, mirroring `resolve_expand_size`'s split
+without its `-1` convention. No Native4D counterpart yet (tracked the same
+"dialect does not have it at all" way `Stack`/`Softmax` were before their
+own counterparts existed) — deliberately deferred, per this session's own
+scoping decision, rather than an oversight. `convit_tiny` — the one corpus
+model `repeat.default` was gating — moves to `repeat_interleave.self_int`,
+exactly the deferred-backlog row anticipated. `native_builds`/
+`native4d_converts`/`kernel_converts`/all-three-stages are unchanged
+(87/56/63/43) — depth moved, stage-completion did not, since `convit_tiny`
+was and remains `native_builds:false`.
+
+**2026-08-30, `repeat_interleave.self_int` landed** (full-stack Native,
+`dim` required; see `ops-progress.md`'s landing record). Shares
+`lib/native/ops/repeat.ml` with `Repeat`: a new `RepeatInterleave` module
+duplicates each element `repeats` times along ONE named axis
+(`out / repeats`, floor division) rather than tiling every axis modulo its
+own extent — the opposite composition `Repeat` performs. `dim=None`
+(flatten-first) is out of scope, rejected with a typed diagnostic
+(`Unsupported_option` / `Validation_failure`), since no corpus occurrence
+uses it. No Native4D counterpart yet, same deliberate-deferral reasoning as
+`Repeat`. `convit_tiny` moves to `copy.default` — the next row of the same
+"Factories, indexing, and copies" deferred-backlog family.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages
+unchanged (87/56/63/43) — depth moved, stage-completion did not.
+
+**2026-08-30, `copy.default` landed**. Binds directly to the EXISTING
+`Pointwise.Expand` node rather than a new Graph_ir op — see
+`op_bridge_shape.ml`'s own comment: real ATen's `copy_`/`copy` fully
+overwrites `self` with `src` broadcast to `self`'s shape, so the result
+depends only on `src`'s values and `self`'s declared shape, never on what
+`self` held before, which is exactly `Expand{size=self's shape}` applied to
+`src`. The corpus's own 40 occurrences (verified) are the functionalized
+form of `tensor[idx] = value` — always equal-shape, zero dtype casts — but
+the translation is the fully general broadcast regardless, not an overfit to
+that case. No new Graph_ir constructor, so no Native4D/domain.ml changes
+needed at all — `Expand4` already exists, so this is full-stack including
+Native4D wherever `Expand4` already reaches. `convit_tiny` moves to
+`select_scatter.default` — the predicted reconstruction node immediately
+downstream of each `copy.default` (writes the computed slice back into the
+base tensor `select`/`copy` only produced a view/value for). `mvitv2_tiny`'s
+frontier is unchanged (`_to_copy.default`, already earlier in its graph than
+its own `copy.default` occurrences).
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages
+unchanged (87/56/63/43) — depth moved, stage-completion did not.
+
+**Next priority**: `select_scatter.default` (ConViT's new frontier, 30
+occurrences) — the natural next target, being the write-back counterpart of
+`select`/`copy` just landed. `_to_copy.default` remains the 2-model target
+(EdgeNeXt, MViTv2) needing the value-domain trunc/round `SEMANTICS`
+primitive. Otherwise: `lstm.input` from the deferred backlog, or P1's
+remaining one-model slices (`adaptive_max_pool2d`, `conv1d`/`unfold`,
+`im2col`/`col2im`, `upsample_bicubic2d`).
+
+### P1 — small vertical slices with one-model proof
+
+| Work | Corpus evidence | Breadth-first acceptance condition |
+| --- | --- | --- |
+| ~~`leaky_relu.default`~~ | **Landed** (commit `2c4fc9c`, bundled with the P0A `zeros`/`arange` slice). `darknet17` now shows `native_builds:true`, `native4d_converts:true`, `kernel_converts:true` — the first P1/P0A row to clear all three graph stages end to end. | Done. |
+| `adaptive_max_pool2d.default` | 16 nodes in `bat_resnext26ts`; its first failure | All observed nodes have two outputs, but the index output is unused.  Still represent/discard it deliberately, as `max_pool2d_with_indices.default` does.  Add an `AdaptiveMaxPool2d4` counterpart and prove values (output sizes `[8,1]` and `[1,8]`), output handling, and the kernel path together. |
+| `conv1d.default` + `unfold.default` | 5 + 6 nodes in `eca_halonext26ts`; `conv1d` is the first failure | Treat as a one-model architecture slice.  Define `Conv1d4`/`Unfold4` counterparts and their N/H/W/C interpretation before adding a 1-D-only import shortcut; reject only parameterizations that demonstrably cannot inhabit that frame. |
+| `im2col.default` + `col2im.default` | 4 + 4 nodes in `volo_d1_224`; `im2col` is the first failure | These are a paired layout/gather-scatter problem, not an isolated patch.  Add paired `Im2col4`/`Col2im4` counterparts and design their import, evaluation, and kernel story together; the observed `im2col` is 3x3, dilation 1, padding 1, stride 2. |
+| `upsample_bicubic2d.vec` | 1 node in `sam2_hiera_tiny`; its first failure | Separate coordinate-transform review from existing bilinear/nearest support, then add a `Bicubic2d4` counterpart rather than a bridge-only arm.  The occurrence has output `[56,56]`, `align_corners=false`, no scales. |
+
+## Configuration and transform gaps in already named operations
+
+These should be tracked as operation coverage, even though their target names
+are in the lowering lists.  They are particularly important breadth work: a
+target that works only in one importer, one evaluator, or one rank/axis domain
+does not become full-stack supported merely because its name is present.  If a
+new configuration has distinct ATen semantics, add it as a Native operation
+and a Native4D counterpart; do not conceal it in a bridge legalization.
+
+| Gap | Evidence | Breadth-first TODO |
+| --- | --- | --- |
+| Broadcasted batch dimensions in `matmul.default` | `efficientvit_b0` fails on `[1,8,16,196] @ [1,8,196,17]`; `lambda_resnet26t` on `[1,4,64,16] @ [1,1,16,64]` | Add a Native `BatchedMatmul` operation for ATen broadcasting, rather than broadening a bridge legalization.  Specify output shape, both importer paths, and Direct/Symbolic behavior.  A Native4D counterpart is the default only if its operands can be expressed in N/H/W/C; otherwise record the intrinsic batch-axis exception and add an oracle walk containing both patterns. |
+| Head broadcasting in `scaled_dot_product_attention.default` | `mobilenetv5_base` rejects query-head extent 8 against key extent 1 | Add the broadcastable-head configuration to the Native SDPA operation and, for N/H/W/C-valid attention, its `Sdpa4` counterpart.  Retain a typed restriction only for the intrinsically unrepresentable batch-axis form; the current equality check is not sufficient for the tracked corpus. |
+| Rank-5 conv-weight ingestion | `hiera_tiny_224` fails before a node count: `getitem is rank 5, expected 4` | Find and repair or explicitly bound the `sizes_rank_4` assumption exposed after clone memory-format support.  Exercise the same accepted representation through both importers and downstream conversion; this is an importer/representation breadth gap, not evidence for a new ATen target. |
+| ~~Constant-SSA registry gaps~~ | **Landed** (five commits: `2f180d9` Reshape, `9b97429` Expand, `035772c` Mul_scalar, `5cf86d9` Pow, `19f33d2` Add_scalar, each paired with a census-regen commit). `Const_ssa.allows` now admits `{Add, Sub, Mul, Div, Sqrt, Permute, Reshape, Expand, Mul_scalar, Pow, Add_scalar}`. Whack-a-mole recensus after each landing (real graph failures, not a full-corpus fold-trace rerun — see below) surfaced the next op in the same two models' fold chains until none remained: `nf_regnet_b0`/`vit_tiny_r_s16_p8_224` needed Reshape then Expand then Mul_scalar; `test_vit4` needed Expand; `csatv2` needed Pow then Add_scalar. **2026-08-30 recensus: zero `"is not a Const-SSA operation"` blockers remain anywhere in the 100-model corpus.** All four models now reach `native_builds:true` and stop at a genuine, pre-existing Native4D boundary instead (an intrinsic `D`/`T` axis for the first three; a missing `Select4` legalization for csatv2) — real further work, but not a Const-SSA gap. `native_builds` 83→87, `kernel_converts` 61→63; `native4d_converts`/all-three-stages unchanged (56/43) since none of the four clear their new Native4D-stage blocker yet. | Done. Pow's grounding (`const_ssa_symbolic.ml`'s `pow_expr`) deliberately mirrors `Pointwise_binary.Pow.Compute.pixel`'s exact six ATen-special-cased exponents plus its `exp(scalar*log x)` fallback, numerically verified against all seven branches in `const_ssa_test.ml`. `Select4` (csatv2's new blocker) is already tracked in "Remaining Native4D counterpart backlog" below. |
+
+## Deferred target-name depth backlog
+
+The following 23 target names occur behind the present frontiers.  This is a
+depth inventory, not a delivery queue.  Keep it visible, but do not prioritize
+by raw node count alone: several belong to one architecture and will only be
+reached after its earlier P0/P1 work.  Promote an item only with (1) evidence
+that it is an exposed first frontier and (2) a proposed cross-surface slice or
+an explicit, tested Native-only boundary.
+
+| Family | Targets (occurrences; models) |
+| --- | --- |
+| Factories, indexing, and copies | `_to_copy.default` (22; EdgeNeXt, MViTv2 — the first frontier for both), `select_scatter.default` (30; ConViT — now its first frontier, after `copy.default` landed), `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`, multi-entry case still open for MaxxViTv2), `eye.m` (12; Bat-ResNeXt), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
+| Pointwise / type | `neg.default` (24; DINOv3 ViT), `type_as.default` (24; DINOv3 ViT), `rsub.Scalar` (10; ConViT), `pow.Scalar` (1; EdgeNeXt), `sin.default` and `cos.default` (3 each; EdgeNeXt, DINOv3 ViT), `bitwise_not.default` (1; EdgeNeXt), `div.Tensor_mode` (1; EdgeNeXt) |
+| Shape / sequence | `squeeze.dim` (3; Lambda-ResNet), `tile.default` (2; SAM2 Hiera, DINOv3 ViT), `lstm.input` (36; Sequencer2D — now its first frontier) |
+| Matrix / reduction | `einsum.default` (20; MViTv2), `cumsum.default` (2; EdgeNeXt), `max.dim` (1; VOLO) |
+| Higher-rank convolution | `conv3d.default` (3; Lambda-ResNet) |
+
+**`index.Tensor`'s single-live-entry, raw-`Long` case landed** (commit
+`3392dc0`: `Graph_ir.Index_tensor`, both importers, Native shape/Compute,
+Native4D rejection). Recensus (2026-08-30): CSATv2 is past it (its new
+frontier is the `Pow` Const-SSA gap above); MViTv2 is also past it (new
+frontier `_to_copy.default`, in the table above). **MaxxViTv2 is not** — its
+`indices` operand is a genuine multi-entry list, and the importer now reports
+this distinctly: `"index.Tensor.indices is not an optional tensor list"`
+(`malformed`, at Native-build time) rather than an unsupported-operator
+census miss. That is the real runtime-gather case `todo.md` deferred; treat it
+as its own slice — locked to the single-entry domain today by
+`.ai/index_tensor_design.md`'s acceptance rule — not as a reason to touch the
+already-landed single-entry path.
+
+## Remaining Native4D counterpart backlog
+
+An operation rejected solely because `Native4d.Op` has no name for it is a
+missing Native4D implementation, not a dialect exclusion.  The default work
+is to add a direct counterpart with the same operation-level semantics and to
+constrain only parameters that genuinely leave N/H/W/C.  Do not treat a
+replacement `Reshape`/`Concat`/other operation sequence as completing this
+work.
+
+| Native4D work | Corpus signal | Counterpart scope |
+| --- | --- | --- |
+| ~~`Select4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Native's `Select` gets a first-class `Select4` counterpart, the same `check_dims`-style axis-domain rejection `Slice`/`Concat`/`Split_with_sizes`/`Unbind` already had, and a real `Lower.convert` arm. `csatv2` is the one corpus model it was gating; its frontier moves to `Stack4` below rather than to `native4d_converts:true` (a later blocker in the same graph), so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
+| ~~`Stack4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Native's `Stack` gets a first-class `Stack4` counterpart, the same `check_dims`-style axis-domain rejection `Concat`/`Select`/`Slice`/`Split_with_sizes`/`Unbind` already had, and a real `Lower.convert` arm. Two corpus models were gated on it: `csatv2`'s frontier (`axis=H`) moves to a later node in the same graph — a `permute.default` mixing a non-unit `T` extent into `H`, an intrinsic Native-only boundary, not further Native4D work; `skresnet18`'s frontier (`axis=D`) now reports the dialect's own axis-domain diagnostic at the same node instead of the lowerer's generic catch-all. Neither reaches `native4d_converts:true`, so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
+| `Softmax4` | Softmax has no Native4D counterpart at any axis; no corpus model is currently gated on it. | Add a counterpart with axis-domain checks on N/H/W/C, retaining the reduction semantics rather than becoming a different reduction. |
+| Live max-pool indices and `IndexTensor4` | `index.Tensor` is deferred at Native today; live pool indices are also unsupported at Native4D. | Treat both as a full gather/indexing design requiring a counterpart and kernel semantics, not as a reason to declare the operations impossible. |
+
+The exceptional Native4D boundaries are narrower than “not currently in
+`Ops4`”: an operation whose semantics intrinsically require `D` or `T` in the
+fixed N/H/W/C frame (for example an admitted multi-batch `BatchedMatmul` or
+SDPA form) needs an explicit design choice to extend the frame.  Until then it
+is Native-only and must carry a typed diagnostic.  This exception does not
+apply merely because the direct counterpart has not been written yet.
+
+Native4D also needs payloads for constant folding on 13 models in the
+payload-free sweep.  Supplying release payloads is a verification precondition,
+not an operation implementation task.  The kernel branch's largest frontier is
+the evaluation-depth ceiling (22 models in the checked-in JSONL); it is
+independent of operation support and must be reported separately.
+
+## Progress tracking
+
+[`ops-progress.md`](ops-progress.md) is the checked-in, mutable progress
+ledger.  It contains the per-operation/configuration breadth matrix, the
+stage-qualified corpus scoreboard, and timestamped landing records.  Keep this
+file focused on priorities and acceptance rules; do not duplicate volatile
+counts or landing history here.
+
+The ledger answers two independent questions: “which operation/configuration
+works everywhere?” and “how much of this corpus gets farther?”  A landing must
+update both.  If a depth metric does not move, record the newly exposed frontier
+instead of treating the landing as having no progress.
+
+## Completion rule and refresh procedure
+
+For each row, follow the priority model above and `ops.md`'s whole-stack
+definition.  The landing note must classify the result rather than using the
+unqualified word “supported”:
+
+| Landing classification | Required evidence | May count toward |
+| --- | --- | --- |
+| **Full-stack** | Every surface in the breadth table, including a first-class Native operation, its first-class Native4D counterpart, and a Kernel/Stage-Program representative graph, plus the required oracle and Direct-vs-Symbolic walks. | Full-stack operation breadth and every successful graph-stage metric. |
+| **Native-only, deliberately bounded** | ATen boundary where possible, both importers, a first-class Native operation with shape/evaluation/oracle evidence, and a tested Native4D rejection naming an approved intrinsic `D`/`T` or new-kernel-semantic boundary. | Native target/configuration and `native_builds` depth only. |
+| **Incomplete** | Any missing importer, operation/counterpart, evaluator, verification path, or unclassified failure. | No support count; retain only as a backlog/frontier observation. |
+
+Binding-closure exceptions need hand-derived bridge/import fixtures and must
+be stated in the landing note.  A Kernel depth ceiling or missing payload is
+not an operation failure, but it must be recorded so an operation landing does
+not overclaim graph breadth.
+
+After every landing, regenerate the corpus signal with
+`make pt2.json-model-support`, recensus the 100 JSON graphs, and update both
+ledgers in [`ops-progress.md`](ops-progress.md) with:
+
+1. the newly exposed first frontier and its landing classification;
+2. the change in `native_builds`, `native4d_converts`, and `kernel_converts`;
+3. the number of selected graphs that now complete all three stages, separately
+   from graphs that only import to Native; and
+4. the per-operation surface matrix described in “Findings and scorecard.”
+
+Refresh `models-selected.yaml` as well if its node-count metadata still
+differs from the exported JSON, so the next depth prioritization has one
+denominator.
