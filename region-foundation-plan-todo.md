@@ -11,7 +11,7 @@ completed gate is committed only after its focused validation succeeds.
 | 1 | `Expr` scalar-local leaf | complete | pending commit |
 | 2 | Region structure and validation | complete | pending commit |
 | 3 | Kernel representation migration | complete | pending commit |
-| 4 | Region reference execution | pending | |
+| 4 | Region reference execution | in progress | reference evaluator checkpoint pending commit |
 | 5 | Pixel specialization/reconstruction | pending | |
 | 6 | Pixel regression closeout | pending | |
 
@@ -40,6 +40,9 @@ completed gate is committed only after its focused validation succeeds.
 - Kernel elaboration and fusion remain Pixel-only. A non-degenerate Region
   value is visible through structural dependencies but cannot enter existing
   expression-substitution paths.
+- `Region_eval` caches the dense scalar-local array by canonical region key;
+  the cache is created once per materialization and reuses a validated local-id
+  to slot map. Kernel evaluator dispatch remains the next Gate 4 change.
 
 ## Validation record
 
@@ -51,3 +54,4 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 2 | `make build` | pass | Native Region modules compile in the normal repository build. |
 | 2026-08-30 | 3 | `opam exec -- dune runtest test/native test/model_explorer` | pass | Kernel, fusion, evaluator, and explorer compatibility coverage passed after the representation migration. |
 | 2026-08-30 | 3 | `make precommit` | pass | Ran after formatter promotion; includes build, full native test run, format verification, diff checks, and file-size checks. |
+| 2026-08-30 | 4 | `make precommit` | pass | Reference evaluator and its whole-axis sharing test pass with the repository's full pre-commit suite. |
