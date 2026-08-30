@@ -13,7 +13,7 @@ completed gate is committed only after its focused validation succeeds.
 | 3 | Kernel representation migration | complete | pending commit |
 | 4 | Region reference execution | complete | `ccc7b1d` |
 | 5 | Pixel specialization/reconstruction | complete | `83397a7` |
-| 6 | Pixel regression closeout | pending | |
+| 6 | Pixel regression closeout | in progress | Region detail visualization checkpoint pending commit |
 
 ## Decisions
 
@@ -59,6 +59,10 @@ completed gate is committed only after its focused validation succeeds.
   adds enough fixed stack cost that the former 128-transition frontier can
   overflow under js_of_ocaml for medium-depth bodies; the lower ceiling returns
   the existing typed runtime error on both backends instead.
+- Model Explorer detail renders a Region as separate expression roots for each
+  declared local and the emitter. Root ids carry stable `lN-e*` / `emit-e*`
+  prefixes, and open-expression attributes name local references by declaration
+  order instead of expanding them.
 
 ## Validation record
 
@@ -77,3 +81,4 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 4 | `make jsoo.inline-runtest` | pass | Region-dispatch-adjusted recursion guard passes the JS depth frontier without stack overflow. |
 | 2026-08-30 | 0 | `make benchmark.region_pixel` | pass | `region_pixel_bench`: 20 samples on OCaml 4.14.3, Linux aarch64; identity median 0.413 ms / 210.246 GC words per output, add 0.671 ms / 337.328; both over 2,048 cells. |
 | 2026-08-30 | 4–5 | `opam exec -- dune runtest test/expr test/native` | pass | A Region consumer of a stored Pixel producer agrees across `run`, default `run_plan`, and `value_at`; Pixel specialization retains the original expression and negative reconstruction returns `false`. |
+| 2026-08-30 | 6 | `opam exec -- dune runtest test/model_explorer` | pass | Region detail includes a root for each scalar local and a separate emitter root while existing Pixel detail remains unchanged. |
