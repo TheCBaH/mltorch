@@ -12,7 +12,7 @@ records detailed implementation decisions and the latter defines the support
 contract.  This file is the compact, corpus-derived queue that connects that
 contract to the next work items.
 
-Status: 2026-08-30 (`Select_scatter4` landing).
+Status: 2026-08-30 (`adaptive_max_pool2d.default` landing).
 
 ## Priority model: breadth first, then depth
 
@@ -379,7 +379,23 @@ backlog" table is now landed except `Softmax4` and live max-pool
 indices/`IndexTensor4` — both open-ended designs, not one-session slices.
 Otherwise: `lstm.input` from the deferred backlog (36 occurrences,
 Sequencer2D's own first frontier), or P1's remaining one-model slices
-(`adaptive_max_pool2d`, `conv1d`/`unfold`, `im2col`/`col2im`,
+(`conv1d`/`unfold`, `im2col`/`col2im`, `upsample_bicubic2d`).
+
+**2026-08-30, `adaptive_max_pool2d.default` landed** (full-stack Native +
+a full Native4D counterpart for the value-only op; see `ops-progress.md`'s
+landing record and the P1 table's own row above). `bat_resnext26ts` moves
+to `eye.m` — the next row of the "Factories, indexing, and copies" deferred
+backlog table below.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages
+unchanged (88/56/63/43) — depth moved, stage-completion did not, since
+`bat_resnext26ts` was and remains `native_builds:false`.
+
+**Next priority**: `eye.m` (12 occurrences, now `bat_resnext26ts`'s own
+first frontier) from the deferred backlog below; `Softmax4` and live
+max-pool indices/`IndexTensor4` remain the two open-ended Native4D
+counterpart-backlog rows; otherwise `lstm.input` from the deferred backlog
+(36 occurrences, Sequencer2D's own first frontier), or P1's remaining
+one-model slices (`conv1d`/`unfold`, `im2col`/`col2im`,
 `upsample_bicubic2d`).
 
 ### P1 — small vertical slices with one-model proof
@@ -387,7 +403,7 @@ Sequencer2D's own first frontier), or P1's remaining one-model slices
 | Work | Corpus evidence | Breadth-first acceptance condition |
 | --- | --- | --- |
 | ~~`leaky_relu.default`~~ | **Landed** (commit `2c4fc9c`, bundled with the P0A `zeros`/`arange` slice). `darknet17` now shows `native_builds:true`, `native4d_converts:true`, `kernel_converts:true` — the first P1/P0A row to clear all three graph stages end to end. | Done. |
-| `adaptive_max_pool2d.default` | 16 nodes in `bat_resnext26ts`; its first failure | All observed nodes have two outputs, but the index output is unused.  Still represent/discard it deliberately, as `max_pool2d_with_indices.default` does.  Add an `AdaptiveMaxPool2d4` counterpart and prove values (output sizes `[8,1]` and `[1,8]`), output handling, and the kernel path together. |
+| ~~`adaptive_max_pool2d.default`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Full-stack Native (`Adaptive_max_pool2d`/`Adaptive_max_pool2d_with_indices`, both importers, a curated ATen binding + real-ATen walk oracle covering the argmax index too) plus a full Native4D counterpart for the value-only op via `Drop_pool_indices`'s dead-index narrowing — the exact `max_pool2d.default`/`max_pool2d_with_indices.default` relationship, one level inside Native since ATen itself has no value-only adaptive overload. The two-output ATen-facing form's Native4D story is **not** closed: it joins `Max_pool2d_with_indices` in the dialect's existing "no argmax-pool operation" rejection, the same tracked "Live max-pool indices and `IndexTensor4`" backlog row below — the original acceptance condition's "Add an `AdaptiveMaxPool2d4` counterpart" undersold this: a *value-only* counterpart is exactly what landed, not a two-output one, and no corpus model needs the two-output counterpart today. `bat_resnext26ts` moves to `eye.m`, the next row of the "Factories, indexing, and copies" deferred backlog. | Done for the value-only op; the two-output form's Native4D counterpart folds into the live-index backlog row, not a fresh gap. |
 | `conv1d.default` + `unfold.default` | 5 + 6 nodes in `eca_halonext26ts`; `conv1d` is the first failure | Treat as a one-model architecture slice.  Define `Conv1d4`/`Unfold4` counterparts and their N/H/W/C interpretation before adding a 1-D-only import shortcut; reject only parameterizations that demonstrably cannot inhabit that frame. |
 | `im2col.default` + `col2im.default` | 4 + 4 nodes in `volo_d1_224`; `im2col` is the first failure | These are a paired layout/gather-scatter problem, not an isolated patch.  Add paired `Im2col4`/`Col2im4` counterparts and design their import, evaluation, and kernel story together; the observed `im2col` is 3x3, dilation 1, padding 1, stride 2. |
 | `upsample_bicubic2d.vec` | 1 node in `sam2_hiera_tiny`; its first failure | Separate coordinate-transform review from existing bilinear/nearest support, then add a `Bicubic2d4` counterpart rather than a bridge-only arm.  The occurrence has output `[56,56]`, `align_corners=false`, no scales. |
@@ -419,7 +435,7 @@ an explicit, tested Native-only boundary.
 
 | Family | Targets (occurrences; models) |
 | --- | --- |
-| Factories, indexing, and copies | `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`; multi-entry case now confirmed as MViTv2's OWN first frontier too, not just MaxxViTv2's, after `_to_copy.default` landed — `"index.Tensor.indices is not an optional tensor list"`), `eye.m` (12; Bat-ResNeXt), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
+| Factories, indexing, and copies | `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`; multi-entry case now confirmed as MViTv2's OWN first frontier too, not just MaxxViTv2's, after `_to_copy.default` landed — `"index.Tensor.indices is not an optional tensor list"`), `eye.m` (12; Bat-ResNeXt — now its first frontier, after `adaptive_max_pool2d.default` landed), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
 | Pointwise / type | `neg.default` (24; DINOv3 ViT), `type_as.default` (24; DINOv3 ViT), `pow.Scalar` (1; EdgeNeXt), `sin.default` and `cos.default` (3 each; EdgeNeXt, DINOv3 ViT), `bitwise_not.default` (1; EdgeNeXt — now its first frontier, after `_to_copy.default` landed), `div.Tensor_mode` (1; EdgeNeXt) |
 | Shape / sequence | `squeeze.dim` (3; Lambda-ResNet), `tile.default` (2; SAM2 Hiera, DINOv3 ViT), `lstm.input` (36; Sequencer2D — now its first frontier) |
 | Matrix / reduction | `einsum.default` (20; MViTv2), `cumsum.default` (2; EdgeNeXt), `max.dim` (1; VOLO) |

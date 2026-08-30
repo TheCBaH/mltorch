@@ -22,19 +22,23 @@ Recomputed from `test/data/pt2_json_model_support.jsonl` after
 `Sigmoid`/`Rsub_scalar` landing: `convit_tiny` now builds at Native,
 stopping at `Repeat`'s then-missing `Repeat4` counterpart. Unchanged by
 every other landing below, including `_to_copy.default`,
-`Repeat4`/`RepeatInterleave4`, and `Select_scatter4` (most recent):
-`Select4`, `Stack4`, `repeat.default`, `repeat_interleave.self_int`,
-`copy.default`, `select_scatter.default`, `_to_copy.default`,
-`Repeat4`/`RepeatInterleave4`, and `Select_scatter4` each moved a model's
-*frontier* only — `edgenext_xx_small` to `bitwise_not.default`,
-`mvitv2_tiny` to `index.Tensor`'s multi-entry case, `convit_tiny` through
+`Repeat4`/`RepeatInterleave4`, `Select_scatter4`, and `adaptive_max_pool2d`
+(most recent): `Select4`, `Stack4`, `repeat.default`,
+`repeat_interleave.self_int`, `copy.default`, `select_scatter.default`,
+`_to_copy.default`, `Repeat4`/`RepeatInterleave4`, `Select_scatter4`, and
+`adaptive_max_pool2d.default` each moved a model's *frontier* only —
+`edgenext_xx_small` to `bitwise_not.default`, `mvitv2_tiny` to
+`index.Tensor`'s multi-entry case, `convit_tiny` through
 `select_scatter.default`'s own `Select_scatter4` counterpart to a genuine
-intrinsic `axis T is outside the N/H/W/C dialect` wall.
+intrinsic `axis T is outside the N/H/W/C dialect` wall, and
+`bat_resnext26ts` from `adaptive_max_pool2d.default` to `eye.m` (still
+`native_builds:false`).
 
 ## Per-operation breadth matrix
 
 | Op | ATen boundary | `Op_bridge` | `Native_interp` | Native Direct/Symbolic | Native4D | Kernel | Representative graph |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `adaptive_max_pool2d.default` / `Adaptive_max_pool2d` + `Adaptive_max_pool2d_with_indices` | **landed**: curated binding + `Recipe_adaptive`-reused walk oracle (`lib/aten_gen/walk_meta_pool.ml`), `lib/aten/build_archive.sh` gained the structured kernel's source files | **landed**: `lib/native_aten_bridge/op_bridge_pool.ml` (always the two-output form + `discard`) | **landed**: `lib/native_interp/native_interp_lower_compute.ml` | **landed**: `lib/native/ops/pool.ml`, value via `S.max_reduce` (no new primitive), index derived from `max_reduce`/`select`/negation (no new primitive), `test/native/{pool_test,graph_direct_pool_test,graph_symbolic_pool_test,drop_pool_indices_test}.ml` | **landed for the value-only op** (`Adaptive_max_pool2d`, direct reuse like `Adaptive_avg_pool2d`); the two-output op joins `Max_pool2d_with_indices`'s existing "no argmax-pool operation" rejection — the tracked live-index/`IndexTensor4` backlog, not a fresh gap | reaches wherever the reused Native4D pointwise/pool path already reaches for the value-only op; the two-output op is graph-import-only until `Drop_pool_indices` narrows it | `bat_resnext26ts` (native-import frontier; graph does not reach kernel path from here) |
 | `select.int` / `Select` | landed pre-existing (`select.int` decomposed into `Select`) | landed | landed | landed (Native `Split.Select`, pre-existing) | **landed 2026-08-30**: `Select4`, `test/native4d/{op_json,fixtures,fixtures4,domain,lower,compute,verify}_test.ml` | reaches `Snapshot4`/lowering; no corpus graph exercises `Select4` end to end into the kernel path yet (csatv2, the only corpus model whose frontier `Select4` clears, is a graph-only CI target — see below) | `csatv2` (native4d frontier only; not a kernel-path graph) |
 | `stack.default` / `Stack` | landed pre-existing (own `Stack` node, not a `Concat` decomposition) | landed | landed | landed (Native `Concat.Stack`, pre-existing) | **landed 2026-08-30**: `Stack4`, `test/native4d/{op_json,domain}_test.ml`, `test/native4d/fixtures{,4}.ml` | reaches `Snapshot4`/lowering; no corpus graph exercises `Stack4` end to end into the kernel path yet (csatv2 and skresnet18, the two corpus models whose frontier `Stack4` clears, stay blocked at a later stage — see below) | `csatv2` (native4d frontier only; not a kernel-path graph) |
 | `repeat.default` / `Repeat` | landed 2026-08-30: read via `Aten_tensor.shape` only (no ATen kernel call needed), `test/native_bridge/repeat_test.ml` | landed 2026-08-30: `lib/native_aten_bridge/op_bridge_shape.ml` | landed 2026-08-30: `lib/native_interp/native_interp_lower_shape.ml` | landed 2026-08-30: `lib/native/ops/repeat.ml`, `test/native/{repeat_test,graph_direct_shape_test,graph_symbolic_shape_test}.ml` | none yet — no `Repeat4` counterpart; tracked as backlog, not an intrinsic-axis boundary (see landing note) | not reachable without a Native4D counterpart | `convit_tiny` (native-import frontier only; graph does not reach kernel path from here) |
@@ -48,6 +52,146 @@ intrinsic `axis T is outside the N/H/W/C dialect` wall.
 | `select_scatter.default` / `Select_scatter4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed this entry**: `Select_scatter4`, reusing `Split.Select_scatter`'s shape rule/pixel map unchanged, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4` gets, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `Select_scatter4` graph's own kernel path already reaches | `convit_tiny` (native4d frontier only; graph does not reach kernel path from here) |
 
 ## Landing records
+
+### 2026-08-30 — `adaptive_max_pool2d.default`, the adaptive counterpart to `max_pool2d`/`max_pool2d_with_indices`
+
+Closes the P1 row [`todo-ops.md`](todo-ops.md) tracked for
+`bat_resnext26ts` (16 nodes, its first frontier). ATen's own
+`adaptive_max_pool2d(Tensor self, int[2] output_size) -> (Tensor, Tensor)`
+has no value-only overload the way `max_pool2d.default`/
+`max_pool2d_with_indices.default` split into two ATen ops — it always
+returns (values, indices) — so the design mirrors that pair's relationship
+one level down inside Native itself rather than at the ATen boundary.
+
+**What landed**
+
+- `lib/native/ops/pool.ml`: two new modules. `AdaptiveMaxPool2d`
+  (value-only, one output) reuses `Adaptive_axis.check`/`Adaptive_axis.
+  Compute.bin` verbatim from `AdaptiveAvgPool2d`, with the reduction swapped
+  from `S.sum`/`S.div` to `S.max_reduce` — exactly `Reduce.Amax`'s
+  relationship to `Reduce.Mean`. No new `SEMANTICS` primitive: `max_reduce`
+  already has the same `lo`/`hi`/`f` shape as `sum`.
+  `AdaptiveMaxPool2dWithIndices` (ATen-facing, two outputs) reuses
+  `AdaptiveMaxPool2d`'s own `Compute.pixel` for `value_pixel` and derives
+  the flat argmax index for `index_pixel` purely from existing primitives —
+  a two-pass max-reduce/select/negation idiom (find the max, then find the
+  smallest flat index whose value equals it via `select (lt v m) sentinel
+  flat` and a max-reduce-of-negated-candidates for the min) — rather than a
+  bespoke intrinsic like `max_pool2d_index`, the same "`max`/`min`/`relu`
+  are derived, not primitive" rule `semantics.ml`'s own module doc states.
+  Verified against real `at::adaptive_max_pool2d`'s tie-break convention by
+  the walk oracle below, not just assumed from `MaxPool2dWithIndices`'s own
+  comment.
+- `lib/native/graph_ir.ml`/`.mli`: `Adaptive_max_pool2d` and
+  `Adaptive_max_pool2d_with_indices` constructors + registry entries
+  (alphabetical, between `Adaptive_avg_pool2d` and `Amax`).
+- `lib/native/graph_shape.ml`, `lib/native/eval_op.ml`,
+  `lib/native/graph_builder.ml`/`.mli`: the usual per-op shape/compute/
+  builder wiring, `Adaptive_max_pool2d_with_indices`'s builder and
+  `eval_op.ml`'s `output = 0 then value_pixel else index_pixel` dispatch
+  mirroring `Max_pool2d_with_indices`'s own exactly.
+- `lib/native/transform/output_transfer.ml`: `Adaptive_max_pool2d`
+  `Continuous` (joins the bulk bucket); `Adaptive_max_pool2d_with_indices`
+  joins `Max_pool2d_with_indices`'s `output = 0 then Continuous else
+  Discontinuous` arm (the index is data-dependent/argmax-shaped).
+- `lib/native/transform/passes/drop_pool_indices.ml`: a second `on_node`
+  arm narrowing `Adaptive_max_pool2d_with_indices` to `Adaptive_max_pool2d`
+  once its index is dead, exactly `Max_pool2d_with_indices` → `Max_pool2d`.
+  Since ATen has no value-only adaptive overload, this pass is the ONLY
+  route by which `Adaptive_max_pool2d` is ever produced — both importers
+  always build the two-output op first. The `Identical` narrowing claim is
+  **proved structurally**, not declined
+  (`test/native/drop_pool_indices_test.ml`: `4 clusters: 3 proved
+  (structural), 1 vacuous`, matching the fixed-window pair's own result),
+  confirming the generic-primitive-built `AdaptiveMaxPool2dWithIndices.
+  Compute.value_pixel` really is the same term as `AdaptiveMaxPool2d.
+  Compute.pixel` (it's defined as that module's own `Compute.pixel`).
+- `lib/native_aten_bridge/op_bridge_pool.ml` + `op_bridge_error.ml`: the
+  `adaptive_max_pool2d.default` arm, combining `adaptive_avg_pool2d.
+  default`'s rank check (reusing the now-generalized `` `Adaptive_pool_rank
+  ``, its message no longer hardcoded to "adaptive_avg_pool2d") with
+  `max_pool2d_with_indices.default`'s two-output/`discard`/relayout
+  pattern.
+- `lib/native_interp/native_interp_lower_compute.ml`,
+  `native_interp_decode.ml`, `native_interp_error.ml`/`.mli`: the mirror
+  import arm (new `` `Adaptive_max_pool2d_input `` metadata role, alongside
+  the existing avg one), `is_nontrivial_node` and `materialized_output_names`
+  both gaining the new target (the latter drops its serialized indices name
+  from tracking, the same treatment `max_pool2d_with_indices.default`/
+  `native_layer_norm.default` already get, since the built op returns only
+  `[values]`).
+- **ATen curated binding**: `bin/aten_ops_gen.ml` gains
+  `op "adaptive_max_pool2d"`. Building it exposed a genuine linker gap —
+  `adaptive_max_pool2d`'s structured CPU kernel wasn't in the curated
+  archive's source list at all — fixed in `lib/aten/build_archive.sh` by
+  adding `AdaptiveMaxPooling2d.cpp` (the structured meta+impl, the same
+  shape `DilatedMaxPool2d.cpp` is for `max_pool2d_with_indices`) and
+  `cpu/AdaptiveMaxPoolKernel.cpp` to the CAP list, alongside
+  `AdaptiveAveragePooling.cpp`/`cpu/AdaptiveAvgPoolKernel.cpp`.
+- **Real-ATen oracle**: `lib/aten_gen/walk_meta_pool.ml` gains
+  `adaptive_max_pool2d`, reusing `Recipe_adaptive`'s walk config UNCHANGED
+  (the shape/output_size axes don't depend on which reduction runs) —
+  registered in `lib/aten_gen/walk_meta.ml`. The generated walk agrees with
+  real ATen across randomized shapes/output sizes in
+  `test/native_walk_coverage_test.ml`'s bridge-coverage sweep, including the
+  argmax index output (not just the value) — the first per-model evidence
+  that the tie-break derivation above actually matches ATen, not merely the
+  comment it was modeled on.
+- Tests: `test/native/pool_test.ml` (hand-computed values+argmax over a
+  5x5→3x3 non-divisible-bin case, and a ties-choose-smallest-flat-index
+  case), `test/native/graph_direct_pool_test.ml` +
+  `graph_symbolic_pool_test.ml` (end-to-end graph builds, Symbolic staging
+  the whole thing as an ordinary nested-expression tree rather than an
+  intrinsic node — ground matches Direct bit-for-bit), `test/native/
+  drop_pool_indices_test.ml` (the adaptive discarded/live pair + the
+  structural `Identical` proof), `test/native_bridge/pool_dispatch_test.ml`
+  and `test/native_interp/pool_test.ml` (relayout + Discard routing +
+  rank/size rejection, mirroring each importer's own `adaptive_avg_pool2d`/
+  `max_pool2d_with_indices` coverage), `test/native4d/{op_json_test,
+  fixtures4,compute_test}.ml` (the value-only op's JSON/Direct-vs-Symbolic
+  coverage), `test/native4d/{fixtures,domain_test}.ml` (the two-output op's
+  discarded/live rejection, mirroring `Max_pool2d_with_indices`'s own case
+  in `domain_test.ml` — which, like this op, previously had no dedicated
+  unit-test coverage there at all).
+
+**Native4D**: `Adaptive_max_pool2d` (value-only, no axis parameter) gets a
+full counterpart by direct reuse — `lib/native4d/{op,domain,graph_shape4,
+eval_op4,output_transfer4,lower_engine,builder}.ml` — exactly
+`Adaptive_avg_pool2d`'s own treatment, admitted unconditionally by
+`Domain.check_node`. `Adaptive_max_pool2d_with_indices` joins
+`Max_pool2d_with_indices` in the dialect's existing "no argmax-pool
+operation" rejection (`` `Live_max_pool_indices `` when the index is live,
+plain `unsupported` when dead but not yet narrowed) — this is the SAME
+open design point `todo-ops.md`'s "Live max-pool indices and `IndexTensor4`"
+backlog row already tracks, not a fresh gap this landing introduces.
+
+**Classification**: Full-stack for `adaptive_max_pool2d.default`'s NATIVE
+semantics (ATen boundary, both importers, Native Direct/Symbolic, and a
+full Native4D counterpart for the value-only op, each with oracle and
+Direct-vs-Symbolic evidence above) — but the two-output ATen-facing form's
+Native4D story is deliberately incomplete pending the tracked live-index
+design, the same way `Max_pool2d_with_indices` itself has been all along.
+This doesn't fit the completion table's "Native-only, deliberately bounded"
+tier cleanly either — that tier is for an intrinsic `D`/`T`-axis or
+new-kernel-semantic boundary, and this is neither — so it's recorded
+plainly as: full-stack up to and including a real Native4D counterpart,
+with the multi-output live-index case left exactly where
+`Max_pool2d_with_indices` already leaves it.
+
+**Corpus effect**: `bat_resnext26ts` — the one corpus model gating this
+row — moves from `unsupported PT2 operator: torch.ops.aten.
+adaptive_max_pool2d.default` to `unsupported PT2 operator: torch.ops.aten.
+eye.m`, the next row of the "Factories, indexing, and copies" deferred
+backlog. `native_builds`/`native4d_converts`/`kernel_converts`/
+all-three-stages are unchanged (88/56/63/43) — depth moved, stage-completion
+did not, since `bat_resnext26ts` was and remains `native_builds:false`.
+
+**Next**: `eye.m` (12 occurrences, now `bat_resnext26ts`'s own first
+frontier) from the deferred backlog; `Softmax4` and live max-pool
+indices/`IndexTensor4` remain the two open-ended Native4D counterpart-backlog
+rows; otherwise `lstm.input` (36 occurrences, Sequencer2D's first frontier)
+or P1's remaining one-model slices (`conv1d`/`unfold`, `im2col`/`col2im`,
+`upsample_bicubic2d`).
 
 ### 2026-08-30 — `Select_scatter4`, the Native4D counterpart to `Select_scatter`
 
