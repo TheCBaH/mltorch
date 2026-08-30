@@ -1166,6 +1166,10 @@ therefore does not expose repeated dynamic work.
 
 ### Foundation task: implement the Region language
 
+The reviewable gate sequence, concrete APIs, file map, tests, limits, and
+no-regression checks are specified in
+[region-foundation-plan.md](region-foundation-plan.md).
+
 - Add the Region AST, private constructors, scope/type validation, limits, and
   deterministic printer.
 - Add axis-aligned `Singleton`/`Whole` partitions, ordered scalar `let`, nested
