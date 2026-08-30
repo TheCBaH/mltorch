@@ -12,7 +12,7 @@ records detailed implementation decisions and the latter defines the support
 contract.  This file is the compact, corpus-derived queue that connects that
 contract to the next work items.
 
-Status: 2026-08-30.
+Status: 2026-08-30 (Rsub_scalar + Const-SSA Sigmoid/Rsub_scalar landing).
 
 ## Priority model: breadth first, then depth
 
@@ -275,13 +275,50 @@ its own `copy.default` occurrences).
 `native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages
 unchanged (87/56/63/43) — depth moved, stage-completion did not.
 
-**Next priority**: `select_scatter.default` (ConViT's new frontier, 30
-occurrences) — the natural next target, being the write-back counterpart of
-`select`/`copy` just landed. `_to_copy.default` remains the 2-model target
-(EdgeNeXt, MViTv2) needing the value-domain trunc/round `SEMANTICS`
-primitive. Otherwise: `lstm.input` from the deferred backlog, or P1's
-remaining one-model slices (`adaptive_max_pool2d`, `conv1d`/`unfold`,
-`im2col`/`col2im`, `upsample_bicubic2d`).
+**2026-08-30, `select_scatter.default` landed** (full-stack Native; see
+`ops-progress.md`'s landing record). New `Split.Select_scatter` Graph_ir op:
+`self` with `src` written at one position of one axis, every other position
+carried through from `self` unchanged — reuses `Select`'s own `output_shape`
+to validate `src`'s shape rather than restating the drop-and-repack rule,
+and needs no new `SEMANTICS` primitive (`S.index_eq`/`S.select`, already
+added for `Pad`'s reflect mirror, are the whole compute basis for the
+branch). `select_scatter` is now a curated ATen binding too (`bin/aten_ops_gen.ml`),
+so its `Op_bridge` dispatch test runs against real ATen as the oracle rather
+than only hand-derived values. `convit_tiny` moves to `rsub.Scalar` — the
+next row of the "Pointwise / type" deferred-backlog family.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages
+unchanged (87/56/63/43) — depth moved, stage-completion did not, since
+`convit_tiny` was and remains `native_builds:false`. No `Select_scatter4`
+Native4D counterpart yet — deliberately deferred, same scoping as
+`Repeat`/`RepeatInterleave`.
+
+**2026-08-30, `rsub.Scalar` landed** (full-stack Native + Native4D; see
+`ops-progress.md`'s landing record). New `Pointwise.Rsub_scalar` computes
+`other - alpha * self` — genuinely its own op, not a legalization onto
+`Add_scalar`/`Mul_scalar` (composing those would decompose one ATen node
+into two Native ones). Since it carries no axis parameter it reuses Native's
+own payload directly in the Native4D dialect, the same treatment
+`Add_scalar`/`Mul_scalar`/`Pow` already get — no new `Ops4` module needed.
+`rsub.Scalar` is now a curated ATen binding too, so both the `Op_bridge`
+dispatch test and the generated `Interp_dispatch` arm run against real ATen.
+
+Landing this exposed the next link in ConViT's own Const-SSA fold chain
+(the same whack-a-mole pattern the five-op admission series hit earlier):
+`Sigmoid` first, then `Rsub_scalar` itself once `Sigmoid` was admitted. Both
+are now in `Const_ssa.allows` with matching symbolic-grounding arms. This
+clears ConViT's chain entirely: it now reaches `native_builds:true` (was
+`false`), stopping instead at `Repeat`'s already-tracked missing
+`Repeat4` Native4D counterpart (deliberately deferred at `repeat.default`'s
+own earlier landing). `native_builds` moves 87→88;
+`native4d_converts`/`kernel_converts`/all-three-stages unchanged (56/63/43).
+
+**Next priority**: `_to_copy.default` is now the highest-leverage target
+(2 models: EdgeNeXt, MViTv2) but needs the value-domain trunc/round
+`SEMANTICS` primitive first. Otherwise: `lstm.input` from the deferred
+backlog, P1's remaining one-model slices (`adaptive_max_pool2d`,
+`conv1d`/`unfold`, `im2col`/`col2im`, `upsample_bicubic2d`), or a
+`Repeat4`/`RepeatInterleave4` Native4D counterpart now that `convit_tiny`
+gives them a real corpus frontier to verify against.
 
 ### P1 — small vertical slices with one-model proof
 
@@ -320,8 +357,8 @@ an explicit, tested Native-only boundary.
 
 | Family | Targets (occurrences; models) |
 | --- | --- |
-| Factories, indexing, and copies | `_to_copy.default` (22; EdgeNeXt, MViTv2 — the first frontier for both), `select_scatter.default` (30; ConViT — now its first frontier, after `copy.default` landed), `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`, multi-entry case still open for MaxxViTv2), `eye.m` (12; Bat-ResNeXt), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
-| Pointwise / type | `neg.default` (24; DINOv3 ViT), `type_as.default` (24; DINOv3 ViT), `rsub.Scalar` (10; ConViT), `pow.Scalar` (1; EdgeNeXt), `sin.default` and `cos.default` (3 each; EdgeNeXt, DINOv3 ViT), `bitwise_not.default` (1; EdgeNeXt), `div.Tensor_mode` (1; EdgeNeXt) |
+| Factories, indexing, and copies | `_to_copy.default` (22; EdgeNeXt, MViTv2 — the first frontier for both), `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`, multi-entry case still open for MaxxViTv2), `eye.m` (12; Bat-ResNeXt), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
+| Pointwise / type | `neg.default` (24; DINOv3 ViT), `type_as.default` (24; DINOv3 ViT), `pow.Scalar` (1; EdgeNeXt), `sin.default` and `cos.default` (3 each; EdgeNeXt, DINOv3 ViT), `bitwise_not.default` (1; EdgeNeXt), `div.Tensor_mode` (1; EdgeNeXt) |
 | Shape / sequence | `squeeze.dim` (3; Lambda-ResNet), `tile.default` (2; SAM2 Hiera, DINOv3 ViT), `lstm.input` (36; Sequencer2D — now its first frontier) |
 | Matrix / reduction | `einsum.default` (20; MViTv2), `cumsum.default` (2; EdgeNeXt), `max.dim` (1; VOLO) |
 | Higher-rank convolution | `conv3d.default` (3; Lambda-ResNet) |

@@ -13,14 +13,17 @@ Recomputed from `test/data/pt2_json_model_support.jsonl` after
 
 | Measure | Result |
 | --- | ---: |
-| `native_builds:true` | 87 / 100 |
+| `native_builds:true` | 88 / 100 |
 | `native4d_converts:true` | 56 / 100 |
 | `kernel_converts:true` | 63 / 100 |
 | All three stages succeed | 43 / 100 |
 
-Unchanged by any landing below: `Select4`, `Stack4`, `repeat.default`,
-`repeat_interleave.self_int`, and `copy.default` each moved a model's
-*frontier*, not any of these four counts.
+`native_builds` moved 87→88 with the `Rsub_scalar` + Const-SSA
+`Sigmoid`/`Rsub_scalar` landing (below): `convit_tiny` now builds at Native,
+stopping at `Repeat`'s already-tracked missing `Repeat4` counterpart instead.
+Unchanged by every other landing below: `Select4`, `Stack4`,
+`repeat.default`, `repeat_interleave.self_int`, `copy.default`, and
+`select_scatter.default` each moved a model's *frontier* only.
 
 ## Per-operation breadth matrix
 
@@ -31,8 +34,232 @@ Unchanged by any landing below: `Select4`, `Stack4`, `repeat.default`,
 | `repeat.default` / `Repeat` | landed 2026-08-30: read via `Aten_tensor.shape` only (no ATen kernel call needed), `test/native_bridge/repeat_test.ml` | landed 2026-08-30: `lib/native_aten_bridge/op_bridge_shape.ml` | landed 2026-08-30: `lib/native_interp/native_interp_lower_shape.ml` | landed 2026-08-30: `lib/native/ops/repeat.ml`, `test/native/{repeat_test,graph_direct_shape_test,graph_symbolic_shape_test}.ml` | none yet — no `Repeat4` counterpart; tracked as backlog, not an intrinsic-axis boundary (see landing note) | not reachable without a Native4D counterpart | `convit_tiny` (native-import frontier only; graph does not reach kernel path from here) |
 | `repeat_interleave.self_int` / `RepeatInterleave` | landed 2026-08-30, `dim` required (`dim=None` rejected): same shape-only read, `test/native_bridge/repeat_interleave_test.ml` | landed 2026-08-30: `lib/native_aten_bridge/op_bridge_shape.ml` | landed 2026-08-30: `lib/native_interp/native_interp_lower_shape.ml` | landed 2026-08-30: `lib/native/ops/repeat.ml` (shares the file with `Repeat`), `test/native/{repeat_test,graph_direct_shape_test,graph_symbolic_shape_test}.ml` | none yet — no `RepeatInterleave4` counterpart; same backlog status as `Repeat4` | not reachable without a Native4D counterpart | `convit_tiny` (native-import frontier only; graph does not reach kernel path from here) |
 | `copy.default` / `Expand` (direct bind, no new op) | **landed this entry**: `self`'s live shape read only, no ATen kernel call, `test/native_bridge/copy_test.ml` | **landed this entry**: `lib/native_aten_bridge/op_bridge_shape.ml` | **landed this entry**: `lib/native_interp/native_interp_lower_shape.ml` | reuses `Pointwise.Expand`'s own pre-existing Direct/Symbolic — no new Compute, `test/native_interp/copy_test.ml` pins the built graph structure | **full-stack already**: `Expand4` pre-exists, admitted unconditionally by `Domain.check_node` | reaches wherever `Expand4`'s own kernel path already reaches | `convit_tiny` (native-import frontier only; graph does not reach kernel path from here) |
+| `select_scatter.default` / `Select_scatter` | **landed this entry**: real `at::select_scatter` now a curated binding (`bin/aten_ops_gen.ml`), `test/native_bridge/shape_ops_test.ml`'s `verify_print` runs against it as the oracle | **landed this entry**: `lib/native_aten_bridge/op_bridge_shape.ml` | **landed this entry**: `lib/native_interp/native_interp_lower_shape.ml` | **landed this entry**: `lib/native/ops/split.ml` (new `Split.Select_scatter`, reuses `Select.output_shape` for the `src`-shape check, `S.index_eq`/`S.select` for the branch — no new `SEMANTICS` primitive), `test/native/{slice_select_test,graph_direct_pad_slice_test,graph_symbolic_pad_slice_test}.ml` | none yet — no `Select_scatter4` counterpart; tracked as backlog the same deliberate way `Repeat`/`RepeatInterleave` were at their own landing | not reachable without a Native4D counterpart | `convit_tiny` (native-import frontier only; graph does not reach kernel path from here) |
+| `rsub.Scalar` / `Rsub_scalar` | **landed this entry**: real `at::rsub.Scalar` now a curated binding, `test/native_bridge/dispatch_test.ml`'s `verify_print` runs against it as the oracle (default and non-default `alpha`) | **landed this entry**: `lib/native_aten_bridge/op_bridge_pointwise.ml` | **landed this entry**: `lib/native_interp/native_interp_lower_compute.ml` | **landed this entry**: `lib/native/ops/pointwise_binary.ml` (new `Rsub_scalar`, `other - alpha * x`, no new `SEMANTICS` primitive), `test/native/pointwise_test.ml` + `graph_direct_pointwise_test.ml` + `graph_symbolic_pointwise_test.ml` | **full-stack this entry**: reuses Native's own payload directly (no axis param, same treatment as `Add_scalar`/`Mul_scalar`/`Pow`), `test/native4d/{op_json_test,compute_test,fixtures4}.ml` | reaches wherever the reused Native4D pointwise path already reaches | `convit_tiny` (native-import frontier; also the corpus's own `1 - sigmoid(...)` use) |
 
 ## Landing records
+
+### 2026-08-30 — `rsub.Scalar`, the reverse of `sub.Tensor`'s scalar form, plus Const-SSA `Sigmoid`/`Rsub_scalar`
+
+Closes `rsub.Scalar`'s row in [`todo-ops.md`](todo-ops.md)'s deferred
+target-name depth backlog (exposed as ConViT's new first frontier by this
+session's `select_scatter.default` landing), and — as a direct consequence —
+two rows of the Const-SSA registry gap (`Sigmoid` then `Rsub_scalar` itself).
+
+**What landed (`rsub.Scalar` / `Rsub_scalar`)**
+
+- `lib/native/ops/pointwise_binary.ml`: a new `Rsub_scalar` module, `params =
+  { other : float; alpha : float }` + `x`, computing `other - alpha * x`.
+  Genuinely its own op rather than a legalization onto
+  `Add_scalar`/`Mul_scalar`: composing those two would decompose one ATen
+  node into two Native ones, the exact failure mode
+  `.ai/native_add_op.md`'s design goal rules out (unlike `sub.Tensor`'s own
+  scalar form, which legalizes to `Add_scalar` alone with a negated scalar —
+  one node, not two). No new `SEMANTICS` primitive: `S.sub`/`S.mul`/`S.const`
+  already exist.
+- `lib/native/graph_ir.ml`/`.mli`: `Rsub_scalar` constructor (between
+  `Rms_norm` and `Sdpa`) + registry entry.
+- `lib/native/graph_shape.ml`, `lib/native/eval_op.ml`: shape/compute
+  dispatch arms, the same shape `Pow`'s own arms take.
+- `lib/native/transform/output_transfer.ml`: classified `Continuous`, same
+  bucket as every other scalar-parameter arithmetic op.
+- `lib/native/transform/passes/sink_permute.ml`: added to the `elementwise`
+  allowlist (its scalar params are per-op constants, not per-axis data, the
+  same reasoning `Add_scalar`/`Pow`/etc. already have there); not added to
+  `reuse_permute.ml`'s `binary_elementwise`, which is unary-operand ops'
+  own exclusion (only one tensor operand).
+- `lib/native/graph_builder.ml`/`.mli`: `rsub_scalar` builder function.
+- `lib/native4d/{op,domain,lower_engine,graph_shape4,eval_op4,
+  output_transfer4,builder}.ml`: full Native4D counterpart, six trivial
+  mirror sites — since the op carries no axis parameter, Native4D reuses
+  Native's own `Pointwise.Rsub_scalar.t` payload directly (no `Ops4` module,
+  no axis-domain check), the exact treatment `Add_scalar`/`Mul_scalar`/`Pow`
+  already get. Full-stack in this single landing, unlike `Select_scatter`'s
+  deliberately-deferred counterpart, precisely because there is no axis to
+  design a dialect boundary around.
+- `bin/aten_ops_gen.ml`: `op "rsub" ~overload:"Scalar"` added to the curated
+  ATen binding selection (schema `rsub.Scalar(Tensor self, Scalar other,
+  Scalar alpha=1) -> Tensor`, two `Scalar` args, one defaulted — the
+  generator emitted the `atg_rsub_Scalar` C shim and the matching
+  `Interp_dispatch` arm with no hand-written `Override`/`Walk_meta` needed,
+  the same clean case `select_scatter.default`'s own curated addition was).
+- `lib/native_aten_bridge/op_bridge_pointwise.ml`: `rsub.Scalar` dispatch
+  arm (between `rsqrt.default` and `sigmoid.default`), decoding `other`
+  (required) and `alpha` (`scalar_arg ~default:(Aten_scalar.Float 1.)`, the
+  ATen-side helper — note its `~default` is an `Aten_scalar.t`, not a bare
+  `float`, unlike the payload-free `Native_interp`-side `scalar_arg`).
+- `lib/native_interp/native_interp_lower_compute.ml`: the payload-free
+  dispatch arm (the one `test/data/pt2_json_model_support.jsonl` actually
+  measures), right after `rsqrt.default`'s.
+- Tests: `test/native/pointwise_test.ml` (Direct compute, default and
+  non-default `alpha`), `graph_direct_pointwise_test.ml` +
+  `graph_symbolic_pointwise_test.ml` (one-node graph, Direct-vs-Symbolic
+  agreement — ConViT's own `1 - sigmoid(...)` values),
+  `test/native_bridge/dispatch_test.ml` (**new section**: `verify_print`
+  against real ATen for default and non-default `alpha`, a single-node
+  graph-shape pin), `test/native4d/{op_json_test,compute_test,
+  fixtures4}.ml` (JSON round-trip sample, per-op Direct-vs-Symbolic fixture).
+
+**What landed (Const-SSA `Sigmoid` and `Rsub_scalar`)**
+
+Regenerating the corpus census after `rsub.Scalar` landed showed
+`convit_tiny` moving from `native_builds:false` (unsupported operator) to
+`native_builds:false` again, but for a different reason: `"Sigmoid is not a
+Const-SSA operation"` — the same whack-a-mole pattern the five-op admission
+series (`Reshape`/`Expand`/`Mul_scalar`/`Pow`/`Add_scalar`) hit earlier this
+session. Admitting `Sigmoid` then exposed `Rsub_scalar` itself as the next
+link in the same fold chain, so both are landed together here rather than
+across two sessions.
+
+- `lib/native/transform/const_ssa.ml`: `Const_ssa.allows` now also accepts
+  `Graph_ir.Sigmoid` and `Graph_ir.Rsub_scalar`.
+- `lib/native/transform/const_ssa_symbolic.ml`: a new `sigmoid_expr` helper
+  mirroring `Pointwise_activation.Sigmoid.Compute.pixel` exactly (`1 / (1 +
+  exp(0 - v))`, not a generic sigmoid primitive — the same reason `pow_expr`
+  stays `PowKernel.cpp`'s special-cased expression, since map verification
+  compares this grounding against materialization, which calls the same
+  `Compute` functor via `Eval_direct`); its `ground` arm broadcasts the
+  operand coordinate like `Sqrt`'s (always a no-op for this unary op, but
+  keeps the shape-safety helper used uniformly). `Rsub_scalar`'s own arm
+  grounds to `other - alpha * x`, wrapped in one `Round` like the other
+  arithmetic cases, with no broadcast (same shape as its operand, the
+  choice `Add_scalar`/`Mul_scalar`/`Pow` already make).
+- Tests: `test/native/const_ssa_test.ml` — for each op, an export/validate
+  test, a grounding-to-expression test (pinning the exact algebraic
+  expression against a hand-picked input so a wrong formula is visible, not
+  just a wrong shape), and a full materialize test (captured input through
+  `Const_ssa_materialize.materialize`, comparing the resulting `Tensor.t`).
+
+**Classification**: Full-stack across every surface in
+[`todo-ops.md`](todo-ops.md)'s completion-rule table for `rsub.Scalar` —
+ATen boundary (curated binding), both importers, Native Direct/Symbolic,
+and a full Native4D counterpart, each with its own test evidence. The
+Const-SSA admissions are a orthogonal verification-path extension (constant
+folding), not a new operation; they are what let `convit_tiny` actually
+reach `native_builds:true` rather than stopping one gate short of it.
+
+**Corpus effect**: `convit_tiny` — the one corpus model gated on
+`rsub.Scalar` (10 occurrences, ConViT's own GPSA gating expression) — now
+reaches `native_builds:true` (was `false`), stopping instead at `Repeat`'s
+already-tracked missing `Repeat4` Native4D counterpart (`no legalization for
+repeat x=t196 params={repeats=[W=14 C=14]}`), the deliberate deferral
+`repeat.default`'s own earlier landing recorded. `native_builds` moves
+87→88; `native4d_converts`/`kernel_converts`/all-three-stages are unchanged
+(56/63/43) — `convit_tiny` was and remains `native4d_converts:false`.
+
+**Next**: `_to_copy.default` is now the highest-leverage remaining target (2
+models: EdgeNeXt, MViTv2) but still needs the value-domain trunc/round
+`SEMANTICS` primitive flagged earlier this session. `Repeat4`/
+`RepeatInterleave4` now have a real corpus frontier (`convit_tiny`) to
+verify a Native4D counterpart against, promoting them from "no corpus model
+reaches this boundary yet" backlog to ordinary next-priority work. Otherwise,
+P1's remaining one-model slices (`adaptive_max_pool2d`, `conv1d`/`unfold`,
+`im2col`/`col2im`, `upsample_bicubic2d`), or `lstm.input` from the deferred
+backlog.
+
+### 2026-08-30 — `select_scatter.default`, the write-back counterpart to `select.int`
+
+Closes `select_scatter.default`'s row in [`todo-ops.md`](todo-ops.md)'s
+deferred target-name depth backlog (exposed as ConViT's new first frontier by
+this session's `copy.default` landing).
+
+**What landed**
+
+- `lib/native/ops/split.ml`: a new `Select_scatter` module in the same file
+  as `Select`/`Slice`/`Unbind`/`Split_with_sizes`. `params = { axis : Axis.t;
+  index : int }`, its own record (not a type alias of `Select.params`, so
+  field access at every call site stays unambiguous) with a `select_params`
+  conversion function to reuse `Select`'s own `output_shape`/params where
+  needed. `output_shape ~self_shape ~src_shape` returns `self_shape`
+  unchanged after checking `src_shape` against exactly the shape `Select`
+  itself would produce at this `axis`/`index` (`Select.output_shape
+  (select_params p)`) — the same "operand shape not trusted, checked against
+  the derived expectation" discipline `Affine_bias`/`Norm.check_affine` use,
+  generalised past their per-channel case; a mismatch is a new
+  `Shape_error.Select_scatter` row (own module, not `Operand_shape`, since
+  that module's own doc comment scopes it to an OPTIONAL operand and `src`
+  is required). `Compute.pixel` builds `src`'s read coordinate by running
+  `Aten_shape.repack_dropped`'s pairing in the OPPOSITE direction from
+  `Select.Compute.pixel`'s own `base` — `out` here ranges over `self`'s
+  UNDROPPED shape, unlike `Select`'s `out`, which ranges over the packed
+  (dropped) shape, so the fold reads `out` at each KEPT axis and writes to
+  the corresponding PACKED axis rather than the reverse. Getting this
+  direction backwards was caught by the Direct compute test before this
+  landed (an out-of-bounds `Tensor.read`) — see "Getting a real ATen
+  oracle" in `.ai/native_add_op.md`'s sibling doc on why the compute test is
+  not optional. The branch itself (`out[axis] = index ? src : self`) needs
+  no new `SEMANTICS` primitive: `S.index_eq`/`S.select`, added for `Pad`'s
+  reflect mirror, are the whole basis, per `semantics.ml`'s own comment.
+- `lib/native/graph_ir.ml`/`.mli`: `Select_scatter` constructor (between
+  `Select` and `Sigmoid`) + registry entry.
+- `lib/native/graph_shape.ml`, `lib/native/eval_op.ml`: two-operand shape and
+  compute dispatch arms, the same shape `Index_tensor`'s `~self_shape ~self
+  ~index` arms take.
+- `lib/native/transform/output_transfer.ml`: classified `Reindexing` — every
+  output is copied from ONE of `self`/`src` with no arithmetic, and the
+  choice is a structural fact about the output coordinate (never about
+  either operand's stored value), so it is exactly as sound as `Concat`'s
+  N-input selection, of which this is the two-input, axis-narrowed case
+  (distinguished in the comment from `Index_tensor`'s data-dependent branch,
+  which is `Discontinuous`).
+- `lib/native/graph_builder.ml`/`.mli`: `select_scatter` builder function.
+- `lib/native4d/domain.ml`, `lib/native4d/lower_engine.ml`: `Select_scatter`
+  added to the existing "dialect does not have it at all" bucket alongside
+  `Index_tensor`/`Repeat`/`RepeatInterleave`/`Softmax` — no `Select_scatter4`
+  counterpart exists yet, so there is no axis-domain distinction to draw.
+- `bin/aten_ops_gen.ml`: `op "select_scatter"` added to the curated ATen
+  binding selection, right after `select`'s own entry. Unlike
+  `Repeat`/`RepeatInterleave`/`copy.default` (which read only shapes/values
+  already materialized by an earlier node, needing no ATen kernel call at
+  all), `select_scatter`'s own values are exactly what real ATen computes,
+  so this landing added the curated binding rather than settling for
+  hand-derived dispatch-only evidence — the generator emitted both the
+  `atg_select_scatter` C shim and the matching `Interp_dispatch` arm with no
+  further hand-written code, confirming the schema (with its `SymInt index`)
+  needed no `Override`/`Walk_meta` entry.
+- `lib/native_aten_bridge/op_bridge_shape.ml`: `select_scatter.default`
+  dispatch arm, immediately after `select.int`'s, sharing its `norm_dim`/
+  `Aten_shape.axis_of_dim`/`Aten_shape.resolve_index` canonicalisation.
+- `lib/native_interp/{native_interp_error,native_interp,
+  native_interp_lower_shape}.{ml,mli}`: the payload-free dispatch arm (the
+  one `test/data/pt2_json_model_support.jsonl` actually measures), sharing
+  the existing `resolve_select_index` helper, and a new `` `Select_scatter_input ``
+  metadata role (own role per op, matching `Select_input`/`Stack_input`'s
+  own precedent, even though the rank-resolution purpose is identical).
+- Tests: `test/native/slice_select_test.ml` (Direct compute: writes `src` at
+  the index and keeps `self` elsewhere, and the src-shape-mismatch
+  rejection), `test/native/graph_direct_pad_slice_test.ml` +
+  `graph_symbolic_pad_slice_test.ml` (two-input graph, Direct-vs-Symbolic
+  agreement — the staged term shows the `select((H = 1), src[...], self[...])`
+  branch grounding identically to Direct), `test/native_bridge/
+  shape_ops_test.ml` (**new section**: `verify_print` against real ATen
+  across axes/negative dim+index, `dispatch_print` for the out-of-range-index
+  and wrong-src-shape rejections, and a single-node graph-shape pin, mirroring
+  `select.int`'s own section immediately above it).
+
+**Classification**: Full-stack for the Native surfaces (ATen boundary — now
+a curated binding, not merely shape/value reads — both importers, Native
+Direct/Symbolic with Direct-vs-Symbolic agreement) per `todo-ops.md`'s
+completion rule; **incomplete** for Native4D/Kernel, since no counterpart
+exists. May count toward Native target/configuration depth and
+`native_builds`, not toward `native4d_converts`/`kernel_converts`/
+all-three-stages.
+
+**Corpus effect**: `convit_tiny` is the one corpus model gated on
+`select_scatter.default` (30 occurrences, the write-back half of every
+`select`/`copy.default` pair this session already landed). Its frontier
+moves to `rsub.Scalar` — the next row of the "Pointwise / type"
+deferred-backlog family (10 occurrences) — rather than to
+`native_builds:true`. `native_builds`/`native4d_converts`/`kernel_converts`/
+all-three-stages are unchanged (87/56/63/43) — depth moved, stage-completion
+did not.
+
+**Next**: `rsub.Scalar` (ConViT's new frontier) is the natural next target.
+`_to_copy.default` remains the other 2-model target but still needs the
+value-domain trunc/round `SEMANTICS` primitive flagged earlier this session.
+Otherwise, P1's remaining one-model slices (`adaptive_max_pool2d`,
+`conv1d`/`unfold`, `im2col`/`col2im`, `upsample_bicubic2d`), or `lstm.input`
+from the deferred backlog.
 
 ### 2026-08-30 — `copy.default`, bound directly to the existing `Expand` node
 
