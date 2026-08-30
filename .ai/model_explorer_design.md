@@ -738,7 +738,7 @@ Node and edge ceilings are checked before the walks linear in them.
 node only — an ordinary input's and an output's rendering are untouched. First, its tensor
 signature (shape, dtype and, when quantized, the quantization parameters) as
 `outputsMetadata`, the same properties an op's own output already shows. Second, only when
-[`Constant_store.binding`](const-ssa-idea.md) resolves to a Const-SSA `Apply` — i.e. the
+[`Constant_store.binding`](const_ssa_design.md) resolves to a Const-SSA `Apply` — i.e. the
 constant was actually produced by symbolic constant folding, not merely captured or
 literal — a `constant_transform` node attribute holding its full symbolic definition,
 expanded recursively through nested `Apply`s down to their captured/literal leaves (e.g.
