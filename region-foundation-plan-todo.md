@@ -8,7 +8,7 @@ completed gate is committed only after its focused validation succeeds.
 | Gate | Scope | Status | Commit |
 |---|---|---|---|
 | 0 | Baseline and benchmark census | pending | |
-| 1 | `Expr` scalar-local leaf | in progress | |
+| 1 | `Expr` scalar-local leaf | complete | pending commit |
 | 2 | Region structure and validation | pending | |
 | 3 | Kernel representation migration | pending | |
 | 4 | Region reference execution | pending | |
@@ -24,8 +24,15 @@ completed gate is committed only after its focused validation succeeds.
   `Region_program` owns its bindings and scope.
 - Keep the existing immutable `Expr.Builder` identity supply. Local and reducer
   identity types are distinct, so their ordinals can share that supply safely.
+- `Expr.Check.value` remains the closed-expression boundary. `fragment` is the
+  only API that admits local references, and requires an explicit allow-list.
+- `Rewrite.substitute_locals` freshens every inserted replacement in the
+  destination builder namespace, matching the existing capture-safe load
+  substitution discipline.
 
 ## Validation record
 
 | Date | Gate | Command | Result | Notes |
 |---|---|---|---|---|
+| 2026-08-30 | 1 | `opam exec -- dune runtest test/expr` | pass | Includes local scope, evaluation, printing, measurement, and substitution coverage. |
+| 2026-08-30 | 1 | `opam exec -- dune build lib/expr lib/native` | pass | Exhaustive consumers updated, including grounding and Model Explorer detail labels. |
