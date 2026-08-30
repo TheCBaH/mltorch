@@ -1,4 +1,4 @@
-.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest
+.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
@@ -285,6 +285,13 @@ format:
 # listed in scripts/file-size-exceptions.txt.
 check.file-size:
 	bash scripts/check-file-size.sh
+
+# Whitespace/conflict-marker regression check: git's own diff-hygiene check
+# against HEAD (trailing whitespace, a mixed tab/space indent the change
+# introduced, an unresolved conflict marker). [check] below already runs
+# this inline; named here so [precommit] can depend on it directly too.
+check.whitespace:
+	git diff --check HEAD
 
 verify.pristine:
 	@git_status=$$(git status --porcelain); \
@@ -595,3 +602,11 @@ webapp.browser-runtest: webapp.build
 
 check: build format runtest melange.build melange.runtest
 	git diff --check HEAD
+
+# The local pre-commit gate: every check that needs no extra toolchain or
+# downloaded model data (the JS backends and the pt2/inference suites are
+# excluded -- see make js.runtest / make pt2.runtest). check.file-size runs
+# first since, like in CI, it needs no build. Deliberately excludes
+# verify.pristine: that target asserts NO uncommitted changes, which is
+# never true of the changes precommit is meant to check.
+precommit: build runtest format check.whitespace check.file-size

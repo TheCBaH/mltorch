@@ -1,9 +1,8 @@
+_ai_/
 _build/
 .ccache/
 .claude/
 .devcontainer/devcontainer-lock.json
-.ai/*_plan.md
-.ai/*_census.*
 AGENTS.md
 data/pt2/
 data/pt2-functional/
