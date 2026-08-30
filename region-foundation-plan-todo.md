@@ -7,7 +7,7 @@ completed gate is committed only after its focused validation succeeds.
 
 | Gate | Scope | Status | Commit |
 |---|---|---|---|
-| 0 | Baseline and benchmark census | pending | |
+| 0 | Baseline and benchmark census | in progress | benchmark driver checkpoint pending commit |
 | 1 | `Expr` scalar-local leaf | complete | pending commit |
 | 2 | Region structure and validation | complete | pending commit |
 | 3 | Kernel representation migration | complete | pending commit |
@@ -18,8 +18,9 @@ completed gate is committed only after its focused validation succeeds.
 ## Decisions
 
 - Start at Gate 1: the repository has no pre-existing Region implementation;
-  the plan's Gate 0 benchmark command will be added once the language boundary
-  is stable enough to avoid churn.
+  the plan's Gate 0 benchmark command was added after the language boundary
+  stabilized. A true pre-migration run was not captured, so its final
+  before/after comparison remains open.
 - Preserve the plan's one-AST design: `Expr.Value.Local` is a scalar leaf and
   `Region_program` owns its bindings and scope.
 - Keep the existing immutable `Expr.Builder` identity supply. Local and reducer
@@ -74,3 +75,4 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 5 | `opam exec -- dune runtest test/expr test/native` | pass | Dependent-local specialization, reconstruction, and one-node-over-size rejection pass. |
 | 2026-08-30 | 4 | `make jsoo.runtest` | pass | Native and JavaScript probe output matches. |
 | 2026-08-30 | 4 | `make jsoo.inline-runtest` | pass | Region-dispatch-adjusted recursion guard passes the JS depth frontier without stack overflow. |
+| 2026-08-30 | 0 | `make benchmark.region_pixel` | pass | `region_pixel_bench`: 20 samples on OCaml 4.14.3, Linux aarch64; identity median 0.413 ms / 210.246 GC words per output, add 0.671 ms / 337.328; both over 2,048 cells. |
