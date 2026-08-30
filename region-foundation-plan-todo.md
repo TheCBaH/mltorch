@@ -11,7 +11,7 @@ completed gate is committed only after its focused validation succeeds.
 | 1 | `Expr` scalar-local leaf | complete | pending commit |
 | 2 | Region structure and validation | complete | pending commit |
 | 3 | Kernel representation migration | complete | pending commit |
-| 4 | Region reference execution | in progress | reference evaluator checkpoint pending commit |
+| 4 | Region reference execution | in progress | Kernel execution dispatch checkpoint pending commit |
 | 5 | Pixel specialization/reconstruction | pending | |
 | 6 | Pixel regression closeout | pending | |
 
@@ -42,7 +42,13 @@ completed gate is committed only after its focused validation succeeds.
   expression-substitution paths.
 - `Region_eval` caches the dense scalar-local array by canonical region key;
   the cache is created once per materialization and reuses a validated local-id
-  to slot map. Kernel evaluator dispatch remains the next Gate 4 change.
+  to slot map.
+- `Kernel_eval` classifies each computation once before output allocation.
+  Pixel values retain the pre-existing direct `Expr.Eval` callback; Region
+  values apply result conversion only to the emitter, then use `Region_eval`.
+  This keeps the Pixel hot path free of Region-key and local-array work while
+  allowing stored Region values to read the same prior-value buffers as Pixel
+  values.
 
 ## Validation record
 
@@ -55,3 +61,4 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 3 | `opam exec -- dune runtest test/native test/model_explorer` | pass | Kernel, fusion, evaluator, and explorer compatibility coverage passed after the representation migration. |
 | 2026-08-30 | 3 | `make precommit` | pass | Ran after formatter promotion; includes build, full native test run, format verification, diff checks, and file-size checks. |
 | 2026-08-30 | 4 | `make precommit` | pass | Reference evaluator and its whole-axis sharing test pass with the repository's full pre-commit suite. |
+| 2026-08-30 | 4 | `opam exec -- dune runtest test/native` | pass | Kernel-level whole-channel Region program agrees through buffered `run` and on-demand `value_at`. |
