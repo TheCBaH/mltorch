@@ -95,6 +95,7 @@ let all_walks : op list =
     (module Sqrt_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Sub_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
+    (module Sum_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);
     (* The only walk with a config-dependent output count: it exercises the
        variable-arity builder and per-ordinal evaluator. *)
     (module Unbind_nwalk.M : Walk_core.Walk.Op

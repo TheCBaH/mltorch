@@ -352,6 +352,7 @@ let stack ?name params xs =
   op1 ?name ~kind:"stack" (Stack { Concat.Stack.params; xs })
 
 let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
+let sum ?name params x = op1 ?name ~kind:"sum" (Sum { Reduce.Sum.params; x })
 
 (* Returns every slice, in ordinal order. The count comes from the input
    signature via [Graph_shape], never from the caller — which is what lets a

@@ -110,6 +110,7 @@ let curated_selection =
     op "unsqueeze";
     op "mean" ~overload:"dim";
     op "amax";
+    op "sum" ~overload:"dim_IntList";
     op "softmax" ~overload:"int";
     op "pow" ~overload:"Tensor_Scalar";
     op "linalg_vector_norm";

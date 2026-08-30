@@ -221,6 +221,109 @@ module Mean = struct
   end
 end
 
+module Sum = struct
+  (* Plain summation over [dims] -- ATen's `aten.sum.dim_IntList`. Same
+     axis/keepdim shape rule as [Mean] ([Dims_keepdim]); the only difference
+     is [Compute] skips [Mean]'s final division, the same relationship
+     [Amax] has to a hypothetical "average-pool-style max". *)
+  type params = Dims_keepdim.t = { dims : Axis.t list; keepdim : bool }
+
+  let params_jsont : params Jsont.t = Dims_keepdim.jsont ~kind:"sum_params"
+  let map_dims = Dims_keepdim.map_dims
+  let pp_params = Dims_keepdim.pp
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Sum"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>sum@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+
+  let kept_map = Dims_keepdim.kept_map
+  let output_shape = Dims_keepdim.output_shape
+
+  (* Same config space as [Mean]'s walk, minus the divisor concern -- any
+     non-empty dim subset is valid, so [cascade] is identity. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t; dims : Axis.t list; keepdim : bool }
+
+    let initial =
+      {
+        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        dims = [ Axis.H; Axis.W ];
+        keepdim = false;
+      }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+    let params (c : cfg) : params = { dims = c.dims; keepdim = c.keepdim }
+
+    let dim_sets =
+      Axis.[ [ H; W ]; [ H; W; C ]; [ C ]; [ H ]; [ W ]; [ N; H; W ] ]
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "dims" dim_sets (fun r v -> { r with dims = v });
+          field_axis "keepdim" [ true; false ] (fun r v ->
+              { r with keepdim = v });
+        ]
+
+    let pp fmt (c : cfg) =
+      Format.fprintf fmt "{shape=%a dims=[%a] keepdim=%b}" Walk_core.Shape.pp
+        c.shape
+        (Format.pp_print_list
+           ~pp_sep:(fun fmt () -> Format.fprintf fmt ",")
+           Axis.pp)
+        c.dims c.keepdim
+  end
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let zero =
+        Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+          ~h:S.index_zero ~w:S.index_zero ~c:S.index_zero
+      in
+      let base =
+        List.fold_left
+          (fun v (kin, oax) -> Vec6.copy out ~src:oax ~dst:kin v)
+          zero (kept_map p)
+      in
+      let rec reduce dims override =
+        match dims with
+        | [] ->
+            S.load x
+              (List.fold_left (fun v (a, i) -> Vec6.set v a i) base override)
+        | d :: rest ->
+            S.sum ~lo:S.index_zero
+              ~hi:(S.index_extent (Vec6.get x_shape d))
+              (fun i -> reduce rest ((d, i) :: override))
+      in
+      reduce p.dims []
+  end
+end
+
 module Amax = struct
   (* Elementwise maximum over [dims] -- ATen's `aten.amax.default`. Same
      axis/keepdim shape rule as [Mean] ([Dims_keepdim]); the only difference is

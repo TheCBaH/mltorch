@@ -86,6 +86,12 @@ let max_params (p : Ops4.Max_keepdims.params) : Reduce.Amax.params =
     keepdim = true (* the dialect has no other form *);
   }
 
+let sum_params (p : Ops4.Sum_keepdims.params) : Reduce.Sum.params =
+  {
+    dims = List.map Axis4.to_axis p.Ops4.Sum_keepdims.dims;
+    keepdim = true (* the dialect has no other form *);
+  }
+
 let vector_norm_params (p : Ops4.Vector_norm_keepdims.params) :
     Reduce.Vector_norm.params =
   {
@@ -294,6 +300,9 @@ let output_shape (op : Op.t)
       let* a_shape = shape a in
       let* b_shape = shape b in
       one (four (Pointwise.Sub.output_shape a_shape b_shape))
+  | Sum_keepdims { Ops4.Sum_keepdims.params; x } ->
+      let* x_shape = shape x in
+      one (four (Reduce.Sum.output_shape ~x_shape (sum_params params)))
   | Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; _ } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in

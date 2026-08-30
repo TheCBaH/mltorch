@@ -109,6 +109,7 @@ type op =
      its own shape rule, so it never decomposes into N [Reshape]s + [Concat]. *)
   | Stack of Concat.Stack.t
   | Sub of Pointwise.Sub.t
+  | Sum of Reduce.Sum.t
   (* The only op whose output COUNT is not fixed by the op: it is the extent at
      the selected axis, so the arity comes from the operand signature.
      [Graph_shape] returns one shape per slice and [Graph_builder.unbind]

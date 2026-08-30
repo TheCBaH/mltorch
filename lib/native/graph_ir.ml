@@ -59,6 +59,7 @@ type op =
   | Sqrt of Pointwise.Sqrt.t
   | Stack of Concat.Stack.t
   | Sub of Pointwise.Sub.t
+  | Sum of Reduce.Sum.t
   | Unbind of Split.Unbind.t
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
@@ -365,6 +366,12 @@ let op_registry : (module OP) list =
 
       let inject t = Sub t
       let project = function Sub t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Reduce.Sum
+
+      let inject t = Sum t
+      let project = function Sum t -> Some t | _ -> None
     end : OP);
     (module struct
       include Split.Unbind

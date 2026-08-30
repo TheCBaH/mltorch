@@ -561,51 +561,63 @@ let%expect_test "native walk coverage" =
     [native] sub: direct==symbolic
     step 5 [input]: [n=2 c=3 h=4 w=14]
     [native] sub: direct==symbolic
+    step 0: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
+    [native] sum: direct==symbolic
+    step 1 [input]: {shape=[n=2 c=20 h=4 w=4] dims=[H,W] keepdim=false}
+    [native] sum: direct==symbolic
+    step 2 [dims]: {shape=[n=2 c=20 h=4 w=4] dims=[H,W,C] keepdim=false}
+    [native] sum: direct==symbolic
+    step 3 [input]: {shape=[n=2 c=20 h=4 w=15] dims=[H,W,C] keepdim=false}
+    [native] sum: direct==symbolic
+    step 4 [keepdim]: {shape=[n=2 c=20 h=4 w=15] dims=[H,W,C] keepdim=true}
+    [native] sum: direct==symbolic
+    step 5 [keepdim]: {shape=[n=2 c=20 h=4 w=15] dims=[H,W,C] keepdim=true}
+    [native] sum: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] axis=H}
     [native] unbind: direct==symbolic
-    step 1 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=C}
+    step 1 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=W}
     [native] unbind: direct==symbolic
-    step 2 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=N}
+    step 2 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=C}
     [native] unbind: direct==symbolic
-    step 3 [input]: {shape=[n=1 c=4 h=4 w=4] axis=N}
+    step 3 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=H}
     [native] unbind: direct==symbolic
-    step 4 [axis]: {shape=[n=1 c=4 h=4 w=4] axis=H}
+    step 4 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=H}
     [native] unbind: direct==symbolic
-    step 5 [axis]: {shape=[n=1 c=4 h=4 w=4] axis=N}
+    step 5 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=W}
     [native] unbind: direct==symbolic
     step 0: {shape=[1,4,8,8] output_size=[4,4] align_corners=true}
     [native] upsample_bilinear2d: direct==symbolic
-    step 1 [input_h]: {shape=[1,4,6,8] output_size=[4,4] align_corners=true}
+    step 1 [align_corners]: {shape=[1,4,8,8] output_size=[4,4] align_corners=true}
     [native] upsample_bilinear2d: direct==symbolic
-    step 2 [out_w]: {shape=[1,4,6,8] output_size=[4,6] align_corners=true}
+    step 2 [out_h]: {shape=[1,4,8,8] output_size=[1,4] align_corners=true}
     [native] upsample_bilinear2d: direct==symbolic
-    step 3 [out_h]: {shape=[1,4,6,8] output_size=[7,6] align_corners=true}
+    step 3 [input_h]: {shape=[1,4,2,8] output_size=[1,4] align_corners=true}
     [native] upsample_bilinear2d: direct==symbolic
-    step 4 [align_corners]: {shape=[1,4,6,8] output_size=[7,6] align_corners=true}
+    step 4 [input_h]: {shape=[1,4,3,8] output_size=[1,4] align_corners=true}
     [native] upsample_bilinear2d: direct==symbolic
-    step 5 [n]: {shape=[2,4,6,8] output_size=[7,6] align_corners=true}
+    step 5 [c]: {shape=[1,3,3,8] output_size=[1,4] align_corners=true}
     [native] upsample_bilinear2d: direct==symbolic
     step 0: {shape=[1,4,8,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 1 [n]: {shape=[1,4,8,8] output_size=[4,4]}
+    step 1 [n]: {shape=[2,4,8,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 2 [input_h]: {shape=[1,4,7,8] output_size=[4,4]}
+    step 2 [input_h]: {shape=[2,4,6,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 3 [out_w]: {shape=[1,4,7,8] output_size=[4,4]}
+    step 3 [input_w]: {shape=[2,4,6,12] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 4 [n]: {shape=[1,4,7,8] output_size=[4,4]}
+    step 4 [input_w]: {shape=[2,4,6,2] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 5 [input_h]: {shape=[1,4,7,8] output_size=[4,4]}
+    step 5 [c]: {shape=[2,6,6,2] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 1 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[N,H,W] keepdim=false}
+    step 1 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[C] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 2 [input]: {shape=[n=1 c=4 h=4 w=4] dims=[N,H,W] keepdim=false}
+    step 2 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 3 [keepdim]: {shape=[n=1 c=4 h=4 w=4] dims=[N,H,W] keepdim=true}
+    step 3 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 4 [dims]: {shape=[n=1 c=4 h=4 w=4] dims=[N,H,W] keepdim=true}
+    step 4 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[W] keepdim=true}
     [native] vector_norm: direct==symbolic
-    step 5 [keepdim]: {shape=[n=1 c=4 h=4 w=4] dims=[N,H,W] keepdim=true}
+    step 5 [input]: {shape=[n=2 c=4 h=4 w=2] dims=[W] keepdim=true}
     [native] vector_norm: direct==symbolic |}]

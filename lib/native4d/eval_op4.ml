@@ -190,6 +190,11 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Sub.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Sum_keepdims { Ops4.Sum_keepdims.params; x } ->
+        let module C = Reduce.Sum.Compute (S) in
+        C.pixel
+          (Graph_shape4.sum_params params)
+          ~x_shape:(shape_of x) ~x:(operand x) out
     | Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; bias } ->
         let module C = Conv.Convolution.Compute (S) in
         let params = Graph_shape4.transposed_params params in

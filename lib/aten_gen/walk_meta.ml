@@ -31,6 +31,7 @@ let entries =
     adaptive_avg_pool2d;
     mean_dim;
     amax;
+    sum_dim_int_list;
     softmax_int;
     pow_tensor_scalar;
     linalg_vector_norm;

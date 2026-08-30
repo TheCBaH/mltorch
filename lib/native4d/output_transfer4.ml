@@ -38,7 +38,8 @@ let classify (op : Op.t) ~output:_ =
   | Reshape4 _ -> Output_transfer.Reindexing
   | Rms_norm _ | Sigmoid _ | Silu _ -> Output_transfer.Continuous
   | Slice4 _ -> Output_transfer.Reindexing
-  | Sqrt _ | Sub _ | Transposed_conv2d _ -> Output_transfer.Continuous
+  | Sqrt _ | Sub _ | Sum_keepdims _ | Transposed_conv2d _ ->
+      Output_transfer.Continuous
   | Unbind _ -> Output_transfer.Reindexing
   | Upsample_bilinear2d _ -> Output_transfer.Continuous
   (* A gather, not a blend, unlike [Upsample_bilinear2d] just above -- see

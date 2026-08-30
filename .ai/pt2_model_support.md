@@ -235,6 +235,25 @@ blocker: `upsample_nearest2d.vec` -- a distinct overload from the already-
 landed `upsample_bilinear2d.vec`, noted here only as a discovered lead, not
 yet investigated or scoped as a row.
 
+**Updated again, same day,** after landing `sum.dim_IntList` (`Reduce.Sum` in
+`lib/native/ops/reduce.ml`, the fourth op sharing `Dims_keepdim` alongside
+`Mean`/`Amax`/`Vector_norm` -- `Compute` is `Mean`'s numerator with no final
+division; the header comment in `reduce.ml` had literally anticipated this
+exact op ("a category file so a future `aten.sum`/… lands beside them"). Also
+factored the four ops' near-identical Native4D `keepdim=false` correction-C1
+legalization (`Mean`/`Amax`/`Sum`/`Vector_norm` each had their own ~30-line
+copy) into one shared `lower_keepdim_reduction` helper in
+`lib/native4d/lower.ml`, which is what kept that file under the tracked
+1000-line ceiling once `Sum`'s own copy was added -- confirmed
+behavior-preserving by the full test suite passing unchanged before promoting
+any new goldens): `native_builds:true` moves from 77 to 79.
+`mobilevitv2_175` clears this blocker and moves to the already-tracked
+`expand.default` (3 models). `resnest14d` and `skresnet18` -- the other two
+models this blocker predicted to unblock -- now build in full and reach
+already-tracked, pre-existing Native4D domain limits (grouped convolution and
+"no legalization for split_with_sizes" respectively, both `native4d_converts:
+false` but `native_builds:true`) -- neither a new gap.
+
 **Updated again, same day,** after landing `split.Tensor` (the equal-chunk-
 size sibling of the already-supported `split_with_sizes.default`, legalized
 onto that *existing* `Split_with_sizes` node by deriving its sizes list from

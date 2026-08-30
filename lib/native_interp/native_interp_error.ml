@@ -95,6 +95,7 @@ type metadata_role =
   | `Split_tensor_input
   | `Split_with_sizes_input
   | `Stack_input
+  | `Sum_input
   | `Tensor
   | `Transpose_input
   | `Unbind_input
@@ -361,6 +362,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Split_tensor_input -> Fmt.string ppf "split.Tensor input"
   | `Split_with_sizes_input -> Fmt.string ppf "split_with_sizes input"
   | `Stack_input -> Fmt.string ppf "stack input"
+  | `Sum_input -> Fmt.string ppf "sum input"
   | `Tensor -> Fmt.string ppf "tensor"
   | `Transpose_input -> Fmt.string ppf "transpose input"
   | `Unbind_input -> Fmt.string ppf "unbind input"

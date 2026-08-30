@@ -213,6 +213,9 @@ let slice4 params x = op1 (Op.Slice4 { Ops4.Slice4.params; x })
 let sqrt x = op1 (Op.Sqrt { Pointwise.Sqrt.x })
 let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
 
+let sum_keepdims dims x =
+  op1 (Op.Sum_keepdims { Ops4.Sum_keepdims.params = { dims }; x })
+
 let transposed_conv2d params ~x ~weight ?bias () =
   op1 (Op.Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; bias })
 

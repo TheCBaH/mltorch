@@ -235,6 +235,7 @@ let check_node view (n : node) =
       else check_groups view node ~weight ~groups:params.Conv.Convolution.groups
   | Amax { Reduce.Amax.params; _ } -> check_dims node params.Reduce.Amax.dims
   | Mean { Reduce.Mean.params; _ } -> check_dims node params.Reduce.Mean.dims
+  | Sum { Reduce.Sum.params; _ } -> check_dims node params.Reduce.Sum.dims
   | Vector_norm { Reduce.Vector_norm.params; _ } ->
       check_dims node params.Reduce.Vector_norm.dims
   (* Only the PADDED axes are gated. An entry naming T or D is what the dialect

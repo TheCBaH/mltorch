@@ -293,6 +293,44 @@ let lower_node ~view acc (n : node) =
              Node_id.pp node (List.length outputs))
   in
   let simple op = Err.return (emit acc ~from:node op [ single () ]) in
+  (* Shared by [Mean]/[Amax]/[Sum]/[Vector_norm]'s arms below: all four are
+     the SAME shape (`.ai/native4d_design.md` §1's reduction rule is not
+     specific to any one of them, and all four reuse [Reduce.Dims_keepdim]'s
+     own [output_shape] directly, not a per-op copy). [keepdim=true] is the
+     dialect's own [X_keepdims] node unchanged; [keepdim=false] is corrected
+     by C1 into that same node plus a [Reshape4], and the reshape target
+     re-enters the dialect only when the packed Native output shape stays
+     four-axis. Only [keepdims_op] (which [Ops4] constructor to build) varies
+     per op. *)
+  let lower_keepdim_reduction ~(orig_dims : Axis.t list) ~keepdim
+      ~(keepdims_op : Axis4.t list -> Tensor_id.t -> Op.t) ~x =
+    let* dims = dims4 ~node orig_dims in
+    if keepdim then
+      Err.return
+        (emit acc ~from:node (keepdims_op dims (op_of x)) [ single () ])
+    else
+      let* x_shape = sig_of x in
+      let* kept =
+        match
+          Reduce.Dims_keepdim.output_shape ~x_shape
+            { Reduce.Dims_keepdim.dims = orig_dims; keepdim = true }
+        with
+        | Ok s -> Err.return s
+        | Error _ -> Err.fail (`Unsupported_op (node, n.Node.op))
+      in
+      let* packed = sig_of (single ()) in
+      let* kept4 = shape4 ~id:(single ()) kept in
+      let* packed4 = shape4 ~id:(single ()) packed in
+      let mid, acc = fresh_tensor acc kept4 in
+      let acc = emit acc ~from:node (keepdims_op dims (op_of x)) [ mid ] in
+      let acc =
+        { acc with provenance = ([ op_of x ], mid) :: acc.provenance }
+      in
+      Err.return
+        (emit acc ~from:node
+           (Op.Reshape4 { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
+           [ single () ])
+  in
   match n.Node.op with
   (* §7.1 direct counterparts. The payload records are Native's own, reused
      unchanged — they name no axis and carry no shape. *)
@@ -520,118 +558,36 @@ let lower_node ~view acc (n : node) =
             ~bias:(Option.map op_of bias) ~weight_shape
         in
         simple op
-  (* §7.5 as corrected by C1. keepdim=false becomes MeanKeepDims + Reshape4, and
-     the reshape target is the PACKED Native output shape — which for a
-     reduction over H,W puts the batch extent on D, so it re-enters the dialect
-     only when that extent is 1. [shape4] is where that is caught. *)
+  (* §7.5, and the [Amax]/[Sum]/[Vector_norm] arms below it, all corrected by
+     C1 through [lower_keepdim_reduction] -- see its own comment above. The
+     keepdim=false reshape target is the PACKED Native output shape, which
+     for a reduction over H,W puts the batch extent on D, so it re-enters the
+     dialect only when that extent is 1; [shape4] is where that is caught. *)
   | Mean { Reduce.Mean.params; x } ->
-      let* dims = dims4 ~node params.Reduce.Mean.dims in
-      if params.Reduce.Mean.keepdim then
-        simple
-          (Op.Mean_keepdims
-             { Ops4.Mean_keepdims.params = { dims }; x = op_of x })
-      else
-        let* x_shape = sig_of x in
-        let* kept =
-          match
-            Reduce.Mean.output_shape ~x_shape
-              { Reduce.Mean.dims = params.Reduce.Mean.dims; keepdim = true }
-          with
-          | Ok s -> Err.return s
-          | Error _ -> Err.fail (`Unsupported_op (node, n.Node.op))
-        in
-        let* packed = sig_of (single ()) in
-        let* kept4 = shape4 ~id:(single ()) kept in
-        let* packed4 = shape4 ~id:(single ()) packed in
-        let mid, acc = fresh_tensor acc kept4 in
-        let acc =
-          emit acc ~from:node
-            (Op.Mean_keepdims
-               { Ops4.Mean_keepdims.params = { dims }; x = op_of x })
-            [ mid ]
-        in
-        let acc =
-          { acc with provenance = ([ op_of x ], mid) :: acc.provenance }
-        in
-        Err.return
-          (emit acc ~from:node
-             (Op.Reshape4
-                { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
-             [ single () ])
-  (* Same shape as [Mean] above, corrected by C1 the same way: keepdim=false
-     becomes MaxKeepDims + Reshape4, and the reshape target re-enters the
-     dialect only when the packed Native output shape stays four-axis. *)
+      lower_keepdim_reduction ~orig_dims:params.Reduce.Mean.dims
+        ~keepdim:params.Reduce.Mean.keepdim
+        ~keepdims_op:(fun dims x ->
+          Op.Mean_keepdims { Ops4.Mean_keepdims.params = { dims }; x })
+        ~x
   | Amax { Reduce.Amax.params; x } ->
-      let* dims = dims4 ~node params.Reduce.Amax.dims in
-      if params.Reduce.Amax.keepdim then
-        simple
-          (Op.Max_keepdims { Ops4.Max_keepdims.params = { dims }; x = op_of x })
-      else
-        let* x_shape = sig_of x in
-        let* kept =
-          match
-            Reduce.Amax.output_shape ~x_shape
-              { Reduce.Amax.dims = params.Reduce.Amax.dims; keepdim = true }
-          with
-          | Ok s -> Err.return s
-          | Error _ -> Err.fail (`Unsupported_op (node, n.Node.op))
-        in
-        let* packed = sig_of (single ()) in
-        let* kept4 = shape4 ~id:(single ()) kept in
-        let* packed4 = shape4 ~id:(single ()) packed in
-        let mid, acc = fresh_tensor acc kept4 in
-        let acc =
-          emit acc ~from:node
-            (Op.Max_keepdims
-               { Ops4.Max_keepdims.params = { dims }; x = op_of x })
-            [ mid ]
-        in
-        let acc =
-          { acc with provenance = ([ op_of x ], mid) :: acc.provenance }
-        in
-        Err.return
-          (emit acc ~from:node
-             (Op.Reshape4
-                { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
-             [ single () ])
-  (* Same shape as [Mean]/[Amax] above, corrected by C1 the same way. *)
+      lower_keepdim_reduction ~orig_dims:params.Reduce.Amax.dims
+        ~keepdim:params.Reduce.Amax.keepdim
+        ~keepdims_op:(fun dims x ->
+          Op.Max_keepdims { Ops4.Max_keepdims.params = { dims }; x })
+        ~x
+  | Sum { Reduce.Sum.params; x } ->
+      lower_keepdim_reduction ~orig_dims:params.Reduce.Sum.dims
+        ~keepdim:params.Reduce.Sum.keepdim
+        ~keepdims_op:(fun dims x ->
+          Op.Sum_keepdims { Ops4.Sum_keepdims.params = { dims }; x })
+        ~x
   | Vector_norm { Reduce.Vector_norm.params; x } ->
-      let* dims = dims4 ~node params.Reduce.Vector_norm.dims in
-      if params.Reduce.Vector_norm.keepdim then
-        simple
-          (Op.Vector_norm_keepdims
-             { Ops4.Vector_norm_keepdims.params = { dims }; x = op_of x })
-      else
-        let* x_shape = sig_of x in
-        let* kept =
-          match
-            Reduce.Vector_norm.output_shape ~x_shape
-              {
-                Reduce.Vector_norm.dims = params.Reduce.Vector_norm.dims;
-                keepdim = true;
-              }
-          with
-          | Ok s -> Err.return s
-          | Error _ -> Err.fail (`Unsupported_op (node, n.Node.op))
-        in
-        let* packed = sig_of (single ()) in
-        let* kept4 = shape4 ~id:(single ()) kept in
-        let* packed4 = shape4 ~id:(single ()) packed in
-        let mid, acc = fresh_tensor acc kept4 in
-        let acc =
-          emit acc ~from:node
-            (Op.Vector_norm_keepdims
-               { Ops4.Vector_norm_keepdims.params = { dims }; x = op_of x })
-            [ mid ]
-        in
-        let acc =
-          { acc with provenance = ([ op_of x ], mid) :: acc.provenance }
-        in
-        Err.return
-          (emit acc ~from:node
-             (Op.Reshape4
-                { Ops4.Reshape4.params = { shape = packed4 }; x = mid })
-             [ single () ])
+      lower_keepdim_reduction ~orig_dims:params.Reduce.Vector_norm.dims
+        ~keepdim:params.Reduce.Vector_norm.keepdim
+        ~keepdims_op:(fun dims x ->
+          Op.Vector_norm_keepdims
+            { Ops4.Vector_norm_keepdims.params = { dims }; x })
+        ~x
   (* §7.4. Only a single batch legalizes: for batch > 1 mat2 varies with the
      output's H coordinate while convolution weights are shared across spatial
      positions. mat2[H=1,W=contract,C=cols] permutes to the weight layout

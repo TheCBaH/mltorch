@@ -149,6 +149,7 @@ let samples : Op.t list =
       };
     Sqrt { Pointwise.Sqrt.x };
     Sub { Pointwise.Bin.a = x; b = y };
+    Sum_keepdims { Ops4.Sum_keepdims.params = { dims = [ H; W ] }; x };
     Transposed_conv2d
       {
         Ops4.Transposed_conv2d.params =
@@ -174,7 +175,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 36, registry: 36 |}]
+  [%expect {| samples: 37, registry: 37 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -233,6 +234,7 @@ let%expect_test "op4: printed" =
     slice4 x=t0 params={axis=W start=1 stop=8 step=3}
     sqrt x=t0
     sub a=t0 b=t1
+    sum_keepdims x=t0 params={dims=[H, W]}
     transposed_conv2d
       x=t0
       weight=t2
@@ -255,7 +257,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 36 ops |}]
+  [%expect {| round-tripped 37 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

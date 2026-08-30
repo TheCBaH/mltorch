@@ -28,6 +28,33 @@ let mean_dim =
       pcg )|};
   }
 
+(* sum.dim_IntList: same reduction-family recipe and [dim option] shape as
+   [mean_dim] ("mean.dim and friends"). *)
+let sum_dim_int_list =
+  {
+    module_name = "Sum_dim_IntList_walk";
+    target = "torch.ops.aten.sum.dim_IntList";
+    recipe = "Recipe_reduce";
+    initial =
+      "Aten_walk_recipes.Recipe_reduce.{ n = 2; c = 4; h = 8; w = 8; dims = [ \
+       2; 3 ]; keepdim = false }";
+    axes =
+      "Aten_walk_recipes.Recipe_reduce.axes ~n:[ 1; 2; 4 ] ~c:[ 4; 8; 16 ] \
+       ~h:[ 4; 8; 16 ] ~w:[ 4; 8; 16 ] \
+       ~dims:Aten_walk_recipes.Recipe_reduce.all_dim_subsets ~keepdim:[ true; \
+       false ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_reduce.self_shape c) in
+    ( Aten_op_spec.Op_sum_dim_IntList.(
+        spec
+          {
+            self;
+            dim = Some (Recipe_reduce.dims c);
+            keepdim = Recipe_reduce.keepdim c;
+          }),
+      pcg )|};
+  }
+
 (* amax.default: same reduction-family recipe as [mean_dim] ("mean.dim and
    friends" -- Recipe_reduce's own doc comment). Unlike [mean_dim]'s [dim],
    ATen's `amax` declares [dim] as a required (defaulted, not optional)

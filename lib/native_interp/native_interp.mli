@@ -105,6 +105,7 @@ type metadata_role =
   | `Split_tensor_input
   | `Split_with_sizes_input
   | `Stack_input
+  | `Sum_input
   | `Tensor
   | `Transpose_input
     (** Its own role, not shared with [`Permute_input]: [transpose.int] and

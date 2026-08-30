@@ -54,6 +54,7 @@ type op =
   | Slice4 of Ops4.Slice4.t
   | Sqrt of Pointwise.Sqrt.t
   | Sub of Pointwise.Sub.t
+  | Sum_keepdims of Ops4.Sum_keepdims.t
   | Transposed_conv2d of Ops4.Transposed_conv2d.t
   | Unbind of Ops4.Unbind.t
   | Upsample_bilinear2d of Resize.Bilinear2d.t
@@ -267,6 +268,12 @@ let op_registry : (module OP) list =
 
       let inject t = Sub t
       let project = function Sub t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Sum_keepdims
+
+      let inject t = Sum_keepdims t
+      let project = function Sum_keepdims t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Transposed_conv2d

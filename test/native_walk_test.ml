@@ -943,29 +943,37 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.sub.Tensor: matched
     step 3 [c]: {shape=[2,4,8,16] pattern=equal}
     [spec] torch.ops.aten.sub.Tensor: matched
+    step 0: {shape=[2,4,8,8] dims=[2,3] keepdim=false}
+    [spec] torch.ops.aten.sum.dim_IntList: matched
+    step 1 [dims]: {shape=[2,4,8,8] dims=[1,3] keepdim=false}
+    [spec] torch.ops.aten.sum.dim_IntList: matched
+    step 2 [dims]: {shape=[2,4,8,8] dims=[1] keepdim=false}
+    [spec] torch.ops.aten.sum.dim_IntList: matched
+    step 3 [w]: {shape=[2,4,8,8] dims=[1] keepdim=false}
+    [spec] torch.ops.aten.sum.dim_IntList: matched
     step 0: {shape=[4,5] rank=2 dims=(0,1)}
     [spec] torch.ops.aten.transpose.int: matched
-    step 1 [c]: {shape=[4,5] rank=2 dims=(0,1)}
+    step 1 [config]: {shape=[2,3,4,5] rank=4 dims=(-2,-3)}
     [spec] torch.ops.aten.transpose.int: matched
-    step 2 [config]: {shape=[4,4,5] rank=3 dims=(0,1)}
+    step 2 [c]: {shape=[2,3,4,5] rank=4 dims=(-2,-3)}
     [spec] torch.ops.aten.transpose.int: matched
-    step 3 [c]: {shape=[3,4,5] rank=3 dims=(0,1)}
+    step 3 [n]: {shape=[2,3,4,5] rank=4 dims=(-2,-3)}
     [spec] torch.ops.aten.transpose.int: matched
     step 0: {shape=[2,3,4,4] dim=0}
     [spec] torch.ops.aten.unbind.int: matched
-    step 1 [n]: {shape=[2,3,4,4] dim=0}
+    step 1 [dim]: {shape=[2,3,4,4] dim=1}
     [spec] torch.ops.aten.unbind.int: matched
-    step 2 [n]: {shape=[1,3,4,4] dim=0}
+    step 2 [dim]: {shape=[2,3,4,4] dim=1}
     [spec] torch.ops.aten.unbind.int: matched
-    step 3 [c]: {shape=[1,4,4,4] dim=0}
+    step 3 [dim]: {shape=[2,3,4,4] dim=-4}
     [spec] torch.ops.aten.unbind.int: matched
     step 0: {shape=[1,4,4,4] pattern=flatten target=[64]}
     [spec] torch.ops.aten.view.default: matched
-    step 1 [c]: {shape=[1,2,4,4] pattern=flatten target=[32]}
+    step 1 [h]: {shape=[1,4,3,4] pattern=flatten target=[48]}
     [spec] torch.ops.aten.view.default: matched
-    step 2 [w]: {shape=[1,2,4,3] pattern=flatten target=[24]}
+    step 2 [n]: {shape=[2,4,3,4] pattern=flatten target=[96]}
     [spec] torch.ops.aten.view.default: matched
-    step 3 [w]: {shape=[1,2,4,4] pattern=flatten target=[32]}
+    step 3 [h]: {shape=[2,4,4,4] pattern=flatten target=[128]}
     [spec] torch.ops.aten.view.default: matched
     needs_meta:
       torch.ops.aten._softmax.default

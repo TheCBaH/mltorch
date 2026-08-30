@@ -50,6 +50,7 @@ let targets =
     "torch.ops.aten.silu_.default";
     "torch.ops.aten.softmax.int";
     "torch.ops.aten.sub.Tensor";
+    "torch.ops.aten.sum.dim_IntList";
   ]
 
 let dispatch ~ctx ~env (node : Node.t) =
@@ -449,6 +450,23 @@ let dispatch ~ctx ~env (node : Node.t) =
            | `Scalar s ->
                let* y = add_scalar (-.s) (get "self") in
                return [ y ])
+       (* `dtype` is decoded and rejected rather than silently dropped when
+         present, the same treatment `linalg_vector_norm.default`'s gets. *)
+       | "torch.ops.aten.sum.dim_IntList" ->
+           reject_dtype esc node;
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Sum_input)
+           in
+           let params =
+             {
+               Reduce.Sum.dims =
+                 axes_for_rank esc ~tensor:x_name rank (ints_arg esc node "dim");
+               keepdim = bool_arg esc node "keepdim";
+             }
+           in
+           let* y = sum params (get "self") in
+           return [ y ]
        | "torch.ops.aten.clamp.default" ->
            let params : Pointwise.Clamp.params =
              {

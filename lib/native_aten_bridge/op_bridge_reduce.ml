@@ -40,6 +40,25 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = mean params x_id in
                [ y ]
            | _ -> assert false))
+  (* `dtype` is decoded and rejected rather than silently dropped when
+     present, the same treatment `linalg_vector_norm.default`'s gets below. *)
+  | "torch.ops.aten.sum.dim_IntList" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let* dims = dims_arg node ~op:"sum.dim_IntList" ~rank "dim" in
+         let* keepdim = bool_arg node "keepdim" in
+         let* (_ : _ option) =
+           decode_result (D.scalar_type_opt_arg_result node "dtype")
+         in
+         let* x = native_of_aten "self" t in
+         let params = { Reduce.Sum.dims; keepdim } in
+         build_g ~name:"sum" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = sum params x_id in
+               [ y ]
+           | _ -> assert false))
   (* ord=2 (the schema default) only: general ord needs its own `pow`, out of
      scope. `dtype` is decoded and rejected rather than silently dropped
      when present -- the same treatment `cudnn_enable` gets on

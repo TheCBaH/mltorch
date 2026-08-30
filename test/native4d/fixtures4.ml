@@ -153,6 +153,8 @@ let per_op () =
         unary ~shape:nhwc (Builder.mean_keepdims [ Axis4.H; Axis4.W ]) );
       ( "max_keepdims",
         unary ~shape:nhwc (Builder.max_keepdims [ Axis4.H; Axis4.W ]) );
+      ( "sum_keepdims",
+        unary ~shape:nhwc (Builder.sum_keepdims [ Axis4.H; Axis4.W ]) );
       (* Both signs on two different axes, so the fixture covers padding and
          cropping in one graph. Constant rather than reflect because that is the
          mode whose pixel map goes through [select] — the arm the [Symbolic]

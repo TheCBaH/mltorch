@@ -290,6 +290,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* b_shape = shape b in
       let+ out = widen (Pointwise.Sub.output_shape a_shape b_shape) in
       [ out ]
+  | Sum { Reduce.Sum.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Reduce.Sum.output_shape ~x_shape params) in
+      [ out ]
   | Slice { Split.Slice.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Split.Slice.output_shape ~x_shape params) in

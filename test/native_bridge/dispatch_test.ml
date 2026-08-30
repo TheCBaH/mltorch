@@ -590,6 +590,68 @@ let%expect_test "dispatch: amax.default rejects an out-of-range dim" =
     error: amax.default: invalid dimension 7 for rank 2
     error: amax.default: invalid dimension -3 for rank 2 |}]
 
+let%expect_test "dispatch: sum.dim_IntList dim=[1] keepdim=true" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" true ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [W=2 C=1] {3, 12} |}]
+
+let%expect_test "dispatch: sum.dim_IntList dim=[1] keepdim=false" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dim" [ 1 ]; in_bool "keepdim" false ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=2] {3, 12} |}]
+
+let%expect_test "dispatch: sum.dim_IntList dim=[] reduces over all dims" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "dim" []; in_bool "keepdim" false ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=1] {15} |}]
+
+let%expect_test "dispatch: sum.dim_IntList omitted dim reduces over all dims" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_bool "keepdim" false ]
+    ~noutputs:1;
+  [%expect {| tensor f32 [C=1] {15} |}]
+
+let%expect_test "dispatch: sum.dim_IntList rejects an out-of-range dim" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  List.iter
+    (fun d ->
+      dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
+        ~bindings:[ ("self", x) ]
+        ~inputs:
+          [ in_tensor "self"; in_ints "dim" [ d ]; in_bool "keepdim" false ]
+        ~noutputs:1)
+    [ 7; -3 ];
+  [%expect
+    {|
+    error: sum.dim_IntList: invalid dimension 7 for rank 2
+    error: sum.dim_IntList: invalid dimension -3 for rank 2 |}]
+
+let%expect_test "dispatch: sum.dim_IntList rejects a supplied dtype" =
+  let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
+  dispatch_print ~target:"torch.ops.aten.sum.dim_IntList"
+    ~bindings:[ ("self", x) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_ints "dim" [ 1 ];
+        in_bool "keepdim" false;
+        PT.NamedArgument.make "dtype"
+          (PT.Argument.Scalar_type PT.ScalarType.DOUBLE) None;
+      ]
+    ~noutputs:1;
+  [%expect {| error: unsupported scalar_type argument "dtype" |}]
+
 let%expect_test "dispatch: pow.Tensor_Scalar exponent=0.5 computes sqrt" =
   let x = float_tensor [ 4 ] [ 0.; 1.; 4.; 9. ] in
   dispatch_print ~target:"torch.ops.aten.pow.Tensor_Scalar"

@@ -244,6 +244,7 @@ val stack :
     before concatenating them. *)
 
 val sub : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
+val sum : ?name:string -> Reduce.Sum.params -> tensor_ref -> Tensor_id.t t
 
 (* Unbind returns EVERY slice, in ordinal order — the only builder whose result
    length is not fixed by the op. The count is derived from the input signature

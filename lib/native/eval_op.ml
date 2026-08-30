@@ -232,6 +232,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Pointwise.Sub.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
           (operand b) out
+    | Sum { Reduce.Sum.params; x } ->
+        let module C = Reduce.Sum.Compute (S) in
+        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
     | Slice { Split.Slice.params; x } ->
         let module C = Split.Slice.Compute (S) in
         C.pixel params ~x:(operand x) out
