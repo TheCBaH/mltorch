@@ -145,6 +145,40 @@ module Ceil_window_cfg (L : Walk_core.Limits.S) = struct
     Format.fprintf fmt "%a ceil_mode=%b" Win.pp c.window c.ceil_mode
 end
 
+(* [Ceil_window_cfg] plus a [count_include_pad] axis, for [AvgPool2d]'s own
+   walk -- the only pooling op whose divisor depends on it ([MaxPool2d] has no
+   divisor to vary). *)
+module Ceil_count_window_cfg (L : Walk_core.Limits.S) = struct
+  module Base = Ceil_window_cfg (L)
+
+  type cfg = { window : Base.cfg; count_include_pad : bool }
+
+  let initial = { window = Base.initial; count_include_pad = true }
+  let cascade c = { c with window = Base.cascade c.window }
+  let shape (c : cfg) = Base.shape c.window
+  let kernel (c : cfg) = Base.kernel c.window
+  let stride (c : cfg) = Base.stride c.window
+  let pad (c : cfg) = Base.pad c.window
+
+  let axes =
+    let lift (a : Base.cfg Walk_core.Walk.axis) : cfg Walk_core.Walk.axis =
+      {
+        Walk_core.Walk.name = a.name;
+        mutate =
+          (fun pcg c ->
+            let w, pcg = a.mutate pcg c.window in
+            ({ c with window = w }, pcg));
+      }
+    in
+    Walk_core.Walk.field_axis "count_include_pad" [ true; false ] (fun c v ->
+        { c with count_include_pad = v })
+    :: List.map lift Base.axes
+
+  let pp fmt (c : cfg) =
+    Format.fprintf fmt "%a count_include_pad=%b" Base.pp c.window
+      c.count_include_pad
+end
+
 module MaxPool2d = struct
   (* Matches ATen's `max_pool2d` value-only overload. *)
 
@@ -310,25 +344,38 @@ module MaxPool2dWithIndices = struct
 end
 
 module AvgPool2d = struct
-  (* Same [params] shape as [MaxPool2d] (kernel/stride/pad, no [in_channels]).
-     Matches ATen's `avg_pool2d` defaults: `count_include_pad=true`,
-     `divisor_override=None`, `ceil_mode=false` — i.e. every window divides by
-     the FULL kernel area, even where part of it falls in the padding region.
-     That divisor is therefore a position-independent constant, which is why
-     this doesn't need the [Window_axis] window for the divisor — only for the
-     sum, exactly as in [MaxPool2d]: clipping the reduction range means the
-     padding region simply isn't summed (contributing the same 0 it would
-     under a guarded read, but never via an out-of-bounds index), while the
-     divisor still counts it. *)
+  (* Same [params] shape as [MaxPool2d] (kernel/stride/pad, no [in_channels]),
+     plus [ceil_mode] and [count_include_pad] -- the 100-model sweep found real
+     models needing both (see the module doc's [MaxPool2d] note).
+     [divisor_override] stays unrepresented: no model this
+     repository can download supplies a non-default value, so a present one is
+     refused at the import boundary rather than approximated.
+
+     With [count_include_pad=true] (ATen's default) the divisor is the window
+     clipped to the PADDED extent, not the real input -- position-independent
+     and equal to the full kernel area for every output position floor-mode
+     admits, and only smaller for the trailing positions [ceil_mode] adds (see
+     [Compute.pixel]). With [count_include_pad=false] the divisor is the
+     window clipped to the real input, the same range [total] already sums
+     over. *)
   type params = {
+    ceil_mode : bool;
+    count_include_pad : bool;
     kernel : Dim.extent Dim.t Op_config.Hw.t;
     stride : Op_config.Pos.t Op_config.Hw.t;
     pad : Op_config.Nonneg.t Op_config.Hw.t;
   }
 
   let params_jsont : params Jsont.t =
-    Jsont.Object.map ~kind:"avg_pool2d_params" (fun kernel pad stride ->
-        { kernel; stride; pad })
+    Jsont.Object.map ~kind:"avg_pool2d_params"
+      (fun ceil_mode count_include_pad kernel pad stride ->
+        { ceil_mode; count_include_pad; kernel; stride; pad })
+    |> Jsont.Object.mem "ceil_mode" Jsont.bool ~dec_absent:false
+         ~enc:(fun p -> p.ceil_mode)
+         ~enc_omit:(fun b -> not b)
+    |> Jsont.Object.mem "count_include_pad" Jsont.bool ~dec_absent:true
+         ~enc:(fun p -> p.count_include_pad)
+         ~enc_omit:(fun b -> b)
     |> Jsont.Object.mem "kernel" (Op_config.Hw.jsont Dim.extent_jsont)
          ~enc:(fun p -> p.kernel)
     |> Jsont.Object.mem "pad" (Op_config.Hw.jsont Op_config.Nonneg.jsont)
@@ -338,19 +385,27 @@ module AvgPool2d = struct
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{kernel=%a;@ stride=%a;@ pad=%a}@]"
+    Fmt.pf fmt
+      "@[<hv>{kernel=%a;@ stride=%a;@ pad=%a;@ ceil_mode=%b;@ \
+       count_include_pad=%b}@]"
       (Op_config.Hw.pp Dim.pp) p.kernel
       (Op_config.Hw.pp Op_config.Pos.pp)
       p.stride
       (Op_config.Hw.pp Op_config.Nonneg.pp)
-      p.pad
+      p.pad p.ceil_mode p.count_include_pad
 
   module Walk (L : Walk_core.Limits.S) = struct
-    module W = Window_cfg (L)
+    module W = Ceil_count_window_cfg (L)
     include W
 
     let params (c : W.cfg) : params =
-      { kernel = W.kernel c; stride = W.stride c; pad = W.pad c }
+      {
+        kernel = W.kernel c;
+        stride = W.stride c;
+        pad = W.pad c;
+        ceil_mode = c.window.ceil_mode;
+        count_include_pad = c.count_include_pad;
+      }
   end
 
   type t = { params : params; x : Tensor_ref.t }
@@ -379,13 +434,31 @@ module AvgPool2d = struct
       t.params
 
   let output_shape ~(x_shape : Vec6.shape) (p : params) =
-    (* [avg_pool2d.default] isn't bridged yet (no [ceil_mode]/[dilation]
-       field on this [params] either -- see the module doc), so this is
-       always floor mode. *)
-    window_output_shape ~ceil_mode:false ~x_shape ~kernel:p.kernel
+    window_output_shape ~ceil_mode:p.ceil_mode ~x_shape ~kernel:p.kernel
       ~stride:p.stride ~pad:p.pad
 
   module Compute (S : Semantics.SEMANTICS) = struct
+    (* [count_include_pad=true]'s divisor, one axis: the window clipped to the
+       PADDED extent rather than the real input -- ATen's own
+       `min(kernel, in_extent + 2*pad - out*stride)`. [start] (= [out*stride -
+       pad]) is never less than [-pad] since [out >= 0], so this never needs a
+       lower clip the way the real-input window does; it only ever shrinks
+       [kernel] for the trailing output positions [ceil_mode] admits beyond
+       the floor-mode bound (see [Window_axis.output_extent]'s own
+       [ceil_mode] correction, which is exactly what keeps this positive). *)
+    let padded_extent ~(kernel : Dim.extent Dim.t) ~(stride : Op_config.Pos.t)
+        ~(pad : Op_config.Nonneg.t) ~(in_extent : Dim.extent Dim.t)
+        (out_pos : Semantics.position S.index) : S.t =
+      let out = S.of_index out_pos in
+      let extended =
+        S.index_add (S.index_extent in_extent)
+          (S.index_const (2 * (pad :> int)))
+      in
+      let shifted =
+        S.index_add extended (S.index_scale (-(stride :> int)) out)
+      in
+      S.value_of_index (S.index_min (S.index_extent kernel) shifted)
+
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
       let module Wa = Window_axis.Compute (S) in
@@ -405,8 +478,30 @@ module AvgPool2d = struct
                 S.load x
                   (out |> Vec6.set_h (wh.src kh) |> Vec6.set_w (ww.src kw))))
       in
-      let area = (p.kernel.h :> int) * (p.kernel.w :> int) in
-      S.div total (S.const (float_of_int area))
+      let divisor =
+        if (not p.ceil_mode) && p.count_include_pad then
+          (* Fast path: under floor-mode output extents, every window's
+             padded-clip size equals the full kernel area exactly (see
+             [padded_extent]'s doc) -- the graph-construction-time constant
+             this always was before [ceil_mode] existed. *)
+          S.const (float_of_int ((p.kernel.h :> int) * (p.kernel.w :> int)))
+        else if p.count_include_pad then
+          S.mul
+            (padded_extent ~kernel:p.kernel.h ~stride:p.stride.h ~pad:p.pad.h
+               ~in_extent:(Vec6.get x_shape Axis.H) (Vec6.get out Axis.H))
+            (padded_extent ~kernel:p.kernel.w ~stride:p.stride.w ~pad:p.pad.w
+               ~in_extent:(Vec6.get x_shape Axis.W) (Vec6.get out Axis.W))
+        else
+          (* [count_include_pad=false]: divide by the real (non-padding)
+             window area -- the same clipped range [total] already sums
+             over. *)
+          let real_extent (w : Wa.window) =
+            S.value_of_index
+              (S.index_add w.hi (S.index_scale (-1) (S.of_index w.lo)))
+          in
+          S.mul (real_extent wh) (real_extent ww)
+      in
+      S.div total divisor
   end
 end
 

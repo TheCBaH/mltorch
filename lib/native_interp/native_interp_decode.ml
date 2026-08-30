@@ -441,7 +441,7 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
   | "torch.ops.aten.conv2d.default" | "torch.ops.aten.conv2d.padding"
   | "torch.ops.aten.convolution.default" | "torch.ops.aten.linear.default"
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
-  | "torch.ops.aten.max_pool2d.default"
+  | "torch.ops.aten.max_pool2d.default" | "torch.ops.aten.avg_pool2d.default"
   | "torch.ops.aten.adaptive_avg_pool2d.default"
   | "torch.ops.aten.max_pool2d_with_indices.default"
   | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.layer_norm.default"
@@ -774,21 +774,9 @@ let conv_params esc (graph : Pytorch_types.Graph.t)
     kh,
     kw )
 
-(* Shared by both pooling arms, which is why the [dilation] rejection below is
-   here rather than in either one: [max_pool2d_with_indices.default] dropped
-   it exactly as silently as the functional overload would have, and one copy
-   of the check cannot come to disagree with the other.
-
-   [dilation] is REJECTED, not carried: [Pool.MaxPool2d.params] has no field
-   for it, so a non-default value would compute a different op under the right
-   name. Extending the native IR is warranted only on a measured need, and no
-   model this repository can download serialises either pooling target with a
-   non-default dilation -- so there is nothing to measure and a rejection is
-   the honest answer. [ceil_mode] IS carried (see
-   [Pool.MaxPool2d.params.ceil_mode]) -- the 100-model sweep found real models
-   needing it. Revisit [dilation], and [count_include_pad], when
-   avg_pool2d.default forces the same question. *)
-let pool_params esc (node : Pytorch_types.Node.t) =
+(* Shared by [pool_params] and [avg_pool_params]: both max- and avg-pool's
+   [params] carry the same kernel/stride/pad shape. *)
+let pool_window_fields esc (node : Pytorch_types.Node.t) =
   let op = node.Node.target in
   let kh, kw = hw2 esc `Kernel_size (ints_arg esc node "kernel_size") in
   (* Validated BEFORE the stride is defaulted from it. The default makes the two
@@ -813,6 +801,21 @@ let pool_params esc (node : Pytorch_types.Node.t) =
   let padding =
     hw2 esc `Padding (ints_arg esc ~default:[ 0; 0 ] node "padding")
   in
+  ( kernel,
+    pos_hw esc ~op ~param:`Stride stride,
+    nonneg_hw esc ~op ~param:`Padding padding )
+
+(* [max_pool2d.default]/[max_pool2d_with_indices.default]'s own [dilation]:
+   REJECTED, not carried -- [Pool.MaxPool2d.params] has no field for it, so a
+   non-default value would compute a different op under the right name.
+   Extending the native IR is warranted only on a measured need, and no model
+   this repository can download serialises either pooling target with a
+   non-default dilation, so there is nothing to measure and a rejection is the
+   honest answer. [avg_pool2d.default] has no [dilation] argument at all (see
+   [avg_pool_params]), so it needs no analogous check. *)
+let pool_params esc (node : Pytorch_types.Node.t) =
+  let op = node.Node.target in
+  let kernel, stride, pad = pool_window_fields esc node in
   (* NORMALIZED FIRST, then compared against the only value the params can hold.
      Testing "does some element differ from 1" accepted [] and [1;1;1] as well
      as [1;1] -- and ATen refuses both ("dilation must be either a single int,
@@ -823,12 +826,22 @@ let pool_params esc (node : Pytorch_types.Node.t) =
   | 1, 1 -> ()
   | _ -> malformed esc (`Unsupported_option { op; option = `Dilation dilation }));
   let ceil_mode = bool_arg esc ~default:false node "ceil_mode" in
-  {
-    Pool.MaxPool2d.ceil_mode;
-    kernel;
-    stride = pos_hw esc ~op ~param:`Stride stride;
-    pad = nonneg_hw esc ~op ~param:`Padding padding;
-  }
+  { Pool.MaxPool2d.ceil_mode; kernel; stride; pad }
+
+(* [avg_pool2d.default] carries no [dilation] argument at all (unlike the
+   max-pool overloads) but does carry [count_include_pad] (represented, see
+   [Pool.AvgPool2d.params.count_include_pad]) and [divisor_override] (has no
+   field to hold a non-default value, so a present one is refused). *)
+let avg_pool_params esc (node : Pytorch_types.Node.t) =
+  let op = node.Node.target in
+  let kernel, stride, pad = pool_window_fields esc node in
+  (match int_opt_arg_opt esc node "divisor_override" with
+  | None -> ()
+  | Some d ->
+      malformed esc (`Unsupported_option { op; option = `Divisor_override d }));
+  let ceil_mode = bool_arg esc ~default:false node "ceil_mode" in
+  let count_include_pad = bool_arg esc ~default:true node "count_include_pad" in
+  { Pool.AvgPool2d.ceil_mode; count_include_pad; kernel; stride; pad }
 
 (* [used] is the innermost [rank] frame axes, so it has SIX entries once rank
    exceeds six — and then [d >= rank] admits d = 6 and [List.nth] raises

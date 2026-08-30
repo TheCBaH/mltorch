@@ -591,14 +591,14 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.amax.default: matched
     step 3 [h]: {shape=[2,4,8,8] dims=[2,3] keepdim=true}
     [spec] torch.ops.aten.amax.default: matched
-    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
-    step 1 [n]: {kernel=2x2 stride=2x2 pad=0x0 n=2 c=4 H=8 W=8 ceil_mode=false}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
-    step 2 [pad_w]: {kernel=2x2 stride=2x2 pad=0x0 n=2 c=4 H=8 W=8 ceil_mode=false}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
-    step 3 [pad_w]: {kernel=2x2 stride=2x2 pad=0x1 n=2 c=4 H=8 W=8 ceil_mode=false}
-    [spec] torch.ops.aten.avg_pool2d.default: skipped (no native impl)
+    step 0: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false} count_include_pad=true
+    [spec] torch.ops.aten.avg_pool2d.default: matched
+    step 1 [ceil_mode]: {kernel=2x2 stride=2x2 pad=0x0 n=1 c=4 H=8 W=8 ceil_mode=false} count_include_pad=true
+    [spec] torch.ops.aten.avg_pool2d.default: matched
+    step 2 [pad_h]: {kernel=2x2 stride=2x2 pad=1x0 n=1 c=4 H=8 W=8 ceil_mode=false} count_include_pad=true
+    [spec] torch.ops.aten.avg_pool2d.default: matched
+    step 3 [pad_w]: {kernel=2x2 stride=2x2 pad=1x1 n=1 c=4 H=8 W=8 ceil_mode=false} count_include_pad=true
+    [spec] torch.ops.aten.avg_pool2d.default: matched
     step 0: {self=[2,3,4] mat2=[2,4,5]}
     [spec] torch.ops.aten.bmm.default: matched
     step 1 [m]: {self=[2,3,4] mat2=[2,4,5]}

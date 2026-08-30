@@ -138,6 +138,7 @@ type unsupported_option =
   [ `Alpha of float
   | `Approximate of string
   | `Dilation of int list
+  | `Divisor_override of int
   | `Dtype
   | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
   | `Vector_norm_ord of float ]
@@ -146,11 +147,11 @@ type unsupported_option =
     change the native IR cannot express.
 
     The two pooling options are the same kind of refusal for a different reason:
-    [Pool.MaxPool2d.params] has no field for either, so carrying them was never
-    an option and dropping them silently computed a different op under the right
-    name. [`Dilation] keeps the whole offered list rather than a normalized
-    pair, because the rejection happens before the arity check that would give
-    it one.
+    neither [Pool.MaxPool2d.params] ([`Dilation]) nor [Pool.AvgPool2d.params]
+    ([`Divisor_override]) has a field for it, so carrying it was never an option
+    and dropping it silently computed a different op under the right name.
+    [`Dilation] keeps the whole offered list rather than a normalized pair,
+    because the rejection happens before the arity check that would give it one.
 
     [`Approximate] is [gelu.default]'s [approximate] parameter: only ["none"]
     (the exact, erf-based form) and ["tanh"] (PyTorch's tanh approximation) are

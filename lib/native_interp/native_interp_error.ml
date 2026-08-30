@@ -125,6 +125,7 @@ type unsupported_option =
   [ `Alpha of float
   | `Approximate of string
   | `Dilation of int list
+  | `Divisor_override of int
   | `Dtype
   | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
   | `Vector_norm_ord of float ]
@@ -474,6 +475,8 @@ let pp_malformed ppf : [< malformed ] -> unit = function
           Fmt.pf ppf "%s: dilation=[%a] is not supported (only 1)" op
             Fmt.(list ~sep:(any ",") int)
             d
+      | `Divisor_override d ->
+          Fmt.pf ppf "%s: divisor_override=%d is not supported (only none)" op d
       | `Dtype -> Fmt.pf ppf "%s: dtype is not supported" op
       | `Memory_format mf ->
           Fmt.pf ppf "%s: memory_format=%s is not supported" op

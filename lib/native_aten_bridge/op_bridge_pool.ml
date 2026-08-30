@@ -33,6 +33,31 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  [ y ]
              | _ -> assert false)
          with Invalid_argument msg -> fail (`Validation_failure msg))
+  | "torch.ops.aten.avg_pool2d.default" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* ceil_mode, count_include_pad = avg_pool2d_options node in
+         let* kernel_size = ints_arg node "kernel_size" in
+         let* stride = pool_stride kernel_size node in
+         let* padding = ints_arg ~default:[ 0; 0 ] node "padding" in
+         let* kh, kw = hw2 "kernel_size" kernel_size in
+         let* sh, sw = hw2 "stride" stride in
+         let* ph, pw = hw2 "padding" padding in
+         let* x = native_of_aten "self" aten_x in
+         let* params =
+           make_avg_pool_params ~op:node.Node.target ~ceil_mode
+             ~count_include_pad kh kw sh sw ph pw
+         in
+         try
+           build_g ~name:"avg_pool2d_relayout" [ x ] (function
+             | [ x_id ] ->
+                 let open Graph_builder in
+                 let* x' = permute perm_nchw_to_nhwc x_id in
+                 let* y' = avg_pool2d params x' in
+                 let+ y = permute perm_nhwc_to_nchw y' in
+                 [ y ]
+             | _ -> assert false)
+         with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.adaptive_avg_pool2d.default" ->
       Some
         (let* aten_x = tensor_arg aten_env node "self" in

@@ -394,7 +394,7 @@ let%expect_test "avg_pool2d: int? absent divides by the window" =
     {|
     [eval] torch.ops.aten.avg_pool2d.default
       aten   out0 = [2.5]
-      native = <no native impl> |}]
+      native out0 = [2.5] |}]
 
 let%expect_test "avg_pool2d: int? present divides by divisor_override" =
   eval (avg_pool2d_spec ~divisor:{|, "divisor_override": 2|});
@@ -402,4 +402,4 @@ let%expect_test "avg_pool2d: int? present divides by divisor_override" =
     {|
     [eval] torch.ops.aten.avg_pool2d.default
       aten   out0 = [5]
-      native = <no native impl> |}]
+      native = <error: torch.ops.aten.avg_pool2d.default: divisor_override=2 is not supported (only none)> |}]

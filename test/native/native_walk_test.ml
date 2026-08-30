@@ -153,17 +153,17 @@ let%expect_test "native walk coverage" =
     [native] amax: direct==symbolic
     step 5 [dims]: {shape=[n=2 c=4 h=12 w=4] dims=[W] keepdim=true}
     [native] amax: direct==symbolic
-    step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0}
+    step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false count_include_pad=true
     [native] avg_pool2d: direct==symbolic
-    step 1 [input]: {shape=[n=1 c=4 h=11 w=8] kernel=2x2 stride=2x2 pad=0x0}
+    step 1 [input]: {shape=[n=1 c=4 h=11 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false count_include_pad=true
     [native] avg_pool2d: direct==symbolic
-    step 2 [pad]: {shape=[n=1 c=4 h=11 w=8] kernel=2x2 stride=2x2 pad=1x0}
+    step 2 [ceil_mode]: {shape=[n=1 c=4 h=11 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=true count_include_pad=true
     [native] avg_pool2d: direct==symbolic
-    step 3 [kernel]: {shape=[n=1 c=4 h=11 w=8] kernel=3x1 stride=2x2 pad=1x0}
+    step 3 [pad]: {shape=[n=1 c=4 h=11 w=8] kernel=2x2 stride=2x2 pad=1x1} ceil_mode=true count_include_pad=true
     [native] avg_pool2d: direct==symbolic
-    step 4 [kernel]: {shape=[n=1 c=4 h=11 w=8] kernel=3x4 stride=2x2 pad=1x0}
+    step 4 [stride]: {shape=[n=1 c=4 h=11 w=8] kernel=2x2 stride=3x1 pad=1x1} ceil_mode=true count_include_pad=true
     [native] avg_pool2d: direct==symbolic
-    step 5 [kernel]: {shape=[n=1 c=4 h=11 w=8] kernel=5x5 stride=2x2 pad=1x0}
+    step 5 [input]: {shape=[n=1 c=4 h=1 w=8] kernel=2x2 stride=3x1 pad=1x1} ceil_mode=true count_include_pad=true
     [native] avg_pool2d: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] eps=1e-05}
     [native] batch_norm: direct==symbolic

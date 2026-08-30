@@ -189,8 +189,9 @@ let%expect_test
   in
   let p =
     {
-      Pool.AvgPool2d.kernel =
-        Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      Pool.AvgPool2d.ceil_mode = false;
+      count_include_pad = true;
+      kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
       stride =
         Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
       pad =
@@ -474,8 +475,9 @@ let%expect_test "Symbolic ground: avg_pool2d over several different inputs" =
   in
   let p =
     {
-      Pool.AvgPool2d.kernel =
-        Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      Pool.AvgPool2d.ceil_mode = false;
+      count_include_pad = true;
+      kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
       stride =
         Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
       pad =

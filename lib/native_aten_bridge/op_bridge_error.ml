@@ -89,7 +89,7 @@ module Matmul_unsupported_shape = struct
 end
 
 module Pool_unsupported = struct
-  type option = Dilation of int list
+  type option = Dilation of int list | Divisor_override of int
   type t = { op : string; option : option }
 end
 
@@ -193,7 +193,10 @@ let pp_error ppf : [< error ] -> unit = function
       match option with
       | Pool_unsupported.Dilation d ->
           Fmt.pf ppf "%s: dilation=%a is not supported (only 1)" op pp_int_list
-            d)
+            d
+      | Pool_unsupported.Divisor_override d ->
+          Fmt.pf ppf "%s: divisor_override=%d is not supported (only none)" op d
+      )
   | `Sdpa_reject e -> Attention.Sdpa.Reject.pp ppf e
   | `Tensor_bridge { arg_name; cause } ->
       Fmt.pf ppf "%s: %a" arg_name Tensor_bridge.pp_error cause

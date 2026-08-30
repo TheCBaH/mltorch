@@ -177,8 +177,9 @@ let%expect_test "Direct: avg_pool2d 2x2 (stride 1, pad 0) — box-filter average
   in
   let p =
     {
-      Pool.AvgPool2d.kernel =
-        Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      Pool.AvgPool2d.ceil_mode = false;
+      count_include_pad = true;
+      kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
       stride =
         Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
       pad =
@@ -204,8 +205,9 @@ let%expect_test
   let x = Tensor.materialize x_shape (fun _ -> 1.) in
   let p =
     {
-      Pool.AvgPool2d.kernel =
-        Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      Pool.AvgPool2d.ceil_mode = false;
+      count_include_pad = true;
+      kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
       stride =
         Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
       pad =
@@ -219,6 +221,63 @@ let%expect_test
        (P.pixel p ~x_shape ~x));
   [%expect
     {| tensor f32 [H=3 W=3 C=1] {0.25, 0.5, 0.25, 0.5, 1, 0.5, 0.25, 0.5, ...} |}]
+
+let%expect_test
+    "Direct: avg_pool2d 2x2 (stride 1, pad 1) — count_include_pad=false \
+     divides by the real (non-padding) window area" =
+  (* Same constant-1 input as the count_include_pad=true test above, same
+     window geometry -- every real tap still contributes 1, so this should be
+     1 everywhere, unlike the padded divisor's <1 corners/edges. *)
+  let module P = Pool.AvgPool2d.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let x = Tensor.materialize x_shape (fun _ -> 1.) in
+  let p =
+    {
+      Pool.AvgPool2d.ceil_mode = false;
+      count_include_pad = false;
+      kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      stride =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+      pad =
+        Op_config.Hw.
+          { h = Op_config.Nonneg.of_int 1; w = Op_config.Nonneg.of_int 1 };
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pool.AvgPool2d.output_shape ~x_shape p)
+       (P.pixel p ~x_shape ~x));
+  [%expect {| tensor f32 [H=3 W=3 C=1] {1, 1, 1, 1, 1, 1, 1, 1, ...} |}]
+
+let%expect_test
+    "Direct: avg_pool2d 2x2 (stride 2, pad 0, ceil_mode=true) — the trailing \
+     window's count_include_pad=true divisor shrinks below the kernel area" =
+  (* 3x3 input, kernel 2, stride 2, no padding: floor mode gives one output
+     row/col ({0,1},{0,1}); ceil_mode admits a second, output position 1,
+     whose window only has ONE real+padded column/row left (a kernel of 2 but
+     only 1 column remaining) -- so its divisor is 1*1, not 2*2, even though
+     count_include_pad=true. All values are 1, so a wrong (too-large) divisor
+     would show up directly as a wrong (too-small) average. *)
+  let module P = Pool.AvgPool2d.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:3 ~c:1 in
+  let x = Tensor.materialize x_shape (fun _ -> 1.) in
+  let p =
+    {
+      Pool.AvgPool2d.ceil_mode = true;
+      count_include_pad = true;
+      kernel = Op_config.Hw.{ h = Dim.extent 2; w = Dim.extent 2 };
+      stride =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 2; w = Op_config.Pos.of_int 2 };
+      pad =
+        Op_config.Hw.
+          { h = Op_config.Nonneg.of_int 0; w = Op_config.Nonneg.of_int 0 };
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pool.AvgPool2d.output_shape ~x_shape p)
+       (P.pixel p ~x_shape ~x));
+  [%expect {| tensor f32 [H=2 W=2 C=1] {1, 1, 1, 1} |}]
 
 let%expect_test
     "Direct: adaptive_avg_pool2d uses ATen's overlapping non-divisible bins" =

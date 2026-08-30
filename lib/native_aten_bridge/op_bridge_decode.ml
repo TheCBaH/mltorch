@@ -457,7 +457,9 @@ let make_convolution_params ~op sh sw ph pw dh dw transposed oph opw groups =
       groups;
     }
 
-let make_pool_params ~op ~ceil_mode kh kw sh sw ph pw =
+(* Shared by [make_pool_params] and [make_avg_pool_params]: both max- and
+   avg-pool's [params] carry the same kernel/stride/pad shape. *)
+let pool_window_fields ~op kh kw sh sw ph pw =
   let* kh = extent ~op ~param:`Kernel_size kh in
   let* kw = extent ~op ~param:`Kernel_size kw in
   let* sh = pos ~op ~param:`Stride sh in
@@ -465,12 +467,17 @@ let make_pool_params ~op ~ceil_mode kh kw sh sw ph pw =
   let* ph = nonneg ~op ~param:`Padding ph in
   let* pw = nonneg ~op ~param:`Padding pw in
   return
-    {
-      Pool.MaxPool2d.ceil_mode;
-      kernel = { h = kh; w = kw };
-      stride = { h = sh; w = sw };
-      pad = { h = ph; w = pw };
-    }
+    ( { Op_config.Hw.h = kh; w = kw },
+      { Op_config.Hw.h = sh; w = sw },
+      { Op_config.Hw.h = ph; w = pw } )
+
+let make_pool_params ~op ~ceil_mode kh kw sh sw ph pw =
+  let* kernel, stride, pad = pool_window_fields ~op kh kw sh sw ph pw in
+  return { Pool.MaxPool2d.ceil_mode; kernel; stride; pad }
+
+let make_avg_pool_params ~op ~ceil_mode ~count_include_pad kh kw sh sw ph pw =
+  let* kernel, stride, pad = pool_window_fields ~op kh kw sh sw ph pw in
+  return { Pool.AvgPool2d.ceil_mode; count_include_pad; kernel; stride; pad }
 
 (* Pool stride defaults to kernel_size when absent (PyTorch convention). *)
 let pool_stride kernel_size node =
@@ -498,3 +505,26 @@ let pool_dilation_and_ceil_mode node =
     else return ()
   in
   bool_arg ~default:false node "ceil_mode"
+
+(* [avg_pool2d.default] carries no [dilation] argument at all (unlike the
+   max-pool overloads) but does carry [count_include_pad] (represented, see
+   [Pool.AvgPool2d.params.count_include_pad]) and [divisor_override] (has no
+   field to hold a non-default value, so a present one is refused -- same "no
+   model this repository can download supplies it" reasoning
+   [pool_dilation_and_ceil_mode]'s [dilation] rejection uses). *)
+let avg_pool2d_options node =
+  let* divisor_override = int_opt_arg node "divisor_override" in
+  let* () =
+    match divisor_override with
+    | None -> return ()
+    | Some d ->
+        fail
+          (`Pool_unsupported
+             {
+               Pool_unsupported.op = node.Node.target;
+               option = Pool_unsupported.Divisor_override d;
+             })
+  in
+  let* ceil_mode = bool_arg ~default:false node "ceil_mode" in
+  let* count_include_pad = bool_arg ~default:true node "count_include_pad" in
+  return (ceil_mode, count_include_pad)

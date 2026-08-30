@@ -15,6 +15,7 @@ let targets =
     "torch.ops.aten.addcmul.default";
     "torch.ops.aten.addmm.default";
     "torch.ops.aten.amax.default";
+    "torch.ops.aten.avg_pool2d.default";
     "torch.ops.aten.clamp.default";
     "torch.ops.aten.clamp_min.default";
     "torch.ops.aten.clone.default";
@@ -564,6 +565,11 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* x = permute perm_nchw_to_nhwc (get "self") in
            let* y = adaptive_avg_pool2d params x in
+           let* y = permute perm_nhwc_to_nchw y in
+           return [ y ]
+       | "torch.ops.aten.avg_pool2d.default" ->
+           let* x = permute perm_nchw_to_nhwc (get "self") in
+           let* y = avg_pool2d (avg_pool_params esc node) x in
            let* y = permute perm_nhwc_to_nchw y in
            return [ y ]
        | "torch.ops.aten.max_pool2d_with_indices.default" ->

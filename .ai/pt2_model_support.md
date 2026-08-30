@@ -222,6 +222,20 @@ does not affect `native_builds`; only real-ATen verification
 instead pinned by hand-computed values in `test/native/norm_test.ml`,
 cross-checked against an independent calculation.
 
+**Updated 2026-08-29** after landing `avg_pool2d.default` (`Pool.AvgPool2d`
+already existed as a Native op -- and already had an ATen binding and a
+generated ATen-vs-Native walk, both dormant -- but no `Op_bridge`/
+`Native_interp` arm ever built it): `native_builds:true` moves
+from 71 to 72. `inception_v3` is the only model in the corpus whose FIRST
+blocker was `avg_pool2d.default`, and it clears every branch outright
+(`native4d_converts` and `kernel_converts` both `true`). The other 3 models
+this op was predicted to unblock (`ghostnetv3_050`, `ghostnetv3_130`,
+`maxxvitv2_nano_rw_256`) still don't build: the first two now stop on
+`alias.default`, the third on `split.Tensor` -- both already-tracked,
+independent gaps (see the "Cross-model signal" list in `ops.md`), not new
+ones. 72/100 now build; of those, `native4d_converts` is `true` for 36 and
+`false` for 36, and `kernel_converts` is `true` for 56 and `false` for 16.
+
 A previous version of this sweep reported `native_builds:true` for all but 5
 models -- 95, not 50 -- because it read the payload-free `visualize` CLI's
 exit code (which stays 0 whenever `stage:initial_native` degrades gracefully

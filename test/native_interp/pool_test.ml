@@ -224,6 +224,74 @@ let%expect_test "config faults are typed, not raised" =
     padding -1:                malformed PT2 graph: torch.ops.aten.max_pool2d.default: padding must not be negative, got -1
     kernel arity:              malformed PT2 graph: kernel_size must have one or two values, got 3 |}]
 
+(* [avg_pool2d.default] has no [dilation] argument at all, unlike
+   [max_pool2d.default] above, but does carry [count_include_pad] (a real
+   field, see [Pool.AvgPool2d.params.count_include_pad]) and
+   [divisor_override] (no field, refused like [max_pool2d]'s [dilation]). *)
+let avg_pool ?kernel ?stride ?padding ?ceil_mode ?count_include_pad
+    ?divisor_override () =
+  let arg name spelling =
+    match spelling with
+    | None -> ""
+    | Some v -> jstr {|,{"name":"%s","arg":%s,"kind":1}|} name v
+  in
+  jstr
+    {|{"target":"torch.ops.aten.avg_pool2d.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"kernel_size","arg":%s,"kind":1}%s%s%s%s%s],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x")
+    (Option.value kernel ~default:(ints "[2,2]"))
+    (arg "stride" stride) (arg "padding" padding)
+    (arg "ceil_mode" (Option.map (jstr {|{"as_bool":%b}|}) ceil_mode))
+    (arg "count_include_pad"
+       (Option.map (jstr {|{"as_bool":%b}|}) count_include_pad))
+    (arg "divisor_override"
+       (Option.map (jstr {|{"as_int":%d}|}) divisor_override))
+    (as_tensor "y")
+
+let%expect_test "avg_pool2d.default lowers with a defaulted stride, relayouts" =
+  dump "stride omitted:" (prog (avg_pool ()));
+  [%expect
+    {|
+    stride omitted:
+    graph
+    inputs: [t0 f32 [H=3 W=8 C=8] ->[n0]]
+    nodes:
+      group g1 torch.ops.aten.avg_pool2d.default:
+        n0: [t1 f32 [H=8 W=8 C=3] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=4 W=4 C=3] ->[n2]] =
+          avg_pool2d
+            x=t1 <-n0
+            params={kernel={h=2; w=2};
+                   stride={h=2; w=2};
+                   pad={h=0; w=0};
+                   ceil_mode=false;
+                   count_include_pad=true}
+        n2: [t3 f32 [H=3 W=4 C=4]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t3 f32 [H=3 W=4 C=4] <-n2] |}]
+
+let%expect_test
+    "avg_pool2d.default: ceil_mode and count_include_pad are both carried" =
+  show "ceil_mode false:" (prog (avg_pool ~ceil_mode:false ()));
+  show "ceil_mode true:" (prog (avg_pool ~ceil_mode:true ()));
+  show "count_include_pad false:" (prog (avg_pool ~count_include_pad:false ()));
+  show "count_include_pad true:" (prog (avg_pool ~count_include_pad:true ()));
+  [%expect
+    {|
+    ceil_mode false:           lowered, nodes=3
+    ceil_mode true:            lowered, nodes=3
+    count_include_pad false:   lowered, nodes=3
+    count_include_pad true:    lowered, nodes=3 |}]
+
+(* [divisor_override] has no field on [Pool.AvgPool2d.params], so a present
+   value is refused rather than silently dropped -- same treatment
+   [max_pool2d.default]'s [dilation] gets above. *)
+let%expect_test "avg_pool2d.default: divisor_override is refused, not dropped" =
+  show "absent:" (prog (avg_pool ()));
+  show "divisor_override 5:" (prog (avg_pool ~divisor_override:5 ()));
+  [%expect
+    {|
+    absent:                    lowered, nodes=3
+    divisor_override 5:        malformed PT2 graph: torch.ops.aten.avg_pool2d.default: divisor_override=5 is not supported (only none) |}]
+
 let adaptive ~output_size =
   jstr
     {|{"target":"torch.ops.aten.adaptive_avg_pool2d.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"output_size","arg":%s,"kind":1}],"outputs":[%s],"metadata":{}}|}

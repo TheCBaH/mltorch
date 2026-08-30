@@ -48,6 +48,8 @@ let max_params : Pool.MaxPool2d.params =
 
 let avg_params : Pool.AvgPool2d.params =
   {
+    ceil_mode = false;
+    count_include_pad = true;
     kernel = hw (Dim.extent 2);
     stride = hw (Op_config.Pos.of_int 2);
     pad = hw (Op_config.Nonneg.of_int 0);
@@ -177,7 +179,13 @@ let%expect_test "op4: printed" =
     add a=t0 b=t1
     add_scalar x=t0 scalar=0.1
     adaptive_avg_pool2d x=t0 params={output_size={h=3; w=3}}
-    avg_pool2d x=t0 params={kernel={h=2; w=2}; stride={h=2; w=2}; pad={h=0; w=0}}
+    avg_pool2d
+      x=t0
+      params={kernel={h=2; w=2};
+             stride={h=2; w=2};
+             pad={h=0; w=0};
+             ceil_mode=false;
+             count_include_pad=true}
     clamp x=t0 params={min=0; max=6}
     concat4 xs=[t0, t1, t2] params={axis=W}
     conv2d
