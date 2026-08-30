@@ -54,6 +54,10 @@ completed gate is committed only after its focused validation succeeds.
   measure, so it stops at the caller's limits without allocating a duplicated
   tree. Only a successful preflight starts the shared-state, capture-safe
   rewrite.
+- The recursive evaluator ceiling is 96 producer transitions. Region dispatch
+  adds enough fixed stack cost that the former 128-transition frontier can
+  overflow under js_of_ocaml for medium-depth bodies; the lower ceiling returns
+  the existing typed runtime error on both backends instead.
 
 ## Validation record
 
@@ -68,3 +72,5 @@ completed gate is committed only after its focused validation succeeds.
 | 2026-08-30 | 4 | `make precommit` | pass | Reference evaluator and its whole-axis sharing test pass with the repository's full pre-commit suite. |
 | 2026-08-30 | 4 | `opam exec -- dune runtest test/native` | pass | Kernel-level whole-channel Region program agrees through buffered `run` and on-demand `value_at`. |
 | 2026-08-30 | 5 | `opam exec -- dune runtest test/expr test/native` | pass | Dependent-local specialization, reconstruction, and one-node-over-size rejection pass. |
+| 2026-08-30 | 4 | `make jsoo.runtest` | pass | Native and JavaScript probe output matches. |
+| 2026-08-30 | 4 | `make jsoo.inline-runtest` | pass | Region-dispatch-adjusted recursion guard passes the JS depth frontier without stack overflow. |
