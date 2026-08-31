@@ -351,6 +351,45 @@ let%expect_test "direct4: grouped convolution reads its own group's channels" =
           ()));
   [%expect {| expect [35 117]: [35 117] |}]
 
+(* Two groups of two channels each, mean/var computed only WITHIN a group:
+   group0 = {3;5} (mean 4, std 1) and group1 = {7;13} (mean 10, std 3) give
+   the SAME normalized pattern [-1;1] despite very different absolute
+   scales -- a wrong window (one global mean/var across all four channels)
+   would not. *)
+let%expect_test "direct4: group_norm4 reduces within its own channel group" =
+  let x_shape = s4 ~n:1 ~h:1 ~w:1 ~c:4 in
+  let c_shape = s4 ~n:1 ~h:1 ~w:1 ~c:4 in
+  let params : Ops4.Group_norm4.params =
+    { channel = Axis4.C; groups = Op_config.Pos.of_int 2; eps = 1e-8 }
+  in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape:x_shape () in
+       let* w = constant ~shape:c_shape () in
+       let* b = constant ~shape:c_shape () in
+       group_norm4 params ~x ~weight:w ~bias:b ())
+  in
+  let x =
+    Tensor.materialize (Shape4.to_vec6 x_shape) (fun c ->
+        match Dim.to_int (Vec6.get c Axis.C) with
+        | 0 -> 3.
+        | 1 -> 5.
+        | 2 -> 7.
+        | _ -> 13.)
+  in
+  let ones = Tensor.materialize (Shape4.to_vec6 c_shape) (fun _ -> 1.) in
+  let zeros = Tensor.materialize (Shape4.to_vec6 c_shape) (fun _ -> 0.) in
+  let ids = g.Graph.Graph.inputs in
+  Format.printf "expect [-1 1 -1 1]: %a@." pp_values
+    (values
+       (single g
+          ~inputs:[ (List.nth ids 0, x) ]
+          ~constants:[ (List.nth ids 1, ones); (List.nth ids 2, zeros) ]
+          ()));
+  [%expect {| expect [-1 1 -1 1]: [-1 1 -1 1] |}]
+
 let%expect_test "direct4: mean over H and W keeps the axes" =
   let shape = s4 ~n:1 ~h:2 ~w:2 ~c:1 in
   let g =
@@ -476,7 +515,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 43, registry: 43 |}]
+  [%expect {| fixtures: 44, registry: 44 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -520,6 +559,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     reshape4               direct = symbolic
     rms_norm               direct = symbolic
     layer_norm             direct = symbolic
+    group_norm4            direct = symbolic
     conv2d                 direct = symbolic
     depthwise_conv2d       direct = symbolic
     grouped_conv2d         direct = symbolic

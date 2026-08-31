@@ -173,6 +173,23 @@ let layer_norm_tiny () =
        { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 }
        ~x ~weight:w ~bias:b ())
 
+(* Two groups of two channels each, the same shape [layer_norm_tiny] above
+   uses but for [group_norm]'s channel-window reduction instead of
+   [layer_norm]'s whole-channel one. *)
+let group_norm_tiny () =
+  build "group_norm"
+    (let open Graph_builder in
+     let* x = input ~shape:(s 1 1 1 1 2 4) () in
+     let* w = input ~shape:(chan 4) () in
+     let* b = input ~shape:(chan 4) () in
+     group_norm
+       {
+         Norm.GroupNorm.channel = Axis.C;
+         groups = Op_config.Pos.of_int 2;
+         eps = 1e-5;
+       }
+       ~x ~weight:w ~bias:b ())
+
 (* ---- batch norm ----------------------------------------------------------- *)
 
 let batch_norm_on ?(dynamic = false) channel () =

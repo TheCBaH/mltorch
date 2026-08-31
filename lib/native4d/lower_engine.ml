@@ -420,6 +420,29 @@ let lower_node ~view acc (n : node) =
                 bias = Option.map op_of bias;
               })
            outputs)
+  (* Same channel-conversion shape as [Batch_norm_no_stats] just above --
+     [Domain.check_node] has already gated it to C -- but single-output like
+     [Layer_norm]/[Rms_norm], and [groups] crosses unchanged: it names no
+     axis, so there is nothing for this arm to convert. *)
+  | Group_norm { Norm.GroupNorm.params; x; weight; bias } ->
+      let* channel =
+        Axis4.of_axis params.Norm.GroupNorm.channel
+        |> Err.of_option
+             (`Axis_outside_dialect (node, params.Norm.GroupNorm.channel))
+      in
+      simple
+        (Op.Group_norm4
+           {
+             Ops4.Group_norm4.params =
+               {
+                 channel;
+                 groups = params.Norm.GroupNorm.groups;
+                 eps = params.Norm.GroupNorm.eps;
+               };
+             x = op_of x;
+             weight = Option.map op_of weight;
+             bias = Option.map op_of bias;
+           })
   (* §7.1: [Clone] is removed and its output tied to its input. No node, no
      fresh id — just a substitution, and a pair cluster recording that the two
      edges are the same value. *)
@@ -754,12 +777,11 @@ let lower_node ~view acc (n : node) =
         n.Node.outputs
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Expand]/[Group_norm]/[Index_tensor]/[Select]/[Softmax]/[Stack] join that
-     set until [Group_norm4]/[Select4]/[Softmax4]/[Stack4] exist (see
-     [Domain.check_node]'s comment) rather than gaining a real conversion arm
-     here -- [Index_tensor] has no Native4D counterpart at all, the same
-     "dialect does not have it" answer, and CSATv2 stays a graph-only target
-     regardless. *)
-  | Batched_matmul _ | Discard _ | Expand _ | Group_norm _ | Index_tensor _
+     [Expand]/[Index_tensor]/[Select]/[Softmax]/[Stack] join that set until
+     [Select4]/[Softmax4]/[Stack4] exist (see [Domain.check_node]'s comment)
+     rather than gaining a real conversion arm here -- [Index_tensor] has no
+     Native4D counterpart at all, the same "dialect does not have it" answer,
+     and CSATv2 stays a graph-only target regardless. *)
+  | Batched_matmul _ | Discard _ | Expand _ | Index_tensor _
   | Max_pool2d_with_indices _ | Sdpa _ | Select _ | Softmax _ | Stack _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

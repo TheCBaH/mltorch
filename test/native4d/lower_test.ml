@@ -102,6 +102,44 @@ let%expect_test "lower: batch_norm_no_stats retains all three reductions" =
     t4 [C=2],
     t5 [C=2]] |}]
 
+(* Only the channel axis converts, the same [Batch_norm_no_stats] shape --
+   [Domain.check_node] has already gated it to C -- but single-output, and
+   [groups] crosses unchanged since it names no axis. *)
+let%expect_test "lower: group_norm becomes the direct Group_norm4 counterpart" =
+  let source =
+    Graph_builder.build ~name:"group_norm"
+      ~outputs:(fun o -> [ o ])
+      (let open Graph_builder in
+       let* x = input ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:4) () in
+       let c_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:4 in
+       let* weight = input ~shape:c_shape () in
+       let* bias = input ~shape:c_shape () in
+       group_norm
+         {
+           Norm.GroupNorm.channel = Axis.C;
+           groups = Op_config.Pos.of_int 2;
+           eps = 1e-5;
+         }
+         ~x ~weight ~bias ())
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
+  in
+  show "group_norm" source;
+  [%expect
+    {|
+    group_norm:
+      graph4
+    inputs: [t0 [H=2 W=2 C=4],
+    t1 [C=4],
+    t2 [C=4]]
+    nodes:
+      n0: [t3] =
+        group_norm4
+          x=t0
+          weight=t1
+          bias=t2
+          params={channel=C; groups=2; eps=1e-05}
+    outputs: [t3 [H=2 W=2 C=4]] |}]
+
 let%expect_test
     "lower: carries a six-dimensional captured constant behind a \
      four-dimensional export" =

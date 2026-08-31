@@ -38,6 +38,7 @@ type op =
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Gelu of Pointwise.Gelu.t
+  | Group_norm4 of Ops4.Group_norm4.t
   | Grouped_conv2d of Ops4.Grouped_conv2d.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
@@ -163,6 +164,12 @@ let op_registry : (module OP) list =
 
       let inject t = Gelu t
       let project = function Gelu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Group_norm4
+
+      let inject t = Group_norm4 t
+      let project = function Group_norm4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Grouped_conv2d

@@ -270,6 +270,29 @@ let per_op () =
                ~x ~weight:w ~bias:b ())
         in
         (g, [ nhwc; s4 ~n:1 ~h:1 ~w:1 ~c:2; s4 ~n:1 ~h:1 ~w:1 ~c:2 ]) );
+      (* [groups=2] on [C=4]: two groups of two channels each, so a wrong
+         group window (reducing over every channel, or one channel alone)
+         would be visible against [layer_norm]/[rms_norm]'s whole-channel
+         reductions above. *)
+      ( "group_norm4",
+        let x_shape = s4 ~n:1 ~h:4 ~w:4 ~c:4 in
+        let c_shape = s4 ~n:1 ~h:1 ~w:1 ~c:4 in
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* x = input ~shape:x_shape () in
+             let* w = constant ~shape:c_shape () in
+             let* b = constant ~shape:c_shape () in
+             group_norm4
+               {
+                 Ops4.Group_norm4.channel = Axis4.C;
+                 groups = Op_config.Pos.of_int 2;
+                 eps = 1e-5;
+               }
+               ~x ~weight:w ~bias:b ())
+        in
+        (g, [ x_shape; c_shape; c_shape ]) );
       ( "conv2d",
         let g =
           build

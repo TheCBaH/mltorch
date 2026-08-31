@@ -104,6 +104,14 @@ let samples : Op.t list =
     Div { Pointwise.Bin.a = x; b = y };
     Div_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     Gelu { Pointwise.Gelu.x; approximate = Exact };
+    Group_norm4
+      {
+        Ops4.Group_norm4.params =
+          { channel = C; groups = Op_config.Pos.of_int 2; eps = 1e-5 };
+        x;
+        weight = Some w;
+        bias = Some b;
+      };
     Grouped_conv2d
       {
         Ops4.Grouped_conv_payload.params = grouped_conv_params;
@@ -217,7 +225,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 43, registry: 43 |}]
+  [%expect {| samples: 44, registry: 44 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -252,6 +260,7 @@ let%expect_test "op4: printed" =
     div a=t0 b=t1
     div_scalar x=t0 scalar=2
     gelu x=t0 approximate=none
+    group_norm4 x=t0 weight=t2 bias=t3 params={channel=C; groups=2; eps=1e-05}
     grouped_conv2d
       x=t0
       weight=t2
@@ -311,7 +320,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 43 ops |}]
+  [%expect {| round-tripped 44 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

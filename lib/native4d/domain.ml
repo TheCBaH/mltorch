@@ -214,6 +214,16 @@ let check_node view (n : node) =
   | Batch_norm_no_stats { Norm.BatchNormNoStats.params; _ } ->
       if Axis.equal params.channel Axis.C then Err.return ()
       else Err.fail (`Axis_outside_dialect (node, params.channel))
+  (* [Group_norm4] now exists, so [Group_norm] gets the same channel-must-be-C
+     restriction [Batch_norm_no_stats] gets, for the same reason: every
+     importer sets it there today (`Norm.GroupNorm`'s own doc comment), and
+     the dialect has no need to accept a configuration the corpus never
+     produces. [groups] is not checked here -- any divisor of the channel
+     extent is representable, so it is [check_shapes]'s business, not this
+     arm's. *)
+  | Group_norm { Norm.GroupNorm.params; _ } ->
+      if Axis.equal params.channel Axis.C then Err.return ()
+      else Err.fail (`Axis_outside_dialect (node, params.channel))
   | Layer_norm { Norm.LayerNorm.params; _ } ->
       check_dims node params.Norm.LayerNorm.dims
   (* Its batch axes are D and H UNCONDITIONALLY (its own landing note,
@@ -274,19 +284,18 @@ let check_node view (n : node) =
      the domain is [check_shapes]'s business, not this arm's. *)
   | Split_with_sizes { Split.Split_with_sizes.params; _ } ->
       check_dims node [ params.axis ]
-  (* The dialect has no [Group_norm4]/[Softmax4] yet -- same "dialect
-     does not have it at all" answer, not an axis-domain rejection, until it
-     does. Not [check_dims]: unlike [Amax]/[Mean]/[Vector_norm], which the
-     reduced dialect can legalize on N/H/W/C (there is a [*_keepdims]
-     `Ops4` counterpart to legalize onto), Softmax has no `Ops4` counterpart
-     at any axis, so there is no admissible case to let through -- see
+  (* The dialect has no [Softmax4] yet -- same "dialect does not have it at
+     all" answer, not an axis-domain rejection, until it does. Not
+     [check_dims]: unlike [Amax]/[Mean]/[Vector_norm], which the reduced
+     dialect can legalize on N/H/W/C (there is a [*_keepdims] `Ops4`
+     counterpart to legalize onto), Softmax has no `Ops4` counterpart at any
+     axis, so there is no admissible case to let through -- see
      .ai/matmul_softmax_design.md §3. *)
   (* [Expand] joins the same bucket for the same reason: no [Ops4]
      counterpart at any axis (a broadcast that may ADD leading axes has no
      four-axis shape to check against), so there is no admissible case to
      let through. *)
-  | Expand _ | Group_norm _ | Index_tensor _ | Select _ | Softmax _ | Stack _ ->
-      unsupported ()
+  | Expand _ | Index_tensor _ | Select _ | Softmax _ | Stack _ -> unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

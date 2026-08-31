@@ -165,6 +165,13 @@ let batch_norm_no_stats_params (p : Ops4.Batch_norm_no_stats.params) :
     Norm.BatchNormNoStats.params =
   { channel = Axis4.to_axis p.Ops4.Batch_norm_no_stats.channel; eps = p.eps }
 
+let group_norm_params (p : Ops4.Group_norm4.params) : Norm.GroupNorm.params =
+  {
+    channel = Axis4.to_axis p.Ops4.Group_norm4.channel;
+    groups = p.Ops4.Group_norm4.groups;
+    eps = p.Ops4.Group_norm4.eps;
+  }
+
 (* Exhaustive with no default arm, as [Graph_shape] is. *)
 let output_shape (op : Op.t)
     ~(sig_of : Tensor_ref.t -> (Tensor_sig.t, error) Err.t) :
@@ -233,6 +240,26 @@ let output_shape (op : Op.t)
   | Gelu { Pointwise.Gelu.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Gelu.output_shape x_shape))
+  (* Same [check_affine]-then-[output_shape] shape as [Layer_norm] above, one
+     [Norm.GroupNorm] function apiece so the two dialects cannot disagree
+     about which extents an operand carries. *)
+  | Group_norm4 { Ops4.Group_norm4.params; x; weight; bias } ->
+      let* x_shape = shape x in
+      let opt_shape = function
+        | None -> Err.return None
+        | Some r ->
+            let+ s = shape r in
+            Some s
+      in
+      let* weight = opt_shape weight in
+      let* bias = opt_shape bias in
+      let p = group_norm_params params in
+      let* () =
+        widen
+          (Norm.GroupNorm.check_affine ~x_shape
+             ~channel:p.Norm.GroupNorm.channel ~weight ~bias)
+      in
+      one (four (Norm.GroupNorm.output_shape ~x_shape p))
   | Grouped_conv2d { Ops4.Grouped_conv_payload.params; x; weight; _ } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in

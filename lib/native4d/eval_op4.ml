@@ -114,6 +114,20 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
         C.pixel approximate (operand x) out
+    (* Through [Graph_shape4]'s adapter, so the axis and group count the
+       shape rule validated are what the reduction runs over -- the same
+       discipline the [Layer_norm] arm above follows, absent operands filled
+       the same way. *)
+    | Group_norm4 { Ops4.Group_norm4.params; x; weight; bias } ->
+        let module C = Norm.GroupNorm.Compute (S) in
+        let fill_or v = function
+          | None -> fill v (shape_of x)
+          | Some r -> operand r
+        in
+        C.pixel
+          (Graph_shape4.group_norm_params params)
+          ~x_shape:(shape_of x) ~x:(operand x) ~weight:(fill_or 1. weight)
+          ~bias:(fill_or 0. bias) out
     | Grouped_conv2d { Ops4.Grouped_conv_payload.params; x; weight; bias } ->
         let module C = Conv.Conv2d.Compute (S) in
         C.pixel

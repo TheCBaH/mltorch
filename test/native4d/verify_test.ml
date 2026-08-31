@@ -459,6 +459,14 @@ let%expect_test "verify: layer_norm, numerically, through the lowering" =
     native4d: tensor f32 [W=2 C=3] {-0.224736, 2, 6.67421, -0.224736, 2, 6.67421}
     agree: true |}]
 
+let%expect_test "verify: group_norm, numerically, through the lowering" =
+  native_vs_four (Fixtures.group_norm_tiny ());
+  [%expect
+    {|
+    native:   tensor f32 [W=2 C=4] {-0.212677, 0.544788, -0.63803, 1.08958, 1.72761, 4.42535, 5.18282, 8.85071}
+    native4d: tensor f32 [W=2 C=4] {-0.212677, 0.544788, -0.63803, 1.08958, 1.72761, 4.42535, 5.18282, 8.85071}
+    agree: true |}]
+
 let%expect_test "verify: pad, numerically, through the lowering" =
   native_vs_four (Fixtures.pad_tiny ());
   [%expect
