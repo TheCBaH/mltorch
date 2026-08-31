@@ -138,6 +138,20 @@ let per_op () =
       ("div", binary ~shape:nhwc Builder.div);
       ("add_scalar", unary ~shape:nhwc (Builder.add_scalar 0.5));
       ("div_scalar", unary ~shape:nhwc (Builder.div_scalar 2.));
+      (* Two DIFFERENT fanned axes (H and C), so a fixture that only ever
+         broadcast one axis could not catch a wrong per-axis broadcast
+         coordinate. *)
+      ( "expand4",
+        let x_shape = s4 ~n:1 ~h:1 ~w:4 ~c:1 in
+        let target = s4 ~n:1 ~h:3 ~w:4 ~c:5 in
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* x = input ~shape:x_shape () in
+             expand4 target x)
+        in
+        (g, [ x_shape ]) );
       ("mul_scalar", unary ~shape:nhwc (Builder.mul_scalar 2.));
       ("pow", unary ~shape:nhwc (Builder.pow 2.));
       ( "clamp",

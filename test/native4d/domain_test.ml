@@ -213,14 +213,15 @@ let%expect_test "domain: softmax has no dialect counterpart at any axis" =
     softmax over D               node n0: no legalization for
                                    softmax x=t0 params={axis=D} |}]
 
-(* [Expand] has no [Ops4] counterpart at any axis, the same treatment
-   [Softmax] gets just above. *)
-let%expect_test "domain: expand has no dialect counterpart at any axis" =
+(* [Expand4] now exists, and admits every [Expand] unconditionally here --
+   unlike [Softmax] just above, whose rejection is an axis-domain question,
+   whether an expansion stays four-axis is a fact about its OWN target
+   shape (a plain [Vec6.shape] at the Native op), checked by [Graph_shape4]'s
+   [four] wrap and the lowerer's [Shape4.of_vec6], not by this arm. *)
+let%expect_test "domain: expand always admits; its target is checked as a shape"
+    =
   table [ ("expand", Fixtures.expand) ];
-  [%expect
-    {|
-    expand                       node n0: no legalization for
-                                   expand x=t0 params={size=[H=4 W=4 C=3]} |}]
+  [%expect {| expand                       in the dialect |}]
 
 (* ---- ops the pipeline is supposed to have removed ------------------------- *)
 

@@ -465,6 +465,13 @@ let lower_node ~view acc (n : node) =
   | Reshape { Reshape.Reshape.params; x } ->
       let* shape = shape4 ~id:(single ()) params.Reshape.Reshape.shape in
       simple (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x = op_of x })
+  (* Same shape as [Reshape] just above: the target is typed [Shape4.t], so a
+     broadcast that fans an axis onto T or D is refused HERE, by [shape4],
+     rather than by a domain-check arm -- [Domain.check_node] admits every
+     [Expand] unconditionally, for the reason its own comment gives. *)
+  | Expand { Pointwise.Expand.params; x } ->
+      let* size = shape4 ~id:(single ()) params.Pointwise.Expand.size in
+      simple (Op.Expand4 { Ops4.Expand4.params = { size }; x = op_of x })
   (* A direct counterpart with only the axis KEYS converted: the signed amounts
      and the mode cross unchanged, and [Eval_op4] runs the very same
      [Pad.Pad.Compute] functor over f32 values on both sides, so no value
@@ -777,11 +784,11 @@ let lower_node ~view acc (n : node) =
         n.Node.outputs
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Expand]/[Index_tensor]/[Select]/[Softmax]/[Stack] join that set until
+     [Index_tensor]/[Select]/[Softmax]/[Stack] join that set until
      [Select4]/[Softmax4]/[Stack4] exist (see [Domain.check_node]'s comment)
      rather than gaining a real conversion arm here -- [Index_tensor] has no
      Native4D counterpart at all, the same "dialect does not have it" answer,
      and CSATv2 stays a graph-only target regardless. *)
-  | Batched_matmul _ | Discard _ | Expand _ | Index_tensor _
-  | Max_pool2d_with_indices _ | Sdpa _ | Select _ | Softmax _ | Stack _ ->
+  | Batched_matmul _ | Discard _ | Index_tensor _ | Max_pool2d_with_indices _
+  | Sdpa _ | Select _ | Softmax _ | Stack _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

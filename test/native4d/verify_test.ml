@@ -467,6 +467,14 @@ let%expect_test "verify: group_norm, numerically, through the lowering" =
     native4d: tensor f32 [W=2 C=4] {-0.212677, 0.544788, -0.63803, 1.08958, 1.72761, 4.42535, 5.18282, 8.85071}
     agree: true |}]
 
+let%expect_test "verify: expand, numerically, through the lowering" =
+  native_vs_four (Fixtures.expand_tiny ());
+  [%expect
+    {|
+    native:   tensor f32 [W=3 C=2] {1, 2, 1, 2, 1, 2}
+    native4d: tensor f32 [W=3 C=2] {1, 2, 1, 2, 1, 2}
+    agree: true |}]
+
 let%expect_test "verify: pad, numerically, through the lowering" =
   native_vs_four (Fixtures.pad_tiny ());
   [%expect

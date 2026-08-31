@@ -814,6 +814,37 @@ let%expect_test
   [%expect
     {| rank-4 [n,h,w,c], n<>1     tensor t1 has extent on T or D: [D=2 H=2 W=1 C=3] |}]
 
+(* [Expand4]'s own version of the same typed-target discipline: the target is
+   a plain [Vec6.shape] at the Native op, so whether it stays four-axis is a
+   fact about ITS OWN extents, not about [x_shape] -- unlike [Reshape4], no
+   ATen right-alignment is involved here, since [Pointwise.Expand.params.size]
+   already arrives as a full six-axis shape. *)
+let expand4 ~source ~target =
+  build "expand"
+    (let open Graph_builder in
+     let* x = input ~shape:source () in
+     expand { Pointwise.Expand.size = target } x)
+
+let%expect_test "lower: expand4, a target that stays four-axis lowers" =
+  let source = Fixtures.nhwc ~n:1 ~h:1 ~w:4 ~c:1 in
+  show "expand"
+    (expand4 ~source ~target:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:4 ~c:5));
+  [%expect
+    {|
+    expand:
+      graph4
+    inputs: [t0 [W=4 C=1]]
+    nodes:
+      n0: [t1] = expand4 x=t0 params={size=[N=1 H=3 W=4 C=5]}
+    outputs: [t1 [H=3 W=4 C=5]] |}]
+
+let%expect_test "lower: expand4, a target that broadcasts onto D is refused" =
+  let source = Fixtures.nhwc ~n:1 ~h:1 ~w:1 ~c:3 in
+  outcome "expand onto D"
+    (expand4 ~source ~target:(Vec6.shape ~n:1 ~t:1 ~d:5 ~h:1 ~w:1 ~c:3));
+  [%expect
+    {| expand onto D              tensor t1 has extent on T or D: [D=5 H=1 W=1 C=3] |}]
+
 (* transpose.int on a rank-4 [1,h,w,c] ATen source: dim 0 is D (the leading
    entry, D=1 so the SHAPE is in-domain), dims 1/2/3 are H/W/C. Every rank-4
    fixture below uses DISTINCT, non-unit h/w/c so a wrong pair swapped is

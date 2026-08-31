@@ -170,6 +170,10 @@ let depthwise_conv2d params ~x ~weight ?bias () =
 let div a b = op1 (Op.Div { Pointwise.Bin.a; b })
 let div_scalar scalar x = op1 (Op.Div_scalar { Pointwise.Scalar_bin.x; scalar })
 
+(* Takes a [Shape4.t] target, so an expansion naming T or D is not
+   constructible through this API -- [reshape4]'s rule. *)
+let expand4 size x = op1 (Op.Expand4 { Ops4.Expand4.params = { size }; x })
+
 let gelu (approximate : Pointwise.Gelu.approximate) x =
   op1 (Op.Gelu { Pointwise.Gelu.x; approximate })
 

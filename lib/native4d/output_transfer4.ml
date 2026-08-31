@@ -29,6 +29,11 @@ let classify (op : Op.t) ~output:_ =
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _ ->
       Output_transfer.Continuous
   | Concat4 _ -> Output_transfer.Reindexing
+  (* The pure-broadcast case, the same argument Native's own [Output_transfer]
+     makes for [Expand]: every output reads exactly one input element, a
+     broadcast axis read repeatedly and a non-broadcast axis read once each --
+     no arithmetic on any of them. *)
+  | Expand4 _ -> Output_transfer.Reindexing
   | Conv2d _ | Depthwise_conv2d _ | Div _ | Div_scalar _ | Gelu _
   | Batch_norm_no_stats _ | Group_norm4 _ | Grouped_conv2d _ | Hardsigmoid _
   | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _ | Max_keepdims _

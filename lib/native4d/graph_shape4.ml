@@ -237,6 +237,19 @@ let output_shape (op : Op.t)
   | Div_scalar { Pointwise.Scalar_bin.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Div_scalar.output_shape x_shape))
+  (* The target is already a [Shape4.t] -- an expansion cannot leave the
+     dialect, the same reason [Reshape4]'s target is typed rather than
+     validated for axes. Delegates to Native's own rule like every other arm,
+     so a broadcast this dialect cannot represent is caught by the [four]
+     wrap rather than restated here. *)
+  | Expand4 { Ops4.Expand4.params; x } ->
+      let* x_shape = shape x in
+      one
+        (four
+           (Pointwise.Expand.output_shape ~x_shape
+              {
+                Pointwise.Expand.size = Shape4.to_vec6 params.Ops4.Expand4.size;
+              }))
   | Gelu { Pointwise.Gelu.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Gelu.output_shape x_shape))

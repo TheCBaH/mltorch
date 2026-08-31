@@ -204,8 +204,8 @@ let check_node view (n : node) =
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. *)
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
-  | Clone _ | Conv2d _ | Conv2d_padding _ | Div _ | Div_scalar _ | Gelu _
-  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Leaky_relu _ | Linear _
+  | Clone _ | Conv2d _ | Conv2d_padding _ | Div _ | Div_scalar _ | Expand _
+  | Gelu _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Leaky_relu _ | Linear _
   | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Reshape _ | Sigmoid _
   | Silu _ | Sqrt _ | Sub _ | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
       Err.return ()
@@ -291,11 +291,7 @@ let check_node view (n : node) =
      counterpart to legalize onto), Softmax has no `Ops4` counterpart at any
      axis, so there is no admissible case to let through -- see
      .ai/matmul_softmax_design.md §3. *)
-  (* [Expand] joins the same bucket for the same reason: no [Ops4]
-     counterpart at any axis (a broadcast that may ADD leading axes has no
-     four-axis shape to check against), so there is no admissible case to
-     let through. *)
-  | Expand _ | Index_tensor _ | Select _ | Softmax _ | Stack _ -> unsupported ()
+  | Index_tensor _ | Select _ | Softmax _ | Stack _ -> unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

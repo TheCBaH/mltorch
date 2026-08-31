@@ -37,6 +37,7 @@ type op =
   | Depthwise_conv2d of Ops4.Depthwise_conv2d.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
+  | Expand4 of Ops4.Expand4.t
   | Gelu of Pointwise.Gelu.t
   | Group_norm4 of Ops4.Group_norm4.t
   | Grouped_conv2d of Ops4.Grouped_conv2d.t
@@ -158,6 +159,12 @@ let op_registry : (module OP) list =
 
       let inject t = Div_scalar t
       let project = function Div_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Expand4
+
+      let inject t = Expand4 t
+      let project = function Expand4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Gelu

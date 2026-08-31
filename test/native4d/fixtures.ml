@@ -311,15 +311,23 @@ let softmax_over axis () =
      let* x = input ~shape:(nhwc ~n:1 ~h:4 ~w:4 ~c:3) () in
      softmax { Reduce.Softmax.axis } x)
 
-(* [Expand] has no [Ops4] counterpart at any axis, the same "dialect does not
-   have it at all" answer [Softmax]/[Group_norm]/[Select]/[Stack] get -- a
-   broadcast that may ADD leading axes has no four-axis shape to check
-   against. [x]'s H axis is 1; the target's is 4. *)
+(* [Expand4] now exists: this fans H from 1 to 4 and stays four-axis
+   throughout, so it converts -- see domain_test.ml's "expand always admits"
+   and lower_test.ml's [expand4] cases for the typed-target rejection this
+   fixture does NOT exercise. *)
 let expand () =
   build "expand"
     (let open Graph_builder in
      let* x = input ~shape:(nhwc ~n:1 ~h:1 ~w:4 ~c:3) () in
      expand { Pointwise.Expand.size = nhwc ~n:1 ~h:4 ~w:4 ~c:3 } x)
+
+(* Small enough that [Tensor.pp] prints every element -- [layer_norm_tiny]'s
+   reason above. W fans from 1 to 3; C stays fixed at 2. *)
+let expand_tiny () =
+  build "expand"
+    (let open Graph_builder in
+     let* x = input ~shape:(s 1 1 1 1 1 2) () in
+     expand { Pointwise.Expand.size = s 1 1 1 1 3 2 } x)
 
 (* ---- max pool with indices ------------------------------------------------ *)
 

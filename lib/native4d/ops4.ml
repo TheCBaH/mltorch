@@ -564,6 +564,50 @@ module Reshape4 = struct
       t.params
 end
 
+(* [Expand]'s own payload for the same reason [Reshape4]'s is -- it CARRIES A
+   SHAPE, so the target is [Shape4.t] rather than [Vec6.shape]: a broadcast
+   that fanned an axis onto T or D would leave the dialect, and typing the
+   target is what makes that unconstructible rather than merely unchecked.
+   The domain therefore needs no per-axis gate of its own (unlike [Pad]'s
+   axis-keyed entries): [Graph_shape4]'s [four] wrap and the lowerer's own
+   [Shape4.of_vec6] already catch it, the same as [Reshape4]. *)
+module Expand4 = struct
+  type params = { size : Shape4.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"expand4_params" (fun size -> { size })
+    |> Jsont.Object.mem "size" Shape4.jsont ~enc:(fun p -> p.size)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{size=%a}@]" Shape4.pp p.size
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Expand4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>expand4@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
+end
+
 (* ---- boundary synthesis --------------------------------------------------- *)
 
 (* Native's [Pad] with its axes narrowed to the dialect's four. Its own payload

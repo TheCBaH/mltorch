@@ -84,6 +84,27 @@ let%expect_test "direct4: pointwise" =
     (values (single g ~inputs:[ (List.nth ids 0, a); (List.nth ids 1, b) ] ()));
   [%expect {| relu(-1.5 + [0 1 2 3]), expect [0 0 0.5 1.5]: [0 0 0.5 1.5] |}]
 
+(* H fans from 1 to 3 and C fans from 1 to 2, W stays fixed at its own
+   extent: a wrong per-axis broadcast coordinate would repeat the wrong
+   values across H or C instead of W's own two. *)
+let%expect_test "direct4: expand4 fans H and C, keeps W" =
+  let x_shape = s4 ~n:1 ~h:1 ~w:2 ~c:1 in
+  let target = s4 ~n:1 ~h:3 ~w:2 ~c:2 in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape:x_shape () in
+       expand4 target x)
+  in
+  let x =
+    Tensor.materialize (Shape4.to_vec6 x_shape) (fun c ->
+        if Dim.to_int (Vec6.get c Axis.W) = 0 then 3. else 7.)
+  in
+  let id = List.hd g.Graph.Graph.inputs in
+  Format.printf "%a@." pp_values (values (single g ~inputs:[ (id, x) ] ()));
+  [%expect {| [3 3 7 7 3 3 7 7 3 3 7 7] |}]
+
 let%expect_test "direct4: unbind preserves int64 cells" =
   let shape = s4 ~n:1 ~h:1 ~w:2 ~c:2 in
   let i64 = Payload.Fmt Payload.I64 in
@@ -515,7 +536,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 44, registry: 44 |}]
+  [%expect {| fixtures: 45, registry: 45 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -529,6 +550,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     div                    direct = symbolic
     add_scalar             direct = symbolic
     div_scalar             direct = symbolic
+    expand4                direct = symbolic
     mul_scalar             direct = symbolic
     pow                    direct = symbolic
     clamp                  direct = symbolic

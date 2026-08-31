@@ -111,6 +111,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Div_scalar { Pointwise.Scalar_bin.x; scalar } ->
         let module C = Pointwise.Div_scalar.Compute (S) in
         C.pixel ~scalar (operand x) out
+    | Expand4 { Ops4.Expand4.x; _ } ->
+        let module C = Pointwise.Expand.Compute (S) in
+        C.pixel ~x_shape:(shape_of x) (operand x) out
     | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
         C.pixel approximate (operand x) out
