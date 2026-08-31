@@ -25,6 +25,7 @@ type error =
   [ Expr.Eval.error
   | `Binding_mismatch of Binding_mismatch.t
   | `Recursion_too_deep of int
+  | Region_partition.error
   | `Unbound_input of Tensor_id.t
   | `Unknown_value of Tensor_id.t ]
 
@@ -33,6 +34,7 @@ let pp_error fmt : [< error ] -> unit = function
   | `Binding_mismatch m -> Binding_mismatch.pp fmt m
   | `Recursion_too_deep n ->
       Fmt.pf fmt "recursive evaluation nested more than %d producers deep" n
+  | #Region_partition.error as e -> Region_partition.pp_error fmt e
   | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
   | `Unknown_value id -> Fmt.pf fmt "%a names no value" Tensor_id.pp id
 
@@ -138,6 +140,9 @@ let input_env (k : Kernel.t) ~bind =
 
 let widen r = Err.map_error (fun (e : Expr.Eval.error) -> (e :> error)) r
 
+let widen_region r =
+  Err.map_error (fun (e : Region_eval.error) -> (e :> error)) r
+
 let coord_key (c : int Expr.Coord.t) =
   ( c.Expr.Coord.n,
     c.Expr.Coord.t,
@@ -151,10 +156,20 @@ let values_by_id (k : Kernel.t) =
     (fun m (v : Kernel.Value.t) -> Tensor_id.Map.add v.Kernel.Value.id v m)
     Tensor_id.Map.empty k.Kernel.values
 
-(* The value as its consumers see it: the body wrapped in its result conversion,
-   applied exactly once. Built once per value rather than per coordinate. *)
+(* The value as its consumers see it: its emitter wrapped in its result
+   conversion, applied exactly once. Built once per value rather than per
+   coordinate. A Pixel program stays on the existing direct expression path;
+   this distinction is intentional, because it preserves the tight per-cell
+   evaluator for the overwhelmingly common singleton case. *)
 let converted (v : Kernel.Value.t) =
-  Kernel.Result_conversion.apply v.Kernel.Value.result v.Kernel.Value.body
+  match Region_execution.lower v.Kernel.Value.computation with
+  | Region_execution.Pixel_loop body ->
+      `Pixel (Kernel.Result_conversion.apply v.Kernel.Value.result body)
+  | Region_execution.Region_loop program ->
+      `Region
+        (Region_program.with_output program
+           (Kernel.Result_conversion.apply v.Kernel.Value.result
+              (Region_program.output program)))
 
 let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
   List.find_opt
@@ -166,7 +181,7 @@ let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
 (* One engine for both placements. A value in [stores] is materialised; a load
    on an edge in [virtual_uses] recurses into its producer instead of reading a
    buffer. [run] is this with nothing virtual and everything stored. *)
-let machine esc (k : Kernel.t) ~bind ~virtual_uses =
+let machine esc ?on_load (k : Kernel.t) ~bind ~virtual_uses =
   let inputs = Err.Escape.or_throw esc (input_env k ~bind) in
   let values = values_by_id k in
   let bodies = Tensor_id.Map.map converted values in
@@ -199,16 +214,35 @@ let machine esc (k : Kernel.t) ~bind ~virtual_uses =
             | Some x -> x
             | None ->
                 let x =
-                  Err.Escape.or_throw esc
-                    (widen
-                       (Expr.Eval.value (env_for ~depth id) ~output:coord
-                          (Tensor_id.Map.find id bodies)))
+                  match Tensor_id.Map.find id bodies with
+                  | `Pixel body ->
+                      Err.Escape.or_throw esc
+                        (widen
+                           (Expr.Eval.value (env_for ~depth id) ~output:coord
+                              body))
+                  | `Region program ->
+                      Err.Escape.or_throw esc
+                        (widen_region
+                           (Region_eval.value_at program
+                              ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape
+                              ~env:(env_for ~depth id)
+                              ~output:
+                                (Vec6.map Dim.index
+                                   (Expr_bridge.vec6_of_coord coord))))
                 in
                 Hashtbl.add memo key x;
                 x))
   and env_for ~depth consumer =
-    let bridge () =
+    let bridge =
       Expr_bridge.env ~binding:(fun i -> Tensor_id.Map.find_opt i !bound)
+    in
+    let load_bound =
+      match on_load with
+      | None -> bridge.Expr.Eval.Env.load
+      | Some observe ->
+          fun src coord ->
+            observe (Expr_bridge.id_of_source src) coord;
+            bridge.Expr.Eval.Env.load src coord
     in
     {
       Expr.Eval.Env.load =
@@ -216,7 +250,7 @@ let machine esc (k : Kernel.t) ~bind ~virtual_uses =
           let producer = Expr_bridge.id_of_source src in
           if is_virtual ~consumer ~producer then
             Err.return (eval_value ~depth:(depth + 1) producer c)
-          else (bridge ()).Expr.Eval.Env.load src c);
+          else load_bound src c);
       Expr.Eval.Env.load_index =
         (fun src c ->
           let producer = Expr_bridge.id_of_source src in
@@ -233,37 +267,45 @@ let machine esc (k : Kernel.t) ~bind ~virtual_uses =
                the same thing: a [Data] index reached a context that
                structurally cannot produce one. *)
             Err.fail `Data_index_unexpected_here
-          else (bridge ()).Expr.Eval.Env.load_index src c);
+          else bridge.Expr.Eval.Env.load_index src c);
     }
   in
   (* Materialising one value, and evaluating one cell on demand: the same
      recursion, so the depth guard cannot cover one path and miss the other. *)
   let materialize (v : Kernel.Value.t) =
+    let env = env_for ~depth:0 v.Kernel.Value.id in
     let t =
-      Tensor.materialize v.Kernel.Value.sg.Tensor_sig.shape (fun c ->
+      match Tensor_id.Map.find v.Kernel.Value.id bodies with
+      | `Pixel body ->
+          Tensor.materialize v.Kernel.Value.sg.Tensor_sig.shape (fun c ->
+              Err.Escape.or_throw esc
+                (widen
+                   (Expr.Eval.value env
+                      ~output:
+                        (Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
+                      body)))
+      | `Region program ->
           Err.Escape.or_throw esc
-            (widen
-               (Expr.Eval.value
-                  (env_for ~depth:0 v.Kernel.Value.id)
-                  ~output:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
-                  (Tensor_id.Map.find v.Kernel.Value.id bodies))))
+            (widen_region
+               (Region_eval.materialize program
+                  ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape ~env))
     in
     bound := Tensor_id.Map.add v.Kernel.Value.id t !bound;
     t
   in
   (materialize, fun id coord -> eval_value ~depth:0 id coord)
 
-let execute esc (k : Kernel.t) ~bind ~virtual_uses ~stores =
-  let materialize, _ = machine esc k ~bind ~virtual_uses in
+let execute esc ?on_load (k : Kernel.t) ~bind ~virtual_uses ~stores =
+  let materialize, _ = machine esc ?on_load k ~bind ~virtual_uses in
   List.fold_left
     (fun results (v : Kernel.Value.t) ->
       if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
       else Tensor_id.Map.add v.Kernel.Value.id (materialize v) results)
     Tensor_id.Map.empty k.Kernel.values
 
-let run k ~bind =
+let run ?on_load k ~bind =
   Err.Escape.with_escape @@ fun esc ->
-  execute esc k ~bind ~virtual_uses:Kernel.Use.Set.empty
+  execute esc ?on_load k ~bind ~virtual_uses:Kernel.Use.Set.empty
     ~stores:
       (List.fold_left
          (fun s (v : Kernel.Value.t) -> Tensor_id.Set.add v.Kernel.Value.id s)

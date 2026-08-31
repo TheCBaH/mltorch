@@ -207,7 +207,9 @@ let kernel ~limits ~id (k : Kernel.t) =
            ( v.Kernel.Value.id,
              Kernel.Result_conversion.name v.Kernel.Value.result,
              v.Kernel.Value.sg,
-             v.Kernel.Value.body ))
+             match Kernel.pixel_expression v with
+             | Some body -> body
+             | None -> Region_program.output v.Kernel.Value.computation ))
          k.Kernel.values)
     ~outputs:
       (List.map

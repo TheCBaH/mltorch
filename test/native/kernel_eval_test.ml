@@ -158,6 +158,228 @@ let%expect_test "Kernel_eval: every fixture agrees with all three oracles" =
     bypass_permute_mixed_compatibility: t3: a stored value must be f32 and unquantized, got f16
     reuse_permute_backtrack_candidate: t2: a stored value must be f32 and unquantized, got f16 |}]
 
+let%expect_test "Kernel_eval: Region values execute through run and value_at" =
+  let partition =
+    Err.or_raise ~pp_error:Region_partition.pp_error
+      (Region_partition.of_whole_axes [ Axis.C ])
+  in
+  let local_coord =
+    Expr.Coord.make ~n:(Expr.Index.output Axis.N) ~t:(Expr.Index.output Axis.T)
+      ~d:(Expr.Index.output Axis.D) ~h:(Expr.Index.output Axis.H)
+      ~w:(Expr.Index.output Axis.W) ~c:Expr.Index.zero
+  in
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.Builder.run
+         (Region_program.Builder.scalar
+            (Expr.Value.load
+               (Expr_bridge.source_of_id (Tensor_id.of_int 0))
+               local_coord)
+            (fun local ->
+              Region_program.Builder.finish ~max_size:32 ~max_depth:16
+                ~partition
+                ~output:
+                  (Expr.Value.add local
+                     (Expr.Value.load
+                        (Expr_bridge.source_of_id (Tensor_id.of_int 0))
+                        (Expr_bridge.coord_of_vec6 Symbolic.out_vec))))))
+  in
+  let input =
+    {
+      Kernel.Input.id = Tensor_id.of_int 0;
+      sg =
+        Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"" ~shape:(s1c 3)
+          ~fmt:(Payload.Fmt Payload.F32) ();
+      binding = Kernel.Binding.Caller;
+    }
+  in
+  let value =
+    {
+      Kernel.Value.id = Tensor_id.of_int 1;
+      sg =
+        Tensor_sig.create ~id:(Tensor_id.of_int 1) ~name:"" ~shape:(s1c 3)
+          ~fmt:(Payload.Fmt Payload.F32) ();
+      computation = program;
+      result = Kernel.Result_conversion.Round_f32;
+    }
+  in
+  let kernel =
+    Err.or_raise ~pp_error:Kernel.pp_error
+      (Kernel.create ~inputs:[ input ] ~values:[ value ]
+         ~outputs:[ Tensor_id.of_int 1 ]
+         ())
+  in
+  let input_tensor =
+    Tensor.materialize (s1c 3) (fun c ->
+        float_of_int (Dim.to_int (Vec6.get c Axis.C) + 1))
+  in
+  let bind id =
+    if Tensor_id.equal id (Tensor_id.of_int 0) then Some input_tensor else None
+  in
+  let output =
+    Tensor_id.Map.find (Tensor_id.of_int 1)
+      (Err.or_raise ~pp_error:Kernel_eval.pp_error
+         (Kernel_eval.run kernel ~bind))
+  in
+  let value_at =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.value_at kernel ~bind (Tensor_id.of_int 1)
+         (Expr.Coord.make ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:2))
+  in
+  Fmt.pr "run: %g,%g,%g@.value_at: %g@."
+    (Tensor.read output Vec6.origin)
+    (Tensor.read output (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:1))
+    (Tensor.read output (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:2))
+    value_at;
+  [%expect {|
+    run: 2,3,4
+    value_at: 4 |}]
+
+let%expect_test
+    "Kernel_eval: Region consumers read stored Pixel producers under every \
+     default path" =
+  let partition =
+    Err.or_raise ~pp_error:Region_partition.pp_error
+      (Region_partition.of_whole_axes [ Axis.C ])
+  in
+  let local_coord =
+    Expr.Coord.make ~n:(Expr.Index.output Axis.N) ~t:(Expr.Index.output Axis.T)
+      ~d:(Expr.Index.output Axis.D) ~h:(Expr.Index.output Axis.H)
+      ~w:(Expr.Index.output Axis.W) ~c:Expr.Index.zero
+  in
+  let source id coordinate =
+    Expr.Value.load (Expr_bridge.source_of_id (Tensor_id.of_int id)) coordinate
+  in
+  let region =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.Builder.run
+         (Region_program.Builder.scalar (source 1 local_coord) (fun local ->
+              Region_program.Builder.finish ~max_size:32 ~max_depth:16
+                ~partition
+                ~output:
+                  (Expr.Value.add local
+                     (source 1 (Expr_bridge.coord_of_vec6 Symbolic.out_vec))))))
+  in
+  let sg id =
+    Tensor_sig.create ~id:(Tensor_id.of_int id) ~name:"" ~shape:(s1c 3)
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let kernel =
+    Err.or_raise ~pp_error:Kernel.pp_error
+      (Kernel.create
+         ~inputs:
+           [
+             {
+               Kernel.Input.id = Tensor_id.of_int 0;
+               sg = sg 0;
+               binding = Kernel.Binding.Caller;
+             };
+           ]
+         ~values:
+           [
+             {
+               Kernel.Value.id = Tensor_id.of_int 1;
+               sg = sg 1;
+               computation =
+                 Region_program.pixel
+                   (Expr.Value.add
+                      (source 0 (Expr_bridge.coord_of_vec6 Symbolic.out_vec))
+                      (Expr.Value.const 1.));
+               result = Kernel.Result_conversion.Round_f32;
+             };
+             {
+               Kernel.Value.id = Tensor_id.of_int 2;
+               sg = sg 2;
+               computation = region;
+               result = Kernel.Result_conversion.Round_f32;
+             };
+           ]
+         ~outputs:[ Tensor_id.of_int 2 ]
+         ())
+  in
+  let input =
+    Tensor.materialize (s1c 3) (fun c ->
+        float_of_int (Dim.to_int (Vec6.get c Axis.C) + 1))
+  in
+  let bind id =
+    if Tensor_id.equal id (Tensor_id.of_int 0) then Some input else None
+  in
+  let run =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error (Kernel_eval.run kernel ~bind)
+  in
+  let planned =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.run_plan (Fusion_plan.default kernel) ~bind)
+  in
+  let output = Tensor_id.Map.find (Tensor_id.of_int 2) run in
+  let same =
+    Tensor.equal_bits output (Tensor_id.Map.find (Tensor_id.of_int 2) planned)
+  in
+  let on_demand =
+    Err.or_raise ~pp_error:Kernel_eval.pp_error
+      (Kernel_eval.value_at kernel ~bind (Tensor_id.of_int 2)
+         (Expr.Coord.make ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:2))
+  in
+  Fmt.pr "run: %g,%g,%g@.default-plan: %b@.value_at: %g@."
+    (Tensor.read output Vec6.origin)
+    (Tensor.read output (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:1))
+    (Tensor.read output (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:2))
+    same on_demand;
+  [%expect {|
+    run: 4,5,6
+    default-plan: true
+    value_at: 6 |}]
+
+let%expect_test "Kernel_eval: Pixel scan is C-innermost with one load per cell"
+    =
+  let sg id =
+    Tensor_sig.create ~id:(Tensor_id.of_int id) ~name:"" ~shape:(s1c 3)
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let body =
+    Expr.Value.load
+      (Expr_bridge.source_of_id (Tensor_id.of_int 0))
+      (Expr_bridge.coord_of_vec6 Symbolic.out_vec)
+  in
+  let kernel =
+    Err.or_raise ~pp_error:Kernel.pp_error
+      (Kernel.create
+         ~inputs:
+           [
+             {
+               Kernel.Input.id = Tensor_id.of_int 0;
+               sg = sg 0;
+               binding = Kernel.Binding.Caller;
+             };
+           ]
+         ~values:
+           [
+             {
+               Kernel.Value.id = Tensor_id.of_int 1;
+               sg = sg 1;
+               computation = Region_program.pixel body;
+               result = Kernel.Result_conversion.Round_f32;
+             };
+           ]
+         ~outputs:[ Tensor_id.of_int 1 ]
+         ())
+  in
+  let seen = ref [] in
+  let input =
+    Tensor.materialize (s1c 3) (fun c ->
+        float_of_int (Dim.to_int (Vec6.get c Axis.C) + 1))
+  in
+  ignore
+    (Err.or_raise ~pp_error:Kernel_eval.pp_error
+       (Kernel_eval.run
+          ~on_load:(fun _ coord -> seen := coord.Expr.Coord.c :: !seen)
+          kernel
+          ~bind:(fun id ->
+            if Tensor_id.equal id (Tensor_id.of_int 0) then Some input else None)));
+  Fmt.pr "loads=%d C=%s@." (List.length !seen)
+    (String.concat "," (List.map string_of_int (List.rev !seen)));
+  [%expect {| loads=3 C=0,1,2 |}]
+
 let build name outputs m =
   Err.or_raise ~pp_error:Graph_builder.pp_error
     (Graph_builder.build ~name ~outputs m)
@@ -334,10 +556,11 @@ let%expect_test "Kernel_eval: a Filled constant is stored through f32" =
                sg =
                  Tensor_sig.create ~id:(Tensor_id.of_int 2) ~name:""
                    ~shape:(s1c 1) ~fmt:(Payload.Fmt Payload.F32) ();
-               body =
-                 Expr.Value.load
-                   (Expr_bridge.source_of_id (Tensor_id.of_int 1))
-                   (Expr_bridge.coord_of_vec6 Symbolic.out_vec);
+               computation =
+                 Region_program.pixel
+                   (Expr.Value.load
+                      (Expr_bridge.source_of_id (Tensor_id.of_int 1))
+                      (Expr_bridge.coord_of_vec6 Symbolic.out_vec));
                result = Kernel.Result_conversion.Round_f32;
              };
            ]
@@ -379,10 +602,11 @@ let%expect_test "Kernel_eval: a bound tensor is validated against its signature"
              {
                Kernel.Value.id = Tensor_id.of_int 2;
                sg = sg 2 (s1c 3);
-               body =
-                 Expr.Value.load
-                   (Expr_bridge.source_of_id (Tensor_id.of_int 0))
-                   (Expr_bridge.coord_of_vec6 Symbolic.out_vec);
+               computation =
+                 Region_program.pixel
+                   (Expr.Value.load
+                      (Expr_bridge.source_of_id (Tensor_id.of_int 0))
+                      (Expr_bridge.coord_of_vec6 Symbolic.out_vec));
                result = Kernel.Result_conversion.Round_f32;
              };
            ]

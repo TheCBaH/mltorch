@@ -105,7 +105,7 @@ let analyse ~limits ~select (p : Stage_program.t) =
       (fun acc (st : Stage_program.Stage.t) ->
         let* () = acc in
         Err.map_error
-          (fun e -> `Body { Kernel.Body_error.at = st.id; error = e })
+          (fun e -> `Body { Kernel.Body_error.at = st.id; error = `Expr e })
           (Expr.Check.value ~max_size:limits.Kernel.Limits.max_size
              ~max_depth:limits.Kernel.Limits.max_depth st.body))
       (Err.return ()) p.Stage_program.stages
@@ -414,7 +414,7 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
             {
               Kernel.Value.id = st.id;
               sg = st.sg;
-              body = st.body;
+              computation = Region_program.pixel st.body;
               result = Kernel.Result_conversion.Round_f32;
             }
         else None)

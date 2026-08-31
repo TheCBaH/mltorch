@@ -269,7 +269,7 @@ let%expect_test "an expression becomes one node per AST node" =
           ~name:""
           ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
           ~fmt:(Payload.Fmt Payload.F32) ();
-      body;
+      computation = Region_program.pixel body;
       result = Kernel.Result_conversion.Round_f32;
     }
   in
@@ -313,7 +313,7 @@ let%expect_test "the size ceiling is checked BEFORE the walk" =
           ~name:""
           ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
           ~fmt:(Payload.Fmt Payload.F32) ();
-      body;
+      computation = Region_program.pixel body;
       result = Kernel.Result_conversion.Round_f32;
     }
   in
@@ -321,3 +321,43 @@ let%expect_test "the size ceiling is checked BEFORE the walk" =
     (Core.Pretty.err_result ~ok:(Fmt.any "built") ~error:Me_detail.pp_error)
     (Me_detail.of_value ~limits:tight ~key:(key 7) v);
   [%expect {| detail expressionNodes = 3 is over the ceiling |}]
+
+let%expect_test "a Region detail includes its locals and emitter" =
+  let partition =
+    Err.or_raise ~pp_error:Region_partition.pp_error
+      (Region_partition.of_whole_axes [ Expr.Axis.C ])
+  in
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.Builder.run
+         (Region_program.Builder.scalar (Expr.Value.const 2.) (fun local ->
+              Region_program.Builder.finish ~max_size:16 ~max_depth:8 ~partition
+                ~output:(Expr.Value.add local (Expr.Value.const 1.)))))
+  in
+  let v =
+    {
+      Kernel.Value.id = Graph_ir.Tensor_id.of_int 7;
+      sg =
+        Tensor_sig.create
+          ~id:(Graph_ir.Tensor_id.of_int 7)
+          ~name:""
+          ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2)
+          ~fmt:(Payload.Fmt Payload.F32) ();
+      computation = program;
+      result = Kernel.Result_conversion.Round_f32;
+    }
+  in
+  let graph =
+    Err.or_raise ~pp_error:Me_detail.pp_error
+      (Me_detail.of_value ~limits ~key:(key 7) v)
+  in
+  List.iter
+    (fun (n : ME.GraphNode.t) ->
+      Printf.printf "%s %s\n" n.ME.GraphNode.id n.ME.GraphNode.label)
+    graph.ME.Graph.nodes;
+  [%expect
+    {|
+    l0-e0 const 2
+    emit-e0 +
+    emit-e1 local
+    emit-e2 const 1 |}]

@@ -41,7 +41,7 @@ module Value : sig
   type t = {
     id : Tensor_id.t;
     sg : Tensor_sig.t;  (** [sg.id] must equal [id] *)
-    body : Expr.Value.t;
+    computation : Region_program.t;
         (** at an arbitrary output coordinate, WITHOUT [result] applied *)
     result : Result_conversion.t;
   }
@@ -186,7 +186,7 @@ module Format_rule : sig
 end
 
 module Body_error : sig
-  type t = { at : Tensor_id.t; error : Expr.Check.error }
+  type t = { at : Tensor_id.t; error : Region_program.error }
 end
 
 type error =
@@ -226,6 +226,7 @@ val create :
 
 val pp : Format.formatter -> t -> unit
 val value : t -> Tensor_id.t -> Value.t option
+val pixel_expression : Value.t -> Expr.Value.t option
 
 val over_limit : int -> 'a list -> bool
 (** Does the list hold more than [limit] cells? Stops one cell past the limit

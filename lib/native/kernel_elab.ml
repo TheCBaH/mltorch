@@ -3,14 +3,17 @@
 type error =
   [ `Body of Kernel.Body_error.t
   | `Not_a_dependency of Kernel.Use.t
+  | `Regional_computation of Kernel.Use.t
   | `Unknown_use of Kernel.Use.t
   | `Unsupported_use of Kernel.Use.t ]
 
 let pp_error fmt : [< error ] -> unit = function
   | `Body { Kernel.Body_error.at; error } ->
-      Fmt.pf fmt "%a: %a" Tensor_id.pp at Expr.Check.pp_error error
+      Fmt.pf fmt "%a: %a" Tensor_id.pp at Region_program.pp_error error
   | `Not_a_dependency u ->
       Fmt.pf fmt "%a is not an ordinary-load edge" Kernel.Use.pp u
+  | `Regional_computation u ->
+      Fmt.pf fmt "%a has a regional computation" Kernel.Use.pp u
   | `Unknown_use u ->
       (* Includes a boundary input as producer: the kernel defines that id, but
          not as a VALUE, so there is no body or result conversion to
@@ -67,15 +70,20 @@ type occurrence =
    caller — and neither can pay for the extraction twice. *)
 let admit ~limits ~(u : Kernel.Use.t) ~(producer : Kernel.Value.t)
     ~(consumer : Kernel.Value.t) ~occurrence =
-  match occurrence with
-  | None -> Err.fail (`Not_a_dependency u)
-  | Some Several -> Err.fail (`Unsupported_use u)
-  | Some (One coord) ->
-      if
-        pointwise ~producer:producer.Kernel.Value.sg
-          ~consumer:consumer.Kernel.Value.sg coord
-      then Err.return { Site.use = u; producer; consumer; coord; limits }
-      else Err.fail (`Unsupported_use u)
+  if
+    Option.is_none (Kernel.pixel_expression producer)
+    || Option.is_none (Kernel.pixel_expression consumer)
+  then Err.fail (`Regional_computation u)
+  else
+    match occurrence with
+    | None -> Err.fail (`Not_a_dependency u)
+    | Some Several -> Err.fail (`Unsupported_use u)
+    | Some (One coord) ->
+        if
+          pointwise ~producer:producer.Kernel.Value.sg
+            ~consumer:consumer.Kernel.Value.sg coord
+        then Err.return { Site.use = u; producer; consumer; coord; limits }
+        else Err.fail (`Unsupported_use u)
 
 module Analysis = struct
   (* The extracted evidence, OWNED. Derived from a [Kernel.t] and reachable only
@@ -125,7 +133,7 @@ module Analysis = struct
                   rev :=
                     { Kernel.Use.producer; consumer = v.Kernel.Value.id }
                     :: !rev)
-          (Expr.Fold.loads v.Kernel.Value.body);
+          (Region_program.Fold.loads v.Kernel.Value.computation);
         Hashtbl.replace order cid (List.rev !rev))
       k.Kernel.values;
     { kernel = k; occurrences; order; counts }
@@ -186,7 +194,7 @@ let site (k : Kernel.t) (u : Kernel.Use.t) =
         ~occurrence:
           (summarize
              ~src:(Expr_bridge.source_of_id u.Kernel.Use.producer)
-             (Expr.Fold.loads consumer.Kernel.Value.body))
+             (Region_program.Fold.loads consumer.Kernel.Value.computation))
 
 let elaborate_site (s : Site.t) =
   let open Err.Syntax in
@@ -201,12 +209,17 @@ let elaborate_site (s : Site.t) =
      exists to prevent. *)
   let composed =
     let open Expr.Builder.Syntax in
-    let* dest = Expr.Rewrite.freshen consumer.Kernel.Value.body in
+    let* dest =
+      Expr.Rewrite.freshen (Option.get (Kernel.pixel_expression consumer))
+    in
     Expr.Rewrite.substitute_loads
       (fun s load_coord ->
         if Expr.Source.equal s src then
           Some
-            (let+ body = Expr.Rewrite.freshen producer.Kernel.Value.body in
+            (let+ body =
+               Expr.Rewrite.freshen
+                 (Option.get (Kernel.pixel_expression producer))
+             in
              (* The producer's result conversion, applied exactly once —
                 [eval_value]'s syntactic counterpart. Dropping it is a semantic
                 change, not an optimisation, and is invisible while the producer
@@ -221,7 +234,7 @@ let elaborate_site (s : Site.t) =
   let+ () =
     Err.map_error
       (fun e ->
-        `Body { Kernel.Body_error.at = u.Kernel.Use.consumer; error = e })
+        `Body { Kernel.Body_error.at = u.Kernel.Use.consumer; error = `Expr e })
       (Expr.Check.value ~max_size:s.Site.limits.Kernel.Limits.max_size
          ~max_depth:s.Site.limits.Kernel.Limits.max_depth body)
   in

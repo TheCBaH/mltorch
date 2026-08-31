@@ -359,6 +359,26 @@ module type S = sig
         unmetered, and computed by the same traversal, so the two cannot
         disagree about what counts as a node or a level. *)
 
+    val measure_with_locals :
+      local:(Local_var.t -> int * int) ->
+      max_size:int ->
+      max_depth:int ->
+      Value.t ->
+      int * int
+    (** Measures a prospective substitution without constructing it. Each local
+        leaf contributes the supplied expanded [(size, depth)] pair. Callers
+        must first use [exceeds_with_locals] under the same bounds; this query
+        is intentionally the exact, unmetered result after that preflight. *)
+
+    val exceeds_with_locals :
+      local:(Local_var.t -> int * int) ->
+      max_size:int ->
+      max_depth:int ->
+      Value.t ->
+      [ `Depth | `Size ] option
+    (** Saturating prospective-substitution preflight. It stops at the first
+        configured bound rather than allocating or measuring the expansion. *)
+
     val sources : Value.t -> Source.Set.t
     (** Every source the expression depends on, ordinary loads and intrinsic
         descriptors alike. What must be RESOLVED and ordered. *)

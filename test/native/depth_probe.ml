@@ -161,17 +161,18 @@ let chain ?limits ?(d = 1) n =
            {
              Kernel.Value.id = tid (i + 1);
              sg = vsig (i + 1);
-             body =
-               (let e =
-                  ref
-                    (Expr.Value.load
-                       (Expr_bridge.source_of_id (tid i))
-                       (Expr_bridge.coord_of_vec6 Symbolic.out_vec))
-                in
-                for _ = 2 to d do
-                  e := Expr.Value.add !e (Expr.Value.const 1.0)
-                done;
-                !e);
+             computation =
+               Region_program.pixel
+                 (let e =
+                    ref
+                      (Expr.Value.load
+                         (Expr_bridge.source_of_id (tid i))
+                         (Expr_bridge.coord_of_vec6 Symbolic.out_vec))
+                  in
+                  for _ = 2 to d do
+                    e := Expr.Value.add !e (Expr.Value.const 1.0)
+                  done;
+                  !e);
              result = Kernel.Result_conversion.Round_f32;
            }))
     ~outputs:[ tid n ]
@@ -201,7 +202,7 @@ let%expect_test "the accepted frontier survives in combination" =
     (fun (n, d) -> Printf.printf "n=%3d d=%3d: %s\n" n d (run_chain ~d n))
     [
       (Kernel.Limits.Hard.eval_recursion + 1, 1);
-      (129, 13);
+      (Kernel.Limits.Hard.eval_recursion + 1, 13);
       (64, 30);
       (16, 120);
       (8, 125);
@@ -221,8 +222,8 @@ let%expect_test "the accepted frontier survives in combination" =
     (run_chain ~limits:at_hard_depth ~d:254 8);
   [%expect
     {|
-    n=129 d=  1: ok
-    n=129 d= 13: ok
+    n= 97 d=  1: ok
+    n= 97 d= 13: ok
     n= 64 d= 30: ok
     n= 16 d=120: ok
     n=  8 d=125: ok
@@ -242,8 +243,8 @@ let%expect_test "Hard.eval_recursion: the ceiling runs, one past it reports" =
   [%expect
     {|
     at the ceiling:   ok
-    one past it:      recursive evaluation nested more than 128 producers deep
-    far past it:      recursive evaluation nested more than 128 producers deep |}]
+    one past it:      recursive evaluation nested more than 96 producers deep
+    far past it:      recursive evaluation nested more than 96 producers deep |}]
 
 let%expect_test "the static DAG limits reject before execution" =
   (* [Dependency_too_deep] and [Eval_too_deep] are cheap early guards on the

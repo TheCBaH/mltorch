@@ -103,3 +103,87 @@ let%expect_test
     forward: local #0 refers forward to #1
     unknown: local #0 refers to unknown local #2
     |}]
+
+let%expect_test "Region_eval shares scalar locals across a whole axis" =
+  let partition =
+    Err.or_raise ~pp_error:Region_partition.pp_error
+      (Region_partition.of_whole_axes [ Axis.C ])
+  in
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.Builder.run
+         (Region_program.Builder.scalar (Value.const 2.) (fun local ->
+              Region_program.Builder.finish ~max_size:32 ~max_depth:16
+                ~partition
+                ~output:(Value.add local (Value.const 1.)))))
+  in
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let tensor =
+    Err.or_raise ~pp_error:Region_eval.pp_error
+      (Region_eval.materialize program
+         ~output_shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3)
+         ~env)
+  in
+  Fmt.pr "%g,%g@."
+    (Tensor.read tensor Vec6.origin)
+    (Tensor.read tensor (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:2));
+  [%expect {| 3,3 |}]
+
+let%expect_test
+    "Region_program specializes dependent locals with a saturating preflight" =
+  let partition =
+    Err.or_raise ~pp_error:Region_partition.pp_error
+      (Region_partition.of_whole_axes [ Axis.C ])
+  in
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.Builder.run
+         (Region_program.Builder.scalar (Value.const 2.) (fun first ->
+              Region_program.Builder.scalar (Value.add first first)
+                (fun second ->
+                  Region_program.Builder.finish ~max_size:32 ~max_depth:16
+                    ~partition ~output:(Value.add second second)))))
+  in
+  let specialized =
+    Region_program.specialize_pixel ~max_size:32 ~max_depth:16 program
+  in
+  Fmt.pr "specialized: %a@.reconstructs: %a@.too-small: %a@." Pp.value
+    (Err.or_raise ~pp_error:Region_program.pp_error specialized)
+    Fmt.bool
+    (Err.or_raise ~pp_error:Region_program.pp_error
+       (Region_program.reconstructs ~max_size:32 ~max_depth:16
+          ~pixel:
+            (Value.add
+               (Value.add (Value.const 2.) (Value.const 2.))
+               (Value.add (Value.const 2.) (Value.const 2.)))
+          program))
+    (Core.Pretty.err_result ~ok:Pp.value ~error:Region_program.pp_error)
+    (Region_program.specialize_pixel ~max_size:6 ~max_depth:16 program);
+  [%expect
+    {|
+    specialized: ((2 + 2) + (2 + 2))
+    reconstructs: true
+    too-small: size exceeds limit 6 |}]
+
+let%expect_test "Region_program leaves Pixel programs untouched" =
+  let pixel = Value.add (Value.const 2.) (Value.const 3.) in
+  let program = Region_program.pixel pixel in
+  let specialized =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.specialize_pixel ~max_size:8 ~max_depth:8 program)
+  in
+  let mismatch =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.reconstructs ~max_size:8 ~max_depth:8
+         ~pixel:(Value.add (Value.const 3.) (Value.const 2.))
+         program)
+  in
+  Fmt.pr "physical: %b@.mismatch: %b@." (pixel == specialized) mismatch;
+  [%expect {|
+    physical: true
+    mismatch: false |}]

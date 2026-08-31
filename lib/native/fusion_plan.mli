@@ -29,6 +29,7 @@ module Rejection : sig
                 wrapper is dropped deliberately. Nothing here needs it dropped.
             *)
       }
+    | Regional_computation of Kernel.Use.t
     | Overlaps_selected of { rejected : Kernel.Use.t; selected : Kernel.Use.t }
     | Reducing_consumer of Kernel.Use.t
 

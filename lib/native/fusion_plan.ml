@@ -12,6 +12,7 @@ module Rejection = struct
         use : Kernel.Use.t;
         reason : Kernel_elab.error Err.Error.t;
       }
+    | Regional_computation of Kernel.Use.t
     | Overlaps_selected of { rejected : Kernel.Use.t; selected : Kernel.Use.t }
     | Reducing_consumer of Kernel.Use.t
 
@@ -30,6 +31,8 @@ module Rejection = struct
         Fmt.pf fmt "%a is not a pointwise site (%a)" Kernel.Use.pp use
           (Core.Pretty.error_kind Kernel_elab.pp_error)
           reason
+    | Regional_computation use ->
+        Fmt.pf fmt "%a has a regional computation" Kernel.Use.pp use
     | Overlaps_selected { rejected; selected } ->
         Fmt.pf fmt "%a overlaps the already-selected %a" Kernel.Use.pp rejected
           Kernel.Use.pp selected
@@ -138,10 +141,11 @@ let plan (k : Kernel.t) =
           if not (Hashtbl.mem intrinsic_edges pid) then
             Hashtbl.add intrinsic_edges pid
               { Kernel.Use.producer; consumer = v.Kernel.Value.id })
-        (Expr.Fold.intrinsic_sources v.Kernel.Value.body);
+        (Region_program.Fold.intrinsic_sources v.Kernel.Value.computation);
       Hashtbl.replace pointwise cid
-        (Expr.Fold.binders v.Kernel.Value.body = []
-        && Expr.Fold.intrinsics v.Kernel.Value.body = 0))
+        (Option.is_some (Kernel.pixel_expression v)
+        && Region_program.Fold.binders v.Kernel.Value.computation = []
+        && Region_program.Fold.intrinsics v.Kernel.Value.computation = 0))
     k.Kernel.values;
   let load_count id = Kernel_elab.Analysis.load_count analysis id in
   let intrinsic_edge id =

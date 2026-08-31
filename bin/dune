@@ -8,6 +8,11 @@
  (modules pt2_census)
  (libraries jsont jsont.bytesrw pytorch_types))
 
+(executable
+ (name region_pixel_bench)
+ (modules region_pixel_bench)
+ (libraries native unix))
+
 ; Driver for the ATen operation-binding generator (emits atg_ops.h / atg_ops.cpp /
 ; operation_description.ml; see lib/aten/dune for the rules that invoke it).
 

@@ -458,7 +458,9 @@ let%expect_test "Fusion: planning a wide kernel completes" =
                   sg = sg (i + 1);
                   (* even i: producer, reads the input.
                      odd  i: consumer, reads the producer before it. *)
-                  body = body ~src:(if i mod 2 = 0 then 0 else i);
+                  computation =
+                    Region_program.pixel
+                      (body ~src:(if i mod 2 = 0 then 0 else i));
                   result = Kernel.Result_conversion.Round_f32;
                 }))
          ~outputs:(List.init n (fun i -> Tensor_id.of_int (i + 1)))
@@ -536,13 +538,13 @@ let%expect_test "Fusion: a Site.t cannot be forged from outside" =
              {
                Kernel.Value.id = Tensor_id.of_int 1;
                sg = vsg 1 producer_shape;
-               body = ld 0;
+               computation = Region_program.pixel (ld 0);
                result = Kernel.Result_conversion.Round_f32;
              };
              {
                Kernel.Value.id = Tensor_id.of_int 2;
                sg = vsg 2 consumer_shape;
-               body;
+               computation = Region_program.pixel body;
                result = Kernel.Result_conversion.Round_f32;
              };
            ]

@@ -20,6 +20,7 @@
 type error =
   [ `Body of Kernel.Body_error.t
   | `Not_a_dependency of Kernel.Use.t
+  | `Regional_computation of Kernel.Use.t
   | `Unknown_use of Kernel.Use.t
   | `Unsupported_use of Kernel.Use.t ]
 
@@ -120,7 +121,7 @@ val elaborate_site : Site.t -> (Expr.Value.t, error) Err.t
 
 val elaborate : Kernel.t -> Kernel.Use.t -> (Expr.Value.t, error) Err.t
 (** The consumer's body with that one producer edge inlined, WITHOUT the
-    consumer's own [Result_conversion] — the same contract as
-    [Kernel.Value.body], so a caller materializing the result applies it exactly
-    as the evaluator would. Derived: for inspection, budget validation and
-    future lowering, never stored back into [Kernel.t]. *)
+    consumer's own [Result_conversion] — the same contract as a Pixel-form
+    [Kernel.Value.computation], so a caller materializing the result applies it
+    exactly as the evaluator would. Derived: for inspection, budget validation
+    and future lowering, never stored back into [Kernel.t]. *)

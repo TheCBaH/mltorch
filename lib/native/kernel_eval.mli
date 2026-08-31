@@ -27,6 +27,7 @@ type error =
   [ Expr.Eval.error
   | `Binding_mismatch of Binding_mismatch.t
   | `Recursion_too_deep of int
+  | Region_partition.error
   | `Unbound_input of Tensor_id.t
   | `Unknown_value of Tensor_id.t ]
 
@@ -51,6 +52,7 @@ val value_at :
     load reads. Memoised per call. *)
 
 val run :
+  ?on_load:(Tensor_id.t -> int Expr.Coord.t -> unit) ->
   Kernel.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
   (Tensor.packed Tensor_id.Map.t, error) Err.t
@@ -62,7 +64,11 @@ val run :
     That this reads buffers is the point. An evaluator which always recursed
     into producer bodies would already BE virtual execution, so comparing it
     against a fused run would compare two identical paths and establish nothing
-    about buffer elimination. *)
+    about buffer elimination.
+
+    [on_load] is a testing/audit observer for ordinary non-virtual source loads.
+    It is selected once before evaluation; omitting it preserves the direct
+    Pixel callback path. *)
 
 val run_plan :
   Fusion_plan.t ->

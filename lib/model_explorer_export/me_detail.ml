@@ -65,13 +65,41 @@ let children (v : Expr.Value.t) =
    [Expr.Pp.value] builds its own, which is why routing everything through it is
    correct rather than merely convenient. For a leaf the rendering IS the node;
    for an interior one it is what that branch computes. *)
-let attrs (v : Expr.Value.t) =
-  let text, capped = Me_build.bounded ~max:256 Expr.Pp.value v in
+let attrs ?names (v : Expr.Value.t) =
+  let pp =
+    match names with
+    | None -> Expr.Pp.value
+    | Some names -> Expr.Pp.value_open ~names
+  in
+  let text, capped = Me_build.bounded ~max:256 pp v in
   attr "expr" text :: (if capped then [ attr "expr_truncated" "true" ] else [])
 
 let of_value ~limits ~key (v : Kernel.Value.t) =
   let open Err.Syntax in
-  let body = v.Kernel.Value.body in
+  let roots, names =
+    match Kernel.pixel_expression v with
+    | Some body -> ([ ("e", None, body) ], None)
+    | None ->
+        let locals = Region_program.locals v.Kernel.Value.computation in
+        let names =
+          List.mapi
+            (fun i local -> (local.Region_local.id, Fmt.str "l%d" i))
+            locals
+          |> List.to_seq |> Expr.Local_var.Map.of_seq
+        in
+        ( List.mapi
+            (fun i local ->
+              ( Fmt.str "l%d-e" i,
+                Some (Fmt.str "local l%d" i),
+                local.Region_local.value ))
+            locals
+          @ [
+              ( "emit-e",
+                Some "emitter",
+                Region_program.output v.Kernel.Value.computation );
+            ],
+          Some (fun id -> Expr.Local_var.Map.find_opt id names) )
+  in
   (* BEFORE the walk. [Fold.size] is an unmetered traversal but allocates
      nothing, while building the nodes allocates per node -- and an expression is
      exactly the shape whose size is not apparent from the thing that names it.
@@ -83,15 +111,15 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
      governs -- and the field is named for what was measured rather than for what
      was built. *)
   let+ () =
-    count Me_limits.Field.Expression_nodes (Expr.Fold.size body)
+    count Me_limits.Field.Expression_nodes
+      (List.fold_left (fun n (_, _, body) -> n + Expr.Fold.size body) 0 roots)
       ~ceiling:limits.Me_limits.Limits.max_detail_nodes
   in
   (* Pre-order, so a node's id orders it the way a reader reads the expression,
      and the ROOT is node 0 whatever the tree looks like. *)
   let nodes = ref [] in
-  let next = ref 0 in
-  let rec walk parent v =
-    let id = Printf.sprintf "e%d" !next in
+  let rec walk prefix names parent next v =
+    let id = Printf.sprintf "%s%d" prefix !next in
     incr next;
     nodes :=
       ME.GraphNode.create ~id ~label:(label v) ~namespace:""
@@ -111,11 +139,32 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
              kernel node -- [attrs v] above already carries what this node
              IS. *)
         ~outputsMetadata:[ ME.MetadataItem.create ~id:"0" ~attrs:[] ]
-        ~attrs:(attrs v) ()
+        ~attrs:(attrs ?names v) ()
       :: !nodes;
-    List.iter (walk (Some id)) (children v)
+    List.iter (walk prefix names (Some id) next) (children v)
   in
-  walk None body;
+  List.iter
+    (fun (prefix, binding, body) ->
+      let next = ref 0 in
+      walk prefix names None next body;
+      match binding with
+      | None -> ()
+      | Some binding ->
+          let root = Printf.sprintf "%s0" prefix in
+          nodes :=
+            List.map
+              (fun (n : ME.GraphNode.t) ->
+                if String.equal n.ME.GraphNode.id root then
+                  {
+                    n with
+                    ME.GraphNode.attrs =
+                      Some
+                        (attr "region_binding" binding
+                        :: Option.value ~default:[] n.ME.GraphNode.attrs);
+                  }
+                else n)
+              !nodes)
+    roots;
   ME.Graph.create ~id:(Me_request.Detail_key.id key) ~nodes:(List.rev !nodes) ()
 
 (* --- the delta ----------------------------------------------------------- *)

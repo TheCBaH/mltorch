@@ -30,7 +30,12 @@ let load id =
     (Expr_bridge.coord_of_vec6 Symbolic.out_vec)
 
 let value ?(result = Kernel.Result_conversion.Round_f32) id shape body =
-  { Kernel.Value.id = tid id; sg = sg id shape; body; result }
+  {
+    Kernel.Value.id = tid id;
+    sg = sg id shape;
+    computation = Region_program.pixel body;
+    result;
+  }
 
 let input ?(binding = Kernel.Binding.Caller) ?fmt ?quant id shape =
   { Kernel.Input.id = tid id; sg = sg ?fmt ?quant id shape; binding }

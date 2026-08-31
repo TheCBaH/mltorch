@@ -29,11 +29,88 @@ let pixel output =
 let partition t = t.partition
 let locals t = t.locals
 let output t = t.output
+let with_output t output = { t with output }
 
 let pixel_expression t =
   if t.locals = [] && Region_partition.is_singleton t.partition then
     Some t.output
   else None
+
+type expanded = { value : Expr.Value.t; size : int; depth : int }
+
+let preflight ~max_size ~max_depth ~locals value =
+  match
+    Expr.Fold.exceeds_with_locals ~max_size ~max_depth
+      ~local:(fun id ->
+        let e = Expr.Local_var.Map.find id locals in
+        (e.size, e.depth))
+      value
+  with
+  | None ->
+      let size, depth =
+        Expr.Fold.measure_with_locals ~max_size ~max_depth
+          ~local:(fun id ->
+            let e = Expr.Local_var.Map.find id locals in
+            (e.size, e.depth))
+          value
+      in
+      Err.return (size, depth)
+  | Some `Size -> Err.fail (`Expr (`Too_large max_size))
+  | Some `Depth -> Err.fail (`Expr (`Too_deep max_depth))
+
+let specialize_pixel ~max_size ~max_depth t =
+  match pixel_expression t with
+  | Some pixel ->
+      let open Err.Syntax in
+      let+ () =
+        Expr.Check.value ~max_size ~max_depth pixel
+        |> Err.map_error (fun e -> `Expr e)
+      in
+      pixel
+  | None ->
+      let open Err.Syntax in
+      let rewrite locals state value =
+        let value, state =
+          Expr.Builder.run_from state (Expr.Rewrite.freshen value)
+        in
+        Expr.Builder.run_from state
+          (Expr.Rewrite.substitute_locals
+             (fun id ->
+               Option.map
+                 (fun e -> e.value)
+                 (Expr.Local_var.Map.find_opt id locals))
+             value)
+      in
+      let* locals, state =
+        List.fold_left
+          (fun acc local ->
+            let* locals, state = acc in
+            let* size, depth =
+              preflight ~max_size ~max_depth ~locals local.Region_local.value
+            in
+            let value, state = rewrite locals state local.Region_local.value in
+            Err.return
+              ( Expr.Local_var.Map.add local.Region_local.id
+                  { value; size; depth } locals,
+                state ))
+          (Err.return (Expr.Local_var.Map.empty, Expr.Builder.initial))
+          t.locals
+      in
+      let* () =
+        preflight ~max_size ~max_depth ~locals t.output
+        |> Err.map (Fun.const ())
+      in
+      let value, _ = rewrite locals state t.output in
+      let+ () =
+        Expr.Check.value ~max_size ~max_depth value
+        |> Err.map_error (fun e -> `Expr e)
+      in
+      value
+
+let reconstructs ~max_size ~max_depth ~pixel t =
+  let open Err.Syntax in
+  let+ specialized = specialize_pixel ~max_size ~max_depth t in
+  Expr.Value.equal pixel specialized
 
 let pp_error fmt : [< error ] -> unit = function
   | `Duplicate_local local ->

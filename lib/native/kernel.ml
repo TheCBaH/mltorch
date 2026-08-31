@@ -24,7 +24,7 @@ module Value = struct
   type t = {
     id : Tensor_id.t;
     sg : Tensor_sig.t;
-    body : Expr.Value.t;
+    computation : Region_program.t;
     result : Result_conversion.t;
   }
 end
@@ -91,9 +91,10 @@ module Limits = struct
        overflowed on three runs out of four at the previous ceiling, and a
        384-transition chain of depth-4 bodies overflows while a 192-transition
        chain of depth-16 bodies does not, so transition count dominates and the
-       limit does not fit a tidy cost model. 128 sits a factor of three inside
-       the smallest configuration observed to fail. *)
-    let eval_recursion = 128
+       limit does not fit a tidy cost model. Region execution classification
+       adds a small fixed frame cost, so 96 preserves headroom for the mixed
+       producer/body frontier on both native and JavaScript backends. *)
+    let eval_recursion = 96
 
     (* Memory and time, not stack. *)
     let size = 65536
@@ -185,7 +186,7 @@ module Format_rule = struct
 end
 
 module Body_error = struct
-  type t = { at : Tensor_id.t; error : Expr.Check.error }
+  type t = { at : Tensor_id.t; error : Region_program.error }
 end
 
 type error =
@@ -238,7 +239,7 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "%a: quantization disagrees with its format or channel extent"
         Tensor_id.pp id
   | `Body { Body_error.at; error } ->
-      Fmt.pf fmt "%a: %a" Tensor_id.pp at Expr.Check.pp_error error
+      Fmt.pf fmt "%a: %a" Tensor_id.pp at Region_program.pp_error error
 
 (* ---- bounds ---------------------------------------------------------------
 
@@ -384,8 +385,8 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
            [Err.fail] silently would not. *)
         Err.map_error
           (fun e -> `Body { Body_error.at = v.id; error = e })
-          (Expr.Check.value ~max_size:limits.Limits.max_size
-             ~max_depth:limits.Limits.max_depth v.body))
+          (Region_program.check ~max_size:limits.Limits.max_size
+             ~max_depth:limits.Limits.max_depth v.computation))
       (Err.return ()) values
   in
   (* Identity: the record id and its signature id must agree, since [sg.id] is
@@ -459,7 +460,7 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
                       Err.fail
                         (`Unresolved_source
                            { Unresolved.at = v.Value.id; source = src }))
-            (Expr.Fold.sources v.Value.body)
+            (Region_program.Fold.sources v.Value.computation)
             (Err.return (0, 0))
         in
         (* The CONVERTED body, not the raw one: every consumer — a store, a
@@ -472,11 +473,7 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
            weighted sum, is bounded at runtime by [Hard.eval_recursion] instead
            of being folded into a static weight here. *)
         let d = d + 1
-        and e =
-          e
-          + Expr.Fold.depth
-              (Result_conversion.apply v.Value.result v.Value.body)
-        in
+        and e = e + 1 + Region_program.Fold.max_depth v.Value.computation in
         let* () =
           if d > limits.Limits.max_dep_depth then
             Err.fail (`Dependency_too_deep limits.Limits.max_dep_depth)
@@ -529,7 +526,7 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
           if Tensor_id.Set.mem v.Value.id live then
             Expr.Source.Set.fold
               (fun src s -> Tensor_id.Set.add (Expr_bridge.id_of_source src) s)
-              (Expr.Fold.sources v.Value.body)
+              (Region_program.Fold.sources v.Value.computation)
               live
           else live)
         live (List.rev values)
@@ -589,9 +586,14 @@ let pp fmt (k : t) =
     k.inputs;
   List.iter
     (fun (v : Value.t) ->
-      Fmt.pf fmt "%a = %s(%a)@," Tensor_id.pp v.Value.id
+      let body =
+        match Region_program.pixel_expression v.Value.computation with
+        | Some body -> Core.Pretty.to_string Expr.Pp.value body
+        | None -> Core.Pretty.to_string Region_program.pp v.Value.computation
+      in
+      Fmt.pf fmt "%a = %s(%s)@," Tensor_id.pp v.Value.id
         (Result_conversion.name v.Value.result)
-        Expr.Pp.value v.Value.body)
+        body)
     k.values;
   Fmt.pf fmt "outputs: %s@]"
     (comma
@@ -629,10 +631,17 @@ let edges_of (k : t) project =
           if is_value producer then
             Use.Set.add { Use.producer; consumer = v.Value.id } acc
           else acc)
-        acc (project v.Value.body))
+        acc
+        (project v.Value.computation))
     Use.Set.empty k.values
 
 let uses k =
-  edges_of k (fun b -> Expr.Source.Set.elements (Expr.Fold.sources b))
+  edges_of k (fun computation ->
+      Expr.Source.Set.elements (Region_program.Fold.sources computation))
 
-let load_uses k = edges_of k (fun b -> List.map fst (Expr.Fold.loads b))
+let load_uses k =
+  edges_of k (fun computation ->
+      List.map fst (Region_program.Fold.loads computation))
+
+let pixel_expression (v : Value.t) =
+  Region_program.pixel_expression v.computation

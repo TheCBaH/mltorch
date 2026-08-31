@@ -27,7 +27,18 @@ val pixel : Expr.Value.t -> t
 val partition : t -> Region_partition.t
 val locals : t -> Region_local.t list
 val output : t -> Expr.Value.t
+val with_output : t -> Expr.Value.t -> t
 val pixel_expression : t -> Expr.Value.t option
+
+val specialize_pixel :
+  max_size:int -> max_depth:int -> t -> (Expr.Value.t, error) Err.t
+
+val reconstructs :
+  max_size:int ->
+  max_depth:int ->
+  pixel:Expr.Value.t ->
+  t ->
+  (bool, error) Err.t
 
 val create :
   max_size:int ->

@@ -76,6 +76,9 @@ jobs:
     - name: test
       run: |
         ${{ env.EXEC }} make runtest
+    - name: benchmark region pixel
+      run: |
+        ${{ env.EXEC }} make benchmark.region_pixel
     # Model release .zips (12 MB-1.1 GB each; ~5.3 GB total across all 22
     # models exercised by `make inference`) are fetched from the
     # devcontainer.pytorch-image-models GitHub release (a public asset, so curl needs no

@@ -142,17 +142,19 @@ exception Over of [ `Depth | `Size ]
      count still available and returns what it left, so a sibling is measured
      against what its predecessor consumed rather than against a shared cell.
      Each function returns [(depth, left)]. *)
-let measure ~max_size ~max_depth e =
+let measure_with_locals ~local ~max_size ~max_depth e =
   (* Charged once per node, before descending: that is what keeps the
        recursion inside the budget rather than merely reporting on it. *)
-  let node budget left =
-    if budget <= 0 then raise_notrace (Over `Depth);
-    if left <= 0 then raise_notrace (Over `Size);
-    left - 1
+  let node budget left ~cost ~depth =
+    if cost <= 0 || depth <= 0 then
+      invalid_arg "Expr.Fold.measure_with_locals: non-positive local measure";
+    if budget < depth then raise_notrace (Over `Depth);
+    if left < cost then raise_notrace (Over `Size);
+    left - cost
   in
   let rec index : type r. int -> int -> r Index.t -> int * int =
    fun budget left i ->
-    let left = node budget left in
+    let left = node budget left ~cost:1 ~depth:1 in
     let sub = budget - 1 in
     let one a =
       let d, left = index sub left a in
@@ -201,7 +203,10 @@ let measure ~max_size ~max_depth e =
       (0, left) c
   in
   let rec value budget left (e : Value.t) =
-    let left = node budget left in
+    let local_size, local_depth =
+      match e with Value.Local v -> local v | _ -> (1, 1)
+    in
+    let left = node budget left ~cost:local_size ~depth:local_depth in
     let sub = budget - 1 in
     match e with
     | Value.Binary (_, a, b) ->
@@ -212,7 +217,7 @@ let measure ~max_size ~max_depth e =
     | Value.Intrinsic (Intrinsic.Max_pool d) ->
         let dc, left = coord sub left d.Intrinsic.Max_pool.out in
         (1 + dc, left)
-    | Value.Local _ -> (1, left)
+    | Value.Local _ -> (local_depth, left)
     | Value.Load (_, c) ->
         let d, left = coord sub left c in
         (1 + d, left)
@@ -249,6 +254,9 @@ let measure ~max_size ~max_depth e =
   let d, left = value max_depth max_size e in
   (max_size - left, d)
 
+let measure ~max_size ~max_depth e =
+  measure_with_locals ~local:(fun _ -> (1, 1)) ~max_size ~max_depth e
+
 let unmetered e = measure ~max_size:Stdlib.max_int ~max_depth:Stdlib.max_int e
 let size e = fst (unmetered e)
 let depth e = snd (unmetered e)
@@ -256,10 +264,13 @@ let depth e = snd (unmetered e)
 (* Which limit was passed, without measuring the rest. Both are enforced
      together for the reason above, so an absent limit is [max_int] rather than
      a skipped budget. *)
-let exceeds ~max_size ~max_depth e =
-  match measure ~max_size ~max_depth e with
+let exceeds_with_locals ~local ~max_size ~max_depth e =
+  match measure_with_locals ~local ~max_size ~max_depth e with
   | _ -> None
   | exception Over w -> Some w
+
+let exceeds ~max_size ~max_depth e =
+  exceeds_with_locals ~local:(fun _ -> (1, 1)) ~max_size ~max_depth e
 
 let sources e =
   walk
