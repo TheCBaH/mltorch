@@ -30,11 +30,11 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 |---|---|---|---|
 | Foundation prerequisite | Region language and Pixel fast path | complete | `2a81e7b`; closeout `787f278` / `c50be5b` |
 | Scalar-Region prerequisite | Optional regionizer and dedicated executor | complete for correctness; cost contract unmet | `c8fe41f`; ownership refactor `e605361` |
-| P | Owned-output enumeration and region-count benchmark | pending | — |
-| 0 | Contract census and migration baselines | pending | — |
-| 1 | Scalar projection and whole-domain trace contract | pending | — |
-| 2 | Operation-authored computation boundary | pending | — |
-| 3 | Native Region authority and Direct execution | pending | — |
+| P | Owned-output enumeration and region-count benchmark | complete | uncommitted |
+| 0 | Contract census and migration baselines | complete | documentation-only |
+| 1 | Scalar projection and whole-domain trace contract | complete | uncommitted |
+| 2 | Operation-authored computation boundary | in progress | — |
+| 3 | Native Region authority and Direct execution | in progress | — |
 | 4 | Symbolic and Stage-program Region carriage | pending | — |
 | 5 | Native4D Region authority and execution | pending | — |
 | 6 | Remove dual authority and obsolete admission | pending | — |
@@ -44,59 +44,82 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 
 ### Gate P
 
-- [ ] Enumerate a key's owned outputs from the key and the `Whole`-axis extents
+- [x] Enumerate a key's owned outputs from the key and the `Whole`-axis extents
       instead of filtering a full-domain scan per key.
-- [ ] Drop `fold_outputs`'s `Err.t` result if the rewrite makes
+- [x] Drop `fold_outputs`'s `Err.t` result if the rewrite makes
       `` `Region_key_out_of_bounds `` unreachable.
-- [ ] Add a region-count axis to `bin/region_compute_bench.ml`, which currently
+- [x] Add a region-count axis to `bin/region_compute_bench.ml`, which currently
       fixes `W = 4`.
-- [ ] Measure a sweep of `R` at fixed `K`, including an `R > K` shape.
-- [ ] Confirm unchanged coordinates, order, values, and conversions against the
+- [x] Measure a sweep of `R` at fixed `K`, including an `R > K` shape.
+- [x] Confirm unchanged coordinates, order, values, and conversions against the
       existing Foundation partition-enumeration tests.
 
 ### Gate 0
 
-- [ ] Census all Native and Native4D computation call sites.
-- [ ] Classify Stage-program, Kernel, grounding, verifier, explorer, and fusion
+- [x] Census all Native and Native4D computation call sites.
+- [x] Classify Stage-program, Kernel, grounding, verifier, explorer, and fusion
       consumers by Pixel-only, scalar-projection, or structural-Region need.
-- [ ] Record current Native and Native4D Direct repeated-reduction baselines.
-- [ ] Pin current Region program printers, counters, and symbolic form.
-- [ ] Add red expectations for authoritative Region carriage.
+- [x] Record current Native and Native4D Direct repeated-reduction baselines.
+- [x] Pin current Region program printers, counters, and symbolic form.
+- [x] Add red expectations for authoritative Region carriage.
+
+#### Gate 0 census (2026-08-31)
+
+| Consumer | Current form | Required migration form |
+|---|---|---|
+| Native Direct | `Eval_direct` calls `Eval_op.Make(Direct).pixel`, then `Schedule.evaluate` for RMSNorm, LayerNorm, and Softmax | Region materialization once per key |
+| Native Symbolic | `Eval_symbolic.build` constructs every `Stage.body` as Pixel, then `run_regionized` stores optional `Regionizer` candidates | Stage carries Region directly; Pixel body is mechanical only for Pixel-authored operations |
+| Kernel adaptation | `Kernel_adapt.Region_admission` accepts/rejects candidate Region programs against a Pixel reconstruction | Structural Region input; no candidate/reconstruction admission |
+| Kernel execution | `Kernel.Value.computation` is already `Region_program.t`; `Kernel_eval` lowers it through `Region_execution` | Whole-region execution (already structurally capable) |
+| Stage grounding / transform verification | `Stage_program.Stage.body`, `Stage_program.ground`, `Ground_eval`, and source analysis read `Expr.Value.t` | Structural Region stage support or an explicit verifier rejection |
+| Explorer / fusion | `Me_detail`, `Me_kernel`, `Fusion_plan`, and `Kernel_elab` inspect `Kernel.Value.computation` | Structural Region (Kernel-side support exists; Stage rendering does not) |
+| Native4D Direct / Symbolic | `Eval_op4.Make(S).pixel` maps parameters then delegates to Native Pixel `Compute(S)`; both drivers use that result | Peer computation dispatcher producing the same Native Region program |
+
+The production Direct baselines are therefore the Pixel implementations in
+`Norm.RmsNorm.Compute`, `Norm.LayerNorm.Compute`, and
+`Reduce.Softmax.Compute`: each evaluates its reductions per output.  The
+Region-kernel counters pinned in `test/native/region_compute_test.ml` show the
+target sharing for the shape `W=2,C=3`: RMS `keys=2 locals=4 emitters=6
+loads=24 reductions=6`; LayerNorm `2,8,6,36,12`; Softmax `2,4,6,18,12`.
+The printers are pinned in `region_program_test.ml`; current symbolic stages
+are Pixel `Expr.Value.t` bodies, and the final-form expectation is that the
+three operation stages instead carry a non-Pixel `Region_program.t` directly.
 
 ### Gate 1
 
-- [ ] Define one named bounded scalar-projection API.
-- [ ] Document concrete projection, reference `value_at`, and symbolic
+- [x] Define one named bounded scalar-projection API.
+- [x] Document concrete projection, reference `value_at`, and symbolic
       specialization as distinct operations.
-- [ ] Add deterministic program/key/local/output/emitter trace representation.
-- [ ] Compute output visit counts independently from tensor stores.
-- [ ] Assert complete coverage, zero duplicates, and ownership agreement.
-- [ ] Test materialization versus fresh projection bitwise at every output.
-- [ ] Add mutation fixtures proving missing/duplicate visits are detected.
+- [x] Add deterministic program/key/local/output/emitter trace representation.
+- [x] Compute output visit counts independently from tensor stores.
+- [x] Assert complete coverage, zero duplicates, and ownership agreement.
+- [x] Test materialization versus fresh projection bitwise at every output.
+- [x] Add mutation fixtures proving missing/duplicate visits are detected.
 
 ### Gate 2
 
-- [ ] Define the operation-facing Region computation API with actual limits.
-- [ ] Replace each operation's `Region.try_regionize` with a
+- [x] Define the operation-facing Region computation API with actual limits.
+- [x] Replace each operation's `Region.try_regionize` with a
       `Computation.program` entry returning a typed error, not a rejection.
-- [ ] Delete `Unsupported_operation`; move `Missing_operand`, `Output_ordinal`,
+- [x] Delete `Unsupported_operation`; move `Missing_operand`, `Output_ordinal`,
       and `Output_shape` to the dispatcher boundary; make `Invalid_partition`
       and `Invalid_program` limit/implementation errors.
-- [ ] Pass output ordinal/shape and role-resolved operands explicitly.
-- [ ] Separate generic Region construction from normalization-only helpers.
-- [ ] Eliminate floating-value lookup for synthetic optional operands.
-- [ ] Route the normalization divisor through the bounded shared helper rather
+- [x] Pass output ordinal/shape and role-resolved operands explicitly.
+- [x] Separate generic Region construction from normalization-only helpers.
+- [x] Eliminate floating-value lookup for synthetic optional operands.
+- [x] Route the normalization divisor through the bounded shared helper rather
       than re-folding an unbounded extent product in `Region_context.count`.
 - [ ] Normalize Pixel and Region authored forms at the graph boundary.
 - [ ] Keep dispatchers arithmetic-free and exhaustive per dialect.
-- [ ] Test tight and expanded non-default limits.
+- [x] Test tight and expanded non-default limits, together with output ordinal,
+      output shape, and missing-operand construction failures.
 
 ### Gate 3
 
-- [ ] Make Native RMSNorm's Region program authoritative.
-- [ ] Make Native LayerNorm's Region program authoritative.
-- [ ] Make Native Softmax's Region program authoritative.
-- [ ] Route Native Direct through once-per-key Region materialization.
+- [x] Make Native RMSNorm's Region program authoritative.
+- [x] Make Native LayerNorm's Region program authoritative.
+- [x] Make Native Softmax's Region program authoritative.
+- [x] Route Native Direct through once-per-key Region materialization.
 - [ ] Keep old Pixel implementations test-only during migration.
 - [ ] Add the complete Native operation trace matrix.
 - [ ] Prove Native Direct linear work with counters and benchmarks.
@@ -179,8 +202,9 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 - Native4D is a peer operation owner. It owns Axis4 legality and mapping while
   delegating numeric Pixel or Region computation to the shared Native operation
   definition.
-- Current Native `Eval_direct` reaches the three operations through
-  `Eval_op.Make(Direct).pixel` and `Schedule.evaluate`.
+- Native `Eval_direct` resolves the three Region-authored operations through
+  `Regionizer.program` with its actual `?limits`, then materializes each
+  lowered Region program once per key. Other operations retain the Pixel path.
 - Current Native `Eval_symbolic.run_regionized` builds Pixel first, retains a
   candidate map, and admits Region later through reconstruction.
 - Current Native4D `Eval_op4.Make(S).pixel` delegates all operations to Native
@@ -245,4 +269,9 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 
 | Date | Gate | Command | Result | Notes |
 |---|---|---|---|---|
-| — | — | — | pending | No implementation gate has started. |
+| 2026-08-31 | P | `opam exec -- dune runtest test/native` | pass | Added a non-adjacent Whole T/W/C partition regression that compares direct owned-output enumeration with the prior filtered full-domain order. |
+| 2026-08-31 | P | `opam exec -- dune exec bin/region_compute_bench.exe` | pass | Sweeps `R=1,4,16,64` at `K=32`, including `R > K`, plus `K=8,64` at `R=4`. Region timings scale with the output domain in this run. `keys`, `locals`, `emitters`, `loads`, and `reductions` do not observe membership tests; wall time is the evidence for traversal cost. |
+| 2026-08-31 | 0 | source census (`rg` across `lib`, `test`, and `bin`) | complete | Recorded Native/Native4D dispatch, Stage/Kernel adaptation, grounding, verifier, explorer, and fusion migration seams above. |
+| 2026-08-31 | 1 | `opam exec -- dune runtest test/native` | pass | `Region_trace` records canonical program/key/local/emitter/output ownership, uses an independent bounded visit table, and rejects incomplete or duplicate coverage. The regression projects every output of a Region materialization, bitwise including NaN, infinities, and signed zero; its deliberately mutated trace reports one duplicate and one missing visit. |
+| 2026-08-31 | 2 (partial) | `make precommit` | pass | Region builders now receive resolved role operands and caller limits; the symbolic migration derives its temporary Pixel body from the authoritative Region program, without a mutable synthetic-default hand-off or value-based lookup. The remaining Gate 2 authored-form carriage is completed with Gate 4. |
+| 2026-08-31 | 3 (partial) | `make precommit` | pass | Native Direct constructs RMSNorm, LayerNorm, and Softmax with its actual limits and materializes each Region once per key. The Direct counter fixture records `keys/locals/emitters/loads/reductions` for all three operations; broad trace and benchmark work remains. |
