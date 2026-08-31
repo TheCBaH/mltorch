@@ -18,6 +18,48 @@ let leaf_coord output coord =
         Dim.index 0
       else Vec6.get coord axis)
 
+(* The inverse of [Vec6.offset]: row-major, C innermost, matching
+   [Reshape.Compute.delinearize]'s convention -- but over a concrete [coord]
+   rather than a [Semantics.SEMANTICS] index, since grounding only traces a
+   coordinate back to its source and never loads a value. *)
+let reshape_source_coord ~(input : Tensor_sig.t) ~(output : Tensor_sig.t) coord
+    =
+  let off = (Vec6.offset output.Tensor_sig.shape coord :> int) in
+  let strides, _ =
+    List.fold_left
+      (fun (acc, prod) axis ->
+        let extent = (Vec6.get input.Tensor_sig.shape axis :> int) in
+        ((axis, prod) :: acc, prod * extent))
+      ([], 1) (List.rev Axis.all)
+  in
+  Vec6.of_fn (fun axis ->
+      let stride = List.assoc axis strides in
+      let extent = (Vec6.get input.Tensor_sig.shape axis :> int) in
+      Dim.index (off / stride mod extent))
+
+(* Mirrors [Pointwise_binary.Pow.Compute.pixel]'s six ATen-special-cased
+   exponents plus its [exp(scalar * log x)] fallback, exactly -- the
+   grounding must stay the same expression PowKernel.cpp special-cases, not a
+   generic [pow] node, or map verification would compare a different
+   function than the one materialization (which calls this same Compute
+   functor via Eval_direct) actually produces. *)
+let pow_expr ~scalar (v : Ground_expr.t) : Ground_expr.t =
+  let mul a b = Ground_expr.Binary (Expr.Value.Mul, a, b) in
+  let reciprocal v =
+    Ground_expr.Binary (Expr.Value.Div, Ground_expr.Const 1., v)
+  in
+  if scalar = 2.0 then mul v v
+  else if scalar = 3.0 then mul (mul v v) v
+  else if scalar = -2.0 then reciprocal (mul v v)
+  else if scalar = 0.5 then Ground_expr.Unary (Expr.Value.Sqrt, v)
+  else if scalar = -0.5 then reciprocal (Ground_expr.Unary (Expr.Value.Sqrt, v))
+  else if scalar = -1.0 then reciprocal v
+  else
+    Ground_expr.Unary
+      ( Expr.Value.Exp,
+        mul (Ground_expr.Const scalar) (Ground_expr.Unary (Expr.Value.Log, v))
+      )
+
 let rec ground store id coord =
   let value =
     Option.value
@@ -44,6 +86,23 @@ let rec ground store id coord =
                     perm)))
       in
       ground store x input_coord
+  | Some
+      (Const_ssa.Apply
+         { op = Graph_ir.Reshape { Reshape.Reshape.x; _ }; output }) ->
+      Option.bind
+        (Const_ssa.sig_of
+           (Constant_store.plan store)
+           (Const_ssa.Value_id.of_tensor_id x))
+        (fun input ->
+          ground store x (reshape_source_coord ~input ~output coord))
+  | Some
+      (Const_ssa.Apply
+         { op = Graph_ir.Expand { Pointwise.Expand.x; _ }; output }) ->
+      Option.bind
+        (Const_ssa.sig_of
+           (Constant_store.plan store)
+           (Const_ssa.Value_id.of_tensor_id x))
+        (fun input -> ground store x (broadcast_coord ~input ~output coord))
   | Some
       (Const_ssa.Apply
          {
@@ -85,6 +144,34 @@ let rec ground store id coord =
             (fun x ->
               Ground_expr.Round (Ground_expr.Unary (Expr.Value.Sqrt, x)))
             (ground store x (broadcast_coord ~input ~output coord)))
+  | Some
+      (Const_ssa.Apply
+         {
+           op = Graph_ir.Mul_scalar { Pointwise_binary.Scalar_bin.x; scalar };
+           _;
+         }) ->
+      Option.map
+        (fun x ->
+          Ground_expr.Round
+            (Ground_expr.Binary (Expr.Value.Mul, x, Ground_expr.Const scalar)))
+        (ground store x coord)
+  | Some
+      (Const_ssa.Apply
+         {
+           op = Graph_ir.Add_scalar { Pointwise_binary.Scalar_bin.x; scalar };
+           _;
+         }) ->
+      Option.map
+        (fun x ->
+          Ground_expr.Round
+            (Ground_expr.Binary (Expr.Value.Add, x, Ground_expr.Const scalar)))
+        (ground store x coord)
+  | Some
+      (Const_ssa.Apply
+         { op = Graph_ir.Pow { Pointwise_binary.Scalar_bin.x; scalar }; _ }) ->
+      Option.map
+        (fun x -> Ground_expr.Round (pow_expr ~scalar x))
+        (ground store x coord)
   | Some
       (Const_ssa.Leaf
          { leaf = Literal payload | Opaque_materialized payload; output; _ }) ->

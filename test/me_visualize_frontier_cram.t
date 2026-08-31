@@ -19,15 +19,21 @@ importers, per `.ai/index_tensor_design.md`'s rounds), including the
 trace-past-Clone rule for its own `indices` operand (a `Long` constant behind
 a plain, format-preserving `clone.default` -- exactly the corpus's real
 occurrence), so the graph's `index.Tensor` node imports cleanly and the
-frontier moves one op further, to `Pow` not being a Const-SSA operation --
-an unrelated, pre-existing limitation. This is a MALFORMED rejection, not an
+frontier moves one op further, to `Pow` not being a Const-SSA operation, then
+past that (once `Pow` landed) to `Add_scalar` not being a Const-SSA
+operation, then past that too (once `Add_scalar` landed) to `native_builds`
+finally succeeding outright. Each of these was a MALFORMED rejection, not an
 `unsupported_operator` capability -- the importer refuses the whole graph
-rather than degrading one capability's status -- so the script's `else`
-branch fires and the row reads "blocked: ..." instead of the two `stage:`
-lines every other model prints; that is the harness noticing a different
-*kind* of rejection, not a broken script. CSATv2 stays a graph-only CI
-target regardless, so this movement does not
-change its capability classification.
+rather than degrading one capability's status -- so while any one of them was
+still the frontier, the script's `else` branch fired and the row read
+"blocked: ..." instead of the two `stage:` lines every other model prints;
+that was the harness noticing a different *kind* of rejection, not a broken
+script. Now that the graph builds, `csatv2` prints the same two `stage:`
+lines as the rest and lands on a real, pre-existing `stage:native4d`
+rejection of its own: `select`'s `H`-axis case has no Native4D legalization
+(tracked as `Select4` in the Native4D counterpart backlog). CSATv2 stays a
+graph-only CI target regardless, so none of this movement changes its
+capability classification.
 `unsqueeze.default` never showed up as a named blocker for any of the six
 models either before or after either change -- its coverage is
 `native_bridge_test.ml`'s dedicated verify/dispatch cases, not this cram.
@@ -73,7 +79,8 @@ lowering, structurally in `native4d/verify_test.ml`'s "gelu tanh" cluster), so
   efficientnet_b0 stage:native4d available graph
   fastvit_sa12 stage:initial_native available graph
   fastvit_sa12 stage:native4d unavailable outside_dialect_domain: node n604: axis T is outside the N/H/W/C dialect
-  csatv2 blocked: native_graph: Pow is not a Const-SSA operation
+  csatv2 stage:initial_native available graph
+  csatv2 stage:native4d unavailable outside_dialect_domain: node n3: no legalization for select x=t405 params={axis=H index=0}
 
 `regnetx_002`'s `stage:native4d` used to be `unavailable outside_dialect_domain`
 (a 3-group convolution, neither 1 nor depthwise). `GroupedConv2D`

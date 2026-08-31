@@ -78,7 +78,9 @@ let payload_matches (sg : Tensor_sig.t) (Tensor.Tensor payload) =
 
 let allows = function
   | Graph_ir.Add _ | Graph_ir.Sub _ | Graph_ir.Mul _ | Graph_ir.Div _
-  | Graph_ir.Sqrt _ | Graph_ir.Permute _ ->
+  | Graph_ir.Sqrt _ | Graph_ir.Permute _ | Graph_ir.Reshape _
+  | Graph_ir.Expand _ | Graph_ir.Add_scalar _ | Graph_ir.Mul_scalar _
+  | Graph_ir.Pow _ ->
       true
   | _ -> false
 
