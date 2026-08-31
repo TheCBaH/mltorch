@@ -256,6 +256,26 @@ let per_op () =
       ( "select4",
         unary ~shape:nhwc
           (Builder.select4 { Ops4.Select4.axis = Axis4.W; index = 2 }) );
+      (* [self] and [src] are DIFFERENT shapes (unlike [binary]'s pairs):
+         [src] is the shape [Select4] itself would produce at this
+         axis/index -- dropping W repacks the surviving N/H onto T/H,
+         right-aligned, so [src]'s own W holds what was [self]'s H (4) and
+         its H is the vacated unit slot -- so a fixture checking the wrong
+         operand's shape would fail to build at all. *)
+      ( "select_scatter4",
+        let self_shape = nhwc in
+        let src_shape = s4 ~n:1 ~h:1 ~w:4 ~c:2 in
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* self = input ~shape:self_shape () in
+             let* src = input ~shape:src_shape () in
+             select_scatter4
+               { Ops4.Select_scatter4.axis = Axis4.W; index = 1 }
+               ~self ~src)
+        in
+        (g, [ self_shape; src_shape ]) );
       (* Three operands of DIFFERENT extents along the joined axis (W), so a
          fixture that only ever concatenated equal-sized pieces could not
          catch a wrong per-operand offset. *)

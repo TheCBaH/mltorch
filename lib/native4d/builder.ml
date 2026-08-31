@@ -233,6 +233,10 @@ let rsub_scalar params x =
    select naming T or D is not constructible through this API. [index] stays
    validated rather than typed, the same choice [slice4]'s bounds make. *)
 let select4 params x = op1 (Op.Select4 { Ops4.Select4.params; x })
+
+let select_scatter4 params ~self ~src =
+  op1 (Op.Select_scatter4 { Ops4.Select_scatter4.params; self; src })
+
 let sigmoid x = op1 (Op.Sigmoid { Pointwise.Sigmoid.x })
 let silu x = op1 (Op.Silu { Pointwise.Silu.x })
 

@@ -116,6 +116,56 @@ module Select4 = struct
       t.params
 end
 
+(* The write-back counterpart of [Select4]: [self] with position [index] of
+   [axis] replaced by [src] (which has [Select4]'s own output shape) and
+   every other position carried through unchanged. Its own payload for the
+   same reason [Select4]'s is -- it names an axis, so the field is [Axis4.t]
+   -- and reuses [Split.Select_scatter]'s shape rule/pixel map rather than
+   restating them, the same delegation [Select4] makes to [Split.Select]. *)
+module Select_scatter4 = struct
+  type params = { axis : Axis4.t; index : int }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"select_scatter4_params" (fun axis index ->
+        { axis; index })
+    |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.mem "index" Jsont.int ~enc:(fun p -> p.index)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a index=%d}@]" Axis4.pp p.axis p.index
+
+  type t = { params : params; self : Tensor_ref.t; src : Tensor_ref.t }
+
+  let name = "Select_scatter4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          self = get "self" Tensor_ref.jsont;
+          src = get "src" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("self", Json_util.enc Tensor_ref.jsont t.self);
+            ("src", Json_util.enc Tensor_ref.jsont t.src);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.self; t.src ]
+  let map_operands f (t : t) = { t with self = f t.self; src = f t.src }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>select_scatter4@ self=%a@ src=%a@ params=%a@]" pp_ref
+      t.self pp_ref t.src pp_params t.params
+end
+
 (* ---- joining ---------------------------------------------------------------
 
    Native's [Concat] with its axis narrowed to the dialect's four. Its own

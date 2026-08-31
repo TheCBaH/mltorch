@@ -407,6 +407,21 @@ let%expect_test "domain: select's axis rule and its shape consequence" =
    the same reason -- but with no shape consequence to pair it against: KEEPING
    the axis means batch 2 converts on its own (unlike [unbind_c_batch2]), so
    the axis rule is the whole story here. *)
+(* [Select_scatter] gates its ONE named axis, the same rule [slice]'s own
+   test applies -- not [select]'s pair above, since [Select_scatter]'s
+   output is [self_shape] unchanged (no drop, no repack), so there is no
+   separate shape-consequence rejection to demonstrate. *)
+let%expect_test "domain: select_scatter gates its named axis" =
+  table
+    [
+      ("select_scatter W", Fixtures.select_scatter_w);
+      ("select_scatter D", Fixtures.select_scatter_d);
+    ];
+  [%expect
+    {|
+    select_scatter W             in the dialect
+    select_scatter D             node n0: axis D is outside the N/H/W/C dialect |}]
+
 let%expect_test "domain: split_with_sizes's axis rule" =
   table
     [

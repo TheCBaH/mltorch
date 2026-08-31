@@ -226,6 +226,14 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Select4 { Ops4.Select4.params; x } ->
         let module C = Split.Select.Compute (S) in
         C.pixel (Graph_shape4.select_params params) ~x:(operand x) out
+    (* Through the same adapter [Graph_shape4] uses, so the axis the shape
+       rule checks [src] against is the axis the compute writes at, by
+       construction. *)
+    | Select_scatter4 { Ops4.Select_scatter4.params; self; src } ->
+        let module C = Split.Select_scatter.Compute (S) in
+        C.pixel
+          (Graph_shape4.select_scatter_params params)
+          ~self:(operand self) ~src:(operand src) out
     | Sigmoid { Pointwise.Sigmoid.x } ->
         let module C = Pointwise.Sigmoid.Compute (S) in
         C.pixel (operand x) out

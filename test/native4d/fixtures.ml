@@ -512,6 +512,31 @@ let select_graph name ~shape ~axis ~index () =
   |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
+let select_scatter_graph name ~self_shape ~src_shape ~axis ~index () =
+  Graph_builder.build ~name
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* self = input ~shape:self_shape () in
+     let* src = input ~shape:src_shape () in
+     select_scatter { Split.Select_scatter.axis; index } ~self ~src)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* A dialect axis: dropping W (H already unit) repacks trivially -- [src]'s
+   own W holds [self]'s C-adjacent survivor, its H the vacated unit slot. *)
+let select_scatter_w =
+  select_scatter_graph "select_scatter_w" ~self_shape:(nhwc ~n:1 ~h:1 ~w:3 ~c:2)
+    ~src_shape:(nhwc ~n:1 ~h:1 ~w:1 ~c:2) ~axis:Axis.W ~index:1
+
+(* The same op naming D, refused by the AXIS rule so the diagnostic names D
+   -- unlike [select]'s own D fixture, this is refused at the axis check
+   regardless of the shape consequence: [Select_scatter]'s output is
+   [self_shape] unchanged, so there is no shape-consequence rejection to
+   contrast it with. *)
+let select_scatter_d =
+  select_scatter_graph "select_scatter_d" ~self_shape:(s 1 1 3 2 2 2)
+    ~src_shape:(s 1 1 1 2 2 2) ~axis:Axis.D ~index:0
+
 let concat_graph name ~shapes ~axis () =
   Graph_builder.build ~name
     ~outputs:(fun o -> [ o ])

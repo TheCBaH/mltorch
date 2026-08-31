@@ -837,6 +837,25 @@ let lower_node ~view acc (n : node) =
                { axis = List.hd axis4; index = params.Split.Select.index };
              x = op_of x;
            })
+  (* The axis converts here for the same reason [Select]'s does. No post-hoc
+     output re-check, unlike [Select]'s: this op's output shape is [self]'s
+     OWN shape unchanged (no drop, no repack -- [Split.Select_scatter]'s own
+     [output_shape] returns [self_shape] verbatim), so if [self] is already
+     four-axis the output automatically is too, whichever axis this op
+     names. *)
+  | Select_scatter { Split.Select_scatter.params; self; src } ->
+      let* axis4 = dims4 ~node [ params.axis ] in
+      simple
+        (Op.Select_scatter4
+           {
+             Ops4.Select_scatter4.params =
+               {
+                 axis = List.hd axis4;
+                 index = params.Split.Select_scatter.index;
+               };
+             self = op_of self;
+             src = op_of src;
+           })
   (* [Concat]'s variadic-operand handling above, plus [Select]'s post-hoc
      output check: [Stack] INSERTS an axis rather than keeping every one the
      way [Concat] does, so -- the same reason [Select]'s arm re-validates its
@@ -860,12 +879,13 @@ let lower_node ~view acc (n : node) =
            })
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Index_tensor]/[Select_scatter]/[Softmax] join that set until their own
-     counterparts exist (see [Domain.check_node]'s comment) rather than
-     gaining a real conversion arm here -- none has a Native4D counterpart at
-     all yet, the same "dialect does not have it" answer, and CSATv2 stays a
-     graph-only target regardless. [Repeat]/[RepeatInterleave] no longer join
-     them: both now have real conversion arms above. *)
+     [Index_tensor]/[Softmax] join that set until their own counterparts
+     exist (see [Domain.check_node]'s comment) rather than gaining a real
+     conversion arm here -- neither has a Native4D counterpart at all yet,
+     the same "dialect does not have it" answer, and CSATv2 stays a
+     graph-only target regardless. [Repeat]/[RepeatInterleave]/
+     [Select_scatter] no longer join them: all three now have real
+     conversion arms above. *)
   | Batched_matmul _ | Discard _ | Index_tensor _ | Max_pool2d_with_indices _
-  | Sdpa _ | Select_scatter _ | Softmax _ ->
+  | Sdpa _ | Softmax _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

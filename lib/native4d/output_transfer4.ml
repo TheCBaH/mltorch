@@ -54,6 +54,10 @@ let classify (op : Op.t) ~output:_ =
      drops the axis instead of narrowing or enumerating it, but the copy
      argument does not care which of the three a partial selection is. *)
   | Select4 _ -> Output_transfer.Reindexing
+  (* Every output is copied from ONE of [self]/[src] with no arithmetic, and
+     the choice is a structural fact about the output coordinate -- the same
+     argument Native's own [Output_transfer] makes for [Select_scatter]. *)
+  | Select_scatter4 _ -> Output_transfer.Reindexing
   | Sigmoid _ | Silu _ -> Output_transfer.Continuous
   | Slice4 _ -> Output_transfer.Reindexing
   | Split_with_sizes4 _ -> Output_transfer.Reindexing

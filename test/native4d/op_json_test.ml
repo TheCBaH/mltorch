@@ -196,6 +196,15 @@ let samples : Op.t list =
        0 nor the axis's last valid one, so an encoder that dropped or
        defaulted either field would still print differently. *)
     Select4 { Ops4.Select4.params = { axis = H; index = 2 }; x };
+    (* Axis and index distinct from [Select4]'s own sample, and two distinct
+       operands, so an encoder that dropped or swapped [self]/[src] or
+       confused the two ops still prints differently. *)
+    Select_scatter4
+      {
+        Ops4.Select_scatter4.params = { axis = W; index = 1 };
+        self = x;
+        src = y;
+      };
     Sigmoid { Pointwise.Sigmoid.x };
     Silu { Pointwise.Silu.x };
     (* Three distinct bounds and a step that is not 1, so an encoder that
@@ -256,7 +265,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 51, registry: 51 |}]
+  [%expect {| samples: 52, registry: 52 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -325,6 +334,7 @@ let%expect_test "op4: printed" =
     rms_norm x=t0 weight=t2 params={dims=[C]; eps=1e-05}
     rsub_scalar x=t0 params={other=1; alpha=2}
     select4 x=t0 params={axis=H index=2}
+    select_scatter4 self=t0 src=t1 params={axis=W index=1}
     sigmoid x=t0
     silu x=t0
     slice4 x=t0 params={axis=W start=1 stop=8 step=3}
@@ -358,7 +368,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 51 ops |}]
+  [%expect {| round-tripped 52 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

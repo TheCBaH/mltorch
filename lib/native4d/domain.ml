@@ -304,6 +304,15 @@ let check_node view (n : node) =
      MULTIPLIES its named axis, unlike those, which COLLAPSE it). *)
   | RepeatInterleave { Repeat.RepeatInterleave.params; _ } ->
       check_dims node [ params.axis ]
+  (* [Select_scatter4] now exists, so [Select_scatter] gets the same
+     [check_dims]-style axis rejection [Select] gets: the WRITTEN axis is
+     the one the dialect must be able to name. Unlike [Select], the output
+     shape is [self_shape] unchanged (no drop, no repack), so there is no
+     post-hoc [Shape4.of_vec6] re-check to defer to here -- if [self] is
+     already four-axis, so is the output, regardless of which axis this op
+     names. *)
+  | Select_scatter { Split.Select_scatter.params; _ } ->
+      check_dims node [ params.axis ]
   (* The dialect has no [Softmax4] yet -- same "dialect does not have it at
      all" answer, not an axis-domain rejection, until it does. Not
      [check_dims]: unlike [Amax]/[Mean]/[Vector_norm], which the reduced
@@ -311,11 +320,7 @@ let check_node view (n : node) =
      counterpart to legalize onto), Softmax has no `Ops4` counterpart at any
      axis, so there is no admissible case to let through -- see
      .ai/matmul_softmax_design.md §3. *)
-  (* Same "dialect does not have it at all" answer: no [Select_scatter4]
-     exists yet, deliberately deferred the same way [Repeat]/
-     [RepeatInterleave] were at their own landing (both now have
-     counterparts, above). *)
-  | Index_tensor _ | Select_scatter _ | Softmax _ -> unsupported ()
+  | Index_tensor _ | Softmax _ -> unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

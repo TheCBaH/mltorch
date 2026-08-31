@@ -164,6 +164,16 @@ let repeat_interleave_params (p : Ops4.RepeatInterleave4.params) :
     repeats = p.Ops4.RepeatInterleave4.repeats;
   }
 
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
+   axis is written. [index] crosses unchanged. *)
+let select_scatter_params (p : Ops4.Select_scatter4.params) :
+    Split.Select_scatter.params =
+  {
+    axis = Axis4.to_axis p.Ops4.Select_scatter4.axis;
+    index = p.Ops4.Select_scatter4.index;
+  }
+
 let split_with_sizes_params (p : Ops4.Split_with_sizes4.params) :
     Split.Split_with_sizes.params =
   {
@@ -415,6 +425,19 @@ let output_shape (op : Op.t)
   | Select4 { Ops4.Select4.params; x } ->
       let* x_shape = shape x in
       one (four (Split.Select.output_shape ~x_shape (select_params params)))
+  (* Unlike [Select4], the output IS [self]'s shape -- [axis]/[index] name a
+     WRITE position, not a shape transform. [src] is checked against exactly
+     the shape [Split.Select.output_shape] would give at this axis/index,
+     delegated rather than restated, so this arm and
+     [Split.Select_scatter.Compute] cannot disagree about which position is
+     written. *)
+  | Select_scatter4 { Ops4.Select_scatter4.params; self; src } ->
+      let* self_shape = shape self in
+      let* src_shape = shape src in
+      one
+        (four
+           (Split.Select_scatter.output_shape ~self_shape ~src_shape
+              (select_scatter_params params)))
   | Sigmoid { Pointwise.Sigmoid.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Sigmoid.output_shape x_shape))
