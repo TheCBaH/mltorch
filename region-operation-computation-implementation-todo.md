@@ -35,7 +35,7 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 | 1 | Scalar projection and whole-domain trace contract | complete | uncommitted |
 | 2 | Operation-authored computation boundary | in progress | — |
 | 3 | Native Region authority and Direct execution | in progress | — |
-| 4 | Symbolic and Stage-program Region carriage | pending | — |
+| 4 | Symbolic and Stage-program Region carriage | in progress | — |
 | 5 | Native4D Region authority and execution | pending | — |
 | 6 | Remove dual authority and obsolete admission | pending | — |
 | 7 | Closeout and production admission | pending | — |
@@ -126,11 +126,11 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 
 ### Gate 4
 
-- [ ] Carry `Region_program.t` directly at the symbolic Stage boundary.
+- [x] Carry `Region_program.t` directly at the symbolic Stage boundary.
 - [ ] Embed Pixel symbolic bodies mechanically and preserve object identity.
-- [ ] Insert authoritative Region programs directly from Native Symbolic.
+- [x] Insert authoritative Region programs directly from Native Symbolic.
 - [ ] Migrate Stage validation, printing, grounding, and source analysis.
-- [ ] Migrate Kernel adaptation without candidate/reconstruction admission.
+- [x] Migrate Kernel adaptation without candidate/reconstruction admission.
 - [ ] Support or explicitly reject Region stages in transformation verification.
 - [ ] Preserve Pixel Stage/Kernel hot-path behavior.
 
@@ -205,8 +205,11 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 - Native `Eval_direct` resolves the three Region-authored operations through
   `Regionizer.program` with its actual `?limits`, then materializes each
   lowered Region program once per key. Other operations retain the Pixel path.
-- Current Native `Eval_symbolic.run_regionized` builds Pixel first, retains a
-  candidate map, and admits Region later through reconstruction.
+- Native `Eval_symbolic.run_regionized` carries successful authored Region
+  programs on their Stages and Kernel adaptation passes that exact object
+  through directly. The candidate map remains only for the typed-error
+  compatibility path while legacy Stage consumers still read the mechanical
+  Pixel body.
 - Current Native4D `Eval_op4.Make(S).pixel` delegates all operations to Native
   Pixel computation; `Eval_direct4` and `Eval_symbolic4` therefore repeat
   normalization/Softmax reductions per output.
@@ -274,4 +277,5 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 | 2026-08-31 | 0 | source census (`rg` across `lib`, `test`, and `bin`) | complete | Recorded Native/Native4D dispatch, Stage/Kernel adaptation, grounding, verifier, explorer, and fusion migration seams above. |
 | 2026-08-31 | 1 | `opam exec -- dune runtest test/native` | pass | `Region_trace` records canonical program/key/local/emitter/output ownership, uses an independent bounded visit table, and rejects incomplete or duplicate coverage. The regression projects every output of a Region materialization, bitwise including NaN, infinities, and signed zero; its deliberately mutated trace reports one duplicate and one missing visit. |
 | 2026-08-31 | 2 (partial) | `make precommit` | pass | Region builders now receive resolved role operands and caller limits; the symbolic migration derives its temporary Pixel body from the authoritative Region program, without a mutable synthetic-default hand-off or value-based lookup. The remaining Gate 2 authored-form carriage is completed with Gate 4. |
-| 2026-08-31 | 3 (partial) | `make precommit` | pass | Native Direct constructs RMSNorm, LayerNorm, and Softmax with its actual limits and materializes each Region once per key. The Direct counter fixture records `keys/locals/emitters/loads/reductions` for all three operations; broad trace and benchmark work remains. |
+| 2026-08-31 | 3 (partial) | `make precommit` | pass | Native Direct constructs RMSNorm, LayerNorm, and Softmax with its actual limits and materializes each Region once per key. The Direct counter fixture records `keys/locals/emitters/loads/reductions` for all three operations, and a tight Direct limit returns the typed construction error; broad trace and benchmark work remains. |
+| 2026-08-31 | 4 (partial) | `make precommit` | pass | A Native symbolic Stage now holds the authoritative `Region_program.t`; its legacy Pixel body is derived mechanically, Stage grounding can materialize the structural program, and Kernel adaptation passes the same object through directly. Candidate admission remains only for the compatibility error path. |
