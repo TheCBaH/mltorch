@@ -295,9 +295,9 @@ let softmax_over axis () =
      softmax { Reduce.Softmax.axis } x)
 
 (* [Expand] has no [Ops4] counterpart at any axis, the same "dialect does not
-   have it at all" answer [Softmax]/[Group_norm]/[Select]/[Split_with_sizes]/
-   [Stack] get -- a broadcast that may ADD leading axes has no four-axis shape
-   to check against. [x]'s H axis is 1; the target's is 4. *)
+   have it at all" answer [Softmax]/[Group_norm]/[Select]/[Stack] get -- a
+   broadcast that may ADD leading axes has no four-axis shape to check
+   against. [x]'s H axis is 1; the target's is 4. *)
 let expand () =
   build "expand"
     (let open Graph_builder in
@@ -361,6 +361,18 @@ let unbind_all name ~shape axis =
     (let open Graph_builder in
      let* x = input ~shape () in
      unbind { Split.Unbind.axis } x)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* [Unbind]'s rank-preserving sibling. KEEPING the axis means there is no
+   shift for the batch extent to land on T -- the N=1 precondition
+   [unbind_c_batch2]/[unbind_n] turn on simply does not arise here, which is
+   exactly what [split_with_sizes_w_batch2] below is here to show. *)
+let split_with_sizes_all name ~shape axis sizes =
+  Graph_builder.build ~name ~outputs:Fun.id
+    (let open Graph_builder in
+     let* x = input ~shape () in
+     split_with_sizes { Split.Split_with_sizes.axis; sizes } x)
   |> Err.or_raise ~pp_error:(fun ppf e ->
       Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
 
@@ -471,3 +483,16 @@ let unbind_c_batch2 () =
    tensor has extent on T". *)
 let unbind_rank5_t () =
   unbind_all "unbind_rank5_t" ~shape:(s 1 3 1 3 101 32) Axis.T
+
+(* Batch 2, split along W: unlike [unbind_c_batch2], KEEPING the axis means N
+   never shifts, so batch 2 converts here where it does not there. *)
+let split_with_sizes_w_batch2 () =
+  split_with_sizes_all "split_with_sizes_w_batch2"
+    ~shape:(nhwc ~n:2 ~h:2 ~w:4 ~c:3) Axis.W [ 1; 3 ]
+
+(* The same rank-five/dim-0 shape [unbind_rank5_t] uses, so the two ops'
+   axis rejections are directly comparable: rank five, split at dim 0, which
+   right-aligns onto T -- refused by the AXIS rule, same as [Unbind]'s. *)
+let split_with_sizes_rank5_t () =
+  split_with_sizes_all "split_with_sizes_rank5_t" ~shape:(s 1 3 1 3 101 32)
+    Axis.T [ 1; 2 ]

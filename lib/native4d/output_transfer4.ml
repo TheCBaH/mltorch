@@ -39,6 +39,7 @@ let classify (op : Op.t) ~output:_ =
   | Reshape4 _ -> Output_transfer.Reindexing
   | Rms_norm _ | Sigmoid _ | Silu _ -> Output_transfer.Continuous
   | Slice4 _ -> Output_transfer.Reindexing
+  | Split_with_sizes4 _ -> Output_transfer.Reindexing
   | Sqrt _ | Sub _ | Sum_keepdims _ | Transposed_conv2d _ ->
       Output_transfer.Continuous
   | Unbind _ -> Output_transfer.Reindexing

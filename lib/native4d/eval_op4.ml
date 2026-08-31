@@ -203,6 +203,18 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Slice4 { Ops4.Slice4.params; x } ->
         let module C = Split.Slice.Compute (S) in
         C.pixel (Graph_shape4.slice_params params) ~x:(operand x) out
+    (* Through the same adapter [Graph_shape4] uses, so the axis and sizes the
+       shape rule reads are the ones the compute reads along -- the same
+       discipline the [Unbind] arm above follows. [offset] is the sum of every
+       EARLIER size, one definition ([Split.Split_with_sizes.offset_of])
+       shared with Native's own arm so the two cannot compute it differently. *)
+    | Split_with_sizes4 { Ops4.Split_with_sizes4.params; x } ->
+        let module C = Split.Split_with_sizes.Compute (S) in
+        let native_params = Graph_shape4.split_with_sizes_params params in
+        let offset =
+          Split.Split_with_sizes.offset_of ~output native_params.sizes
+        in
+        C.pixel ~offset native_params ~x:(operand x) out
     | Sqrt { Pointwise.Sqrt.x } ->
         let module C = Pointwise.Sqrt.Compute (S) in
         C.pixel (operand x) out

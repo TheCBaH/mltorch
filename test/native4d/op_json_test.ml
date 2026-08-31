@@ -172,6 +172,10 @@ let samples : Op.t list =
           { axis = W; start = 1; stop = 8; step = Op_config.Pos.of_int 3 };
         x;
       };
+    (* Three unequal sizes, so an encoder that dropped or reordered one
+       differs in printed output as well as in count. *)
+    Split_with_sizes4
+      { Ops4.Split_with_sizes4.params = { axis = W; sizes = [ 2; 3; 1 ] }; x };
     Sqrt { Pointwise.Sqrt.x };
     Sub { Pointwise.Bin.a = x; b = y };
     Sum_keepdims { Ops4.Sum_keepdims.params = { dims = [ H; W ] }; x };
@@ -213,7 +217,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 42, registry: 42 |}]
+  [%expect {| samples: 43, registry: 43 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -279,6 +283,7 @@ let%expect_test "op4: printed" =
     sigmoid x=t0
     silu x=t0
     slice4 x=t0 params={axis=W start=1 stop=8 step=3}
+    split_with_sizes4 x=t0 params={axis=W sizes=[2, 3, 1]}
     sqrt x=t0
     sub a=t0 b=t1
     sum_keepdims x=t0 params={dims=[H, W]}
@@ -306,7 +311,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 42 ops |}]
+  [%expect {| round-tripped 43 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

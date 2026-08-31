@@ -218,6 +218,18 @@ let silu x = op1 (Op.Silu { Pointwise.Silu.x })
    still validated rather than typed -- canonical is a relation between three
    ints and an extent, which no type here carries. *)
 let slice4 params x = op1 (Op.Slice4 { Ops4.Slice4.params; x })
+
+(* Takes [Axis4.t] and [sizes] together, so a split naming T or D is not
+   constructible through this API -- [unbind]'s rule, extended to a caller-
+   chosen arity. [sizes] itself stays validated rather than typed, the same
+   choice [slice4]'s bounds make: "sums to the axis extent" is a relation
+   between a list and an extent, which no type here carries. *)
+let split_with_sizes4 axis sizes x =
+  let* s = get in
+  let sg = Tensor_id.Map.find x s.tensors in
+  opN ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant
+    (Op.Split_with_sizes4 { Ops4.Split_with_sizes4.params = { axis; sizes }; x })
+
 let sqrt x = op1 (Op.Sqrt { Pointwise.Sqrt.x })
 let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
 

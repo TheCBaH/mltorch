@@ -319,17 +319,29 @@ let per_op () =
              transposed_conv2d transposed_params ~x ~weight:w ())
         in
         (g, [ flat; s4 ~n:4 ~h:1 ~w:1 ~c:3 ]) );
-      (* The one multi-output fixture, and the reason the harness compares every
-         output rather than [List.hd]. Unbinding C on a [1,4,4,2] input stays
-         inside the dialect: dropping the innermost axis shifts every axis
-         outside it one place inward, and N/T/D are unit either way. Two slices,
-         so a bug that only gets ordinal 0 right cannot pass. *)
+      (* One of the two multi-output fixtures, and the reason the harness
+         compares every output rather than [List.hd]. Unbinding C on a
+         [1,4,4,2] input stays inside the dialect: dropping the innermost
+         axis shifts every axis outside it one place inward, and N/T/D are
+         unit either way. Two slices, so a bug that only gets ordinal 0
+         right cannot pass. *)
       ( "unbind",
         let g =
           build ~outputs:Fun.id
             (let open Builder in
              let* x = input ~shape:nhwc () in
              unbind Axis4.C x)
+        in
+        (g, [ nhwc ]) );
+      (* The other multi-output fixture: unequal sizes on a KEPT axis (W stays
+         rank-4, unlike [unbind]'s dropped C), so a fixture built only from
+         equal pieces could not catch a wrong per-piece offset. *)
+      ( "split_with_sizes4",
+        let g =
+          build ~outputs:Fun.id
+            (let open Builder in
+             let* x = input ~shape:nhwc () in
+             split_with_sizes4 Axis4.W [ 1; 3 ] x)
         in
         (g, [ nhwc ]) );
       ( "upsample_bilinear2d",

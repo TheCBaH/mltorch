@@ -724,16 +724,42 @@ let lower_node ~view acc (n : node) =
         (Op.Unbind
            { Ops4.Unbind.params = { axis = List.hd axis4 }; x = op_of x })
         n.Node.outputs
+  (* [Unbind]'s rank-preserving sibling: the axis converts here for the same
+     reason (so [Domain]'s [Axis_outside_dialect] can still name the rejected
+     Native axis), and every output is checked here for the same reason (a
+     dead slice would otherwise reach [Snapshot4.create] unvalidated). [sizes]
+     crosses unchanged -- Native has already bounded its length and proved it
+     sums to the axis extent, so there is nothing left for this arm to
+     recheck. *)
+  | Split_with_sizes { Split.Split_with_sizes.params; x } ->
+      let* axis4 = dims4 ~node [ params.axis ] in
+      let+ () =
+        Err.List.iter
+          (fun o ->
+            let* shape = sig_of o in
+            let+ (_ : Shape4.t) = shape4 ~id:o shape in
+            ())
+          n.Node.outputs
+      in
+      emit acc ~from:node
+        (Op.Split_with_sizes4
+           {
+             Ops4.Split_with_sizes4.params =
+               {
+                 axis = List.hd axis4;
+                 sizes = params.Split.Split_with_sizes.sizes;
+               };
+             x = op_of x;
+           })
+        n.Node.outputs
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Expand]/[Group_norm]/[Index_tensor]/[Select]/[Softmax]/
-     [Split_with_sizes]/[Stack] join that set until
-     [Group_norm4]/[Select4]/[Softmax4]/[Split4]/[Stack4] exist (see
+     [Expand]/[Group_norm]/[Index_tensor]/[Select]/[Softmax]/[Stack] join that
+     set until [Group_norm4]/[Select4]/[Softmax4]/[Stack4] exist (see
      [Domain.check_node]'s comment) rather than gaining a real conversion arm
      here -- [Index_tensor] has no Native4D counterpart at all, the same
      "dialect does not have it" answer, and CSATv2 stays a graph-only target
      regardless. *)
   | Batched_matmul _ | Discard _ | Expand _ | Group_norm _ | Index_tensor _
-  | Max_pool2d_with_indices _ | Sdpa _ | Select _ | Softmax _
-  | Split_with_sizes _ | Stack _ ->
+  | Max_pool2d_with_indices _ | Sdpa _ | Select _ | Softmax _ | Stack _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

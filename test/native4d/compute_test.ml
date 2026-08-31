@@ -476,7 +476,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 42, registry: 42 |}]
+  [%expect {| fixtures: 43, registry: 43 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -526,6 +526,8 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     transposed_conv2d      direct = symbolic
     unbind                 out0 direct = symbolic
     unbind                 out1 direct = symbolic
+    split_with_sizes4      out0 direct = symbolic
+    split_with_sizes4      out1 direct = symbolic
     upsample_bilinear2d    direct = symbolic
     upsample_nearest2d     direct = symbolic
     vector_norm_keepdims   direct = symbolic |}]
@@ -561,3 +563,28 @@ let%expect_test "direct4: unbind takes one slice per coordinate" =
     out0 = tensor f32 [C=2] {0, 10}
     out1 = tensor f32 [C=2] {1, 11}
     out2 = tensor f32 [C=2] {2, 12} |}]
+
+(* Unequal sizes [1;3] on a KEPT axis, unlike [unbind] above: a wrong offset
+   for the second piece would read starting from W=0 instead of W=1, so this
+   would print {0, 1, 2} for out1 instead of the correct {1, 2, 3}. *)
+let%expect_test "direct4: split_with_sizes keeps the axis, sliced by window" =
+  let shape = s4 ~n:1 ~h:1 ~w:4 ~c:1 in
+  let g =
+    build ~outputs:Fun.id
+      (let open Builder in
+       let* x = input ~shape () in
+       split_with_sizes4 Axis4.W [ 1; 3 ] x)
+  in
+  let x =
+    Tensor.materialize (Shape4.to_vec6 shape) (fun c ->
+        float_of_int (Dim.to_int (Vec6.get c Axis.W)))
+  in
+  let env = run_direct g ~inputs:[ (List.hd g.Graph.Graph.inputs, x) ] in
+  List.iteri
+    (fun i out ->
+      Format.printf "out%d = %a@." i Tensor.pp (Tensor_id.Map.find out env))
+    g.Graph.Graph.outputs;
+  [%expect
+    {|
+    out0 = tensor f32 [C=1] {0}
+    out1 = tensor f32 [W=3 C=1] {1, 2, 3} |}]

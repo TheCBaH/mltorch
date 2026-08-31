@@ -749,3 +749,52 @@ let%expect_test "mutation: swapping two unbind slices is refuted" =
     {|
     slices in order            3 clusters: 3 proved (structural)
     slices swapped             3 clusters: 1 proved (structural), 2 refuted (counterexample) |}]
+
+(* [Split_with_sizes4]'s own version of the same mutation. Unlike [Unbind]'s
+   axis-derived count, EQUAL sizes have to be chosen deliberately -- [1;1] on
+   W's extent 2 -- for the two slices to share a shape; unequal sizes would
+   make a swap a structural shape mismatch, a different and much weaker claim
+   the same way swapping the GRAPH's outputs is for [unbind_pair] above. *)
+let split_with_sizes_pair ~swap =
+  let src =
+    Graph_builder.build ~name:"split_with_sizes" ~outputs:Fun.id
+      Graph_builder.(
+        let* x = input ~shape:sq () in
+        split_with_sizes
+          { Split.Split_with_sizes.axis = Axis.W; sizes = [ 1; 1 ] }
+          x)
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
+  in
+  let dst =
+    Builder.build ~outputs:Fun.id
+      Builder.(
+        let* x = input ~shape:sq4 () in
+        split_with_sizes4 Axis4.W [ 1; 1 ] x)
+    |> Err.or_raise ~pp_error:Builder.pp_error
+  in
+  let dst =
+    if not swap then dst
+    else
+      {
+        dst with
+        Graph_common.Graph.nodes =
+          List.map
+            (fun (n : Graph.node) ->
+              match n.Graph_common.Node.outputs with
+              | a :: b :: rest ->
+                  { n with Graph_common.Node.outputs = b :: a :: rest }
+              | outs -> { n with Graph_common.Node.outputs = outs })
+            dst.Graph_common.Graph.nodes;
+      }
+  in
+  (src, dst)
+
+let%expect_test "mutation: swapping two split_with_sizes windows is refuted" =
+  let src, dst = split_with_sizes_pair ~swap:false in
+  mutated "windows in order" src dst;
+  let src, dst = split_with_sizes_pair ~swap:true in
+  mutated "windows swapped" src dst;
+  [%expect
+    {|
+    windows in order           3 clusters: 3 proved (structural)
+    windows swapped            3 clusters: 1 proved (structural), 2 refuted (counterexample) |}]

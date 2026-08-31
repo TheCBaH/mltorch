@@ -142,6 +142,13 @@ let slice_params (p : Ops4.Slice4.params) : Split.Slice.params =
 let unbind_params (p : Ops4.Unbind.params) : Split.Unbind.params =
   { axis = Axis4.to_axis p.Ops4.Unbind.axis }
 
+let split_with_sizes_params (p : Ops4.Split_with_sizes4.params) :
+    Split.Split_with_sizes.params =
+  {
+    axis = Axis4.to_axis p.Ops4.Split_with_sizes4.axis;
+    sizes = p.Ops4.Split_with_sizes4.sizes;
+  }
+
 let layer_norm_params (p : Ops4.Layer_norm.params) : Norm.LayerNorm.params =
   {
     dims = List.map Axis4.to_axis p.Ops4.Layer_norm.dims;
@@ -330,6 +337,14 @@ let output_shape (op : Op.t)
   | Slice4 { Ops4.Slice4.params; x } ->
       let* x_shape = shape x in
       one (four (Split.Slice.output_shape ~x_shape (slice_params params)))
+  (* [Unbind]'s "carries the row through" arm, mirrored: Native has already
+     bounded the count against [Kernel.Limits.Hard.outputs] and proved the
+     sizes sum to the axis extent. *)
+  | Split_with_sizes4 { Ops4.Split_with_sizes4.params; x } ->
+      let* x_shape = shape x in
+      four_all
+        (Split.Split_with_sizes.output_shapes ~x_shape
+           (split_with_sizes_params params))
   | Sqrt { Pointwise.Sqrt.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Sqrt.output_shape x_shape))

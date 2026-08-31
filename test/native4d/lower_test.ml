@@ -604,6 +604,21 @@ let%expect_test "lower: unbind keeps every slice, in order" =
     t2 [W=2 C=2],
     t3 [W=2 C=2]] |}]
 
+(* [Unbind]'s rank-preserving sibling: every window KEEPS the axis, in order,
+   and [sizes] itself crosses unchanged -- Native has already bounded and
+   summed it, so there is nothing left for this arm to restate. *)
+let%expect_test "lower: split_with_sizes keeps every window, in order" =
+  show "split_with_sizes" (Fixtures.split_with_sizes_w_batch2 ());
+  [%expect
+    {|
+    split_with_sizes:
+      graph4
+    inputs: [t0 [N=2 T=1 D=1 H=2 W=4 C=3]]
+    nodes:
+      n0: [t1, t2] = split_with_sizes4 x=t0 params={axis=W sizes=[1, 3]}
+    outputs: [t1 [N=2 T=1 D=1 H=2 W=1 C=3],
+    t2 [N=2 T=1 D=1 H=2 W=3 C=3]] |}]
+
 (* Only the axis KEYS convert; the signed amounts and the mode cross unchanged,
    which is what makes the claim [Identical] and is exactly what a golden over
    the printed op checks. A lowering that clamped the crop to zero, or dropped

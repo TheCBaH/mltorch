@@ -408,6 +408,14 @@ let%expect_test "verify: unbind, numerically, over every slice" =
     native4d: tensor f32 [W=2 C=2] {1, 4, 7, 10} | tensor f32 [W=2 C=2] {2, 5, 8, 11} | tensor f32 [W=2 C=2] {3, 6, 9, 12}
     agree: true |}]
 
+let%expect_test "verify: split_with_sizes, numerically, over every window" =
+  native_vs_four (Fixtures.split_with_sizes_w_batch2 ());
+  [%expect
+    {|
+    native:   tensor f32 [N=2 T=1 D=1 H=2 W=1 C=3] {1, 2, 3, 13, 14, 15, 25, 26, ...} | tensor f32 [N=2 T=1 D=1 H=2 W=3 C=3] {4, 5, 6, 7, 8, 9, 10, 11, ...}
+    native4d: tensor f32 [N=2 T=1 D=1 H=2 W=1 C=3] {1, 2, 3, 13, 14, 15, 25, 26, ...} | tensor f32 [N=2 T=1 D=1 H=2 W=3 C=3] {4, 5, 6, 7, 8, 9, 10, 11, ...}
+    agree: true |}]
+
 (* The selection op, end to end. With values 1..10 laid out row-major over
    [H=2 W=5], slicing W by [1,5) step 2 keeps columns 1 and 3 of each row: a
    wrong start, a wrong step or a wrong axis each print different numbers rather

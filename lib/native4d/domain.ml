@@ -268,7 +268,13 @@ let check_node view (n : node) =
      they do, every occurrence is unsupported regardless of axis, the same
      "dialect does not have it at all" answer [Discard] gets. *)
   | Concat { Concat.Concat.params; _ } -> check_dims node [ params.axis ]
-  (* The dialect has no [Split4]/[Group_norm4]/[Softmax4] yet -- same "dialect
+  (* [Split_with_sizes4] now exists, so [Split_with_sizes] gets the same
+     [check_dims]-style axis rejection [Concat]/[Slice]/[Unbind] get: the
+     SPLIT axis is the one the dialect must be able to name, and the rest of
+     the domain is [check_shapes]'s business, not this arm's. *)
+  | Split_with_sizes { Split.Split_with_sizes.params; _ } ->
+      check_dims node [ params.axis ]
+  (* The dialect has no [Group_norm4]/[Softmax4] yet -- same "dialect
      does not have it at all" answer, not an axis-domain rejection, until it
      does. Not [check_dims]: unlike [Amax]/[Mean]/[Vector_norm], which the
      reduced dialect can legalize on N/H/W/C (there is a [*_keepdims]
@@ -279,8 +285,7 @@ let check_node view (n : node) =
      counterpart at any axis (a broadcast that may ADD leading axes has no
      four-axis shape to check against), so there is no admissible case to
      let through. *)
-  | Expand _ | Group_norm _ | Index_tensor _ | Select _ | Softmax _
-  | Split_with_sizes _ | Stack _ ->
+  | Expand _ | Group_norm _ | Index_tensor _ | Select _ | Softmax _ | Stack _ ->
       unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
