@@ -27,9 +27,9 @@ let map f m s =
 
 let run_from s m = m s
 let run m = fst (m initial)
-
-let fresh_reduce s =
-  if s = Stdlib.max_int then raise Supply_exhausted else (s, s + 1)
+let fresh s = if s = Stdlib.max_int then raise Supply_exhausted else (s, s + 1)
+let fresh_reduce = fresh
+let fresh_local = fresh
 
 module Syntax = struct
   let ( let* ) = bind

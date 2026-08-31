@@ -101,6 +101,7 @@ let rec walk ~value ~index ~intrinsic acc (e : Value.t) =
       let acc = intrinsic acc i in
       let (Intrinsic.Max_pool d) = i in
       Coord.fold (fun acc x -> index.idx acc x) acc d.Intrinsic.Max_pool.out
+  | Value.Local _ -> acc
   | Value.Load (_, c) -> Coord.fold (fun acc i -> index.idx acc i) acc c
   | Value.Reduce r ->
       let acc = index.idx (index.idx acc r.Reduction.lo) r.Reduction.hi in
@@ -211,6 +212,7 @@ let measure ~max_size ~max_depth e =
     | Value.Intrinsic (Intrinsic.Max_pool d) ->
         let dc, left = coord sub left d.Intrinsic.Max_pool.out in
         (1 + dc, left)
+    | Value.Local _ -> (1, left)
     | Value.Load (_, c) ->
         let d, left = coord sub left c in
         (1 + d, left)
@@ -290,6 +292,12 @@ let intrinsic_sources e =
          | _ -> acc)
        ~index:no_index ~intrinsic:nothing [] e)
 
+let locals e =
+  walk
+    ~value:(fun acc -> function
+      | Value.Local v -> Local_var.Set.add v acc | _ -> acc)
+    ~index:no_index ~intrinsic:nothing Local_var.Set.empty e
+
 let output_axes e =
   walk ~value:nothing ~index:{ idx = index_axes } ~intrinsic:nothing [] e
   |> List.sort Axis.compare
@@ -313,6 +321,7 @@ let free_reducers e =
     | Value.Const _ -> acc
     | Value.Intrinsic (Intrinsic.Max_pool d) ->
         Coord.fold idx acc d.Intrinsic.Max_pool.out
+    | Value.Local _ -> acc
     | Value.Load (_, c) -> Coord.fold idx acc c
     | Value.Reduce r ->
         (* The bounds are OUTSIDE the binder: they may mention enclosing
@@ -343,6 +352,7 @@ let binders e =
     | Value.Binary (_, a, b) -> go (go acc a) b
     | Value.Const _ -> acc
     | Value.Intrinsic _ -> acc
+    | Value.Local _ -> acc
     | Value.Load _ -> acc
     | Value.Reduce r -> go (r.Reduction.var :: acc) r.Reduction.body
     | Value.Round_f32 a -> go acc a

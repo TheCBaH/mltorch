@@ -136,6 +136,54 @@ let%expect_test "constants distinguish signed zero and canonicalize NaNs" =
     (Value.hash (c 0.) <> Value.hash (c (-0.)));
   [%expect {| hashes differ for +-0.: true |}]
 
+let%expect_test "scalar locals are open only at an explicit boundary" =
+  let local, e =
+    Builder.run
+      (let open Builder.Syntax in
+       let* local = Builder.fresh_local in
+       Builder.return (local, Value.add (Value.local local) (Value.const 1.)))
+  in
+  let result =
+    Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
+  in
+  Fmt.pr "closed: %a@." result (Check.value e);
+  [%expect {| closed: unbound local #0 |}];
+  Fmt.pr "fragment: %a@." result
+    (Check.fragment ~locals:(Local_var.Set.singleton local) e);
+  [%expect {| fragment: ok |}];
+  Fmt.pr "locals: %d size: %d depth: %d@."
+    (Local_var.Set.cardinal (Fold.locals e))
+    (Fold.size e) (Fold.depth e);
+  [%expect {| locals: 1 size: 3 depth: 2 |}];
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let output = Coord.of_fn (fun _ -> 0) in
+  Fmt.pr "eval: %a@."
+    (Core.Pretty.err_result ~ok:Fmt.float ~error:Eval.pp_error)
+    (Eval.value
+       ~local:(fun v -> if Local_var.equal v local then Some 2.5 else None)
+       env ~output e);
+  [%expect {| eval: 3.5 |}];
+  Fmt.pr "open: %a@."
+    (Pp.value_open ~names:(fun v ->
+         if Local_var.equal v local then Some "l0" else None))
+    e;
+  [%expect {| open: (l0 + 1) |}];
+  let substituted =
+    Builder.run
+      (Rewrite.substitute_locals
+         (fun v ->
+           if Local_var.equal v local then Some (Value.const 3.) else None)
+         e)
+  in
+  Fmt.pr "substituted: %a; closed: %a@." Pp.value substituted result
+    (Check.value substituted);
+  [%expect {| substituted: (3 + 1); closed: ok |}]
+
 let%expect_test "Fold: scope-aware queries" =
   let e = Builder.run (nested ~kind:Reduction.Sum) in
   Fmt.pr "size %d  depth %d  intrinsics %d  assume_sites %d@." (Fold.size e)

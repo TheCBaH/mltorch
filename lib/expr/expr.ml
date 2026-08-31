@@ -12,6 +12,7 @@ type index_op = Expr_internal.Checked.index_op
 
 module Index_overflow = Expr_internal.Checked.Index_overflow
 module Reduce_var = Expr_internal.Reduce_var
+module Local_var = Expr_internal.Local_var
 module Index = Expr_internal.Index
 module Intrinsic = Expr_internal.Intrinsic
 module Bool = Expr_internal.Bool

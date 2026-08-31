@@ -5,6 +5,7 @@ type t = Expr_repr.value =
   | Binary of binary_op * t * t
   | Const of float
   | Intrinsic of Intrinsic.t
+  | Local of Local_var.t
   | Load of Source.t * Role.Position.t Index.t Coord.t
   | Reduce of Expr_repr.reduction
   | Round_f32 of t
@@ -27,6 +28,7 @@ let value_of_index i = Value_of_index i
 let load s c = Load (s, c)
 let round_f32 a = Round_f32 a
 let intrinsic i = Intrinsic i
+let local v = Local v
 let reduce r = Reduce r
 
 let apply_binary = function
@@ -139,6 +141,7 @@ let tag = function
   | Round_f32 _ -> 6
   | Reduce _ -> 7
   | Intrinsic _ -> 8
+  | Local _ -> 9
 
 let cmp_intrinsic ea eb (Intrinsic.Max_pool x) (Intrinsic.Max_pool y) =
   let open Intrinsic.Max_pool in
@@ -184,6 +187,7 @@ let compare a b =
         List.fold_left2
           (fun acc a b -> acc <?> fun () -> cmp_index ea eb a b)
           0 (Coord.to_list x) (Coord.to_list y)
+    | Local x, Local y -> Local_var.compare x y
     | Reduce r, Reduce s ->
         Stdlib.compare r.kind s.kind <?> fun () ->
         cmp_index ea eb r.lo s.lo <?> fun () ->
@@ -244,6 +248,7 @@ let hash e =
     | Value_of_index i -> idx env h i
     | Load (s, c) ->
         Coord.fold (fun h i -> idx env h i) (mix h (Source.hash s)) c
+    | Local v -> mix h (Local_var.hash v)
     | Reduce r ->
         let h = mix h (Hashtbl.hash r.kind) in
         let h = idx env (idx env h r.lo) r.hi in

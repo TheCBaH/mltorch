@@ -67,7 +67,7 @@ let names_in env v =
      of which can contain a binder. ([Bool.Index_eq] holds indices, which bind
      nothing.) Dropping a hand-off is silent -- two binders would share a name
      -- so the goldens are the guard. *)
-let value fmt e =
+let value_open ~names fmt e =
   let idx env fmt i = index ~names:(names_in env) fmt i in
   let rec at env n fmt (e : Value.t) =
     (* Eta-expanded so it stays polymorphic in the role: a reduction's [lo] is
@@ -91,6 +91,12 @@ let value fmt e =
           d.Intrinsic.Max_pool.kernel_w d.Intrinsic.Max_pool.stride_h
           d.Intrinsic.Max_pool.stride_w d.Intrinsic.Max_pool.pad_h
           d.Intrinsic.Max_pool.pad_w (Coord.pp idxe) d.Intrinsic.Max_pool.out;
+        n
+    | Value.Local v ->
+        Fmt.string fmt
+          (match names v with
+          | Some name -> name
+          | None -> Fmt.str "?%a" Local_var.pp v);
         n
     | Value.Load (s, c) ->
         Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idxe) c;
@@ -142,3 +148,5 @@ let value fmt e =
         n
   in
   ignore (at Reduce_var.Map.empty 1 fmt e : int)
+
+let value = value_open ~names:(fun _ -> None)

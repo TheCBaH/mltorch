@@ -8,7 +8,8 @@ type error =
   [ `Duplicate_binder of Reduce_var.t
   | `Free_reducer of Reduce_var.t
   | `Too_deep of int
-  | `Too_large of int ]
+  | `Too_large of int
+  | `Unbound_local of Local_var.t ]
 
 (* The payload is the LIMIT, not the measure. Reporting the actual size would
      mean measuring the whole tree, which is the thing the limit exists to
@@ -19,6 +20,7 @@ let pp_error fmt : [< error ] -> unit = function
   | `Free_reducer v -> Fmt.pf fmt "free reducer %a" Reduce_var.pp v
   | `Too_deep limit -> Fmt.pf fmt "depth exceeds limit %d" limit
   | `Too_large limit -> Fmt.pf fmt "size exceeds limit %d" limit
+  | `Unbound_local v -> Fmt.pf fmt "unbound local %a" Local_var.pp v
 
 (* A variable bound again inside its own scope. Two independently built
      fragments composed without freshening is how this arises in practice, and
@@ -28,7 +30,7 @@ let duplicate_binder e =
   let rec go bound (e : Value.t) =
     match e with
     | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
-      ->
+    | Value.Local _ ->
         None
     | Value.Binary (_, a, b) -> (
         match go bound a with None -> go bound b | some -> some)
@@ -60,7 +62,7 @@ let duplicate_binder e =
      to ride the same walk (see [Fold.measure]), so leaving one out must mean an
      unreachable bound rather than a separate pass. With both absent there is
      nothing to bound, and the walk is skipped. *)
-let value ?max_size ?max_depth e =
+let fragment ?max_size ?max_depth ~locals e =
   let open Err.Syntax in
   let or_unbounded = function Some l -> l | None -> Stdlib.max_int in
   let* () =
@@ -75,6 +77,13 @@ let value ?max_size ?max_depth e =
         | None -> Err.return ())
   in
   let* () =
+    match
+      Local_var.Set.min_elt_opt (Local_var.Set.diff (Fold.locals e) locals)
+    with
+    | Some v -> Err.fail (`Unbound_local v)
+    | None -> Err.return ()
+  in
+  let* () =
     match Reduce_var.Set.min_elt_opt (Fold.free_reducers e) with
     | Some v -> Err.fail (`Free_reducer v)
     | None -> Err.return ()
@@ -82,3 +91,6 @@ let value ?max_size ?max_depth e =
   match duplicate_binder e with
   | Some v -> Err.fail (`Duplicate_binder v)
   | None -> Err.return ()
+
+let value ?max_size ?max_depth e =
+  fragment ?max_size ?max_depth ~locals:Local_var.Set.empty e

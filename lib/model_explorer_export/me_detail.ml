@@ -30,6 +30,7 @@ let label (v : Expr.Value.t) =
   | Expr.Value.Binary (op, _, _) -> Expr.Value.binary_sym op
   | Expr.Value.Const c -> Printf.sprintf "const %g" c
   | Expr.Value.Intrinsic _ -> "max_pool"
+  | Expr.Value.Local _ -> "local"
   | Expr.Value.Load (src, _) -> Core.Pretty.to_string Expr.Source.pp src
   | Expr.Value.Reduce r -> Expr.Reduction.kind_name r.Expr.Reduction.kind
   | Expr.Value.Round_f32 _ -> "round_f32"
@@ -44,8 +45,8 @@ let label (v : Expr.Value.t) =
 let children (v : Expr.Value.t) =
   match v with
   | Expr.Value.Binary (_, a, b) -> [ a; b ]
-  | Expr.Value.Const _ | Expr.Value.Intrinsic _ | Expr.Value.Load _
-  | Expr.Value.Value_of_index _ ->
+  | Expr.Value.Const _ | Expr.Value.Intrinsic _ | Expr.Value.Local _
+  | Expr.Value.Load _ | Expr.Value.Value_of_index _ ->
       []
   | Expr.Value.Reduce r -> [ r.Expr.Reduction.body ]
   | Expr.Value.Round_f32 a -> [ a ]

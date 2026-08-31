@@ -90,8 +90,8 @@ let keep_indices = { on_index = (fun _ i -> i) }
      the composition rules that depend on that say so. *)
 let keep_load s c st = (Value.Load (s, c), st)
 
-let rec rebuild ~idx ~src ~on_load ~on_reduce env (e : Value.t) st =
-  let go = rebuild ~idx ~src ~on_load ~on_reduce env in
+let rec rebuild ~idx ~src ~on_load ~on_local ~on_reduce env (e : Value.t) st =
+  let go = rebuild ~idx ~src ~on_load ~on_local ~on_reduce env in
   let idxe i = idx.on_index env i in
   let unary wrap a st =
     let a, st = go a st in
@@ -99,6 +99,7 @@ let rec rebuild ~idx ~src ~on_load ~on_reduce env (e : Value.t) st =
   in
   match e with
   | Value.Const _ -> (e, st)
+  | Value.Local v -> on_local v st
   | Value.Binary (op, a, b) ->
       let a, st = go a st in
       let b, st = go b st in
@@ -122,7 +123,7 @@ let rec rebuild ~idx ~src ~on_load ~on_reduce env (e : Value.t) st =
   | Value.Reduce r ->
       let var, env', st = on_reduce env r.Reduction.var st in
       let body, st =
-        rebuild ~idx ~src ~on_load ~on_reduce env' r.Reduction.body st
+        rebuild ~idx ~src ~on_load ~on_local ~on_reduce env' r.Reduction.body st
       in
       ( Value.Reduce
           {
@@ -176,7 +177,9 @@ let freshen e s =
   in
   rebuild
     ~idx:{ on_index = (fun env i -> map_index_reducers (subst_env env) i) }
-    ~src:Fun.id ~on_load:keep_load ~on_reduce Reduce_var.Map.empty e s
+    ~src:Fun.id ~on_load:keep_load
+    ~on_local:(fun v st -> (Value.Local v, st))
+    ~on_reduce Reduce_var.Map.empty e s
 
 (* Deterministic renaming by lexical traversal: running [freshen] from a fixed
      initial supply gives binders the LOWEST ORDINALS NOT FREE in the
@@ -199,8 +202,9 @@ let substitute_output c e =
   fst
     (rebuild
        ~idx:{ on_index = (fun _ i -> subst_index c i) }
-       ~src:Fun.id ~on_load:keep_load ~on_reduce:keep_reducer () e
-       Builder.initial)
+       ~src:Fun.id ~on_load:keep_load
+       ~on_local:(fun v st -> (Value.Local v, st))
+       ~on_reduce:keep_reducer () e Builder.initial)
 
 (* [Data]'s own source is a real source dependency too (per [Fold.sources]),
    so [map_sources] cannot rewrite it via [keep_indices] the way it did before
@@ -231,7 +235,9 @@ let map_sources f e =
   fst
     (rebuild
        ~idx:{ on_index = (fun _ i -> map_index_sources f i) }
-       ~src:f ~on_load:keep_load ~on_reduce:keep_reducer () e Builder.initial)
+       ~src:f ~on_load:keep_load
+       ~on_local:(fun v st -> (Value.Local v, st))
+       ~on_reduce:keep_reducer () e Builder.initial)
 
 (* Replaces ordinary [Load] nodes with whole subtrees, in the SAME builder
      namespace as the destination — which is the point of returning a
@@ -251,4 +257,13 @@ let substitute_loads f e st =
       match f s c with
       | None -> (Value.Load (s, c), st)
       | Some replacement -> Builder.run_from st replacement)
+    ~on_local:(fun v st -> (Value.Local v, st))
+    ~on_reduce:keep_reducer () e st
+
+let substitute_locals f e st =
+  rebuild ~idx:keep_indices ~src:Fun.id ~on_load:keep_load
+    ~on_local:(fun v st ->
+      match f v with
+      | None -> (Value.Local v, st)
+      | Some replacement -> Builder.run_from st (freshen replacement))
     ~on_reduce:keep_reducer () e st

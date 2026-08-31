@@ -177,6 +177,7 @@ type error =
   | `Data_source_wrong_format of string
   | index_error
   | Intrinsic.error
+  | `Unbound_local of Local_var.t
   | `Unknown_source of Source.t ]
 
 let pp_error fmt : [< error ] -> unit = function
@@ -188,6 +189,7 @@ let pp_error fmt : [< error ] -> unit = function
   | #index_error as e -> pp_index_error fmt e
   | #Intrinsic.error as e -> Intrinsic.pp_error fmt e
   | `Unknown_source s -> Fmt.pf fmt "unknown source %a" Source.pp s
+  | `Unbound_local v -> Fmt.pf fmt "unbound local %a" Local_var.pp v
 
 module Env = struct
   (* The whole boundary between the language and its host. [Expr] supplies
@@ -212,7 +214,7 @@ let vchk esc : ('a, [< error ]) Err.t -> 'a = function
   | Ok v -> v
   | Error e -> Err.Escape.throw_error esc (e :> error Err.Error.t)
 
-let value (env : Env.t) ~output e =
+let value ?(local = fun _ -> None) (env : Env.t) ~output e =
   Err.Escape.with_escape @@ fun esc ->
   let vchk r = vchk esc r in
   (* [eval_index] is polymorphic in the caller's error row, and [env.load_index]
@@ -231,6 +233,10 @@ let value (env : Env.t) ~output e =
         Value.apply_binary op (go reducers a) (go reducers b)
     | Value.Const x -> x
     | Value.Intrinsic i -> intrinsic reducers i
+    | Value.Local v -> (
+        match local v with
+        | Some x -> x
+        | None -> Err.Escape.throw esc (`Unbound_local v))
     | Value.Load (s, c) -> vchk (env.Env.load s (Coord.map (idx reducers) c))
     | Value.Reduce r ->
         let lo = idx reducers r.Reduction.lo

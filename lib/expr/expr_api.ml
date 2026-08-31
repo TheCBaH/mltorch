@@ -43,6 +43,18 @@ module type S = sig
     module Set : Set.S with type elt = t
   end
 
+  module Local_var : sig
+    type t
+
+    val compare : t -> t -> int
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : Format.formatter -> t -> unit
+
+    module Map : Map.S with type key = t
+    module Set : Set.S with type elt = t
+  end
+
   module Index : sig
     (* [private]: consumers pattern-match but cannot construct, so an invalid
        divisor or a delta silently reused as a position cannot enter the AST.
@@ -229,6 +241,7 @@ module type S = sig
       | Binary of binary_op * t * t
       | Const of float
       | Intrinsic of Intrinsic.t
+      | Local of Local_var.t
       | Load of Source.t * Role.Position.t Index.t Coord.t
       | Reduce of Reduction.t
       | Round_f32 of t
@@ -256,6 +269,7 @@ module type S = sig
     val load : Source.t -> Role.Position.t Index.t Coord.t -> t
     val round_f32 : t -> t
     val intrinsic : Intrinsic.t -> t
+    val local : Local_var.t -> t
 
     (* [Ground_expr] stores these operator payloads and applies them, so they are
        public: it is what lets the ground language share one definition of the
@@ -309,6 +323,7 @@ module type S = sig
     val run : 'a t -> 'a
     val run_from : state -> 'a t -> 'a * state
     val fresh_reduce : Reduce_var.t t
+    val fresh_local : Local_var.t t
 
     module Syntax : sig
       val ( let* ) : 'a t -> ('a -> 'b t) -> 'b t
@@ -360,6 +375,7 @@ module type S = sig
         subtree could stand in for. Kept separate from [loads] because the two
         are treated differently, not because one is a subset of the other. *)
 
+    val locals : Value.t -> Local_var.Set.t
     val output_axes : Value.t -> Axis.t list
     val intrinsics : Value.t -> int
 
@@ -442,6 +458,9 @@ module type S = sig
         source and geometry, not a load node, so nothing inside it can be
         replaced by one scalar subtree. A caller needing to eliminate such a
         dependency must reject it. *)
+
+    val substitute_locals :
+      (Local_var.t -> Value.t option) -> Value.t -> Value.t Builder.t
   end
 
   module Check : sig
@@ -449,7 +468,8 @@ module type S = sig
       [ `Duplicate_binder of Reduce_var.t
       | `Free_reducer of Reduce_var.t
       | `Too_deep of int
-      | `Too_large of int ]
+      | `Too_large of int
+      | `Unbound_local of Local_var.t ]
     (** [`Too_large] and [`Too_deep] carry the LIMIT, not the measure: reporting
         the actual size would mean measuring the whole tree, which is what the
         limit is there to avoid. *)
@@ -458,6 +478,13 @@ module type S = sig
 
     val value :
       ?max_size:int -> ?max_depth:int -> Value.t -> (unit, error) Err.t
+
+    val fragment :
+      ?max_size:int ->
+      ?max_depth:int ->
+      locals:Local_var.Set.t ->
+      Value.t ->
+      (unit, error) Err.t
     (** Deliberately narrow. Division parameters, load roles and intrinsic
         dimensions are NOT rechecked: the smart constructors and the [Index]
         GADT make each unconstructable through the public API, so such a rule
@@ -572,6 +599,7 @@ module type S = sig
       | `Data_source_wrong_format of string
       | index_error
       | Intrinsic.error
+      | `Unbound_local of Local_var.t
       | `Unknown_source of Source.t ]
     (** [`Coord_out_of_range]/[`Unknown_source] are raised by the host's
         [Env.load], not by the language, which knows nothing about what a source
@@ -596,7 +624,12 @@ module type S = sig
           evaluator testable against a plain map. *)
     end
 
-    val value : Env.t -> output:int Coord.t -> Value.t -> (float, error) Err.t
+    val value :
+      ?local:(Local_var.t -> float option) ->
+      Env.t ->
+      output:int Coord.t ->
+      Value.t ->
+      (float, error) Err.t
     (** The reference interpreter.
 
         [Select] evaluates only the selected branch. [Reduce] is the ordered
@@ -622,6 +655,12 @@ module type S = sig
         output cannot depend on allocation history. *)
 
     val value : Format.formatter -> Value.t -> unit
+
+    val value_open :
+      names:(Local_var.t -> string option) ->
+      Format.formatter ->
+      Value.t ->
+      unit
     (** Assigns reducer display names r1, r2, ... in LEXICAL order, so two
         structurally identical formulas built by independent supplies print
         identically. The naming environment is SCOPED, so sibling scopes binding
