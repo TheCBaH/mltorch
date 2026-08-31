@@ -12,6 +12,7 @@ let targets =
     "torch.ops.aten._unsafe_view.default";
     "torch.ops.aten.alias.default";
     "torch.ops.aten.cat.default";
+    "torch.ops.aten.copy.default";
     "torch.ops.aten.expand.default";
     "torch.ops.aten.pad.default";
     "torch.ops.aten.permute.default";
@@ -277,6 +278,25 @@ let dispatch ~ctx ~env (node : Node.t) =
                    (List.map (env_find esc env) names)
                in
                return [ y ])
+       (* `copy(Tensor self, Tensor src, bool non_blocking=False) -> Tensor`.
+         [self]'s VALUE never matters -- real ATen's [copy_]/[copy] fully
+         OVERWRITES [self] with [src] broadcast to [self]'s shape, so the
+         result depends only on [src]'s values and [self]'s declared shape,
+         never on what [self] held before. [non_blocking] is a
+         device-transfer hint, read-and-discarded. Binds directly to the
+         EXISTING [Pointwise.Expand] node -- see [Op_bridge]'s own arm for
+         the full "map onto an existing op" reasoning (the corpus's own
+         occurrences are the functionalized form of `tensor[idx] = value`,
+         always equal-shape, but the translation is the fully general
+         broadcast regardless). [self]'s declared shape is already a
+         right-aligned [Vec6.shape] via [tensor_shape] -- no [-1]/rank
+         resolution needed, unlike [expand.default]'s own [size] argument. *)
+       | "torch.ops.aten.copy.default" ->
+           let self_name = tensor_name esc node "self" in
+           let target = tensor_shape esc graph self_name in
+           let (_ : bool) = bool_arg esc node "non_blocking" in
+           let* y = expand { Pointwise.Expand.size = target } (get "src") in
+           return [ y ]
        (* One [Stack] node: inserts a size-1 axis per operand at [axis], then
          joins them -- see [Op_bridge]'s arm for why (ATen's own definition),
          and [unsqueeze.default] below for the rank+1 [dim] convention this

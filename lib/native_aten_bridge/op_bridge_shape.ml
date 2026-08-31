@@ -39,6 +39,41 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
              fail (`Unsupported_memory_format `Channels_last)
          | Some Aten_memory_format.ChannelsLast3d ->
              fail (`Unsupported_memory_format `Channels_last_3d))
+  (* `copy(Tensor self, Tensor src, bool non_blocking=False) -> Tensor`.
+     [self]'s VALUE never matters -- real ATen's [copy_]/[copy] fully
+     OVERWRITES [self] with [src] broadcast to [self]'s shape, so the result
+     depends only on [src]'s values and [self]'s declared shape/dtype, never
+     on what [self] held before. [non_blocking] is a device-transfer hint,
+     irrelevant to this single-device engine, read-and-discarded the same
+     way [implicit] is in [expand.default]'s arm below. Binds directly to
+     the EXISTING [Pointwise.Expand] node -- the corpus's own occurrences
+     are exclusively the functionalized form of `tensor[idx] = value`
+     (`self` is a [select.int] view, immediately followed by a
+     [select_scatter.default] writing the result back), where [self] and
+     [src] always share one shape (verified: zero broadcasts, zero dtype
+     casts across every occurrence in the 100-model corpus), but the
+     translation is the fully general one regardless: `Expand{size=self's
+     shape}` applied to [src] computes exactly ATen's own broadcast, not an
+     overfit to the observed equal-shape case. The same "map onto an
+     existing op after translating parameters" route [sub.Tensor]'s scalar
+     form takes to [Add_scalar] -- one node, [copy.default]'s own identity
+     not preserved in the graph, same as that arm's. *)
+  | "torch.ops.aten.copy.default" ->
+      Some
+        (let* self_t = tensor_arg aten_env node "self" in
+         let* (_ : bool) = bool_arg node "non_blocking" in
+         let* target =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.of_aten (Aten_tensor.shape self_t))
+         in
+         let* src = native_tensor_arg aten_env node "src" in
+         build_g ~name:"copy" [ src ] (function
+           | [ src_id ] ->
+               let open Graph_builder in
+               let+ y = expand { Pointwise.Expand.size = target } src_id in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.permute.default" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
