@@ -194,6 +194,15 @@ let per_op () =
                  fmt = Payload.Fmt Payload.F32;
                }),
           [] ) );
+      ( "eye4",
+        ( build
+            ~outputs:(fun y -> [ y ])
+            (Builder.eye4
+               {
+                 Ops4.Eye4.shape = s4 ~n:1 ~h:1 ~w:2 ~c:3;
+                 fmt = Payload.Fmt Payload.F32;
+               }),
+          [] ) );
       ( "batch_norm_no_stats",
         ( build ~outputs:Fun.id
             (let open Builder in

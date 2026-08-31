@@ -205,6 +205,35 @@ let%expect_test "arange default Long and start Float lower" =
       n0: [t1 f32 [C=4]] = arange params={start=0.5; stop=4; step=1; fmt=f32}
     outputs: [t1 f32 [C=4] <-n0] |}]
 
+let eye_node ?dtype () =
+  let dtype =
+    match dtype with
+    | None -> ""
+    | Some d ->
+        jstr {|,{"name":"dtype","arg":{"as_scalar_type":%d},"kind":1}|} d
+  in
+  jstr
+    {|{"target":"torch.ops.aten.eye.m","inputs":[{"name":"n","arg":{"as_int":2},"kind":1},{"name":"m","arg":{"as_int":3},"kind":1}%s,{"name":"device","arg":{"as_device":{"type":"cpu","index":null}},"kind":2},{"name":"pin_memory","arg":{"as_bool":false},"kind":2}],"outputs":[%s],"metadata":{}}|}
+    dtype (as_tensor "y")
+
+let%expect_test "eye.m lowers with default and DOUBLE dtype" =
+  dump "default:" (prog (eye_node ()));
+  dump "double:" (prog (eye_node ~dtype:8 ()));
+  [%expect
+    {|
+    default:
+    graph
+    inputs: [t0 f32 [W=2 C=3]]
+    nodes:
+      n0: [t1 f32 [W=2 C=3]] = eye params={shape=[W=2 C=3]; fmt=f32}
+    outputs: [t1 f32 [W=2 C=3] <-n0]
+    double:
+    graph
+    inputs: [t0 f32 [W=2 C=3]]
+    nodes:
+      n0: [t1 f64 [W=2 C=3]] = eye params={shape=[W=2 C=3]; fmt=f64}
+    outputs: [t1 f64 [W=2 C=3] <-n0] |}]
+
 let gelu_node ?approximate () =
   let arg name a = jstr {|{"name":"%s","arg":%s,"kind":1}|} name a in
   let inputs =

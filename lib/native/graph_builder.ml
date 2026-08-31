@@ -262,6 +262,9 @@ let discard x = push_node (Discard { x }) []
 let expand ?name params x =
   op1 ?name ~kind:"expand" (Expand { Pointwise.Expand.params; x })
 
+let eye ?name params =
+  op1 ?name ~fmt:params.Factory.Eye.fmt ~kind:"eye" (Eye { Factory.Eye.params })
+
 let gelu ?name (approximate : Pointwise.Gelu.approximate) x =
   op1 ?name ~kind:"gelu" (Gelu { Pointwise.Gelu.x; approximate })
 

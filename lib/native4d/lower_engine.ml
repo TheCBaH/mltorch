@@ -350,6 +350,12 @@ let lower_node ~view acc (n : node) =
       emit acc ~from:node
         (Op.Zeros4 { Ops4.Zeros4.params = { shape; fmt = params.fmt } })
         [ single () ]
+  | Eye { Factory.Eye.params } ->
+      let* shape = sig_of (single ()) in
+      let+ shape = shape4 ~id:(single ()) shape in
+      emit acc ~from:node
+        (Op.Eye4 { Ops4.Eye4.params = { shape; fmt = params.fmt } })
+        [ single () ]
   | Relu { Pointwise.Relu.x } -> simple (Op.Relu { Pointwise.Relu.x = op_of x })
   (* A direct counterpart, the same shape [Expand]'s own arm has: [repeats]
      converts through [shape4] exactly like [Expand]'s [size] does, and

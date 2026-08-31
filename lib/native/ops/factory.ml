@@ -41,6 +41,57 @@ module Zeros = struct
   end
 end
 
+(* A rank-2 identity-matrix factory.  [Aten_shape.of_aten] right-aligns a
+ * rank-2 ATen shape onto [W;C] (the innermost two frame axes), so [n]'s rows
+ * land on [W] and [m]'s columns on [C] -- fixed axes, the same assumption
+ * [Arange]'s own pixel makes for its single [C] axis. *)
+module Eye = struct
+  type params = { shape : Vec6.shape; fmt : Payload.packed_fmt }
+  type t = { params : params }
+
+  let name = "Eye"
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"eye_params" (fun shape fmt -> { shape; fmt })
+    |> Jsont.Object.mem "shape" Vec6.shape_jsont ~enc:(fun p -> p.shape)
+    |> Jsont.Object.mem "fmt" Payload.packed_fmt_jsont ~enc:(fun p -> p.fmt)
+    |> Jsont.Object.finish
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { params = Json_util.req_field ms "params" params_jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("params", Json_util.enc params_jsont t.params) ])
+      Jsont.json
+
+  let operands _ = []
+  let map_operands _ t = t
+
+  let pp_params fmt (p : params) =
+    let (Payload.Fmt elt) = p.fmt in
+    Fmt.pf fmt "@[<hv>{shape=%a;@ fmt=%s}@]" Vec6.pp_shape p.shape
+      (Payload.fmt_name elt)
+
+  let pp _ fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>eye@ params=%a@]" pp_params t.params
+
+  let output_shape (p : params) = Err.return p.shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* [1] on the diagonal ([w = c]), [0] elsewhere -- a single [index_eq],
+     * the same "compare via the index domain" idiom [Pad]'s reflect region
+     * test uses, needing no new [SEMANTICS] primitive. *)
+    let pixel _ (out : Semantics.position S.index Vec6.t) =
+      let diff =
+        S.index_add (S.of_index out.Vec6.w)
+          (S.index_scale (-1) (S.of_index out.Vec6.c))
+      in
+      S.select (S.index_eq diff (S.index_const 0)) (S.const 1.) (S.const 0.)
+  end
+end
+
 (* A bounded, endpoint-exclusive range factory.  Keeping the three scalar
  * bounds in the payload (rather than lowering it to an opaque constant) lets
  * direct evaluation and symbolic compilation share the same coordinate rule.

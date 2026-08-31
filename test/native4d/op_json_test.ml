@@ -263,6 +263,14 @@ let samples : Op.t list =
             fmt = Payload.Fmt Payload.F64;
           };
       };
+    Eye4
+      {
+        Ops4.Eye4.params =
+          {
+            shape = Shape4.of_ints ~n:1 ~h:1 ~w:2 ~c:3;
+            fmt = Payload.Fmt Payload.F32;
+          };
+      };
   ]
 
 (* THE COVERAGE CHECK. Every constructor has exactly one registry entry, so if
@@ -270,7 +278,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 53, registry: 53 |}]
+  [%expect {| samples: 54, registry: 54 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -362,7 +370,8 @@ let%expect_test "op4: printed" =
     upsample_nearest2d x=t0 params={output_size={h=5; w=5}}
     vector_norm_keepdims x=t0 params={dims=[H, W]}
     arange4 start=0.5 stop=4 step=1 fmt=f32
-    zeros4 shape=[N=1 H=2 W=3 C=4] fmt=f64 |}]
+    zeros4 shape=[N=1 H=2 W=3 C=4] fmt=f64
+    eye4 shape=[N=1 H=1 W=2 C=3] fmt=f32 |}]
 
 let%expect_test "op4: round-trips through JSON" =
   List.iter
@@ -374,7 +383,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 53 ops |}]
+  [%expect {| round-tripped 54 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

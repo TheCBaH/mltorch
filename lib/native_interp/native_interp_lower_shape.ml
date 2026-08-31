@@ -15,6 +15,7 @@ let targets =
     "torch.ops.aten.cat.default";
     "torch.ops.aten.copy.default";
     "torch.ops.aten.expand.default";
+    "torch.ops.aten.eye.m";
     "torch.ops.aten.pad.default";
     "torch.ops.aten.permute.default";
     "torch.ops.aten.repeat.default";
@@ -153,6 +154,59 @@ let dispatch ~ctx ~env (node : Node.t) =
                (List.map (fun i -> SymInt.Int i) (ints_arg esc node "size"))
            in
            let* y = zeros { Factory.Zeros.shape; fmt } in
+           return [ y ]
+       (* [eye.m(SymInt n, SymInt m, *, ScalarType? dtype=None, Layout?
+         layout=None, Device? device=None, bool? pin_memory=None) -> Tensor],
+         the same trailing-argument rejection/dtype dispatch [zeros.default]'s
+         own arm above uses -- [n]/[m] are two scalar [SymInt]s rather than a
+         [SymInt[]] list, so they are read with [int_arg] and packed into
+         [shape_of_sizes]'s own list form. *)
+       | "torch.ops.aten.eye.m" ->
+           let optional name =
+             List.find_opt
+               (fun (a : NamedArgument.t) -> a.name = name)
+               node.Node.inputs
+             |> Option.map (fun a -> a.NamedArgument.arg)
+           in
+           let fmt =
+             match optional "dtype" with
+             | None | Some (Argument.None _) -> Payload.Fmt Payload.F32
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
+                 Payload.Fmt Payload.F32
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.DOUBLE) ->
+                 Payload.Fmt Payload.F64
+             | Some _ ->
+                 malformed esc
+                   (`Unsupported_option { op = node.target; option = `Dtype })
+           in
+           List.iter
+             (fun name ->
+               match optional name with
+               | None | Some (Argument.None _) -> ()
+               | Some _ ->
+                   malformed esc
+                     (`Wrong_arg_kind
+                        { op = node.target; arg = name; expected = `Tensor }))
+             [ "layout" ];
+           (match optional "device" with
+           | None | Some (Argument.None _) -> ()
+           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "device"; expected = `Tensor }));
+           (match optional "pin_memory" with
+           | None | Some (Argument.None _) | Some (Argument.Bool false) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "pin_memory"; expected = `Bool }));
+           let n = int_arg esc node "n" in
+           let m = int_arg esc node "m" in
+           let shape =
+             shape_of_sizes esc "eye.m" [ SymInt.Int n; SymInt.Int m ]
+           in
+           let* y = eye { Factory.Eye.shape; fmt } in
            return [ y ]
        (* [_assert_tensor_metadata(Tensor a, SymInt[]? size=None, SymInt[]?
          stride=None, ScalarType? dtype=None, *, Device? device=None, Layout?

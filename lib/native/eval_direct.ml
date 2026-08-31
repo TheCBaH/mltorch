@@ -147,6 +147,10 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
               ~axis:params.Split.Split_with_sizes.axis ~offset ~shape:out_shape
         | Zeros { Factory.Zeros.params } ->
             Tensor.materialize_fmt params.fmt out_shape (fun _ -> 0.)
+        | Eye { Factory.Eye.params } ->
+            Tensor.materialize_fmt params.fmt out_shape (fun coord ->
+                if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
+                else 0.)
         | Arange { Factory.Arange.params } -> (
             match params.fmt with
             | Payload.Fmt Payload.I64 ->

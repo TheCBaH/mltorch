@@ -136,6 +136,11 @@ let eval_node (g : Graph.graph) env (node : Graph.node) =
                 Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
                   (fun coord ->
                     Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
+        | Op.Eye4 { Ops4.Eye4.params } ->
+            Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
+              (fun coord ->
+                if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
+                else 0.)
         | _ ->
             Schedule.evaluate (Shape4.to_vec6 out_shape)
               (E.pixel op ~output

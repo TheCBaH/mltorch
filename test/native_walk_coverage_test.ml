@@ -506,6 +506,7 @@ let%expect_test "bridge coverage" =
       torch.ops.aten.dropout.default
       torch.ops.aten.dropout_.default
       torch.ops.aten.eq.Scalar
+      torch.ops.aten.eye.m
       torch.ops.aten.full_like.default
       torch.ops.aten.reshape.default
       torch.ops.aten.rsub.Scalar

@@ -36,6 +36,7 @@ type op =
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
   | Expand of Pointwise.Expand.t
+  | Eye of Factory.Eye.t
   | Gelu of Pointwise.Gelu.t
   | Group_norm of Norm.GroupNorm.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
@@ -245,6 +246,12 @@ let op_registry : (module OP) list =
 
       let inject t = Expand t
       let project = function Expand t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Factory.Eye
+
+      let inject t = Eye t
+      let project = function Eye t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Gelu

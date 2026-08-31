@@ -95,6 +95,28 @@ let%expect_test "verify: arange.start Float against real ATen" =
   [%expect {|
     aten and native agree |}]
 
+(* [n <> m] (2x3), so a transposed row/column comparison would visibly
+   misplace the diagonal ones. *)
+let%expect_test "dispatch: eye.m preserves default and DOUBLE dtypes" =
+  dispatch_print ~target:"torch.ops.aten.eye.m" ~bindings:[]
+    ~inputs:[ in_int "n" 2; in_int "m" 3 ]
+    ~noutputs:1;
+  dispatch_print ~target:"torch.ops.aten.eye.m" ~bindings:[]
+    ~inputs:
+      [
+        in_int "n" 2; in_int "m" 3; in_scalar_type "dtype" PT.ScalarType.DOUBLE;
+      ]
+    ~noutputs:1;
+  [%expect
+    {|
+    tensor f32 [W=2 C=3] {1, 0, 0, 0, 1, 0}
+    tensor f64 [W=2 C=3] {1, 0, 0, 0, 1, 0} |}]
+
+let%expect_test "verify: eye.m against real ATen" =
+  verify_print ~target:"torch.ops.aten.eye.m" ~bindings:[]
+    ~inputs:[ in_int "n" 3; in_int "m" 2 ];
+  [%expect {| aten and native agree |}]
+
 let%expect_test "dispatch: mul.Tensor with a serialized scalar" =
   let a = float_tensor [ 2; 2 ] [ -6.; -0.5; 0.5; 6. ] in
   dispatch_print ~target:"torch.ops.aten.mul.Tensor"

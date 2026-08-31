@@ -81,7 +81,7 @@ let classify (op : Op.t) ~output:_ =
      [Output_transfer]'s own [Upsample_nearest2d] arm for the full argument. *)
   | Upsample_nearest2d _ -> Output_transfer.Reindexing
   | Vector_norm_keepdims _ -> Output_transfer.Continuous
-  | Arange4 _ | Zeros4 _ -> Output_transfer.Continuous
+  | Arange4 _ | Eye4 _ | Zeros4 _ -> Output_transfer.Continuous
 
 module Transfer = Output_transfer.Make (struct
   type nonrec op = Op.t

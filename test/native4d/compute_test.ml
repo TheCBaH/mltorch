@@ -536,7 +536,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 53, registry: 53 |}]
+  [%expect {| fixtures: 54, registry: 54 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -559,6 +559,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     leaky_relu             direct = symbolic
     zeros4                 direct = symbolic
     arange4                direct = symbolic
+    eye4                   direct = symbolic
     batch_norm_no_stats    out0 direct = symbolic
     batch_norm_no_stats    out1 direct = symbolic
     batch_norm_no_stats    out2 direct = symbolic

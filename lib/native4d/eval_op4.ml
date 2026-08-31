@@ -330,4 +330,9 @@ module Make (S : Semantics.SEMANTICS) = struct
             Factory.Zeros.shape = Shape4.to_vec6 params.shape;
             fmt = params.fmt;
           }
+    | Eye4 { Ops4.Eye4.params } ->
+        let module C = Factory.Eye.Compute (S) in
+        C.pixel
+          { Factory.Eye.shape = Shape4.to_vec6 params.shape; fmt = params.fmt }
+          out
 end

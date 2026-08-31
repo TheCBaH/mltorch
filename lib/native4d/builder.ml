@@ -301,6 +301,8 @@ let arange4 params =
 let zeros4 params =
   op1 ~fmt:params.Ops4.Zeros4.fmt (Op.Zeros4 { Ops4.Zeros4.params })
 
+let eye4 params = op1 ~fmt:params.Ops4.Eye4.fmt (Op.Eye4 { Ops4.Eye4.params })
+
 let build ?(dtype = f32) ~outputs (m : 'a t) =
   let s0 =
     {

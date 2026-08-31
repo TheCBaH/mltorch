@@ -68,3 +68,35 @@ let%expect_test "symbolic F32 arange reaches the kernel adapter" =
   | Ok _ -> print_endline "kernel accepted"
   | Error e -> Format.printf "%a@." Kernel_adapt.pp_error (Err.Error.kind e));
   [%expect {| kernel accepted |}]
+
+(* [n <> m] (2x3), so a transposed row/column comparison would visibly
+   misplace the diagonal ones. *)
+let%expect_test "direct: eye preserves F64 dtype, diagonal on w=c" =
+  let g =
+    build
+      (Graph_builder.eye
+         {
+           Factory.Eye.shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3;
+           fmt = Payload.Fmt Payload.F64;
+         })
+  in
+  let env =
+    Eval_direct.run g ~inputs:[] |> Err.or_raise ~pp_error:Eval_direct.pp_error
+  in
+  Format.printf "%a@." Tensor.pp
+    (Tensor_id.Map.find (List.hd g.Graph_ir.Graph.outputs) env);
+  [%expect {| tensor f64 [W=2 C=3] {1, 0, 0, 0, 1, 0} |}]
+
+let%expect_test "symbolic F32 eye reaches the kernel adapter" =
+  let g =
+    build
+      (Graph_builder.eye
+         {
+           Factory.Eye.shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:3;
+           fmt = Payload.Fmt Payload.F32;
+         })
+  in
+  (match Kernel_adapt.of_stage_program (Eval_symbolic.run g) with
+  | Ok _ -> print_endline "kernel accepted"
+  | Error e -> Format.printf "%a@." Kernel_adapt.pp_error (Err.Error.kind e));
+  [%expect {| kernel accepted |}]

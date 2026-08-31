@@ -753,6 +753,66 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            |> Err.map_error (fun e -> `Build e)
          in
          return (g, []))
+  (* [eye.m(SymInt n, SymInt m, *, ScalarType? dtype=None, Layout? layout=None,
+     Device? device=None, bool? pin_memory=None) -> Tensor], the rank-2
+     identity-matrix factory -- the same [layout]/[device]/[pin_memory]
+     rejection and FLOAT/DOUBLE dtype dispatch [zeros.default]'s own arm
+     uses, since the trailing argument list is identical. *)
+  | "torch.ops.aten.eye.m" ->
+      Some
+        (let* n = int_arg node "n" in
+         let* m = int_arg node "m" in
+         let* shape =
+           Aten_shape.of_aten [| n; m |]
+           |> Err.map_error (fun e -> `Aten_shape e)
+         in
+         let* fmt =
+           match D.find_arg node "dtype" with
+           | None | Some (Argument.None _) -> return (Payload.Fmt Payload.F32)
+           | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
+               return (Payload.Fmt Payload.F32)
+           | Some (Argument.Scalar_type Pytorch_types.ScalarType.DOUBLE) ->
+               return (Payload.Fmt Payload.F64)
+           | Some _ ->
+               fail
+                 (`Validation_failure
+                    "eye.m: only default/FLOAT and DOUBLE dtype are supported")
+         in
+         let reject_absent name =
+           match D.find_arg node name with
+           | None | Some (Argument.None _) -> return ()
+           | Some _ ->
+               fail
+                 (`Validation_failure
+                    ("eye.m: " ^ name ^ " must be omitted or None"))
+         in
+         let* () = reject_absent "layout" in
+         let* () =
+           match D.find_arg node "device" with
+           | None | Some (Argument.None _) -> return ()
+           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) ->
+               return ()
+           | Some _ ->
+               fail
+                 (`Validation_failure
+                    "eye.m: device must be omitted/None or CPU without an index")
+         in
+         let* () =
+           match D.find_arg node "pin_memory" with
+           | None | Some (Argument.None _) | Some (Argument.Bool false) ->
+               return ()
+           | Some _ ->
+               fail
+                 (`Validation_failure
+                    "eye.m: pin_memory must be omitted/None or false")
+         in
+         let* g =
+           Graph_builder.build ~name:"eye"
+             ~outputs:(fun y -> [ y ])
+             (Graph_builder.eye { Factory.Eye.shape; fmt })
+           |> Err.map_error (fun e -> `Build e)
+         in
+         return (g, []))
   | ("torch.ops.aten.arange.default" | "torch.ops.aten.arange.start") as target
     ->
       Some

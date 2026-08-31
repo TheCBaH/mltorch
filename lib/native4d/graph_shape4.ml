@@ -514,3 +514,4 @@ let output_shape (op : Op.t)
       in
       one (four (Factory.Arange.output_shape native))
   | Zeros4 { Ops4.Zeros4.params } -> Err.return [ params.shape ]
+  | Eye4 { Ops4.Eye4.params } -> Err.return [ params.shape ]

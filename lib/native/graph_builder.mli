@@ -142,6 +142,10 @@ val discard : tensor_ref -> unit t
 val expand :
   ?name:string -> Pointwise.Expand.params -> tensor_ref -> Tensor_id.t t
 
+(* A rank-2 identity-matrix factory, matching [zeros]/[arange]'s dtype
+   retention. *)
+val eye : ?name:string -> Factory.Eye.params -> Tensor_id.t t
+
 val gelu :
   ?name:string -> Pointwise.Gelu.approximate -> tensor_ref -> Tensor_id.t t
 

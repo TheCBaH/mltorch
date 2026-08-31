@@ -857,3 +857,36 @@ module Arange4 = struct
     Fmt.pf fmt "@[<hv 2>arange4@ start=%g@ stop=%g@ step=%g@ fmt=%s@]"
       t.params.start t.params.stop t.params.step (Payload.fmt_name elt)
 end
+
+(* The four-axis counterpart of [Factory.Eye], the same [Shape4.t]-typed
+ * treatment [Zeros4] gets: rows/columns land on [W]/[C] by construction
+ * (both real dialect axes), so no separate axis-domain rejection is needed. *)
+module Eye4 = struct
+  type params = { shape : Shape4.t; fmt : Payload.packed_fmt }
+  type t = { params : params }
+
+  let name = "Eye4"
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"eye4_params" (fun shape fmt -> { shape; fmt })
+    |> Jsont.Object.mem "shape" Shape4.jsont ~enc:(fun p -> p.shape)
+    |> Jsont.Object.mem "fmt" Payload.packed_fmt_jsont ~enc:(fun p -> p.fmt)
+    |> Jsont.Object.finish
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        { params = Json_util.req_field ms "params" params_jsont name })
+      ~enc:(fun t ->
+        Json_util.jobj [ ("params", Json_util.enc params_jsont t.params) ])
+      Jsont.json
+
+  let operands _ = []
+  let map_operands _ t = t
+
+  let pp _ fmt (t : t) =
+    let (Payload.Fmt elt) = t.params.fmt in
+    Fmt.pf fmt "@[<hv 2>eye4@ shape=%a@ fmt=%s@]" Shape4.pp t.params.shape
+      (Payload.fmt_name elt)
+end

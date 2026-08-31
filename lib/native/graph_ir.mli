@@ -59,6 +59,7 @@ type op =
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
   | Expand of Pointwise.Expand.t
+  | Eye of Factory.Eye.t
   | Gelu of Pointwise.Gelu.t
   (* Reshapes [channel] into [groups] equal chunks and normalises each
      (N, group) slice over that chunk plus every axis but N and [channel] --

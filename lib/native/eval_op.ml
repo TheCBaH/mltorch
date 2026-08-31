@@ -124,6 +124,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Expand { Pointwise.Expand.params = _; x } ->
         let module C = Pointwise.Expand.Compute (S) in
         C.pixel ~x_shape:(shape_of x) (operand x) out
+    | Eye { Factory.Eye.params } ->
+        let module C = Factory.Eye.Compute (S) in
+        C.pixel params out
     | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
         C.pixel approximate (operand x) out

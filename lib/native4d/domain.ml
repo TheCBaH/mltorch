@@ -210,7 +210,7 @@ let check_node view (n : node) =
   | Relu _ | Repeat _ | Reshape _ | Rsub_scalar _ | Sigmoid _ | Silu _ | Sqrt _
   | Sub _ | To_copy _ | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
       Err.return ()
-  | Arange _ | Zeros _ -> Err.return ()
+  | Arange _ | Eye _ | Zeros _ -> Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
   | Batch_norm_no_stats { Norm.BatchNormNoStats.params; _ } ->
       if Axis.equal params.channel Axis.C then Err.return ()

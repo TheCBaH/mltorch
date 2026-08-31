@@ -59,6 +59,7 @@ let curated_selection =
     op "arange";
     op "arange" ~overload:"start";
     op "zeros";
+    op "eye" ~overload:"m";
     op "silu";
     op "silu_";
     op "reshape";
