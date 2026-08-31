@@ -48,6 +48,7 @@ let targets =
     "torch.ops.aten.relu.default";
     "torch.ops.aten.rms_norm.default";
     "torch.ops.aten.rsqrt.default";
+    "torch.ops.aten.rsub.Scalar";
     "torch.ops.aten.scaled_dot_product_attention.default";
     "torch.ops.aten.sigmoid.default";
     "torch.ops.aten.silu.default";
@@ -464,6 +465,16 @@ let dispatch ~ctx ~env (node : Node.t) =
           reciprocal-of-sqrt special case its [Compute] already implements. *)
        | "torch.ops.aten.rsqrt.default" ->
            let* y = pow (-0.5) (get "self") in
+           return [ y ]
+       (* [other - alpha * self]: genuinely its own node, not a legalization
+         onto [Mul_scalar]/[Add_scalar] -- composing those would decompose
+         one ATen node into two Native ones. *)
+       | "torch.ops.aten.rsub.Scalar" ->
+           let other = required_scalar_arg esc node "other" in
+           let alpha = scalar_arg esc ~default:1. node "alpha" in
+           let* y =
+             rsub_scalar { Pointwise.Rsub_scalar.other; alpha } (get "self")
+           in
            return [ y ]
        | "torch.ops.aten.add.Tensor" -> (
            reject_alpha esc node;

@@ -499,6 +499,7 @@ let%expect_test "bridge coverage" =
       torch.ops.aten.eq.Scalar
       torch.ops.aten.full_like.default
       torch.ops.aten.reshape.default
+      torch.ops.aten.rsub.Scalar
       torch.ops.aten.select.int
       torch.ops.aten.select_scatter.default
       torch.ops.aten.split.Tensor

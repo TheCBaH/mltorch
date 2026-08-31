@@ -56,6 +56,7 @@ type op =
   | RepeatInterleave of Repeat.RepeatInterleave.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
+  | Rsub_scalar of Pointwise.Rsub_scalar.t
   | Sdpa of Attention.Sdpa.t
   | Select of Split.Select.t
   | Select_scatter of Split.Select_scatter.t
@@ -358,6 +359,12 @@ let op_registry : (module OP) list =
 
       let inject t = Rms_norm t
       let project = function Rms_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Rsub_scalar
+
+      let inject t = Rsub_scalar t
+      let project = function Rsub_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
       include Attention.Sdpa

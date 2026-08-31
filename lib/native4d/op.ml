@@ -57,6 +57,7 @@ type op =
   | Relu of Pointwise.Relu.t
   | Reshape4 of Ops4.Reshape4.t
   | Rms_norm of Ops4.Rms_norm.t
+  | Rsub_scalar of Pointwise.Rsub_scalar.t
   | Select4 of Ops4.Select4.t
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
@@ -281,6 +282,12 @@ let op_registry : (module OP) list =
 
       let inject t = Rms_norm t
       let project = function Rms_norm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Rsub_scalar
+
+      let inject t = Rsub_scalar t
+      let project = function Rsub_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Select4

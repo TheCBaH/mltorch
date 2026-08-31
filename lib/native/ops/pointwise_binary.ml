@@ -332,6 +332,65 @@ module Pow = struct
   end
 end
 
+(* `rsub.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor` computes
+   [other - alpha * self] -- the REVERSE of [sub.Tensor]'s scalar form
+   ([self - alpha * other]), and genuinely its own op rather than a
+   legalization onto [Add_scalar]/[Mul_scalar]: composing those two would
+   decompose one ATen node into two Native ones, the exact failure mode
+   .ai/native_add_op.md's design goal rules out (unlike [sub.Tensor]'s own
+   scalar form, which legalizes to [Add_scalar] alone with a negated scalar
+   -- ONE node, not two). [other]/[alpha] are both compile-time constants,
+   the same discipline [Pow]'s [scalar] follows: an ATen [Scalar] argument is
+   never wired from another node's output. *)
+module Rsub_scalar = struct
+  type params = { other : float; alpha : float }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"rsub_scalar_params" (fun other alpha ->
+        { other; alpha })
+    |> Jsont.Object.mem "other" Json_util.f32_jsont ~enc:(fun p -> p.other)
+    |> Jsont.Object.mem "alpha" Json_util.f32_jsont ~enc:(fun p -> p.alpha)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{other=%a;@ alpha=%a}@]" Fmt.float p.other Fmt.float
+      p.alpha
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Rsub_scalar"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        {
+          params = Json_util.req_field ms "params" params_jsont name;
+          x = Json_util.req_field ms "x" Tensor_ref.jsont name;
+        })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>rsub_scalar@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
+
+  let output_shape (x_shape : Vec6.shape) = Err.return x_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel (p : params) x (out : Semantics.position S.index Vec6.t) =
+      S.sub (S.const p.other) (S.mul (S.const p.alpha) (S.load x out))
+  end
+end
+
 module Sub = struct
   type t = Bin.t
 

@@ -91,6 +91,11 @@ type op =
   | RepeatInterleave of Repeat.RepeatInterleave.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
+  (* `rsub.Scalar`'s own op: [other - alpha * self], the reverse of
+     [sub.Tensor]'s scalar form, which legalizes to [Add_scalar] instead --
+     this one needs its own node because it composes a multiply and a
+     subtract, two Native ops, on one input. *)
+  | Rsub_scalar of Pointwise.Rsub_scalar.t
   | Sdpa of Attention.Sdpa.t
   (* Picks one index along one axis and DROPS it, unlike [Slice] which keeps a
      strided range at unchanged rank. Reuses [Slice]'s [output_shape]/[Compute]

@@ -547,6 +547,193 @@ let%expect_test
     captures=1 applies=1 cache_hits=1
     tensor f32 [C=1] {2.82843} |}]
 
+let%expect_test "Const-SSA: captured input and rsub_scalar export" =
+  let input = sig_ 1 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:1) in
+  let output = sig_ 2 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:1) in
+  let plan =
+    match
+      Const_ssa.add Const_ssa.empty ~id:(value 1)
+        (Const_ssa.Leaf
+           {
+             leaf = Const_ssa.Captured (Const_ssa.Capture.of_string "weight");
+             output = input;
+           })
+    with
+    | Ok plan ->
+        Const_ssa.add plan ~id:(value 2)
+          (Const_ssa.Apply
+             {
+               op =
+                 Graph_ir.Rsub_scalar
+                   {
+                     Pointwise.Rsub_scalar.params = { other = 1.0; alpha = 2.0 };
+                     x = t_ 1;
+                   };
+               output;
+             })
+    | Error e -> Error e
+  in
+  (match plan with
+  | Error e -> Format.printf "%a@." Const_ssa.pp_error (Err.Error.kind e)
+  | Ok plan ->
+      pp_result Const_ssa.pp_error (Const_ssa.validate plan);
+      Format.printf "%a@." Const_ssa.pp plan);
+  [%expect
+    {|
+    ok
+    t1 = captured "weight"
+    t2 = rsub_scalar x=t1 params={other=1; alpha=2} |}]
+
+let%expect_test "Const-SSA: rsub_scalar grounds to [other - alpha * x], rounded"
+    =
+  let input = sig_ 1 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:1) in
+  let output = sig_ 2 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:1) in
+  let store =
+    Constant_store.bind_captured Constant_store.empty ~tensor:input
+      (Const_ssa.Capture.of_string "w")
+    |> Err.or_raise ~pp_error:Constant_store.pp_error
+    |> fun store ->
+    Constant_store.bind_apply store ~tensor:output
+      (Graph_ir.Rsub_scalar
+         {
+           Pointwise.Rsub_scalar.params = { other = 1.0; alpha = 2.0 };
+           x = t_ 1;
+         })
+    |> Err.or_raise ~pp_error:Constant_store.pp_error
+  in
+  (match
+     Const_ssa_symbolic.ground store (t_ 2)
+       (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:1 ~w:0 ~c:0)
+   with
+  | None -> Format.printf "none@."
+  | Some expr -> Format.printf "%a@." Ground_expr.pp expr);
+  [%expect {| f32((0x1p+0 - (0x1p+1 * capture."w"(1,0,0)))) |}]
+
+let%expect_test "Const-SSA: materializes a captured rsub_scalar once" =
+  let source = sig_ 1 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) in
+  let output = sig_ 2 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) in
+  let store =
+    match
+      Constant_store.bind_captured Constant_store.empty ~tensor:source
+        (Const_ssa.Capture.of_string "w")
+    with
+    | Error e ->
+        failwith
+          (Format.asprintf "%a" Constant_store.pp_error (Err.Error.kind e))
+    | Ok store ->
+        Constant_store.bind_apply store ~tensor:output
+          (Graph_ir.Rsub_scalar
+             {
+               Pointwise.Rsub_scalar.params = { other = 1.0; alpha = 1.0 };
+               x = t_ 1;
+             })
+        |> Err.or_raise ~pp_error:Constant_store.pp_error
+  in
+  let resolver = function
+    | capture
+      when Const_ssa.Capture.equal capture (Const_ssa.Capture.of_string "w") ->
+        Err.return (Tensor.materialize source.shape (fun _ -> 0.25))
+    | capture -> Err.fail (`Missing_capture capture)
+  in
+  match Const_ssa_materialize.materialize resolver store with
+  | Error e ->
+      Format.printf "%a@." Const_ssa_materialize.pp_error (Err.Error.kind e)
+  | Ok (store, report) ->
+      Format.printf "captures=%d applies=%d cache_hits=%d@." report.captures
+        report.applies report.cache_hits;
+      Format.printf "%a@." Tensor.pp
+        (Tensor_id.Map.find (t_ 2) (Constant_store.materialized store));
+      [%expect
+        {|
+    captures=1 applies=1 cache_hits=1
+    tensor f32 [C=1] {0.75} |}]
+
+let%expect_test "Const-SSA: captured input and sigmoid export" =
+  let input = sig_ 1 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) in
+  let output = sig_ 2 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) in
+  let plan =
+    match
+      Const_ssa.add Const_ssa.empty ~id:(value 1)
+        (Const_ssa.Leaf
+           {
+             leaf = Const_ssa.Captured (Const_ssa.Capture.of_string "weight");
+             output = input;
+           })
+    with
+    | Ok plan ->
+        Const_ssa.add plan ~id:(value 2)
+          (Const_ssa.Apply
+             { op = Graph_ir.Sigmoid { Pointwise.Sigmoid.x = t_ 1 }; output })
+    | Error e -> Error e
+  in
+  (match plan with
+  | Error e -> Format.printf "%a@." Const_ssa.pp_error (Err.Error.kind e)
+  | Ok plan ->
+      pp_result Const_ssa.pp_error (Const_ssa.validate plan);
+      Format.printf "%a@." Const_ssa.pp plan);
+  [%expect {|
+    ok
+    t1 = captured "weight"
+    t2 = sigmoid x=t1 |}]
+
+let%expect_test
+    "Const-SSA: sigmoid grounds to the same 1 / (1 + exp(-x)) expression \
+     Compute.pixel uses" =
+  let scalar_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
+  let source = sig_ 1 scalar_shape in
+  let output = sig_ 2 scalar_shape in
+  let literal = Tensor.materialize scalar_shape (fun _ -> 0.0) in
+  let store =
+    Constant_store.bind_literal Constant_store.empty ~tensor:source literal
+    |> Err.or_raise ~pp_error:Constant_store.pp_error
+    |> fun store ->
+    Constant_store.bind_apply store ~tensor:output
+      (Graph_ir.Sigmoid { Pointwise.Sigmoid.x = t_ 1 })
+    |> Err.or_raise ~pp_error:Constant_store.pp_error
+  in
+  (match Const_ssa_symbolic.ground store (t_ 2) Vec6.origin with
+  | None -> Format.printf "none@."
+  | Some expr ->
+      Format.printf "%.6f  (%a)@."
+        (Ground_expr.eval expr Ground_expr.Valuation.empty)
+        Ground_expr.pp expr);
+  [%expect {| 0.500000  (f32((0x1p+0 / (0x1p+0 + exp((0x0p+0 - 0x0p+0)))))) |}]
+
+let%expect_test "Const-SSA: materializes a captured sigmoid once" =
+  let source = sig_ 1 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) in
+  let output = sig_ 2 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) in
+  let store =
+    match
+      Constant_store.bind_captured Constant_store.empty ~tensor:source
+        (Const_ssa.Capture.of_string "w")
+    with
+    | Error e ->
+        failwith
+          (Format.asprintf "%a" Constant_store.pp_error (Err.Error.kind e))
+    | Ok store ->
+        Constant_store.bind_apply store ~tensor:output
+          (Graph_ir.Sigmoid { Pointwise.Sigmoid.x = t_ 1 })
+        |> Err.or_raise ~pp_error:Constant_store.pp_error
+  in
+  let resolver = function
+    | capture
+      when Const_ssa.Capture.equal capture (Const_ssa.Capture.of_string "w") ->
+        Err.return (Tensor.materialize source.shape (fun _ -> 0.0))
+    | capture -> Err.fail (`Missing_capture capture)
+  in
+  match Const_ssa_materialize.materialize resolver store with
+  | Error e ->
+      Format.printf "%a@." Const_ssa_materialize.pp_error (Err.Error.kind e)
+  | Ok (store, report) ->
+      Format.printf "captures=%d applies=%d cache_hits=%d@." report.captures
+        report.applies report.cache_hits;
+      Format.printf "%a@." Tensor.pp
+        (Tensor_id.Map.find (t_ 2) (Constant_store.materialized store));
+      [%expect
+        {|
+    captures=1 applies=1 cache_hits=1
+    tensor f32 [C=1] {0.5} |}]
+
 let%expect_test
     "Const-SSA: typed literals and malformed definitions are rejected" =
   let scalar = sig_ 3 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1) in

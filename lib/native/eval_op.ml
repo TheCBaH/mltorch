@@ -220,6 +220,9 @@ module Make (S : Semantics.SEMANTICS) = struct
           (* absent weight = identity scale *)
         in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    | Rsub_scalar { Pointwise.Rsub_scalar.params; x } ->
+        let module C = Pointwise.Rsub_scalar.Compute (S) in
+        C.pixel params (operand x) out
     | Sdpa { Attention.Sdpa.params; query; key; value; mask } ->
         let module C = Attention.Sdpa.Compute (S) in
         (* Absent mask fills a single element, shaped [1,1,1,1,1,1] (every

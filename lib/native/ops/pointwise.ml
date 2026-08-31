@@ -35,4 +35,5 @@ module Div_scalar = Pointwise_binary.Div_scalar
 module Mul = Pointwise_binary.Mul
 module Mul_scalar = Pointwise_binary.Mul_scalar
 module Pow = Pointwise_binary.Pow
+module Rsub_scalar = Pointwise_binary.Rsub_scalar
 module Sub = Pointwise_binary.Sub

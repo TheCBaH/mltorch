@@ -315,6 +315,8 @@ let lower_node ~view acc (n : node) =
       simple (Op.Mul_scalar { Pointwise.Scalar_bin.x = op_of x; scalar })
   | Pow { Pointwise.Scalar_bin.x; scalar } ->
       simple (Op.Pow { Pointwise.Scalar_bin.x = op_of x; scalar })
+  | Rsub_scalar { Pointwise.Rsub_scalar.params; x } ->
+      simple (Op.Rsub_scalar { Pointwise.Rsub_scalar.params; x = op_of x })
   | Clamp { Pointwise.Clamp.params; x } ->
       simple (Op.Clamp { Pointwise.Clamp.params; x = op_of x })
   | Gelu { Pointwise.Gelu.x; approximate } ->

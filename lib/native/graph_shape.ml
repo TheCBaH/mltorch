@@ -286,6 +286,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       in
       let+ out = widen (Norm.RmsNorm.output_shape ~x_shape params) in
       [ out ]
+  | Rsub_scalar { Pointwise.Rsub_scalar.x; _ } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pointwise.Rsub_scalar.output_shape x_shape) in
+      [ out ]
   | Sdpa { Attention.Sdpa.params = _; query; key; value; mask } ->
       let* query_shape = shape query in
       let* key_shape = shape key in

@@ -224,6 +224,10 @@ val rms_norm :
   unit ->
   Tensor_id.t t
 
+val rsub_scalar :
+  ?name:string -> Pointwise.Rsub_scalar.params -> tensor_ref -> Tensor_id.t t
+(** [other - alpha * self] -- the reverse of [sub.Tensor]'s scalar form. *)
+
 val sdpa :
   ?name:string ->
   Attention.Sdpa.params ->

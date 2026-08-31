@@ -43,6 +43,7 @@ let classify (op : Op.t) ~output:_ =
   | Pow _ | Relu _ -> Output_transfer.Continuous
   | Reshape4 _ -> Output_transfer.Reindexing
   | Rms_norm _ -> Output_transfer.Continuous
+  | Rsub_scalar _ -> Output_transfer.Continuous
   (* Data movement, the same argument as [Unbind]/[Slice4] above: every output
      element is COPIED from an input element with no arithmetic -- [Select4]
      drops the axis instead of narrowing or enumerating it, but the copy

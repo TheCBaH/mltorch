@@ -85,6 +85,27 @@ let%expect_test "Direct: pow, special-cased and generic exponents" =
     tensor f32 [C=3] {1, 0.25, 0.111111}
     tensor f32 [C=3] {1, 8, 27} |}]
 
+(* [other - alpha * self], the reverse of [sub.Tensor]'s scalar form. The
+   default-alpha case ([other] alone) is the corpus's own 10 occurrences
+   (ConViT's `1 - sigmoid(...)`); a non-default [alpha] proves the op is the
+   general affine form, not an overfit to that case. *)
+let%expect_test "Direct: rsub_scalar" =
+  let module R = Pointwise.Rsub_scalar.Compute (Direct) in
+  let x_shape = s1c 3 in
+  let x = Tensor.materialize x_shape (fun c -> float_of_int (chan c)) in
+  let run (params : Pointwise.Rsub_scalar.params) =
+    Format.printf "%a@." (pp_result Tensor.pp)
+      (eval_tensor
+         (Pointwise.Rsub_scalar.output_shape x_shape)
+         (R.pixel params x))
+  in
+  run { other = 1.; alpha = 1. };
+  run { other = 10.; alpha = 2. };
+  [%expect
+    {|
+    tensor f32 [C=3] {1, 0, -1}
+    tensor f32 [C=3] {10, 8, 6} |}]
+
 let%expect_test "Direct: sub" =
   let module S = Pointwise.Sub.Compute (Direct) in
   let x_shape = s1c 3 and y_shape = s1c 3 in

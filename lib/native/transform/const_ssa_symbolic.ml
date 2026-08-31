@@ -60,6 +60,23 @@ let pow_expr ~scalar (v : Ground_expr.t) : Ground_expr.t =
         mul (Ground_expr.Const scalar) (Ground_expr.Unary (Expr.Value.Log, v))
       )
 
+(* Mirrors [Pointwise_activation.Sigmoid.Compute.pixel] exactly: [1 / (1 +
+   exp(0 - v))], not a generic sigmoid primitive -- the same reason [pow_expr]
+   above stays the special-cased ATen expression rather than a shorter
+   equivalent one, since map verification compares this grounding against
+   materialization (which calls the same [Compute] functor via
+   [Eval_direct]). *)
+let sigmoid_expr (v : Ground_expr.t) : Ground_expr.t =
+  Ground_expr.Binary
+    ( Expr.Value.Div,
+      Ground_expr.Const 1.,
+      Ground_expr.Binary
+        ( Expr.Value.Add,
+          Ground_expr.Const 1.,
+          Ground_expr.Unary
+            (Expr.Value.Exp, Ground_expr.Binary (Expr.Value.Sub, Const 0., v))
+        ) )
+
 let rec ground store id coord =
   let value =
     Option.value
@@ -172,6 +189,34 @@ let rec ground store id coord =
       Option.map
         (fun x -> Ground_expr.Round (pow_expr ~scalar x))
         (ground store x coord)
+  | Some
+      (Const_ssa.Apply
+         {
+           op =
+             Graph_ir.Rsub_scalar
+               { Pointwise.Rsub_scalar.params = { other; alpha }; x };
+           _;
+         }) ->
+      Option.map
+        (fun x ->
+          Ground_expr.Round
+            (Ground_expr.Binary
+               ( Expr.Value.Sub,
+                 Ground_expr.Const other,
+                 Ground_expr.Binary (Expr.Value.Mul, Ground_expr.Const alpha, x)
+               )))
+        (ground store x coord)
+  | Some
+      (Const_ssa.Apply { op = Graph_ir.Sigmoid { Pointwise.Sigmoid.x }; output })
+    ->
+      Option.bind
+        (Const_ssa.sig_of
+           (Constant_store.plan store)
+           (Const_ssa.Value_id.of_tensor_id x))
+        (fun input ->
+          Option.map
+            (fun v -> Ground_expr.Round (sigmoid_expr v))
+            (ground store x (broadcast_coord ~input ~output coord)))
   | Some
       (Const_ssa.Leaf
          { leaf = Literal payload | Opaque_materialized payload; output; _ }) ->

@@ -28,7 +28,7 @@ open Graph_ir
 let elementwise = function
   | ( Add _ | Add_scalar _ | Clamp _ | Clone _ | Div _ | Div_scalar _ | Gelu _
     | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Mul _ | Mul_scalar _ | Pow _
-    | Relu _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _ ) as op ->
+    | Relu _ | Rsub_scalar _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _ ) as op ->
       Some op
   | _ -> None
 

@@ -795,6 +795,40 @@ let%expect_test
     ~noutputs:1;
   [%expect {| tensor f32 [C=3] {1, 8, 27} |}]
 
+(* [other - alpha * self] -- the reverse of [sub.Tensor]'s scalar form, and a
+   real ATen call (curated in `bin/aten_ops_gen.ml`), not merely a
+   hand-derived value. *)
+let%expect_test "verify: rsub.Scalar default alpha against real ATen" =
+  let x = float_tensor [ 3 ] [ 0.2; 0.5; 0.9 ] in
+  verify_print ~target:"torch.ops.aten.rsub.Scalar"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 1.0 ];
+  [%expect {| aten and native agree |}]
+
+let%expect_test "verify: rsub.Scalar with a non-default alpha against real ATen"
+    =
+  let x = float_tensor [ 3 ] [ 1.; 2.; 3. ] in
+  verify_print ~target:"torch.ops.aten.rsub.Scalar"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 10.0; in_float "alpha" 2.0 ];
+  [%expect {| aten and native agree |}]
+
+let%expect_test "dispatch: rsub.Scalar builds a single Rsub_scalar node" =
+  let x = float_tensor [ 3 ] [ 0.; 1.; 2. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.rsub.Scalar"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_float "other" 1.0 ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [C=3] ->[n0]]
+    nodes:
+      n0: [t1 f32 [C=3]] = rsub_scalar x=t0 params={other=1; alpha=1}
+    outputs: [t1 f32 [C=3] <-n0]
+    tensor f32 [C=3] {1, 0, -1} |}]
+
 let%expect_test "dispatch: linalg_vector_norm.default dim=[1] keepdim=true" =
   let x = float_tensor [ 2; 3 ] [ 0.; 1.; 2.; 3.; 4.; 5. ] in
   dispatch_print ~target:"torch.ops.aten.linalg_vector_norm.default"

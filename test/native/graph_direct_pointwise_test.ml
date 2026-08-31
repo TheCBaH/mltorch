@@ -162,6 +162,31 @@ let%expect_test "Direct graph: mul_scalar" =
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
   [%expect {| out = tensor f32 [C=3] {3, 6, 9} |}]
 
+(* ConViT's own GPSA gating expression, `1 - sigmoid(...)`: one node, not a
+   [Mul_scalar]+[Add_scalar] pair (the design-goal fix -- composing those two
+   would decompose one ATen node into two Native ones). *)
+let%expect_test "Direct graph: rsub_scalar" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"rsub_scalar" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          rsub_scalar ~name:"out"
+            { Pointwise.Rsub_scalar.other = 1.; alpha = 1. }
+            a)
+    in
+    let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=3] {1, 0, -1} |}]
+
 let%expect_test "Direct graph: clamp with no bounds fails to build" =
   let result =
     let open Err.Syntax in

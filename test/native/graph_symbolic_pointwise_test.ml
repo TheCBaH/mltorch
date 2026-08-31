@@ -106,6 +106,40 @@ let%expect_test "Symbolic graph: mul_scalar stage DAG + ground matches Direct" =
     ground = tensor f32 [C=3] {3, 6, 9}
     ground matches direct: true |}]
 
+let%expect_test "Symbolic graph: rsub_scalar stage DAG + ground matches Direct"
+    =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"rsub_scalar" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 3) ~name:"a" () in
+          rsub_scalar ~name:"out"
+            { Pointwise.Rsub_scalar.other = 1.; alpha = 1. }
+            a)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = (1 - (1 * t0[N,T,D,H,W,C]))
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=3] {1, 0, -1}
+    ground matches direct: true |}]
+
 (* [a]'s H axis is 1; [size]'s is 2 -- so the staged read must show [H] pinned
    to the constant 0 ([broadcast_coord]'s substitution) even though the OTHER
    axes read the live loop coordinate, which is what proves the broadcast is

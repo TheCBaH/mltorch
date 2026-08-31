@@ -380,6 +380,9 @@ let output_shape (op : Op.t)
   | Rms_norm { Ops4.Rms_norm.params; x; _ } ->
       let* x_shape = shape x in
       one (four (Norm.RmsNorm.output_shape ~x_shape (rms_params params)))
+  | Rsub_scalar { Pointwise.Rsub_scalar.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.Rsub_scalar.output_shape x_shape))
   (* [Select] drops its axis, unlike [Slice4] above: the shape rule is
      [Split.Select.output_shape], which repacks every surviving axis
      right-aligned -- delegated rather than restated, so this arm and

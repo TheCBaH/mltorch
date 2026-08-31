@@ -243,6 +243,25 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = pow (-0.5) x_id in
                [ y ]
            | _ -> assert false))
+  (* [rsub.Scalar(self, other, alpha=1) -> other - alpha * self]: genuinely
+     its own node, not a legalization onto [Add_scalar]/[Mul_scalar] --
+     composing those would decompose one ATen node into two Native ones.
+     [other]/[alpha] are both compile-time constants, the same discipline
+     [pow.Tensor_Scalar]'s [exponent] follows above. *)
+  | "torch.ops.aten.rsub.Scalar" ->
+      Some
+        (let* a = native_tensor_arg aten_env node "self" in
+         let* s = decode_result (D.scalar_arg_result node "other") in
+         let* other = float_of_aten_scalar "other" s in
+         let* alpha = scalar_arg ~default:(Aten_scalar.Float 1.) node "alpha" in
+         build_g ~name:"rsub_scalar" [ a ] (function
+           | [ a_id ] ->
+               let open Graph_builder in
+               let+ y =
+                 rsub_scalar { Pointwise.Rsub_scalar.other; alpha } a_id
+               in
+               [ y ]
+           | _ -> assert false))
   | "torch.ops.aten.sigmoid.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in

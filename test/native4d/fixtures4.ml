@@ -154,6 +154,10 @@ let per_op () =
         (g, [ x_shape ]) );
       ("mul_scalar", unary ~shape:nhwc (Builder.mul_scalar 2.));
       ("pow", unary ~shape:nhwc (Builder.pow 2.));
+      ( "rsub_scalar",
+        unary ~shape:nhwc
+          (Builder.rsub_scalar { Pointwise.Rsub_scalar.other = 1.; alpha = 2. })
+      );
       ( "clamp",
         unary ~shape:nhwc
           (Builder.clamp { Pointwise.Clamp.min = Some 0.5; max = Some 2. }) );
