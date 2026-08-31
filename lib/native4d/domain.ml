@@ -206,7 +206,7 @@ let check_node view (n : node) =
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
   | Clone _ | Conv2d _ | Conv2d_padding _ | Div _ | Div_scalar _ | Expand _
   | Gelu _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Leaky_relu _ | Linear _
-  | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Reshape _
+  | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Repeat _ | Reshape _
   | Rsub_scalar _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _ | To_copy _
   | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
       Err.return ()
@@ -297,6 +297,13 @@ let check_node view (n : node) =
      comment states; [check_shapes] and the lowerer's own [Shape4.of_vec6]
      cover it. *)
   | Stack { Concat.Stack.params; _ } -> check_dims node [ params.axis ]
+  (* [RepeatInterleave4] now exists, so [RepeatInterleave] gets the same
+     [check_dims]-style axis rejection [Select]/[Slice]/[Stack] get -- see
+     [Ops4.RepeatInterleave4]'s own comment on why this is a consistency
+     choice rather than a load-bearing one for this particular op (it
+     MULTIPLIES its named axis, unlike those, which COLLAPSE it). *)
+  | RepeatInterleave { Repeat.RepeatInterleave.params; _ } ->
+      check_dims node [ params.axis ]
   (* The dialect has no [Softmax4] yet -- same "dialect does not have it at
      all" answer, not an axis-domain rejection, until it does. Not
      [check_dims]: unlike [Amax]/[Mean]/[Vector_norm], which the reduced
@@ -304,16 +311,11 @@ let check_node view (n : node) =
      counterpart to legalize onto), Softmax has no `Ops4` counterpart at any
      axis, so there is no admissible case to let through -- see
      .ai/matmul_softmax_design.md §3. *)
-  (* Same "dialect does not have it at all" answer: neither [Repeat4] nor
-     [RepeatInterleave4] exists yet, so there is no axis-domain distinction
-     to draw -- tracked in the Native4D counterpart backlog once a corpus
-     model's frontier reaches one, the same way [Stack]/[Select] were before
-     their own counterparts landed. [Select_scatter] joins them for the same
-     reason: no [Select_scatter4] exists yet, deliberately deferred the same
-     way [Repeat]/[RepeatInterleave] were at their own landing. *)
-  | Index_tensor _ | Repeat _ | RepeatInterleave _ | Select_scatter _
-  | Softmax _ ->
-      unsupported ()
+  (* Same "dialect does not have it at all" answer: no [Select_scatter4]
+     exists yet, deliberately deferred the same way [Repeat]/
+     [RepeatInterleave] were at their own landing (both now have
+     counterparts, above). *)
+  | Index_tensor _ | Select_scatter _ | Softmax _ -> unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

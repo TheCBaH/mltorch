@@ -161,6 +161,22 @@ let samples : Op.t list =
       };
     Pow { Pointwise.Scalar_bin.x; scalar = 2. };
     Relu { Pointwise.Relu.x };
+    (* Two nontrivial multipliers (H, C) and two unit ones (N, W), so a codec
+       that dropped or reordered an axis is visible. *)
+    Repeat4
+      {
+        Ops4.Repeat4.params = { repeats = Shape4.of_ints ~n:1 ~h:2 ~w:1 ~c:3 };
+        x;
+      };
+    (* Axis distinct from [Repeat4]'s own sample and a multiplier that is
+       neither 1 nor either of [Repeat4]'s, so an encoder that confused the
+       two still prints differently. *)
+    RepeatInterleave4
+      {
+        Ops4.RepeatInterleave4.params =
+          { axis = W; repeats = Op_config.Pos.of_int 4 };
+        x;
+      };
     Reshape4
       {
         Ops4.Reshape4.params = { shape = Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:12 };
@@ -240,7 +256,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 49, registry: 49 |}]
+  [%expect {| samples: 51, registry: 51 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -303,6 +319,8 @@ let%expect_test "op4: printed" =
     permute4 x=t0 perm=[H<-W, W<-H]
     pow x=t0 scalar=2
     relu x=t0
+    repeat4 x=t0 params={repeats=[N=1 H=2 W=1 C=3]}
+    repeat_interleave4 x=t0 params={axis=W repeats=4}
     reshape4 x=t0 params={shape=[N=1 H=1 W=1 C=12]}
     rms_norm x=t0 weight=t2 params={dims=[C]; eps=1e-05}
     rsub_scalar x=t0 params={other=1; alpha=2}
@@ -340,7 +358,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 49 ops |}]
+  [%expect {| round-tripped 51 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

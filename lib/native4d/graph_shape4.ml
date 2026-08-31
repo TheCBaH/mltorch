@@ -154,6 +154,16 @@ let unbind_params (p : Ops4.Unbind.params) : Split.Unbind.params =
 let select_params (p : Ops4.Select4.params) : Split.Select.params =
   { axis = Axis4.to_axis p.Ops4.Select4.axis; index = p.Ops4.Select4.index }
 
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
+   axis is multiplied. [repeats] crosses unchanged. *)
+let repeat_interleave_params (p : Ops4.RepeatInterleave4.params) :
+    Repeat.RepeatInterleave.params =
+  {
+    axis = Axis4.to_axis p.Ops4.RepeatInterleave4.axis;
+    repeats = p.Ops4.RepeatInterleave4.repeats;
+  }
+
 let split_with_sizes_params (p : Ops4.Split_with_sizes4.params) :
     Split.Split_with_sizes.params =
   {
@@ -355,6 +365,21 @@ let output_shape (op : Op.t)
   | Relu { Pointwise.Relu.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Relu.output_shape x_shape))
+  | Repeat4 { Ops4.Repeat4.params; x } ->
+      let* x_shape = shape x in
+      one
+        (four
+           (Repeat.Repeat.output_shape ~x_shape
+              {
+                Repeat.Repeat.repeats =
+                  Shape4.to_vec6 params.Ops4.Repeat4.repeats;
+              }))
+  | RepeatInterleave4 { Ops4.RepeatInterleave4.params; x } ->
+      let* x_shape = shape x in
+      one
+        (four
+           (Repeat.RepeatInterleave.output_shape ~x_shape
+              (repeat_interleave_params params)))
   | Reshape4 { Ops4.Reshape4.params; x } ->
       (* The target is already a [Shape4.t]: a reshape cannot leave the
          dialect, which is why the target is typed rather than validated for

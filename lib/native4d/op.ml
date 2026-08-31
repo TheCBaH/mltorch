@@ -55,6 +55,8 @@ type op =
   | Permute4 of Ops4.Permute4.t
   | Pow of Pointwise.Pow.t
   | Relu of Pointwise.Relu.t
+  | Repeat4 of Ops4.Repeat4.t
+  | RepeatInterleave4 of Ops4.RepeatInterleave4.t
   | Reshape4 of Ops4.Reshape4.t
   | Rms_norm of Ops4.Rms_norm.t
   | Rsub_scalar of Pointwise.Rsub_scalar.t
@@ -271,6 +273,18 @@ let op_registry : (module OP) list =
 
       let inject t = Relu t
       let project = function Relu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Repeat4
+
+      let inject t = Repeat4 t
+      let project = function Repeat4 t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.RepeatInterleave4
+
+      let inject t = RepeatInterleave4 t
+      let project = function RepeatInterleave4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Reshape4

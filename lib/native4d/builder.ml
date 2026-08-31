@@ -206,6 +206,15 @@ let pow scalar x = op1 (Op.Pow { Pointwise.Scalar_bin.x; scalar })
 let pad4 params x = op1 (Op.Pad4 { Ops4.Pad4.params; x })
 let permute4 perm x = op1 (Op.Permute4 { Ops4.Permute4.perm; x })
 let relu x = op1 (Op.Relu { Pointwise.Relu.x })
+
+let repeat4 repeats x =
+  op1 (Op.Repeat4 { Ops4.Repeat4.params = { repeats }; x })
+
+let repeat_interleave4 axis repeats x =
+  op1
+    (Op.RepeatInterleave4
+       { Ops4.RepeatInterleave4.params = { axis; repeats }; x })
+
 let reshape4 shape x = op1 (Op.Reshape4 { Ops4.Reshape4.params = { shape }; x })
 
 (* Takes the dialect's own [Ops4.Layer_norm.params], whose [dims] are

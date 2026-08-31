@@ -458,6 +458,42 @@ let slice_d =
   slice_graph "slice_d" ~shape:(s 1 1 3 2 2 2) ~axis:Axis.D ~start:0 ~stop:2
     ~step:1
 
+(* [Repeat] always admits at the DOMAIN check -- see [Domain.check_node]'s own
+   comment -- so this is [expand]'s single "always admits" test, not a
+   W/D pair the way [slice]'s is: whether a D-tiling multiplier stays
+   four-axis is checked as a SHAPE at lowering, in lower_test.ml, not here. *)
+let repeat () =
+  Graph_builder.build ~name:"repeat"
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* x = input ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:1) () in
+     repeat
+       { Repeat.Repeat.repeats = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:1 }
+       x)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture repeat: %a" Graph_builder.pp_error e)
+
+let repeat_interleave_graph name ~shape ~axis ~repeats () =
+  Graph_builder.build ~name
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* x = input ~shape () in
+     repeat_interleave
+       { Repeat.RepeatInterleave.axis; repeats = Op_config.Pos.of_int repeats }
+       x)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* A dialect axis, so this stays in the dialect. *)
+let repeat_interleave_w =
+  repeat_interleave_graph "repeat_interleave_w"
+    ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:1) ~axis:Axis.W ~repeats:3
+
+(* The same op naming D, refused by the AXIS rule so the diagnostic names D. *)
+let repeat_interleave_d =
+  repeat_interleave_graph "repeat_interleave_d" ~shape:(s 1 1 3 2 2 2)
+    ~axis:Axis.D ~repeats:2
+
 (* [fold_left], not [fold_right]: the monadic actions are threaded through
    STATE at run time, so building the accumulator on the wrong side reverses
    which shape gets the lower tensor id -- appending onto the end here is what

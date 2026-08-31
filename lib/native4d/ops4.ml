@@ -608,6 +608,103 @@ module Expand4 = struct
       t.params
 end
 
+(* [Repeat]'s own payload for the same reason [Expand4]'s is -- it CARRIES A
+   PER-AXIS MULTIPLIER over every axis (not one named axis, unlike
+   [RepeatInterleave4] below), so the target is [Shape4.t] rather than
+   [Vec6.shape]: a multiplier that tiled T or D away from 1 would leave the
+   dialect, and typing the field is what makes that unconstructible rather
+   than merely unchecked. [Shape4.t]'s own representation (a [Vec6.shape]
+   with T/D pinned to the unit extent) is exactly the "repeats.T = 1,
+   repeats.D = 1" condition a repeat multiplier needs -- reused as-is, not a
+   coincidence of the underlying type. The domain therefore needs no
+   per-axis gate of its own, the same as [Expand4]: [Graph_shape4]'s [four]
+   wrap and the lowerer's own [Shape4.of_vec6] already catch it. *)
+module Repeat4 = struct
+  type params = { repeats : Shape4.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"repeat4_params" (fun repeats -> { repeats })
+    |> Jsont.Object.mem "repeats" Shape4.jsont ~enc:(fun p -> p.repeats)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{repeats=%a}@]" Shape4.pp p.repeats
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Repeat4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>repeat4@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
+end
+
+(* [RepeatInterleave]'s own payload, narrowed the same way [Select4]'s is:
+   ONE named axis, so the field is [Axis4.t] and T/D are unsayable. Gets the
+   same [check_dims]-style axis-domain rejection [Select4]/[Slice4] do, in
+   [Domain.check_node] -- not strictly load-bearing the way it is for those
+   two (which COLLAPSE their axis to 1 regardless of its input extent, so
+   the blanket four-axis shape check cannot see a bad one; this op instead
+   MULTIPLIES its axis's extent, so a T/D target > 1 is already caught
+   there), but named-axis ops get one consistent diagnostic across the
+   [Split]/[Repeat] family rather than a silent per-op difference in how
+   good the error message is. *)
+module RepeatInterleave4 = struct
+  type params = { axis : Axis4.t; repeats : Op_config.Pos.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"repeat_interleave4_params" (fun axis repeats ->
+        { axis; repeats = Op_config.Pos.of_int repeats })
+    |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.mem "repeats" Jsont.int ~enc:(fun p -> (p.repeats :> int))
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a repeats=%d}@]" Axis4.pp p.axis (p.repeats :> int)
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "RepeatInterleave4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>repeat_interleave4@ x=%a@ params=%a@]" pp_ref t.x
+      pp_params t.params
+end
+
 (* ---- boundary synthesis --------------------------------------------------- *)
 
 (* Native's [Pad] with its axes narrowed to the dialect's four. Its own payload

@@ -861,6 +861,73 @@ let%expect_test "lower: expand4, a target that broadcasts onto D is refused" =
   [%expect
     {| expand onto D              tensor t1 has extent on T or D: [D=5 H=1 W=1 C=3] |}]
 
+(* [Repeat4]'s own version of the same typed-target discipline as [Expand4]:
+   [Repeat.Repeat.params.repeats] is a plain [Vec6.shape] multiplier at the
+   Native op, so whether it stays four-axis is a fact about ITS OWN extents.
+   [Domain.check_node] admits every [Repeat] unconditionally (repeat.ml's own
+   doc comment: every axis keeps its own identity, so a T/D-unit multiplier
+   composed with a T/D-unit input is always T/D-unit on output) -- the real
+   gate is [Graph_shape4]'s [four] wrap and the lowerer's own
+   [Shape4.of_vec6], exercised here directly. *)
+let repeat4 ~source ~repeats =
+  build "repeat"
+    (let open Graph_builder in
+     let* x = input ~shape:source () in
+     repeat { Repeat.Repeat.repeats } x)
+
+let%expect_test "lower: repeat4, a T/D-unit multiplier lowers" =
+  let source = Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3 in
+  show "repeat"
+    (repeat4 ~source ~repeats:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:1));
+  [%expect
+    {|
+    repeat:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = repeat4 x=t0 params={repeats=[N=1 H=1 W=2 C=1]}
+    outputs: [t1 [H=2 W=4 C=3]] |}]
+
+let%expect_test "lower: repeat4, a multiplier that tiles D is refused" =
+  let source = Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3 in
+  outcome "repeat onto D"
+    (repeat4 ~source ~repeats:(Vec6.shape ~n:1 ~t:1 ~d:5 ~h:1 ~w:1 ~c:1));
+  [%expect
+    {| repeat onto D              tensor t1 has extent on T or D: [D=5 H=2 W=2 C=3] |}]
+
+(* [RepeatInterleave4] carries ONE named axis, so it gets [Select4]'s own
+   [check_dims] treatment: rejected at the DOMAIN check, before a
+   destination graph is even attempted -- a nicer diagnostic than
+   [Repeat4]'s post-hoc [Shape4.of_vec6] failure above, per
+   [Ops4.RepeatInterleave4]'s own comment on why the two differ. *)
+let repeat_interleave4 ~source ~axis ~repeats =
+  build "repeat_interleave"
+    (let open Graph_builder in
+     let* x = input ~shape:source () in
+     repeat_interleave
+       { Repeat.RepeatInterleave.axis; repeats = Op_config.Pos.of_int repeats }
+       x)
+
+let%expect_test "lower: repeat_interleave4 on H lowers" =
+  let source = Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3 in
+  show "repeat_interleave" (repeat_interleave4 ~source ~axis:Axis.H ~repeats:3);
+  [%expect
+    {|
+    repeat_interleave:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = repeat_interleave4 x=t0 params={axis=H repeats=3}
+    outputs: [t1 [H=6 W=2 C=3]] |}]
+
+let%expect_test "lower: repeat_interleave4 on T is refused at the domain check"
+    =
+  let source = Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3 in
+  outcome "repeat_interleave on T"
+    (repeat_interleave4 ~source ~axis:Axis.T ~repeats:3);
+  [%expect
+    {| repeat_interleave on T     node n0: axis T is outside the N/H/W/C dialect |}]
+
 (* transpose.int on a rank-4 [1,h,w,c] ATen source: dim 0 is D (the leading
    entry, D=1 so the SHAPE is in-domain), dims 1/2/3 are H/W/C. Every rank-4
    fixture below uses DISTINCT, non-unit h/w/c so a wrong pair swapped is

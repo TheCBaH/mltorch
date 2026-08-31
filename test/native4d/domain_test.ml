@@ -223,6 +223,26 @@ let%expect_test "domain: expand always admits; its target is checked as a shape"
   table [ ("expand", Fixtures.expand) ];
   [%expect {| expand                       in the dialect |}]
 
+let%expect_test
+    "domain: repeat always admits; its multiplier is checked as a shape" =
+  table [ ("repeat", Fixtures.repeat) ];
+  [%expect {| repeat                       in the dialect |}]
+
+(* [RepeatInterleave] gates its ONE named axis, the same rule [slice]'s own
+   test applies. The D case is refused by the axis rule and names D --
+   unlike [Repeat] above, since this op's axis IS named data, not folded
+   into an opaque per-axis shape. *)
+let%expect_test "domain: repeat_interleave gates its named axis" =
+  table
+    [
+      ("repeat_interleave W", Fixtures.repeat_interleave_w);
+      ("repeat_interleave D", Fixtures.repeat_interleave_d);
+    ];
+  [%expect
+    {|
+    repeat_interleave W          in the dialect
+    repeat_interleave D          node n0: axis D is outside the N/H/W/C dialect |}]
+
 (* ---- ops the pipeline is supposed to have removed ------------------------- *)
 
 (* Both reject, for different reasons and with different futures: the discarded

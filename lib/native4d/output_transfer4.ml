@@ -41,6 +41,11 @@ let classify (op : Op.t) ~output:_ =
       Output_transfer.Continuous
   | Permute4 _ -> Output_transfer.Reindexing
   | Pow _ | Relu _ -> Output_transfer.Continuous
+  (* Data movement, the same argument [Expand4] above makes: every output
+     element is COPIED from an input element with no arithmetic -- taken
+     modulo ([Repeat4]) or by floor-divided position ([RepeatInterleave4])
+     rather than clamped to 0, but still a pure gather. *)
+  | Repeat4 _ | RepeatInterleave4 _ -> Output_transfer.Reindexing
   | Reshape4 _ -> Output_transfer.Reindexing
   | Rms_norm _ -> Output_transfer.Continuous
   | Rsub_scalar _ -> Output_transfer.Continuous

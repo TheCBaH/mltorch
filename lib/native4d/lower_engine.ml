@@ -351,6 +351,34 @@ let lower_node ~view acc (n : node) =
         (Op.Zeros4 { Ops4.Zeros4.params = { shape; fmt = params.fmt } })
         [ single () ]
   | Relu { Pointwise.Relu.x } -> simple (Op.Relu { Pointwise.Relu.x = op_of x })
+  (* A direct counterpart, the same shape [Expand]'s own arm has: [repeats]
+     converts through [shape4] exactly like [Expand]'s [size] does, and
+     needs no post-hoc output re-check the way [Select]/[Stack] do, because
+     [Repeat] neither drops nor inserts an axis -- every axis keeps its own
+     identity (repeat.ml's own doc comment), so a T/D-unit [repeats] and a
+     T/D-unit input [x] compose to a T/D-unit output automatically. *)
+  | Repeat { Repeat.Repeat.params; x } ->
+      let* repeats = shape4 ~id:(single ()) params.Repeat.Repeat.repeats in
+      simple (Op.Repeat4 { Ops4.Repeat4.params = { repeats }; x = op_of x })
+  (* A direct counterpart with only the axis KEY converted, the same reason
+     [Select]'s own arm converts its axis -- so [Domain]'s
+     [Axis_outside_dialect] can still name the rejected Native axis. No
+     post-hoc output re-check needed, the same reasoning [Repeat4]'s arm
+     above gives: [RepeatInterleave] multiplies its named axis's extent in
+     place rather than dropping or inserting one, so nothing shifts into
+     T/D. *)
+  | RepeatInterleave { Repeat.RepeatInterleave.params; x } ->
+      let* axis4 = dims4 ~node [ params.Repeat.RepeatInterleave.axis ] in
+      simple
+        (Op.RepeatInterleave4
+           {
+             Ops4.RepeatInterleave4.params =
+               {
+                 axis = List.hd axis4;
+                 repeats = params.Repeat.RepeatInterleave.repeats;
+               };
+             x = op_of x;
+           })
   | Sigmoid { Pointwise.Sigmoid.x } ->
       simple (Op.Sigmoid { Pointwise.Sigmoid.x = op_of x })
   | Silu { Pointwise.Silu.x } -> simple (Op.Silu { Pointwise.Silu.x = op_of x })
@@ -832,12 +860,12 @@ let lower_node ~view acc (n : node) =
            })
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Index_tensor]/[Repeat]/[RepeatInterleave]/[Select_scatter]/[Softmax]
-     join that set until their own counterparts exist (see
-     [Domain.check_node]'s comment) rather than gaining a real conversion arm
-     here -- none has a Native4D counterpart at all yet, the same "dialect
-     does not have it" answer, and CSATv2 stays a graph-only target
-     regardless. *)
+     [Index_tensor]/[Select_scatter]/[Softmax] join that set until their own
+     counterparts exist (see [Domain.check_node]'s comment) rather than
+     gaining a real conversion arm here -- none has a Native4D counterpart at
+     all yet, the same "dialect does not have it" answer, and CSATv2 stays a
+     graph-only target regardless. [Repeat]/[RepeatInterleave] no longer join
+     them: both now have real conversion arms above. *)
   | Batched_matmul _ | Discard _ | Index_tensor _ | Max_pool2d_with_indices _
-  | Repeat _ | RepeatInterleave _ | Sdpa _ | Select_scatter _ | Softmax _ ->
+  | Sdpa _ | Select_scatter _ | Softmax _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

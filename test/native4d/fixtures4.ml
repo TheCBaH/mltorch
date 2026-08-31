@@ -200,6 +200,10 @@ let per_op () =
                ~x ~weight ~bias ()),
           [ nhwc; s4 ~n:1 ~h:1 ~w:1 ~c:2; s4 ~n:1 ~h:1 ~w:1 ~c:2 ] ) );
       ("relu", unary ~shape:nhwc Builder.relu);
+      ("repeat4", unary ~shape:nhwc (Builder.repeat4 (s4 ~n:1 ~h:2 ~w:1 ~c:3)));
+      ( "repeat_interleave4",
+        unary ~shape:nhwc
+          (Builder.repeat_interleave4 Axis4.W (Op_config.Pos.of_int 3)) );
       ("gelu", unary ~shape:nhwc (Builder.gelu Pointwise.Gelu.Exact));
       ("sigmoid", unary ~shape:nhwc Builder.sigmoid);
       ("silu", unary ~shape:nhwc Builder.silu);

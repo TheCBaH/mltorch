@@ -197,6 +197,12 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Relu { Pointwise.Relu.x } ->
         let module C = Pointwise.Relu.Compute (S) in
         C.pixel (operand x) out
+    | Repeat4 { Ops4.Repeat4.x; _ } ->
+        let module C = Repeat.Repeat.Compute (S) in
+        C.pixel ~x_shape:(shape_of x) (operand x) out
+    | RepeatInterleave4 { Ops4.RepeatInterleave4.params; x } ->
+        let module C = Repeat.RepeatInterleave.Compute (S) in
+        C.pixel (Graph_shape4.repeat_interleave_params params) (operand x) out
     | Reshape4 { Ops4.Reshape4.params; x } ->
         let module C = Reshape.Reshape.Compute (S) in
         C.pixel
