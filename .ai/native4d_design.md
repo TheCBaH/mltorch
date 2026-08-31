@@ -494,7 +494,9 @@ dividing, changing f32 rounding.
 1. `groups = 1` → `Conv2D`;
 2. `groups = in_channels` and weight input channels per group is one →
    `DepthwiseConv2D`;
-3. any other grouping → reject.
+3. any other grouping → `GroupedConv2D` (§8's "smallest honest extension" for
+   this row, since landed: unlike the other two, `groups` is a genuine field
+   there rather than a value a constructor stands in for).
 
 `Conv2d_padding` first resolves `"same"` or `"valid"` to explicit axis windows.
 The generic forward `Convolution` first resolves its kernel, padding, dilation,
@@ -506,7 +508,7 @@ For transposed `Convolution`:
 2. grouped or depthwise-transposed forms → reject unless Native4D later adds an
    explicit operation for them.
 
-All three Native4D convolution operations delegate to the existing compute, so
+All four Native4D convolution operations delegate to the existing compute, so
 normalization is expected to be `Identical`.
 
 ### 7.3 Linear
@@ -736,7 +738,7 @@ relayouts and real shape changes can remain.
 
 The initial dialect does not need:
 
-- general grouped convolution;
+- general grouped convolution (**landed**: `GroupedConv2D`, §7.2, §8 table);
 - `Split`, `Slice`, or `Concat`, if unsupported grouped convolution is rejected;
 - general BMM/MatMul, if only the single-batch legal form is accepted;
 - argmax-pool indices, if live indices are rejected;
@@ -747,7 +749,7 @@ If conversion later needs to become more complete, the smallest additions are:
 
 | Missing source case | Smallest honest extension |
 |---|---|
-| General grouped convolution | Retain grouped convolution, or add channel split plus concat |
+| General grouped convolution | **Landed**: retained as `GroupedConv2D`, a fourth convolution constructor whose `groups` is a real field (§7.2) |
 | Batched BMM | Retain BMM/MatMul |
 | Live max-pool indices | ArgMaxPool/MaxPoolWithIndices |
 | Dynamic standalone BatchNorm | BatchNorm or per-channel affine op |

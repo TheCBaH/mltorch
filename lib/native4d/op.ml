@@ -16,9 +16,12 @@
      (This used to be argued from "no Native4D op is multi-output". [Unbind]
      ends that, and the conclusion is unaffected: multi-output and zero-output
      are different needs, and only the second is what [Discard] serves.)
-   - NO general grouped convolution. Grouping is not a number the IR can hold:
-     one group is [Conv2d], one input channel per group is
-     [Depthwise_conv2d], and anything else was rejected at the domain check.
+   - NO transposed grouped convolution. One group is [Transposed_conv2d];
+     any other count is rejected at the domain check. A forward grouped
+     convolution instead gets its own constructor, [Grouped_conv2d]
+     (`.ai/native4d_design.md` §8's "smallest honest extension"), since
+     [groups] there is a genuine parameter rather than a value a graph could
+     misuse to claim [Conv2d] or [Depthwise_conv2d] semantics it does not have.
 
    Constructors in global alphabetical order, per the repo rule. *)
 
@@ -35,6 +38,7 @@ type op =
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Gelu of Pointwise.Gelu.t
+  | Grouped_conv2d of Ops4.Grouped_conv2d.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
@@ -158,6 +162,12 @@ let op_registry : (module OP) list =
 
       let inject t = Gelu t
       let project = function Gelu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Grouped_conv2d
+
+      let inject t = Grouped_conv2d t
+      let project = function Grouped_conv2d t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Hardsigmoid

@@ -54,6 +54,17 @@ let conv2d_params (p : Ops4.Conv_params.t) ~groups : Conv.Conv2d.params =
     groups = Op_config.Pos.of_int groups;
   }
 
+(* Unlike [conv2d_params] above, [groups] here is [Grouped_conv2d]'s own field
+   (Ops4.ml), not a value this module supplies per constructor. *)
+let grouped_conv2d_params (p : Ops4.Grouped_conv_params.t) : Conv.Conv2d.params
+    =
+  {
+    h = p.Ops4.Grouped_conv_params.h;
+    w = p.Ops4.Grouped_conv_params.w;
+    in_channels = p.Ops4.Grouped_conv_params.in_channels;
+    groups = p.Ops4.Grouped_conv_params.groups;
+  }
+
 let transposed_params (p : Ops4.Transposed_conv2d.params) :
     Conv.Convolution.params =
   {
@@ -215,6 +226,13 @@ let output_shape (op : Op.t)
   | Gelu { Pointwise.Gelu.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Gelu.output_shape x_shape))
+  | Grouped_conv2d { Ops4.Grouped_conv_payload.params; x; weight; _ } ->
+      let* x_shape = shape x in
+      let* weight_shape = shape weight in
+      one
+        (four
+           (Conv.Conv2d.output_shape ~x_shape ~weight_shape
+              (grouped_conv2d_params params)))
   | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Hardsigmoid.output_shape x_shape))

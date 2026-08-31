@@ -965,7 +965,7 @@ spelling — which is exactly why it is written out rather than assumed. They ar
 types on purpose, and a code added for the worker protocol must not silently become a
 capability reason.
 
-**Native4D.** `Missing_constant_payload` → `Requires_payloads`. The ten domain rejections →
+**Native4D.** `Missing_constant_payload` → `Requires_payloads`. The nine domain rejections →
 `Outside_dialect_domain`. `Bad_constant_payload`, `Map` and `View` → **fatal**: a payload
 that *was* supplied and is wrong, or a map/view invariant failure, is ours.
 

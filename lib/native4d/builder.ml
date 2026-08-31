@@ -173,6 +173,9 @@ let div_scalar scalar x = op1 (Op.Div_scalar { Pointwise.Scalar_bin.x; scalar })
 let gelu (approximate : Pointwise.Gelu.approximate) x =
   op1 (Op.Gelu { Pointwise.Gelu.x; approximate })
 
+let grouped_conv2d params ~x ~weight ?bias () =
+  op1 (Op.Grouped_conv2d { Ops4.Grouped_conv_payload.params; x; weight; bias })
+
 let hardsigmoid x = op1 (Op.Hardsigmoid { Pointwise.Hardsigmoid.x })
 let hardswish x = op1 (Op.Hardswish { Pointwise.Hardswish.x })
 let hardtanh params x = op1 (Op.Hardtanh { Pointwise.Hardtanh.params; x })

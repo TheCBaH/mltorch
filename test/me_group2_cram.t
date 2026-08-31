@@ -73,9 +73,11 @@ that drops it and re-derives the default.
 
   $ ../bin/native_graph.exe visualize --model group2.json --output session.json
 
-The complete capability vector. Native4D is unavailable for the same reason it
-is over resnet18 -- the conv weights are right-aligned onto D/H/W/C and folding,
-which is what relays them, needs payloads this file does not have.
+The complete capability vector. Native4D is available: every weight here is
+already rank 4, so none needs the Const-SSA folding resnet18 needs (and this
+payload-free file does not have); the first conv's `groups=2` used to be
+Native4D's own rejection (neither 1 nor depthwise), and now legalizes to
+`GroupedConv2D` (`.ai/native4d_design.md` §7.2/§8).
 
   $ python3 -c "
   > import json
@@ -91,7 +93,7 @@ which is what relays them, needs payloads this file does not have.
   stage:source                 available graph
   stage:initial_native         available graph
   stage:canonical              available graph
-  stage:native4d               unavailable outside_dialect_domain
+  stage:native4d               available graph
   stage:stage_program          available graph
   stage:kernel                 available graph
   stage:fusion                 available graph

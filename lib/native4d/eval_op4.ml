@@ -114,6 +114,12 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Gelu { Pointwise.Gelu.x; approximate } ->
         let module C = Pointwise.Gelu.Compute (S) in
         C.pixel approximate (operand x) out
+    | Grouped_conv2d { Ops4.Grouped_conv_payload.params; x; weight; bias } ->
+        let module C = Conv.Conv2d.Compute (S) in
+        C.pixel
+          (Graph_shape4.grouped_conv2d_params params)
+          ~x_shape:(shape_of x) ~weight_shape:(shape_of weight) ~x:(operand x)
+          ~weight:(operand weight) ~bias:(conv_bias weight bias) out
     | Hardsigmoid { Pointwise.Hardsigmoid.x } ->
         let module C = Pointwise.Hardsigmoid.Compute (S) in
         C.pixel (operand x) out

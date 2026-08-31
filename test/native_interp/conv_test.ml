@@ -191,11 +191,11 @@ let%expect_test "depthwise grouping lowers" =
     (prog ~w_sizes:[ 4; 1; 3; 3 ] (conv ~groups:4 ~padding:"[1,1]" ()));
   [%expect {| depthwise:                 lowered, nodes=4 |}]
 
-let%expect_test "general grouping lowers in Native and is Native4D's to reject"
-    =
-  (* cin = 2 per group, groups = 2: neither 1 nor depthwise. Native holds it;
-     the domain rule that rejects it is Native4D's, and checking it here would
-     be checking the wrong boundary. *)
+let%expect_test "general grouping lowers in Native" =
+  (* cin = 2 per group, groups = 2: neither 1 nor depthwise. This file checks
+     only the Native boundary; whether Native4D also accepts the shape is
+     the OTHER test's question, below ("the three group modes..."), and
+     checking it here would be checking the wrong boundary. *)
   show "groups=2:"
     (prog ~x_sizes:[ 1; 4; 8; 8 ] ~w_sizes:[ 8; 2; 3; 3 ] (conv ~groups:2 ()));
   [%expect {| groups=2:                  lowered, nodes=4 |}]
@@ -557,7 +557,7 @@ let to4d label json =
                             Native4d.Op.name n.Graph_common.Node.op)
                           dst.Graph_common.Graph.nodes)))))
 
-let%expect_test "the three group modes reach the three Native4D verdicts" =
+let%expect_test "the three group modes reach the three Native4D convolutions" =
   to4d "groups=1:" (prog (conv ~padding:"[1,1]" ()));
   to4d "depthwise:"
     (prog ~w_sizes:[ 4; 1; 3; 3 ] (conv ~groups:4 ~padding:"[1,1]" ()));
@@ -567,4 +567,4 @@ let%expect_test "the three group modes reach the three Native4D verdicts" =
     {|
     groups=1:              Permute4, Conv2D, Permute4
     depthwise:             Permute4, DepthwiseConv2D, Permute4
-    groups=2:              outside the dialect: node n2: convolution has 2 groups, which is neither 1 nor depthwise |}]
+    groups=2:              Permute4, GroupedConv2D, Permute4 |}]

@@ -61,6 +61,15 @@ let conv_params ~in_channels ~kernel : Ops4.Conv_params.t =
     in_channels = Dim.extent in_channels;
   }
 
+let grouped_conv_params ~in_channels ~groups ~kernel :
+    Ops4.Grouped_conv_params.t =
+  {
+    h = axis_window ~kernel;
+    w = axis_window ~kernel;
+    in_channels = Dim.extent in_channels;
+    groups = Op_config.Pos.of_int groups;
+  }
+
 let transposed_params : Ops4.Transposed_conv2d.params =
   {
     stride = hw (Op_config.Pos.of_int 1);
@@ -283,6 +292,22 @@ let per_op () =
                ~x ~weight:w ())
         in
         (g, [ nhwc; s4 ~n:2 ~h:1 ~w:1 ~c:1 ]) );
+      (* [in_channels=4], [groups=2]: 2 input channels per group, so distinct
+         from both [conv2d] (groups=1) and [depthwise_conv2d] (1 per group)
+         above -- the general form neither of those constructors can carry. *)
+      ( "grouped_conv2d",
+        let x_shape = s4 ~n:1 ~h:4 ~w:4 ~c:4 in
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* x = input ~shape:x_shape () in
+             let* w = constant ~shape:(s4 ~n:4 ~h:1 ~w:1 ~c:2) () in
+             grouped_conv2d
+               (grouped_conv_params ~in_channels:4 ~groups:2 ~kernel:1)
+               ~x ~weight:w ())
+        in
+        (g, [ x_shape; s4 ~n:4 ~h:1 ~w:1 ~c:2 ]) );
       ( "transposed_conv2d",
         let g =
           build

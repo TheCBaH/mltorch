@@ -17,7 +17,6 @@ type t =
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
   | `Sdpa_batch_axis of Node_id.t
   | `Unsupported_bmm_batch of Node_id.t * Dim.extent Dim.t
-  | `Unsupported_grouped_conv of Node_id.t * int
   | `Unsupported_grouped_transposed_conv of Node_id.t * int
   | `Unsupported_op of Node_id.t * op
   | `View of Framework.View4.error ]
@@ -77,11 +76,6 @@ let pp fmt : [< t ] -> unit = function
         "@[node %a: bmm batch extent is %a; only a single batch legalizes to a \
          1x1 convolution@]"
         Node_id.pp node Dim.pp batch
-  | `Unsupported_grouped_conv (node, groups) ->
-      Fmt.pf fmt
-        "@[node %a: convolution has %d groups, which is neither 1 nor \
-         depthwise@]"
-        Node_id.pp node groups
   | `Unsupported_grouped_transposed_conv (node, groups) ->
       Fmt.pf fmt
         "@[node %a: transposed convolution has %d groups; only 1 legalizes@]"

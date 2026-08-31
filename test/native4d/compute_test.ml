@@ -301,6 +301,56 @@ let%expect_test "direct4: depthwise convolution is per channel" =
           ()));
   [%expect {| expect [30 500]: [30 500] |}]
 
+(* The general form, between [Conv2d] (all channels shared) and
+   [Depthwise_conv2d] (one channel per group) above: 2 groups of 2 input
+   channels each, so a hand value catches a wrong per-group channel slice —
+   output channel 0 must read input channels [0;1], never [2;3]. *)
+let%expect_test "direct4: grouped convolution reads its own group's channels" =
+  let x_shape = s4 ~n:1 ~h:1 ~w:1 ~c:4 in
+  let w_shape = s4 ~n:2 ~h:1 ~w:1 ~c:2 in
+  let params : Ops4.Grouped_conv_params.t =
+    {
+      h = Fixtures4.axis_window ~kernel:1;
+      w = Fixtures4.axis_window ~kernel:1;
+      in_channels = Dim.extent 4;
+      groups = Op_config.Pos.of_int 2;
+    }
+  in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape:x_shape () in
+       let* w = constant ~shape:w_shape () in
+       grouped_conv2d params ~x ~weight:w ())
+  in
+  let x =
+    Tensor.materialize (Shape4.to_vec6 x_shape) (fun c ->
+        match Dim.to_int (Vec6.get c Axis.C) with
+        | 0 -> 3.
+        | 1 -> 5.
+        | 2 -> 7.
+        | _ -> 11.)
+  in
+  let w =
+    Tensor.materialize (Shape4.to_vec6 w_shape) (fun c ->
+        match
+          (Dim.to_int (Vec6.get c Axis.N), Dim.to_int (Vec6.get c Axis.C))
+        with
+        | 0, 0 -> 10.
+        | 0, _ -> 1.
+        | _, 0 -> 1.
+        | _ -> 10.)
+  in
+  let ids = g.Graph.Graph.inputs in
+  Format.printf "expect [35 117]: %a@." pp_values
+    (values
+       (single g
+          ~inputs:[ (List.nth ids 0, x) ]
+          ~constants:[ (List.nth ids 1, w) ]
+          ()));
+  [%expect {| expect [35 117]: [35 117] |}]
+
 let%expect_test "direct4: mean over H and W keeps the axes" =
   let shape = s4 ~n:1 ~h:2 ~w:2 ~c:1 in
   let g =
@@ -426,7 +476,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 41, registry: 41 |}]
+  [%expect {| fixtures: 42, registry: 42 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -472,6 +522,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     layer_norm             direct = symbolic
     conv2d                 direct = symbolic
     depthwise_conv2d       direct = symbolic
+    grouped_conv2d         direct = symbolic
     transposed_conv2d      direct = symbolic
     unbind                 out0 direct = symbolic
     unbind                 out1 direct = symbolic

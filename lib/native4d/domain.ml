@@ -84,22 +84,10 @@ let check_perm node perm =
       else Err.fail (`Axis_outside_dialect (node, axis)))
     [ Axis.T; Axis.D ]
 
-(* [weight] is laid out [Cout, 1, 1, Kh, Kw, Cin/groups] (conv.ml), so the C
-   extent IS the per-group input channel count. Depthwise is exactly "one input
-   channel per group"; combined with groups = in_channels that is the only other
-   grouping the dialect represents. A weight with no recorded signature cannot
-   be classified, so it is left to [Graph_view]. *)
-let check_groups view node ~weight ~groups =
-  let groups = (groups : Op_config.Pos.t :> int) in
-  if groups = 1 then Err.return ()
-  else
-    match Graph_view.sig_of view weight with
-    | None -> Err.return ()
-    | Some sg ->
-        if Dim.to_int (Vec6.get sg.Tensor_sig.shape Axis.C) = 1 then
-          Err.return ()
-        else Err.fail (`Unsupported_grouped_conv (node, groups))
-
+(* Forward grouped convolution always legalizes now: [Conv2d] (groups=1),
+   [Depthwise_conv2d] (one input channel per group), or [Grouped_conv2d] (the
+   general form, `.ai/native4d_design.md` §8) between them cover every count.
+   Only the TRANSPOSED direction still lacks a general counterpart. *)
 let check_transposed node ~groups =
   let groups = (groups : Op_config.Pos.t :> int) in
   if groups = 1 then Err.return ()
@@ -216,10 +204,10 @@ let check_node view (n : node) =
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. *)
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
-  | Clone _ | Div _ | Div_scalar _ | Gelu _ | Hardsigmoid _ | Hardswish _
-  | Hardtanh _ | Leaky_relu _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _
-  | Pow _ | Relu _ | Reshape _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _
-  | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
+  | Clone _ | Conv2d _ | Conv2d_padding _ | Div _ | Div_scalar _ | Gelu _
+  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Leaky_relu _ | Linear _
+  | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Reshape _ | Sigmoid _
+  | Silu _ | Sqrt _ | Sub _ | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
       Err.return ()
   | Arange _ | Zeros _ -> Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
@@ -236,14 +224,10 @@ let check_node view (n : node) =
      softmax). *)
   | Batched_matmul _ -> Err.fail (`Batched_matmul_batch_axis node)
   | Bmm { Matmul.Bmm.input; mat2 } -> check_bmm view node ~input ~mat2
-  | Conv2d { Conv.Conv2d.params; weight; _ } ->
-      check_groups view node ~weight ~groups:params.Conv.Conv2d.groups
-  | Conv2d_padding { Conv.Conv2d_padding.params; weight; _ } ->
-      check_groups view node ~weight ~groups:params.Conv.Conv2d_padding.groups
-  | Convolution { Conv.Convolution.params; weight; _ } ->
+  | Convolution { Conv.Convolution.params; _ } ->
       if params.Conv.Convolution.transposed then
         check_transposed node ~groups:params.Conv.Convolution.groups
-      else check_groups view node ~weight ~groups:params.Conv.Convolution.groups
+      else Err.return ()
   | Amax { Reduce.Amax.params; _ } -> check_dims node params.Reduce.Amax.dims
   | Mean { Reduce.Mean.params; _ } -> check_dims node params.Reduce.Mean.dims
   | Sum { Reduce.Sum.params; _ } -> check_dims node params.Reduce.Sum.dims

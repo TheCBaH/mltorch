@@ -96,12 +96,11 @@ let emit acc ~from op outputs =
 let conv_params (p : Conv.Conv2d.params) : Ops4.Conv_params.t =
   { h = p.h; w = p.w; in_channels = p.in_channels }
 
-(* Grouping becomes a constructor. §7.2: one group is [Conv2D], one input
-   channel per group is [DepthwiseConv2D], anything else was rejected by
-   [Domain.check] — so an unexpected count here is a domain-check bug, not a
-   user error, and it is reported as the same typed error rather than asserted
-   away. *)
-let forward_conv ~node ~params ~x ~weight ~bias ~weight_shape =
+(* Grouping becomes a constructor. §7.2/§8: one group is [Conv2D], one input
+   channel per group is [DepthwiseConv2D], and every other count is
+   [GroupedConv2D] — the general form, which needs [groups] itself since
+   neither of the other two constructors carries it. *)
+let forward_conv ~node:_ ~params ~x ~weight ~bias ~weight_shape =
   let groups = (params.Conv.Conv2d.groups :> int) in
   let payload =
     { Ops4.Conv_payload.params = conv_params params; x; weight; bias }
@@ -109,7 +108,18 @@ let forward_conv ~node ~params ~x ~weight ~bias ~weight_shape =
   if groups = 1 then Err.return (Op.Conv2d payload)
   else if Dim.to_int (Vec6.get weight_shape Axis.C) = 1 then
     Err.return (Op.Depthwise_conv2d payload)
-  else Err.fail (`Unsupported_grouped_conv (node, groups))
+  else
+    let grouped_params =
+      {
+        Ops4.Grouped_conv_params.h = params.Conv.Conv2d.h;
+        w = params.Conv.Conv2d.w;
+        in_channels = params.Conv.Conv2d.in_channels;
+        groups = params.Conv.Conv2d.groups;
+      }
+    in
+    Err.return
+      (Op.Grouped_conv2d
+         { Ops4.Grouped_conv_payload.params = grouped_params; x; weight; bias })
 
 let perm4_of_native ~node (perm : Permute.Permute.perm) =
   Err.List.map

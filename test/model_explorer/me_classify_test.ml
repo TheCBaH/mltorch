@@ -34,7 +34,6 @@ let%expect_test "every Native4D row, classified" =
       ( "Non_four_dimensional_tensor",
         `Non_four_dimensional_tensor (tid 0, shape) );
       ("Unsupported_bmm_batch", `Unsupported_bmm_batch (nid 0, Dim.extent 3));
-      ("Unsupported_grouped_conv", `Unsupported_grouped_conv (nid 0, 2));
       ( "Unsupported_grouped_transposed_conv",
         `Unsupported_grouped_transposed_conv (nid 0, 2) );
       ( "Unsupported_op",
@@ -53,18 +52,17 @@ let%expect_test "every Native4D row, classified" =
     Lossy_bmm_operand                      unavailable outside_dialect_domain
     Non_four_dimensional_tensor            unavailable outside_dialect_domain
     Unsupported_bmm_batch                  unavailable outside_dialect_domain
-    Unsupported_grouped_conv               unavailable outside_dialect_domain
     Unsupported_grouped_transposed_conv    unavailable outside_dialect_domain
     Unsupported_op                         unavailable outside_dialect_domain
     Bad_constant_payload                   fatal |}]
 
 let%expect_test "payloads remove exactly one failure mode" =
   (* The reason Native4D is conditional for a .pt2 as well as for a bare
-     model.json: ten of the eleven rejections above have nothing to do with
+     model.json: nine of the ten rejections above have nothing to do with
      payloads, so having them does not put a graph inside the dialect. *)
   let outside =
     [
-      MC.native4d (`Unsupported_grouped_conv (nid 0, 2));
+      MC.native4d (`Unsupported_grouped_transposed_conv (nid 0, 2));
       MC.native4d
         (`Non_four_dimensional_tensor
            (tid 0, Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1));

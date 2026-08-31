@@ -47,7 +47,7 @@ message).
   >   fi
   > done
   {"model":"mobilenetv2_050","native_builds":true,"native4d_converts":true,"nodes":100,"blocker":null}
-  {"model":"regnetx_002","native_builds":true,"native4d_converts":false,"nodes":101,"blocker":"node n373: convolution has 3 groups, which is neither 1 nor depthwise"}
+  {"model":"regnetx_002","native_builds":true,"native4d_converts":true,"nodes":101,"blocker":null}
   {"model":"efficientnet_b0","native_builds":true,"native4d_converts":true,"nodes":254,"blocker":null}
   {"model":"test_convnext2","native_builds":true,"native4d_converts":true,"nodes":49,"blocker":null}
   {"model":"fastvit_sa12","native_builds":true,"native4d_converts":false,"nodes":366,"blocker":"node n604: axis T is outside the N/H/W/C dialect"}

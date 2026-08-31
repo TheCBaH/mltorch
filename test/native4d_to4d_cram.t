@@ -27,7 +27,621 @@ nothing to verify.
 
   $ ../bin/native_graph.exe to4d --pt2 "$PT2_DATA/regnetx_002/regnetx_002.pt2" --fold --verify-symbolic standard
   canonical native: nodes=101
-  outside the dialect: node n373: convolution has 3 groups, which is neither 1 nor depthwise
+  native4d: nodes=100 inputs=91
+    Adaptive_avg_pool2d 1
+    Add                13
+    Conv2D             32
+    GroupedConv2D      13
+    Permute4           1
+    Relu               40
+  map verification: 191 clusters: 1 proved (for these constants) [sampled 8], 81 proved (structural) [sampled 8], 1 unproved (over max_rounds) [sampled 8], 32 unproved (too large), 76 unproved (unbound constant) [sampled 8]
+  graph4
+  inputs: [t133 {proved (structural, for these constants) [sampled 8]} [C=1000],
+  t266 {unproved: too large (150528 coords)} [H=3 W=224 C=224],
+  t633 {unproved: too large (368000 coords)} [N=1000 T=1 D=1 H=1 W=1 C=368],
+  t635 {unproved: unbound constant: src.t635(0) [sampled 8]} [N=32 T=1 D=1 H=3 W=3 C=3],
+  t636 {unproved: unbound constant: src.t636(0) [sampled 8]} [C=32],
+  t637 {unproved: unbound constant: src.t637(0) [sampled 8]} [N=24 T=1 D=1 H=1 W=1 C=32],
+  t638 {unproved: unbound constant: src.t638(0) [sampled 8]} [C=24],
+  t639 {unproved: unbound constant: src.t639(0) [sampled 8]} [N=24 T=1 D=1 H=1 W=1 C=32],
+  t640 {unproved: unbound constant: src.t640(0) [sampled 8]} [C=24],
+  t641 {unproved: unbound constant: src.t641(0) [sampled 8]} [N=24 T=1 D=1 H=3 W=3 C=8],
+  t642 {unproved: unbound constant: src.t642(0) [sampled 8]} [C=24],
+  t643 {unproved: unbound constant: src.t643(0) [sampled 8]} [N=24 T=1 D=1 H=1 W=1 C=24],
+  t644 {unproved: unbound constant: src.t644(0) [sampled 8]} [C=24],
+  t645 {unproved: unbound constant: src.t645(0) [sampled 8]} [N=56 T=1 D=1 H=1 W=1 C=24],
+  t646 {unproved: unbound constant: src.t646(0) [sampled 8]} [C=56],
+  t647 {unproved: unbound constant: src.t647(0) [sampled 8]} [N=56 T=1 D=1 H=1 W=1 C=24],
+  t648 {unproved: unbound constant: src.t648(0) [sampled 8]} [C=56],
+  t649 {unproved: unbound constant: src.t649(0) [sampled 8]} [N=56 T=1 D=1 H=3 W=3 C=8],
+  t650 {unproved: unbound constant: src.t650(0) [sampled 8]} [C=56],
+  t651 {unproved: unbound constant: src.t651(0) [sampled 8]} [N=56 T=1 D=1 H=1 W=1 C=56],
+  t652 {unproved: unbound constant: src.t652(0) [sampled 8]} [C=56],
+  t653 {unproved: unbound constant: src.t653(0) [sampled 8]} [N=152 T=1 D=1 H=1 W=1 C=56],
+  t654 {unproved: unbound constant: src.t654(0) [sampled 8]} [C=152],
+  t655 {unproved: unbound constant: src.t655(0) [sampled 8]} [N=152 T=1 D=1 H=1 W=1 C=56],
+  t656 {unproved: unbound constant: src.t656(0) [sampled 8]} [C=152],
+  t657 {unproved: unbound constant: src.t657(0) [sampled 8]} [N=152 T=1 D=1 H=3 W=3 C=8],
+  t658 {unproved: unbound constant: src.t658(0) [sampled 8]} [C=152],
+  t659 {unproved: unbound constant: src.t659(0) [sampled 8]} [N=152 T=1 D=1 H=1 W=1 C=152],
+  t660 {unproved: unbound constant: src.t660(0) [sampled 8]} [C=152],
+  t661 {unproved: unbound constant: src.t661(0) [sampled 8]} [N=152 T=1 D=1 H=1 W=1 C=152],
+  t662 {unproved: unbound constant: src.t662(0) [sampled 8]} [C=152],
+  t663 {unproved: unbound constant: src.t663(0) [sampled 8]} [N=152 T=1 D=1 H=3 W=3 C=8],
+  t664 {unproved: unbound constant: src.t664(0) [sampled 8]} [C=152],
+  t665 {unproved: unbound constant: src.t665(0) [sampled 8]} [N=152 T=1 D=1 H=1 W=1 C=152],
+  t666 {unproved: unbound constant: src.t666(0) [sampled 8]} [C=152],
+  t667 {unproved: unbound constant: src.t667(0) [sampled 8]} [N=152 T=1 D=1 H=1 W=1 C=152],
+  t668 {unproved: unbound constant: src.t668(0) [sampled 8]} [C=152],
+  t669 {unproved: unbound constant: src.t669(0) [sampled 8]} [N=152 T=1 D=1 H=3 W=3 C=8],
+  t670 {unproved: unbound constant: src.t670(0) [sampled 8]} [C=152],
+  t671 {unproved: unbound constant: src.t671(0) [sampled 8]} [N=152 T=1 D=1 H=1 W=1 C=152],
+  t672 {unproved: unbound constant: src.t672(0) [sampled 8]} [C=152],
+  t673 {unproved: unbound constant: src.t673(0) [sampled 8]} [N=152 T=1 D=1 H=1 W=1 C=152],
+  t674 {unproved: unbound constant: src.t674(0) [sampled 8]} [C=152],
+  t675 {unproved: unbound constant: src.t675(0) [sampled 8]} [N=152 T=1 D=1 H=3 W=3 C=8],
+  t676 {unproved: unbound constant: src.t676(0) [sampled 8]} [C=152],
+  t677 {unproved: unbound constant: src.t677(0) [sampled 8]} [N=152 T=1 D=1 H=1 W=1 C=152],
+  t678 {unproved: unbound constant: src.t678(0) [sampled 8]} [C=152],
+  t679 {unproved: unbound constant: src.t679(0) [sampled 8]} [N=368 T=1 D=1 H=1 W=1 C=152],
+  t680 {unproved: unbound constant: src.t680(0) [sampled 8]} [C=368],
+  t681 {unproved: unbound constant: src.t681(0) [sampled 8]} [N=368 T=1 D=1 H=1 W=1 C=152],
+  t682 {unproved: unbound constant: src.t682(0) [sampled 8]} [C=368],
+  t683 {unproved: unbound constant: src.t683(0) [sampled 8]} [N=368 T=1 D=1 H=3 W=3 C=8],
+  t684 {unproved: unbound constant: src.t684(0) [sampled 8]} [C=368],
+  t685 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t686 {unproved: unbound constant: src.t686(0) [sampled 8]} [C=368],
+  t687 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t688 {unproved: unbound constant: src.t688(0) [sampled 8]} [C=368],
+  t689 {unproved: unbound constant: src.t689(0) [sampled 8]} [N=368 T=1 D=1 H=3 W=3 C=8],
+  t690 {unproved: unbound constant: src.t690(0) [sampled 8]} [C=368],
+  t691 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t692 {unproved: unbound constant: src.t692(0) [sampled 8]} [C=368],
+  t693 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t694 {unproved: unbound constant: src.t694(0) [sampled 8]} [C=368],
+  t695 {unproved: unbound constant: src.t695(0) [sampled 8]} [N=368 T=1 D=1 H=3 W=3 C=8],
+  t696 {unproved: unbound constant: src.t696(0) [sampled 8]} [C=368],
+  t697 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t698 {unproved: unbound constant: src.t698(0) [sampled 8]} [C=368],
+  t699 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t700 {unproved: unbound constant: src.t700(0) [sampled 8]} [C=368],
+  t701 {unproved: unbound constant: src.t701(0) [sampled 8]} [N=368 T=1 D=1 H=3 W=3 C=8],
+  t702 {unproved: unbound constant: src.t702(0) [sampled 8]} [C=368],
+  t703 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t704 {unproved: unbound constant: src.t704(0) [sampled 8]} [C=368],
+  t705 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t706 {unproved: unbound constant: src.t706(0) [sampled 8]} [C=368],
+  t707 {unproved: unbound constant: src.t707(0) [sampled 8]} [N=368 T=1 D=1 H=3 W=3 C=8],
+  t708 {unproved: unbound constant: src.t708(0) [sampled 8]} [C=368],
+  t709 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t710 {unproved: unbound constant: src.t710(0) [sampled 8]} [C=368],
+  t711 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t712 {unproved: unbound constant: src.t712(0) [sampled 8]} [C=368],
+  t713 {unproved: unbound constant: src.t713(0) [sampled 8]} [N=368 T=1 D=1 H=3 W=3 C=8],
+  t714 {unproved: unbound constant: src.t714(0) [sampled 8]} [C=368],
+  t715 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t716 {unproved: unbound constant: src.t716(0) [sampled 8]} [C=368],
+  t717 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t718 {unproved: unbound constant: src.t718(0) [sampled 8]} [C=368],
+  t719 {unproved: unbound constant: src.t719(0) [sampled 8]} [N=368 T=1 D=1 H=3 W=3 C=8],
+  t720 {unproved: unbound constant: src.t720(0) [sampled 8]} [C=368],
+  t721 {unproved: too large (135424 coords)} [N=368 T=1 D=1 H=1 W=1 C=368],
+  t722 {unproved: unbound constant: src.t722(0) [sampled 8]} [C=368]]
+  nodes:
+    n0: [t267 {unproved: too large (150528 coords)}] =
+      permute4
+        x=t266 {unproved: too large (150528 coords)}
+        perm=[H<-W, W<-C, C<-H]
+    n368: [t723 {unproved: too large (401408 coords)}] =
+      conv2d
+        x=t267 {unproved: too large (150528 coords)}
+        weight=t635 {unproved: unbound constant: src.t635(0) [sampled 8]}
+        bias=t636 {unproved: unbound constant: src.t636(0) [sampled 8]}
+        params={h={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               in_channels=3}
+    n369: [t724 {unproved: too large (401408 coords)}] =
+      relu x=t723 {unproved: too large (401408 coords)}
+    n370: [t725 {unproved: too large (301056 coords)}] =
+      conv2d
+        x=t724 {unproved: too large (401408 coords)}
+        weight=t637 {unproved: unbound constant: src.t637(0) [sampled 8]}
+        bias=t638 {unproved: unbound constant: src.t638(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=32}
+    n371: [t726 {unproved: too large (75264 coords)}] =
+      conv2d
+        x=t724 {unproved: too large (401408 coords)}
+        weight=t639 {unproved: unbound constant: src.t639(0) [sampled 8]}
+        bias=t640 {unproved: unbound constant: src.t640(0) [sampled 8]}
+        params={h={kernel=1; stride=2; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=2; pad_before=0; pad_after=0; dilation=1};
+               in_channels=32}
+    n372: [t727 {unproved: too large (301056 coords)}] =
+      relu x=t725 {unproved: too large (301056 coords)}
+    n373: [t728 {unproved: too large (75264 coords)}] =
+      grouped_conv2d
+        x=t727 {unproved: too large (301056 coords)}
+        weight=t641 {unproved: unbound constant: src.t641(0) [sampled 8]}
+        bias=t642 {unproved: unbound constant: src.t642(0) [sampled 8]}
+        params={h={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               in_channels=24;
+               groups=3}
+    n374: [t729 {unproved: too large (75264 coords)}] =
+      relu x=t728 {unproved: too large (75264 coords)}
+    n375: [t730 {unproved: too large (75264 coords)}] =
+      conv2d
+        x=t729 {unproved: too large (75264 coords)}
+        weight=t643 {unproved: unbound constant: src.t643(0) [sampled 8]}
+        bias=t644 {unproved: unbound constant: src.t644(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=24}
+    n376: [t731 {unproved: too large (75264 coords)}] =
+      add
+        a=t730 {unproved: too large (75264 coords)}
+        b=t726 {unproved: too large (75264 coords)}
+    n377: [t732 {unproved: too large (75264 coords)}] =
+      relu x=t731 {unproved: too large (75264 coords)}
+    n378: [t733 {unproved: too large (175616 coords)}] =
+      conv2d
+        x=t732 {unproved: too large (75264 coords)}
+        weight=t645 {unproved: unbound constant: src.t645(0) [sampled 8]}
+        bias=t646 {unproved: unbound constant: src.t646(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=24}
+    n379: [t734 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t732 {unproved: too large (75264 coords)}
+        weight=t647 {unproved: unbound constant: src.t647(0) [sampled 8]}
+        bias=t648 {unproved: unbound constant: src.t648(0) [sampled 8]}
+        params={h={kernel=1; stride=2; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=2; pad_before=0; pad_after=0; dilation=1};
+               in_channels=24}
+    n380: [t735 {unproved: too large (175616 coords)}] =
+      relu x=t733 {unproved: too large (175616 coords)}
+    n381: [t736 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t735 {unproved: too large (175616 coords)}
+        weight=t649 {unproved: unbound constant: src.t649(0) [sampled 8]}
+        bias=t650 {unproved: unbound constant: src.t650(0) [sampled 8]}
+        params={h={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               in_channels=56;
+               groups=7}
+    n382: [t737 {proved (structural) [sampled 8]}] =
+      relu x=t736 {proved (structural) [sampled 8]}
+    n383: [t738 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t737 {proved (structural) [sampled 8]}
+        weight=t651 {unproved: unbound constant: src.t651(0) [sampled 8]}
+        bias=t652 {unproved: unbound constant: src.t652(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=56}
+    n384: [t739 {proved (structural) [sampled 8]}] =
+      add
+        a=t738 {proved (structural) [sampled 8]}
+        b=t734 {proved (structural) [sampled 8]}
+    n385: [t740 {proved (structural) [sampled 8]}] =
+      relu x=t739 {proved (structural) [sampled 8]}
+    n386: [t741 {unproved: too large (119168 coords)}] =
+      conv2d
+        x=t740 {proved (structural) [sampled 8]}
+        weight=t653 {unproved: unbound constant: src.t653(0) [sampled 8]}
+        bias=t654 {unproved: unbound constant: src.t654(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=56}
+    n387: [t742 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t740 {proved (structural) [sampled 8]}
+        weight=t655 {unproved: unbound constant: src.t655(0) [sampled 8]}
+        bias=t656 {unproved: unbound constant: src.t656(0) [sampled 8]}
+        params={h={kernel=1; stride=2; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=2; pad_before=0; pad_after=0; dilation=1};
+               in_channels=56}
+    n388: [t743 {unproved: too large (119168 coords)}] =
+      relu x=t741 {unproved: too large (119168 coords)}
+    n389: [t744 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t743 {unproved: too large (119168 coords)}
+        weight=t657 {unproved: unbound constant: src.t657(0) [sampled 8]}
+        bias=t658 {unproved: unbound constant: src.t658(0) [sampled 8]}
+        params={h={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               in_channels=152;
+               groups=19}
+    n390: [t745 {proved (structural) [sampled 8]}] =
+      relu x=t744 {proved (structural) [sampled 8]}
+    n391: [t746 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t745 {proved (structural) [sampled 8]}
+        weight=t659 {unproved: unbound constant: src.t659(0) [sampled 8]}
+        bias=t660 {unproved: unbound constant: src.t660(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=152}
+    n392: [t747 {proved (structural) [sampled 8]}] =
+      add
+        a=t746 {proved (structural) [sampled 8]}
+        b=t742 {proved (structural) [sampled 8]}
+    n393: [t748 {proved (structural) [sampled 8]}] =
+      relu x=t747 {proved (structural) [sampled 8]}
+    n394: [t749 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t748 {proved (structural) [sampled 8]}
+        weight=t661 {unproved: unbound constant: src.t661(0) [sampled 8]}
+        bias=t662 {unproved: unbound constant: src.t662(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=152}
+    n395: [t750 {proved (structural) [sampled 8]}] =
+      relu x=t749 {proved (structural) [sampled 8]}
+    n396: [t751 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t750 {proved (structural) [sampled 8]}
+        weight=t663 {unproved: unbound constant: src.t663(0) [sampled 8]}
+        bias=t664 {unproved: unbound constant: src.t664(0) [sampled 8]}
+        params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               in_channels=152;
+               groups=19}
+    n397: [t752 {proved (structural) [sampled 8]}] =
+      relu x=t751 {proved (structural) [sampled 8]}
+    n398: [t753 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t752 {proved (structural) [sampled 8]}
+        weight=t665 {unproved: unbound constant: src.t665(0) [sampled 8]}
+        bias=t666 {unproved: unbound constant: src.t666(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=152}
+    n399: [t754 {proved (structural) [sampled 8]}] =
+      add
+        a=t753 {proved (structural) [sampled 8]}
+        b=t748 {proved (structural) [sampled 8]}
+    n400: [t755 {proved (structural) [sampled 8]}] =
+      relu x=t754 {proved (structural) [sampled 8]}
+    n401: [t756 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t755 {proved (structural) [sampled 8]}
+        weight=t667 {unproved: unbound constant: src.t667(0) [sampled 8]}
+        bias=t668 {unproved: unbound constant: src.t668(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=152}
+    n402: [t757 {proved (structural) [sampled 8]}] =
+      relu x=t756 {proved (structural) [sampled 8]}
+    n403: [t758 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t757 {proved (structural) [sampled 8]}
+        weight=t669 {unproved: unbound constant: src.t669(0) [sampled 8]}
+        bias=t670 {unproved: unbound constant: src.t670(0) [sampled 8]}
+        params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               in_channels=152;
+               groups=19}
+    n404: [t759 {proved (structural) [sampled 8]}] =
+      relu x=t758 {proved (structural) [sampled 8]}
+    n405: [t760 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t759 {proved (structural) [sampled 8]}
+        weight=t671 {unproved: unbound constant: src.t671(0) [sampled 8]}
+        bias=t672 {unproved: unbound constant: src.t672(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=152}
+    n406: [t761 {proved (structural) [sampled 8]}] =
+      add
+        a=t760 {proved (structural) [sampled 8]}
+        b=t755 {proved (structural) [sampled 8]}
+    n407: [t762 {proved (structural) [sampled 8]}] =
+      relu x=t761 {proved (structural) [sampled 8]}
+    n408: [t763 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t762 {proved (structural) [sampled 8]}
+        weight=t673 {unproved: unbound constant: src.t673(0) [sampled 8]}
+        bias=t674 {unproved: unbound constant: src.t674(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=152}
+    n409: [t764 {proved (structural) [sampled 8]}] =
+      relu x=t763 {proved (structural) [sampled 8]}
+    n410: [t765 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t764 {proved (structural) [sampled 8]}
+        weight=t675 {unproved: unbound constant: src.t675(0) [sampled 8]}
+        bias=t676 {unproved: unbound constant: src.t676(0) [sampled 8]}
+        params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               in_channels=152;
+               groups=19}
+    n411: [t766 {proved (structural) [sampled 8]}] =
+      relu x=t765 {proved (structural) [sampled 8]}
+    n412: [t767 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t766 {proved (structural) [sampled 8]}
+        weight=t677 {unproved: unbound constant: src.t677(0) [sampled 8]}
+        bias=t678 {unproved: unbound constant: src.t678(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=152}
+    n413: [t768 {proved (structural) [sampled 8]}] =
+      add
+        a=t767 {proved (structural) [sampled 8]}
+        b=t762 {proved (structural) [sampled 8]}
+    n414: [t769 {proved (structural) [sampled 8]}] =
+      relu x=t768 {proved (structural) [sampled 8]}
+    n415: [t770 {unproved: too large (72128 coords)}] =
+      conv2d
+        x=t769 {proved (structural) [sampled 8]}
+        weight=t679 {unproved: unbound constant: src.t679(0) [sampled 8]}
+        bias=t680 {unproved: unbound constant: src.t680(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=152}
+    n416: [t771 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t769 {proved (structural) [sampled 8]}
+        weight=t681 {unproved: unbound constant: src.t681(0) [sampled 8]}
+        bias=t682 {unproved: unbound constant: src.t682(0) [sampled 8]}
+        params={h={kernel=1; stride=2; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=2; pad_before=0; pad_after=0; dilation=1};
+               in_channels=152}
+    n417: [t772 {unproved: too large (72128 coords)}] =
+      relu x=t770 {unproved: too large (72128 coords)}
+    n418: [t773 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t772 {unproved: too large (72128 coords)}
+        weight=t683 {unproved: unbound constant: src.t683(0) [sampled 8]}
+        bias=t684 {unproved: unbound constant: src.t684(0) [sampled 8]}
+        params={h={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=2; pad_before=1; pad_after=1; dilation=1};
+               in_channels=368;
+               groups=46}
+    n419: [t774 {proved (structural) [sampled 8]}] =
+      relu x=t773 {proved (structural) [sampled 8]}
+    n420: [t775 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t774 {proved (structural) [sampled 8]}
+        weight=t685 {unproved: too large (135424 coords)}
+        bias=t686 {unproved: unbound constant: src.t686(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n421: [t776 {proved (structural) [sampled 8]}] =
+      add
+        a=t775 {proved (structural) [sampled 8]}
+        b=t771 {proved (structural) [sampled 8]}
+    n422: [t777 {proved (structural) [sampled 8]}] =
+      relu x=t776 {proved (structural) [sampled 8]}
+    n423: [t778 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t777 {proved (structural) [sampled 8]}
+        weight=t687 {unproved: too large (135424 coords)}
+        bias=t688 {unproved: unbound constant: src.t688(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n424: [t779 {proved (structural) [sampled 8]}] =
+      relu x=t778 {proved (structural) [sampled 8]}
+    n425: [t780 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t779 {proved (structural) [sampled 8]}
+        weight=t689 {unproved: unbound constant: src.t689(0) [sampled 8]}
+        bias=t690 {unproved: unbound constant: src.t690(0) [sampled 8]}
+        params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               in_channels=368;
+               groups=46}
+    n426: [t781 {proved (structural) [sampled 8]}] =
+      relu x=t780 {proved (structural) [sampled 8]}
+    n427: [t782 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t781 {proved (structural) [sampled 8]}
+        weight=t691 {unproved: too large (135424 coords)}
+        bias=t692 {unproved: unbound constant: src.t692(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n428: [t783 {proved (structural) [sampled 8]}] =
+      add
+        a=t782 {proved (structural) [sampled 8]}
+        b=t777 {proved (structural) [sampled 8]}
+    n429: [t784 {proved (structural) [sampled 8]}] =
+      relu x=t783 {proved (structural) [sampled 8]}
+    n430: [t785 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t784 {proved (structural) [sampled 8]}
+        weight=t693 {unproved: too large (135424 coords)}
+        bias=t694 {unproved: unbound constant: src.t694(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n431: [t786 {proved (structural) [sampled 8]}] =
+      relu x=t785 {proved (structural) [sampled 8]}
+    n432: [t787 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t786 {proved (structural) [sampled 8]}
+        weight=t695 {unproved: unbound constant: src.t695(0) [sampled 8]}
+        bias=t696 {unproved: unbound constant: src.t696(0) [sampled 8]}
+        params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               in_channels=368;
+               groups=46}
+    n433: [t788 {proved (structural) [sampled 8]}] =
+      relu x=t787 {proved (structural) [sampled 8]}
+    n434: [t789 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t788 {proved (structural) [sampled 8]}
+        weight=t697 {unproved: too large (135424 coords)}
+        bias=t698 {unproved: unbound constant: src.t698(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n435: [t790 {proved (structural) [sampled 8]}] =
+      add
+        a=t789 {proved (structural) [sampled 8]}
+        b=t784 {proved (structural) [sampled 8]}
+    n436: [t791 {proved (structural) [sampled 8]}] =
+      relu x=t790 {proved (structural) [sampled 8]}
+    n437: [t792 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t791 {proved (structural) [sampled 8]}
+        weight=t699 {unproved: too large (135424 coords)}
+        bias=t700 {unproved: unbound constant: src.t700(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n438: [t793 {proved (structural) [sampled 8]}] =
+      relu x=t792 {proved (structural) [sampled 8]}
+    n439: [t794 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t793 {proved (structural) [sampled 8]}
+        weight=t701 {unproved: unbound constant: src.t701(0) [sampled 8]}
+        bias=t702 {unproved: unbound constant: src.t702(0) [sampled 8]}
+        params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               in_channels=368;
+               groups=46}
+    n440: [t795 {proved (structural) [sampled 8]}] =
+      relu x=t794 {proved (structural) [sampled 8]}
+    n441: [t796 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t795 {proved (structural) [sampled 8]}
+        weight=t703 {unproved: too large (135424 coords)}
+        bias=t704 {unproved: unbound constant: src.t704(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n442: [t797 {proved (structural) [sampled 8]}] =
+      add
+        a=t796 {proved (structural) [sampled 8]}
+        b=t791 {proved (structural) [sampled 8]}
+    n443: [t798 {proved (structural) [sampled 8]}] =
+      relu x=t797 {proved (structural) [sampled 8]}
+    n444: [t799 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t798 {proved (structural) [sampled 8]}
+        weight=t705 {unproved: too large (135424 coords)}
+        bias=t706 {unproved: unbound constant: src.t706(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n445: [t800 {proved (structural) [sampled 8]}] =
+      relu x=t799 {proved (structural) [sampled 8]}
+    n446: [t801 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t800 {proved (structural) [sampled 8]}
+        weight=t707 {unproved: unbound constant: src.t707(0) [sampled 8]}
+        bias=t708 {unproved: unbound constant: src.t708(0) [sampled 8]}
+        params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               in_channels=368;
+               groups=46}
+    n447: [t802 {proved (structural) [sampled 8]}] =
+      relu x=t801 {proved (structural) [sampled 8]}
+    n448: [t803 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t802 {proved (structural) [sampled 8]}
+        weight=t709 {unproved: too large (135424 coords)}
+        bias=t710 {unproved: unbound constant: src.t710(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n449: [t804 {proved (structural) [sampled 8]}] =
+      add
+        a=t803 {proved (structural) [sampled 8]}
+        b=t798 {proved (structural) [sampled 8]}
+    n450: [t805 {proved (structural) [sampled 8]}] =
+      relu x=t804 {proved (structural) [sampled 8]}
+    n451: [t806 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t805 {proved (structural) [sampled 8]}
+        weight=t711 {unproved: too large (135424 coords)}
+        bias=t712 {unproved: unbound constant: src.t712(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n452: [t807 {proved (structural) [sampled 8]}] =
+      relu x=t806 {proved (structural) [sampled 8]}
+    n453: [t808 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t807 {proved (structural) [sampled 8]}
+        weight=t713 {unproved: unbound constant: src.t713(0) [sampled 8]}
+        bias=t714 {unproved: unbound constant: src.t714(0) [sampled 8]}
+        params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               in_channels=368;
+               groups=46}
+    n454: [t809 {proved (structural) [sampled 8]}] =
+      relu x=t808 {proved (structural) [sampled 8]}
+    n455: [t810 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t809 {proved (structural) [sampled 8]}
+        weight=t715 {unproved: too large (135424 coords)}
+        bias=t716 {unproved: unbound constant: src.t716(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n456: [t811 {proved (structural) [sampled 8]}] =
+      add
+        a=t810 {proved (structural) [sampled 8]}
+        b=t805 {proved (structural) [sampled 8]}
+    n457: [t812 {proved (structural) [sampled 8]}] =
+      relu x=t811 {proved (structural) [sampled 8]}
+    n458: [t813 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t812 {proved (structural) [sampled 8]}
+        weight=t717 {unproved: too large (135424 coords)}
+        bias=t718 {unproved: unbound constant: src.t718(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n459: [t814 {proved (structural) [sampled 8]}] =
+      relu x=t813 {proved (structural) [sampled 8]}
+    n460: [t815 {proved (structural) [sampled 8]}] =
+      grouped_conv2d
+        x=t814 {proved (structural) [sampled 8]}
+        weight=t719 {unproved: unbound constant: src.t719(0) [sampled 8]}
+        bias=t720 {unproved: unbound constant: src.t720(0) [sampled 8]}
+        params={h={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               w={kernel=3; stride=1; pad_before=1; pad_after=1; dilation=1};
+               in_channels=368;
+               groups=46}
+    n461: [t816 {proved (structural) [sampled 8]}] =
+      relu x=t815 {proved (structural) [sampled 8]}
+    n462: [t817 {proved (structural) [sampled 8]}] =
+      conv2d
+        x=t816 {proved (structural) [sampled 8]}
+        weight=t721 {unproved: too large (135424 coords)}
+        bias=t722 {unproved: unbound constant: src.t722(0) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+    n463: [t818 {proved (structural) [sampled 8]}] =
+      add
+        a=t817 {proved (structural) [sampled 8]}
+        b=t812 {proved (structural) [sampled 8]}
+    n464: [t819 {proved (structural) [sampled 8]}] =
+      relu x=t818 {proved (structural) [sampled 8]}
+    n362: [t629 {unproved: over max_rounds [sampled 8]}] =
+      adaptive_avg_pool2d
+        x=t819 {proved (structural) [sampled 8]}
+        params={output_size={h=1; w=1}}
+    n367: [t634 {unproved: unbound constant: src.t633(0) [sampled 8]}] =
+      conv2d
+        x=t629 {unproved: over max_rounds [sampled 8]}
+        weight=t633 {unproved: too large (368000 coords)}
+        bias=t133 {proved (structural, for these constants) [sampled 8]}
+        params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+               in_channels=368}
+  outputs: [t634 {unproved: unbound constant: src.t633(0) [sampled 8]} [C=1000]]
 
 MobileNetV2-050, whole structure, with each edge's verification verdict beside
 it. `DepthwiseConv2D` is the point of including this model: grouping is a

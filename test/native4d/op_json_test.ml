@@ -34,6 +34,16 @@ let conv_params : Ops4.Conv_params.t =
     in_channels = Dim.extent 4;
   }
 
+(* [in_channels=8], [groups=2]: neither 1 nor depthwise (groups=in_channels),
+   so distinct from both [conv_params] uses above. *)
+let grouped_conv_params : Ops4.Grouped_conv_params.t =
+  {
+    h = axis_window ~kernel:3;
+    w = axis_window ~kernel:3;
+    in_channels = Dim.extent 8;
+    groups = Op_config.Pos.of_int 2;
+  }
+
 let hw n : 'a Op_config.Hw.t = { h = n; w = n }
 
 (* Structurally identical records in two modules, so each needs its own
@@ -94,6 +104,13 @@ let samples : Op.t list =
     Div { Pointwise.Bin.a = x; b = y };
     Div_scalar { Pointwise.Scalar_bin.x; scalar = 2. };
     Gelu { Pointwise.Gelu.x; approximate = Exact };
+    Grouped_conv2d
+      {
+        Ops4.Grouped_conv_payload.params = grouped_conv_params;
+        x;
+        weight = w;
+        bias = None;
+      };
     Hardsigmoid { Pointwise.Hardsigmoid.x };
     Hardswish { Pointwise.Hardswish.x };
     Hardtanh { Pointwise.Hardtanh.params = { min_val = 0.; max_val = 6. }; x };
@@ -196,7 +213,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 41, registry: 41 |}]
+  [%expect {| samples: 42, registry: 42 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -231,6 +248,13 @@ let%expect_test "op4: printed" =
     div a=t0 b=t1
     div_scalar x=t0 scalar=2
     gelu x=t0 approximate=none
+    grouped_conv2d
+      x=t0
+      weight=t2
+      params={h={kernel=3; stride=1; pad_before=0; pad_after=1; dilation=1};
+             w={kernel=3; stride=1; pad_before=0; pad_after=1; dilation=1};
+             in_channels=8;
+             groups=2}
     hardsigmoid x=t0
     hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}
@@ -282,7 +306,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 41 ops |}]
+  [%expect {| round-tripped 42 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

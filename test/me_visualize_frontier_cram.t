@@ -66,7 +66,7 @@ lowering, structurally in `native4d/verify_test.ml`'s "gelu tanh" cluster), so
   mobilenetv2_050 stage:initial_native available graph
   mobilenetv2_050 stage:native4d available graph
   regnetx_002 stage:initial_native available graph
-  regnetx_002 stage:native4d unavailable outside_dialect_domain: node n373: convolution has 3 groups, which is neither 1 nor depthwise
+  regnetx_002 stage:native4d available graph
   test_convnext2 stage:initial_native available graph
   test_convnext2 stage:native4d available graph
   efficientnet_b0 stage:initial_native available graph
@@ -75,12 +75,11 @@ lowering, structurally in `native4d/verify_test.ml`'s "gelu tanh" cluster), so
   fastvit_sa12 stage:native4d unavailable outside_dialect_domain: node n604: axis T is outside the N/H/W/C dialect
   csatv2 blocked: native_graph: Pow is not a Const-SSA operation
 
-`regnetx_002`'s `stage:native4d` was already `unavailable outside_dialect_domain`
-before this change (a 3-group convolution, neither 1 nor depthwise -- unrelated
-to any op this change touches); the plan's premise that it was "already
-available" at that stage was mistaken. `stage:initial_native` is the row this
-change actually guards there, and it is unchanged. `fastvit_sa12`'s
-`stage:native4d` stays `unavailable outside_dialect_domain` too, pre-existing
-and unrelated to Gelu/Sigmoid/Mul_scalar (this model uses SDPA, which
+`regnetx_002`'s `stage:native4d` used to be `unavailable outside_dialect_domain`
+(a 3-group convolution, neither 1 nor depthwise). `GroupedConv2D`
+(`.ai/native4d_design.md` §7.2/§8) now carries the general form, so that
+convolution legalizes and `regnetx_002` reaches `stage:native4d` too.
+`fastvit_sa12`'s `stage:native4d` stays `unavailable outside_dialect_domain`,
+pre-existing and unrelated to grouped convolution (this model uses SDPA, which
 `native4d_design.md` section 8 documents as an intentional domain rejection) --
 not a regression from this change.

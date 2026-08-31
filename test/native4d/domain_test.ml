@@ -137,7 +137,7 @@ let%expect_test "domain: convolution grouping" =
     {|
     groups=1                     in the dialect
     depthwise                    in the dialect
-    groups=2, 2 per group        node n0: convolution has 2 groups, which is neither 1 nor depthwise
+    groups=2, 2 per group        in the dialect
     transposed, groups=1         in the dialect
     transposed, groups=2         node n0: transposed convolution has 2 groups; only 1 legalizes |}]
 

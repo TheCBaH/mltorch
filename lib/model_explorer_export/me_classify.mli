@@ -22,7 +22,7 @@ type verdict =
 val pp_verdict : Format.formatter -> verdict -> unit
 
 val native4d : [< Native4d.Error.t ] -> verdict
-(** [`Missing_constant_payload] is [Requires_payloads]; the ten domain rows are
+(** [`Missing_constant_payload] is [Requires_payloads]; the nine domain rows are
     [Outside_dialect_domain]; [`Bad_constant_payload], [`Constant_store], [`Map]
     and [`View] are fatal — a payload that was supplied and is wrong, or a
     map/view invariant failure, is a defect rather than a partiality.

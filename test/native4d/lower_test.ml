@@ -412,8 +412,6 @@ let%expect_test "lower: the domain's rejections are the lowerer's" =
       ("unused non-4D input", Fixtures.unused_input_non_4d);
       ("mean over D", Fixtures.mean_over_d);
       ("bmm batch 2", Fixtures.bmm_batch 2);
-      ( "conv groups=2",
-        Fixtures.conv2d_grouped ~groups:2 ~in_channels:4 ~out_channels:4 );
       ("live max-pool indices", Fixtures.maxpool_indices_live);
     ];
   [%expect
@@ -422,8 +420,30 @@ let%expect_test "lower: the domain's rejections are the lowerer's" =
     unused non-4D input        tensor t1 has extent on T or D: [D=5 H=4 W=4 C=3]
     mean over D                node n0: axis D is outside the N/H/W/C dialect
     bmm batch 2                node n0: bmm batch extent is 2; only a single batch legalizes to a 1x1 convolution
-    conv groups=2              node n0: convolution has 2 groups, which is neither 1 nor depthwise
     live max-pool indices      node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
+
+(* §7.2/§8: a grouping that is neither 1 nor depthwise used to be rejected here;
+   it now normalizes to [GroupedConv2D], the general form, with [groups] itself
+   carried as a genuine field rather than implied by the constructor. *)
+let%expect_test "lower: general grouped convolution becomes GroupedConv2D" =
+  show "conv groups=2"
+    (Fixtures.conv2d_grouped ~groups:2 ~in_channels:4 ~out_channels:4 ());
+  [%expect
+    {|
+    conv groups=2:
+      graph4
+    inputs: [t0 [H=4 W=4 C=4],
+    t1 [N=4 T=1 D=1 H=1 W=1 C=2]]
+    nodes:
+      n0: [t2] =
+        grouped_conv2d
+          x=t0
+          weight=t1
+          params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 in_channels=4;
+                 groups=2}
+    outputs: [t2 [H=4 W=4 C=4]] |}]
 
 (* An unread constant is model-bound state, not interface, so it is OMITTED and
    recorded as a deletion — the seam [Rewrite.apply] already cuts along. The
