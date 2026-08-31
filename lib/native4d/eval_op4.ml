@@ -246,6 +246,11 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Slice4 { Ops4.Slice4.params; x } ->
         let module C = Split.Slice.Compute (S) in
         C.pixel (Graph_shape4.slice_params params) ~x:(operand x) out
+    | Softmax4 { Ops4.Softmax4.params; x } ->
+        let module C = Reduce.Softmax.Compute (S) in
+        C.pixel
+          (Graph_shape4.softmax_params params)
+          ~x_shape:(shape_of x) ~x:(operand x) out
     (* Through the same adapter [Graph_shape4] uses, so the axis and sizes the
        shape rule reads are the ones the compute reads along -- the same
        discipline the [Unbind] arm above follows. [offset] is the sum of every

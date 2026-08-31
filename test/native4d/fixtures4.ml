@@ -266,6 +266,12 @@ let per_op () =
                stop = 4;
                step = Op_config.Pos.of_int 2;
              }) );
+      (* Softmax reduces over W without changing shape -- unlike [slice4]
+         above, the fixture only needs a non-trivial extent (4) on the
+         reduced axis so the max/sum reduction is over more than one
+         element. *)
+      ( "softmax4",
+        unary ~shape:nhwc (Builder.softmax4 { Ops4.Softmax4.axis = Axis4.W }) );
       (* N=1, the same precondition [unbind]'s own fixture comment gives:
          dropping W leaves N/T/D unit either way, so the result stays
          four-axis. An index that is neither 0 nor the axis's last valid one,

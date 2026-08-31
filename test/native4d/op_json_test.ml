@@ -220,6 +220,9 @@ let samples : Op.t list =
           { axis = W; start = 1; stop = 8; step = Op_config.Pos.of_int 3 };
         x;
       };
+    (* Axis distinct from [Slice4]'s own sample, so an encoder that confused
+       the two still prints differently. *)
+    Softmax4 { Ops4.Softmax4.params = { axis = C }; x };
     (* Three unequal sizes, so an encoder that dropped or reordered one
        differs in printed output as well as in count. *)
     Split_with_sizes4
@@ -278,7 +281,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 54, registry: 54 |}]
+  [%expect {| samples: 55, registry: 55 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -352,6 +355,7 @@ let%expect_test "op4: printed" =
     sigmoid x=t0
     silu x=t0
     slice4 x=t0 params={axis=W start=1 stop=8 step=3}
+    softmax4 x=t0 params={axis=C}
     split_with_sizes4 x=t0 params={axis=W sizes=[2, 3, 1]}
     sqrt x=t0
     stack4 xs=[t1, t3] params={axis=N}
@@ -383,7 +387,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 54 ops |}]
+  [%expect {| round-tripped 55 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

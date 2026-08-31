@@ -67,6 +67,7 @@ type op =
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   | Slice4 of Ops4.Slice4.t
+  | Softmax4 of Ops4.Softmax4.t
   | Split_with_sizes4 of Ops4.Split_with_sizes4.t
   | Sqrt of Pointwise.Sqrt.t
   | Stack4 of Ops4.Stack4.t
@@ -348,6 +349,12 @@ let op_registry : (module OP) list =
 
       let inject t = Slice4 t
       let project = function Slice4 t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Softmax4
+
+      let inject t = Softmax4 t
+      let project = function Softmax4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Split_with_sizes4

@@ -183,6 +183,35 @@ let%expect_test "lower: repeat_interleave4 on T is refused at the domain check"
   [%expect
     {| repeat_interleave on T     node n0: axis T is outside the N/H/W/C dialect |}]
 
+(* [Softmax4] carries ONE named axis, the same [check_dims] treatment
+   [RepeatInterleave4] just above gets: rejected at the DOMAIN check, before a
+   destination graph is even attempted. Unlike [RepeatInterleave4], there is
+   no post-hoc [Shape4.of_vec6] alternative to contrast it with -- softmax's
+   output shape is [x]'s own, unchanged, so the axis check is the only gate. *)
+let softmax4 ~source ~axis =
+  build "softmax"
+    (let open Graph_builder in
+     let* x = input ~shape:source () in
+     softmax { Reduce.Softmax.axis } x)
+
+let%expect_test "lower: softmax4 over W lowers" =
+  let source = Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3 in
+  show "softmax" (softmax4 ~source ~axis:Axis.W);
+  [%expect
+    {|
+    softmax:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = softmax4 x=t0 params={axis=W}
+    outputs: [t1 [H=2 W=2 C=3]] |}]
+
+let%expect_test "lower: softmax4 over D is refused at the domain check" =
+  let source = Fixtures.nhwc ~n:1 ~h:2 ~w:2 ~c:3 in
+  outcome "softmax on D" (softmax4 ~source ~axis:Axis.D);
+  [%expect
+    {| softmax on D               node n0: axis D is outside the N/H/W/C dialect |}]
+
 (* transpose.int on a rank-4 [1,h,w,c] ATen source: dim 0 is D (the leading
    entry, D=1 so the SHAPE is in-domain), dims 1/2/3 are H/W/C. Every rank-4
    fixture below uses DISTINCT, non-unit h/w/c so a wrong pair swapped is

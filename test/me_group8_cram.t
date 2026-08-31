@@ -63,7 +63,7 @@ only Model Explorer evidence, and will remain so until the decomposition
 The complete capability vector: every stage available EXCEPT Native4D, which
 is the whole point of this row (F8) -- SDPA names D as its batch axis, which
 the N/H/W/C dialect has no name for, and there is no legalization to fall
-back to (Native4D has no Bmm and no softmax).
+back to (Native4D's Bmm legalization admits only a single batch).
 
   $ caps() {
   >   python3 -c "
@@ -93,7 +93,7 @@ back to (Native4D has no Bmm and no softmax).
   feature:expression_detail    available present
   feature:loop_ir              unavailable not_implemented
   feature:codegen              unavailable not_implemented
-    diagnostic: outside_dialect_domain | node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native has no Bmm or softmax in Native4D)
+    diagnostic: outside_dialect_domain | node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native4D's Bmm legalization admits only a single batch)
 
 The SOURCE view: one node per serialized target, namespace off
 `nn_module_stack`. `attn1` has three incoming edges (no mask); `attn2` has
@@ -173,4 +173,4 @@ same contrast `me_group6_cram.t` and `me_group7_cram.t` draw for
   > for d in s['diagnostics']:
   >     if 'sdpa' in d['message'] or 'batch axis' in d['message']:
   >         print(d['code'], '|', d['message'])"
-  outside_dialect_domain | node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native has no Bmm or softmax in Native4D)
+  outside_dialect_domain | node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native4D's Bmm legalization admits only a single batch)

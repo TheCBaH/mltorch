@@ -210,6 +210,51 @@ module Vector_norm_keepdims = struct
       pp_params t.params
 end
 
+(* [Reduce.Softmax]'s own payload, narrowed the same way [RepeatInterleave4]'s
+   is: ONE named axis, so the field is [Axis4.t] and T/D are unnameable.
+   Unlike the four keep-dimensions ops above, softmax never drops rank at
+   all -- [Reduce.Softmax.output_shape] is the identity on the input shape --
+   so there is no repack for the shape arm to defer to beyond carrying [x]'s
+   shape straight through. Gets the same [check_dims]-style axis-domain
+   rejection [Select4]/[Slice4]/[RepeatInterleave4] get in
+   [Domain.check_node]. See .ai/matmul_softmax_design.md §3. *)
+module Softmax4 = struct
+  type params = { axis : Axis4.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"softmax4_params" (fun axis -> { axis })
+    |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a}@]" Axis4.pp p.axis
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Softmax4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>softmax4@ x=%a@ params=%a@]" pp_ref t.x pp_params
+      t.params
+end
+
 (* ---- normalisation -------------------------------------------------------- *)
 
 (* Training batch norm cannot use inference [Batch_norm]'s depthwise-conv

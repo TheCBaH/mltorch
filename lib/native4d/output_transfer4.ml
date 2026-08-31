@@ -61,6 +61,12 @@ let classify (op : Op.t) ~output:_ =
   | Select_scatter4 _ -> Output_transfer.Reindexing
   | Sigmoid _ | Silu _ -> Output_transfer.Continuous
   | Slice4 _ -> Output_transfer.Reindexing
+  (* A genuine reduction, not a copy: every output element depends on the
+     whole reduced axis (the max and the sum both range over it), so an
+     arbitrarily small change to any element on that axis can move the
+     result -- the same answer Native's own [Output_transfer] gives
+     [Softmax]. *)
+  | Softmax4 _ -> Output_transfer.Continuous
   | Split_with_sizes4 _ -> Output_transfer.Reindexing
   (* Data movement, the same argument as [Concat4]/[Select4] above: every
      output element is COPIED from an input element with no arithmetic --

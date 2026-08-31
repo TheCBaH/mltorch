@@ -266,9 +266,10 @@ Three results were considered (`op8.md:174-186`); only one is available:
 - **Sound legalization** — unavailable. Unlike `Bmm`, whose `batch = 1` case
   degrades to a 1x1 convolution (`.ai/native4d_design.md` §7.4), Sdpa has no
   such escape hatch at ANY batch extent, because the axis it names is `D`
-  itself, not merely a large one; and even setting that aside, Native4D has
-  no `Bmm` for `batch > 1` and no softmax/reduction primitive beyond
-  `MeanKeepDims` to legalize onto.
+  itself, not merely a large one; and even setting that aside, a per-head
+  decomposition would still need a `batch > 1` matmul, which Native4D's
+  `Bmm` legalization does not admit (`Softmax4` landed 2026-08-31, per
+  `matmul_softmax_design.md` §3, but does not remove this blocker).
 - **Typed rejection** — the correct answer, not a shortcut. `op8.md:184-186`
   already prefers this to a nominal Native4D op whose axis or mask semantics
   are not representable.

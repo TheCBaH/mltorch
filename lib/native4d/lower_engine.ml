@@ -886,15 +886,25 @@ let lower_node ~view acc (n : node) =
              Ops4.Stack4.params = { axis = List.hd axis4 };
              xs = List.map op_of xs;
            })
+  (* The axis converts here for the same reason [Select]'s/[Stack]'s does. No
+     post-hoc output re-check, unlike theirs: this op's output shape is [x]'s
+     OWN shape unchanged ([Reduce.Softmax.output_shape] returns [x_shape]
+     verbatim, the same fact [Select_scatter]'s arm above relies on), so if
+     [x] is already four-axis the output automatically is too, whichever axis
+     this op reduces over. *)
+  | Softmax { Reduce.Softmax.params; x } ->
+      let* axis4 = dims4 ~node [ params.axis ] in
+      simple
+        (Op.Softmax4
+           { Ops4.Softmax4.params = { axis = List.hd axis4 }; x = op_of x })
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Index_tensor]/[Softmax] join that set until their own counterparts
-     exist (see [Domain.check_node]'s comment) rather than gaining a real
-     conversion arm here -- neither has a Native4D counterpart at all yet,
-     the same "dialect does not have it" answer, and CSATv2 stays a
-     graph-only target regardless. [Repeat]/[RepeatInterleave]/
-     [Select_scatter] no longer join them: all three now have real
-     conversion arms above. *)
+     [Index_tensor] joins that set until its own counterpart exists (see
+     [Domain.check_node]'s comment) rather than gaining a real conversion arm
+     here -- it has no Native4D counterpart at all yet, the same "dialect does
+     not have it" answer. [Repeat]/[RepeatInterleave]/[Select_scatter]/
+     [Softmax] no longer join them: all four now have real conversion arms
+     above. *)
   | Adaptive_max_pool2d_with_indices _ | Batched_matmul _ | Discard _
-  | Index_tensor _ | Max_pool2d_with_indices _ | Sdpa _ | Softmax _ ->
+  | Index_tensor _ | Max_pool2d_with_indices _ | Sdpa _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

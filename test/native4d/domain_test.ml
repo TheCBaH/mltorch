@@ -188,19 +188,21 @@ let%expect_test "domain: batched_matmul is always outside the dialect" =
     batched_matmul               node n0: batched matmul's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (the same `D`-axis argument attention_design.md §9 already made for Sdpa) |}]
 
 (* [Sdpa] has no admissible shape at all: unlike [Bmm], whose single-batch
-   case legalizes to a 1x1 convolution, Native4D has neither a [Bmm] nor a
-   softmax to legalize through, and the op names D as batch regardless of
-   configuration (op8-impl.md F8). *)
+   case legalizes to a 1x1 convolution, a per-head decomposition would still
+   need a multi-batch matmul Native4D's [Bmm] legalization does not admit
+   ([Softmax4] existing does not change that), and the op names D as batch
+   regardless of configuration (op8-impl.md F8). *)
 let%expect_test "domain: sdpa is always outside the dialect" =
   table [ ("sdpa", Fixtures.sdpa) ];
   [%expect
     {|
-    sdpa                         node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native has no Bmm or softmax in Native4D) |}]
+    sdpa                         node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native4D's Bmm legalization admits only a single batch) |}]
 
-(* [Softmax] has no [Ops4] counterpart at any axis, unlike [Mean]/[Amax]/
-   [Vector_norm]: every axis rejects with the plain "dialect does not have
-   it at all" answer, not [check_dims]'s per-axis one. *)
-let%expect_test "domain: softmax has no dialect counterpart at any axis" =
+(* [Softmax4] gates its ONE named axis, the same rule [slice]'s own test
+   applies -- softmax never changes shape, so there is no separate
+   shape-consequence rejection to demonstrate, the same reason
+   [select_scatter]'s test below has none. *)
+let%expect_test "domain: softmax gates its reduced axis" =
   table
     [
       ("softmax over C", Fixtures.softmax_over Axis.C);
@@ -208,13 +210,11 @@ let%expect_test "domain: softmax has no dialect counterpart at any axis" =
     ];
   [%expect
     {|
-    softmax over C               node n0: no legalization for
-                                   softmax x=t0 params={axis=C}
-    softmax over D               node n0: no legalization for
-                                   softmax x=t0 params={axis=D} |}]
+    softmax over C               in the dialect
+    softmax over D               node n0: axis D is outside the N/H/W/C dialect |}]
 
 (* [Expand4] now exists, and admits every [Expand] unconditionally here --
-   unlike [Softmax] just above, whose rejection is an axis-domain question,
+   unlike [Softmax] above, whose rejection is an axis-domain question,
    whether an expansion stays four-axis is a fact about its OWN target
    shape (a plain [Vec6.shape] at the Native op), checked by [Graph_shape4]'s
    [four] wrap and the lowerer's [Shape4.of_vec6], not by this arm. *)

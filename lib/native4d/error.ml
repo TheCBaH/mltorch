@@ -68,8 +68,8 @@ let pp fmt : [< t ] -> unit = function
   | `Sdpa_batch_axis node ->
       Fmt.pf fmt
         "@[node %a: scaled-dot-product attention's batch axis is D, which the \
-         N/H/W/C dialect has no name for; no legalization is available (Native \
-         has no Bmm or softmax in Native4D)@]"
+         N/H/W/C dialect has no name for; no legalization is available \
+         (Native4D's Bmm legalization admits only a single batch)@]"
         Node_id.pp node
   | `Unsupported_bmm_batch (node, batch) ->
       Fmt.pf fmt

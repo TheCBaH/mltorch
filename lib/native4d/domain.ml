@@ -256,9 +256,11 @@ let check_node view (n : node) =
   (* Not [check_dims]: the batch axis is D UNCONDITIONALLY (op8-impl.md F7/F8),
      not a parameter that happens to name D in some configurations, so there
      is no admissible case to let through. Typed rejection is the principled
-     answer here, not a shortcut: legalization is unavailable too (Native4D
-     has no Bmm and no softmax), so a sound direct/legalized/rejected decision
-     has exactly one option. *)
+     answer here, not a shortcut: a per-head decomposition would not help
+     either, since Native4D's [Bmm] legalization only admits a SINGLE batch
+     (`Unsupported_bmm_batch`) -- [Softmax4] now exists, but the multi-head
+     matmul the decomposition would still need does not, so a sound
+     direct/legalized/rejected decision has exactly one option. *)
   | Sdpa _ -> Err.fail (`Sdpa_batch_axis node)
   (* Three ops the dialect does not have (the adaptive pair joining
      [Max_pool2d_with_indices] for the same reason -- see [Adaptive_max_pool2d]
@@ -317,14 +319,14 @@ let check_node view (n : node) =
      names. *)
   | Select_scatter { Split.Select_scatter.params; _ } ->
       check_dims node [ params.axis ]
-  (* The dialect has no [Softmax4] yet -- same "dialect does not have it at
-     all" answer, not an axis-domain rejection, until it does. Not
-     [check_dims]: unlike [Amax]/[Mean]/[Vector_norm], which the reduced
-     dialect can legalize on N/H/W/C (there is a [*_keepdims] `Ops4`
-     counterpart to legalize onto), Softmax has no `Ops4` counterpart at any
-     axis, so there is no admissible case to let through -- see
-     .ai/matmul_softmax_design.md §3. *)
-  | Index_tensor _ | Softmax _ -> unsupported ()
+  (* [Softmax4] now exists, so [Softmax] gets the same [check_dims]-style
+     axis rejection [Select]/[Select_scatter]/[Slice]/[Stack]/
+     [RepeatInterleave] get: the REDUCED axis is the one the dialect must be
+     able to name. Softmax never changes shape, so unlike [Amax]/[Mean]/
+     [Vector_norm] there is no separate keepdim-vs-drop distinction here --
+     one counterpart, one axis check. See .ai/matmul_softmax_design.md §3. *)
+  | Softmax { Reduce.Softmax.params; _ } -> check_dims node [ params.axis ]
+  | Index_tensor _ -> unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

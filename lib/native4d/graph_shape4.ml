@@ -174,6 +174,12 @@ let select_scatter_params (p : Ops4.Select_scatter4.params) :
     index = p.Ops4.Select_scatter4.index;
   }
 
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
+   axis softmax reduces over. *)
+let softmax_params (p : Ops4.Softmax4.params) : Reduce.Softmax.params =
+  { axis = Axis4.to_axis p.Ops4.Softmax4.axis }
+
 let split_with_sizes_params (p : Ops4.Split_with_sizes4.params) :
     Split.Split_with_sizes.params =
   {
@@ -450,6 +456,13 @@ let output_shape (op : Op.t)
   | Slice4 { Ops4.Slice4.params; x } ->
       let* x_shape = shape x in
       one (four (Split.Slice.output_shape ~x_shape (slice_params params)))
+  (* Softmax rescales, it does not reduce: unlike every keep-dimensions
+     arm above, [Reduce.Softmax.output_shape] is the identity on [x_shape] --
+     delegated rather than restated, the same discipline every other arm
+     here follows. *)
+  | Softmax4 { Ops4.Softmax4.params; x } ->
+      let* x_shape = shape x in
+      one (four (Reduce.Softmax.output_shape ~x_shape (softmax_params params)))
   (* [Unbind]'s "carries the row through" arm, mirrored: Native has already
      bounded the count against [Kernel.Limits.Hard.outputs] and proved the
      sizes sum to the axis extent. *)

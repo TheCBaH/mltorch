@@ -142,19 +142,23 @@ it to a Native `Axis.t` via the existing `axis_of_dim ~rank` helper
 `dim`), and reject a present `dtype` rather than silently dropping it,
 matching `linalg_vector_norm.default`'s existing treatment.
 
-Native4D: `Domain.check_node`'s `Softmax` arm joins the plain
-`` `Unsupported_op `` bucket `Group_norm`/`Select`/`Split_with_sizes`/`Stack`
-already get ("the dialect does not have this op at all"), **not**
-`Sdpa`'s named `` `Sdpa_batch_axis `` rejection: `Sdpa`'s named tag exists
-because `check_dims`-style per-axis reporting doesn't apply to it (every
-configuration names the same unconditionally-unrepresentable axis, `D`).
-Softmax's situation is different — it simply has no `Ops4` counterpart at
-any axis, the same absence `Group_norm4`/`Select4`/`Split4` have — so the
-generic bucket is the right, not the settled-for, answer. Nothing in the
-corpus needs a Native4D-converted softmax: every model that reaches this op
-is transformer-shaped and already stops at another Native4D domain limit
-(§7.9's `D`-axis argument, or the batched-matmul case below) regardless of
-whether `Softmax` itself converts.
+Native4D: **landed 2026-08-31** as `Softmax4` (`lib/native4d/ops4.ml`).
+`Domain.check_node`'s `Softmax` arm now gets the same `check_dims`-style
+per-axis rejection `Select4`/`Slice4`/`Stack4`/`RepeatInterleave4` get,
+rather than the plain `` `Unsupported_op `` bucket this section originally
+described — softmax never changes shape, so unlike `Amax`/`Mean`/
+`Vector_norm` there is no separate keepdim-vs-drop distinction, and unlike
+`RepeatInterleave4` the axis check is the whole domain gate rather than a
+diagnostic-consistency extra (the output shape, `x`'s own unchanged, never
+depends on which axis is reduced). `Sdpa`'s own `` `Sdpa_batch_axis ``
+rejection is unaffected: its batch axis is `D` unconditionally regardless
+of configuration, and a per-head decomposition still cannot express it —
+Native4D's `Bmm` legalization admits only a single batch, not a `Softmax4`
+gap. Nothing in the corpus needs a Native4D-converted softmax: every model
+that reaches this op is transformer-shaped and already stops at another
+Native4D domain limit (§7.9's `D`-axis argument, or the batched-matmul case
+below) regardless of whether `Softmax` itself converts, so this landing left
+the corpus scoreboard unchanged — see `ops-progress.md`'s landing record.
 
 **Landed 2026-08-29** (`Reduce.Softmax` in `lib/native/ops/reduce.ml`):
 `Graph_ir.Softmax`, ATen binding (`bin/aten_ops_gen.ml: op "softmax"

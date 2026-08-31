@@ -426,6 +426,31 @@ let%expect_test "direct4: mean over H and W keeps the axes" =
     pp_values (values out);
   [%expect {| shape [C=1], mean of 0..3 = [1.5] |}]
 
+(* Hand values, not Native-as-oracle: both sides would instantiate the same
+   [Reduce.Softmax.Compute] functor, so agreement would prove the adapter and
+   the staging rather than the arithmetic.
+
+   [0, ln 3] over a two-element W axis gives exp values [1, 3], summing to 4:
+   softmax = [1/4, 3/4], exactly representable so the comparison is not about
+   float printing. *)
+let%expect_test "direct4: softmax4 over W" =
+  let shape = s4 ~n:1 ~h:1 ~w:2 ~c:1 in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape () in
+       softmax4 { Ops4.Softmax4.axis = Axis4.W } x)
+  in
+  let x =
+    Tensor.materialize (Shape4.to_vec6 shape) (fun c ->
+        if Dim.to_int (Vec6.get c Axis.W) = 0 then 0. else Float.log 3.)
+  in
+  let env = run_direct g ~inputs:[ (List.hd g.Graph.Graph.inputs, x) ] in
+  Format.printf "%a@." Tensor.pp
+    (Tensor_id.Map.find (List.hd g.Graph.Graph.outputs) env);
+  [%expect {| tensor f32 [W=2 C=1] {0.25, 0.75} |}]
+
 let%expect_test "direct4: permute4 swaps H and W" =
   let shape = s4 ~n:1 ~h:2 ~w:3 ~c:1 in
   let g =
@@ -536,7 +561,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 54, registry: 54 |}]
+  [%expect {| fixtures: 55, registry: 55 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -582,6 +607,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     sum_keepdims           direct = symbolic
     pad4                   direct = symbolic
     slice4                 direct = symbolic
+    softmax4               direct = symbolic
     select4                direct = symbolic
     select_scatter4        direct = symbolic
     concat4                direct = symbolic

@@ -249,6 +249,10 @@ let silu x = op1 (Op.Silu { Pointwise.Silu.x })
    ints and an extent, which no type here carries. *)
 let slice4 params x = op1 (Op.Slice4 { Ops4.Slice4.params; x })
 
+(* Takes the dialect's own [Ops4.Softmax4.params], whose axis is [Axis4.t]: a
+   softmax naming T or D is not constructible through this API. *)
+let softmax4 params x = op1 (Op.Softmax4 { Ops4.Softmax4.params; x })
+
 (* Takes [Axis4.t] and [sizes] together, so a split naming T or D is not
    constructible through this API -- [unbind]'s rule, extended to a caller-
    chosen arity. [sizes] itself stays validated rather than typed, the same
