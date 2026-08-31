@@ -131,3 +131,14 @@ tiling, graph fusion, or SDPA follow-ons.
 | 2026-08-31 | 2-6 | `make benchmark.region_compute` | pass | Alternating Pixel/Region timing, allocation, and counters at extents 8/32/64. |
 | 2026-08-31 | 2-6 | `make js.runtest` | pass | js_of_ocaml and Melange outputs matched Native. |
 | 2026-08-31 | 0-6 | `make precommit`, `make js.runtest`, `make benchmark.region_compute` | pass | Revalidated after operation-owned Region constructor refactor (`e605361`). |
+
+## Post-closeout ownership migration
+
+This completed log records the optional-regionizer stepping stone. The adopted
+follow-up makes Region authoritative for intrinsically shared operations,
+routes Native and Native4D Direct and Symbolic through the same program, and
+adds operation-level whole-domain traversal proofs. That separate task is
+specified by
+[`region-operation-computation-implementation-plan.md`](region-operation-computation-implementation-plan.md)
+and tracked by
+[`region-operation-computation-implementation-todo.md`](region-operation-computation-implementation-todo.md).

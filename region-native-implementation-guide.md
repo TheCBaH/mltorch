@@ -7,15 +7,23 @@ one `Region_program.t`; `Region_program.pixel` embeds the existing scalar
 program; `Region_execution.lower` classifies the degenerate Pixel form; and
 `Region_eval` is the correct reference executor for a non-degenerate program.
 The completed baseline comparison and Pixel no-regression evidence are recorded
-in [`region-foundation-plan-todo.md`](region-foundation-plan-todo.md).  This
-guide starts the next implementation boundary; it does not claim that a
-Region-native operation or production Region lowerer has landed.
+in [`region-foundation-plan-todo.md`](region-foundation-plan-todo.md). The later
+scalar-Region implementation and its production evidence are recorded in
+[`region-compute-implementation-todo.md`](region-compute-implementation-todo.md).
 
-This document defines the next implementation boundary.  Selected operations
-may construct non-degenerate Region programs and execute through a dedicated
-Region lowering path.  It also separates that work from ordinary tiling for
-data locality, so that making more kernels tileable does not create a second
-semantic language or put scheduling policy in operation modules.
+The scalar-Region implementation described by the original version of this
+guide has since landed. It used an optional regionizer and retained Pixel as the
+operation authority. The adopted follow-up direction now treats computation
+form as operation-specific: Pixel remains natural for many operations, while
+RMSNorm, LayerNorm, and Softmax author Region programs used by Native and
+Native4D Direct and Symbolic. See
+[`region-compute-follow-up.md`](region-compute-follow-up.md) and the migration
+plan in
+[`region-operation-computation-implementation-plan.md`](region-operation-computation-implementation-plan.md).
+
+The separation from ordinary tiling remains unchanged: making more kernels
+tileable must not create a second semantic language or put scheduling policy in
+operation modules.
 
 ## The two kinds of future participation
 
@@ -46,42 +54,37 @@ per backend and machine.
 
 ## Operation-facing contract
 
-Keep the present `Compute(S).pixel` implementation as the operation's
-authoritative scalar semantics.  Do not add a mandatory second `Compute(S)`
-method and do not put regions into `Semantics.SEMANTICS`: that interface is a
-scalar value/index domain and cannot state output ownership, local lifetime,
-or stores.
+Do not put regions into `Semantics.SEMANTICS`: that interface is a scalar
+value/index domain and cannot state output ownership, local lifetime, or
+stores. Instead, let each operation expose its natural authored form:
 
-Instead, an operation family that has a proven sharing opportunity may expose
-an optional *declarative regionizer* at a boundary where its typed operation,
-validated parameters, operand signatures, and output shape are available.  In
-outline:
+- Pixel-authored operations retain `Compute(S).pixel`;
+- Region-authored operations expose an operation-owned declarative program;
+- Native4D counterparts expose the same form after checked Axis4/parameter
+  mapping and delegate to the shared numeric definition.
+
+In outline, a Region-authored operation provides:
 
 ```ocaml
-module type REGIONIZER = sig
+module type REGION_COMPUTATION = sig
   type context
   type reject
 
-  val try_regionize :
-    context ->
-    pixel:Expr.Value.t ->
-    (Region_program.t, reject) result
+  val program : context -> (Region_program.t, reject) result
 end
 ```
 
-This is intentionally not a second executable algorithm.  It constructs
-shared `Expr`/`Region_program` syntax and declares the semantic partition;
-the common Region lowering owns loops, buffers, and backend execution.  The
-converter must prove its result reconstructs the supplied Pixel expression
-with `Region_program.reconstructs`.  A rejection retains that exact Pixel
-program and uses its current execution path.
+This constructs shared `Expr`/`Region_program` syntax and declares the semantic
+partition; the common Region lowering owns loops, buffers, and backend
+execution. A Region-authored program is authoritative and does not reconstruct
+against a second handwritten Pixel definition. Its fresh scalar projection is
+the compatibility meaning at one output coordinate. `reconstructs` remains the
+right proof for a transformation of a Pixel-authored computation.
 
-The regionizer must run before operation provenance is discarded.  The current
-Foundation Kernel stores only the Region computation, which is correct: it
-must not regain an operation tag merely for an optimization.  A future pass
-can either run at the `Graph_ir`/`Eval_op` boundary, or carry a private typed
-regionization candidate alongside symbolic construction until it is accepted.
-After acceptance, only `Region_program.t` crosses the Kernel boundary.
+Program construction runs before operation provenance is discarded. Kernel
+stores only the resulting Region computation and does not regain an operation
+tag. The dialect dispatcher owns typed operand resolution and calls the
+operation-owned computation; it owns no arithmetic.
 
 ## Dedicated execution path
 
@@ -111,6 +114,13 @@ allocate a local map per output, or recover sharing by repeatedly running
 `Region_eval.value_at`.  The latter remains useful only for diagnostics,
 differential tests, and Pixel specialization checks.
 
+For every Region-authored operation, deterministic trace tests must enumerate
+the complete logical output domain by key, record ordered locals and owned
+outputs, and independently prove exactly one visit per output. The trace prints
+the stable program and open local/emitter expressions without expanding the
+scalar projection. Cover Native and Native4D configurations separately; the
+latter must make the Axis4 mapping and singleton T/D axes visible.
+
 ## Locality scheduling for Pixel-form kernels
 
 Build a separate access-footprint analysis for Pixel-form computations.
@@ -120,10 +130,10 @@ footprint.  The schedule may then choose a tile and cache/placement strategy.
 It may reject unknown or unbounded footprints without changing ordinary graph
 execution.
 
-This analysis is complementary to regionization:
+This analysis is complementary to Region computation:
 
-- Regionization identifies values safe and useful to compute once for a
-  semantic output region.
+- An operation-authored or transformed Region program identifies values safe
+  and useful to compute once for a semantic output region.
 - Footprint analysis identifies data reusable while executing a physical tile.
 - A fused Region-native kernel can use both: semantic locals for, say, a
   normalization slice and a physical tile for its input/output locality.
@@ -142,17 +152,17 @@ existing contracts are the enabling layer:
   already meet at one semantic boundary;
 - `Region_program.pixel_expression` preserves the existing optimized Pixel
   lowering for unconverted operations;
-- local scope checking, structural analysis, and `reconstructs` provide the
-  correctness contract for an optional regionizer;
+- local scope checking and structural analysis validate every Region program,
+  while `reconstructs` proves Pixel-to-Region transformations;
 - `Region_execution.lower` provides the existing one-time classification;
 - `Region_eval` supplies a concrete oracle for each accepted program.
 
-Foundation must remain conservative.  Do not change `Compute(S).pixel`,
-`Semantics.SEMANTICS`, Graph IR, or the Kernel value representation merely to
-anticipate tiling.  Add concrete hooks only with the first converter/lowerer:
-the regionizer boundary, a typed rejection/result type, backend-neutral Region
-execution IR, and footprint metadata/analysis.  If shaped locals, block-owned
-locals, multi-output emission, or a fused-node scope become necessary, extend
+Foundation remains conservative. Do not change `Semantics.SEMANTICS`, Graph IR,
+or the Kernel value representation merely to anticipate tiling. The
+post-Foundation ownership migration may replace `Compute(S).pixel` for an
+intrinsically Region-authored operation, but Pixel-authored operations and the
+Pixel fast path remain unchanged. If shaped locals, block-owned locals,
+multi-output emission, or a fused-node scope become necessary, extend
 `Region_program` deliberately and preserve the current scalar-local programs
 as a compatible subset.
 
@@ -160,10 +170,10 @@ The completed Foundation closeout is the prerequisite for a production handoff.
 Any prototype must still preserve the existing Pixel path and must carry its
 own Region-native validation; it is not additional Foundation evidence.
 
-## First implementation slice
+## Completed first implementation slice
 
-Use one operation with unambiguous sharing (RMSNorm or Softmax) before general
-tiling or multi-node fusion:
+The landed stepping-stone implementation used the following sequence before
+general tiling or multi-node fusion:
 
 1. Preserve its current Pixel expression as the source oracle.
 2. Implement an optional regionizer that selects its normalized axes, declares
@@ -181,3 +191,8 @@ tiling or multi-node fusion:
 Only then introduce footprint-driven tiling for a bounded pointwise/stencil
 case.  This demonstrates that locality scheduling can benefit a Pixel-form
 kernel without abusing the semantic Region partition.
+
+The next slice does not redo that work. It promotes the proven Region programs
+to operation-authored computations, routes Native and Native4D Direct and
+Symbolic through them, derives scalar projection where required, and adds
+operation-level whole-domain coverage/disjointness traces.

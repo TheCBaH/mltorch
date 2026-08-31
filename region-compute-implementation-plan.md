@@ -13,6 +13,15 @@ partitions, shaped locals, multi-output Region emission, relaxed rounding, or
 SDPA.  Those remain separately gated follow-ons after this slice establishes a
 correct and measurable Region-native path.
 
+This plan is complete and remains the historical specification for the landed
+optional-regionizer stepping stone. The adopted ownership model now lets
+operations author Pixel or Region computation at their natural granularity and
+routes Native and Native4D through that form. The gap-closing work is specified
+separately in
+[`region-operation-computation-implementation-plan.md`](region-operation-computation-implementation-plan.md)
+and tracked in
+[`region-operation-computation-implementation-todo.md`](region-operation-computation-implementation-todo.md).
+
 The Foundation contracts are fixed inputs to this work:
 
 - `Compute(S).pixel` remains the sole operation semantic source and fallback.

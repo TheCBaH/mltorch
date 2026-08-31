@@ -63,12 +63,20 @@ graph rewrite.
 
 ## 1. Why the current model is inefficient
 
-`Compute(S).pixel` is the algorithm for one scalar.  `Schedule.evaluate` owns
-the dense six-axis output traversal and materializes each result.  `Direct`
-executes reductions immediately; `Symbolic` places reductions in a scalar
-expression that is later grounded once per output coordinate.  Neither layer
-has a lifetime in which a value can be computed once and reused by neighboring
-outputs.
+The original operation interface made `Compute(S).pixel` the algorithm for one
+scalar. `Schedule.evaluate` owned the dense six-axis output traversal and
+materialized each result. `Direct` executed reductions immediately; `Symbolic`
+placed reductions in a scalar expression that was later grounded once per
+output coordinate. Neither layer had a lifetime in which a value could be
+computed once and reused by neighboring outputs.
+
+Pixel remains the natural authored computation for many operations, but it is
+not a universal operation source form. An operation whose algorithm
+intrinsically shares work across outputs should author a Region program.
+RMSNorm, LayerNorm, and Softmax are the first such operations. Their Region
+programs still have a scalar projection for a consumer that requests one output,
+but repeatedly using that projection deliberately reconstructs the inefficient
+per-output behavior.
 
 For one independent slice of length `K`:
 
@@ -216,52 +224,56 @@ still `Expr.Check.value`; Region validation alone admits explicitly scoped
 `Expr.Value.Local` leaves.  The completed implementation and Pixel comparison
 are recorded in [`region-foundation-plan-todo.md`](region-foundation-plan-todo.md).
 
-This establishes the language and reference semantics only.  It does not mean
-that RMSNorm, LayerNorm, Softmax, attention, Conv, a production Region lowerer,
-or locality tiling has been converted or accelerated.
+The subsequent scalar-Region slice converted and accelerated RMSNorm,
+LayerNorm, and Softmax through an optional regionizer and dedicated executor.
+That implementation is now the migration baseline. The adopted final ownership
+model makes their Region programs operation-authored computations used by both
+Direct and Symbolic; it is specified in
+[`region-compute-follow-up.md`](region-compute-follow-up.md).
 
 ### Region Kernel IR, lowered by a schedule
 
-Region program is the Kernel computation boundary.  Existing
-`Compute(S).pixel` definitions enter it through the singleton-region
-constructor.  A separate, optional regionizer converts selected Pixel-form
-programs into the extended form with explicit partition and locals.  It runs
-while typed operation provenance, parameters, and shapes are available, or is
-given a bounded private candidate retained from that boundary.  Kernel IR plus
-a schedule then lowers to Loop IR.  The current Kernel design already says
-scalar expressions describe meaning while Loop IR owns final loops, placement,
-and stores.
+Region program is the Kernel computation boundary. Pixel-authored operations
+enter it through the singleton-region constructor. Region-authored operations
+construct the extended form with an explicit partition and locals directly
+while their typed parameters, operand signatures, and output shape are
+available. Kernel IR plus a schedule then lowers to Loop IR. Scalar expressions
+and Region structure describe meaning while Loop IR owns final loops,
+placement, and stores.
 
-There are two lowering routes.  Regionization identifies required sharing and
-legal local lifetimes, producing a non-degenerate program that a dedicated
-Region executor lowers.  Independently, footprint analysis can give a
+There are two lowering routes. A non-degenerate operation-authored or
+transformed Region program declares required sharing and legal local lifetimes
+for a dedicated Region executor. Independently, footprint analysis can give a
 Pixel-form program a physical locality tile without changing its semantic
-partition.  A schedule reifies a tile as `Block` and explicit cache/accumulator
-locals only when that lifetime must be represented and checked.  Loop IR fixes
+partition. A schedule reifies a tile as `Block` and explicit cache/accumulator
+locals only when that lifetime must be represented and checked. Loop IR fixes
 the remaining machine-level loop and placement details.
 
 Conceptually:
 
 ```text
-Graph operation -> existing Compute.pixel -> Expr body -> Region.pixel
-                                                        -> Pixel-form Kernel
-                                                           |-> existing Pixel loop
-                                                           |-> footprint analysis
-                                                           |     -> schedule-only tile -> Loop IR
-                                                           `-> regionize selected candidate
-                                                               -> Region Kernel program
-                                                                  (partition, locals,
-                                                                   reductions, emitters)
-                                                               -> dedicated Region lowerer
-                                                               -> schedule -> Loop IR
+Graph Pixel operation  -> Compute.pixel -> Expr body -> Region.pixel
+                                                        -> existing Pixel loop
+                                                        -> footprint analysis
+                                                           -> schedule-only tile
+
+Graph Region operation -> operation-owned Region program
+                          (partition, locals, reductions, emitter)
+                          -> dedicated Region lowerer
+                          -> schedule -> Loop IR
+
+Pixel-to-Region transformation -> prove projection/reconstruction
+                               -> dedicated Region lowerer
+
   Loop IR -> interpreter / JS / C
 ```
 
-Mechanically check the converted Region form against the existing Pixel
-program.  Expression comparison substitutes Region locals into the emitter and
-compares the result with the source Pixel expression; concrete differential
-tests remain an independent oracle.  Operation-specific `Compute.pixel`
-definitions remain unchanged and authoritative for operation semantics.
+Mechanically check a transformation of a Pixel-authored operation against its
+source Pixel program. Expression comparison substitutes Region locals into the
+emitter and compares the result with the source Pixel expression; concrete
+differential tests remain an independent oracle. An operation-authored Region
+program has no second handwritten Pixel authority. Its derived scalar
+projection and external operation oracle provide the corresponding checks.
 
 `Region_eval` is the reference executor for a non-degenerate program.  A
 production Region-native path instead specializes/local-lowers its local and
@@ -382,24 +394,25 @@ For `Region_program.pixel body`, every key owns exactly one `out`, `locals` is
 empty, and this loop is the current dense Pixel schedule.  No runtime feature
 test or alternate semantic dispatch is necessary.
 
-### Incremental compatibility with the current implementation
+### Source-form normalization and incremental compatibility
 
-The unified Kernel representation does not require an immediate rewrite of
-all `Compute(S).pixel` modules:
+The unified Kernel representation does not require every operation to expose
+the same source API:
 
-1. `Eval_symbolic` continues producing the existing `Expr.Value.t` stage body.
-2. The `Stage_program -> Kernel` adapter wraps that body with
+1. A Pixel-authored operation continues producing an `Expr.Value.t` body.
+2. The graph-to-Kernel adapter wraps that body with
    `Region_program.pixel`.
-3. The Region interpreter first supports this degenerate form, reproducing the
-   current schedule.
-4. Converted operations emit a non-degenerate Region program directly.
-5. Existing `Eval_direct` and `Eval_symbolic` Pixel paths remain independent
-   differential oracles during migration.
+3. A Region-authored operation produces a non-degenerate
+   `Region_program.t` directly.
+4. Direct materializes that program by key; Symbolic carries the same program.
+5. A legacy Pixel-only consumer can request the Region program's derived scalar
+   projection, accepting its repeated-work cost.
 
-Thus Pixel and Region coexist at the source/front-end boundary temporarily,
-while Kernel and every downstream schedule see only Region programs.  Existing
-Pixel code has a mechanical embedding; no operation becomes unsupported during
-migration.
+Thus Pixel and Region coexist permanently as operation authoring forms, while
+Kernel and every downstream schedule see only Region programs. Existing Pixel
+code has a mechanical embedding. Region code has a canonical scalar projection,
+so an operation does not become unobservable at one output coordinate merely
+because Pixel is not its authored form.
 
 ### Pixel performance is a lowering invariant
 
@@ -435,23 +448,24 @@ The semantic IR remains uniform while the execution IR is specialized.  This
 is the same separation by which a compiler represents a constant uniformly but
 still lowers it without a runtime lookup.
 
-During incremental adoption, preserve the current fast paths explicitly:
+Preserve the fast paths explicitly:
 
 - `Eval_direct` continues invoking `Compute(Direct).pixel` and
   `Schedule.evaluate` for existing Pixel-form operations;
 - `Eval_symbolic` continues building one expression once and
   `Schedule.ground` evaluates it over the current coordinate loop;
 - `Stage_program -> Kernel` wrapping is O(1) per stage and performs no AST copy;
-- Region-native execution is selected only for a genuinely non-degenerate
-  partition or for an admitted fused single-node graph;
+- Region-native execution is selected for a genuinely non-degenerate
+  operation-authored program, transformed program, or admitted fused node;
 - an unfused graph of Pixel operations keeps its existing evaluation path.
 
-After a selected Kernel is regionized, its production path comes from
-ahead-of-loop lowering of the Region emitter, not from repeatedly invoking the
-general reference specialization shown above.  The original operation Pixel
-program remains the semantic oracle.  A Region-to-Pixel specialization may
-reconstruct locals for equivalence checking; the optimized lowering must
-inline/scalarize singleton locals or reject that fast classification.
+The production path for a Region-authored or transformed computation comes
+from ahead-of-loop lowering of the Region locals and emitter, not from
+repeatedly invoking scalar projection. For a Pixel-to-Region transformation,
+the original Pixel program remains the semantic oracle. For a Region-authored
+operation, external reference behavior and the program's projection law are
+the semantic oracles. A Region-to-Pixel specialization may reconstruct locals
+for compatibility and testing; it is not production materialization.
 
 Pixel performance acceptance requires, for representative pointwise,
 convolution, and indexing operations:
@@ -492,35 +506,32 @@ subexpression into a Region local.  Consequently:
 - an unsupported or unbounded footprint rejects the complete
   single-node lowering without affecting ordinary graph execution.
 
-### Operation semantics remain Pixel; selected Kernels are regionized
+### Operations author their natural computation form
 
-Keep every operation-specific `Compute(S).pixel`, shape rule, operand wiring,
-and Graph IR form unchanged.  Pixel remains the operation's semantic source and
-the universal Direct/Symbolic implementation.  Regionization is a Kernel
-optimization:
+Keep operation shape rules, operand wiring, Graph IR forms, and numerical
+contracts unchanged, but do not require every operation to author a Pixel
+computation. Pointwise and independently computed stencil-style operations
+normally remain Pixel-authored. RMSNorm, LayerNorm, Softmax, and later
+attention-style operations author Region programs because shared locals and
+phases are part of their natural algorithm.
 
 ```text
-operation Compute.pixel -> Pixel-form Region Kernel -> ordinary Pixel schedule
-                                                   \-> regionize selected Kernel
-                                                       -> Region schedule
+Pixel-authored operation  -> Region_program.pixel -> Pixel schedule
+Region-authored operation -> Region_program       -> Region schedule
 ```
 
-The converter reuses the source Pixel expression rather than restating the
-operation formula.  For exact scalar sharing it:
+Every Region program remains projectable to one output: derive its key,
+evaluate its locals afresh, and evaluate its emitter at the requested
+coordinate. Calling that projection for every output is correct but may be
+asymptotically inefficient. Production Direct and Symbolic/Kernel execution
+must preserve Region sharing.
 
-1. selects a legal output partition;
-2. identifies source-expression subtrees invariant over that region;
-3. hoists those existing subtrees into ordered Region locals;
-4. replaces their occurrences in the emitter with local references;
-5. proves that substituting the locals reconstructs the source Pixel
-   expression and that each local is invariant over its declared region.
-
-RMSNorm, LayerNorm, and Softmax conversion may use operation identity,
-parameters, and shapes to select candidate region axes.  The arithmetic still
-comes from `Compute.pixel`.  Perform conversion while this provenance is
-available, or retain bounded origin metadata through Pixel-form Kernel
-construction; do not recover operation identity by brittle pretty-printed AST
-matching.
+A converter for a Pixel-authored operation remains a valid separate concept.
+For exact scalar sharing it selects a legal partition, hoists invariant source
+subtrees, and proves that substituting locals reconstructs the source Pixel
+expression. This transformation contract must not be confused with an
+operation-authored Region program, which has no second handwritten Pixel
+definition to reconstruct.
 
 A later generic dependence/loop-invariance analysis can discover the same
 regions without operation-specific selection.  It is not required for the
@@ -528,10 +539,11 @@ first converters.  An algorithm-changing conversion, such as Welford variance
 or online Softmax, is a different `Equivalent` optimization and needs its own
 numerical contract; it is not scalar-region hoisting.
 
-Unselected operations remain mechanically wrapped singleton Region programs
-and use the specialized Pixel loop.  A failed conversion returns the original
-Pixel-form Kernel unchanged.  Region language implementation and operation
-selection are therefore separate bounded tasks.
+Pixel-authored operations remain mechanically wrapped singleton Region programs
+and use the specialized Pixel loop unless a proven transformation replaces
+them. A failed transformation returns the original Pixel-form Kernel unchanged.
+A malformed Region-authored operation is instead an implementation or supported
+limit error; it does not silently fall back to a second handwritten algorithm.
 
 ## 5. Phase 1 operation and language scope
 
@@ -638,26 +650,26 @@ The following RMSNorm components do not change:
 - importer behavior and absent-weight semantics;
 - the scalar formula, epsilon, and weight projection.
 
-The changed components are localized:
+The Region-authored components are localized:
 
-- the RMSNorm Region converter selects `params.dims` as `Whole` axes and hoists
-  the existing `sumsq`/`inv` expression subtrees into locals;
-- Pixel-form Kernel construction retains enough bounded operation
-  provenance—or invokes conversion while building the Kernel—to supply the
-  parameters and operand/shape correspondence;
+- the RMSNorm computation selects `params.dims` as `Whole` axes and declares
+  `sumsq`/`inv` as ordered locals;
+- graph-to-computation construction supplies typed parameters, role-resolved
+  operands, the output shape, and actual limits before provenance is discarded;
 - the region schedule enumerates non-normalized region keys before normalized
   output coordinates;
-- efficient Kernel execution selects the converted Region instead of invoking
-  Pixel for every output;
-- `Norm.RmsNorm.Compute.pixel` remains unchanged as fallback and semantic
-  oracle.
+- Native and Native4D Direct and Symbolic execute or carry the same Region
+  program instead of invoking Pixel for every output;
+- scalar projection derives the value at one output when a compatibility or
+  reference consumer needs it.
 
 For normalized size `K` and `R` independent slices, Pixel performs `R*K*K`
 square/reduction terms.  Region performs `R*K` reduction terms and `R*K`
 emissions.  Output storage remains `R*K`; only redundant computation is
 removed.
 
-This conversion is bitwise `Identical` when the Region interpreter:
+This computation is bitwise `Identical` to the established operation contract
+when the Region interpreter:
 
 - nests reduction axes in the same `params.dims` order;
 - visits each extent left-to-right as current `S.sum` does;
@@ -1158,10 +1170,20 @@ four-axis dialect still needs legalization or a typed rejection.  In
 particular, efficient SDPA still has the existing Native4D domain problem; a
 region API does not invent the missing batch/attention semantics.
 
-Avoid copying a second handwritten region algorithm into `Eval_op4`.  As with
-current Native4D delegation to Native `Compute(S)`, reuse a common region
-definition when the axis mapping is sound.  Longer term, both dialects should
-produce common Kernel IR before schedule selection.
+Avoid copying a second handwritten Region algorithm into `Eval_op4` or an
+operation-adjacent Native4D dispatcher. Native4D operations expose the same
+natural computation form as their Native counterparts after checked parameter
+mapping: Pixel counterparts delegate to the shared Pixel computation, while
+`Ops4.Rms_norm`, `Ops4.Layer_norm`, and `Ops4.Softmax4` delegate to the shared
+Region computation. Native4D owns its closed operation, four-axis legality,
+parameter mapping, and optional-operand wiring; the numerical program remains
+single-source. Both dialects then produce common Region Kernel IR before
+schedule selection.
+
+Native4D Direct and Symbolic must preserve this distinction. Direct executes
+Region-authored operations by key with shared locals. Symbolic carries the same
+Region program. Neither path should scalarize a Region program merely because
+the former `Eval_op4.Make(S).pixel` interface was universal.
 
 ## 10. Validation obligations
 
@@ -1198,6 +1220,18 @@ reassociation, and online attention use explicit tolerance/claim tests.
 Performance tests must measure operation counts or representative runtime, not
 only expression size.  Expression AST size is constant in reduction extent and
 therefore does not expose repeated dynamic work.
+
+Operation-authored Region programs also require explicit whole-domain traversal
+evidence. For non-trivial shapes and partitions, deterministic tests must print
+the program, enumerate every canonical key and its owned outputs, and maintain
+an independent visit count for every output coordinate. They require complete
+coverage, no duplicate visits, and agreement between each enumerated ownership
+pair and `Region_partition.key_of_output`. Separate traces cover Native and
+Native4D parameter mappings, including multi-axis normalization, every Softmax
+axis, multiple keys, extent-one axes, and T/D remaining singleton in Native4D.
+The program is printed once with stable local names; per-key trace entries show
+ordered local expressions, owned outputs, and the emitter without expanding
+locals into an exponential Pixel tree.
 
 ## 11. Incremental implementation plan
 
@@ -1238,7 +1272,7 @@ This task is complete when Region is a usable computation language for both
 degenerate Pixel programs and synthetic scalar-local programs.  It does not
 claim an operation speedup.
 
-### Phase 1: regionize selected scalar-local Kernels
+### Phase 1: scalar-local Region migration baseline
 
 - Phase 1a: convert RMSNorm Kernels by selecting `params.dims` and hoisting the
   existing sum-of-squares/inverse expression; prove one shared reduction plus
@@ -1248,7 +1282,7 @@ claim an operation speedup.
 - Phase 1c: convert plain Softmax Kernels and prove mixed max/sum phases, scalar
   reuse in the emitter, arbitrary selected axis, and existing all-`-inf`
   behavior.
-- Leave all three `Compute(S).pixel` implementations unchanged as semantic
+- Retain all three `Compute(S).pixel` implementations temporarily as migration
   sources, fallbacks, and differential oracles.
 - Return the original Pixel-form Kernel unchanged whenever selection,
   invariance proof, reconstruction, validation, or limits fail.
@@ -1259,6 +1293,13 @@ Phase 1 is complete only when all three operations pass Direct Region versus
 Pixel Direct/Symbolic differential tests over single- and multi-axis
 normalization, optional affine operands, several epsilons, every Softmax axis,
 and all-`-inf` Softmax input.
+
+That optional-regionizer slice completed and established the performance and
+strict-numerical evidence. The follow-up migration makes the Region programs
+authoritative operation computations, routes Native and Native4D Direct and
+Symbolic through them, adds whole-domain traversal traces, and removes the
+permanent dependency on separately handwritten Pixel definitions. See
+[`region-operation-computation-implementation-plan.md`](region-operation-computation-implementation-plan.md).
 
 ### Phase 2: Loop IR integration
 
@@ -1337,6 +1378,13 @@ tile; attention tests a local reduction accumulator or score tile.
 Use **region computation with explicit locals and phases**.  Scalar locals
 cover the initial RMSNorm, LayerNorm, and Softmax cases; shaped locals cover
 efficient attention, tiled convolution, and reduction-coupled fusion.
+
+Operations author computation at their natural granularity. Pixel is the right
+source form for many operations and embeds mechanically into Region Kernel IR.
+RMSNorm, LayerNorm, Softmax, and later intrinsically shared algorithms author
+Region programs directly. Their scalar projection remains defined but is not a
+production traversal. Native and Native4D counterparts use the same computation
+form and share one numeric definition after checked dialect mapping.
 
 The first implementation is deliberately narrow: whole/singleton axis regions,
 named scalar locals, ordered sum/max reductions, and pure emission.  It removes
