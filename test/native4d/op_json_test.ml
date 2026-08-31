@@ -191,6 +191,10 @@ let samples : Op.t list =
     Split_with_sizes4
       { Ops4.Split_with_sizes4.params = { axis = W; sizes = [ 2; 3; 1 ] }; x };
     Sqrt { Pointwise.Sqrt.x };
+    (* Two operands and an axis distinct from [Concat4]'s own sample above, so
+       an encoder that confused the two variadic-operand ops still prints
+       differently. *)
+    Stack4 { Ops4.Stack4.params = { axis = N }; xs = [ y; b ] };
     Sub { Pointwise.Bin.a = x; b = y };
     Sum_keepdims { Ops4.Sum_keepdims.params = { dims = [ H; W ] }; x };
     Transposed_conv2d
@@ -231,7 +235,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 46, registry: 46 |}]
+  [%expect {| samples: 47, registry: 47 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -302,6 +306,7 @@ let%expect_test "op4: printed" =
     slice4 x=t0 params={axis=W start=1 stop=8 step=3}
     split_with_sizes4 x=t0 params={axis=W sizes=[2, 3, 1]}
     sqrt x=t0
+    stack4 xs=[t1, t3] params={axis=N}
     sub a=t0 b=t1
     sum_keepdims x=t0 params={dims=[H, W]}
     transposed_conv2d
@@ -328,7 +333,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 46 ops |}]
+  [%expect {| round-tripped 47 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

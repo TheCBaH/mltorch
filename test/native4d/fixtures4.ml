@@ -264,6 +264,23 @@ let per_op () =
              concat4 { Ops4.Concat4.axis = Axis4.W } [ a; b; c ])
         in
         (g, [ a_shape; b_shape; c_shape ]) );
+      (* Two operands of the SAME shape (unlike [concat4] above, [Stack]
+         cannot differ along the joined axis -- it names a brand-new one), so
+         a fixture reading the wrong operand by index would still differ.
+         H=1, the same precondition [stack_h_batch1] documents: inserting at
+         H, W, or C alike shifts H's own extent onto D, so H=1 keeps the
+         result four-axis. *)
+      ( "stack4",
+        let x_shape = s4 ~n:1 ~h:1 ~w:2 ~c:3 in
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* a = input ~shape:x_shape () in
+             let* b = input ~shape:x_shape () in
+             stack4 { Ops4.Stack4.axis = Axis4.W } [ a; b ])
+        in
+        (g, [ x_shape; x_shape ]) );
       ( "permute4",
         unary ~shape:nhwc
           (Builder.permute4

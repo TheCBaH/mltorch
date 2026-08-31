@@ -502,6 +502,53 @@ let concat_w =
 let concat_d =
   concat_graph "concat_d" ~shapes:[ s 1 1 1 2 2 2; s 1 1 2 2 2 2 ] ~axis:Axis.D
 
+(* [Stack]'s own version of [concat_graph]: every operand shares the same
+   shape, since [Stack] (unlike [Concat]) has no per-operand extent to differ
+   along the joined axis -- the axis it names is brand new. *)
+let stack_graph name ~shape ~axis ~count () =
+  Graph_builder.build ~name
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* xs =
+       List.fold_left
+         (fun acc _ ->
+           let* rest = acc in
+           let* x = input ~shape () in
+           return (rest @ [ x ]))
+         (return []) (List.init count Fun.id)
+     in
+     stack { Concat.Stack.axis } xs)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* Stacking at N always converts, the same reason [unbind_n] does: N is the
+   outermost axis, so inserting a new one there relabels nothing else --
+   unlike [stack_h_nonunit] below, H stays non-unit (2) here and it still
+   converts, which is the point: the precondition [Stack] carries is on H,
+   never on N. *)
+let stack_n =
+  stack_graph "stack_n" ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:3) ~axis:Axis.N ~count:2
+
+(* H=1, so stacking at H leaves the result four-axis -- see [Ops4_split]'s own
+   [Stack4] comment: inserting at H, W, or C alike shifts H's own extent onto
+   D, so H=1 is the shape precondition regardless of which of the three the
+   new axis lands at. *)
+let stack_h_batch1 =
+  stack_graph "stack_h_batch1" ~shape:(nhwc ~n:1 ~h:1 ~w:2 ~c:3) ~axis:Axis.H
+    ~count:2
+
+(* H=2, so the same shift lands a non-unit extent on D -- refused by the SHAPE
+   rule, not the axis rule: H is a perfectly legal axis to name. *)
+let stack_h_nonunit =
+  stack_graph "stack_h_nonunit" ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:3) ~axis:Axis.H
+    ~count:2
+
+(* The same rank-five/dim-0 shape [unbind_rank5_t] uses, so the axis
+   rejections are directly comparable: rank five, stacked at dim 0, which
+   right-aligns onto T -- refused by the AXIS rule, same as [Unbind]'s. *)
+let stack_rank5_t =
+  stack_graph "stack_rank5_t" ~shape:(s 1 3 1 3 101 32) ~axis:Axis.T ~count:2
+
 (* N=1, so unbinding C leaves every slice four-axis. *)
 let unbind_c_batch1 () =
   unbind_all "unbind_c_batch1" ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:3) Axis.C

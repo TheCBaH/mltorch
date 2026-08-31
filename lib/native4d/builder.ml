@@ -242,6 +242,11 @@ let split_with_sizes4 axis sizes x =
     (Op.Split_with_sizes4 { Ops4.Split_with_sizes4.params = { axis; sizes }; x })
 
 let sqrt x = op1 (Op.Sqrt { Pointwise.Sqrt.x })
+
+(* Takes the dialect's own [Ops4.Stack4.params], whose axis is [Axis4.t]: a
+   stack naming T or D is not constructible through this API, the same rule
+   [concat4] above follows. *)
+let stack4 params xs = op1 (Op.Stack4 { Ops4.Stack4.params; xs })
 let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
 
 let sum_keepdims dims x =

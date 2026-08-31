@@ -241,6 +241,14 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Sqrt { Pointwise.Sqrt.x } ->
         let module C = Pointwise.Sqrt.Compute (S) in
         C.pixel (operand x) out
+    (* Through the same [stack_params] adapter [Graph_shape4] uses, so the
+       axis the shape rule inserts along is the axis the compute reads. No
+       per-operand SHAPE pairing, unlike [Concat4]'s arm above -- [Stack]
+       selects an operand BY INDEX, not by a within-segment offset, so
+       [Concat.Stack.Compute.pixel] wants only the raw operand values. *)
+    | Stack4 { Ops4.Stack4.params; xs } ->
+        let module C = Concat.Stack.Compute (S) in
+        C.pixel (Graph_shape4.stack_params params) ~xs:(List.map operand xs) out
     | Sub { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Sub.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)

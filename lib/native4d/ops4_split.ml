@@ -169,6 +169,65 @@ module Concat4 = struct
       t.xs pp_params t.params
 end
 
+(* ---- stacking --------------------------------------------------------------
+
+   Native's [Concat.Stack] with its axis narrowed to the dialect's four. Its
+   own payload for the FIRST reason in .ai/native4d_add_op.md -- it names an
+   axis, so the field is [Axis4.t] and T/D are unsayable in a four-axis graph.
+
+   [Stack] INSERTS a new axis, the opposite of [Select4]'s drop -- so the same
+   shift argument applies in reverse: inserting at [axis] pushes every axis
+   OUTSIDE it (toward N) one place further out, and a four-axis result stays
+   four-axis only when whatever lands on D is unit. [Shape4.of_vec6] on the
+   inferred output is what the lowerer uses to catch that, not a rule stated
+   here -- exactly [Select4]'s own discipline, mirrored.
+
+   [xs] is a variadic OPERAND list like [Concat4]'s; nothing here restates the
+   shape rule or the pixel map, both delegate to [Concat.Stack] (itself built
+   from [Concat.Concat] over each operand's unsqueezed shape), which is what
+   keeps them from drifting apart. *)
+module Stack4 = struct
+  type params = { axis : Axis4.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"stack4_params" (fun axis -> { axis })
+    |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a}@]" Axis4.pp p.axis
+
+  type t = { params : params; xs : Tensor_ref.t list }
+
+  let name = "Stack4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          xs = get "xs" (Jsont.list Tensor_ref.jsont);
+        })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ( "xs",
+              Json_util.jarr (List.map (Json_util.enc Tensor_ref.jsont) t.xs) );
+          ])
+      Jsont.json
+
+  let operands (t : t) = t.xs
+  let map_operands f (t : t) = { t with xs = List.map f t.xs }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>stack4@ xs=%a@ params=%a@]"
+      (Fmt.brackets (Fmt.list ~sep:Fmt.comma pp_ref))
+      t.xs pp_params t.params
+end
+
 (* ---- splitting ------------------------------------------------------------ *)
 
 (* The dialect's first MULTI-OUTPUT op: one output per coordinate of [axis], so

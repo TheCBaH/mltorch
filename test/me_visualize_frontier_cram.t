@@ -31,9 +31,12 @@ that was the harness noticing a different *kind* of rejection, not a broken
 script. Now that the graph builds, `csatv2` prints the same two `stage:`
 lines as the rest and lands on a real, pre-existing `stage:native4d`
 rejection of its own. `Select4` (the Native4D counterpart for `select`) now
-exists and legalizes this graph's own `H`-axis case, so the frontier moves
-one op further, to `stack`'s `H`-axis case -- which has no Native4D
-legalization yet (tracked as `Stack4` in the Native4D counterpart backlog).
+exists and legalizes this graph's own `H`-axis case, so the frontier moved
+one op further, to `stack`'s `H`-axis case. `Stack4` (the Native4D
+counterpart for `stack`) now exists too and legalizes that case in turn, so
+the frontier moves one op further still, to a `permute.default` (node n19)
+that swaps a non-unit `T` extent into `H` -- an intrinsic multi-axis
+transpose the N/H/W/C dialect cannot represent, not a missing counterpart.
 CSATv2 stays a graph-only CI target regardless, so none of this movement
 changes its capability classification.
 `unsqueeze.default` never showed up as a named blocker for any of the six
@@ -82,7 +85,7 @@ lowering, structurally in `native4d/verify_test.ml`'s "gelu tanh" cluster), so
   fastvit_sa12 stage:initial_native available graph
   fastvit_sa12 stage:native4d unavailable outside_dialect_domain: node n604: axis T is outside the N/H/W/C dialect
   csatv2 stage:initial_native available graph
-  csatv2 stage:native4d unavailable outside_dialect_domain: node n17: no legalization for stack xs=[t413, t416, t419] params={axis=H}
+  csatv2 stage:native4d unavailable outside_dialect_domain: node n19: axis T is outside the N/H/W/C dialect
 
 `regnetx_002`'s `stage:native4d` used to be `unavailable outside_dialect_domain`
 (a 3-group convolution, neither 1 nor depthwise). `GroupedConv2D`

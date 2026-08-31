@@ -682,6 +682,7 @@ end
 module Slice4 = Ops4_split.Slice4
 module Select4 = Ops4_split.Select4
 module Concat4 = Ops4_split.Concat4
+module Stack4 = Ops4_split.Stack4
 module Unbind = Ops4_split.Unbind
 module Split_with_sizes4 = Ops4_split.Split_with_sizes4
 

@@ -318,6 +318,27 @@ let%expect_test "domain: concat gates the joined axis" =
     concat W                     in the dialect
     concat D                     node n0: axis D is outside the N/H/W/C dialect |}]
 
+(* [Stack]'s axis check and its shape consequence are DIFFERENT rejections,
+   the same split [Unbind]'s pair below draws -- but DROPPING an axis and
+   INSERTING one land the precondition on different sides: [Unbind]'s shape
+   consequence tracks N (the outermost axis), [Stack]'s tracks H, per
+   [Ops4_split]'s own [Stack4] comment. *)
+let%expect_test "domain: stack's axis rule and its shape consequence" =
+  table
+    [
+      ("stack N, H=2", Fixtures.stack_n);
+      ("stack H, H=1", Fixtures.stack_h_batch1);
+      ("stack H, H=2", Fixtures.stack_h_nonunit);
+      ("stack T (rank-5)", Fixtures.stack_rank5_t);
+    ];
+  [%expect
+    {|
+    stack N, H=2                 in the dialect
+    stack H, H=1                 in the dialect
+    stack H, H=2                 tensor t2 has extent on T or D: [D=2 H=2 W=2
+                                                                  C=3]
+    stack T (rank-5)             node n0: axis T is outside the N/H/W/C dialect |}]
+
 (* [Unbind]'s axis check and its shape consequence are DIFFERENT rejections, and
    the ordering is what makes the first one useful: node predicates run before
    the shape rule, so a rank-five unbind naming T reports the axis rather than

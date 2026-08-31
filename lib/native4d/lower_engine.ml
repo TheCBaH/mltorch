@@ -805,13 +805,34 @@ let lower_node ~view acc (n : node) =
                { axis = List.hd axis4; index = params.Split.Select.index };
              x = op_of x;
            })
+  (* [Concat]'s variadic-operand handling above, plus [Select]'s post-hoc
+     output check: [Stack] INSERTS an axis rather than keeping every one the
+     way [Concat] does, so -- the same reason [Select]'s arm re-validates its
+     single output -- the packed result re-enters the dialect only when
+     [Shape4.of_vec6] accepts it. The axis converts here for the same reason
+     [Select]'s does: so [Domain]'s [Axis_outside_dialect] can still name the
+     rejected Native axis. *)
+  | Stack { Concat.Stack.params; xs } ->
+      let* axis4 = dims4 ~node [ params.axis ] in
+      let* () =
+        let o = single () in
+        let* shape = sig_of o in
+        let+ (_ : Shape4.t) = shape4 ~id:o shape in
+        ()
+      in
+      simple
+        (Op.Stack4
+           {
+             Ops4.Stack4.params = { axis = List.hd axis4 };
+             xs = List.map op_of xs;
+           })
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Index_tensor]/[Softmax]/[Stack] join that set until [Softmax4]/[Stack4]
-     exist (see [Domain.check_node]'s comment) rather than gaining a real
-     conversion arm here -- [Index_tensor] has no Native4D counterpart at all,
-     the same "dialect does not have it" answer, and CSATv2 stays a
-     graph-only target regardless. *)
+     [Index_tensor]/[Softmax] join that set until [Softmax4] exists (see
+     [Domain.check_node]'s comment) rather than gaining a real conversion arm
+     here -- [Index_tensor] has no Native4D counterpart at all, the same
+     "dialect does not have it" answer, and CSATv2 stays a graph-only target
+     regardless. *)
   | Batched_matmul _ | Discard _ | Index_tensor _ | Max_pool2d_with_indices _
-  | Sdpa _ | Softmax _ | Stack _ ->
+  | Sdpa _ | Softmax _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

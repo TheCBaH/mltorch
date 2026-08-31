@@ -63,6 +63,7 @@ type op =
   | Slice4 of Ops4.Slice4.t
   | Split_with_sizes4 of Ops4.Split_with_sizes4.t
   | Sqrt of Pointwise.Sqrt.t
+  | Stack4 of Ops4.Stack4.t
   | Sub of Pointwise.Sub.t
   | Sum_keepdims of Ops4.Sum_keepdims.t
   | Transposed_conv2d of Ops4.Transposed_conv2d.t
@@ -316,6 +317,12 @@ let op_registry : (module OP) list =
 
       let inject t = Sqrt t
       let project = function Sqrt t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.Stack4
+
+      let inject t = Stack4 t
+      let project = function Stack4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Sub

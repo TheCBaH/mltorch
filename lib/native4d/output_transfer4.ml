@@ -51,6 +51,11 @@ let classify (op : Op.t) ~output:_ =
   | Sigmoid _ | Silu _ -> Output_transfer.Continuous
   | Slice4 _ -> Output_transfer.Reindexing
   | Split_with_sizes4 _ -> Output_transfer.Reindexing
+  (* Data movement, the same argument as [Concat4]/[Select4] above: every
+     output element is COPIED from an input element with no arithmetic --
+     [Stack4] selects which operand by index rather than by within-segment
+     offset, but the copy argument does not care which of the two a join is. *)
+  | Stack4 _ -> Output_transfer.Reindexing
   | Sqrt _ | Sub _ | Sum_keepdims _ | Transposed_conv2d _ ->
       Output_transfer.Continuous
   | Unbind _ -> Output_transfer.Reindexing

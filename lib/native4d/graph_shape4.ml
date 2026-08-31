@@ -116,6 +116,12 @@ let vector_norm_params (p : Ops4.Vector_norm_keepdims.params) :
 let concat_params (p : Ops4.Concat4.params) : Concat.Concat.params =
   { axis = Axis4.to_axis p.Ops4.Concat4.axis }
 
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
+   axis is being inserted. *)
+let stack_params (p : Ops4.Stack4.params) : Concat.Stack.params =
+  { axis = Axis4.to_axis p.Ops4.Stack4.axis }
+
 (* Shared with [Eval_op4] for the same reason [unbind_params] is: one
    translation, so the shape rule and the compute cannot disagree about which
    axes carry which amounts. Only the axis type narrows -- the entries and the
@@ -401,6 +407,12 @@ let output_shape (op : Op.t)
   | Sqrt { Pointwise.Sqrt.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Sqrt.output_shape x_shape))
+  (* Variadic OPERANDS, the same shape [Concat4] above has -- one [xs_shapes]
+     gathered over every operand, delegated whole to [Concat.Stack], which
+     folds each operand's unsqueezed shape through [Concat.Concat] itself. *)
+  | Stack4 { Ops4.Stack4.params; xs } ->
+      let* xs_shapes = Err.List.map shape xs in
+      one (four (Concat.Stack.output_shape ~xs_shapes (stack_params params)))
   | Sub { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in
