@@ -2,7 +2,7 @@
    units depend on this module, never on the [Expr] library façade. *)
 
 type binary_op = Add | Div | Mul | Sub
-type unary_op = Erf | Exp | Log | Sqrt
+type unary_op = Erf | Exp | Log | Sqrt | Trunc
 type reduction_kind = Max | Sum
 
 type value =

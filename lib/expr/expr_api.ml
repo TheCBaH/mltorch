@@ -223,7 +223,7 @@ module type S = sig
 
   and Value : sig
     type binary_op = Add | Div | Mul | Sub
-    type unary_op = Erf | Exp | Log | Sqrt
+    type unary_op = Erf | Exp | Log | Sqrt | Trunc
 
     type t = private
       | Binary of binary_op * t * t
@@ -245,6 +245,12 @@ module type S = sig
     val sqrt : t -> t
     val erf : t -> t
     val log : t -> t
+
+    val trunc : t -> t
+    (** Round toward zero -- ATen's `static_cast<IntT>` for a float-to-int
+        [_to_copy.default]/[to.dtype] cast. Distinct from [round_f32], which
+        rounds to f32 storage precision, not to an integer. *)
+
     val select : Bool.t -> t -> t -> t
     val value_of_index : Role.Delta.t Index.t -> t
     val load : Source.t -> Role.Position.t Index.t Coord.t -> t

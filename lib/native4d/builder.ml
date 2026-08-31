@@ -255,6 +255,8 @@ let sub a b = op1 (Op.Sub { Pointwise.Bin.a; b })
 let sum_keepdims dims x =
   op1 (Op.Sum_keepdims { Ops4.Sum_keepdims.params = { dims }; x })
 
+let to_copy target x = op1 (Op.To_copy { Pointwise.To_copy.target; x })
+
 let transposed_conv2d params ~x ~weight ?bias () =
   op1 (Op.Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; bias })
 

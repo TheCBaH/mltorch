@@ -94,6 +94,28 @@ let%expect_test "Direct graph: sqrt of an input" =
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
   [%expect {| out = tensor f32 [C=4] {0, 1, 2, 1.5} |}]
 
+let%expect_test "Direct graph: to_copy (long) truncates an input" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"to_copy" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          to_copy ~name:"out" Pointwise.To_copy.Long a)
+    in
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -1.9; -0.5; 2.4; 3.9 |].(chan c))
+    in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ a ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=4] {-1, -0, 2, 3} |}]
+
 let%expect_test "Direct graph: expand broadcasts a size-1 axis" =
   let result =
     let open Err.Syntax in

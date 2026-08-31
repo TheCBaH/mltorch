@@ -206,6 +206,7 @@ let per_op () =
       ("hardsigmoid", unary ~shape:nhwc Builder.hardsigmoid);
       ("hardswish", unary ~shape:nhwc Builder.hardswish);
       ("sqrt", unary ~shape:nhwc Builder.sqrt);
+      ("to_copy", unary ~shape:nhwc (Builder.to_copy Pointwise.To_copy.Long));
       ("max_pool2d", unary ~shape:nhwc (Builder.max_pool2d pool_params));
       ( "adaptive_avg_pool2d",
         unary ~shape:nhwc (Builder.adaptive_avg_pool2d adaptive_params) );

@@ -393,6 +393,9 @@ let stack ?name params xs =
 let sub ?name a b = op1 ?name ~kind:"sub" (Sub { Pointwise.Bin.a; b })
 let sum ?name params x = op1 ?name ~kind:"sum" (Sum { Reduce.Sum.params; x })
 
+let to_copy ?name target x =
+  op1 ?name ~kind:"to_copy" (To_copy { Pointwise.To_copy.target; x })
+
 (* Returns every slice, in ordinal order. The count comes from the input
    signature via [Graph_shape], never from the caller — which is what lets a
    serialized graph's SSA name list be CHECKED against the node's arity instead

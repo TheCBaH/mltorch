@@ -39,6 +39,74 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
              fail (`Unsupported_memory_format `Channels_last)
          | Some Aten_memory_format.ChannelsLast3d ->
              fail (`Unsupported_memory_format `Channels_last_3d))
+  (* `_to_copy(Tensor self, *, ScalarType? dtype=None, Layout? layout=None,
+     Device? device=None, bool? pin_memory=None, bool non_blocking=False,
+     MemoryFormat? memory_format=None) -> Tensor`. Restricted to the
+     three-way [Pointwise.To_copy.target] domain the corpus actually uses
+     (bool/float/long) -- see that module's own comment for why there is no
+     Native value representation to target outside it. [dtype=None] means
+     "keep self's own dtype", which this engine cannot distinguish from the
+     float target (there is no per-tensor dtype tag on an ordinary compute
+     edge -- see graph_builder.ml's "op-output edges are F32" note), so it
+     is treated as [Float], the identity. [non_blocking] is a
+     device-transfer hint, read-and-discarded the same way it is in
+     [copy.default]'s arm above; [layout]/[device]/[pin_memory] are rejected
+     unless omitted/default, the same [zeros.default] precedent;
+     [memory_format] is rejected the same way [clone.default]'s own arm
+     rejects a real relayout request. *)
+  | "torch.ops.aten._to_copy.default" ->
+      Some
+        (let* x = native_tensor_arg aten_env node "self" in
+         let* target =
+           match D.find_arg node "dtype" with
+           | None | Some (Argument.None _) -> return Pointwise.To_copy.Float
+           | Some (Argument.Scalar_type Pytorch_types.ScalarType.BOOL) ->
+               return Pointwise.To_copy.Bool
+           | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
+               return Pointwise.To_copy.Float
+           | Some (Argument.Scalar_type Pytorch_types.ScalarType.LONG) ->
+               return Pointwise.To_copy.Long
+           | Some _ ->
+               fail
+                 (`Validation_failure
+                    "_to_copy: only default/BOOL/FLOAT/LONG dtype are supported")
+         in
+         let reject_absent name =
+           match D.find_arg node name with
+           | None | Some (Argument.None _) -> return ()
+           | Some _ ->
+               fail
+                 (`Validation_failure
+                    ("_to_copy: " ^ name ^ " must be omitted or None"))
+         in
+         let* () = reject_absent "layout" in
+         let* () =
+           match D.find_arg node "device" with
+           | None | Some (Argument.None _) -> return ()
+           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) ->
+               return ()
+           | Some _ ->
+               fail
+                 (`Validation_failure
+                    "_to_copy: device must be omitted/None or CPU without an \
+                     index")
+         in
+         let* () =
+           match D.find_arg node "pin_memory" with
+           | None | Some (Argument.None _) | Some (Argument.Bool false) ->
+               return ()
+           | Some _ ->
+               fail
+                 (`Validation_failure
+                    "_to_copy: pin_memory must be omitted/None or false")
+         in
+         let* () = reject_absent "memory_format" in
+         build_g ~name:"to_copy" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = to_copy target x_id in
+               [ y ]
+           | _ -> assert false))
   (* `copy(Tensor self, Tensor src, bool non_blocking=False) -> Tensor`.
      [self]'s VALUE never matters -- real ATen's [copy_]/[copy] fully
      OVERWRITES [self] with [src] broadcast to [self]'s shape, so the result

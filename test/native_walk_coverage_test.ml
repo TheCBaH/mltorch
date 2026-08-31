@@ -488,6 +488,7 @@ let%expect_test "bridge coverage" =
     [spec] torch.ops.aten.view.default: matched
     needs_meta:
       torch.ops.aten._softmax.default
+      torch.ops.aten._to_copy.default
       torch.ops.aten.any.dim
       torch.ops.aten.arange.default
       torch.ops.aten.arange.start

@@ -133,6 +133,11 @@ type op =
   | Stack of Concat.Stack.t
   | Sub of Pointwise.Sub.t
   | Sum of Reduce.Sum.t
+  (* [_to_copy.default]'s dtype cast, restricted to the three-way value-domain
+     target this repo has corpus evidence for (bool/float/long) -- see
+     [Pointwise.To_copy]'s own comment. Shape-preserving, like [Clone], but
+     unlike [Clone] the per-pixel VALUE can change. *)
+  | To_copy of Pointwise.To_copy.t
   (* The only op whose output COUNT is not fixed by the op: it is the extent at
      the selected axis, so the arity comes from the operand signature.
      [Graph_shape] returns one shape per slice and [Graph_builder.unbind]

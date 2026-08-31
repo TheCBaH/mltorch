@@ -102,6 +102,13 @@ let classify (op : op) ~output =
   (* No outputs at all, so this is unreachable from propagation; answer
      conservatively rather than inventing a guarantee. *)
   | Discard _ -> Discontinuous
+  (* Per-op, not per-target: the float target is a true identity, but the long
+     target (truncation) and the bool target (a zero test) can each flip their
+     result from an arbitrarily small input change at an integer/zero
+     boundary -- the same argmax-shaped reasoning [Index_tensor] gets, applied
+     conservatively across every [To_copy] target rather than reading the
+     payload to special-case the float one. *)
+  | To_copy _ -> Discontinuous
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Amax _ | Avg_pool2d _
   | Batch_norm _ | Batch_norm_no_stats _ | Batched_matmul _ | Bmm _ | Clamp _
   | Conv2d _ | Conv2d_padding _ | Convolution _ | Div _ | Div_scalar _ | Gelu _

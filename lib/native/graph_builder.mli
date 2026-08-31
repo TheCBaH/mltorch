@@ -290,6 +290,11 @@ val stack :
 val sub : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val sum : ?name:string -> Reduce.Sum.params -> tensor_ref -> Tensor_id.t t
 
+val to_copy :
+  ?name:string -> Pointwise.To_copy.target -> tensor_ref -> Tensor_id.t t
+(** [_to_copy.default]'s value-domain cast, restricted to
+    [Pointwise.To_copy.target]'s three-way corpus-evidenced domain. *)
+
 (* Unbind returns EVERY slice, in ordinal order — the only builder whose result
    length is not fixed by the op. The count is derived from the input signature
    ([extent] at the selected axis), never passed in, so a caller holding a list

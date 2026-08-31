@@ -125,6 +125,7 @@ let curated_selection =
     op "clone";
     op "contiguous";
     op "to" ~overload:"dtype";
+    op "_to_copy";
     (* cpu: no native_functions.yaml entry (synthesized from to(kCPU)); the
        Tensor::cpu() method is nullary, so this signature is exact, not trimmed. *)
     custom ~style:`Method "cpu(Tensor self) -> Tensor";

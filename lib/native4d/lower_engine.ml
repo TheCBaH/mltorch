@@ -355,6 +355,8 @@ let lower_node ~view acc (n : node) =
       simple (Op.Sigmoid { Pointwise.Sigmoid.x = op_of x })
   | Silu { Pointwise.Silu.x } -> simple (Op.Silu { Pointwise.Silu.x = op_of x })
   | Sqrt { Pointwise.Sqrt.x } -> simple (Op.Sqrt { Pointwise.Sqrt.x = op_of x })
+  | To_copy { Pointwise.To_copy.target; x } ->
+      simple (Op.To_copy { Pointwise.To_copy.target; x = op_of x })
   | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       simple (Op.Avg_pool2d { Pool.AvgPool2d.params; x = op_of x })
   | Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x } ->

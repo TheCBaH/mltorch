@@ -9,6 +9,7 @@ open Native_interp_decode
 let targets =
   [
     "torch.ops.aten._assert_tensor_metadata.default";
+    "torch.ops.aten._to_copy.default";
     "torch.ops.aten._unsafe_view.default";
     "torch.ops.aten.alias.default";
     "torch.ops.aten.cat.default";
@@ -174,6 +175,63 @@ let dispatch ~ctx ~env (node : Node.t) =
        | "torch.ops.aten._assert_tensor_metadata.default" ->
            let* () = discard (get "a") in
            return []
+       (* [_to_copy(Tensor self, *, ScalarType? dtype=None, Layout? layout=None,
+         Device? device=None, bool? pin_memory=None, bool non_blocking=False,
+         MemoryFormat? memory_format=None) -> Tensor], restricted to the
+         three-way [Pointwise.To_copy.target] domain the corpus actually uses
+         (bool/float/long) -- see that module's own comment. [dtype=None]
+         means "keep self's own dtype", indistinguishable here from the float
+         target (no per-tensor dtype tag on an ordinary compute edge -- see
+         graph_builder.ml's "op-output edges are F32" note), so it is treated
+         as [Float], the identity -- the same convention [Op_bridge]'s own
+         arm takes. [non_blocking] is read-and-discarded, the same as
+         [copy.default]'s arm above; [layout]/[device]/[pin_memory]/
+         [memory_format] follow [zeros.default]'s own rejection precedent. *)
+       | "torch.ops.aten._to_copy.default" ->
+           let optional name =
+             List.find_opt
+               (fun (a : NamedArgument.t) -> a.name = name)
+               node.Node.inputs
+             |> Option.map (fun a -> a.NamedArgument.arg)
+           in
+           let target =
+             match optional "dtype" with
+             | None | Some (Argument.None _) -> Pointwise.To_copy.Float
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.BOOL) ->
+                 Pointwise.To_copy.Bool
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
+                 Pointwise.To_copy.Float
+             | Some (Argument.Scalar_type Pytorch_types.ScalarType.LONG) ->
+                 Pointwise.To_copy.Long
+             | Some _ ->
+                 malformed esc
+                   (`Unsupported_option { op = node.target; option = `Dtype })
+           in
+           List.iter
+             (fun name ->
+               match optional name with
+               | None | Some (Argument.None _) -> ()
+               | Some _ ->
+                   malformed esc
+                     (`Wrong_arg_kind
+                        { op = node.target; arg = name; expected = `Tensor }))
+             [ "layout"; "memory_format" ];
+           (match optional "device" with
+           | None | Some (Argument.None _) -> ()
+           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "device"; expected = `Tensor }));
+           (match optional "pin_memory" with
+           | None | Some (Argument.None _) | Some (Argument.Bool false) -> ()
+           | Some _ ->
+               malformed esc
+                 (`Wrong_arg_kind
+                    { op = node.target; arg = "pin_memory"; expected = `Bool }));
+           let (_ : bool) = bool_arg esc node "non_blocking" in
+           let* y = to_copy target (get "self") in
+           return [ y ]
        | "torch.ops.aten.permute.default" ->
            let x_name = tensor_name esc node "self" in
            let rank =

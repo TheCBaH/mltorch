@@ -140,6 +140,41 @@ let%expect_test "Symbolic graph: rsub_scalar stage DAG + ground matches Direct"
     ground = tensor f32 [C=3] {1, 0, -1}
     ground matches direct: true |}]
 
+(* [Long] exercises [trunc], the new primitive -- [Float]/[Bool] reuse
+   [select]/[lt], already covered by every other staged-select test here. *)
+let%expect_test
+    "Symbolic graph: to_copy (long) stage DAG + ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"to_copy" ~outputs:(fun r -> [ r ])
+          @@
+          let* a = input ~shape:(s1c 4) ~name:"a" () in
+          to_copy ~name:"out" Pointwise.To_copy.Long a)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let a =
+      Tensor.materialize (s1c 4) (fun c -> [| -1.9; -0.5; 2.4; 3.9 |].(chan c))
+    in
+    let inputs = List.combine g.Graph.inputs [ a ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect {|
+    inputs: t0
+    t1 = trunc(t0[N,T,D,H,W,C])
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=4] {-1, -0, 2, 3}
+    ground matches direct: true |}]
+
 (* [a]'s H axis is 1; [size]'s is 2 -- so the staged read must show [H] pinned
    to the constant 0 ([broadcast_coord]'s substitution) even though the OTHER
    axes read the live loop coordinate, which is what proves the broadcast is

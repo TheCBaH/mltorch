@@ -423,6 +423,9 @@ let output_shape (op : Op.t)
   | Sum_keepdims { Ops4.Sum_keepdims.params; x } ->
       let* x_shape = shape x in
       one (four (Reduce.Sum.output_shape ~x_shape (sum_params params)))
+  | To_copy { Pointwise.To_copy.x; _ } ->
+      let* x_shape = shape x in
+      one (four (Pointwise.To_copy.output_shape x_shape))
   | Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; _ } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in

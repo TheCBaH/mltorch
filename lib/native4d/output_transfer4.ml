@@ -10,12 +10,12 @@
 
 open Op
 
-(* Simpler than Native's, and the simplification is the dialect's doing: there
-   is no argmax-pool, so nothing here is [Discontinuous]. The pooled VALUE is
-   branch-selecting but continuous — the branches agree at the boundary — and
-   only a genuine argmax would not be. If [ArgMaxPool] is ever added (design §8
-   lists it as the smallest honest extension for live indices), it is the one op
-   whose index output must answer [Discontinuous]. *)
+(* Simpler than Native's for pooling: there is no argmax-pool, so no POOL op
+   here answers [Discontinuous]. The pooled VALUE is branch-selecting but
+   continuous — the branches agree at the boundary — and only a genuine argmax
+   would not be. If [ArgMaxPool] is ever added (design §8 lists it as the
+   smallest honest extension for live indices), it would be a second
+   [Discontinuous] pooling arm alongside [To_copy]'s below. *)
 let classify (op : Op.t) ~output:_ =
   match op with
   (* Data movement: every output element is COPIED from an input element with no
@@ -59,6 +59,12 @@ let classify (op : Op.t) ~output:_ =
   | Stack4 _ -> Output_transfer.Reindexing
   | Sqrt _ | Sub _ | Sum_keepdims _ | Transposed_conv2d _ ->
       Output_transfer.Continuous
+  (* Same per-op-not-per-target conservative answer as Native's own
+     [Output_transfer]: the long/bool targets can each flip their result from
+     an arbitrarily small input change, so the whole op answers
+     [Discontinuous] rather than reading the payload to special-case the
+     float target. *)
+  | To_copy _ -> Output_transfer.Discontinuous
   | Unbind _ -> Output_transfer.Reindexing
   | Upsample_bilinear2d _ -> Output_transfer.Continuous
   (* A gather, not a blend, unlike [Upsample_bilinear2d] just above -- see

@@ -261,6 +261,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           (Graph_shape4.sum_params params)
           ~x_shape:(shape_of x) ~x:(operand x) out
+    | To_copy { Pointwise.To_copy.target; x } ->
+        let module C = Pointwise.To_copy.Compute (S) in
+        C.pixel target (operand x) out
     | Transposed_conv2d { Ops4.Transposed_conv2d.params; x; weight; bias } ->
         let module C = Conv.Convolution.Compute (S) in
         let params = Graph_shape4.transposed_params params in

@@ -1,5 +1,5 @@
 type binary_op = Expr_repr.binary_op = Add | Div | Mul | Sub
-type unary_op = Expr_repr.unary_op = Erf | Exp | Log | Sqrt
+type unary_op = Expr_repr.unary_op = Erf | Exp | Log | Sqrt | Trunc
 
 type t = Expr_repr.value =
   | Binary of binary_op * t * t
@@ -21,6 +21,7 @@ let exp a = Unary (Exp, a)
 let sqrt a = Unary (Sqrt, a)
 let erf a = Unary (Erf, a)
 let log a = Unary (Log, a)
+let trunc a = Unary (Trunc, a)
 let select c a b = Select (c, a, b)
 let value_of_index i = Value_of_index i
 let load s c = Load (s, c)
@@ -54,6 +55,7 @@ let apply_unary = function
   | Exp -> Stdlib.exp
   | Log -> Stdlib.log
   | Sqrt -> Stdlib.sqrt
+  | Trunc -> Float.trunc
 
 let binary_sym = function Add -> "+" | Div -> "/" | Mul -> "*" | Sub -> "-"
 
@@ -62,6 +64,7 @@ let unary_name = function
   | Exp -> "exp"
   | Log -> "log"
   | Sqrt -> "sqrt"
+  | Trunc -> "trunc"
 
 let index_tag : type r. r Index.t -> int = function
   | Index.Add _ -> 5

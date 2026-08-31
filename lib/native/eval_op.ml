@@ -271,6 +271,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Sum { Reduce.Sum.params; x } ->
         let module C = Reduce.Sum.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | To_copy { Pointwise.To_copy.target; x } ->
+        let module C = Pointwise.To_copy.Compute (S) in
+        C.pixel target (operand x) out
     | Slice { Split.Slice.params; x } ->
         let module C = Split.Slice.Compute (S) in
         C.pixel params ~x:(operand x) out

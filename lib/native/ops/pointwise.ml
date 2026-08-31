@@ -16,6 +16,7 @@ module Clamp = Pointwise_unary.Clamp
 module Clone = Pointwise_unary.Clone
 module Expand = Pointwise_unary.Expand
 module Sqrt = Pointwise_unary.Sqrt
+module To_copy = Pointwise_unary.To_copy
 module Hardsigmoid = Pointwise_activation.Hardsigmoid
 module Hardswish = Pointwise_activation.Hardswish
 module Hardtanh = Pointwise_activation.Hardtanh

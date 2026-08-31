@@ -68,6 +68,30 @@ let%expect_test "Direct: sqrt" =
     (eval_tensor (Pointwise.Sqrt.output_shape x_shape) (Q.pixel x));
   [%expect {| tensor f32 [C=4] {0, 1, 2, 1.5} |}]
 
+(* [_to_copy.default]'s three corpus-evidenced targets: float is the identity,
+   long truncates TOWARD ZERO (matching ATen's [static_cast<int64_t>], not
+   round-to-nearest -- -1.9 truncates to -1, not -2), and bool is a genuine
+   nonzero test, not an overfit to the corpus's own all-zero operand. *)
+let%expect_test "Direct: to_copy" =
+  let module T = Pointwise.To_copy.Compute (Direct) in
+  let x_shape = s1c 5 in
+  let x =
+    Tensor.materialize x_shape (fun c ->
+        [| -1.9; -0.5; 0.; 2.4; 3.9 |].(chan c))
+  in
+  let run target =
+    Format.printf "%a@." (pp_result Tensor.pp)
+      (eval_tensor (Pointwise.To_copy.output_shape x_shape) (T.pixel target x))
+  in
+  run Pointwise.To_copy.Float;
+  run Pointwise.To_copy.Long;
+  run Pointwise.To_copy.Bool;
+  [%expect
+    {|
+    tensor f32 [C=5] {-1.9, -0.5, 0, 2.4, 3.9}
+    tensor f32 [C=5] {-1, -0, 0, 2, 3}
+    tensor f32 [C=5] {1, 1, 0, 1, 1} |}]
+
 let%expect_test "Direct: pow, special-cased and generic exponents" =
   let module Q = Pointwise.Pow.Compute (Direct) in
   let x_shape = s1c 3 in
