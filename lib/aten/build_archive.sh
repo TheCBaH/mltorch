@@ -115,6 +115,10 @@ mapfile -t SRCS_GLUE < <(
   # used by resnet18 reduces via at::mean (-> ReduceOps below); other sizes use
   # the AdaptiveAvgPoolKernel in the CAP list.
   echo "$PT/aten/src/ATen/native/AdaptiveAveragePooling.cpp"
+  # adaptive_max_pool2d: structured meta+impl (AdaptiveMaxPooling2d.cpp), the
+  # same shape [DilatedMaxPool2d.cpp] is for max_pool2d_with_indices above;
+  # the AdaptiveMaxPoolKernel is in the CAP list.
+  echo "$PT/aten/src/ATen/native/AdaptiveMaxPooling2d.cpp"
   # real copy_ (reductions / type-cast / contiguous paths call it); replaces
   # the former throwing stub. Kernel is cpu/CopyKernel.cpp in the CAP list.
   echo "$PT/aten/src/ATen/native/Copy.cpp"
@@ -231,6 +235,8 @@ mapfile -t SRCS_CAP < <(
   # adaptive_avg_pool2d_kernel + the reduction kernels behind at::mean/sum
   # (mean_stub/sum_stub), needed by adaptive_avg_pool2d's global-average path.
   echo "$PT/aten/src/ATen/native/cpu/AdaptiveAvgPoolKernel.cpp"
+  # adaptive_max_pool2d_kernel (the vectorized adaptive max-pooling kernel).
+  echo "$PT/aten/src/ATen/native/cpu/AdaptiveMaxPoolKernel.cpp"
   echo "$PT/aten/src/ATen/native/cpu/ReduceOpsKernel.cpp"
   echo "$PT/aten/src/ATen/native/cpu/SumKernel.cpp"
   # topk_stub kernel (registered by Sorting.cpp's structured impl).

@@ -14,6 +14,7 @@ let targets =
     "torch.ops.aten._native_batch_norm_legit.no_stats";
     "torch.ops.aten.add.Tensor";
     "torch.ops.aten.adaptive_avg_pool2d.default";
+    "torch.ops.aten.adaptive_max_pool2d.default";
     "torch.ops.aten.addcmul.default";
     "torch.ops.aten.addmm.default";
     "torch.ops.aten.amax.default";
@@ -655,6 +656,43 @@ let dispatch ~ctx ~env (node : Node.t) =
            let* y = adaptive_avg_pool2d params x in
            let* y = permute perm_nhwc_to_nchw y in
            return [ y ]
+       (* ATen has no value-only overload here (unlike [max_pool2d.default]'s
+          genuine two-op split), so this always returns (values, indices);
+          the indices edge is routed to the same [Discard] sink
+          [max_pool2d_with_indices.default] uses just below, and
+          [materialized_output_names] drops its serialized name from tracking
+          the same way it does for that op (see native_interp_decode.ml). *)
+       | "torch.ops.aten.adaptive_max_pool2d.default" ->
+           let x_name = tensor_name esc node "self" in
+           let got =
+             meta_rank
+               (tensor_meta esc graph ~ssa:x_name
+                  ~role:`Adaptive_max_pool2d_input)
+           in
+           if got <> 3 && got <> 4 then
+             malformed esc (`Adaptive_pool_rank { tensor = x_name; got });
+           let out_h, out_w =
+             match ints_arg esc node "output_size" with
+             | [ h; w ] -> (h, w)
+             | xs ->
+                 malformed esc
+                   (`Bad_arity
+                      { Bad_arity.param = `Output_size; got = List.length xs })
+           in
+           let params =
+             {
+               Pool.AdaptiveMaxPool2d.output_size =
+                 {
+                   h = pos esc ~op:node.target ~param:`Output_size out_h;
+                   w = pos esc ~op:node.target ~param:`Output_size out_w;
+                 };
+             }
+           in
+           let* x = permute perm_nchw_to_nhwc (get "self") in
+           let* values, indices = adaptive_max_pool2d_with_indices params x in
+           let* () = discard indices in
+           let* values = permute perm_nhwc_to_nchw values in
+           return [ values ]
        | "torch.ops.aten.avg_pool2d.default" ->
            let* x = permute perm_nchw_to_nhwc (get "self") in
            let* y = avg_pool2d (avg_pool_params esc node) x in

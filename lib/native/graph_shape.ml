@@ -46,6 +46,18 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pool.AdaptiveAvgPool2d.output_shape ~x_shape params) in
       [ out ]
+  | Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Pool.AdaptiveMaxPool2d.output_shape ~x_shape params) in
+      [ out ]
+  | Adaptive_max_pool2d_with_indices
+      { Pool.AdaptiveMaxPool2dWithIndices.params; x } ->
+      let* x_shape = shape x in
+      let+ out =
+        widen (Pool.AdaptiveMaxPool2dWithIndices.output_shape ~x_shape params)
+      in
+      (* out0 = values, out1 = indices; both share the pooled bin shape. *)
+      [ out; out ]
   | Amax { Reduce.Amax.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reduce.Amax.output_shape ~x_shape params) in

@@ -29,6 +29,7 @@ type op =
   | Add of Pointwise.Add.t
   | Add_scalar of Pointwise.Add_scalar.t
   | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
+  | Adaptive_max_pool2d of Pool.AdaptiveMaxPool2d.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm_no_stats of Ops4.Batch_norm_no_stats.t
   | Clamp of Pointwise.Clamp.t
@@ -118,6 +119,12 @@ let op_registry : (module OP) list =
 
       let inject t = Adaptive_avg_pool2d t
       let project = function Adaptive_avg_pool2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pool.AdaptiveMaxPool2d
+
+      let inject t = Adaptive_max_pool2d t
+      let project = function Adaptive_max_pool2d t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pool.AvgPool2d

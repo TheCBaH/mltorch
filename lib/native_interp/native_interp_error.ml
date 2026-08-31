@@ -64,6 +64,7 @@ end
 type metadata_role =
   [ `Addmm_weight
   | `Adaptive_avg_pool2d_input
+  | `Adaptive_max_pool2d_input
   | `Amax_input
   | `Batch_norm_no_stats_input
   | `Concat_input
@@ -380,6 +381,7 @@ let pp_arg_kind ppf : arg_kind -> unit = function
 let pp_metadata_role ppf : metadata_role -> unit = function
   | `Addmm_weight -> Fmt.string ppf "addmm weight"
   | `Adaptive_avg_pool2d_input -> Fmt.string ppf "adaptive_avg_pool2d input"
+  | `Adaptive_max_pool2d_input -> Fmt.string ppf "adaptive_max_pool2d input"
   | `Amax_input -> Fmt.string ppf "amax input"
   | `Batch_norm_no_stats_input -> Fmt.string ppf "batch_norm_no_stats input"
   | `Concat_input -> Fmt.string ppf "concat input"

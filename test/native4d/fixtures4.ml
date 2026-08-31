@@ -45,6 +45,12 @@ let avg_params : Pool.AvgPool2d.params =
 let adaptive_params : Pool.AdaptiveAvgPool2d.params =
   { output_size = hw (Op_config.Pos.of_int 3) }
 
+(* Same non-trivial 4-in/3-out ratio as [adaptive_params] (uneven bin widths:
+   some bins 1 wide, some 2), so the max-reduce nest and its index derivation
+   get a real multi-element window rather than a degenerate 1:1 identity. *)
+let adaptive_max_params : Pool.AdaptiveMaxPool2d.params =
+  { output_size = hw (Op_config.Pos.of_int 3) }
+
 (* [align_corners=true], the other value the JSON-round-trip fixture in
    op_json_test.ml already exercises with [false] -- between them, both
    [Bilinear_axis.endpoints] branches get a Direct-vs-Symbolic comparison. *)
@@ -214,6 +220,8 @@ let per_op () =
       ("max_pool2d", unary ~shape:nhwc (Builder.max_pool2d pool_params));
       ( "adaptive_avg_pool2d",
         unary ~shape:nhwc (Builder.adaptive_avg_pool2d adaptive_params) );
+      ( "adaptive_max_pool2d",
+        unary ~shape:nhwc (Builder.adaptive_max_pool2d adaptive_max_params) );
       ("avg_pool2d", unary ~shape:nhwc (Builder.avg_pool2d avg_params));
       ( "mean_keepdims",
         unary ~shape:nhwc (Builder.mean_keepdims [ Axis4.H; Axis4.W ]) );

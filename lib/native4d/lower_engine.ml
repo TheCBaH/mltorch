@@ -390,6 +390,9 @@ let lower_node ~view acc (n : node) =
   | Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x } ->
       simple
         (Op.Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x = op_of x })
+  | Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x } ->
+      simple
+        (Op.Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x = op_of x })
   | Max_pool2d { Pool.MaxPool2d.params; x } ->
       simple (Op.Max_pool2d { Pool.MaxPool2d.params; x = op_of x })
   (* Direct counterpart, like [Max_pool2d] above: [Resize.Bilinear2d.params]
@@ -886,6 +889,6 @@ let lower_node ~view acc (n : node) =
      graph-only target regardless. [Repeat]/[RepeatInterleave]/
      [Select_scatter] no longer join them: all three now have real
      conversion arms above. *)
-  | Batched_matmul _ | Discard _ | Index_tensor _ | Max_pool2d_with_indices _
-  | Sdpa _ | Softmax _ ->
+  | Adaptive_max_pool2d_with_indices _ | Batched_matmul _ | Discard _
+  | Index_tensor _ | Max_pool2d_with_indices _ | Sdpa _ | Softmax _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

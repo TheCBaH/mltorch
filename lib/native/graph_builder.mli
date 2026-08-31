@@ -55,6 +55,17 @@ val add_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 val adaptive_avg_pool2d :
   ?name:string -> Pool.AdaptiveAvgPool2d.params -> tensor_ref -> Tensor_id.t t
 
+val adaptive_max_pool2d :
+  ?name:string -> Pool.AdaptiveMaxPool2d.params -> tensor_ref -> Tensor_id.t t
+
+(* adaptive_max_pool2d_with_indices returns two edges: (values, indices), the
+   same shape [max_pool2d_with_indices] does. *)
+val adaptive_max_pool2d_with_indices :
+  ?name:string ->
+  Pool.AdaptiveMaxPool2dWithIndices.params ->
+  tensor_ref ->
+  (Tensor_id.t * Tensor_id.t) t
+
 val amax : ?name:string -> Reduce.Amax.params -> tensor_ref -> Tensor_id.t t
 
 val avg_pool2d :

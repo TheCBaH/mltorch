@@ -111,3 +111,25 @@ let adaptive_avg_pool2d =
         spec { self; output_size = Recipe_adaptive.output_size c }),
       pcg )|};
   }
+
+(* Same config space as [adaptive_avg_pool2d] above -- [Recipe_adaptive]'s own
+   shape/output_size axes have no notion of which reduction runs, so the
+   walk recipe is shared unchanged; only the [build]'s target op differs. *)
+let adaptive_max_pool2d =
+  {
+    module_name = "Adaptive_max_pool2d_walk";
+    target = "torch.ops.aten.adaptive_max_pool2d.default";
+    recipe = "Recipe_adaptive";
+    initial =
+      "Aten_walk_recipes.Recipe_adaptive.{ n = 1; c = 4; input_h = 8; input_w \
+       = 8; out_h = 4; out_w = 4 }";
+    axes =
+      "Aten_walk_recipes.Recipe_adaptive.axes ~n:[ 1; 2 ] ~c:[ 4; 8; 16 ] \
+       ~input_h:[ 6; 8; 10; 12 ] ~input_w:[ 6; 8; 10; 12 ] ~out_h:[ 1; 2; 4; 7 \
+       ] ~out_w:[ 1; 2; 4; 7 ]";
+    build =
+      {|let self, pcg = Walk.tensor_spec pcg (Recipe_adaptive.self_shape c) in
+    ( Aten_op_spec.Op_adaptive_max_pool2d.(
+        spec { self; output_size = Recipe_adaptive.output_size c }),
+      pcg )|};
+  }

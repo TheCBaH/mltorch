@@ -253,6 +253,8 @@ let%expect_test "domain: max pool with indices" =
     [
       ("indices discarded", Fixtures.maxpool_indices_discarded);
       ("indices live", Fixtures.maxpool_indices_live);
+      ("adaptive indices discarded", Fixtures.adaptive_maxpool_indices_discarded);
+      ("adaptive indices live", Fixtures.adaptive_maxpool_indices_live);
     ];
   [%expect
     {|
@@ -263,7 +265,12 @@ let%expect_test "domain: max pool with indices" =
                                             stride={h=2; w=2};
                                             pad={h=0; w=0};
                                             ceil_mode=false}
-    indices live                 node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
+    indices live                 node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation
+    adaptive indices discarded   node n0: no legalization for
+                                   adaptive_max_pool2d_with_indices
+                                     x=t0
+                                     params={output_size={h=2; w=2}}
+    adaptive indices live        node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
 
 (* ---- the same graphs, after canonicalization ------------------------------ *)
 
@@ -297,11 +304,15 @@ let%expect_test "domain: canonicalization is what makes a graph convertible" =
     [
       ("indices discarded", Fixtures.maxpool_indices_discarded);
       ("indices live", Fixtures.maxpool_indices_live);
+      ("adaptive indices discarded", Fixtures.adaptive_maxpool_indices_discarded);
+      ("adaptive indices live", Fixtures.adaptive_maxpool_indices_live);
     ];
   [%expect
     {|
     indices discarded            in the dialect
-    indices live                 node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
+    indices live                 node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation
+    adaptive indices discarded   in the dialect
+    adaptive indices live        node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
 
 (* ---- legalizations that need no domain constraint ------------------------- *)
 

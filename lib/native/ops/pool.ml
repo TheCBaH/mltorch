@@ -553,6 +553,196 @@ module Adaptive_axis = struct
   end
 end
 
+(* aten.adaptive_max_pool2d(Tensor self, int[2] output_size) -> (Tensor,
+   Tensor) always returns both value and index tensors -- unlike max_pool2d,
+   ATen has no separate value-only overload for the adaptive case.
+   [AdaptiveMaxPool2d] is therefore a NATIVE-internal narrowing target, not
+   something either importer ever builds directly: both importers always
+   construct [AdaptiveMaxPool2dWithIndices] below (mirroring
+   [MaxPool2dWithIndices]'s own ATen-facing shape), and
+   [Drop_pool_indices] narrows it to this op once the index output is proved
+   dead -- exactly [Max_pool2d]/[Max_pool2d_with_indices]'s relationship.
+   Reuses [Adaptive_axis] for the H/W bin ranges, the reduction swapped from
+   [AdaptiveAvgPool2d]'s [S.sum]/[S.div] to [S.max_reduce]: no new SEMANTICS
+   primitive is needed ([max_reduce] already has the same lo/hi/f shape as
+   [sum]). *)
+module AdaptiveMaxPool2d = struct
+  type params = { output_size : Op_config.Pos.t Op_config.Hw.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"adaptive_max_pool2d_params" (fun output_size ->
+        { output_size })
+    |> Jsont.Object.mem "output_size" (Op_config.Hw.jsont Op_config.Pos.jsont)
+         ~enc:(fun p -> p.output_size)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "{output_size=%a}"
+      (Op_config.Hw.pp Op_config.Pos.pp)
+      p.output_size
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Adaptive_max_pool2d"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>adaptive_max_pool2d@ x=%a@ params=%a@]" pp_ref t.x
+      pp_params t.params
+
+  let output_shape ~(x_shape : Vec6.shape) (p : params) =
+    let open Err.Syntax in
+    let* () =
+      Adaptive_axis.check ~axis:Axis.H ~input_extent:(Vec6.get x_shape Axis.H)
+        ~output_size:p.output_size.h
+    in
+    let* () =
+      Adaptive_axis.check ~axis:Axis.W ~input_extent:(Vec6.get x_shape Axis.W)
+        ~output_size:p.output_size.w
+    in
+    Err.return
+      (Vec6.set
+         (Vec6.set x_shape Axis.H (Dim.extent (p.output_size.h :> int)))
+         Axis.W
+         (Dim.extent (p.output_size.w :> int)))
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    let pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let module A = Adaptive_axis.Compute (S) in
+      let h =
+        A.bin ~input_extent:(Vec6.get x_shape Axis.H)
+          ~output_size:p.output_size.h (Vec6.get out Axis.H)
+      in
+      let w =
+        A.bin ~input_extent:(Vec6.get x_shape Axis.W)
+          ~output_size:p.output_size.w (Vec6.get out Axis.W)
+      in
+      S.max_reduce ~lo:h.lo ~hi:h.hi (fun ih ->
+          S.max_reduce ~lo:w.lo ~hi:w.hi (fun iw ->
+              S.load x (out |> Vec6.set_h ih |> Vec6.set_w iw)))
+  end
+end
+
+(* ATen's own `adaptive_max_pool2d.default` shape: value + flat-index argmax --
+   the adaptive counterpart of [MaxPool2dWithIndices]. Same [params] as
+   [AdaptiveMaxPool2d], the same reuse [MaxPool2dWithIndices.params =
+   MaxPool2d.params] already establishes for the fixed-window family. *)
+module AdaptiveMaxPool2dWithIndices = struct
+  type params = AdaptiveMaxPool2d.params
+
+  let params_jsont = AdaptiveMaxPool2d.params_jsont
+  let pp_params = AdaptiveMaxPool2d.pp_params
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Adaptive_max_pool2d_with_indices"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>adaptive_max_pool2d_with_indices@ x=%a@ params=%a@]"
+      pp_ref t.x pp_params t.params
+
+  (* Both outputs share the pooled bin shape, exactly [MaxPool2dWithIndices]'s
+     own comment. *)
+  let output_shape = AdaptiveMaxPool2d.output_shape
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    module V = AdaptiveMaxPool2d.Compute (S)
+
+    let value_pixel = V.pixel
+
+    (* out1: the flat input-plane index [ih*in_W+iw] of the max within the
+       adaptive bin, ties resolved to the smallest flat index -- the same
+       convention [MaxPool2dWithIndices]'s own comment states, verified
+       against real `at::adaptive_max_pool2d` in the bridge dispatch oracle
+       test. There is no generic "arg-reduce" SEMANTICS primitive, and adding
+       one would go against the module doc's [max]/[min]/[relu] rule: derive
+       instead. Two passes -- the first finds the max [m] (exactly
+       [value_pixel]'s own reduce), the second finds the smallest flat index
+       whose value equals [m], read via [select]: [lt v m] is true only when
+       [v] is NOT the max (since [v <= m] always), so that branch takes a
+       sentinel strictly above every valid flat index ([in_h*in_w] -- flat
+       indices only ever range over [0, in_h*in_w)), and the equal-to-max
+       branch takes the real flat value -- no equality primitive needed. The
+       smallest matching candidate is [-(max_reduce of the negated
+       candidates)], the same max-reduce-plus-negation idiom the module doc
+       uses to derive a min-like quantity from [max_reduce]/[select] rather
+       than adding a primitive.
+
+       [in_h * in_w] is an ordinary [int] product with no explicit bound
+       check, the same as [direct.ml]'s own [max_pool2d_index] computing
+       [(ih * w) + iw]: [x_shape] reaching [Compute] already passed a numel
+       check <= [Kernel.Limits.Hard.numel] (2^31) at construction, and H/W are
+       two of six factors of that bounded product (every factor >= 1), so
+       their product alone cannot overflow the 32-bit js_of_ocaml [int]
+       either. *)
+    let index_pixel (p : params) ~(x_shape : Vec6.shape) ~x
+        (out : Semantics.position S.index Vec6.t) =
+      let module A = Adaptive_axis.Compute (S) in
+      let h =
+        A.bin ~input_extent:(Vec6.get x_shape Axis.H)
+          ~output_size:p.output_size.h (Vec6.get out Axis.H)
+      in
+      let w =
+        A.bin ~input_extent:(Vec6.get x_shape Axis.W)
+          ~output_size:p.output_size.w (Vec6.get out Axis.W)
+      in
+      let in_h = (Vec6.get x_shape Axis.H :> int) in
+      let in_w = (Vec6.get x_shape Axis.W :> int) in
+      let read ih iw = S.load x (out |> Vec6.set_h ih |> Vec6.set_w iw) in
+      let m =
+        S.max_reduce ~lo:h.lo ~hi:h.hi (fun ih ->
+            S.max_reduce ~lo:w.lo ~hi:w.hi (fun iw -> read ih iw))
+      in
+      let sentinel = S.const (float_of_int (in_h * in_w)) in
+      let candidate ih iw =
+        let v = read ih iw in
+        let flat =
+          S.value_of_index
+            (S.index_add (S.index_scale in_w (S.of_index ih)) (S.of_index iw))
+        in
+        S.select (S.lt v m) sentinel flat
+      in
+      let neg t = S.sub (S.const 0.0) t in
+      neg
+        (S.max_reduce ~lo:h.lo ~hi:h.hi (fun ih ->
+             S.max_reduce ~lo:w.lo ~hi:w.hi (fun iw -> neg (candidate ih iw))))
+  end
+end
+
 module AdaptiveAvgPool2d = struct
   type params = { output_size : Op_config.Pos.t Op_config.Hw.t }
 

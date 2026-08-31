@@ -299,6 +299,35 @@ let%expect_test "dispatch: upsample_nearest2d.vec rejects both size args" =
     {|
     error: upsample_nearest2d.vec: output_size and scale_factors are mutually exclusive |}]
 
+let%expect_test
+    "dispatch: adaptive_max_pool2d.default relayouts and discards indices" =
+  (* Same 5x5 -> 3x3 non-divisible bins as the adaptive_avg_pool2d fixture
+     above, values increasing row-major so each bin's max is its
+     bottom-right corner (see pool_test.ml's own hand-computed version of
+     this same 5x5/3x3 case for the bin ranges). *)
+  let x =
+    float_tensor [ 1; 1; 5; 5 ] (List.init 25 (fun i -> float_of_int (i + 1)))
+  in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.adaptive_max_pool2d.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:[ in_tensor "self"; in_ints "output_size" [ 3; 3 ] ]
+    ~noutputs:2;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=5 C=5] ->[n0]]
+    nodes:
+      n0: [t1 f32 [H=5 W=5 C=1] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+      n1: [t2 f32 [H=3 W=3 C=1] ->[n3], t3 f32 [H=3 W=3 C=1] ->[n2]] =
+        adaptive_max_pool2d_with_indices
+          x=t1 <-n0
+          params={output_size={h=3; w=3}}
+      n2: [] = discard x=t3 <-n1
+      n3: [t4 f32 [W=3 C=3]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t4 f32 [W=3 C=3] <-n3]
+    tensor f32 [W=3 C=3] {7, 9, 10, 17, 19, 20, 22, 24, ...} |}]
+
 let%expect_test "dispatch: max_pool2d_with_indices.default discards indices" =
   (* NCHW [1,1,4,4], value(h,w)=h*4+w. 2x2/stride-2 windows: max is each
      window's bottom-right; the graph output is the relayout'd values, and the

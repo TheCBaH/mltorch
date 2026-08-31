@@ -358,6 +358,33 @@ let maxpool_indices_live () =
      let* live = relu indices in
      add values live)
 
+(* ---- adaptive max pool with indices --------------------------------------- *)
+
+let adaptive_pool_params : Pool.AdaptiveMaxPool2d.params =
+  { output_size = hw (Op_config.Pos.of_int 2) }
+
+(* Same discarded/live pair as [maxpool_indices_discarded]/[maxpool_indices_live]
+   above, through the adaptive op. *)
+let adaptive_maxpool_indices_discarded () =
+  build "adaptive_maxpool_indices_discarded"
+    (let open Graph_builder in
+     let* x = input ~shape:(nhwc ~n:1 ~h:4 ~w:4 ~c:3) () in
+     let* values, indices =
+       adaptive_max_pool2d_with_indices adaptive_pool_params x
+     in
+     let* () = discard indices in
+     return values)
+
+let adaptive_maxpool_indices_live () =
+  build "adaptive_maxpool_indices_live"
+    (let open Graph_builder in
+     let* x = input ~shape:(nhwc ~n:1 ~h:4 ~w:4 ~c:3) () in
+     let* values, indices =
+       adaptive_max_pool2d_with_indices adaptive_pool_params x
+     in
+     let* live = relu indices in
+     add values live)
+
 (* ---- linear -------------------------------------------------------------- *)
 
 (* Weight is [Out,1,1,1,1,In] — already a 1x1 convolution weight. *)

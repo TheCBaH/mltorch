@@ -153,6 +153,9 @@ let add_scalar scalar x = op1 (Op.Add_scalar { Pointwise.Scalar_bin.x; scalar })
 let adaptive_avg_pool2d params x =
   op1 (Op.Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x })
 
+let adaptive_max_pool2d params x =
+  op1 (Op.Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x })
+
 let avg_pool2d params x = op1 (Op.Avg_pool2d { Pool.AvgPool2d.params; x })
 let clamp params x = op1 (Op.Clamp { Pointwise.Clamp.params; x })
 

@@ -222,6 +222,9 @@ let output_shape (op : Op.t)
   | Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x } ->
       let* x_shape = shape x in
       one (four (Pool.AdaptiveAvgPool2d.output_shape ~x_shape params))
+  | Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x } ->
+      let* x_shape = shape x in
+      one (four (Pool.AdaptiveMaxPool2d.output_shape ~x_shape params))
   | Avg_pool2d { Pool.AvgPool2d.params; x } ->
       let* x_shape = shape x in
       one (four (Pool.AvgPool2d.output_shape ~x_shape params))

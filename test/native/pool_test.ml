@@ -318,6 +318,53 @@ let%expect_test "Direct: adaptive_avg_pool2d global [1,1]" =
   [%expect {| tensor f32 [C=1] {8.5} |}]
 
 let%expect_test
+    "Direct: adaptive_max_pool2d_with_indices uses ATen's overlapping \
+     non-divisible bins — values + argmax" =
+  (* Same 5x5 input/3x3 output as [adaptive_avg_pool2d]'s own "overlapping
+     non-divisible bins" test above, so the bin ranges are already verified by
+     that test's hand-computed averages: bin0=[0,2), bin1=[1,4), bin2=[3,5) on
+     each axis. Values increase monotonically in both H and W, so each bin's
+     max is always its bottom-right corner, and the argmax is that corner's
+     flat index [ih*5+iw]. *)
+  let module M = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:5 ~w:5 ~c:1 in
+  let x =
+    Tensor.materialize x_shape (fun c -> float_of_int ((row c * 5) + col c + 1))
+  in
+  let p =
+    {
+      Pool.AdaptiveMaxPool2d.output_size =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 3; w = Op_config.Pos.of_int 3 };
+    }
+  in
+  let shape = Pool.AdaptiveMaxPool2dWithIndices.output_shape ~x_shape p in
+  Format.printf "values:  %a@." (pp_result Tensor.pp)
+    (eval_tensor shape (M.value_pixel p ~x_shape ~x));
+  Format.printf "indices: %a@." (pp_result Tensor.pp)
+    (eval_tensor shape (M.index_pixel p ~x_shape ~x));
+  [%expect
+    {|
+    values:  tensor f32 [H=3 W=3 C=1] {7, 9, 10, 17, 19, 20, 22, 24, ...}
+    indices: tensor f32 [H=3 W=3 C=1] {6, 8, 9, 16, 18, 19, 21, 23, ...} |}]
+
+let%expect_test
+    "Direct: adaptive_max_pool2d_with_indices ties choose smallest flat index" =
+  let module M = Pool.AdaptiveMaxPool2dWithIndices.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:1 in
+  let x = Tensor.materialize x_shape (fun _ -> 7.) in
+  let p =
+    {
+      Pool.AdaptiveMaxPool2d.output_size =
+        Op_config.Hw.{ h = Op_config.Pos.of_int 1; w = Op_config.Pos.of_int 1 };
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Pool.AdaptiveMaxPool2dWithIndices.output_shape ~x_shape p)
+       (M.index_pixel p ~x_shape ~x));
+  [%expect {| tensor f32 [C=1] {0} |}]
+
+let%expect_test
     "adaptive_avg_pool2d rejects an index-scale aggregate before allocation" =
   let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:(1 lsl 30) ~w:1 ~c:1 in
   let p =

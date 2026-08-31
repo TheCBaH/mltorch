@@ -29,6 +29,7 @@ let entries =
     max_pool2d_with_indices;
     avg_pool2d;
     adaptive_avg_pool2d;
+    adaptive_max_pool2d;
     mean_dim;
     amax;
     sum_dim_int_list;

@@ -89,7 +89,7 @@ let classify (op : op) ~output =
      of both: a small input change moves the copied cells slightly and leaves
      any constants exactly where they were. *)
   | Pad _ -> Continuous
-  | Max_pool2d_with_indices _ ->
+  | Max_pool2d_with_indices _ | Adaptive_max_pool2d_with_indices _ ->
       if output = 0 then Continuous else Discontinuous
   (* Which input element is read is DATA-DEPENDENT -- the gathered position
      comes from the value stored in [index], not from the output coordinate
@@ -109,14 +109,14 @@ let classify (op : op) ~output =
      conservatively across every [To_copy] target rather than reading the
      payload to special-case the float one. *)
   | To_copy _ -> Discontinuous
-  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Amax _ | Avg_pool2d _
-  | Batch_norm _ | Batch_norm_no_stats _ | Batched_matmul _ | Bmm _ | Clamp _
-  | Conv2d _ | Conv2d_padding _ | Convolution _ | Div _ | Div_scalar _ | Gelu _
-  | Group_norm _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _
-  | Leaky_relu _ | Linear _ | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _
-  | Pow _ | Relu _ | Rms_norm _ | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _
-  | Softmax _ | Arange _ | Sqrt _ | Sub _ | Sum _ | Upsample_bilinear2d _
-  | Vector_norm _ | Zeros _ ->
+  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
+  | Amax _ | Avg_pool2d _ | Batch_norm _ | Batch_norm_no_stats _
+  | Batched_matmul _ | Bmm _ | Clamp _ | Conv2d _ | Conv2d_padding _
+  | Convolution _ | Div _ | Div_scalar _ | Gelu _ | Group_norm _ | Hardsigmoid _
+  | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _ | Linear _
+  | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Rms_norm _
+  | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _ | Softmax _ | Arange _ | Sqrt _
+  | Sub _ | Sum _ | Upsample_bilinear2d _ | Vector_norm _ | Zeros _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

@@ -560,6 +560,7 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
   | "torch.ops.aten.max_pool2d.default" | "torch.ops.aten.avg_pool2d.default"
   | "torch.ops.aten.adaptive_avg_pool2d.default"
+  | "torch.ops.aten.adaptive_max_pool2d.default"
   | "torch.ops.aten.max_pool2d_with_indices.default"
   | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.layer_norm.default"
   | "torch.ops.aten.native_layer_norm.default" | "torch.ops.aten.addmm.default"
@@ -572,11 +573,16 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
 let materialized_output_names esc (node : Pytorch_types.Node.t) =
   match node.target with
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
+  | "torch.ops.aten.adaptive_max_pool2d.default"
   | "torch.ops.aten.max_pool2d_with_indices.default"
-  (* Third entry, and the first whose dropped outputs are NOT empty: they are
-     real f32 tensors that happen to be dead in every occurrence the corpus
-     contains. Dropping them here is what makes the [`Live_layer_norm_stats]
-     check below load-bearing rather than decorative. *)
+  (* Fourth entry, and the first three whose dropped outputs are NOT empty:
+     they are real f32 tensors that happen to be dead in every occurrence the
+     corpus contains. Dropping them here is what makes the
+     [`Live_layer_norm_stats] check below load-bearing rather than
+     decorative for [native_layer_norm.default]; [adaptive_max_pool2d.default]
+     and [max_pool2d_with_indices.default] have no analogous liveness check of
+     their own (unlike layer_norm's stats, their indices output is routed to
+     a [Discard] sink by the arm above rather than silently assumed dead). *)
   | "torch.ops.aten.native_layer_norm.default" ->
       [ List.hd (output_names esc node) ]
   | _ -> output_names esc node

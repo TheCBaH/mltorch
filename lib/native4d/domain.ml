@@ -203,12 +203,12 @@ let check_node view (n : node) =
   match n.Node.op with
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. *)
-  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _
-  | Clone _ | Conv2d _ | Conv2d_padding _ | Div _ | Div_scalar _ | Expand _
-  | Gelu _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Leaky_relu _ | Linear _
-  | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Repeat _ | Reshape _
-  | Rsub_scalar _ | Sigmoid _ | Silu _ | Sqrt _ | Sub _ | To_copy _
-  | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
+  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
+  | Avg_pool2d _ | Clamp _ | Clone _ | Conv2d _ | Conv2d_padding _ | Div _
+  | Div_scalar _ | Expand _ | Gelu _ | Hardsigmoid _ | Hardswish _ | Hardtanh _
+  | Leaky_relu _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _
+  | Relu _ | Repeat _ | Reshape _ | Rsub_scalar _ | Sigmoid _ | Silu _ | Sqrt _
+  | Sub _ | To_copy _ | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
       Err.return ()
   | Arange _ | Zeros _ -> Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
@@ -260,10 +260,14 @@ let check_node view (n : node) =
      has no Bmm and no softmax), so a sound direct/legalized/rejected decision
      has exactly one option. *)
   | Sdpa _ -> Err.fail (`Sdpa_batch_axis node)
-  (* Two ops the dialect does not have. Both are removed by the canonical
-     pipeline rather than legalized, so reaching them means the pipeline did not
-     run — except for a live index, which nothing can remove. *)
-  | Max_pool2d_with_indices _ -> (
+  (* Three ops the dialect does not have (the adaptive pair joining
+     [Max_pool2d_with_indices] for the same reason -- see [Adaptive_max_pool2d]
+     just above, which IS a direct counterpart precisely because
+     [Drop_pool_indices] narrows the dead-index case to it before this ever
+     runs). Both are removed by the canonical pipeline rather than legalized,
+     so reaching them means the pipeline did not run — except for a live
+     index, which nothing can remove. *)
+  | Max_pool2d_with_indices _ | Adaptive_max_pool2d_with_indices _ -> (
       match n.Node.outputs with
       | [ _; indices ] when index_is_live view indices ->
           Err.fail (`Live_max_pool_indices (node, indices))

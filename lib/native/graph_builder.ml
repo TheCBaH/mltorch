@@ -175,6 +175,37 @@ let adaptive_avg_pool2d ?name params x =
   op1 ?name ~kind:"adaptive_avg_pool2d"
     (Adaptive_avg_pool2d { Pool.AdaptiveAvgPool2d.params; x })
 
+let adaptive_max_pool2d ?name params x =
+  op1 ?name ~kind:"adaptive_max_pool2d"
+    (Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x })
+
+(* Two outputs with different kinds, the same shape [max_pool2d_with_indices]
+   is in for not going through [opN]: see that function's own doc comment. *)
+let adaptive_max_pool2d_with_indices ?name params x =
+  let op =
+    Adaptive_max_pool2d_with_indices
+      { Pool.AdaptiveMaxPool2dWithIndices.params; x }
+  in
+  let* s = get in
+  let* shapes =
+    lift_result
+      (Graph_shape.output_shape op ~sig_of:(fun r ->
+           Tensor_id.Map.find_opt r s.tensors
+           |> Err.of_option (`Missing_tensor_sig r)))
+  in
+  match shapes with
+  | [ vshape; ishape ] ->
+      let* vid =
+        new_edge ?name ~kind:"adaptive_max_pool2d_with_indices" vshape
+      in
+      let* iid = new_edge ~kind:"adaptive_max_pool2d_with_indices_idx" ishape in
+      let* () = push_node op [ vid; iid ] in
+      return (vid, iid)
+  | _ ->
+      fun s ->
+        ( Err.fail (`Expected_single_output_shape { count = List.length shapes }),
+          s )
+
 let amax ?name params x =
   op1 ?name ~kind:"amax" (Amax { Reduce.Amax.params; x })
 

@@ -1,5 +1,10 @@
 (* [Max_pool2d_with_indices] whose index output is dead becomes an ordinary
-   [Max_pool2d]. See .ai/native_transform_design.md §12g.
+   [Max_pool2d]; [Adaptive_max_pool2d_with_indices] narrows to
+   [Adaptive_max_pool2d] the same way -- ATen has no value-only adaptive
+   overload to import directly (unlike [max_pool2d.default]/
+   [max_pool2d_with_indices.default]'s genuine two-ATen-op split), so this
+   pass is the ONLY route by which the narrower op is ever produced. See
+   .ai/native_transform_design.md §12g.
 
    This is NOT dead-code elimination, and conflating the two is the mistake
    .ai/native4d_design.md §7.8 makes when it says DCE "removes the sink and
@@ -14,6 +19,9 @@
    the same call to [S.max_pool2d] with the same parameters, so the two agree
    bit for bit and the symbolic verifier proves it structurally. The index edge
    is simply not mentioned, which [Rewrite.apply] turns into a deletion cluster.
+   [AdaptiveMaxPool2dWithIndices.Compute.value_pixel] IS
+   [AdaptiveMaxPool2d.Compute.pixel] (the former is defined as the latter's own
+   [V.pixel]), so the same structural argument proves that pair too.
 
    Why it exists at all: Native4D has no argmax-pool operation, so an index edge
    that survives to the dialect boundary is a conversion failure. Removing the
@@ -51,6 +59,24 @@ let on_node : type v. Pass.env -> node -> (v, unit) Recipe.t option =
                 [apply] requires a claim for. Stated outright rather than left to
                 [replace]'s inference, which keys on [subst] — and there is no
                 substitution here, the id is simply taken over. *)
+           ~claims:[ (values, Preserved values, Correspondence.Identical) ]
+           ())
+  | ( Adaptive_max_pool2d_with_indices
+        { Pool.AdaptiveMaxPool2dWithIndices.params; x },
+      [ values; indices ] )
+    when dead view indices ->
+      Some
+        (let open Recipe in
+         let* values = existing values in
+         replace ~remove:[ n.Node.id ]
+           ~insert:
+             [
+               {
+                 op = Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x };
+                 outputs = [ Preserved values ];
+                 from = [ n.Node.id ];
+               };
+             ]
            ~claims:[ (values, Preserved values, Correspondence.Identical) ]
            ())
   | _ -> None

@@ -26,7 +26,8 @@ let classify (op : Op.t) ~output:_ =
      per-element and copying preserves it — the rule is not "the value multiset
      is unchanged", which holds only of the total case. See
      .ai/native_transform_design.md §8. *)
-  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Avg_pool2d _ | Clamp _ ->
+  | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
+  | Avg_pool2d _ | Clamp _ ->
       Output_transfer.Continuous
   | Concat4 _ -> Output_transfer.Reindexing
   (* The pure-broadcast case, the same argument Native's own [Output_transfer]

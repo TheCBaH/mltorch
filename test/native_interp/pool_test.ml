@@ -324,3 +324,43 @@ let%expect_test "adaptive_avg_pool2d rejects unsupported sizes and rank" =
     one element:               malformed PT2 graph: output_size must have exactly two values, got 1
     zero:                      malformed PT2 graph: torch.ops.aten.adaptive_avg_pool2d.default: output_size must be positive, got 0
     rank two:                  malformed PT2 graph: x must be rank-3 (CHW) or rank-4 (NCHW), got rank-2 |}]
+
+(* ATen's `adaptive_max_pool2d.default` always returns (values, indices), so
+   unlike [adaptive] above the node itself declares TWO outputs; only the
+   first ("y") is a graph output, and the indices edge ("i") is routed to a
+   [Discard] sink -- the same shape [max_pool2d_with_indices.default]'s own
+   node in `malformed_test.ml` takes. *)
+let adaptive_max ~output_size =
+  jstr
+    {|{"target":"torch.ops.aten.adaptive_max_pool2d.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"output_size","arg":%s,"kind":1}],"outputs":[%s,%s],"metadata":{}}|}
+    (as_tensor "x") output_size (as_tensor "y") (as_tensor "i")
+
+let%expect_test "adaptive_max_pool2d relayouts and discards the index output" =
+  dump "adaptive:"
+    (prog ~x_sizes:[ 1; 2; 5; 4 ] (adaptive_max ~output_size:(ints "[3,2]")));
+  [%expect
+    {|
+    adaptive:
+    graph
+    inputs: [t0 f32 [H=2 W=5 C=4] ->[n0]]
+    nodes:
+      group g1 torch.ops.aten.adaptive_max_pool2d.default:
+        n0: [t1 f32 [H=5 W=4 C=2] ->[n1]] = permute x=t0 perm=[H<-W, W<-C, C<-H]
+        n1: [t2 f32 [H=3 W=2 C=2] ->[n3], t3 f32 [H=3 W=2 C=2] ->[n2]] =
+          adaptive_max_pool2d_with_indices
+            x=t1 <-n0
+            params={output_size={h=3; w=2}}
+        n2: [] = discard x=t3 <-n1
+        n3: [t4 f32 [H=2 W=3 C=2]] = permute x=t2 <-n1 perm=[H<-C, W<-H, C<-W]
+    outputs: [t4 f32 [H=2 W=3 C=2] <-n3] |}]
+
+let%expect_test "adaptive_max_pool2d rejects unsupported sizes and rank" =
+  show "one element:" (prog (adaptive_max ~output_size:(ints "[1]")));
+  show "zero:" (prog (adaptive_max ~output_size:(ints "[0,1]")));
+  show "rank two:"
+    (prog ~x_sizes:[ 2; 4 ] (adaptive_max ~output_size:(ints "[1,1]")));
+  [%expect
+    {|
+    one element:               malformed PT2 graph: output_size must have exactly two values, got 1
+    zero:                      malformed PT2 graph: torch.ops.aten.adaptive_max_pool2d.default: output_size must be positive, got 0
+    rank two:                  malformed PT2 graph: x must be rank-3 (CHW) or rank-4 (NCHW), got rank-2 |}]

@@ -89,6 +89,7 @@ let curated_selection =
     op "max_pool2d_with_indices";
     op "max_pool2d";
     op "adaptive_avg_pool2d";
+    op "adaptive_max_pool2d";
     op "linear";
     op "batch_norm";
     op "conv2d";

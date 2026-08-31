@@ -84,6 +84,44 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = permute perm_nhwc_to_nchw y' in
                [ y ]
            | _ -> assert false))
+  | "torch.ops.aten.adaptive_max_pool2d.default" ->
+      Some
+        ((* ATen has no value-only overload here (unlike max_pool2d's genuine
+            two-op split): this always returns (values, indices), so it always
+            builds the two-output op and routes the dead indices edge into a
+            Discard sink, exactly [max_pool2d_with_indices.default]'s own
+            arm below. [Drop_pool_indices] narrows the result to the
+            value-only [Adaptive_max_pool2d] once the index is proved dead
+            (see that pass's own comment). *)
+         let* aten_x = tensor_arg aten_env node "self" in
+         let got = aten_rank aten_x in
+         let* () =
+           if got = 3 || got = 4 then return ()
+           else fail (`Adaptive_pool_rank { Adaptive_pool_rank.got })
+         in
+         let* output_size = ints_arg node "output_size" in
+         let* out_h, out_w =
+           match output_size with
+           | [ h; w ] -> return (h, w)
+           | values -> fail (`Invalid_hw_arg { name = "output_size"; values })
+         in
+         let* h = pos ~op:node.Node.target ~param:`Output_size out_h in
+         let* w = pos ~op:node.Node.target ~param:`Output_size out_w in
+         let* x = native_of_aten "self" aten_x in
+         let params = { Pool.AdaptiveMaxPool2d.output_size = { h; w } } in
+         try
+           build_g ~name:"adaptive_max_pool2d_relayout" [ x ] (function
+             | [ x_id ] ->
+                 let open Graph_builder in
+                 let* x' = permute perm_nchw_to_nhwc x_id in
+                 let* values, indices =
+                   adaptive_max_pool2d_with_indices params x'
+                 in
+                 let* () = discard indices in
+                 let+ y = permute perm_nhwc_to_nchw values in
+                 [ y ]
+             | _ -> assert false)
+         with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.max_pool2d_with_indices.default" ->
       Some
         ((* Two ATen outputs (values, indices). We materialise both, relayout the

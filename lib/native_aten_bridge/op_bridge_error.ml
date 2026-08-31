@@ -162,7 +162,7 @@ let pp_int_array ppf xs = pp_int_list ppf (Array.to_list xs)
 let pp_error ppf : [< error ] -> unit = function
   | `Adaptive_pool_rank { Adaptive_pool_rank.got } ->
       Fmt.pf ppf
-        "adaptive_avg_pool2d input must be rank-3 (CHW) or rank-4 (NCHW), got \
+        "adaptive pool2d input must be rank-3 (CHW) or rank-4 (NCHW), got \
          rank-%d"
         got
   | `Addmm_invalid_weight_rank shape ->
