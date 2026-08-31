@@ -204,6 +204,22 @@ liveness, bounds, cost, and numerical order inspectable.
 
 ## 4. Where this belongs in the architecture
 
+### Foundation status
+
+The Foundation task completed on 2026-08-31.  Each logical
+`Kernel.Value.t` now owns `computation : Region_program.t`, with one emitter
+per logical value; `Region_program.pixel expr` is the O(1) singleton/no-local
+embedding that retains `expr` itself.  The concrete scalar-local reference
+executor is `Region_eval`, while `Region_execution.lower` sends that degenerate
+form directly to the existing Pixel loop.  The closed-expression boundary is
+still `Expr.Check.value`; Region validation alone admits explicitly scoped
+`Expr.Value.Local` leaves.  The completed implementation and Pixel comparison
+are recorded in [`region-foundation-plan-todo.md`](region-foundation-plan-todo.md).
+
+This establishes the language and reference semantics only.  It does not mean
+that RMSNorm, LayerNorm, Softmax, attention, Conv, a production Region lowerer,
+or locality tiling has been converted or accelerated.
+
 ### Region Kernel IR, lowered by a schedule
 
 Region program is the Kernel computation boundary.  Existing
@@ -310,17 +326,16 @@ that expression:
 type Region_program.t = {
   partition : Region_partition.t;
   locals : Region_local.t list;
-  outputs : Region_output.t list;
+  output : Expr.Value.t;
 }
 
-val pixel : output:Expr.Value.t -> Region_program.t
+val pixel : Expr.Value.t -> Region_program.t
 (* partition = singleton on every axis; locals = [] *)
 ```
 
-This is an explanatory interface; the final representation must also cover
-multi-output programs and logical Kernel values.  The invariant is that there
-is no semantic sum type `Pixel | Region`.  `Region_program.pixel` is a
-compatibility/smart constructor for the restricted form.
+This is the implemented single-logical-value interface: a `Kernel.t` remains
+multi-output by holding multiple topologically ordered values.  The invariant
+is that there is no semantic sum type `Pixel | Region`.
 
 Kernel carries the computation it implements by storing its Region program,
 including the semantic output partition and locals.  A printer or analysis may

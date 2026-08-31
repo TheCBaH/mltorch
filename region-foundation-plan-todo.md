@@ -7,13 +7,13 @@ completed gate is committed only after its focused validation succeeds.
 
 | Gate | Scope | Status | Commit |
 |---|---|---|---|
-| 0 | Baseline and benchmark census | in progress | benchmark driver checkpoint pending commit |
+| 0 | Baseline and benchmark census | complete | historical comparison recovered and recorded |
 | 1 | `Expr` scalar-local leaf | complete | pending commit |
 | 2 | Region structure and validation | complete | pending commit |
 | 3 | Kernel representation migration | complete | pending commit |
 | 4 | Region reference execution | complete | `ccc7b1d` |
 | 5 | Pixel specialization/reconstruction | complete | `83397a7` |
-| 6 | Pixel regression closeout | in progress | Region detail: `b4c23f8`; hot-path audit and comparison closeout remain |
+| 6 | Pixel regression closeout | complete | audit, alternating comparison, and full verification pass |
 
 ## Post-Foundation handoff (not a Foundation gate)
 
@@ -23,10 +23,11 @@ It is deliberately not added as Gates 7+ here: this file records the bounded
 Foundation task, and its completed-gate evidence must remain interpretable on
 its own.
 
-The Foundation implementation is available for follow-on design and small
-prototypes: Gates 1–5 are complete.  Gate 0's historical comparison and Gate
-6's closeout remain in progress and must be resolved before claiming formal
-Foundation completion or making a production Region-native path the default.
+The Foundation implementation is complete.  Its scalar-local language,
+validated Region representation, reference executor, Pixel specialization, and
+Pixel no-regression evidence are ready for the separate Region-native and
+locality-scheduling work described below.  This completion does not claim a
+production Region-native lowering or an operation speedup.
 
 The post-Foundation implementation has two independent tracks:
 
@@ -43,10 +44,13 @@ Pixel no-regression acceptance criteria.
 
 ## Decisions
 
-- Start at Gate 1: the repository has no pre-existing Region implementation;
-  the plan's Gate 0 benchmark command was added after the language boundary
-  stabilized. A true pre-migration run was not captured, so its final
-  before/after comparison remains open.
+- The permanent benchmark driver landed with the Region migration, so it could
+  not have recorded the original tree at the time.  For closeout, the exact
+  pre-Region commit `261222c` was checked out with its pinned submodules and
+  given a temporary, source-identical driver adapted only from
+  `Value.computation = Region_program.pixel body` to `Value.body = body`.
+  This recovers a direct measurement of the former Pixel evaluator without
+  changing either benchmark workload.
 - Preserve the plan's one-AST design: `Expr.Value.Local` is a scalar leaf and
   `Region_program` owns its bindings and scope.
 - Keep the existing immutable `Expr.Builder` identity supply. Local and reducer
@@ -97,10 +101,15 @@ Pixel no-regression acceptance criteria.
   tests. It is resolved into a load function once at evaluator setup, leaving
   the normal Pixel loop without an observer branch; the test pins C-innermost
   order and one input load per output cell.
-- The closest pre-Region commit (`261222c`) has the compatible `Kernel_eval`
-  body representation, but cannot build under the current switch because its
-  Dune graph references a then-absent `err_trace` library. No legacy timing is
-  recorded: a failed build is evidence about reproducibility, not a baseline.
+- The recovered `261222c` benchmark and the final Foundation executable were
+  each built once with Dune, then launched directly in alternating processes.
+  Across three 20-sample runs per side, the median-of-medians was 0.425 ms
+  versus 0.412 ms for identity and 0.749 ms versus 0.742 ms for add.  Output
+  and load counts were unchanged; final GC words per output cell decreased
+  from 214.258 to 193.282 (identity) and 341.322 to 303.300 (add).
+- The permanent benchmark also runs one 3x3 convolution-shaped coordinate
+  traversal (7,200 outputs and 64,800 loads) and one I64 gather/index traversal
+  (64 outputs and 64 ordinary value loads) as deterministic scan smoke cases.
 
 ## Validation record
 
@@ -122,5 +131,8 @@ Pixel no-regression acceptance criteria.
 | 2026-08-30 | 6 | `opam exec -- dune runtest test/model_explorer` | pass | Region detail includes a root for each scalar local and a separate emitter root while existing Pixel detail remains unchanged. |
 | 2026-08-30 | 6 | `make jsoo.runtest && make jsoo.inline-runtest` | pass | Native/JavaScript probe output matches and all JS inline expectations pass after Region detail rendering. |
 | 2026-08-30 | 6 | `make benchmark.region_pixel` | pass | Hot-path audit run: identity 0.378 ms, add 0.679 ms; fixed output/load counts remain 2,048/2,048 and 2,048/4,096 respectively. |
-| 2026-08-30 | 0/6 | isolated `261222c` benchmark build | unavailable | The closest comparable pre-Region tree fails Dune resolution: `Library "err_trace" not found`; temporary worktree removed without recording timings. |
+| 2026-08-30 | 0/6 | isolated `261222c` benchmark build | unavailable at the time | The initial worktree lacked the commit's `err_trace` submodule; superseded by the pinned-submodule recovery below. |
 | 2026-08-30 | 6 | `opam exec -- dune runtest test/native` | pass | Pixel hot-path audit test observes exactly three loads in canonical C order `0,1,2`. |
+| 2026-08-31 | 0/6 | direct executables from `261222c` and final Foundation tree | pass | OCaml 4.14.3 / Dune 3.24.2, Linux 7.0.0-28-generic aarch64; three alternating baseline/final process pairs, three warmups and 20 samples each. Identity: 0.425 -> 0.412 ms (-3.1%); add: 0.749 -> 0.742 ms (-0.9%). Both retain 2,048 output cells and 2,048/4,096 input loads; GC words/output decrease as recorded above. |
+| 2026-08-31 | 0/6 | `_build/default/bin/region_pixel_bench.exe` | pass | Final direct executable: identity 0.426 ms and add 0.679 ms; the convolution smoke reports 7,200 outputs / 64,800 loads and the indexing smoke reports 64 outputs / 64 ordinary value loads. |
+| 2026-08-31 | 6 | `make format && make build && make runtest && make jsoo.runtest && make jsoo.inline-runtest && make precommit` | pass | Format, native suite, native/JS probe agreement, JS inline expectations, whitespace/file-size checks, and the pre-commit aggregate all pass. |
