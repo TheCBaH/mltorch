@@ -408,6 +408,18 @@ let%expect_test "verify: unbind, numerically, over every slice" =
     native4d: tensor f32 [W=2 C=2] {1, 4, 7, 10} | tensor f32 [W=2 C=2] {2, 5, 8, 11} | tensor f32 [W=2 C=2] {3, 6, 9, 12}
     agree: true |}]
 
+(* [Unbind]'s single-output sibling, numerically: the one slice a select at a
+   given index reads must agree with the identically-indexed slice
+   [unbind_c_batch1] compares above -- both are the same window through the
+   same repacking. *)
+let%expect_test "verify: select, numerically, through the lowering" =
+  native_vs_four (Fixtures.select_c_batch1 ());
+  [%expect
+    {|
+    native:   tensor f32 [W=2 C=2] {2, 5, 8, 11}
+    native4d: tensor f32 [W=2 C=2] {2, 5, 8, 11}
+    agree: true |}]
+
 let%expect_test "verify: split_with_sizes, numerically, over every window" =
   native_vs_four (Fixtures.split_with_sizes_w_batch2 ());
   [%expect

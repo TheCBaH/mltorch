@@ -217,6 +217,10 @@ let layer_norm4 params ~x ?weight ?bias () =
 let rms_norm params ~x ?weight () =
   op1 (Op.Rms_norm { Ops4.Rms_norm.params; x; weight })
 
+(* Takes the dialect's own [Ops4.Select4.params], whose axis is [Axis4.t]: a
+   select naming T or D is not constructible through this API. [index] stays
+   validated rather than typed, the same choice [slice4]'s bounds make. *)
+let select4 params x = op1 (Op.Select4 { Ops4.Select4.params; x })
 let sigmoid x = op1 (Op.Sigmoid { Pointwise.Sigmoid.x })
 let silu x = op1 (Op.Silu { Pointwise.Silu.x })
 

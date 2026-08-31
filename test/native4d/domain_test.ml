@@ -342,6 +342,26 @@ let%expect_test "domain: unbind's axis rule and its shape consequence" =
                                                                   C=2]
     unbind T (rank-5 ViT)        node n0: axis T is outside the N/H/W/C dialect |}]
 
+(* [Select]'s own version of the [Unbind] pair above: the axis check and its
+   shape consequence are different rejections, for the same reason -- DROPPING
+   the axis is what makes the shape consequence possible at all, unlike
+   [Split_with_sizes] below. *)
+let%expect_test "domain: select's axis rule and its shape consequence" =
+  table
+    [
+      ("select C, batch 1", Fixtures.select_c_batch1);
+      ("select N, batch 2", Fixtures.select_n);
+      ("select C, batch 2", Fixtures.select_c_batch2);
+      ("select T (rank-5)", Fixtures.select_rank5_t);
+    ];
+  [%expect
+    {|
+    select C, batch 1            in the dialect
+    select N, batch 2            in the dialect
+    select C, batch 2            tensor t1 has extent on T or D: [T=2 D=1 H=1 W=2
+                                                                  C=2]
+    select T (rank-5)            node n0: axis T is outside the N/H/W/C dialect |}]
+
 (* [Split_with_sizes]'s axis check, the same rejection [Unbind]'s gets and for
    the same reason -- but with no shape consequence to pair it against: KEEPING
    the axis means batch 2 converts on its own (unlike [unbind_c_batch2]), so

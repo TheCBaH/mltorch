@@ -42,7 +42,13 @@ let classify (op : Op.t) ~output:_ =
   | Permute4 _ -> Output_transfer.Reindexing
   | Pow _ | Relu _ -> Output_transfer.Continuous
   | Reshape4 _ -> Output_transfer.Reindexing
-  | Rms_norm _ | Sigmoid _ | Silu _ -> Output_transfer.Continuous
+  | Rms_norm _ -> Output_transfer.Continuous
+  (* Data movement, the same argument as [Unbind]/[Slice4] above: every output
+     element is COPIED from an input element with no arithmetic -- [Select4]
+     drops the axis instead of narrowing or enumerating it, but the copy
+     argument does not care which of the three a partial selection is. *)
+  | Select4 _ -> Output_transfer.Reindexing
+  | Sigmoid _ | Silu _ -> Output_transfer.Continuous
   | Slice4 _ -> Output_transfer.Reindexing
   | Split_with_sizes4 _ -> Output_transfer.Reindexing
   | Sqrt _ | Sub _ | Sum_keepdims _ | Transposed_conv2d _ ->

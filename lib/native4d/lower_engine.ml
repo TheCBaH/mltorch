@@ -782,13 +782,36 @@ let lower_node ~view acc (n : node) =
              x = op_of x;
            })
         n.Node.outputs
+  (* The axis converts here for the same reason [Unbind]'s does (so
+     [Domain]'s [Axis_outside_dialect] can still name the rejected Native
+     axis); the single output is checked here for the same reason [Unbind]'s
+     are -- [Select] drops its axis, so the packed result re-enters the
+     dialect only when [Shape4.of_vec6] accepts it, and a dead output would
+     otherwise reach [Snapshot4.create] unvalidated. [index] crosses
+     unchanged -- Native has already resolved it against the axis extent, so
+     there is nothing left for this arm to recheck. *)
+  | Select { Split.Select.params; x } ->
+      let* axis4 = dims4 ~node [ params.axis ] in
+      let* () =
+        let o = single () in
+        let* shape = sig_of o in
+        let+ (_ : Shape4.t) = shape4 ~id:o shape in
+        ()
+      in
+      simple
+        (Op.Select4
+           {
+             Ops4.Select4.params =
+               { axis = List.hd axis4; index = params.Split.Select.index };
+             x = op_of x;
+           })
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Index_tensor]/[Select]/[Softmax]/[Stack] join that set until
-     [Select4]/[Softmax4]/[Stack4] exist (see [Domain.check_node]'s comment)
-     rather than gaining a real conversion arm here -- [Index_tensor] has no
-     Native4D counterpart at all, the same "dialect does not have it" answer,
-     and CSATv2 stays a graph-only target regardless. *)
+     [Index_tensor]/[Softmax]/[Stack] join that set until [Softmax4]/[Stack4]
+     exist (see [Domain.check_node]'s comment) rather than gaining a real
+     conversion arm here -- [Index_tensor] has no Native4D counterpart at all,
+     the same "dialect does not have it" answer, and CSATv2 stays a
+     graph-only target regardless. *)
   | Batched_matmul _ | Discard _ | Index_tensor _ | Max_pool2d_with_indices _
-  | Sdpa _ | Select _ | Softmax _ | Stack _ ->
+  | Sdpa _ | Softmax _ | Stack _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

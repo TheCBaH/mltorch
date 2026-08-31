@@ -240,6 +240,13 @@ let per_op () =
                stop = 4;
                step = Op_config.Pos.of_int 2;
              }) );
+      (* N=1, the same precondition [unbind]'s own fixture comment gives:
+         dropping W leaves N/T/D unit either way, so the result stays
+         four-axis. An index that is neither 0 nor the axis's last valid one,
+         so a fixture reading the wrong element would still differ. *)
+      ( "select4",
+        unary ~shape:nhwc
+          (Builder.select4 { Ops4.Select4.axis = Axis4.W; index = 2 }) );
       (* Three operands of DIFFERENT extents along the joined axis (W), so a
          fixture that only ever concatenated equal-sized pieces could not
          catch a wrong per-operand offset. *)

@@ -536,7 +536,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 45, registry: 45 |}]
+  [%expect {| fixtures: 46, registry: 46 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -576,6 +576,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     sum_keepdims           direct = symbolic
     pad4                   direct = symbolic
     slice4                 direct = symbolic
+    select4                direct = symbolic
     concat4                direct = symbolic
     permute4               direct = symbolic
     reshape4               direct = symbolic
@@ -625,6 +626,33 @@ let%expect_test "direct4: unbind takes one slice per coordinate" =
     out0 = tensor f32 [C=2] {0, 10}
     out1 = tensor f32 [C=2] {1, 11}
     out2 = tensor f32 [C=2] {2, 12} |}]
+
+(* Hand values, not Native-as-oracle: both sides would instantiate the same
+   [Split.Select.Compute] functor, so agreement would prove the adapter and
+   the staging rather than the arithmetic.
+
+   The same shape and value formula [unbind]'s own oracle test above uses, so
+   selecting index 1 along C reads the same one-wide window through the same
+   repacking as that test's out1 -- checkable against it by eye. *)
+let%expect_test "direct4: select4 reads one slice at the chosen index" =
+  let shape = s4 ~n:1 ~h:1 ~w:2 ~c:3 in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* x = input ~shape () in
+       select4 { Ops4.Select4.axis = Axis4.C; index = 1 } x)
+  in
+  let x =
+    Tensor.materialize (Shape4.to_vec6 shape) (fun c ->
+        float_of_int
+          ((Dim.to_int (Vec6.get c Axis.W) * 10)
+          + Dim.to_int (Vec6.get c Axis.C)))
+  in
+  let env = run_direct g ~inputs:[ (List.hd g.Graph.Graph.inputs, x) ] in
+  Format.printf "%a@." Tensor.pp
+    (Tensor_id.Map.find (List.hd g.Graph.Graph.outputs) env);
+  [%expect {| tensor f32 [C=2] {1, 11} |}]
 
 (* Unequal sizes [1;3] on a KEPT axis, unlike [unbind] above: a wrong offset
    for the second piece would read starting from W=0 instead of W=1, so this

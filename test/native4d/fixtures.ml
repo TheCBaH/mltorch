@@ -463,6 +463,19 @@ let slice_d =
    which shape gets the lower tensor id -- appending onto the end here is what
    keeps the graph's input order, [xs]'s order, and [shapes]' order all the
    same list. *)
+(* [Select]'s own version of [unbind_all]: single output, so [build]'s default
+   ([fun o -> [ o ]]) is fine as-is. Dropping the axis is the same shift
+   [Unbind]'s comment gives -- an axis outside the one named moves one place
+   toward T, so these fixtures probe the same N=1/N=2 boundary. *)
+let select_graph name ~shape ~axis ~index () =
+  Graph_builder.build ~name
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* x = input ~shape () in
+     select { Split.Select.axis; index } x)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
 let concat_graph name ~shapes ~axis () =
   Graph_builder.build ~name
     ~outputs:(fun o -> [ o ])
@@ -508,6 +521,32 @@ let unbind_c_batch2 () =
    tensor has extent on T". *)
 let unbind_rank5_t () =
   unbind_all "unbind_rank5_t" ~shape:(s 1 3 1 3 101 32) Axis.T
+
+(* N=1, so selecting C leaves the one surviving slice four-axis -- [Select]'s
+   own version of [unbind_c_batch1]. *)
+let select_c_batch1 () =
+  select_graph "select_c_batch1" ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:3) ~axis:Axis.C
+    ~index:1 ()
+
+(* Batch 2, selected along N: the outermost axis, so nothing shifts onto T,
+   the same reason [unbind_n] converts. *)
+let select_n () =
+  select_graph "select_n" ~shape:(nhwc ~n:2 ~h:2 ~w:2 ~c:3) ~axis:Axis.N
+    ~index:0 ()
+
+(* Batch 2, selected along C: N's extent lands on T, which the dialect has no
+   form for -- [Select]'s own version of [unbind_c_batch2]. Rejected by the
+   SHAPE rule, not the axis rule -- C is a perfectly legal axis to name. *)
+let select_c_batch2 () =
+  select_graph "select_c_batch2" ~shape:(nhwc ~n:2 ~h:2 ~w:2 ~c:3) ~axis:Axis.C
+    ~index:1 ()
+
+(* The same rank-five/dim-0 shape [unbind_rank5_t] uses, so the two ops' axis
+   rejections are directly comparable: rank five, selected at dim 0, which
+   right-aligns onto T -- refused by the AXIS rule, same as [Unbind]'s. *)
+let select_rank5_t () =
+  select_graph "select_rank5_t" ~shape:(s 1 3 1 3 101 32) ~axis:Axis.T ~index:0
+    ()
 
 (* Batch 2, split along W: unlike [unbind_c_batch2], KEEPING the axis means N
    never shifts, so batch 2 converts here where it does not there. *)

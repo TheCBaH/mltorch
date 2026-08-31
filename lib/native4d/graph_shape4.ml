@@ -142,6 +142,12 @@ let slice_params (p : Ops4.Slice4.params) : Split.Slice.params =
 let unbind_params (p : Ops4.Unbind.params) : Split.Unbind.params =
   { axis = Axis4.to_axis p.Ops4.Unbind.axis }
 
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
+   axis is being dropped. [index] crosses unchanged. *)
+let select_params (p : Ops4.Select4.params) : Split.Select.params =
+  { axis = Axis4.to_axis p.Ops4.Select4.axis; index = p.Ops4.Select4.index }
+
 let split_with_sizes_params (p : Ops4.Split_with_sizes4.params) :
     Split.Split_with_sizes.params =
   {
@@ -368,6 +374,13 @@ let output_shape (op : Op.t)
   | Rms_norm { Ops4.Rms_norm.params; x; _ } ->
       let* x_shape = shape x in
       one (four (Norm.RmsNorm.output_shape ~x_shape (rms_params params)))
+  (* [Select] drops its axis, unlike [Slice4] above: the shape rule is
+     [Split.Select.output_shape], which repacks every surviving axis
+     right-aligned -- delegated rather than restated, so this arm and
+     [Split.Select.Compute] cannot disagree about which axis vacates. *)
+  | Select4 { Ops4.Select4.params; x } ->
+      let* x_shape = shape x in
+      one (four (Split.Select.output_shape ~x_shape (select_params params)))
   | Sigmoid { Pointwise.Sigmoid.x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Sigmoid.output_shape x_shape))

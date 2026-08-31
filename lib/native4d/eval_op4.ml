@@ -211,6 +211,12 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           (Graph_shape4.rms_params params)
           ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    (* Through the same adapter [Graph_shape4] uses, so the axis the shape
+       rule drops is the axis the compute reads along, by construction --
+       [Split.Select.Compute] itself delegates to [Split.Slice.Compute]. *)
+    | Select4 { Ops4.Select4.params; x } ->
+        let module C = Split.Select.Compute (S) in
+        C.pixel (Graph_shape4.select_params params) ~x:(operand x) out
     | Sigmoid { Pointwise.Sigmoid.x } ->
         let module C = Pointwise.Sigmoid.Compute (S) in
         C.pixel (operand x) out

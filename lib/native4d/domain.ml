@@ -269,21 +269,29 @@ let check_node view (n : node) =
       | _ -> unsupported ())
   | Discard _ -> unsupported ()
   (* [Concat4] now exists, so [Concat] gets the same [check_dims]-style axis
-     rejection [Slice]/[Unbind] get: the JOINED axis is the one the dialect
-     must be able to name, and the rest of the domain -- every operand
+     rejection [Select]/[Slice]/[Unbind] get: the JOINED axis is the one the
+     dialect must be able to name, and the rest of the domain -- every operand
      already being four-axis -- is [check_shapes]'s business, not this arm's.
 
-     The dialect still has no [Select4]/[Stack4] -- Native's own [Select]/
-     [Stack] landed first, each deliberately as an independent slice; until
-     they do, every occurrence is unsupported regardless of axis, the same
-     "dialect does not have it at all" answer [Discard] gets. *)
+     The dialect still has no [Stack4] -- Native's own [Stack] landed first,
+     as an independent slice; until it does, every occurrence is unsupported
+     regardless of axis, the same "dialect does not have it at all" answer
+     [Discard] gets. *)
   | Concat { Concat.Concat.params; _ } -> check_dims node [ params.axis ]
   (* [Split_with_sizes4] now exists, so [Split_with_sizes] gets the same
-     [check_dims]-style axis rejection [Concat]/[Slice]/[Unbind] get: the
-     SPLIT axis is the one the dialect must be able to name, and the rest of
-     the domain is [check_shapes]'s business, not this arm's. *)
+     [check_dims]-style axis rejection [Concat]/[Select]/[Slice]/[Unbind] get:
+     the SPLIT axis is the one the dialect must be able to name, and the rest
+     of the domain is [check_shapes]'s business, not this arm's. *)
   | Split_with_sizes { Split.Split_with_sizes.params; _ } ->
       check_dims node [ params.axis ]
+  (* [Select4] now exists, so [Select] gets the same [check_dims]-style axis
+     rejection [Concat]/[Slice]/[Split_with_sizes]/[Unbind] get: the SELECTED
+     axis is the one the dialect must be able to name. Whether the axis it
+     DROPS re-enters the dialect is a fact about [Select]'s inferred output,
+     not about this arm -- the same "node predicates first" split the comment
+     below [check view] states; [check_shapes] and the lowerer's own
+     [Shape4.of_vec6] cover it. *)
+  | Select { Split.Select.params; _ } -> check_dims node [ params.axis ]
   (* The dialect has no [Softmax4] yet -- same "dialect does not have it at
      all" answer, not an axis-domain rejection, until it does. Not
      [check_dims]: unlike [Amax]/[Mean]/[Vector_norm], which the reduced
@@ -291,7 +299,7 @@ let check_node view (n : node) =
      counterpart to legalize onto), Softmax has no `Ops4` counterpart at any
      axis, so there is no admissible case to let through -- see
      .ai/matmul_softmax_design.md §3. *)
-  | Index_tensor _ | Select _ | Softmax _ | Stack _ -> unsupported ()
+  | Index_tensor _ | Softmax _ | Stack _ -> unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

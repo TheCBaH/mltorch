@@ -642,6 +642,22 @@ let%expect_test "lower: unbind keeps every slice, in order" =
     t2 [W=2 C=2],
     t3 [W=2 C=2]] |}]
 
+(* [Unbind]'s single-output sibling. Selecting C shifts every axis outside it
+   one place inward -- H onto W and W onto C -- the same repacking the golden
+   above shows for every slice at once. [index] crosses unchanged -- Native
+   has already resolved it against the axis extent, so there is nothing left
+   for this arm to restate. *)
+let%expect_test "lower: select4 drops its axis and carries the index" =
+  show "select" (Fixtures.select_c_batch1 ());
+  [%expect
+    {|
+    select:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3]]
+    nodes:
+      n0: [t1] = select4 x=t0 params={axis=C index=1}
+    outputs: [t1 [W=2 C=2]] |}]
+
 (* [Unbind]'s rank-preserving sibling: every window KEEPS the axis, in order,
    and [sizes] itself crosses unchanged -- Native has already bounded and
    summed it, so there is nothing left for this arm to restate. *)
