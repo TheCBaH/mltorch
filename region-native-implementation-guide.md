@@ -114,6 +114,30 @@ allocate a local map per output, or recover sharing by repeatedly running
 `Region_eval.value_at`.  The latter remains useful only for diagnostics,
 differential tests, and Pixel specialization checks.
 
+Step 3 has a cost contract that the landed executor does not meet.  **Emitter
+loops must be constructed from the key and the `Whole`-axis extents**, so that
+enumerating owned outputs across all keys costs one pass over the output
+domain.  `Region_partition.fold_outputs` instead runs `Vec6.fold_coords` over
+the entire output shape for every key and filters by membership, making total
+traversal quadratic in the number of keys.  With `R` keys of extent `K` that is
+`R^2 * K` against the `R * K^2` the Region path was built to remove, so the
+executor is faster only while `R < K` — and normalization in a transformer runs
+at `R > K`.  The reference `Region_eval.materialize` does not have the defect;
+it makes one domain pass with a key-indexed cache.
+
+Two rules follow for anything built on this stack:
+
+- Deriving owned coordinates by filtering a full-domain scan is never
+  acceptable, however clear it reads.  The partition already states which axes
+  vary; enumerate those.
+- The dedicated executor must be benchmarked against key count, not only
+  against reduction extent.  The existing driver fixes `W = 4`, so no committed
+  measurement separates a linear traversal from a quadratic one.
+
+This is a bounded fix to one function and changes no representation, validation
+rule, or numerical claim, but it should land before Native Direct and both
+Native4D paths are routed onto the same traversal.
+
 For every Region-authored operation, deterministic trace tests must enumerate
 the complete logical output domain by key, record ordered locals and owned
 outputs, and independently prove exactly one visit per output. The trace prints

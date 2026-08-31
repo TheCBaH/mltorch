@@ -136,6 +136,12 @@ validated `Region_program.t` built from the existing Pixel expression.
    value once: Pixel stays on the current `Expr.Eval` materialization loop;
    non-degenerate Region produces key traversal, local steps, emitter steps,
    and the final store conversion.
+1a. Enumerate the outputs owned by a key from the key plus the `Whole`-axis
+   extents.  Total traversal across all keys must cost one pass over the output
+   domain.  Do not derive ownership by scanning the full output shape per key
+   and testing membership: with `R` keys of extent `K` that is `R^2 * K` work,
+   quadratic in the number of regions and worse than the `R * K^2` Pixel cost
+   whenever `R > K`.
 2. Compile/specialize each local body and emitter ahead of the loops.  The
    executor may share expression evaluation support, but must not allocate a
    local map per output, call an opaque per-output Region callback, or replay
@@ -150,6 +156,13 @@ validated `Region_program.t` built from the existing Pixel expression.
 - Synthetic whole-C and multi-axis Region programs agree bitwise between
   `Region_eval`, the new executor, `Kernel_eval.run`, and `value_at`.
 - Local and emitter counters match key/output cardinalities exactly.
+- Materialization cost scales with the output domain, not with
+  `keys * domain`.  Measure at fixed `K` across a sweep of `R`, including at
+  least one shape with `R > K`; a fit that grows super-linearly in `R` fails
+  this gate.  Counters cannot establish this — none of `keys`, `locals`,
+  `emitters`, `loads`, or `reductions` observes a per-coordinate ownership
+  test — so it needs either a membership/visit counter or wall-time over the
+  `R` sweep.
 - Result conversion, signed zero, infinities, NaNs, and f32 rounding occur at
   the same logical boundary as Pixel execution.
 - Pixel audit tests continue to show no Region allocation or branch in the
@@ -246,6 +259,12 @@ explicitly rather than approximating their zero-row rule.
    wall time, allocation, loads, reduction iterations, key/local/emitter counts,
    machine/compiler data, and sample count.  Treat operation speedup as an
    observed result, not a substitute for counter evidence.
+2a. Sweep **both** cost variables.  Vary the normalized extent `K` at fixed
+   region count, and vary the region count `R` at fixed `K`, including a shape
+   with `R > K`.  A driver that varies only `K` — which is what
+   `bin/region_compute_bench.ml` does, fixing `W = 4` — cannot distinguish
+   `Theta(R*K)` traversal from `Theta(R^2*K)` traversal and must not be used to
+   close this gate.
 3. Review the lowered executor for per-output allocation/dispatch and confirm
    unconverted Pixel values still take the Foundation fast path.
 4. Update the design, guide, and live TODO with final module names, rejection

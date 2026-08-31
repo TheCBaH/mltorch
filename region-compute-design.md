@@ -90,6 +90,46 @@ Ignoring small pointwise costs, the new work is respectively about `2K`,
 `3K`, and `3K`.  This is an asymptotic improvement, not just fewer closures or
 faster indexing.
 
+### The per-slice table is only half the cost model
+
+The table above states work **per region**.  A materialization also has to find
+the outputs each region owns, and that traversal is part of the cost.  For `R`
+independent regions the total is:
+
+```text
+total = R * (per-region reduction work)      <- the table above
+      + R * K emissions
+      + cost of enumerating owned outputs for all R keys
+```
+
+The third term must be `Theta(R * K)` — proportional to the output domain and
+**independent of `R` as a separate factor**.  It is only achieved by
+constructing each key's owned coordinates from the key plus the `Whole`-axis
+extents.  Deriving them by scanning the whole output domain once per key and
+testing membership makes that term `R * (R * K)`, which is quadratic in the
+number of regions and can exceed the `R * K^2` it was meant to replace whenever
+`R > K`.  `R > K` is the ordinary case for normalization in a transformer,
+where `R = N*T` and `K = C`.
+
+**The implemented `Region_partition.fold_outputs` has exactly this defect**: it
+runs `Vec6.fold_coords output_shape` per key and filters.  So the landed
+scalar-Region slice replaced a quadratic in `K` with a quadratic in `R` rather
+than removing a quadratic.  The reference `Region_eval.materialize` is
+asymptotically correct — one domain pass with a key-indexed local cache — so the
+oracle is currently faster in `R` than the dedicated executor built to replace
+it.
+
+Two properties of the closed evidence let this land, and both are now required
+corrections to the validation contract (§10) and to the plans:
+
+- the benchmark shape varies only `K`.  `bin/region_compute_bench.ml` fixes
+  `W = 4`, so `R = 4` at every measured extent, and the counter fixtures use
+  `R = 2`.  A benchmark must vary `R` at fixed `K` as well.
+- the execution counters record keys, locals, emitters, loads, and reduction
+  iterations.  None of these counts a membership test, so "reduction work is
+  exactly linear" was true while total traversal work was quadratic.  A counter
+  set is evidence only for the quantities it names.
+
 The symbolic path can be worse than the table suggests.  An OCaml binding of a
 `Symbolic.t` construction is not an expression-level `let`.  Reusing it can
 place a reduction beneath another reduction, so grounding may reevaluate the
@@ -440,9 +480,24 @@ these erasures:
 
 The classification branch occurs once per Kernel invocation, never once per
 output.  The Pixel loop allocates no region key, bounds object, local map, or
-callback closure per output.  `Region_program.pixel` is a private smart
-constructor that can carry a validated singleton witness; any transformation
-that changes partition or locals invalidates and recomputes that witness.
+callback closure per output.
+
+Classification is **derived, not witnessed**.  `Region_program.t` is a private
+record but `Region_program.pixel` is an ordinary public constructor, and
+`pixel_expression` recomputes `locals = [] && is_singleton partition` on each
+call.  That is cheap enough — six axis comparisons, once per logical value — and
+a cached witness would only be worth adding if classification moved inside a
+loop.  Do not describe the constructor as carrying a validated witness; nothing
+maintains one.
+
+The open obligation this creates is on transformations, not on the constructor.
+`Region_program.with_output` replaces the emitter of an already-checked program
+without re-running `check`, and `Kernel_eval.converted` uses it to wrap the
+emitter in `Kernel.Result_conversion` before re-lowering.  The wrapped emitter
+is therefore never size/depth-checked against the limits the program was
+admitted under.  Either `with_output` takes limits and revalidates, or result
+conversion moves out of the program and into the store step where it belongs
+semantically; §10 lists this as a validation obligation.
 
 The semantic IR remains uniform while the execution IR is specialized.  This
 is the same separation by which a compiler represents a constant uniformly but
@@ -551,14 +606,27 @@ Phase 1 covers exactly three existing single-output Native operations:
 
 | Native operation | Region partition | Scalar locals | Region work for normalized extent `K` |
 |---|---|---|---:|
-| `Rms_norm` | `Whole` on `params.dims`; `Singleton` elsewhere | `sumsq`, `mean_square`, `inv` | `K` reduction terms + `K` emissions |
-| `Layer_norm` | `Whole` on `params.dims`; `Singleton` elsewhere | `sum`, `mean`, `variance_sum`, `variance`, `inv` | `2K` reduction terms + `K` emissions |
+| `Rms_norm` | `Whole` on `params.dims`; `Singleton` elsewhere | `sumsq`, `inverse` | `K` reduction terms + `K` emissions |
+| `Layer_norm` | `Whole` on `params.dims`; `Singleton` elsewhere | `sum`, `mean`, `variance_sum`, `inverse` | `2K` reduction terms + `K` emissions |
 | `Softmax` | `Whole` on `params.axis`; `Singleton` elsewhere | `max`, `denominator` | `2K` reduction terms + `K` emissions |
 
-Derived arithmetic bindings such as `mean_square`, `variance`, and `inv` may
-be folded by lowering, but they are scalar Region values in the source
-program.  Phase 1 permits any finite number of scalar locals with dependencies
-on earlier locals.
+The local lists above are the ones the implementation actually declares, and
+they are shorter than a naive reading of the formulas suggests.  A derived
+arithmetic step becomes a **local** only when a later local or the emitter needs
+it as a shared value; otherwise it is folded into the expression of the local
+that consumes it, at construction time.  So `mean_square` is folded into
+`inverse` (`sumsq` is the only RMSNorm reduction that must be shared), and
+`variance` is folded into LayerNorm's `inverse`.  `mean` *is* a local, because
+LayerNorm's second reduction reads it.
+
+The distinction matters for validation: local count is an observable of the
+program, and the counter fixtures assert it (`rms: locals=4` and
+`layer: locals=8` over two keys).  A doc that lists a local the builder folds
+will disagree with those goldens.
+
+Phase 1 permits any finite number of scalar locals with dependencies on earlier
+locals.  A later lowering may fold or unfold derived arithmetic freely, since
+scalar locals have no observable identity beyond evaluation order.
 
 **Scalar-only describes local shape.**  It does not mean that the operation
 has a scalar output, that a region contains one output, or that preparation has
@@ -726,6 +794,16 @@ storage.  A shaped exponential/probability cache can reduce transcendental
 recomputation later, but it is not required to remove the current
 `Theta(K^2)` repeated reductions.
 
+State the price of that choice explicitly, because the counters will not show
+it.  Phase 1 Softmax performs `2K` `exp` evaluations per row where a shaped
+cache would perform `K`.  Transcendentals dominate softmax's constant factor, so
+this is a real 2x on the operation's hot arithmetic even though reduction
+counts, load counts, and key counts are all optimal.  It is the right Phase 1
+trade — a scalar-local language cannot express the cache, and `Theta(K^2)` is
+the larger problem — but it is a deliberate constant-factor regression against
+a hand-written softmax, not a free win, and it should be recorded as such when
+Phase 4 evaluates shaped locals.
+
 Plain Softmax retains its current all-`-inf` behavior.  SDPA's safe-softmax
 zero-row rule remains a separate semantic choice in the attention program.
 
@@ -847,6 +925,34 @@ cross its boundary.  There is no choice of where to cut or which subset to
 fuse.  Attention starts with a known internal DAG and therefore remains a good
 expressiveness test for this smaller domain.
 
+### `Region` already names a different thing in this library
+
+Before Phase 3 writes any whole-graph admission code, settle a naming and reuse
+question that this document has so far ignored.  `lib/native/transform/region.ml`
+already defines a `Region`: a **claimed set of graph nodes** whose boundary is
+derived rather than declared — `inputs` (operands produced outside), `outputs`
+(claimed edges used outside or exported), `interior` (claimed edges used only
+inside), and a reported `convex` flag.  Its stated purpose is that "a pattern
+cannot describe its own boundary wrongly."
+
+That is precisely the object this section's admission rules need, and several
+of the bullets below restate properties `Transform.Region` already computes.
+Two consequences:
+
+1. **Reuse the boundary derivation.**  Phase 3 should classify a
+   `Transform.Region`'s derived `inputs`/`outputs`/`interior` rather than
+   re-deriving a node-set boundary inside the Region-computation stack.  The
+   "no graph-visible intermediate tensor" rule is a statement about `interior`;
+   "only the node's declared inputs and outputs cross its boundary" is
+   `inputs`/`outputs`; non-convexity is already reported.
+2. **Resolve the collision deliberately.**  `Region` currently means an
+   output-coordinate set in `region_*.ml` and a graph-node cluster in
+   `transform/region.ml`, inside one library.  Phase 3 puts them in the same
+   sentence.  Rename one — `Region_program`/`Region_partition` are already
+   qualified, so the cheaper move is probably to keep those and give the fusion
+   side a name like `Node_region` or `Cluster` — or accept the overload and say
+   so at both declarations.  Do not discover this while writing Phase 3.
+
 Initial single-node admission should require:
 
 - pure, deterministic, acyclic tensor computation;
@@ -961,6 +1067,39 @@ instead keep this tile execution-only when its buffers/lifetimes do not need a
 Region-level contract.  When it is reified, the selected Kernel stores the
 transformed Region program, so the implemented computation and its local reuse
 are inspectable rather than implicit backend behavior.
+
+#### The `Block` admission rule needs a decidable criterion
+
+This is the weakest boundary in the document and it should be tightened before
+Phase 4 implements it.  §2 and §4 insist that a physical tile is not part of the
+program — "changing it must not change the program's meaning, local lifetime, or
+floating-point order" — and reserve `Block` for a block that "owns an explicit
+Region local or ordered phase."  The Conv rewrite above then reifies an
+arbitrary machine tile as `Block` plus cache locals, and satisfies the reserve
+clause simply by *calling the caches locals*.
+
+"When its cache or accumulator lifetime needs to be explicit and inspectable"
+is a property of what the author wants to look at, not of the computation, so as
+written any tile can be promoted and the separation §2 defends becomes
+discretionary.  Replace it with a test a checker can decide.  The candidate
+rule:
+
+> A block may be reified as `Block` only if the transformed program is **not**
+> expressible as the source program under any pure schedule choice — that is,
+> the block introduces a value whose defining expression cannot be recovered by
+> substituting the block's locals back into the emitter.
+
+Under that rule a Conv input/weight cache is **not** admissible as `Block`: it
+holds copies of pure loads, `reconstructs` recovers the source emitter by
+substitution, and so it is a schedule decision by construction.  Group-norm
+channel groups and a block-owned online-softmax accumulator **are** admissible,
+because their partial state is not recoverable by substitution.  That matches
+the operations §5 already names as needing `Block` (`Group_norm`) and keeps
+plain Conv tiling execution-only, which §8 itself permits.
+
+Until the rule is settled, Phase 4 should implement Conv tiling as an
+execution-only schedule and leave `Block` unimplemented, rather than pick the
+looser reading because it is easier to reach.
 
 For an output-height block `[oh0, oh1)`, the required input-height coordinates
 are the union of the current Conv windows:
@@ -1187,6 +1326,26 @@ the former `Eval_op4.Make(S).pixel` interface was universal.
 
 ## 10. Validation obligations
 
+### The load-bearing invariant
+
+One check carries the whole scheme and deserves to be named rather than listed:
+**every local must be invariant over every `Whole` axis.**  This is what makes
+hoisting legal at all.  If a local could read an output coordinate on an axis
+the region varies over, then evaluating it once per key and reusing it across
+emissions would change the computed value, and no amount of coverage or
+disjointness checking would notice.
+
+`Region_program.check` enforces it syntactically: for each local it intersects
+`Expr.Fold.output_axes` of the local's body with the partition's `Whole` axes
+and fails with `` `Non_invariant_local `` on any overlap.  The check is
+conservative in the right direction — it rejects a local that merely *mentions*
+a whole axis even if the reference is dead — and it is the reason the projection
+law in the follow-up document holds.
+
+Everything else in this section is a supporting obligation.
+
+### Supporting obligations
+
 A region program is accepted only if the system can establish:
 
 - region coverage and disjointness for every output;
@@ -1202,7 +1361,23 @@ A region program is accepted only if the system can establish:
 - relaxed mode retains input/output and explicit conversion boundaries,
   records every elided internal round, and satisfies its declared numerical
   comparison policy;
-- backend resource limits admit the chosen tile and local placement.
+- backend resource limits admit the chosen tile and local placement;
+- **materialization cost is independent of the number of regions**: owned
+  outputs are enumerated from the key and the `Whole`-axis extents, never by
+  scanning the output domain per key (§1);
+- a transformation that rewrites an admitted program revalidates it under the
+  same limits.  `with_output` currently does not, and result conversion reaches
+  the emitter through it;
+- a scalar quantity derived from a shape — a reduction divisor, an extent
+  product, a flattened stride — is either bounded before use or documents the
+  precondition that bounds it.  `Region_context.count` folds an unbounded
+  product of extents where the Pixel path deliberately routes the same product
+  through `Norm_shared.normalized_count_unchecked`, whose comment states the
+  precondition and warns that it "must not be called anywhere the bound has not
+  been established."  On the 32-bit JavaScript backends a mid-fold wrap is the
+  documented defect shape, and the repository has taken seven of them.  Today
+  the two agree only because `reconstructs` compares them; the ownership
+  migration retires that comparison.
 
 The reference interpreter should execute region programs directly before an
 optimizing Loop lowering is trusted.  Differential tests should compare:
@@ -1220,6 +1395,21 @@ reassociation, and online attention use explicit tolerance/claim tests.
 Performance tests must measure operation counts or representative runtime, not
 only expression size.  Expression AST size is constant in reduction extent and
 therefore does not expose repeated dynamic work.
+
+Two further rules follow from the `fold_outputs` defect in §1, which passed a
+complete gate review:
+
+- **Vary every parameter the cost model mentions.**  A cost model with two free
+  variables needs a benchmark that moves both.  The committed shape
+  `~n:1 ~t:1 ~d:1 ~h:1 ~w:4 ~c:extent` moves only `K`, so no measurement in the
+  closed record distinguishes `Theta(R*K)` from `Theta(R^2*K)`.  Sweep `R` at
+  fixed `K` as well, and prefer at least one shape with `R > K` since that is
+  the regime real normalization runs in.
+- **A counter is evidence only for what it counts.**  `keys`, `locals`,
+  `emitters`, `loads`, and `reductions` were all exactly linear while total
+  traversal work was quadratic, because no counter observed a membership test.
+  When a counter set is used to retire a benchmark, state which costs it does
+  not observe.
 
 Operation-authored Region programs also require explicit whole-domain traversal
 evidence. For non-trivial shapes and partitions, deterministic tests must print
@@ -1288,18 +1478,30 @@ claim an operation speedup.
   invariance proof, reconstruction, validation, or limits fail.
 - Measure reduction iterations and loads to establish `Theta(K)` Region work
   for all three operations.
+- Measure total materialization cost against the number of regions to establish
+  `Theta(R*K)` traversal work, not only `Theta(K)` reduction work per region.
 
 Phase 1 is complete only when all three operations pass Direct Region versus
 Pixel Direct/Symbolic differential tests over single- and multi-axis
 normalization, optional affine operands, several epsilons, every Softmax axis,
 and all-`-inf` Softmax input.
 
-That optional-regionizer slice completed and established the performance and
-strict-numerical evidence. The follow-up migration makes the Region programs
+That optional-regionizer slice completed and established the strict-numerical
+evidence in full.  Its **performance evidence is incomplete and one claim in it
+is wrong**: reduction work per region is linear as recorded, but total
+materialization is quadratic in the number of regions because
+`Region_partition.fold_outputs` scans the output domain per key (§1).  The
+recorded extent-64 timings hold only at `R = 4`.  Phase 1 is not fully closed
+until owned-output enumeration is derived from the key and the measurement is
+repeated across an `R` sweep.
+
+The follow-up migration makes the Region programs
 authoritative operation computations, routes Native and Native4D Direct and
 Symbolic through them, adds whole-domain traversal traces, and removes the
 permanent dependency on separately handwritten Pixel definitions. See
-[`region-operation-computation-implementation-plan.md`](region-operation-computation-implementation-plan.md).
+[`region-operation-computation-implementation-plan.md`](region-operation-computation-implementation-plan.md);
+the enumeration fix is a prerequisite gate there, ahead of the ownership work,
+because that plan routes two more execution paths onto the same traversal.
 
 ### Phase 2: Loop IR integration
 
@@ -1387,9 +1589,19 @@ production traversal. Native and Native4D counterparts use the same computation
 form and share one numeric definition after checked dialect mapping.
 
 The first implementation is deliberately narrow: whole/singleton axis regions,
-named scalar locals, ordered sum/max reductions, and pure emission.  It removes
-the normalization and Softmax asymptotic defect while preserving the current
-arithmetic.  Locals have a shape in the IR, and region semantics remain separate
-from schedule tiles.  These choices support later online attention,
-convolution tiling, and restricted whole-graph single-node lowering without
-another language redesign.
+named scalar locals, ordered sum/max reductions, and pure emission.  It is
+designed to remove the normalization and Softmax asymptotic defect while
+preserving the current arithmetic.  Locals have a shape in the IR, and region
+semantics remain separate from schedule tiles.  These choices support later
+online attention, convolution tiling, and restricted whole-graph single-node
+lowering without another language redesign.
+
+The representation achieves this; the landed executor does not yet.  Region
+sharing is correctly expressed and correctly validated — `Non_invariant_local`
+is the guarantee that makes it sound — but `Region_partition.fold_outputs`
+enumerates a key's owned outputs by scanning the whole output domain, so the
+asymptotic defect is currently moved rather than removed (§1).  Deriving owned
+outputs from the key is a local change to one function and does not affect the
+language, the validation contract, or any numerical claim.  Treat it as a
+prerequisite to the ownership migration, since that migration routes Native
+Direct and both Native4D paths onto the same traversal.

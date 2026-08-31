@@ -100,10 +100,28 @@ projection may have to reconstruct an entire local vector or tile for one
 output, which is inefficient but semantically valid. A future multi-output
 program adds an output/result ordinal to the projection.
 
-This law depends on pure emitters and region-scoped locals. One output may not
-observe mutation performed while emitting another output. Ordered reductions
-and folds remain semantic; traversal among independent keys and pure emitted
-outputs remains lowering and scheduling policy.
+**The law is a consequence, not an independent axiom, and tests sample it
+rather than establish it.** It holds for exactly two reasons, both already
+enforced elsewhere:
+
+1. `Expr.Value.t` is a pure tree, so an emitter cannot observe or perform an
+   effect. One output cannot see mutation performed while emitting another
+   because there is no mutation to see.
+2. `Region_program.check` rejects any local whose body reads an output axis the
+   partition varies over (`` `Non_invariant_local ``). A local's value therefore
+   depends only on the key, so evaluating it once per key and evaluating it
+   afresh for one output produce the same value by construction.
+
+Nothing in `check` verifies the equation itself, and nothing needs to. State
+the derivation in the plan so the Gate 1 test is understood for what it is: a
+regression guard on those two properties over a finite sample, not a proof of
+the law. If a future extension weakens either property — an effectful
+intrinsic, or a local permitted to read a `Whole` axis under some side
+condition — the law fails and the test set is unlikely to be the thing that
+notices.
+
+Ordered reductions and folds remain semantic; traversal among independent keys
+and pure emitted outputs remains lowering and scheduling policy.
 
 ## Region-domain coverage and traversal
 
@@ -280,6 +298,12 @@ form, not the four-axis legality rule:
 - only N/H/W/C may be named by Native4D parameters;
 - mapped T/D remain unit, non-semantic axes and stay `Singleton` in the
   resulting partition;
+- that T/D rule is enforced **at the parameter adapter**, not recovered from the
+  Region program. Once mapped, a partition reading `t=singleton d=singleton` is
+  indistinguishable from a Native program whose T/D extents happen to be one, so
+  the traces required below *display* the invariant and do not establish it. The
+  checked `Axis4` conversion is the only place it is decidable, which is why
+  shape and computation must share one adapter rather than two that agree today;
 - shape and computation must use the same parameter adapter;
 - unsupported Native semantics do not become legal merely because the common
   Region representation uses `Vec6`;
@@ -363,6 +387,42 @@ The old Pixel implementation remains valuable during migration as a temporary
 differential oracle. It should not remain the permanent semantic authority for
 an intrinsically Region-authored operation.
 
+### Deleting the Pixel definitions retires the strongest check available
+
+Be explicit about what item 8 of the completion contract costs. Today the
+sharpest evidence that these three Region programs are correct is not a fixture
+comparison — it is `Region_program.reconstructs`, which specializes the Region
+program and compares the resulting tree to the independently handwritten Pixel
+expression for structural equality. That is a check over the whole expression,
+not over sampled inputs, and it is the only in-tree artifact that defines the
+operations' arithmetic twice from two sources.
+
+After the removal, "bitwise `Identical` to the established operation contract"
+has no in-tree definition of the contract: the Region program is both the
+implementation and the specification. External ATen fixtures are a genuine
+oracle but a sampling one, and they do not cover the parameter matrix
+(multi-axis and non-adjacent `dims`, absent affine operands, every Softmax
+axis) that `reconstructs` covers structurally today.
+
+Two ordering rules follow, and both are reflected in the plan's gates:
+
+- **Do not delete before a model-level differential passes.** Run the gated
+  `.pt2` inference suites against real weights, comparing pre- and
+  post-migration output, before the handwritten definitions go. Unit fixtures
+  on synthetic shapes are not a substitute for a real model's parameter mix.
+- **Prefer demotion to deletion.** Move the three `Compute(S).pixel` bodies to
+  a test-only module that production dispatch cannot reach, and keep the
+  `reconstructs` comparison running there as a permanent test. This satisfies
+  the actual goal — one *production* semantic definition, no silent fallback to
+  a second algorithm — while keeping the differential. The drift risk that
+  motivates deletion is precisely what a permanently green `reconstructs`
+  assertion detects; a definition that must keep agreeing bitwise is a
+  regression detector, not dual authority.
+
+If the Pixel definitions are deleted outright anyway, record in the plan that
+the operations' arithmetic then has a single in-tree source and that external
+fixtures are the only remaining independent check.
+
 ## Consequences for the existing Region documents
 
 This decision supersedes statements that make `Compute(S).pixel` the universal
@@ -372,10 +432,19 @@ LayerNorm, and Softmax as an optional Kernel optimization. The main
 record the adopted direction; the completed optional-regionizer plan is marked
 as historical migration evidence.
 
-The Native4D design documents also need a narrow correction. Their rule against
-duplicating Native numeric computation remains valid, but delegation is no
-longer universally delegation to `Compute(S).pixel`. A Native4D counterpart
-delegates to the Native operation's natural computation form: Pixel or Region.
+The Native4D design record needed a narrow correction, and it has been applied:
+`.ai/native4d_design.md` now records that a Native4D counterpart delegates to
+the Native operation's natural computation form, Pixel or Region, rather than
+universally to `Compute(S).pixel`. The rule against duplicating Native numeric
+computation is unchanged.
+
+This document set is **not** the tracked design record. `.ai/` is, and it holds
+no `region_*` design doc even though the Region Foundation and the
+scalar-Region slice are landed, tracked code. The Region design is currently
+visible to a fresh clone only through the paragraphs that reached
+`.ai/native_kernel_dsl_design.md` and `.ai/native4d_design.md`. Promoting a
+consolidated Region design into `.ai/` is outstanding work, tracked as a task in
+the operation-computation plan.
 
 The completed Foundation remains valid:
 

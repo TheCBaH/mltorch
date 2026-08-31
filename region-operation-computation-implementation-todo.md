@@ -17,7 +17,10 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
   `Region_program.t`; authored form does not add a Kernel sum type.
 - Failure rule: a malformed authoritative Region program is a typed
   implementation/limit failure, not a request to run a second handwritten
-  Pixel algorithm.
+  Pixel algorithm. There is consequently no `try_` anything on this path.
+- Cost rule: owned outputs are enumerated from the key and the `Whole`-axis
+  extents. Materialization costs one pass over the output domain regardless of
+  how that domain is partitioned.
 - Compatibility rule: fresh scalar projection is permitted at named scalar
   boundaries but never as production tensor materialization.
 
@@ -26,7 +29,8 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 | Gate | Scope | Status | Commit |
 |---|---|---|---|
 | Foundation prerequisite | Region language and Pixel fast path | complete | `2a81e7b`; closeout `787f278` / `c50be5b` |
-| Scalar-Region prerequisite | Optional regionizer and dedicated executor | complete | `c8fe41f`; ownership refactor `e605361` |
+| Scalar-Region prerequisite | Optional regionizer and dedicated executor | complete for correctness; cost contract unmet | `c8fe41f`; ownership refactor `e605361` |
+| P | Owned-output enumeration and region-count benchmark | pending | — |
 | 0 | Contract census and migration baselines | pending | — |
 | 1 | Scalar projection and whole-domain trace contract | pending | — |
 | 2 | Operation-authored computation boundary | pending | — |
@@ -37,6 +41,18 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 | 7 | Closeout and production admission | pending | — |
 
 ## Gate checklist
+
+### Gate P
+
+- [ ] Enumerate a key's owned outputs from the key and the `Whole`-axis extents
+      instead of filtering a full-domain scan per key.
+- [ ] Drop `fold_outputs`'s `Err.t` result if the rewrite makes
+      `` `Region_key_out_of_bounds `` unreachable.
+- [ ] Add a region-count axis to `bin/region_compute_bench.ml`, which currently
+      fixes `W = 4`.
+- [ ] Measure a sweep of `R` at fixed `K`, including an `R > K` shape.
+- [ ] Confirm unchanged coordinates, order, values, and conversions against the
+      existing Foundation partition-enumeration tests.
 
 ### Gate 0
 
@@ -61,9 +77,16 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 ### Gate 2
 
 - [ ] Define the operation-facing Region computation API with actual limits.
+- [ ] Replace each operation's `Region.try_regionize` with a
+      `Computation.program` entry returning a typed error, not a rejection.
+- [ ] Delete `Unsupported_operation`; move `Missing_operand`, `Output_ordinal`,
+      and `Output_shape` to the dispatcher boundary; make `Invalid_partition`
+      and `Invalid_program` limit/implementation errors.
 - [ ] Pass output ordinal/shape and role-resolved operands explicitly.
 - [ ] Separate generic Region construction from normalization-only helpers.
 - [ ] Eliminate floating-value lookup for synthetic optional operands.
+- [ ] Route the normalization divisor through the bounded shared helper rather
+      than re-folding an unbounded extent product in `Region_context.count`.
 - [ ] Normalize Pixel and Region authored forms at the graph boundary.
 - [ ] Keep dispatchers arithmetic-free and exhaustive per dialect.
 - [ ] Test tight and expanded non-default limits.
@@ -104,12 +127,19 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 
 ### Gate 6
 
-- [ ] Remove handwritten Pixel RMSNorm computation.
-- [ ] Remove handwritten Pixel LayerNorm computation.
-- [ ] Remove handwritten Pixel Softmax computation.
+- [ ] Run the gated `.pt2` model-level differential BEFORE any removal.
+- [ ] Demote handwritten Pixel RMSNorm computation to test-only, keeping
+      `reconstructs` asserting against it.
+- [ ] Demote handwritten Pixel LayerNorm computation on the same terms.
+- [ ] Demote handwritten Pixel Softmax computation on the same terms.
+- [ ] If deleting outright instead, record the decision and that the arithmetic
+      then has one in-tree source.
 - [ ] Replace legitimate scalar consumers with bounded derived projection.
-- [ ] Remove/narrow `Regionizer`, `Region_context.pixel`, synthetic-value lookup,
-      candidate maps, and primary reconstruction fallback.
+- [ ] Remove `Regionizer` entirely, along with `Regionizer.candidate`, the
+      `regionizers` flag on `Eval_symbolic.build`, and the `regionized` result.
+- [ ] Remove `Region_context.pixel`, `reject`, and synthetic-value lookup;
+      retain the construction helpers under the Gate 2 module.
+- [ ] Remove candidate maps and primary reconstruction fallback.
 - [ ] Retain general `reconstructs` support for real transformations.
 - [ ] Audit public names, errors, comments, and explorer output for obsolete
       optional-optimization language.
@@ -123,10 +153,16 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 - [ ] Run Native4D cross-dialect verification.
 - [ ] Run JavaScript verification.
 - [ ] Run and record every operation-level coverage trace.
-- [ ] Benchmark Native and Native4D Direct plus Kernel Region execution.
+- [ ] Benchmark Native and Native4D Direct plus Kernel Region execution across
+      both extent `K` and region count `R`, including an `R > K` shape.
+- [ ] State, beside each recorded counter set, which costs it does not observe.
 - [ ] Re-run Pixel no-regression benchmarks.
 - [ ] Audit production call chains for Pixel, Region, and projection routing.
 - [ ] Update final APIs, evidence, measurements, and deferrals in design docs.
+- [ ] Promote a consolidated Region design into `.ai/`; there is currently no
+      tracked `region_*` design record for landed, tracked code.
+- [ ] Repoint `.ai/native4d_design.md` off `../_ai_/region-compute-follow-up.md`.
+- [ ] Settle the `Region` name collision with `transform/region.ml`.
 
 ## Decisions and current evidence
 
@@ -157,6 +193,53 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 - Current Foundation enumeration tests cover a synthetic whole-C partition,
   but do not print whole-domain traces for non-trivial real operation
   configurations or Native4D mappings.
+
+### Added by design review (2026-08-31)
+
+- `Region_partition.fold_outputs` scans the whole output shape once per key and
+  filters by membership, so `Region_execution.materialize` costs `R^2 * K`
+  against the Pixel path's `R * K^2`. The Region executor is faster only while
+  `R < K`, and normalization over `C` runs at `R = N*T > K`. Gate P.
+  `Region_eval.materialize` — the oracle it replaced — is asymptotically
+  correct, using one domain pass with a key-indexed cache.
+- No committed measurement can see that: `bin/region_compute_bench.ml` fixes
+  `W = 4`, the counter fixtures use two keys, and no counter observes a
+  membership test. Counters are evidence only for what they count.
+- `try_regionize` does not survive the migration. Its name and its
+  `(_, reject) result` type encode the optional-optimization model being
+  retired; the per-operation bodies become `Computation.program` entries with
+  typed errors, and `Regionizer` disappears along with the candidate map.
+- `Region_context.count` folds an unbounded product of extents where the Pixel
+  path routes the same product through the precondition-documented
+  `Norm_shared.normalized_count_unchecked`. The 32-bit JavaScript backends make
+  this the repository's most-repeated defect shape, and `reconstructs` is
+  presently the only thing comparing the two products — which Gate 6 retires.
+- The Phase 1 local tables in the design doc listed locals the builders fold at
+  construction (RMSNorm 3 vs 2 declared, LayerNorm 5 vs 4). Corrected; the
+  counter goldens `locals=4` and `locals=8` over two keys are the authority.
+- `Region_program.pixel` is a public constructor carrying no singleton witness;
+  classification is recomputed by `pixel_expression`. The related open hole is
+  `with_output`, which replaces an admitted program's emitter without
+  revalidating, and is how `Kernel_eval.converted` applies result conversion.
+- The projection law is a consequence of `Expr` purity plus
+  `Non_invariant_local`, not an independent obligation. Gate 1's test samples
+  it.
+- Native4D's T/D-unit rule is enforced at the parameter adapter only. A mapped
+  partition reading `t=singleton d=singleton` is indistinguishable from a Native
+  program with unit T/D, so Gate 5's traces display the invariant rather than
+  establish it.
+- Phase 1 Softmax performs `2K` `exp` evaluations per row where a shaped cache
+  would perform `K`. Correct for Phase 1, invisible to every current counter,
+  and the baseline for the Phase 4 shaped-local decision.
+- `Region` already names a claimed graph-node set in
+  `lib/native/transform/region.ml`, with the derived
+  inputs/outputs/interior/convex boundary the deferred whole-graph work needs.
+  Reuse it there, and settle the collision before that task rather than during
+  it.
+- These nine documents are not the tracked design record. `.ai/` holds no
+  `region_*` doc despite the Foundation and scalar-Region slices being landed,
+  tracked code, and `.ai/native4d_design.md` links into this untracked working
+  set. Gate 7.
 
 ## Validation record
 
