@@ -208,27 +208,37 @@ liveness, bounds, cost, and numerical order inspectable.
 
 Region program is the Kernel computation boundary.  Existing
 `Compute(S).pixel` definitions enter it through the singleton-region
-constructor.  A separate regionization pass converts selected Pixel-form
-Kernel programs into the extended form with explicit partition and locals.
-Kernel IR plus a schedule then lowers to Loop IR.  The current Kernel design
-already says scalar expressions describe meaning while Loop IR owns final
-loops, placement, and stores.  Regionization identifies required sharing and
-legal local lifetimes; schedule selection may then transform the program into
-an instantiated Region variant with concrete block sizes and cache locals.
-Loop IR fixes the remaining machine-level loop and placement details.
+constructor.  A separate, optional regionizer converts selected Pixel-form
+programs into the extended form with explicit partition and locals.  It runs
+while typed operation provenance, parameters, and shapes are available, or is
+given a bounded private candidate retained from that boundary.  Kernel IR plus
+a schedule then lowers to Loop IR.  The current Kernel design already says
+scalar expressions describe meaning while Loop IR owns final loops, placement,
+and stores.
+
+There are two lowering routes.  Regionization identifies required sharing and
+legal local lifetimes, producing a non-degenerate program that a dedicated
+Region executor lowers.  Independently, footprint analysis can give a
+Pixel-form program a physical locality tile without changing its semantic
+partition.  A schedule reifies a tile as `Block` and explicit cache/accumulator
+locals only when that lifetime must be represented and checked.  Loop IR fixes
+the remaining machine-level loop and placement details.
 
 Conceptually:
 
 ```text
 Graph operation -> existing Compute.pixel -> Expr body -> Region.pixel
                                                         -> Pixel-form Kernel
-                                                        -> regionize selected Kernel
-                                                        -> Region Kernel program
-                                                           (partition, locals,
-                                                            reductions, emitters)
-  -> schedule (loop order, physical tiles, placement, vectorization)
-  -> Loop IR
-  -> interpreter / JS / C
+                                                           |-> existing Pixel loop
+                                                           |-> footprint analysis
+                                                           |     -> schedule-only tile -> Loop IR
+                                                           `-> regionize selected candidate
+                                                               -> Region Kernel program
+                                                                  (partition, locals,
+                                                                   reductions, emitters)
+                                                               -> dedicated Region lowerer
+                                                               -> schedule -> Loop IR
+  Loop IR -> interpreter / JS / C
 ```
 
 Mechanically check the converted Region form against the existing Pixel
@@ -237,8 +247,21 @@ compares the result with the source Pixel expression; concrete differential
 tests remain an independent oracle.  Operation-specific `Compute.pixel`
 definitions remain unchanged and authoritative for operation semantics.
 
-The derived Pixel path evaluates the region containing the requested coordinate
-and is intentionally inefficient.  It remains useful as a reference.
+`Region_eval` is the reference executor for a non-degenerate program.  A
+production Region-native path instead specializes/local-lowers its local and
+emitter expressions ahead of the output loops.  It evaluates locals once per
+region key and must not recover sharing through per-output callbacks or repeated
+`Region_eval.value_at` calls.  Pixel-form programs retain their existing
+zero-overhead specialized loop unless a selected locality schedule replaces it
+with an equivalent tiled loop.
+
+The derived Pixel specialization of a non-degenerate Region program evaluates
+the containing region for one requested coordinate and is intentionally
+inefficient.  It remains useful as a reference.
+
+The post-Foundation implementation sequence and its interaction with the
+Foundation layer are recorded in
+[`region-native-implementation-guide.md`](region-native-implementation-guide.md).
 
 ### Transitional alternative: `prepare` plus `emit`
 

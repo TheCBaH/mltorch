@@ -896,7 +896,7 @@ Resolve each by deciding whether the consumer accepts a scalar local, rejects
 an open expression, or must render it.  Do not add wildcard arms to silence the
 new constructor.
 
-## 11. Explicit non-goals and handoff to Phase 1
+## 11. Explicit non-goals and post-Foundation handoff
 
 Foundation does not:
 
@@ -913,13 +913,25 @@ Foundation does not:
 
 The post-Foundation implementation guide is
 [`region-native-implementation-guide.md`](region-native-implementation-guide.md).
-It records the intentionally separate next steps for Region-native shared-work
-execution and schedule-only locality tiling.  Neither direction retrospectively
-changes the Foundation contracts above.
+It defines two separate consumers of this Foundation; neither retrospectively
+changes the contracts above.
 
-The Phase 1 task begins only after Gate 6.  Its input is a Pixel-form
-`Kernel.Value.computation`, selected operation provenance, and the operation's
-validated parameters/shapes.  It may choose Whole axes and hoist existing
-subtrees into scalar locals.  It must use `Region_program.reconstructs`, return
-the original Pixel computation on every failure, and leave operation-specific
-Pixel code unchanged.
+1. **Region-native shared-work execution.**  After Gate 6 closes out, a
+   selected operation may use typed provenance, validated parameters and
+   shapes, and its Pixel expression to attempt regionization.  The optional
+   converter must run before provenance is discarded (or receive a bounded
+   private candidate), build a non-degenerate `Region_program`, and prove
+   `Region_program.reconstructs`.  Every rejection retains the original Pixel
+   computation.  Accepted programs are lowered by a dedicated Region
+   executor; `Region_eval` remains its reference oracle, not its hot path.
+
+2. **Locality scheduling.**  Independently, footprint analysis may tile a
+   bounded Pixel-form computation for input/weight/intermediate reuse.  This
+   is normally schedule-only and keeps the stored semantic program unchanged.
+   A lowering may derive a block-local Region program only when the selected
+   cache, accumulator, or ordered phase has a Region-level lifetime that must
+   be represented, checked, and inspected.
+
+Neither track changes operation-specific `Compute(S).pixel` or extends
+`Semantics.SEMANTICS`; the former remains the scalar semantic authority and
+the latter remains a scalar value/index interface.

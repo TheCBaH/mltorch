@@ -15,6 +15,32 @@ completed gate is committed only after its focused validation succeeds.
 | 5 | Pixel specialization/reconstruction | complete | `83397a7` |
 | 6 | Pixel regression closeout | in progress | Region detail: `b4c23f8`; hot-path audit and comparison closeout remain |
 
+## Post-Foundation handoff (not a Foundation gate)
+
+The work below is specified by
+[`region-native-implementation-guide.md`](region-native-implementation-guide.md).
+It is deliberately not added as Gates 7+ here: this file records the bounded
+Foundation task, and its completed-gate evidence must remain interpretable on
+its own.
+
+The Foundation implementation is available for follow-on design and small
+prototypes: Gates 1–5 are complete.  Gate 0's historical comparison and Gate
+6's closeout remain in progress and must be resolved before claiming formal
+Foundation completion or making a production Region-native path the default.
+
+The post-Foundation implementation has two independent tracks:
+
+- **Region-native shared work:** a provenance-aware optional regionizer builds
+  a non-degenerate program, proves reconstruction, then uses a dedicated Region
+  lowerer/executor.
+- **Locality scheduling:** footprint analysis tiles Pixel-form computations
+  without changing their semantic Region partition; a lowering may reify a
+  block-local Region program only when its local lifetime must be represented
+  and checked.
+
+Neither track changes the recorded Foundation APIs, validation results, or
+Pixel no-regression acceptance criteria.
+
 ## Decisions
 
 - Start at Gate 1: the repository has no pre-existing Region implementation;
