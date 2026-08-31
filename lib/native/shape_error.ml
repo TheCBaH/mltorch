@@ -250,6 +250,22 @@ module Arange = struct
       | `Over_limit -> "result extent exceeds the engine limit")
 end
 
+(* [select_scatter]'s [src] does not have exactly the shape [select] itself
+   would produce at [axis]/[index] -- [expected] is that derived shape, not
+   restated here (see [Split.Select_scatter.output_shape]). *)
+module Select_scatter = struct
+  type t = {
+    axis : Axis.t;
+    index : int;
+    expected : Vec6.shape;
+    actual : Vec6.shape;
+  }
+
+  let pp ppf { axis; index; expected; actual } =
+    Fmt.pf ppf "select_scatter src shape must be %a (axis=%a index=%d), got %a"
+      Vec6.pp_shape expected Axis.pp axis index Vec6.pp_shape actual
+end
+
 module Slice = struct
   type fault = [ `Empty | `Out_of_range ]
 
@@ -621,6 +637,7 @@ type t =
   | `Resize of Resize.t
   | `Resize_nearest of Resize_nearest.t
   | `Sdpa of Sdpa.error
+  | `Select_scatter of Select_scatter.t
   | `Slice of Slice.t
   | `Split_with_sizes of Split_with_sizes.t
   | `Window of Window.t
@@ -647,6 +664,7 @@ let pp ppf = function
   | `Resize e -> Resize.pp ppf e
   | `Resize_nearest e -> Resize_nearest.pp ppf e
   | `Sdpa e -> Sdpa.pp_error ppf e
+  | `Select_scatter e -> Select_scatter.pp ppf e
   | `Slice e -> Slice.pp ppf e
   | `Split_with_sizes e -> Split_with_sizes.pp ppf e
   | `Window e -> Window.pp ppf e

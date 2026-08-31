@@ -179,6 +179,19 @@ module Reshape : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** [select_scatter]'s [src] does not have exactly the shape [select] itself
+    would produce at [axis]/[index]; [expected] is that derived shape. *)
+module Select_scatter : sig
+  type t = {
+    axis : Axis.t;
+    index : int;
+    expected : Vec6.shape;
+    actual : Vec6.shape;
+  }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 (** A slice with no Native result. Two faults, and they are different in kind:
 
     - [`Empty] — the canonical bounds select nothing. ATen returns a size-0
@@ -444,6 +457,7 @@ type t =
   | `Resize of Resize.t
   | `Resize_nearest of Resize_nearest.t
   | `Sdpa of Sdpa.error
+  | `Select_scatter of Select_scatter.t
   | `Slice of Slice.t
   | `Split_with_sizes of Split_with_sizes.t
   | `Window of Window.t

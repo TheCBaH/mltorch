@@ -145,6 +145,74 @@ let%expect_test "Direct graph: select drops one axis" =
     outputs: [t1 f32 [W=2 C=1] <-n0]
     out = tensor f32 [W=2 C=1] {3, 13} |}]
 
+(* Select_scatter's write-back counterpart: two graph inputs ([self], [src]),
+   one node, output rank equal to [self]'s (unlike [Select] above, which
+   drops a rank). *)
+let%expect_test
+    "Direct graph: select_scatter writes src at index and keeps self elsewhere"
+    =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"select_scatter" ~outputs:(fun r -> [ r ])
+          @@
+          let* self = input ~shape:(s 1 1 1 2 5 1) ~name:"self" () in
+          let* src = input ~shape:(s 1 1 1 1 5 1) ~name:"src" () in
+          select_scatter ~name:"out"
+            { Split.Select_scatter.axis = Axis.H; index = 1 }
+            ~self ~src)
+    in
+    Format.printf "%a@." Graph_ir.pp g;
+    let self =
+      Tensor.materialize (s 1 1 1 2 5 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 10)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let src =
+      Tensor.materialize (s 1 1 1 1 5 1) (fun c ->
+          float_of_int (900 + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let* env =
+      lift_eval
+        (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ self; src ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [H=2 W=5 C=1] ->[n0], t1 f32 [W=5 C=1] ->[n0]]
+    nodes:
+      n0: [t2 f32 [H=2 W=5 C=1]] =
+        select_scatter self=t0 src=t1 params={axis=H index=1}
+    outputs: [t2 f32 [H=2 W=5 C=1] <-n0]
+    out = tensor f32 [H=2 W=5 C=1] {0, 1, 2, 3, 4, 900, 901, 902, ...} |}]
+
+let%expect_test "Direct graph: select_scatter refuses a src of the wrong shape"
+    =
+  let result =
+    let open Err.Syntax in
+    let+ g =
+      lift_build
+        Graph_builder.(
+          build ~name:"select_scatter" ~outputs:(fun r -> [ r ])
+          @@
+          let* self = input ~shape:(s 1 1 1 2 5 1) ~name:"self" () in
+          let* src = input ~shape:(s 1 1 1 1 4 1) ~name:"src" () in
+          select_scatter ~name:"out"
+            { Split.Select_scatter.axis = Axis.H; index = 1 }
+            ~self ~src)
+    in
+    Format.asprintf "%a" Graph_ir.pp g
+  in
+  Format.printf "%a@." (pp_result Format.pp_print_string) result;
+  [%expect
+    {| select_scatter src shape must be [W=5 C=1] (axis=H index=1), got [W=4 C=1] |}]
+
 let%expect_test "Direct graph: an empty slice is not buildable" =
   let result =
     let open Err.Syntax in

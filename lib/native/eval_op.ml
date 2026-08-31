@@ -243,6 +243,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Select { Split.Select.params; x } ->
         let module C = Split.Select.Compute (S) in
         C.pixel params ~x:(operand x) out
+    | Select_scatter { Split.Select_scatter.params; self; src } ->
+        let module C = Split.Select_scatter.Compute (S) in
+        C.pixel params ~self:(operand self) ~src:(operand src) out
     | Sigmoid { Pointwise.Sigmoid.x } ->
         let module C = Pointwise.Sigmoid.Compute (S) in
         C.pixel (operand x) out

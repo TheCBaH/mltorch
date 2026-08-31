@@ -307,6 +307,13 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Split.Select.output_shape ~x_shape params) in
       [ out ]
+  | Select_scatter { Split.Select_scatter.params; self; src } ->
+      let* self_shape = shape self in
+      let* src_shape = shape src in
+      let+ out =
+        widen (Split.Select_scatter.output_shape ~self_shape ~src_shape params)
+      in
+      [ out ]
   | Sigmoid { Pointwise.Sigmoid.x } ->
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Sigmoid.output_shape x_shape) in

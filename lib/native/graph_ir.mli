@@ -97,6 +97,12 @@ type op =
      over a one-wide window rather than naming its own shape/pixel rule, so it
      never decomposes into a [Slice]+[Reshape] pair. *)
   | Select of Split.Select.t
+  (* The write-back counterpart of [Select]: [self] with position [index] of
+     [axis] replaced by [src] (which has [Select]'s own output shape) and
+     every other position carried through from [self] unchanged. A pure
+     coordinate branch, no arithmetic -- reuses [Select]'s own axis-drop
+     shape rule to check [src] rather than restating it. *)
+  | Select_scatter of Split.Select_scatter.t
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   (* Softmax over a single axis, keeping the input's full shape -- unlike

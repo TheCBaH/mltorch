@@ -239,6 +239,17 @@ val select : ?name:string -> Split.Select.params -> tensor_ref -> Tensor_id.t t
     already-in-range index — a caller holding ATen's spelling gets one from
     {!Aten_shape.resolve_index}. *)
 
+val select_scatter :
+  ?name:string ->
+  Split.Select_scatter.params ->
+  self:tensor_ref ->
+  src:tensor_ref ->
+  Tensor_id.t t
+(** [self] with position [index] of [axis] replaced by [src] (which must have
+    {!select}'s own output shape) and every other position carried through
+    unchanged. Takes the same CANONICAL, already-in-range index {!select} does.
+*)
+
 val sigmoid : ?name:string -> tensor_ref -> Tensor_id.t t
 val silu : ?name:string -> tensor_ref -> Tensor_id.t t
 

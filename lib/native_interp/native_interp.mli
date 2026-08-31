@@ -107,6 +107,7 @@ type metadata_role =
   | `Sdpa_query
   | `Sdpa_value
   | `Select_input
+  | `Select_scatter_input
   | `Slice_input
   | `Softmax_input
   | `Split_tensor_input

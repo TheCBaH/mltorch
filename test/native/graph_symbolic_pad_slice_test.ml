@@ -178,3 +178,50 @@ let%expect_test "Symbolic graph: select ground matches Direct" =
     {|
     ground = tensor f32 [W=2 C=1] {3, 13}
     ground matches direct: true |}]
+
+(* Select_scatter stages an [S.index_eq]/[S.select] branch on [self]'s OWN
+   coordinate against a constant [index] -- the first op in this file whose
+   staged term shows a genuine equality-guarded select rather than an affine
+   index alone -- confirming the branch grounds identically to Direct's. *)
+let%expect_test "Symbolic graph: select_scatter ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"select_scatter" ~outputs:(fun r -> [ r ])
+          @@
+          let* self = input ~shape:(s 1 1 1 2 5 1) ~name:"self" () in
+          let* src = input ~shape:(s 1 1 1 1 5 1) ~name:"src" () in
+          select_scatter ~name:"out"
+            { Split.Select_scatter.axis = Axis.H; index = 1 }
+            ~self ~src)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let self =
+      Tensor.materialize (s 1 1 1 2 5 1) (fun c ->
+          float_of_int
+            ((Dim.to_int (Vec6.get c Axis.H) * 10)
+            + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let src =
+      Tensor.materialize (s 1 1 1 1 5 1) (fun c ->
+          float_of_int (900 + Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let inputs = List.combine g.Graph.inputs [ self; src ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0, t1
+    t2 = select((H = 1), t1[0,N,T,D,W,C], t0[N,T,D,H,W,C])
+    outputs: t2 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [H=2 W=5 C=1] {0, 1, 2, 3, 4, 900, 901, 902, ...}
+    ground matches direct: true |}]

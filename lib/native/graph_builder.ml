@@ -357,6 +357,10 @@ let sdpa ?name params ~query ~key ~value ?mask () =
 let select ?name params x =
   op1 ?name ~kind:"select" (Select { Split.Select.params; x })
 
+let select_scatter ?name params ~self ~src =
+  op1 ?name ~kind:"select_scatter"
+    (Select_scatter { Split.Select_scatter.params; self; src })
+
 let sigmoid ?name x =
   op1 ?name ~kind:"sigmoid" (Sigmoid { Pointwise.Sigmoid.x })
 

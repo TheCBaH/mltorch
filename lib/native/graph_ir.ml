@@ -58,6 +58,7 @@ type op =
   | Rms_norm of Norm.RmsNorm.t
   | Sdpa of Attention.Sdpa.t
   | Select of Split.Select.t
+  | Select_scatter of Split.Select_scatter.t
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   | Softmax of Reduce.Softmax.t
@@ -369,6 +370,12 @@ let op_registry : (module OP) list =
 
       let inject t = Select t
       let project = function Select t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Split.Select_scatter
+
+      let inject t = Select_scatter t
+      let project = function Select_scatter t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Sigmoid

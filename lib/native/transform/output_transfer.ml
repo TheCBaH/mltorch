@@ -68,8 +68,16 @@ let classify (op : op) ~output =
      argument on one named axis, read at [out / repeats] (floor division)
      rather than modulo -- still one input element per output, no
      arithmetic. *)
-  | Concat _ | Expand _ | Repeat _ | RepeatInterleave _ | Select _ | Slice _
-  | Split_with_sizes _ | Stack _ | Unbind _ | Upsample_nearest2d _ ->
+  (* [Select_scatter] routes each output from ONE of its two operands, chosen
+     by comparing the OUTPUT COORDINATE's own [axis] value against a
+     compile-time [index] -- unlike [Index_tensor] below, the branch is a
+     structural fact about the position being written, never about either
+     operand's stored VALUE, so it carries no data dependency and is exactly
+     as sound as [Concat]'s N-input selection (of which this is the
+     two-input, axis-narrowed case). *)
+  | Concat _ | Expand _ | Repeat _ | RepeatInterleave _ | Select _
+  | Select_scatter _ | Slice _ | Split_with_sizes _ | Stack _ | Unbind _
+  | Upsample_nearest2d _ ->
       Reindexing
   (* [Pad] is NOT reindexing, and the mode is why the honest answer is one class
      rather than two. In [Constant] mode the padded cells are a synthesized fill

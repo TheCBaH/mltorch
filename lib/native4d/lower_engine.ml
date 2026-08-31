@@ -828,11 +828,12 @@ let lower_node ~view acc (n : node) =
            })
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Index_tensor]/[Repeat]/[RepeatInterleave]/[Softmax] join that set until
-     their own counterparts exist (see [Domain.check_node]'s comment) rather
-     than gaining a real conversion arm here -- none has a Native4D
-     counterpart at all yet, the same "dialect does not have it" answer, and
-     CSATv2 stays a graph-only target regardless. *)
+     [Index_tensor]/[Repeat]/[RepeatInterleave]/[Select_scatter]/[Softmax]
+     join that set until their own counterparts exist (see
+     [Domain.check_node]'s comment) rather than gaining a real conversion arm
+     here -- none has a Native4D counterpart at all yet, the same "dialect
+     does not have it" answer, and CSATv2 stays a graph-only target
+     regardless. *)
   | Batched_matmul _ | Discard _ | Index_tensor _ | Max_pool2d_with_indices _
-  | Repeat _ | RepeatInterleave _ | Sdpa _ | Softmax _ ->
+  | Repeat _ | RepeatInterleave _ | Sdpa _ | Select_scatter _ | Softmax _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

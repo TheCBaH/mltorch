@@ -635,3 +635,119 @@ module Select = struct
       SliceC.pixel (slice_params p) ~x base
   end
 end
+
+(* `select_scatter(Tensor self, Tensor src, int dim, int index) -> Tensor`:
+   the write-back counterpart of [select.int] -- ATen's functionalized form
+   of `self[index] = src` along [dim] (`self.select(dim, index).copy_(src)`,
+   functionalized into a [select.int] view read plus this scatter). Returns
+   a tensor with [self]'s own shape: every position along [axis] other than
+   [index] carries [self]'s own value there unchanged, and position [index]
+   carries [src] -- which has exactly [Select.output_shape]'s shape (the
+   axis dropped and repacked), the same shape [select.int] itself would
+   produce reading [self] at that position. No arithmetic on either
+   operand's read value, only a COORDINATE branch on the OUTPUT position --
+   so, like [Select] itself, this needs no new [SEMANTICS] primitive:
+   [S.index_eq]/[S.select] are already the whole basis (see semantics.ml's
+   own comment on [Pad]'s reflect mirror, the first op to need this idiom).
+
+   THE INDEX IS CANONICAL, the same discipline [Select]'s own payload
+   documents: resolved by [Aten_shape.resolve_index] before it reaches
+   here. *)
+module Select_scatter = struct
+  type params = { axis : Axis.t; index : int }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"select_scatter_params" (fun axis index ->
+        { axis; index })
+    |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.mem "index" Jsont.int ~enc:(fun p -> p.index)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a index=%d}@]" Axis.pp p.axis p.index
+
+  (* [Select]'s own params, for reusing its [output_shape]/[Compute] rather
+     than restating the drop-and-repack rule. *)
+  let select_params (p : params) : Select.params =
+    { axis = p.axis; index = p.index }
+
+  type t = { params : params; self : Tensor_ref.t; src : Tensor_ref.t }
+
+  let name = "SelectScatter"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          self = get "self" Tensor_ref.jsont;
+          src = get "src" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("self", Json_util.enc Tensor_ref.jsont t.self);
+            ("src", Json_util.enc Tensor_ref.jsont t.src);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.self; t.src ]
+  let map_operands f (t : t) = { t with self = f t.self; src = f t.src }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>select_scatter@ self=%a@ src=%a@ params=%a@]" pp_ref
+      t.self pp_ref t.src pp_params t.params
+
+  (* The output IS [self]'s shape -- [dim]/[index] name a WRITE position, not
+     a shape transform. [src] is checked against exactly the shape [Select]
+     itself would produce at this [axis]/[index] (reusing its
+     [output_shape], not restating the drop-and-repack rule): the same
+     "operand shape not trusted, checked against the derived expectation"
+     discipline [Affine_bias]/[Norm.check_affine] use, generalised past
+     their per-channel case. *)
+  let output_shape ~(self_shape : Vec6.shape) ~(src_shape : Vec6.shape)
+      (p : params) =
+    let open Err.Syntax in
+    let* expected = Select.output_shape ~x_shape:self_shape (select_params p) in
+    if
+      List.for_all
+        (fun a -> Dim.equal (Vec6.get expected a) (Vec6.get src_shape a))
+        Axis.all
+    then Err.return self_shape
+    else
+      Err.fail
+        (`Select_scatter
+           Shape_error.Select_scatter.
+             { axis = p.axis; index = p.index; expected; actual = src_shape })
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* [out] ranges over [self]'s OWN (undropped) shape here -- unlike
+       [Select.Compute.pixel]'s [out], which ranges over the PACKED (dropped)
+       shape. So [src_coord] runs [repack_dropped]'s pairing in the OPPOSITE
+       direction from [Select]'s [base]: read [out] at each surviving KEPT
+       axis and write it to the corresponding PACKED axis, leaving the
+       dropped axis at [S.index_zero] -- where it lives in [src]'s
+       one-narrower shape. [self] is read at [out] directly: it has the
+       identical shape to the output, so no coordinate transform is needed
+       on that arm at all, unlike [src]'s. *)
+    let pixel (p : params) ~self ~src (out : Semantics.position S.index Vec6.t)
+        =
+      let zero =
+        Vec6.make ~n:S.index_zero ~t:S.index_zero ~d:S.index_zero
+          ~h:S.index_zero ~w:S.index_zero ~c:S.index_zero
+      in
+      let src_coord =
+        List.fold_left
+          (fun v (kin, oax) -> Vec6.copy out ~src:kin ~dst:oax v)
+          zero
+          (Aten_shape.repack_dropped ~dropped:[ p.axis ])
+      in
+      let cond =
+        S.index_eq (S.of_index (Vec6.get out p.axis)) (S.index_const p.index)
+      in
+      S.select cond (S.load src src_coord) (S.load self out)
+  end
+end

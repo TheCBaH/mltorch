@@ -97,6 +97,7 @@ type metadata_role =
   | `Sdpa_query
   | `Sdpa_value
   | `Select_input
+  | `Select_scatter_input
   | `Slice_input
   | `Softmax_input
   | `Split_tensor_input
@@ -412,6 +413,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Sdpa_query -> Fmt.string ppf "sdpa query"
   | `Sdpa_value -> Fmt.string ppf "sdpa value"
   | `Select_input -> Fmt.string ppf "select input"
+  | `Select_scatter_input -> Fmt.string ppf "select_scatter input"
   | `Slice_input -> Fmt.string ppf "slice input"
   | `Softmax_input -> Fmt.string ppf "softmax input"
   | `Split_tensor_input -> Fmt.string ppf "split.Tensor input"

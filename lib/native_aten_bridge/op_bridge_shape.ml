@@ -282,6 +282,43 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = select { Split.Select.axis; index = idx } x_id in
                [ y ]
            | _ -> assert false))
+  (* One [Select_scatter] node: [self] with [src] written at [idx] along
+     [axis], and every other position carried through from [self] unchanged
+     -- the write-back counterpart of [select.int] just above, sharing its
+     [Aten_shape.resolve_index] canonicalisation (ATen REJECTS an
+     out-of-range index rather than clamping it). [index] is declared
+     [SymInt] in ATen's own schema, same as [select.int]'s plain [int] once
+     traced: the corpus's own occurrences all arrive as [as_int], so
+     [int_arg] reads it unchanged. *)
+  | "torch.ops.aten.select_scatter.default" ->
+      Some
+        (let* aten_self = tensor_arg aten_env node "self" in
+         let* () = require_f32 "self" aten_self in
+         let* aten_src = tensor_arg aten_env node "src" in
+         let* () = require_f32 "src" aten_src in
+         let rank = aten_rank aten_self in
+         let* dim = int_arg node "dim" in
+         let* index = int_arg node "index" in
+         let* self = native_of_aten "self" aten_self in
+         let* src = native_of_aten "src" aten_src in
+         let* d = norm_dim ~op:"select_scatter.default" ~rank dim in
+         let axis = Aten_shape.axis_of_dim ~rank d in
+         let extent = Vec6.get (packed_shape self) axis in
+         let* idx =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.resolve_index ~extent ~index)
+         in
+         build_g ~name:"select_scatter" [ self; src ] (function
+           | [ self_id; src_id ] ->
+               let open Graph_builder in
+               let+ y =
+                 select_scatter
+                   { Split.Select_scatter.axis; index = idx }
+                   ~self:self_id ~src:src_id
+               in
+               [ y ]
+           | _ -> assert false))
   (* Legalized to [Reshape] alone: inserting a size-1 axis never changes the
      linearized data order, so no [Slice] is needed, unlike [select.int]'s
      axis removal. The target is [Aten_shape.to_aten]'s list with a bare [1]

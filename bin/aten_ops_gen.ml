@@ -105,6 +105,7 @@ let curated_selection =
     (* shape/view ops used by the ViT models *)
     op "expand";
     op "select" ~overload:"int";
+    op "select_scatter";
     (* The only Tensor[]-returning op bound so far: the ViT attention blocks
        split their packed qkv projection with it. *)
     op "unbind" ~overload:"int";

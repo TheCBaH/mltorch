@@ -19,6 +19,7 @@ let targets =
     "torch.ops.aten.repeat.default";
     "torch.ops.aten.repeat_interleave.self_int";
     "torch.ops.aten.select.int";
+    "torch.ops.aten.select_scatter.default";
     "torch.ops.aten.slice.Tensor";
     "torch.ops.aten.split.Tensor";
     "torch.ops.aten.split_with_sizes.default";
@@ -360,6 +361,36 @@ let dispatch ~ctx ~env (node : Node.t) =
              resolve_select_index esc ~extent ~index:(int_arg esc node "index")
            in
            let* y = select { Split.Select.axis; index = idx } (get "self") in
+           return [ y ]
+       (* One [Select_scatter] node: [self] with [src] written at [idx] along
+         the normalized axis, every other position carried through from
+         [self] unchanged -- the write-back counterpart of [select.int] just
+         above, sharing its axis normalization and
+         [resolve_select_index] canonicalisation verbatim. *)
+       | "torch.ops.aten.select_scatter.default" ->
+           let self_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank
+               (tensor_meta esc graph ~ssa:self_name ~role:`Select_scatter_input)
+           in
+           let d =
+             let dim = int_arg esc node "dim" in
+             let dim = if dim < 0 then dim + rank else dim in
+             if dim < 0 || dim >= rank then
+               malformed esc (`Axis_out_of_range { axis = dim; rank });
+             dim
+           in
+           let axis = List.nth (used_axes_for esc ~tensor:self_name rank) d in
+           let shape = tensor_shape esc graph self_name in
+           let extent = Vec6.get shape axis in
+           let idx =
+             resolve_select_index esc ~extent ~index:(int_arg esc node "index")
+           in
+           let* y =
+             select_scatter
+               { Split.Select_scatter.axis; index = idx }
+               ~self:(get "self") ~src:(get "src")
+           in
            return [ y ]
        (* Legalized to [Reshape] alone: inserting a size-1 axis never changes
          the linearized data order, so no [Slice] is needed, unlike

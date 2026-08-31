@@ -168,3 +168,75 @@ let%expect_test "Select: an out-of-range index has no Native result" =
     {|
     slice of axis C [4, 5) step 1 over extent 4 is not within 0 <= start <= stop <= extent
     slice of axis C [-1, 0) step 1 over extent 4 is not within 0 <= start <= stop <= extent |}]
+
+(* ---- Select_scatter --------------------------------------------------------
+
+   The write-back counterpart of [Select]: [self] everywhere except at
+   [index] of [axis], which reads [src] instead -- so the golden must show
+   BOTH that the untouched rows survive unchanged AND that the written row
+   reads [src], not [self]. [self] keeps the same h*100+w*10+c coding
+   [select_eval]'s fixture uses; [src] uses a disjoint 9000+w*10+c range so a
+   value from the wrong operand is legible rather than merely unequal. *)
+
+let pp_hwc shape ppf tensor =
+  let h = Dim.to_int (Vec6.get shape Axis.H)
+  and w = Dim.to_int (Vec6.get shape Axis.W)
+  and c = Dim.to_int (Vec6.get shape Axis.C) in
+  Format.fprintf ppf "%a@," Vec6.pp_shape shape;
+  for i = 0 to h - 1 do
+    for j = 0 to w - 1 do
+      for k = 0 to c - 1 do
+        let coord = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:i ~w:j ~c:k in
+        Format.fprintf ppf "%s%g"
+          (if j = 0 && k = 0 then "" else " ")
+          (Tensor.read tensor coord)
+      done
+    done;
+    Format.fprintf ppf "@,"
+  done
+
+let select_scatter_eval ~self_shape ~self ~src_shape ~src
+    (p : Split.Select_scatter.params) =
+  let module Sc = Split.Select_scatter.Compute (Direct) in
+  let open Err.Syntax in
+  let r =
+    let* out_shape =
+      Split.Select_scatter.output_shape ~self_shape ~src_shape p
+    in
+    Err.return (out_shape, Schedule.evaluate out_shape (Sc.pixel p ~self ~src))
+  in
+  Format.printf "@[<v>%a@]@."
+    (pp_result (fun ppf (shape, t) -> pp_hwc shape ppf t))
+    r
+
+let%expect_test
+    "Direct: select_scatter writes src at index and keeps self elsewhere" =
+  let self_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:2 in
+  let self =
+    Tensor.materialize self_shape (fun c ->
+        float_of_int ((row c * 100) + (col c * 10) + chan c))
+  in
+  let src_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:2 in
+  let src =
+    Tensor.materialize src_shape (fun c ->
+        float_of_int (9000 + (col c * 10) + chan c))
+  in
+  select_scatter_eval ~self_shape ~self ~src_shape ~src
+    { Split.Select_scatter.axis = Axis.H; index = 1 };
+  [%expect
+    {|
+    [H=2 W=3 C=2]
+    0 1 10 11 20 21
+    9000 9001 9010 9011 9020 9021 |}]
+
+let%expect_test
+    "Select_scatter: a src shape other than Select's own output has no Native \
+     result" =
+  let self_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:2 in
+  let src_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:3 in
+  Format.printf "%a@." (pp_result Vec6.pp_shape)
+    (Split.Select_scatter.output_shape ~self_shape ~src_shape
+       { Split.Select_scatter.axis = Axis.H; index = 1 });
+  [%expect
+    {|
+    select_scatter src shape must be [W=3 C=2] (axis=H index=1), got [W=3 C=3] |}]

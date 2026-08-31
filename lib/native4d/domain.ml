@@ -307,8 +307,12 @@ let check_node view (n : node) =
      [RepeatInterleave4] exists yet, so there is no axis-domain distinction
      to draw -- tracked in the Native4D counterpart backlog once a corpus
      model's frontier reaches one, the same way [Stack]/[Select] were before
-     their own counterparts landed. *)
-  | Index_tensor _ | Repeat _ | RepeatInterleave _ | Softmax _ -> unsupported ()
+     their own counterparts landed. [Select_scatter] joins them for the same
+     reason: no [Select_scatter4] exists yet, deliberately deferred the same
+     way [Repeat]/[RepeatInterleave] were at their own landing. *)
+  | Index_tensor _ | Repeat _ | RepeatInterleave _ | Select_scatter _
+  | Softmax _ ->
+      unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

@@ -386,6 +386,124 @@ let%expect_test "dispatch: select.int builds a single Select node" =
     outputs: [t1 f32 [C=3] <-n0]
     tensor f32 [C=3] {3, 7, 11} |}]
 
+(* ---- aten.select_scatter.default: ATen as the oracle ---------------------- *)
+
+(* One [Select_scatter] node -- real ATen is what proves it computes the
+   RIGHT tensor (self elsewhere, src at the written position), not merely one
+   of the right shape. [src] is filled from a disjoint range (100+) so a value
+   read from the wrong operand is legible rather than merely unequal. *)
+let select_scatter_verify ~self_sizes ~src_sizes ~dim ~index =
+  let self_n = List.fold_left ( * ) 1 self_sizes in
+  let src_n = List.fold_left ( * ) 1 src_sizes in
+  let self =
+    float_tensor self_sizes (List.init self_n (fun i -> float_of_int (i + 1)))
+  in
+  let src =
+    float_tensor src_sizes
+      (List.init src_n (fun i -> float_of_int (100 + i + 1)))
+  in
+  verify_print ~target:"torch.ops.aten.select_scatter.default"
+    ~bindings:[ ("self", self); ("src", src) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_tensor "src";
+        in_int "dim" dim;
+        in_int "index" index;
+      ]
+
+let%expect_test "verify: select_scatter on each axis of a rank-3 tensor" =
+  select_scatter_verify ~self_sizes:[ 3; 4; 5 ] ~src_sizes:[ 4; 5 ] ~dim:0
+    ~index:1;
+  select_scatter_verify ~self_sizes:[ 3; 4; 5 ] ~src_sizes:[ 3; 5 ] ~dim:1
+    ~index:2;
+  select_scatter_verify ~self_sizes:[ 3; 4; 5 ] ~src_sizes:[ 3; 4 ] ~dim:2
+    ~index:4;
+  [%expect
+    {|
+    aten and native agree
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "verify: select_scatter negative dim and negative index" =
+  select_scatter_verify ~self_sizes:[ 3; 4; 5 ] ~src_sizes:[ 3; 4 ] ~dim:(-1)
+    ~index:4;
+  select_scatter_verify ~self_sizes:[ 3; 4; 5 ] ~src_sizes:[ 3; 5 ] ~dim:1
+    ~index:(-1);
+  select_scatter_verify ~self_sizes:[ 3; 4; 5 ] ~src_sizes:[ 4; 5 ] ~dim:(-3)
+    ~index:(-3);
+  [%expect
+    {|
+    aten and native agree
+    aten and native agree
+    aten and native agree |}]
+
+let select_scatter_dispatch ~self_sizes ~src_sizes ~dim ~index =
+  let self_n = List.fold_left ( * ) 1 self_sizes in
+  let src_n = List.fold_left ( * ) 1 src_sizes in
+  let self =
+    float_tensor self_sizes (List.init self_n (fun i -> float_of_int (i + 1)))
+  in
+  let src =
+    float_tensor src_sizes
+      (List.init src_n (fun i -> float_of_int (100 + i + 1)))
+  in
+  dispatch_print ~target:"torch.ops.aten.select_scatter.default"
+    ~bindings:[ ("self", self); ("src", src) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_tensor "src";
+        in_int "dim" dim;
+        in_int "index" index;
+      ]
+    ~noutputs:1
+
+let%expect_test "dispatch: select_scatter rejects an out-of-range index" =
+  (* Same discipline as select.int: ATen does not clamp an out-of-range
+     index. *)
+  select_scatter_dispatch ~self_sizes:[ 3; 5 ] ~src_sizes:[ 3 ] ~dim:1 ~index:5;
+  select_scatter_dispatch ~self_sizes:[ 3; 5 ] ~src_sizes:[ 3 ] ~dim:1
+    ~index:(-6);
+  select_scatter_dispatch ~self_sizes:[ 3; 5 ] ~src_sizes:[ 5 ] ~dim:2 ~index:0;
+  [%expect
+    {|
+    error: index 5 is out of bounds for dimension with size 5
+    error: index -6 is out of bounds for dimension with size 5
+    error: select_scatter.default: invalid dimension 2 for rank 2 |}]
+
+(* [src]'s shape is untrusted model data, not re-derived from [self]/[axis]/
+   [index] -- this is the NATIVE shape check ([Select_scatter.output_shape]),
+   distinct from the ATen-level index rejection above. *)
+let%expect_test "dispatch: select_scatter rejects a src of the wrong shape" =
+  select_scatter_dispatch ~self_sizes:[ 3; 5 ] ~src_sizes:[ 4 ] ~dim:1 ~index:2;
+  [%expect
+    {| error: select_scatter src shape must be [C=3] (axis=C index=2), got [C=4] |}]
+
+(* One [Select_scatter] node, not a multi-node stand-in built from other
+   ops -- the graph shape is the fact this test pins, not just the value
+   [select_scatter_verify]'s ATen comparison already covers. *)
+let%expect_test "dispatch: select_scatter builds a single Select_scatter node" =
+  let self =
+    float_tensor [ 3; 4 ] (List.init 12 (fun i -> float_of_int (i + 1)))
+  in
+  let src = float_tensor [ 4 ] [ 900.; 901.; 902.; 903. ] in
+  dispatch_print_with_graph ~print_graph:true
+    ~target:"torch.ops.aten.select_scatter.default"
+    ~bindings:[ ("self", self); ("src", src) ]
+    ~inputs:
+      [ in_tensor "self"; in_tensor "src"; in_int "dim" 0; in_int "index" 1 ]
+    ~noutputs:1;
+  [%expect
+    {|
+    graph
+    inputs: [t0 f32 [W=3 C=4] ->[n0], t1 f32 [C=4] ->[n0]]
+    nodes:
+      n0: [t2 f32 [W=3 C=4]] =
+        select_scatter self=t0 src=t1 params={axis=W index=1}
+    outputs: [t2 f32 [W=3 C=4] <-n0]
+    tensor f32 [W=3 C=4] {1, 2, 3, 4, 900, 901, 902, 903, ...} |}]
+
 (* ---- aten.stack.default: ATen as the oracle ------------------------------ *)
 
 let in_tensors name names =
