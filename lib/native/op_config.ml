@@ -44,6 +44,7 @@ module Bad = struct
     | `Output_padding
     | `Output_size
     | `Padding
+    | `Repeats
     | `Split_size
     | `Stride ]
 
@@ -60,6 +61,7 @@ module Bad = struct
       | `Output_padding -> "output_padding"
       | `Output_size -> "output_size"
       | `Padding -> "padding"
+      | `Repeats -> "repeats"
       | `Split_size -> "split_size"
       | `Stride -> "stride")
 

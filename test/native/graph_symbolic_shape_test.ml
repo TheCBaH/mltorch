@@ -79,6 +79,73 @@ let%expect_test "Symbolic graph: reshape ground matches Direct" =
     ground = tensor f32 [C=6] {0, 1, 2, 3, 4, 5}
     ground matches direct: true |}]
 
+let%expect_test "Symbolic graph: repeat ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"repeat" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 2) ~name:"x" () in
+          repeat ~name:"out" { Repeat.Repeat.repeats = s1c 3 } x)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let x = Tensor.materialize (s1c 2) (fun c -> float_of_int (chan c)) in
+    let inputs = List.combine g.Graph.inputs [ x ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = t0[N+-1*N,T+-1*T,D+-1*D,H+-1*H,W+-1*W,C+-2*floor_div(C,2)]
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=6] {0, 1, 0, 1, 0, 1}
+    ground matches direct: true |}]
+
+let%expect_test "Symbolic graph: repeat_interleave ground matches Direct" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"repeat_interleave" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 2) ~name:"x" () in
+          repeat_interleave ~name:"out"
+            {
+              Repeat.RepeatInterleave.axis = Axis.C;
+              repeats = Op_config.Pos.of_int 3;
+            }
+            x)
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let x = Tensor.materialize (s1c 2) (fun c -> float_of_int (chan c)) in
+    let inputs = List.combine g.Graph.inputs [ x ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0
+    t1 = t0[N,T,D,H,W,floor_div(C,3)]
+    outputs: t1 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [C=6] {0, 0, 0, 1, 1, 1}
+    ground matches direct: true |}]
+
 (* Conv decomposition symbolically: the conv stage loads the permute stage's
    signature, and the final permute loads the conv stage's — i.e. symbolic
    execution extends through the whole graph by tensor signature. *)

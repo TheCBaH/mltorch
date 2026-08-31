@@ -45,6 +45,17 @@ module Expand_size : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(* [aten.repeat.default]'s [repeats] length checked against [self]'s OWN
+   declared rank ([self_dims]) -- ATen never reduces rank via repeat
+   (TensorShape.cpp: `repeats.size() < self.dim()` raises). Unlike
+   [Expand_size] there is no [-1] convention to resolve, so this has exactly
+   one fault. *)
+module Repeat_size : sig
+  type t = { repeats : int list; self_dims : int array }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 (* The canonical bounds of an [aten.slice.Tensor] along one axis: defaults
    applied, negatives normalized against the extent, both ends clamped into it.
    [start <= stop], both in [0, extent], and [step >= 1] by construction. What
@@ -78,6 +89,7 @@ type error =
   | `Expand_size of Expand_size.t
   | `Index_out_of_range of Index_bound.t
   | `Rank_out_of_range of rank_bound
+  | `Repeat_size of Repeat_size.t
   | `Slice_step of int
     (* A bare int, not a record: PyTorch's rule is "slice step must be
        positive" and the offending value is the whole fact. Which axis and
@@ -116,6 +128,15 @@ val resolve_view_size : numel:int64 -> int list -> (int list, [> error ]) Err.t
    callers. *)
 val resolve_expand_size :
   self_dims:int array -> size:int list -> (int list, [> error ]) Err.t
+
+(* Resolve [aten.repeat.default]'s [repeats] against [self_dims] (its OWN
+   declared ATen rank, not the frame's already-erased [Vec6.shape]). Unlike
+   [resolve_expand_size] there is no [-1] to substitute: [repeats] is
+   returned UNCHANGED once its length is at least [self_dims]'s rank (the
+   only fault). Positivity of each entry is left to the caller's own
+   [of_aten], the same split [resolve_expand_size] leaves it. *)
+val resolve_repeat_size :
+  self_dims:int array -> repeats:int list -> (int list, [> error ]) Err.t
 
 (* Resolve [aten.slice.Tensor]'s bounds along one axis, in PyTorch's own order:
    refuse a non-positive [step]; supply the defaults for an absent [start] (0)

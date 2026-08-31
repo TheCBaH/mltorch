@@ -15,6 +15,8 @@ let targets =
     "torch.ops.aten.expand.default";
     "torch.ops.aten.pad.default";
     "torch.ops.aten.permute.default";
+    "torch.ops.aten.repeat.default";
+    "torch.ops.aten.repeat_interleave.self_int";
     "torch.ops.aten.select.int";
     "torch.ops.aten.slice.Tensor";
     "torch.ops.aten.split.Tensor";
@@ -598,6 +600,64 @@ let dispatch ~ctx ~env (node : Node.t) =
                    resolve_expand esc ~tensor:x_name ~self_dims
                      (ints_arg esc node "size");
                }
+               (get "self")
+           in
+           return [ y ]
+       (* `repeat(Tensor self, SymInt[] repeats) -> Tensor`. Binds to the
+         genuinely new [Repeat.Repeat] via [resolve_repeat], which needs
+         [self]'s own ATen rank the same reason [resolve_expand] does (see
+         that arm's comment) -- unlike [expand.default]'s [size], [repeats]
+         has no [-1] convention, so there is nothing else to decode. *)
+       | "torch.ops.aten.repeat.default" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Repeat_input)
+           in
+           let shape = tensor_shape esc graph x_name in
+           let self_dims = Aten_shape.to_aten ~rank shape in
+           let* y =
+             repeat
+               {
+                 Repeat.Repeat.repeats =
+                   resolve_repeat esc ~tensor:x_name ~self_dims
+                     (ints_arg esc node "repeats");
+               }
+               (get "self")
+           in
+           return [ y ]
+       (* `repeat_interleave.self_int(Tensor self, SymInt repeats, int?
+         dim=None, *, SymInt? output_size=None) -> Tensor`, restricted to an
+         explicit [dim] -- the [dim=None] flatten-first form is a genuinely
+         different reshape+repeat composition, deferred until a model
+         demonstrates it (see [Repeat.RepeatInterleave]'s own comment).
+         [output_size] is read-and-discarded, the same treatment [implicit]
+         gets in [expand.default]'s arm above. *)
+       | "torch.ops.aten.repeat_interleave.self_int" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank
+               (tensor_meta esc graph ~ssa:x_name ~role:`Repeat_interleave_input)
+           in
+           let axis =
+             match int_opt_arg_opt esc node "dim" with
+             | None ->
+                 malformed esc
+                   (`Unsupported_option
+                      { op = node.target; option = `Repeat_interleave_dim })
+             | Some dim -> (
+                 match axes_for_rank esc ~tensor:x_name rank [ dim ] with
+                 | [ a ] -> a
+                 | _ ->
+                     invalid_arg
+                       "Native_interp: axes_for_rank lost its singleton")
+           in
+           let repeats =
+             pos esc ~op:node.target ~param:`Repeats
+               (int_arg esc node "repeats")
+           in
+           let* y =
+             repeat_interleave
+               { Repeat.RepeatInterleave.axis; repeats }
                (get "self")
            in
            return [ y ]

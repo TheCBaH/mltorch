@@ -828,6 +828,23 @@ let resolve_expand esc ~tensor ~self_dims size =
   in
   shape_of_sizes esc tensor (List.map (fun x -> SymInt.Int x) resolved)
 
+(* [repeat.default]'s [repeats], checked against [self_dims] ([self]'s own
+   ATen rank -- see [Aten_shape.resolve_repeat_size]'s comment for why this,
+   not [shape], is what the length check needs). Mirrors [resolve_expand]:
+   composed through [Err.Escape.or_throw], then handed to [shape_of_sizes]
+   for the same right-alignment every other importer arm uses -- unlike
+   [resolve_expand] there is no [-1] substitution first, since [repeats] has
+   no such convention. *)
+let resolve_repeat esc ~tensor ~self_dims repeats =
+  let bad_repeat fault : error = `Bad_repeat { Bad_repeat.repeats; fault } in
+  let resolved =
+    Err.Escape.or_throw esc
+      (Err.map_error
+         (fun e -> bad_repeat (`Aten_shape e))
+         (Aten_shape.resolve_repeat_size ~self_dims ~repeats))
+  in
+  shape_of_sizes esc tensor (List.map (fun x -> SymInt.Int x) resolved)
+
 (* Shared by [upsample_bilinear2d.vec]/[upsample_nearest2d.vec]'s arms: both
    schemas are `(Tensor input, SymInt[]? output_size, ..., float[]?
    scale_factors)`, and ATen's own `compute_output_size` accepts exactly one

@@ -87,6 +87,8 @@ type op =
   | Permute of Permute.Permute.t
   | Pow of Pointwise.Pow.t
   | Relu of Pointwise.Relu.t
+  | Repeat of Repeat.Repeat.t
+  | RepeatInterleave of Repeat.RepeatInterleave.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
   | Sdpa of Attention.Sdpa.t

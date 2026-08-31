@@ -337,6 +337,13 @@ let pow ?name scalar x =
 
 let relu ?name x = op1 ?name ~kind:"relu" (Relu { Pointwise.Relu.x })
 
+let repeat ?name params x =
+  op1 ?name ~kind:"repeat" (Repeat { Repeat.Repeat.params; x })
+
+let repeat_interleave ?name params x =
+  op1 ?name ~kind:"repeat_interleave"
+    (RepeatInterleave { Repeat.RepeatInterleave.params; x })
+
 let reshape ?name params x =
   op1 ?name ~kind:"reshape" (Reshape { Reshape.Reshape.params; x })
 

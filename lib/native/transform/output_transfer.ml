@@ -59,8 +59,17 @@ let classify (op : op) ~output =
      -- no arithmetic on any of them, so [Reindexing] for the same reason
      [Upsample_nearest2d] is, not [Continuous] the way a binary op that READS
      through the same helper but then combines two operands would be. *)
-  | Concat _ | Expand _ | Select _ | Slice _ | Split_with_sizes _ | Stack _
-  | Unbind _ | Upsample_nearest2d _ ->
+  (* [Repeat] is the wraparound gather [Expand]'s broadcast is the degenerate
+     case of: every output reads exactly one input element, taken MODULO the
+     source extent on each axis independently ([Repeat.Compute.pixel]'s own
+     "mod x d = x - d*(x/d)"), rather than clamped to index 0 the way a
+     broadcast axis is -- still no arithmetic on the read element, so
+     [Reindexing] for the same reason. [RepeatInterleave] is the same
+     argument on one named axis, read at [out / repeats] (floor division)
+     rather than modulo -- still one input element per output, no
+     arithmetic. *)
+  | Concat _ | Expand _ | Repeat _ | RepeatInterleave _ | Select _ | Slice _
+  | Split_with_sizes _ | Stack _ | Unbind _ | Upsample_nearest2d _ ->
       Reindexing
   (* [Pad] is NOT reindexing, and the mode is why the honest answer is one class
      rather than two. In [Constant] mode the padded cells are a synthesized fill

@@ -261,6 +261,14 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* x_shape = shape x in
       let+ out = widen (Pointwise.Relu.output_shape x_shape) in
       [ out ]
+  | Repeat { Repeat.Repeat.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Repeat.Repeat.output_shape ~x_shape params) in
+      [ out ]
+  | RepeatInterleave { Repeat.RepeatInterleave.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Repeat.RepeatInterleave.output_shape ~x_shape params) in
+      [ out ]
   | Reshape { Reshape.Reshape.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Reshape.Reshape.output_shape ~x_shape params) in

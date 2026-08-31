@@ -488,6 +488,73 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = expand { Pointwise.Expand.size = target } x_id in
                [ y ]
            | _ -> assert false))
+  (* `repeat(Tensor self, SymInt[] repeats) -> Tensor`. [repeats] is checked
+     against [self]'s own ATen rank ([Aten_shape.resolve_repeat_size], the
+     same split [expand.default]'s arm above makes for [size]) then
+     right-aligned into the frame with [of_aten] -- unlike [expand]'s [size],
+     [repeats] has no [-1] convention to resolve first, so there is no
+     translation step between the two. Binds to the genuinely new
+     [Repeat.Repeat]: each output element is the source element at the
+     output coordinate MODULO the source extent, independently per axis
+     ([Repeat.Repeat.Compute.pixel]), not a broadcast. *)
+  | "torch.ops.aten.repeat.default" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let* repeats = ints_arg node "repeats" in
+         let* resolved =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.resolve_repeat_size ~self_dims:(Aten_tensor.shape t)
+                ~repeats)
+         in
+         let* target =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.of_aten (Array.of_list resolved))
+         in
+         let* x = native_of_aten "self" t in
+         build_g ~name:"repeat" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = repeat { Repeat.Repeat.repeats = target } x_id in
+               [ y ]
+           | _ -> assert false))
+  (* `repeat_interleave.self_int(Tensor self, SymInt repeats, int? dim=None,
+     *, SymInt? output_size=None) -> Tensor`, restricted to an explicit
+     [dim] -- the [dim=None] flatten-first form is a genuinely different
+     reshape+repeat composition, deferred until a model demonstrates it (see
+     [Repeat.RepeatInterleave]'s own comment). [output_size] is
+     read-and-discarded, the same treatment [implicit] gets in the
+     [expand.default] arm above: it exists only so a Tensor-valued [repeats]
+     can skip a device sync, and this is the SymInt-scalar overload. *)
+  | "torch.ops.aten.repeat_interleave.self_int" ->
+      Some
+        (let op = "repeat_interleave.self_int" in
+         let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let* dim = int_opt_arg node "dim" in
+         let* dim =
+           match dim with
+           | Some d -> return d
+           | None ->
+               fail
+                 (`Validation_failure
+                    (op ^ ": dim=None (flatten-first) is not yet supported"))
+         in
+         let* axis = dim_axis ~op ~rank dim in
+         let* repeats_int = int_arg node "repeats" in
+         let* repeats = pos ~op ~param:`Repeats repeats_int in
+         let* x = native_of_aten "self" t in
+         build_g ~name:"repeat_interleave" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y =
+                 repeat_interleave
+                   { Repeat.RepeatInterleave.axis; repeats }
+                   x_id
+               in
+               [ y ]
+           | _ -> assert false))
   (* [zeros(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None,
      Device? device=None, bool? pin_memory=None) -> Tensor].  This is a real
      factory, not a fill disguised as an input-free pointwise op: shape and

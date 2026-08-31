@@ -70,17 +70,15 @@ end
    [Graph_builder] call or a JSON-decoded graph too, not just this resolver
    (the same split [resolve_slice]'s clamp vs. [Slice.output_shape]'s empty
    check makes). *)
+let pp_ints ppf l = Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Fmt.int) l
+let pp_dims ppf a = Fmt.pf ppf "[%a]" (Fmt.array ~sep:(Fmt.any ", ") Fmt.int) a
+
 module Expand_size = struct
   type t = {
     size : int list;
     self_dims : int array;
     fault : [ `Leading_inferred of int | `Rank_too_small ];
   }
-
-  let pp_ints ppf l = Fmt.pf ppf "[%a]" (Fmt.list ~sep:(Fmt.any ", ") Fmt.int) l
-
-  let pp_dims ppf a =
-    Fmt.pf ppf "[%a]" (Fmt.array ~sep:(Fmt.any ", ") Fmt.int) a
 
   let pp ppf { size; self_dims; fault } =
     match fault with
@@ -94,6 +92,20 @@ module Expand_size = struct
           "expand size %a: -1 at position %d is not allowed for a leading \
            dimension self (shape %a) does not have"
           pp_ints size i pp_dims self_dims
+end
+
+(* [aten.repeat.default]'s only fault: unlike [Expand_size], [repeats] has no
+   [-1] convention to resolve, so this is a length check alone -- ATen never
+   reduces rank via repeat (TensorShape.cpp: `repeats.size() < self.dim()`
+   raises). *)
+module Repeat_size = struct
+  type t = { repeats : int list; self_dims : int array }
+
+  let pp ppf { repeats; self_dims } =
+    Fmt.pf ppf
+      "repeat repeats %a must have at least as many entries as self's shape %a \
+       (rank %d)"
+      pp_ints repeats pp_dims self_dims (Array.length self_dims)
 end
 
 module Slice_bounds = struct
@@ -125,6 +137,7 @@ type error =
   | `Expand_size of Expand_size.t
   | `Index_out_of_range of Index_bound.t
   | `Rank_out_of_range of rank_bound
+  | `Repeat_size of Repeat_size.t
   | `Slice_step of int
   | `View_size of View_size.t ]
 
@@ -134,6 +147,7 @@ let pp_error ppf : error -> unit = function
   | `Index_out_of_range e -> Index_bound.pp ppf e
   | `Rank_out_of_range { rank; lo; hi } ->
       Format.fprintf ppf "rank %d out of [%d, %d]" rank lo hi
+  | `Repeat_size e -> Repeat_size.pp ppf e
   | `Slice_step step ->
       Format.fprintf ppf "slice step must be >= 1, got %d" step
   | `View_size e -> View_size.pp ppf e
@@ -289,3 +303,18 @@ let resolve_expand_size ~(self_dims : int array) ~(size : int list) =
           if dim < 0 then fail (`Leading_inferred i)
           else Err.return self_dims.(dim))
       (List.mapi (fun i v -> (i, v)) size)
+
+(* [aten.repeat.default]'s [repeats], checked against [self_dims] (its OWN
+   declared ATen rank -- the same reason [resolve_expand_size] needs
+   [self_dims] rather than the frame's already-erased [Vec6.shape]). Unlike
+   [resolve_expand_size] there is no per-entry [-1] to resolve: [repeats] is
+   returned UNCHANGED once its length clears [self_dims]'s rank, since every
+   right-aligned position -- including one beyond [self]'s own rank, which
+   ATen treats as an implicit new leading axis of extent 1 to tile -- needs
+   only [of_aten]'s ordinary right-alignment downstream, not a value
+   substitution. Positivity of each entry is [of_aten]'s job, the same split
+   [resolve_expand_size] leaves it. *)
+let resolve_repeat_size ~(self_dims : int array) ~(repeats : int list) =
+  if List.length repeats < Array.length self_dims then
+    Err.fail (`Repeat_size { Repeat_size.repeats; self_dims })
+  else Err.return repeats

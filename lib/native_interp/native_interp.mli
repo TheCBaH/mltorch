@@ -89,6 +89,8 @@ type metadata_role =
   | `Mean_input
   | `Pad_input
   | `Permute_input
+  | `Repeat_input
+  | `Repeat_interleave_input
   | `Rms_norm_input
     (** [rms_norm] reads the INPUT's metadata, not a weight's:
         [normalized_shape] is checked against the input's trailing extents,
@@ -150,6 +152,7 @@ type unsupported_option =
   | `Dtype
   | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
   | `Momentum of float
+  | `Repeat_interleave_dim
   | `Training of bool
   | `Vector_norm_ord of float ]
 (** Options this lowering rejects rather than silently drops: a non-unit [alpha]
@@ -166,7 +169,12 @@ type unsupported_option =
     [`Approximate] is [gelu.default]'s [approximate] parameter: only ["none"]
     (the exact, erf-based form) and ["tanh"] (PyTorch's tanh approximation) are
     implemented, so any other spelling is rejected by name rather than silently
-    computing the wrong formula under the right op. *)
+    computing the wrong formula under the right op.
+
+    [`Repeat_interleave_dim] is [repeat_interleave.self_int]'s absent [dim]: the
+    [None] form flattens [self] first, a genuinely different reshape-then-repeat
+    composition from the explicit-axis form {!Repeat.RepeatInterleave}
+    implements, deferred until a model demonstrates it. *)
 
 type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
 (** Two different rejections, not one with a message. Both recoverable — see
@@ -273,6 +281,15 @@ module Bad_expand : sig
   type t = { size : int list; fault : [ `Aten_shape of Aten_shape.error ] }
 end
 
+(** A [repeat.default] [repeats] {!Aten_shape.resolve_repeat_size} refuses:
+    fewer entries than [self]'s own rank -- its only fault, since unlike
+    {!Bad_expand}'s [size] there is no [-1] convention to substitute. Carries
+    the SERIALIZED [repeats], the same reason {!Bad_expand} carries its raw
+    [size]. *)
+module Bad_repeat : sig
+  type t = { repeats : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+end
+
 (** A [slice.Tensor] request {!Aten_shape.resolve_slice} refuses — today only a
     non-positive step, which ATen refuses too. Carries the SERIALIZED spelling,
     optionals and all, because that is what a reader has to change; the
@@ -357,6 +374,7 @@ type malformed =
         refused", while an unknown mode is not recognised at all. *)
   | `Bad_dimension of Bad_dimension.t
   | `Bad_expand of Bad_expand.t
+  | `Bad_repeat of Bad_repeat.t
   | `Bad_select of Bad_select.t
   | `Bad_slice of Bad_slice.t
   | `Bad_upsample_size of Bad_upsample_size.t

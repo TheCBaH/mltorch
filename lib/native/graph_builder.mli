@@ -208,6 +208,10 @@ val permute :
 
 val pow : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 val relu : ?name:string -> tensor_ref -> Tensor_id.t t
+val repeat : ?name:string -> Repeat.Repeat.params -> tensor_ref -> Tensor_id.t t
+
+val repeat_interleave :
+  ?name:string -> Repeat.RepeatInterleave.params -> tensor_ref -> Tensor_id.t t
 
 val reshape :
   ?name:string -> Reshape.Reshape.params -> tensor_ref -> Tensor_id.t t

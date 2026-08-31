@@ -52,6 +52,8 @@ type op =
   | Permute of Permute.Permute.t
   | Pow of Pointwise.Pow.t
   | Relu of Pointwise.Relu.t
+  | Repeat of Repeat.Repeat.t
+  | RepeatInterleave of Repeat.RepeatInterleave.t
   | Reshape of Reshape.Reshape.t
   | Rms_norm of Norm.RmsNorm.t
   | Sdpa of Attention.Sdpa.t
@@ -331,6 +333,18 @@ let op_registry : (module OP) list =
 
       let inject t = Relu t
       let project = function Relu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Repeat.Repeat
+
+      let inject t = Repeat t
+      let project = function Repeat t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Repeat.RepeatInterleave
+
+      let inject t = RepeatInterleave t
+      let project = function RepeatInterleave t -> Some t | _ -> None
     end : OP);
     (module struct
       include Reshape.Reshape

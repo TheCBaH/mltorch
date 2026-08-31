@@ -88,6 +88,8 @@ type metadata_role =
   | `Mean_input
   | `Pad_input
   | `Permute_input
+  | `Repeat_input
+  | `Repeat_interleave_input
   | `Rms_norm_input
   | `Rms_norm_weight
   | `Sdpa_key
@@ -137,6 +139,7 @@ type unsupported_option =
   | `Dtype
   | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ]
   | `Momentum of float
+  | `Repeat_interleave_dim
   | `Training of bool
   | `Vector_norm_ord of float ]
 
@@ -211,6 +214,13 @@ module Bad_expand = struct
   type t = { size : int list; fault : [ `Aten_shape of Aten_shape.error ] }
 end
 
+(* [aten.repeat.default]'s own resolution failure, wrapping
+   [Aten_shape.resolve_repeat_size]'s error the same way [Bad_expand] wraps
+   [resolve_expand_size]'s -- see that module's comment. *)
+module Bad_repeat = struct
+  type t = { repeats : int list; fault : [ `Aten_shape of Aten_shape.error ] }
+end
+
 module Bad_slice = struct
   type t = {
     start : int option;
@@ -281,6 +291,7 @@ type malformed =
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
   | `Bad_dimension of Bad_dimension.t
   | `Bad_expand of Bad_expand.t
+  | `Bad_repeat of Bad_repeat.t
   | `Bad_select of Bad_select.t
   | `Bad_slice of Bad_slice.t
   | `Bad_upsample_size of Bad_upsample_size.t
@@ -392,6 +403,8 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Mean_input -> Fmt.string ppf "mean input"
   | `Pad_input -> Fmt.string ppf "pad input"
   | `Permute_input -> Fmt.string ppf "permute input"
+  | `Repeat_input -> Fmt.string ppf "repeat input"
+  | `Repeat_interleave_input -> Fmt.string ppf "repeat_interleave input"
   | `Rms_norm_input -> Fmt.string ppf "rms_norm input"
   | `Rms_norm_weight -> Fmt.string ppf "rms_norm weight"
   | `Sdpa_key -> Fmt.string ppf "sdpa key"
@@ -451,6 +464,12 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       match fault with
       | `Aten_shape e ->
           Fmt.pf ppf "expand size [%a]: %a" ints size Aten_shape.pp_error e)
+  | `Bad_repeat { Bad_repeat.repeats; fault } -> (
+      let ints = Fmt.(list ~sep:(any ", ") int) in
+      match fault with
+      | `Aten_shape e ->
+          Fmt.pf ppf "repeat repeats [%a]: %a" ints repeats Aten_shape.pp_error
+            e)
   | `Bad_select { Bad_select.index; fault } -> (
       match fault with
       | `Aten_shape e ->
@@ -559,6 +578,9 @@ let pp_malformed ppf : [< malformed ] -> unit = function
             | `Unknown -> "unknown")
       | `Momentum momentum ->
           Fmt.pf ppf "%s: momentum=%g is not supported (only 0)" op momentum
+      | `Repeat_interleave_dim ->
+          Fmt.pf ppf
+            "%s: dim=None (flatten-first) is not supported (dim required)" op
       | `Training training ->
           Fmt.pf ppf "%s: training=%b is not supported (only true)" op training
       | `Vector_norm_ord o ->

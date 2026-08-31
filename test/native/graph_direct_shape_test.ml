@@ -72,6 +72,52 @@ let%expect_test "Direct graph: reshape [H=2 W=3 C=1] -> [C=6] (flatten)" =
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
   [%expect {| out = tensor f32 [C=6] {0, 1, 2, 3, 4, 5} |}]
 
+let%expect_test "Direct graph: repeat [C=2] by [C:3] wraps" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"repeat" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 2) ~name:"x" () in
+          repeat ~name:"out" { Repeat.Repeat.repeats = s1c 3 } x)
+    in
+    let x = Tensor.materialize (s1c 2) (fun c -> float_of_int (chan c)) in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=6] {0, 1, 0, 1, 0, 1} |}]
+
+let%expect_test
+    "Direct graph: repeat_interleave [C=2] by 3 duplicates each element" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"repeat_interleave" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 2) ~name:"x" () in
+          repeat_interleave ~name:"out"
+            {
+              Repeat.RepeatInterleave.axis = Axis.C;
+              repeats = Op_config.Pos.of_int 3;
+            }
+            x)
+    in
+    let x = Tensor.materialize (s1c 2) (fun c -> float_of_int (chan c)) in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [C=6] {0, 0, 0, 1, 1, 1} |}]
+
 (* Conv decomposition. The input is laid out NCHW: in the 6D frame its channel sits
    on H, spatial-H on W, spatial-W on C. Two permutes bracket a native (NHWC)
    conv: NCHW->NHWC moves the channel to C and the spatial axes to H/W; NHWC->NCHW

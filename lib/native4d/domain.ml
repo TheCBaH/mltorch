@@ -303,7 +303,12 @@ let check_node view (n : node) =
      counterpart to legalize onto), Softmax has no `Ops4` counterpart at any
      axis, so there is no admissible case to let through -- see
      .ai/matmul_softmax_design.md §3. *)
-  | Index_tensor _ | Softmax _ -> unsupported ()
+  (* Same "dialect does not have it at all" answer: neither [Repeat4] nor
+     [RepeatInterleave4] exists yet, so there is no axis-domain distinction
+     to draw -- tracked in the Native4D counterpart backlog once a corpus
+     model's frontier reaches one, the same way [Stack]/[Select] were before
+     their own counterparts landed. *)
+  | Index_tensor _ | Repeat _ | RepeatInterleave _ | Softmax _ -> unsupported ()
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but
