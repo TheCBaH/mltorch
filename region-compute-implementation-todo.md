@@ -32,65 +32,68 @@ tiling, graph fusion, or SDPA follow-ons.
 
 ### Gate 0
 
-- [ ] Record the selected provenance seam and all affected Kernel consumers.
-- [ ] Add deterministic counters for keys, local/emitter evaluations, loads,
+- [x] Record the selected provenance seam and all affected Kernel consumers.
+- [x] Add deterministic counters for keys, local/emitter evaluations, loads,
   and reduction iterations.
-- [ ] Add baseline fixtures and benchmarks for RMSNorm, LayerNorm, and
+- [x] Add baseline fixtures and benchmarks for RMSNorm, LayerNorm, and
   Softmax across several reduction extents.
-- [ ] Record compiler, machine, sample count, and baseline measurements.
+- [x] Record compiler, machine, sample count, and baseline measurements.
 
 ### Gate 1
 
-- [ ] Define the private regionizer/candidate/rejection interface.
-- [ ] Thread typed operation provenance to that boundary without adding it to
+- [x] Define the private regionizer/candidate/rejection interface.
+- [x] Thread typed operation provenance to that boundary without adding it to
   `Kernel.Value` or changing default `of_stage_program` behavior.
-- [ ] Centralize validation, reconstruction, limit, and Pixel-fallback rules.
-- [ ] Test accepted replacement and every rejection/fallback case.
+- [x] Centralize validation, reconstruction, limit, and Pixel-fallback rules.
+- [x] Test accepted replacement and every rejection/fallback case.
 
 ### Gate 2
 
-- [ ] Define lowered scalar-Region execution IR.
-- [ ] Lower a non-degenerate Foundation program once per logical value.
-- [ ] Execute locals once per key and the emitter once per owned output.
-- [ ] Retain `Region_eval` only as an oracle, not a materialization mechanism.
-- [ ] Prove traversal, result conversion, counters, and Pixel hot-path
+- [x] Define lowered scalar-Region execution IR.
+- [x] Lower a non-degenerate Foundation program once per logical value.
+- [x] Execute locals once per key and the emitter once per owned output.
+- [x] Retain `Region_eval` only as an oracle, not a materialization mechanism.
+- [x] Prove traversal, result conversion, counters, and Pixel hot-path
   preservation on Native and JavaScript.
 
 ### Gate 3
 
-- [ ] Implement RMSNorm selection, `Whole params.dims`, and ordered locals.
-- [ ] Preserve optional weight, epsilon, normalized-axis order, and fallback.
-- [ ] Prove reconstruction and bitwise oracle agreement.
-- [ ] Record linear-per-slice reduction counters and benchmark evidence.
+- [x] Implement RMSNorm selection, `Whole params.dims`, and ordered locals.
+- [x] Preserve optional weight, epsilon, normalized-axis order, and fallback.
+- [x] Prove reconstruction and bitwise oracle agreement.
+- [x] Record linear-per-slice reduction counters and benchmark evidence.
 
 ### Gate 4
 
-- [ ] Implement LayerNorm sum/mean/variance/inverse local sequence.
-- [ ] Preserve stable two-pass variance and optional affine operands.
-- [ ] Prove dependent-local scope, reconstruction, and bitwise agreement.
-- [ ] Record two linear reduction passes per slice.
+- [x] Implement LayerNorm sum/mean/variance/inverse local sequence.
+- [x] Preserve stable two-pass variance and optional affine operands.
+- [x] Prove dependent-local scope, reconstruction, and bitwise agreement.
+- [x] Record two linear reduction passes per slice.
 
 ### Gate 5
 
-- [ ] Implement plain Softmax max/denominator local sequence for every axis.
-- [ ] Preserve all-`-inf` behavior and explicitly reject safe-softmax/SDPA.
-- [ ] Prove reconstruction and bitwise agreement for adversarial rows.
-- [ ] Record linear max/denominator/emission work per row.
+- [x] Implement plain Softmax max/denominator local sequence for every axis.
+- [x] Preserve all-`-inf` behavior and explicitly reject safe-softmax/SDPA.
+- [x] Prove reconstruction and bitwise agreement for adversarial rows.
+- [x] Record linear max/denominator/emission work per row.
 
 ### Gate 6
 
-- [ ] Alternate Pixel/Region benchmarks and record counts, allocation, and
+- [x] Alternate Pixel/Region benchmarks and record counts, allocation, and
   timing evidence.
-- [ ] Run full Native, Model Explorer, Native4D, and JavaScript verification.
-- [ ] Audit the lowered Region and unconverted Pixel hot paths.
-- [ ] Update design records with final APIs, measurements, and deferrals.
+- [x] Run full Native, Model Explorer, Native4D, and JavaScript verification.
+- [x] Audit the lowered Region and unconverted Pixel hot paths.
+- [x] Update design records with final APIs, measurements, and deferrals.
 
 ## Decisions and evidence
 
 - `Eval_symbolic.run_regionized` is the selected provenance seam. It retains
   each typed `Graph_ir.op`, operands, output ordinal, symbolic Pixel expression,
-  and any synthetic optional-operand constants until `Regionizer` has made its
-  candidate. `Eval_symbolic.run` and `Kernel_adapt.of_stage_program` remain
+  and any synthetic optional-operand constants until `Regionizer` dispatches to
+  the typed operation's Region constructor. `Norm.RmsNorm.Region`,
+  `Norm.LayerNorm.Region`, and `Reduce.Softmax.Region` own the declarative
+  operation-specific programs; `Regionizer` owns only that provenance dispatch.
+  `Eval_symbolic.run` and `Kernel_adapt.of_stage_program` remain
   Pixel-only by default; `Region_kernel.of_graph` opts into candidate admission.
 - `Kernel_adapt.Region_admission` is the sole admission boundary. An
   unsupported, invalid, reconstruction-failing, or limit-rejected candidate
@@ -103,7 +106,8 @@ tiling, graph fusion, or SDPA follow-ons.
 - The executor's only mutable state is scoped to its destination tensor,
   fixed scalar-local array, and optional test counters. The first two are the
   required storage for key-first traversal; counters are omitted from ordinary
-  execution.
+  execution. `Region_execution` documents these as the explicit mutation
+  exceptions; no mutable reference is used for ordinary Region control flow.
 - RMSNorm uses `sumsq` then inverse-scale locals; LayerNorm uses ordered sum,
   mean, variance-sum, and inverse-scale locals; Softmax uses max and
   denominator locals. Each preserves the existing `Compute.pixel` ordering,
@@ -126,3 +130,4 @@ tiling, graph fusion, or SDPA follow-ons.
 | 2026-08-31 | 0-6 | `make precommit` | pass | Native, Native4D, and Model Explorer inline suites passed. |
 | 2026-08-31 | 2-6 | `make benchmark.region_compute` | pass | Alternating Pixel/Region timing, allocation, and counters at extents 8/32/64. |
 | 2026-08-31 | 2-6 | `make js.runtest` | pass | js_of_ocaml and Melange outputs matched Native. |
+| 2026-08-31 | 0-6 | `make precommit`, `make js.runtest`, `make benchmark.region_compute` | pass | Revalidated after operation-owned Region constructor refactor (`e605361`). |
