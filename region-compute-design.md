@@ -24,8 +24,11 @@ A schedule tile is the positive locality mechanism used for Conv and fused
 stencil execution: it bounds an output block, its required input/weight
 footprints, its accumulators, and its node-local storage.  An output region
 states semantic sharing and ownership; a schedule tile selects a physical
-blocking of that computation.  The selected Kernel Region records the tile as
-a concrete `Block` partition and explicit locals.
+blocking of that computation.  A physical tile is not automatically part of a
+`Region_program`: changing it must not change the program's meaning, local
+lifetime, or floating-point order.  A future `Block` partition is appropriate
+only when the block itself owns an explicit Region local or ordered phase.  A
+plain Conv/pointwise locality tile belongs exclusively to the schedule.
 
 "Sharing region" is slightly more descriptive, but `output region` fits the
 existing vocabulary (`output shape`, `output coordinate`) and does not imply a
@@ -133,12 +136,14 @@ type axis_region =
 ```
 
 `Singleton`/`Whole` is sufficient for the near-term operation definitions.
-`Block` appears in an instantiated Kernel Region after a tiling transformation.
-The Conv source program does not hard-code one machine tile size: schedule
-selection chooses block extents, inserts the corresponding locals/phases, and
-produces the Region program that the selected Kernel records.  Loop lowering
-may still sub-block copy or emission loops without changing the declared local
-lifetime.
+`Block` is reserved for a Region program whose block owns explicit locals or
+ordered phases.  A normal physical schedule may tile any Pixel-form program
+without changing its Region partition.  When a lowering chooses to reify cache
+or accumulator lifetime for inspection and reuse, it selects checked block
+extents, inserts the corresponding locals/phases, and produces an instantiated
+Region program.  The Conv source program therefore never hard-codes one
+machine tile size.  Loop lowering may still sub-block copy or emission loops
+without changing the declared local lifetime.
 
 The representation must establish that regions form a disjoint, complete
 partition of the output domain.  This makes every output have exactly one
@@ -857,9 +862,10 @@ graph fusion and attention then add shaped local state on the same foundation.
 ## 8. Operation tiling and fusion
 
 Source-level sharing regions and physical schedule tiles solve different
-problems and compose through Region-to-Region transformation.  Required sharing
-comes from the operation; chosen locality blocks are reified in the selected
-Kernel Region before Loop lowering.
+problems.  A tile may remain an execution-only choice; when its cache or
+accumulator lifetime needs to be explicit and inspectable, lowering can reify
+it as a derived Region-to-Region transformation.  Required sharing comes from
+the operation; locality blocks remain schedule-selected in either case.
 
 ### Tiling one operation
 
@@ -877,7 +883,7 @@ Thus a schedule needs to distinguish:
 - splitting a reduction into partial folds;
 - placement and lifetime of locals across those loops.
 
-### Conv tiling is a Region-to-Region transformation
+### Conv tiling can be a Region-to-Region transformation
 
 Conv2D begins as a Pixel-form Region program.  Its emitter contains the current
 ordered nested contraction for one output coordinate.  A tiling pass selects an
@@ -900,9 +906,11 @@ Tiled Conv Region
 Both programs use the same load/index/arithmetic/reduction language.  The
 second program makes reuse and lifetime explicit; it is not a new Conv graph
 operation.  The tiling transformation carries an `Identical` or `Equivalent`
-claim and is checked against the source Pixel-form program.  The selected
-Kernel stores the transformed Region program, so the implemented computation
-and its local reuse are inspectable rather than implicit backend behavior.
+claim and is checked against the source Pixel-form program.  A backend may
+instead keep this tile execution-only when its buffers/lifetimes do not need a
+Region-level contract.  When it is reified, the selected Kernel stores the
+transformed Region program, so the implemented computation and its local reuse
+are inspectable rather than implicit backend behavior.
 
 For an output-height block `[oh0, oh1)`, the required input-height coordinates
 are the union of the current Conv windows:

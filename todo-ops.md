@@ -12,7 +12,7 @@ records detailed implementation decisions and the latter defines the support
 contract.  This file is the compact, corpus-derived queue that connects that
 contract to the next work items.
 
-Status: 2026-08-30 (`adaptive_max_pool2d.default` landing).
+Status: 2026-08-31 (`Softmax4` landing).
 
 ## Priority model: breadth first, then depth
 
@@ -95,9 +95,9 @@ demonstrated end-to-end blocker.
 | Tracked graphs / architecture families | 100 / 40 |
 | Raw ATen graph nodes | 30,717 |
 | Distinct ATen target names | 85 |
-| Target names lowered by Native and present in corpus | 51 (30,167 nodes) |
-| Present target names without a Native lowering arm | 34 (550 nodes) |
-| `native_builds:true` in the support sweep | 87 / 100 |
+| Target names lowered by Native and present in corpus | 52 (30,179 nodes) |
+| Present target names without a Native lowering arm | 33 (538 nodes) |
+| `native_builds:true` in the support sweep | 89 / 100 |
 | Native4D conversions / kernel conversions | 56 / 100; 63 / 100 |
 | Graphs successful in Native, Native4D, and Kernel | 43 / 100 |
 
@@ -398,6 +398,50 @@ counterpart-backlog rows; otherwise `lstm.input` from the deferred backlog
 one-model slices (`conv1d`/`unfold`, `im2col`/`col2im`,
 `upsample_bicubic2d`).
 
+**2026-08-30, `eye.m` landed** (full-stack Native + a full `Eye4` Native4D
+counterpart; see `ops-progress.md`'s landing record). Follows `zeros.
+default`/`arange`'s own precedent directly (a genuine no-operand factory,
+not a decomposition), including their `eval_direct.ml` dtype-fidelity
+bypass; `Aten_shape.of_aten` right-aligns eye.m's rank-2 `[n; m]` onto the
+frame's `[W; C]` axes unconditionally, so `Eye4` needs no axis-domain
+rejection the way `Zeros4` doesn't either. `bat_resnext26ts` now reaches
+`native_builds:true` (was `false`), stopping at a genuine intrinsic `axis
+D is outside the N/H/W/C dialect` wall later in the same graph — Native-
+only, deliberately bounded territory, not further Native4D work.
+`native_builds` moves 88→89; `native4d_converts`/`kernel_converts`/
+all-three-stages unchanged (56/63/43), since `bat_resnext26ts` stays
+`native4d_converts:false`/`kernel_converts:false` either way (the kernel
+stage is separately capped by the pre-existing evaluation-depth ceiling).
+
+**Next priority**: `Softmax4` and live max-pool indices/`IndexTensor4`
+remain the two open-ended Native4D counterpart-backlog rows; otherwise
+`lstm.input` from the deferred backlog (36 occurrences, Sequencer2D's own
+first frontier), or P1's remaining one-model slices (`conv1d`/`unfold`,
+`im2col`/`col2im`, `upsample_bicubic2d`).
+
+**2026-08-31, `Softmax4` landed** (full-stack Native4D counterpart; see
+`ops-progress.md`'s landing record). Reuses `Reduce.Softmax`'s own
+`output_shape`/`Compute` unchanged, softmax's `Axis.t` narrowed to
+`Axis4.t` the same way `RepeatInterleave4`'s single named axis is — softmax
+never drops rank, so unlike `Amax`/`Mean`/`Vector_norm` there is no
+keepdim-vs-drop distinction to restate, and unlike `RepeatInterleave4` the
+axis check is the WHOLE domain gate rather than a diagnostic-consistency
+extra, since the output shape (`x`'s own, unchanged) never depends on which
+axis is reduced. No corpus model is currently gated on `Softmax4` (per this
+file's own note at the row's original addition), so `native_builds`/
+`native4d_converts`/`kernel_converts`/all-three-stages are unchanged
+(89/56/63/43) and the corpus signal (`make pt2.json-model-support`) did not
+change. Landing this also retired the `Sdpa_batch_axis` diagnostic's stale
+"(Native has no Bmm or softmax in Native4D)" parenthetical — updated to
+name the actual remaining blocker, Native4D's `Bmm` legalization admitting
+only a single batch.
+
+**Next priority**: live max-pool indices/`IndexTensor4` is now the only
+remaining open-ended Native4D counterpart-backlog row; otherwise
+`lstm.input` from the deferred backlog (36 occurrences, Sequencer2D's own
+first frontier), or P1's remaining one-model slices (`conv1d`/`unfold`,
+`im2col`/`col2im`, `upsample_bicubic2d`).
+
 ### P1 — small vertical slices with one-model proof
 
 | Work | Corpus evidence | Breadth-first acceptance condition |
@@ -435,7 +479,7 @@ an explicit, tested Native-only boundary.
 
 | Family | Targets (occurrences; models) |
 | --- | --- |
-| Factories, indexing, and copies | `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`; multi-entry case now confirmed as MViTv2's OWN first frontier too, not just MaxxViTv2's, after `_to_copy.default` landed — `"index.Tensor.indices is not an optional tensor list"`), `eye.m` (12; Bat-ResNeXt — now its first frontier, after `adaptive_max_pool2d.default` landed), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
+| Factories, indexing, and copies | `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`; multi-entry case now confirmed as MViTv2's OWN first frontier too, not just MaxxViTv2's, after `_to_copy.default` landed — `"index.Tensor.indices is not an optional tensor list"`), ~~`eye.m`~~ (12; **landed** 2026-08-30 — see `ops-progress.md`'s landing record; Bat-ResNeXt's frontier moved past it to an intrinsic `axis D` boundary), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
 | Pointwise / type | `neg.default` (24; DINOv3 ViT), `type_as.default` (24; DINOv3 ViT), `pow.Scalar` (1; EdgeNeXt), `sin.default` and `cos.default` (3 each; EdgeNeXt, DINOv3 ViT), `bitwise_not.default` (1; EdgeNeXt — now its first frontier, after `_to_copy.default` landed), `div.Tensor_mode` (1; EdgeNeXt) |
 | Shape / sequence | `squeeze.dim` (3; Lambda-ResNet), `tile.default` (2; SAM2 Hiera, DINOv3 ViT), `lstm.input` (36; Sequencer2D — now its first frontier) |
 | Matrix / reduction | `einsum.default` (20; MViTv2), `cumsum.default` (2; EdgeNeXt), `max.dim` (1; VOLO) |
@@ -469,7 +513,7 @@ work.
 | ~~`Stack4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Native's `Stack` gets a first-class `Stack4` counterpart, the same `check_dims`-style axis-domain rejection `Concat`/`Select`/`Slice`/`Split_with_sizes`/`Unbind` already had, and a real `Lower.convert` arm. Two corpus models were gated on it: `csatv2`'s frontier (`axis=H`) moves to a later node in the same graph — a `permute.default` mixing a non-unit `T` extent into `H`, an intrinsic Native-only boundary, not further Native4D work; `skresnet18`'s frontier (`axis=D`) now reports the dialect's own axis-domain diagnostic at the same node instead of the lowerer's generic catch-all. Neither reaches `native4d_converts:true`, so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
 | ~~`Repeat4` / `RepeatInterleave4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Both reuse `Shape4`'s own representation for `repeats` rather than a bespoke axis check; `RepeatInterleave4` also gets the `check_dims`-style single-axis rejection for diagnostic consistency, though it is not load-bearing for this particular op (see the landing note). `convit_tiny` is the one corpus model `Repeat4` was gating; its frontier moves to `select_scatter.default` below rather than to `native4d_converts:true`, so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
 | ~~`Select_scatter4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Reuses `Split.Select_scatter`'s shape rule/pixel map unchanged, the same delegation `Select4` makes to `Split.Select`, plus the same `check_dims`-style single-axis rejection. `convit_tiny` — the one corpus model gated on it — moves to an intrinsic `axis T is outside the N/H/W/C dialect` boundary, so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
-| `Softmax4` | Softmax has no Native4D counterpart at any axis; no corpus model is currently gated on it. | Add a counterpart with axis-domain checks on N/H/W/C, retaining the reduction semantics rather than becoming a different reduction. |
+| ~~`Softmax4`~~ | **Landed** (2026-08-31; see `ops-progress.md`'s landing record). Reuses `Reduce.Softmax`'s own `output_shape`/`Compute` unchanged; the axis narrows to `Axis4.t` and gets the same `check_dims`-style rejection `Select4`/`Slice4`/`RepeatInterleave4` get. No corpus model was gated on it, so the scoreboard counts are unchanged. | Done. |
 | Live max-pool indices and `IndexTensor4` | `index.Tensor` is deferred at Native today; live pool indices are also unsupported at Native4D. | Treat both as a full gather/indexing design requiring a counterpart and kernel semantics, not as a reason to declare the operations impossible. |
 
 The exceptional Native4D boundaries are narrower than “not currently in

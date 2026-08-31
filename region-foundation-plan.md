@@ -911,6 +911,12 @@ Foundation does not:
 - relax f32 rounding, reassociate reductions, or change NaN/signed-zero rules;
 - optimize dot products, attention, or convolution locality.
 
+The post-Foundation implementation guide is
+[`region-native-implementation-guide.md`](region-native-implementation-guide.md).
+It records the intentionally separate next steps for Region-native shared-work
+execution and schedule-only locality tiling.  Neither direction retrospectively
+changes the Foundation contracts above.
+
 The Phase 1 task begins only after Gate 6.  Its input is a Pixel-form
 `Kernel.Value.computation`, selected operation provenance, and the operation's
 validated parameters/shapes.  It may choose Whole axes and hoist existing

@@ -13,31 +13,38 @@ Recomputed from `test/data/pt2_json_model_support.jsonl` after
 
 | Measure | Result |
 | --- | ---: |
-| `native_builds:true` | 88 / 100 |
+| `native_builds:true` | 89 / 100 |
 | `native4d_converts:true` | 56 / 100 |
 | `kernel_converts:true` | 63 / 100 |
 | All three stages succeed | 43 / 100 |
 
-`native_builds` moved 87→88 with the `Rsub_scalar` + Const-SSA
-`Sigmoid`/`Rsub_scalar` landing: `convit_tiny` now builds at Native,
-stopping at `Repeat`'s then-missing `Repeat4` counterpart. Unchanged by
-every other landing below, including `_to_copy.default`,
-`Repeat4`/`RepeatInterleave4`, `Select_scatter4`, and `adaptive_max_pool2d`
-(most recent): `Select4`, `Stack4`, `repeat.default`,
-`repeat_interleave.self_int`, `copy.default`, `select_scatter.default`,
+`Softmax4` (2026-08-31) left all four numbers unchanged — no corpus model
+was gated on it, and `make pt2.json-model-support` produced no diff. Before
+that, `native_builds` moved 88→89 with the `eye.m` landing: `bat_resnext26ts`
+now builds at Native, stopping at an intrinsic `axis D is outside the N/H/W/C
+dialect` wall later in the same graph (`native4d_converts`/
+`kernel_converts`/all-three-stages unchanged, since that model was and
+remains false on all three). Before that, `native_builds` moved 87→88 with
+the `Rsub_scalar` + Const-SSA `Sigmoid`/`Rsub_scalar` landing: `convit_tiny`
+now builds at Native, stopping at `Repeat`'s then-missing `Repeat4`
+counterpart. Unchanged by every other landing below, including
 `_to_copy.default`, `Repeat4`/`RepeatInterleave4`, `Select_scatter4`, and
+`adaptive_max_pool2d` (most recent before `eye.m`): `Select4`, `Stack4`,
+`repeat.default`, `repeat_interleave.self_int`, `copy.default`,
+`select_scatter.default`, `_to_copy.default`,
+`Repeat4`/`RepeatInterleave4`, `Select_scatter4`, and
 `adaptive_max_pool2d.default` each moved a model's *frontier* only —
 `edgenext_xx_small` to `bitwise_not.default`, `mvitv2_tiny` to
 `index.Tensor`'s multi-entry case, `convit_tiny` through
 `select_scatter.default`'s own `Select_scatter4` counterpart to a genuine
 intrinsic `axis T is outside the N/H/W/C dialect` wall, and
-`bat_resnext26ts` from `adaptive_max_pool2d.default` to `eye.m` (still
-`native_builds:false`).
+`bat_resnext26ts` from `adaptive_max_pool2d.default` to `eye.m`.
 
 ## Per-operation breadth matrix
 
 | Op | ATen boundary | `Op_bridge` | `Native_interp` | Native Direct/Symbolic | Native4D | Kernel | Representative graph |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `eye.m` / `Eye` + `Eye4` | **landed**: curated binding (`bin/aten_ops_gen.ml`), `test/native_bridge/activation_test.ml`'s `verify_print` runs against it as the oracle (no walk recipe — `n`/`m` are required SymInts with no schema default, the same reason `zeros`/`arange` have none) | **landed**: `lib/native_aten_bridge/op_bridge_shape.ml`, reusing `zeros.default`'s layout/device/pin_memory rejection and FLOAT/DOUBLE dtype dispatch verbatim | **landed**: `lib/native_interp/native_interp_lower_shape.ml` | **landed**: `lib/native/ops/factory.ml` (new `Factory.Eye`, one `S.index_eq` comparing the `w`/`c` coordinates — no new `SEMANTICS` primitive), `test/native/factory_test.ml` | **landed**: `Eye4`, typed `Shape4.t` like `Zeros4` — rows/columns land on `W`/`C` unconditionally (both real dialect axes), so no axis-domain rejection is needed, `test/native4d/{op_json_test,compute_test,fixtures4}.ml` | reaches wherever the reused Native4D factory path already reaches | `bat_resnext26ts` (native-import frontier; graph does not reach kernel path from here) |
 | `adaptive_max_pool2d.default` / `Adaptive_max_pool2d` + `Adaptive_max_pool2d_with_indices` | **landed**: curated binding + `Recipe_adaptive`-reused walk oracle (`lib/aten_gen/walk_meta_pool.ml`), `lib/aten/build_archive.sh` gained the structured kernel's source files | **landed**: `lib/native_aten_bridge/op_bridge_pool.ml` (always the two-output form + `discard`) | **landed**: `lib/native_interp/native_interp_lower_compute.ml` | **landed**: `lib/native/ops/pool.ml`, value via `S.max_reduce` (no new primitive), index derived from `max_reduce`/`select`/negation (no new primitive), `test/native/{pool_test,graph_direct_pool_test,graph_symbolic_pool_test,drop_pool_indices_test}.ml` | **landed for the value-only op** (`Adaptive_max_pool2d`, direct reuse like `Adaptive_avg_pool2d`); the two-output op joins `Max_pool2d_with_indices`'s existing "no argmax-pool operation" rejection — the tracked live-index/`IndexTensor4` backlog, not a fresh gap | reaches wherever the reused Native4D pointwise/pool path already reaches for the value-only op; the two-output op is graph-import-only until `Drop_pool_indices` narrows it | `bat_resnext26ts` (native-import frontier; graph does not reach kernel path from here) |
 | `select.int` / `Select` | landed pre-existing (`select.int` decomposed into `Select`) | landed | landed | landed (Native `Split.Select`, pre-existing) | **landed 2026-08-30**: `Select4`, `test/native4d/{op_json,fixtures,fixtures4,domain,lower,compute,verify}_test.ml` | reaches `Snapshot4`/lowering; no corpus graph exercises `Select4` end to end into the kernel path yet (csatv2, the only corpus model whose frontier `Select4` clears, is a graph-only CI target — see below) | `csatv2` (native4d frontier only; not a kernel-path graph) |
 | `stack.default` / `Stack` | landed pre-existing (own `Stack` node, not a `Concat` decomposition) | landed | landed | landed (Native `Concat.Stack`, pre-existing) | **landed 2026-08-30**: `Stack4`, `test/native4d/{op_json,domain}_test.ml`, `test/native4d/fixtures{,4}.ml` | reaches `Snapshot4`/lowering; no corpus graph exercises `Stack4` end to end into the kernel path yet (csatv2 and skresnet18, the two corpus models whose frontier `Stack4` clears, stay blocked at a later stage — see below) | `csatv2` (native4d frontier only; not a kernel-path graph) |
@@ -50,8 +57,189 @@ intrinsic `axis T is outside the N/H/W/C dialect` wall, and
 | `repeat.default` / `Repeat4` (Native4D counterpart) | pre-existing (this entry adds only the Native4D counterpart) | pre-existing | pre-existing | pre-existing | **landed this entry**: `Repeat4`, reusing `Shape4.t` for `repeats` directly (the same treatment `Expand4.size` gets) — `Domain.check_node` admits `Repeat` unconditionally, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `Repeat4` graph's own kernel path already reaches | `convit_tiny` (native4d frontier only; graph does not reach kernel path from here) |
 | `repeat_interleave.self_int` / `RepeatInterleave4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed this entry**: `RepeatInterleave4`, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4`/`Slice4` get, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `RepeatInterleave4` graph's own kernel path already reaches | no corpus model currently reaches this boundary (ConViT's own `repeat_interleave.self_int` occurrences sit behind `Repeat4`'s now-cleared frontier, in `native_builds`, not blocked at Native4D) |
 | `select_scatter.default` / `Select_scatter4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed this entry**: `Select_scatter4`, reusing `Split.Select_scatter`'s shape rule/pixel map unchanged, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4` gets, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `Select_scatter4` graph's own kernel path already reaches | `convit_tiny` (native4d frontier only; graph does not reach kernel path from here) |
+| `softmax.int` / `Softmax4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed 2026-08-31**: `Softmax4`, reusing `Reduce.Softmax`'s own `output_shape`/`Compute` unchanged, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4`/`Slice4`/`RepeatInterleave4` get — the whole domain gate here, since the output shape never depends on which axis is reduced, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_shape_test}.ml` | reaches wherever a legal `Softmax4` graph's own kernel path already reaches | no corpus model currently reaches this boundary (every model that reaches `softmax.int` is transformer-shaped and already stops at an earlier `D`-axis/batched-matmul limit, per `matmul_softmax_design.md` §3) |
 
 ## Landing records
+
+### 2026-08-31 — `Softmax4`, the Native4D counterpart to Native's `Softmax`
+
+Closes the last remaining row of [`todo-ops.md`](todo-ops.md)'s "Remaining
+Native4D counterpart backlog" table with a landed counterpart (live max-pool
+indices/`IndexTensor4` is now the only row left, and it is scoped as an
+open-ended design, not a one-session slice).
+
+**What landed**
+
+- `lib/native4d/ops4.ml`: `Softmax4`, appended to the "reduction" section
+  after `Vector_norm_keepdims`. `params = { axis : Axis4.t }` — ONE named
+  axis, the same shape `RepeatInterleave4`'s payload takes. Unlike the four
+  keep-dimensions ops in that section, softmax never drops rank at all, so
+  there is no repack to defer to at this layer — the shape arm simply
+  carries `x`'s own shape through unchanged.
+- `lib/native4d/op.ml`: `Softmax4` constructor (between `Slice4` and
+  `Split_with_sizes4`, global alphabetical order) + registry entry.
+- `lib/native4d/domain.ml`: `Softmax` moved out of the "dialect does not
+  have it at all" bucket (shared with `Index_tensor`) into its own new
+  `check_dims node [params.axis]` arm, the `Select`/`Select_scatter`/
+  `Slice`/`Stack`/`RepeatInterleave` treatment. Unlike `RepeatInterleave`'s
+  arm (diagnostic consistency only, not load-bearing there), this one IS
+  the whole domain gate: softmax's output shape never depends on which axis
+  is reduced, so there is no separate shape-consequence rejection the way
+  `Select`'s pair has.
+- `lib/native4d/lower_engine.ml`: the conversion arm, converting only the
+  axis KEY (`dims4`, `Select_scatter`'s own pattern) — no post-hoc output
+  re-check, because the output is `x`'s shape unchanged: if `x` is already
+  four-axis so is the output, whichever axis is reduced. Removed from the
+  "rejected by `Domain.check` before the walk starts" bucket (now only
+  `Index_tensor` plus the intrinsically-unrepresentable ops).
+- `lib/native4d/graph_shape4.ml`: a new `softmax_params` adapter (mirroring
+  `repeat_interleave_params`) + the output-shape arm, delegating whole to
+  `Reduce.Softmax.output_shape`.
+- `lib/native4d/eval_op4.ml`: the matching compute arm, through
+  `Reduce.Softmax.Compute`, using the shared adapter so the shape rule and
+  the compute cannot disagree about which axis is reduced.
+- `lib/native4d/output_transfer4.ml`: classified `Continuous`, not
+  `Reindexing` — a genuine reduction, not a copy: every output element
+  depends on the whole reduced axis (both the max and the sum range over
+  it), the same answer Native's own `Output_transfer` gives `Softmax`.
+- `lib/native4d/builder.ml`: `softmax4` builder function.
+- `lib/native4d/error.ml` + `domain.ml`'s `Sdpa` arm: the
+  `` `Sdpa_batch_axis `` diagnostic's parenthetical ("Native has no Bmm or
+  softmax in Native4D") was stale the moment `Softmax4` landed — `Sdpa`'s
+  rejection was never actually about softmax's absence (its batch axis is
+  `D` unconditionally, regardless of configuration), so the message now
+  names the real remaining blocker: Native4D's `Bmm` legalization admits
+  only a single batch. `.ai/attention_design.md` §9 and
+  `.ai/matmul_softmax_design.md` §3 updated to match.
+- Tests: `test/native4d/op_json_test.ml` (JSON round-trip sample, axis
+  distinct from `Slice4`'s own), `test/native4d/fixtures4.ml` (`softmax4`
+  per-op Direct-vs-Symbolic fixture), `test/native4d/compute_test.ml` (a
+  hand-computed Direct value: `[0, ln 3]` over a two-element axis gives
+  `exp` values `[1, 3]` summing to 4, so softmax is exactly `[1/4, 3/4]` —
+  exactly representable, so the bitwise comparison is about the computation,
+  not float printing), `test/native4d/domain_test.ml` (replaced the old "no
+  counterpart at any axis" test with the axis-gated one: C converts, D is
+  refused — reusing the existing `Fixtures.softmax_over` Native fixture,
+  whose own doc comment also needed updating), `test/native4d/lower_shape_test.ml`
+  (one conversion golden plus the D-axis domain-check refusal, the
+  `repeat_interleave4` pair's own precedent immediately above it in the
+  same file). `test/me_group8_cram.t` and `test/native4d/domain_test.ml`'s
+  `sdpa` test both needed their expected diagnostic text updated for the
+  reworded `` `Sdpa_batch_axis `` message.
+
+**Classification**: Full-stack, per [`todo-ops.md`](todo-ops.md)'s
+completion rule — a Native4D counterpart to an already full-stack Native
+op, with shape/eval coverage and the Native-to-Native4D lowering arm, each
+with its own test evidence enumerated above.
+
+**Corpus effect**: none. No corpus model is currently gated on `Softmax4`
+(per `matmul_softmax_design.md` §3, confirmed by `make pt2.json-model-support`
+producing no diff on `test/data/pt2_json_model_support.jsonl`): every model
+that reaches `softmax.int` is transformer-shaped and already stops at
+another Native4D domain limit (an intrinsic `D`-axis argument, or the
+batched-matmul case) regardless of whether `Softmax` itself converts.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages are
+unchanged (89/56/63/43).
+
+**Next**: live max-pool indices/`IndexTensor4` is the only remaining
+open-ended Native4D counterpart-backlog row — a full gather/indexing design,
+not a one-session slice. Otherwise: `lstm.input` from the deferred backlog
+(36 occurrences, Sequencer2D's own first frontier), or P1's remaining
+one-model slices (`conv1d`/`unfold`, `im2col`/`col2im`,
+`upsample_bicubic2d`).
+
+### 2026-08-30 — `eye.m`, the rank-2 identity-matrix factory
+
+Closes the "Factories, indexing, and copies" deferred-backlog row
+[`todo-ops.md`](todo-ops.md) tracked for `bat_resnext26ts` (12 occurrences,
+its first frontier after `adaptive_max_pool2d.default` landed). ATen's
+`eye.m(SymInt n, SymInt m, *, ScalarType? dtype=None, Layout? layout=None,
+Device? device=None, bool? pin_memory=None) -> Tensor` is a genuine
+no-operand factory, the same shape `zeros.default`/`arange` already are —
+so it follows their precedent directly rather than composing from an
+existing op.
+
+**What landed**
+
+- `lib/native/ops/factory.ml`: new `Factory.Eye` module, alongside `Zeros`/
+  `Arange`. `Aten_shape.of_aten` right-aligns a rank-2 ATen shape onto the
+  frame's innermost two axes ([W; C]), so `n`'s rows land on `W` and `m`'s
+  columns on `C` unconditionally — the same fixed-axis assumption
+  `Arange`'s own pixel already makes for its single `C` axis. `Compute`
+  needs no new `SEMANTICS` primitive: the diagonal test is one `index_eq`
+  comparing the `w`/`c` coordinates, the same "compare via the index
+  domain" idiom `Pad`'s reflect region test established.
+- `lib/native/graph_ir.ml`/`.mli`: `Eye` constructor + registry entry
+  (alphabetical, between `Expand` and `Gelu`).
+- `lib/native/graph_shape.ml`, `lib/native/eval_op.ml`,
+  `lib/native/eval_direct.ml`, `lib/native/graph_builder.ml`/`.mli`: the
+  usual per-op shape/compute/builder wiring. `eval_direct.ml` gets the same
+  `materialize_fmt` dtype-fidelity bypass `Zeros`/`Arange` get, alongside
+  them, rather than the generic (always-F32) `Schedule.evaluate` path.
+- `lib/native/transform/output_transfer.ml`: `Eye` joins the bulk
+  `Continuous` bucket (no operand at all, so trivially deterministic and
+  input-independent).
+- `lib/native_aten_bridge/op_bridge_shape.ml`: the `eye.m` arm, reusing
+  `zeros.default`'s layout/device/pin_memory rejection and FLOAT/DOUBLE
+  dtype dispatch verbatim — the trailing argument list is identical. `n`/
+  `m` are read via `int_arg` (two scalar SymInts, not a SymInt[] list) and
+  passed through `Aten_shape.of_aten` the same way `zeros`'s `size` is.
+- `lib/native_interp/native_interp_lower_shape.ml`: the mirror import arm,
+  reusing `zeros.default`'s own rejection/dtype-dispatch code shape; `n`/
+  `m` read with `int_arg` and packed into `shape_of_sizes`'s list form.
+- **ATen curated binding**: `bin/aten_ops_gen.ml` gains `op "eye"
+  ~overload:"m"`. Its dispatch kernel (`TensorFactories.cpp`'s `eye`/
+  `eye_out_cpu`) is already linked — `zeros`/`arange` share the same
+  translation unit — so no `build_archive.sh` change was needed, unlike
+  `adaptive_max_pool2d`'s separate kernel file.
+- **Real-ATen oracle**: no walk recipe — `n`/`m` are required SymInts with
+  no schema default, so `eye.m` lands in the walk generator's `needs_meta`
+  backlog the same way `zeros.default`/`arange`'s two overloads already do
+  (`test/native_walk_coverage_test.ml`). Real-ATen agreement is instead
+  hand-verified: `test/native_bridge/activation_test.ml`'s `verify_print`
+  runs the `eye.m` dispatch against real ATen on a non-square `n <> m`
+  (3x2) shape, so a transposed row/column comparison would be visible.
+- Tests: `test/native/factory_test.ml` (Direct dtype-fidelity + diagonal
+  placement on a 2x3 shape, Symbolic reaching the kernel adapter — mirrors
+  `Zeros`/`Arange`'s own two-test pattern each), `test/native_bridge/
+  activation_test.ml` (dispatch default/DOUBLE dtype + real-ATen verify),
+  `test/native_interp/activation_test.ml` (serialized-path lowering for
+  both dtypes), `test/native4d/{op_json_test,compute_test,fixtures4}.ml`
+  (JSON round-trip sample, Direct-vs-Symbolic fixture).
+
+**Native4D**: `Eye` gets a full `Eye4` counterpart in the same change —
+`lib/native4d/{ops4,op,domain,graph_shape4,eval_op4,eval_direct4,
+output_transfer4,lower_engine,builder}.ml` — typed `Shape4.t` like `Zeros4`
+rather than reusing Native's own payload directly, since (unlike
+`Add_scalar`/`Rsub_scalar`/`_to_copy`) `Eye` carries a shape parameter, not
+just a dtype. `Domain.check_node` admits `Eye` unconditionally alongside
+`Arange`/`Zeros`: rows/columns land on `W`/`C` by construction, both real
+dialect axes, so there is no axis-domain rejection to add. The actual
+`Eye -> Eye4` lowering arm in `lower_engine.ml` mirrors `Zeros`'s exactly
+(`sig_of` the built shape, `shape4` to validate/convert it into the
+dialect, `Eye4` params carry it directly).
+
+**Classification**: Full-stack, per [`todo-ops.md`](todo-ops.md)'s
+completion rule — ATen boundary, both importers, Native Direct/Symbolic,
+a full Native4D counterpart, and a Kernel-path-reaching representative
+graph shape are all present, each with its own test evidence enumerated
+above.
+
+**Corpus effect**: `bat_resnext26ts` — the one corpus model gating this
+row — now reaches `native_builds:true` (was `false`), stopping at a new,
+genuine intrinsic boundary later in the same graph: `node n924: axis D is
+outside the N/H/W/C dialect` (`native4d_reason: outside_dialect_domain`).
+Its kernel stage stays blocked independently at the pre-existing
+evaluation-depth ceiling (`kernel_reason: over_limit`, unrelated to this
+change — `native4d_converts`/`kernel_converts` were already `false`
+either way). `native_builds` moves 88→89; `native4d_converts`/
+`kernel_converts`/all-three-stages are unchanged (56/63/43).
+
+**Next**: `Softmax4` and live max-pool indices/`IndexTensor4` remain the
+two open-ended Native4D counterpart-backlog rows; otherwise `lstm.input`
+(36 occurrences, Sequencer2D's first frontier) or P1's remaining
+one-model slices (`conv1d`/`unfold`, `im2col`/`col2im`,
+`upsample_bicubic2d`).
 
 ### 2026-08-30 — `adaptive_max_pool2d.default`, the adaptive counterpart to `max_pool2d`/`max_pool2d_with_indices`
 
