@@ -15,7 +15,13 @@ let first_free_tid (g : Graph.graph) =
     (fun k _ acc -> max acc (Tensor_id.to_int k + 1))
     g.Graph.Graph.tensors 0
 
-let run (g : Graph.graph) : Stage_program.t =
+type regionized = {
+  program : Stage_program.t;
+  candidates : (Region_program.t, Regionizer4.error) Err.t Tensor_id.Map.t;
+}
+
+let build ?(regionizers = true) ?(limits = Kernel.Limits.default)
+    (g : Graph.graph) : regionized =
   (* [Symbolic] is stateless, so there is no instance to create. Each stage body
      is a construction computation, run below from [Expr.Builder.initial]: stage
      expressions therefore reuse reducer ordinals, which is correct because a
@@ -30,37 +36,65 @@ let run (g : Graph.graph) : Stage_program.t =
     consts := (sg, v) :: !consts;
     sg
   in
-  let process_node env stages (node : Graph.node) =
+  let process_node env stages candidates (node : Graph.node) =
     let op = node.Graph.Node.op in
     let operand r = Tensor_id.Map.find r env in
     let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
     List.fold_left
-      (fun (env, stages) (output, oid) ->
-        let body =
-          Expr.Builder.run
-            (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec)
-        in
+      (fun (env, stages, candidates) (output, oid) ->
         let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
-        let st =
-          { Stage_program.Stage.id = oid; sg = out_sig; body; region = None }
+        let regional =
+          if regionizers && Regionizer4.is_region_authored op then
+            Some
+              (Regionizer4.program ~limits ~op ~output
+                 ~output_shape:out_sig.shape
+                 ~operand:(fun id -> Tensor_id.Map.find_opt id env)
+                 ~fill:(fun _role value shape -> fill value shape))
+          else None
         in
-        (Tensor_id.Map.add oid out_sig env, st :: stages))
-      (env, stages)
+        let body, region =
+          match regional with
+          | Some (Ok program) ->
+              ( Err.or_raise ~pp_error:Region_program.pp_error
+                  (Region_program.specialize_pixel
+                     ~max_size:limits.Kernel.Limits.max_size
+                     ~max_depth:limits.Kernel.Limits.max_depth program),
+                Some program )
+          | None | Some (Error _) ->
+              ( Expr.Builder.run
+                  (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec),
+                None )
+        in
+        let st = { Stage_program.Stage.id = oid; sg = out_sig; body; region } in
+        let candidates =
+          match regional with
+          | None -> candidates
+          | Some program -> Tensor_id.Map.add oid program candidates
+        in
+        (Tensor_id.Map.add oid out_sig env, st :: stages, candidates))
+      (env, stages, candidates)
       (List.mapi (fun i oid -> (i, oid)) node.Graph.Node.outputs)
   in
-  let _env, rev_stages =
+  let _env, rev_stages, candidates =
     List.fold_left
-      (fun (env, stages) node -> process_node env stages node)
-      (g.Graph.Graph.tensors, [])
+      (fun (env, stages, candidates) node ->
+        process_node env stages candidates node)
+      (g.Graph.Graph.tensors, [], Tensor_id.Map.empty)
       g.Graph.Graph.nodes
   in
-  {
-    Stage_program.inputs =
-      List.map
-        (fun id -> (id, Tensor_id.Map.find id g.Graph.Graph.tensors))
-        g.Graph.Graph.inputs;
-    input_kinds = g.Graph.Graph.input_kinds;
-    consts = List.rev !consts;
-    stages = List.rev rev_stages;
-    outputs = g.Graph.Graph.outputs;
-  }
+  let program =
+    {
+      Stage_program.inputs =
+        List.map
+          (fun id -> (id, Tensor_id.Map.find id g.Graph.Graph.tensors))
+          g.Graph.Graph.inputs;
+      input_kinds = g.Graph.Graph.input_kinds;
+      consts = List.rev !consts;
+      stages = List.rev rev_stages;
+      outputs = g.Graph.Graph.outputs;
+    }
+  in
+  { program; candidates }
+
+let run ?limits (g : Graph.graph) = (build ?limits g).program
+let run_regionized ?limits g = build ~regionizers:true ?limits g

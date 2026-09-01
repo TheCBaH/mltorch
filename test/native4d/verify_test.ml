@@ -400,6 +400,37 @@ let native_vs_four g =
   Format.printf "native4d: %s@." four_out;
   Format.printf "agree: %b@." (String.equal native_out four_out)
 
+(* These three operations share their Region program after Native4D's checked
+   axis mapping; unlike the earlier generic numeric rows, Native4D Direct must
+   therefore materialize that program rather than call [Eval_op4.pixel].  The
+   structure comparison lives in [region_mapping_test.ml].  This is the
+   end-to-end companion: lower a Native graph, run both Direct drivers on the
+   same concrete inputs, and compare every rendered result. *)
+let%expect_test "verify: authored Regions map and agree numerically" =
+  List.iter
+    (fun (name, graph) ->
+      Format.printf "%s@." name;
+      native_vs_four graph)
+    [
+      ("rms C", Fixtures.rms_norm_over [ Axis.C ] ());
+      ("layer C", Fixtures.layer_norm_tiny ());
+      ("softmax W", Fixtures.softmax_over Axis.W ());
+    ];
+  [%expect
+    {|
+    rms C
+    native:   tensor f32 [H=4 W=4 C=3] {0.46291, 0.925819, 1.38873, 0.789542, 0.986927, 1.18431, 0.870478, 0.994832, ...}
+    native4d: tensor f32 [H=4 W=4 C=3] {0.46291, 0.925819, 1.38873, 0.789542, 0.986927, 1.18431, 0.870478, 0.994832, ...}
+    agree: true
+    layer C
+    native:   tensor f32 [W=2 C=3] {-0.224736, 2, 6.67421, -0.224736, 2, 6.67421}
+    native4d: tensor f32 [W=2 C=3] {-0.224736, 2, 6.67421, -0.224736, 2, 6.67421}
+    agree: true
+    softmax W
+    native:   tensor f32 [H=4 W=4 C=3] {0.000117266, 0.000117266, 0.000117266, 0.00235536, 0.00235536, 0.00235536, 0.0473086, 0.0473086, ...}
+    native4d: tensor f32 [H=4 W=4 C=3] {0.000117266, 0.000117266, 0.000117266, 0.00235536, 0.00235536, 0.00235536, 0.0473086, 0.0473086, ...}
+    agree: true |}]
+
 let%expect_test "verify: unbind, numerically, over every slice" =
   native_vs_four (Fixtures.unbind_c_batch1 ());
   [%expect

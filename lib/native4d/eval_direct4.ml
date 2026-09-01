@@ -19,7 +19,9 @@ type error =
   | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
   | `Missing_tensor of missing_tensor
-  | `Output_arity_mismatch of arity_mismatch ]
+  | `Output_arity_mismatch of arity_mismatch
+  | `Region_construction of Regionizer4.error
+  | `Region_execution of Region_eval.error ]
 
 let pp_context ppf = function
   | Operand -> Fmt.string ppf "operand"
@@ -36,6 +38,8 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf
         "node output arity mismatch: %d output shapes for %d output ids"
         expected actual
+  | `Region_construction error -> Regionizer.pp_error ppf error
+  | `Region_execution error -> Region_eval.pp_error ppf error
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
@@ -74,7 +78,88 @@ let bind_constants (g : Graph.graph) constants env =
       | Graph_ir.Input.Input -> Err.return env)
     env g.Graph.Graph.inputs
 
-let eval_node (g : Graph.graph) env (node : Graph.node) =
+let fresh_synthetic_ids g =
+  let rec fresh candidate used =
+    let id = Tensor_id.of_int candidate in
+    if Tensor_id.Set.mem id used then fresh (candidate + 1) used
+    else (id, Tensor_id.Set.add id used)
+  in
+  List.fold_left
+    (fun (ids, used, candidate) role ->
+      let id, used = fresh candidate used in
+      ((role, id) :: ids, used, candidate + 1))
+    ( [],
+      Tensor_id.Map.fold
+        (fun id _ ids -> Tensor_id.Set.add id ids)
+        g.Graph.Graph.tensors Tensor_id.Set.empty,
+      0 )
+    [ Regionizer.Rms_weight; Regionizer.Layer_weight; Regionizer.Layer_bias ]
+  |> fun (ids, _, _) -> ids
+
+let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
+    ~synthetic_ids =
+  let open Err.Syntax in
+  let id_for role = List.assoc role synthetic_ids in
+  let fill role _value shape =
+    Tensor_sig.create ~id:(id_for role) ~name:"direct optional operand" ~shape
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let* program =
+    Regionizer4.program ~limits ~op ~output
+      ~output_shape:(Shape4.to_vec6 out_shape)
+      ~operand:(fun id -> Tensor_id.Map.find_opt id g.Graph.Graph.tensors)
+      ~fill
+    |> Err.map_error (fun error -> `Region_construction error)
+  in
+  let synthetic_shape role =
+    match op with
+    | Op.Rms_norm { Ops4.Rms_norm.params; x; weight = None }
+      when role = Regionizer.Rms_weight ->
+        Some
+          ( 1.,
+            Norm.normalized_shape
+              ~x_shape:
+                (Tensor_id.Map.find x g.Graph.Graph.tensors).Tensor_sig.shape
+              ~dims:(List.map Axis4.to_axis params.dims) )
+    | Op.Layer_norm { Ops4.Layer_norm.params; x; weight; bias }
+      when (role = Regionizer.Layer_weight && Option.is_none weight)
+           || (role = Regionizer.Layer_bias && Option.is_none bias) ->
+        Some
+          ( (if role = Regionizer.Layer_weight then 1. else 0.),
+            Norm.normalized_shape
+              ~x_shape:
+                (Tensor_id.Map.find x g.Graph.Graph.tensors).Tensor_sig.shape
+              ~dims:(List.map Axis4.to_axis params.dims) )
+    | _ -> None
+  in
+  let sources = Region_program.Fold.sources program in
+  let synthetic_bindings =
+    List.fold_left
+      (fun bindings (role, id) ->
+        match synthetic_shape role with
+        | Some (value, shape)
+          when Expr.Source.Set.mem (Expr_bridge.source_of_id id) sources ->
+            Tensor_id.Map.add id
+              (Tensor.materialize shape (fun _ -> value))
+              bindings
+        | Some _ | None -> bindings)
+      Tensor_id.Map.empty synthetic_ids
+  in
+  let env =
+    Expr_bridge.env ~binding:(fun id ->
+        match Tensor_id.Map.find_opt id operand_env with
+        | Some tensor -> Some tensor
+        | None -> Tensor_id.Map.find_opt id synthetic_bindings)
+  in
+  match Region_execution.lower program with
+  | Region_execution.Pixel_loop _ -> assert false
+  | Region_execution.Region_loop lowered ->
+      Region_execution.materialize ?counters:region_counters lowered
+        ~output_shape:(Shape4.to_vec6 out_shape) ~env
+      |> Err.map_error (fun error -> `Region_execution error)
+
+let eval_node ?region_counters ~limits (g : Graph.graph) env (node : Graph.node)
+    =
   let open Err.Syntax in
   let op = node.Graph.Node.op in
   let fill v shape = Tensor.materialize shape (fun _ -> v) in
@@ -105,18 +190,21 @@ let eval_node (g : Graph.graph) env (node : Graph.node) =
       (fun oid out_shape -> Err.return (oid, out_shape))
       node.Graph.Node.outputs shapes
   in
+  let synthetic_ids = fresh_synthetic_ids g in
   Err.List.fold_left
     (fun env (output, oid, out_shape) ->
-      let result =
+      let* result =
         match op with
         | Op.Unbind { Ops4.Unbind.params; x } ->
-            Tensor.unbind
-              (Tensor_id.Map.find x operand_env)
-              ~axis:(Axis4.to_axis params.axis)
-              ~output ~shape:(Shape4.to_vec6 out_shape)
+            Err.return
+              (Tensor.unbind
+                 (Tensor_id.Map.find x operand_env)
+                 ~axis:(Axis4.to_axis params.axis)
+                 ~output ~shape:(Shape4.to_vec6 out_shape))
         | Op.Zeros4 { Ops4.Zeros4.params } ->
-            Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
-              (fun _ -> 0.)
+            Err.return
+              (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
+                 (fun _ -> 0.))
         | Op.Arange4 { Ops4.Arange4.params } -> (
             let params =
               Factory.Arange.
@@ -129,31 +217,42 @@ let eval_node (g : Graph.graph) env (node : Graph.node) =
             in
             match params.fmt with
             | Payload.Fmt Payload.I64 ->
-                Tensor.materialize_i64 (Shape4.to_vec6 out_shape) (fun coord ->
-                    Int64.of_float
-                      (Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
+                Err.return
+                  (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
+                     (fun coord ->
+                       Int64.of_float
+                         (Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
             | _ ->
-                Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
-                  (fun coord ->
-                    Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
+                Err.return
+                  (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
+                     (fun coord ->
+                       Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
         | Op.Eye4 { Ops4.Eye4.params } ->
-            Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
-              (fun coord ->
-                if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
-                else 0.)
+            Err.return
+              (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)
+                 (fun coord ->
+                   if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
+                   else 0.))
+        | _ when Regionizer4.is_region_authored op ->
+            region_result ~limits
+              ~region_counters:
+                (Option.bind region_counters (fun counters ->
+                     Tensor_id.Map.find_opt oid counters))
+              g ~op ~output ~out_shape ~operand_env ~synthetic_ids
         | _ ->
-            Schedule.evaluate (Shape4.to_vec6 out_shape)
-              (E.pixel op ~output
-                 ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-                 ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-                 ~fill)
+            Err.return
+              (Schedule.evaluate (Shape4.to_vec6 out_shape)
+                 (E.pixel op ~output
+                    ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                    ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                    ~fill))
       in
       Err.return (Tensor_id.Map.add oid result env))
     env
     (List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs)
 
-let run ?(constants = []) (g : Graph.graph)
-    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
+let run ?region_counters ?(limits = Kernel.Limits.default) ?(constants = [])
+    (g : Graph.graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let provided =
     List.fold_left
       (fun e (id, t) -> Tensor_id.Map.add id t e)
@@ -169,4 +268,6 @@ let run ?(constants = []) (g : Graph.graph)
       Tensor_id.Map.empty (input_ids g)
   in
   let* env = bind_constants g constants env0 in
-  Err.List.fold_left (eval_node g) env g.Graph.Graph.nodes
+  Err.List.fold_left
+    (eval_node ?region_counters ~limits g)
+    env g.Graph.Graph.nodes

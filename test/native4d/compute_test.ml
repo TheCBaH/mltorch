@@ -451,6 +451,236 @@ let%expect_test "direct4: softmax4 over W" =
     (Tensor_id.Map.find (List.hd g.Graph.Graph.outputs) env);
   [%expect {| tensor f32 [W=2 C=1] {0.25, 0.75} |}]
 
+let%expect_test "direct4: authored Regions materialize once per key" =
+  let shape = s4 ~n:1 ~h:1 ~w:2 ~c:3 in
+  let build_region f =
+    build
+      ~outputs:(fun output -> [ output ])
+      (let open Builder in
+       let* x = input ~shape () in
+       f x)
+  in
+  let rms =
+    build_region (fun x ->
+        Builder.rms_norm { Ops4.Rms_norm.dims = [ Axis4.C ]; eps = 1e-5 } ~x ())
+  in
+  let layer =
+    build_region (fun x ->
+        Builder.layer_norm4
+          { Ops4.Layer_norm.dims = [ Axis4.C ]; eps = 1e-5 }
+          ~x ())
+  in
+  let softmax =
+    build_region (fun x -> Builder.softmax4 { Ops4.Softmax4.axis = Axis4.C } x)
+  in
+  let input = seq shape in
+  let count name graph =
+    let output = List.hd graph.Graph.Graph.outputs in
+    let counters = Region_execution.counters () in
+    ignore
+      (Eval_direct4.run
+         ~region_counters:(Tensor_id.Map.singleton output counters)
+         graph
+         ~inputs:[ (List.hd graph.Graph.Graph.inputs, input) ]
+      |> Err.or_raise ~pp_error:Eval_direct4.pp_error);
+    Format.printf "%s keys=%d locals=%d emitters=%d loads=%d reductions=%d@."
+      name counters.keys counters.locals counters.emitters counters.loads
+      counters.reductions
+  in
+  List.iter
+    (fun (name, graph) -> count name graph)
+    [ ("rms", rms); ("layer", layer); ("softmax", softmax) ];
+  [%expect
+    {|
+    rms keys=2 locals=4 emitters=6 loads=24 reductions=6
+    layer keys=2 locals=8 emitters=6 loads=36 reductions=12
+    softmax keys=2 locals=4 emitters=6 loads=18 reductions=12 |}]
+
+let%expect_test "symbolic4: authored Regions carry into the Kernel unchanged" =
+  let shape = s4 ~n:1 ~h:1 ~w:2 ~c:3 in
+  let build_region f =
+    build
+      ~outputs:(fun output -> [ output ])
+      (let open Builder in
+       let* x = input ~shape () in
+       f x)
+  in
+  let cases =
+    [
+      ( "rms",
+        build_region (fun x ->
+            Builder.rms_norm
+              { Ops4.Rms_norm.dims = [ Axis4.C ]; eps = 1e-5 }
+              ~x ()) );
+      ( "layer",
+        build_region (fun x ->
+            Builder.layer_norm4
+              { Ops4.Layer_norm.dims = [ Axis4.C ]; eps = 1e-5 }
+              ~x ()) );
+      ( "softmax",
+        build_region (fun x ->
+            Builder.softmax4 { Ops4.Softmax4.axis = Axis4.C } x) );
+    ]
+  in
+  List.iter
+    (fun (name, graph) ->
+      let symbolic = Eval_symbolic4.run graph in
+      let stage = List.hd symbolic.Stage_program.stages in
+      let carried = Option.get stage.Stage_program.Stage.region in
+      let kernel =
+        Kernel_adapt.of_stage_program symbolic
+        |> Err.or_raise ~pp_error:Kernel_adapt.pp_error
+      in
+      let received = (List.hd kernel.Kernel.values).Kernel.Value.computation in
+      Format.printf "%s region=%b same_object=%b@." name
+        (Region_program.pixel_expression carried = None)
+        (carried == received))
+    cases;
+  [%expect
+    {|
+    rms region=true same_object=true
+    layer region=true same_object=true
+    softmax region=true same_object=true |}]
+
+let%expect_test "symbolic4: authored Region traces retain unit T and D" =
+  let shape = s4 ~n:2 ~h:2 ~w:1 ~c:3 in
+  let build_region f =
+    build
+      ~outputs:(fun output -> [ output ])
+      (let open Builder in
+       let* x = input ~shape () in
+       f x)
+  in
+  let trace name graph =
+    let symbolic = Eval_symbolic4.run_regionized graph in
+    let stage = List.hd symbolic.program.Stage_program.stages in
+    let program = Stage_program.Stage.computation stage in
+    let trace =
+      Region_trace.collect program ~output_shape:stage.sg.shape
+      |> Err.or_raise ~pp_error:Region_trace.pp_error
+    in
+    let unit coord =
+      Dim.to_int (Vec6.get coord Axis.T) = 0
+      && Dim.to_int (Vec6.get coord Axis.D) = 0
+    in
+    let singleton =
+      List.for_all
+        (fun entry ->
+          unit entry.Region_trace.key && List.for_all unit entry.outputs)
+        trace.entries
+    in
+    let coverage = trace.coverage in
+    Format.printf "%s keys=%d total=%d td_singleton=%b@." name coverage.keys
+      coverage.total singleton
+  in
+  let rms =
+    build_region (fun x ->
+        Builder.rms_norm
+          { Ops4.Rms_norm.dims = [ Axis4.N; Axis4.C ]; eps = 1e-5 }
+          ~x ())
+  in
+  let layer =
+    build_region (fun x ->
+        Builder.layer_norm4
+          { Ops4.Layer_norm.dims = [ Axis4.H; Axis4.W; Axis4.C ]; eps = 1e-5 }
+          ~x ())
+  in
+  trace "rms_n_c" rms;
+  trace "layer_h_w_c" layer;
+  List.iter
+    (fun (name, axis) ->
+      trace ("softmax_" ^ name)
+        (build_region (fun x -> Builder.softmax4 { Ops4.Softmax4.axis } x)))
+    [ ("n", Axis4.N); ("h", Axis4.H); ("w", Axis4.W); ("c", Axis4.C) ];
+  [%expect
+    {|
+    rms_n_c keys=2 total=12 td_singleton=true
+    layer_h_w_c keys=2 total=12 td_singleton=true
+    softmax_n keys=6 total=12 td_singleton=true
+    softmax_h keys=6 total=12 td_singleton=true
+    softmax_w keys=12 total=12 td_singleton=true
+    softmax_c keys=4 total=12 td_singleton=true |}]
+
+let%expect_test "symbolic4: norm Region matrix covers Axis4 and affine states" =
+  let shape = s4 ~n:2 ~h:2 ~w:1 ~c:3 in
+  let check graph =
+    let symbolic = Eval_symbolic4.run_regionized graph in
+    let stage = List.hd symbolic.program.Stage_program.stages in
+    let trace =
+      Region_trace.collect
+        (Stage_program.Stage.computation stage)
+        ~output_shape:stage.sg.shape
+      |> Err.or_raise ~pp_error:Region_trace.pp_error
+    in
+    List.for_all
+      (fun entry ->
+        let unit coord =
+          Dim.to_int (Vec6.get coord Axis.T) = 0
+          && Dim.to_int (Vec6.get coord Axis.D) = 0
+        in
+        unit entry.Region_trace.key && List.for_all unit entry.outputs)
+      trace.entries
+  in
+  let rms dims =
+    build
+      ~outputs:(fun output -> [ output ])
+      (let open Builder in
+       let* x = input ~shape () in
+       rms_norm { Ops4.Rms_norm.dims; eps = 1e-5 } ~x ())
+  in
+  let layer dims ~weight ~bias =
+    let affine_shape =
+      Norm.normalized_shape ~x_shape:(Shape4.to_vec6 shape)
+        ~dims:(List.map Axis4.to_axis dims)
+      |> Shape4.of_vec6
+      |> Err.or_raise ~pp_error:Shape4.pp_error
+    in
+    build
+      ~outputs:(fun output -> [ output ])
+      (let open Builder in
+       let* x = input ~shape () in
+       match (weight, bias) with
+       | false, false -> layer_norm4 { Ops4.Layer_norm.dims; eps = 1e-5 } ~x ()
+       | true, false ->
+           let* w = input ~shape:affine_shape () in
+           layer_norm4 { Ops4.Layer_norm.dims; eps = 1e-5 } ~x ~weight:w ()
+       | false, true ->
+           let* b = input ~shape:affine_shape () in
+           layer_norm4 { Ops4.Layer_norm.dims; eps = 1e-5 } ~x ~bias:b ()
+       | true, true ->
+           let* w = input ~shape:affine_shape () in
+           let* b = input ~shape:affine_shape () in
+           layer_norm4
+             { Ops4.Layer_norm.dims; eps = 1e-5 }
+             ~x ~weight:w ~bias:b ())
+  in
+  let dims =
+    [
+      [ Axis4.N ];
+      [ Axis4.H ];
+      [ Axis4.W ];
+      [ Axis4.C ];
+      [ Axis4.N; Axis4.C ];
+      [ Axis4.H; Axis4.W; Axis4.C ];
+    ]
+  in
+  let rms_ok = List.for_all (fun dims -> check (rms dims)) dims in
+  let layer_ok =
+    List.for_all
+      (fun dims ->
+        List.for_all
+          (fun (weight, bias) -> check (layer dims ~weight ~bias))
+          [ (false, false); (true, false); (false, true); (true, true) ])
+      dims
+  in
+  Format.printf
+    "rms_cases=%d rms_td_singleton=%b layer_cases=%d layer_td_singleton=%b@."
+    (List.length dims) rms_ok
+    (List.length dims * 4)
+    layer_ok;
+  [%expect
+    {| rms_cases=6 rms_td_singleton=true layer_cases=24 layer_td_singleton=true |}]
+
 let%expect_test "direct4: permute4 swaps H and W" =
   let shape = s4 ~n:1 ~h:2 ~w:3 ~c:1 in
   let g =

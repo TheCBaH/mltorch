@@ -2,13 +2,12 @@
    the Native4D twin of [Eval_op], applied once at [Direct] and once at
    [Symbolic] so the two execution modes cannot drift.
 
-   EVERY ARM CALLS NATIVE'S [Compute (S)]. .ai/native4d_design.md §2 lists
-   "reimplementing numeric kernels already expressed by the Native [Compute (S)]
-   functors" as a non-goal, and §6 as the reuse this dialect exists to
-   demonstrate: an operation defines a scalar algorithm over
-   [Semantics.SEMANTICS], and a second dialect should adapt its parameters and
-   delegate rather than duplicate. So there is no arithmetic in this file at
-   all — only parameter translation.
+   Every Pixel-authored arm calls Native's [Compute (S)].  RMSNorm, LayerNorm,
+   and Softmax4 are Region-authored instead: Direct and Symbolic route them
+   through [Regionizer4.program], so they deliberately have no scalar arm here.
+   .ai/native4d_design.md §2 lists reimplementing numeric kernels already
+   expressed by the Native operation as a non-goal.  This file therefore has no
+   arithmetic of its own — only parameter translation for Pixel operations.
 
    And no tensor is copied to cross the boundary. The weight layouts are
    Native's unchanged (§6.1): forward [Cout,1,1,Kh,Kw,Cin/groups], transposed
@@ -149,20 +148,7 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Hardtanh { Pointwise.Hardtanh.params; x } ->
         let module C = Pointwise.Hardtanh.Compute (S) in
         C.pixel params (operand x) out
-    (* Through [Graph_shape4]'s adapter, so the axes the shape rule validated
-       are the axes the reduction runs over. The absent operands are filled
-       exactly as [Eval_op] fills them -- 1 for the scale, 0 for the offset --
-       so an absent operand means the same thing in both dialects. *)
-    | Layer_norm { Ops4.Layer_norm.params; x; weight; bias } ->
-        let module C = Norm.LayerNorm.Compute (S) in
-        let fill_or v = function
-          | None -> fill v (shape_of x)
-          | Some r -> operand r
-        in
-        C.pixel
-          (Graph_shape4.layer_norm_params params)
-          ~x_shape:(shape_of x) ~x:(operand x) ~weight:(fill_or 1. weight)
-          ~bias:(fill_or 0. bias) out
+    | Layer_norm _ -> invalid_arg "Eval_op4.pixel: LayerNorm is Region-authored"
     | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
         let module C = Pointwise.Leaky_relu.Compute (S) in
         C.pixel params (operand x) out
@@ -211,15 +197,7 @@ module Make (S : Semantics.SEMANTICS) = struct
         C.pixel
           { Reshape.Reshape.shape = Shape4.to_vec6 params.Ops4.Reshape4.shape }
           ~x_shape:(shape_of x) ~x:(operand x) out
-    | Rms_norm { Ops4.Rms_norm.params; x; weight } ->
-        let module C = Norm.RmsNorm.Compute (S) in
-        let weight =
-          match weight with None -> fill 1. (shape_of x) | Some w -> operand w
-          (* absent weight = identity scale *)
-        in
-        C.pixel
-          (Graph_shape4.rms_params params)
-          ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    | Rms_norm _ -> invalid_arg "Eval_op4.pixel: RMSNorm is Region-authored"
     | Rsub_scalar { Pointwise.Rsub_scalar.params; x } ->
         let module C = Pointwise.Rsub_scalar.Compute (S) in
         C.pixel params (operand x) out
@@ -246,11 +224,7 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Slice4 { Ops4.Slice4.params; x } ->
         let module C = Split.Slice.Compute (S) in
         C.pixel (Graph_shape4.slice_params params) ~x:(operand x) out
-    | Softmax4 { Ops4.Softmax4.params; x } ->
-        let module C = Reduce.Softmax.Compute (S) in
-        C.pixel
-          (Graph_shape4.softmax_params params)
-          ~x_shape:(shape_of x) ~x:(operand x) out
+    | Softmax4 _ -> invalid_arg "Eval_op4.pixel: Softmax is Region-authored"
     (* Through the same adapter [Graph_shape4] uses, so the axis and sizes the
        shape rule reads are the ones the compute reads along -- the same
        discipline the [Unbind] arm above follows. [offset] is the sum of every

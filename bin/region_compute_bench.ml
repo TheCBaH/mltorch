@@ -44,6 +44,11 @@ let run kernel graph input =
   |> Err.or_raise ~pp_error:Kernel_eval.pp_error
   |> ignore
 
+let run_direct graph input =
+  Eval_direct.run graph ~inputs:[ (List.hd graph.Graph.inputs, input) ]
+  |> Err.or_raise ~pp_error:Eval_direct.pp_error
+  |> ignore
+
 let measure kernel graph input =
   for _ = 1 to warmup do
     run kernel graph input
@@ -52,6 +57,17 @@ let measure kernel graph input =
       Gc.full_major ();
       let before = words () and started = Unix.gettimeofday () in
       run kernel graph input;
+      ((Unix.gettimeofday () -. started) *. 1000., words () -. before))
+  |> List.split
+
+let measure_direct graph input =
+  for _ = 1 to warmup do
+    run_direct graph input
+  done;
+  List.init samples (fun _ ->
+      Gc.full_major ();
+      let before = words () and started = Unix.gettimeofday () in
+      run_direct graph input;
       ((Unix.gettimeofday () -. started) *. 1000., words () -. before))
   |> List.split
 
@@ -69,20 +85,37 @@ let counters kernel graph input =
   |> ignore;
   counters
 
+let direct_counters graph input =
+  let counters = Region_execution.counters () in
+  let output = List.hd graph.Graph.outputs in
+  Eval_direct.run
+    ~region_counters:(Tensor_id.Map.singleton output counters)
+    graph
+    ~inputs:[ (List.hd graph.Graph.inputs, input) ]
+  |> Err.or_raise ~pp_error:Eval_direct.pp_error
+  |> ignore;
+  counters
+
 let report name ~regions ~extent graph =
   let input = input (shape ~regions ~extent) in
   let pixel, region = kernels graph in
   let pixel_time, pixel_words = measure pixel graph input in
   let region_time, region_words = measure region graph input in
-  let counters = counters region graph input in
+  let direct_time, direct_words = measure_direct graph input in
+  let counters = counters region graph input
+  and direct_counters = direct_counters graph input in
   Printf.printf
     "%s regions=%d extent=%d samples=%d pixel_ms=%.3f region_ms=%.3f \
-     pixel_words=%.3f region_words=%.3f keys=%d locals=%d emitters=%d loads=%d \
-     reductions=%d\n\
+     direct_ms=%.3f pixel_words=%.3f region_words=%.3f direct_words=%.3f \
+     keys=%d locals=%d emitters=%d loads=%d reductions=%d direct_keys=%d \
+     direct_locals=%d direct_emitters=%d direct_loads=%d direct_reductions=%d\n\
      %!"
     name regions extent samples (median pixel_time) (median region_time)
-    (median pixel_words) (median region_words) counters.keys counters.locals
-    counters.emitters counters.loads counters.reductions
+    (median direct_time) (median pixel_words) (median region_words)
+    (median direct_words) counters.keys counters.locals counters.emitters
+    counters.loads counters.reductions direct_counters.keys
+    direct_counters.locals direct_counters.emitters direct_counters.loads
+    direct_counters.reductions
 
 let () =
   List.iter
