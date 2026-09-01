@@ -32,6 +32,8 @@ val pixel_expression : t -> Expr.Value.t option
 
 val specialize_pixel :
   max_size:int -> max_depth:int -> t -> (Expr.Value.t, error) Err.t
+(** Symbolic expansion of a Region program into one Pixel expression. This is
+    distinct from concrete scalar projection. *)
 
 val reconstructs :
   max_size:int ->

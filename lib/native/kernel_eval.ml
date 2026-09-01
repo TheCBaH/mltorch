@@ -161,15 +161,23 @@ let values_by_id (k : Kernel.t) =
    coordinate. A Pixel program stays on the existing direct expression path;
    this distinction is intentional, because it preserves the tight per-cell
    evaluator for the overwhelmingly common singleton case. *)
-let converted (v : Kernel.Value.t) =
+let converted ?region_counters (v : Kernel.Value.t) =
   match Region_execution.lower v.Kernel.Value.computation with
   | Region_execution.Pixel_loop body ->
       `Pixel (Kernel.Result_conversion.apply v.Kernel.Value.result body)
-  | Region_execution.Region_loop program ->
-      `Region
-        (Region_program.with_output program
-           (Kernel.Result_conversion.apply v.Kernel.Value.result
-              (Region_program.output program)))
+  | Region_execution.Region_loop _ -> (
+      match
+        Region_execution.lower
+          (Region_program.with_output v.Kernel.Value.computation
+             (Kernel.Result_conversion.apply v.Kernel.Value.result
+                (Region_program.output v.Kernel.Value.computation)))
+      with
+      | Region_execution.Region_loop lowered ->
+          `Region
+            ( lowered,
+              Option.bind region_counters (fun counters ->
+                  Tensor_id.Map.find_opt v.Kernel.Value.id counters) )
+      | Region_execution.Pixel_loop _ -> assert false)
 
 let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
   List.find_opt
@@ -181,10 +189,10 @@ let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
 (* One engine for both placements. A value in [stores] is materialised; a load
    on an edge in [virtual_uses] recurses into its producer instead of reading a
    buffer. [run] is this with nothing virtual and everything stored. *)
-let machine esc ?on_load (k : Kernel.t) ~bind ~virtual_uses =
+let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
   let inputs = Err.Escape.or_throw esc (input_env k ~bind) in
   let values = values_by_id k in
-  let bodies = Tensor_id.Map.map converted values in
+  let bodies = Tensor_id.Map.map (converted ?region_counters) values in
   let bound = ref inputs in
   (* An edge is virtual only for its NOMINATED consumer, so the question is
      always "does this consumer recurse into that producer", never "is that
@@ -220,10 +228,10 @@ let machine esc ?on_load (k : Kernel.t) ~bind ~virtual_uses =
                         (widen
                            (Expr.Eval.value (env_for ~depth id) ~output:coord
                               body))
-                  | `Region program ->
+                  | `Region (lowered, _) ->
                       Err.Escape.or_throw esc
                         (widen_region
-                           (Region_eval.value_at program
+                           (Region_execution.value_at lowered
                               ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape
                               ~env:(env_for ~depth id)
                               ~output:
@@ -284,10 +292,10 @@ let machine esc ?on_load (k : Kernel.t) ~bind ~virtual_uses =
                       ~output:
                         (Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
                       body)))
-      | `Region program ->
+      | `Region (lowered, counters) ->
           Err.Escape.or_throw esc
             (widen_region
-               (Region_eval.materialize program
+               (Region_execution.materialize ?counters lowered
                   ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape ~env))
     in
     bound := Tensor_id.Map.add v.Kernel.Value.id t !bound;
@@ -295,17 +303,21 @@ let machine esc ?on_load (k : Kernel.t) ~bind ~virtual_uses =
   in
   (materialize, fun id coord -> eval_value ~depth:0 id coord)
 
-let execute esc ?on_load (k : Kernel.t) ~bind ~virtual_uses ~stores =
-  let materialize, _ = machine esc ?on_load k ~bind ~virtual_uses in
+let execute esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses
+    ~stores =
+  let materialize, _ =
+    machine esc ?on_load ?region_counters k ~bind ~virtual_uses
+  in
   List.fold_left
     (fun results (v : Kernel.Value.t) ->
       if not (Tensor_id.Set.mem v.Kernel.Value.id stores) then results
       else Tensor_id.Map.add v.Kernel.Value.id (materialize v) results)
     Tensor_id.Map.empty k.Kernel.values
 
-let run ?on_load k ~bind =
+let run ?on_load ?region_counters k ~bind =
   Err.Escape.with_escape @@ fun esc ->
-  execute esc ?on_load k ~bind ~virtual_uses:Kernel.Use.Set.empty
+  execute esc ?on_load ?region_counters k ~bind
+    ~virtual_uses:Kernel.Use.Set.empty
     ~stores:
       (List.fold_left
          (fun s (v : Kernel.Value.t) -> Tensor_id.Set.add v.Kernel.Value.id s)

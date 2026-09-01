@@ -24,6 +24,28 @@ type error =
   | `Unknown_selection of Tensor_id.t
   | `Unknown_stage_source of Unknown_stage.t ]
 
+module Region_admission = struct
+  type reject = Candidate | Invalid | Reconstruction_failed
+
+  let admit ~limits ~pixel = function
+    | Error _ -> (Region_program.pixel pixel, Some Candidate)
+    | Ok program -> (
+        match
+          Region_program.check ~max_size:limits.Kernel.Limits.max_size
+            ~max_depth:limits.Kernel.Limits.max_depth program
+        with
+        | Error _ -> (Region_program.pixel pixel, Some Invalid)
+        | Ok () -> (
+            match
+              Region_program.reconstructs
+                ~max_size:limits.Kernel.Limits.max_size
+                ~max_depth:limits.Kernel.Limits.max_depth ~pixel program
+            with
+            | Ok true -> (program, None)
+            | Ok false | Error _ ->
+                (Region_program.pixel pixel, Some Reconstruction_failed)))
+end
+
 let pp_error fmt : [< error ] -> unit = function
   | #Kernel.error as e -> Kernel.pp_error fmt e
   | `Missing_live_output id ->
@@ -105,9 +127,9 @@ let analyse ~limits ~select (p : Stage_program.t) =
       (fun acc (st : Stage_program.Stage.t) ->
         let* () = acc in
         Err.map_error
-          (fun e -> `Body { Kernel.Body_error.at = st.id; error = `Expr e })
-          (Expr.Check.value ~max_size:limits.Kernel.Limits.max_size
-             ~max_depth:limits.Kernel.Limits.max_depth st.body))
+          (fun error -> `Body { Kernel.Body_error.at = st.id; error })
+          (Stage_program.Stage.check ~max_size:limits.Kernel.Limits.max_size
+             ~max_depth:limits.Kernel.Limits.max_depth st))
       (Err.return ()) p.Stage_program.stages
   in
   (* The boundary table is built RESULT-VALUED, not with [Map.add]. Insertion
@@ -164,7 +186,7 @@ let analyse ~limits ~select (p : Stage_program.t) =
           if Tensor_id.equal st.id st.sg.Tensor_sig.id then Err.return ()
           else invalid Program_error.Signature_id
         in
-        let srcs = Expr.Fold.sources st.body in
+        let srcs = Stage_program.Stage.sources st in
         let* () =
           Expr.Source.Set.fold
             (fun src acc ->
@@ -305,7 +327,8 @@ let required_outputs ?(limits = Kernel.Limits.default) ?select p =
     Err.fail (`Too_many_outputs limits.Kernel.Limits.max_outputs)
   else Err.return outs
 
-let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
+let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs
+    ?region_candidates p =
   let open Err.Syntax in
   let* a = analyse ~limits ~select p in
   let* req = required a p in
@@ -414,7 +437,19 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
             {
               Kernel.Value.id = st.id;
               sg = st.sg;
-              computation = Region_program.pixel st.body;
+              computation =
+                (match st.region with
+                | Some _ -> Stage_program.Stage.computation st
+                | None -> (
+                    match
+                      Option.bind region_candidates (fun candidates ->
+                          Tensor_id.Map.find_opt st.id candidates)
+                    with
+                    | None -> Region_program.pixel st.body
+                    | Some candidate ->
+                        fst
+                          (Region_admission.admit ~limits ~pixel:st.body
+                             candidate)));
               result = Kernel.Result_conversion.Round_f32;
             }
         else None)

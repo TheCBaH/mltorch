@@ -1,4 +1,4 @@
-.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
+.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
@@ -241,6 +241,9 @@ benchmark.native_conv2d:
 # before/after comparison, not CI noise.
 benchmark.region_pixel:
 	opam exec -- dune exec bin/region_pixel_bench.exe
+
+benchmark.region_compute:
+	opam exec -- dune exec bin/region_compute_bench.exe
 
 # --- profile.*: on-demand profiling of the native conv2d benchmark ---
 #

@@ -18,11 +18,9 @@ let%expect_test
     |> List.rev
   in
   let outputs =
-    Err.or_raise ~pp_error:Region_partition.pp_error
-      (Region_partition.fold_outputs ~output_shape:shape ~key:Vec6.origin
-         ~init:[]
-         ~f:(fun acc output -> Format.asprintf "%a" Vec6.pp_coord output :: acc)
-         partition)
+    Region_partition.fold_outputs ~output_shape:shape ~key:Vec6.origin ~init:[]
+      ~f:(fun acc output -> Format.asprintf "%a" Vec6.pp_coord output :: acc)
+      partition
     |> List.rev
   in
   Fmt.pr "keys: %s@.outputs: %s@." (String.concat "," keys)
@@ -30,6 +28,48 @@ let%expect_test
   [%expect {|
     keys: (0),(1,0)
     outputs: (0),(1),(2)
+    |}]
+
+let%expect_test
+    "Region_partition owned enumeration matches the former filtered domain scan"
+    =
+  let output_shape = Vec6.shape ~n:2 ~t:2 ~d:1 ~h:2 ~w:3 ~c:2 in
+  let partition =
+    Err.or_raise ~pp_error:Region_partition.pp_error
+      (Region_partition.of_whole_axes [ Axis.T; Axis.W; Axis.C ])
+  in
+  let keys =
+    Region_partition.fold_keys ~output_shape ~init:[]
+      ~f:(fun keys key -> key :: keys)
+      partition
+    |> List.rev
+  in
+  let owned key =
+    Region_partition.fold_outputs ~output_shape ~key ~init:[]
+      ~f:(fun outputs output -> output :: outputs)
+      partition
+    |> List.rev
+  in
+  let filtered key =
+    Vec6.fold_coords output_shape ~init:[] ~f:(fun outputs output ->
+        let belongs axis =
+          match Region_partition.mode partition axis with
+          | Region_partition.Axis_mode.Whole -> true
+          | Singleton -> Dim.equal (Vec6.get key axis) (Vec6.get output axis)
+        in
+        if List.for_all belongs Axis.all then output :: outputs else outputs)
+    |> List.rev
+  in
+  let matches = List.for_all (fun key -> owned key = filtered key) keys in
+  let first =
+    List.hd keys |> owned |> List.map (Format.asprintf "%a" Vec6.pp_coord)
+  in
+  Fmt.pr "keys=%d outputs-per-key=%d matches=%b first=%s@." (List.length keys)
+    (List.length (owned (List.hd keys)))
+    matches (String.concat "," first);
+  [%expect
+    {|
+    keys=4 outputs-per-key=12 matches=true first=(0),(1),(1,0),(1,1),(2,0),(2,1),(1,0,0,0,0),(1,0,0,0,1),(1,0,0,1,0),(1,0,0,1,1),(1,0,0,2,0),(1,0,0,2,1)
     |}]
 
 let%expect_test
@@ -133,6 +173,83 @@ let%expect_test "Region_eval shares scalar locals across a whole axis" =
     (Tensor.read tensor Vec6.origin)
     (Tensor.read tensor (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:2));
   [%expect {| 3,3 |}]
+
+let%expect_test
+    "Region trace proves whole-domain ownership and projection observes \
+     materialization" =
+  let partition =
+    Err.or_raise ~pp_error:Region_partition.pp_error
+      (Region_partition.of_whole_axes [ Axis.C ])
+  in
+  let program =
+    let source = Expr_bridge.source_of_id (Tensor_id.of_int 41) in
+    let output =
+      Expr.Coord.make ~n:(Expr.Index.output Axis.N)
+        ~t:(Expr.Index.output Axis.T) ~d:(Expr.Index.output Axis.D)
+        ~h:(Expr.Index.output Axis.H) ~w:(Expr.Index.output Axis.W)
+        ~c:(Expr.Index.output Axis.C)
+    in
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.Builder.run
+         (Region_program.Builder.scalar (Value.const 0.) (fun local ->
+              Region_program.Builder.finish ~max_size:32 ~max_depth:16
+                ~partition
+                ~output:(Value.add local (Value.load source output)))))
+  in
+  let output_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3 in
+  let input =
+    Tensor.materialize output_shape (fun coord ->
+        match (Dim.to_int coord.w, Dim.to_int coord.c) with
+        | 0, 0 -> nan
+        | 0, 1 -> infinity
+        | 0, _ -> neg_infinity
+        | 1, 0 -> -0.
+        | 1, 1 -> 0.
+        | _ -> 1.)
+  in
+  let env =
+    Expr_bridge.env ~binding:(fun id ->
+        if Tensor_id.equal id (Tensor_id.of_int 41) then Some input else None)
+  in
+  let trace =
+    Err.or_raise ~pp_error:Region_trace.pp_error
+      (Region_trace.collect program ~output_shape)
+  in
+  let lowered =
+    match Region_execution.lower program with
+    | Region_execution.Region_loop lowered -> lowered
+    | Region_execution.Pixel_loop _ -> assert false
+  in
+  let tensor =
+    Err.or_raise ~pp_error:Region_eval.pp_error
+      (Region_execution.materialize lowered ~output_shape ~env)
+  in
+  let agrees =
+    Vec6.fold_coords output_shape ~init:true ~f:(fun agrees output ->
+        let projected =
+          Err.or_raise ~pp_error:Region_eval.pp_error
+            (Region_execution.value_at lowered ~output_shape ~env ~output)
+        in
+        agrees
+        && Core.Float_bits.equal_exact (Tensor.read tensor output) projected)
+  in
+  let mutated =
+    match trace.entries with
+    | { key; outputs = first :: second :: _ } :: rest ->
+        Region_trace.summarize ~output_shape
+          ({ key; outputs = [ first; first; second ] } :: rest)
+    | _ -> assert false
+  in
+  Fmt.pr
+    "keys=%d total=%d visited=%d duplicates=%d missing=%d agrees=%b \
+     mutation=(duplicates=%d missing=%d)@."
+    trace.coverage.keys trace.coverage.total trace.coverage.visited
+    trace.coverage.duplicates trace.coverage.missing agrees mutated.duplicates
+    mutated.missing;
+  [%expect
+    {|
+    keys=2 total=6 visited=6 duplicates=0 missing=0 agrees=true mutation=(duplicates=1 missing=1)
+    |}]
 
 let%expect_test
     "Region_program specializes dependent locals with a saturating preflight" =

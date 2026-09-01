@@ -41,7 +41,9 @@ let run (g : Graph.graph) : Stage_program.t =
             (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec)
         in
         let out_sig = Tensor_id.Map.find oid g.Graph.Graph.tensors in
-        let st = { Stage_program.Stage.id = oid; sg = out_sig; body } in
+        let st =
+          { Stage_program.Stage.id = oid; sg = out_sig; body; region = None }
+        in
         (Tensor_id.Map.add oid out_sig env, st :: stages))
       (env, stages)
       (List.mapi (fun i oid -> (i, oid)) node.Graph.Node.outputs)

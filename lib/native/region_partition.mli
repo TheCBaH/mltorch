@@ -7,9 +7,7 @@ end
 type t = private Axis_mode.t Vec6.t
 
 type error =
-  [ `Duplicate_axis of Expr.Axis.t
-  | `Output_out_of_bounds of Vec6.coord
-  | `Region_key_out_of_bounds of Vec6.coord ]
+  [ `Duplicate_axis of Expr.Axis.t | `Output_out_of_bounds of Vec6.coord ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 val singleton : t
@@ -34,6 +32,6 @@ val fold_outputs :
   init:'a ->
   f:('a -> Vec6.coord -> 'a) ->
   t ->
-  ('a, error) Err.t
+  'a
 
 val pp : Format.formatter -> t -> unit

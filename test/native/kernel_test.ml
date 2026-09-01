@@ -667,7 +667,7 @@ let stage_program ?(inputs = []) ?(consts = []) ?(stages = []) ?(outputs = [])
   }
 
 let stage id shape body =
-  { Stage_program.Stage.id = tid id; sg = sg id shape; body }
+  { Stage_program.Stage.id = tid id; sg = sg id shape; body; region = None }
 
 let%expect_test "Kernel_adapt: the boundary table rejects collisions" =
   let case name p =

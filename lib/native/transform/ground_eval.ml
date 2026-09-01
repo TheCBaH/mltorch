@@ -165,7 +165,10 @@ end
    [Ground_eval.error -> Unproved] conversion unchanged -- an unresolved
    [Data] source makes a cluster [Unproved], never a build failure. *)
 type error =
-  [ Expr.Eval.error | `Data_index_unresolved | `Unknown_edge of Tensor_id.t ]
+  [ Expr.Eval.error
+  | `Data_index_unresolved
+  | `Region of Region_program.error
+  | `Unknown_edge of Tensor_id.t ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Expr.Eval.error as e -> Expr.Eval.pp_error fmt e
@@ -173,6 +176,7 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.string fmt
         "Data index source could not be resolved to a directly-bound I64 \
          constant"
+  | `Region e -> Region_program.pp_error fmt e
   | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
 
 (* The exact resolver for a [Data] source during grounding: succeeds ONLY for
@@ -391,9 +395,17 @@ and max_pool esc ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
 
 (* Internal: escapes through [esc]. The public entries below establish it. *)
 let body_at esc env (st : Stage_program.Stage.t) coord =
+  let limits = Kernel.Limits.default in
+  let body =
+    or_throw esc
+      (Err.map_error
+         (fun e -> `Region e)
+         (Stage_program.Stage.pixel_body ~max_size:limits.Kernel.Limits.max_size
+            ~max_depth:limits.Kernel.Limits.max_depth st))
+  in
   ground esc ~env
     ~coord:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int coord))
-    ~rvars:[] st.Stage_program.Stage.body
+    ~rvars:[] body
 
 let at env id coord =
   Err.Escape.with_escape @@ fun esc ->

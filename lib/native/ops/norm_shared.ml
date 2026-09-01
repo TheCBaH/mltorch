@@ -32,6 +32,28 @@ let normalized_shape ~(x_shape : Vec6.shape) ~(dims : Axis.t list) =
     (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1)
     dims
 
+(* Affine normalization operands have the normalized axes in common with the
+   output and singleton axes everywhere else.  This projection consequently
+   belongs with the normalization layout, not with generic Region syntax. *)
+let affine_coord dims =
+  let output_coord =
+    Expr.Coord.make
+      ~n:(Expr.Index.output Expr.Axis.N)
+      ~t:(Expr.Index.output Expr.Axis.T)
+      ~d:(Expr.Index.output Expr.Axis.D)
+      ~h:(Expr.Index.output Expr.Axis.H)
+      ~w:(Expr.Index.output Expr.Axis.W)
+      ~c:(Expr.Index.output Expr.Axis.C)
+  in
+  let zero =
+    Expr.Coord.make ~n:Expr.Index.zero ~t:Expr.Index.zero ~d:Expr.Index.zero
+      ~h:Expr.Index.zero ~w:Expr.Index.zero ~c:Expr.Index.zero
+  in
+  List.fold_left
+    (fun coord axis ->
+      Expr.Coord.set coord axis (Expr.Coord.get output_coord axis))
+    zero dims
+
 (* How many elements one normalisation reduces over -- the divisor of the mean
    and of the mean of squares.
 

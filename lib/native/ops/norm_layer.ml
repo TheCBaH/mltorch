@@ -249,4 +249,69 @@ module LayerNorm = struct
         (S.mul (S.mul (S.sub (S.load x out) mean) inv) (at_dims weight))
         (at_dims bias)
   end
+
+  (* Authoritative declarative Region computation.  Inputs have already been
+     resolved by role at the graph boundary. *)
+  module Computation = struct
+    open Region_context
+
+    let program ~limits params ~x ~weight ~bias =
+      match partition params.dims with
+      | Error error -> Error error
+      | Ok partition ->
+          let sum =
+            reduce_dims ~kind:Expr.Reduction.Sum ~dims:params.dims
+              ~shape:x.Tensor_sig.shape ~leaf:(fun overrides ->
+                load x (reduced_coord overrides))
+          in
+          let count =
+            Expr.Value.const
+              (float_of_int
+                 (normalized_count_unchecked ~x_shape:x.Tensor_sig.shape
+                    ~dims:params.dims))
+          in
+          let affine value = load value (affine_coord params.dims) in
+          program
+            (Region_program.Builder.run
+               (Region_program.Builder.scalar sum (fun sum ->
+                    Region_program.Builder.scalar (Expr.Value.div sum count)
+                      (fun mean ->
+                        let variance_sum =
+                          reduce_dims ~kind:Expr.Reduction.Sum ~dims:params.dims
+                            ~shape:x.Tensor_sig.shape ~leaf:(fun overrides ->
+                              let delta =
+                                Expr.Value.sub
+                                  (load x (reduced_coord overrides))
+                                  mean
+                              in
+                              Expr.Value.mul delta delta)
+                        in
+                        Region_program.Builder.scalar variance_sum
+                          (fun variance_sum ->
+                            let inverse =
+                              Expr.Value.div (Expr.Value.const 1.)
+                                (Expr.Value.sqrt
+                                   (Expr.Value.add
+                                      (Expr.Value.div variance_sum count)
+                                      (Expr.Value.const params.eps)))
+                            in
+                            Region_program.Builder.scalar inverse
+                              (fun inverse ->
+                                let bias =
+                                  load bias (affine_coord params.dims)
+                                in
+                                Region_program.Builder.finish
+                                  ~max_size:limits.Kernel.Limits.max_size
+                                  ~max_depth:limits.Kernel.Limits.max_depth
+                                  ~partition
+                                  ~output:
+                                    (Expr.Value.add
+                                       (Expr.Value.mul
+                                          (Expr.Value.mul
+                                             (Expr.Value.sub (load_output x)
+                                                mean)
+                                             inverse)
+                                          (affine weight))
+                                       bias)))))))
+  end
 end

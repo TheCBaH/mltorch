@@ -12,7 +12,9 @@ type error =
   | `Missing_constant of Tensor_id.t
   | `Missing_input of Tensor_id.t
   | `Missing_tensor of missing_tensor
-  | `Output_arity_mismatch of arity_mismatch ]
+  | `Output_arity_mismatch of arity_mismatch
+  | `Region_construction of Regionizer.error
+  | `Region_execution of Region_eval.error ]
 
 type hooks =
   | Hooks : { on_start : node -> 'a; on_end : node -> 'a -> unit } -> hooks
@@ -34,6 +36,8 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf
         "node output arity mismatch: %d output shapes for %d output ids"
         expected actual
+  | `Region_construction error -> Regionizer.pp_error ppf error
+  | `Region_execution error -> Region_eval.pp_error ppf error
 
 let find_tensor map id ~context =
   Tensor_id.Map.find_opt id map
@@ -70,23 +74,101 @@ let bind_constants g constants env =
       | Input.Input -> Err.return env)
     env g.Graph.inputs
 
-let rec run_graph ?hooks ~constants (g : graph)
-    (env : Tensor.packed Tensor_id.Map.t) :
+let fresh_synthetic_ids g =
+  let rec fresh candidate used =
+    let id = Tensor_id.of_int candidate in
+    if Tensor_id.Set.mem id used then fresh (candidate + 1) used
+    else (id, Tensor_id.Set.add id used)
+  in
+  List.fold_left
+    (fun (ids, used, candidate) role ->
+      let id, used = fresh candidate used in
+      ((role, id) :: ids, used, candidate + 1))
+    ( [],
+      Tensor_id.Map.fold
+        (fun id _ ids -> Tensor_id.Set.add id ids)
+        g.Graph.tensors Tensor_id.Set.empty,
+      0 )
+    [ Regionizer.Rms_weight; Regionizer.Layer_weight; Regionizer.Layer_bias ]
+  |> fun (ids, _, _) -> ids
+
+let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
+    ~synthetic_ids =
+  let open Err.Syntax in
+  let id_for role = List.assoc role synthetic_ids in
+  let fill role _value shape =
+    Tensor_sig.create ~id:(id_for role) ~name:"direct optional operand" ~shape
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let* program =
+    Regionizer.program ~limits ~op ~output ~output_shape:out_shape
+      ~operand:(fun id -> Tensor_id.Map.find_opt id g.Graph.tensors)
+      ~fill
+    |> Err.map_error (fun error -> `Region_construction error)
+  in
+  let synthetic_shape role =
+    match op with
+    | Rms_norm { Norm.RmsNorm.params; x; weight = None }
+      when role = Regionizer.Rms_weight ->
+        Some
+          ( 1.,
+            Norm_shared.normalized_shape
+              ~x_shape:(Tensor_id.Map.find x g.Graph.tensors).Tensor_sig.shape
+              ~dims:params.dims )
+    | Layer_norm { Norm.LayerNorm.params; x; weight; bias }
+      when (role = Regionizer.Layer_weight && Option.is_none weight)
+           || (role = Regionizer.Layer_bias && Option.is_none bias) ->
+        Some
+          ( (if role = Regionizer.Layer_weight then 1. else 0.),
+            Norm_shared.normalized_shape
+              ~x_shape:(Tensor_id.Map.find x g.Graph.tensors).Tensor_sig.shape
+              ~dims:params.dims )
+    | _ -> None
+  in
+  let sources = Region_program.Fold.sources program in
+  let synthetic_bindings =
+    List.fold_left
+      (fun bindings (role, id) ->
+        match synthetic_shape role with
+        | Some (value, shape)
+          when Expr.Source.Set.mem (Expr_bridge.source_of_id id) sources ->
+            Tensor_id.Map.add id
+              (Tensor.materialize shape (fun _ -> value))
+              bindings
+        | Some _ | None -> bindings)
+      Tensor_id.Map.empty synthetic_ids
+  in
+  let env =
+    Expr_bridge.env ~binding:(fun id ->
+        match Tensor_id.Map.find_opt id operand_env with
+        | Some tensor -> Some tensor
+        | None -> Tensor_id.Map.find_opt id synthetic_bindings)
+  in
+  match Region_execution.lower program with
+  | Region_execution.Pixel_loop _ -> assert false
+  | Region_execution.Region_loop lowered ->
+      Region_execution.materialize ?counters:region_counters lowered
+        ~output_shape:out_shape ~env
+      |> Err.map_error (fun error -> `Region_execution error)
+
+let rec run_graph ?hooks ?region_counters ?(limits = Kernel.Limits.default)
+    ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let* env = bind_constants g constants env in
   Err.List.fold_left
     (fun env node ->
       match hooks with
-      | None -> eval_node g env node
+      | None -> eval_node ?region_counters ~limits g env node
       | Some (Hooks h) ->
           let state = h.on_start node in
-          let* env = eval_node g env node in
+          let* env = eval_node ?region_counters ~limits g env node in
           h.on_end node state;
           Err.return env)
     env g.Graph.nodes
 
-and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
+and eval_node ?region_counters ~limits (g : graph)
+    (env : Tensor.packed Tensor_id.Map.t) (node : node) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let op = node.Node.op in
@@ -126,14 +208,16 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
   let outs =
     List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
   in
+  let synthetic_ids = fresh_synthetic_ids g in
   Err.List.fold_left
     (fun env (output, oid, out_shape) ->
-      let result =
+      let* result =
         match op with
         | Unbind { Split.Unbind.params; x } ->
-            Tensor.unbind
-              (Tensor_id.Map.find x operand_env)
-              ~axis:params.axis ~output ~shape:out_shape
+            Err.return
+              (Tensor.unbind
+                 (Tensor_id.Map.find x operand_env)
+                 ~axis:params.axis ~output ~shape:out_shape)
         (* Same dtype-preserving bypass as [Unbind], and for the same reason:
            [offset] is the sum of every earlier piece's size, computed the
            same way [Eval_op]'s arm computes it for the generic path. *)
@@ -142,36 +226,50 @@ and eval_node (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
               Split.Split_with_sizes.offset_of ~output
                 params.Split.Split_with_sizes.sizes
             in
-            Tensor.split_with_sizes
-              (Tensor_id.Map.find x operand_env)
-              ~axis:params.Split.Split_with_sizes.axis ~offset ~shape:out_shape
+            Err.return
+              (Tensor.split_with_sizes
+                 (Tensor_id.Map.find x operand_env)
+                 ~axis:params.Split.Split_with_sizes.axis ~offset
+                 ~shape:out_shape)
         | Zeros { Factory.Zeros.params } ->
-            Tensor.materialize_fmt params.fmt out_shape (fun _ -> 0.)
+            Err.return
+              (Tensor.materialize_fmt params.fmt out_shape (fun _ -> 0.))
         | Eye { Factory.Eye.params } ->
-            Tensor.materialize_fmt params.fmt out_shape (fun coord ->
-                if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
-                else 0.)
+            Err.return
+              (Tensor.materialize_fmt params.fmt out_shape (fun coord ->
+                   if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
+                   else 0.))
         | Arange { Factory.Arange.params } -> (
             match params.fmt with
             | Payload.Fmt Payload.I64 ->
-                Tensor.materialize_i64 out_shape (fun coord ->
-                    Int64.of_float
-                      (Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
+                Err.return
+                  (Tensor.materialize_i64 out_shape (fun coord ->
+                       Int64.of_float
+                         (Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
             | _ ->
-                Tensor.materialize_fmt params.fmt out_shape (fun coord ->
-                    Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
+                Err.return
+                  (Tensor.materialize_fmt params.fmt out_shape (fun coord ->
+                       Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
+        | _ when Regionizer.is_region_authored op ->
+            region_result ~limits
+              ~region_counters:
+                (Option.bind region_counters (fun counters ->
+                     Tensor_id.Map.find_opt oid counters))
+              g ~op ~output ~out_shape ~operand_env ~synthetic_ids
         | _ ->
-            Schedule.evaluate out_shape
-              (E.pixel op ~output
-                 ~operand:(fun r -> Tensor_id.Map.find r operand_env)
-                 ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
-                 ~fill)
+            Err.return
+              (Schedule.evaluate out_shape
+                 (E.pixel op ~output
+                    ~operand:(fun r -> Tensor_id.Map.find r operand_env)
+                    ~shape_of:(fun r -> Tensor_id.Map.find r shape_env)
+                    ~fill))
       in
       Err.return (Tensor_id.Map.add oid result env))
     env outs
 
-let run ?hooks ?(constants = []) (g : graph)
-    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
+let run ?hooks ?region_counters ?(limits = Kernel.Limits.default)
+    ?(constants = []) (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list)
+    =
   let provided =
     List.fold_left
       (fun e (id, t) -> Tensor_id.Map.add id t e)
@@ -186,4 +284,4 @@ let run ?hooks ?(constants = []) (g : graph)
         | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
       Tensor_id.Map.empty (input_ids g)
   in
-  run_graph ?hooks ~constants g env0
+  run_graph ?hooks ?region_counters ~limits ~constants g env0

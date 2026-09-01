@@ -53,6 +53,7 @@ val value_at :
 
 val run :
   ?on_load:(Tensor_id.t -> int Expr.Coord.t -> unit) ->
+  ?region_counters:Region_execution.counters Tensor_id.Map.t ->
   Kernel.t ->
   bind:(Tensor_id.t -> Tensor.packed option) ->
   (Tensor.packed Tensor_id.Map.t, error) Err.t

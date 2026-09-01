@@ -15,7 +15,29 @@ module Stage : sig
     sg : Tensor_sig.t; (* the stage's output signature *)
     body : Expr.Value.t;
         (* per-pixel expression; its Loads carry producers' sigs *)
+    region : Region_program.t option;
+        (* authoritative structural form when this is a Region-authored stage;
+           [body] is then its mechanical Pixel specialization for legacy users *)
   }
+
+  val computation : t -> Region_program.t
+  (** The stage's uniform structural computation. A legacy Pixel stage is
+      embedded mechanically; a Region-authored stage returns the exact program
+      carried at construction. *)
+
+  val sources : t -> Expr.Source.Set.t
+
+  val pixel_body :
+    max_size:int ->
+    max_depth:int ->
+    t ->
+    (Expr.Value.t, Region_program.error) Err.t
+  (** The symbolic Pixel view used only by consumers that cannot yet traverse
+      Region locals. Region-authored stages are specialized from their carried
+      structural program, never read from [body]. *)
+
+  val check :
+    max_size:int -> max_depth:int -> t -> (unit, Region_program.error) Err.t
 end
 
 type t = {

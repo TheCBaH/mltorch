@@ -5,7 +5,26 @@
 open Graph_ir
 
 module Stage = struct
-  type t = { id : Tensor_id.t; sg : Tensor_sig.t; body : Expr.Value.t }
+  type t = {
+    id : Tensor_id.t;
+    sg : Tensor_sig.t;
+    body : Expr.Value.t;
+    region : Region_program.t option;
+  }
+
+  let computation t =
+    Option.value ~default:(Region_program.pixel t.body) t.region
+
+  let sources t = Region_program.Fold.sources (computation t)
+
+  let pixel_body ~max_size ~max_depth t =
+    match t.region with
+    | None -> Ok t.body
+    | Some program ->
+        Region_program.specialize_pixel ~max_size ~max_depth program
+
+  let check ~max_size ~max_depth t =
+    Region_program.check ~max_size ~max_depth (computation t)
 end
 
 type t = {
@@ -23,7 +42,13 @@ let pp fmt (p : t) =
     (comma (List.map (fun (id, _) -> name_of id) p.inputs));
   List.iter
     (fun (st : Stage.t) ->
-      Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Expr.Pp.value st.body)
+      match st.region with
+      | None ->
+          Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Expr.Pp.value
+            st.body
+      | Some region ->
+          Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Region_program.pp
+            region)
     p.stages;
   Format.fprintf fmt "outputs: %s@]" (comma (List.map name_of p.outputs))
 
@@ -49,7 +74,15 @@ let ground (p : t) ~(bind : Tensor_id.t -> Tensor.packed) :
            a value it can report, not a [Not_found] raised out of a map lookup
            before any error path exists. *)
         let binding id = Tensor_id.Map.find_opt id binds in
-        let t = Schedule.ground st.sg.shape ~binding st.body in
+        let t =
+          match Region_execution.lower (Stage.computation st) with
+          | Region_execution.Pixel_loop body ->
+              Schedule.ground st.sg.shape ~binding body
+          | Region_execution.Region_loop lowered ->
+              Err.or_raise ~pp_error:Region_eval.pp_error
+                (Region_execution.materialize lowered ~output_shape:st.sg.shape
+                   ~env:(Expr_bridge.env ~binding))
+        in
         (Tensor_id.Map.add st.sg.id t binds, Tensor_id.Map.add st.id t result))
       (seed, Tensor_id.Map.empty)
       p.stages

@@ -8,9 +8,13 @@ val value_at :
   env:Expr.Eval.Env.t ->
   output:Vec6.coord ->
   (float, error) Err.t
+(** Fresh concrete scalar projection. It reconstructs the output's key and
+    evaluates all scalar locals for this one observation; it is intentionally
+    not the materialization traversal. *)
 
 val materialize :
   Region_program.t ->
   output_shape:Vec6.shape ->
   env:Expr.Eval.Env.t ->
   (Tensor.packed, error) Err.t
+(** Reference materialization with a key-indexed local cache. *)

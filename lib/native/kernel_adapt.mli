@@ -47,6 +47,16 @@ type error =
   | `Unknown_selection of Tensor_id.t
   | `Unknown_stage_source of Unknown_stage.t ]
 
+module Region_admission : sig
+  type reject = Candidate | Invalid | Reconstruction_failed
+
+  val admit :
+    limits:Kernel.Limits.t ->
+    pixel:Expr.Value.t ->
+    (Region_program.t, Regionizer.error) Err.t ->
+    Region_program.t * reject option
+end
+
 val pp_error : Format.formatter -> [< error ] -> unit
 
 val required_outputs :
@@ -74,6 +84,7 @@ val of_stage_program :
   ?limits:Kernel.Limits.t ->
   ?select:Tensor_id.Set.t ->
   ?outputs:Tensor_id.t list ->
+  ?region_candidates:(Region_program.t, Regionizer.error) Err.t Tensor_id.Map.t ->
   Stage_program.t ->
   (Kernel.t, error) Err.t
 (** [select] absent adapts the whole program; [outputs] absent takes

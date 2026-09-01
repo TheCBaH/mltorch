@@ -214,7 +214,8 @@ let vchk esc : ('a, [< error ]) Err.t -> 'a = function
   | Ok v -> v
   | Error e -> Err.Escape.throw_error esc (e :> error Err.Error.t)
 
-let value ?(local = fun _ -> None) (env : Env.t) ~output e =
+let value ?(local = fun _ -> None) ?(on_reduction = fun () -> ()) (env : Env.t)
+    ~output e =
   Err.Escape.with_escape @@ fun esc ->
   let vchk r = vchk esc r in
   (* [eval_index] is polymorphic in the caller's error row, and [env.load_index]
@@ -255,6 +256,7 @@ let value ?(local = fun _ -> None) (env : Env.t) ~output e =
             let bound v =
               if Reduce_var.equal v r.Reduction.var then Some i else reducers v
             in
+            on_reduction ();
             fold (i + 1) (combine acc (go bound r.Reduction.body))
         in
         fold lo init

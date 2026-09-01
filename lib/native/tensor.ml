@@ -108,15 +108,21 @@ let shift_in_bounds (Tensor t) (base : Vec6.coord) (deltas : Vec6.deltas) =
          ~c:(idx C))
   else None
 
-(* Build a fresh dense float32 tensor by running [f] over every output coord. *)
-let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) =
+let create (shape : Vec6.shape) =
   let n = (Vec6.numel shape :> int) in
   let data = Bigarray.(Array1.create float32 c_layout n) in
   let payload = { Payload.fmt = Payload.F32; quant = Payload.No_quant; data } in
-  Vec6.iter shape (fun c ->
-      let i = (Vec6.offset shape c :> int) in
-      Payload.set_float payload ~c:(channel c) ~i (f c));
   Tensor { shape; payload }
+
+let set_float (Tensor t) coord value =
+  let i = (Vec6.offset t.shape coord :> int) in
+  Payload.set_float t.payload ~c:(channel coord) ~i value
+
+(* Build a fresh dense float32 tensor by running [f] over every output coord. *)
+let materialize (shape : Vec6.shape) (f : Vec6.coord -> float) =
+  let tensor = create shape in
+  Vec6.iter shape (fun c -> set_float tensor c (f c));
+  tensor
 
 (* A tensor factory is allowed to preserve its requested storage format.  The
    ordinary staged-operation path remains F32; this narrow constructor is for

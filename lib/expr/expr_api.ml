@@ -646,6 +646,7 @@ module type S = sig
 
     val value :
       ?local:(Local_var.t -> float option) ->
+      ?on_reduction:(unit -> unit) ->
       Env.t ->
       output:int Coord.t ->
       Value.t ->

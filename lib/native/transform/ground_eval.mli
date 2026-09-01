@@ -88,14 +88,19 @@ end
    feeds [map_verify_check.ml]'s existing generic
    [Ground_eval.error -> Unproved] conversion unchanged. *)
 type error =
-  [ Expr.Eval.error | `Data_index_unresolved | `Unknown_edge of Tensor_id.t ]
+  [ Expr.Eval.error
+  | `Data_index_unresolved
+  | `Region of Region_program.error
+  | `Unknown_edge of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
 (* [id]'s value at [coord], with every [Load] left as a [Cell]. Wraps the
-   stage's OWN body in [Round]: the stage's result is materialized too, and
-   constant folding depends on that outermost rounding. A graph input has no
-   stage and yields a bare [Cell] — this graph does not materialize it.
+   stage's symbolic view in [Round]: Region-authored stages derive that view
+   from their structural program, while legacy Pixel stages use their body.
+   The stage's result is materialized too, and constant folding depends on that
+   outermost rounding. A graph input has no stage and yields a bare [Cell] —
+   this graph does not materialize it.
 
    The stage is found by [id] DIRECTLY, so a root is always expanded and never
    replaced by a correspondence variable. That is what stops a cluster

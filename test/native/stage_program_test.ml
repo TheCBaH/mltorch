@@ -71,7 +71,7 @@ let classify (p : Stage_program.t) (st : Stage_program.Stage.t) =
       else if mem const_ids id then (i, id :: c, e, u)
       else if mem earlier id then (i, c, id :: e, u)
       else (i, c, e, id :: u))
-    (Expr.Fold.sources st.body)
+    (Stage_program.Stage.sources st)
     ([], [], [], [])
 
 let pp_ids ppf ids =

@@ -41,7 +41,8 @@ let body =
     (Expr.Coord.set zero Axis.C
        (Expr.Index.data (Expr_bridge.source_of_id index_id) zero 3))
 
-let out_stage = { Stage_program.Stage.id = out_id; sg = out_sig; body }
+let out_stage =
+  { Stage_program.Stage.id = out_id; sg = out_sig; body; region = None }
 
 let program ~index_kind ~extra_inputs ~extra_stages =
   {
@@ -116,6 +117,7 @@ let%expect_test
       Stage_program.Stage.id = index_id;
       sg = index_sig;
       body = Expr.Value.load (Expr_bridge.source_of_id raw_id) zero;
+      region = None;
     }
   in
   let p =

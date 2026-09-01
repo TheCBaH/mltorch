@@ -201,4 +201,45 @@ module RmsNorm = struct
       in
       S.mul (S.mul (S.load x out) inv) w
   end
+
+  (* Authoritative declarative Region computation.  Inputs have already been
+     resolved by role at the graph boundary. *)
+  module Computation = struct
+    open Region_context
+
+    let program ~limits params ~x ~weight =
+      match partition params.dims with
+      | Error error -> Error error
+      | Ok partition ->
+          let sumsq =
+            reduce_dims ~kind:Expr.Reduction.Sum ~dims:params.dims
+              ~shape:x.Tensor_sig.shape ~leaf:(fun overrides ->
+                let value = load x (reduced_coord overrides) in
+                Expr.Value.mul value value)
+          in
+          let inverse sumsq =
+            Expr.Value.div (Expr.Value.const 1.)
+              (Expr.Value.sqrt
+                 (Expr.Value.add
+                    (Expr.Value.div sumsq
+                       (Expr.Value.const
+                          (float_of_int
+                             (normalized_count_unchecked
+                                ~x_shape:x.Tensor_sig.shape ~dims:params.dims))))
+                    (Expr.Value.const params.eps)))
+          in
+          let weight = load weight (affine_coord params.dims) in
+          program
+            (Region_program.Builder.run
+               (Region_program.Builder.scalar sumsq (fun sumsq ->
+                    Region_program.Builder.scalar (inverse sumsq)
+                      (fun inverse ->
+                        Region_program.Builder.finish
+                          ~max_size:limits.Kernel.Limits.max_size
+                          ~max_depth:limits.Kernel.Limits.max_depth ~partition
+                          ~output:
+                            (Expr.Value.mul
+                               (Expr.Value.mul (load_output x) inverse)
+                               weight)))))
+  end
 end

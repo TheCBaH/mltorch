@@ -650,4 +650,44 @@ module Softmax = struct
       in
       S.div (S.exp (S.sub (S.load x out) m)) z
   end
+
+  (* Authoritative declarative Region computation.  Inputs have already been
+     resolved by role at the graph boundary. *)
+  module Computation = struct
+    open Region_context
+
+    let program ~limits params ~x =
+      match partition [ params.axis ] with
+      | Error error -> Error error
+      | Ok partition ->
+          let at axis = load x (Expr.Coord.set output_coord params.axis axis) in
+          let extent = Dim.to_int (Vec6.get x.Tensor_sig.shape params.axis) in
+          let max =
+            Expr.Builder.run
+              (Expr.Builder.reduction ~kind:Expr.Reduction.Max
+                 ~lo:Expr.Index.zero ~hi:(Expr.Index.const extent) (fun axis ->
+                   Expr.Builder.return (at axis)))
+          in
+          program
+            (Region_program.Builder.run
+               (Region_program.Builder.scalar max (fun max ->
+                    let denominator =
+                      Expr.Builder.run
+                        (Expr.Builder.reduction ~kind:Expr.Reduction.Sum
+                           ~lo:Expr.Index.zero ~hi:(Expr.Index.const extent)
+                           (fun axis ->
+                             Expr.Builder.return
+                               (Expr.Value.exp (Expr.Value.sub (at axis) max))))
+                    in
+                    Region_program.Builder.scalar denominator
+                      (fun denominator ->
+                        Region_program.Builder.finish
+                          ~max_size:limits.Kernel.Limits.max_size
+                          ~max_depth:limits.Kernel.Limits.max_depth ~partition
+                          ~output:
+                            (Expr.Value.div
+                               (Expr.Value.exp
+                                  (Expr.Value.sub (load_output x) max))
+                               denominator)))))
+  end
 end
