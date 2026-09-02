@@ -177,26 +177,28 @@ let%expect_test "domain: bmm batch extent" =
     batch=1                      in the dialect
     batch=2                      node n0: bmm batch extent is 2; only a single batch legalizes to a 1x1 convolution |}]
 
-(* [Batched_matmul] has no admissible shape at all, the same argument as
-   [Sdpa]'s own test below: unlike [Bmm], whose single-batch case legalizes
-   to a 1x1 convolution, Native4D has no [Ops4] counterpart at any [D] extent
-   (including 1), so there is no escape hatch to check for. *)
-let%expect_test "domain: batched_matmul is always outside the dialect" =
-  table [ ("batched_matmul", Fixtures.batched_matmul) ];
+(* D = 1 is admissible -- N and H already carry [Batched_matmul]'s real batch
+   axes (heads on H) -- but D > 1 is not, the same conditional shape
+   [check_bmm]'s own batch check above has. *)
+let%expect_test "domain: batched_matmul batch extent" =
+  table
+    [
+      ("batch=1", Fixtures.batched_matmul 1);
+      ("batch=2", Fixtures.batched_matmul 2);
+    ];
   [%expect
     {|
-    batched_matmul               node n0: batched matmul's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (the same `D`-axis argument attention_design.md §9 already made for Sdpa) |}]
+    batch=1                      in the dialect
+    batch=2                      node n0: batched matmul has extent > 1 on D, which the N/H/W/C dialect has no name for; N and H already carry the op's real batch axes |}]
 
-(* [Sdpa] has no admissible shape at all: unlike [Bmm], whose single-batch
-   case legalizes to a 1x1 convolution, a per-head decomposition would still
-   need a multi-batch matmul Native4D's [Bmm] legalization does not admit
-   ([Softmax4] existing does not change that), and the op names D as batch
-   regardless of configuration (op8-impl.md F8). *)
-let%expect_test "domain: sdpa is always outside the dialect" =
-  table [ ("sdpa", Fixtures.sdpa) ];
+(* Unlike [Batched_matmul] above, D is [Sdpa]'s ONLY batch axis (heads are on
+   H), so D = 1 is the whole admissible case, not a slice of a wider one. *)
+let%expect_test "domain: sdpa batch extent" =
+  table [ ("batch=1", Fixtures.sdpa 1); ("batch=2", Fixtures.sdpa 2) ];
   [%expect
     {|
-    sdpa                         node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native4D's Bmm legalization admits only a single batch) |}]
+    batch=1                      in the dialect
+    batch=2                      node n0: scaled-dot-product attention has extent > 1 on D, its batch axis, which the N/H/W/C dialect has no name for |}]
 
 (* [Softmax4] gates its ONE named axis, the same rule [slice]'s own test
    applies -- softmax never changes shape, so there is no separate

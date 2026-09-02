@@ -132,6 +132,33 @@ let check_bmm view node ~input ~mat2 =
       if fmt_is_f32_exact sg.Tensor_sig.fmt then Err.return ()
       else Err.fail (`Lossy_bmm_operand (node, mat2))
 
+(* [Batched_matmul]'s batch axes are N/T/D/H, all four of which
+   [output_shape] requires to agree between [input] and [mat2] -- not "D and
+   H" as an earlier reading of this arm had it. Of those, D is the one this
+   dialect cannot name, so the only real restriction is D = 1; N and H are
+   already dialect axes and carry the corpus's actual batch (heads on H,
+   `mvitv2_tiny`). Checking [input] alone is enough, the same asymmetric
+   choice [check_bmm] makes for its own H check: [output_shape] has already
+   proved [mat2] agrees. *)
+let check_batched_matmul view node ~input =
+  match Graph_view.sig_of view input with
+  | None -> Err.return ()
+  | Some sg ->
+      let batch = Vec6.get sg.Tensor_sig.shape Axis.D in
+      if Dim.to_int batch = 1 then Err.return ()
+      else Err.fail (`Batched_matmul_batch_axis node)
+
+(* [Sdpa]'s batch axis is D alone (heads are on H), so unlike
+   [Batched_matmul] this really is a genuine restriction: D = 1 is the whole
+   admissible case, not merely the reachable slice of a wider one. *)
+let check_sdpa view node ~query =
+  match Graph_view.sig_of view query with
+  | None -> Err.return ()
+  | Some sg ->
+      let batch = Vec6.get sg.Tensor_sig.shape Axis.D in
+      if Dim.to_int batch = 1 then Err.return ()
+      else Err.fail (`Sdpa_batch_axis node)
+
 (* The two running statistics are required operands; [weight] and [bias] are
    optional, and absent means the identity, which is not a dynamic parameter.
    So the rule is: the statistics, plus every optional that is PRESENT, must be
@@ -227,13 +254,13 @@ let check_node view (n : node) =
       else Err.fail (`Axis_outside_dialect (node, params.channel))
   | Layer_norm { Norm.LayerNorm.params; _ } ->
       check_dims node params.Norm.LayerNorm.dims
-  (* Its batch axes are D and H UNCONDITIONALLY (its own landing note,
-     `.ai/matmul_softmax_design.md` §5), the same argument [Sdpa]'s own arm
-     below makes for its D batch axis: not a parameter that happens to name D
-     in some configurations, so there is no admissible case to let through,
-     and legalization is unavailable too (Native4D has no Bmm and no
-     softmax). *)
-  | Batched_matmul _ -> Err.fail (`Batched_matmul_batch_axis node)
+  (* Its batch axes are N/T/D/H, all four of which [output_shape] requires to
+     agree between [input] and [mat2] -- D is the axis this dialect cannot
+     name; N and H are dialect axes and already carry the corpus's real batch
+     (heads on H, `mvitv2_tiny`), so D = 1 is the only restriction, checked
+     conditionally exactly as [check_bmm] checks its own batch axis. *)
+  | Batched_matmul { Matmul.Batched_matmul.input; _ } ->
+      check_batched_matmul view node ~input
   | Bmm { Matmul.Bmm.input; mat2 } -> check_bmm view node ~input ~mat2
   | Convolution { Conv.Convolution.params; _ } ->
       if params.Conv.Convolution.transposed then
@@ -253,15 +280,12 @@ let check_node view (n : node) =
   | Slice { Split.Slice.params; _ } -> check_dims node [ params.axis ]
   | Rms_norm { Norm.RmsNorm.params; _ } ->
       check_dims node params.Norm.RmsNorm.dims
-  (* Not [check_dims]: the batch axis is D UNCONDITIONALLY (op8-impl.md F7/F8),
-     not a parameter that happens to name D in some configurations, so there
-     is no admissible case to let through. Typed rejection is the principled
-     answer here, not a shortcut: a per-head decomposition would not help
-     either, since Native4D's [Bmm] legalization only admits a SINGLE batch
-     (`Unsupported_bmm_batch`) -- [Softmax4] now exists, but the multi-head
-     matmul the decomposition would still need does not, so a sound
-     direct/legalized/rejected decision has exactly one option. *)
-  | Sdpa _ -> Err.fail (`Sdpa_batch_axis node)
+  (* Not [check_dims]: the batch axis is D, unconditionally -- heads are on H,
+     so unlike [Batched_matmul]'s N/T/D/H spread this is a genuine
+     restriction, checked the same conditional way as every other batch-axis
+     arm here. A Region-authored graph at D = 1 needs no per-head
+     decomposition: it delegates to the same [Region_program] Native uses. *)
+  | Sdpa { Attention.Sdpa.query; _ } -> check_sdpa view node ~query
   (* Three ops the dialect does not have (the adaptive pair joining
      [Max_pool2d_with_indices] for the same reason -- see [Adaptive_max_pool2d]
      just above, which IS a direct counterpart precisely because

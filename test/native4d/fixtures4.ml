@@ -214,6 +214,22 @@ let per_op () =
                { Ops4.Batch_norm_no_stats.channel = Axis4.C; eps = 1e-5 }
                ~x ~weight ~bias ()),
           [ nhwc; s4 ~n:1 ~h:1 ~w:1 ~c:2; s4 ~n:1 ~h:1 ~w:1 ~c:2 ] ) );
+      (* [H=2] on both operands (the corpus's real batch axis,
+         `.ai/matmul_softmax_design.md` §5) and a contraction extent (3)
+         distinct from either row/column count, so a fixture reading the
+         wrong axis as the contraction would still differ. *)
+      ( "batched_matmul",
+        let a_shape = s4 ~n:1 ~h:2 ~w:2 ~c:3 in
+        let b_shape = s4 ~n:1 ~h:2 ~w:3 ~c:4 in
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* a = input ~shape:a_shape () in
+             let* b = input ~shape:b_shape () in
+             batched_matmul a b)
+        in
+        (g, [ a_shape; b_shape ]) );
       ("relu", unary ~shape:nhwc Builder.relu);
       ("repeat4", unary ~shape:nhwc (Builder.repeat4 (s4 ~n:1 ~h:2 ~w:1 ~c:3)));
       ( "repeat_interleave4",
@@ -360,6 +376,30 @@ let per_op () =
                ~x ~weight:w ~bias:b ())
         in
         (g, [ nhwc; s4 ~n:1 ~h:1 ~w:1 ~c:2; s4 ~n:1 ~h:1 ~w:1 ~c:2 ]) );
+      (* [Wq=2 <> Wk=3], so a fixture that only ever squared the sequence
+         length could not catch a query/key extent confused in [score_shape].
+         The mask broadcasts on H and Wq (its own H and W are both 1) and is
+         exact on Wk (its C matches key's W) -- the same broadcast
+         [Region_context.broadcast_coord] exists for, so a fixture with a
+         full-shaped mask could not exercise it. *)
+      ( "sdpa",
+        let q_shape = s4 ~n:1 ~h:2 ~w:2 ~c:3 in
+        let k_shape = s4 ~n:1 ~h:2 ~w:3 ~c:3 in
+        let v_shape = s4 ~n:1 ~h:2 ~w:3 ~c:3 in
+        let mask_shape = s4 ~n:1 ~h:1 ~w:1 ~c:3 in
+        let g =
+          build
+            ~outputs:(fun o -> [ o ])
+            (let open Builder in
+             let* query = input ~shape:q_shape () in
+             let* key = input ~shape:k_shape () in
+             let* value = input ~shape:v_shape () in
+             let* mask = input ~shape:mask_shape () in
+             sdpa
+               { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+               ~query ~key ~value ~mask ())
+        in
+        (g, [ q_shape; k_shape; v_shape; mask_shape ]) );
       (* [groups=2] on [C=4]: two groups of two channels each, so a wrong
          group window (reducing over every channel, or one channel alone)
          would be visible against [layer_norm]/[rms_norm]'s whole-channel

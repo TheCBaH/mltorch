@@ -123,9 +123,10 @@ generic construction helpers and the normalization divisor's bounded shared
 calculation; dispatchers contain no operation arithmetic.
 
 Native `Eval_direct` routes RMSNorm, LayerNorm, Softmax, and SDPA through that
-program and materializes it once per key; Native4D `Eval_direct4` routes the
-first three (SDPA is outside Native4D's domain -- see
-`native4d_design.md`).  Their Symbolic counterparts put the exact program in
+program and materializes it once per key; Native4D `Eval_direct4` routes all
+four the same way -- SDPA only at `D = 1`, its one real batch axis
+(`native4d_design.md` §7.9); `D > 1` stays outside Native4D's domain.  Their
+Symbolic counterparts put the exact program in
 `Stage_program.Stage.computation`.  `Stage_program`, grounding, transform
 verification, Kernel adaptation, and the Model Explorer consume this
 structural program.  Pixel-authored operations remain on their existing

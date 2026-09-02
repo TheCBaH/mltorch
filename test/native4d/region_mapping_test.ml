@@ -11,8 +11,19 @@ let x = signature 0 shape
 let weight = signature 1 affine
 let bias = signature 2 affine
 
+(* [Sdpa]'s query is [x] itself: same N/H (so key/value can share them, per
+   [Attention.Sdpa.output_shape]'s check), key's own W (2) distinct from
+   query's (1) so a fixture confusing [Wq]/[Wk] would build the wrong score
+   shape. [sdpa_mask] broadcasts on every axis but C (1 on N/T/D/H/W, matching
+   the score's own C = key's W = 2) -- present, so [same]'s [fill] stub is
+   never called. *)
+let sdpa_key = signature 3 (Vec6.shape ~n:2 ~t:1 ~d:1 ~h:2 ~w:2 ~c:3)
+let sdpa_value = signature 4 (Vec6.shape ~n:2 ~t:1 ~d:1 ~h:2 ~w:2 ~c:3)
+let sdpa_mask = signature 5 (Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2)
+
 let operands =
-  [ x; weight; bias ] |> List.to_seq
+  [ x; weight; bias; sdpa_key; sdpa_value; sdpa_mask ]
+  |> List.to_seq
   |> Seq.map (fun (s : Tensor_sig.t) -> (s.id, s))
   |> Tensor_id.Map.of_seq
 
@@ -75,3 +86,17 @@ let%expect_test "normalization maps to Native Region structure" =
   in
   Format.printf "rms=%b layer=%b@." (same rms) (same layer);
   [%expect {| rms=true layer=true |}]
+
+let%expect_test "Sdpa maps to Native Region structure" =
+  let sdpa =
+    Op.Sdpa
+      {
+        Attention.Sdpa.params = { scale = Attention.Sdpa.Scale.Default };
+        query = x.id;
+        key = sdpa_key.id;
+        value = sdpa_value.id;
+        mask = Some sdpa_mask.id;
+      }
+  in
+  Format.printf "sdpa=%b@." (same sdpa);
+  [%expect {| sdpa=true |}]

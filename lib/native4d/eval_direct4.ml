@@ -97,6 +97,7 @@ let fresh_synthetic_ids g =
       Region_computation.Rms_weight;
       Region_computation.Layer_weight;
       Region_computation.Layer_bias;
+      Region_computation.Sdpa_mask;
     ]
   |> fun (ids, _, _) -> ids
 

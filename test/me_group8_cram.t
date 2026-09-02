@@ -60,10 +60,12 @@ only Model Explorer evidence, and will remain so until the decomposition
 
   $ ../bin/native_graph.exe visualize --model group8.json --output session.json
 
-The complete capability vector: every stage available EXCEPT Native4D, which
-is the whole point of this row (F8) -- SDPA names D as its batch axis, which
-the N/H/W/C dialect has no name for, and there is no legalization to fall
-back to (Native4D's Bmm legalization admits only a single batch).
+The complete capability vector: every stage available, Native4D included.
+This graph's batch is D = 1 -- SDPA's batch axis genuinely is D (heads are on
+H), but at extent 1 that is admissible, the same way `me_group7_cram.t`'s
+layer_norm graph is admissible at D = 1. `test/native4d/domain_test.ml`'s
+"domain: sdpa batch extent" pins the D > 1 rejection this row does not
+exercise.
 
   $ caps() {
   >   python3 -c "
@@ -82,7 +84,7 @@ back to (Native4D's Bmm legalization admits only a single batch).
   stage:source                 available graph
   stage:initial_native         available graph
   stage:canonical              available graph
-  stage:native4d               unavailable outside_dialect_domain
+  stage:native4d               available graph
   stage:stage_program          available graph
   stage:kernel                 available graph
   stage:fusion                 available graph
@@ -93,7 +95,6 @@ back to (Native4D's Bmm legalization admits only a single batch).
   feature:expression_detail    available present
   feature:loop_ir              unavailable not_implemented
   feature:codegen              unavailable not_implemented
-    diagnostic: outside_dialect_domain | node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native4D's Bmm legalization admits only a single batch)
 
 The SOURCE view: one node per serialized target, namespace off
 `nn_module_stack`. `attn1` has three incoming edges (no mask); `attn2` has
@@ -162,10 +163,9 @@ keep query's `[Wq=2, C=4]`.
   n0  Sdpa  outputs=1 ['[W=2 C=4]']
   n1  Sdpa  outputs=1 ['[W=2 C=4]']
 
-Native4D BY NAME: the diagnostic says which axis and why, the actionable
-answer rather than a consequence like "some tensor has extent on D" -- the
-same contrast `me_group6_cram.t` and `me_group7_cram.t` draw for
-`slice.Tensor` and `layer_norm`'s D-normalization case.
+NO NATIVE4D DIAGNOSTIC remains for either node -- confirming the admission
+above is a real one, not a coincidence of the capability vector: at D = 1
+neither `check_sdpa` nor `check_shapes` has anything left to reject.
 
   $ python3 -c "
   > import json
@@ -173,4 +173,3 @@ same contrast `me_group6_cram.t` and `me_group7_cram.t` draw for
   > for d in s['diagnostics']:
   >     if 'sdpa' in d['message'] or 'batch axis' in d['message']:
   >         print(d['code'], '|', d['message'])"
-  outside_dialect_domain | node n0: scaled-dot-product attention's batch axis is D, which the N/H/W/C dialect has no name for; no legalization is available (Native4D's Bmm legalization admits only a single batch)

@@ -36,9 +36,9 @@ let pp fmt : [< t ] -> unit = function
         Node_id.pp node Tensor_id.pp id Dim.pp extent Dim.pp channels
   | `Batched_matmul_batch_axis node ->
       Fmt.pf fmt
-        "@[node %a: batched matmul's batch axis is D, which the N/H/W/C \
-         dialect has no name for; no legalization is available (the same \
-         `D`-axis argument attention_design.md §9 already made for Sdpa)@]"
+        "@[node %a: batched matmul has extent > 1 on D, which the N/H/W/C \
+         dialect has no name for; N and H already carry the op's real batch \
+         axes@]"
         Node_id.pp node
   | `Constant_store e -> Constant_store.pp_error fmt e
   | `Dynamic_batch_norm node ->
@@ -67,9 +67,8 @@ let pp fmt : [< t ] -> unit = function
         Vec6.pp_shape shape
   | `Sdpa_batch_axis node ->
       Fmt.pf fmt
-        "@[node %a: scaled-dot-product attention's batch axis is D, which the \
-         N/H/W/C dialect has no name for; no legalization is available \
-         (Native4D's Bmm legalization admits only a single batch)@]"
+        "@[node %a: scaled-dot-product attention has extent > 1 on D, its \
+         batch axis, which the N/H/W/C dialect has no name for@]"
         Node_id.pp node
   | `Unsupported_bmm_batch (node, batch) ->
       Fmt.pf fmt

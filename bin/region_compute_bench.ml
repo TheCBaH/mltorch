@@ -41,6 +41,20 @@ let graph4 shape f =
       let* x = input ~shape () in
       f x)
 
+(* Generic multi-sample timer for a thunk, used where a row's inputs don't fit
+   the single-input [measure]/[measure_direct]/[measure_direct4] shape above
+   (multiple operands, or no Kernel/Region path at all). *)
+let measure_thunk f =
+  for _ = 1 to warmup do
+    f ()
+  done;
+  List.init samples (fun _ ->
+      Gc.full_major ();
+      let before = words () and started = Unix.gettimeofday () in
+      f ();
+      ((Unix.gettimeofday () -. started) *. 1000., words () -. before))
+  |> List.split
+
 let kernel graph =
   Err.or_raise ~pp_error:Kernel_adapt.pp_error (Region_kernel.of_graph graph)
 
@@ -155,13 +169,16 @@ let report name ~regions ~extent graph graph4 =
     direct_counters.reductions direct4_counters.keys direct4_counters.locals
     direct4_counters.emitters direct4_counters.loads direct4_counters.reductions
 
-(* Sdpa has no Native4D counterpart yet (blocked on
-   `.ai/native4d_design.md`'s open compatibility question), so this row
-   compares kernel_region against direct only -- no direct4 column. Query and
-   key/value share [regions] as their sequence length and [extent] as their
-   head dim, so the mask is [regions x regions], and total work is quadratic
-   in both (unlike the three [Vec6]-uniform ops above), so the sweep below is
-   deliberately smaller. *)
+(* Sdpa's Native4D route landed alongside [Batched_matmul]'s (see
+   `.ai/native4d_design.md` §7.9): both are Direct-comparable now, at
+   [D = 1] (the shapes below already have it), through the shared Region
+   program -- this row's [direct4_ms] column is therefore a measurement of
+   Native4D's translation/dispatch overhead over the identical arithmetic,
+   not of a second numeric kernel. Query and key/value share [regions] as
+   their sequence length and [extent] as their head dim, so the mask is
+   [regions x regions], and total work is quadratic in both (unlike the
+   three [Vec6]-uniform ops above), so the sweep below is deliberately
+   smaller. *)
 let report_sdpa ~regions ~extent =
   let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:regions ~c:extent in
   let key_shape = query_shape in
@@ -190,18 +207,30 @@ let report_sdpa ~regions ~extent =
     | _ -> assert false
   in
   let bind id = List.assoc_opt id inputs in
-  let kernel = kernel g in
-  let measure_thunk f =
-    for _ = 1 to warmup do
-      f ()
-    done;
-    List.init samples (fun _ ->
-        Gc.full_major ();
-        let before = words () and started = Unix.gettimeofday () in
-        f ();
-        ((Unix.gettimeofday () -. started) *. 1000., words () -. before))
-    |> List.split
+  let g4 =
+    let shape4 s =
+      Err.or_raise ~pp_error:Native4d.Shape4.pp_error
+        (Native4d.Shape4.of_vec6 s)
+    in
+    Err.or_raise ~pp_error:Native4d.Builder.pp_error
+      Native4d.Builder.(
+        build ~outputs:(fun output -> [ output ])
+        @@
+        let* qi = input ~shape:(shape4 query_shape) () in
+        let* ki = input ~shape:(shape4 key_shape) () in
+        let* vi = input ~shape:(shape4 key_shape) () in
+        let* mi = input ~shape:(shape4 mask_shape) () in
+        sdpa
+          { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+          ~query:qi ~key:ki ~value:vi ~mask:mi ())
   in
+  let inputs4 =
+    match g4.Native4d.Graph.Graph.inputs with
+    | [ qid; kid; vid; mid ] ->
+        [ (qid, query); (kid, key); (vid, value); (mid, mask) ]
+    | _ -> assert false
+  in
+  let kernel = kernel g in
   let run_kernel () =
     Kernel_eval.run kernel ~bind
     |> Err.or_raise ~pp_error:Kernel_eval.pp_error
@@ -210,6 +239,11 @@ let report_sdpa ~regions ~extent =
   let run_direct () =
     Eval_direct.run g ~inputs
     |> Err.or_raise ~pp_error:Eval_direct.pp_error
+    |> ignore
+  in
+  let run_direct4 () =
+    Native4d.Eval_direct4.run g4 ~inputs:inputs4
+    |> Err.or_raise ~pp_error:Native4d.Eval_direct4.pp_error
     |> ignore
   in
   (* Legacy_pixel is test-only and no longer reachable through the graph
@@ -228,6 +262,7 @@ let report_sdpa ~regions ~extent =
   in
   let kernel_time, kernel_words = measure_thunk run_kernel in
   let direct_time, direct_words = measure_thunk run_direct in
+  let direct4_time, direct4_words = measure_thunk run_direct4 in
   let legacy_time, _legacy_words = measure_thunk run_legacy in
   let counters = Region_execution.counters () in
   let counter_map =
@@ -246,17 +281,92 @@ let report_sdpa ~regions ~extent =
     g ~inputs
   |> Err.or_raise ~pp_error:Eval_direct.pp_error
   |> ignore;
+  let direct4_counters = Region_execution.counters () in
+  Native4d.Eval_direct4.run
+    ~region_counters:
+      (Tensor_id.Map.singleton
+         (List.hd g4.Native4d.Graph.Graph.outputs)
+         direct4_counters)
+    g4 ~inputs:inputs4
+  |> Err.or_raise ~pp_error:Native4d.Eval_direct4.pp_error
+  |> ignore;
   Printf.printf
     "sdpa regions=%d extent=%d samples=%d kernel_region_ms=%.3f direct_ms=%.3f \
-     legacy_pixel_ms=%.3f kernel_region_words=%.3f direct_words=%.3f keys=%d \
-     locals=%d emitters=%d loads=%d reductions=%d direct_keys=%d \
-     direct_locals=%d direct_emitters=%d direct_loads=%d direct_reductions=%d\n\
+     direct4_ms=%.3f legacy_pixel_ms=%.3f kernel_region_words=%.3f \
+     direct_words=%.3f direct4_words=%.3f keys=%d locals=%d emitters=%d \
+     loads=%d reductions=%d direct_keys=%d direct_locals=%d direct_emitters=%d \
+     direct_loads=%d direct_reductions=%d direct4_keys=%d direct4_locals=%d \
+     direct4_emitters=%d direct4_loads=%d direct4_reductions=%d\n\
      %!"
     regions extent samples (median kernel_time) (median direct_time)
-    (median legacy_time) (median kernel_words) (median direct_words)
-    counters.keys counters.locals counters.emitters counters.loads
-    counters.reductions direct_counters.keys direct_counters.locals
-    direct_counters.emitters direct_counters.loads direct_counters.reductions
+    (median direct4_time) (median legacy_time) (median kernel_words)
+    (median direct_words) (median direct4_words) counters.keys counters.locals
+    counters.emitters counters.loads counters.reductions direct_counters.keys
+    direct_counters.locals direct_counters.emitters direct_counters.loads
+    direct_counters.reductions direct4_counters.keys direct4_counters.locals
+    direct4_counters.emitters direct4_counters.loads direct4_counters.reductions
+
+(* [Batched_matmul] is Pixel-authored, not Region-authored -- there is no
+   Kernel/Region path to compare, only Direct against Native4D's own Direct,
+   which is what this row's [direct4_ms] column isolates: the same
+   [Matmul.Batched_matmul.Compute] functor either way, so any gap is
+   [Eval_op4]'s dispatch and [Region_computation4]'s pass-through, not new
+   arithmetic. [heads] exercises the batch axis the design record says is
+   real (`N`/`H`, not `D`) once `D = 1`. *)
+let report_batched_matmul ~heads ~extent =
+  let input_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:heads ~w:extent ~c:extent in
+  let mat2_shape = input_shape in
+  let a = input input_shape and b = input mat2_shape in
+  let g =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"batched_matmul" ~outputs:(fun output -> [ output ])
+        @@
+        let* ai = input ~shape:input_shape ~name:"input" () in
+        let* bi = input ~shape:mat2_shape ~name:"mat2" () in
+        batched_matmul ai bi)
+  in
+  let inputs =
+    match g.Graph.inputs with
+    | [ aid; bid ] -> [ (aid, a); (bid, b) ]
+    | _ -> assert false
+  in
+  let g4 =
+    let shape4 s =
+      Err.or_raise ~pp_error:Native4d.Shape4.pp_error
+        (Native4d.Shape4.of_vec6 s)
+    in
+    Err.or_raise ~pp_error:Native4d.Builder.pp_error
+      Native4d.Builder.(
+        build ~outputs:(fun output -> [ output ])
+        @@
+        let* ai = input ~shape:(shape4 input_shape) () in
+        let* bi = input ~shape:(shape4 mat2_shape) () in
+        batched_matmul ai bi)
+  in
+  let inputs4 =
+    match g4.Native4d.Graph.Graph.inputs with
+    | [ aid; bid ] -> [ (aid, a); (bid, b) ]
+    | _ -> assert false
+  in
+  let run_direct () =
+    Eval_direct.run g ~inputs
+    |> Err.or_raise ~pp_error:Eval_direct.pp_error
+    |> ignore
+  in
+  let run_direct4 () =
+    Native4d.Eval_direct4.run g4 ~inputs:inputs4
+    |> Err.or_raise ~pp_error:Native4d.Eval_direct4.pp_error
+    |> ignore
+  in
+  let direct_time, direct_words = measure_thunk run_direct in
+  let direct4_time, direct4_words = measure_thunk run_direct4 in
+  Printf.printf
+    "batched_matmul heads=%d extent=%d samples=%d direct_ms=%.3f \
+     direct4_ms=%.3f direct_words=%.3f direct4_words=%.3f\n\
+     %!"
+    heads extent samples (median direct_time) (median direct4_time)
+    (median direct_words) (median direct4_words)
 
 let () =
   List.iter
@@ -298,4 +408,7 @@ let () =
     [ (1, 32); (4, 32); (16, 32); (64, 32); (4, 8); (4, 64) ];
   List.iter
     (fun (regions, extent) -> report_sdpa ~regions ~extent)
-    [ (1, 8); (4, 8); (16, 8); (4, 16) ]
+    [ (1, 8); (4, 8); (16, 8); (4, 16) ];
+  List.iter
+    (fun (heads, extent) -> report_batched_matmul ~heads ~extent)
+    [ (1, 32); (8, 32); (1, 128) ]

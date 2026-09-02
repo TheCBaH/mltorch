@@ -560,8 +560,26 @@ contract-axis reduction order. This case is expected to be `Identical`.
 
 For `batch > 1`, `mat2` varies with the output's `H` coordinate while
 convolution weights are shared across spatial positions. Ordinary Conv2D cannot
-represent that computation. Reject it. Supporting it requires a retained
-MatMul/BMM operation or a materially broader dialect.
+represent that computation. Reject it (`` `Unsupported_bmm_batch ``); the 1x1
+legalization is `Bmm`'s own ceiling, not the dialect's.
+
+**`Matmul.Batched_matmul`, the retained operation this section said
+supporting `batch > 1` would require, landed 2026-09-02.** Its batch is
+spread across
+`N`/`T`/`D`/`H` (all four `output_shape` requires to agree between `input` and
+`mat2`), not "D and H" as an earlier reading of the domain arm's own comment
+had it. With `T = D = 1` forced by `check_shapes`, the surviving batch axes
+are `N` and `H`, both `Axis4`-nameable — so unlike `Bmm`, there is no `batch`
+restriction to impose at all beyond `D = 1`: `Domain.check_node`'s
+`Batched_matmul` arm is conditional on `D > 1`, and the registry entry reuses
+`Matmul.Batched_matmul` unchanged (no axis named, no shape carried, so no
+`Ops4` payload and no `4`-suffixed variant). This is the reason `Bmm`
+survives as its own constructor rather than being subsumed: `Bmm` legalizes
+to a convolution at `batch = 1` (§9.2's `Identical` claim), where
+`Batched_matmul` at `D = 1` is a direct pixel-authored counterpart with no
+legalization involved — different routes, so the contrast in §7.9 below is
+"has a destination op to legalize onto" versus "is itself representable",
+not "H versus D".
 
 ### 7.5 Mean
 
@@ -679,33 +697,55 @@ operation. The initial dialect should reject this case instead.
 
 `Attention.Sdpa`'s frame is `query [D=batch, H=heads, Wq=sequence, C=head_dim]`
 (§7.4's Bmm layout, generalized to two batch-like axes rather than one).
-Unlike Bmm, there is **no legalization at any batch extent** — not even the
-"batch = 1" escape hatch §7.4 uses to fall back to a 1x1 convolution:
+Unlike `Batched_matmul` (§7.4), whose batch is spread across `N`/`T`/`D`/`H`
+so `D` is only one restricted axis among several dialect-nameable ones,
+Sdpa's batch axis is `D` **alone** — heads are on `H` — so `D = 1` is the
+whole admissible case, not a slice of a wider one. This landed 2026-09-02,
+superseding the two bullets below, which argued for unconditional rejection
+from premises that turned out to conflate `D > 1` (genuinely outside the
+dialect) with `D = 1` (representable, `Shape4.of_vec6` admits it same as any
+axis at unit extent) and to assume "no fallback compute path" meant no route
+existed, when `.ai/native4d_add_op.md` site 4's Region-authored route (a
+retained op delegating to Native's own computation, no new numeric kernel)
+was available the whole time — the Region computation prerequisite this
+section's original argument did not have was landed separately (see
+`region_compute_design.md`).
 
-- **The op names `D` unconditionally.** Bmm's batch axis is `H`; a `batch = 1`
+~~- **The op names `D` unconditionally.** Bmm's batch axis is `H`; a `batch = 1`
   Bmm can drop it and become a plain matmul the conv-weight trick expresses.
   Sdpa's batch axis is `D`, and the dialect has no name for `D` at any
   extent, including 1 — `Axis4.of_axis Axis.D = None` by construction
   (`axis4.ml:22-30`, "the whole point": a caller converting a Native axis has
   to say what it does with the two the dialect has no name for, and there is
   no answer for `D` here to give). Reject unconditionally is therefore the
-  only sound result, not a scope decision to revisit as the dialect grows.
-- **There is no fallback compute path to legalize onto, either.** §6's
+  only sound result, not a scope decision to revisit as the dialect grows.~~
+~~- **There is no fallback compute path to legalize onto, either.** §6's
   compute-reuse argument (delegate to the same `Compute` functor Native uses)
   needs the target ops to exist in `Ops4` first, and Native4D has neither a
   `Bmm` (§7.4 already rejects the `batch > 1` case that would motivate one)
   nor any softmax/reduction primitive beyond `MeanKeepDims`. A sound
   direct/legalized/rejected decision has exactly one option when both of the
-  other two are unavailable, which is the case here.
+  other two are unavailable, which is the case here.~~
 
-`Domain.check_node` rejects it with `` `Sdpa_batch_axis ``, an operation-specific
-reason (following `` `Live_max_pool_indices ``'s precedent at §7.8/§10: a
-reason that names *why*, not the generic `` `Unsupported_op ``) rather than a
-`check_dims`-style row: `check_dims` answers "which named axis is the fault",
-appropriate when an op's OWN parameter picks the offending axis (`Mean`'s
-`dims`, `Layer_norm`'s `normalized_shape`), but Sdpa's fault is not
-parameter-dependent — every configuration names `D` as batch, so there is no
-admissible case for a parameterized check to admit.
+`Domain.check_node` rejects `D > 1` with `` `Sdpa_batch_axis ``, an
+operation-specific reason (following `` `Live_max_pool_indices ``'s precedent
+at §7.8/§10: a reason that names *why*, not the generic `` `Unsupported_op ``)
+rather than a `check_dims`-style row: `check_dims` answers "which named axis
+is the fault", appropriate when an op's OWN parameter picks the offending
+axis (`Mean`'s `dims`, `Layer_norm`'s `normalized_shape`), but Sdpa's fault
+is not parameter-dependent — batch is always `D`, so there is no admissible
+*parameter value* for a `check_dims`-style check to name; the conditional is
+on the operand's own extent instead, the same shape `check_bmm` and the new
+`Batched_matmul` check use.
+
+At `D = 1`, `Region_computation4`'s `native_op` maps `Op.Sdpa` straight onto
+`Graph_ir.Sdpa` — the payload is reused verbatim, so there is nothing to
+translate — and Direct/Symbolic route through the same `Region_program`
+Native uses, making Native and Native4D bit-identical by construction with
+no second numeric kernel. **No model coverage**: SDPA occurs in no reachable
+graph across the corpus (every exporter decomposes it, §1), so this is
+Region-path and IR coverage, not a corpus win — unlike `Batched_matmul`
+(§7.4), which is `mvitv2_tiny`'s real blocker.
 
 ## 8. Operations actually required by the reduced dialect
 

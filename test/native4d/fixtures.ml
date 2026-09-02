@@ -274,29 +274,30 @@ let bmm_batch batch () =
      let* b = input ~shape:(s 1 1 1 batch 3 4) () in
      bmm a b)
 
-(* [Batched_matmul] is rejected unconditionally, the same argument as [Sdpa]
-   (its own landing note, `.ai/matmul_softmax_design.md` §5): unlike [Bmm]'s
-   single-batch escape hatch, D names no [Ops4] axis at any extent, including
-   1, so there is no configuration this legalizes to. *)
-let batched_matmul () =
+(* [Batched_matmul]'s batch axes are N/T/D/H, all four of which
+   [output_shape] requires to agree between [input] and [mat2] -- so unlike
+   [Bmm]'s single-batch escape hatch there is no LEGALIZATION at D > 1, but D
+   = 1 is admissible: N and H are dialect axes and already carry the corpus's
+   real batch (heads on H, `mvitv2_tiny`). *)
+let batched_matmul batch () =
   build "batched_matmul"
     (let open Graph_builder in
      (* input[D=batch,H=heads,W=rows,C=contract] x
         mat2[D=batch,H=heads,W=contract,C=cols] *)
-     let* a = input ~shape:(s 1 1 2 2 2 3) () in
-     let* b = input ~shape:(s 1 1 2 2 3 4) () in
+     let* a = input ~shape:(s 1 1 batch 2 2 3) () in
+     let* b = input ~shape:(s 1 1 batch 2 3 4) () in
      batched_matmul a b)
 
-(* [Sdpa] is rejected unconditionally (op8-impl.md F8), so any admissible
-   shape exercises it -- unlike [Bmm]'s single-batch escape hatch, there is no
-   configuration this legalizes to. *)
-let sdpa () =
+(* [Sdpa]'s batch axis is D alone (heads are on H), so D = 1 is the whole
+   admissible case -- unlike [Batched_matmul] above, there is no wider
+   four-axis-representable configuration this is a restriction of. *)
+let sdpa batch () =
   build "sdpa"
     (let open Graph_builder in
      (* query/key/value[D=batch,H=heads,W=sequence,C=head_dim] *)
-     let* q = input ~shape:(s 1 1 2 2 3 4) () in
-     let* k = input ~shape:(s 1 1 2 2 3 4) () in
-     let* v = input ~shape:(s 1 1 2 2 3 4) () in
+     let* q = input ~shape:(s 1 1 batch 2 3 4) () in
+     let* k = input ~shape:(s 1 1 batch 2 3 4) () in
+     let* v = input ~shape:(s 1 1 batch 2 3 4) () in
      sdpa
        { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
        ~query:q ~key:k ~value:v ())

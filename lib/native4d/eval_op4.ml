@@ -3,9 +3,9 @@
    [Symbolic] so the two execution modes cannot drift.
 
    Every Pixel-authored arm calls Native's [Compute (S)].  RMSNorm, LayerNorm,
-   and Softmax4 are Region-authored instead: Direct and Symbolic route them
-   through [Region_computation4.program], so they deliberately have no scalar
-   arm here.
+   Softmax4 and Sdpa are Region-authored instead: Direct and Symbolic route
+   them through [Region_computation4.program], so they deliberately have no
+   scalar arm here.
    .ai/native4d_design.md §2 lists reimplementing numeric kernels already
    expressed by the Native operation as a non-goal.  This file therefore has no
    arithmetic of its own — only parameter translation for Pixel operations.
@@ -78,6 +78,10 @@ module Make (S : Semantics.SEMANTICS) = struct
           (Graph_shape4.batch_norm_no_stats_params params)
           ~x_shape:(shape_of x) ~x:(operand x) ~weight:(fill_or 1. weight)
           ~bias:(fill_or 0. bias) out
+    | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
+        let module C = Matmul.Batched_matmul.Compute (S) in
+        C.pixel ~input_shape:(shape_of input) ~input:(operand input)
+          ~mat2:(operand mat2) out
     | Clamp { Pointwise.Clamp.params; x } ->
         let module C = Pointwise.Clamp.Compute (S) in
         C.pixel params (operand x) out
@@ -202,6 +206,7 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Rsub_scalar { Pointwise.Rsub_scalar.params; x } ->
         let module C = Pointwise.Rsub_scalar.Compute (S) in
         C.pixel params (operand x) out
+    | Sdpa _ -> invalid_arg "Eval_op4.pixel: Sdpa is Region-authored"
     (* Through the same adapter [Graph_shape4] uses, so the axis the shape
        rule drops is the axis the compute reads along, by construction --
        [Split.Select.Compute] itself delegates to [Split.Slice.Compute]. *)

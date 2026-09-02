@@ -246,6 +246,10 @@ let output_shape (op : Op.t)
       in
       let* shapes = widen (Norm.BatchNormNoStats.output_shapes ~x_shape p) in
       Err.List.map (fun shape -> widen (Shape4.of_vec6 shape)) shapes
+  | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
+      let* input_shape = shape input in
+      let* mat2_shape = shape mat2 in
+      one (four (Matmul.Batched_matmul.output_shape ~input_shape ~mat2_shape))
   | Clamp { Pointwise.Clamp.params; x } ->
       let* x_shape = shape x in
       one (four (Pointwise.Clamp.output_shape params x_shape))
@@ -427,6 +431,21 @@ let output_shape (op : Op.t)
   | Rsub_scalar { Pointwise.Rsub_scalar.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Rsub_scalar.output_shape x_shape))
+  | Sdpa { Attention.Sdpa.params = _; query; key; value; mask } ->
+      let* query_shape = shape query in
+      let* key_shape = shape key in
+      let* value_shape = shape value in
+      let* mask_shape =
+        match mask with
+        | None -> Err.return None
+        | Some m ->
+            let+ s = shape m in
+            Some s
+      in
+      one
+        (four
+           (Attention.Sdpa.output_shape ~query_shape ~key_shape ~value_shape
+              ~mask_shape))
   (* [Select] drops its axis, unlike [Slice4] above: the shape rule is
      [Split.Select.output_shape], which repacks every surviving axis
      right-aligned -- delegated rather than restated, so this arm and

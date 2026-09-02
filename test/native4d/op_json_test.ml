@@ -94,6 +94,7 @@ let samples : Op.t list =
         weight = Some w;
         bias = Some b;
       };
+    Batched_matmul { Matmul.Batched_matmul.input = x; mat2 = y };
     Clamp { Pointwise.Clamp.params = { min = Some 0.; max = Some 6. }; x };
     (* Three operands, so a codec that dropped or reordered one is visible. *)
     Concat4 { Ops4.Concat4.params = { axis = W }; xs = [ x; y; w ] };
@@ -197,6 +198,16 @@ let samples : Op.t list =
        encoder that dropped or swapped either field would still print
        differently. *)
     Rsub_scalar { Pointwise.Rsub_scalar.params = { other = 1.; alpha = 2. }; x };
+    (* Mask PRESENT, so a codec that dropped the optional fourth operand still
+       prints and round-trips differently. *)
+    Sdpa
+      {
+        Attention.Sdpa.params = { scale = Attention.Sdpa.Scale.Default };
+        query = x;
+        key = y;
+        value = w;
+        mask = Some b;
+      };
     (* Axis distinct from every other sample's and an index that is neither
        0 nor the axis's last valid one, so an encoder that dropped or
        defaulted either field would still print differently. *)
@@ -281,7 +292,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 55, registry: 55 |}]
+  [%expect {| samples: 57, registry: 57 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -299,6 +310,7 @@ let%expect_test "op4: printed" =
              ceil_mode=false;
              count_include_pad=true}
     batch_norm_no_stats x=t0 weight=t2 bias=t3 params={channel=C; eps=1e-05}
+    batched_matmul input=t0 mat2=t1
     clamp x=t0 params={min=0; max=6}
     concat4 xs=[t0, t1, t2] params={axis=W}
     conv2d
@@ -350,6 +362,7 @@ let%expect_test "op4: printed" =
     reshape4 x=t0 params={shape=[N=1 H=1 W=1 C=12]}
     rms_norm x=t0 weight=t2 params={dims=[C]; eps=1e-05}
     rsub_scalar x=t0 params={other=1; alpha=2}
+    sdpa query=t0 key=t1 value=t2 mask=t3 params={scale=default}
     select4 x=t0 params={axis=H index=2}
     select_scatter4 self=t0 src=t1 params={axis=W index=1}
     sigmoid x=t0
@@ -387,7 +400,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 55 ops |}]
+  [%expect {| round-tripped 57 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

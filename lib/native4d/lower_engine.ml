@@ -725,6 +725,14 @@ let lower_node ~view acc (n : node) =
                   bias = None;
                 })
              [ single () ])
+  (* Direct counterpart, unlike [Bmm] above: its batch is spread across
+     N/T/D/H, all four dialect-representable once [Domain.check] has proved
+     D = 1, so there is nothing to translate. Native's own [Batched_matmul]
+     payload names no axis and carries no shape and so crosses unchanged. *)
+  | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
+      simple
+        (Op.Batched_matmul
+           { Matmul.Batched_matmul.input = op_of input; mat2 = op_of mat2 })
   (* §7.6, the only Equivalent legalization. *)
   | Batch_norm bn ->
       let* x_shape = sig_of bn.Norm.BatchNorm.x in
@@ -897,14 +905,28 @@ let lower_node ~view acc (n : node) =
       simple
         (Op.Softmax4
            { Ops4.Softmax4.params = { axis = List.hd axis4 }; x = op_of x })
+  (* Direct counterpart, once [Domain.check] has proved D = 1: [Attention.Sdpa.t]
+     names no axis and carries no shape, so it crosses unchanged, and
+     [Region_computation4]'s [native_op] routes it back through the exact same
+     [Region_program] Native uses -- no second numeric kernel. *)
+  | Sdpa { Attention.Sdpa.params; query; key; value; mask } ->
+      simple
+        (Op.Sdpa
+           {
+             Attention.Sdpa.params;
+             query = op_of query;
+             key = op_of key;
+             value = op_of value;
+             mask = Option.map op_of mask;
+           })
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
      [Index_tensor] joins that set until its own counterpart exists (see
      [Domain.check_node]'s comment) rather than gaining a real conversion arm
      here -- it has no Native4D counterpart at all yet, the same "dialect does
      not have it" answer. [Repeat]/[RepeatInterleave]/[Select_scatter]/
-     [Softmax] no longer join them: all four now have real conversion arms
-     above. *)
-  | Adaptive_max_pool2d_with_indices _ | Batched_matmul _ | Discard _
-  | Index_tensor _ | Max_pool2d_with_indices _ | Sdpa _ ->
+     [Softmax]/[Batched_matmul]/[Sdpa] no longer join them: all six now have
+     real conversion arms above. *)
+  | Adaptive_max_pool2d_with_indices _ | Discard _ | Index_tensor _
+  | Max_pool2d_with_indices _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

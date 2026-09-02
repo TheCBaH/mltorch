@@ -258,12 +258,23 @@ Native op, `Matmul.Batched_matmul` (`lib/native/ops/matmul.ml`, alongside
   accepted graph — "matched" on every step, including a real `D=2` batched
   step; a new Direct-vs-Symbolic fuzz walk,
   `lib/native_op_walk/batched_matmul_nwalk.ml`);
-- Native4D: **no work at all beyond a typed rejection arm** — same argument
-  `attention_design.md` §9 already proved for Sdpa (`D` has no `Axis4`
-  name): `Domain.check_node`'s new `Batched_matmul` arm fails with
-  `` `Batched_matmul_batch_axis ``, mirroring `` `Sdpa_batch_axis `` exactly;
-  `lower.ml` never reaches it (rejected upstream), joining `Sdpa`'s own
-  "unreachable, domain already rejected this" catch-all arm.
+- Native4D: **landed 2026-09-02, superseding the paragraph above.** The "`D`
+  has no `Axis4` name" argument conflated a `D > 1` tensor (genuinely outside
+  the dialect) with a `D = 1` one (`Shape4.of_vec6` admits it same as any
+  other axis at unit extent). `Batched_matmul`'s batch is spread across
+  `N`/`T`/`D`/`H`, not "D and H" as an earlier reading of the domain arm's
+  comment had it — with `T = D = 1` forced by `check_shapes`, the surviving
+  batch axes are `N` and `H`, both of which `Axis4` names, and the corpus
+  (`mvitv2_tiny`, this section's own evidence) uses exactly that: every
+  sample is `D = 1` with only `H` varying. `Domain.check_node`'s
+  `Batched_matmul` arm is now conditional on `D > 1` (a `check_bmm`-shaped
+  check, not `Bmm`'s own `Unsupported_bmm_batch`), reusing
+  `` `Batched_matmul_batch_axis `` reworded to say what it now means; the
+  registry entry reuses `Matmul.Batched_matmul` unchanged (no `Ops4` payload,
+  no `4`-suffixed variant — the op names no axis and carries no shape), and
+  `lower_engine.ml` gets a real `simple` legalization arm instead of joining
+  the unreachable-rejection group. See `.ai/native4d_design.md` §7.4 and §7.9
+  for the corrected `Sdpa` contrast.
 
 **The importer split** (`Op_bridge_linalg`, `Native_interp`): batch-less
 (rank-2, or rank>=3 with every leading axis at extent 1, §4) still binds to

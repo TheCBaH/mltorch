@@ -157,6 +157,7 @@ let%expect_test "direct4: adaptive_avg_pool2d keeps ATen bins" =
   [%expect {| [3 4.5 6 10.5 12 13.5 18 19.5 21] |}]
 
 let chan c = Dim.to_int (Vec6.get c Axis.C)
+let axis_int axis c = Dim.to_int (Vec6.get c axis)
 
 let activation_single f ~values:vs =
   let shape = s4 ~n:1 ~h:1 ~w:1 ~c:(List.length vs) in
@@ -283,6 +284,29 @@ let%expect_test "symbolic4: batch_norm_no_stats reaches the kernel adapter" =
   | Ok _ -> print_endline "kernel accepted"
   | Error e -> Format.printf "%a@." Kernel_adapt.pp_error (Err.Error.kind e));
   [%expect {| kernel accepted |}]
+
+(* Two DIFFERENT per-head dot products (H=2): hard-coding H=0 on either
+   operand, [Bmm]'s own restriction, would print [17 53] as [17 17]. *)
+let%expect_test "direct4: batched_matmul contracts per head" =
+  let a_shape = s4 ~n:1 ~h:2 ~w:1 ~c:2 and b_shape = s4 ~n:1 ~h:2 ~w:2 ~c:1 in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* a = input ~shape:a_shape () in
+       let* b = input ~shape:b_shape () in
+       batched_matmul a b)
+  in
+  let mk shape off base =
+    Tensor.materialize (Shape4.to_vec6 shape) (fun c ->
+        float_of_int ((axis_int Axis.H c * 2) + off c + base))
+  in
+  let a = mk a_shape chan 1 in
+  let b = mk b_shape (axis_int Axis.W) 5 in
+  let ids = g.Graph.Graph.inputs in
+  Format.printf "expect [17 53]: %a@." pp_values
+    (values (single g ~inputs:[ (List.nth ids 0, a); (List.nth ids 1, b) ] ()));
+  [%expect {| expect [17 53]: [17 53] |}]
 
 (* Depthwise is the arm where a wrong group count is invisible without a hand
    value: with in_channels = 2 and a 1x1 weight, output channel i is
@@ -450,6 +474,36 @@ let%expect_test "direct4: softmax4 over W" =
   Format.printf "%a@." Tensor.pp
     (Tensor_id.Map.find (List.hd g.Graph.Graph.outputs) env);
   [%expect {| tensor f32 [W=2 C=1] {0.25, 0.75} |}]
+
+(* [E=1] and [scale=Default] make [sf=1], reducing the score to [q*k]: [q=1]
+   over [softmax4]'s own [0, ln 3] key setup above reproduces its exact
+   [1/4, 3/4] weights, so weighting values (10, 2) by them keeps the answer
+   (2.5 + 1.5) exact too. No mask -- exercises [Sdpa_mask]'s synthetic fill. *)
+let%expect_test "direct4: sdpa attends over the key axis" =
+  let q_shape = s4 ~n:1 ~h:1 ~w:1 ~c:1 and kv_shape = s4 ~n:1 ~h:1 ~w:2 ~c:1 in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* query = input ~shape:q_shape () in
+       let* key = input ~shape:kv_shape () in
+       let* value = input ~shape:kv_shape () in
+       sdpa
+         { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+         ~query ~key ~value ())
+  in
+  let query = Tensor.materialize (Shape4.to_vec6 q_shape) (fun _ -> 1.) in
+  let step w0 w1 c = if axis_int Axis.W c = 0 then w0 else w1 in
+  let key =
+    Tensor.materialize (Shape4.to_vec6 kv_shape) (step 0. (Float.log 3.))
+  in
+  let value = Tensor.materialize (Shape4.to_vec6 kv_shape) (step 10. 2.) in
+  let ids = g.Graph.Graph.inputs in
+  let inputs =
+    [ (List.nth ids 0, query); (List.nth ids 1, key); (List.nth ids 2, value) ]
+  in
+  Format.printf "expect [4]: %a@." pp_values (values (single g ~inputs ()));
+  [%expect {| expect [4]: [4] |}]
 
 let%expect_test "direct4: authored Regions materialize once per key" =
   let shape = s4 ~n:1 ~h:1 ~w:2 ~c:3 in
@@ -791,7 +845,7 @@ let%expect_test "direct4 = symbolic4: every op has a fixture" =
   Format.printf "fixtures: %d, registry: %d@."
     (List.length (Fixtures4.per_op ()))
     (List.length Op.op_registry);
-  [%expect {| fixtures: 55, registry: 55 |}]
+  [%expect {| fixtures: 57, registry: 57 |}]
 
 let%expect_test "direct4 = symbolic4, bitwise, per op" =
   List.iter
@@ -818,6 +872,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     batch_norm_no_stats    out0 direct = symbolic
     batch_norm_no_stats    out1 direct = symbolic
     batch_norm_no_stats    out2 direct = symbolic
+    batched_matmul         direct = symbolic
     relu                   direct = symbolic
     repeat4                direct = symbolic
     repeat_interleave4     direct = symbolic
@@ -846,6 +901,7 @@ let%expect_test "direct4 = symbolic4, bitwise, per op" =
     reshape4               direct = symbolic
     rms_norm               direct = symbolic
     layer_norm             direct = symbolic
+    sdpa                   direct = symbolic
     group_norm4            direct = symbolic
     conv2d                 direct = symbolic
     depthwise_conv2d       direct = symbolic

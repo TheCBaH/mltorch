@@ -32,6 +32,7 @@ type op =
   | Adaptive_max_pool2d of Pool.AdaptiveMaxPool2d.t
   | Avg_pool2d of Pool.AvgPool2d.t
   | Batch_norm_no_stats of Ops4.Batch_norm_no_stats.t
+  | Batched_matmul of Matmul.Batched_matmul.t
   | Clamp of Pointwise.Clamp.t
   | Concat4 of Ops4.Concat4.t
   | Conv2d of Ops4.Conv2d.t
@@ -62,6 +63,7 @@ type op =
   | Reshape4 of Ops4.Reshape4.t
   | Rms_norm of Ops4.Rms_norm.t
   | Rsub_scalar of Pointwise.Rsub_scalar.t
+  | Sdpa of Attention.Sdpa.t
   | Select4 of Ops4.Select4.t
   | Select_scatter4 of Ops4.Select_scatter4.t
   | Sigmoid of Pointwise.Sigmoid.t
@@ -139,6 +141,12 @@ let op_registry : (module OP) list =
 
       let inject t = Batch_norm_no_stats t
       let project = function Batch_norm_no_stats t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Matmul.Batched_matmul
+
+      let inject t = Batched_matmul t
+      let project = function Batched_matmul t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Clamp
@@ -319,6 +327,12 @@ let op_registry : (module OP) list =
 
       let inject t = Rsub_scalar t
       let project = function Rsub_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Attention.Sdpa
+
+      let inject t = Sdpa t
+      let project = function Sdpa t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Select4

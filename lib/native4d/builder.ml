@@ -157,6 +157,10 @@ let adaptive_max_pool2d params x =
   op1 (Op.Adaptive_max_pool2d { Pool.AdaptiveMaxPool2d.params; x })
 
 let avg_pool2d params x = op1 (Op.Avg_pool2d { Pool.AvgPool2d.params; x })
+
+let batched_matmul input mat2 =
+  op1 (Op.Batched_matmul { Matmul.Batched_matmul.input; mat2 })
+
 let clamp params x = op1 (Op.Clamp { Pointwise.Clamp.params; x })
 
 (* Takes the dialect's own [Ops4.Concat4.params], whose axis is [Axis4.t]: a
@@ -231,6 +235,11 @@ let rms_norm params ~x ?weight () =
 
 let rsub_scalar params x =
   op1 (Op.Rsub_scalar { Pointwise.Rsub_scalar.params; x })
+
+(* Reuses [Attention.Sdpa.t] unchanged, exactly as [rms_norm]/[layer_norm4]
+   reuse Native's params -- the payload names no axis and carries no shape. *)
+let sdpa params ~query ~key ~value ?mask () =
+  op1 (Op.Sdpa { Attention.Sdpa.params; query; key; value; mask })
 
 (* Takes the dialect's own [Ops4.Select4.params], whose axis is [Axis4.t]: a
    select naming T or D is not constructible through this API. [index] stays

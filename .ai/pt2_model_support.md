@@ -16,7 +16,7 @@ trust if the two disagree.
 | `regnetx_002` | 145 | yes | **no** — stops at one 3-group `convolution` node (see below) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
 | `efficientnet_b0` | 240 | yes (16 `Sigmoid`, 49 `Silu`) | yes, fully (254 canonical nodes) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
 | `test_convnext2` | 71 | yes (4 `Gelu`) | yes, fully (49 canonical nodes) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
-| `fastvit_sa12` | 332 | yes (19 `Gelu`, SDPA) | no — SDPA is intentionally rejected by Native4D (see `.ai/attention_design.md`); also one `outside_dialect_domain` diagnostic (axis T) unrelated to activations | `native-infer-verify.fastvit_sa12` passes (max_abs 1.4e-5, cosine_similarity 1), doesn't need Native4D at all; `native-transform-verify.fastvit_sa12`'s third pass (`--verify-symbolic standard`) not yet timed on this model's 1218 real nodes, so not wired into `PT2_MODELS_NATIVE_VERIFY` pending that — the other two passes of that target would very likely also pass |
+| `fastvit_sa12` | 332 | yes (19 `Gelu`, SDPA) | no as of this table (2026-08-23) — SDPA was unconditionally rejected by Native4D then; that changed 2026-09-02 (`.ai/native4d_design.md` §7.9, SDPA now converts at `D = 1`), so this row needs re-running before citing it — the row's OWN `outside_dialect_domain` diagnostic (axis T) is unrelated to SDPA and may still block this model regardless | `native-infer-verify.fastvit_sa12` passes (max_abs 1.4e-5, cosine_similarity 1), doesn't need Native4D at all; `native-transform-verify.fastvit_sa12`'s third pass (`--verify-symbolic standard`) not yet timed on this model's 1218 real nodes, so not wired into `PT2_MODELS_NATIVE_VERIFY` pending that — the other two passes of that target would very likely also pass |
 | `csatv2` | 945 | **no** — deliberately graph-only CI fixture (see `.ai/testing_strategy.md`) | no | no |
 
 ## How this was produced (2026-08-23)
@@ -54,10 +54,20 @@ make native-infer-verify.<model>
   grouping → reject" is the stated rule, and adding general grouped
   convolution "merely to make the conversion total" is explicitly the wrong
   move. No action item follows from this row.
-- **FastViT's remaining blocker is SDPA**, which `.ai/attention_design.md`
-  already settles as a closed decision (Native4D rejects SDPA by
-  construction — `D` is not a Native4D axis at any extent), not an open
-  question.
+- **FastViT's remaining blocker was SDPA as of this table (2026-08-23), but
+  SDPA's `D = 1` admission does not move it.** `.ai/native4d_design.md` §7.9
+  (2026-09-02) narrows the closed decision: `D` is not a Native4D axis at any
+  extent *above 1*, but SDPA now converts at `D = 1`. Re-running
+  `make pt2.json-model-support` (2026-09-03) shows `fastvit_sa12`'s blocker
+  is, and already was before this change, `node n604: axis T is outside the
+  N/H/W/C dialect` — an earlier, unrelated node than any SDPA node in the
+  graph. `Domain.check_node` stops at the first violation, so SDPA's own
+  admission was never on the reported path; this model shows no observable
+  movement from it. `efficientvit_b0` is the model that actually moves, and
+  it moves on `Batched_matmul`, not SDPA — see "Updated 2026-09-03" below.
+  `mvitv2_tiny`, this table's original `Batched_matmul` corpus example, does
+  not move: it still fails Native import outright, on an unrelated
+  `index.Tensor` defect (same section).
 - **CSATv2 stays graph-only** by deliberate policy: it needs a matrix/
   attention dialect decision this repo hasn't made yet, plus a structural
   op set (`select`/`unsqueeze`, `cat`/`stack`, `amax`, `pow`/`vector_norm`,
@@ -356,6 +366,22 @@ instead of rejecting it, which preserves the sentinel's "unbounded" meaning
 losslessly for any real tensor (libtorch's own slice kernel already clamps
 `end` to the dimension size). Ordinary struct `int` fields (counts, indices,
 versions) are untouched and still reject an out-of-range value as invalid.
+
+**Updated 2026-09-03**, verifying `.ai/native4d-sdpa-compatibility-plan.md`
+§3.2's "check before claiming model movement" after `Sdpa`/`Batched_matmul`
+were admitted into Native4D at `D = 1` (`97163cf`): re-running
+`make pt2.json-model-support` moves exactly one model,
+`efficientvit_b0` (`native4d_converts` `false` -> `true`, `native4d_stage`/
+`native4d_reason`/`native4d_blocker` all `null`). This is the real payoff:
+`efficientvit_b0` was already `native_builds:true`, already known to stop at
+`matmul.default`'s "batched/multi-head shape family" (this file's own
+2026-08-26 entry above), and the blocker text before this run named exactly
+`Batched_matmul`'s rejected batch axis (`"batched matmul's batch axis is D,
+which the N/H/W/C dialect has no name for"`) -- the argument §2.1 of the
+compatibility plan rebuts. `fastvit_sa12` and `mvitv2_tiny`, this table's two
+running SDPA/`Batched_matmul` examples, do **not** move (see their bullets
+above) -- neither is evidence against the change, since neither ever reached
+the node that changed.
 
 ## Keeping this current
 

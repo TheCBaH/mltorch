@@ -36,9 +36,10 @@ let classify (op : Op.t) ~output:_ =
      no arithmetic on any of them. *)
   | Expand4 _ -> Output_transfer.Reindexing
   | Conv2d _ | Depthwise_conv2d _ | Div _ | Div_scalar _ | Gelu _
-  | Batch_norm_no_stats _ | Group_norm4 _ | Grouped_conv2d _ | Hardsigmoid _
-  | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _ | Max_keepdims _
-  | Max_pool2d _ | Mean_keepdims _ | Mul _ | Mul_scalar _ | Pad4 _ ->
+  | Batch_norm_no_stats _ | Batched_matmul _ | Group_norm4 _ | Grouped_conv2d _
+  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _
+  | Max_keepdims _ | Max_pool2d _ | Mean_keepdims _ | Mul _ | Mul_scalar _
+  | Pad4 _ ->
       Output_transfer.Continuous
   | Permute4 _ -> Output_transfer.Reindexing
   | Pow _ | Relu _ -> Output_transfer.Continuous
@@ -50,6 +51,15 @@ let classify (op : Op.t) ~output:_ =
   | Reshape4 _ -> Output_transfer.Reindexing
   | Rms_norm _ -> Output_transfer.Continuous
   | Rsub_scalar _ -> Output_transfer.Continuous
+  (* A genuine reduction over the key axis, not a copy -- mirrors Native's own
+     [Output_transfer] answer for [Sdpa], and the same argument [Softmax4]
+     above gets: the row max and denominator both range over the full key
+     axis, so an arbitrarily small change to any key can move every output
+     element in the row. Native4D adds no numeric kernel of its own, so its
+     answer here must not diverge from Native's -- whether that answer is
+     itself the right one for an op whose emitter is a [select] on a
+     comparison is a question about Native's table, not about this port. *)
+  | Sdpa _ -> Output_transfer.Continuous
   (* Data movement, the same argument as [Unbind]/[Slice4] above: every output
      element is COPIED from an input element with no arithmetic -- [Select4]
      drops the axis instead of narrowing or enumerating it, but the copy
