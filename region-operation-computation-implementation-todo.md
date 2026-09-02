@@ -36,7 +36,7 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 | 2 | Operation-authored computation boundary | in progress | — |
 | 3 | Native Region authority and Direct execution | in progress | — |
 | 4 | Symbolic and Stage-program Region carriage | in progress | — |
-| 5 | Native4D Region authority and execution | pending | — |
+| 5 | Native4D Region authority and execution | complete | uncommitted |
 | 6 | Remove dual authority and obsolete admission | pending | — |
 | 7 | Closeout and production admission | pending | — |
 
@@ -109,7 +109,7 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 - [x] Eliminate floating-value lookup for synthetic optional operands.
 - [x] Route the normalization divisor through the bounded shared helper rather
       than re-folding an unbounded extent product in `Region_context.count`.
-- [ ] Normalize Pixel and Region authored forms at the graph boundary.
+- [x] Normalize Pixel and Region authored forms at the graph boundary.
 - [ ] Keep dispatchers arithmetic-free and exhaustive per dialect.
 - [x] Test tight and expanded non-default limits, together with output ordinal,
       output shape, and missing-operand construction failures.
@@ -121,36 +121,36 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 - [x] Make Native Softmax's Region program authoritative.
 - [x] Route Native Direct through once-per-key Region materialization.
 - [ ] Keep old Pixel implementations test-only during migration.
-- [ ] Add the complete Native operation trace matrix.
-- [ ] Prove Native Direct linear work with counters and benchmarks.
+- [x] Add the complete Native operation trace matrix.
+- [x] Prove Native Direct linear work with counters and benchmarks.
 
 ### Gate 4
 
 - [x] Carry `Region_program.t` directly at the symbolic Stage boundary.
 - [ ] Embed Pixel symbolic bodies mechanically and preserve object identity.
 - [x] Insert authoritative Region programs directly from Native Symbolic.
-- [ ] Migrate Stage validation, printing, grounding, and source analysis.
+- [x] Migrate Stage validation, printing, grounding, and source analysis.
 - [x] Migrate Kernel adaptation without candidate/reconstruction admission.
-- [ ] Support or explicitly reject Region stages in transformation verification.
+- [x] Support Region stages in transformation verification.
 - [ ] Preserve Pixel Stage/Kernel hot-path behavior.
 
 ### Gate 5
 
-- [ ] Expose computation entries for `Ops4.Rms_norm`.
-- [ ] Expose computation entries for `Ops4.Layer_norm`.
-- [ ] Expose computation entries for `Ops4.Softmax4`.
-- [ ] Share one checked parameter adapter between shape and computation.
-- [ ] Route Native4D Direct through once-per-key Region materialization.
-- [ ] Route Native4D Symbolic through Region-capable Stage programs.
-- [ ] Remove the three Region-authored production arms from
+- [x] Expose computation entries for `Ops4.Rms_norm`.
+- [x] Expose computation entries for `Ops4.Layer_norm`.
+- [x] Expose computation entries for `Ops4.Softmax4`.
+- [x] Share one checked parameter adapter between shape and computation.
+- [x] Route Native4D Direct through once-per-key Region materialization.
+- [x] Route Native4D Symbolic through Region-capable Stage programs.
+- [x] Remove the three Region-authored production arms from
       `Eval_op4.Make(S).pixel`.
-- [ ] Trace N/H/W/C cases with T/D visibly singleton.
-- [ ] Prove Native/Native4D mapped program and result agreement.
-- [ ] Preserve every existing Axis4/domain rejection.
+- [x] Trace N/H/W/C cases with T/D visibly singleton.
+- [x] Prove Native/Native4D mapped program and result agreement.
+- [x] Preserve every existing Axis4/domain rejection.
 
 ### Gate 6
 
-- [ ] Run the gated `.pt2` model-level differential BEFORE any removal.
+- [x] Run the gated `.pt2` model-level differential BEFORE any removal.
 - [ ] Demote handwritten Pixel RMSNorm computation to test-only, keeping
       `reconstructs` asserting against it.
 - [ ] Demote handwritten Pixel LayerNorm computation on the same terms.
@@ -158,11 +158,11 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 - [ ] If deleting outright instead, record the decision and that the arithmetic
       then has one in-tree source.
 - [ ] Replace legitimate scalar consumers with bounded derived projection.
-- [ ] Remove `Regionizer` entirely, along with `Regionizer.candidate`, the
+- [x] Remove `Regionizer` entirely, along with `Regionizer.candidate`, the
       `regionizers` flag on `Eval_symbolic.build`, and the `regionized` result.
 - [ ] Remove `Region_context.pixel`, `reject`, and synthetic-value lookup;
       retain the construction helpers under the Gate 2 module.
-- [ ] Remove candidate maps and primary reconstruction fallback.
+- [x] Remove candidate maps and primary reconstruction fallback.
 - [ ] Retain general `reconstructs` support for real transformations.
 - [ ] Audit public names, errors, comments, and explorer output for obsolete
       optional-optimization language.
@@ -279,3 +279,16 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 | 2026-08-31 | 2 (partial) | `make precommit` | pass | Region builders now receive resolved role operands and caller limits; the symbolic migration derives its temporary Pixel body from the authoritative Region program, without a mutable synthetic-default hand-off or value-based lookup. The remaining Gate 2 authored-form carriage is completed with Gate 4. |
 | 2026-08-31 | 3 (partial) | `make precommit` | pass | Native Direct constructs RMSNorm, LayerNorm, and Softmax with its actual limits and materializes each Region once per key. The Direct counter fixture records `keys/locals/emitters/loads/reductions` for all three operations, and a tight Direct limit returns the typed construction error; broad trace and benchmark work remains. |
 | 2026-08-31 | 4 (partial) | `make precommit` | pass | A Native symbolic Stage now holds the authoritative `Region_program.t`; its legacy Pixel body is derived mechanically, Stage grounding can materialize the structural program, and Kernel adaptation passes the same object through directly. Candidate admission remains only for the compatibility error path. |
+| 2026-09-01 | 4 (partial) | `make precommit` | pass | `Stage.computation` embeds legacy Pixel bodies mechanically and returns an authored Region object unchanged. Stage grounding, Kernel validation, and source analysis now consume that uniform structural form; transform verification remains explicitly unmigrated. |
+| 2026-09-01 | 4 (partial) | `make precommit` | pass | Transform grounding specializes an authored Stage from its structural Region program. Its regression corrupts the legacy Pixel body and still observes the Region's input dependency, proving verification does not read that compatibility body. |
+| 2026-09-01 | 3 (partial) | `make precommit` | pass | The Native trace matrix independently proves complete, duplicate-free ownership for RMSNorm over every axis plus non-adjacent multi-axis partitions, LayerNorm over that matrix and all affine combinations, and Softmax over every Vec6 axis. It includes multiple keys and extent-one T/W axes at the same output numel. |
+| 2026-09-01 | 5 (partial) | `make precommit` | pass | Native4D's `Regionizer4` maps the three authored operations through their existing `Graph_shape4` parameter adapters and delegates construction to Native. Direct materializes the resulting Region once per key; its three counter goldens match Native. Symbolic carriage, mapped traces, and cross-dialect evidence remain open. |
+| 2026-09-01 | 5 (partial) | `make precommit` | pass | `Eval_symbolic4.run_regionized` now carries successful Native4D-authored Region programs on Stages, and Kernel adaptation receives each exact object. The default Pixel-symbolic entry point is retained for compatibility while the temporary `Eval_op4.pixel` arms remain. |
+| 2026-09-01 | 5 (partial) | `make precommit` | pass | Native4D symbolic traces independently verify output ownership and print `td_singleton=true` for every key and output. They cover RMSNorm/LayerNorm multi-axis Regions and Softmax4 over N/H/W/C. Full affine and Native-mapping matrices remain open. |
+| 2026-09-01 | 5 (partial) | `make precommit` | pass | The Axis4 norm matrix covers six RMSNorm single/multi-axis partitions and 24 LayerNorm partition/affine combinations, including multiple keys and extent-one W. Every independently collected trace has complete ownership and singleton T/D. Native/Native4D structural mapping evidence remains open. |
+| 2026-09-01 | 5 | `make precommit` | pass | `Eval_op4.pixel` now rejects the three Region-authored operations, while the default Native4D symbolic boundary carries their Region programs. Native-to-Native4D lowering preserves Region structure, and matching Direct evaluations cover RMSNorm/C, LayerNorm/C with affine inputs, and Softmax/W. The existing Axis4/D rejection suites remain green. |
+| 2026-09-01 | 6 (pre-removal) | `make pt2.runtest` | pass | The complete gated functional-model differential, Native graph/transform, symbolic-verification, Native4D lowering, and explorer cram cohort passed before further Pixel-authority removal. |
+| 2026-09-01 | 3 | `make precommit`; `opam exec -- dune exec bin/region_compute_bench.exe` | pass | The permanent extent/region-count sweep now times Native Direct alongside Pixel and Kernel Region paths and records its Region counters. At fixed `K=32`, `R=1,4,16,64` (including `R > K`) has direct counters equal to Kernel Region counters and linear in owned outputs. Timing and allocation include executor/environment overhead; the counters do not observe membership tests. |
+| 2026-09-01 | 6 (partial) | `make precommit` | pass | Native and Native4D Symbolic always construct the authored Region stages. Kernel adaptation takes each Stage's uniform computation directly; the `regionizers` flags, `regionized` results, candidate maps, and candidate/reconstruction admission fallback are deleted. Pixel dispatch rejects the three Region-authored operations. |
+| 2026-09-01 | 6 (partial) | `make precommit`; `make pt2.runtest` | pass | The transitional `Regionizer`/`Regionizer4` modules are removed. `Region_computation` now names the Native graph-boundary contract, and `Region_computation4` owns only Axis4 mapping before delegating to it. The complete precommit and gated model cohort remain green. |
+| 2026-09-01 | 6 (partial) | `make precommit` | pass | RMSNorm, LayerNorm, and Softmax's handwritten scalar implementations are now explicitly `Legacy_pixel` and are referenced only by tests. The Region execution regression compares every one against its corresponding legacy scalar oracle bitwise. |
