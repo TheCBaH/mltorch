@@ -30,15 +30,15 @@ It starts after the completed Foundation and optional scalar-regionizer slices.
 |---|---|---|---|
 | Foundation prerequisite | Region language and Pixel fast path | complete | `2a81e7b`; closeout `787f278` / `c50be5b` |
 | Scalar-Region prerequisite | Optional regionizer and dedicated executor | complete for correctness; cost contract unmet | `c8fe41f`; ownership refactor `e605361` |
-| P | Owned-output enumeration and region-count benchmark | complete | uncommitted |
+| P | Owned-output enumeration and region-count benchmark | complete | `dfcb630`; benchmark closeout `2643566` |
 | 0 | Contract census and migration baselines | complete | documentation-only |
-| 1 | Scalar projection and whole-domain trace contract | complete | uncommitted |
-| 2 | Operation-authored computation boundary | in progress | — |
-| 3 | Native Region authority and Direct execution | in progress | — |
-| 4 | Symbolic and Stage-program Region carriage | in progress | — |
-| 5 | Native4D Region authority and execution | complete | uncommitted |
-| 6 | Remove dual authority and obsolete admission | pending | — |
-| 7 | Closeout and production admission | pending | — |
+| 1 | Scalar projection and whole-domain trace contract | complete | `614dfe7` |
+| 2 | Operation-authored computation boundary | complete | `36c7d78`–`aa2f872` |
+| 3 | Native Region authority and Direct execution | complete | `e6eb7ff`; benchmark `2643566` |
+| 4 | Symbolic and Stage-program Region carriage | complete | `d549fb3` |
+| 5 | Native4D Region authority and execution | complete | `2406e1d`–`16c5143` |
+| 6 | Remove dual authority and obsolete admission | complete | `bfb2651`; oracle isolation `4a8450e` |
+| 7 | Closeout and production admission | complete | `0a19476` |
 
 ## Gate checklist
 
@@ -110,7 +110,7 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 - [x] Route the normalization divisor through the bounded shared helper rather
       than re-folding an unbounded extent product in `Region_context.count`.
 - [x] Normalize Pixel and Region authored forms at the graph boundary.
-- [ ] Keep dispatchers arithmetic-free and exhaustive per dialect.
+- [x] Keep dispatchers arithmetic-free and exhaustive per dialect.
 - [x] Test tight and expanded non-default limits, together with output ordinal,
       output shape, and missing-operand construction failures.
 
@@ -120,19 +120,19 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 - [x] Make Native LayerNorm's Region program authoritative.
 - [x] Make Native Softmax's Region program authoritative.
 - [x] Route Native Direct through once-per-key Region materialization.
-- [ ] Keep old Pixel implementations test-only during migration.
+- [x] Keep old Pixel implementations test-only during migration.
 - [x] Add the complete Native operation trace matrix.
 - [x] Prove Native Direct linear work with counters and benchmarks.
 
 ### Gate 4
 
 - [x] Carry `Region_program.t` directly at the symbolic Stage boundary.
-- [ ] Embed Pixel symbolic bodies mechanically and preserve object identity.
+- [x] Embed Pixel symbolic bodies mechanically and preserve object identity.
 - [x] Insert authoritative Region programs directly from Native Symbolic.
 - [x] Migrate Stage validation, printing, grounding, and source analysis.
 - [x] Migrate Kernel adaptation without candidate/reconstruction admission.
 - [x] Support Region stages in transformation verification.
-- [ ] Preserve Pixel Stage/Kernel hot-path behavior.
+- [x] Preserve Pixel Stage/Kernel hot-path behavior.
 
 ### Gate 5
 
@@ -151,41 +151,65 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 ### Gate 6
 
 - [x] Run the gated `.pt2` model-level differential BEFORE any removal.
-- [ ] Demote handwritten Pixel RMSNorm computation to test-only, keeping
+- [x] Demote handwritten Pixel RMSNorm computation to test-only, keeping
       `reconstructs` asserting against it.
-- [ ] Demote handwritten Pixel LayerNorm computation on the same terms.
-- [ ] Demote handwritten Pixel Softmax computation on the same terms.
-- [ ] If deleting outright instead, record the decision and that the arithmetic
-      then has one in-tree source.
-- [ ] Replace legitimate scalar consumers with bounded derived projection.
+- [x] Demote handwritten Pixel LayerNorm computation on the same terms.
+- [x] Demote handwritten Pixel Softmax computation on the same terms.
+- [x] Retain the old implementations as test-only `Legacy_pixel` oracles;
+      deletion is intentionally not selected, so the conditional one-source
+      arithmetic record does not apply.
+- [x] Replace legitimate scalar consumers with bounded derived projection.
 - [x] Remove `Regionizer` entirely, along with `Regionizer.candidate`, the
       `regionizers` flag on `Eval_symbolic.build`, and the `regionized` result.
-- [ ] Remove `Region_context.pixel`, `reject`, and synthetic-value lookup;
+- [x] Remove `Region_context.pixel`, `reject`, and synthetic-value lookup;
       retain the construction helpers under the Gate 2 module.
 - [x] Remove candidate maps and primary reconstruction fallback.
-- [ ] Retain general `reconstructs` support for real transformations.
-- [ ] Audit public names, errors, comments, and explorer output for obsolete
+- [x] Retain general `reconstructs` support for real transformations.
+- [x] Audit public names, errors, comments, and explorer output for obsolete
       optional-optimization language.
-- [ ] Prove invalid authoritative Region construction cannot select another
+- [x] Prove invalid authoritative Region construction cannot select another
       algorithm.
 
 ### Gate 7
 
-- [ ] Run full Native and Native4D tests.
-- [ ] Run Model Explorer and transformation verification.
-- [ ] Run Native4D cross-dialect verification.
-- [ ] Run JavaScript verification.
-- [ ] Run and record every operation-level coverage trace.
-- [ ] Benchmark Native and Native4D Direct plus Kernel Region execution across
+- [x] Run full Native and Native4D tests.
+- [x] Run Model Explorer and transformation verification.
+- [x] Run Native4D cross-dialect verification.
+- [x] Run JavaScript verification.
+- [x] Run and record every operation-level coverage trace.
+- [x] Benchmark Native and Native4D Direct plus Kernel Region execution across
       both extent `K` and region count `R`, including an `R > K` shape.
-- [ ] State, beside each recorded counter set, which costs it does not observe.
-- [ ] Re-run Pixel no-regression benchmarks.
-- [ ] Audit production call chains for Pixel, Region, and projection routing.
-- [ ] Update final APIs, evidence, measurements, and deferrals in design docs.
-- [ ] Promote a consolidated Region design into `.ai/`; there is currently no
+- [x] State, beside each recorded counter set, which costs it does not observe.
+- [x] Re-run Pixel no-regression benchmarks.
+- [x] Audit production call chains for Pixel, Region, and projection routing.
+- [x] Update final APIs, evidence, measurements, and deferrals in design docs.
+- [x] Promote a consolidated Region design into `.ai/`; there is currently no
       tracked `region_*` design record for landed, tracked code.
-- [ ] Repoint `.ai/native4d_design.md` off `../_ai_/region-compute-follow-up.md`.
-- [ ] Settle the `Region` name collision with `transform/region.ml`.
+- [x] Repoint `.ai/native4d_design.md` off `../_ai_/region-compute-follow-up.md`.
+- [x] Settle the `Region` name collision with `transform/region.ml`.
+
+#### Gate 7 execution record (2026-09-02)
+
+- Full native verification passed with NO_COLOR=1 opam exec -- dune runtest;
+  the targeted Native, Native4D, and Model Explorer suites also passed.
+- JavaScript verification passed with make jsoo.runtest and
+  make jsoo.inline-runtest.
+- The Native Kernel-Region, Native Direct, and Native4D Direct sweep ran at
+  (R, K) = (1, 32), (4, 32), (16, 32), (64, 32), (4, 8), (4, 64). At
+  R=64, K=32, all three routes reported the same counters: RMSNorm
+  keys=64 locals=128 emitters=2048 loads=8192 reductions=2048, LayerNorm
+  64,256,2048,12288,4096, and Softmax 64,128,2048,6144,4096. The measured
+  Kernel / Native Direct / Native4D Direct medians (ms, words) were RMSNorm
+  1.329/1214163, 1.295/1200155, 1.334/1200135; LayerNorm
+  2.004/1791902, 1.945/1771459, 1.935/1771446; Softmax
+  1.126/1064345, 1.100/1055974, 1.337/1056010.
+  This counter set observes only Region keys, local evaluations, emitters,
+  expression loads, and reductions. It does not observe partition-membership
+  tests, scalar-projection calls, allocation, or elapsed time; the benchmark
+  reports the latter two separately.
+- The Pixel no-regression benchmark ran with 2048 output cells: identity
+  0.401 ms / 202.271 words per output and add
+  0.730 ms / 312.319 words per output.
 
 ## Decisions and current evidence
 
@@ -205,11 +229,10 @@ three operation stages instead carry a non-Pixel `Region_program.t` directly.
 - Native `Eval_direct` resolves the three Region-authored operations through
   `Regionizer.program` with its actual `?limits`, then materializes each
   lowered Region program once per key. Other operations retain the Pixel path.
-- Native `Eval_symbolic.run_regionized` carries successful authored Region
-  programs on their Stages and Kernel adaptation passes that exact object
-  through directly. The candidate map remains only for the typed-error
-  compatibility path while legacy Stage consumers still read the mechanical
-  Pixel body.
+- Native `Eval_symbolic` stores one `Region_program.t` per Stage. Pixel-authored
+  stages mechanically embed their original expression, while Region-authored
+  stages carry their operation-owned program directly; Kernel adaptation passes
+  that exact object through unchanged.
 - Current Native4D `Eval_op4.Make(S).pixel` delegates all operations to Native
   Pixel computation; `Eval_direct4` and `Eval_symbolic4` therefore repeat
   normalization/Softmax reductions per output.
