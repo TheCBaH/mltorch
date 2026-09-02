@@ -64,6 +64,7 @@ module Fold : sig
   val binders : t -> Expr.Reduce_var.t list
   val intrinsics : t -> int
   val max_depth : t -> int
+  val size : t -> int
 end
 
 module Builder : sig

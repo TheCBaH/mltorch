@@ -15,7 +15,7 @@ let first_free_tid (g : Graph.graph) =
     (fun k _ acc -> max acc (Tensor_id.to_int k + 1))
     g.Graph.Graph.tensors 0
 
-let run (g : Graph.graph) =
+let run (g : Graph.graph) : Stage_program.t =
   (* [Symbolic] is stateless, so there is no instance to create. Each stage body
      is a construction computation, run below from [Expr.Builder.initial]: stage
      expressions therefore reuse reducer ordinals, which is correct because a
@@ -67,16 +67,13 @@ let run (g : Graph.graph) =
       (g.Graph.Graph.tensors, [])
       g.Graph.Graph.nodes
   in
-  let program =
-    {
-      Stage_program.inputs =
-        List.map
-          (fun id -> (id, Tensor_id.Map.find id g.Graph.Graph.tensors))
-          g.Graph.Graph.inputs;
-      input_kinds = g.Graph.Graph.input_kinds;
-      consts = List.rev !consts;
-      stages = List.rev rev_stages;
-      outputs = g.Graph.Graph.outputs;
-    }
-  in
-  program
+  {
+    Stage_program.inputs =
+      List.map
+        (fun id -> (id, Tensor_id.Map.find id g.Graph.Graph.tensors))
+        g.Graph.Graph.inputs;
+    input_kinds = g.Graph.Graph.input_kinds;
+    consts = List.rev !consts;
+    stages = List.rev rev_stages;
+    outputs = g.Graph.Graph.outputs;
+  }

@@ -19,7 +19,7 @@ let stage_sources (g : graph) =
       g.Graph.inputs,
     g.Graph.input_kinds )
 
-let run (g : graph) =
+let run (g : graph) : Stage_program.t =
   (* [Symbolic] is stateless, so there is no instance to create. Each stage body
      is a construction computation, run below from [Expr.Builder.initial]: stage
      expressions therefore REUSE reducer ordinals, which is correct because a
@@ -74,13 +74,10 @@ let run (g : graph) =
       (g.Graph.tensors, []) g.Graph.nodes
   in
   let inputs, input_kinds = stage_sources g in
-  let program =
-    {
-      Stage_program.inputs;
-      input_kinds;
-      consts = List.rev !consts;
-      stages = List.rev rev_stages;
-      outputs = g.Graph.outputs;
-    }
-  in
-  program
+  {
+    Stage_program.inputs;
+    input_kinds;
+    consts = List.rev !consts;
+    stages = List.rev rev_stages;
+    outputs = g.Graph.outputs;
+  }

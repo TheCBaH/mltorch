@@ -62,28 +62,22 @@ let collect program ~output_shape =
   (* [output_shape] has already passed the same bounded shape admission as
      tensor materialisation.  The table is deliberately independent from tensor
      stores so duplicate writes cannot be hidden by a final dense comparison. *)
-  let failure = ref None in
   let entries =
     Region_partition.fold_keys ~output_shape ~init:[]
       ~f:(fun entries key ->
         let outputs =
           Region_partition.fold_outputs ~output_shape ~key ~init:[]
             ~f:(fun outputs output ->
-              match !failure with
-              | Some _ -> outputs
-              | None ->
-                  let owner =
-                    Err.Escape.or_throw esc
-                      (Err.map_error
-                         (fun (error : Region_partition.error) ->
-                           (error :> error))
-                         (Region_partition.key_of_output ~output_shape partition
-                            output))
-                  in
-                  if owner <> key then (
-                    failure := Some (`Ownership (output, key));
-                    outputs)
-                  else output :: outputs)
+              let owner =
+                Err.Escape.or_throw esc
+                  (Err.map_error
+                     (fun (error : Region_partition.error) -> (error :> error))
+                     (Region_partition.key_of_output ~output_shape partition
+                        output))
+              in
+              if owner <> key then
+                Err.Escape.throw esc (`Ownership (output, key))
+              else output :: outputs)
             partition
           |> List.rev
         in
@@ -91,13 +85,10 @@ let collect program ~output_shape =
       partition
     |> List.rev
   in
-  match !failure with
-  | Some error -> Err.Escape.throw esc error
-  | None ->
-      let coverage = summarize ~output_shape entries in
-      if coverage.duplicates <> 0 || coverage.missing <> 0 then
-        Err.Escape.throw esc (`Coverage coverage)
-      else { program; entries; coverage }
+  let coverage = summarize ~output_shape entries in
+  if coverage.duplicates <> 0 || coverage.missing <> 0 then
+    Err.Escape.throw esc (`Coverage coverage)
+  else { program; entries; coverage }
 
 let pp fmt t =
   let pp_local fmt (local : Region_local.t) =

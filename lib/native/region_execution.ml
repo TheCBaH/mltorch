@@ -28,16 +28,21 @@ type t = Pixel_loop of Expr.Value.t | Region_loop of lowered
 let counters () =
   { keys = 0; locals = 0; emitters = 0; loads = 0; reductions = 0 }
 
+(* For a caller that already knows, structurally, that [program] is not a
+   plain pixel expression -- e.g. it just matched [pixel_expression = None] --
+   so it need not re-discover that fact by lowering and matching on [t]. *)
+let lower_region program =
+  let locals = Region_program.locals program in
+  let slots =
+    List.mapi (fun slot local -> (local.Region_local.id, slot)) locals
+    |> List.to_seq |> Expr.Local_var.Map.of_seq
+  in
+  { program; slots; local_count = List.length locals }
+
 let lower program =
   match Region_program.pixel_expression program with
   | Some expression -> Pixel_loop expression
-  | None ->
-      let locals = Region_program.locals program in
-      let slots =
-        List.mapi (fun slot local -> (local.Region_local.id, slot)) locals
-        |> List.to_seq |> Expr.Local_var.Map.of_seq
-      in
-      Region_loop { program; slots; local_count = List.length locals }
+  | None -> Region_loop (lower_region program)
 
 let widened r =
   Err.map_error (fun (e : Expr.Eval.error) -> (e :> Region_eval.error)) r

@@ -5,10 +5,6 @@
 type error = Region_computation.error
 type synthetic_role = Region_computation.synthetic_role
 
-let is_region_authored : Op.t -> bool = function
-  | Op.Layer_norm _ | Op.Rms_norm _ | Op.Softmax4 _ -> true
-  | _ -> false
-
 let native_op : Op.t -> Graph_ir.op option = function
   | Op.Rms_norm { Ops4.Rms_norm.params; x; weight } ->
       Some
@@ -28,6 +24,10 @@ let native_op : Op.t -> Graph_ir.op option = function
         (Graph_ir.Softmax
            { Reduce.Softmax.params = Graph_shape4.softmax_params params; x })
   | _ -> None
+
+(* One list to maintain, not two that can drift: an op routes to Region
+   computation exactly when it maps onto a native one. *)
+let is_region_authored op = native_op op <> None
 
 let program ~limits ~op ~output ~output_shape ~operand ~fill =
   match native_op op with

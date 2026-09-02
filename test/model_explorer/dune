@@ -205,3 +205,12 @@
   (modes best js))
  (preprocess
   (pps ppx_expect)))
+
+(library
+ (name me_kernel_test)
+ (modules me_kernel_test)
+ (libraries core err_trace fmt model_explorer model_explorer_export native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

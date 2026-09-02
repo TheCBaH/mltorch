@@ -21,6 +21,12 @@ module Env = struct
     consts : float Tensor_id.Map.t;
     fmts : Payload.packed_fmt Tensor_id.Map.t;
     inputs : Tensor_id.Set.t;
+    (* [Stage.pixel_body] specializes and re-checks a stage's whole computation
+       and is stage-invariant, so it is worth caching per stage id rather than
+       redone at every coordinate [body_at] grounds. Keyed by stage id alone:
+       every caller in this module reaches [pixel_body] through [body_at],
+       which always passes [Kernel.Limits.default]. *)
+    pixel_bodies : Expr.Value.t Tensor_id.Map.t ref;
     shapes : Vec6.shape Tensor_id.Map.t;
     side : [ `Dst | `Src ];
     stages : Stage_program.Stage.t Tensor_id.Map.t;
@@ -86,6 +92,7 @@ module Env = struct
       consts;
       fmts;
       inputs;
+      pixel_bodies = ref Tensor_id.Map.empty;
       shapes;
       side;
       stages;
@@ -155,6 +162,18 @@ module Env = struct
     Option.bind (Origin.edge o) (fun id -> Tensor_id.Map.find_opt id t.stages)
 
   let stage_of_id t id = Tensor_id.Map.find_opt id t.stages
+
+  let pixel_body t ~max_size ~max_depth (st : Stage_program.Stage.t) =
+    match
+      Tensor_id.Map.find_opt st.Stage_program.Stage.id !(t.pixel_bodies)
+    with
+    | Some body -> Err.return body
+    | None ->
+        let open Err.Syntax in
+        let+ body = Stage_program.Stage.pixel_body ~max_size ~max_depth st in
+        t.pixel_bodies :=
+          Tensor_id.Map.add st.Stage_program.Stage.id body !(t.pixel_bodies);
+        body
 end
 
 (* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
@@ -400,7 +419,7 @@ let body_at esc env (st : Stage_program.Stage.t) coord =
     or_throw esc
       (Err.map_error
          (fun e -> `Region e)
-         (Stage_program.Stage.pixel_body ~max_size:limits.Kernel.Limits.max_size
+         (Env.pixel_body env ~max_size:limits.Kernel.Limits.max_size
             ~max_depth:limits.Kernel.Limits.max_depth st))
   in
   ground esc ~env

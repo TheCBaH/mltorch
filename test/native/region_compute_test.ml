@@ -584,3 +584,51 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
   [%expect
     {|
     cells=2,3,4,22,23,24 keys=2 locals=2 emitters=6 loads=8 reductions=0 |}]
+
+(* [fresh_synthetic_ids] used to be recomputed inside [eval_node], folding
+   [g.Graph.tensors] once per node — quadratic in graph size for a Region-free
+   graph that never uses the result. A relu chain has no Region op, so any
+   time spent here is pure per-node overhead: at 4x the nodes, a linear
+   evaluator moves at roughly 4x the time, a quadratic one at roughly 16x. *)
+let relu_chain n =
+  Err.or_raise ~pp_error:Graph_builder.pp_error
+    Graph_builder.(
+      build ~name:"chain" ~outputs:(fun output -> [ output ])
+      @@
+      let* x = input ~shape ~name:"x" () in
+      let rec go i x =
+        if i = 0 then return x
+        else
+          let* x = relu x in
+          go (i - 1) x
+      in
+      go n x)
+
+let time_direct graph =
+  let run () =
+    ignore
+      (Err.or_raise ~pp_error:Eval_direct.pp_error
+         (Eval_direct.run ~inputs:[ (List.hd graph.Graph.inputs, input) ] graph))
+  in
+  for _ = 1 to 3 do
+    run ()
+  done;
+  let samples =
+    List.init 5 (fun _ ->
+        let started = Sys.time () in
+        run ();
+        Sys.time () -. started)
+  in
+  let sorted = List.sort Float.compare samples in
+  List.nth sorted (List.length sorted / 2)
+
+let%expect_test
+    "Native Direct is linear, not quadratic, in Region-free graph size" =
+  let small = time_direct (relu_chain 100) in
+  let large = time_direct (relu_chain 400) in
+  (* Growing the node count 4x should move the time by roughly 4x under a
+     linear evaluator and roughly 16x under a quadratic one; 10x sits between
+     the two with headroom for measurement noise. *)
+  let linear = large < small *. 10. in
+  Fmt.pr "scaling: %s@." (if linear then "linear" else "quadratic");
+  [%expect {| scaling: linear |}]

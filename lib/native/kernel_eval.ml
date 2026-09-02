@@ -162,22 +162,20 @@ let values_by_id (k : Kernel.t) =
    this distinction is intentional, because it preserves the tight per-cell
    evaluator for the overwhelmingly common singleton case. *)
 let converted ?region_counters (v : Kernel.Value.t) =
-  match Region_execution.lower v.Kernel.Value.computation with
-  | Region_execution.Pixel_loop body ->
+  match Region_program.pixel_expression v.Kernel.Value.computation with
+  | Some body ->
       `Pixel (Kernel.Result_conversion.apply v.Kernel.Value.result body)
-  | Region_execution.Region_loop _ -> (
-      match
-        Region_execution.lower
+  | None ->
+      let lowered =
+        Region_execution.lower_region
           (Region_program.with_output v.Kernel.Value.computation
              (Kernel.Result_conversion.apply v.Kernel.Value.result
                 (Region_program.output v.Kernel.Value.computation)))
-      with
-      | Region_execution.Region_loop lowered ->
-          `Region
-            ( lowered,
-              Option.bind region_counters (fun counters ->
-                  Tensor_id.Map.find_opt v.Kernel.Value.id counters) )
-      | Region_execution.Pixel_loop _ -> assert false)
+      in
+      `Region
+        ( lowered,
+          Option.bind region_counters (fun counters ->
+              Tensor_id.Map.find_opt v.Kernel.Value.id counters) )
 
 let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
   List.find_opt

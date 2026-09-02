@@ -29,8 +29,18 @@ let same op =
       (Region_computation.program
          ~op:(Option.get (Region_computation4.native_op op)))
   in
-  Format.asprintf "%a" Region_program.pp mapped
-  = Format.asprintf "%a" Region_program.pp native
+  let same_local (l1 : Region_local.t) (l2 : Region_local.t) =
+    Expr.Local_var.equal l1.Region_local.id l2.Region_local.id
+    && Expr.Value.equal l1.Region_local.value l2.Region_local.value
+  in
+  let mapped_locals = Region_program.locals mapped
+  and native_locals = Region_program.locals native in
+  List.length mapped_locals = List.length native_locals
+  && List.for_all2 same_local mapped_locals native_locals
+  && Expr.Value.equal
+       (Region_program.output mapped)
+       (Region_program.output native)
+  && Region_program.partition mapped = Region_program.partition native
 
 let%expect_test "Softmax4 maps to Native Region structure" =
   List.iter

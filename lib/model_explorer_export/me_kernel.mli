@@ -13,10 +13,13 @@
    came from and which boundary each has, and that is what the two entry points
    below carry.
 
-   EDGES COME FROM [Expr.Fold.sources], which is loads AND intrinsic
-   descriptors. Taking [loads] alone would drop a real dependency — a max-pool's
-   input is named only in its descriptor — and the picture would be wrong rather
-   than incomplete.
+   EDGES COME FROM [Region_program.Fold.sources], which folds every local AND
+   the emitter — not [Expr.Fold.sources] on the emitter alone, which sees only
+   the locals it references directly and misses what a deeper local loads.
+   Within one expression it is still loads AND intrinsic descriptors: taking
+   [loads] alone would drop a real dependency — a max-pool's input is named
+   only in its descriptor — and the picture would be wrong rather than
+   incomplete.
 
    See .ai/model_explorer_design.md. *)
 

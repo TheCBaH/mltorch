@@ -100,8 +100,15 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
     ~synthetic_ids =
   let open Err.Syntax in
   let id_for role = List.assoc role synthetic_ids in
-  let fill role _value shape =
-    Tensor_sig.create ~id:(id_for role) ~name:"direct optional operand" ~shape
+  (* [fill] is the only place a synthetic operand's default value and shape
+     are decided, so it records them here rather than have the caller
+     re-derive the same pair afterwards by re-matching [op] -- a second copy
+     that can only drift from this one. *)
+  let filled = ref Tensor_id.Map.empty in
+  let fill role value shape =
+    let id = id_for role in
+    filled := Tensor_id.Map.add id (value, shape) !filled;
+    Tensor_sig.create ~id ~name:"direct optional operand" ~shape
       ~fmt:(Payload.Fmt Payload.F32) ()
   in
   let* program =
@@ -110,37 +117,14 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
       ~fill
     |> Err.map_error (fun error -> `Region_construction error)
   in
-  let synthetic_shape role =
-    match op with
-    | Rms_norm { Norm.RmsNorm.params; x; weight = None }
-      when role = Region_computation.Rms_weight ->
-        Some
-          ( 1.,
-            Norm_shared.normalized_shape
-              ~x_shape:(Tensor_id.Map.find x g.Graph.tensors).Tensor_sig.shape
-              ~dims:params.dims )
-    | Layer_norm { Norm.LayerNorm.params; x; weight; bias }
-      when (role = Region_computation.Layer_weight && Option.is_none weight)
-           || (role = Region_computation.Layer_bias && Option.is_none bias) ->
-        Some
-          ( (if role = Region_computation.Layer_weight then 1. else 0.),
-            Norm_shared.normalized_shape
-              ~x_shape:(Tensor_id.Map.find x g.Graph.tensors).Tensor_sig.shape
-              ~dims:params.dims )
-    | _ -> None
-  in
   let sources = Region_program.Fold.sources program in
   let synthetic_bindings =
-    List.fold_left
-      (fun bindings (role, id) ->
-        match synthetic_shape role with
-        | Some (value, shape)
-          when Expr.Source.Set.mem (Expr_bridge.source_of_id id) sources ->
-            Tensor_id.Map.add id
-              (Tensor.materialize shape (fun _ -> value))
-              bindings
-        | Some _ | None -> bindings)
-      Tensor_id.Map.empty synthetic_ids
+    Tensor_id.Map.filter_map
+      (fun id (value, shape) ->
+        if Expr.Source.Set.mem (Expr_bridge.source_of_id id) sources then
+          Some (Tensor.materialize shape (fun _ -> value))
+        else None)
+      !filled
   in
   let env =
     Expr_bridge.env ~binding:(fun id ->
@@ -160,18 +144,21 @@ let rec run_graph ?hooks ?region_counters ?(limits = Kernel.Limits.default)
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let* env = bind_constants g constants env in
+  let synthetic_ids = fresh_synthetic_ids g in
   Err.List.fold_left
     (fun env node ->
       match hooks with
-      | None -> eval_node ?region_counters ~limits g env node
+      | None -> eval_node ?region_counters ~limits ~synthetic_ids g env node
       | Some (Hooks h) ->
           let state = h.on_start node in
-          let* env = eval_node ?region_counters ~limits g env node in
+          let* env =
+            eval_node ?region_counters ~limits ~synthetic_ids g env node
+          in
           h.on_end node state;
           Err.return env)
     env g.Graph.nodes
 
-and eval_node ?region_counters ~limits (g : graph)
+and eval_node ?region_counters ~limits ~synthetic_ids (g : graph)
     (env : Tensor.packed Tensor_id.Map.t) (node : node) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
@@ -212,7 +199,6 @@ and eval_node ?region_counters ~limits (g : graph)
   let outs =
     List.mapi (fun output (oid, out_shape) -> (output, oid, out_shape)) pairs
   in
-  let synthetic_ids = fresh_synthetic_ids g in
   Err.List.fold_left
     (fun env (output, oid, out_shape) ->
       let* result =

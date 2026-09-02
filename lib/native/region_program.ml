@@ -253,6 +253,9 @@ module Fold = struct
     List.fold_left
       (fun acc expr -> max acc (Expr.Fold.depth expr))
       0 (expressions t)
+
+  let size t =
+    List.fold_left (fun acc expr -> acc + Expr.Fold.size expr) 0 (expressions t)
 end
 
 let pp fmt t =

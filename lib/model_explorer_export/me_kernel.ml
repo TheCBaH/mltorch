@@ -73,7 +73,7 @@ let build ~limits ~id ~inputs ~outputs ~values =
   let input_nodes = List.map (boundary `In) inputs in
   let* value_nodes =
     Err.List.map
-      (fun (vid, label, sg, body) ->
+      (fun (vid, label, sg, program) ->
         let+ incoming =
           Err.List.map
             (fun src ->
@@ -81,13 +81,16 @@ let build ~limits ~id ~inputs ~outputs ~values =
               ME.IncomingEdge.create ~sourceNodeId:from ~sourceNodeOutputId:"0"
                 ~targetNodeInputId:(Core.Pretty.to_string Expr.Source.pp src)
                 ())
-            (Expr.Source.Set.elements (Expr.Fold.sources body))
+            (Expr.Source.Set.elements (Region_program.Fold.sources program))
         in
-        (* The BODY, stopped at the cap rather than built whole and cut: an
-           expression tree is exactly the value where those two differ. *)
+        (* The WHOLE program, stopped at the cap rather than built whole and
+           cut: an expression tree is exactly the value where those two
+           differ. [Region_program.pp] names every local, so this carries no
+           dangling [?#N] the way [Expr.Pp.value] on the emitter alone would
+           for a program the emitter references locals into. *)
         let text, capped =
           Me_build.bounded ~max:limits.Me_limits.Limits.max_attr_chars
-            Expr.Pp.value body
+            Region_program.pp program
         in
         ME.GraphNode.create ~id:(Me_ids.value_node vid) ~label ~namespace:""
           ~incomingEdges:incoming
@@ -98,8 +101,9 @@ let build ~limits ~id ~inputs ~outputs ~values =
             ]
           ~attrs:
             ([
-               attr "size" (string_of_int (Expr.Fold.size body));
-               attr "depth" (string_of_int (Expr.Fold.depth body));
+               attr "size" (string_of_int (Region_program.Fold.size program));
+               attr "depth"
+                 (string_of_int (Region_program.Fold.max_depth program));
                attr "body" text;
              ]
             @ if capped then [ attr "body_truncated" "true" ] else [])
@@ -178,12 +182,7 @@ let stage_program ~limits ~id (p : Stage_program.t) =
            ( s.Stage_program.Stage.id,
              "stage",
              s.Stage_program.Stage.sg,
-             match
-               Region_program.pixel_expression s.Stage_program.Stage.computation
-             with
-             | Some body -> body
-             | None -> Region_program.output s.Stage_program.Stage.computation
-           ))
+             s.Stage_program.Stage.computation ))
          p.Stage_program.stages)
     ~outputs:
       (List.filter_map
@@ -212,9 +211,7 @@ let kernel ~limits ~id (k : Kernel.t) =
            ( v.Kernel.Value.id,
              Kernel.Result_conversion.name v.Kernel.Value.result,
              v.Kernel.Value.sg,
-             match Kernel.pixel_expression v with
-             | Some body -> body
-             | None -> Region_program.output v.Kernel.Value.computation ))
+             v.Kernel.Value.computation ))
          k.Kernel.values)
     ~outputs:
       (List.map

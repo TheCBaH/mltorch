@@ -4,8 +4,8 @@
 
 This record describes the landed Region-computation implementation.  It is the
 authoritative tracked companion to `native_compute_design.md` and
-`native4d_design.md`; planning notes under `_ai_/` are execution scaffolding,
-not required reading for a fresh checkout.
+`native4d_design.md`; the gitignored planning notes this branch worked from
+are execution scaffolding, not required reading for a fresh checkout.
 
 The implementation gives RMSNorm, LayerNorm, and plain Softmax an
 operation-authored `Region_program.t`.  Other operations remain Pixel-authored.
@@ -54,6 +54,36 @@ emitter visits, and ownership.  It verifies complete coverage, no duplicate
 outputs, and agreement between partition ownership and enumeration.  This is
 why a dense result comparison alone is insufficient evidence.
 
+## Design headroom for deferred work
+
+Three decisions were fixed now specifically so a later phase extends this IR
+rather than redesigns it.
+
+`Region_local.t` carries a `shape : Region_local.Shape.t` field even though
+`Shape.t` has exactly one constructor, `Scalar`, today.  Leaving the field out
+because nothing else exists yet would make shaped locals — a `K`-element
+cache, a `V`-element accumulator, blocked online-softmax state — a language
+change instead of a new `Shape.t` constructor and new `Region_execution`
+cases.
+
+Region semantics are deliberately separate from schedule tiles.  An output
+region states what may share one computed local; a schedule tile is a
+backend's physical loop/memory block.  Required sharing comes from the
+operation; locality blocking is schedule-selected either way.  This is why
+`Region_partition` has only `Whole` and `Singleton` and no `Block`: a `Block`
+partition is reserved for a program whose block itself owns an explicit local
+or ordered phase, not for an arbitrary machine tile a schedule picks
+independently of program meaning.
+
+SDPA needs more than scalar sharing, which is why it stays out of scope rather
+than being attempted on today's form.  The per-pixel implementation recomputes
+every attention score once per output value feature, so its leading cost is
+`Theta(Q * K * E^2)` against an ideal `Theta(Q * K * (E + V))`.  A scalar
+local removes the repeated softmax row max/sum, but not the repeated
+numerator: an efficient SDPA needs a `K`-element score cache, a `V`-element
+output accumulator, or blocked online-softmax state — a shaped, not scalar,
+local.
+
 ## Numerical policy
 
 Programs retain the existing operation order and `f32` materialization policy.
@@ -91,6 +121,16 @@ reconstruction admission, synthetic-value lookup, and production scalar
 materialization are removed.  `Legacy_pixel` exists only as the test oracle for
 the three migrated operations.
 
+The routing audit is deliberately narrow and exhaustive.  `Region_computation`
+recognizes only Native `Rms_norm`, `Layer_norm`, and `Softmax`; its Native4D
+adapter recognizes only `Rms_norm`, `Layer_norm`, and `Softmax4` before mapping
+to that same Native dispatcher.  The Direct and Symbolic drivers select the
+Region route only for those forms.  `Eval_op.pixel` and `Eval_op4.pixel` retain
+explicit impossible arms for them, so a future caller cannot silently revive a
+scalar production algorithm.  Repository-wide references to the three
+`Legacy_pixel` implementations are their definitions, explanatory comments,
+and test invocations only; production dispatch does not invoke them.
+
 ## Cost model and evidence
 
 For `R` region keys and reduction extent `K`, a Region materialization owns
@@ -115,26 +155,15 @@ tests, scalar-projection calls, allocations, or elapsed time; the last two are
 reported separately by the benchmark.  They are evidence of what they count,
 not a substitute for the ownership trace or wall-clock measurement.
 
-For reproducibility rather than as a portability claim, one 20-sample local
-run on 2026-09-02 at `(R, K) = (64, 32)` recorded these medians:
-
-| Operation | Kernel ms / words | Native Direct ms / words | Native4D Direct ms / words |
-| --- | --- | --- | --- |
-| RMSNorm | 1.329 / 1214163 | 1.295 / 1200155 | 1.334 / 1200135 |
-| LayerNorm | 2.004 / 1791902 | 1.945 / 1771459 | 1.935 / 1771446 |
-| Softmax | 1.126 / 1064345 | 1.100 / 1055974 | 1.337 / 1056010 |
-
-GC words and elapsed time are runtime-sensitive; the benchmark command is the
-source of a fresh measurement.  The counter caveat above applies beside every
-row of this table.
-
-The separate Pixel no-regression benchmark covers the unchanged Pixel Kernel
-loop; its 2048-cell run recorded identity `0.401 ms / 202.271 words` per output
-and add `0.730 ms / 312.319 words` per output.
+Reproduce elapsed-time and GC-word medians with
+`opam exec -- dune exec bin/region_compute_bench.exe`; both are
+runtime-sensitive, so this record keeps the counter table above rather than a
+dated run of that command.  `bin/region_pixel_bench.exe` is the separate,
+unchanged Pixel Kernel no-regression benchmark.
 
 ## Validation commands
 
-The closeout was validated with:
+Reproduce with:
 
 ```sh
 NO_COLOR=1 opam exec -- dune runtest
