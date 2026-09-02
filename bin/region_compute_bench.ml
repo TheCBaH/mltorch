@@ -155,6 +155,109 @@ let report name ~regions ~extent graph graph4 =
     direct_counters.reductions direct4_counters.keys direct4_counters.locals
     direct4_counters.emitters direct4_counters.loads direct4_counters.reductions
 
+(* Sdpa has no Native4D counterpart yet (blocked on
+   `.ai/native4d_design.md`'s open compatibility question), so this row
+   compares kernel_region against direct only -- no direct4 column. Query and
+   key/value share [regions] as their sequence length and [extent] as their
+   head dim, so the mask is [regions x regions], and total work is quadratic
+   in both (unlike the three [Vec6]-uniform ops above), so the sweep below is
+   deliberately smaller. *)
+let report_sdpa ~regions ~extent =
+  let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:regions ~c:extent in
+  let key_shape = query_shape in
+  let mask_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:regions ~c:regions in
+  let query = input query_shape
+  and key = input key_shape
+  and value = input key_shape in
+  let mask = Tensor.materialize mask_shape (fun _ -> 0.) in
+  let g =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"sdpa" ~outputs:(fun output -> [ output ])
+        @@
+        let* qi = input ~shape:query_shape ~name:"query" () in
+        let* ki = input ~shape:key_shape ~name:"key" () in
+        let* vi = input ~shape:key_shape ~name:"value" () in
+        let* mi = input ~shape:mask_shape ~name:"mask" () in
+        sdpa
+          { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+          ~query:qi ~key:ki ~value:vi ~mask:mi ())
+  in
+  let inputs =
+    match g.Graph.inputs with
+    | [ qid; kid; vid; mid ] ->
+        [ (qid, query); (kid, key); (vid, value); (mid, mask) ]
+    | _ -> assert false
+  in
+  let bind id = List.assoc_opt id inputs in
+  let kernel = kernel g in
+  let measure_thunk f =
+    for _ = 1 to warmup do
+      f ()
+    done;
+    List.init samples (fun _ ->
+        Gc.full_major ();
+        let before = words () and started = Unix.gettimeofday () in
+        f ();
+        ((Unix.gettimeofday () -. started) *. 1000., words () -. before))
+    |> List.split
+  in
+  let run_kernel () =
+    Kernel_eval.run kernel ~bind
+    |> Err.or_raise ~pp_error:Kernel_eval.pp_error
+    |> ignore
+  in
+  let run_direct () =
+    Eval_direct.run g ~inputs
+    |> Err.or_raise ~pp_error:Eval_direct.pp_error
+    |> ignore
+  in
+  (* Legacy_pixel is test-only and no longer reachable through the graph
+     dispatcher, but it is still a callable formula -- timing it directly
+     is the one place this bench can show Stage A's headline claim (score
+     shared across [m]/[z]/the emitters instead of recomputed 3x). *)
+  let module LP = Attention.Sdpa.Legacy_pixel (Direct) in
+  let params : Attention.Sdpa.params =
+    { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+  in
+  let run_legacy () =
+    ignore
+      (Schedule.evaluate query_shape
+         (LP.pixel params ~query_shape ~key_shape ~mask_shape ~query ~key ~value
+            ~mask))
+  in
+  let kernel_time, kernel_words = measure_thunk run_kernel in
+  let direct_time, direct_words = measure_thunk run_direct in
+  let legacy_time, _legacy_words = measure_thunk run_legacy in
+  let counters = Region_execution.counters () in
+  let counter_map =
+    List.fold_left
+      (fun map (value : Kernel.Value.t) ->
+        Tensor_id.Map.add value.id counters map)
+      Tensor_id.Map.empty kernel.Kernel.values
+  in
+  Kernel_eval.run ~region_counters:counter_map kernel ~bind
+  |> Err.or_raise ~pp_error:Kernel_eval.pp_error
+  |> ignore;
+  let direct_counters = Region_execution.counters () in
+  Eval_direct.run
+    ~region_counters:
+      (Tensor_id.Map.singleton (List.hd g.Graph.outputs) direct_counters)
+    g ~inputs
+  |> Err.or_raise ~pp_error:Eval_direct.pp_error
+  |> ignore;
+  Printf.printf
+    "sdpa regions=%d extent=%d samples=%d kernel_region_ms=%.3f direct_ms=%.3f \
+     legacy_pixel_ms=%.3f kernel_region_words=%.3f direct_words=%.3f keys=%d \
+     locals=%d emitters=%d loads=%d reductions=%d direct_keys=%d \
+     direct_locals=%d direct_emitters=%d direct_loads=%d direct_reductions=%d\n\
+     %!"
+    regions extent samples (median kernel_time) (median direct_time)
+    (median legacy_time) (median kernel_words) (median direct_words)
+    counters.keys counters.locals counters.emitters counters.loads
+    counters.reductions direct_counters.keys direct_counters.locals
+    direct_counters.emitters direct_counters.loads direct_counters.reductions
+
 let () =
   List.iter
     (fun (regions, extent) ->
@@ -192,4 +295,7 @@ let () =
                x)))
     (* Fix C and sweep W (the number of whole-C region keys), including
        R > K, then retain the original extent sweep at R = 4. *)
-    [ (1, 32); (4, 32); (16, 32); (64, 32); (4, 8); (4, 64) ]
+    [ (1, 32); (4, 32); (16, 32); (64, 32); (4, 8); (4, 64) ];
+  List.iter
+    (fun (regions, extent) -> report_sdpa ~regions ~extent)
+    [ (1, 8); (4, 8); (16, 8); (4, 16) ]

@@ -5,7 +5,7 @@ type error =
   | Output_ordinal of int
   | Output_shape
 
-type synthetic_role = Rms_weight | Layer_weight | Layer_bias
+type synthetic_role = Layer_bias | Layer_weight | Rms_weight | Sdpa_mask
 
 val is_region_authored : Graph_ir.op -> bool
 

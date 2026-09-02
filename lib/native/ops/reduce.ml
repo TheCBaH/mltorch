@@ -560,7 +560,7 @@ module Softmax = struct
      `torch.softmax`, which is free to (and does) produce `nan` on an
      all-`-inf` row. No new [SEMANTICS] primitive is needed: [exp],
      [max_reduce] and [sum] already exist and are already exercised
-     (`attention.ml`'s [Sdpa.Compute]). See .ai/matmul_softmax_design.md §3. *)
+     (`attention.ml`'s [Sdpa.Legacy_pixel]). See .ai/matmul_softmax_design.md §3. *)
   type params = { axis : Axis.t }
 
   let params_jsont : params Jsont.t =
@@ -641,7 +641,7 @@ module Softmax = struct
         (out : Semantics.position S.index Vec6.t) =
       let extent = Vec6.get x_shape p.axis in
       (* [score_at k]: the value at [out] with [axis] overridden to [k] --
-         mirrors [Attention.Sdpa.Compute]'s [score_at]. *)
+         mirrors [Attention.Sdpa.Legacy_pixel]'s [score_at]. *)
       let score_at k = S.load x (Vec6.set out p.axis k) in
       let m =
         S.max_reduce ~lo:S.index_zero ~hi:(S.index_extent extent) score_at

@@ -1,18 +1,17 @@
 (* Scaled dot-product attention (`aten.scaled_dot_product_attention.default`),
    scoped to exactly what keeps ATen's CPU dispatch on the flash-attention
-   kernel (op8-impl.md F4) -- the only oracle this row is verified against:
+   kernel -- the only oracle this row is verified against:
 
      - Q/K/V are rank-4, right-aligned to [D=batch, H=heads, W=sequence,
-       C=head_dim] (F7). No relayout is needed: the axes the op reads are the
+       C=head_dim]. No relayout is needed: the axes the op reads are the
        axes [Aten_shape.of_aten] lands the data on.
      - the value feature dimension equals query/key's (Ev = E), so
        [output_shape] is exactly [query_shape];
-     - the mask, if present, is additive f32 (never boolean, F10) and its
+     - the mask, if present, is additive f32 (never boolean) and its
        broadcast shape is exactly the flash-admissible set: 2D [Wq|1, Wk|1] or
        4D [D|1, H|1, Wq|1, Wk|1] against [score_shape];
      - no dropout, causal masking, GQA or negative explicit scale -- each a
-       typed rejection at the two importers (commit 3), not a case this module
-       computes.
+       typed rejection at the two importers, not a case this module computes.
 
    Every one of those is a flash-ORACLE boundary, not a mathematical one: ATen
    silently falls back to its `math` backend when a gate fails (there is no
@@ -20,25 +19,25 @@
    kernels. Rank itself is NOT checked here and cannot be: [Tensor_sig.t]
    retains only a [Vec6.shape], and a rank-2 mask [Wq,Wk], a rank-3
    [1,Wq,Wk] and a rank-4 [1,1,Wq,Wk] all normalize to the SAME Native shape
-   (op8-impl.md F13) -- only the middle one is flash-admissible, and only an
+   -- only the middle one is flash-admissible, and only an
    importer reading the raw ATen rank BEFORE [Aten_shape.of_aten] can tell
    them apart. Every rank rule therefore lives in the two importers, and a
    standalone Native or JSON-decoded graph carries no ATen rank at all.
 
-   The arithmetic is ATen's `math` backend's structure (F3), not
-   op8.md's literal `dot(q,k) * scale`: neither ATen backend computes that.
+   The arithmetic is ATen's `math` backend's structure, not the literal
+   `dot(q,k) * scale`: neither ATen backend computes that.
    The scale is split as its own square root and applied to BOTH operands
    before the matmul (`attention.cpp`'s `_scaled_dot_product_attention_math`,
    for overflow stability under fp32/fp16), and confirmed independently by the
    corpus (vit_b_32 nodes 30/32: `mul.Scalar` by [64 ** -0.25] on both the
    query and the key, for head_dim 64). `scale * dot(q,k)` and
-   `dot(q*sqrt(scale), k*sqrt(scale))` are not f32-equal, so implementing
-   op8.md's formula is a required MUTATION target here, not the contract.
+   `dot(q*sqrt(scale), k*sqrt(scale))` are not f32-equal, so implementing the
+   literal formula is a required MUTATION target here, not the contract.
    Softmax is ATen's `_safe_softmax`: it runs UNCONDITIONALLY (not only when a
    mask is present), and a row whose scores are all -inf yields 0, not NaN.
 
-   No new semantics primitive is needed (op8-impl.md F5): [exp], [max_reduce],
-   [sum], [lt] and [select] already exist and are already exercised
+   No new semantics primitive is needed: [exp], [max_reduce], [sum], [lt] and
+   [select] already exist and are already exercised
    (`ops/window_axis.ml`'s use of [max_reduce]). *)
 
 module Sdpa = struct
@@ -47,14 +46,14 @@ module Sdpa = struct
      evaluation time, so it cannot be folded into a plain [float] the way
      [Norm]'s [eps] is. A closed variant, not a [float option] (CLAUDE.md's
      payload rule): the JSON distinction between "use the default" and
-     "explicit 1.0" must be exact, and it is what makes commit 5's Model
+     "explicit 1.0" must be exact, and it is what makes the Model
      Explorer fixtures (default vs explicit scale) pinnable. *)
   module Scale = struct
     type t = Default | Explicit of float
   end
 
-  (* The typed rejection boundary BOTH importers enforce (op8-impl.md commit
-     3), shared for [Op_config.Bad]'s reason: the two importers must reject
+  (* The typed rejection boundary BOTH importers enforce, shared for
+     [Op_config.Bad]'s reason: the two importers must reject
      the same values, and two spellings of "dropout_p is not supported" is
      one drift away from two contracts. [Rank] is for an argument with MORE
      than one admissible rank (the mask, {2,4}) -- a single [expected] cannot
@@ -63,11 +62,11 @@ module Sdpa = struct
     type rank = { arg_name : string; expected : int list; got : int }
 
     type t =
-      | Boolean_mask (* attn_mask is bool: additive f32 only (F10) *)
+      | Boolean_mask (* attn_mask is bool: additive f32 only *)
       | Causal (* is_causal = true *)
       | Dropout of float (* dropout_p <> 0 *)
       | Gqa (* enable_gqa = true *)
-      | Negative_scale of float (* legal in ATen, specially handled; F3 *)
+      | Negative_scale of float (* legal in ATen, specially handled *)
       | Non_finite_scale of float
       | Rank of rank
 
@@ -124,8 +123,7 @@ module Sdpa = struct
 
   (* No [dropout_p], [is_causal] or [enable_gqa] fields: the scope admits only
      [dropout_p = 0], [is_causal = false], [enable_gqa = false], each rejected
-     by both importers (commit 3) before a graph carrying anything else could
-     be built. Carrying a flag this module never reads would be a silent
+     by both importers before a graph carrying anything else could be built. Carrying a flag this module never reads would be a silent
      invitation to wire it up without also widening the verified scope. *)
   type t = {
     params : params;
@@ -165,7 +163,7 @@ module Sdpa = struct
       Jsont.json
 
   (* Order pinned (query, key, value, then mask if present): Model Explorer's
-     operand-edge slot ids are positional (commit 5). *)
+     operand-edge slot ids are positional. *)
   let operands (t : t) = [ t.query; t.key; t.value ] @ Option.to_list t.mask
 
   let map_operands f (t : t) =
@@ -187,7 +185,7 @@ module Sdpa = struct
      (and hence [output_shape]), with [C] replaced by the key's sequence
      extent. NOT the query shape (whose C is the head dim, E) whenever
      [Wk <> E]. Owned here and used by three callers that must not disagree
-     (op8-impl.md F11): [output_shape]'s mask validation, the total-work
+     : [output_shape]'s mask validation, the total-work
      bound below, and [Compute]'s broadcast load of the mask. *)
   let score_shape ~(query_shape : Vec6.shape) ~(key_shape : Vec6.shape) =
     Vec6.set query_shape Axis.C (Vec6.get key_shape Axis.W)
@@ -199,10 +197,10 @@ module Sdpa = struct
       Err.fail
         (`Sdpa (Shape_error.Sdpa.Extent_mismatch { axis; check; lhs; rhs }))
 
-  (* Total work D*H*Wq*Wk*E*E (op8-impl.md F12): the op recomputes the score,
+  (* Total work D*H*Wq*Wk*E*E: the op recomputes the score,
      row max and denominator per OUTPUT feature (stated as a deliberate choice
      in [Compute] below), so direct work is proportional to all six factors,
-     not to the score count or the output numel alone -- the F12 counter-
+     not to the score count or the output numel alone -- a counter-
      example ([D=H=1, Wq=Wk=E=Ev=1024]) passes both of those by six orders of
      magnitude. No single [Vec6.shape] holds all six factors ([E] appears
      twice, and none of query/key/value's shapes has both [Wq] and [Wk]), so
@@ -236,7 +234,7 @@ module Sdpa = struct
         else Err.return (Int64.mul prefix extent))
       1L factors
 
-  (* Validates everything the six-axis frame CAN express (op8-impl.md F13):
+  (* Validates everything the six-axis frame CAN express:
      [N]/[T]/[D]/[H] agreement across all three operands, [Ev = E] (the flash-oracle
      constraint that makes the output shape well-defined as [query_shape]),
      key/value sharing a sequence extent, and -- when a mask is given -- its
@@ -244,19 +242,19 @@ module Sdpa = struct
      rank, because it cannot: [Tensor_sig.t] has no rank field, only a
      [Vec6.shape], so a rank-2, rank-3 and rank-4 mask that normalize to the
      same frame are indistinguishable here. Rank -- Q/K/V rank 4, mask rank in
-     {2,4} -- is an IMPORTER obligation (commit 3), enforced on the raw ATen
+     {2,4} -- is an IMPORTER obligation, enforced on the raw ATen
      tensor before [Tensor_bridge.of_aten] erases it. A standalone Native or
      JSON-decoded graph carries no ATen rank at all, so that check would be
      meaningless here, not merely omitted. *)
   let output_shape ~(query_shape : Vec6.shape) ~(key_shape : Vec6.shape)
       ~(value_shape : Vec6.shape) ~(mask_shape : Vec6.shape option) =
     let open Err.Syntax in
-    (* N/T carry no semantic role in this op (F7 names only D/H/W/C) but must
+    (* N/T carry no semantic role in this op but must
        still agree across every operand: [Compute] reads key/value at the
        OUTPUT coordinate's unchanged N/T (never reduced through
        [broadcast_coord], exactly like D/H below), so an unequal N or T
        either reads an operand out of bounds or silently drops part of it
-       (op8-impl-review.md P1). Checked here, the same as D/H, rather than
+       Checked here, the same as D/H, rather than
        rejected outright, so a hand-built graph that genuinely wants extra
        batch-like axes on N/T still works -- it just has to agree on them. *)
     let* () =
@@ -283,8 +281,8 @@ module Sdpa = struct
     let* () =
       check_extent ~check:`Query_value ~axis:Axis.H query_shape value_shape
     in
-    (* Ev = E (F4): a flash-oracle constraint, not a mathematical one -- the
-       importers (commit 3) say so in their diagnostic. Here it is simply what
+    (* Ev = E: a flash-oracle constraint, not a mathematical one -- the
+       importers say so in their diagnostic. Here it is simply what
        makes the output shape well-defined as [query_shape]. *)
     let* () =
       check_extent ~check:`Query_key ~axis:Axis.C query_shape key_shape
@@ -324,9 +322,9 @@ module Sdpa = struct
     Err.return query_shape
 
   (* Config space for [lib/native_op_walk]'s Direct-vs-Symbolic fuzz walk
-     (op8-impl.md commit 1 step 8) -- NOT the ATen-oracle recipe (commit 4's
-     [Recipe_sdpa]), which additionally has to keep every point on the flash
-     kernel (F4). This walk has no ATen oracle to stay on, so its only
+     NOT the ATen-oracle recipe ([Recipe_sdpa]), which additionally has to
+     keep every point on the flash kernel. This walk has no ATen oracle to
+     stay on, so its only
      obligation is a VALID Native graph: [batch]/[heads]/[wq]/[wk]/[e] are
      independent fields, but every shape [build] derives is computed FROM
      them (never five independently-drawn [Vec6.shape]s), so a mismatched
@@ -391,10 +389,14 @@ module Sdpa = struct
         pp_scale c.scale
   end
 
-  module Compute (S : Semantics.SEMANTICS) = struct
+  (* Test-only scalar oracle retained for differential coverage of the
+     authoritative [Computation] Region program below -- exactly the
+     [Legacy_pixel] migration [Reduce.Softmax] and the [Norm] ops already went
+     through. *)
+  module Legacy_pixel (S : Semantics.SEMANTICS) = struct
     (* [query_shape]/[key_shape] size the two reductions ([E], [Wk]); [mask]
        is never optional here -- [Eval_op] fills an absent one at the
-       all-ones shape (below), so [Compute] always has a real handle and
+       all-ones shape (below), so [Legacy_pixel] always has a real handle and
        [mask_shape] to broadcast it against. *)
     let pixel (p : params) ~(query_shape : Vec6.shape) ~(key_shape : Vec6.shape)
         ~(mask_shape : Vec6.shape) ~query ~key ~value ~mask
@@ -405,7 +407,7 @@ module Sdpa = struct
          one place this module reads the head-dim extent rather than taking it
          as a parameter, because it is genuinely a function of [query_shape].
          A negative or non-finite explicit scale is rejected upstream (the
-         importers, commit 3); this module assumes [scale >= 0]. *)
+         importers); this module assumes [scale >= 0]. *)
       let scale =
         match p.scale with
         | Scale.Explicit s -> S.const s
@@ -414,7 +416,7 @@ module Sdpa = struct
               (S.sqrt (S.const (float_of_int (Dim.to_int e_extent))))
       in
       (* Split as its OWN square root and applied to BOTH operands before the
-         dot (F3) -- this is what makes [dot(q,k) * scale] the wrong mutation
+         dot -- this is what makes [dot(q,k) * scale] the wrong mutation
          and [dot(q*sf, k*sf)] the contract. *)
       let sf = S.sqrt scale in
       (* [score_at k]: the row's logit at key position [k], mask included.
@@ -422,7 +424,7 @@ module Sdpa = struct
          coordinate (out's [D,H,W=Wq], [C] replaced by [k]) -- never the
          output coordinate, and never a bare [S.load]: [load] is strict, so a
          broadcast (extent-1) mask axis must be reduced to index 0 first
-         (op8-impl.md F11). *)
+         broadcast (extent-1) mask axis must be reduced to index 0 first. *)
       let score_at k =
         let dot =
           S.sum ~lo:S.index_zero ~hi:(S.index_extent e_extent) (fun e ->
@@ -441,11 +443,11 @@ module Sdpa = struct
       in
       (* Stable softmax over the key axis, recomputing [score_at] at every
          use: [Symbolic.t] is a BUILDER computation, not a memoized node
-         (op7-impl.md F4), so each of [m]'s, [z]'s and the numerator's uses of
-         [score_at] re-emits its whole sub-tree. Accepted deliberately (F12
-         states the bound this costs, not the score count) and measured
-         (op8-impl.md commit 0 step 3: depth 12, size 121 nodes at Wk=E=32,
-         both flat regardless of the reduction extents -- far under
+         so each of [m]'s, [z]'s and the numerator's uses of [score_at]
+         re-emits its whole sub-tree. Accepted deliberately (the cost this
+         accepts is the bound stated above, not the score count) and measured
+         (depth 12, size 121 nodes at Wk=E=32, both flat regardless of the
+         reduction extents) -- far under
          [Kernel.Limits.Hard.depth]/[eval_depth]). *)
       let m =
         S.max_reduce ~lo:S.index_zero ~hi:(S.index_extent wk_extent) score_at
@@ -459,10 +461,114 @@ module Sdpa = struct
             let p = S.div (S.exp (S.sub (score_at k) m)) z in
             S.mul p (S.load value (Vec6.set out Axis.W k)))
       in
-      (* `_safe_softmax` (F3): unconditional, not only under a mask. A row
+      (* `_safe_softmax`: unconditional, not only under a mask. A row
          whose scores are all -inf has [m = -inf], and yields 0, not NaN --
          [S.div _ z] would otherwise divide 0 by 0. *)
       let neg_inf = S.const Float.neg_infinity in
       S.select (S.lt neg_inf m) numer (S.const 0.)
+  end
+
+  (* Authoritative declarative Region computation -- Stage A of
+     `.ai/region_compute_design.md`'s SDPA derivation: [m], [z] and [sf] are
+     constant across the output feature axis [C] (mirroring [score_at] in
+     [Legacy_pixel], which already overrides [C] in every load it performs),
+     so [Whole [C]] shares them across a row instead of recomputing them once
+     per output feature. [score_at] itself is still recomputed at each of its
+     three uses -- caching it too is Stage B, a later shaped-local extension,
+     not this one. Substituting the three scalar locals back through
+     [specialize_pixel] reproduces [Legacy_pixel]'s expression exactly (no
+     reduction is reassociated), so the claim is [Identical], proved by
+     [Region_program.reconstructs] against [Legacy_pixel] below. *)
+  module Computation = struct
+    open Region_context
+
+    let program ~limits params ~query ~key ~value ~mask =
+      match partition [ Axis.C ] with
+      | Error error -> Error error
+      | Ok partition ->
+          let e_extent = Dim.to_int (Vec6.get query.Tensor_sig.shape Axis.C) in
+          let wk_extent = Dim.to_int (Vec6.get key.Tensor_sig.shape Axis.W) in
+          let scale =
+            match params.scale with
+            | Scale.Explicit s -> Expr.Value.const s
+            | Scale.Default ->
+                Expr.Value.div (Expr.Value.const 1.)
+                  (Expr.Value.sqrt (Expr.Value.const (float_of_int e_extent)))
+          in
+          let sf = Expr.Value.sqrt scale in
+          (* Mirrors [Legacy_pixel]'s [score_at]: the [E]-term dot of the
+             scaled query/key, plus the mask read at the score coordinate
+             (broadcast against [mask.shape], never a bare [load]). [sf] is
+             passed in as the LOCAL's value, not recomputed, so every use
+             shares the one binding [specialize_pixel] substitutes back. *)
+          let score_at ~sf k =
+            let open Expr.Builder.Syntax in
+            let+ dot =
+              Expr.Builder.reduction ~kind:Expr.Reduction.Sum
+                ~lo:Expr.Index.zero ~hi:(Expr.Index.const e_extent) (fun e ->
+                  let q_idx = Expr.Coord.set output_coord Axis.C e in
+                  let k_idx =
+                    Expr.Coord.set
+                      (Expr.Coord.set output_coord Axis.C e)
+                      Axis.W k
+                  in
+                  Expr.Builder.return
+                    (Expr.Value.mul
+                       (Expr.Value.mul (load query q_idx) sf)
+                       (Expr.Value.mul (load key k_idx) sf)))
+            in
+            let score_coord = Expr.Coord.set output_coord Axis.C k in
+            let m_idx = broadcast_coord mask.Tensor_sig.shape score_coord in
+            Expr.Value.add dot (load mask m_idx)
+          in
+          program
+            (Region_program.Builder.run
+               (Region_program.Builder.scalar sf (fun sf ->
+                    let m =
+                      Expr.Builder.run
+                        (Expr.Builder.reduction ~kind:Expr.Reduction.Max
+                           ~lo:Expr.Index.zero
+                           ~hi:(Expr.Index.const wk_extent)
+                           (score_at ~sf))
+                    in
+                    Region_program.Builder.scalar m (fun m ->
+                        let z =
+                          Expr.Builder.run
+                            (Expr.Builder.reduction ~kind:Expr.Reduction.Sum
+                               ~lo:Expr.Index.zero
+                               ~hi:(Expr.Index.const wk_extent) (fun k ->
+                                 let open Expr.Builder.Syntax in
+                                 let+ s = score_at ~sf k in
+                                 Expr.Value.exp (Expr.Value.sub s m)))
+                        in
+                        Region_program.Builder.scalar z (fun z ->
+                            let numer =
+                              Expr.Builder.run
+                                (Expr.Builder.reduction ~kind:Expr.Reduction.Sum
+                                   ~lo:Expr.Index.zero
+                                   ~hi:(Expr.Index.const wk_extent) (fun k ->
+                                     let open Expr.Builder.Syntax in
+                                     let+ s = score_at ~sf k in
+                                     let p =
+                                       Expr.Value.div
+                                         (Expr.Value.exp (Expr.Value.sub s m))
+                                         z
+                                     in
+                                     Expr.Value.mul p
+                                       (load value
+                                          (Expr.Coord.set output_coord Axis.W k))))
+                            in
+                            (* `_safe_softmax`, same as [Legacy_pixel]:
+                               unconditional, and a row whose scores are all
+                               [-inf] yields 0, not NaN. *)
+                            let neg_inf = Expr.Value.const Float.neg_infinity in
+                            Region_program.Builder.finish
+                              ~max_size:limits.Kernel.Limits.max_size
+                              ~max_depth:limits.Kernel.Limits.max_depth
+                              ~partition
+                              ~output:
+                                (Expr.Value.select
+                                   (Expr.Bool.value_lt neg_inf m)
+                                   numer (Expr.Value.const 0.)))))))
   end
 end

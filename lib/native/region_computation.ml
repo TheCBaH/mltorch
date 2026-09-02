@@ -9,7 +9,7 @@ type error =
   | Output_ordinal of int
   | Output_shape
 
-type synthetic_role = Rms_weight | Layer_weight | Layer_bias
+type synthetic_role = Layer_bias | Layer_weight | Rms_weight | Sdpa_mask
 
 let pp_error fmt = function
   | Invalid_partition -> Region_context.pp_error fmt Invalid_partition
@@ -27,7 +27,9 @@ let check_output ~output ~output_shape x =
   else Err.return ()
 
 let is_region_authored = function
-  | Graph_ir.Rms_norm _ | Graph_ir.Layer_norm _ | Graph_ir.Softmax _ -> true
+  | Graph_ir.Layer_norm _ | Graph_ir.Rms_norm _ | Graph_ir.Sdpa _
+  | Graph_ir.Softmax _ ->
+      true
   | _ -> false
 
 let program ~limits ~op ~output ~output_shape ~operand ~fill =
@@ -72,6 +74,36 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
           | Region_context.Invalid_partition -> Invalid_partition
           | Region_context.Invalid_program -> Invalid_program)
         (Norm.LayerNorm.Computation.program ~limits params ~x ~weight ~bias)
+  | Sdpa
+      {
+        Attention.Sdpa.params;
+        query = query_id;
+        key = key_id;
+        value = value_id;
+        mask;
+      } ->
+      let open Err.Syntax in
+      let* query = required ~operand query_id in
+      let* key = required ~operand key_id in
+      let* value = required ~operand value_id in
+      let* () = check_output ~output ~output_shape query in
+      (* Absent mask fills a single all-ones-shaped element (numel = 1, not
+         the score shape), the additive identity 0.0 -- [fill] is the only
+         site that picks a synthetic operand's default value and shape, same
+         as [Rms_weight]/[Layer_weight]/[Layer_bias] above. *)
+      let* mask =
+        match mask with
+        | Some id -> required ~operand id
+        | None ->
+            let ones = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
+            Err.return (fill Sdpa_mask 0. ones)
+      in
+      Err.map_error
+        (function
+          | Region_context.Invalid_partition -> Invalid_partition
+          | Region_context.Invalid_program -> Invalid_program)
+        (Attention.Sdpa.Computation.program ~limits params ~query ~key ~value
+           ~mask)
   | Softmax { Reduce.Softmax.params; x = x_id } ->
       let open Err.Syntax in
       let* x = required ~operand x_id in

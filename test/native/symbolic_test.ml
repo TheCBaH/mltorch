@@ -891,8 +891,8 @@ let%expect_test "Symbolic: reusing a computation builds it twice" =
 
 let%expect_test "Symbolic ground: sdpa — two keys with a mask, matches Direct" =
   let module S = Symbolic in
-  let module Ad = Attention.Sdpa.Compute (Direct) in
-  let module As = Attention.Sdpa.Compute (S) in
+  let module Ad = Attention.Sdpa.Legacy_pixel (Direct) in
+  let module As = Attention.Sdpa.Legacy_pixel (S) in
   let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2 in
   let key_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:2 in
   let mask_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2 in

@@ -90,9 +90,10 @@ let fresh_synthetic_ids g =
         g.Graph.tensors Tensor_id.Set.empty,
       0 )
     [
-      Region_computation.Rms_weight;
-      Region_computation.Layer_weight;
       Region_computation.Layer_bias;
+      Region_computation.Layer_weight;
+      Region_computation.Rms_weight;
+      Region_computation.Sdpa_mask;
     ]
   |> fun (ids, _, _) -> ids
 

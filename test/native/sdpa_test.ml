@@ -5,16 +5,16 @@ open Compute_fixtures
 
 (* ---- sdpa ------------------------------------------------------------------
 
-   op8-impl.md commit 1 step 9: since [Direct] vs [Symbolic] cannot see a wrong
-   formula (both run the same [Compute] functor), THIS is where the row is
-   actually proven -- every case below is hand-computed against ATen's `math`
-   backend structure (F3: split-sqrt scale, unconditional `_safe_softmax`),
-   never against ATen itself.
+   Since [Direct] vs [Symbolic] cannot see a wrong formula (both run the same
+   [Legacy_pixel] functor), THIS is where the row is actually proven -- every
+   case below is hand-computed against ATen's `math` backend structure
+   (split-sqrt scale, unconditional `_safe_softmax`), never against ATen
+   itself.
 
    Mutation proof (CLAUDE.md: "prove the check can fail"), each applied to
-   [Attention.Sdpa.Compute] in [lib/native/ops/attention.ml], run against this
-   suite, OBSERVED changing at least one golden below, then reverted -- none
-   of these mutations is left in the tree:
+   [Attention.Sdpa.Legacy_pixel] in [lib/native/ops/attention.ml], run against
+   this suite, OBSERVED changing at least one golden below, then reverted --
+   none of these mutations is left in the tree:
      - Q@K instead of Q@K^T (swapped which axis of [key] is the contraction
        index and which is the enumeration index);
      - scale applied after the softmax rather than split across the operands
@@ -37,7 +37,7 @@ open Compute_fixtures
 
 let run_sdpa params ~query_shape ~key_shape ~mask_shape ~query ~key ~value ~mask
     =
-  let module S = Attention.Sdpa.Compute (Direct) in
+  let module S = Attention.Sdpa.Legacy_pixel (Direct) in
   eval_tensor
     (Attention.Sdpa.output_shape ~query_shape ~key_shape ~value_shape:key_shape
        ~mask_shape:(Some mask_shape))
@@ -120,15 +120,15 @@ let%expect_test "Direct: sdpa — explicit scale" =
        ~mask:(zero_mask no_mask));
   [%expect {| tensor f32 [C=1] {6.99505} |}]
 
-(* Mutation proof: "scale applied once rather than split" (F3) is NOT a
-   mutation [%g]-rounded printing can catch -- [sqrt(scale)^2 = scale] in
-   EXACT real arithmetic, so the two forms agree to 6 significant figures for
-   ordinary inputs. They are still genuinely different floats: rounding at the
-   [sqrt] and at each of the two multiplies means [dot(q*sf, k*sf)] and
+(* Mutation proof: "scale applied once rather than split" is NOT a mutation
+   [%g]-rounded printing can catch -- [sqrt(scale)^2 = scale] in EXACT real
+   arithmetic, so the two forms agree to 6 significant figures for ordinary
+   inputs. They are still genuinely different floats: rounding at the [sqrt]
+   and at each of the two multiplies means [dot(q*sf, k*sf)] and
    [dot(q,k)*scale] are almost never bit-identical (observed here: a ULP-scale
    divergence, exactly the kind [.ai/native_walk_design.md]'s tolerance policy
    is about, not something a hand-picked test value hides by luck). Direct
-   primitives only, bypassing [Compute] entirely, so this is independent of
+   primitives only, bypassing [Legacy_pixel] entirely, so this is independent of
    whatever attention.ml happens to do. *)
 let%expect_test
     "Direct: sdpa — split-sqrt scale is not bit-identical to a single multiply"
@@ -313,10 +313,10 @@ let%expect_test "Direct: sdpa — mask broadcast on D (4D form)" =
        ~query_shape ~key_shape ~mask_shape ~query ~key ~value ~mask);
   [%expect {| tensor f32 [D=2 H=1 W=1 C=1] {5.23841, 52.3841} |}]
 
-(* op8-impl-review.md P1 (verified against source, fixed): [output_shape]
-   checked D/H/C/W agreement across query/key/value but never N or T, and
-   [Compute] reads key/value at the output coordinate's UNCHANGED N/T (never
-   reduced through [broadcast_coord], exactly like D/H). A standalone or
+(* [output_shape] once checked D/H/C/W agreement across query/key/value but
+   never N or T, and [Legacy_pixel] reads key/value at the output
+   coordinate's UNCHANGED N/T (never reduced through [broadcast_coord],
+   exactly like D/H). A standalone or
    JSON-decoded graph with query.N=2, key.N=value.N=1 passed shape inference
    and then read key/value out of bounds evaluating output batch N=1; the
    reverse (key.N=2, query.N=1) silently ignored half of key/value. Both
@@ -345,11 +345,10 @@ let%expect_test "Direct: sdpa — N and T must agree across query/key/value" =
     query.T=2, key.T=1: sdpa: T extent must agree (query vs key): 2 vs 1
     |}]
 
-(* The total-work bound now includes N/T too (op8-impl-review.md P1's second
-   half): without them, a graph could inflate real work by N*T while the
-   bound only ever saw D*H*Wq*Wk*E*E. N=1024 alone reaches the same
-   6-factor product the F12 counterexample used ([D=H=1, Wq=Wk=E=Ev=1024]),
-   so folding N in must reject it too. *)
+(* The total-work bound now includes N/T too: without them, a graph could
+   inflate real work by N*T while the bound only ever saw D*H*Wq*Wk*E*E.
+   N=1024 alone reaches the same 6-factor product a counterexample used
+   ([D=H=1, Wq=Wk=E=Ev=1024]), so folding N in must reject it too. *)
 let%expect_test "Direct: sdpa — total-work bound counts N and T" =
   let big = Vec6.shape ~n:1024 ~t:1 ~d:1 ~h:1 ~w:1024 ~c:1024 in
   let big_kv = Vec6.shape ~n:1024 ~t:1 ~d:1 ~h:1 ~w:1024 ~c:1024 in

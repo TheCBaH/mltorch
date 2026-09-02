@@ -28,6 +28,21 @@ let output_coord =
 let load sg coord = Expr.Value.load (source sg) coord
 let load_output sg = load sg output_coord
 
+(* The Region-program-level analogue of [Pointwise_binary.broadcast_coord]:
+   an operand with an extent-1 (broadcast) axis must have that axis reduced
+   to index 0 BEFORE [load] -- [load] is strict, so a genuine broadcast read
+   is a static per-axis shape test, independent of the coordinate's value,
+   exactly as it is there. Not the same definition: [Pointwise_binary]'s
+   operates on [Vec6.t] (Direct/Symbolic pixel coordinates); this one on
+   [Expr.Coord.t] (a Region program's symbolic coordinates) -- two container
+   types with no common ancestor to fold this into without a larger
+   refactor. Keep the per-axis rule identical if that one changes. *)
+let broadcast_coord (shape : Vec6.shape) coord =
+  Expr.Coord.mapi
+    (fun axis idx ->
+      if Dim.equal (Vec6.get shape axis) Dim.one then Expr.Index.zero else idx)
+    coord
+
 let reduce_dims ~kind ~dims ~shape ~leaf =
   let rec go dims overrides =
     match dims with

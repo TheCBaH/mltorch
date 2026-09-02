@@ -172,6 +172,22 @@ let%expect_test "Authored Regions reconstruct their legacy scalar oracles" =
     graph "reconstruct_softmax" (fun x ->
         Graph_builder.softmax { Reduce.Softmax.axis = Axis.C } x)
   in
+  let sdpa_mask_shape =
+    Attention.Sdpa.score_shape ~query_shape:shape ~key_shape:shape
+  in
+  let sdpa =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"reconstruct_sdpa" ~outputs:(fun output -> [ output ])
+        @@
+        let* query = input ~shape ~name:"query" () in
+        let* key = input ~shape ~name:"key" () in
+        let* value = input ~shape ~name:"value" () in
+        let* mask = input ~shape:sdpa_mask_shape ~name:"mask" () in
+        sdpa
+          { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+          ~query ~key ~value ~mask ())
+  in
   let reconstruct graph pixel =
     let symbolic = Eval_symbolic.run graph in
     let program = (List.hd symbolic.Stage_program.stages).computation in
@@ -217,11 +233,80 @@ let%expect_test "Authored Regions reconstruct their legacy scalar oracles" =
          { Reduce.Softmax.axis = Axis.C }
          ~x_shape:shape ~x Symbolic.out_vec)
   in
-  Fmt.pr "rms=%b layer=%b softmax=%b@."
+  let sdpa_pixel =
+    let module C = Attention.Sdpa.Legacy_pixel (Symbolic) in
+    let query, key, value, mask =
+      match sdpa.Graph.inputs with
+      | [ query; key; value; mask ] ->
+          ( Tensor_id.Map.find query sdpa.Graph.tensors,
+            Tensor_id.Map.find key sdpa.Graph.tensors,
+            Tensor_id.Map.find value sdpa.Graph.tensors,
+            Tensor_id.Map.find mask sdpa.Graph.tensors )
+      | _ -> assert false
+    in
+    Expr.Builder.run
+      (C.pixel
+         { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+         ~query_shape:shape ~key_shape:shape ~mask_shape:sdpa_mask_shape ~query
+         ~key ~value ~mask Symbolic.out_vec)
+  in
+  Fmt.pr "rms=%b layer=%b softmax=%b sdpa=%b@."
     (reconstruct rms rms_pixel)
     (reconstruct layer layer_pixel)
-    (reconstruct softmax softmax_pixel);
-  [%expect {| rms=true layer=true softmax=true |}]
+    (reconstruct softmax softmax_pixel)
+    (reconstruct sdpa sdpa_pixel);
+  [%expect {| rms=true layer=true softmax=true sdpa=true |}]
+
+(* Stage A's two-level reduction (the per-key dot-product nested inside the
+   per-key max/sum) is new territory for [Region_execution]'s key/local/
+   emitter bookkeeping -- every landed op before this one nests at most one
+   reduction. [materialize] independently checks output ownership (coverage,
+   no duplicate store) while doing it, so a passing run here is evidence that
+   bookkeeping, not just a final tensor comparison. *)
+let%expect_test "Native Direct materializes an authored Sdpa Region" =
+  let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3 in
+  let key_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:3 in
+  let mask_shape = Attention.Sdpa.score_shape ~query_shape ~key_shape in
+  let materialize shape scale =
+    Tensor.materialize shape (fun coord ->
+        (scale *. float_of_int (Dim.to_int (Vec6.get coord Axis.W)))
+        +. float_of_int (Dim.to_int (Vec6.get coord Axis.C))
+        +. 1.)
+  in
+  let query = materialize query_shape 10. in
+  let key = materialize key_shape 10. in
+  let value = materialize key_shape 100. in
+  let mask = Tensor.materialize mask_shape (fun _ -> 0.) in
+  let g =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"sdpa_direct" ~outputs:(fun output -> [ output ])
+        @@
+        let* qi = input ~shape:query_shape ~name:"query" () in
+        let* ki = input ~shape:key_shape ~name:"key" () in
+        let* vi = input ~shape:key_shape ~name:"value" () in
+        let* mi = input ~shape:mask_shape ~name:"mask" () in
+        sdpa
+          { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+          ~query:qi ~key:ki ~value:vi ~mask:mi ())
+  in
+  let inputs =
+    match g.Graph.inputs with
+    | [ qid; kid; vid; mid ] ->
+        [ (qid, query); (kid, key); (vid, value); (mid, mask) ]
+    | _ -> assert false
+  in
+  let counters = Region_execution.counters () in
+  let output = List.hd g.Graph.outputs in
+  ignore
+    (Err.or_raise ~pp_error:Eval_direct.pp_error
+       (Eval_direct.run
+          ~region_counters:(Tensor_id.Map.singleton output counters)
+          ~inputs g));
+  Fmt.pr "sdpa: keys=%d locals=%d emitters=%d loads=%d reductions=%d@."
+    counters.keys counters.locals counters.emitters counters.loads
+    counters.reductions;
+  [%expect {| sdpa: keys=2 locals=6 emitters=6 loads=228 reductions=120 |}]
 
 let%expect_test "transform grounding reads an authored Stage structurally" =
   let graph =
