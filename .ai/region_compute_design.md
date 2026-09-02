@@ -7,17 +7,21 @@ authoritative tracked companion to `native_compute_design.md` and
 `native4d_design.md`; the gitignored planning notes this branch worked from
 are execution scaffolding, not required reading for a fresh checkout.
 
-The implementation gives RMSNorm, LayerNorm, and plain Softmax an
+The implementation gives RMSNorm, LayerNorm, plain Softmax, and SDPA an
 operation-authored `Region_program.t`.  Other operations remain Pixel-authored.
 Every logical Kernel value has exactly one `Region_program.t`: a Pixel body is
 embedded mechanically with `Region_program.pixel`, preserving the original
 expression object.  There is no Kernel sum type and no optional Region
 admission/fallback path.
 
+SDPA's program is scalar-only (its row max/sum/scale are shared per key, its
+per-feature score is not) -- see "Design headroom" below for why that is a
+deliberate stopping point, not the whole of what SDPA needs.
+
 Out of scope: loop IR, tiling, shaped locals, multi-output programs, automatic
 Pixel-to-Region discovery, graph fusion, GroupNorm and batch normalization
-Region forms, safe/log softmax, SDPA, relaxed rounding, tree/parallel
-reductions, and multi-node Region fusion.
+Region forms, safe/log softmax, a shaped-local SDPA score cache, relaxed
+rounding, tree/parallel reductions, and multi-node Region fusion.
 
 ## Program contract
 
@@ -75,14 +79,27 @@ partition is reserved for a program whose block itself owns an explicit local
 or ordered phase, not for an arbitrary machine tile a schedule picks
 independently of program meaning.
 
-SDPA needs more than scalar sharing, which is why it stays out of scope rather
-than being attempted on today's form.  The per-pixel implementation recomputes
-every attention score once per output value feature, so its leading cost is
-`Theta(Q * K * E^2)` against an ideal `Theta(Q * K * (E + V))`.  A scalar
-local removes the repeated softmax row max/sum, but not the repeated
-numerator: an efficient SDPA needs a `K`-element score cache, a `V`-element
-output accumulator, or blocked online-softmax state — a shaped, not scalar,
-local.
+SDPA needs more than scalar sharing to reach an efficient form, which is why
+its shaped-local score cache stays out of scope rather than being attempted on
+today's form.  The per-pixel implementation recomputes every attention score
+once per output value feature, so its leading cost is `Theta(Q * K * E^2)`
+against an ideal `Theta(Q * K * (E + V))`.  A scalar local removes the
+repeated softmax row max/sum (landed: `sf`/`m`/`z` are shared once per key,
+cutting the dominant term from `3*Wk*E^2` to `Wk*E*(E+2)`), but not the
+repeated numerator: reaching the ideal bound needs a `K`-element score cache,
+a `V`-element output accumulator, or blocked online-softmax state — a shaped,
+not scalar, local.
+
+A lower operation count is not the same claim as a lower wall-clock time, and
+SDPA is where that gap first became visible: `Region_execution` evaluates
+through `Expr.Eval`'s general interpreter, and a nested reduction (SDPA's
+per-feature score is a reduction inside the row max/sum reduction) costs more
+per element there than a flat one, so at ordinary sizes the scalar-sharing win
+above does not show up as a faster `Eval_direct` run against the Pixel-form
+oracle it reconstructs -- only as fewer operations. Closing that gap needs a
+specialized/compiled execution form for a non-degenerate program, which is not
+implemented yet; until it is, treat this section's operation counts as a cost
+model, not a wall-clock prediction.
 
 ## Numerical policy
 
@@ -91,8 +108,9 @@ Programs retain the existing operation order and `f32` materialization policy.
 expression are structurally the same under the stated limits.  `Equivalent`
 is reserved for transformations whose declared arithmetic or materialization
 boundaries change.  `Region_program.reconstructs` remains a general
-transformation tool and the tests compare authored RMSNorm, LayerNorm, and
-Softmax programs against their test-only legacy scalar oracles.  A malformed
+transformation tool and the tests compare authored RMSNorm, LayerNorm,
+Softmax, and SDPA programs against their test-only legacy scalar oracles.  A
+malformed
 authoritative program is a typed construction/limit error, never a request to
 run a second handwritten Pixel algorithm.
 
@@ -104,30 +122,33 @@ the output ordinal and shape plus role-resolved operands, applies actual
 generic construction helpers and the normalization divisor's bounded shared
 calculation; dispatchers contain no operation arithmetic.
 
-Native `Eval_direct` and Native4D `Eval_direct4` route RMSNorm, LayerNorm, and
-Softmax through that program and materialize it once per key.  Their Symbolic
-counterparts put the exact program in `Stage_program.Stage.computation`.
-`Stage_program`, grounding, transform verification, Kernel adaptation, and the
-Model Explorer consume this structural program.  Pixel-authored operations
-remain on their existing specialized Pixel schedule.
+Native `Eval_direct` routes RMSNorm, LayerNorm, Softmax, and SDPA through that
+program and materializes it once per key; Native4D `Eval_direct4` routes the
+first three (SDPA is outside Native4D's domain -- see
+`native4d_design.md`).  Their Symbolic counterparts put the exact program in
+`Stage_program.Stage.computation`.  `Stage_program`, grounding, transform
+verification, Kernel adaptation, and the Model Explorer consume this
+structural program.  Pixel-authored operations remain on their existing
+specialized Pixel schedule.
 
 Native4D owns Axis4 legality and parameter adaptation, but delegates numeric
 Region construction to the shared Native operation definition.  Its Direct and
 Symbolic routes therefore have the same operation form and Region sharing as
-Native, without a second numeric kernel.
+Native, without a second numeric kernel, for the three forms it admits.
 
 `Regionizer`, candidate maps, optional `regionized` results, candidate
 reconstruction admission, synthetic-value lookup, and production scalar
 materialization are removed.  `Legacy_pixel` exists only as the test oracle for
-the three migrated operations.
+the four migrated operations.
 
 The routing audit is deliberately narrow and exhaustive.  `Region_computation`
-recognizes only Native `Rms_norm`, `Layer_norm`, and `Softmax`; its Native4D
+recognizes Native `Rms_norm`, `Layer_norm`, `Sdpa`, and `Softmax`; its Native4D
 adapter recognizes only `Rms_norm`, `Layer_norm`, and `Softmax4` before mapping
-to that same Native dispatcher.  The Direct and Symbolic drivers select the
-Region route only for those forms.  `Eval_op.pixel` and `Eval_op4.pixel` retain
-explicit impossible arms for them, so a future caller cannot silently revive a
-scalar production algorithm.  Repository-wide references to the three
+to that same Native dispatcher.  The Native Direct and Symbolic drivers select
+the Region route for all four forms; Native4D's select its three.
+`Eval_op.pixel` and `Eval_op4.pixel` retain explicit impossible arms for their
+respective sets, so a future caller cannot silently revive a
+scalar production algorithm.  Repository-wide references to the four
 `Legacy_pixel` implementations are their definitions, explanatory comments,
 and test invocations only; production dispatch does not invoke them.
 
@@ -154,6 +175,14 @@ expression loads, and reductions.  They do not observe partition-membership
 tests, scalar-projection calls, allocations, or elapsed time; the last two are
 reported separately by the benchmark.  They are evidence of what they count,
 not a substitute for the ownership trace or wall-clock measurement.
+
+SDPA runs the same benchmark under a separate, smaller `report_sdpa` sweep
+(query/key sequence length and head dim, not `(R, K)`) in the same
+executable, with no Native4D column -- see "Ownership and routing" above for
+why -- and it additionally times `Legacy_pixel(Direct)` directly, which is
+what the previous section's operation-count-vs-wall-clock distinction is
+evidence for: `Legacy_pixel` is faster in absolute terms at every size
+measured, precisely because it is not read through the general interpreter.
 
 Reproduce elapsed-time and GC-word medians with
 `opam exec -- dune exec bin/region_compute_bench.exe`; both are
