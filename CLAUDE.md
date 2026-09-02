@@ -159,6 +159,22 @@ the right move even when the first `fixup!` was itself wrong; both squash togeth
 Carry the `.ai/` delta in the same commit as the fix it documents, exactly as for any
 other change.
 
+## Commits
+
+**Keep the message short.** A subject line naming the change, and a body only where the
+diff can't show the *why* — a few sentences, not a narrative of how the work went. Drop
+restatements of the diff, status reports, and stage or progress counts.
+
+**Never point at an untracked file from a commit message or a code comment.** Plans,
+censuses and other local working files don't exist in a fresh clone, so a reader can't
+follow the reference and a tool can't check it. Cite a tracked document, a directory, or
+the topic instead. `.ai/` filenames stay out of both for the separate reason given
+above — only `.ai/` itself is stable enough to name.
+
+**Don't number work as a "Gate."** A gate number is internal milestone tracking that
+means nothing once the branch lands — name what changed instead, in the commit message
+and in code comments alike.
+
 ## Commands
 
 ```sh
