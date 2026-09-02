@@ -154,20 +154,7 @@ module Make (S : Semantics.SEMANTICS) = struct
         let module C = Index_tensor.Index_tensor.Compute (S) in
         C.pixel params ~self_shape:(shape_of self) ~self:(operand self)
           ~index:(operand index) out
-    | Layer_norm { Norm.LayerNorm.params; x; weight; bias } ->
-        let module C = Norm.LayerNorm.Compute (S) in
-        (* Absent weight = identity scale, absent bias = identity shift. Filled
-           HERE, never in an importer: [Graph_ir] carries both as options and
-           Native4D reads the options, so materialising a constant upstream
-           would make the two import paths build structurally different graphs
-           for the same node. *)
-        let weight =
-          match weight with None -> fill 1. (shape_of x) | Some w -> operand w
-        in
-        let bias =
-          match bias with None -> fill 0. (shape_of x) | Some b -> operand b
-        in
-        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight ~bias out
+    | Layer_norm _ -> invalid_arg "Eval_op.pixel: LayerNorm is Region-authored"
     | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
         let module C = Pointwise.Leaky_relu.Compute (S) in
         C.pixel params (operand x) out
@@ -224,13 +211,7 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Reshape { Reshape.Reshape.params; x } ->
         let module C = Reshape.Reshape.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
-    | Rms_norm { Norm.RmsNorm.params; x; weight } ->
-        let module C = Norm.RmsNorm.Compute (S) in
-        let weight =
-          match weight with None -> fill 1. (shape_of x) | Some w -> operand w
-          (* absent weight = identity scale *)
-        in
-        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) ~weight out
+    | Rms_norm _ -> invalid_arg "Eval_op.pixel: RMSNorm is Region-authored"
     | Rsub_scalar { Pointwise.Rsub_scalar.params; x } ->
         let module C = Pointwise.Rsub_scalar.Compute (S) in
         C.pixel params (operand x) out
@@ -266,9 +247,7 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Silu { Pointwise.Silu.x } ->
         let module C = Pointwise.Silu.Compute (S) in
         C.pixel (operand x) out
-    | Softmax { Reduce.Softmax.params; x } ->
-        let module C = Reduce.Softmax.Compute (S) in
-        C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out
+    | Softmax _ -> invalid_arg "Eval_op.pixel: Softmax is Region-authored"
     | Sqrt { Pointwise.Sqrt.x } ->
         let module C = Pointwise.Sqrt.Compute (S) in
         C.pixel (operand x) out

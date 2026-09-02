@@ -254,7 +254,7 @@ module GroupNorm = struct
       let hi = S.index_add (S.of_index lo) (S.index_const cpg) in
       let zero = Vec6.map (fun _ -> S.index_zero) out in
       (* One reduction nest over [channel]'s WINDOW plus every spatial axis's
-         FULL extent -- mirrors [LayerNorm.Compute]'s [sum_over], generalised
+         FULL extent -- mirrors [LayerNorm.Legacy_pixel]'s [sum_over], generalised
          to a non-zero lower bound on the one axis that needs it. *)
       let sum_over leaf =
         let rec go dims override =

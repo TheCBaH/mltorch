@@ -1,5 +1,11 @@
 # Native compute — semantics functor, direct & symbolic, schedule
 
+The landed operation-authored Region computation policy, including its
+validation and cost evidence, is recorded in
+[`region_compute_design.md`](region_compute_design.md).  This document retains
+the Pixel `SEMANTICS` design that Region-authored operations deliberately do
+not duplicate.
+
 Pillars 3 & 4 of `native_inference_design.md`. An operation is the *algorithm* for
 one output pixel; the *schedule* is how the output coordinate space is iterated.
 The algorithm is written once against an abstract numeric domain (`SEMANTICS`) and

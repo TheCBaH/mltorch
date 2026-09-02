@@ -599,7 +599,12 @@ let%expect_test "Kernel_adapt: a selected forward source is caught" =
         List.map
           (fun (st : Stage_program.Stage.t) ->
             if Tensor_id.equal st.id a then
-              { st with Stage_program.Stage.body = load (Tensor_id.to_int b) }
+              {
+                st with
+                Stage_program.Stage.computation =
+                  Region_program.with_output st.computation
+                    (load (Tensor_id.to_int b));
+              }
             else st)
           p.Stage_program.stages;
     }
@@ -629,7 +634,11 @@ let%expect_test "Kernel_adapt: an oversized body is caught in both entries" =
         List.map
           (fun (st : Stage_program.Stage.t) ->
             if Tensor_id.equal st.id a then
-              { st with Stage_program.Stage.body = deep }
+              {
+                st with
+                Stage_program.Stage.computation =
+                  Region_program.with_output st.computation deep;
+              }
             else st)
           p.Stage_program.stages;
     }
@@ -667,7 +676,11 @@ let stage_program ?(inputs = []) ?(consts = []) ?(stages = []) ?(outputs = [])
   }
 
 let stage id shape body =
-  { Stage_program.Stage.id = tid id; sg = sg id shape; body; region = None }
+  {
+    Stage_program.Stage.id = tid id;
+    sg = sg id shape;
+    computation = Region_program.pixel body;
+  }
 
 let%expect_test "Kernel_adapt: the boundary table rejects collisions" =
   let case name p =

@@ -8,20 +8,14 @@ module Stage = struct
   type t = {
     id : Tensor_id.t;
     sg : Tensor_sig.t;
-    body : Expr.Value.t;
-    region : Region_program.t option;
+    computation : Region_program.t;
   }
 
-  let computation t =
-    Option.value ~default:(Region_program.pixel t.body) t.region
-
+  let computation t = t.computation
   let sources t = Region_program.Fold.sources (computation t)
 
   let pixel_body ~max_size ~max_depth t =
-    match t.region with
-    | None -> Ok t.body
-    | Some program ->
-        Region_program.specialize_pixel ~max_size ~max_depth program
+    Region_program.specialize_pixel ~max_size ~max_depth t.computation
 
   let check ~max_size ~max_depth t =
     Region_program.check ~max_size ~max_depth (computation t)
@@ -42,13 +36,12 @@ let pp fmt (p : t) =
     (comma (List.map (fun (id, _) -> name_of id) p.inputs));
   List.iter
     (fun (st : Stage.t) ->
-      match st.region with
+      match Region_program.pixel_expression st.computation with
+      | Some body ->
+          Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Expr.Pp.value body
       | None ->
-          Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Expr.Pp.value
-            st.body
-      | Some region ->
           Format.fprintf fmt "%a = %a@," Tensor_id.pp st.id Region_program.pp
-            region)
+            st.computation)
     p.stages;
   Format.fprintf fmt "outputs: %s@]" (comma (List.map name_of p.outputs))
 

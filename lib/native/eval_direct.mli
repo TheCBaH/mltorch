@@ -16,7 +16,7 @@ type error =
   | `Missing_input of Tensor_id.t
   | `Missing_tensor of missing_tensor
   | `Output_arity_mismatch of arity_mismatch
-  | `Region_construction of Regionizer.error
+  | `Region_construction of Region_computation.error
   | `Region_execution of Region_eval.error ]
 
 type hooks =

@@ -21,11 +21,13 @@ let same op =
   let build f =
     f ~limits:Kernel.Limits.default ~output:0 ~output_shape:shape ~operand
       ~fill:(fun _ _ _ -> assert false)
-    |> Err.or_raise ~pp_error:Regionizer.pp_error
+    |> Err.or_raise ~pp_error:Region_computation.pp_error
   in
-  let mapped = build (Regionizer4.program ~op) in
+  let mapped = build (Region_computation4.program ~op) in
   let native =
-    build (Regionizer.program ~op:(Option.get (Regionizer4.native_op op)))
+    build
+      (Region_computation.program
+         ~op:(Option.get (Region_computation4.native_op op)))
   in
   Format.asprintf "%a" Region_program.pp mapped
   = Format.asprintf "%a" Region_program.pp native

@@ -21,7 +21,7 @@ open Compute_fixtures
    A 2-element normalised slice is deliberately NOT used as the main fixture:
    it normalises to +/-1 whatever the divisor is, so it cannot separate them. *)
 let%expect_test "Direct: layer_norm over C, centred and scaled" =
-  let module L = Norm.LayerNorm.Compute (Direct) in
+  let module L = Norm.LayerNorm.Legacy_pixel (Direct) in
   let ones n = List.init n (fun _ -> 1.)
   and zeros n = List.init n (fun _ -> 0.) in
   let run ?w ?b ~vals ~eps () =
@@ -76,7 +76,7 @@ let%expect_test "Direct: layer_norm over C, centred and scaled" =
 (* Multi-axis: the reduction nests one [sum] per normalised axis, and reducing
    over the wrong subset is a wrong answer that still has the right shape. *)
 let%expect_test "Direct: layer_norm over W and C jointly" =
-  let module L = Norm.LayerNorm.Compute (Direct) in
+  let module L = Norm.LayerNorm.Legacy_pixel (Direct) in
   (* [W=2 C=2] holding 1, 3, 5, 7 in (w, c) order. Over BOTH axes: mean = 4,
      deviations (-3,-1,1,3), var = 20/4 = 5, sqrt(5) = 2.2360680, so
      y = (-1.3416408, -0.4472136, 0.4472136, 1.3416408).
@@ -103,7 +103,7 @@ let%expect_test "Direct: layer_norm over W and C jointly" =
    x = (1, 1, 1 + 2^-10, 1 + 2^-10), all exact in f32. mean = 1 + 2^-11,
    deviations -+2^-11, var = 2^-22 = 2.384185791015625e-07. *)
 let%expect_test "Direct: layer_norm eps is inside the sqrt" =
-  let module L = Norm.LayerNorm.Compute (Direct) in
+  let module L = Norm.LayerNorm.Legacy_pixel (Direct) in
   let run ~eps =
     let x_shape = s1c 4 in
     let hi = 1. +. (2. ** -10.) in

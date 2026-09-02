@@ -5,6 +5,10 @@ deliberately reduced, and the op registry removes most of the parallel matches.
 Read `native_add_op.md` first if you are adding the *Native* op this legalizes
 from; this file covers only the four-axis side.
 
+Computation-form rules are shared with
+[`region_compute_design.md`](region_compute_design.md): a Native4D operation
+delegates to its Native counterpart's natural Pixel or Region form.
+
 ## Before anything: does it belong?
 
 Native4D is a **deliberately reduced** representation (`native4d_design.md` §1).
@@ -73,14 +77,22 @@ append.
    second definition, free to drift from the one the compute actually uses. The
    wrap is where an op whose output leaves the dialect is caught.
 
-4. **Evaluation** — `lib/native4d/eval_op4.ml`.
+4. **Computation** — the Native4D operation adapter and dialect dispatch.
 
-   Translate parameters and call the **existing** Native `Compute (S)` functor.
-   Native4D adds no numeric kernels; `native4d_design.md` §2 lists
-   "reimplementing numeric kernels already expressed by the Native `Compute (S)`
-   functors" as a non-goal. If a translation needs to permute a tensor to line
-   up with shared compute, something is wrong with the layout choice — the
-   weight layouts are Native's unchanged for exactly this reason (§6.1).
+   Translate parameters and call the Native operation's **natural computation
+   form**. For a Pixel-authored operation this remains the existing
+   `Compute (S)` functor. For a Region-authored operation, expose a Native4D
+   computation entry that performs the checked Axis4/parameter mapping and
+   delegates to the shared `Region_program` builder. Native4D adds no numeric
+   kernels. If a translation needs to permute a tensor to line up with shared
+   computation, something is wrong with the layout choice — the weight layouts
+   are Native's unchanged for exactly this reason (§6.1).
+
+   A Region-authored counterpart also needs Direct and Symbolic routing through
+   the shared Region program, fresh scalar-projection coverage for compatibility,
+   and a deterministic whole-domain trace proving every output belongs to
+   exactly one enumerated region. Do not scalarize it through `Eval_op4.pixel`
+   for production execution.
 
 5. **Claim transfer** — the dialect's `Output_transfer` table.
 

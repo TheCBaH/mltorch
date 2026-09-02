@@ -1,7 +1,6 @@
-(* Provenance is available only while graph construction still has the typed
-   [Graph_ir.op].  This transitional dispatcher resolves named operands and
-   validates the output contract before calling an operation-owned Region
-   constructor.  It owns neither operation arithmetic nor Region execution. *)
+(* The graph-boundary dispatcher for operation-authored Region computation.
+   It resolves typed operands and verifies the output contract before invoking
+   the operation-owned builder; it owns no operation arithmetic or fallback. *)
 
 type error =
   | Invalid_partition

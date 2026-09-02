@@ -195,7 +195,9 @@ module LayerNorm = struct
         Walk_core.Shape.pp c.shape c.k c.eps c.weight c.bias
   end
 
-  module Compute (S : Semantics.SEMANTICS) = struct
+  (* Test-only scalar oracle retained for differential coverage of the
+     authoritative [Computation] Region program below. *)
+  module Legacy_pixel (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x ~weight ~bias
         (out : Semantics.position S.index Vec6.t) =
       let zero = Vec6.map (fun _ -> S.index_zero) out in
@@ -204,7 +206,7 @@ module LayerNorm = struct
          normalised axis over its full extent; [override] (which reduced axis is
          at which reduction variable, so far) folds onto [out] via [Vec6.set] at
          the leaf, rather than an assoc lookup per axis at every leaf visited.
-         Mirrors [RmsNorm.Compute]'s [sum_sq]. *)
+         Mirrors [RmsNorm.Legacy_pixel]'s [sum_sq]. *)
       let sum_over leaf =
         let rec go dims override =
           match dims with

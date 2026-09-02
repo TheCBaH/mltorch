@@ -6,11 +6,6 @@
 
 open Graph_ir
 
-type regionized = {
-  program : Stage_program.t;
-  candidates : (Region_program.t, Regionizer.error) Err.t Tensor_id.Map.t;
-}
-
 let f32 = Payload.Fmt Payload.F32
 
 let first_free_tid (g : graph) =
@@ -24,7 +19,7 @@ let stage_sources (g : graph) =
       g.Graph.inputs,
     g.Graph.input_kinds )
 
-let build ?(regionizers = false) ?(limits = Kernel.Limits.default) (g : graph) =
+let run (g : graph) =
   (* [Symbolic] is stateless, so there is no instance to create. Each stage body
      is a construction computation, run below from [Expr.Builder.initial]: stage
      expressions therefore REUSE reducer ordinals, which is correct because a
@@ -40,53 +35,43 @@ let build ?(regionizers = false) ?(limits = Kernel.Limits.default) (g : graph) =
     consts := (sg, v) :: !consts;
     sg
   in
-  let process_node (gr : graph) env stages candidates (node : node) =
+  let process_node (gr : graph) env stages (node : node) =
     let op = node.Node.op in
     let operand r = Tensor_id.Map.find r env in
     let shape_of r = (Tensor_id.Map.find r env).Tensor_sig.shape in
     (* One stage per output edge: single-output ops emit one; a [Discard]-style
            zero-output op emits none (the fold body, hence [E.pixel], never runs). *)
     List.fold_left
-      (fun (env, stages, candidates) (output, oid) ->
+      (fun (env, stages) (output, oid) ->
         let out_sig = Tensor_id.Map.find oid gr.Graph.tensors in
         let regional =
-          if regionizers && Regionizer.is_region_authored op then
+          if Region_computation.is_region_authored op then
             Some
-              (Regionizer.program ~limits ~op ~output
-                 ~output_shape:out_sig.shape
+              (Region_computation.program ~limits:Kernel.Limits.default ~op
+                 ~output ~output_shape:out_sig.shape
                  ~operand:(fun id -> Tensor_id.Map.find_opt id env)
                  ~fill:(fun _role value shape -> fill value shape))
           else None
         in
-        let body, region =
+        let computation =
           match regional with
-          | Some (Ok program) ->
-              ( Err.or_raise ~pp_error:Region_program.pp_error
-                  (Region_program.specialize_pixel
-                     ~max_size:limits.Kernel.Limits.max_size
-                     ~max_depth:limits.Kernel.Limits.max_depth program),
-                Some program )
-          | None | Some (Error _) ->
-              ( Expr.Builder.run
-                  (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec),
-                None )
+          | Some (Ok program) -> program
+          | Some (Error error) ->
+              Err.raise_error ~pp_error:Region_computation.pp_error error
+          | None ->
+              Region_program.pixel
+                (Expr.Builder.run
+                   (E.pixel op ~output ~operand ~shape_of ~fill Symbolic.out_vec))
         in
-        let st = { Stage_program.Stage.id = oid; sg = out_sig; body; region } in
-        let candidates =
-          match regional with
-          | None -> candidates
-          | Some program -> Tensor_id.Map.add oid program candidates
-        in
-        (Tensor_id.Map.add oid out_sig env, st :: stages, candidates))
-      (env, stages, candidates)
+        let st = { Stage_program.Stage.id = oid; sg = out_sig; computation } in
+        (Tensor_id.Map.add oid out_sig env, st :: stages))
+      (env, stages)
       (List.mapi (fun i oid -> (i, oid)) node.Node.outputs)
   in
-  let _env, rev_stages, candidates =
+  let _env, rev_stages =
     List.fold_left
-      (fun (env, stages, candidates) node ->
-        process_node g env stages candidates node)
-      (g.Graph.tensors, [], Tensor_id.Map.empty)
-      g.Graph.nodes
+      (fun (env, stages) node -> process_node g env stages node)
+      (g.Graph.tensors, []) g.Graph.nodes
   in
   let inputs, input_kinds = stage_sources g in
   let program =
@@ -98,7 +83,4 @@ let build ?(regionizers = false) ?(limits = Kernel.Limits.default) (g : graph) =
       outputs = g.Graph.outputs;
     }
   in
-  { program; candidates }
-
-let run g = (build g).program
-let run_regionized ?limits g = build ~regionizers:true ?limits g
+  program

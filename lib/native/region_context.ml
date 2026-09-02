@@ -1,7 +1,7 @@
 (* Small, operation-neutral helpers for constructing a Region program.  The
    graph dispatcher owns provenance and role resolution; operation modules own
-   their formula.  Keeping this module free of either prevents the old
-   optional-regionizer context from becoming a second operation API. *)
+   their formula.  Keeping this module free of either prevents the construction
+   helpers from becoming a second operation API. *)
 
 type error = Invalid_partition | Invalid_program
 

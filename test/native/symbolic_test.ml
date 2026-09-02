@@ -612,8 +612,8 @@ let%expect_test "Symbolic ground: mean over spatial (H,W), several inputs" =
 let%expect_test
     "Symbolic layer_norm over C: two reductions, and eval matches Direct" =
   let module S = Symbolic in
-  let module Ld = Norm.LayerNorm.Compute (Direct) in
-  let module Ls = Norm.LayerNorm.Compute (S) in
+  let module Ld = Norm.LayerNorm.Legacy_pixel (Direct) in
+  let module Ls = Norm.LayerNorm.Legacy_pixel (S) in
   let x_shape = s1c 2 in
   let x = Tensor.materialize x_shape (fun c -> [| 1.; 7. |].(chan c)) in
   let weight = Tensor.materialize x_shape (fun _ -> 1.) in
@@ -642,8 +642,8 @@ let%expect_test
 let%expect_test "Symbolic rms_norm over C: expr structure + eval matches Direct"
     =
   let module S = Symbolic in
-  let module Rd = Norm.RmsNorm.Compute (Direct) in
-  let module Rs = Norm.RmsNorm.Compute (S) in
+  let module Rd = Norm.RmsNorm.Legacy_pixel (Direct) in
+  let module Rs = Norm.RmsNorm.Legacy_pixel (S) in
   let x_shape = s1c 2 in
   let x = Tensor.materialize x_shape (fun c -> [| 1.; 7. |].(chan c)) in
   let weight = Tensor.materialize x_shape (fun _ -> 1.) in

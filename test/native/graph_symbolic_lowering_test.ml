@@ -28,9 +28,14 @@ let%expect_test "Symbolic lowering: stages are well-scoped, and reuse ordinals"
     let checked =
       List.for_all
         (fun (st : Stage_program.Stage.t) ->
-          match Expr.Check.value st.Stage_program.Stage.body with
-          | Ok () -> true
-          | Error _ -> false)
+          match
+            Region_program.pixel_expression st.Stage_program.Stage.computation
+          with
+          | None -> false
+          | Some body -> (
+              match Expr.Check.value body with
+              | Ok () -> true
+              | Error _ -> false))
         prog.Stage_program.stages
     in
     Format.printf "every stage well-scoped: %b@." checked;
@@ -42,7 +47,9 @@ let%expect_test "Symbolic lowering: stages are well-scoped, and reuse ordinals"
     let binders =
       List.concat_map
         (fun (st : Stage_program.Stage.t) ->
-          Expr.Fold.binders st.Stage_program.Stage.body)
+          Region_program.pixel_expression st.Stage_program.Stage.computation
+          |> Option.value ~default:(Expr.Value.const 0.)
+          |> Expr.Fold.binders)
         prog.Stage_program.stages
     in
     Format.printf "reducers bound across stages: %d, distinct identities: %d@."
@@ -54,7 +61,14 @@ let%expect_test "Symbolic lowering: stages are well-scoped, and reuse ordinals"
     let same =
       List.for_all2
         (fun (a : Stage_program.Stage.t) (b : Stage_program.Stage.t) ->
-          Expr.Value.equal a.Stage_program.Stage.body b.Stage_program.Stage.body)
+          match
+            ( Region_program.pixel_expression a.Stage_program.Stage.computation,
+              Region_program.pixel_expression b.Stage_program.Stage.computation
+            )
+          with
+          | Some a, Some b -> Expr.Value.equal a b
+          | None, None -> true
+          | Some _, None | None, Some _ -> false)
         prog.Stage_program.stages again.Stage_program.stages
     in
     Format.printf "second lowering equal: %b@." same;

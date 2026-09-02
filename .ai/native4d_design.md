@@ -2,7 +2,9 @@
 
 ## Status
 
-Design and implementation plan.
+Design and implementation plan. The computation-reuse sections incorporate the
+landed operation-authored Pixel/Region direction from
+[`region_compute_design.md`](region_compute_design.md).
 
 This document describes a second native graph dialect whose tensors occupy only
 the `N`, `H`, `W`, and `C` axes of the existing six-axis tensor frame. It reviews
@@ -89,8 +91,8 @@ not a failed implementation of Native4D; it is outside the dialect's domain.
 - Adding general grouped convolution merely to make the conversion total.
 - Treating `T` or `D` as usable axes because their current extent happens to be
   one.
-- Reimplementing numeric kernels already expressed by the Native
-  `Compute (S)` functors.
+- Reimplementing numeric kernels already expressed by a Native operation's
+  Pixel or Region computation.
 - Claiming bit identity for algebraic decompositions that change f32
   materialization or reduction order.
 - Making Native and Native4D share the same closed `op` variant.
@@ -104,14 +106,15 @@ First, Native4D must be a real dialect with its own closed operation type and a
 checked conversion boundary. Making it a flag on `Graph_ir.op` would allow mixed
 or invalid graphs and would weaken exhaustiveness at every operation dispatch.
 
-Second, sharing should happen at narrow interfaces. Numeric computation is
-already factored at the right boundary: an operation defines a scalar algorithm
-over `Semantics.SEMANTICS`, and Direct and Symbolic instantiate it. Native4D
-operators can adapt their parameters to the existing Native operator modules and
-call the same `Compute (S).pixel`. Transformation structure and verification can
-also be shared, but the current implementation is concretely coupled to
-`Graph_ir.op`, `Graph_shape`, and `Eval_symbolic`; extracting those dependencies
-behind a dialect interface is substantial work.
+Second, sharing should happen at narrow interfaces. An operation defines its
+computation at its natural granularity. Pixel-authored operations define a
+scalar algorithm over `Semantics.SEMANTICS`; Region-authored operations define
+a partition, ordered locals, and emitter. Native4D operators adapt their typed
+parameters to the existing Native operation module and call the same Pixel or
+Region computation. Transformation structure and verification can also be
+shared, but the current implementation is concretely coupled to `Graph_ir.op`,
+`Graph_shape`, and `Eval_symbolic`; extracting those dependencies behind a
+dialect interface is substantial work.
 
 The recommended implementation therefore proceeds in two steps:
 
@@ -318,9 +321,11 @@ Dialect-specific code:
 - constructor-specific patterns and passes;
 - Native-to-Native4D legalization rules.
 
-The numeric operation modules should not acquire another dialect functor. They
-are already functorized over `SEMANTICS`; Native4D wrappers should translate
-configuration and delegate.
+The numeric operation modules should not acquire another dialect functor.
+Pixel computation is already functorized over `SEMANTICS`, and Region
+computation already targets common `Region_program` IR. Native4D wrappers
+should translate configuration and delegate to whichever form the operation
+owns.
 
 ### 5.4 Same-dialect rewrite versus cross-dialect lowering
 
@@ -343,10 +348,14 @@ and node clusters as it legalizes each source node, and records provenance for
 created edges. Native4D transformations can then run through
 `Transform.Make (Native4d_dialect)`.
 
-## 6. Compute reuse
+## 6. Computation reuse
 
-Native4D evaluation should reuse the existing scalar algorithms without wrapping
-or copying tensors per operation.
+Native4D evaluation should reuse the existing operation computation without
+wrapping or copying tensors per operation. Most currently supported operations
+are Pixel-authored. RMSNorm, LayerNorm, and Softmax are Region-authored under
+the adopted Region ownership direction. Their Native4D counterparts delegate
+to the same Region program after checked Axis4 conversion, and both Direct and
+Symbolic preserve Region sharing.
 
 ### 6.1 Convolution
 
@@ -372,12 +381,13 @@ semantic Native4D representation.
 ### 6.2 Other operations
 
 Pointwise, pooling, reshape, permute, and keep-dimensions reduction can likewise
-delegate to their existing Native compute modules after converting `Shape4.t`
-to `Vec6.shape`.
+delegate to their existing Native Pixel compute modules after converting
+`Shape4.t` to `Vec6.shape`.
 
-This makes the Direct/Symbolic equivalence of the existing operations reusable
-and lets the cross-dialect verifier compare expressions produced from the same
-semantic primitives.
+This makes the Direct/Symbolic equivalence of Pixel operations reusable. For a
+Region operation, the cross-dialect verifier compares the shared program and
+its scalar projection after parameter mapping, while whole-domain trace tests
+prove coverage and single ownership in each dialect.
 
 ## 7. Native operation legalization
 
@@ -608,8 +618,10 @@ current fused Native operation computes products inside the reduction. It
 therefore introduces a different f32 rounding boundary. Its claim is
 `Equivalent`, not `Identical`.
 
-If bit identity is required, retain a Native4D `RmsNorm` operation that delegates
-to the existing fused compute.
+If bit identity is required, retain a Native4D `RmsNorm` operation that maps its
+typed axes and delegates to the shared fused Region computation. The Native4D
+operation owns the mapping and domain rejection; it does not own a second
+numeric program.
 
 ### 7.7a Layer normalization
 
@@ -631,6 +643,12 @@ that row, and it was observed going green when the domain arm was replaced by
 Both affine operands stay `Tensor_ref.t option`; `Eval_op4` fills the absent
 ones with 1 and 0 exactly as `Eval_op` does, so an absent operand means the same
 thing in both dialects.
+
+Under operation-authored Region computation, this wiring moves to the
+Native4D operation's computation adapter and passes resolved operands by role.
+Native4D Direct evaluates the shared Region by key, while Native4D Symbolic
+carries it directly. Scalar projection remains available for verification but
+must not become the production traversal.
 
 **One asymmetry, recorded rather than propagated.** `Graph_shape4`'s
 `Layer_norm` arm re-runs the shared `Norm.LayerNorm.check_affine`; its `Rms_norm`
@@ -798,9 +816,12 @@ Created/deleted intermediates form vacuous clusters but still carry provenance.
 
 ### 9.3 Cross-dialect symbolic verification
 
-The verifier needs two dialect-specific ways to produce `Stage_program.t`, but
-the grounding, normalization, coefficient, probing, and report machinery can be
-shared.
+The verifier needs two dialect-specific ways to produce the common computation
+program. Pixel stages compare their scalar expressions as before. Region stages
+compare the shared Region structure or its bounded scalar projection, while
+operation-level traces independently prove whole-domain coverage,
+disjointness, and ownership. Grounding, normalization, coefficient, probing,
+and report machinery can otherwise be shared.
 
 Because the converter preserves physical shapes and coordinates:
 

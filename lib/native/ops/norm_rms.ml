@@ -164,7 +164,9 @@ module RmsNorm = struct
         c.shape c.k c.eps c.weight
   end
 
-  module Compute (S : Semantics.SEMANTICS) = struct
+  (* Test-only scalar oracle retained for differential coverage of the
+     authoritative [Computation] Region program below. *)
+  module Legacy_pixel (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x ~weight
         (out : Semantics.position S.index Vec6.t) =
       let zero = Vec6.map (fun _ -> S.index_zero) out in

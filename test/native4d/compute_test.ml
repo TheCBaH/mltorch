@@ -427,7 +427,7 @@ let%expect_test "direct4: mean over H and W keeps the axes" =
   [%expect {| shape [C=1], mean of 0..3 = [1.5] |}]
 
 (* Hand values, not Native-as-oracle: both sides would instantiate the same
-   [Reduce.Softmax.Compute] functor, so agreement would prove the adapter and
+   [Reduce.Softmax.Legacy_pixel] oracle, so agreement would prove the adapter and
    the staging rather than the arithmetic.
 
    [0, ln 3] over a two-element W axis gives exp values [1, 3], summing to 4:
@@ -526,7 +526,7 @@ let%expect_test "symbolic4: authored Regions carry into the Kernel unchanged" =
     (fun (name, graph) ->
       let symbolic = Eval_symbolic4.run graph in
       let stage = List.hd symbolic.Stage_program.stages in
-      let carried = Option.get stage.Stage_program.Stage.region in
+      let carried = stage.Stage_program.Stage.computation in
       let kernel =
         Kernel_adapt.of_stage_program symbolic
         |> Err.or_raise ~pp_error:Kernel_adapt.pp_error
@@ -552,8 +552,8 @@ let%expect_test "symbolic4: authored Region traces retain unit T and D" =
        f x)
   in
   let trace name graph =
-    let symbolic = Eval_symbolic4.run_regionized graph in
-    let stage = List.hd symbolic.program.Stage_program.stages in
+    let symbolic = Eval_symbolic4.run graph in
+    let stage = List.hd symbolic.Stage_program.stages in
     let program = Stage_program.Stage.computation stage in
     let trace =
       Region_trace.collect program ~output_shape:stage.sg.shape
@@ -604,8 +604,8 @@ let%expect_test "symbolic4: authored Region traces retain unit T and D" =
 let%expect_test "symbolic4: norm Region matrix covers Axis4 and affine states" =
   let shape = s4 ~n:2 ~h:2 ~w:1 ~c:3 in
   let check graph =
-    let symbolic = Eval_symbolic4.run_regionized graph in
-    let stage = List.hd symbolic.program.Stage_program.stages in
+    let symbolic = Eval_symbolic4.run graph in
+    let stage = List.hd symbolic.Stage_program.stages in
     let trace =
       Region_trace.collect
         (Stage_program.Stage.computation stage)

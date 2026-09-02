@@ -20,7 +20,7 @@ type error =
   | `Missing_input of Tensor_id.t
   | `Missing_tensor of missing_tensor
   | `Output_arity_mismatch of arity_mismatch
-  | `Region_construction of Regionizer4.error
+  | `Region_construction of Region_computation4.error
   | `Region_execution of Region_eval.error ]
 
 let pp_context ppf = function
@@ -38,7 +38,7 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf
         "node output arity mismatch: %d output shapes for %d output ids"
         expected actual
-  | `Region_construction error -> Regionizer.pp_error ppf error
+  | `Region_construction error -> Region_computation.pp_error ppf error
   | `Region_execution error -> Region_eval.pp_error ppf error
 
 let find_tensor map id ~context =
@@ -93,7 +93,11 @@ let fresh_synthetic_ids g =
         (fun id _ ids -> Tensor_id.Set.add id ids)
         g.Graph.Graph.tensors Tensor_id.Set.empty,
       0 )
-    [ Regionizer.Rms_weight; Regionizer.Layer_weight; Regionizer.Layer_bias ]
+    [
+      Region_computation.Rms_weight;
+      Region_computation.Layer_weight;
+      Region_computation.Layer_bias;
+    ]
   |> fun (ids, _, _) -> ids
 
 let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
@@ -105,7 +109,7 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
       ~fmt:(Payload.Fmt Payload.F32) ()
   in
   let* program =
-    Regionizer4.program ~limits ~op ~output
+    Region_computation4.program ~limits ~op ~output
       ~output_shape:(Shape4.to_vec6 out_shape)
       ~operand:(fun id -> Tensor_id.Map.find_opt id g.Graph.Graph.tensors)
       ~fill
@@ -114,7 +118,7 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
   let synthetic_shape role =
     match op with
     | Op.Rms_norm { Ops4.Rms_norm.params; x; weight = None }
-      when role = Regionizer.Rms_weight ->
+      when role = Region_computation.Rms_weight ->
         Some
           ( 1.,
             Norm.normalized_shape
@@ -122,10 +126,10 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
                 (Tensor_id.Map.find x g.Graph.Graph.tensors).Tensor_sig.shape
               ~dims:(List.map Axis4.to_axis params.dims) )
     | Op.Layer_norm { Ops4.Layer_norm.params; x; weight; bias }
-      when (role = Regionizer.Layer_weight && Option.is_none weight)
-           || (role = Regionizer.Layer_bias && Option.is_none bias) ->
+      when (role = Region_computation.Layer_weight && Option.is_none weight)
+           || (role = Region_computation.Layer_bias && Option.is_none bias) ->
         Some
-          ( (if role = Regionizer.Layer_weight then 1. else 0.),
+          ( (if role = Region_computation.Layer_weight then 1. else 0.),
             Norm.normalized_shape
               ~x_shape:
                 (Tensor_id.Map.find x g.Graph.Graph.tensors).Tensor_sig.shape
@@ -233,7 +237,7 @@ let eval_node ?region_counters ~limits (g : Graph.graph) env (node : Graph.node)
                  (fun coord ->
                    if Dim.to_int coord.Vec6.w = Dim.to_int coord.Vec6.c then 1.
                    else 0.))
-        | _ when Regionizer4.is_region_authored op ->
+        | _ when Region_computation4.is_region_authored op ->
             region_result ~limits
               ~region_counters:
                 (Option.bind region_counters (fun counters ->

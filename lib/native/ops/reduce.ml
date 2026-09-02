@@ -634,7 +634,9 @@ module Softmax = struct
         c.axis
   end
 
-  module Compute (S : Semantics.SEMANTICS) = struct
+  (* Test-only scalar oracle retained for differential coverage of the
+     authoritative [Computation] Region program below. *)
+  module Legacy_pixel (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
       let extent = Vec6.get x_shape p.axis in

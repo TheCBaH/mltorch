@@ -29,9 +29,34 @@ let run name graph =
          (Kernel_eval.run kernel ~bind))
   in
   let expected =
-    Tensor_id.Map.find output_id
-      (Err.or_raise ~pp_error:Eval_direct.pp_error
-         (Eval_direct.run ~inputs:[ (List.hd graph.Graph.inputs, input) ] graph))
+    match name with
+    | "rms" ->
+        let module C = Norm.RmsNorm.Legacy_pixel (Direct) in
+        let weight =
+          Tensor.materialize
+            (Norm_shared.normalized_shape ~x_shape:shape ~dims:Axis.[ C ])
+            (fun _ -> 1.)
+        in
+        Schedule.evaluate shape
+          (C.pixel
+             { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 }
+             ~x_shape:shape ~x:input ~weight)
+    | "layer" ->
+        let module C = Norm.LayerNorm.Legacy_pixel (Direct) in
+        let affine =
+          Norm_shared.normalized_shape ~x_shape:shape ~dims:Axis.[ C ]
+        in
+        let weight = Tensor.materialize affine (fun _ -> 1.)
+        and bias = Tensor.materialize affine (fun _ -> 0.) in
+        Schedule.evaluate shape
+          (C.pixel
+             { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 }
+             ~x_shape:shape ~x:input ~weight ~bias)
+    | "softmax" ->
+        let module C = Reduce.Softmax.Legacy_pixel (Direct) in
+        Schedule.evaluate shape
+          (C.pixel { Reduce.Softmax.axis = Axis.C } ~x_shape:shape ~x:input)
+    | _ -> assert false
   in
   let region =
     List.for_all
@@ -39,7 +64,7 @@ let run name graph =
         Region_program.pixel_expression value.computation = None)
       kernel.Kernel.values
   in
-  Fmt.pr "%s: region=%b bits=%b@." name region
+  Fmt.pr "%s: region=%b legacy_bits=%b@." name region
     (Tensor.equal_bits actual expected)
 
 let count name graph =
@@ -96,9 +121,9 @@ let%expect_test "Regionized normalization and softmax reconstruct and execute" =
     [ ("rms", rms); ("layer", layer); ("softmax", softmax) ];
   [%expect
     {|
-    rms: region=true bits=true
-    layer: region=true bits=true
-    softmax: region=true bits=true |}]
+    rms: region=true legacy_bits=true
+    layer: region=true legacy_bits=true
+    softmax: region=true legacy_bits=true |}]
 
 let%expect_test "Symbolic stages carry the authoritative Region program" =
   let graph =
@@ -107,19 +132,96 @@ let%expect_test "Symbolic stages carry the authoritative Region program" =
           { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 }
           ~x ())
   in
-  let symbolic = Eval_symbolic.run_regionized graph in
-  let stage = List.hd symbolic.program.Stage_program.stages in
+  let symbolic = Eval_symbolic.run graph in
+  let stage = List.hd symbolic.Stage_program.stages in
   let kernel =
     Err.or_raise ~pp_error:Kernel_adapt.pp_error
-      (Kernel_adapt.of_stage_program
-         ~region_candidates:symbolic.Eval_symbolic.candidates symbolic.program)
+      (Kernel_adapt.of_stage_program symbolic)
   in
-  let carried = Option.get stage.Stage_program.Stage.region in
+  let carried = stage.Stage_program.Stage.computation in
   let received = (List.hd kernel.Kernel.values).Kernel.Value.computation in
   Fmt.pr "region=%b same_object=%b@."
     (Region_program.pixel_expression carried = None)
     (carried == received);
   [%expect {| region=true same_object=true |}]
+
+let%expect_test "Authored Regions reconstruct their legacy scalar oracles" =
+  let affine = Norm_shared.normalized_shape ~x_shape:shape ~dims:Axis.[ C ] in
+  let rms =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"reconstruct_rms" ~outputs:(fun output -> [ output ])
+        @@
+        let* x = input ~shape ~name:"x" () in
+        let* weight = input ~shape:affine ~name:"weight" () in
+        rms_norm { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 } ~x ~weight ())
+  in
+  let layer =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"reconstruct_layer" ~outputs:(fun output -> [ output ])
+        @@
+        let* x = input ~shape ~name:"x" () in
+        let* weight = input ~shape:affine ~name:"weight" () in
+        let* bias = input ~shape:affine ~name:"bias" () in
+        layer_norm
+          { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 }
+          ~x ~weight ~bias ())
+  in
+  let softmax =
+    graph "reconstruct_softmax" (fun x ->
+        Graph_builder.softmax { Reduce.Softmax.axis = Axis.C } x)
+  in
+  let reconstruct graph pixel =
+    let symbolic = Eval_symbolic.run graph in
+    let program = (List.hd symbolic.Stage_program.stages).computation in
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.reconstructs ~max_size:Kernel.Limits.default.max_size
+         ~max_depth:Kernel.Limits.default.max_depth ~pixel program)
+  in
+  let rms_pixel =
+    let module C = Norm.RmsNorm.Legacy_pixel (Symbolic) in
+    let x, weight =
+      match rms.Graph.inputs with
+      | [ x; weight ] ->
+          ( Tensor_id.Map.find x rms.Graph.tensors,
+            Tensor_id.Map.find weight rms.Graph.tensors )
+      | _ -> assert false
+    in
+    Expr.Builder.run
+      (C.pixel
+         { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 }
+         ~x_shape:shape ~x ~weight Symbolic.out_vec)
+  in
+  let layer_pixel =
+    let module C = Norm.LayerNorm.Legacy_pixel (Symbolic) in
+    let x, weight, bias =
+      match layer.Graph.inputs with
+      | [ x; weight; bias ] ->
+          ( Tensor_id.Map.find x layer.Graph.tensors,
+            Tensor_id.Map.find weight layer.Graph.tensors,
+            Tensor_id.Map.find bias layer.Graph.tensors )
+      | _ -> assert false
+    in
+    Expr.Builder.run
+      (C.pixel
+         { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 }
+         ~x_shape:shape ~x ~weight ~bias Symbolic.out_vec)
+  in
+  let softmax_pixel =
+    let module C = Reduce.Softmax.Legacy_pixel (Symbolic) in
+    let x = List.hd softmax.Graph.inputs in
+    let x = Tensor_id.Map.find x softmax.Graph.tensors in
+    Expr.Builder.run
+      (C.pixel
+         { Reduce.Softmax.axis = Axis.C }
+         ~x_shape:shape ~x Symbolic.out_vec)
+  in
+  Fmt.pr "rms=%b layer=%b softmax=%b@."
+    (reconstruct rms rms_pixel)
+    (reconstruct layer layer_pixel)
+    (reconstruct softmax softmax_pixel);
+  [%expect {| rms=true layer=true softmax=true |}]
 
 let%expect_test "transform grounding reads an authored Stage structurally" =
   let graph =
@@ -128,14 +230,9 @@ let%expect_test "transform grounding reads an authored Stage structurally" =
           { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 }
           ~x ())
   in
-  let symbolic = Eval_symbolic.run_regionized graph in
-  let stage = List.hd symbolic.program.Stage_program.stages in
-  let program =
-    {
-      symbolic.program with
-      stages = [ { stage with body = Expr.Value.const 0. } ];
-    }
-  in
+  let symbolic = Eval_symbolic.run graph in
+  let stage = List.hd symbolic.Stage_program.stages in
+  let program = { symbolic with stages = [ stage ] } in
   let env = Ground_eval.Env.of_program program ~side:`Src in
   let result =
     Ground_eval.at env stage.id (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0)
@@ -265,8 +362,8 @@ let%expect_test "Native authored Region trace matrix" =
     build name (fun x -> Graph_builder.softmax { Reduce.Softmax.axis } x)
   in
   let trace name graph =
-    let symbolic = Eval_symbolic.run_regionized graph in
-    let stage = List.hd symbolic.program.Stage_program.stages in
+    let symbolic = Eval_symbolic.run graph in
+    let stage = List.hd symbolic.Stage_program.stages in
     let program = Stage_program.Stage.computation stage in
     let trace =
       Err.or_raise ~pp_error:Region_trace.pp_error
@@ -385,13 +482,13 @@ let%expect_test "Region construction honors the graph-boundary contract" =
       }
   in
   let build ~limits ~output ~output_shape ~operand =
-    Regionizer.program ~limits ~op ~output ~output_shape ~operand
+    Region_computation.program ~limits ~op ~output ~output_shape ~operand
       ~fill:(fun _role _value shape -> signature 11 shape)
   in
   let show = function
     | Ok _ -> "ok"
     | Error error ->
-        Format.asprintf "%a" Regionizer.pp_error (Err.Error.kind error)
+        Format.asprintf "%a" Region_computation.pp_error (Err.Error.kind error)
   in
   let tight =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
@@ -487,66 +584,3 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
   [%expect
     {|
     cells=2,3,4,22,23,24 keys=2 locals=2 emitters=6 loads=8 reductions=0 |}]
-
-let%expect_test
-    "Region admission preserves the original Pixel program on rejection" =
-  let pixel = Expr.Value.add (Expr.Value.const 2.) (Expr.Value.const 3.) in
-  let partition =
-    Err.or_raise ~pp_error:Region_partition.pp_error
-      (Region_partition.of_whole_axes [ Axis.C ])
-  in
-  let candidate output =
-    Err.or_raise ~pp_error:Region_program.pp_error
-      (Region_program.Builder.run
-         (Region_program.Builder.scalar (Expr.Value.const 2.) (fun local ->
-              Region_program.Builder.finish ~max_size:32 ~max_depth:16
-                ~partition
-                ~output:(Expr.Value.add local output))))
-  in
-  (* Build the accepted candidate in the same scoped constructor so
-     specialization reconstructs [pixel] exactly. *)
-  let accepted =
-    Err.or_raise ~pp_error:Region_program.pp_error
-      (Region_program.Builder.run
-         (Region_program.Builder.scalar (Expr.Value.const 2.) (fun local ->
-              Region_program.Builder.finish ~max_size:32 ~max_depth:16
-                ~partition
-                ~output:(Expr.Value.add local (Expr.Value.const 3.)))))
-  in
-  let too_tight =
-    Err.or_raise ~pp_error:Kernel.Limits.pp_error
-      (Kernel.Limits.create ~max_size:1 ~max_depth:128 ~max_values:16
-         ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
-  in
-  let show name ~limits candidate =
-    let computation, reject =
-      Kernel_adapt.Region_admission.admit ~limits ~pixel candidate
-    in
-    let reject =
-      match reject with
-      | None -> "accepted"
-      | Some Kernel_adapt.Region_admission.Candidate -> "candidate"
-      | Some Kernel_adapt.Region_admission.Invalid -> "invalid"
-      | Some Kernel_adapt.Region_admission.Reconstruction_failed ->
-          "reconstruction"
-    in
-    let original =
-      match Region_program.pixel_expression computation with
-      | Some body -> body == pixel
-      | None -> false
-    in
-    Fmt.pr "%s: reject=%s original=%b@." name reject original
-  in
-  show "accepted" ~limits:Kernel.Limits.default (Ok accepted);
-  show "candidate" ~limits:Kernel.Limits.default
-    (Err.fail Regionizer.Invalid_program);
-  show "invalid" ~limits:too_tight (Ok accepted);
-  show "reconstruction" ~limits:Kernel.Limits.default
-    (Ok (candidate (Expr.Value.const 2.)));
-  [%expect
-    {|
-    accepted: reject=accepted original=false
-    candidate: reject=candidate original=true
-    invalid: reject=invalid original=true
-    reconstruction: reject=reconstruction original=true |}]

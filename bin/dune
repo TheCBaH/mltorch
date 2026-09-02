@@ -16,7 +16,7 @@
 (executable
  (name region_compute_bench)
  (modules region_compute_bench)
- (libraries native unix))
+ (libraries native native4d unix))
 
 ; Driver for the ATen operation-binding generator (emits atg_ops.h / atg_ops.cpp /
 ; operation_description.ml; see lib/aten/dune for the rules that invoke it).

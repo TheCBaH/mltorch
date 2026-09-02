@@ -92,6 +92,25 @@ let pp_classification ppf (p : Stage_program.t) =
 
 let pp_program ppf p = Format.fprintf ppf "@[<v>%a@]" pp_classification p
 
+let%expect_test "Stage_program: Pixel computation retains its expression object"
+    =
+  let body = Expr.Value.add (Expr.Value.const 1.) (Expr.Value.const 2.) in
+  let stage : Stage_program.Stage.t =
+    {
+      id = Tensor_id.of_int 0;
+      sg =
+        Tensor_sig.create ~id:(Tensor_id.of_int 0) ~name:"" ~shape:(s1c 1)
+          ~fmt:(Payload.Fmt Payload.F32) ();
+      computation = Region_program.pixel body;
+    }
+  in
+  let embedded =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Stage_program.Stage.pixel_body ~max_size:32 ~max_depth:32 stage)
+  in
+  Format.printf "same_object=%b@." (body == embedded);
+  [%expect {| same_object=true |}]
+
 let%expect_test
     "Stage_program: every source resolves to an input, const, or earlier stage"
     =
@@ -152,7 +171,7 @@ let%expect_test
          List.iter
            (fun (st : Stage_program.Stage.t) ->
              Format.fprintf ppf "%a = %a@," Tensor_id.pp st.id Expr.Pp.value
-               st.body)
+               (Option.get (Region_program.pixel_expression st.computation)))
            p.Stage_program.stages;
          Format.fprintf ppf "@]"))
     result;
@@ -364,7 +383,11 @@ let%expect_test
   in
   Format.printf "%a@."
     (pp_result (fun ppf (p : Stage_program.t) ->
-         let binders (st : Stage_program.Stage.t) = Expr.Fold.binders st.body in
+         let binders (st : Stage_program.Stage.t) =
+           Region_program.pixel_expression st.computation
+           |> Option.value ~default:(Expr.Value.const 0.)
+           |> Expr.Fold.binders
+         in
          Format.fprintf ppf "@[<v>";
          List.iter
            (fun (st : Stage_program.Stage.t) ->

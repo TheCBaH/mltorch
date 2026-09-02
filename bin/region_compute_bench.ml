@@ -29,14 +29,20 @@ let graph name shape f =
       let* x = input ~shape ~name:"x" () in
       f x)
 
-let kernels graph =
-  let pixel =
-    Err.or_raise ~pp_error:Kernel_adapt.pp_error
-      (Kernel_adapt.of_stage_program (Eval_symbolic.run graph))
-  and region =
-    Err.or_raise ~pp_error:Kernel_adapt.pp_error (Region_kernel.of_graph graph)
+let graph4 shape f =
+  let shape =
+    Err.or_raise ~pp_error:Native4d.Shape4.pp_error
+      (Native4d.Shape4.of_vec6 shape)
   in
-  (pixel, region)
+  Err.or_raise ~pp_error:Native4d.Builder.pp_error
+    Native4d.Builder.(
+      build ~outputs:(fun output -> [ output ])
+      @@
+      let* x = input ~shape () in
+      f x)
+
+let kernel graph =
+  Err.or_raise ~pp_error:Kernel_adapt.pp_error (Region_kernel.of_graph graph)
 
 let run kernel graph input =
   Kernel_eval.run kernel ~bind:(fun id ->
@@ -47,6 +53,12 @@ let run kernel graph input =
 let run_direct graph input =
   Eval_direct.run graph ~inputs:[ (List.hd graph.Graph.inputs, input) ]
   |> Err.or_raise ~pp_error:Eval_direct.pp_error
+  |> ignore
+
+let run_direct4 graph input =
+  Native4d.Eval_direct4.run graph
+    ~inputs:[ (List.hd graph.Native4d.Graph.Graph.inputs, input) ]
+  |> Err.or_raise ~pp_error:Native4d.Eval_direct4.pp_error
   |> ignore
 
 let measure kernel graph input =
@@ -68,6 +80,17 @@ let measure_direct graph input =
       Gc.full_major ();
       let before = words () and started = Unix.gettimeofday () in
       run_direct graph input;
+      ((Unix.gettimeofday () -. started) *. 1000., words () -. before))
+  |> List.split
+
+let measure_direct4 graph input =
+  for _ = 1 to warmup do
+    run_direct4 graph input
+  done;
+  List.init samples (fun _ ->
+      Gc.full_major ();
+      let before = words () and started = Unix.gettimeofday () in
+      run_direct4 graph input;
       ((Unix.gettimeofday () -. started) *. 1000., words () -. before))
   |> List.split
 
@@ -96,26 +119,41 @@ let direct_counters graph input =
   |> ignore;
   counters
 
-let report name ~regions ~extent graph =
+let direct4_counters graph input =
+  let counters = Region_execution.counters () in
+  let output = List.hd graph.Native4d.Graph.Graph.outputs in
+  Native4d.Eval_direct4.run
+    ~region_counters:(Tensor_id.Map.singleton output counters)
+    graph
+    ~inputs:[ (List.hd graph.Native4d.Graph.Graph.inputs, input) ]
+  |> Err.or_raise ~pp_error:Native4d.Eval_direct4.pp_error
+  |> ignore;
+  counters
+
+let report name ~regions ~extent graph graph4 =
   let input = input (shape ~regions ~extent) in
-  let pixel, region = kernels graph in
-  let pixel_time, pixel_words = measure pixel graph input in
-  let region_time, region_words = measure region graph input in
+  let kernel = kernel graph in
+  let kernel_time, kernel_words = measure kernel graph input in
   let direct_time, direct_words = measure_direct graph input in
-  let counters = counters region graph input
-  and direct_counters = direct_counters graph input in
+  let direct4_time, direct4_words = measure_direct4 graph4 input in
+  let counters = counters kernel graph input
+  and direct_counters = direct_counters graph input
+  and direct4_counters = direct4_counters graph4 input in
   Printf.printf
-    "%s regions=%d extent=%d samples=%d pixel_ms=%.3f region_ms=%.3f \
-     direct_ms=%.3f pixel_words=%.3f region_words=%.3f direct_words=%.3f \
-     keys=%d locals=%d emitters=%d loads=%d reductions=%d direct_keys=%d \
-     direct_locals=%d direct_emitters=%d direct_loads=%d direct_reductions=%d\n\
+    "%s regions=%d extent=%d samples=%d kernel_region_ms=%.3f direct_ms=%.3f \
+     direct4_ms=%.3f kernel_region_words=%.3f direct_words=%.3f \
+     direct4_words=%.3f keys=%d locals=%d emitters=%d loads=%d reductions=%d \
+     direct_keys=%d direct_locals=%d direct_emitters=%d direct_loads=%d \
+     direct_reductions=%d direct4_keys=%d direct4_locals=%d \
+     direct4_emitters=%d direct4_loads=%d direct4_reductions=%d\n\
      %!"
-    name regions extent samples (median pixel_time) (median region_time)
-    (median direct_time) (median pixel_words) (median region_words)
-    (median direct_words) counters.keys counters.locals counters.emitters
+    name regions extent samples (median kernel_time) (median direct_time)
+    (median direct4_time) (median kernel_words) (median direct_words)
+    (median direct4_words) counters.keys counters.locals counters.emitters
     counters.loads counters.reductions direct_counters.keys
     direct_counters.locals direct_counters.emitters direct_counters.loads
-    direct_counters.reductions
+    direct_counters.reductions direct4_counters.keys direct4_counters.locals
+    direct4_counters.emitters direct4_counters.loads direct4_counters.reductions
 
 let () =
   List.iter
@@ -125,15 +163,33 @@ let () =
         (graph "rms" shape (fun x ->
              Graph_builder.rms_norm
                { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 }
+               ~x ()))
+        (graph4 shape (fun x ->
+             Native4d.Builder.rms_norm
+               {
+                 Native4d.Ops4.Rms_norm.dims = [ Native4d.Axis4.C ];
+                 eps = 1e-5;
+               }
                ~x ()));
       report "layer" ~regions ~extent
         (graph "layer" shape (fun x ->
              Graph_builder.layer_norm
                { Norm.LayerNorm.dims = [ Axis.C ]; eps = 1e-5 }
+               ~x ()))
+        (graph4 shape (fun x ->
+             Native4d.Builder.layer_norm4
+               {
+                 Native4d.Ops4.Layer_norm.dims = [ Native4d.Axis4.C ];
+                 eps = 1e-5;
+               }
                ~x ()));
       report "softmax" ~regions ~extent
         (graph "softmax" shape (fun x ->
-             Graph_builder.softmax { Reduce.Softmax.axis = Axis.C } x)))
+             Graph_builder.softmax { Reduce.Softmax.axis = Axis.C } x))
+        (graph4 shape (fun x ->
+             Native4d.Builder.softmax4
+               { Native4d.Ops4.Softmax4.axis = Native4d.Axis4.C }
+               x)))
     (* Fix C and sweep W (the number of whole-C region keys), including
        R > K, then retain the original extent sweep at R = 4. *)
     [ (1, 32); (4, 32); (16, 32); (64, 32); (4, 8); (4, 64) ]

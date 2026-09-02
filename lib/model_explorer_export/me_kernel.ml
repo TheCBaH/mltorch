@@ -178,7 +178,12 @@ let stage_program ~limits ~id (p : Stage_program.t) =
            ( s.Stage_program.Stage.id,
              "stage",
              s.Stage_program.Stage.sg,
-             s.Stage_program.Stage.body ))
+             match
+               Region_program.pixel_expression s.Stage_program.Stage.computation
+             with
+             | Some body -> body
+             | None -> Region_program.output s.Stage_program.Stage.computation
+           ))
          p.Stage_program.stages)
     ~outputs:
       (List.filter_map

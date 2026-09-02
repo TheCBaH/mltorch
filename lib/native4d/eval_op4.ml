@@ -4,7 +4,8 @@
 
    Every Pixel-authored arm calls Native's [Compute (S)].  RMSNorm, LayerNorm,
    and Softmax4 are Region-authored instead: Direct and Symbolic route them
-   through [Regionizer4.program], so they deliberately have no scalar arm here.
+   through [Region_computation4.program], so they deliberately have no scalar
+   arm here.
    .ai/native4d_design.md §2 lists reimplementing numeric kernels already
    expressed by the Native operation as a non-goal.  This file therefore has no
    arithmetic of its own — only parameter translation for Pixel operations.

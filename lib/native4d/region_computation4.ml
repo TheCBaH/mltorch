@@ -1,10 +1,9 @@
-(* Native4D's operation boundary for Region-authored computation.  It owns only
-   the dialect mapping: once a four-axis operation has been translated through
-   [Graph_shape4], Native's operation-owned builder remains the sole numeric
-   definition. *)
+(* Native4D's operation boundary for authored Region computation.  It owns the
+   checked Axis4 mapping only; Native's operation-owned builder is the sole
+   numeric definition. *)
 
-type error = Regionizer.error
-type synthetic_role = Regionizer.synthetic_role
+type error = Region_computation.error
+type synthetic_role = Region_computation.synthetic_role
 
 let is_region_authored : Op.t -> bool = function
   | Op.Layer_norm _ | Op.Rms_norm _ | Op.Softmax4 _ -> true
@@ -33,5 +32,6 @@ let native_op : Op.t -> Graph_ir.op option = function
 let program ~limits ~op ~output ~output_shape ~operand ~fill =
   match native_op op with
   | Some op ->
-      Regionizer.program ~limits ~op ~output ~output_shape ~operand ~fill
+      Region_computation.program ~limits ~op ~output ~output_shape ~operand
+        ~fill
   | None -> assert false

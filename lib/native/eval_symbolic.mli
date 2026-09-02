@@ -11,10 +11,4 @@
 
 open Graph_ir
 
-type regionized = {
-  program : Stage_program.t;
-  candidates : (Region_program.t, Regionizer.error) Err.t Tensor_id.Map.t;
-}
-
 val run : graph -> Stage_program.t
-val run_regionized : ?limits:Kernel.Limits.t -> graph -> regionized
