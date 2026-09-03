@@ -2,9 +2,9 @@
 
 Live execution record for
 [`region-sdpa-computation-plan.md`](region-sdpa-computation-plan.md)'s Stage A
-(§2). Stage B (§3, shaped vector locals) is not started — §4's own
-recommendation is to land Stage A alone first and measure Stage B against it,
-so this tracker stops at Stage A's closeout.
+(§2) and Stage B (§3, shaped vector locals). Both are now complete — see
+"Stage B" below for the second milestone, landed in a follow-up session after
+Stage A's baseline was measured, per §4's recommendation.
 
 Ordering note: `native4d-sdpa-compatibility-plan.md` names two independent
 changes (Sdpa, Batched_matmul); its Sdpa half depends on this plan's Stage A
@@ -122,14 +122,143 @@ will be even further from wall-clock reality until that lowering exists.
 ## Status: Stage A complete
 
 Both milestones landed (`7ffba06` implementation, `27edcfd` design-record
-fold). Nothing further is planned under this plan document.
+fold). See "Stage B" below for the plan's remaining section.
 
 ## Next steps (separate plans)
 
 1. `native4d-sdpa-compatibility-plan.md`'s Sdpa half is unblocked now that its
    stated dependency (this Stage A) is met — pick that up next if the Native4D
-   gap is wanted.
-2. Stage B (`region-sdpa-computation-plan.md` §3) is explicitly deferred; do
-   not start it without re-reading §3.3's build list and §5's open questions,
-   and without re-measuring against this Stage A baseline (not against
-   `Legacy_pixel`) per §4.
+   gap is wanted. **Done**, separately: see that plan's own tracker.
+
+## Stage B (§3): shaped vector locals — complete
+
+Landed in two commits: `0584bca` (the language/Region-program foundation —
+`Expr.Value.Local_at`, `Region_local.Shape.Vector`, `Region_program`'s shape
+agreement and bounds-checked aggregate slot-count checks, `Region_execution`/
+`Region_eval`'s offset+count slot ranges) and `0a0bc41`
+(`Attention.Sdpa.Computation` actually building the two vector locals, `s`
+and `p`, plus the `Expr.Check.fragment ~allowed_free` fix that landing `s`
+immediately exposed).
+
+### Scope lock
+
+- Included: §3.3's steps 1 (`Shape.Vector`), 2 (`Value.Local_at`), 4 (shape
+  agreement in `Region_program.check`), 5 (`Region_execution`/`Region_eval`'s
+  vector slot ranges, `Eval.value`'s `~local_at`/`~reducer`), 6
+  (`Rewrite.substitute_locals`'s `local_binding` variant and the new
+  `substitute_reducer` beta-reduction), 7 (a bounds-checked aggregate
+  slot-count limit), 8 (`Region_execution`'s `locals` counter now counts
+  vector elements, not just local declarations — the "count elements" choice
+  §3.3 item 8 left open). §3.1's program: `s` (the score row) and `p` (the
+  normalized softmax weight row), both cached — the "better constant" variant
+  §3.1 names, not the footprint-only one-vector alternative.
+- **Step 3 turned out already done.** The plan's step 3 ("Expr.Builder must
+  be able to mint a binder outside a reduction... a Builder-only minter,
+  never a public constructor") describes exactly `Builder.fresh_reduce`,
+  which was already public (landed with Stage A, for `Rewrite.freshen`'s own
+  minting and for scope-violation test fixtures). No new `Expr.Builder` API
+  was needed; `Region_program.Builder.vector` and `Attention.Sdpa.Computation`
+  both just call it directly, the same way `Builder.reduction` already does
+  internally.
+- **One gap the plan's own step list did not name**: `Expr.Check.fragment`'s
+  free-reducer check has no notion of "this identity is deliberately free by
+  design" — it exists specifically to catch composition defects, and a vector
+  local's own binder is, by construction, free in its own stored value. This
+  needed a targeted exemption (`~allowed_free`), scoped to exactly one
+  identity per vector local, in `Region_program.check`'s per-local call.
+  Found immediately by `reconstructs`'s own test the moment a real vector
+  local existed — see "Verification" below.
+- Excluded, as the plan itself scopes: online/blocked softmax (§3.2's
+  numerical point — caching is a value substitution, not a reassociation, so
+  it needed no tolerance policy or second oracle; folded into
+  `.ai/region_compute_design.md`), a `V`-element output accumulator,
+  loosening `total_work_bounded` (§3.4's explicit "do not do this in the same
+  change").
+
+### What was built
+
+`Region_program.Builder.vector` mirrors `scalar`'s calling convention as
+closely as the shape allows: it self-mints both the local's `id` and its own
+per-element binder `var` (via `Expr.Builder.fresh_local`/`fresh_reduce`), then
+hands the CALLER a *reader* — `Role.Position.t Index.t -> Expr.Value.t` — not
+a value, since a vector local has no single value to hand back. The body
+callback it takes has exactly `Expr.Builder.reduction`'s own shape (a
+symbolic index in, a `Value.t Builder.t` out), so `Attention.Sdpa`'s existing
+`score_at` function — unchanged from Stage A — plugs in directly as `vector`'s
+first argument with no adaptation.
+
+`p`'s own vector body reads `s` (the first vector local) at `p`'s own
+per-element index via `s i` (`Value.local_at s_id (Index.reduce i_var)`) — a
+vector local reading ANOTHER vector local at its own binder, which is well
+within the mechanism's design (the plan's §3.1 pseudocode does the same:
+`p[i] = exp(s[i] - m) / z`) and needed no special-casing anywhere: `s i` is
+just an ordinary `Value.t`, indistinguishable at that point from any other
+subterm.
+
+`Region_program.check`'s new aggregate slot-count bound reuses `max_size`
+(the program's existing general resource budget) as the ceiling, rather than
+inventing a new, separately-tuned `Kernel.Limits` field — CLAUDE.md's
+32-bit-aggregate rule is about the SUM of individually-bounded local extents
+overflowing, and folding that into the budget already threaded through
+`create`/`check`/`Builder.finish` was simpler than adding a parameter no
+current op needs to tune independently.
+
+### Verification
+
+- **`Region_program.reconstructs` against `Legacy_pixel`** — the same test,
+  same fixture, as Stage A's proof (`test/native/region_compute_test.ml`,
+  "Authored Regions reconstruct their legacy scalar oracles"). This is the
+  load-bearing claim: substituting `s`/`p` back through `specialize_pixel`
+  beta-reduces each `Local_at` to exactly `Legacy_pixel`'s expression, so
+  results are bitwise equal by construction. First run FAILED with
+  `Free_reducer` (the `~allowed_free` gap above) — the test caught the defect
+  immediately, before any hand-inspection would have.
+- **`lib/native_op_walk/sdpa_nwalk.ml`'s Direct-vs-Symbolic fuzz walk** —
+  unchanged, green across the whole config space (batch/heads/wq/wk/e/
+  mask/scale), the same evidence Stage A relied on, now covering Stage B's
+  program shape too (Direct evaluates the two vector locals via `~reducer`
+  per position; Symbolic grounds the beta-reduced form).
+- **`Region_execution`'s own counters**, same fixture as Stage A's tracker
+  (query `[W=2,C=3]`, key/value `[W=3,C=3]`, real mask, wk=3 e=3):
+  `locals` 6 -> 18 (now counting vector ELEMENTS, per §3.3 item 8's "count
+  elements" choice — `sf(1)+s(3)+m(1)+z(1)+p(3) = 9` per key × 2 keys),
+  `loads` 228 -> 60, `reductions` 120 -> 48. Fewer loads/reductions is the
+  direct evidence `score_at`'s dot product is no longer recomputed three
+  times per key.
+- **`make precommit`** (build, format, full `dune runtest`, file-size,
+  whitespace) green throughout, including `test/expr/value_test.ml`'s new
+  inline coverage of `Value.local_at`/`Eval.value`'s `~local_at`/`~reducer`/
+  `Rewrite.substitute_locals`'s `Vector` case at the library level, ahead of
+  and independent from the native-level SDPA proof above.
+- Native4D: untouched by Stage B's own commits, and inherits it automatically
+  — `Region_computation4.native_op` already maps `Op.Sdpa` straight onto
+  `Graph_ir.Sdpa`, so Native4D's Sdpa route (landed by
+  `native4d-sdpa-compatibility-plan.md`, `97163cf`) runs the SAME
+  `Attention.Sdpa.Computation.program`, now Stage-B-shaped, with no code
+  change of its own. The full `dune runtest` run above includes Native4D's
+  own tests and passed unchanged.
+
+### Not done, and out of scope for this plan
+
+Wall-clock measurement against Stage A (the plan's §4 recommendation, "Stage
+B then lands as a language extension whose payoff is measured against a
+Stage A baseline"). `region_compute_design.md`'s existing caveat — Region
+execution's general interpreter does not turn a lower operation count into a
+faster `Eval_direct` run, demonstrated for Stage A's own numbers — applies
+identically here and was folded into the tracked doc rather than re-measured;
+a real wall-clock win needs the specialized/compiled execution form that
+section already names as unbuilt. `bin/region_compute_bench.exe`'s `sdpa`
+rows were not re-run or re-recorded in this doc for the same reason
+`region_compute_design.md` gives: both are runtime-sensitive, and the tracked
+record deliberately keeps the operation-count table instead of a dated run.
+
+**Known cosmetic gap, not fixed**: `Region_program.pp` (used by
+`Region_trace`, `Kernel.pp`, `Stage_program.pp`, and Model Explorer's
+`me_kernel.ml`) has no way to give a vector local's own binder a display
+name — `Expr.Pp.value_open`'s `names` parameter only names `Local_var.t`
+occurrences, not free `Reduce_var.t` ones, so `s`/`p`'s own per-element index
+prints as the generic free-reducer fallback `?#N` rather than something like
+`i0`. Not wrong (it IS free relative to the printed local's own scope), just
+less legible than the plan's own `score_at(i)` pseudocode. No test currently
+pins this rendering. Fixing it means widening `Expr.Pp.value_open`'s public
+signature with a free-reducer naming override — small, but its own change.
