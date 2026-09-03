@@ -214,10 +214,15 @@ let vchk esc : ('a, [< error ]) Err.t -> 'a = function
   | Ok v -> v
   | Error e -> Err.Escape.throw_error esc (e :> error Err.Error.t)
 
-let value ?(local = fun _ -> None) ?(on_reduction = fun () -> ()) (env : Env.t)
-    ~output e =
+let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?reducer
+    ?(on_reduction = fun () -> ()) (env : Env.t) ~output e =
   Err.Escape.with_escape @@ fun esc ->
   let vchk r = vchk esc r in
+  let init_reducers =
+    match reducer with
+    | None -> fun _ -> None
+    | Some (v, p) -> fun w -> if Reduce_var.equal w v then Some p else None
+  in
   (* [eval_index] is polymorphic in the caller's error row, and [env.load_index]
      already sits at exactly this frame's own [error] row -- so [esc] is
      passed directly, with no narrowing view needed (unlike before [Data]
@@ -236,6 +241,10 @@ let value ?(local = fun _ -> None) ?(on_reduction = fun () -> ()) (env : Env.t)
     | Value.Intrinsic i -> intrinsic reducers i
     | Value.Local v -> (
         match local v with
+        | Some x -> x
+        | None -> Err.Escape.throw esc (`Unbound_local v))
+    | Value.Local_at (v, i) -> (
+        match local_at v (idx reducers i) with
         | Some x -> x
         | None -> Err.Escape.throw esc (`Unbound_local v))
     | Value.Load (s, c) -> vchk (env.Env.load s (Coord.map (idx reducers) c))
@@ -304,4 +313,4 @@ let value ?(local = fun _ -> None) ?(on_reduction = fun () -> ()) (env : Env.t)
     let best, best_ix = rows w.Intrinsic.Window.hlo Float.neg_infinity 0 in
     match d.result with Value -> best | Index -> vchk (float_of_index best_ix)
   in
-  go (fun _ -> None) e
+  go init_reducers e

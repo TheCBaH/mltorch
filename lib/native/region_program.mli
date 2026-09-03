@@ -6,12 +6,18 @@ module Non_invariant : sig
   type t = { local : Expr.Local_var.t; axis : Expr.Axis.t }
 end
 
+module Shape_mismatch : sig
+  type t = { local : Expr.Local_var.t; declared : Region_local.Shape.t }
+end
+
 type error =
   [ `Duplicate_local of Expr.Local_var.t
   | `Expr of Expr.Check.error
   | `Forward_local of Local_scope.t
   | `Local_list_too_large of int
+  | `Local_words_over_limit of int
   | `Non_invariant_local of Non_invariant.t
+  | `Shape_mismatch of Shape_mismatch.t
   | `Unknown_emitter_local of Expr.Local_var.t
   | `Unknown_local of Local_scope.t ]
 
@@ -72,6 +78,17 @@ module Builder : sig
 
   val run : 'a t -> 'a
   val scalar : Expr.Value.t -> (Expr.Value.t -> 'a t) -> 'a t
+
+  val vector :
+    extent:int ->
+    (Expr.Role.Position.t Expr.Index.t -> Expr.Value.t Expr.Builder.t) ->
+    ((Expr.Role.Position.t Expr.Index.t -> Expr.Value.t) -> 'a t) ->
+    'a t
+  (** [value] builds the local's body from its own symbolic per-element index,
+      the same shape [Expr.Builder.reduction]'s body callback has. [continue]
+      receives a reader: [Expr.Value.local_at id] applied at whatever index its
+      caller (typically an enclosing reduction's own bound variable) supplies.
+  *)
 
   val finish :
     max_size:int ->

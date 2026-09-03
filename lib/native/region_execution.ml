@@ -1,9 +1,13 @@
 (* These are the two deliberate mutation exceptions in this executor.
 
-   - [values] below is a fixed, per-key scalar-slot array. Dependent locals
-     must become visible to later locals before the emitter runs; an immutable
+   - [values] below is a fixed, per-key SLOT array. Dependent locals must
+     become visible to later locals before the emitter runs; an immutable
      map/list would add allocation and lookup on the path whose purpose is to
-     remove per-output work.
+     remove per-output work. A scalar local occupies one slot; a vector local
+     occupies [extent] consecutive slots, one per element -- [slots] below
+     maps each local's id to its own [(offset, count)] range within the one
+     flat array, so a vector read is a plain offset+index lookup, not a
+     second data structure.
    - [counters] are optional test instrumentation. Ordinary execution passes
      none, so measurements do not introduce mutable state into the hot path.
 
@@ -19,8 +23,8 @@ type counters = {
 
 type lowered = {
   program : Region_program.t;
-  slots : int Expr.Local_var.Map.t;
-  local_count : int;
+  slots : (int * int) Expr.Local_var.Map.t;
+  total_slots : int;
 }
 
 type t = Pixel_loop of Expr.Value.t | Region_loop of lowered
@@ -30,14 +34,26 @@ let counters () =
 
 (* For a caller that already knows, structurally, that [program] is not a
    plain pixel expression -- e.g. it just matched [pixel_expression = None] --
-   so it need not re-discover that fact by lowering and matching on [t]. *)
+   so it need not re-discover that fact by lowering and matching on [t].
+
+   The running [offset] is plain [int] arithmetic, not [Int64]-checked:
+   [Region_program.check] (run once, at [create]) already bounds the SUM of
+   every local's [Shape.slot_count] against [max_size] on [Int64] before any
+   [Region_program.t] can exist, so by the time a program reaches here the
+   total is already proven to fit -- this loop only has to use that proof,
+   not re-derive it. *)
 let lower_region program =
   let locals = Region_program.locals program in
-  let slots =
-    List.mapi (fun slot local -> (local.Region_local.id, slot)) locals
-    |> List.to_seq |> Expr.Local_var.Map.of_seq
+  let slots, total_slots =
+    List.fold_left
+      (fun (slots, offset) local ->
+        let count = Region_local.Shape.slot_count local.Region_local.shape in
+        ( Expr.Local_var.Map.add local.Region_local.id (offset, count) slots,
+          offset + count ))
+      (Expr.Local_var.Map.empty, 0)
+      locals
   in
-  { program; slots; local_count = List.length locals }
+  { program; slots; total_slots }
 
 let lower program =
   match Region_program.pixel_expression program with
@@ -61,41 +77,88 @@ let instrument ?counters (env : Expr.Eval.Env.t) =
         load_index = env.Expr.Eval.Env.load_index;
       }
 
-let evaluate_locals ?counters lowered ~env ~key =
-  let values = Array.make lowered.local_count 0. in
+(* Reads an already-filled slot range: [local] answers a plain [Value.Local]
+   (only meaningful for a scalar's single slot), [local_at] a [Value.Local_at]
+   at a computed position within a vector's range. Shared between
+   [evaluate_locals] (filling [values]) and [emit] (only reading it), so the
+   two cannot disagree about how a slot range is addressed. *)
+let slot_reader slots values =
   let local id =
-    Option.map
-      (fun slot -> values.(slot))
-      (Expr.Local_var.Map.find_opt id lowered.slots)
+    match Expr.Local_var.Map.find_opt id slots with
+    | Some (offset, _) when offset < Array.length values -> Some values.(offset)
+    | _ -> None
   in
+  let local_at id pos =
+    match Expr.Local_var.Map.find_opt id slots with
+    | Some (offset, count) when pos >= 0 && pos < count ->
+        let i = offset + pos in
+        if i < Array.length values then Some values.(i) else None
+    | _ -> None
+  in
+  (local, local_at)
+
+let evaluate_locals ?counters lowered ~env ~key =
+  let values = Array.make lowered.total_slots 0. in
+  let local, local_at = slot_reader lowered.slots values in
   let env = instrument ?counters env in
   let on_reduction () =
     Option.iter
       (fun counters -> counters.reductions <- counters.reductions + 1)
       counters
   in
-  let rec fill slot = function
-    | [] -> Err.return values
-    | binding :: rest ->
-        let open Err.Syntax in
-        let* value =
-          widened
-            (Expr.Eval.value ~local ~on_reduction env ~output:(expr_coord key)
-               binding.Region_local.value)
-        in
-        Option.iter
-          (fun counters -> counters.locals <- counters.locals + 1)
-          counters;
-        values.(slot) <- value;
-        fill (slot + 1) rest
+  let count_local () =
+    Option.iter
+      (fun counters -> counters.locals <- counters.locals + 1)
+      counters
   in
-  fill 0 (Region_program.locals lowered.program)
+  let rec fill = function
+    | [] -> Err.return values
+    | binding :: rest -> (
+        let open Err.Syntax in
+        match Expr.Local_var.Map.find binding.Region_local.id lowered.slots with
+        | offset, 1 ->
+            let* value =
+              widened
+                (Expr.Eval.value ~local ~local_at ~on_reduction env
+                   ~output:(expr_coord key) binding.Region_local.value)
+            in
+            count_local ();
+            values.(offset) <- value;
+            fill rest
+        | offset, count ->
+            (* A vector local's body is evaluated once PER POSITION, exactly
+               the loop shape [Reduce]'s own fold uses -- the body mentions
+               its binder FREE (never under a nested [Reduce]), so each
+               iteration seeds it with [~reducer], the same role
+               [Reduce]'s internal per-iteration [bound] closure plays. *)
+            let var =
+              match binding.Region_local.shape with
+              | Region_local.Shape.Vector { var; _ } -> var
+              | Region_local.Shape.Scalar ->
+                  invalid_arg
+                    "Region_execution.evaluate_locals: scalar shape with a \
+                     vector slot range"
+            in
+            let rec each p =
+              if p >= count then Err.return ()
+              else
+                let* value =
+                  widened
+                    (Expr.Eval.value ~local ~local_at ~reducer:(var, p)
+                       ~on_reduction env ~output:(expr_coord key)
+                       binding.Region_local.value)
+                in
+                count_local ();
+                values.(offset + p) <- value;
+                each (p + 1)
+            in
+            let* () = each 0 in
+            fill rest)
+  in
+  fill (Region_program.locals lowered.program)
 
 let emit ?counters lowered ~env ~values ~output =
-  let local id =
-    Option.bind (Expr.Local_var.Map.find_opt id lowered.slots) (fun slot ->
-        if slot < Array.length values then Some values.(slot) else None)
-  in
+  let local, local_at = slot_reader lowered.slots values in
   let env = instrument ?counters env in
   let on_reduction () =
     Option.iter
@@ -106,7 +169,8 @@ let emit ?counters lowered ~env ~values ~output =
     (fun counters -> counters.emitters <- counters.emitters + 1)
     counters;
   widened
-    (Expr.Eval.value ~local ~on_reduction env ~output:(expr_coord output)
+    (Expr.Eval.value ~local ~local_at ~on_reduction env
+       ~output:(expr_coord output)
        (Region_program.output lowered.program))
 
 let materialize ?counters lowered ~output_shape ~env =

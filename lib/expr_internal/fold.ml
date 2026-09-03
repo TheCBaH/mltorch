@@ -102,6 +102,7 @@ let rec walk ~value ~index ~intrinsic acc (e : Value.t) =
       let (Intrinsic.Max_pool d) = i in
       Coord.fold (fun acc x -> index.idx acc x) acc d.Intrinsic.Max_pool.out
   | Value.Local _ -> acc
+  | Value.Local_at (_, i) -> index.idx acc i
   | Value.Load (_, c) -> Coord.fold (fun acc i -> index.idx acc i) acc c
   | Value.Reduce r ->
       let acc = index.idx (index.idx acc r.Reduction.lo) r.Reduction.hi in
@@ -204,7 +205,9 @@ let measure_with_locals ~local ~max_size ~max_depth e =
   in
   let rec value budget left (e : Value.t) =
     let local_size, local_depth =
-      match e with Value.Local v -> local v | _ -> (1, 1)
+      match e with
+      | Value.Local v | Value.Local_at (v, _) -> local v
+      | _ -> (1, 1)
     in
     let left = node budget left ~cost:local_size ~depth:local_depth in
     let sub = budget - 1 in
@@ -218,6 +221,9 @@ let measure_with_locals ~local ~max_size ~max_depth e =
         let dc, left = coord sub left d.Intrinsic.Max_pool.out in
         (1 + dc, left)
     | Value.Local _ -> (local_depth, left)
+    | Value.Local_at (_, i) ->
+        let d, left = index sub left i in
+        (1 + Stdlib.max local_depth d, left)
     | Value.Load (_, c) ->
         let d, left = coord sub left c in
         (1 + d, left)
@@ -306,7 +312,24 @@ let intrinsic_sources e =
 let locals e =
   walk
     ~value:(fun acc -> function
+      | Value.Local v | Value.Local_at (v, _) -> Local_var.Set.add v acc
+      | _ -> acc)
+    ~index:no_index ~intrinsic:nothing Local_var.Set.empty e
+
+(* Split by NODE KIND, not merged into [locals]: the host's shape-agreement
+   rule (a [Local] on a vector-shaped local, or a [Local_at] on a
+   scalar-shaped one, is a typed error) needs to know WHICH form referenced a
+   given id, and a single set that unions both loses exactly that. *)
+let scalar_locals e =
+  walk
+    ~value:(fun acc -> function
       | Value.Local v -> Local_var.Set.add v acc | _ -> acc)
+    ~index:no_index ~intrinsic:nothing Local_var.Set.empty e
+
+let vector_locals e =
+  walk
+    ~value:(fun acc -> function
+      | Value.Local_at (v, _) -> Local_var.Set.add v acc | _ -> acc)
     ~index:no_index ~intrinsic:nothing Local_var.Set.empty e
 
 let output_axes e =
@@ -333,6 +356,7 @@ let free_reducers e =
     | Value.Intrinsic (Intrinsic.Max_pool d) ->
         Coord.fold idx acc d.Intrinsic.Max_pool.out
     | Value.Local _ -> acc
+    | Value.Local_at (_, i) -> idx acc i
     | Value.Load (_, c) -> Coord.fold idx acc c
     | Value.Reduce r ->
         (* The bounds are OUTSIDE the binder: they may mention enclosing
@@ -364,6 +388,7 @@ let binders e =
     | Value.Const _ -> acc
     | Value.Intrinsic _ -> acc
     | Value.Local _ -> acc
+    | Value.Local_at _ -> acc
     | Value.Load _ -> acc
     | Value.Reduce r -> go (r.Reduction.var :: acc) r.Reduction.body
     | Value.Round_f32 a -> go acc a

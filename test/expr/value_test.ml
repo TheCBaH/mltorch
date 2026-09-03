@@ -177,12 +177,82 @@ let%expect_test "scalar locals are open only at an explicit boundary" =
     Builder.run
       (Rewrite.substitute_locals
          (fun v ->
-           if Local_var.equal v local then Some (Value.const 3.) else None)
+           if Local_var.equal v local then
+             Some (Rewrite.Scalar (Value.const 3.))
+           else None)
          e)
   in
   Fmt.pr "substituted: %a; closed: %a@." Pp.value substituted result
     (Check.value substituted);
   [%expect {| substituted: (3 + 1); closed: ok |}]
+
+let%expect_test "vector locals are open only at an explicit boundary" =
+  let var, id, e =
+    Builder.run
+      (let open Builder.Syntax in
+       let* var = Builder.fresh_reduce in
+       let* id = Builder.fresh_local in
+       let read = Value.local_at id (Index.assume_position (Index.const 1)) in
+       Builder.return (var, id, Value.add read (Value.const 1.)))
+  in
+  let body =
+    Value.mul
+      (Value.value_of_index (Index.of_position (Index.reduce var)))
+      (Value.const 10.)
+  in
+  let result =
+    Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Check.pp_error
+  in
+  Fmt.pr "closed: %a@." result (Check.value e);
+  [%expect {| closed: unbound local #1 |}];
+  Fmt.pr "fragment: %a@." result
+    (Check.fragment ~locals:(Local_var.Set.singleton id) e);
+  [%expect {| fragment: ok |}];
+  Fmt.pr "vector_locals: %d scalar_locals: %d@."
+    (Local_var.Set.cardinal (Fold.vector_locals e))
+    (Local_var.Set.cardinal (Fold.scalar_locals e));
+  [%expect {| vector_locals: 1 scalar_locals: 0 |}];
+  let env =
+    {
+      Eval.Env.load = (fun _ _ -> assert false);
+      load_index = (fun _ _ -> assert false);
+    }
+  in
+  let output = Coord.of_fn (fun _ -> 0) in
+  (* Compute the vector "once per position", the way [Region_execution]
+     does: each position's value comes from evaluating [body] with the
+     binder [var] seeded via [~reducer], never a nested [Reduce]. *)
+  let elt p =
+    match Eval.value ~reducer:(var, p) env ~output body with
+    | Ok v -> v
+    | Error _ -> assert false
+  in
+  let elements = List.init 3 elt in
+  Fmt.pr "eval body: %a@." Fmt.(list ~sep:(any ",") float) elements;
+  [%expect {| eval body: 0,10,20 |}];
+  Fmt.pr "eval: %a@."
+    (Core.Pretty.err_result ~ok:Fmt.float ~error:Eval.pp_error)
+    (Eval.value
+       ~local_at:(fun v pos ->
+         if Local_var.equal v id then List.nth_opt elements pos else None)
+       env ~output e);
+  [%expect {| eval: 11 |}];
+  Fmt.pr "open: %a@."
+    (Pp.value_open ~names:(fun v ->
+         if Local_var.equal v id then Some "v0" else None))
+    e;
+  [%expect {| open: (v0[1] + 1) |}];
+  let substituted =
+    Builder.run
+      (Rewrite.substitute_locals
+         (fun v ->
+           if Local_var.equal v id then Some (Rewrite.Vector { var; body })
+           else None)
+         e)
+  in
+  Fmt.pr "substituted: %a; closed: %a@." Pp.value substituted result
+    (Check.value substituted);
+  [%expect {| substituted: ((value_of_index(1) * 10) + 1); closed: ok |}]
 
 let%expect_test "Fold: scope-aware queries" =
   let e = Builder.run (nested ~kind:Reduction.Sum) in

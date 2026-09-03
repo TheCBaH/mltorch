@@ -242,6 +242,7 @@ module type S = sig
       | Const of float
       | Intrinsic of Intrinsic.t
       | Local of Local_var.t
+      | Local_at of Local_var.t * Role.Position.t Index.t
       | Load of Source.t * Role.Position.t Index.t Coord.t
       | Reduce of Reduction.t
       | Round_f32 of t
@@ -270,6 +271,13 @@ module type S = sig
     val round_f32 : t -> t
     val intrinsic : Intrinsic.t -> t
     val local : Local_var.t -> t
+
+    val local_at : Local_var.t -> Role.Position.t Index.t -> t
+    (** Reads a vector local's element at a computed index -- a [Region_local]
+        vector's "body may mention the binder" applied at a call site. The
+        counterpart to [Region_local.vector]'s own binder-parameterised body:
+        substituting it out (during specialization) is a beta-reduction, not a
+        lookup. *)
 
     (* [Ground_expr] stores these operator payloads and applies them, so they are
        public: it is what lets the ground language share one definition of the
@@ -396,6 +404,17 @@ module type S = sig
         are treated differently, not because one is a subset of the other. *)
 
     val locals : Value.t -> Local_var.Set.t
+
+    val scalar_locals : Value.t -> Local_var.Set.t
+    (** The subset of [locals] read as a plain [Value.Local] -- what a
+        scalar-shaped local may legally be. *)
+
+    val vector_locals : Value.t -> Local_var.Set.t
+    (** The subset of [locals] read as [Value.Local_at] -- what a vector-shaped
+        local may legally be. Disjoint from [scalar_locals] in a well-formed
+        program; the host's shape-agreement check is exactly what rules out the
+        id appearing in both. *)
+
     val output_axes : Value.t -> Axis.t list
     val intrinsics : Value.t -> int
 
@@ -479,8 +498,22 @@ module type S = sig
         replaced by one scalar subtree. A caller needing to eliminate such a
         dependency must reject it. *)
 
+    type local_binding =
+      | Scalar of Value.t
+      | Vector of { var : Reduce_var.t; body : Value.t }
+          (** What a local resolves to at a use site. [Scalar] substitutes at a
+              [Value.Local] occurrence; [Vector] substitutes [var] (the binder
+              its [body] is parameterised over) with the occurrence's own read
+              index at a [Value.Local_at] one -- a beta-reduction, not a lookup.
+              Which node kind a given local may legally appear as is
+              [Region_program.check]'s shape-agreement rule, not this
+              function's: passing a [Vector] binding for a bare [Local]
+              occurrence (or a [Scalar] one for a [Local_at]) raises, the same
+              as any other well-formedness violation this module assumes its
+              caller has already ruled out. *)
+
     val substitute_locals :
-      (Local_var.t -> Value.t option) -> Value.t -> Value.t Builder.t
+      (Local_var.t -> local_binding option) -> Value.t -> Value.t Builder.t
   end
 
   module Check : sig
@@ -502,6 +535,7 @@ module type S = sig
     val fragment :
       ?max_size:int ->
       ?max_depth:int ->
+      ?allowed_free:Reduce_var.Set.t ->
       locals:Local_var.Set.t ->
       Value.t ->
       (unit, error) Err.t
@@ -513,6 +547,12 @@ module type S = sig
         still violate — a free reducer, a binder shadowing itself (how two
         unfreshened fragments capture each other), and the optional size/depth
         limits.
+
+        [allowed_free] exempts specific reducer identities from the free-
+        reducer check -- for a vector local's own binder, deliberately free
+        within its stored value (a [Region_local.vector]'s "body may mention the
+        binder"). Empty by default, so an ordinary fragment's contract is
+        unchanged.
 
         A configured limit is checked FIRST and is metered, stopping at the
         first node past it: the scope traversals recurse over the whole tree, so
@@ -646,12 +686,24 @@ module type S = sig
 
     val value :
       ?local:(Local_var.t -> float option) ->
+      ?local_at:(Local_var.t -> int -> float option) ->
+      ?reducer:Reduce_var.t * int ->
       ?on_reduction:(unit -> unit) ->
       Env.t ->
       output:int Coord.t ->
       Value.t ->
       (float, error) Err.t
     (** The reference interpreter.
+
+        [local_at] resolves a [Value.Local_at] read: the caller has already
+        evaluated a vector local's whole body once per position (the same loop
+        shape [Reduce]'s own fold uses, one iteration per key), and supplies the
+        stored result at the requested position; [None] behaves as an unbound
+        local, same as [local]. [reducer], when given, seeds evaluation with ONE
+        reducer identity pre-bound to a concrete position -- what running a
+        vector local's own body (which mentions its binder free, not under a
+        [Reduce]) needs, mirroring how [Reduce]'s internal fold already binds
+        its own [var] per iteration.
 
         [Select] evaluates only the selected branch. [Reduce] is the ordered
         half-open left fold, with the same seeds and the same association as the

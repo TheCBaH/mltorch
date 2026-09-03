@@ -468,16 +468,22 @@ module Sdpa = struct
       S.select (S.lt neg_inf m) numer (S.const 0.)
   end
 
-  (* Authoritative declarative Region computation -- Stage A of
-     `.ai/region_compute_design.md`'s SDPA derivation: [m], [z] and [sf] are
-     constant across the output feature axis [C] (mirroring [score_at] in
-     [Legacy_pixel], which already overrides [C] in every load it performs),
-     so [Whole [C]] shares them across a row instead of recomputing them once
-     per output feature. [score_at] itself is still recomputed at each of its
-     three uses -- caching it too is Stage B, a later shaped-local extension,
-     not this one. Substituting the three scalar locals back through
-     [specialize_pixel] reproduces [Legacy_pixel]'s expression exactly (no
-     reduction is reassociated), so the claim is [Identical], proved by
+  (* Authoritative declarative Region computation -- Stage B of
+     `.ai/region_compute_design.md`'s SDPA derivation (`region-sdpa-
+     computation-plan.md` §3): [sf], [m] and [z] are constant across the
+     output feature axis [C] (Stage A), and [score_at] itself is now cached
+     too, as a per-key VECTOR local [s] holding one score per key position --
+     the shaped-local extension Stage A deferred. [p] (the normalized
+     softmax weight) is cached the same way, trading one more per-key vector
+     for the better constant (~1.5*E over Stage A's ~3x, per the plan's
+     §3.1 cost table) rather than recomputing [exp(s[k]-m)/z] at [numer]'s
+     own use.
+
+     Substituting [s] and [p] back through [specialize_pixel] beta-reduces
+     each [Local_at] read against its own reduction's bound index, which
+     reproduces [Legacy_pixel]'s expression exactly -- no reduction changes
+     order, grouping or bounds, only what is shared across the row -- so the
+     claim stays [Identical], proved the same way Stage A's was: by
      [Region_program.reconstructs] against [Legacy_pixel] below. *)
   module Computation = struct
     open Region_context
@@ -524,51 +530,60 @@ module Sdpa = struct
           program
             (Region_program.Builder.run
                (Region_program.Builder.scalar sf (fun sf ->
-                    let m =
-                      Expr.Builder.run
-                        (Expr.Builder.reduction ~kind:Expr.Reduction.Max
-                           ~lo:Expr.Index.zero
-                           ~hi:(Expr.Index.const wk_extent)
-                           (score_at ~sf))
-                    in
-                    Region_program.Builder.scalar m (fun m ->
-                        let z =
+                    Region_program.Builder.vector ~extent:wk_extent
+                      (score_at ~sf) (fun s ->
+                        let m =
                           Expr.Builder.run
-                            (Expr.Builder.reduction ~kind:Expr.Reduction.Sum
+                            (Expr.Builder.reduction ~kind:Expr.Reduction.Max
                                ~lo:Expr.Index.zero
                                ~hi:(Expr.Index.const wk_extent) (fun k ->
-                                 let open Expr.Builder.Syntax in
-                                 let+ s = score_at ~sf k in
-                                 Expr.Value.exp (Expr.Value.sub s m)))
+                                 Expr.Builder.return (s k)))
                         in
-                        Region_program.Builder.scalar z (fun z ->
-                            let numer =
+                        Region_program.Builder.scalar m (fun m ->
+                            let z =
                               Expr.Builder.run
                                 (Expr.Builder.reduction ~kind:Expr.Reduction.Sum
                                    ~lo:Expr.Index.zero
                                    ~hi:(Expr.Index.const wk_extent) (fun k ->
-                                     let open Expr.Builder.Syntax in
-                                     let+ s = score_at ~sf k in
-                                     let p =
-                                       Expr.Value.div
-                                         (Expr.Value.exp (Expr.Value.sub s m))
-                                         z
-                                     in
-                                     Expr.Value.mul p
-                                       (load value
-                                          (Expr.Coord.set output_coord Axis.W k))))
+                                     Expr.Builder.return
+                                       (Expr.Value.exp (Expr.Value.sub (s k) m))))
                             in
-                            (* `_safe_softmax`, same as [Legacy_pixel]:
-                               unconditional, and a row whose scores are all
-                               [-inf] yields 0, not NaN. *)
-                            let neg_inf = Expr.Value.const Float.neg_infinity in
-                            Region_program.Builder.finish
-                              ~max_size:limits.Kernel.Limits.max_size
-                              ~max_depth:limits.Kernel.Limits.max_depth
-                              ~partition
-                              ~output:
-                                (Expr.Value.select
-                                   (Expr.Bool.value_lt neg_inf m)
-                                   numer (Expr.Value.const 0.)))))))
+                            Region_program.Builder.scalar z (fun z ->
+                                Region_program.Builder.vector ~extent:wk_extent
+                                  (fun i ->
+                                    Expr.Builder.return
+                                      (Expr.Value.div
+                                         (Expr.Value.exp
+                                            (Expr.Value.sub (s i) m))
+                                         z))
+                                  (fun p ->
+                                    let numer =
+                                      Expr.Builder.run
+                                        (Expr.Builder.reduction
+                                           ~kind:Expr.Reduction.Sum
+                                           ~lo:Expr.Index.zero
+                                           ~hi:(Expr.Index.const wk_extent)
+                                           (fun k ->
+                                             Expr.Builder.return
+                                               (Expr.Value.mul (p k)
+                                                  (load value
+                                                     (Expr.Coord.set
+                                                        output_coord Axis.W k)))))
+                                    in
+                                    (* `_safe_softmax`, same as
+                                       [Legacy_pixel]: unconditional, and a
+                                       row whose scores are all [-inf]
+                                       yields 0, not NaN. *)
+                                    let neg_inf =
+                                      Expr.Value.const Float.neg_infinity
+                                    in
+                                    Region_program.Builder.finish
+                                      ~max_size:limits.Kernel.Limits.max_size
+                                      ~max_depth:limits.Kernel.Limits.max_depth
+                                      ~partition
+                                      ~output:
+                                        (Expr.Value.select
+                                           (Expr.Bool.value_lt neg_inf m)
+                                           numer (Expr.Value.const 0.)))))))))
   end
 end

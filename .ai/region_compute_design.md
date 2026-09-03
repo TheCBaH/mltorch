@@ -14,14 +14,15 @@ embedded mechanically with `Region_program.pixel`, preserving the original
 expression object.  There is no Kernel sum type and no optional Region
 admission/fallback path.
 
-SDPA's program is scalar-only (its row max/sum/scale are shared per key, its
-per-feature score is not) -- see "Design headroom" below for why that is a
-deliberate stopping point, not the whole of what SDPA needs.
+SDPA's program caches both scalars (row max/sum/scale, Stage A) and, since
+`0a0bc41`, two per-key VECTOR locals -- its score row and its normalized
+softmax weight row (Stage B) -- see "Design headroom" below for what that
+adds and what it still does not.
 
-Out of scope: loop IR, tiling, shaped locals, multi-output programs, automatic
-Pixel-to-Region discovery, graph fusion, GroupNorm and batch normalization
-Region forms, safe/log softmax, a shaped-local SDPA score cache, relaxed
-rounding, tree/parallel reductions, and multi-node Region fusion.
+Out of scope: loop IR, tiling, multi-output programs, automatic Pixel-to-Region
+discovery, graph fusion, GroupNorm and batch normalization Region forms,
+safe/log softmax, blocked online-softmax state, relaxed rounding, tree/parallel
+reductions, and multi-node Region fusion.
 
 ## Program contract
 
@@ -63,12 +64,21 @@ why a dense result comparison alone is insufficient evidence.
 Three decisions were fixed now specifically so a later phase extends this IR
 rather than redesigns it.
 
-`Region_local.t` carries a `shape : Region_local.Shape.t` field even though
-`Shape.t` has exactly one constructor, `Scalar`, today.  Leaving the field out
-because nothing else exists yet would make shaped locals — a `K`-element
-cache, a `V`-element accumulator, blocked online-softmax state — a language
-change instead of a new `Shape.t` constructor and new `Region_execution`
-cases.
+`Region_local.t` carries a `shape : Region_local.Shape.t` field, reserved for
+exactly this: `Shape.t` now has a second constructor, `Vector of { extent :
+int; var : Expr.Reduce_var.t }` (the `K`-element cache SDPA needed), landed
+without any change to `Shape.t`'s own field or to `Region_local.t`'s three
+fields -- it is a new constructor and new `Region_execution`/`Region_eval`
+cases, not a language change, exactly as this section anticipated.  `Expr`
+needed no new binder-minting primitive either: `Builder.fresh_reduce`, public
+since Stage A, already mints a `Reduce_var.t` outside a reduction, and a
+vector local's body is free in that binder the same way a reduction's body is
+bound in one -- `Expr.Value` gained one new leaf, `Local_at`, to read it back
+at a computed index, and `Expr.Check.fragment` gained one exemption
+(`~allowed_free`) so that binder's deliberate freedom is not mistaken for the
+composition defect the free-reducer check otherwise exists to catch.  Still
+out of scope: a `V`-element output accumulator and blocked online-softmax
+state, neither of which SDPA's own Stage B needed (see below).
 
 Region semantics are deliberately separate from schedule tiles.  An output
 region states what may share one computed local; a schedule tile is a
@@ -79,16 +89,31 @@ partition is reserved for a program whose block itself owns an explicit local
 or ordered phase, not for an arbitrary machine tile a schedule picks
 independently of program meaning.
 
-SDPA needs more than scalar sharing to reach an efficient form, which is why
-its shaped-local score cache stays out of scope rather than being attempted on
-today's form.  The per-pixel implementation recomputes every attention score
-once per output value feature, so its leading cost is `Theta(Q * K * E^2)`
-against an ideal `Theta(Q * K * (E + V))`.  A scalar local removes the
-repeated softmax row max/sum (landed: `sf`/`m`/`z` are shared once per key,
-cutting the dominant term from `3*Wk*E^2` to `Wk*E*(E+2)`), but not the
-repeated numerator: reaching the ideal bound needs a `K`-element score cache,
-a `V`-element output accumulator, or blocked online-softmax state — a shaped,
-not scalar, local.
+SDPA needed more than scalar sharing to reach an efficient form.  The
+per-pixel implementation recomputes every attention score once per output
+value feature, so its leading cost is `Theta(Q * K * E^2)` against an ideal
+`Theta(Q * K * (E + V))`.  Stage A's scalar locals removed the repeated
+softmax row max/sum (`sf`/`m`/`z` shared once per key, cutting the dominant
+term from `3*Wk*E^2` to `Wk*E*(E+2)`) but not the repeated numerator; Stage B
+closes most of the remaining gap with two `K`-element (`Wk`) vector locals --
+`s`, the score row (`score_at`, cached instead of recomputed at each of
+`m`/`z`/`numer`'s three uses), and `p`, the normalized softmax weight row
+(`exp(s[k]-m)/z`, cached instead of recomputed at `numer`'s own use) -- taking
+the per-key cost to `Wk*(2E+3)`, against Stage A's `Wk*E*(E+2)`: roughly
+`1.5*E` faster, e.g. ~96x at `head_dim = 64`.  What remains open is a
+`V`-element output accumulator or blocked online-softmax state, which would
+close the rest of the gap to `Theta(Q*K*(E+V))` — still out of scope.
+
+The numerical point worth stating precisely, since a shaped-local cache
+sounds like it could open a tolerance question and does not: caching `s`/`p`
+only SUBSTITUTES values that were already computed identically at every use
+site.  No reduction changes order, grouping or bounds, so
+`Region_program.specialize_pixel` still beta-reduces each cached read back to
+exactly the expression `Legacy_pixel` computes, and the claim stays
+`Identical` -- proved by `Region_program.reconstructs`, not asserted.  A
+tolerance policy, a second oracle, or an `Equivalent` claim would only be
+needed by the online-softmax strategy this section still defers, which is the
+one strategy that reassociates rather than merely caches.
 
 A lower operation count is not the same claim as a lower wall-clock time, and
 SDPA is where that gap first became visible: `Region_execution` evaluates
@@ -96,7 +121,10 @@ through `Expr.Eval`'s general interpreter, and a nested reduction (SDPA's
 per-feature score is a reduction inside the row max/sum reduction) costs more
 per element there than a flat one, so at ordinary sizes the scalar-sharing win
 above does not show up as a faster `Eval_direct` run against the Pixel-form
-oracle it reconstructs -- only as fewer operations. Closing that gap needs a
+oracle it reconstructs -- only as fewer operations. Stage B does not change
+this: a vector local's own element is evaluated by the same general
+interpreter, once per position, so it is still a per-element operation-count
+win, not a demonstrated wall-clock one. Closing that gap needs a
 specialized/compiled execution form for a non-degenerate program, which is not
 implemented yet; until it is, treat this section's operation counts as a cost
 model, not a wall-clock prediction.
@@ -179,11 +207,15 @@ not a substitute for the ownership trace or wall-clock measurement.
 
 SDPA runs the same benchmark under a separate, smaller `report_sdpa` sweep
 (query/key sequence length and head dim, not `(R, K)`) in the same
-executable, with no Native4D column -- see "Ownership and routing" above for
-why -- and it additionally times `Legacy_pixel(Direct)` directly, which is
-what the previous section's operation-count-vs-wall-clock distinction is
+executable, and it additionally times `Legacy_pixel(Direct)` directly, which
+is what the previous section's operation-count-vs-wall-clock distinction is
 evidence for: `Legacy_pixel` is faster in absolute terms at every size
 measured, precisely because it is not read through the general interpreter.
+SDPA's row now carries a `direct4_ms` column too: since the `D = 1` admission
+(`native4d_design.md` §7.9) Native4D has a real Sdpa route, delegating to the
+same Region program Native does, and this column measures Native4D's
+translation/dispatch overhead over that identical program rather than a
+second numeric kernel.
 
 Reproduce elapsed-time and GC-word medians with
 `opam exec -- dune exec bin/region_compute_bench.exe`; both are

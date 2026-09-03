@@ -10,6 +10,7 @@ type value =
   | Const of float
   | Intrinsic of Intrinsic.t
   | Local of Local_var.t
+  | Local_at of Local_var.t * Role.Position.t Index.t
   | Load of Source.t * Role.Position.t Index.t Coord.t
   | Reduce of reduction
   | Round_f32 of value

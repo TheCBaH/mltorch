@@ -98,6 +98,13 @@ let value_open ~names fmt e =
           | Some name -> name
           | None -> Fmt.str "?%a" Local_var.pp v);
         n
+    | Value.Local_at (v, i) ->
+        Fmt.pf fmt "%s[%a]"
+          (match names v with
+          | Some name -> name
+          | None -> Fmt.str "?%a" Local_var.pp v)
+          idxe i;
+        n
     | Value.Load (s, c) ->
         Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idxe) c;
         n

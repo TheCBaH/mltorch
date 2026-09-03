@@ -6,12 +6,18 @@ module Non_invariant = struct
   type t = { local : Expr.Local_var.t; axis : Expr.Axis.t }
 end
 
+module Shape_mismatch = struct
+  type t = { local : Expr.Local_var.t; declared : Region_local.Shape.t }
+end
+
 type error =
   [ `Duplicate_local of Expr.Local_var.t
   | `Expr of Expr.Check.error
   | `Forward_local of Local_scope.t
   | `Local_list_too_large of int
+  | `Local_words_over_limit of int
   | `Non_invariant_local of Non_invariant.t
+  | `Shape_mismatch of Shape_mismatch.t
   | `Unknown_emitter_local of Expr.Local_var.t
   | `Unknown_local of Local_scope.t ]
 
@@ -36,7 +42,16 @@ let pixel_expression t =
     Some t.output
   else None
 
-type expanded = { value : Expr.Value.t; size : int; depth : int }
+(* [specialize_pixel]'s own accumulator: what a local resolves to once every
+   EARLIER local has already been substituted into it (see [rewrite] below),
+   alongside the [size]/[depth] budget its inlined form costs -- shape-
+   agnostic, since [preflight] measures a prospective substitution
+   structurally, not by whether it fills a [Local] or a [Local_at]. *)
+type specialized = {
+  binding : Expr.Rewrite.local_binding;
+  size : int;
+  depth : int;
+}
 
 let preflight ~max_size ~max_depth ~locals value =
   match
@@ -69,6 +84,13 @@ let specialize_pixel ~max_size ~max_depth t =
       pixel
   | None ->
       let open Err.Syntax in
+      (* Only the SIZE/DEPTH budget is scalar-vs-vector agnostic -- both cost
+         the same to inline, since [preflight] measures a prospective
+         substitution structurally, not by shape. What differs is HOW each
+         local is spliced back in: a scalar local's whole (freshened) value
+         replaces a [Local] occurrence outright; a vector local's (freshened)
+         body is instead beta-reduced against a [Local_at] occurrence's own
+         read index, via [Expr.Rewrite.substitute_locals]'s [Vector] case. *)
       let rewrite locals state value =
         let value, state =
           Expr.Builder.run_from state (Expr.Rewrite.freshen value)
@@ -77,7 +99,7 @@ let specialize_pixel ~max_size ~max_depth t =
           (Expr.Rewrite.substitute_locals
              (fun id ->
                Option.map
-                 (fun e -> e.value)
+                 (fun e -> e.binding)
                  (Expr.Local_var.Map.find_opt id locals))
              value)
       in
@@ -89,9 +111,15 @@ let specialize_pixel ~max_size ~max_depth t =
               preflight ~max_size ~max_depth ~locals local.Region_local.value
             in
             let value, state = rewrite locals state local.Region_local.value in
+            let binding =
+              match local.Region_local.shape with
+              | Region_local.Shape.Scalar -> Expr.Rewrite.Scalar value
+              | Region_local.Shape.Vector { var; _ } ->
+                  Expr.Rewrite.Vector { var; body = value }
+            in
             Err.return
               ( Expr.Local_var.Map.add local.Region_local.id
-                  { value; size; depth } locals,
+                  { binding; size; depth } locals,
                 state ))
           (Err.return (Expr.Local_var.Map.empty, Expr.Builder.initial))
           t.locals
@@ -121,9 +149,18 @@ let pp_error fmt : [< error ] -> unit = function
         Expr.Local_var.pp referenced
   | `Local_list_too_large limit ->
       Fmt.pf fmt "local list exceeds limit %d" limit
+  | `Local_words_over_limit limit ->
+      Fmt.pf fmt "total local slot count exceeds limit %d" limit
   | `Non_invariant_local { Non_invariant.local; axis } ->
       Fmt.pf fmt "local %a varies over whole axis %a" Expr.Local_var.pp local
         Expr.Axis.pp axis
+  | `Shape_mismatch { Shape_mismatch.local; declared } ->
+      Fmt.pf fmt "local %a is read as %s but declared %a" Expr.Local_var.pp
+        local
+        (match declared with
+        | Region_local.Shape.Scalar -> "a vector"
+        | Region_local.Shape.Vector _ -> "a scalar")
+        Region_local.Shape.pp declared
   | `Unknown_emitter_local local ->
       Fmt.pf fmt "emitter refers to unknown local %a" Expr.Local_var.pp local
   | `Unknown_local { Local_scope.local; referenced } ->
@@ -143,6 +180,64 @@ let all_local_ids locals =
     (fun ids local -> Expr.Local_var.Set.add local.Region_local.id ids)
     Expr.Local_var.Set.empty locals
 
+let all_local_shapes locals =
+  List.fold_left
+    (fun shapes local ->
+      Expr.Local_var.Map.add local.Region_local.id local.Region_local.shape
+        shapes)
+    Expr.Local_var.Map.empty locals
+
+(* Shape agreement: a [Value.Local] read names a local declared [Scalar], and
+   a [Value.Local_at] read names one declared [Vector] -- CLAUDE.md's "closed
+   value set is a variant" rule applied to which NODE KIND a local may appear
+   as, not just which id. An id absent from [shapes] is a forward/unknown
+   reference, already reported by [first_scope_error]/[check_output]; this
+   only fires for an id that IS declared, at the wrong kind. *)
+let shape_error ~shapes expr =
+  let find is_wrong uses =
+    Expr.Local_var.Set.to_seq uses
+    |> Seq.find_map (fun local ->
+        match Expr.Local_var.Map.find_opt local shapes with
+        | Some declared when is_wrong declared ->
+            Some (`Shape_mismatch { Shape_mismatch.local; declared })
+        | Some _ | None -> None)
+  in
+  let is_vector = function
+    | Region_local.Shape.Vector _ -> true
+    | Region_local.Shape.Scalar -> false
+  in
+  let is_scalar = function
+    | Region_local.Shape.Scalar -> true
+    | Region_local.Shape.Vector _ -> false
+  in
+  match find is_vector (Expr.Fold.scalar_locals expr) with
+  | Some error -> Some error
+  | None -> find is_scalar (Expr.Fold.vector_locals expr)
+
+(* Total slot-count across every local, bounds-checked on [Int64] before any
+   narrowing: a per-local extent is already bounded (it is one factor of the
+   op's own [total_work_bounded]-style product), but the SUM across several
+   vector locals is an aggregate, and CLAUDE.md's 32-bit rule is explicit that
+   a check on individually-in-range factors does not bound their sum --
+   [lib/native] is js_of_ocaml-reachable. [max_size] doubles as the ceiling
+   here: it is already the general "how big may this Region program be"
+   budget threaded through [create]/[check], and a program's total local
+   footprint is part of that same budget rather than a new, separately-tuned
+   knob. *)
+let checked_slot_total ~limit locals =
+  let limit64 = Int64.of_int limit in
+  let rec go total = function
+    | [] -> Err.return ()
+    | local :: rest ->
+        let count =
+          Int64.of_int (Region_local.Shape.slot_count local.Region_local.shape)
+        in
+        if Int64.compare total (Int64.sub limit64 count) > 0 then
+          Err.fail (`Local_words_over_limit limit)
+        else go (Int64.add total count) rest
+  in
+  go 0L locals
+
 let first_scope_error ~defined ~all ~local expr =
   match
     Expr.Local_var.Set.min_elt_opt
@@ -158,16 +253,24 @@ let check ~max_size ~max_depth t =
   let open Err.Syntax in
   if over_limit max_size t.locals then Err.fail (`Local_list_too_large max_size)
   else
+    let* () = checked_slot_total ~limit:max_size t.locals in
     let all = all_local_ids t.locals in
+    let shapes = all_local_shapes t.locals in
     let rec check_locals remaining defined seen = function
       | [] -> check_output remaining all
       | local :: rest ->
           if Expr.Local_var.Set.mem local.Region_local.id seen then
             Err.fail (`Duplicate_local local.Region_local.id)
           else
+            let allowed_free =
+              match local.Region_local.shape with
+              | Region_local.Shape.Vector { var; _ } ->
+                  Expr.Reduce_var.Set.singleton var
+              | Region_local.Shape.Scalar -> Expr.Reduce_var.Set.empty
+            in
             let* () =
-              Expr.Check.fragment ~max_size:remaining ~max_depth ~locals:all
-                local.Region_local.value
+              Expr.Check.fragment ~max_size:remaining ~max_depth ~allowed_free
+                ~locals:all local.Region_local.value
               |> Err.map_error (function
                 | `Unbound_local referenced ->
                     `Unknown_local
@@ -179,6 +282,11 @@ let check ~max_size ~max_depth t =
                 first_scope_error ~defined ~all ~local:local.Region_local.id
                   local.Region_local.value
               with
+              | None -> Err.return ()
+              | Some error -> Err.fail error
+            in
+            let* () =
+              match shape_error ~shapes local.Region_local.value with
               | None -> Err.return ()
               | Some error -> Err.fail error
             in
@@ -217,7 +325,9 @@ let check ~max_size ~max_depth t =
         | None -> Err.return ()
         | Some local -> Err.fail (`Unknown_emitter_local local)
       in
-      Err.return ()
+      match shape_error ~shapes t.output with
+      | None -> Err.return ()
+      | Some error -> Err.fail error
     in
     check_locals max_size Expr.Local_var.Set.empty Expr.Local_var.Set.empty
       t.locals
@@ -285,6 +395,26 @@ module Builder = struct
     let id, state = Expr.Builder.run_from state Expr.Builder.fresh_local in
     continue (Expr.Value.local id) state
       (Region_local.scalar ~id ~value :: locals)
+
+  (* [body] receives its own per-element index, symbolically -- exactly the
+     shape [Expr.Builder.reduction]'s own body callback has -- and [continue]
+     receives a READER, not a value: a vector local has no single value to
+     hand back, only [Expr.Value.local_at id] applied at whatever index the
+     caller supplies (an enclosing reduction's own bound variable, typically).
+     [var] is minted the same trusted way [Expr.Builder.reduction] mints its
+     own binder ([Expr.Builder.fresh_reduce], already public); it occurs FREE
+     in [value]'s result, which is what lets [specialize_pixel] beta-reduce it
+     back at each read site. *)
+  let vector ~extent value continue state locals =
+    let id, state = Expr.Builder.run_from state Expr.Builder.fresh_local in
+    let var, state = Expr.Builder.run_from state Expr.Builder.fresh_reduce in
+    let body, state =
+      Expr.Builder.run_from state (value (Expr.Index.reduce var))
+    in
+    continue
+      (fun idx -> Expr.Value.local_at id idx)
+      state
+      (Region_local.vector ~id ~var ~extent ~value:body :: locals)
 
   let finish ~max_size ~max_depth ~partition ~output state locals =
     ( create ~max_size ~max_depth ~partition ~locals:(List.rev locals) ~output,

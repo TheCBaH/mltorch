@@ -90,8 +90,12 @@ let keep_indices = { on_index = (fun _ i -> i) }
      the composition rules that depend on that say so. *)
 let keep_load s c st = (Value.Load (s, c), st)
 
-let rec rebuild ~idx ~src ~on_load ~on_local ~on_reduce env (e : Value.t) st =
-  let go = rebuild ~idx ~src ~on_load ~on_local ~on_reduce env in
+(* [on_local_at] mirrors [on_load]: it sees the already-rewritten local id and
+     index and returns the node that replaces the read. Its index has already
+     gone through [idx], same as [Load]'s coordinate. *)
+let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_reduce env
+    (e : Value.t) st =
+  let go = rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_reduce env in
   let idxe i = idx.on_index env i in
   let unary wrap a st =
     let a, st = go a st in
@@ -100,6 +104,7 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_reduce env (e : Value.t) st =
   match e with
   | Value.Const _ -> (e, st)
   | Value.Local v -> on_local v st
+  | Value.Local_at (v, i) -> on_local_at v (idxe i) st
   | Value.Binary (op, a, b) ->
       let a, st = go a st in
       let b, st = go b st in
@@ -123,7 +128,8 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_reduce env (e : Value.t) st =
   | Value.Reduce r ->
       let var, env', st = on_reduce env r.Reduction.var st in
       let body, st =
-        rebuild ~idx ~src ~on_load ~on_local ~on_reduce env' r.Reduction.body st
+        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_reduce env'
+          r.Reduction.body st
       in
       ( Value.Reduce
           {
@@ -179,6 +185,7 @@ let freshen e s =
     ~idx:{ on_index = (fun env i -> map_index_reducers (subst_env env) i) }
     ~src:Fun.id ~on_load:keep_load
     ~on_local:(fun v st -> (Value.Local v, st))
+    ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
     ~on_reduce Reduce_var.Map.empty e s
 
 (* Deterministic renaming by lexical traversal: running [freshen] from a fixed
@@ -204,6 +211,53 @@ let substitute_output c e =
        ~idx:{ on_index = (fun _ i -> subst_index c i) }
        ~src:Fun.id ~on_load:keep_load
        ~on_local:(fun v st -> (Value.Local v, st))
+       ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
+       ~on_reduce:keep_reducer () e Builder.initial)
+
+(* Targeted substitution of ONE specific (necessarily free) reducer identity,
+     for beta-reducing a vector local's body at a read site: [var] is the
+     binder [Region_local.vector] mints for "my own index", free within the
+     local's stored [value] by construction (nothing inside that value binds
+     it), so replacing it here is resolving an external reference, not the
+     capture [subst_index]'s own [Reduce] case guards against. Generalized
+     over the index role the same way [subst_index] is, since [var] can occur
+     under [Of_position] at [Role.Delta.t] as well as directly at
+     [Role.Position.t]. *)
+let rec subst_reducer : type r.
+    Reduce_var.t -> Role.Position.t Index.t -> r Index.t -> r Index.t =
+ fun v repl i ->
+  match i with
+  | Index.Add (a, b) ->
+      Index.Add (subst_reducer v repl a, subst_reducer v repl b)
+  | Index.Assume_position a -> Index.Assume_position (subst_reducer v repl a)
+  | Index.Ceil_div_pos (a, d) -> Index.Ceil_div_pos (subst_reducer v repl a, d)
+  | Index.Clamp_low a -> Index.Clamp_low (subst_reducer v repl a)
+  | Index.Const _ -> i
+  | Index.Data (s, c, extent) ->
+      Index.Data (s, Coord.map (subst_reducer v repl) c, extent)
+  | Index.Floor_div_pos (a, d) -> Index.Floor_div_pos (subst_reducer v repl a, d)
+  | Index.Max (a, b) ->
+      Index.Max (subst_reducer v repl a, subst_reducer v repl b)
+  | Index.Min (a, b) ->
+      Index.Min (subst_reducer v repl a, subst_reducer v repl b)
+  | Index.Of_position a -> Index.Of_position (subst_reducer v repl a)
+  | Index.Output _ -> i
+  | Index.Reduce w -> if Reduce_var.equal v w then repl else i
+  | Index.Scale (k, a) -> Index.Scale (k, subst_reducer v repl a)
+  | Index.Zero -> i
+
+(* [rebuild] specialised to a pure, non-minting substitution of [var] for
+     [repl] everywhere in [e] -- the same shape as [substitute_output], reused
+     here instead of a hand-written recursion over [Value.t] so [Select]'s
+     [Bool.Index_eq] guard and the [Max_pool] descriptor get the substitution
+     too, for free, rather than by a second, separately-reviewed traversal. *)
+let substitute_reducer var repl e =
+  fst
+    (rebuild
+       ~idx:{ on_index = (fun () i -> subst_reducer var repl i) }
+       ~src:Fun.id ~on_load:keep_load
+       ~on_local:(fun v st -> (Value.Local v, st))
+       ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
        ~on_reduce:keep_reducer () e Builder.initial)
 
 (* [Data]'s own source is a real source dependency too (per [Fold.sources]),
@@ -237,6 +291,7 @@ let map_sources f e =
        ~idx:{ on_index = (fun _ i -> map_index_sources f i) }
        ~src:f ~on_load:keep_load
        ~on_local:(fun v st -> (Value.Local v, st))
+       ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
        ~on_reduce:keep_reducer () e Builder.initial)
 
 (* Replaces ordinary [Load] nodes with whole subtrees, in the SAME builder
@@ -258,12 +313,40 @@ let substitute_loads f e st =
       | None -> (Value.Load (s, c), st)
       | Some replacement -> Builder.run_from st replacement)
     ~on_local:(fun v st -> (Value.Local v, st))
+    ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
     ~on_reduce:keep_reducer () e st
+
+(* What a local resolves to during [substitute_locals]. A closed variant, not
+     two callbacks or a wider [Value.t] convention, per CLAUDE.md's payload
+     rule: a scalar local substitutes its whole value at a [Local] occurrence,
+     a vector local instead carries the binder [var] its stored [body] is
+     parameterised over, substituted at a [Local_at] occurrence's read index
+     -- the beta-reduction [Region_local.vector]'s "body may mention the
+     binder" depends on. Which occurrence a given local's node kind may appear
+     as (shape agreement) is [Region_program.check]'s job, not this module's:
+     [Rewrite] rebuilds structure, it does not validate it, so a mismatch here
+     is reported the same way an already-invalid tree elsewhere would be --
+     structurally, via [invalid_arg], never silently. *)
+type local_binding =
+  | Scalar of Value.t
+  | Vector of { var : Reduce_var.t; body : Value.t }
 
 let substitute_locals f e st =
   rebuild ~idx:keep_indices ~src:Fun.id ~on_load:keep_load
     ~on_local:(fun v st ->
       match f v with
       | None -> (Value.Local v, st)
-      | Some replacement -> Builder.run_from st (freshen replacement))
+      | Some (Scalar value) -> Builder.run_from st (freshen value)
+      | Some (Vector _) ->
+          invalid_arg
+            "Expr.Rewrite.substitute_locals: vector local read as a scalar")
+    ~on_local_at:(fun v i st ->
+      match f v with
+      | None -> (Value.Local_at (v, i), st)
+      | Some (Vector { var; body }) ->
+          let body, st = Builder.run_from st (freshen body) in
+          (substitute_reducer var i body, st)
+      | Some (Scalar _) ->
+          invalid_arg
+            "Expr.Rewrite.substitute_locals: scalar local read with an index")
     ~on_reduce:keep_reducer () e st

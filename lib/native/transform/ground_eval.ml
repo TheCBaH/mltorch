@@ -267,6 +267,7 @@ let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
   match e with
   | Expr.Value.Const x -> Ground_expr.Const x
   | Expr.Value.Local v -> Err.Escape.throw esc (`Unbound_local v)
+  | Expr.Value.Local_at (v, _) -> Err.Escape.throw esc (`Unbound_local v)
   | Expr.Value.Binary (op, a, b) -> Ground_expr.Binary (op, recur a, recur b)
   | Expr.Value.Unary (op, x) -> Ground_expr.Unary (op, recur x)
   | Expr.Value.Value_of_index i ->

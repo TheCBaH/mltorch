@@ -306,7 +306,7 @@ let%expect_test "Native Direct materializes an authored Sdpa Region" =
   Fmt.pr "sdpa: keys=%d locals=%d emitters=%d loads=%d reductions=%d@."
     counters.keys counters.locals counters.emitters counters.loads
     counters.reductions;
-  [%expect {| sdpa: keys=2 locals=6 emitters=6 loads=228 reductions=120 |}]
+  [%expect {| sdpa: keys=2 locals=18 emitters=6 loads=60 reductions=48 |}]
 
 let%expect_test "transform grounding reads an authored Stage structurally" =
   let graph =

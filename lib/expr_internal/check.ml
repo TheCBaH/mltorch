@@ -30,7 +30,7 @@ let duplicate_binder e =
   let rec go bound (e : Value.t) =
     match e with
     | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _
-    | Value.Local _ ->
+    | Value.Local _ | Value.Local_at _ ->
         None
     | Value.Binary (_, a, b) -> (
         match go bound a with None -> go bound b | some -> some)
@@ -62,7 +62,8 @@ let duplicate_binder e =
      to ride the same walk (see [Fold.measure]), so leaving one out must mean an
      unreachable bound rather than a separate pass. With both absent there is
      nothing to bound, and the walk is skipped. *)
-let fragment ?max_size ?max_depth ~locals e =
+let fragment ?max_size ?max_depth ?(allowed_free = Reduce_var.Set.empty) ~locals
+    e =
   let open Err.Syntax in
   let or_unbounded = function Some l -> l | None -> Stdlib.max_int in
   let* () =
@@ -83,8 +84,17 @@ let fragment ?max_size ?max_depth ~locals e =
     | Some v -> Err.fail (`Unbound_local v)
     | None -> Err.return ()
   in
+  (* [allowed_free] is for exactly one caller's use: a vector local's OWN
+     binder is free by construction within its stored value (that is what
+     lets its body "mention the binder"), so the scope check must not treat
+     that specific, expected freedom as the composition defect this check
+     otherwise exists to catch. Anything else in the diff is still a real
+     violation. *)
   let* () =
-    match Reduce_var.Set.min_elt_opt (Fold.free_reducers e) with
+    match
+      Reduce_var.Set.min_elt_opt
+        (Reduce_var.Set.diff (Fold.free_reducers e) allowed_free)
+    with
     | Some v -> Err.fail (`Free_reducer v)
     | None -> Err.return ()
   in
