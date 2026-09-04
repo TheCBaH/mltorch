@@ -94,20 +94,26 @@ let check_transposed node ~groups =
   else Err.fail (`Unsupported_grouped_transposed_conv (node, groups))
 
 (* [Batched_matmul]'s batch axes are N/T/D/H, all four of which
-   [output_shape] requires to agree between [input] and [mat2] -- not "D and
-   H" as an earlier reading of this arm had it. Of those, D is the one this
-   dialect cannot name, so the only real restriction is D = 1; N and H are
-   already dialect axes and carry the corpus's actual batch (heads on H,
-   `mvitv2_tiny`). Checking [input] alone is enough: [output_shape] has
-   already proved [mat2] agrees. [Bmm] needs no such check at all: it
-   legalizes to [Batched_matmul] unchanged, and its own [H] batch axis is
-   exactly this dialect's [H], unrestricted at any extent. *)
-let check_batched_matmul view node ~input =
-  match Graph_view.sig_of view input with
-  | None -> Err.return ()
-  | Some sg ->
-      let batch = Vec6.get sg.Tensor_sig.shape Axis.D in
-      if Dim.to_int batch = 1 then Err.return ()
+   [output_shape] requires to agree OR broadcast (one side extent 1) between
+   [input] and [mat2] -- not "D and H" as an earlier reading of this arm had
+   it. Of those, D is the one this dialect cannot name, so the only real
+   restriction is on the OUTPUT's D extent; N and H are already dialect axes
+   and carry the corpus's actual batch (heads on H, `mvitv2_tiny`). Checking
+   [input] alone is no longer enough now that [output_shape] broadcasts: an
+   [input] with D=1 broadcast against a [mat2] with D>1 has an output D>1
+   that [input]'s own extent does not show, so both operands' D must be read
+   and the broadcast result (whichever is not 1) is what the dialect actually
+   has to represent. [Bmm] needs no such check at all: it legalizes to
+   [Batched_matmul] unchanged, and its own [H] batch axis is exactly this
+   dialect's [H], unrestricted at any extent. *)
+let check_batched_matmul view node ~input ~mat2 =
+  match (Graph_view.sig_of view input, Graph_view.sig_of view mat2) with
+  | None, _ | _, None -> Err.return ()
+  | Some input_sg, Some mat2_sg ->
+      let input_d = Vec6.get input_sg.Tensor_sig.shape Axis.D in
+      let mat2_d = Vec6.get mat2_sg.Tensor_sig.shape Axis.D in
+      let out_d = if Dim.to_int input_d = 1 then mat2_d else input_d in
+      if Dim.to_int out_d = 1 then Err.return ()
       else Err.fail (`Batched_matmul_batch_axis node)
 
 (* [Sdpa]'s batch axis is D alone (heads are on H), so unlike
@@ -217,14 +223,15 @@ let check_node view (n : node) =
   | Layer_norm { Norm.LayerNorm.params; _ } ->
       check_dims node params.Norm.LayerNorm.dims
   (* Its batch axes are N/T/D/H, all four of which [output_shape] requires to
-     agree between [input] and [mat2] -- D is the axis this dialect cannot
-     name; N and H are dialect axes and already carry the corpus's real batch
-     (heads on H, `mvitv2_tiny`), so D = 1 is the only restriction. [Bmm]
-     needs no such check: it legalizes to [Batched_matmul] unchanged (the
-     "Direct counterparts" arm above), and its own batch axis is [H], which
-     this dialect already names at any extent. *)
-  | Batched_matmul { Matmul.Batched_matmul.input; _ } ->
-      check_batched_matmul view node ~input
+     agree or broadcast between [input] and [mat2] -- D is the axis this
+     dialect cannot name; N and H are dialect axes and already carry the
+     corpus's real batch (heads on H, `mvitv2_tiny`), so an output D of 1 is
+     the only admissible case. [Bmm] needs no such check: it legalizes to
+     [Batched_matmul] unchanged (the "Direct counterparts" arm above), and
+     its own batch axis is [H], which this dialect already names at any
+     extent. *)
+  | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
+      check_batched_matmul view node ~input ~mat2
   | Convolution { Conv.Convolution.params; _ } ->
       if params.Conv.Convolution.transposed then
         check_transposed node ~groups:params.Conv.Convolution.groups

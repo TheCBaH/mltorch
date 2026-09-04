@@ -76,8 +76,8 @@ module Make (S : Semantics.SEMANTICS) = struct
           ~bias out
     | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
         let module C = Matmul.Batched_matmul.Compute (S) in
-        C.pixel ~input_shape:(shape_of input) ~input:(operand input)
-          ~mat2:(operand mat2) out
+        C.pixel ~input_shape:(shape_of input) ~mat2_shape:(shape_of mat2)
+          ~input:(operand input) ~mat2:(operand mat2) out
     | Bmm { Matmul.Bmm.input; mat2 } ->
         let module C = Matmul.Bmm.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~input:(operand input)

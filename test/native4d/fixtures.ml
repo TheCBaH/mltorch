@@ -277,6 +277,16 @@ let batched_matmul batch () =
      let* b = input ~shape:(s 1 1 batch 2 3 4) () in
      batched_matmul a b)
 
+(* [input]'s own D is always 1 here; [mat2]'s D is the varying [batch] --
+   proves the domain check reads the BROADCAST (output) D, not [input]'s own,
+   since [input]'s extent alone would wrongly read 1 at any [batch]. *)
+let batched_matmul_broadcast batch () =
+  build "batched_matmul_broadcast"
+    (let open Graph_builder in
+     let* a = input ~shape:(s 1 1 1 2 2 3) () in
+     let* b = input ~shape:(s 1 1 batch 2 3 4) () in
+     batched_matmul a b)
+
 (* [Sdpa]'s batch axis is D alone (heads are on H), so D = 1 is the whole
    admissible case -- unlike [Batched_matmul] above, there is no wider
    four-axis-representable configuration this is a restriction of. *)

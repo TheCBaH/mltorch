@@ -95,9 +95,43 @@ let%expect_test
   Format.printf "%a@." (pp_result Tensor.pp)
     (eval_tensor
        (Matmul.Batched_matmul.output_shape ~input_shape ~mat2_shape)
-       (B.pixel ~input_shape ~input ~mat2));
+       (B.pixel ~input_shape ~mat2_shape ~input ~mat2));
   (* D=0: input @ identity = input unchanged: [[1,2],[3,4]].
      D=1: input @ swap = column-swap of input: [[1,0],[1,0]] @ ... =
      [[0,1],[1,0]] @ [[0,1],[1,0]] = [[1,0],[0,1]] (NOT [[0,1],[1,0]], which
      is what a D=0-hardcoded read would wrongly produce). *)
   [%expect {| tensor f32 [D=2 H=1 W=2 C=2] {1, 2, 3, 4, 1, 0, 0, 1} |}]
+
+(* Real ATen broadcasting: [mat2]'s batch axis (H here) is 1 against [input]'s
+   2, exactly `lambda_resnet26t`'s corpus shape family (`H`: 4 vs 1,
+   `.ai/matmul_softmax_design.md` §6's now-resolved case). [mat2] must be read
+   at H=0 for BOTH output batches -- a regression back to reading [mat2] at
+   [out]'s own H (no broadcast clamp) would raise out of bounds at H=1. *)
+let%expect_test
+    "Direct: batched_matmul — mat2's H broadcasts against input's H=2" =
+  let module B = Matmul.Batched_matmul.Compute (Direct) in
+  let input_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:2 ~c:2 in
+  let in0 = [| [| 1.; 2. |]; [| 3.; 4. |] |] in
+  let in1 = [| [| 5.; 6. |]; [| 7.; 8. |] |] in
+  let input =
+    Tensor.materialize input_shape (fun c ->
+        let h = Dim.to_int (Vec6.get c Axis.H) in
+        let r = Dim.to_int (Vec6.get c Axis.W) in
+        let k = Dim.to_int (Vec6.get c Axis.C) in
+        [| in0; in1 |].(h).(r).(k))
+  in
+  let mat2_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:2 in
+  let identity = [| [| 1.; 0. |]; [| 0.; 1. |] |] in
+  let mat2 =
+    Tensor.materialize mat2_shape (fun c ->
+        let k = Dim.to_int (Vec6.get c Axis.W) in
+        let j = Dim.to_int (Vec6.get c Axis.C) in
+        identity.(k).(j))
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Matmul.Batched_matmul.output_shape ~input_shape ~mat2_shape)
+       (B.pixel ~input_shape ~mat2_shape ~input ~mat2));
+  (* Both H batches multiply by the same identity, so the output equals
+     [input] unchanged; the OUTPUT shape's H is 2, [input]'s own, not [mat2]'s. *)
+  [%expect {| tensor f32 [H=2 W=2 C=2] {1, 2, 3, 4, 5, 6, 7, 8} |}]

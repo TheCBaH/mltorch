@@ -195,8 +195,10 @@ module Batched_matmul = struct
   let pp_error ppf (e : error) =
     match e with
     | Batch_mismatch { axis; lhs; rhs } ->
-        Fmt.pf ppf "input %a extent must equal mat2 %a extent: %a vs %a" Axis.pp
-          axis Axis.pp axis Dim.pp lhs Dim.pp rhs
+        Fmt.pf ppf
+          "input %a extent must equal mat2 %a extent, or one must be 1: %a vs \
+           %a"
+          Axis.pp axis Axis.pp axis Dim.pp lhs Dim.pp rhs
     | Contract_mismatch { lhs; rhs } ->
         Fmt.pf ppf "input C extent must equal mat2 W extent: %a vs %a" Dim.pp
           lhs Dim.pp rhs
