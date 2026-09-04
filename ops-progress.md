@@ -8,15 +8,33 @@ entry lives in `git log`, not here.
 
 ## Stage-qualified corpus scoreboard
 
-Recomputed from `test/data/pt2_json_model_support.jsonl` after
-`make pt2.json-model-support`, 2026-08-30, 100 tracked graphs:
+Recomputed from `test/data/pt2_json_model_support.jsonl`, recensus
+2026-09-04, 100 tracked graphs:
 
 | Measure | Result |
 | --- | ---: |
 | `native_builds:true` | 89 / 100 |
-| `native4d_converts:true` | 56 / 100 |
-| `kernel_converts:true` | 63 / 100 |
-| All three stages succeed | 43 / 100 |
+| `native4d_converts:true` | 57 / 100 |
+| `kernel_converts:true` | 64 / 100 |
+| All three stages succeed | 44 / 100 |
+
+**2026-09-02, Region computation + `Batched_matmul`'s Native4D `D = 1`
+counterpart** (see [`todo-ops.md`](todo-ops.md)'s own landing note for the
+full record; this ledger fell behind commit-by-commit and is reconciled here
+in one recensus). `native4d_converts` 56→57 and `kernel_converts` 63→64 for
+two DIFFERENT reasons, not one model clearing both: `efficientvit_b0`'s
+`native4d_converts` flips true (the new `D = 1` counterpart) and it already
+had `kernel_converts:true`, so it newly joins all-three-stages (43→44);
+`convit_tiny`'s `kernel_converts` flips true independently (Region
+computation's cached locals cleared its evaluation-depth ceiling), while its
+`native4d_converts` stays false on an unrelated `axis T` boundary — proof
+that `kernel_converts` does not require `native4d_converts` (see
+`bin/pt2_json_model_support.ml`'s `resolve_branch`, called once per branch
+against the shared `native` result, not chained). `lambda_resnet26t` and
+`mobilenetv5_base` are unchanged (`native_builds:false`): both were and
+remain blocked by the still-open half of this same gap — real ATen
+broadcasting (unequal, not merely `>1`, leading extents) in `Batched_matmul`
+and `Sdpa` respectively, which this landing did not add.
 
 `Softmax4` (2026-08-31) left all four numbers unchanged — no corpus model
 was gated on it, and `make pt2.json-model-support` produced no diff. Before
@@ -58,6 +76,8 @@ intrinsic `axis T is outside the N/H/W/C dialect` wall, and
 | `repeat_interleave.self_int` / `RepeatInterleave4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed this entry**: `RepeatInterleave4`, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4`/`Slice4` get, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `RepeatInterleave4` graph's own kernel path already reaches | no corpus model currently reaches this boundary (ConViT's own `repeat_interleave.self_int` occurrences sit behind `Repeat4`'s now-cleared frontier, in `native_builds`, not blocked at Native4D) |
 | `select_scatter.default` / `Select_scatter4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed this entry**: `Select_scatter4`, reusing `Split.Select_scatter`'s shape rule/pixel map unchanged, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4` gets, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `Select_scatter4` graph's own kernel path already reaches | `convit_tiny` (native4d frontier only; graph does not reach kernel path from here) |
 | `softmax.int` / `Softmax4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed 2026-08-31**: `Softmax4`, reusing `Reduce.Softmax`'s own `output_shape`/`Compute` unchanged, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4`/`Slice4`/`RepeatInterleave4` get — the whole domain gate here, since the output shape never depends on which axis is reduced, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_shape_test}.ml` | reaches wherever a legal `Softmax4` graph's own kernel path already reaches | no corpus model currently reaches this boundary (every model that reaches `softmax.int` is transformer-shaped and already stops at an earlier `D`-axis/batched-matmul limit, per `matmul_softmax_design.md` §3) |
+| `matmul.default` / `Batched_matmul4` (Native4D counterpart) | pre-existing (`Batched_matmul` itself landed 2026-08-29, see its own earlier row) | pre-existing | pre-existing | pre-existing | **landed 2026-09-02**: admitted at `D = 1` (no `Ops4` payload, no `4`-suffixed variant — the op names no axis and carries no shape); `Domain.check_node`'s arm is conditional on `D > 1`, `.ai/native4d_design.md` §7.4 | reaches wherever a legal `Batched_matmul` graph's own kernel path already reaches | `efficientvit_b0` — newly reaches ALL THREE stages (`native_builds`/`native4d_converts`/`kernel_converts`). **Still incomplete**: real broadcasting (unequal leading extents) stays a Native-level rejection, corpus evidence `lambda_resnet26t` (`native_builds:false`) |
+| `scaled_dot_product_attention.default` / `Sdpa4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing (now Region-authored, see the Region-computation note below) | **landed 2026-09-02**: admitted at `D = 1`, reusing `Attention.Sdpa`'s payload verbatim through `Region_computation4`'s `native_op`, `.ai/native4d_design.md` §7.9 | reaches wherever a legal `Sdpa` graph's own kernel path already reaches | no corpus model reaches this boundary — every exporter decomposes `scaled_dot_product_attention.default` before Native4D conversion (`.ai/matmul_softmax_design.md` §1). **Still incomplete**: real head broadcasting (query `H` != key `H`) stays a Native-level rejection, corpus evidence `mobilenetv5_base` (`native_builds:false`) |
 
 ## Landing records
 

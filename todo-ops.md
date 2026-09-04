@@ -12,7 +12,8 @@ records detailed implementation decisions and the latter defines the support
 contract.  This file is the compact, corpus-derived queue that connects that
 contract to the next work items.
 
-Status: 2026-08-31 (`Softmax4` landing).
+Status: 2026-09-04 (`Matmul.Batched_matmul` Native4D `D = 1` admission +
+Region computation landing).
 
 ## Priority model: breadth first, then depth
 
@@ -26,7 +27,7 @@ the relevant surfaces below:
 | Both imports | `Native_aten_bridge.Op_bridge` and `Native_interp` decode the same accepted domain and construct equivalent Native graphs. |
 | Native execution | A first-class `Graph_ir` operation that preserves the ATen operation's semantics, with its own shape checks, Direct evaluation, and Symbolic evaluation. |
 | Native4D | A first-class `Native4d.Op` counterpart for the Native operation, with its own builder/shape/evaluation/domain coverage and four-axis tests.  The Native-to-Native4D map should map that operation to its counterpart, not use legalization as a substitute for missing operation support. |
-| Kernel / explorer path | A legal Native4D graph reaches the Kernel/Stage-Program path; a representative graph exercises that path without an operation-specific failure. |
+| Kernel / explorer path | A legal Native graph reaches the Kernel/Stage-Program path; a representative graph exercises that path without an operation-specific failure. This branch is independent of Native4D conversion — `kernel_converts` and `native4d_converts` resolve as separate branches off the same `native_builds` graph (`bin/pt2_json_model_support.ml`'s `resolve_branch`), confirmed by `convit_tiny` (`native4d_converts:false` on an intrinsic `axis T` boundary, `kernel_converts:true`). |
 | Evidence | ATen-vs-Native coverage when linkable, Native Direct-vs-Symbolic coverage, Native-to-Native4D map verification, and importer/domain regressions for every accepted or intentionally rejected configuration. |
 
 The preferred route into Native is therefore **addition, not legalization**:
@@ -98,8 +99,8 @@ demonstrated end-to-end blocker.
 | Target names lowered by Native and present in corpus | 52 (30,179 nodes) |
 | Present target names without a Native lowering arm | 33 (538 nodes) |
 | `native_builds:true` in the support sweep | 89 / 100 |
-| Native4D conversions / kernel conversions | 56 / 100; 63 / 100 |
-| Graphs successful in Native, Native4D, and Kernel | 43 / 100 |
+| Native4D conversions / kernel conversions | 57 / 100; 64 / 100 |
+| Graphs successful in Native, Native4D, and Kernel | 44 / 100 |
 
 The first five rows are target/node **depth** measures.  The last three are
 graph-stage depth measures, not an operation breadth measure: a graph may
@@ -120,14 +121,24 @@ the checked-in JSON graphs contain 30,717 target-bearing nodes.  Treat that
 regenerates or explains it; do not use the manifest total as the operation
 census denominator.
 
-The 19 Native failures are not 19 unsupported target names.  Their earliest
-frontiers are: `zeros.default` (3 models),
-`_native_batch_norm_legit.no_stats` (2), `index.Tensor` (2), and one model
-each for `adaptive_max_pool2d.default`, `arange.default`, `arange.start`,
-`conv1d.default`, `im2col.default`, `leaky_relu.default`, and
-`upsample_bicubic2d.vec`; five are configuration/transform failures discussed
-below.  In particular, the 550-node missing-name count includes downstream
-operations hidden behind an earlier frontier.
+The 11 Native failures (recensus 2026-09-04, `test/data/pt2_json_model_support.jsonl`)
+are not 11 unsupported target names.  Their earliest frontiers are:
+`bitwise_not.default` (`edgenext_xx_small`), `conv1d.default`
+(`eca_halonext26ts`), `im2col.default` (`volo_d1_224`), `lstm.input`
+(`sequencer2d_s`), `meshgrid.indexing` (`vit_small_patch16_dinov3_qkvb`), and
+`upsample_bicubic2d.vec` (`sam2_hiera_tiny`) — one model each, all already
+tracked as a P1 slice or in the deferred backlog below; `index.Tensor`'s
+multi-entry case (2 models: `maxxvitv2_nano_rw_256`, `mvitv2_tiny`); a rank-5
+`getitem` importer gap (`hiera_tiny_224`, tracked under "Configuration and
+transform gaps"); and the two still-open Native-level shape-broadcast
+rejections in that same table, `lambda_resnet26t` (`Batched_matmul`'s `H`
+extent, 4 vs 1) and `mobilenetv5_base` (`Sdpa`'s `H` extent, 8 vs 1). This
+list has fully turned over since the file's original 19-model census — every
+target named in that original count (`zeros.default`,
+`_native_batch_norm_legit.no_stats`, `adaptive_max_pool2d.default`,
+`arange.default`/`arange.start`, `leaky_relu.default`) is landed; keep this
+paragraph refreshed at each recensus rather than letting it drift the way it
+did here.
 
 ## Ordered breadth-first work
 
@@ -442,6 +453,43 @@ remaining open-ended Native4D counterpart-backlog row; otherwise
 first frontier), or P1's remaining one-model slices (`conv1d`/`unfold`,
 `im2col`/`col2im`, `upsample_bicubic2d`).
 
+**2026-09-02, Region computation landed, then `Matmul.Batched_matmul`'s
+Native4D counterpart at `D = 1` (full-stack; see `.ai/region_compute_design.md`
+and `.ai/native4d_design.md` §7.4/§7.9 for the design record — this branch's
+own `_ai_/ops-progress.md` copy predates this recensus and was not kept in
+sync commit-by-commit).** Region computation gives RMSNorm, LayerNorm,
+Softmax, and SDPA an operation-authored `Region_program.t` shared by Native
+and Native4D Direct/Symbolic evaluation, replacing ad hoc per-pixel
+expressions with cached scalar/vector locals. Two corpus effects, both
+confirmed against `test/data/pt2_json_model_support.jsonl`:
+- `convit_tiny`: `kernel_converts` flips `over_limit`→`true` (the shallower
+  Region-cached evaluation clears the evaluation-depth ceiling); its
+  `native4d_converts` stays `false` on its own unrelated `axis T` boundary.
+- `efficientvit_b0`: `Batched_matmul` (Native, landed 2026-08-29 — see the
+  "Configuration and transform gaps" table above) gets a Native4D
+  counterpart admitted at `D = 1` — the earlier reading that `Batched_matmul`
+  named `D` unconditionally was wrong; `N`/`T`/`D`/`H` all agree by
+  `output_shape`, `T = D = 1` is forced by `check_shapes`, and the corpus's
+  real batch (`mvitv2_tiny`, `efficientvit_b0`) is carried on `N`/`H`, both
+  dialect-nameable. `efficientvit_b0` newly reaches ALL THREE stages
+  (`native4d_converts` and `kernel_converts` both `true`).
+`native4d_converts` 56→57, `kernel_converts` 63→64, all-three-stages 43→44;
+`native_builds` unchanged at 89 (neither model's frontier was at Native
+construction). `Bmm` itself was later simplified to legalize unconditionally
+onto this same `Batched_matmul` route at Native level (any batch extent,
+commit `b65600a`), retiring the old batch=1-only 1x1-convolution
+legalization — a representation simplification with no corpus-count effect
+(`Bmm`'s importer domain was already batch-less only). **Still open**: real
+ATen broadcasting in both `Batched_matmul` and `Sdpa` (unequal, not merely
+`>1`, leading extents) — now with direct corpus evidence
+(`lambda_resnet26t`, `mobilenetv5_base`), tracked in the "Configuration and
+transform gaps" table above rather than as a fresh row here.
+
+**Next priority**: the matmul/SDPA broadcasting gap above now has corpus
+evidence and is the natural next slice; otherwise unchanged from the note
+above (live max-pool indices/`IndexTensor4`, `lstm.input`, or P1's remaining
+one-model slices).
+
 ### P1 — small vertical slices with one-model proof
 
 | Work | Corpus evidence | Breadth-first acceptance condition |
@@ -463,8 +511,8 @@ and a Native4D counterpart; do not conceal it in a bridge legalization.
 
 | Gap | Evidence | Breadth-first TODO |
 | --- | --- | --- |
-| Broadcasted batch dimensions in `matmul.default` | `efficientvit_b0` fails on `[1,8,16,196] @ [1,8,196,17]`; `lambda_resnet26t` on `[1,4,64,16] @ [1,1,16,64]` | Add a Native `BatchedMatmul` operation for ATen broadcasting, rather than broadening a bridge legalization.  Specify output shape, both importer paths, and Direct/Symbolic behavior.  A Native4D counterpart is the default only if its operands can be expressed in N/H/W/C; otherwise record the intrinsic batch-axis exception and add an oracle walk containing both patterns. |
-| Head broadcasting in `scaled_dot_product_attention.default` | `mobilenetv5_base` rejects query-head extent 8 against key extent 1 | Add the broadcastable-head configuration to the Native SDPA operation and, for N/H/W/C-valid attention, its `Sdpa4` counterpart.  Retain a typed restriction only for the intrinsically unrepresentable batch-axis form; the current equality check is not sufficient for the tracked corpus. |
+| Broadcasted batch dimensions in `matmul.default` | **Half landed.** `efficientvit_b0`'s equal-extent case (`[1,8,16,196] @ [1,8,196,17]`, `H=8` on both sides) is resolved: `Matmul.Batched_matmul` is now a first-class Native op (`lib/native/ops/matmul.ml`, landed 2026-08-29) with a full Native4D counterpart admitted at `D = 1` (landed 2026-09-02, `.ai/native4d_design.md` §7.4) — `efficientvit_b0` now reaches `native_builds`/`native4d_converts`/`kernel_converts` all `true`. `Bmm` itself now legalizes unconditionally to `Batched_matmul` (any batch extent) at the Native level (commit `b65600a`), retiring the old 1x1-conv legalization route. **Still open:** real ATen broadcasting (one operand's leading axis extent 1, the other's not) is rejected at Native `output_shape` itself — `lambda_resnet26t`'s `[1,4,64,16] @ [1,1,16,64]` (`H`: 4 vs 1) is `native_builds:false` today with `` "input H extent must equal mat2 H extent: 4 vs 1" ``. This is exactly `.ai/matmul_softmax_design.md` §6's "no downloaded archive exercises it" case — it now has corpus evidence and should be promoted out of that typed-rejection list into a real broadcasting rule in `Batched_matmul`'s `output_shape`/`Compute`. |
+| Head broadcasting in `scaled_dot_product_attention.default` | **Still open**, unchanged by the `Batched_matmul`/Region-computation session. `mobilenetv5_base` rejects query-head extent 8 against key extent 1 at Native construction time (`` "sdpa: H extent must agree (query vs key): 8 vs 1" ``, `native_builds:false`). Native4D's own `Sdpa` gained a `D = 1` counterpart (landed 2026-09-02, reusing Region-authored computation, `.ai/native4d_design.md` §7.9) but that is orthogonal to this gap — no corpus graph reaches Native4D's `Sdpa` at all, since every exporter decomposes `scaled_dot_product_attention.default` before Native4D conversion (`.ai/matmul_softmax_design.md` §1). The fix here is broadening Native's own `Attention.Sdpa` shape rule to accept a broadcastable (not merely equal) `H` between query and key/value, then deciding whether a broadcastable-head `Sdpa4` is representable. |
 | Rank-5 conv-weight ingestion | `hiera_tiny_224` fails before a node count: `getitem is rank 5, expected 4` | Find and repair or explicitly bound the `sizes_rank_4` assumption exposed after clone memory-format support.  Exercise the same accepted representation through both importers and downstream conversion; this is an importer/representation breadth gap, not evidence for a new ATen target. |
 | ~~Constant-SSA registry gaps~~ | **Landed** (five commits: `2f180d9` Reshape, `9b97429` Expand, `035772c` Mul_scalar, `5cf86d9` Pow, `19f33d2` Add_scalar, each paired with a census-regen commit). `Const_ssa.allows` now admits `{Add, Sub, Mul, Div, Sqrt, Permute, Reshape, Expand, Mul_scalar, Pow, Add_scalar}`. Whack-a-mole recensus after each landing (real graph failures, not a full-corpus fold-trace rerun — see below) surfaced the next op in the same two models' fold chains until none remained: `nf_regnet_b0`/`vit_tiny_r_s16_p8_224` needed Reshape then Expand then Mul_scalar; `test_vit4` needed Expand; `csatv2` needed Pow then Add_scalar. **2026-08-30 recensus: zero `"is not a Const-SSA operation"` blockers remain anywhere in the 100-model corpus.** All four models now reach `native_builds:true` and stop at a genuine, pre-existing Native4D boundary instead (an intrinsic `D`/`T` axis for the first three; a missing `Select4` legalization for csatv2) — real further work, but not a Const-SSA gap. `native_builds` 83→87, `kernel_converts` 61→63; `native4d_converts`/all-three-stages unchanged (56/43) since none of the four clear their new Native4D-stage blocker yet. | Done. Pow's grounding (`const_ssa_symbolic.ml`'s `pow_expr`) deliberately mirrors `Pointwise_binary.Pow.Compute.pixel`'s exact six ATen-special-cased exponents plus its `exp(scalar*log x)` fallback, numerically verified against all seven branches in `const_ssa_test.ml`. `Select4` (csatv2's new blocker) is already tracked in "Remaining Native4D counterpart backlog" below. |
 
