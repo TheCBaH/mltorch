@@ -255,17 +255,6 @@ let convolution_grouped ~transposed ~groups ~channels () =
 
 (* ---- bmm ----------------------------------------------------------------- *)
 
-(* mat2 in a format f32 cannot hold exactly. The legalization MATERIALIZES the
-   permuted mat2 before the convolution reads it, where Native's Bmm reads it
-   directly, and every op output in this engine is f32 — so those values would
-   be silently rounded while the map still claimed Identical. *)
-let bmm_lossy_operand () =
-  build "bmm_lossy_operand"
-    (let open Graph_builder in
-     let* a = input ~shape:(s 1 1 1 1 2 3) () in
-     let* b = input ~shape:(s 1 1 1 1 3 4) ~fmt:(Payload.Fmt Payload.I64) () in
-     bmm a b)
-
 let bmm_batch batch () =
   build "bmm_batch"
     (let open Graph_builder in

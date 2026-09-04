@@ -549,37 +549,80 @@ mat2:  [H=batch, W=contract, C=columns]
 out:   [H=batch, W=rows, C=columns]
 ```
 
-It can become a 1x1 convolution only when `batch = 1`:
+**`Matmul.Batched_matmul` landed 2026-09-02** with the wider frame `Bmm`'s
+`batch = 1` restriction used to motivate:
+
+```text
+input: [N, T, D, H, W=rows,     C=contract]
+mat2:  [N, T, D, H, W=contract, C=columns]
+out:   [N, T, D, H, W=rows,     C=columns]
+```
+
+`output_shape` requires `N`/`T`/`D`/`H` to agree between `input` and `mat2` —
+all four, not "D and H" as an earlier reading of the domain arm's own comment
+had it. With `T = D = 1` forced by `check_shapes`, the surviving batch axes
+are `N` and `H`, both `Axis4`-nameable, so there is no `batch` restriction to
+impose at all beyond `D = 1`: `Domain.check_node`'s `Batched_matmul` arm is
+conditional on `D > 1`, and the registry entry reuses `Matmul.Batched_matmul`
+unchanged (no axis named, no shape carried, so no `Ops4` payload and no
+`4`-suffixed variant).
+
+**`Bmm` now legalizes directly to `Batched_matmul`, at any batch extent, one
+node, no relayout — retiring the 1x1-convolution route below.** `Bmm.t` and
+`Matmul.Batched_matmul.t` are the same two-field record (`{ input; mat2 }`);
+the only computational difference is that `Bmm.Compute` hard-codes `mat2`'s
+`N`/`T`/`D`/`H` to index 0, where `Batched_matmul.Compute` reads them off the
+output coordinate — and Native's own importer restriction keeps `Bmm`'s
+`N`/`T`/`D` at extent 1 on both operands (so `output`'s `N`/`T`/`D`/`H`
+already equal `mat2`'s), making the two `Compute` functors agree bit-for-bit
+at every valid `Bmm` graph, at any `H`. The claim is `Identical` (§9.2), and
+Native4D adds no numeric kernel of its own — the same "reuse the Native
+payload unchanged" route §7.9 below uses for `Sdpa`.
+
+This retires the OLD legalization, which converted only at `batch = 1`:
 
 1. permute `mat2[H=1,W=contract,C=columns]` to the convolution weight layout
    `[N=columns,H=1,W=1,C=contract]`;
 2. apply a 1x1 `Conv2D` to `input`.
 
-The permutation is a value reindexing, and the convolution retains the same
-contract-axis reduction order. This case is expected to be `Identical`.
+That route materialized `mat2` through the permute — every op output in this
+dialect is f32, so a `mat2` stored in a format f32 cannot hold exactly would
+have been silently rounded while the map still claimed `Identical`, which is
+why it carried its own precondition (`` `Lossy_bmm_operand ``) alongside the
+batch restriction (`` `Unsupported_bmm_batch ``, since for `batch > 1`, `mat2`
+varies with the output's `H` coordinate while convolution weights are shared
+across spatial positions — ordinary Conv2D cannot represent that computation).
+`Batched_matmul` reads `mat2` directly, the same way Native's own `Bmm.Compute`
+does, so neither precondition has a producer any more; both error rows
+(`` `Unsupported_bmm_batch ``, `` `Lossy_bmm_operand ``) are removed rather
+than left unreachable. This is also why `Bmm` no longer survives as a
+separately-legalized constructor the way this section previously argued: once
+its own batch axis (`H`) is exactly `Batched_matmul`'s, there is no
+"has a destination op to legalize onto" versus "is itself representable"
+distinction left to draw against §7.9's `Sdpa` contrast — both now take the
+same route.
 
-For `batch > 1`, `mat2` varies with the output's `H` coordinate while
-convolution weights are shared across spatial positions. Ordinary Conv2D cannot
-represent that computation. Reject it (`` `Unsupported_bmm_batch ``); the 1x1
-legalization is `Bmm`'s own ceiling, not the dialect's.
+**Retiring the old route was a measurement question, not only a soundness
+one, and the measurement favors retiring it.** At `batch = 1` (the only
+extent where the old route was ever sound, so the only extent it can be
+compared at), a one-off hand-built comparison of the two routes at the same
+sizes as the `batched_matmul` benchmark rows (`H=1`, `Compute` contract/column
+extent swept) --  `opam exec -- dune exec bin/region_compute_bench.exe`,
+median of 20 samples, stable across repeated runs, script not committed since
+`lower_engine.ml` no longer produces the old route to compare against:
 
-**`Matmul.Batched_matmul`, the retained operation this section said
-supporting `batch > 1` would require, landed 2026-09-02.** Its batch is
-spread across
-`N`/`T`/`D`/`H` (all four `output_shape` requires to agree between `input` and
-`mat2`), not "D and H" as an earlier reading of the domain arm's own comment
-had it. With `T = D = 1` forced by `check_shapes`, the surviving batch axes
-are `N` and `H`, both `Axis4`-nameable — so unlike `Bmm`, there is no `batch`
-restriction to impose at all beyond `D = 1`: `Domain.check_node`'s
-`Batched_matmul` arm is conditional on `D > 1`, and the registry entry reuses
-`Matmul.Batched_matmul` unchanged (no axis named, no shape carried, so no
-`Ops4` payload and no `4`-suffixed variant). This is the reason `Bmm`
-survives as its own constructor rather than being subsumed: `Bmm` legalizes
-to a convolution at `batch = 1` (§9.2's `Identical` claim), where
-`Batched_matmul` at `D = 1` is a direct pixel-authored counterpart with no
-legalization involved — different routes, so the contrast in §7.9 below is
-"has a destination op to legalize onto" versus "is itself representable",
-not "H versus D".
+| extent | new (`Batched_matmul`, one node) | old (`Permute4`+`Conv2d`, two nodes) | speedup |
+| ---: | ---: | ---: | ---: |
+| 8   | 0.018 ms  | 0.077 ms  | 4.3x |
+| 32  | 0.97 ms   | 3.05 ms   | 3.1x |
+| 128 | 57.8 ms   | 165.6 ms  | 2.9x |
+
+The new route wins at every size measured, consistent with doing strictly
+less work: one node instead of two, no materialized intermediate tensor, no
+extra pass over `mat2`. This is expected, not a coincidence to caveat --
+`Batched_matmul.Compute` reads `mat2` directly where the old route first
+wrote it into a fresh permuted tensor and then read that -- but it settles
+the measurement question this section previously left open.
 
 ### 7.5 Mean
 
@@ -735,8 +778,8 @@ is the fault", appropriate when an op's OWN parameter picks the offending
 axis (`Mean`'s `dims`, `Layer_norm`'s `normalized_shape`), but Sdpa's fault
 is not parameter-dependent — batch is always `D`, so there is no admissible
 *parameter value* for a `check_dims`-style check to name; the conditional is
-on the operand's own extent instead, the same shape `check_bmm` and the new
-`Batched_matmul` check use.
+on the operand's own extent instead, the same shape `check_batched_matmul`
+uses (`Bmm` itself needs no such check any more — see §7.4).
 
 At `D = 1`, `Region_computation4`'s `native_op` maps `Op.Sdpa` straight onto
 `Graph_ir.Sdpa` — the payload is reused verbatim, so there is nothing to
@@ -899,7 +942,6 @@ type error =
   | `Unsupported_op of Node_id.t * Native.op
   | `Unsupported_grouped_conv of Node_id.t * int
   | `Unsupported_grouped_transposed_conv of Node_id.t * int
-  | `Unsupported_bmm_batch of Node_id.t * Dim.extent Dim.t
   | `Live_max_pool_indices of Node_id.t * Tensor_id.t
   | `Dynamic_batch_norm of Node_id.t
   | `Shape of Native4d_shape.error

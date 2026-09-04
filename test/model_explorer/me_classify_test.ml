@@ -30,10 +30,8 @@ let%expect_test "every Native4D row, classified" =
         `Batch_norm_extent (nid 0, tid 0, Dim.extent 1, Dim.extent 2) );
       ("Dynamic_batch_norm", `Dynamic_batch_norm (nid 0));
       ("Live_max_pool_indices", `Live_max_pool_indices (nid 0, tid 0));
-      ("Lossy_bmm_operand", `Lossy_bmm_operand (nid 0, tid 0));
       ( "Non_four_dimensional_tensor",
         `Non_four_dimensional_tensor (tid 0, shape) );
-      ("Unsupported_bmm_batch", `Unsupported_bmm_batch (nid 0, Dim.extent 3));
       ( "Unsupported_grouped_transposed_conv",
         `Unsupported_grouped_transposed_conv (nid 0, 2) );
       ( "Unsupported_op",
@@ -49,16 +47,14 @@ let%expect_test "every Native4D row, classified" =
     Batch_norm_extent                      unavailable outside_dialect_domain
     Dynamic_batch_norm                     unavailable outside_dialect_domain
     Live_max_pool_indices                  unavailable outside_dialect_domain
-    Lossy_bmm_operand                      unavailable outside_dialect_domain
     Non_four_dimensional_tensor            unavailable outside_dialect_domain
-    Unsupported_bmm_batch                  unavailable outside_dialect_domain
     Unsupported_grouped_transposed_conv    unavailable outside_dialect_domain
     Unsupported_op                         unavailable outside_dialect_domain
     Bad_constant_payload                   fatal |}]
 
 let%expect_test "payloads remove exactly one failure mode" =
   (* The reason Native4D is conditional for a .pt2 as well as for a bare
-     model.json: nine of the ten rejections above have nothing to do with
+     model.json: seven of the eight rejections above have nothing to do with
      payloads, so having them does not put a graph inside the dialect. *)
   let outside =
     [

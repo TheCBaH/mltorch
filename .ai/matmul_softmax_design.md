@@ -267,14 +267,16 @@ Native op, `Matmul.Batched_matmul` (`lib/native/ops/matmul.ml`, alongside
   batch axes are `N` and `H`, both of which `Axis4` names, and the corpus
   (`mvitv2_tiny`, this section's own evidence) uses exactly that: every
   sample is `D = 1` with only `H` varying. `Domain.check_node`'s
-  `Batched_matmul` arm is now conditional on `D > 1` (a `check_bmm`-shaped
-  check, not `Bmm`'s own `Unsupported_bmm_batch`), reusing
+  `Batched_matmul` arm is now conditional on `D > 1`, reusing
   `` `Batched_matmul_batch_axis `` reworded to say what it now means; the
   registry entry reuses `Matmul.Batched_matmul` unchanged (no `Ops4` payload,
   no `4`-suffixed variant — the op names no axis and carries no shape), and
   `lower_engine.ml` gets a real `simple` legalization arm instead of joining
-  the unreachable-rejection group. See `.ai/native4d_design.md` §7.4 and §7.9
-  for the corrected `Sdpa` contrast.
+  the unreachable-rejection group. `Bmm` itself later (§7.4) started
+  legalizing to this same `Batched_matmul` route, unconditionally — it no
+  longer has a `check_bmm`-shaped batch check of its own to contrast against.
+  See `.ai/native4d_design.md` §7.4 and §7.9 for the corrected `Sdpa`
+  contrast.
 
 **The importer split** (`Op_bridge_linalg`, `Native_interp`): batch-less
 (rank-2, or rank>=3 with every leading axis at extent 1, §4) still binds to

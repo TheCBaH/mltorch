@@ -63,7 +63,7 @@ let fresh_constant acc shape payload =
 
    NODE ids follow the same policy as tensor ids, and for the same reason. The
    first destination node of a source node KEEPS that node's id; a second one
-   (Mean keepdim=false, Bmm) takes a fresh id above the source watermark.
+   (Mean keepdim=false) takes a fresh id above the source watermark.
    Allocating densely from zero instead would make destination node 0 a
    different node from source node 0 whenever anything was removed — the raw-id
    collision the design forbids for edges, reappearing for nodes. *)
@@ -674,61 +674,20 @@ let lower_node ~view acc (n : node) =
           Op.Vector_norm_keepdims
             { Ops4.Vector_norm_keepdims.params = { dims }; x })
         ~x
-  (* §7.4. Only a single batch legalizes: for batch > 1 mat2 varies with the
-     output's H coordinate while convolution weights are shared across spatial
-     positions. mat2[H=1,W=contract,C=cols] permutes to the weight layout
-     [N=cols,H=1,W=1,C=contract], and the 1x1 convolution's output is already
-     Bmm's own shape, so NO trailing reshape is needed. *)
-  | Bmm { Matmul.Bmm.input; mat2 } ->
-      let* input_shape = sig_of input in
-      let batch = Vec6.get input_shape Axis.H in
-      if Dim.to_int batch <> 1 then
-        Err.fail (`Unsupported_bmm_batch (node, batch))
-      else
-        let* mat2_shape = sig_of mat2 in
-        let contract = Vec6.get mat2_shape Axis.W in
-        let cols = Vec6.get mat2_shape Axis.C in
-        let w_shape =
-          Shape4.make ~n:cols ~h:(Dim.extent 1) ~w:(Dim.extent 1) ~c:contract
-        in
-        let wid, acc = fresh_tensor acc w_shape in
-        let acc =
-          emit acc ~from:node
-            (Op.Permute4
-               {
-                 (* mat2 [H=1,W=contract,C=cols] -> weight
-                    [N=cols,H=1,W=1,C=contract]. Every output axis takes a
-                    DISTINCT input axis, which is what makes it a bijection:
-                    N<-C, H<-H, W<-N, C<-W. Reusing an input axis (the obvious
-                    N<-C, C<-W) leaves N unread and the perm is rejected. *)
-                 Ops4.Permute4.perm =
-                   Ops4.Permute4.of_fn (function
-                     | Axis4.N -> Axis4.C
-                     | Axis4.W -> Axis4.N
-                     | Axis4.C -> Axis4.W
-                     | Axis4.H -> Axis4.H);
-                 x = op_of mat2;
-               })
-            [ wid ]
-        in
-        let acc =
-          { acc with provenance = ([ op_of mat2 ], wid) :: acc.provenance }
-        in
-        Err.return
-          (emit acc ~from:node
-             (Op.Conv2d
-                {
-                  Ops4.Conv_payload.params =
-                    unit_conv_params ~in_channels:(Dim.to_int contract);
-                  x = op_of input;
-                  weight = wid;
-                  bias = None;
-                })
-             [ single () ])
-  (* Direct counterpart, unlike [Bmm] above: its batch is spread across
-     N/T/D/H, all four dialect-representable once [Domain.check] has proved
-     D = 1, so there is nothing to translate. Native's own [Batched_matmul]
-     payload names no axis and carries no shape and so crosses unchanged. *)
+  (* §7.4. [Bmm]'s shape is exactly [Batched_matmul]'s at N=T=D=1: both
+     read [input]/[mat2] at the same coordinates once [mat2]'s N/T/D/H are
+     read off the OUTPUT (as [Batched_matmul.Compute] does) rather than
+     hard-coded to index 0 (as [Bmm.Compute] does) -- at extent 1 those agree
+     bit-for-bit, so the claim stays [Identical] at any batch [H], not just
+     [H = 1]. This retires the previous 1x1-convolution legalization (Permute4
+     + Conv2d, sound only at batch 1 and only for an f32-exact [mat2] format,
+     since it MATERIALIZED [mat2] through the permute where both ops here read
+     it directly): a direct counterpart, one node, no relayout, no format
+     restriction, no batch restriction beyond [Domain]'s existing D = 1.
+     Native's own [Batched_matmul] payload names no axis and carries no shape
+     and so crosses unchanged; [Bmm]'s payload has the same two fields and
+     crosses the same way. *)
+  | Bmm { Matmul.Bmm.input; mat2 }
   | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
       simple
         (Op.Batched_matmul

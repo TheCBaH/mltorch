@@ -142,40 +142,39 @@ let%expect_test "domain: convolution grouping" =
     transposed, groups=2         node n0: transposed convolution has 2 groups; only 1 legalizes |}]
 
 (* A legalization can be sound only under a precondition that SHAPE INFERENCE
-   does not imply. Neither of these is the four-axis frame, and they are not the
-   same kind of condition as each other either:
+   does not imply. [Batch_norm_extent] is about shape — just not a shape
+   anything else checks: [Norm.BatchNorm.output_shape] is a function of the
+   input alone, so a parameter's extent is never compared against the
+   normalized axis. It passed every structural check and then would have read
+   out of bounds, so it is the domain check's business rather than the
+   lowerer's.
 
-   - [Lossy_bmm_operand] is not about shape at all. It is about the operand's
-     storage FORMAT, because the legalization materializes it.
-   - [Batch_norm_extent] is about shape — just not a shape anything else checks.
-     [Norm.BatchNorm.output_shape] is a function of the input alone, so a
-     parameter's extent is never compared against the normalized axis.
-
-   What they share is the useful predicate: neither is implied by the op's own
-   output shape, which is all shape inference looks at. Both passed every
-   structural check and then either computed the wrong answer or read out of
-   bounds, so both are the domain check's business rather than the lowerer's. *)
+   [Bmm] used to have a second precondition here too (its mat2 operand's
+   storage format, because the OLD legalization — a Permute4 into a
+   convolution weight — materialized it through f32). Once [Bmm] legalizes
+   directly to [Batched_matmul] instead (same op, no relayout, mat2 read
+   the same way Native's own [Bmm.Compute] reads it), that materialization
+   never happens, so the format precondition is gone along with it — there is
+   nothing left to test here for [Bmm]. *)
 let%expect_test "domain: preconditions shape inference does not imply" =
-  table
-    [
-      ("bmm, i64 mat2", Fixtures.bmm_lossy_operand);
-      ("batch_norm, short stats", Fixtures.batch_norm_short_stats);
-    ];
+  table [ ("batch_norm, short stats", Fixtures.batch_norm_short_stats) ];
   [%expect
     {|
-    bmm, i64 mat2                node n0: bmm operand t1 is stored in a format f32 cannot hold exactly, and the legalization materializes it
     batch_norm, short stats      node n0: batch norm parameter t1 has extent 1 on C, but the normalized axis has 2 |}]
 
 (* ---- bmm ------------------------------------------------------------------ *)
 
-(* Only a single batch legalizes: for batch > 1 mat2 varies with the output's H
-   coordinate, while convolution weights are shared across spatial positions. *)
+(* [Bmm] is unconditionally admitted at any batch extent, unlike
+   [Batched_matmul]/[Sdpa] just below: once it legalizes to [Batched_matmul]
+   its batch axis is [H], which this dialect already names at any
+   extent — there is no [D]-shaped restriction left to impose. Contrast with
+   the two tests right below, both still conditional on [D = 1]. *)
 let%expect_test "domain: bmm batch extent" =
   table [ ("batch=1", Fixtures.bmm_batch 1); ("batch=2", Fixtures.bmm_batch 2) ];
   [%expect
     {|
     batch=1                      in the dialect
-    batch=2                      node n0: bmm batch extent is 2; only a single batch legalizes to a 1x1 convolution |}]
+    batch=2                      in the dialect |}]
 
 (* D = 1 is admissible -- N and H already carry [Batched_matmul]'s real batch
    axes (heads on H) -- but D > 1 is not, the same conditional shape

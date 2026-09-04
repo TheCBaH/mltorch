@@ -385,26 +385,31 @@ let%expect_test "lower: linear becomes a 1x1 convolution" =
                  in_channels=8}
     outputs: [t2 [C=4]] |}]
 
-(* §7.4. mat2 permutes to the weight layout and the 1x1 convolution's output is
-   already Bmm's own shape, so there is NO trailing reshape. *)
-let%expect_test "lower: single-batch bmm becomes permute + 1x1 convolution" =
-  show "bmm" (Fixtures.bmm_batch 1 ());
+(* §7.4. [Bmm] legalizes directly to [Batched_matmul], one node, no
+   relayout — retiring the previous permute-into-1x1-convolution route (which
+   was sound only at batch 1). At batch 2, the SAME single-node lowering
+   fires: there is no batch-shaped restriction left to impose (the domain
+   test right above proves the admission; this proves what it converts TO). *)
+let%expect_test
+    "lower: bmm becomes batched_matmul directly, at any batch extent" =
+  show "bmm batch=1" (Fixtures.bmm_batch 1 ());
+  show "bmm batch=2" (Fixtures.bmm_batch 2 ());
   [%expect
     {|
-    bmm:
+    bmm batch=1:
       graph4
     inputs: [t0 [W=2 C=3],
     t1 [W=3 C=4]]
     nodes:
-      n0: [t3] = permute4 x=t1 perm=[N<-C, W<-N, C<-W]
-      n1: [t2] =
-        conv2d
-          x=t0
-          weight=t3
-          params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
-                 w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
-                 in_channels=3}
-    outputs: [t2 [W=2 C=4]] |}]
+      n0: [t2] = batched_matmul input=t0 mat2=t1
+    outputs: [t2 [W=2 C=4]]
+    bmm batch=2:
+      graph4
+    inputs: [t0 [H=2 W=2 C=3],
+    t1 [H=2 W=3 C=4]]
+    nodes:
+      n0: [t2] = batched_matmul input=t0 mat2=t1
+    outputs: [t2 [H=2 W=2 C=4]] |}]
 
 (* §7.5 as corrected by C1: keepdim=false is MeanKeepDims + Reshape4, and only
    when the packed shape re-enters the dialect. *)
@@ -429,7 +434,6 @@ let%expect_test "lower: the domain's rejections are the lowerer's" =
       ("non-unit D", Fixtures.non_unit_d);
       ("unused non-4D input", Fixtures.unused_input_non_4d);
       ("mean over D", Fixtures.mean_over_d);
-      ("bmm batch 2", Fixtures.bmm_batch 2);
       ("live max-pool indices", Fixtures.maxpool_indices_live);
     ];
   [%expect
@@ -437,7 +441,6 @@ let%expect_test "lower: the domain's rejections are the lowerer's" =
     non-unit D                 tensor t0 has extent on T or D: [D=2 H=4 W=4 C=3]
     unused non-4D input        tensor t1 has extent on T or D: [D=5 H=4 W=4 C=3]
     mean over D                node n0: axis D is outside the N/H/W/C dialect
-    bmm batch 2                node n0: bmm batch extent is 2; only a single batch legalizes to a 1x1 convolution
     live max-pool indices      node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
 
 (* §7.2/§8: a grouping that is neither 1 nor depthwise used to be rejected here;
@@ -582,23 +585,22 @@ let%expect_test "lower: conversion is deterministic" =
   Format.printf "identical: %b@." (String.equal once twice);
   [%expect {| identical: true |}]
 
-(* ---- two preconditions, at the lowerer -------------------------------------
+(* ---- one precondition, at the lowerer --------------------------------------
 
-   Both are stated by [Domain.check] and pinned there — see domain_test.ml.
-   These rows check the OTHER half: that [Lower.convert] refuses them too, and
-   so never reaches the materialization that would round an operand or the read
-   that would go out of bounds. *)
+   Stated by [Domain.check] and pinned there — see domain_test.ml. This row
+   checks the OTHER half: that [Lower.convert] refuses it too, and so never
+   reaches the read that would go out of bounds. [Bmm] used to have a second
+   precondition here (its mat2 operand's storage format, guarding the OLD
+   permute-into-convolution legalization's materialization) — gone along with
+   that legalization now that [Bmm] converts directly to [Batched_matmul],
+   which reads mat2 the same way Native's own [Bmm.Compute] does. *)
 
 let%expect_test "lower: the preconditions reach the lowerer" =
   List.iter
     (fun (name, g) -> outcome name (g ()))
-    [
-      ("bmm, i64 mat2", Fixtures.bmm_lossy_operand);
-      ("batch_norm, short stats", Fixtures.batch_norm_short_stats);
-    ];
+    [ ("batch_norm, short stats", Fixtures.batch_norm_short_stats) ];
   [%expect
     {|
-    bmm, i64 mat2              node n0: bmm operand t1 is stored in a format f32 cannot hold exactly, and the legalization materializes it
     batch_norm, short stats    node n0: batch norm parameter t1 has extent 1 on C, but the normalized axis has 2 |}]
 
 (* The complete ordered output list has to survive. Under the ID policy a

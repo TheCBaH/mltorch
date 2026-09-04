@@ -93,53 +93,15 @@ let check_transposed node ~groups =
   if groups = 1 then Err.return ()
   else Err.fail (`Unsupported_grouped_transposed_conv (node, groups))
 
-(* Whether a value read from this format is already f32-representable. F32, F16
-   and BF16 carry no more mantissa than f32; I32/I64 exceed its exact range
-   above 2^24, and I8/I16 dequantize through a scale multiply whose product need
-   not land on an f32. The same distinction [Ground_eval] draws for the Round
-   collapse, and for the same underlying reason. *)
-let fmt_is_f32_exact (Payload.Fmt fmt) =
-  match fmt with
-  | Payload.F32 | Payload.F16 | Payload.BF16 -> true
-  | Payload.F64 | Payload.I8 | Payload.I16 | Payload.I32 | Payload.I64 -> false
-
-(* Two preconditions, and the second is not about shape at all.
-
-   BATCH: only one legalizes. For batch > 1 mat2 varies with the output's H
-   coordinate while convolution weights are shared across spatial positions.
-
-   MAT2'S FORMAT: the legalization inserts a [Permute4] that MATERIALIZES mat2
-   before the convolution reads it, where Native's Bmm reads it directly. Every
-   op output in this engine is f32 (graph_builder, and .ai/native_transform_design.md
-   §14), so if mat2's own format holds values f32 cannot, that extra
-   materialization silently rounds them — 2^24+1 becomes 2^24 — while the map
-   still claims [Identical]. Rejecting is the honest answer: the legalization is
-   sound exactly when the materialization is lossless, and the dialect is
-   allowed to be partial. *)
-let check_bmm view node ~input ~mat2 =
-  let open Err.Syntax in
-  let* () =
-    match Graph_view.sig_of view input with
-    | None -> Err.return ()
-    | Some sg ->
-        let batch = Vec6.get sg.Tensor_sig.shape Axis.H in
-        if Dim.to_int batch = 1 then Err.return ()
-        else Err.fail (`Unsupported_bmm_batch (node, batch))
-  in
-  match Graph_view.sig_of view mat2 with
-  | None -> Err.return ()
-  | Some sg ->
-      if fmt_is_f32_exact sg.Tensor_sig.fmt then Err.return ()
-      else Err.fail (`Lossy_bmm_operand (node, mat2))
-
 (* [Batched_matmul]'s batch axes are N/T/D/H, all four of which
    [output_shape] requires to agree between [input] and [mat2] -- not "D and
    H" as an earlier reading of this arm had it. Of those, D is the one this
    dialect cannot name, so the only real restriction is D = 1; N and H are
    already dialect axes and carry the corpus's actual batch (heads on H,
-   `mvitv2_tiny`). Checking [input] alone is enough, the same asymmetric
-   choice [check_bmm] makes for its own H check: [output_shape] has already
-   proved [mat2] agrees. *)
+   `mvitv2_tiny`). Checking [input] alone is enough: [output_shape] has
+   already proved [mat2] agrees. [Bmm] needs no such check at all: it
+   legalizes to [Batched_matmul] unchanged, and its own [H] batch axis is
+   exactly this dialect's [H], unrestricted at any extent. *)
 let check_batched_matmul view node ~input =
   match Graph_view.sig_of view input with
   | None -> Err.return ()
@@ -231,11 +193,11 @@ let check_node view (n : node) =
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. *)
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
-  | Avg_pool2d _ | Clamp _ | Clone _ | Conv2d _ | Conv2d_padding _ | Div _
-  | Div_scalar _ | Expand _ | Gelu _ | Hardsigmoid _ | Hardswish _ | Hardtanh _
-  | Leaky_relu _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _ | Pow _
-  | Relu _ | Repeat _ | Reshape _ | Rsub_scalar _ | Sigmoid _ | Silu _ | Sqrt _
-  | Sub _ | To_copy _ | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
+  | Avg_pool2d _ | Bmm _ | Clamp _ | Clone _ | Conv2d _ | Conv2d_padding _
+  | Div _ | Div_scalar _ | Expand _ | Gelu _ | Hardsigmoid _ | Hardswish _
+  | Hardtanh _ | Leaky_relu _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _
+  | Pow _ | Relu _ | Repeat _ | Reshape _ | Rsub_scalar _ | Sigmoid _ | Silu _
+  | Sqrt _ | Sub _ | To_copy _ | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
       Err.return ()
   | Arange _ | Eye _ | Zeros _ -> Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn
@@ -257,11 +219,12 @@ let check_node view (n : node) =
   (* Its batch axes are N/T/D/H, all four of which [output_shape] requires to
      agree between [input] and [mat2] -- D is the axis this dialect cannot
      name; N and H are dialect axes and already carry the corpus's real batch
-     (heads on H, `mvitv2_tiny`), so D = 1 is the only restriction, checked
-     conditionally exactly as [check_bmm] checks its own batch axis. *)
+     (heads on H, `mvitv2_tiny`), so D = 1 is the only restriction. [Bmm]
+     needs no such check: it legalizes to [Batched_matmul] unchanged (the
+     "Direct counterparts" arm above), and its own batch axis is [H], which
+     this dialect already names at any extent. *)
   | Batched_matmul { Matmul.Batched_matmul.input; _ } ->
       check_batched_matmul view node ~input
-  | Bmm { Matmul.Bmm.input; mat2 } -> check_bmm view node ~input ~mat2
   | Convolution { Conv.Convolution.params; _ } ->
       if params.Conv.Convolution.transposed then
         check_transposed node ~groups:params.Conv.Convolution.groups

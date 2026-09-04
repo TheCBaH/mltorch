@@ -11,12 +11,10 @@ type t =
   | `Constant_store of Constant_store.error
   | `Dynamic_batch_norm of Node_id.t
   | `Live_max_pool_indices of Node_id.t * Tensor_id.t
-  | `Lossy_bmm_operand of Node_id.t * Tensor_id.t
   | `Map of Graph_map.error
   | `Missing_constant_payload of Node_id.t * Tensor_id.t
   | `Non_four_dimensional_tensor of Tensor_id.t * Vec6.shape
   | `Sdpa_batch_axis of Node_id.t
-  | `Unsupported_bmm_batch of Node_id.t * Dim.extent Dim.t
   | `Unsupported_grouped_transposed_conv of Node_id.t * int
   | `Unsupported_op of Node_id.t * op
   | `View of Framework.View4.error ]
@@ -51,11 +49,6 @@ let pp fmt : [< t ] -> unit = function
         "@[node %a: max-pool index output %a is live; the dialect has no \
          argmax-pool operation@]"
         Node_id.pp node Tensor_id.pp id
-  | `Lossy_bmm_operand (node, id) ->
-      Fmt.pf fmt
-        "@[node %a: bmm operand %a is stored in a format f32 cannot hold \
-         exactly, and the legalization materializes it@]"
-        Node_id.pp node Tensor_id.pp id
   | `Map e -> Fmt.pf fmt "@[map: %a@]" Graph_map.pp_error e
   | `Missing_constant_payload (node, id) ->
       Fmt.pf fmt
@@ -70,11 +63,6 @@ let pp fmt : [< t ] -> unit = function
         "@[node %a: scaled-dot-product attention has extent > 1 on D, its \
          batch axis, which the N/H/W/C dialect has no name for@]"
         Node_id.pp node
-  | `Unsupported_bmm_batch (node, batch) ->
-      Fmt.pf fmt
-        "@[node %a: bmm batch extent is %a; only a single batch legalizes to a \
-         1x1 convolution@]"
-        Node_id.pp node Dim.pp batch
   | `Unsupported_grouped_transposed_conv (node, groups) ->
       Fmt.pf fmt
         "@[node %a: transposed convolution has %d groups; only 1 legalizes@]"
