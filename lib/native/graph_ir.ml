@@ -75,6 +75,7 @@ type op =
   | Sum of Reduce.Sum.t
   | To_copy of Pointwise.To_copy.t
   | Unbind of Split.Unbind.t
+  | Unfold of Unfold.Unfold.t
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm of Reduce.Vector_norm.t
@@ -481,6 +482,12 @@ let op_registry : (module OP) list =
 
       let inject t = Unbind t
       let project = function Unbind t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Unfold.Unfold
+
+      let inject t = Unfold t
+      let project = function Unfold t -> Some t | _ -> None
     end : OP);
     (module struct
       include Resize.Bilinear2d

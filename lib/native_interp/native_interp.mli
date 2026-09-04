@@ -124,6 +124,7 @@ type metadata_role =
         row unable to say which one failed -- the same reasoning as
         [`Conv2d_weight] vs [`Convolution_weight] above. *)
   | `Unbind_input
+  | `Unfold_input
   | `Unsqueeze_input
   | `Upsample_bilinear2d_input
   | `Upsample_nearest2d_input

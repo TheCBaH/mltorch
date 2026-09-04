@@ -518,6 +518,7 @@ let%expect_test "bridge coverage" =
       torch.ops.aten.squeeze.dims
       torch.ops.aten.stack.default
       torch.ops.aten.topk.default
+      torch.ops.aten.unfold.default
       torch.ops.aten.unsqueeze.default
       torch.ops.aten.where.self
       torch.ops.aten.zeros.default |}]

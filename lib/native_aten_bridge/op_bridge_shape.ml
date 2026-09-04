@@ -431,6 +431,37 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                unbind { Split.Unbind.axis } x_id
            | _ -> assert false))
+  (* `unfold(Tensor(a) self, int dimension, int size, int step) -> Tensor(a)`:
+     a sliding-window view. [dimension] resolves against [self]'s OWN rank
+     exactly like [unbind.int]'s [dim] above, but names the axis the window
+     COUNT lands on in the OUTPUT ([Unfold.Unfold.dest_of]), not the axis of
+     [dimension] itself -- see unfold.ml's own header for why appending an
+     ATen axis relabels every axis already in the frame. [dest_of] raises
+     only when [dimension] resolves to the frame's own [N] (self already
+     uses all six axes at its outermost position), which the six-axis frame
+     categorically cannot grow past; every other rejection (self's [N] not
+     already unit) is [Unfold.output_shape]'s own typed check. *)
+  | "torch.ops.aten.unfold.default" ->
+      Some
+        (let op = "unfold.default" in
+         let* aten_x = tensor_arg aten_env node "self" in
+         let rank = aten_rank aten_x in
+         let* dimension = int_arg node "dimension" in
+         let* source = dim_axis ~op ~rank dimension in
+         let* size_int = int_arg node "size" in
+         let* step_int = int_arg node "step" in
+         let* x = native_of_aten "self" aten_x in
+         try
+           let* size = extent ~op ~param:`Kernel_size size_int in
+           let* step = pos ~op ~param:`Stride step_int in
+           let axis = Unfold.Unfold.dest_of source in
+           build_g ~name:"unfold" [ x ] (function
+             | [ x_id ] ->
+                 let open Graph_builder in
+                 let+ y = unfold { Unfold.Unfold.axis; size; step } x_id in
+                 [ y ]
+             | _ -> assert false)
+         with Invalid_argument msg -> fail (`Validation_failure msg))
   (* One [Split_with_sizes] node: divides [axis] into contiguous windows of
      [split_sizes], KEEPING the axis in every output, unlike [unbind.int]
      which drops it. [split_sizes] is a required arg (no schema default), the
@@ -695,204 +726,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                in
                [ y ]
            | _ -> assert false))
-  (* [zeros(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None,
-     Device? device=None, bool? pin_memory=None) -> Tensor].  This is a real
-     factory, not a fill disguised as an input-free pointwise op: shape and
-     dtype are retained in the Native payload. *)
-  | "torch.ops.aten.zeros.default" ->
-      Some
-        (let* size = ints_arg node "size" in
-         let* shape =
-           Aten_shape.of_aten (Array.of_list size)
-           |> Err.map_error (fun e -> `Aten_shape e)
-         in
-         let* fmt =
-           match D.find_arg node "dtype" with
-           | None | Some (Argument.None _) -> return (Payload.Fmt Payload.F32)
-           | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
-               return (Payload.Fmt Payload.F32)
-           | Some (Argument.Scalar_type Pytorch_types.ScalarType.DOUBLE) ->
-               return (Payload.Fmt Payload.F64)
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "zeros: only default/FLOAT and DOUBLE dtype are supported")
-         in
-         let reject_absent name =
-           match D.find_arg node name with
-           | None | Some (Argument.None _) -> return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    ("zeros: " ^ name ^ " must be omitted or None"))
-         in
-         let* () = reject_absent "layout" in
-         let* () =
-           match D.find_arg node "device" with
-           | None | Some (Argument.None _) -> return ()
-           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) ->
-               return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "zeros: device must be omitted/None or CPU without an index")
-         in
-         let* () =
-           match D.find_arg node "pin_memory" with
-           | None | Some (Argument.None _) | Some (Argument.Bool false) ->
-               return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "zeros: pin_memory must be omitted/None or false")
-         in
-         let* g =
-           Graph_builder.build ~name:"zeros"
-             ~outputs:(fun y -> [ y ])
-             (Graph_builder.zeros { Factory.Zeros.shape; fmt })
-           |> Err.map_error (fun e -> `Build e)
-         in
-         return (g, []))
-  (* [eye.m(SymInt n, SymInt m, *, ScalarType? dtype=None, Layout? layout=None,
-     Device? device=None, bool? pin_memory=None) -> Tensor], the rank-2
-     identity-matrix factory -- the same [layout]/[device]/[pin_memory]
-     rejection and FLOAT/DOUBLE dtype dispatch [zeros.default]'s own arm
-     uses, since the trailing argument list is identical. *)
-  | "torch.ops.aten.eye.m" ->
-      Some
-        (let* n = int_arg node "n" in
-         let* m = int_arg node "m" in
-         let* shape =
-           Aten_shape.of_aten [| n; m |]
-           |> Err.map_error (fun e -> `Aten_shape e)
-         in
-         let* fmt =
-           match D.find_arg node "dtype" with
-           | None | Some (Argument.None _) -> return (Payload.Fmt Payload.F32)
-           | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
-               return (Payload.Fmt Payload.F32)
-           | Some (Argument.Scalar_type Pytorch_types.ScalarType.DOUBLE) ->
-               return (Payload.Fmt Payload.F64)
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "eye.m: only default/FLOAT and DOUBLE dtype are supported")
-         in
-         let reject_absent name =
-           match D.find_arg node name with
-           | None | Some (Argument.None _) -> return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    ("eye.m: " ^ name ^ " must be omitted or None"))
-         in
-         let* () = reject_absent "layout" in
-         let* () =
-           match D.find_arg node "device" with
-           | None | Some (Argument.None _) -> return ()
-           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) ->
-               return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "eye.m: device must be omitted/None or CPU without an index")
-         in
-         let* () =
-           match D.find_arg node "pin_memory" with
-           | None | Some (Argument.None _) | Some (Argument.Bool false) ->
-               return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "eye.m: pin_memory must be omitted/None or false")
-         in
-         let* g =
-           Graph_builder.build ~name:"eye"
-             ~outputs:(fun y -> [ y ])
-             (Graph_builder.eye { Factory.Eye.shape; fmt })
-           |> Err.map_error (fun e -> `Build e)
-         in
-         return (g, []))
-  | ("torch.ops.aten.arange.default" | "torch.ops.aten.arange.start") as target
-    ->
-      Some
-        (let scalar_input_is_float =
-           List.exists
-             (fun name ->
-               match D.find_arg node name with
-               | Some (Argument.Float _) -> true
-               | _ -> false)
-             [ "start"; "end"; "step" ]
-         in
-         let* fmt =
-           match D.find_arg node "dtype" with
-           | None | Some (Argument.None _) ->
-               return
-                 (if scalar_input_is_float then Payload.Fmt Payload.F32
-                  else Payload.Fmt Payload.I64)
-           | Some (Argument.Scalar_type Pytorch_types.ScalarType.LONG) ->
-               return (Payload.Fmt Payload.I64)
-           | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
-               return (Payload.Fmt Payload.F32)
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "arange: only default/LONG and FLOAT dtype are supported")
-         in
-         let reject_absent name =
-           match D.find_arg node name with
-           | None | Some (Argument.None _) -> return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    ("arange: " ^ name ^ " must be omitted or None"))
-         in
-         let* () = reject_absent "layout" in
-         let* () =
-           match D.find_arg node "device" with
-           | None | Some (Argument.None _) -> return ()
-           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) ->
-               return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "arange: device must be omitted/None or CPU without an \
-                     index")
-         in
-         let* () =
-           match D.find_arg node "pin_memory" with
-           | None | Some (Argument.None _) | Some (Argument.Bool false) ->
-               return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "arange: pin_memory must be omitted/None or false")
-         in
-         let* start, stop =
-           match target with
-           | "torch.ops.aten.arange.default" ->
-               let* stop =
-                 scalar_arg ~default:(Aten_scalar.Int 0L) node "end"
-               in
-               return (0., stop)
-           | "torch.ops.aten.arange.start" ->
-               let* start =
-                 scalar_arg ~default:(Aten_scalar.Int 0L) node "start"
-               in
-               let* stop =
-                 scalar_arg ~default:(Aten_scalar.Int 0L) node "end"
-               in
-               return (start, stop)
-           | _ -> assert false
-         in
-         let* step = scalar_arg ~default:(Aten_scalar.Int 1L) node "step" in
-         let* g =
-           Graph_builder.build ~name:"arange"
-             ~outputs:(fun y -> [ y ])
-             (Graph_builder.arange { Factory.Arange.start; stop; step; fmt })
-           |> Err.map_error (fun e -> `Build e)
-         in
-         return (g, []))
   (* `_assert_tensor_metadata(Tensor a, SymInt[]? size=None, SymInt[]?
      stride=None, ScalarType? dtype=None, *, Device? device=None, Layout?
      layout=None) -> ()`: a pure debug assertion the exporter inserts to pin

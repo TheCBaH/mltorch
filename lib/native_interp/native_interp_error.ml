@@ -110,6 +110,7 @@ type metadata_role =
   | `Tensor
   | `Transpose_input
   | `Unbind_input
+  | `Unfold_input
   | `Unsqueeze_input
   | `Upsample_bilinear2d_input
   | `Upsample_nearest2d_input
@@ -430,6 +431,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Tensor -> Fmt.string ppf "tensor"
   | `Transpose_input -> Fmt.string ppf "transpose input"
   | `Unbind_input -> Fmt.string ppf "unbind input"
+  | `Unfold_input -> Fmt.string ppf "unfold input"
   | `Unsqueeze_input -> Fmt.string ppf "unsqueeze input"
   | `Upsample_bilinear2d_input -> Fmt.string ppf "upsample_bilinear2d input"
   | `Upsample_nearest2d_input -> Fmt.string ppf "upsample_nearest2d input"

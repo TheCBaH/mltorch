@@ -75,9 +75,12 @@ let classify (op : op) ~output =
      operand's stored VALUE, so it carries no data dependency and is exactly
      as sound as [Concat]'s N-input selection (of which this is the
      two-input, axis-narrowed case). *)
+  (* [Unfold]'s window/offset pair selects exactly one source element per
+     output -- a gather, not a reduction, the same argument as [Unbind]'s own
+     selection just above -- so [Reindexing] here too. *)
   | Concat _ | Expand _ | Repeat _ | RepeatInterleave _ | Select _
   | Select_scatter _ | Slice _ | Split_with_sizes _ | Stack _ | Unbind _
-  | Upsample_nearest2d _ ->
+  | Unfold _ | Upsample_nearest2d _ ->
       Reindexing
   (* [Pad] is NOT reindexing, and the mode is why the honest answer is one class
      rather than two. In [Constant] mode the padded cells are a synthesized fill

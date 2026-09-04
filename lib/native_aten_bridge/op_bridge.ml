@@ -15,7 +15,8 @@
    op_bridge_decode.ml, and the per-node dispatch arms are grouped by
    operation family in op_bridge_pointwise.ml, op_bridge_linalg.ml,
    op_bridge_conv.ml, op_bridge_pool.ml, op_bridge_reduce.ml,
-   op_bridge_norm.ml, op_bridge_attention.ml, and op_bridge_shape.ml. Every
+   op_bridge_norm.ml, op_bridge_attention.ml, op_bridge_shape.ml, and
+   op_bridge_factory.ml. Every
    family's [dispatch] has the same signature and disjoint [node.target]
    cases (no op name is handled by more than one family), so trying each in
    turn and taking the first non-[None] result is equivalent to the original
@@ -29,6 +30,7 @@ let dispatchers =
   [
     Op_bridge_attention.dispatch;
     Op_bridge_conv.dispatch;
+    Op_bridge_factory.dispatch;
     Op_bridge_linalg.dispatch;
     Op_bridge_norm.dispatch;
     Op_bridge_pointwise.dispatch;

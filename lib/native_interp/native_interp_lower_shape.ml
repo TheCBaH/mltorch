@@ -31,6 +31,7 @@ let targets =
     "torch.ops.aten.zeros.default";
     "torch.ops.aten.transpose.int";
     "torch.ops.aten.unbind.int";
+    "torch.ops.aten.unfold.default";
     "torch.ops.aten.unsqueeze.default";
     "torch.ops.aten.upsample_bilinear2d.vec";
     "torch.ops.aten.upsample_nearest2d.vec";
@@ -588,6 +589,44 @@ let dispatch ~ctx ~env (node : Node.t) =
            (* No arity check here: [bind] does it against the ids actually
              produced, which is both stronger and total over ops. *)
            unbind { Split.Unbind.axis } (get "self")
+       (* `unfold(Tensor(a) self, int dimension, int size, int step) ->
+         Tensor(a)`: mirrors [unbind.int]'s own rank/dim resolution, but
+         [Unfold.Unfold.dest_of] maps the resolved axis onto the axis the
+         window COUNT lands on in the OUTPUT, not [dimension]'s own axis --
+         see unfold.ml's own header. [dest_of] raises only when [dimension]
+         resolves to the frame's [N] (self already occupies all six axes at
+         its outermost position, so the appended window axis has no room at
+         all) -- reported as [`Rank_over_six], the same row a genuinely
+         too-large declared rank gets, since both name "this tensor does not
+         fit the six-axis frame". Every other rejection (self's [N] not
+         already unit) is [Unfold.output_shape]'s own typed check. *)
+       | "torch.ops.aten.unfold.default" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Unfold_input)
+           in
+           let source =
+             match
+               axes_for_rank esc ~tensor:x_name rank
+                 [ int_arg esc node "dimension" ]
+             with
+             | [ a ] -> a
+             | _ ->
+                 invalid_arg "Native_interp: axes_for_rank lost its singleton"
+           in
+           let axis =
+             try Unfold.Unfold.dest_of source
+             with Invalid_argument _ ->
+               malformed esc
+                 (`Bad_dimension { tensor = x_name; fault = `Rank_over_six })
+           in
+           let op = "unfold.default" in
+           let size =
+             extent esc ~op ~param:`Kernel_size (int_arg esc node "size")
+           in
+           let step = pos esc ~op ~param:`Stride (int_arg esc node "step") in
+           let* y = unfold { Unfold.Unfold.axis; size; step } (get "self") in
+           return [ y ]
        (* Divides [axis] into contiguous windows of [split_sizes], KEEPING the
          axis in every output, unlike [unbind.int]. Same shape as that arm --
          rank from the input's own metadata, [dim] resolved through

@@ -264,6 +264,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Unbind { Split.Unbind.params; x } ->
         let module C = Split.Unbind.Compute (S) in
         C.pixel params ~output ~x:(operand x) out
+    | Unfold { Unfold.Unfold.params; x } ->
+        let module C = Unfold.Unfold.Compute (S) in
+        C.pixel params ~x:(operand x) out
     (* [offset] is the sum of every EARLIER piece's size -- [output]'s ordinal
        picks the prefix, [Compute.pixel] wants only the sum. *)
     | Split_with_sizes { Split.Split_with_sizes.params; x } ->

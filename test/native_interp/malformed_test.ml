@@ -71,6 +71,27 @@ let%expect_test "a rank-seven node-produced edge is refused, not raised" =
   [%expect
     {| y declared rank 7:         malformed PT2 graph: y has rank greater than six |}]
 
+(* [Unfold.Unfold.dest_of] raises [Invalid_argument] only when [dimension]
+   resolves to the frame's own [N] -- [y] already occupies all six axes at
+   its outermost position, so the axis this op appends has no room at all.
+   native_interp_lower_shape.ml's own arm catches it and reports the same
+   [`Rank_over_six] row a genuinely too-large declared rank gets above,
+   rather than letting it escape as an exception. *)
+let%expect_test "unfold on an already-six-axis tensor is refused, not raised" =
+  let unfold_dim0 =
+    jstr
+      {|{"target":"torch.ops.aten.unfold.default","inputs":[{"name":"self","arg":%s,"kind":1},{"name":"dimension","arg":{"as_int":0},"kind":1},{"name":"size","arg":{"as_int":1},"kind":1},{"name":"step","arg":{"as_int":1},"kind":1}],"outputs":[%s],"metadata":{}}|}
+      (as_tensor "y") (as_tensors [ "u0" ])
+  in
+  show "y declared rank 6:"
+    (program ~x_sizes:[ 2; 3 ]
+       ~nodes:[ relu ~out:(as_tensor "y"); unfold_dim0 ]
+       ~graph_outputs:[ as_tensor "u0" ]
+       ~extra_tensor_values:[ ("y", tensor_meta [ 1; 1; 1; 1; 2; 3 ]) ]
+       ());
+  [%expect
+    {| y declared rank 6:         malformed PT2 graph: y has rank greater than six |}]
+
 (* The op CONFIGURATION -- stride, padding, dilation, groups, kernel -- is
    model data exactly as much as a shape is, and it reached
    [Op_config.Pos.of_int]/[Nonneg.of_int]/[Dim.extent] unguarded. Those raise

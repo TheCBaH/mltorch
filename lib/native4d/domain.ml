@@ -331,6 +331,17 @@ let check_node view (n : node) =
      lowerer's own [Shape4.of_vec6] covers the rest, so an unbind that shifts a
      non-unit N onto T is refused without this arm knowing the rule. *)
   | Unbind { Split.Unbind.params; _ } -> check_dims node [ params.axis ]
+  (* Not a missing counterpart: [Unfold]'s own output_shape (unfold.ml)
+     shifts EVERY carried-through axis one step toward N (`source_of`), so
+     whatever real (non-unit) content sat on the input's H axis lands on the
+     output's D axis, and C's own input content lands on W -- both real
+     dialect-incompatible moves for any input whose H/C actually hold data,
+     which is the ordinary case (an unfolded spatial or channel axis is
+     rarely unit). Native4D has no way to represent that shift without
+     naming T/D as real axes, so this is the same intrinsic boundary
+     [Batched_matmul]'s multi-batch form and [Sdpa]'s own D axis are --
+     `.ai/native4d_design.md` §8 territory, not a gap to close later. *)
+  | Unfold _ -> unsupported ()
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation
    that moves C onto D necessarily produces a tensor with extent on D, so either

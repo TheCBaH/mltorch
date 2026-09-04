@@ -364,6 +364,24 @@ module Split_with_sizes = struct
           Axis.pp axis total Dim.pp in_extent
 end
 
+module Unfold = struct
+  type fault = Reserved_axis | Rank_exceeded
+  type t = { axis : Axis.t; fault : fault }
+
+  let pp ppf { axis; fault } =
+    match fault with
+    | Reserved_axis ->
+        Fmt.pf ppf
+          "unfold axis must not be C (got %a): C is reserved for the window \
+           offset"
+          Axis.pp axis
+    | Rank_exceeded ->
+        Fmt.pf ppf
+          "unfold axis %a: input already uses all six axes (N has extent > 1), \
+           no room for the new window axis"
+          Axis.pp axis
+end
+
 module Convolution = struct
   type channels_divisibility = { channels : int; groups : int }
 
@@ -652,6 +670,7 @@ type t =
   | `Select_scatter of Select_scatter.t
   | `Slice of Slice.t
   | `Split_with_sizes of Split_with_sizes.t
+  | `Unfold of Unfold.t
   | `Window of Window.t
   | `Window_over_limit of Window_over_limit.t ]
 
@@ -679,5 +698,6 @@ let pp ppf = function
   | `Select_scatter e -> Select_scatter.pp ppf e
   | `Slice e -> Slice.pp ppf e
   | `Split_with_sizes e -> Split_with_sizes.pp ppf e
+  | `Unfold e -> Unfold.pp ppf e
   | `Window e -> Window.pp ppf e
   | `Window_over_limit e -> Window_over_limit.pp ppf e

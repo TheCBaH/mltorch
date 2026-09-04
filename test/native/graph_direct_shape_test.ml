@@ -118,6 +118,32 @@ let%expect_test
   Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
   [%expect {| out = tensor f32 [C=6] {0, 0, 0, 1, 1, 1} |}]
 
+let%expect_test "Direct graph: unfold [C=8] onto W, overlapping windows" =
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"unfold" ~outputs:(fun r -> [ r ])
+          @@
+          let* x = input ~shape:(s1c 8) ~name:"x" () in
+          unfold ~name:"out"
+            {
+              Unfold.Unfold.axis = Axis.W;
+              size = Dim.extent 3;
+              step = Op_config.Pos.of_int 2;
+            }
+            x)
+    in
+    let x = Tensor.materialize (s1c 8) (fun c -> float_of_int (chan c)) in
+    let* env =
+      lift_eval (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x ]))
+    in
+    tensor_of_name g env "out"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "out")) result;
+  [%expect {| out = tensor f32 [W=3 C=3] {0, 1, 2, 2, 3, 4, 4, 5, ...} |}]
+
 (* Conv decomposition. The input is laid out NCHW: in the 6D frame its channel sits
    on H, spatial-H on W, spatial-W on C. Two permutes bracket a native (NHWC)
    conv: NCHW->NHWC moves the channel to C and the spatial axes to H/W; NHWC->NCHW

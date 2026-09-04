@@ -112,6 +112,7 @@ let curated_selection =
     (* The only Tensor[]-returning op bound so far: the ViT attention blocks
        split their packed qkv projection with it. *)
     op "unbind" ~overload:"int";
+    op "unfold";
     op "split_with_sizes";
     op "split" ~overload:"Tensor";
     op "squeeze" ~overload:"dims";

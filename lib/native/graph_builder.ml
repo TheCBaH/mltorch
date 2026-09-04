@@ -443,6 +443,9 @@ let unbind ?name params x =
   opN ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant ~kind:"unbind"
     (Unbind { Split.Unbind.params; x })
 
+let unfold ?name params x =
+  op1 ?name ~kind:"unfold" (Unfold { Unfold.Unfold.params; x })
+
 let upsample_bilinear2d ?name params x =
   op1 ?name ~kind:"upsample_bilinear2d"
     (Upsample_bilinear2d { Resize.Bilinear2d.params; x })

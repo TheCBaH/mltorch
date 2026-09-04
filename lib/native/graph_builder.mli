@@ -328,6 +328,10 @@ val to_copy :
 val unbind :
   ?name:string -> Split.Unbind.params -> tensor_ref -> Tensor_id.t list t
 
+val unfold : ?name:string -> Unfold.Unfold.params -> tensor_ref -> Tensor_id.t t
+(** A sliding-window view along one named axis; see [Unfold.Unfold]'s own header
+    for how the rank-increasing ATen op fits Native's fixed six-axis frame. *)
+
 val upsample_bilinear2d :
   ?name:string -> Resize.Bilinear2d.params -> tensor_ref -> Tensor_id.t t
 (** Bilinear resize to an explicit output size, either [align_corners] value. *)
