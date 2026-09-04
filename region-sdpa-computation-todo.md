@@ -238,19 +238,33 @@ current op needs to tune independently.
   change of its own. The full `dune runtest` run above includes Native4D's
   own tests and passed unchanged.
 
-### Not done, and out of scope for this plan
+### Wall-clock measurement against Stage A — now done, and reverses the caveat above
 
-Wall-clock measurement against Stage A (the plan's §4 recommendation, "Stage
-B then lands as a language extension whose payoff is measured against a
-Stage A baseline"). `region_compute_design.md`'s existing caveat — Region
-execution's general interpreter does not turn a lower operation count into a
-faster `Eval_direct` run, demonstrated for Stage A's own numbers — applies
-identically here and was folded into the tracked doc rather than re-measured;
-a real wall-clock win needs the specialized/compiled execution form that
-section already names as unbuilt. `bin/region_compute_bench.exe`'s `sdpa`
-rows were not re-run or re-recorded in this doc for the same reason
-`region_compute_design.md` gives: both are runtime-sensitive, and the tracked
-record deliberately keeps the operation-count table instead of a dated run.
+Re-measured (`opam exec -- dune exec bin/region_compute_bench.exe`, median of
+20 samples, stable across three repeated runs). Stage B's `kernel_region_ms`/
+`direct_ms` are 4.8x-11x faster than Stage A's own recorded numbers at
+identical `report_sdpa` shapes, and now BEAT `legacy_pixel_ms` (the uncached
+oracle) at every point except the smallest — a reversal of the "operation
+count, not wall clock" caveat this section used to defer to. Folded into
+`.ai/region_compute_design.md`'s "Design headroom" and "Cost model and
+evidence" sections, including the comparison table; that tracked doc's
+previous claim ("`Legacy_pixel` is faster in absolute terms at every size
+measured") was corrected in place, not merely appended to.
+
+**A real bug surfaced by taking this measurement, now fixed**:
+`Region_execution.evaluate_locals`'s `fill` dispatched on a local's numeric
+slot count rather than its declared `Shape.t`, so a `Vector` local of extent
+1 (SDPA's `s`/`p` at `Wk = 1` — `report_sdpa`'s own first sweep point) was
+silently evaluated as a scalar, with no `~reducer` bound, and raised
+`Unbound_reducer` — through `Eval_direct.run` itself, not just the
+benchmark's `Kernel_eval` path. Neither the `sdpa_nwalk.ml` fuzz walk (whose
+`wk` axis includes `1`) nor any existing unit test happened to land on it.
+Fixed in `lib/native/region_execution.ml` (dispatch on `Region_local.shape`);
+regression test added at `Wk = 1` in `test/native/region_compute_test.ml`,
+bitwise against `Legacy_pixel`, confirmed to fail without the fix (reverted
+the fix, watched it fail with the exact `Unbound_reducer` backtrace, restored
+it — CLAUDE.md's "prove the check can fail"). Both changes are uncommitted as
+of this note; land as their own commit(s), separate from any §3.4 work.
 
 **Known cosmetic gap, not fixed**: `Region_program.pp` (used by
 `Region_trace`, `Kernel.pp`, `Stage_program.pp`, and Model Explorer's
