@@ -9,6 +9,53 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
     (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, error) Err.t
     option =
   match node.target with
+  | "torch.ops.aten.conv1d.default" ->
+      Some
+        (let* groups = int_arg ~default:1 node "groups" in
+         let* dilation = ints_arg ~default:[ 1 ] node "dilation" in
+         let* d = w1 "dilation" dilation in
+         let* aten_x = tensor_arg aten_env node "input" in
+         let* aten_w = tensor_arg aten_env node "weight" in
+         let w_shape = Aten_tensor.shape aten_w in
+         if Array.length w_shape <> 3 then
+           fail (`Conv1d_invalid_weight_rank w_shape)
+         else
+           let* stride = ints_arg ~default:[ 1 ] node "stride" in
+           let* padding = ints_arg ~default:[ 0 ] node "padding" in
+           let* s = w1 "stride" stride in
+           let* p = w1 "padding" padding in
+           let* bias_opt =
+             if optional_tensor_present node "bias" then
+               let* bias = tensor_arg aten_env node "bias" in
+               let* () = require_rank "bias" ~expected:1 bias in
+               let* bias = native_of_aten "bias" bias in
+               return (Some bias)
+             else return None
+           in
+           let* x = native_of_aten "input" aten_x in
+           let* w = native_of_aten "weight" aten_w in
+           try
+             let* params =
+               make_conv1d_params ~op:node.Node.target w_shape s p d groups
+             in
+             let tensors = [ x; w ] @ Option.to_list bias_opt in
+             build_g ~name:"conv1d_relayout" tensors (function
+               | [ x_id; w_id ] ->
+                   let open Graph_builder in
+                   let* x' = permute perm_conv1d x_id in
+                   let* w' = permute perm_conv1d w_id in
+                   let* y' = conv1d params ~x:x' ~weight:w' () in
+                   let+ y = permute perm_conv1d y' in
+                   [ y ]
+               | [ x_id; w_id; b_id ] ->
+                   let open Graph_builder in
+                   let* x' = permute perm_conv1d x_id in
+                   let* w' = permute perm_conv1d w_id in
+                   let* y' = conv1d params ~x:x' ~weight:w' ~bias:b_id () in
+                   let+ y = permute perm_conv1d y' in
+                   [ y ]
+               | _ -> assert false)
+           with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.conv2d.default" ->
       Some
         (let* groups = int_arg ~default:1 node "groups" in

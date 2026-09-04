@@ -568,3 +568,58 @@ let%expect_test "the three group modes reach the three Native4D convolutions" =
     groups=1:              Permute4, Conv2D, Permute4
     depthwise:             Permute4, DepthwiseConv2D, Permute4
     groups=2:              Permute4, GroupedConv2D, Permute4 |}]
+
+(* ---- conv1d.default: the same overload one spatial axis down ------------- *)
+
+(* Rank-3 twin of [conv] above: one spatial axis, so stride/padding/dilation
+   are each a single int rather than an H/W pair, and the weight is
+   [Cout,Cin/groups,K]. [prog] itself needs no changes -- it already takes
+   [x_sizes]/[w_sizes] generically. *)
+let conv1d ?(stride = "[1]") ?(padding = "[0]") ?(dilation = "[1]")
+    ?(groups = 1) ?(bias = `Absent) () =
+  let bias_arg =
+    match bias with
+    | `Absent -> ""
+    | `None -> {|{"name":"bias","arg":{"as_none":true},"kind":1},|}
+    | `Tensor -> jstr {|{"name":"bias","arg":%s,"kind":1},|} (as_tensor "b")
+  in
+  jstr
+    {|{"target":"torch.ops.aten.conv1d.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":%s,"kind":1},%s{"name":"stride","arg":{"as_ints":%s},"kind":1},{"name":"padding","arg":{"as_ints":%s},"kind":1},{"name":"dilation","arg":{"as_ints":%s},"kind":1},{"name":"groups","arg":{"as_int":%d},"kind":1}],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") (as_tensor "w") bias_arg stride padding dilation groups
+    (as_tensor "y")
+
+let%expect_test "conv1d.default lowers with schema defaults" =
+  dump "defaults:" (prog ~x_sizes:[ 1; 4; 8 ] ~w_sizes:[ 8; 4; 3 ] (conv1d ()));
+  [%expect
+    {|
+    defaults:
+    graph
+    inputs: [t0 f32 [W=4 C=8] ->[n0], t1 f32 [H=8 W=4 C=3] ->[n1] constant]
+    nodes:
+      group g1 torch.ops.aten.conv1d.default:
+        n0: [t2 f32 [W=8 C=4] ->[n2]] =
+          permute x=t0 perm=[N<-H, H<-N, W<-C, C<-W]
+        n1: [t3 f32 [N=8 T=1 D=1 H=1 W=3 C=4] ->[n2]] =
+          permute x=t1 perm=[N<-H, H<-N, W<-C, C<-W]
+        n2: [t4 f32 [W=6 C=8] ->[n3]] =
+          conv1d
+            x=t2 <-n0
+            weight=t3 <-n1
+            bias=none
+            params={w={kernel=3; stride=1; pad_before=0; pad_after=0; dilation=1};
+                   in_channels=4;
+                   groups=1}
+        n3: [t5 f32 [W=8 C=6]] = permute x=t4 <-n2 perm=[N<-H, H<-N, W<-C, C<-W]
+    outputs: [t5 f32 [W=8 C=6] <-n3] |}]
+
+let%expect_test "conv1d reaches Conv2D in Native4D, H pinned to the unit window"
+    =
+  to4d "groups=1:"
+    (prog ~x_sizes:[ 1; 4; 8 ] ~w_sizes:[ 8; 4; 3 ] (conv1d ~padding:"[1]" ()));
+  to4d "depthwise:"
+    (prog ~x_sizes:[ 1; 4; 8 ] ~w_sizes:[ 4; 1; 3 ]
+       (conv1d ~groups:4 ~padding:"[1]" ()));
+  [%expect
+    {|
+    groups=1:              Permute4, Conv2D, Permute4
+    depthwise:             Permute4, DepthwiseConv2D, Permute4 |}]

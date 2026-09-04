@@ -385,6 +385,29 @@ let%expect_test "lower: linear becomes a 1x1 convolution" =
                  in_channels=8}
     outputs: [t2 [C=4]] |}]
 
+(* [Conv1d] carries no [h] field at all (conv_conv1d.ml) -- its own
+   [to_conv2d_params] supplies [Conv2d.unit_window] before reusing
+   [forward_conv] unchanged, so [Conv2D4] shows the pinned unit window on
+   [h] even though nothing in [Conv1d]'s own payload named it. *)
+let%expect_test "lower: conv1d becomes conv2d with H pinned to the unit window"
+    =
+  show "conv1d" (Fixtures.conv1d_basic ~in_channels:2 ~out_channels:3 ());
+  [%expect
+    {|
+    conv1d:
+      graph4
+    inputs: [t0 [W=4 C=2],
+    t1 [N=3 T=1 D=1 H=1 W=1 C=2]]
+    nodes:
+      n0: [t2] =
+        conv2d
+          x=t0
+          weight=t1
+          params={h={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 w={kernel=1; stride=1; pad_before=0; pad_after=0; dilation=1};
+                 in_channels=2}
+    outputs: [t2 [W=4 C=3]] |}]
+
 (* §7.4. [Bmm] legalizes directly to [Batched_matmul], one node, no
    relayout — retiring the previous permute-into-1x1-convolution route (which
    was sound only at batch 1). At batch 2, the SAME single-node lowering

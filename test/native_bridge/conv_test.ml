@@ -139,6 +139,116 @@ let%expect_test "importer: conv2d.default matches ATen" =
     depthwise:             Ok
     groups=2:              Ok |}]
 
+(* ---- the PT2 importer's conv1d.default arm, against ATen ---------------- *)
+
+(* [conv1d.default]'s own rank-3 twin of [conv_program]/[importer_vs_aten]:
+   one spatial axis, so stride/padding/dilation are each a single int rather
+   than an H/W pair, and the weight is [Cout,Cin/groups,K] rather than
+   [Cout,Cin/groups,Kh,Kw]. Kept as its own small harness rather than
+   generalizing the rank-4 one above, since every JSON field it touches
+   (arity of the int-list arguments, the weight rank) differs from it. *)
+let conv1d_program ~x_sizes ~w_sizes ~b_size ~stride ~padding ~dilation ~groups
+    =
+  let captured = [ ("w", w_sizes); ("b", [ b_size ]) ] in
+  let as_t n = jstr {|{"as_tensor":{"name":"%s"}}|} n in
+  let node =
+    jstr
+      {|{"target":"torch.ops.aten.conv1d.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":%s,"kind":1},{"name":"bias","arg":%s,"kind":1},{"name":"stride","arg":{"as_ints":[%d]},"kind":1},{"name":"padding","arg":{"as_ints":[%d]},"kind":1},{"name":"dilation","arg":{"as_ints":[%d]},"kind":1},{"name":"groups","arg":{"as_int":%d},"kind":1}],"outputs":[%s],"metadata":{}}|}
+      (as_t "x") (as_t "w") (as_t "b") stride padding dilation groups (as_t "y")
+  in
+  jstr
+    {|{"graph_module":{"graph":{"inputs":[%s],"outputs":[%s],"nodes":[%s],"tensor_values":{%s},"sym_int_values":{},"sym_bool_values":{},"is_single_tensor_return":true},"signature":{"input_specs":[%s],"output_specs":[{"user_output":{"arg":%s}}]},"module_call_graph":[]},"opset_version":{"aten":15},"range_constraints":{},"schema_version":{"major":8,"minor":5}}|}
+    (String.concat "," (as_t "x" :: List.map (fun (n, _) -> as_t n) captured))
+    (as_t "y") node
+    (String.concat ","
+       (jstr {|"x":%s|} (meta_json x_sizes)
+       :: List.map (fun (n, s) -> jstr {|"%s":%s|} n (meta_json s)) captured))
+    (String.concat ","
+       (jstr {|{"user_input":{"arg":%s}}|} (as_t "x")
+       :: List.map
+            (fun (n, _) ->
+              jstr {|{"parameter":{"arg":{"name":"%s"},"parameter_name":"%s"}}|}
+                n n)
+            captured))
+    (as_t "y")
+
+let importer_vs_aten_1d label ~x_sizes ~w_sizes ~stride ~padding ~dilation
+    ~groups =
+  let numel = List.fold_left ( * ) 1 in
+  let b_size = List.nth w_sizes 0 in
+  let xs = ramp (numel x_sizes) and ws = ramp (numel w_sizes) in
+  let bs = ramp b_size in
+  let json =
+    conv1d_program ~x_sizes ~w_sizes ~b_size ~stride ~padding ~dilation ~groups
+  in
+  Format.printf "%-22s " label;
+  match Jsont_bytesrw.decode_string PT.ExportedProgram.jsont json with
+  | Error e -> Format.printf "fixture did not decode: %s@." e
+  | Ok program -> (
+      let node = List.hd program.PT.ExportedProgram.graph_module.graph.nodes in
+      let aten_env =
+        List.fold_left
+          (fun m (k, sizes, vals) -> Sm.add k (float_tensor sizes vals) m)
+          Sm.empty
+          [ ("x", x_sizes, xs); ("w", w_sizes, ws); ("b", [ b_size ], bs) ]
+      in
+      match Interp_dispatch.dispatch aten_env node with
+      | Error e ->
+          Format.printf "aten: %a@." Interp_verify.pp_interp_error
+            (Err.Error.kind e)
+      | Ok aten_out -> (
+          match Native_interp.lower program with
+          | Error e ->
+              Format.printf "lower: %a@." Native_interp.pp_error
+                (Err.Error.kind e)
+          | Ok lowered -> (
+              let g = lowered.Pt2_native_graph.graph in
+              let inputs, constants =
+                List.partition
+                  (fun (id, _) ->
+                    Graph_ir.input_kind g id = Graph_ir.Input.Input)
+                  (List.combine g.Graph_ir.Graph.inputs
+                     [
+                       native_f32 x_sizes xs;
+                       native_f32 w_sizes ws;
+                       native_f32 [ b_size ] bs;
+                     ])
+              in
+              match Eval_direct.run g ~constants ~inputs with
+              | Error e ->
+                  Format.printf "eval: %a@." Eval_direct.pp_error
+                    (Err.Error.kind e)
+              | Ok result ->
+                  let native_y =
+                    Graph_ir.Tensor_id.Map.find
+                      (List.hd g.Graph_ir.Graph.outputs)
+                      result
+                  in
+                  Format.printf "%a@." pp_result
+                    (Verify.compare_tensors ~atol:1e-6 ~output:"y"
+                       (Sm.find "y" aten_out) native_y))))
+
+let%expect_test "importer: conv1d.default matches ATen" =
+  importer_vs_aten_1d "defaults:" ~x_sizes:[ 1; 2; 8 ] ~w_sizes:[ 3; 2; 3 ]
+    ~stride:1 ~padding:0 ~dilation:1 ~groups:1;
+  (* Non-defaults together: stride, padding and dilation all off 1 at once, so
+     a swapped or dropped argument is visible. *)
+  importer_vs_aten_1d "non-default:" ~x_sizes:[ 1; 2; 11 ] ~w_sizes:[ 3; 2; 3 ]
+    ~stride:2 ~padding:1 ~dilation:2 ~groups:1;
+  (* Depthwise: [in_channels] is the weight's per-group extent TIMES groups, so
+     dropping the factor builds a conv over one channel instead of four. *)
+  importer_vs_aten_1d "depthwise:" ~x_sizes:[ 1; 4; 8 ] ~w_sizes:[ 4; 1; 3 ]
+    ~stride:1 ~padding:1 ~dilation:1 ~groups:4;
+  (* General grouping, which Native holds and only Native4D refuses. *)
+  importer_vs_aten_1d "groups=2:" ~x_sizes:[ 1; 4; 8 ] ~w_sizes:[ 6; 2; 3 ]
+    ~stride:1 ~padding:1 ~dilation:1 ~groups:2;
+  [%expect
+    {|
+    defaults:              Ok
+    non-default:           Ok
+    depthwise:             Ok
+    groups=2:              Ok |}]
+
 (* "same" is where an ATen oracle earns its place. The importer does not resolve
    the mode -- [Conv2d_padding.same_padding] does -- so what these check is that
    the mode SURVIVES the importer intact and that the resolution downstream of

@@ -29,6 +29,7 @@ type op =
   | Clamp of Pointwise.Clamp.t
   | Clone of Pointwise.Clone.t
   | Concat of Concat.Concat.t
+  | Conv1d of Conv.Conv1d.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t
@@ -210,6 +211,12 @@ let op_registry : (module OP) list =
 
       let inject t = Concat t
       let project = function Concat t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Conv.Conv1d
+
+      let inject t = Conv1d t
+      let project = function Conv1d t -> Some t | _ -> None
     end : OP);
     (module struct
       include Conv.Conv2d

@@ -130,6 +130,7 @@ type error =
   | `Build of Graph_builder.error
   | `Concat_no_tensors of string
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Conv1d_invalid_weight_rank of int array
   | `Conv2d_invalid_weight_rank of int array
   | `Conv2d_padding_invalid_weight_rank of int array
   | `Convolution_invalid_weight_rank of int array
@@ -138,6 +139,7 @@ type error =
   | `Index_list of Index_list.t
   | `Invalid_dim of Invalid_dim.t
   | `Invalid_hw_arg of invalid_hw_arg
+  | `Invalid_w_arg of invalid_hw_arg
   | `Linear_invalid_weight_rank of int array
   | `Matmul_unsupported_shape of Matmul_unsupported_shape.t
   | `Normalized_rank of Normalized_rank.t
@@ -175,6 +177,9 @@ let pp_error ppf : [< error ] -> unit = function
   | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
       Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
         other
+  | `Conv1d_invalid_weight_rank shape ->
+      Fmt.pf ppf "conv1d: weight must be rank-3, got shape %a" pp_int_array
+        shape
   | `Conv2d_invalid_weight_rank shape ->
       Fmt.pf ppf "conv2d: weight must be rank-4, got shape %a" pp_int_array
         shape
@@ -210,6 +215,8 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "%s: invalid dimension %d for rank %d" op dim rank
   | `Invalid_hw_arg { name; values } ->
       Fmt.pf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list values
+  | `Invalid_w_arg { name; values } ->
+      Fmt.pf ppf "%s: expected a single int, got %a" name pp_int_list values
   | `Linear_invalid_weight_rank shape ->
       Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
         shape

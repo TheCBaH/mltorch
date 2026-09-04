@@ -116,6 +116,53 @@ let%expect_test "Symbolic graph: conv2d_padding same ground matches Direct" =
     ground = tensor f32 [H=3 W=3 C=1] {8, 12, 7, 20, 24, 13, 13, 15, ...}
     ground matches direct: true |}]
 
+(* [Conv1d] stages exactly like [Conv2d] with H's window folded away by the
+   pinned unit kernel/stride/pad -- there is no separate Symbolic staging
+   rule to pin, only that [Conv1d]'s own dispatch reaches the shared
+   [Conv2d.Compute] functor. *)
+let%expect_test "Symbolic graph: conv1d ground matches Direct" =
+  let params =
+    {
+      Conv.Conv1d.w = conv_axis ~kernel:2 ~stride:1 ~pad:0;
+      in_channels = Dim.extent 1;
+      groups = Op_config.Pos.of_int 1;
+    }
+  in
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"conv1d" ~outputs:(fun y -> [ y ])
+          @@
+          let* x = input ~shape:(s 1 1 1 1 4 1) ~name:"x" () in
+          let* w = input ~shape:(s 1 1 1 1 2 1) ~name:"w" () in
+          conv1d ~name:"y" params ~x ~weight:w ())
+    in
+    let prog = Eval_symbolic.run g in
+    Format.printf "%a@." Stage_program.pp prog;
+    let x =
+      Tensor.materialize (s 1 1 1 1 4 1) (fun c ->
+          float_of_int (Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let w = Tensor.materialize (s 1 1 1 1 2 1) (fun _ -> 1.) in
+    let inputs = List.combine g.Graph.inputs [ x; w ] in
+    let bind id = List.assoc id inputs in
+    let grounded = Stage_program.ground prog ~bind in
+    let* direct = lift_eval (Eval_direct.run g ~inputs) in
+    compare_output g grounded direct
+  in
+  [%expect
+    {|
+    inputs: t0, t1
+    t2 = (sum(r1=0..1: sum(r2=max(0,-1*H)..min(1,1+-1+-1*H+1): sum(r3=max(0,-1*W)..min(2,4+-1+-1*W+1): (t0[N,T,D,H+r2,W+r3,r1] * t1[C,0,0,r2,r3,r1])))) + t3[0,0,0,0,0,C])
+    outputs: t2 |}];
+  Format.printf "%a@." (pp_result (pp_ground_result "ground")) result;
+  [%expect
+    {|
+    ground = tensor f32 [W=3 C=1] {1, 3, 5}
+    ground matches direct: true |}]
+
 let%expect_test "Symbolic graph: convolution ground matches Direct" =
   let result =
     let open Err.Syntax in

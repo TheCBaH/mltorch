@@ -22,6 +22,7 @@ let targets =
     "torch.ops.aten.clamp.default";
     "torch.ops.aten.clamp_min.default";
     "torch.ops.aten.clone.default";
+    "torch.ops.aten.conv1d.default";
     "torch.ops.aten.conv2d.default";
     "torch.ops.aten.conv2d.padding";
     "torch.ops.aten.convolution.default";
@@ -72,6 +73,21 @@ let dispatch ~ctx ~env (node : Node.t) =
          Native_interp_lower_context.tensor_or_scalar ctx env node
        in
        match node.target with
+       | "torch.ops.aten.conv1d.default" ->
+           let params = conv1d_params esc graph node in
+           let* x = permute perm_conv1d (get "input") in
+           let* w = permute perm_conv1d (get "weight") in
+           let bias_name =
+             optional_tensor_name ~absent_ok:true esc node "bias"
+           in
+           Option.iter
+             (fun ssa ->
+               require_rank esc graph ~ssa ~role:`Conv1d_bias ~expected:1)
+             bias_name;
+           let bias = Option.map (env_find esc env) bias_name in
+           let* y = conv1d params ~x ~weight:w ?bias () in
+           let* y = permute perm_conv1d y in
+           return [ y ]
        | "torch.ops.aten.conv2d.default" ->
            let params = conv2d_params esc graph node in
            let* x = permute perm_nchw_to_nhwc (get "input") in

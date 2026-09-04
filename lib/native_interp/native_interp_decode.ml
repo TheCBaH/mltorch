@@ -555,8 +555,9 @@ let output_names esc (node : Pytorch_types.Node.t) =
 
 let is_nontrivial_node (node : Pytorch_types.Node.t) =
   match node.target with
-  | "torch.ops.aten.conv2d.default" | "torch.ops.aten.conv2d.padding"
-  | "torch.ops.aten.convolution.default" | "torch.ops.aten.linear.default"
+  | "torch.ops.aten.conv1d.default" | "torch.ops.aten.conv2d.default"
+  | "torch.ops.aten.conv2d.padding" | "torch.ops.aten.convolution.default"
+  | "torch.ops.aten.linear.default"
   | "torch.ops.aten._native_batch_norm_legit_no_training.default"
   | "torch.ops.aten.max_pool2d.default" | "torch.ops.aten.avg_pool2d.default"
   | "torch.ops.aten.adaptive_avg_pool2d.default"
@@ -591,6 +592,12 @@ let hw2 esc param = function
   | [ h; w ] -> (h, w)
   | [ x ] -> (x, x)
   | xs -> malformed esc (`Bad_arity { param; got = List.length xs })
+
+(* [aten.conv1d.default]'s single-axis twin of [hw2]: no broadcast, since a
+   1-D op has no second axis to fill in from a scalar list. *)
+let w1 esc param = function
+  | [ x ] -> x
+  | xs -> malformed esc (`Bad_w_arity { param; got = List.length xs })
 
 (* [Op_config.Pos]/[Nonneg]/[Dim.extent] assert a TRUSTED precondition and
    raise [Invalid_argument] when it fails. Every value below is decoded from the
@@ -688,6 +695,17 @@ let perm_oihw_to_conv_weight =
   let open Axis in
   [ (N, D); (T, T); (D, N); (H, W); (W, C); (C, H) ]
 
+(* [Op_bridge.perm_conv1d]'s mirror: right-aligned rank-3 [aten.conv1d.default]
+   operands ([N,C,L] activation, [Cout,Cin/groups,K] weight) both land the
+   same way under [of_aten] -- [role0, channel, spatial] -- so one permutation
+   moves role0 onto native [N] (the axis [Conv2d.output_shape] reads the
+   weight's real [Cout] from) and channel/spatial onto [C]/[W]. A pure product
+   of two disjoint transpositions, hence its own inverse: it relayouts [x]/
+   [weight] in and the raw output back to the generic [N,C,L] convention. *)
+let perm_conv1d =
+  let open Axis in
+  [ (N, H); (T, T); (D, D); (H, N); (W, C); (C, W) ]
+
 (* Rank-2 addmm weight [In,Out] (W=In, C=Out) -> native [N=Out, C=In]. *)
 let perm_addmm_weight =
   let open Axis in
@@ -746,6 +764,16 @@ let sizes_rank_4 esc ~tensor = function
            {
              tensor;
              fault = `Expected_rank { expected = 4; got = List.length sizes };
+           })
+
+let sizes_rank_3 esc ~tensor = function
+  | [ a; b; c ] -> (a, b, c)
+  | sizes ->
+      malformed esc
+        (`Bad_dimension
+           {
+             tensor;
+             fault = `Expected_rank { expected = 3; got = List.length sizes };
            })
 
 let sizes_rank_2 esc ~tensor = function

@@ -47,6 +47,7 @@ type op =
      INPUT side rather than the output — [operands]/[map_operands] already
      generalise to a list, so nothing about them changed to admit it. *)
   | Concat of Concat.Concat.t
+  | Conv1d of Conv.Conv1d.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Convolution of Conv.Convolution.t

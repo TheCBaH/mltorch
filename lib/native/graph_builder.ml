@@ -245,6 +245,9 @@ let clone ?name x = op1 ?name ~kind:"clone" (Clone { Pointwise.Clone.x })
 let concat ?name params xs =
   op1 ?name ~kind:"concat" (Concat { Concat.Concat.params; xs })
 
+let conv1d ?name params ~x ~weight ?bias () =
+  op1 ?name ~kind:"conv1d" (Conv1d { Conv.Conv1d.params; x; weight; bias })
+
 let conv2d ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"conv2d" (Conv2d { Conv.Conv2d.params; x; weight; bias })
 

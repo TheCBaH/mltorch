@@ -240,6 +240,25 @@ let conv2d_grouped ~groups ~in_channels ~out_channels () =
      in
      conv2d (conv_params ~in_channels ~groups) ~x ~weight:w ())
 
+(* [Conv1d]'s own H window is always [Conv2d.unit_window] (conv_conv1d.ml),
+   so unlike [conv2d_grouped] this fixture's [x]/weight both carry a real H=1
+   -- the shape an ATen [aten.conv1d.default] bridge/importer arm would
+   always produce, not merely a legal one. *)
+let conv1d_basic ~in_channels ~out_channels () =
+  build "conv1d_basic"
+    (let open Graph_builder in
+     let* x = input ~shape:(s 1 1 1 1 4 in_channels) () in
+     let* w =
+       constant ~shape:(weight ~out_channels ~in_per_group:in_channels) ()
+     in
+     conv1d
+       {
+         Conv.Conv1d.w = conv_axis ~kernel:1;
+         in_channels = Dim.extent in_channels;
+         groups = Op_config.Pos.of_int 1;
+       }
+       ~x ~weight:w ())
+
 let convolution_grouped ~transposed ~groups ~channels () =
   build "convolution_grouped"
     (let open Graph_builder in

@@ -93,6 +93,7 @@ let curated_selection =
     op "adaptive_max_pool2d";
     op "linear";
     op "batch_norm";
+    op "conv1d";
     op "conv2d";
     op "conv2d" ~overload:"padding";
     op "dropout";

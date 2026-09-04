@@ -180,6 +180,21 @@ let perm_oihw_to_conv_weight : Permute.Permute.perm =
   let open Axis in
   [ (N, D); (T, T); (D, N); (H, W); (W, C); (C, H) ]
 
+(* Right-aligned rank-3 [aten.conv1d.default] operands both land the same way
+   under [of_aten]: [N,C,L] (H=Nbatch, W=Cch, C=Lsp) and the weight
+   [Cout,Cin/groups,K] (H=Cout, W=Cin/groups, C=K) share the positional
+   pattern [role0, channel, spatial]. This moves role0 onto native [N] (so
+   [Conv2d.output_shape] reads the weight's real [Cout] off [Axis.N], the
+   same field it reads for [Conv2d]/[Convolution]) and channel/spatial onto
+   [C]/[W] -- landing exactly on [Conv2d]'s own weight layout
+   [Cout,1,1,Kh,Kw,Cin/groups] once H is pinned to [Conv2d.unit_window].
+   Two disjoint transpositions, so it is its own inverse: the same constant
+   relayouts [x] and [weight] in, and relayouts the raw [Conv1d] output back
+   to the generic [N,C,L] convention the rest of the graph expects. *)
+let perm_conv1d : Permute.Permute.perm =
+  let open Axis in
+  [ (N, H); (T, T); (D, D); (H, N); (W, C); (C, W) ]
+
 (* Rank-2 addmm weight [In,Out] (W=In, C=Out) -> native [N=Out, C=In]. *)
 let perm_addmm_weight : Permute.Permute.perm =
   let open Axis in
@@ -382,6 +397,12 @@ let hw2 name = function
   | [ v ] -> Err.return (v, v)
   | values -> Err.fail (`Invalid_hw_arg { name; values })
 
+(* [aten.conv1d.default]'s single-axis twin of [hw2]: a 1-element int list,
+   the only arity ATen's `int[1]` schema type ever serializes. *)
+let w1 name = function
+  | [ v ] -> Err.return v
+  | values -> Err.fail (`Invalid_w_arg { name; values })
+
 (* Construct Conv2d.params from the ATen weight shape array
    (rank-4: [Cout,Cin/groups,Kh,Kw]) and validated config ints.
    Raises [Invalid_argument] on bad dims. *)
@@ -415,7 +436,34 @@ let conv_axis_window ~op ~kernel ~stride ~pad ~dilation :
    [Invalid_argument] from inside the [try] below -- reported as a
    [`Validation_failure] string rather than the typed row the other two
    definitions of this rule return. Bounded through the same helper
-   [Window_axis] and [Native_interp] use, so all three agree. *)
+   [Window_axis] and [Native_interp] use, so all three agree. Shared by
+   [make_conv2d_params] and [make_conv1d_params]: [Graph_shape.error]
+   flat-includes [Shape_error.t], and [Graph_builder.error] flat-includes
+   that, so the row crosses into this module's [`Build] seam unchanged rather
+   than re-labelled. *)
+let conv_in_channels ~weight_in_per_group ~(groups : Op_config.Pos.t) =
+  let of_shape r =
+    Err.map_error
+      (fun (e : Shape_error.t) -> `Build (e :> Graph_builder.error))
+      r
+  in
+  let* c =
+    of_shape (Window_axis.factor ~what:`In_channels weight_in_per_group)
+  in
+  let* g = of_shape (Window_axis.factor ~what:`In_channels (groups :> int)) in
+  let product = Int64.mul c g in
+  if product >= Window_axis.limit then
+    of_shape
+      (Err.fail
+         (`Window_over_limit
+            Shape_error.Window_over_limit.
+              {
+                what = `In_channels;
+                value = product;
+                limit = Window_axis.limit;
+              }))
+  else return (Dim.extent (Int64.to_int product))
+
 let make_conv2d_params ~op w_shape sh sw ph pw dh dw groups =
   let* h =
     conv_axis_window ~op ~kernel:w_shape.(2) ~stride:sh ~pad:ph ~dilation:dh
@@ -425,30 +473,22 @@ let make_conv2d_params ~op w_shape sh sw ph pw dh dw groups =
   in
   let* groups = pos ~op ~param:`Groups groups in
   let* in_channels =
-    (* [Graph_shape.error] flat-includes [Shape_error.t], and
-       [Graph_builder.error] flat-includes that, so the row crosses into this
-       module's [`Build] seam unchanged rather than re-labelled. *)
-    let of_shape r =
-      Err.map_error
-        (fun (e : Shape_error.t) -> `Build (e :> Graph_builder.error))
-        r
-    in
-    let* c = of_shape (Window_axis.factor ~what:`In_channels w_shape.(1)) in
-    let* g = of_shape (Window_axis.factor ~what:`In_channels (groups :> int)) in
-    let product = Int64.mul c g in
-    if product >= Window_axis.limit then
-      of_shape
-        (Err.fail
-           (`Window_over_limit
-              Shape_error.Window_over_limit.
-                {
-                  what = `In_channels;
-                  value = product;
-                  limit = Window_axis.limit;
-                }))
-    else return (Dim.extent (Int64.to_int product))
+    conv_in_channels ~weight_in_per_group:w_shape.(1) ~groups
   in
   return { Conv.Conv2d.h; w; in_channels; groups }
+
+(* [aten.conv1d.default]'s own weight is rank-3 [Cout,Cin/groups,K] -- the
+   same per-group-input-channel position (index 1) [make_conv2d_params] reads,
+   with one kernel window (index 2) instead of two. *)
+let make_conv1d_params ~op w_shape s p d groups =
+  let* w =
+    conv_axis_window ~op ~kernel:w_shape.(2) ~stride:s ~pad:p ~dilation:d
+  in
+  let* groups = pos ~op ~param:`Groups groups in
+  let* in_channels =
+    conv_in_channels ~weight_in_per_group:w_shape.(1) ~groups
+  in
+  return { Conv.Conv1d.w; in_channels; groups }
 
 let make_conv2d_padding_params ~op sh sw padding dh dw groups =
   (* NOT [padding_of_string], which [invalid_arg]s: this string is model data.

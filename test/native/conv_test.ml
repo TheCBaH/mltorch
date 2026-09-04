@@ -153,6 +153,64 @@ let%expect_test "Direct: conv2d asymmetric padding with dilation" =
        (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
   [%expect {| tensor f32 [W=4 C=1] {4, 6, 4, 6} |}]
 
+(* [Conv1d] delegates its whole arithmetic to [Conv2d] with H pinned to
+   [Conv2d.unit_window] (conv_conv1d.ml) — this pins the case that
+   delegation could get wrong: a kernel window that only ever moves along W,
+   never H. *)
+let%expect_test "Direct: conv1d delegates to Conv2d with H pinned unit" =
+  let module Cv = Conv.Conv1d.Compute (Direct) in
+  let x_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:5 ~c:1 in
+  let x = Tensor.materialize x_shape (fun c -> float_of_int (col c)) in
+  let weight_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:3 ~c:1 in
+  let weight = Tensor.materialize weight_shape (fun _ -> 1.) in
+  let bias = Tensor.materialize (s1c 1) (fun _ -> 0.) in
+  let p =
+    {
+      Conv.Conv1d.w = conv_axis ~kernel:3 ~stride:1 ();
+      in_channels = Dim.extent 1;
+      groups = Op_config.Pos.of_int 1;
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Conv.Conv1d.output_shape ~x_shape ~weight_shape p)
+       (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
+  (* windows over [0,1,2,3,4], kernel 3: 0+1+2=3, 1+2+3=6, 2+3+4=9 *)
+  [%expect {| tensor f32 [W=3 C=1] {3, 6, 9} |}]
+
+let%expect_test "Direct: grouped conv1d reduces only within each channel group"
+    =
+  let module Cv = Conv.Conv1d.Compute (Direct) in
+  let x_shape = s1c 4 in
+  let x =
+    Tensor.materialize x_shape (fun c -> [| 1.; 2.; 10.; 20. |].(chan c))
+  in
+  let weight_shape = Vec6.shape ~n:4 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2 in
+  let weight =
+    Tensor.materialize weight_shape (fun c ->
+        match (Dim.to_int (Vec6.get c Axis.N), chan c) with
+        | 0, 0 | 0, 1 -> 1.
+        | 1, 0 -> 10.
+        | 2, 0 | 2, 1 -> 1.
+        | 3, 1 -> 2.
+        | _ -> 0.)
+  in
+  let bias =
+    Tensor.materialize (s1c 4) (fun c -> [| 0.; 100.; 1000.; 10000. |].(chan c))
+  in
+  let p =
+    {
+      Conv.Conv1d.w = conv_axis ~kernel:1 ~stride:1 ();
+      in_channels = Dim.extent 4;
+      groups = Op_config.Pos.of_int 2;
+    }
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (eval_tensor
+       (Conv.Conv1d.output_shape ~x_shape ~weight_shape p)
+       (Cv.pixel p ~x_shape ~weight_shape ~x ~weight ~bias));
+  [%expect {| tensor f32 [C=4] {3, 110, 1030, 10040} |}]
+
 (* [Conv2d_padding.same_padding] splits an ODD total unevenly — [total / 2]
    before and [total - total / 2] after — and nothing else pins which side gets
    the extra cell. Direct-vs-Symbolic agreement cannot: both resolve through the

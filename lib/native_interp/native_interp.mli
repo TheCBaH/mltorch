@@ -55,6 +55,8 @@ type metadata_role =
         [mean.dim] have separate arms, and a shared label would leave the row
         unable to say which one failed. *)
   | `Concat_input
+  | `Conv1d_bias
+  | `Conv1d_weight
   | `Conv2d_bias
   | `Conv2d_padding_bias
   | `Conv2d_padding_weight
@@ -359,6 +361,7 @@ type malformed =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
+  | `Bad_w_arity of Bad_arity.t
   | `Bad_config of Bad_config.t
     (** An op-configuration value the engine's guarded types have no form for.
         Its own row rather than a [`Bad_dimension] variant: a stride is not a

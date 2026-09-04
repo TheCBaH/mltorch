@@ -199,11 +199,12 @@ let check_node view (n : node) =
   (* Direct counterparts, or legalizations that constrain nothing here: their
      tensors are covered by the shape rule above. *)
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
-  | Avg_pool2d _ | Bmm _ | Clamp _ | Clone _ | Conv2d _ | Conv2d_padding _
-  | Div _ | Div_scalar _ | Expand _ | Gelu _ | Hardsigmoid _ | Hardswish _
-  | Hardtanh _ | Leaky_relu _ | Linear _ | Max_pool2d _ | Mul _ | Mul_scalar _
-  | Pow _ | Relu _ | Repeat _ | Reshape _ | Rsub_scalar _ | Sigmoid _ | Silu _
-  | Sqrt _ | Sub _ | To_copy _ | Upsample_bilinear2d _ | Upsample_nearest2d _ ->
+  | Avg_pool2d _ | Bmm _ | Clamp _ | Clone _ | Conv1d _ | Conv2d _
+  | Conv2d_padding _ | Div _ | Div_scalar _ | Expand _ | Gelu _ | Hardsigmoid _
+  | Hardswish _ | Hardtanh _ | Leaky_relu _ | Linear _ | Max_pool2d _ | Mul _
+  | Mul_scalar _ | Pow _ | Relu _ | Repeat _ | Reshape _ | Rsub_scalar _
+  | Sigmoid _ | Silu _ | Sqrt _ | Sub _ | To_copy _ | Upsample_bilinear2d _
+  | Upsample_nearest2d _ ->
       Err.return ()
   | Arange _ | Eye _ | Zeros _ -> Err.return ()
   | Batch_norm bn -> check_batch_norm view node bn

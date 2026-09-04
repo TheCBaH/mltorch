@@ -104,6 +104,16 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* xs_shapes = Err.List.map shape xs in
       let+ out = widen (Concat.Concat.output_shape ~xs_shapes params) in
       [ out ]
+  | Conv1d { Conv.Conv1d.params; x; weight; bias } ->
+      let* x_shape = shape x in
+      let* weight_shape = shape weight in
+      let* () =
+        check_bias ~shape ~expected:(Affine_bias.shape ~weight_shape) bias
+      in
+      let+ out =
+        widen (Conv.Conv1d.output_shape ~x_shape ~weight_shape params)
+      in
+      [ out ]
   | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in

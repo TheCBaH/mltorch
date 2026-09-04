@@ -207,17 +207,12 @@ let batch_norm_weights acc ~node ~channels ~eps (bn : Norm.BatchNorm.t) =
   let bid, acc = fresh_constant acc b_shape b in
   Err.return (wid, bid, acc)
 
-let unit_window : Conv.Conv2d.axis_window =
-  {
-    kernel = Dim.extent 1;
-    stride = Op_config.Pos.of_int 1;
-    pad_before = Op_config.Nonneg.of_int 0;
-    pad_after = Op_config.Nonneg.of_int 0;
-    dilation = Op_config.Pos.of_int 1;
-  }
-
 let unit_conv_params ~in_channels : Ops4.Conv_params.t =
-  { h = unit_window; w = unit_window; in_channels = Dim.extent in_channels }
+  {
+    h = Conv.Conv2d.unit_window;
+    w = Conv.Conv2d.unit_window;
+    in_channels = Dim.extent in_channels;
+  }
 
 (* ---- one source node ------------------------------------------------------ *)
 
@@ -590,6 +585,21 @@ let lower_node ~view acc (n : node) =
              weight = op_of weight;
              bias = Option.map op_of bias;
            })
+  (* [Conv1d]'s own H window is always [Conv2d.unit_window] by construction
+     (conv_conv1d.ml), so translating through [Conv.Conv1d.to_conv2d_params]
+     and reusing [forward_conv] unchanged is the SAME "map onto an existing
+     op after translating parameters" legalization [Linear] gets above --
+     Native4D gains no new op or payload for it, just another source of a
+     [Conv2D]/[DepthwiseConv2D]/[GroupedConv2D] the dialect already has. *)
+  | Conv1d { Conv.Conv1d.params; x; weight; bias } ->
+      let* weight_shape = sig_of weight in
+      let* op =
+        forward_conv ~node
+          ~params:(Conv.Conv1d.to_conv2d_params params)
+          ~x:(op_of x) ~weight:(op_of weight) ~bias:(Option.map op_of bias)
+          ~weight_shape
+      in
+      simple op
   | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
       let* weight_shape = sig_of weight in
       let* op =

@@ -68,6 +68,8 @@ type metadata_role =
   | `Amax_input
   | `Batch_norm_no_stats_input
   | `Concat_input
+  | `Conv1d_bias
+  | `Conv1d_weight
   | `Conv2d_bias
   | `Conv2d_padding_bias
   | `Conv2d_padding_weight
@@ -289,6 +291,7 @@ type malformed =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
+  | `Bad_w_arity of Bad_arity.t
   | `Bad_config of Bad_config.t
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
   | `Bad_dimension of Bad_dimension.t
@@ -385,6 +388,8 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Amax_input -> Fmt.string ppf "amax input"
   | `Batch_norm_no_stats_input -> Fmt.string ppf "batch_norm_no_stats input"
   | `Concat_input -> Fmt.string ppf "concat input"
+  | `Conv1d_bias -> Fmt.string ppf "conv1d bias"
+  | `Conv1d_weight -> Fmt.string ppf "conv1d weight"
   | `Conv2d_bias -> Fmt.string ppf "conv2d bias"
   | `Conv2d_padding_bias -> Fmt.string ppf "conv2d padding bias"
   | `Conv2d_padding_weight -> Fmt.string ppf "conv2d padding weight"
@@ -450,6 +455,10 @@ let pp_malformed ppf : [< malformed ] -> unit = function
         | `Output_size -> "exactly two values"
         | _ -> "one or two values")
         got
+  (* [aten.conv1d.default]'s own single-axis window arguments, unlike
+     [Bad_arity]'s 1-or-2-broadcast rule for the rank-2 conv/pool family. *)
+  | `Bad_w_arity { Bad_arity.param; got } ->
+      Fmt.pf ppf "%a must have exactly one value, got %d" pp_hw_param param got
   | `Bad_config e -> Op_config.Bad.pp ppf e
   | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
   | `Bad_dimension { Bad_dimension.tensor; fault } -> (

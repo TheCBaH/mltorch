@@ -91,6 +91,15 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Concat { Concat.Concat.params; xs } ->
         let module C = Concat.Concat.Compute (S) in
         C.pixel params ~xs:(List.map (fun r -> (shape_of r, operand r)) xs) out
+    | Conv1d { Conv.Conv1d.params; x; weight; bias } ->
+        let module C = Conv.Conv1d.Compute (S) in
+        let bias =
+          match bias with
+          | None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+          | Some b -> operand b
+        in
+        C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
+          ~x:(operand x) ~weight:(operand weight) ~bias out
     | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
         let module C = Conv.Conv2d.Compute (S) in
         let bias =

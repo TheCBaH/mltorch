@@ -103,6 +103,15 @@ val clone : ?name:string -> tensor_ref -> Tensor_id.t t
 val concat :
   ?name:string -> Concat.Concat.params -> tensor_ref list -> Tensor_id.t t
 
+val conv1d :
+  ?name:string ->
+  Conv.Conv1d.params ->
+  x:tensor_ref ->
+  weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
 val conv2d :
   ?name:string ->
   Conv.Conv2d.params ->
