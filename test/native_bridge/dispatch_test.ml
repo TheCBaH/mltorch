@@ -121,18 +121,36 @@ let%expect_test "dispatch: matmul.default accepts D>1 and H>1 together" =
   [%expect
     {| tensor f32 [D=2 H=2 W=2 C=2] {2, 3, 6, 11, 46, 55, 66, 79, ...} |}]
 
-(* Rank<2 on either side, or unequal ranks, is still explicitly out of scope
-   (`.ai/matmul_softmax_design.md` §6) -- a typed rejection naming both actual
-   shapes, not a wrong answer or a bare "unsupported". *)
-let%expect_test "dispatch: matmul.default rejects unequal operand ranks" =
+(* Unequal ATen rank is accepted too, binding to [Batched_matmul]:
+   right-alignment (`Aten_shape.of_aten`) pads EACH operand's own missing
+   leading axes to 1 independently, exactly ATen's implicit-unsqueeze rule
+   for this case (`eca_halonext26ts`'s real `[N,H,W,C] @ [W,C]` occurrence,
+   `.ai/matmul_softmax_design.md` §5) -- so the existing per-axis broadcast
+   already computes the right answer with no rank check here at all. Value
+   checked by hand: two independent 2x3 @ 3x2 products, one per H slice,
+   both against the SAME (rank-2, unbatched) other operand. *)
+let%expect_test "dispatch: matmul.default accepts unequal operand ranks" =
   let a = float_tensor [ 2; 2; 3 ] (List.init 12 float_of_int) in
   let b = float_tensor [ 3; 2 ] (List.init 6 float_of_int) in
   dispatch_print ~target:"torch.ops.aten.matmul.default"
     ~bindings:[ ("self", a); ("other", b) ]
     ~inputs:[ in_tensor "self"; in_tensor "other" ]
     ~noutputs:1;
+  [%expect {| tensor f32 [H=2 W=2 C=2] {10, 13, 28, 40, 46, 67, 64, 94} |}]
+
+(* Rank<2 on either side is still explicitly out of scope
+   (`.ai/matmul_softmax_design.md` §6, a different ATen output-rank rule with
+   no corpus evidence) -- a typed rejection naming both actual shapes, not a
+   wrong answer or a bare "unsupported". *)
+let%expect_test "dispatch: matmul.default rejects a rank<2 operand" =
+  let a = float_tensor [ 2; 3 ] (List.init 6 float_of_int) in
+  let b = float_tensor [ 3 ] (List.init 3 float_of_int) in
+  dispatch_print ~target:"torch.ops.aten.matmul.default"
+    ~bindings:[ ("self", a); ("other", b) ]
+    ~inputs:[ in_tensor "self"; in_tensor "other" ]
+    ~noutputs:1;
   [%expect
-    {| error: matmul.default: both operands must be rank>=2 and of equal rank, got self=[2, 2, 3] other=[3, 2] |}]
+    {| error: matmul.default: both operands must be rank>=2, got self=[2, 3] other=[3] |}]
 
 let%expect_test "dispatch: sqrt.default elementwise" =
   let a = float_tensor [ 2; 2 ] [ 0.; 1.; 4.; 2.25 ] in

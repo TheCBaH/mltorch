@@ -257,8 +257,8 @@ let report_sdpa ~regions ~extent =
   let run_legacy () =
     ignore
       (Schedule.evaluate query_shape
-         (LP.pixel params ~query_shape ~key_shape ~mask_shape ~query ~key ~value
-            ~mask))
+         (LP.pixel params ~query_shape ~key_shape ~value_shape:key_shape
+            ~mask_shape ~query ~key ~value ~mask))
   in
   let kernel_time, kernel_words = measure_thunk run_kernel in
   let direct_time, direct_words = measure_thunk run_direct in

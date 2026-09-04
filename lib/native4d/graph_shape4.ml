@@ -166,6 +166,13 @@ let repeat_interleave_params (p : Ops4.RepeatInterleave4.params) :
 
 (* Shared with [Eval_op4], which needs the same translation for the same op:
    one adapter, so the shape rule and the compute cannot disagree about which
+   axis is gathered. *)
+let index_tensor_params (p : Ops4.IndexTensor4.params) :
+    Index_tensor.Index_tensor.params =
+  { axis = Axis4.to_axis p.Ops4.IndexTensor4.axis }
+
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
    axis is written. [index] crosses unchanged. *)
 let select_scatter_params (p : Ops4.Select_scatter4.params) :
     Split.Select_scatter.params =
@@ -179,6 +186,12 @@ let select_scatter_params (p : Ops4.Select_scatter4.params) :
    axis softmax reduces over. *)
 let softmax_params (p : Ops4.Softmax4.params) : Reduce.Softmax.params =
   { axis = Axis4.to_axis p.Ops4.Softmax4.axis }
+
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
+   axis cumsum walks. *)
+let cumsum_params (p : Ops4_cumsum.Cumsum4.params) : Reduce.Cumsum.params =
+  { axis = Axis4.to_axis p.Ops4_cumsum.Cumsum4.axis }
 
 let split_with_sizes_params (p : Ops4.Split_with_sizes4.params) :
     Split.Split_with_sizes.params =
@@ -275,6 +288,12 @@ let output_shape (op : Op.t)
         (four
            (Conv.Conv2d.output_shape ~x_shape ~weight_shape
               (conv2d_params params ~groups)))
+  (* Cumsum rescales nothing and drops no axis, exactly [Softmax4]'s reason:
+     [Reduce.Cumsum.output_shape] is the identity on [x_shape] -- delegated
+     rather than restated. *)
+  | Cumsum4 { Ops4_cumsum.Cumsum4.params; x } ->
+      let* x_shape = shape x in
+      one (four (Reduce.Cumsum.output_shape ~x_shape (cumsum_params params)))
   | Div { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in
@@ -334,6 +353,18 @@ let output_shape (op : Op.t)
   | Hardtanh { Pointwise.Hardtanh.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Hardtanh.output_shape x_shape))
+  (* [self]'s [axis] extent is overwritten by [index]'s own length -- no drop,
+     no repack, the same reason [Select_scatter4] needs no post-hoc re-check
+     -- delegated to [Index_tensor.Index_tensor.output_shape] rather than
+     restated, so this arm and its [Compute] cannot disagree about which axis
+     is gathered. *)
+  | IndexTensor4 { Ops4.IndexTensor4.params; self; index } ->
+      let* self_shape = shape self in
+      let* index_shape = shape index in
+      one
+        (four
+           (Index_tensor.Index_tensor.output_shape ~self_shape ~index_shape
+              (index_tensor_params params)))
   (* The affine check that Native's own [Graph_shape] runs and this file's
      [Rms_norm] arm does NOT (see below). A JSON-decoded Native4D graph reaches
      this rule and no other, so leaving it out means an operand of the wrong

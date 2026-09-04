@@ -76,8 +76,8 @@ module Make (S : Semantics.SEMANTICS) = struct
           ~bias out
     | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
         let module C = Matmul.Batched_matmul.Compute (S) in
-        C.pixel ~input_shape:(shape_of input) ~input:(operand input)
-          ~mat2:(operand mat2) out
+        C.pixel ~input_shape:(shape_of input) ~mat2_shape:(shape_of mat2)
+          ~input:(operand input) ~mat2:(operand mat2) out
     | Bmm { Matmul.Bmm.input; mat2 } ->
         let module C = Matmul.Bmm.Compute (S) in
         C.pixel ~input_shape:(shape_of input) ~input:(operand input)
@@ -91,6 +91,15 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Concat { Concat.Concat.params; xs } ->
         let module C = Concat.Concat.Compute (S) in
         C.pixel params ~xs:(List.map (fun r -> (shape_of r, operand r)) xs) out
+    | Conv1d { Conv.Conv1d.params; x; weight; bias } ->
+        let module C = Conv.Conv1d.Compute (S) in
+        let bias =
+          match bias with
+          | None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+          | Some b -> operand b
+        in
+        C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
+          ~x:(operand x) ~weight:(operand weight) ~bias out
     | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
         let module C = Conv.Conv2d.Compute (S) in
         let bias =
@@ -102,6 +111,15 @@ module Make (S : Semantics.SEMANTICS) = struct
           ~x:(operand x) ~weight:(operand weight) ~bias out
     | Conv2d_padding { Conv.Conv2d_padding.params; x; weight; bias } ->
         let module C = Conv.Conv2d_padding.Compute (S) in
+        let bias =
+          match bias with
+          | None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
+          | Some b -> operand b
+        in
+        C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
+          ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Conv3d { Conv.Conv3d.params; x; weight; bias } ->
+        let module C = Conv.Conv3d.Compute (S) in
         let bias =
           match bias with
           | None -> fill 0. (bias_shape ~weight_shape:(shape_of weight))
@@ -121,6 +139,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Cumsum { Reduce.Cumsum.params; x } ->
+        let module C = Reduce.Cumsum.Compute (S) in
+        C.pixel params ~x:(operand x) out
     | Expand { Pointwise.Expand.params = _; x } ->
         let module C = Pointwise.Expand.Compute (S) in
         C.pixel ~x_shape:(shape_of x) (operand x) out
@@ -255,6 +276,9 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Unbind { Split.Unbind.params; x } ->
         let module C = Split.Unbind.Compute (S) in
         C.pixel params ~output ~x:(operand x) out
+    | Unfold { Unfold.Unfold.params; x } ->
+        let module C = Unfold.Unfold.Compute (S) in
+        C.pixel params ~x:(operand x) out
     (* [offset] is the sum of every EARLIER piece's size -- [output]'s ordinal
        picks the prefix, [Compute.pixel] wants only the sum. *)
     | Split_with_sizes { Split.Split_with_sizes.params; x } ->

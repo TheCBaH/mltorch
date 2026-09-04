@@ -103,6 +103,15 @@ val clone : ?name:string -> tensor_ref -> Tensor_id.t t
 val concat :
   ?name:string -> Concat.Concat.params -> tensor_ref list -> Tensor_id.t t
 
+val conv1d :
+  ?name:string ->
+  Conv.Conv1d.params ->
+  x:tensor_ref ->
+  weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
 val conv2d :
   ?name:string ->
   Conv.Conv2d.params ->
@@ -121,6 +130,15 @@ val conv2d_padding :
   unit ->
   Tensor_id.t t
 
+val conv3d :
+  ?name:string ->
+  Conv.Conv3d.params ->
+  x:tensor_ref ->
+  weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
 val convolution :
   ?name:string ->
   Conv.Convolution.params ->
@@ -130,6 +148,7 @@ val convolution :
   unit ->
   Tensor_id.t t
 
+val cumsum : ?name:string -> Reduce.Cumsum.params -> tensor_ref -> Tensor_id.t t
 val div : ?name:string -> tensor_ref -> tensor_ref -> Tensor_id.t t
 val div_scalar : ?name:string -> float -> tensor_ref -> Tensor_id.t t
 
@@ -318,6 +337,10 @@ val to_copy :
    slices retain the input format and quantization metadata. *)
 val unbind :
   ?name:string -> Split.Unbind.params -> tensor_ref -> Tensor_id.t list t
+
+val unfold : ?name:string -> Unfold.Unfold.params -> tensor_ref -> Tensor_id.t t
+(** A sliding-window view along one named axis; see [Unfold.Unfold]'s own header
+    for how the rank-increasing ATen op fits Native's fixed six-axis frame. *)
 
 val upsample_bilinear2d :
   ?name:string -> Resize.Bilinear2d.params -> tensor_ref -> Tensor_id.t t

@@ -240,6 +240,25 @@ let conv2d_grouped ~groups ~in_channels ~out_channels () =
      in
      conv2d (conv_params ~in_channels ~groups) ~x ~weight:w ())
 
+(* [Conv1d]'s own H window is always [Conv2d.unit_window] (conv_conv1d.ml),
+   so unlike [conv2d_grouped] this fixture's [x]/weight both carry a real H=1
+   -- the shape an ATen [aten.conv1d.default] bridge/importer arm would
+   always produce, not merely a legal one. *)
+let conv1d_basic ~in_channels ~out_channels () =
+  build "conv1d_basic"
+    (let open Graph_builder in
+     let* x = input ~shape:(s 1 1 1 1 4 in_channels) () in
+     let* w =
+       constant ~shape:(weight ~out_channels ~in_per_group:in_channels) ()
+     in
+     conv1d
+       {
+         Conv.Conv1d.w = conv_axis ~kernel:1;
+         in_channels = Dim.extent in_channels;
+         groups = Op_config.Pos.of_int 1;
+       }
+       ~x ~weight:w ())
+
 let convolution_grouped ~transposed ~groups ~channels () =
   build "convolution_grouped"
     (let open Graph_builder in
@@ -274,6 +293,16 @@ let batched_matmul batch () =
      (* input[D=batch,H=heads,W=rows,C=contract] x
         mat2[D=batch,H=heads,W=contract,C=cols] *)
      let* a = input ~shape:(s 1 1 batch 2 2 3) () in
+     let* b = input ~shape:(s 1 1 batch 2 3 4) () in
+     batched_matmul a b)
+
+(* [input]'s own D is always 1 here; [mat2]'s D is the varying [batch] --
+   proves the domain check reads the BROADCAST (output) D, not [input]'s own,
+   since [input]'s extent alone would wrongly read 1 at any [batch]. *)
+let batched_matmul_broadcast batch () =
+  build "batched_matmul_broadcast"
+    (let open Graph_builder in
+     let* a = input ~shape:(s 1 1 1 2 2 3) () in
      let* b = input ~shape:(s 1 1 batch 2 3 4) () in
      batched_matmul a b)
 
@@ -553,6 +582,36 @@ let select_scatter_w =
 let select_scatter_d =
   select_scatter_graph "select_scatter_d" ~self_shape:(s 1 1 3 2 2 2)
     ~src_shape:(s 1 1 1 2 2 2) ~axis:Axis.D ~index:0
+
+(* [index] must itself already be four-axis by the time it reaches
+   [Domain.check] -- its real content lives on C ([chan]'s own shape,
+   [Index_tensor]'s own rank-1 restriction), so this fixture never exercises
+   the axis rule on [index], only on [self]'s [axis]. *)
+let index_tensor_graph name ~self_shape ~index_shape ~axis () =
+  Graph_builder.build ~name
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* self = input ~shape:self_shape () in
+     let* index = input ~shape:index_shape () in
+     index_tensor { Index_tensor.Index_tensor.axis } ~self ~index)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* A dialect axis, [Select_scatter_w]'s own shape: gathering along C leaves
+   [self] four-axis, since C's own extent (overwritten by [index]'s length)
+   carries no T/D consequence. *)
+let index_tensor_w =
+  index_tensor_graph "index_tensor_w" ~self_shape:(nhwc ~n:1 ~h:1 ~w:3 ~c:2)
+    ~index_shape:(chan 2) ~axis:Axis.W
+
+(* The same op naming D, refused by the AXIS rule so the diagnostic names D
+   -- unlike [select]'s own D fixture, [Index_tensor]'s output is
+   [self_shape] with one axis's extent changed (no drop, no repack), so
+   there is no separate shape-consequence rejection to contrast it with,
+   the same reason [select_scatter_d] needs none. *)
+let index_tensor_d =
+  index_tensor_graph "index_tensor_d" ~self_shape:(s 1 1 3 2 2 2)
+    ~index_shape:(chan 2) ~axis:Axis.D
 
 let concat_graph name ~shapes ~axis () =
   Graph_builder.build ~name

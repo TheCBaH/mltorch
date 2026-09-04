@@ -207,17 +207,12 @@ let batch_norm_weights acc ~node ~channels ~eps (bn : Norm.BatchNorm.t) =
   let bid, acc = fresh_constant acc b_shape b in
   Err.return (wid, bid, acc)
 
-let unit_window : Conv.Conv2d.axis_window =
-  {
-    kernel = Dim.extent 1;
-    stride = Op_config.Pos.of_int 1;
-    pad_before = Op_config.Nonneg.of_int 0;
-    pad_after = Op_config.Nonneg.of_int 0;
-    dilation = Op_config.Pos.of_int 1;
-  }
-
 let unit_conv_params ~in_channels : Ops4.Conv_params.t =
-  { h = unit_window; w = unit_window; in_channels = Dim.extent in_channels }
+  {
+    h = Conv.Conv2d.unit_window;
+    w = Conv.Conv2d.unit_window;
+    in_channels = Dim.extent in_channels;
+  }
 
 (* ---- one source node ------------------------------------------------------ *)
 
@@ -590,6 +585,21 @@ let lower_node ~view acc (n : node) =
              weight = op_of weight;
              bias = Option.map op_of bias;
            })
+  (* [Conv1d]'s own H window is always [Conv2d.unit_window] by construction
+     (conv_conv1d.ml), so translating through [Conv.Conv1d.to_conv2d_params]
+     and reusing [forward_conv] unchanged is the SAME "map onto an existing
+     op after translating parameters" legalization [Linear] gets above --
+     Native4D gains no new op or payload for it, just another source of a
+     [Conv2D]/[DepthwiseConv2D]/[GroupedConv2D] the dialect already has. *)
+  | Conv1d { Conv.Conv1d.params; x; weight; bias } ->
+      let* weight_shape = sig_of weight in
+      let* op =
+        forward_conv ~node
+          ~params:(Conv.Conv1d.to_conv2d_params params)
+          ~x:(op_of x) ~weight:(op_of weight) ~bias:(Option.map op_of bias)
+          ~weight_shape
+      in
+      simple op
   | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
       let* weight_shape = sig_of weight in
       let* op =
@@ -832,6 +842,20 @@ let lower_node ~view acc (n : node) =
              self = op_of self;
              src = op_of src;
            })
+  (* The axis converts here for the same reason [Select_scatter]'s does. No
+     post-hoc output re-check, unlike [Select]'s: this op's output shape is
+     [self]'s own shape with [axis]'s extent overwritten by [index]'s own
+     length -- no drop, no repack -- so if [self] is already four-axis the
+     output automatically is too, whichever axis this op names. *)
+  | Index_tensor { Index_tensor.Index_tensor.params; self; index } ->
+      let* axis4 = dims4 ~node [ params.Index_tensor.Index_tensor.axis ] in
+      simple
+        (Op.IndexTensor4
+           {
+             Ops4.IndexTensor4.params = { axis = List.hd axis4 };
+             self = op_of self;
+             index = op_of index;
+           })
   (* [Concat]'s variadic-operand handling above, plus [Select]'s post-hoc
      output check: [Stack] INSERTS an axis rather than keeping every one the
      way [Concat] does, so -- the same reason [Select]'s arm re-validates its
@@ -864,6 +888,17 @@ let lower_node ~view acc (n : node) =
       simple
         (Op.Softmax4
            { Ops4.Softmax4.params = { axis = List.hd axis4 }; x = op_of x })
+  (* The axis converts here for the same reason [Softmax]'s does just above:
+     [Reduce.Cumsum.output_shape] also returns [x_shape] verbatim, so no
+     post-hoc output re-check is needed either. *)
+  | Cumsum { Reduce.Cumsum.params; x } ->
+      let* axis4 = dims4 ~node [ params.axis ] in
+      simple
+        (Op.Cumsum4
+           {
+             Ops4_cumsum.Cumsum4.params = { axis = List.hd axis4 };
+             x = op_of x;
+           })
   (* Direct counterpart, once [Domain.check] has proved D = 1: [Attention.Sdpa.t]
      names no axis and carries no shape, so it crosses unchanged, and
      [Region_computation4]'s [native_op] routes it back through the exact same
@@ -880,12 +915,12 @@ let lower_node ~view acc (n : node) =
            })
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Index_tensor] joins that set until its own counterpart exists (see
-     [Domain.check_node]'s comment) rather than gaining a real conversion arm
-     here -- it has no Native4D counterpart at all yet, the same "dialect does
-     not have it" answer. [Repeat]/[RepeatInterleave]/[Select_scatter]/
-     [Softmax]/[Batched_matmul]/[Sdpa] no longer join them: all six now have
-     real conversion arms above. *)
-  | Adaptive_max_pool2d_with_indices _ | Discard _ | Index_tensor _
-  | Max_pool2d_with_indices _ ->
+     [Adaptive_max_pool2d_with_indices]/[Max_pool2d_with_indices] have no
+     Native4D counterpart at all yet -- the live max-pool indices backlog row
+     (`.ai/todo-ops.md`); [Conv3d]/[Unfold] are intrinsic axis boundaries, not
+     missing counterparts. [Repeat]/[RepeatInterleave]/[Select_scatter]/
+     [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor] no longer join them: all
+     seven now have real conversion arms above. *)
+  | Adaptive_max_pool2d_with_indices _ | Conv3d _ | Discard _
+  | Max_pool2d_with_indices _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

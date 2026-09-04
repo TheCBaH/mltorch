@@ -134,6 +134,39 @@ let binary ~shape f =
 let nhwc = s4 ~n:1 ~h:4 ~w:4 ~c:2
 let flat = s4 ~n:1 ~h:1 ~w:1 ~c:4
 
+(* [IndexTensor4]'s own entry, built by hand rather than through [unary]/
+   [binary]: [index] must be genuinely I64-formatted for
+   [Tensor.read_i64_at6] to accept it at all ([Direct.load_index]'s own
+   contract), which [bindings]' uniform F32 [seq] cannot supply. Gathering
+   along W (self extent 4) with three in-range positions, so a fixture
+   reading the wrong element would still differ. *)
+let index_tensor4_case () =
+  let self_shape = nhwc in
+  let index_shape = s4 ~n:1 ~h:1 ~w:1 ~c:3 in
+  let g =
+    build
+      ~outputs:(fun o -> [ o ])
+      (let open Builder in
+       let* self = input ~shape:self_shape () in
+       let* index =
+         input ~shape:index_shape ~fmt:(Payload.Fmt Payload.I64) ()
+       in
+       index_tensor4 { Ops4.IndexTensor4.axis = Axis4.W } ~self ~index)
+  in
+  let self_id, index_id =
+    match g.Graph.Graph.inputs with
+    | [ a; b ] -> (a, b)
+    | _ -> invalid_arg "index_tensor4_case: expected two inputs"
+  in
+  let index_values =
+    Tensor.materialize_i64 (Shape4.to_vec6 index_shape) (fun c ->
+        Int64.of_int (Dim.to_int c.Vec6.c))
+  in
+  ( "index_tensor4",
+    g,
+    [ (self_id, seq self_shape); (index_id, index_values) ],
+    [] )
+
 (* Each entry: name, graph, input bindings, constant bindings. *)
 let per_op () =
   let cases =
@@ -288,6 +321,12 @@ let per_op () =
          element. *)
       ( "softmax4",
         unary ~shape:nhwc (Builder.softmax4 { Ops4.Softmax4.axis = Axis4.W }) );
+      (* Same shape-preserving reduction shape as [softmax4] just above, and
+         the same requirement on the fixture: a non-unit extent (4) on the
+         walked axis, so the running sum spans more than one element. *)
+      ( "cumsum4",
+        unary ~shape:nhwc
+          (Builder.cumsum4 { Ops4_cumsum.Cumsum4.axis = Axis4.W }) );
       (* N=1, the same precondition [unbind]'s own fixture comment gives:
          dropping W leaves N/T/D unit either way, so the result stays
          four-axis. An index that is neither 0 nor the axis's last valid one,
@@ -510,3 +549,4 @@ let per_op () =
       let inputs, constants = split g (bindings g shapes) in
       (name, g, inputs, constants))
     cases
+  @ [ index_tensor4_case () ]

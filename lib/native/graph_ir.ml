@@ -29,9 +29,12 @@ type op =
   | Clamp of Pointwise.Clamp.t
   | Clone of Pointwise.Clone.t
   | Concat of Concat.Concat.t
+  | Conv1d of Conv.Conv1d.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
+  | Conv3d of Conv.Conv3d.t
   | Convolution of Conv.Convolution.t
+  | Cumsum of Reduce.Cumsum.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
@@ -74,6 +77,7 @@ type op =
   | Sum of Reduce.Sum.t
   | To_copy of Pointwise.To_copy.t
   | Unbind of Split.Unbind.t
+  | Unfold of Unfold.Unfold.t
   | Upsample_bilinear2d of Resize.Bilinear2d.t
   | Upsample_nearest2d of Resize.Nearest2d.t
   | Vector_norm of Reduce.Vector_norm.t
@@ -212,6 +216,12 @@ let op_registry : (module OP) list =
       let project = function Concat t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Conv.Conv1d
+
+      let inject t = Conv1d t
+      let project = function Conv1d t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Conv.Conv2d
 
       let inject t = Conv2d t
@@ -224,10 +234,22 @@ let op_registry : (module OP) list =
       let project = function Conv2d_padding t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Conv.Conv3d
+
+      let inject t = Conv3d t
+      let project = function Conv3d t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Conv.Convolution
 
       let inject t = Convolution t
       let project = function Convolution t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Reduce.Cumsum
+
+      let inject t = Cumsum t
+      let project = function Cumsum t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Div
@@ -474,6 +496,12 @@ let op_registry : (module OP) list =
 
       let inject t = Unbind t
       let project = function Unbind t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Unfold.Unfold
+
+      let inject t = Unfold t
+      let project = function Unfold t -> Some t | _ -> None
     end : OP);
     (module struct
       include Resize.Bilinear2d

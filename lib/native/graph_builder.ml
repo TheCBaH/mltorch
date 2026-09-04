@@ -245,6 +245,9 @@ let clone ?name x = op1 ?name ~kind:"clone" (Clone { Pointwise.Clone.x })
 let concat ?name params xs =
   op1 ?name ~kind:"concat" (Concat { Concat.Concat.params; xs })
 
+let conv1d ?name params ~x ~weight ?bias () =
+  op1 ?name ~kind:"conv1d" (Conv1d { Conv.Conv1d.params; x; weight; bias })
+
 let conv2d ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"conv2d" (Conv2d { Conv.Conv2d.params; x; weight; bias })
 
@@ -252,9 +255,15 @@ let conv2d_padding ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"conv2d_padding"
     (Conv2d_padding { Conv.Conv2d_padding.params; x; weight; bias })
 
+let conv3d ?name params ~x ~weight ?bias () =
+  op1 ?name ~kind:"conv3d" (Conv3d { Conv.Conv3d.params; x; weight; bias })
+
 let convolution ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"convolution"
     (Convolution { Conv.Convolution.params; x; weight; bias })
+
+let cumsum ?name params x =
+  op1 ?name ~kind:"cumsum" (Cumsum { Reduce.Cumsum.params; x })
 
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
@@ -439,6 +448,9 @@ let unbind ?name params x =
   let sg = Tensor_id.Map.find x s.tensors in
   opN ?name ~fmt:sg.Tensor_sig.fmt ?quant:sg.Tensor_sig.quant ~kind:"unbind"
     (Unbind { Split.Unbind.params; x })
+
+let unfold ?name params x =
+  op1 ?name ~kind:"unfold" (Unfold { Unfold.Unfold.params; x })
 
 let upsample_bilinear2d ?name params x =
   op1 ?name ~kind:"upsample_bilinear2d"

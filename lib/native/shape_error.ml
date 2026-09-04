@@ -195,8 +195,10 @@ module Batched_matmul = struct
   let pp_error ppf (e : error) =
     match e with
     | Batch_mismatch { axis; lhs; rhs } ->
-        Fmt.pf ppf "input %a extent must equal mat2 %a extent: %a vs %a" Axis.pp
-          axis Axis.pp axis Dim.pp lhs Dim.pp rhs
+        Fmt.pf ppf
+          "input %a extent must equal mat2 %a extent, or one must be 1: %a vs \
+           %a"
+          Axis.pp axis Axis.pp axis Dim.pp lhs Dim.pp rhs
     | Contract_mismatch { lhs; rhs } ->
         Fmt.pf ppf "input C extent must equal mat2 W extent: %a vs %a" Dim.pp
           lhs Dim.pp rhs
@@ -360,6 +362,24 @@ module Split_with_sizes = struct
           "split_with_sizes of axis %a: sizes sum to %Ld, not the axis's \
            extent %a"
           Axis.pp axis total Dim.pp in_extent
+end
+
+module Unfold = struct
+  type fault = Reserved_axis | Rank_exceeded
+  type t = { axis : Axis.t; fault : fault }
+
+  let pp ppf { axis; fault } =
+    match fault with
+    | Reserved_axis ->
+        Fmt.pf ppf
+          "unfold axis must not be C (got %a): C is reserved for the window \
+           offset"
+          Axis.pp axis
+    | Rank_exceeded ->
+        Fmt.pf ppf
+          "unfold axis %a: input already uses all six axes (N has extent > 1), \
+           no room for the new window axis"
+          Axis.pp axis
 end
 
 module Convolution = struct
@@ -527,6 +547,7 @@ module Sdpa = struct
   }
 
   type error =
+    | Batch_mismatch of dims_mismatch
     | Extent_mismatch of dims_mismatch
     | Mask_shape of mask_mismatch
     | Total_work_over_limit of work_over_limit
@@ -546,6 +567,15 @@ module Sdpa = struct
     | Query_len -> Fmt.string ppf "the query sequence extent Wq"
 
   let pp_error ppf = function
+    (* [N]/[T]/[D]/[H], the four batch-like axes real ATen broadcasts across
+       the op's two chained matmuls (`query @ key^T`, then `attn @ value`) --
+       equal, or one side 1, [Matmul.Batched_matmul]'s own rule. *)
+    | Batch_mismatch { axis; check; lhs; rhs } ->
+        Fmt.pf ppf "sdpa: %a extent must agree (%a), or one must be 1: %a vs %a"
+          Axis.pp axis pp_check check Dim.pp lhs Dim.pp rhs
+    (* [C] (the head dimension, `Ev = E`) and [W] (key/value's shared
+       sequence extent) are never batch axes -- STRICT equality, no
+       broadcast, the flash-oracle constraint stays exactly what it was. *)
     | Extent_mismatch { axis; check; lhs; rhs } ->
         Fmt.pf ppf "sdpa: %a extent must agree (%a): %a vs %a" Axis.pp axis
           pp_check check Dim.pp lhs Dim.pp rhs
@@ -640,6 +670,7 @@ type t =
   | `Select_scatter of Select_scatter.t
   | `Slice of Slice.t
   | `Split_with_sizes of Split_with_sizes.t
+  | `Unfold of Unfold.t
   | `Window of Window.t
   | `Window_over_limit of Window_over_limit.t ]
 
@@ -667,5 +698,6 @@ let pp ppf = function
   | `Select_scatter e -> Select_scatter.pp ppf e
   | `Slice e -> Slice.pp ppf e
   | `Split_with_sizes e -> Split_with_sizes.pp ppf e
+  | `Unfold e -> Unfold.pp ppf e
   | `Window e -> Window.pp ppf e
   | `Window_over_limit e -> Window_over_limit.pp ppf e

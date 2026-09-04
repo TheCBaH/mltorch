@@ -100,6 +100,7 @@ let samples : Op.t list =
     Concat4 { Ops4.Concat4.params = { axis = W }; xs = [ x; y; w ] };
     Conv2d
       { Ops4.Conv_payload.params = conv_params; x; weight = w; bias = None };
+    Cumsum4 { Ops4_cumsum.Cumsum4.params = { axis = C }; x };
     Depthwise_conv2d
       {
         Ops4.Conv_payload.params = conv_params;
@@ -130,6 +131,11 @@ let samples : Op.t list =
     Hardsigmoid { Pointwise.Hardsigmoid.x };
     Hardswish { Pointwise.Hardswish.x };
     Hardtanh { Pointwise.Hardtanh.params = { min_val = 0.; max_val = 6. }; x };
+    (* Axis distinct from [Select4]'s (H) and [Select_scatter4]'s (W), and
+       two distinct operands, so an encoder that dropped the axis or
+       confused [self]/[index] still prints differently. *)
+    IndexTensor4
+      { Ops4.IndexTensor4.params = { axis = N }; self = x; index = y };
     Layer_norm
       {
         Ops4.Layer_norm.params = { dims = [ C ]; eps = 1e-5 };
@@ -292,7 +298,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 57, registry: 57 |}]
+  [%expect {| samples: 59, registry: 59 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -319,6 +325,7 @@ let%expect_test "op4: printed" =
       params={h={kernel=3; stride=1; pad_before=0; pad_after=1; dilation=1};
              w={kernel=3; stride=1; pad_before=0; pad_after=1; dilation=1};
              in_channels=4}
+    cumsum4 x=t0 params={axis=C}
     depthwise_conv2d
       x=t0
       weight=t2
@@ -341,6 +348,7 @@ let%expect_test "op4: printed" =
     hardsigmoid x=t0
     hardswish x=t0
     hardtanh x=t0 params={min_val=0; max_val=6}
+    index_tensor4 self=t0 index=t1 params={axis=N}
     layer_norm x=t0 weight=t2 bias=t3 params={dims=[C]; eps=1e-05}
     leaky_relu x=t0 params={negative_slope=0.2}
     max_keepdims x=t0 params={dims=[H, W]}
@@ -400,7 +408,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 57 ops |}]
+  [%expect {| round-tripped 59 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

@@ -785,10 +785,18 @@ At `D = 1`, `Region_computation4`'s `native_op` maps `Op.Sdpa` straight onto
 `Graph_ir.Sdpa` — the payload is reused verbatim, so there is nothing to
 translate — and Direct/Symbolic route through the same `Region_program`
 Native uses, making Native and Native4D bit-identical by construction with
-no second numeric kernel. **No model coverage**: SDPA occurs in no reachable
-graph across the corpus (every exporter decomposes it, §1), so this is
-Region-path and IR coverage, not a corpus win — unlike `Batched_matmul`
-(§7.4), which is `mvitv2_tiny`'s real blocker.
+no second numeric kernel. **Model coverage landed 2026-09-04**, alongside
+head/batch broadcasting in `Attention.Sdpa` itself (`attention_design.md`'s
+own head-broadcasting section): `mobilenetv5_base` reaches
+`native_builds:true` AND `native4d_converts:true` through this exact path —
+its SDPA occurrences have `D = 1` throughout (broadcast is on `H` only, real
+MQA-style query-head-count vs shared-key/value-head-count), so `check_sdpa`
+admits every one of them once the Native-level `H` rejection that used to
+block `native_builds` itself was lifted. It still stops at the kernel stage
+on the pre-existing, unrelated evaluation-depth ceiling
+(`kernel_reason: over_limit`) — this is the first corpus evidence for this
+counterpart, superseding the "no model coverage" claim below, which held
+only until the H-broadcasting fix.
 
 ## 8. Operations actually required by the reduced dialect
 

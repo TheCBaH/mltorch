@@ -60,6 +60,12 @@ let classify (op : Op.t) ~output:_ =
      itself the right one for an op whose emitter is a [select] on a
      comparison is a question about Native's table, not about this port. *)
   | Sdpa _ -> Output_transfer.Continuous
+  (* A genuine reduction, not a copy: every output element depends on every
+     PRECEDING element on the walked axis (the running sum), so an
+     arbitrarily small change to an earlier element moves every later output
+     -- the same answer Native's own [Output_transfer] gives every reduction,
+     [Softmax] included. *)
+  | Cumsum4 _ -> Output_transfer.Continuous
   (* Data movement, the same argument as [Unbind]/[Slice4] above: every output
      element is COPIED from an input element with no arithmetic -- [Select4]
      drops the axis instead of narrowing or enumerating it, but the copy
@@ -85,6 +91,12 @@ let classify (op : Op.t) ~output:_ =
   | Stack4 _ -> Output_transfer.Reindexing
   | Sqrt _ | Sub _ | Sum_keepdims _ | Transposed_conv2d _ ->
       Output_transfer.Continuous
+  (* Which input element is read is DATA-DEPENDENT -- the gathered position
+     comes from the value stored in [index], not from the output coordinate
+     alone -- so an arbitrarily small change to [index]'s content can switch
+     the entire gathered result, the same argmax-shaped reasoning Native's own
+     [Output_transfer] gives [Index_tensor]. *)
+  | IndexTensor4 _ -> Output_transfer.Discontinuous
   (* Same per-op-not-per-target conservative answer as Native's own
      [Output_transfer]: the long/bool targets can each flip their result from
      an arbitrarily small input change, so the whole op answers

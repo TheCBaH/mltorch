@@ -147,6 +147,14 @@ mapfile -t SRCS_GLUE < <(
   echo "$PT/aten/src/ATen/native/NaiveDilatedConvolution.cpp"
   echo "$PT/aten/src/ATen/native/NaiveConvolutionTranspose2d.cpp"
   echo "$PT/aten/src/ATen/native/Unfold2d.cpp"
+  # conv3d's own non-dilated forward path (ConvBackend::Slow3d ->
+  # at::slow_conv3d, Convolution.cpp:1705): the dilated 3D path already
+  # shares NaiveDilatedConvolution.cpp above with conv2d, but the plain path
+  # is a SEPARATE kernel (vol2col + gemm) with no 2D equivalent already
+  # linked. Unfold3d.cpp is its vol2col/col2vol; no vec.h, so both stay out
+  # of the CPU_CAPABILITY layer below.
+  echo "$PT/aten/src/ATen/native/ConvolutionMM3d.cpp"
+  echo "$PT/aten/src/ATen/native/Unfold3d.cpp"
   # _softmax: structured meta+impl (SoftMax.cpp, no vec.h); the lastdim/dim
   # softmax kernels are cpu/SoftMaxKernel.cpp in the CAP list.
   echo "$PT/aten/src/ATen/native/SoftMax.cpp"

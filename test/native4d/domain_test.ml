@@ -190,6 +190,20 @@ let%expect_test "domain: batched_matmul batch extent" =
     batch=1                      in the dialect
     batch=2                      node n0: batched matmul has extent > 1 on D, which the N/H/W/C dialect has no name for; N and H already carry the op's real batch axes |}]
 
+(* [input]'s own D is always 1; [mat2]'s D is what varies. Proves the check
+   reads the BROADCAST result, not [input]'s own extent -- a regression back
+   to checking [input] alone would wrongly admit every row here. *)
+let%expect_test "domain: batched_matmul batch extent, broadcast from mat2" =
+  table
+    [
+      ("batch=1", Fixtures.batched_matmul_broadcast 1);
+      ("batch=2", Fixtures.batched_matmul_broadcast 2);
+    ];
+  [%expect
+    {|
+    batch=1                      in the dialect
+    batch=2                      node n0: batched matmul has extent > 1 on D, which the N/H/W/C dialect has no name for; N and H already carry the op's real batch axes |}]
+
 (* Unlike [Batched_matmul] above, D is [Sdpa]'s ONLY batch axis (heads are on
    H), so D = 1 is the whole admissible case, not a slice of a wider one. *)
 let%expect_test "domain: sdpa batch extent" =
@@ -433,6 +447,22 @@ let%expect_test "domain: select_scatter gates its named axis" =
     {|
     select_scatter W             in the dialect
     select_scatter D             node n0: axis D is outside the N/H/W/C dialect |}]
+
+(* [Index_tensor] gates its ONE named axis, the same rule [select_scatter]'s
+   own test applies -- not [select]'s pair above, since [Index_tensor]'s
+   output is [self_shape] with one axis's extent changed (no drop, no
+   repack), so there is no separate shape-consequence rejection to
+   demonstrate. *)
+let%expect_test "domain: index_tensor gates its named axis" =
+  table
+    [
+      ("index_tensor W", Fixtures.index_tensor_w);
+      ("index_tensor D", Fixtures.index_tensor_d);
+    ];
+  [%expect
+    {|
+    index_tensor W               in the dialect
+    index_tensor D               node n0: axis D is outside the N/H/W/C dialect |}]
 
 let%expect_test "domain: split_with_sizes's axis rule" =
   table

@@ -93,8 +93,10 @@ let curated_selection =
     op "adaptive_max_pool2d";
     op "linear";
     op "batch_norm";
+    op "conv1d";
     op "conv2d";
     op "conv2d" ~overload:"padding";
+    op "conv3d";
     op "dropout";
     op "dropout_";
     op "avg_pool2d";
@@ -111,6 +113,7 @@ let curated_selection =
     (* The only Tensor[]-returning op bound so far: the ViT attention blocks
        split their packed qkv projection with it. *)
     op "unbind" ~overload:"int";
+    op "unfold";
     op "split_with_sizes";
     op "split" ~overload:"Tensor";
     op "squeeze" ~overload:"dims";
@@ -119,6 +122,7 @@ let curated_selection =
     op "amax";
     op "sum" ~overload:"dim_IntList";
     op "softmax" ~overload:"int";
+    op "cumsum";
     op "pow" ~overload:"Tensor_Scalar";
     op "rsub" ~overload:"Scalar";
     op "linalg_vector_norm";

@@ -68,12 +68,17 @@ type metadata_role =
   | `Amax_input
   | `Batch_norm_no_stats_input
   | `Concat_input
+  | `Conv1d_bias
+  | `Conv1d_weight
   | `Conv2d_bias
   | `Conv2d_padding_bias
   | `Conv2d_padding_weight
   | `Conv2d_weight
+  | `Conv3d_bias
+  | `Conv3d_weight
   | `Convolution_bias
   | `Convolution_weight
+  | `Cumsum_input
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
@@ -103,11 +108,13 @@ type metadata_role =
   | `Softmax_input
   | `Split_tensor_input
   | `Split_with_sizes_input
+  | `Squeeze_input
   | `Stack_input
   | `Sum_input
   | `Tensor
   | `Transpose_input
   | `Unbind_input
+  | `Unfold_input
   | `Unsqueeze_input
   | `Upsample_bilinear2d_input
   | `Upsample_nearest2d_input
@@ -249,11 +256,10 @@ end
 (* [matmul.default]'s remaining unsupported shape family, now that both the
    batch-less case (`.ai/matmul_softmax_design.md` §4, binds to the existing
    [Bmm] node) and the batched/multi-head case (§5, binds to the new
-   [Batched_matmul] node) are supported -- either operand is rank<2 or the
-   two operands have different rank. Carries both declared size lists, the
-   same reasoning [Op_bridge_error.Matmul_unsupported_shape] gives on the
-   ATen-linked side: a reader needs the actual shapes, not just which check
-   failed. *)
+   [Batched_matmul] node, unequal ATen rank included) are supported -- either
+   operand is rank<2. Carries both declared size lists, the same reasoning
+   [Op_bridge_error.Matmul_unsupported_shape] gives on the ATen-linked side:
+   a reader needs the actual shapes, not just which check failed. *)
 module Matmul_unsupported_shape = struct
   type t = { self : int list; other : int list }
 end
@@ -289,6 +295,8 @@ type malformed =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
+  | `Bad_dhw_arity of Bad_arity.t
+  | `Bad_w_arity of Bad_arity.t
   | `Bad_config of Bad_config.t
   | `Bad_pad_list of Pad.Pad.Bad_pad_list.t
   | `Bad_dimension of Bad_dimension.t
@@ -385,12 +393,17 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Amax_input -> Fmt.string ppf "amax input"
   | `Batch_norm_no_stats_input -> Fmt.string ppf "batch_norm_no_stats input"
   | `Concat_input -> Fmt.string ppf "concat input"
+  | `Conv1d_bias -> Fmt.string ppf "conv1d bias"
+  | `Conv1d_weight -> Fmt.string ppf "conv1d weight"
   | `Conv2d_bias -> Fmt.string ppf "conv2d bias"
   | `Conv2d_padding_bias -> Fmt.string ppf "conv2d padding bias"
   | `Conv2d_padding_weight -> Fmt.string ppf "conv2d padding weight"
   | `Conv2d_weight -> Fmt.string ppf "conv2d weight"
+  | `Conv3d_bias -> Fmt.string ppf "conv3d bias"
+  | `Conv3d_weight -> Fmt.string ppf "conv3d weight"
   | `Convolution_bias -> Fmt.string ppf "convolution bias"
   | `Convolution_weight -> Fmt.string ppf "convolution weight"
+  | `Cumsum_input -> Fmt.string ppf "cumsum input"
   | `Expand_input -> Fmt.string ppf "expand input"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"
@@ -420,11 +433,13 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Softmax_input -> Fmt.string ppf "softmax input"
   | `Split_tensor_input -> Fmt.string ppf "split.Tensor input"
   | `Split_with_sizes_input -> Fmt.string ppf "split_with_sizes input"
+  | `Squeeze_input -> Fmt.string ppf "squeeze input"
   | `Stack_input -> Fmt.string ppf "stack input"
   | `Sum_input -> Fmt.string ppf "sum input"
   | `Tensor -> Fmt.string ppf "tensor"
   | `Transpose_input -> Fmt.string ppf "transpose input"
   | `Unbind_input -> Fmt.string ppf "unbind input"
+  | `Unfold_input -> Fmt.string ppf "unfold input"
   | `Unsqueeze_input -> Fmt.string ppf "unsqueeze input"
   | `Upsample_bilinear2d_input -> Fmt.string ppf "upsample_bilinear2d input"
   | `Upsample_nearest2d_input -> Fmt.string ppf "upsample_nearest2d input"
@@ -449,6 +464,15 @@ let pp_malformed ppf : [< malformed ] -> unit = function
         (match param with
         | `Output_size -> "exactly two values"
         | _ -> "one or two values")
+        got
+  (* [aten.conv1d.default]'s own single-axis window arguments, unlike
+     [Bad_arity]'s 1-or-2-broadcast rule for the rank-2 conv/pool family. *)
+  | `Bad_w_arity { Bad_arity.param; got } ->
+      Fmt.pf ppf "%a must have exactly one value, got %d" pp_hw_param param got
+  (* [aten.conv3d.default]'s own three-axis window arguments: 3 values, or 1
+     broadcast to all three -- [hw2]'s rule one axis wider. *)
+  | `Bad_dhw_arity { Bad_arity.param; got } ->
+      Fmt.pf ppf "%a must have one or three values, got %d" pp_hw_param param
         got
   | `Bad_config e -> Op_config.Bad.pp ppf e
   | `Bad_pad_list e -> Pad.Pad.Bad_pad_list.pp ppf e
@@ -533,8 +557,8 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Matmul_unsupported_shape { Matmul_unsupported_shape.self; other } ->
       let ints = Fmt.(list ~sep:(any ", ") int) in
       Fmt.pf ppf
-        "matmul.default: both operands must be rank>=2 and of equal rank, got \
-         self=[%a] other=[%a]"
+        "matmul.default: both operands must be rank>=2, got self=[%a] \
+         other=[%a]"
         ints self ints other
   | `Missing_arg { Missing_arg.op; arg } ->
       Fmt.pf ppf "%s: missing argument %S" op arg

@@ -56,14 +56,22 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
        reads it -- the extra leading unit axes land on [N,T,D], which
        [Bmm.output_shape] never reads -- so this binds to the EXISTING [Bmm]
        node, no new Native surface.
-     - batched/multi-head (§5): both operands the same rank>=3 but not
-       batch-less (a leading axis is >1 on either side, e.g. `mvitv2_tiny`'s
-       real `[D,H,W,C]` attention). Binds to [Batched_matmul], which checks
-       full [N]/[T]/[D]/[H] agreement itself (`Matmul.Batched_matmul.output_shape`)
-       -- an unequal-but-broadcastable batch axis (§6, no corpus evidence) is
-       rejected there with a typed [`Batched_matmul] shape error, not here.
-     Anything else (either operand rank<2, or the two ranks differ) stays the
-     ORIGINAL typed rejection, unchanged. *)
+     - batched/multi-head (§5): either operand not batch-less (a leading axis
+       is >1 on either side, e.g. `mvitv2_tiny`'s real `[D,H,W,C]` attention).
+       Binds to [Batched_matmul], which checks full [N]/[T]/[D]/[H] agreement
+       itself (`Matmul.Batched_matmul.output_shape`) -- an unequal-but-
+       broadcastable batch axis is admitted there (landed 2026-09-04), a
+       genuine mismatch is rejected there with a typed [`Batched_matmul] shape
+       error, not here. The two operands need not share ATen rank: right-
+       alignment (`Aten_shape.of_aten`) independently pads EACH operand's own
+       missing leading axes to 1 in the shared six-axis frame -- exactly
+       ATen's own implicit-unsqueeze rule for `matmul.default`'s unequal-rank
+       case (`eca_halonext26ts`'s real `[N,H,W,C] @ [W,C]` occurrence,
+       `.ai/matmul_softmax_design.md` §5) -- so [Batched_matmul]'s existing
+       per-axis broadcast already computes the right answer without either
+       operand's rank being read here at all.
+     Anything else (either operand rank<2) stays the ORIGINAL typed
+     rejection, unchanged. *)
   | "torch.ops.aten.matmul.default" ->
       Some
         (let* aten_a = tensor_arg aten_env node "self" in
@@ -84,7 +92,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let+ y = bmm a_id b_id in
                  [ y ]
              | _ -> assert false)
-         else if rank_a = rank_b && rank_a >= 3 then
+         else if rank_a >= 2 && rank_b >= 2 then
            let* a = native_of_aten "self" aten_a in
            let* b = native_of_aten "other" aten_b in
            build_g ~name:"matmul" [ a; b ] (function

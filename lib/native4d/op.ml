@@ -36,6 +36,7 @@ type op =
   | Clamp of Pointwise.Clamp.t
   | Concat4 of Ops4.Concat4.t
   | Conv2d of Ops4.Conv2d.t
+  | Cumsum4 of Ops4_cumsum.Cumsum4.t
   | Depthwise_conv2d of Ops4.Depthwise_conv2d.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
@@ -47,6 +48,7 @@ type op =
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
+  | IndexTensor4 of Ops4.IndexTensor4.t
   | Layer_norm of Ops4.Layer_norm.t
   | Leaky_relu of Pointwise.Leaky_relu.t
   | Max_keepdims of Ops4.Max_keepdims.t
@@ -167,6 +169,12 @@ let op_registry : (module OP) list =
       let project = function Conv2d t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Ops4_cumsum.Cumsum4
+
+      let inject t = Cumsum4 t
+      let project = function Cumsum4 t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Ops4.Depthwise_conv2d
 
       let inject t = Depthwise_conv2d t
@@ -231,6 +239,12 @@ let op_registry : (module OP) list =
 
       let inject t = Hardtanh t
       let project = function Hardtanh t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.IndexTensor4
+
+      let inject t = IndexTensor4 t
+      let project = function IndexTensor4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Layer_norm

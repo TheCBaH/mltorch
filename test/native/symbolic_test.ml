@@ -927,12 +927,12 @@ let%expect_test "Symbolic ground: sdpa — two keys with a mask, matches Direct"
   let p = { Attention.Sdpa.scale = Attention.Sdpa.Scale.Explicit 1.0 } in
   let e =
     build
-      (As.pixel p ~query_shape ~key_shape ~mask_shape ~query:qs ~key:ks
-         ~value:vs ~mask:ms Symbolic.out_vec)
+      (As.pixel p ~query_shape ~key_shape ~value_shape:key_shape ~mask_shape
+         ~query:qs ~key:ks ~value:vs ~mask:ms Symbolic.out_vec)
   in
   Format.printf "%a@." Expr.Pp.value e;
   [%expect
-    {| select((-inf < max_reduce(r1=0..2: (sum(r2=0..2: ((t0[N,T,D,H,W,r2] * sqrt(1)) * (t1[N,T,D,H,r1,r2] * sqrt(1)))) + t3[0,0,0,0,0,r1]))), sum(r3=0..2: ((exp(((sum(r4=0..2: ((t0[N,T,D,H,W,r4] * sqrt(1)) * (t1[N,T,D,H,r3,r4] * sqrt(1)))) + t3[0,0,0,0,0,r3]) - max_reduce(r5=0..2: (sum(r6=0..2: ((t0[N,T,D,H,W,r6] * sqrt(1)) * (t1[N,T,D,H,r5,r6] * sqrt(1)))) + t3[0,0,0,0,0,r5])))) / sum(r7=0..2: exp(((sum(r8=0..2: ((t0[N,T,D,H,W,r8] * sqrt(1)) * (t1[N,T,D,H,r7,r8] * sqrt(1)))) + t3[0,0,0,0,0,r7]) - max_reduce(r9=0..2: (sum(r10=0..2: ((t0[N,T,D,H,W,r10] * sqrt(1)) * (t1[N,T,D,H,r9,r10] * sqrt(1)))) + t3[0,0,0,0,0,r9])))))) * t2[N,T,D,H,r3,C])), 0) |}];
+    {| select((-inf < max_reduce(r1=0..2: (sum(r2=0..2: ((t0[0,0,0,0,0,r2] * sqrt(1)) * (t1[0,0,0,0,r1,r2] * sqrt(1)))) + t3[0,0,0,0,0,r1]))), sum(r3=0..2: ((exp(((sum(r4=0..2: ((t0[0,0,0,0,0,r4] * sqrt(1)) * (t1[0,0,0,0,r3,r4] * sqrt(1)))) + t3[0,0,0,0,0,r3]) - max_reduce(r5=0..2: (sum(r6=0..2: ((t0[0,0,0,0,0,r6] * sqrt(1)) * (t1[0,0,0,0,r5,r6] * sqrt(1)))) + t3[0,0,0,0,0,r5])))) / sum(r7=0..2: exp(((sum(r8=0..2: ((t0[0,0,0,0,0,r8] * sqrt(1)) * (t1[0,0,0,0,r7,r8] * sqrt(1)))) + t3[0,0,0,0,0,r7]) - max_reduce(r9=0..2: (sum(r10=0..2: ((t0[0,0,0,0,0,r10] * sqrt(1)) * (t1[0,0,0,0,r9,r10] * sqrt(1)))) + t3[0,0,0,0,0,r9])))))) * t2[0,0,0,0,r3,C])), 0) |}];
   let binding id =
     if id = qs.id then Some query
     else if id = ks.id then Some key
@@ -945,7 +945,8 @@ let%expect_test "Symbolic ground: sdpa — two keys with a mask, matches Direct"
           ~value_shape:key_shape ~mask_shape:(Some mask_shape))
        ~iter_shape:query_shape
        ~eval_direct:
-         (Ad.pixel p ~query_shape ~key_shape ~mask_shape ~query ~key ~value
-            ~mask) ~eval_symbolic:(fun c -> eval_expr ~binding e c)
+         (Ad.pixel p ~query_shape ~key_shape ~value_shape:key_shape ~mask_shape
+            ~query ~key ~value ~mask) ~eval_symbolic:(fun c ->
+         eval_expr ~binding e c)
     |> Result.map (fun (vals, ok, _) -> (vals, ok)));
   [%expect {| eval=12.3841,22.3841 direct==symbolic=true |}]

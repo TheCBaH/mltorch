@@ -80,8 +80,8 @@ module Make (S : Semantics.SEMANTICS) = struct
           ~bias:(fill_or 0. bias) out
     | Batched_matmul { Matmul.Batched_matmul.input; mat2 } ->
         let module C = Matmul.Batched_matmul.Compute (S) in
-        C.pixel ~input_shape:(shape_of input) ~input:(operand input)
-          ~mat2:(operand mat2) out
+        C.pixel ~input_shape:(shape_of input) ~mat2_shape:(shape_of mat2)
+          ~input:(operand input) ~mat2:(operand mat2) out
     | Clamp { Pointwise.Clamp.params; x } ->
         let module C = Pointwise.Clamp.Compute (S) in
         C.pixel params (operand x) out
@@ -111,6 +111,11 @@ module Make (S : Semantics.SEMANTICS) = struct
           (Graph_shape4.conv2d_params params ~groups)
           ~x_shape:(shape_of x) ~weight_shape:(shape_of weight) ~x:(operand x)
           ~weight:(operand weight) ~bias:(conv_bias weight bias) out
+    (* Through the same adapter [Graph_shape4] uses, so the axis the shape
+       rule preserves is the axis the compute walks, by construction. *)
+    | Cumsum4 { Ops4_cumsum.Cumsum4.params; x } ->
+        let module C = Reduce.Cumsum.Compute (S) in
+        C.pixel (Graph_shape4.cumsum_params params) ~x:(operand x) out
     | Div { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Div.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)
@@ -153,6 +158,15 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Hardtanh { Pointwise.Hardtanh.params; x } ->
         let module C = Pointwise.Hardtanh.Compute (S) in
         C.pixel params (operand x) out
+    (* Through the same adapter [Graph_shape4] uses, so the axis the shape
+       rule overwrites is the axis the compute gathers along, by
+       construction. *)
+    | IndexTensor4 { Ops4.IndexTensor4.params; self; index } ->
+        let module C = Index_tensor.Index_tensor.Compute (S) in
+        C.pixel
+          (Graph_shape4.index_tensor_params params)
+          ~self_shape:(shape_of self) ~self:(operand self)
+          ~index:(operand index) out
     | Layer_norm _ -> invalid_arg "Eval_op4.pixel: LayerNorm is Region-authored"
     | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
         let module C = Pointwise.Leaky_relu.Compute (S) in

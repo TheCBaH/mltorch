@@ -263,6 +263,19 @@ module Pad : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** `aten.unfold.default`'s own two faults, both about which axis a window can
+    land on: [Reserved_axis] -- the caller named [C], but [C] is reserved for
+    the window OFFSET (Unfold always writes it there, per its own doc comment)
+    -- and [Rank_exceeded] -- the input's own [N] axis is not unit, so the
+    six-axis frame has no room left for the window-count axis this op
+    introduces. *)
+module Unfold : sig
+  type fault = Reserved_axis | Rank_exceeded
+  type t = { axis : Axis.t; fault : fault }
+
+  val pp : Format.formatter -> t -> unit
+end
+
 module Convolution : sig
   type channels_divisibility = { channels : int; groups : int }
 
@@ -370,6 +383,7 @@ module Sdpa : sig
   }
 
   type error =
+    | Batch_mismatch of dims_mismatch
     | Extent_mismatch of dims_mismatch
     | Mask_shape of mask_mismatch
     | Total_work_over_limit of work_over_limit
@@ -460,6 +474,7 @@ type t =
   | `Select_scatter of Select_scatter.t
   | `Slice of Slice.t
   | `Split_with_sizes of Split_with_sizes.t
+  | `Unfold of Unfold.t
   | `Window of Window.t
   | `Window_over_limit of Window_over_limit.t ]
 

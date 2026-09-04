@@ -69,6 +69,20 @@ module Conv2d = struct
       pp_axis_window p.h pp_axis_window p.w Dim.pp p.in_channels
       Op_config.Pos.pp p.groups
 
+  (* The single-pixel, no-op window: kernel 1, stride 1, no padding, dilation 1
+     -- an axis this small always keeps its extent unchanged. Pins [Conv2d]'s H
+     axis for [Conv1d] (conv_conv1d.ml) and, at Native4D's [Linear] ->
+     [Conv2D4] legalization, both axes for a 1x1 convolution weight
+     (lower_engine.ml's own former private copy of this same record). *)
+  let unit_window : axis_window =
+    {
+      kernel = Dim.extent 1;
+      stride = Op_config.Pos.of_int 1;
+      pad_before = Op_config.Nonneg.of_int 0;
+      pad_after = Op_config.Nonneg.of_int 0;
+      dilation = Op_config.Pos.of_int 1;
+    }
+
   (* This op's random-walk config space + the native-layout (NHWC) operand shape
      derivations (weight: N=out_channels, C=in_channels/groups, H/W=kernel; bias:
      C=out_channels — see [validate_channels]). [cascade] enforces the native

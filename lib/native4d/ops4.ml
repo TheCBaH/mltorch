@@ -750,6 +750,60 @@ module RepeatInterleave4 = struct
       pp_params t.params
 end
 
+(* Native's [Index_tensor] with its axis narrowed to the dialect's four. Its
+   own payload for the FIRST reason in .ai/native4d_add_op.md -- it names an
+   axis, so the field is [Axis4.t] and T/D are unsayable in a four-axis graph.
+
+   Unlike [Select4]/[RepeatInterleave4], the axis is neither dropped nor
+   scaled by a compile-time factor: [self]'s [axis] extent is overwritten by
+   [index]'s own length, read at runtime. That is exactly [Select_scatter4]'s
+   own shape (output is [self]'s shape with one axis's extent changed, no
+   drop, no repack), so there is no post-hoc [Shape4.of_vec6] re-check the way
+   [Select4]'s arm needs -- if [self] is already four-axis, so is the output,
+   whichever axis this op names. The shape rule and pixel map delegate whole
+   to [Index_tensor.Index_tensor] rather than restating them. *)
+module IndexTensor4 = struct
+  type params = { axis : Axis4.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"index_tensor4_params" (fun axis -> { axis })
+    |> Jsont.Object.mem "axis" Axis4.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) =
+    Fmt.pf fmt "@[<hv>{axis=%a}@]" Axis4.pp p.axis
+
+  type t = { params : params; self : Tensor_ref.t; index : Tensor_ref.t }
+
+  let name = "IndexTensor4"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        {
+          params = get "params" params_jsont;
+          self = get "self" Tensor_ref.jsont;
+          index = get "index" Tensor_ref.jsont;
+        })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("self", Json_util.enc Tensor_ref.jsont t.self);
+            ("index", Json_util.enc Tensor_ref.jsont t.index);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.self; t.index ]
+  let map_operands f (t : t) = { t with self = f t.self; index = f t.index }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>index_tensor4@ self=%a@ index=%a@ params=%a@]" pp_ref
+      t.self pp_ref t.index pp_params t.params
+end
+
 (* ---- boundary synthesis --------------------------------------------------- *)
 
 (* Native's [Pad] with its axes narrowed to the dialect's four. Its own payload

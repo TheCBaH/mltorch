@@ -684,6 +684,51 @@ let%expect_test "dispatch: alias.default builds a single Clone node" =
    [max_pool2d_with_indices.default]'s dead indices edge uses, and that the
    built graph has zero outputs, matching the node's own empty serialized
    [outputs] list. *)
+(* ---- aten.unfold.default: ATen as the oracle ----------------------------- *)
+
+(* [dimension] is read against [self]'s OWN rank, same as [select.int]'s
+   [dim] above; [Unfold.Unfold.dest_of] then maps it onto the axis the
+   window COUNT lands on in the OUTPUT (op_bridge_shape.ml's own comment). *)
+let unfold_verify ~sizes ~dimension ~size ~step =
+  let n = List.fold_left ( * ) 1 sizes in
+  let x = float_tensor sizes (List.init n (fun i -> float_of_int (i + 1))) in
+  verify_print ~target:"torch.ops.aten.unfold.default"
+    ~bindings:[ ("self", x) ]
+    ~inputs:
+      [
+        in_tensor "self";
+        in_int "dimension" dimension;
+        in_int "size" size;
+        in_int "step" step;
+      ]
+
+let%expect_test "verify: unfold.default overlapping and non-overlapping windows"
+    =
+  (* A plain vector: the appended window axis is the only "extra" one, so
+     this exercises the simplest [source_of]/[dest_of] case (dim 0 of a
+     rank-1 tensor). *)
+  unfold_verify ~sizes:[ 8 ] ~dimension:0 ~size:3 ~step:2;
+  unfold_verify ~sizes:[ 8 ] ~dimension:0 ~size:2 ~step:2;
+  (* The corpus's own HaloAttn shape (eca_halonext26ts): unfolding each
+     spatial axis of a rank-4 [N,C,H,W] tensor in turn. *)
+  unfold_verify ~sizes:[ 1; 8; 20; 20 ] ~dimension:2 ~size:12 ~step:8;
+  unfold_verify ~sizes:[ 1; 8; 20; 20 ] ~dimension:3 ~size:12 ~step:8;
+  (* A rank-5 input, as the corpus's own SECOND (chained) unfold call sees:
+     the output is rank 6, using every frame axis -- the demanding case
+     [output_shape]'s N-must-be-unit precondition exists to gate. *)
+  unfold_verify ~sizes:[ 1; 4; 2; 10; 6 ] ~dimension:3 ~size:3 ~step:2;
+  [%expect
+    {|
+    aten and native agree
+    aten and native agree
+    aten and native agree
+    aten and native agree
+    aten and native agree |}]
+
+let%expect_test "verify: unfold.default negative dimension" =
+  unfold_verify ~sizes:[ 3; 8 ] ~dimension:(-1) ~size:3 ~step:2;
+  [%expect {| aten and native agree |}]
+
 let%expect_test
     "dispatch: _assert_tensor_metadata.default builds a single Discard node" =
   let x = float_tensor [ 2; 3 ] [ 1.; 2.; 3.; 4.; 5.; 6. ] in

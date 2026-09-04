@@ -55,6 +55,8 @@ type metadata_role =
         [mean.dim] have separate arms, and a shared label would leave the row
         unable to say which one failed. *)
   | `Concat_input
+  | `Conv1d_bias
+  | `Conv1d_weight
   | `Conv2d_bias
   | `Conv2d_padding_bias
   | `Conv2d_padding_weight
@@ -65,8 +67,11 @@ type metadata_role =
     (** Its own role, not shared with [`Convolution_weight]: the two overloads
         have separate arms and a shared label would leave the row unable to say
         which one failed. *)
+  | `Conv3d_bias
+  | `Conv3d_weight
   | `Convolution_bias
   | `Convolution_weight
+  | `Cumsum_input
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
@@ -113,6 +118,11 @@ type metadata_role =
   | `Softmax_input
   | `Split_tensor_input
   | `Split_with_sizes_input
+  | `Squeeze_input
+    (** [squeeze.dim]'s input, read for its declared RANK the same way
+        [`Select_input] is -- the WRITTEN axis's live extent (unit or not)
+        decides which branch of the [Reshape] legalization applies, and neither
+        branch is reachable without the operand's rank first. *)
   | `Stack_input
   | `Sum_input
   | `Tensor
@@ -122,6 +132,7 @@ type metadata_role =
         row unable to say which one failed -- the same reasoning as
         [`Conv2d_weight] vs [`Convolution_weight] above. *)
   | `Unbind_input
+  | `Unfold_input
   | `Unsqueeze_input
   | `Upsample_bilinear2d_input
   | `Upsample_nearest2d_input
@@ -359,6 +370,10 @@ type malformed =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
+  | `Bad_dhw_arity of Bad_arity.t
+    (** [aten.conv3d.default]'s own three-axis window arguments: 3 values, or 1
+        broadcast to all three -- [`Bad_arity]'s rule one axis wider. *)
+  | `Bad_w_arity of Bad_arity.t
   | `Bad_config of Bad_config.t
     (** An op-configuration value the engine's guarded types have no form for.
         Its own row rather than a [`Bad_dimension] variant: a stride is not a

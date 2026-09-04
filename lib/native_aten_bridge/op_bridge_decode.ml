@@ -180,6 +180,46 @@ let perm_oihw_to_conv_weight : Permute.Permute.perm =
   let open Axis in
   [ (N, D); (T, T); (D, N); (H, W); (W, C); (C, H) ]
 
+(* Right-aligned rank-3 [aten.conv1d.default] operands both land the same way
+   under [of_aten]: [N,C,L] (H=Nbatch, W=Cch, C=Lsp) and the weight
+   [Cout,Cin/groups,K] (H=Cout, W=Cin/groups, C=K) share the positional
+   pattern [role0, channel, spatial]. This moves role0 onto native [N] (so
+   [Conv2d.output_shape] reads the weight's real [Cout] off [Axis.N], the
+   same field it reads for [Conv2d]/[Convolution]) and channel/spatial onto
+   [C]/[W] -- landing exactly on [Conv2d]'s own weight layout
+   [Cout,1,1,Kh,Kw,Cin/groups] once H is pinned to [Conv2d.unit_window].
+   Two disjoint transpositions, so it is its own inverse: the same constant
+   relayouts [x] and [weight] in, and relayouts the raw [Conv1d] output back
+   to the generic [N,C,L] convention the rest of the graph expects. *)
+let perm_conv1d : Permute.Permute.perm =
+  let open Axis in
+  [ (N, H); (T, T); (D, D); (H, N); (W, C); (C, W) ]
+
+(* Right-aligned rank-5 [aten.conv3d.default] operands both land the same way
+   under [of_aten]: [N,C,D,H,W] (T=Nbatch, D=Cch, H=Dsp, W=Hsp, C=Wsp) and the
+   weight [Cout,Cin/groups,Kd,Kh,Kw] (T=Cout, D=Cin/groups, H=Kd, W=Kh, C=Kw)
+   share the positional pattern [role0, channel, spatial, spatial, spatial].
+   This moves role0 onto native [N] (so [Conv3d.output_shape] reads the
+   weight's real [Cout] off [Axis.N], the same field every other conv reads)
+   and the three ATen spatial axes onto [D]/[H]/[W] IN THE SAME ORDER --
+   ATen's own [D] lands on native [D], [H] on [H], [W] on [W] -- so [Conv3d]
+   needs no axis-renaming logic of its own, only this one relayout. Channel
+   lands on [C]. The one native axis with no ATen role, [T], receives
+   whatever [of_aten] left at its default extent 1 (raw [N], unused for a
+   rank-5 tensor): a genuine 4-cycle on [D,H,W,C], NOT its own inverse (unlike
+   [perm_conv1d]'s pair of disjoint transpositions) -- see [perm_conv3d_inv]
+   for the relayout back to the generic [N,C,D,H,W] convention. *)
+let perm_conv3d : Permute.Permute.perm =
+  let open Axis in
+  [ (N, T); (T, N); (D, H); (H, W); (W, C); (C, D) ]
+
+(* Inverse of [perm_conv3d], used to relayout [Conv3d]'s raw output (native
+   [N,T,D,H,W,C] with batch on [N]) back to the generic rank-5 [of_aten]
+   convention the rest of the graph expects (batch on [T]). *)
+let perm_conv3d_inv : Permute.Permute.perm =
+  let open Axis in
+  [ (N, T); (T, N); (D, C); (H, D); (W, H); (C, W) ]
+
 (* Rank-2 addmm weight [In,Out] (W=In, C=Out) -> native [N=Out, C=In]. *)
 let perm_addmm_weight : Permute.Permute.perm =
   let open Axis in
@@ -382,6 +422,20 @@ let hw2 name = function
   | [ v ] -> Err.return (v, v)
   | values -> Err.fail (`Invalid_hw_arg { name; values })
 
+(* [aten.conv1d.default]'s single-axis twin of [hw2]: a 1-element int list,
+   the only arity ATen's `int[1]` schema type ever serializes. *)
+let w1 name = function
+  | [ v ] -> Err.return v
+  | values -> Err.fail (`Invalid_w_arg { name; values })
+
+(* [aten.conv3d.default]'s three-axis twin of [hw2]: a 3-element int list, or a
+   1-element list broadcast to [v; v; v] (symmetric), the only two arities
+   ATen's `int[3]` schema type ever serializes. *)
+let dhw3 name = function
+  | [ d; h; w ] -> Err.return (d, h, w)
+  | [ v ] -> Err.return (v, v, v)
+  | values -> Err.fail (`Invalid_dhw_arg { name; values })
+
 (* Construct Conv2d.params from the ATen weight shape array
    (rank-4: [Cout,Cin/groups,Kh,Kw]) and validated config ints.
    Raises [Invalid_argument] on bad dims. *)
@@ -415,7 +469,34 @@ let conv_axis_window ~op ~kernel ~stride ~pad ~dilation :
    [Invalid_argument] from inside the [try] below -- reported as a
    [`Validation_failure] string rather than the typed row the other two
    definitions of this rule return. Bounded through the same helper
-   [Window_axis] and [Native_interp] use, so all three agree. *)
+   [Window_axis] and [Native_interp] use, so all three agree. Shared by
+   [make_conv2d_params] and [make_conv1d_params]: [Graph_shape.error]
+   flat-includes [Shape_error.t], and [Graph_builder.error] flat-includes
+   that, so the row crosses into this module's [`Build] seam unchanged rather
+   than re-labelled. *)
+let conv_in_channels ~weight_in_per_group ~(groups : Op_config.Pos.t) =
+  let of_shape r =
+    Err.map_error
+      (fun (e : Shape_error.t) -> `Build (e :> Graph_builder.error))
+      r
+  in
+  let* c =
+    of_shape (Window_axis.factor ~what:`In_channels weight_in_per_group)
+  in
+  let* g = of_shape (Window_axis.factor ~what:`In_channels (groups :> int)) in
+  let product = Int64.mul c g in
+  if product >= Window_axis.limit then
+    of_shape
+      (Err.fail
+         (`Window_over_limit
+            Shape_error.Window_over_limit.
+              {
+                what = `In_channels;
+                value = product;
+                limit = Window_axis.limit;
+              }))
+  else return (Dim.extent (Int64.to_int product))
+
 let make_conv2d_params ~op w_shape sh sw ph pw dh dw groups =
   let* h =
     conv_axis_window ~op ~kernel:w_shape.(2) ~stride:sh ~pad:ph ~dilation:dh
@@ -425,30 +506,42 @@ let make_conv2d_params ~op w_shape sh sw ph pw dh dw groups =
   in
   let* groups = pos ~op ~param:`Groups groups in
   let* in_channels =
-    (* [Graph_shape.error] flat-includes [Shape_error.t], and
-       [Graph_builder.error] flat-includes that, so the row crosses into this
-       module's [`Build] seam unchanged rather than re-labelled. *)
-    let of_shape r =
-      Err.map_error
-        (fun (e : Shape_error.t) -> `Build (e :> Graph_builder.error))
-        r
-    in
-    let* c = of_shape (Window_axis.factor ~what:`In_channels w_shape.(1)) in
-    let* g = of_shape (Window_axis.factor ~what:`In_channels (groups :> int)) in
-    let product = Int64.mul c g in
-    if product >= Window_axis.limit then
-      of_shape
-        (Err.fail
-           (`Window_over_limit
-              Shape_error.Window_over_limit.
-                {
-                  what = `In_channels;
-                  value = product;
-                  limit = Window_axis.limit;
-                }))
-    else return (Dim.extent (Int64.to_int product))
+    conv_in_channels ~weight_in_per_group:w_shape.(1) ~groups
   in
   return { Conv.Conv2d.h; w; in_channels; groups }
+
+(* [aten.conv1d.default]'s own weight is rank-3 [Cout,Cin/groups,K] -- the
+   same per-group-input-channel position (index 1) [make_conv2d_params] reads,
+   with one kernel window (index 2) instead of two. *)
+let make_conv1d_params ~op w_shape s p d groups =
+  let* w =
+    conv_axis_window ~op ~kernel:w_shape.(2) ~stride:s ~pad:p ~dilation:d
+  in
+  let* groups = pos ~op ~param:`Groups groups in
+  let* in_channels =
+    conv_in_channels ~weight_in_per_group:w_shape.(1) ~groups
+  in
+  return { Conv.Conv1d.w; in_channels; groups }
+
+(* [aten.conv3d.default]'s own weight is rank-5
+   [Cout,Cin/groups,Kd,Kh,Kw] -- the same per-group-input-channel position
+   (index 1) [make_conv2d_params] reads, with three kernel windows (indices
+   2,3,4, in ATen's own D/H/W order) instead of two. *)
+let make_conv3d_params ~op w_shape sd sh sw pd ph pw dd dh dw groups =
+  let* d =
+    conv_axis_window ~op ~kernel:w_shape.(2) ~stride:sd ~pad:pd ~dilation:dd
+  in
+  let* h =
+    conv_axis_window ~op ~kernel:w_shape.(3) ~stride:sh ~pad:ph ~dilation:dh
+  in
+  let* w =
+    conv_axis_window ~op ~kernel:w_shape.(4) ~stride:sw ~pad:pw ~dilation:dw
+  in
+  let* groups = pos ~op ~param:`Groups groups in
+  let* in_channels =
+    conv_in_channels ~weight_in_per_group:w_shape.(1) ~groups
+  in
+  return { Conv.Conv3d.d; h; w; in_channels; groups }
 
 let make_conv2d_padding_params ~op sh sw padding dh dw groups =
   (* NOT [padding_of_string], which [invalid_arg]s: this string is model data.

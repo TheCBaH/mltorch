@@ -20,9 +20,9 @@ let pp_error fmt = function
 
 let required ~operand id = operand id |> Err.of_option (Missing_operand id)
 
-let check_output ~output ~output_shape x =
+let check_output ~output ~output_shape ~(expected : Vec6.shape) =
   if output <> 0 then Err.fail (Output_ordinal output)
-  else if not (Region_context.same_shape output_shape x.Tensor_sig.shape) then
+  else if not (Region_context.same_shape output_shape expected) then
     Err.fail Output_shape
   else Err.return ()
 
@@ -38,7 +38,9 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
   | Rms_norm { Norm.RmsNorm.params; x = x_id; weight } ->
       let open Err.Syntax in
       let* x = required ~operand x_id in
-      let* () = check_output ~output ~output_shape x in
+      let* () =
+        check_output ~output ~output_shape ~expected:x.Tensor_sig.shape
+      in
       let weight =
         match weight with
         | Some id -> required ~operand id
@@ -57,7 +59,9 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
   | Layer_norm { Norm.LayerNorm.params; x = x_id; weight; bias } ->
       let open Err.Syntax in
       let* x = required ~operand x_id in
-      let* () = check_output ~output ~output_shape x in
+      let* () =
+        check_output ~output ~output_shape ~expected:x.Tensor_sig.shape
+      in
       let shape =
         Norm_shared.normalized_shape ~x_shape:x.Tensor_sig.shape
           ~dims:params.dims
@@ -86,7 +90,29 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
       let* query = required ~operand query_id in
       let* key = required ~operand key_id in
       let* value = required ~operand value_id in
-      let* () = check_output ~output ~output_shape query in
+      (* Unlike [Rms_norm]/[Layer_norm]/[Softmax], [output_shape] does not
+         simply equal one fixed operand's own shape any more: once
+         query/key/value may broadcast against each other on [N]/[T]/[D]/[H]
+         (`.ai/attention_design.md`'s head-broadcasting note), the true
+         output can be LARGER than [query]'s own shape on those axes. The
+         sanity check recomputes that broadcast via
+         [Attention.Sdpa.batch_shape] (the same fold [output_shape] itself
+         uses) rather than assuming [query]'s shape is the answer. *)
+      let* full_batch =
+        Err.map_error
+          (function `Sdpa _ -> Output_shape)
+          (let open Err.Syntax in
+           let* _qk_batch, full_batch =
+             Attention.Sdpa.batch_shape ~query_shape:query.Tensor_sig.shape
+               ~key_shape:key.Tensor_sig.shape
+               ~value_shape:value.Tensor_sig.shape
+           in
+           Err.return full_batch)
+      in
+      let expected =
+        Vec6.set full_batch Axis.C (Vec6.get query.Tensor_sig.shape Axis.C)
+      in
+      let* () = check_output ~output ~output_shape ~expected in
       (* Absent mask fills a single all-ones-shaped element (numel = 1, not
          the score shape), the additive identity 0.0 -- [fill] is the only
          site that picks a synthetic operand's default value and shape, same
@@ -107,7 +133,9 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
   | Softmax { Reduce.Softmax.params; x = x_id } ->
       let open Err.Syntax in
       let* x = required ~operand x_id in
-      let* () = check_output ~output ~output_shape x in
+      let* () =
+        check_output ~output ~output_shape ~expected:x.Tensor_sig.shape
+      in
       Err.map_error
         (function
           | Region_context.Invalid_partition -> Invalid_partition

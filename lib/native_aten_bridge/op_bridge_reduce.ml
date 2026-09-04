@@ -116,4 +116,35 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let+ y = softmax params x_id in
                [ y ]
            | _ -> assert false))
+  (* [dim] is required by the schema (no default), the same singleton-axis
+     convention [softmax.int]'s arm just above takes. `dtype` is decoded and
+     restricted to the schema default (None) or FLOAT: Native's compute
+     domain is always float (semantics.ml), so a FLOAT target is the
+     identity -- exactly [_to_copy.default]'s own [Float] case -- and every
+     other target is rejected rather than silently accepted, since there is
+     no corpus evidence and no Native value representation for it. *)
+  | "torch.ops.aten.cumsum.default" ->
+      Some
+        (let* t = tensor_arg aten_env node "self" in
+         let rank = aten_rank t in
+         let* dim = int_arg node "dim" in
+         let* axis = dim_axis ~op:"cumsum.default" ~rank dim in
+         let* () =
+           match D.find_arg node "dtype" with
+           | None | Some (Argument.None _) -> return ()
+           | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
+               return ()
+           | Some _ ->
+               fail
+                 (`Validation_failure
+                    "cumsum.default: only default/FLOAT dtype are supported")
+         in
+         let* x = native_of_aten "self" t in
+         let params = { Reduce.Cumsum.axis } in
+         build_g ~name:"cumsum" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = cumsum params x_id in
+               [ y ]
+           | _ -> assert false))
   | _ -> None

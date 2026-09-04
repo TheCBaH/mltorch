@@ -75,9 +75,12 @@ let classify (op : op) ~output =
      operand's stored VALUE, so it carries no data dependency and is exactly
      as sound as [Concat]'s N-input selection (of which this is the
      two-input, axis-narrowed case). *)
+  (* [Unfold]'s window/offset pair selects exactly one source element per
+     output -- a gather, not a reduction, the same argument as [Unbind]'s own
+     selection just above -- so [Reindexing] here too. *)
   | Concat _ | Expand _ | Repeat _ | RepeatInterleave _ | Select _
   | Select_scatter _ | Slice _ | Split_with_sizes _ | Stack _ | Unbind _
-  | Upsample_nearest2d _ ->
+  | Unfold _ | Upsample_nearest2d _ ->
       Reindexing
   (* [Pad] is NOT reindexing, and the mode is why the honest answer is one class
      rather than two. In [Constant] mode the padded cells are a synthesized fill
@@ -111,13 +114,13 @@ let classify (op : op) ~output =
   | To_copy _ -> Discontinuous
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
   | Amax _ | Avg_pool2d _ | Batch_norm _ | Batch_norm_no_stats _
-  | Batched_matmul _ | Bmm _ | Clamp _ | Conv2d _ | Conv2d_padding _
-  | Convolution _ | Div _ | Div_scalar _ | Eye _ | Gelu _ | Group_norm _
-  | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _ | Leaky_relu _
-  | Linear _ | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _ | Pow _ | Relu _
-  | Rms_norm _ | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _ | Softmax _
-  | Arange _ | Sqrt _ | Sub _ | Sum _ | Upsample_bilinear2d _ | Vector_norm _
-  | Zeros _ ->
+  | Batched_matmul _ | Bmm _ | Clamp _ | Conv1d _ | Conv2d _ | Conv2d_padding _
+  | Conv3d _ | Convolution _ | Cumsum _ | Div _ | Div_scalar _ | Eye _ | Gelu _
+  | Group_norm _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _
+  | Leaky_relu _ | Linear _ | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _
+  | Pow _ | Relu _ | Rms_norm _ | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _
+  | Softmax _ | Arange _ | Sqrt _ | Sub _ | Sum _ | Upsample_bilinear2d _
+  | Vector_norm _ | Zeros _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

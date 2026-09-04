@@ -48,6 +48,38 @@ let conv_in_channels esc ~tensor ~cin ~groups =
          { tensor; fault = (if product = 0L then `Zero else `Negative cin) })
   else Dim.extent (Int64.to_int product)
 
+(* The exact `conv1d.default` overload -- [conv2d_params]'s single-spatial-axis
+   twin, sharing its metadata/dtype decoding and [conv_in_channels]'s bounded
+   product, but with [Conv.Conv1d.params]'s own one-window shape (no [h]
+   field: this op names no second spatial axis at all, so unlike
+   [Conv2d_padding]'s own single-window "same"/"valid" case there is nothing
+   here for a stray value to misrepresent). *)
+let conv1d_params esc (graph : Pytorch_types.Graph.t)
+    (node : Pytorch_types.Node.t) =
+  let op = node.Node.target in
+  let weight_name = tensor_name esc node "weight" in
+  let sizes =
+    static_sizes esc ~tensor:weight_name
+      (tensor_meta esc graph ~ssa:weight_name ~role:`Conv1d_weight)
+  in
+  let _cout, cin, k = sizes_rank_3 esc ~tensor:weight_name sizes in
+  let s = w1 esc `Stride (ints_arg esc ~default:[ 1 ] node "stride") in
+  let p = w1 esc `Padding (ints_arg esc ~default:[ 0 ] node "padding") in
+  let d = w1 esc `Dilation (ints_arg esc ~default:[ 1 ] node "dilation") in
+  let groups = int_arg esc ~default:1 node "groups" in
+  {
+    Conv.Conv1d.w =
+      {
+        Conv.Conv2d.kernel = extent esc ~op ~param:`Kernel_size k;
+        stride = pos esc ~op ~param:`Stride s;
+        pad_before = nonneg esc ~op ~param:`Padding p;
+        pad_after = nonneg esc ~op ~param:`Padding p;
+        dilation = pos esc ~op ~param:`Dilation d;
+      };
+    in_channels = conv_in_channels esc ~tensor:weight_name ~cin ~groups;
+    groups = pos esc ~op ~param:`Groups groups;
+  }
+
 (* The exact `conv2d.default` overload, whose [params] record is NOT
    [Convolution]'s: per-axis windows carrying their own kernel extent, an
    activation channel count, and no transposed/output_padding fields. Sharing
@@ -85,6 +117,46 @@ let conv2d_params esc (graph : Pytorch_types.Graph.t)
   in
   {
     Conv.Conv2d.h = axis ~kernel:kh ~stride:sh ~pad:ph ~dilation:dh;
+    w = axis ~kernel:kw ~stride:sw ~pad:pw ~dilation:dw;
+    in_channels = conv_in_channels esc ~tensor:weight_name ~cin ~groups;
+    groups = pos esc ~op ~param:`Groups groups;
+  }
+
+(* The exact `conv3d.default` overload -- [conv2d_params]'s three-spatial-axis
+   twin, sharing its metadata/dtype decoding and [conv_in_channels]'s bounded
+   product, but with [Conv.Conv3d.params]'s own three-window shape (ATen's own
+   D/H/W order, matching native's D/H/W directly -- see [perm_conv3d]). *)
+let conv3d_params esc (graph : Pytorch_types.Graph.t)
+    (node : Pytorch_types.Node.t) =
+  let op = node.Node.target in
+  let weight_name = tensor_name esc node "weight" in
+  let sizes =
+    static_sizes esc ~tensor:weight_name
+      (tensor_meta esc graph ~ssa:weight_name ~role:`Conv3d_weight)
+  in
+  let _cout, cin, kd, kh, kw = sizes_rank_5 esc ~tensor:weight_name sizes in
+  let sd, sh, sw =
+    dhw3 esc `Stride (ints_arg esc ~default:[ 1; 1; 1 ] node "stride")
+  in
+  let pd, ph, pw =
+    dhw3 esc `Padding (ints_arg esc ~default:[ 0; 0; 0 ] node "padding")
+  in
+  let dd, dh, dw =
+    dhw3 esc `Dilation (ints_arg esc ~default:[ 1; 1; 1 ] node "dilation")
+  in
+  let groups = int_arg esc ~default:1 node "groups" in
+  let axis ~kernel ~stride ~pad ~dilation : Conv.Conv2d.axis_window =
+    {
+      kernel = extent esc ~op ~param:`Kernel_size kernel;
+      stride = pos esc ~op ~param:`Stride stride;
+      pad_before = nonneg esc ~op ~param:`Padding pad;
+      pad_after = nonneg esc ~op ~param:`Padding pad;
+      dilation = pos esc ~op ~param:`Dilation dilation;
+    }
+  in
+  {
+    Conv.Conv3d.d = axis ~kernel:kd ~stride:sd ~pad:pd ~dilation:dd;
+    h = axis ~kernel:kh ~stride:sh ~pad:ph ~dilation:dh;
     w = axis ~kernel:kw ~stride:sw ~pad:pw ~dilation:dw;
     in_channels = conv_in_channels esc ~tensor:weight_name ~cin ~groups;
     groups = pos esc ~op ~param:`Groups groups;

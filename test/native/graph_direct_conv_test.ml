@@ -135,6 +135,85 @@ let%expect_test "Direct graph: conv with optional bias omitted (None -> zeros)"
     y (no bias) = tensor f32 [H=2 W=2 C=1] {8, 8, 16, 16}
     matches explicit zero bias: true |}]
 
+(* Unlike the conv2d test above, [Conv1d] needs no NCHW/NHWC decomposition
+   around it: it is already a single node reading Native's own layout. *)
+let%expect_test "Direct graph: conv1d" =
+  let params =
+    {
+      Conv.Conv1d.w = conv_axis ~kernel:2 ~stride:1 ~pad:0;
+      in_channels = Dim.extent 1;
+      groups = Op_config.Pos.of_int 1;
+    }
+  in
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"conv1d" ~outputs:(fun y -> [ y ])
+          @@
+          let* x = input ~shape:(s 1 1 1 1 4 1) ~name:"x" () in
+          let* w = input ~shape:(s 1 1 1 1 2 1) ~name:"w" () in
+          conv1d ~name:"y" params ~x ~weight:w ())
+    in
+    let x =
+      Tensor.materialize (s 1 1 1 1 4 1) (fun c ->
+          float_of_int (Dim.to_int (Vec6.get c Axis.W)))
+    in
+    let w = Tensor.materialize (s 1 1 1 1 2 1) (fun _ -> 1.) in
+    let* env =
+      lift_eval
+        (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x; w ]))
+    in
+    tensor_of_name g env "y"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "y")) result;
+  (* windows over [0,1,2,3], kernel 2: 0+1=1, 1+2=3, 2+3=5 *)
+  [%expect {| y = tensor f32 [W=3 C=1] {1, 3, 5} |}]
+
+(* Like conv1d above, [Conv3d] needs no NCHW-style decomposition around it in
+   this graph-level test: it reads Native's own D/H/W layout directly, so
+   this exercises the [Graph_ir] node/[Eval_direct] wiring, not the ATen
+   relayout (covered separately in test/native_bridge/conv_test.ml). *)
+let%expect_test "Direct graph: conv3d" =
+  let params =
+    {
+      Conv.Conv3d.d = conv_axis ~kernel:2 ~stride:1 ~pad:0;
+      h = conv_axis ~kernel:2 ~stride:1 ~pad:0;
+      w = conv_axis ~kernel:2 ~stride:1 ~pad:0;
+      in_channels = Dim.extent 1;
+      groups = Op_config.Pos.of_int 1;
+    }
+  in
+  let result =
+    let open Err.Syntax in
+    let* g =
+      lift_build
+        Graph_builder.(
+          build ~name:"conv3d" ~outputs:(fun y -> [ y ])
+          @@
+          let* x = input ~shape:(s 1 1 2 2 2 1) ~name:"x" () in
+          let* w = input ~shape:(s 1 1 2 2 2 1) ~name:"w" () in
+          conv3d ~name:"y" params ~x ~weight:w ())
+    in
+    let x =
+      Tensor.materialize (s 1 1 2 2 2 1) (fun c ->
+          let d = Dim.to_int (Vec6.get c Axis.D)
+          and h = Dim.to_int (Vec6.get c Axis.H)
+          and w = Dim.to_int (Vec6.get c Axis.W) in
+          float_of_int ((d * 4) + (h * 2) + w))
+    in
+    let w = Tensor.materialize (s 1 1 2 2 2 1) (fun _ -> 1.) in
+    let* env =
+      lift_eval
+        (Eval_direct.run g ~inputs:(List.combine g.Graph.inputs [ x; w ]))
+    in
+    tensor_of_name g env "y"
+  in
+  Format.printf "%a@." (pp_result (pp_named_tensor "y")) result;
+  (* sum(0..7) = 28 *)
+  [%expect {| y = tensor f32 [C=1] {28} |}]
+
 let%expect_test "Direct graph: transposed convolution" =
   let params =
     {

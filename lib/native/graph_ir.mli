@@ -47,9 +47,12 @@ type op =
      INPUT side rather than the output — [operands]/[map_operands] already
      generalise to a list, so nothing about them changed to admit it. *)
   | Concat of Concat.Concat.t
+  | Conv1d of Conv.Conv1d.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
+  | Conv3d of Conv.Conv3d.t
   | Convolution of Conv.Convolution.t
+  | Cumsum of Reduce.Cumsum.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
@@ -146,6 +149,12 @@ type op =
      [Graph_shape] returns one shape per slice and [Graph_builder.unbind]
      allocates one edge each. See .ai/native_multi_output_design.md §1a. *)
   | Unbind of Split.Unbind.t
+  (* `aten.unfold.default`: a sliding-window view along one named axis. The
+     window count replaces that axis's own extent and a genuinely new axis
+     (the per-window offset) is appended — real data movement when windows
+     overlap, not a reshape. See unfold.ml's own header for how a rank-
+     increasing ATen op is represented in Native's fixed six-axis frame. *)
+  | Unfold of Unfold.Unfold.t
   (* Bilinear resize to an explicit output size, either `align_corners`
      value. The per-axis coordinate transform is its own shape/compute
      concern, not a legalization onto any existing op. *)

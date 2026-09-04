@@ -104,6 +104,16 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let* xs_shapes = Err.List.map shape xs in
       let+ out = widen (Concat.Concat.output_shape ~xs_shapes params) in
       [ out ]
+  | Conv1d { Conv.Conv1d.params; x; weight; bias } ->
+      let* x_shape = shape x in
+      let* weight_shape = shape weight in
+      let* () =
+        check_bias ~shape ~expected:(Affine_bias.shape ~weight_shape) bias
+      in
+      let+ out =
+        widen (Conv.Conv1d.output_shape ~x_shape ~weight_shape params)
+      in
+      [ out ]
   | Conv2d { Conv.Conv2d.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
@@ -124,6 +134,16 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen (Conv.Conv2d_padding.output_shape ~x_shape ~weight_shape params)
       in
       [ out ]
+  | Conv3d { Conv.Conv3d.params; x; weight; bias } ->
+      let* x_shape = shape x in
+      let* weight_shape = shape weight in
+      let* () =
+        check_bias ~shape ~expected:(Affine_bias.shape ~weight_shape) bias
+      in
+      let+ out =
+        widen (Conv.Conv3d.output_shape ~x_shape ~weight_shape params)
+      in
+      [ out ]
   | Convolution { Conv.Convolution.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
@@ -138,6 +158,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
       let+ out =
         widen (Conv.Convolution.output_shape ~x_shape ~weight_shape params)
       in
+      [ out ]
+  | Cumsum { Reduce.Cumsum.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Reduce.Cumsum.output_shape ~x_shape params) in
       [ out ]
   | Discard _ -> Err.return []
   | Expand { Pointwise.Expand.params; x } ->
@@ -376,6 +400,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
   | Unbind { Split.Unbind.params; x } ->
       let* x_shape = shape x in
       widen (Split.Unbind.output_shapes ~x_shape params)
+  | Unfold { Unfold.Unfold.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Unfold.Unfold.output_shape ~x_shape params) in
+      [ out ]
   (* Same shape as [Unbind]'s arm: the LENGTH comes from [params.sizes], not
      from the op, and [output_shapes] bounds it before the list exists. *)
   | Split_with_sizes { Split.Split_with_sizes.params; x } ->

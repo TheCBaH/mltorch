@@ -25,12 +25,14 @@ let targets =
     "torch.ops.aten.slice.Tensor";
     "torch.ops.aten.split.Tensor";
     "torch.ops.aten.split_with_sizes.default";
+    "torch.ops.aten.squeeze.dim";
     "torch.ops.aten.stack.default";
     "torch.ops.aten.arange.default";
     "torch.ops.aten.arange.start";
     "torch.ops.aten.zeros.default";
     "torch.ops.aten.transpose.int";
     "torch.ops.aten.unbind.int";
+    "torch.ops.aten.unfold.default";
     "torch.ops.aten.unsqueeze.default";
     "torch.ops.aten.upsample_bilinear2d.vec";
     "torch.ops.aten.upsample_nearest2d.vec";
@@ -504,6 +506,41 @@ let dispatch ~ctx ~env (node : Node.t) =
                ~self:(get "self") ~src:(get "src")
            in
            return [ y ]
+       (* [squeeze.dim(self, dim)]: the importer twin of the bridge arm above
+         -- see its own comment for why either branch (drop the axis, or
+         leave [self] unchanged) legalizes to [Reshape] alone. What differs
+         is where the extent comes from: the SERIALIZED shape, the same
+         split [slice.Tensor]'s own comment draws between the bridge's live
+         tensor and this importer's declared metadata. *)
+       | "torch.ops.aten.squeeze.dim" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Squeeze_input)
+           in
+           let d =
+             let dim = int_arg esc node "dim" in
+             let dim = if dim < 0 then dim + rank else dim in
+             if dim < 0 || dim >= rank then
+               malformed esc (`Axis_out_of_range { axis = dim; rank });
+             dim
+           in
+           let axis = List.nth (used_axes_for esc ~tensor:x_name rank) d in
+           let shape = tensor_shape esc graph x_name in
+           let extent = Vec6.get shape axis in
+           let aten_list = Array.to_list (Aten_shape.to_aten ~rank shape) in
+           let out_sizes =
+             List.map
+               (fun x -> SymInt.Int x)
+               (if Dim.to_int extent = 1 then
+                  List.filteri (fun i _ -> i <> d) aten_list
+                else aten_list)
+           in
+           let* y =
+             reshape
+               { Reshape.Reshape.shape = shape_of_sizes esc x_name out_sizes }
+               (get "self")
+           in
+           return [ y ]
        (* Legalized to [Reshape] alone: inserting a size-1 axis never changes
          the linearized data order, so no [Slice] is needed, unlike
          [select.int]'s axis removal. [dim] is judged against rank+1 valid
@@ -588,6 +625,44 @@ let dispatch ~ctx ~env (node : Node.t) =
            (* No arity check here: [bind] does it against the ids actually
              produced, which is both stronger and total over ops. *)
            unbind { Split.Unbind.axis } (get "self")
+       (* `unfold(Tensor(a) self, int dimension, int size, int step) ->
+         Tensor(a)`: mirrors [unbind.int]'s own rank/dim resolution, but
+         [Unfold.Unfold.dest_of] maps the resolved axis onto the axis the
+         window COUNT lands on in the OUTPUT, not [dimension]'s own axis --
+         see unfold.ml's own header. [dest_of] raises only when [dimension]
+         resolves to the frame's [N] (self already occupies all six axes at
+         its outermost position, so the appended window axis has no room at
+         all) -- reported as [`Rank_over_six], the same row a genuinely
+         too-large declared rank gets, since both name "this tensor does not
+         fit the six-axis frame". Every other rejection (self's [N] not
+         already unit) is [Unfold.output_shape]'s own typed check. *)
+       | "torch.ops.aten.unfold.default" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Unfold_input)
+           in
+           let source =
+             match
+               axes_for_rank esc ~tensor:x_name rank
+                 [ int_arg esc node "dimension" ]
+             with
+             | [ a ] -> a
+             | _ ->
+                 invalid_arg "Native_interp: axes_for_rank lost its singleton"
+           in
+           let axis =
+             try Unfold.Unfold.dest_of source
+             with Invalid_argument _ ->
+               malformed esc
+                 (`Bad_dimension { tensor = x_name; fault = `Rank_over_six })
+           in
+           let op = "unfold.default" in
+           let size =
+             extent esc ~op ~param:`Kernel_size (int_arg esc node "size")
+           in
+           let step = pos esc ~op ~param:`Stride (int_arg esc node "step") in
+           let* y = unfold { Unfold.Unfold.axis; size; step } (get "self") in
+           return [ y ]
        (* Divides [axis] into contiguous windows of [split_sizes], KEEPING the
          axis in every output, unlike [unbind.int]. Same shape as that arm --
          rank from the input's own metadata, [dim] resolved through

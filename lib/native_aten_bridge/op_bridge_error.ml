@@ -78,15 +78,14 @@ module Operand_rank = struct
   type t = { arg_name : string; expected : int; got : int }
 end
 
-(* [matmul.default]'s remaining unsupported shape family, now that both the
+(* [matmul.default]'s remaining unsupported shape family, now that the
    batch-less case (`.ai/matmul_softmax_design.md` §4, binds to the existing
    [Bmm] node) and the batched/multi-head case (§5, binds to the new
-   [Batched_matmul] node) are supported: either operand is rank<2 (the
-   vector-matrix/matrix-vector/vector-vector forms ATen gives a different
-   output-rank rule, §6) or the two operands have different rank. Carries
-   both raw ATen shapes -- not just "which check failed" -- since a rank
-   mismatch and a too-low rank are two different reasons a reader needs to
-   see the actual shapes to tell apart. *)
+   [Batched_matmul] node, unequal ATen rank included) are supported: either
+   operand is rank<2 -- the vector-matrix/matrix-vector/vector-vector forms
+   ATen gives a different output-rank rule, §6, no corpus evidence either
+   way. Carries both raw ATen shapes -- not just "which check failed" -- so a
+   reader can see the actual shapes, not merely that the rule failed. *)
 module Matmul_unsupported_shape = struct
   type t = { self_shape : int array; other_shape : int array }
 end
@@ -130,14 +129,18 @@ type error =
   | `Build of Graph_builder.error
   | `Concat_no_tensors of string
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
+  | `Conv1d_invalid_weight_rank of int array
   | `Conv2d_invalid_weight_rank of int array
   | `Conv2d_padding_invalid_weight_rank of int array
+  | `Conv3d_invalid_weight_rank of int array
   | `Convolution_invalid_weight_rank of int array
   | `Decode of Interp_decode.error
   | `Dims_count of Dims_count.t
   | `Index_list of Index_list.t
   | `Invalid_dim of Invalid_dim.t
+  | `Invalid_dhw_arg of invalid_hw_arg
   | `Invalid_hw_arg of invalid_hw_arg
+  | `Invalid_w_arg of invalid_hw_arg
   | `Linear_invalid_weight_rank of int array
   | `Matmul_unsupported_shape of Matmul_unsupported_shape.t
   | `Normalized_rank of Normalized_rank.t
@@ -175,12 +178,18 @@ let pp_error ppf : [< error ] -> unit = function
   | `Concat_rank_mismatch { Concat_rank_mismatch.op; first; other } ->
       Fmt.pf ppf "%s: every tensor must have the same rank: %d vs %d" op first
         other
+  | `Conv1d_invalid_weight_rank shape ->
+      Fmt.pf ppf "conv1d: weight must be rank-3, got shape %a" pp_int_array
+        shape
   | `Conv2d_invalid_weight_rank shape ->
       Fmt.pf ppf "conv2d: weight must be rank-4, got shape %a" pp_int_array
         shape
   | `Conv2d_padding_invalid_weight_rank shape ->
       Fmt.pf ppf "conv2d.padding: weight must be rank-4, got shape %a"
         pp_int_array shape
+  | `Conv3d_invalid_weight_rank shape ->
+      Fmt.pf ppf "conv3d: weight must be rank-5, got shape %a" pp_int_array
+        shape
   | `Convolution_invalid_weight_rank shape ->
       Fmt.pf ppf "convolution: weight must be rank-4, got shape %a" pp_int_array
         shape
@@ -208,16 +217,19 @@ let pp_error ppf : [< error ] -> unit = function
             position rank)
   | `Invalid_dim { Invalid_dim.op; dim; rank } ->
       Fmt.pf ppf "%s: invalid dimension %d for rank %d" op dim rank
+  | `Invalid_dhw_arg { name; values } ->
+      Fmt.pf ppf "%s: expected [d; h; w] or [v], got %a" name pp_int_list values
   | `Invalid_hw_arg { name; values } ->
       Fmt.pf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list values
+  | `Invalid_w_arg { name; values } ->
+      Fmt.pf ppf "%s: expected a single int, got %a" name pp_int_list values
   | `Linear_invalid_weight_rank shape ->
       Fmt.pf ppf "linear: weight must be rank-2, got shape %a" pp_int_array
         shape
   | `Matmul_unsupported_shape
       { Matmul_unsupported_shape.self_shape; other_shape } ->
       Fmt.pf ppf
-        "matmul.default: both operands must be rank>=2 and of equal rank, got \
-         self=%a other=%a"
+        "matmul.default: both operands must be rank>=2, got self=%a other=%a"
         pp_int_array self_shape pp_int_array other_shape
   | `Normalized_rank { Normalized_rank.op; rank; got } ->
       Fmt.pf ppf
