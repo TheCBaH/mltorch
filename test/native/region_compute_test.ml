@@ -308,6 +308,66 @@ let%expect_test "Native Direct materializes an authored Sdpa Region" =
     counters.reductions;
   [%expect {| sdpa: keys=2 locals=18 emitters=6 loads=60 reductions=48 |}]
 
+(* Regression: [Region_execution.evaluate_locals] used to dispatch on a
+   local's numeric SLOT COUNT rather than its declared [Region_local.Shape.t]
+   -- a [Vector] local whose extent happens to be 1 (Sdpa's [s]/[p] at
+   [Wk = 1], a single key/value pair) gets the identical [(offset, 1)] slot
+   range a [Scalar] local gets, so it silently took the scalar branch, which
+   evaluates the body with no [~reducer] bound. [s]'s body mentions its own
+   per-element binder free by construction, so this raised [Unbound_reducer]
+   for every [Wk = 1] Sdpa graph -- through [Eval_direct.run], Native's own
+   production dispatch, not just the Kernel/Region_kernel path that surfaced
+   it. Checked bitwise against [Legacy_pixel] at the same shape, so this is a
+   numeric proof, not merely "did not raise". *)
+let%expect_test
+    "Native Direct materializes Sdpa at Wk = 1 (vector local of extent 1)" =
+  let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3 in
+  let key_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:3 in
+  let mask_shape = Attention.Sdpa.score_shape ~query_shape ~key_shape in
+  let materialize shape scale =
+    Tensor.materialize shape (fun coord ->
+        (scale *. float_of_int (Dim.to_int (Vec6.get coord Axis.W)))
+        +. float_of_int (Dim.to_int (Vec6.get coord Axis.C))
+        +. 1.)
+  in
+  let query = materialize query_shape 10. in
+  let key = materialize key_shape 10. in
+  let value = materialize key_shape 100. in
+  let mask = Tensor.materialize mask_shape (fun _ -> 0.) in
+  let params : Attention.Sdpa.params =
+    { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
+  in
+  let g =
+    Err.or_raise ~pp_error:Graph_builder.pp_error
+      Graph_builder.(
+        build ~name:"sdpa_wk1" ~outputs:(fun output -> [ output ])
+        @@
+        let* qi = input ~shape:query_shape ~name:"query" () in
+        let* ki = input ~shape:key_shape ~name:"key" () in
+        let* vi = input ~shape:key_shape ~name:"value" () in
+        let* mi = input ~shape:mask_shape ~name:"mask" () in
+        sdpa params ~query:qi ~key:ki ~value:vi ~mask:mi ())
+  in
+  let inputs =
+    match g.Graph.inputs with
+    | [ qid; kid; vid; mid ] ->
+        [ (qid, query); (kid, key); (vid, value); (mid, mask) ]
+    | _ -> assert false
+  in
+  let output = List.hd g.Graph.outputs in
+  let actual =
+    Tensor_id.Map.find output
+      (Err.or_raise ~pp_error:Eval_direct.pp_error (Eval_direct.run ~inputs g))
+  in
+  let module LP = Attention.Sdpa.Legacy_pixel (Direct) in
+  let expected =
+    Schedule.evaluate query_shape
+      (LP.pixel params ~query_shape ~key_shape ~mask_shape ~query ~key ~value
+         ~mask)
+  in
+  Fmt.pr "sdpa wk=1: bits_equal=%b@." (Tensor.equal_bits actual expected);
+  [%expect {| sdpa wk=1: bits_equal=true |}]
+
 let%expect_test "transform grounding reads an authored Stage structurally" =
   let graph =
     graph "ground_region" (fun x ->

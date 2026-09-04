@@ -115,8 +115,19 @@ let evaluate_locals ?counters lowered ~env ~key =
     | [] -> Err.return values
     | binding :: rest -> (
         let open Err.Syntax in
-        match Expr.Local_var.Map.find binding.Region_local.id lowered.slots with
-        | offset, 1 ->
+        (* Dispatch on the local's DECLARED shape, never on its numeric slot
+           count -- a [Vector] local's own extent can be 1 (e.g. SDPA's [Wk =
+           1]), which [lower_region] gives the identical [(offset, 1)] slot
+           range a [Scalar] local gets. Matching on the count alone silently
+           took the scalar branch for that vector, which evaluates the body
+           with no [~reducer] bound: any free occurrence of the vector's own
+           per-element binder (present by construction -- see
+           [Region_program.Builder.vector]) then raised [Unbound_reducer]. *)
+        let offset, count =
+          Expr.Local_var.Map.find binding.Region_local.id lowered.slots
+        in
+        match binding.Region_local.shape with
+        | Region_local.Shape.Scalar ->
             let* value =
               widened
                 (Expr.Eval.value ~local ~local_at ~on_reduction env
@@ -125,20 +136,12 @@ let evaluate_locals ?counters lowered ~env ~key =
             count_local ();
             values.(offset) <- value;
             fill rest
-        | offset, count ->
+        | Region_local.Shape.Vector { var; _ } ->
             (* A vector local's body is evaluated once PER POSITION, exactly
                the loop shape [Reduce]'s own fold uses -- the body mentions
                its binder FREE (never under a nested [Reduce]), so each
                iteration seeds it with [~reducer], the same role
                [Reduce]'s internal per-iteration [bound] closure plays. *)
-            let var =
-              match binding.Region_local.shape with
-              | Region_local.Shape.Vector { var; _ } -> var
-              | Region_local.Shape.Scalar ->
-                  invalid_arg
-                    "Region_execution.evaluate_locals: scalar shape with a \
-                     vector slot range"
-            in
             let rec each p =
               if p >= count then Err.return ()
               else

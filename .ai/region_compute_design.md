@@ -115,19 +115,42 @@ tolerance policy, a second oracle, or an `Equivalent` claim would only be
 needed by the online-softmax strategy this section still defers, which is the
 one strategy that reassociates rather than merely caches.
 
-A lower operation count is not the same claim as a lower wall-clock time, and
+A lower operation count is not automatically a lower wall-clock time, and
 SDPA is where that gap first became visible: `Region_execution` evaluates
 through `Expr.Eval`'s general interpreter, and a nested reduction (SDPA's
 per-feature score is a reduction inside the row max/sum reduction) costs more
-per element there than a flat one, so at ordinary sizes the scalar-sharing win
-above does not show up as a faster `Eval_direct` run against the Pixel-form
-oracle it reconstructs -- only as fewer operations. Stage B does not change
-this: a vector local's own element is evaluated by the same general
-interpreter, once per position, so it is still a per-element operation-count
-win, not a demonstrated wall-clock one. Closing that gap needs a
-specialized/compiled execution form for a non-degenerate program, which is not
-implemented yet; until it is, treat this section's operation counts as a cost
-model, not a wall-clock prediction.
+per element there than a flat one. Stage A's own measurement (query/key
+`[W=2,C=3]`/`[W=3,C=3]`, and the `report_sdpa` sweep below) found the scalar-
+sharing win did NOT show up as a faster `Eval_direct` run against the
+`Legacy_pixel` oracle it reconstructs -- only as fewer operations, because at
+those sizes the interpreter's per-node constant dominated the raw op-count
+cut.
+
+**Stage B reverses that finding.** Re-measured with the fix below applied
+(`opam exec -- dune exec bin/region_compute_bench.exe`, median of 20 samples,
+stable across repeated runs), `kernel_region_ms`/`direct_ms` now BEAT
+`legacy_pixel_ms` at every `report_sdpa` point except the smallest, and by a
+wide, consistent margin against Stage A's own recorded numbers at the same
+shapes:
+
+| regions (Wq=Wk) | extent (E) | Stage A `kernel_region_ms` | Stage B `kernel_region_ms` | Stage B `legacy_pixel_ms` | Stage B speedup vs `Legacy_pixel` |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1  | 8  | 0.029 | 0.006 | 0.009 | 1.5x |
+| 4  | 8  | 0.448 | 0.071 | 0.126 | 1.8x |
+| 16 | 8  | 7.112 | 1.10  | 2.00  | 1.8x |
+| 4  | 16 | 1.502 | 0.14  | 0.47  | 3.4x |
+
+Two effects compound: caching `s`/`p` cuts the interpreter's own per-key work
+(the `report_sdpa` sweep's `loads`/`reductions` counters drop the same way
+Stage B's own tracker recorded), and doing so ALSO shrinks
+`kernel_region_ms`/`direct_ms` by 4.8x-11x from Stage A's own recorded numbers
+at identical shapes -- large enough that the interpreter's constant no longer
+dominates at these sizes. This is a measured reversal of this section's
+previous claim, not a re-derivation of the cost model above (which was never
+wrong -- it always predicted fewer operations, just not by how much wall
+clock would follow). A specialized/compiled execution form remains unbuilt
+and would still help further, but Stage B does not need it to already beat
+the uncached oracle here.
 
 ## Numerical policy
 
@@ -207,20 +230,41 @@ not a substitute for the ownership trace or wall-clock measurement.
 
 SDPA runs the same benchmark under a separate, smaller `report_sdpa` sweep
 (query/key sequence length and head dim, not `(R, K)`) in the same
-executable, and it additionally times `Legacy_pixel(Direct)` directly, which
-is what the previous section's operation-count-vs-wall-clock distinction is
-evidence for: `Legacy_pixel` is faster in absolute terms at every size
-measured, precisely because it is not read through the general interpreter.
-SDPA's row now carries a `direct4_ms` column too: since the `D = 1` admission
-(`native4d_design.md` §7.9) Native4D has a real Sdpa route, delegating to the
-same Region program Native does, and this column measures Native4D's
-translation/dispatch overhead over that identical program rather than a
-second numeric kernel.
+executable, and it additionally times `Legacy_pixel(Direct)` directly. Under
+Stage A this was the evidence for the previous section's operation-count-vs-
+wall-clock distinction: `Legacy_pixel` was faster in absolute terms at every
+size measured. Under Stage B, re-measured, the direction reverses -- see the
+table in the previous section. SDPA's row now carries a `direct4_ms` column
+too: since the `D = 1` admission (`native4d_design.md` §7.9) Native4D has a
+real Sdpa route, delegating to the same Region program Native does, and this
+column measures Native4D's translation/dispatch overhead over that identical
+program rather than a second numeric kernel.
+
+**A vector local of extent 1 was silently mis-evaluated until this
+measurement surfaced it.** `Region_execution.evaluate_locals`'s `fill`
+dispatched on a local's numeric SLOT COUNT (`(offset, 1)` for "scalar" vs
+`(offset, count)` for "vector") rather than its declared
+`Region_local.Shape.t` -- a `Vector` local whose extent happens to be 1
+(SDPA's `s`/`p` at `Wk = 1`, e.g. `report_sdpa`'s own `(regions=1, extent=8)`
+point, the first one this benchmark sweeps) got the identical `(offset, 1)`
+range a `Scalar` local gets, so it silently took the scalar branch, which
+evaluates the body with no `~reducer` bound. `s`'s body mentions its own
+per-element binder free by construction (`Region_program.Builder.vector`), so
+this raised `Unbound_reducer` for every `Wk = 1` Sdpa graph -- through
+`Eval_direct.run`, Native's own production dispatch, not just the benchmark's
+`Kernel_eval` path. Neither the Direct-vs-Symbolic fuzz walk
+(`lib/native_op_walk/sdpa_nwalk.ml`, whose `wk` axis DOES include `1`) nor any
+existing unit test happened to exercise it; fixed in `region_execution.ml`
+(dispatch on `Region_local.shape` instead of the slot count) with a bitwise-
+against-`Legacy_pixel` regression test at `Wk = 1`
+(`test/native/region_compute_test.ml`) that fails without the fix.
 
 Reproduce elapsed-time and GC-word medians with
 `opam exec -- dune exec bin/region_compute_bench.exe`; both are
 runtime-sensitive, so this record keeps the counter table above rather than a
-dated run of that command.  `bin/region_pixel_bench.exe` is the separate,
+dated run of that command, except for the Stage-A-vs-Stage-B table above,
+kept because the comparison is to a fixed historical baseline, not a
+snapshot of the current state.  `bin/region_pixel_bench.exe` is the separate,
 unchanged Pixel Kernel no-regression benchmark.
 
 ## Validation commands
