@@ -529,6 +529,7 @@ module Sdpa = struct
   }
 
   type error =
+    | Batch_mismatch of dims_mismatch
     | Extent_mismatch of dims_mismatch
     | Mask_shape of mask_mismatch
     | Total_work_over_limit of work_over_limit
@@ -548,6 +549,15 @@ module Sdpa = struct
     | Query_len -> Fmt.string ppf "the query sequence extent Wq"
 
   let pp_error ppf = function
+    (* [N]/[T]/[D]/[H], the four batch-like axes real ATen broadcasts across
+       the op's two chained matmuls (`query @ key^T`, then `attn @ value`) --
+       equal, or one side 1, [Matmul.Batched_matmul]'s own rule. *)
+    | Batch_mismatch { axis; check; lhs; rhs } ->
+        Fmt.pf ppf "sdpa: %a extent must agree (%a), or one must be 1: %a vs %a"
+          Axis.pp axis pp_check check Dim.pp lhs Dim.pp rhs
+    (* [C] (the head dimension, `Ev = E`) and [W] (key/value's shared
+       sequence extent) are never batch axes -- STRICT equality, no
+       broadcast, the flash-oracle constraint stays exactly what it was. *)
     | Extent_mismatch { axis; check; lhs; rhs } ->
         Fmt.pf ppf "sdpa: %a extent must agree (%a): %a vs %a" Axis.pp axis
           pp_check check Dim.pp lhs Dim.pp rhs

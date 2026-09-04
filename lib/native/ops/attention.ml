@@ -186,7 +186,12 @@ module Sdpa = struct
      extent. NOT the query shape (whose C is the head dim, E) whenever
      [Wk <> E]. Owned here and used by three callers that must not disagree
      : [output_shape]'s mask validation, the total-work
-     bound below, and [Compute]'s broadcast load of the mask. *)
+     bound below, and [Compute]'s broadcast load of the mask.
+
+     This is the EQUAL-batch form, kept as a small standalone helper (used by
+     several tests to build a mask shape against equal query/key batch axes)
+     -- it is not what [output_shape] itself uses once query/key may
+     broadcast; see [batch_shape] below for that. *)
   let score_shape ~(query_shape : Vec6.shape) ~(key_shape : Vec6.shape) =
     Vec6.set query_shape Axis.C (Vec6.get key_shape Axis.W)
 
@@ -196,6 +201,51 @@ module Sdpa = struct
     else
       Err.fail
         (`Sdpa (Shape_error.Sdpa.Extent_mismatch { axis; check; lhs; rhs }))
+
+  (* The four batch-like axes real ATen broadcasts across two chained
+     matmuls (`query @ key^T`, then `attn @ value`) -- [W]/[C] are the
+     matmul row/contraction axes, not batch dimensions, exactly
+     [Matmul.Batched_matmul.batch_axes]'s own restriction. *)
+  let batch_axes = [ Axis.N; Axis.T; Axis.D; Axis.H ]
+
+  (* Per-axis ATen broadcasting, [Matmul.Batched_matmul.broadcast_extent]'s
+     own rule reused here: equal, or one side is 1 (the broadcast axis, which
+     takes the other's extent). *)
+  let broadcast_extent ~check ~axis (a : Vec6.shape) (b : Vec6.shape) =
+    let lhs = Vec6.get a axis and rhs = Vec6.get b axis in
+    if Dim.equal lhs rhs then Err.return lhs
+    else if Dim.equal lhs Dim.one then Err.return rhs
+    else if Dim.equal rhs Dim.one then Err.return lhs
+    else
+      Err.fail
+        (`Sdpa (Shape_error.Sdpa.Batch_mismatch { axis; check; lhs; rhs }))
+
+  let broadcast_batch ~check (a : Vec6.shape) (b : Vec6.shape) =
+    let open Err.Syntax in
+    Err.List.fold_left
+      (fun s axis ->
+        let* extent = broadcast_extent ~check ~axis s b in
+        Err.return (Vec6.set s axis extent))
+      a batch_axes
+
+  (* [N,T,D,H] broadcast ACROSS TWO CHAINED matmuls, not a simultaneous
+     three-way rule: [qk_batch] is `query @ key^T`'s own batch shape (what
+     the mask -- added right after that matmul, before the second one --
+     broadcasts against); [full_batch] is [qk_batch] broadcast again with
+     [value], mirroring `attn @ value`. Because each step's rule is
+     "equal, or one side 1", every operand's own extent on each axis is
+     provably either 1 or [full_batch]'s -- see the [Compute] functors
+     below, which rely on exactly that to read every operand at the FINAL
+     output coordinate via [broadcast_coord], with no intermediate shape
+     needed there. *)
+  let batch_shape ~(query_shape : Vec6.shape) ~(key_shape : Vec6.shape)
+      ~(value_shape : Vec6.shape) =
+    let open Err.Syntax in
+    let* qk_batch = broadcast_batch ~check:`Query_key query_shape key_shape in
+    let* full_batch =
+      broadcast_batch ~check:`Query_value qk_batch value_shape
+    in
+    Err.return (qk_batch, full_batch)
 
   (* Total work D*H*Wq*Wk*E*E: the op recomputes the score,
      row max and denominator per OUTPUT feature (stated as a deliberate choice
@@ -207,17 +257,26 @@ module Sdpa = struct
      this is its own divide-before-multiply fold, following
      [Kernel.Bounds.signature] -- CLAUDE.md's 32-bit-aggregate rule, and
      [lib/native] is js_of_ocaml-reachable. A check on the wrapped product
-     would not be a bound. *)
-  let total_work_bounded ~limit ~(query_shape : Vec6.shape)
-      ~(key_shape : Vec6.shape) =
+     would not be a bound.
+
+     [full_batch] is the FINAL broadcast [N,T,D,H] (the second component
+     [batch_shape] above returns), not [query_shape]'s own -- once
+     query/key/value can broadcast, query's own extent on these axes can be
+     1 while the real work (and every other operand) is at the larger,
+     broadcast extent. Reading [query_shape] directly here (as this bound
+     once did) would under-count exactly the way
+     `.ai/native4d_design.md`'s [Batched_matmul] domain-check bug did for
+     [D] before it was fixed to read the broadcast axis. *)
+  let total_work_bounded ~limit ~(full_batch : Vec6.shape)
+      ~(query_shape : Vec6.shape) ~(key_shape : Vec6.shape) =
     let open Shape_error.Sdpa in
     let e = Vec6.get query_shape Axis.C in
     let factors =
       [
-        (Outer_n, Vec6.get query_shape Axis.N);
-        (Outer_t, Vec6.get query_shape Axis.T);
-        (Batch, Vec6.get query_shape Axis.D);
-        (Heads, Vec6.get query_shape Axis.H);
+        (Outer_n, Vec6.get full_batch Axis.N);
+        (Outer_t, Vec6.get full_batch Axis.T);
+        (Batch, Vec6.get full_batch Axis.D);
+        (Heads, Vec6.get full_batch Axis.H);
         (Query_len, Vec6.get query_shape Axis.W);
         (Key_len, Vec6.get key_shape Axis.W);
         (Head_dim, e);
@@ -235,55 +294,32 @@ module Sdpa = struct
       1L factors
 
   (* Validates everything the six-axis frame CAN express:
-     [N]/[T]/[D]/[H] agreement across all three operands, [Ev = E] (the flash-oracle
-     constraint that makes the output shape well-defined as [query_shape]),
-     key/value sharing a sequence extent, and -- when a mask is given -- its
-     per-axis broadcast compatibility against [score_shape]. It does NOT check
-     rank, because it cannot: [Tensor_sig.t] has no rank field, only a
-     [Vec6.shape], so a rank-2, rank-3 and rank-4 mask that normalize to the
-     same frame are indistinguishable here. Rank -- Q/K/V rank 4, mask rank in
-     {2,4} -- is an IMPORTER obligation, enforced on the raw ATen
+     [N]/[T]/[D]/[H] real ATen broadcasting (equal, or one side 1) across all
+     three operands -- chained the same way two real matmuls chain it
+     ([batch_shape] above) -- [Ev = E] (the flash-oracle constraint that
+     makes the output's [C] well-defined as query's own), key/value sharing a
+     sequence extent, and -- when a mask is given -- its per-axis broadcast
+     compatibility against the score shape (query/key's own broadcast,
+     [qk_batch], since the mask is added to `query @ key^T` BEFORE the
+     second matmul with value -- see [batch_shape]'s own comment). It does
+     NOT check rank, because it cannot: [Tensor_sig.t] has no rank field,
+     only a [Vec6.shape], so a rank-2, rank-3 and rank-4 mask that normalize
+     to the same frame are indistinguishable here. Rank -- Q/K/V rank 4, mask
+     rank in {2,4} -- is an IMPORTER obligation, enforced on the raw ATen
      tensor before [Tensor_bridge.of_aten] erases it. A standalone Native or
      JSON-decoded graph carries no ATen rank at all, so that check would be
      meaningless here, not merely omitted. *)
   let output_shape ~(query_shape : Vec6.shape) ~(key_shape : Vec6.shape)
       ~(value_shape : Vec6.shape) ~(mask_shape : Vec6.shape option) =
     let open Err.Syntax in
-    (* N/T carry no semantic role in this op but must
-       still agree across every operand: [Compute] reads key/value at the
-       OUTPUT coordinate's unchanged N/T (never reduced through
-       [broadcast_coord], exactly like D/H below), so an unequal N or T
-       either reads an operand out of bounds or silently drops part of it
-       Checked here, the same as D/H, rather than
-       rejected outright, so a hand-built graph that genuinely wants extra
-       batch-like axes on N/T still works -- it just has to agree on them. *)
-    let* () =
-      check_extent ~check:`Query_key ~axis:Axis.N query_shape key_shape
-    in
-    let* () =
-      check_extent ~check:`Query_value ~axis:Axis.N query_shape value_shape
-    in
-    let* () =
-      check_extent ~check:`Query_key ~axis:Axis.T query_shape key_shape
-    in
-    let* () =
-      check_extent ~check:`Query_value ~axis:Axis.T query_shape value_shape
-    in
-    let* () =
-      check_extent ~check:`Query_key ~axis:Axis.D query_shape key_shape
-    in
-    let* () =
-      check_extent ~check:`Query_value ~axis:Axis.D query_shape value_shape
-    in
-    let* () =
-      check_extent ~check:`Query_key ~axis:Axis.H query_shape key_shape
-    in
-    let* () =
-      check_extent ~check:`Query_value ~axis:Axis.H query_shape value_shape
+    let* qk_batch, full_batch =
+      batch_shape ~query_shape ~key_shape ~value_shape
     in
     (* Ev = E: a flash-oracle constraint, not a mathematical one -- the
        importers say so in their diagnostic. Here it is simply what
-       makes the output shape well-defined as [query_shape]. *)
+       makes the output shape well-defined as [query_shape]'s own [C].
+       Neither [C] nor [W] is a batch axis, so both stay STRICT equality,
+       unaffected by the broadcasting above. *)
     let* () =
       check_extent ~check:`Query_key ~axis:Axis.C query_shape key_shape
     in
@@ -293,7 +329,7 @@ module Sdpa = struct
     let* () =
       check_extent ~check:`Key_value ~axis:Axis.W key_shape value_shape
     in
-    let sshape = score_shape ~query_shape ~key_shape in
+    let sshape = Vec6.set qk_batch Axis.C (Vec6.get key_shape Axis.W) in
     let* () =
       match mask_shape with
       | None -> Err.return ()
@@ -312,14 +348,19 @@ module Sdpa = struct
       (Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel sshape
         :> (int64, [> Shape_error.t ]) Err.t)
     in
+    (* The REAL output numel, [full_batch] (folding value in too) -- not
+       [query_shape]'s own, which can under-count once query's own extent on
+       a batch axis is 1 while the broadcast output is not. *)
+    let output = Vec6.set full_batch Axis.C (Vec6.get query_shape Axis.C) in
     let* (_ : int64) =
-      (Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel query_shape
+      (Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel output
         :> (int64, [> Shape_error.t ]) Err.t)
     in
     let* (_ : int64) =
-      total_work_bounded ~limit:Kernel.Limits.Hard.numel ~query_shape ~key_shape
+      total_work_bounded ~limit:Kernel.Limits.Hard.numel ~full_batch
+        ~query_shape ~key_shape
     in
-    Err.return query_shape
+    Err.return output
 
   (* Config space for [lib/native_op_walk]'s Direct-vs-Symbolic fuzz walk
      NOT the ATen-oracle recipe ([Recipe_sdpa]), which additionally has to
@@ -394,15 +435,30 @@ module Sdpa = struct
      [Legacy_pixel] migration [Reduce.Softmax] and the [Norm] ops already went
      through. *)
   module Legacy_pixel (S : Semantics.SEMANTICS) = struct
-    (* [query_shape]/[key_shape] size the two reductions ([E], [Wk]); [mask]
-       is never optional here -- [Eval_op] fills an absent one at the
-       all-ones shape (below), so [Legacy_pixel] always has a real handle and
-       [mask_shape] to broadcast it against. *)
+    (* [query_shape]/[key_shape] size the two reductions ([E], [Wk]);
+       [value_shape] is now a genuinely separate parameter from [key_shape]
+       (they used to always agree, back when [N]/[T]/[D]/[H] were required
+       EQUAL across every operand -- broadcasting means query/key/value can
+       each carry a different, individually-1-or-full, extent on those axes,
+       so [value]'s own shape is needed to broadcast ITS read correctly,
+       independent of [key]'s). [mask] is never optional here -- [Eval_op]
+       fills an absent one at the all-ones shape (below), so [Legacy_pixel]
+       always has a real handle and [mask_shape] to broadcast it against. *)
     let pixel (p : params) ~(query_shape : Vec6.shape) ~(key_shape : Vec6.shape)
-        ~(mask_shape : Vec6.shape) ~query ~key ~value ~mask
-        (out : Semantics.position S.index Vec6.t) =
+        ~(value_shape : Vec6.shape) ~(mask_shape : Vec6.shape) ~query ~key
+        ~value ~mask (out : Semantics.position S.index Vec6.t) =
       let e_extent = Vec6.get query_shape Axis.C in
       let wk_extent = Vec6.get key_shape Axis.W in
+      let index_zero = S.index_zero in
+      (* Every operand read (query/key/value/mask) reduces the output
+         coordinate against ITS OWN shape first -- [Pointwise_binary.
+         broadcast_coord], the same helper [Matmul.Batched_matmul.Compute]
+         uses -- so a broadcast (extent-1) [N]/[T]/[D]/[H] axis is read at
+         index 0 regardless of where [out] iterates. A no-op when every
+         operand agrees (the pre-broadcasting behavior), since
+         [broadcast_coord] only touches axes whose shape extent is exactly
+         1. *)
+      let bc shape idx = Pointwise.broadcast_coord ~index_zero shape idx in
       (* [scale], NOT its square root: [Scale.Default] is [1 / sqrt(E)], the
          one place this module reads the head-dim extent rather than taking it
          as a parameter, because it is genuinely a function of [query_shape].
@@ -428,17 +484,16 @@ module Sdpa = struct
       let score_at k =
         let dot =
           S.sum ~lo:S.index_zero ~hi:(S.index_extent e_extent) (fun e ->
-              let q_idx = Vec6.set out Axis.C e in
-              let k_idx = Vec6.set (Vec6.set out Axis.C e) Axis.W k in
+              let q_idx = bc query_shape (Vec6.set out Axis.C e) in
+              let k_idx =
+                bc key_shape (Vec6.set (Vec6.set out Axis.C e) Axis.W k)
+              in
               S.mul
                 (S.mul (S.load query q_idx) sf)
                 (S.mul (S.load key k_idx) sf))
         in
         let score_coord = Vec6.set out Axis.C k in
-        let m_idx =
-          Pointwise.broadcast_coord ~index_zero:S.index_zero mask_shape
-            score_coord
-        in
+        let m_idx = bc mask_shape score_coord in
         S.add dot (S.load mask m_idx)
       in
       (* Stable softmax over the key axis, recomputing [score_at] at every
@@ -459,7 +514,7 @@ module Sdpa = struct
       let numer =
         S.sum ~lo:S.index_zero ~hi:(S.index_extent wk_extent) (fun k ->
             let p = S.div (S.exp (S.sub (score_at k) m)) z in
-            S.mul p (S.load value (Vec6.set out Axis.W k)))
+            S.mul p (S.load value (bc value_shape (Vec6.set out Axis.W k))))
       in
       (* `_safe_softmax`: unconditional, not only under a mask. A row
          whose scores are all -inf has [m = -inf], and yields 0, not NaN --
@@ -507,16 +562,25 @@ module Sdpa = struct
              (broadcast against [mask.shape], never a bare [load]). [sf] is
              passed in as the LOCAL's value, not recomputed, so every use
              shares the one binding [specialize_pixel] substitutes back. *)
+          (* Every operand read (query/key/value/mask) is reduced against
+             ITS OWN shape via [broadcast_coord] before [load] -- the Region-
+             program analogue of [Legacy_pixel]'s [bc] above -- so a
+             broadcast (extent-1) [N]/[T]/[D]/[H] axis is read at index 0
+             regardless of the coordinate [output_coord] resolves to. *)
           let score_at ~sf k =
             let open Expr.Builder.Syntax in
             let+ dot =
               Expr.Builder.reduction ~kind:Expr.Reduction.Sum
                 ~lo:Expr.Index.zero ~hi:(Expr.Index.const e_extent) (fun e ->
-                  let q_idx = Expr.Coord.set output_coord Axis.C e in
-                  let k_idx =
-                    Expr.Coord.set
+                  let q_idx =
+                    broadcast_coord query.Tensor_sig.shape
                       (Expr.Coord.set output_coord Axis.C e)
-                      Axis.W k
+                  in
+                  let k_idx =
+                    broadcast_coord key.Tensor_sig.shape
+                      (Expr.Coord.set
+                         (Expr.Coord.set output_coord Axis.C e)
+                         Axis.W k)
                   in
                   Expr.Builder.return
                     (Expr.Value.mul
@@ -567,8 +631,10 @@ module Sdpa = struct
                                              Expr.Builder.return
                                                (Expr.Value.mul (p k)
                                                   (load value
-                                                     (Expr.Coord.set
-                                                        output_coord Axis.W k)))))
+                                                     (broadcast_coord
+                                                        value.Tensor_sig.shape
+                                                        (Expr.Coord.set
+                                                           output_coord Axis.W k))))))
                                     in
                                     (* `_safe_softmax`, same as
                                        [Legacy_pixel]: unconditional, and a

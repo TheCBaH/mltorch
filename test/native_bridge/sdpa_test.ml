@@ -162,6 +162,68 @@ let%expect_test "dispatch: sdpa rejects wrong-rank query/key/value/mask" =
     error: sdpa value must be rank-4, got rank-3
     error: sdpa: sdpa attn_mask has rank 3, expected 2 or 4 |}]
 
+(* Real-ATen grounding for head broadcasting (query H=2, key/value H=1,
+   `enable_gqa=false`): `.ai/attention_design.md`'s own gate table
+   (`check_batch_size_and_num_heads_dense`) requires EQUAL heads for the
+   fused/flash kernel unless GQA is enabled, so this configuration is
+   already off the flash kernel in real ATen -- it falls to the `math`
+   backend, which this op's arithmetic already mirrors structurally (§6).
+   [verify_print] runs the SAME node through real ATen and through
+   [Op_bridge]+[Eval_direct], comparing at [Verify.atol_for_target]'s
+   existing single `1e-5` entry (silence means agreement) -- the first
+   evidence this project's one atol also holds off the flash kernel, not
+   only on it. *)
+let%expect_test
+    "verify: sdpa head broadcasting agrees with real ATen (math backend, \
+     unequal heads without GQA)" =
+  let q =
+    float_tensor [ 1; 2; 1; 2 ] [ 1.; 0.; (* head 0 *) 0.; 1. (* head 1 *) ]
+  in
+  let k = float_tensor [ 1; 1; 2; 2 ] [ 1.; 0.; 0.; 1. ] in
+  let v = float_tensor [ 1; 1; 2; 2 ] [ 10.; 20.; 30.; 40. ] in
+  verify_print ~target:"torch.ops.aten.scaled_dot_product_attention.default"
+    ~bindings:[ ("query", q); ("key", k); ("value", v) ]
+    ~inputs:
+      [
+        in_tensor "query";
+        in_tensor "key";
+        in_tensor "value";
+        in_none "attn_mask";
+        in_float "dropout_p" 0.0;
+        in_bool "is_causal" false;
+        in_float "scale" 1.0;
+        in_bool "enable_gqa" false;
+      ];
+  [%expect {| aten and native agree |}]
+
+(* Same grounding, batch axis (D in the Native frame, ATen's leading dim):
+   query has two real batch elements, key/value share ONE (broadcast). Also
+   off the flash kernel (`check_batch_size_and_num_heads_dense` requires
+   equal BATCH size unconditionally, GQA or not), so this is math-backend
+   too. *)
+let%expect_test
+    "verify: sdpa batch broadcasting agrees with real ATen (math backend, \
+     unequal batch)" =
+  let q =
+    float_tensor [ 2; 1; 1; 2 ] [ 1.; 0.; (* batch 0 *) 0.; 1. (* batch 1 *) ]
+  in
+  let k = float_tensor [ 1; 1; 2; 2 ] [ 1.; 0.; 0.; 1. ] in
+  let v = float_tensor [ 1; 1; 2; 2 ] [ 10.; 20.; 30.; 40. ] in
+  verify_print ~target:"torch.ops.aten.scaled_dot_product_attention.default"
+    ~bindings:[ ("query", q); ("key", k); ("value", v) ]
+    ~inputs:
+      [
+        in_tensor "query";
+        in_tensor "key";
+        in_tensor "value";
+        in_none "attn_mask";
+        in_float "dropout_p" 0.0;
+        in_bool "is_causal" false;
+        in_float "scale" 1.0;
+        in_bool "enable_gqa" false;
+      ];
+  [%expect {| aten and native agree |}]
+
 let%expect_test "dispatch: sdpa rejects a negative or non-finite explicit scale"
     =
   let q = float_tensor [ 1; 1; 1; 1 ] [ 1. ] in

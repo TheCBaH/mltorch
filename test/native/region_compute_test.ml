@@ -247,8 +247,8 @@ let%expect_test "Authored Regions reconstruct their legacy scalar oracles" =
     Expr.Builder.run
       (C.pixel
          { Attention.Sdpa.scale = Attention.Sdpa.Scale.Default }
-         ~query_shape:shape ~key_shape:shape ~mask_shape:sdpa_mask_shape ~query
-         ~key ~value ~mask Symbolic.out_vec)
+         ~query_shape:shape ~key_shape:shape ~value_shape:shape
+         ~mask_shape:sdpa_mask_shape ~query ~key ~value ~mask Symbolic.out_vec)
   in
   Fmt.pr "rms=%b layer=%b softmax=%b sdpa=%b@."
     (reconstruct rms rms_pixel)
@@ -362,8 +362,8 @@ let%expect_test
   let module LP = Attention.Sdpa.Legacy_pixel (Direct) in
   let expected =
     Schedule.evaluate query_shape
-      (LP.pixel params ~query_shape ~key_shape ~mask_shape ~query ~key ~value
-         ~mask)
+      (LP.pixel params ~query_shape ~key_shape ~value_shape:key_shape
+         ~mask_shape ~query ~key ~value ~mask)
   in
   Fmt.pr "sdpa wk=1: bits_equal=%b@." (Tensor.equal_bits actual expected);
   [%expect {| sdpa wk=1: bits_equal=true |}]

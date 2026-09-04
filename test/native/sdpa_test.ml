@@ -35,13 +35,15 @@ open Compute_fixtures
    with the split form to 6 significant figures on ordinary inputs. It is
    proven separately below, bitwise, without touching [attention.ml] at all. *)
 
-let run_sdpa params ~query_shape ~key_shape ~mask_shape ~query ~key ~value ~mask
-    =
+let run_sdpa ?value_shape params ~query_shape ~key_shape ~mask_shape ~query ~key
+    ~value ~mask =
+  let value_shape = Option.value value_shape ~default:key_shape in
   let module S = Attention.Sdpa.Legacy_pixel (Direct) in
   eval_tensor
-    (Attention.Sdpa.output_shape ~query_shape ~key_shape ~value_shape:key_shape
+    (Attention.Sdpa.output_shape ~query_shape ~key_shape ~value_shape
        ~mask_shape:(Some mask_shape))
-    (S.pixel params ~query_shape ~key_shape ~mask_shape ~query ~key ~value ~mask)
+    (S.pixel params ~query_shape ~key_shape ~value_shape ~mask_shape ~query ~key
+       ~value ~mask)
 
 let no_mask = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1
 let zero_mask shape = Tensor.materialize shape (fun _ -> 0.)
@@ -313,37 +315,72 @@ let%expect_test "Direct: sdpa — mask broadcast on D (4D form)" =
        ~query_shape ~key_shape ~mask_shape ~query ~key ~value ~mask);
   [%expect {| tensor f32 [D=2 H=1 W=1 C=1] {5.23841, 52.3841} |}]
 
-(* [output_shape] once checked D/H/C/W agreement across query/key/value but
-   never N or T, and [Legacy_pixel] reads key/value at the output
-   coordinate's UNCHANGED N/T (never reduced through [broadcast_coord],
-   exactly like D/H). A standalone or
-   JSON-decoded graph with query.N=2, key.N=value.N=1 passed shape inference
-   and then read key/value out of bounds evaluating output batch N=1; the
-   reverse (key.N=2, query.N=1) silently ignored half of key/value. Both
-   directions are now rejected here, the same as a D or H mismatch. *)
-let%expect_test "Direct: sdpa — N and T must agree across query/key/value" =
+(* [output_shape] once required N/T/D/H strictly EQUAL across every operand
+   -- [Legacy_pixel] now reads key/value/query at the output coordinate
+   reduced through [broadcast_coord] against each operand's OWN shape
+   (mirroring [Matmul.Batched_matmul.Compute]), so an extent-1 axis on any
+   ONE operand broadcasts against the others exactly the way real ATen's
+   `at::matmul` does inside `_scaled_dot_product_attention_math` (the two
+   chained matmuls this op's arithmetic already mirrors, per attention.ml's
+   own §6 comment) -- corpus evidence: `mobilenetv5_base`'s query H=8 vs
+   key/value H=1 (MQA-style, `enable_gqa=false`; ATen's own flash gate
+   requires equal heads without GQA, so this configuration was already off
+   the flash kernel in real ATen too, landing on `math`, which is
+   structurally what this op computes). A genuine mismatch (neither side 1)
+   is still rejected, on every axis including N/T. *)
+let%expect_test "Direct: sdpa — N/T/D/H broadcast (equal, or one side 1)" =
   let ok = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
-  let bad_n = Vec6.shape ~n:2 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
-  let bad_t = Vec6.shape ~n:1 ~t:2 ~d:1 ~h:1 ~w:1 ~c:1 in
+  let two n = Vec6.shape ~n ~t:1 ~d:1 ~h:1 ~w:1 ~c:1 in
   Format.printf "query.N=2, key.N=1: %a@." (pp_result Vec6.pp_shape)
-    (Attention.Sdpa.output_shape ~query_shape:bad_n ~key_shape:ok
+    (Attention.Sdpa.output_shape ~query_shape:(two 2) ~key_shape:ok
        ~value_shape:ok ~mask_shape:None);
   Format.printf "key.N=2, query.N=1: %a@." (pp_result Vec6.pp_shape)
-    (Attention.Sdpa.output_shape ~query_shape:ok ~key_shape:bad_n
+    (Attention.Sdpa.output_shape ~query_shape:ok ~key_shape:(two 2)
        ~value_shape:ok ~mask_shape:None);
   Format.printf "value.N=2, query.N=1: %a@." (pp_result Vec6.pp_shape)
     (Attention.Sdpa.output_shape ~query_shape:ok ~key_shape:ok
-       ~value_shape:bad_n ~mask_shape:None);
+       ~value_shape:(two 2) ~mask_shape:None);
+  let bad_t = Vec6.shape ~n:1 ~t:2 ~d:1 ~h:1 ~w:1 ~c:1 in
   Format.printf "query.T=2, key.T=1: %a@." (pp_result Vec6.pp_shape)
     (Attention.Sdpa.output_shape ~query_shape:bad_t ~key_shape:ok
        ~value_shape:ok ~mask_shape:None);
+  Format.printf "query.N=2, key.N=3 (neither is 1): %a@."
+    (pp_result Vec6.pp_shape)
+    (Attention.Sdpa.output_shape ~query_shape:(two 2) ~key_shape:(two 3)
+       ~value_shape:(two 3) ~mask_shape:None);
   [%expect
     {|
-    query.N=2, key.N=1: sdpa: N extent must agree (query vs key): 2 vs 1
-    key.N=2, query.N=1: sdpa: N extent must agree (query vs key): 1 vs 2
-    value.N=2, query.N=1: sdpa: N extent must agree (query vs value): 1 vs 2
-    query.T=2, key.T=1: sdpa: T extent must agree (query vs key): 2 vs 1
+    query.N=2, key.N=1: [N=2 T=1 D=1 H=1 W=1 C=1]
+    key.N=2, query.N=1: [N=2 T=1 D=1 H=1 W=1 C=1]
+    value.N=2, query.N=1: [N=2 T=1 D=1 H=1 W=1 C=1]
+    query.T=2, key.T=1: [T=2 D=1 H=1 W=1 C=1]
+    query.N=2, key.N=3 (neither is 1): sdpa: N extent must agree (query vs key), or one must be 1: 2 vs 3
     |}]
+
+(* Bit-for-bit proof that broadcasting is not merely shape-legal but
+   COMPUTES the right thing: key/value carry H=1 (one shared key/value head,
+   MQA-style -- `mobilenetv5_base`'s own shape), query has two real heads
+   with DIFFERENT queries, so each head must see its own softmax weighting
+   over the SAME (broadcast) key/value pair, not e.g. head 0's weights
+   reused verbatim for head 1. *)
+let%expect_test "Direct: sdpa — head broadcasting (query H=2, key/value H=1)" =
+  let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:1 ~c:1 in
+  let kv_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:1 in
+  let query =
+    Tensor.materialize query_shape (fun c -> if row c = 0 then 1. else 0.)
+  in
+  let key =
+    Tensor.materialize kv_shape (fun c -> if col c = 0 then 1. else 0.)
+  in
+  let value =
+    Tensor.materialize kv_shape (fun c -> if col c = 0 then 10. else 20.)
+  in
+  Format.printf "%a@." (pp_result Tensor.pp)
+    (run_sdpa
+       { Attention.Sdpa.scale = Attention.Sdpa.Scale.Explicit 1.0 }
+       ~query_shape ~key_shape:kv_shape ~value_shape:kv_shape
+       ~mask_shape:no_mask ~query ~key ~value ~mask:(zero_mask no_mask));
+  [%expect {| tensor f32 [H=2 W=1 C=1] {12.6894, 15} |}]
 
 (* The total-work bound now includes N/T too: without them, a graph could
    inflate real work by N*T while the bound only ever saw D*H*Wq*Wk*E*E.

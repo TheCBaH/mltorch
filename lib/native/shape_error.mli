@@ -370,6 +370,7 @@ module Sdpa : sig
   }
 
   type error =
+    | Batch_mismatch of dims_mismatch
     | Extent_mismatch of dims_mismatch
     | Mask_shape of mask_mismatch
     | Total_work_over_limit of work_over_limit
