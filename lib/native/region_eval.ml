@@ -1,8 +1,14 @@
-type error = [ Expr.Eval.error | Region_partition.error ]
+type error =
+  [ Expr.Eval.error
+  | Region_partition.error
+  | `Scan_execution_not_implemented of Expr.Local_var.t ]
 
 let pp_error fmt : [< error ] -> unit = function
   | #Expr.Eval.error as error -> Expr.Eval.pp_error fmt error
   | #Region_partition.error as error -> Region_partition.pp_error fmt error
+  | `Scan_execution_not_implemented local ->
+      Fmt.pf fmt "scan local %a has no execution support yet" Expr.Local_var.pp
+        local
 
 let expr_coord coord = Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int coord)
 
@@ -48,7 +54,9 @@ let evaluate_locals program ~env ~slots ~key =
                 each (p + 1)
             in
             let* () = each 0 in
-            fill rest)
+            fill rest
+        | Region_local.Rhs.Scan _ ->
+            Err.fail (`Scan_execution_not_implemented binding.Region_local.id))
   in
   fill (Region_program.locals program)
 

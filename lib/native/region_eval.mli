@@ -1,4 +1,13 @@
-type error = [ Expr.Eval.error | Region_partition.error ]
+type error =
+  [ Expr.Eval.error
+  | Region_partition.error
+  | `Scan_execution_not_implemented of Expr.Local_var.t ]
+(** [Scan_execution_not_implemented] fires for a scan-shaped local reaching
+    either evaluator: [Region_program] can construct, check and render a trace
+    local (see the scan design record's Stage 1), but running one -- charging a
+    shared meter across its lanes and steps -- is a later, dedicated step. This
+    case is a temporary boundary, not a permanent limitation, and disappears
+    once that lands. *)
 
 val pp_error : Format.formatter -> [< error ] -> unit
 

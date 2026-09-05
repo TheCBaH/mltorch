@@ -75,121 +75,143 @@ let local_name lenv names v =
       | Some name -> name
       | None -> Fmt.str "?%a" Local_var.pp v)
 
-let value_open ~names fmt e =
-  let idx env fmt i = index ~names:(names_in env) fmt i in
-  (* [lenv] is [Pp]'s local-namespace sibling of [env]: it names only [prev]
-     binders, scoped to their own scan's [update], so a name it holds always
-     wins over [names]'s external lookup for that occurrence. Elsewhere it
-     is empty and every [Local]/[Local_at] renders exactly as before scan
-     existed. *)
-  let rec at env lenv n fmt (e : Value.t) =
-    (* Eta-expanded so it stays polymorphic in the role: a reduction's [lo] is
-         a position and its [hi] a delta. *)
-    let idxe fmt i = idx env fmt i in
-    match e with
-    | Value.Binary (op, a, b) ->
-        Fmt.pf fmt "(";
-        let n = at env lenv n fmt a in
-        Fmt.pf fmt " %s " (Value.binary_sym op);
-        let n = at env lenv n fmt b in
-        Fmt.pf fmt ")";
-        n
-    | Value.Const x ->
-        Fmt.float fmt x;
-        n
-    | Value.Intrinsic (Intrinsic.Max_pool d) ->
-        Fmt.pf fmt "max_pool2d_%s(%a; k=%dx%d s=%dx%d p=%dx%d; out=[%a])"
-          (Intrinsic.Max_pool.result_name d.Intrinsic.Max_pool.result)
-          Source.pp d.Intrinsic.Max_pool.source d.Intrinsic.Max_pool.kernel_h
-          d.Intrinsic.Max_pool.kernel_w d.Intrinsic.Max_pool.stride_h
-          d.Intrinsic.Max_pool.stride_w d.Intrinsic.Max_pool.pad_h
-          d.Intrinsic.Max_pool.pad_w (Coord.pp idxe) d.Intrinsic.Max_pool.out;
-        n
-    | Value.Local v ->
-        Fmt.string fmt
-          (match names v with
-          | Some name -> name
-          | None -> Fmt.str "?%a" Local_var.pp v);
-        n
-    | Value.Local_at (v, i) ->
-        Fmt.pf fmt "%s[%a]" (local_name lenv names v) idxe i;
-        n
-    | Value.Local_scan_at (v, row, lane) ->
-        Fmt.pf fmt "%s@@[%a,%a]" (local_name lenv names v) idxe row idxe lane;
-        n
-    | Value.Load (s, c) ->
-        Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idxe) c;
-        n
-    | Value.Reduce r ->
-        (* Named before descending, so the counter follows lexical order --
-             and the bounds print under the OUTER environment, since they are
-             evaluated outside the binder and cannot mention it. *)
-        let name = Fmt.str "r%d" n in
-        let inner = Reduce_var.Map.add r.Reduction.var name env in
-        Fmt.pf fmt "%s(%s=%a..%a: "
-          (Reduction.kind_name r.Reduction.kind)
-          name idxe r.Reduction.lo idxe r.Reduction.hi;
-        let n = at inner lenv (n + 1) fmt r.Reduction.body in
-        Fmt.pf fmt ")";
-        n
-    | Value.Round_f32 a ->
-        Fmt.pf fmt "f32(";
-        let n = at env lenv n fmt a in
-        Fmt.pf fmt ")";
-        n
-    (* [lane] gets a fresh display name for EACH sibling scope ([init] and
-       [update]) even though it is one identity -- the same lexical-naming
-       rule [Reduce] already applies, extended to a binder appearing twice. *)
-    | Value.Scan_at (s, row, lane) ->
-        let lane1 = Fmt.str "r%d" n in
-        Fmt.pf fmt "scan[w=%d,s=%d](init[%s]=" s.Scan.width s.Scan.steps lane1;
-        let n =
-          at
-            (Reduce_var.Map.add s.Scan.lane lane1 env)
-            lenv (n + 1) fmt s.Scan.init
-        in
-        let lane2 = Fmt.str "r%d" n and step = Fmt.str "r%d" (n + 1) in
-        let prev = Fmt.str "p%d" (n + 1) in
-        Fmt.pf fmt "; update[%s,%s,%s]=" lane2 step prev;
-        let n =
-          at
-            (env
-            |> Reduce_var.Map.add s.Scan.lane lane2
-            |> Reduce_var.Map.add s.Scan.step step)
-            (Local_var.Map.add s.Scan.prev prev lenv)
-            (n + 2) fmt s.Scan.update
-        in
-        Fmt.pf fmt ")@@[%a,%a]" idxe row idxe lane;
-        n
-    | Value.Select (c, a, b) ->
-        Fmt.pf fmt "select(";
-        let n = guard_at env lenv n fmt c in
-        Fmt.pf fmt ", ";
-        let n = at env lenv n fmt a in
-        Fmt.pf fmt ", ";
-        let n = at env lenv n fmt b in
-        Fmt.pf fmt ")";
-        n
-    | Value.Unary (op, a) ->
-        Fmt.pf fmt "%s(" (Value.unary_name op);
-        let n = at env lenv n fmt a in
-        Fmt.pf fmt ")";
-        n
-    | Value.Value_of_index i ->
-        Fmt.pf fmt "value_of_index(%a)" idxe i;
-        n
-  and guard_at env lenv n fmt = function
-    | Bool.Index_eq (a, b) ->
-        Fmt.pf fmt "(%a = %a)" (idx env) a (idx env) b;
-        n
-    | Bool.Value_lt (a, b) ->
-        Fmt.pf fmt "(";
-        let n = at env lenv n fmt a in
-        Fmt.pf fmt " < ";
-        let n = at env lenv n fmt b in
-        Fmt.pf fmt ")";
-        n
+let idx env fmt i = index ~names:(names_in env) fmt i
+
+(* [lenv] is [Pp]'s local-namespace sibling of [env]: it names only [prev]
+   binders, scoped to their own scan's [update], so a name it holds always
+   wins over [names]'s external lookup for that occurrence. Elsewhere it is
+   empty and every [Local]/[Local_at] renders exactly as before scan existed.
+
+   [at] and [scan_body] are mutually recursive rather than [scan_body] living
+   inside [value_open]'s closure: [scan_open] below needs the SAME rendering
+   -- an unspecialized scan's [init]/[update], with proper [lane]/[step]/
+   [prev] naming -- without [at]'s [Value.Scan_at] case's trailing
+   [row,lane] projection, which is fabricated for any caller that has no
+   real read site (see the scan design record). *)
+let rec at ~names env lenv n fmt (e : Value.t) =
+  (* Eta-expanded so it stays polymorphic in the role: a reduction's [lo] is
+       a position and its [hi] a delta. *)
+  let idxe fmt i = idx env fmt i in
+  match e with
+  | Value.Binary (op, a, b) ->
+      Fmt.pf fmt "(";
+      let n = at ~names env lenv n fmt a in
+      Fmt.pf fmt " %s " (Value.binary_sym op);
+      let n = at ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+  | Value.Const x ->
+      Fmt.float fmt x;
+      n
+  | Value.Intrinsic (Intrinsic.Max_pool d) ->
+      Fmt.pf fmt "max_pool2d_%s(%a; k=%dx%d s=%dx%d p=%dx%d; out=[%a])"
+        (Intrinsic.Max_pool.result_name d.Intrinsic.Max_pool.result)
+        Source.pp d.Intrinsic.Max_pool.source d.Intrinsic.Max_pool.kernel_h
+        d.Intrinsic.Max_pool.kernel_w d.Intrinsic.Max_pool.stride_h
+        d.Intrinsic.Max_pool.stride_w d.Intrinsic.Max_pool.pad_h
+        d.Intrinsic.Max_pool.pad_w (Coord.pp idxe) d.Intrinsic.Max_pool.out;
+      n
+  | Value.Local v ->
+      Fmt.string fmt
+        (match names v with
+        | Some name -> name
+        | None -> Fmt.str "?%a" Local_var.pp v);
+      n
+  | Value.Local_at (v, i) ->
+      Fmt.pf fmt "%s[%a]" (local_name lenv names v) idxe i;
+      n
+  | Value.Local_scan_at (v, row, lane) ->
+      Fmt.pf fmt "%s@@[%a,%a]" (local_name lenv names v) idxe row idxe lane;
+      n
+  | Value.Load (s, c) ->
+      Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idxe) c;
+      n
+  | Value.Reduce r ->
+      (* Named before descending, so the counter follows lexical order --
+           and the bounds print under the OUTER environment, since they are
+           evaluated outside the binder and cannot mention it. *)
+      let name = Fmt.str "r%d" n in
+      let inner = Reduce_var.Map.add r.Reduction.var name env in
+      Fmt.pf fmt "%s(%s=%a..%a: "
+        (Reduction.kind_name r.Reduction.kind)
+        name idxe r.Reduction.lo idxe r.Reduction.hi;
+      let n = at ~names inner lenv (n + 1) fmt r.Reduction.body in
+      Fmt.pf fmt ")";
+      n
+  | Value.Round_f32 a ->
+      Fmt.pf fmt "f32(";
+      let n = at ~names env lenv n fmt a in
+      Fmt.pf fmt ")";
+      n
+  | Value.Scan_at (s, row, lane) ->
+      let n = scan_body ~names env lenv n fmt s in
+      Fmt.pf fmt "@@[%a,%a]" idxe row idxe lane;
+      n
+  | Value.Select (c, a, b) ->
+      Fmt.pf fmt "select(";
+      let n = guard_at ~names env lenv n fmt c in
+      Fmt.pf fmt ", ";
+      let n = at ~names env lenv n fmt a in
+      Fmt.pf fmt ", ";
+      let n = at ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+  | Value.Unary (op, a) ->
+      Fmt.pf fmt "%s(" (Value.unary_name op);
+      let n = at ~names env lenv n fmt a in
+      Fmt.pf fmt ")";
+      n
+  | Value.Value_of_index i ->
+      Fmt.pf fmt "value_of_index(%a)" idxe i;
+      n
+
+(* The shared body of an unspecialized scan: [init]/[update], scoped and
+   named exactly as a real [Value.Scan_at] read renders them, but with no
+   trailing projection -- there is no row/lane to show for a plain
+   declaration. [lane] gets a fresh display name for EACH sibling scope
+   ([init] and [update]) even though it is one identity -- the same
+   lexical-naming rule [Reduce] already applies, extended to a binder
+   appearing twice. *)
+and scan_body ~names env lenv n fmt (s : Scan.t) =
+  let lane1 = Fmt.str "r%d" n in
+  Fmt.pf fmt "scan[w=%d,s=%d](init[%s]=" s.Scan.width s.Scan.steps lane1;
+  let n =
+    at ~names
+      (Reduce_var.Map.add s.Scan.lane lane1 env)
+      lenv (n + 1) fmt s.Scan.init
   in
-  ignore (at Reduce_var.Map.empty Local_var.Map.empty 1 fmt e : int)
+  let lane2 = Fmt.str "r%d" n and step = Fmt.str "r%d" (n + 1) in
+  let prev = Fmt.str "p%d" (n + 1) in
+  Fmt.pf fmt "; update[%s,%s,%s]=" lane2 step prev;
+  let n =
+    at ~names
+      (env
+      |> Reduce_var.Map.add s.Scan.lane lane2
+      |> Reduce_var.Map.add s.Scan.step step)
+      (Local_var.Map.add s.Scan.prev prev lenv)
+      (n + 2) fmt s.Scan.update
+  in
+  Fmt.pf fmt ")";
+  n
+
+and guard_at ~names env lenv n fmt = function
+  | Bool.Index_eq (a, b) ->
+      Fmt.pf fmt "(%a = %a)" (idx env) a (idx env) b;
+      n
+  | Bool.Value_lt (a, b) ->
+      Fmt.pf fmt "(";
+      let n = at ~names env lenv n fmt a in
+      Fmt.pf fmt " < ";
+      let n = at ~names env lenv n fmt b in
+      Fmt.pf fmt ")";
+      n
+
+let value_open ~names fmt e =
+  ignore (at ~names Reduce_var.Map.empty Local_var.Map.empty 1 fmt e : int)
+
+let scan_open ~names fmt (s : Scan.t) =
+  ignore
+    (scan_body ~names Reduce_var.Map.empty Local_var.Map.empty 1 fmt s : int)
 
 let value = value_open ~names:(fun _ -> None)
+let scan = scan_open ~names:(fun _ -> None)

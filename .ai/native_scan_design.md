@@ -2,12 +2,19 @@
 
 ## Status and scope
 
-Status: **contracts recorded, implementation pending.** This record fixes the
-representation, error, meter, budget, and rendering contracts for the new
-bounded-scan `Expr` primitive before any `Expr` commit changes them, per the
-LSTM foundation's staged plan. It supersedes ambiguity in favor of one
-concrete decision per open point; it does not itself land the primitive.
-Read it together with `native_compute_design.md` (Region computation) and
+Status: **contracts recorded; the `Expr` primitive and Region-side
+construction/checking/rendering are landed, execution is not.** This record
+fixes the representation, error, meter, budget, and rendering contracts for
+the bounded-scan primitive, per the LSTM foundation's staged plan, and is
+updated in place as each piece lands rather than only once at the end: `Expr`
+(`Scan`/`Scan_limits`/`Scan_meter`/`Scan_admission`, both value projections,
+inline evaluation) landed first; `Region_local`/`Region_program` construction,
+checking and rendering (this section and "RHS rendering" below) landed next.
+Running a scan-backed Region program — `Region_execution`/`Region_eval`
+actually executing a trace, with a shared metered budget — has not, and fails
+with an explicit, typed, temporary error (see "Region propagation") rather
+than an inexhaustive match or silent wrong answer. Read it together with
+`native_compute_design.md` (Region computation) and
 `native_kernel_dsl_design.md` (Kernel IR and `Hard` ceilings), which it
 extends rather than restates.
 
@@ -211,6 +218,62 @@ mints identities through `run_from` from the shared state, while
 `Expr.Builder.run` would restart at ordinal 0 — reusing ordinals across two
 independently-run computations is deliberate elsewhere in the builder and
 must not leak into scan construction.
+
+**Landed.** `Region_local.Rhs.t` gains `Scan of Expr.Scan.t`, alongside the
+existing `Scalar`/`Vector` cases; `Region_local.Shape.t` gains a matching
+`Scan of { width : int; steps : int }`, and `Rhs.slot_count` reserves the
+whole materialized trace, `(steps + 1) * width` slots — safe as plain `int`
+arithmetic (not `Int64`-checked) because `Expr.Scan_limits`'s own hard
+ceilings (`hard_max_state`/`hard_max_updates`, both `2^20`) already bound
+`width` and `steps * width` at construction, well inside the 32-bit range
+this repository's own convention requires checking. `Region_program.Builder.scan`
+matches the signature above exactly, converting `Expr.Builder.scan`'s failure
+via `Err.map_error (fun e -> `Scan e)` (never a raw `Err.fail` re-wrap, which
+would double-wrap the detection trace) and, on success, minting the trace's
+own `Local_var.t` and handing the continuation
+`Expr.Value.local_scan_at id`. `Region_program.error` gains `` `Scan of
+Expr.Scan.error ``.
+
+`Region_local.Rhs.value` (the "one `Expr.Value.t` a local carries" convenience
+`Region_program.check`'s folds already use) handles `Scan` by wrapping it as
+`Expr.Value.scan_at s ~row:Expr.Index.zero ~lane:Expr.Index.zero` — a
+CLOSED placeholder, never evaluated, that lets every existing
+`Expr.Fold`/`Expr.Check.fragment` call reuse its already-correct per-child
+`lane`/`step`/`prev` masking unchanged (`Fold.free_reducers`/`locals`/
+`scalar_locals`/`vector_locals` all recurse into `init`/`update` through
+their own `Scan_at` case). This realizes "the descriptor traversal supplies
+per-child masking" with no new Region-side scope-checking code: a scan
+local's `allowed_free` is `Reduce_var.Set.empty`, same as a scalar's, because
+`free_reducers` on the wrapper already excludes `lane` (from `init`) and
+`lane`/`step` (from `update`) before `Region_program.check` ever sees the
+result. `Shape_mismatch.t` gains a `read : Scalar_read | Vector_read |
+Scan_read` field (three declared shapes need to know which READ triggered
+the mismatch, not just the binary scalar-vs-vector inference the old
+two-shape message inferred); `shape_error` checks all three
+`Expr.Fold.{scalar,vector,scan}_locals` sets against all three
+"declared-as-something-else" predicates. Dependency order (forward/unknown
+local detection) needed no new code: `first_scope_error` already calls
+`Fold.locals` on the same wrapper, which already unions scalar/vector/scan
+references with `prev` correctly excluded.
+
+**Not landed here: execution.** `Region_execution.evaluate_locals` and
+`Region_eval.evaluate_locals` still dispatch only on `Scalar`/`Vector`;
+reaching a `Scan` local now fails with a new, explicit
+`` `Scan_execution_not_implemented of Expr.Local_var.t `` case in
+`Region_eval.error` (mirrored into `Kernel_eval.error`) rather than an
+inexhaustive-match compile error. This is a temporary boundary, not a
+permanent limitation — it exists only because charging a shared meter across
+a trace's lanes and steps, and the streaming multi-slot materializer that
+must hold it, are a later step's deliverable (see "Runtime metering" below
+and the execution-sequencing note in the project's execution ledger), and it
+is expected to disappear once that lands, at which point this case becomes
+unreachable and should be removed. `specialize_pixel`'s per-local rewrite
+does handle `Scan`: since `rewrite` runs `freshen`/`substitute_locals` on
+exactly the `Rhs.value` wrapper above, and both preserve a `Scan_at` node's
+outer shape, unwrapping the rewritten wrapper recovers the freshened
+`Scan.t` that `Expr.Rewrite.Scan` needs (an `invalid_arg` on the
+structurally-impossible non-`Scan_at` result documents the invariant rather
+than silently mismatching).
 
 ## Runtime metering
 
@@ -721,6 +784,24 @@ with `init` and `update` as scoped children in both places; do not fabricate
 a projection at dummy indices to force it through the existing
 single-expression path. The explorer fixture gains an **unspecialized** scan
 local so this path is exercised before any specialization rewrite runs.
+
+**Landed.** `Expr.Pp` gains `scan`/`scan_open`, factored out of `value_open`'s
+existing `Scan_at` case (`pp.ml`'s `at`/`scan_body`/`guard_at` are now
+mutually recursive top-level functions taking `~names` explicitly, rather
+than closures private to `value_open`): `scan_body` renders `init`/`update`
+with the same scoped `lane`/`step`/`prev` naming a real `Value.Scan_at` read
+gets, but stops before the trailing `@[row,lane]` a read's own `at` case
+appends — there being no row/lane to show for a plain declaration.
+`Region_program.pp` and `Region_trace.pp_local` (the two **text** renderers)
+special-case `Region_local.Rhs.Scan` to call `Expr.Pp.scan_open`/`scan` on
+the descriptor directly, never `Rhs.value`'s placeholder-wrapped wrapper.
+`Me_detail.of_value` (the **graph-node** renderer) instead splits a scan
+local into two named roots, `l<i>-init-e`/`l<i>-update-e`, each holding
+`s.Expr.Scan.init`/`.update` directly — no wrapper needed at all, since a
+root has no enclosing projection to fabricate — and extends its local-naming
+map with `s.Expr.Scan.prev -> "<local-name>_prev"` so `update`'s `prev`
+occurrences (reached unwrapped, so `Pp`'s own scan-scope naming never
+applies) still get a readable name instead of a raw identity.
 
 ## `divmod` for Stage 2
 

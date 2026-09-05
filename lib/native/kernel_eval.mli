@@ -29,6 +29,7 @@ type error =
   | `Recursion_too_deep of int
   | Region_partition.error
   | Region_program.error
+  | `Scan_execution_not_implemented of Expr.Local_var.t
   | `Unbound_input of Tensor_id.t
   | `Unknown_value of Tensor_id.t ]
 

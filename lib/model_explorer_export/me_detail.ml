@@ -96,12 +96,42 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
             locals
           |> List.to_seq |> Expr.Local_var.Map.of_seq
         in
-        ( List.mapi
-            (fun i local ->
-              ( Fmt.str "l%d-e" i,
-                Some (Fmt.str "local l%d" i),
-                Region_local.Rhs.value local.Region_local.rhs ))
-            locals
+        (* [prev] is scan-internal, never a [Region_local.id], but naming it
+           here lets it render as ["l%d_prev"] instead of a raw identity
+           wherever [update] references it. *)
+        let names =
+          List.fold_left
+            (fun names local ->
+              match local.Region_local.rhs with
+              | Region_local.Rhs.Scan s ->
+                  Expr.Local_var.Map.add s.Expr.Scan.prev
+                    (Expr.Local_var.Map.find local.Region_local.id names
+                    ^ "_prev")
+                    names
+              | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ -> names)
+            names locals
+        in
+        ( (List.mapi (fun i local -> (i, local)) locals
+          |> List.concat_map (fun (i, local) ->
+              (* A scan has no single value: render [init]/[update] as two
+                 scoped roots directly, never [Region_local.Rhs.value]'s
+                 placeholder-projection wrapper. *)
+              match local.Region_local.rhs with
+              | Region_local.Rhs.Scan s ->
+                  [
+                    ( Fmt.str "l%d-init-e" i,
+                      Some (Fmt.str "local l%d init" i),
+                      s.Expr.Scan.init );
+                    ( Fmt.str "l%d-update-e" i,
+                      Some (Fmt.str "local l%d update" i),
+                      s.Expr.Scan.update );
+                  ]
+              | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ ->
+                  [
+                    ( Fmt.str "l%d-e" i,
+                      Some (Fmt.str "local l%d" i),
+                      Region_local.Rhs.value local.Region_local.rhs );
+                  ]))
           @ [
               ( "emit-e",
                 Some "emitter",

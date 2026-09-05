@@ -7,7 +7,13 @@ module Non_invariant = struct
 end
 
 module Shape_mismatch = struct
-  type t = { local : Expr.Local_var.t; declared : Region_local.Shape.t }
+  type read = Scalar_read | Vector_read | Scan_read
+
+  type t = {
+    local : Expr.Local_var.t;
+    read : read;
+    declared : Region_local.Shape.t;
+  }
 end
 
 type error =
@@ -17,6 +23,7 @@ type error =
   | `Local_list_too_large of int
   | `Local_words_over_limit of int
   | `Non_invariant_local of Non_invariant.t
+  | `Scan of Expr.Scan.error
   | `Shape_mismatch of Shape_mismatch.t
   | `Unknown_emitter_local of Expr.Local_var.t
   | `Unknown_local of Local_scope.t ]
@@ -120,6 +127,19 @@ let specialize_pixel ~max_size ~max_depth t =
               | Region_local.Rhs.Scalar _ -> Expr.Rewrite.Scalar value
               | Region_local.Rhs.Vector { var; _ } ->
                   Expr.Rewrite.Vector { var; body = value }
+              | Region_local.Rhs.Scan _ -> (
+                  (* [rewrite] ran [freshen]/[substitute_locals] on exactly
+                     the [Region_local.Rhs.value] wrapper below, which
+                     preserves the outer [Scan_at] node -- only [init]/
+                     [update]'s subtrees and identities change -- so
+                     unwrapping it here recovers the freshened [Scan.t]
+                     [Expr.Rewrite.Scan] needs, not a re-derivation. *)
+                  match value with
+                  | Expr.Value.Scan_at (s, _, _) -> Expr.Rewrite.Scan s
+                  | _ ->
+                      invalid_arg
+                        "Region_program.specialize_pixel: a scan rewrite lost \
+                         its Scan_at wrapper")
             in
             Err.return
               ( Expr.Local_var.Map.add local.Region_local.id
@@ -158,12 +178,14 @@ let pp_error fmt : [< error ] -> unit = function
   | `Non_invariant_local { Non_invariant.local; axis } ->
       Fmt.pf fmt "local %a varies over whole axis %a" Expr.Local_var.pp local
         Expr.Axis.pp axis
-  | `Shape_mismatch { Shape_mismatch.local; declared } ->
+  | `Scan error -> Expr.Scan.pp_error fmt error
+  | `Shape_mismatch { Shape_mismatch.local; read; declared } ->
       Fmt.pf fmt "local %a is read as %s but declared %a" Expr.Local_var.pp
         local
-        (match declared with
-        | Region_local.Shape.Scalar -> "a vector"
-        | Region_local.Shape.Vector _ -> "a scalar")
+        (match read with
+        | Shape_mismatch.Scalar_read -> "a scalar"
+        | Shape_mismatch.Vector_read -> "a vector"
+        | Shape_mismatch.Scan_read -> "a trace")
         Region_local.Shape.pp declared
   | `Unknown_emitter_local local ->
       Fmt.pf fmt "emitter refers to unknown local %a" Expr.Local_var.pp local
@@ -199,25 +221,39 @@ let all_local_shapes locals =
    reference, already reported by [first_scope_error]/[check_output]; this
    only fires for an id that IS declared, at the wrong kind. *)
 let shape_error ~shapes expr =
-  let find is_wrong uses =
+  let find read is_wrong uses =
     Expr.Local_var.Set.to_seq uses
     |> Seq.find_map (fun local ->
         match Expr.Local_var.Map.find_opt local shapes with
         | Some declared when is_wrong declared ->
-            Some (`Shape_mismatch { Shape_mismatch.local; declared })
+            Some (`Shape_mismatch { Shape_mismatch.local; read; declared })
         | Some _ | None -> None)
   in
-  let is_vector = function
-    | Region_local.Shape.Vector _ -> true
+  let is_not_scalar = function
     | Region_local.Shape.Scalar -> false
+    | Region_local.Shape.Vector _ | Region_local.Shape.Scan _ -> true
   in
-  let is_scalar = function
-    | Region_local.Shape.Scalar -> true
+  let is_not_vector = function
     | Region_local.Shape.Vector _ -> false
+    | Region_local.Shape.Scalar | Region_local.Shape.Scan _ -> true
   in
-  match find is_vector (Expr.Fold.scalar_locals expr) with
+  let is_not_scan = function
+    | Region_local.Shape.Scan _ -> false
+    | Region_local.Shape.Scalar | Region_local.Shape.Vector _ -> true
+  in
+  match
+    find Shape_mismatch.Scalar_read is_not_scalar (Expr.Fold.scalar_locals expr)
+  with
   | Some error -> Some error
-  | None -> find is_scalar (Expr.Fold.vector_locals expr)
+  | None -> (
+      match
+        find Shape_mismatch.Vector_read is_not_vector
+          (Expr.Fold.vector_locals expr)
+      with
+      | Some error -> Some error
+      | None ->
+          find Shape_mismatch.Scan_read is_not_scan (Expr.Fold.scan_locals expr)
+      )
 
 (* Total slot-count across every local, bounds-checked on [Int64] before any
    narrowing: a per-local extent is already bounded (it is one factor of the
@@ -271,7 +307,15 @@ let check ~max_size ~max_depth t =
               match local.Region_local.rhs with
               | Region_local.Rhs.Vector { var; _ } ->
                   Expr.Reduce_var.Set.singleton var
-              | Region_local.Rhs.Scalar _ -> Expr.Reduce_var.Set.empty
+              (* A scan's [value] is the [Scan_at] descriptor traversal, whose
+                 own [Fold.free_reducers] case already masks [lane] (in
+                 [init]) and [lane]/[step] (in [update]) per child before this
+                 sees the result -- exactly the "descriptor traversal supplies
+                 per-child masking" the scan design record requires, so a
+                 well-formed scan has nothing left free here, same as a
+                 scalar. *)
+              | Region_local.Rhs.Scalar _ | Region_local.Rhs.Scan _ ->
+                  Expr.Reduce_var.Set.empty
             in
             let* () =
               Expr.Check.fragment ~max_size:remaining ~max_depth ~allowed_free
@@ -392,12 +436,19 @@ let pp fmt t =
   Fmt.pf fmt "region [%a]" Region_partition.pp t.partition;
   List.iter
     (fun local ->
-      Fmt.pf fmt "@\n  let %s : %a = %a"
+      Fmt.pf fmt "@\n  let %s : %a = "
         (Option.value ~default:"?" (local_name local.Region_local.id))
         Region_local.Shape.pp
-        (Region_local.Shape.of_rhs local.Region_local.rhs)
-        (Expr.Pp.value_open ~names:local_name)
-        (Region_local.Rhs.value local.Region_local.rhs))
+        (Region_local.Shape.of_rhs local.Region_local.rhs);
+      (* A scan renders [init]/[update] as scoped children, never the
+         [Region_local.Rhs.value] wrapper -- that wrapper's placeholder
+         row/lane exist only for folds/checks and would print as a fabricated
+         projection. *)
+      match local.Region_local.rhs with
+      | Region_local.Rhs.Scan s -> Expr.Pp.scan_open ~names:local_name fmt s
+      | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ ->
+          Expr.Pp.value_open ~names:local_name fmt
+            (Region_local.Rhs.value local.Region_local.rhs))
     t.locals;
   Fmt.pf fmt "@\n  emit %a" (Expr.Pp.value_open ~names:local_name) t.output
 
@@ -431,6 +482,25 @@ module Builder = struct
       (fun idx -> Expr.Value.local_at id idx)
       state
       (Region_local.vector ~id ~var ~extent ~value:body :: locals)
+
+  (* No error channel exists in this monad for [scalar]/[vector] because
+     neither can fail; a failing [Expr.Builder.scan] has nowhere to go but
+     short-circuiting the whole chain, so [continue] is skipped and its
+     result type is fixed at [(program, error) Err.t] rather than staying
+     polymorphic in ['a] the way [scalar]/[vector]/[run] are. *)
+  let scan ~limits ~width ~steps ~init ~update continue state locals =
+    let result, state =
+      Expr.Builder.run_from state
+        (Expr.Builder.scan ~limits ~width ~steps ~init ~update)
+    in
+    match Err.map_error (fun e -> `Scan e) result with
+    | Error _ as failure -> (failure, state)
+    | Ok scan ->
+        let id, state = Expr.Builder.run_from state Expr.Builder.fresh_local in
+        continue
+          (fun ~row ~lane -> Expr.Value.local_scan_at id ~row ~lane)
+          state
+          (Region_local.scan ~id ~scan :: locals)
 
   let finish ~max_size ~max_depth ~partition ~output state locals =
     ( create ~max_size ~max_depth ~partition ~locals:(List.rev locals) ~output,

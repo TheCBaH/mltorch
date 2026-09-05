@@ -965,5 +965,15 @@ module type S = sig
         attributable to a single cause.
 
         For diagnostics and expect tests. Parsing it back is not supported. *)
+
+    val scan : Format.formatter -> Scan.t -> unit
+    (** An unspecialized scan's [init]/[update], scoped and named exactly as a
+        real [Value.Scan_at] read renders them but with no trailing projection
+        -- there is no row/lane to show for a plain declaration (fabricating one
+        would misrepresent a definition as a read; see the scan design record).
+    *)
+
+    val scan_open :
+      names:(Local_var.t -> string option) -> Format.formatter -> Scan.t -> unit
   end
 end

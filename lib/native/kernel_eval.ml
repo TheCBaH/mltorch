@@ -27,6 +27,7 @@ type error =
   | `Recursion_too_deep of int
   | Region_partition.error
   | Region_program.error
+  | `Scan_execution_not_implemented of Expr.Local_var.t
   | `Unbound_input of Tensor_id.t
   | `Unknown_value of Tensor_id.t ]
 
@@ -37,6 +38,9 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "recursive evaluation nested more than %d producers deep" n
   | #Region_partition.error as e -> Region_partition.pp_error fmt e
   | #Region_program.error as e -> Region_program.pp_error fmt e
+  | `Scan_execution_not_implemented local ->
+      Fmt.pf fmt "scan local %a has no execution support yet" Expr.Local_var.pp
+        local
   | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
   | `Unknown_value id -> Fmt.pf fmt "%a names no value" Tensor_id.pp id
 

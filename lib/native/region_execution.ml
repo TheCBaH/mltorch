@@ -132,7 +132,9 @@ let evaluate_locals ?counters lowered ~env ~key =
                 each (p + 1)
             in
             let* () = each 0 in
-            fill rest)
+            fill rest
+        | Region_local.Rhs.Scan _ ->
+            Err.fail (`Scan_execution_not_implemented binding.Region_local.id))
   in
   fill (Region_program.locals lowered.program)
 
