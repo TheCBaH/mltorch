@@ -102,38 +102,27 @@ let value_at program ~output_shape ~env ~output =
   let* values = evaluate_locals program ~env ~slots ~key in
   emit program ~env ~slots ~values ~output
 
-let key_id key =
-  ( Dim.to_int key.Vec6.n,
-    Dim.to_int key.Vec6.t,
-    Dim.to_int key.Vec6.d,
-    Dim.to_int key.Vec6.h,
-    Dim.to_int key.Vec6.w,
-    Dim.to_int key.Vec6.c )
-
+(* Streams one key's [values] array at a time, exactly the traversal shape
+   [Region_execution.materialize] already uses -- this is the reference
+   path, so matching it changes peak scratch, not results. The previous
+   [Hashtbl] retained every visited key's array for the whole call, so peak
+   scratch was [keys * total_slots] rather than one array at a time. *)
 let materialize program ~output_shape ~env =
   Err.Escape.with_escape @@ fun esc ->
   let slots, _ = local_slots program in
-  let cache = Hashtbl.create 16 in
-  let value output =
-    let key =
-      match
-        Region_partition.key_of_output ~output_shape
-          (Region_program.partition program)
-          output
-      with
-      | Ok key -> key
-      | Error error -> Err.Escape.throw_error esc (error :> error Err.Error.t)
-    in
-    let values =
-      match Hashtbl.find_opt cache (key_id key) with
-      | Some values -> values
-      | None ->
-          let values =
-            Err.Escape.or_throw esc (evaluate_locals program ~env ~slots ~key)
+  let tensor = Tensor.create output_shape in
+  let partition = Region_program.partition program in
+  Region_partition.fold_keys ~output_shape ~init:()
+    ~f:(fun () key ->
+      let values =
+        Err.Escape.or_throw esc (evaluate_locals program ~env ~slots ~key)
+      in
+      Region_partition.fold_outputs ~output_shape ~key ~init:()
+        ~f:(fun () output ->
+          let value =
+            Err.Escape.or_throw esc (emit program ~env ~slots ~values ~output)
           in
-          Hashtbl.add cache (key_id key) values;
-          values
-    in
-    Err.Escape.or_throw esc (emit program ~env ~slots ~values ~output)
-  in
-  Tensor.materialize output_shape value
+          Tensor.set_float tensor output value)
+        partition)
+    partition;
+  tensor
