@@ -763,6 +763,44 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
     {|
     cells=2,3,4,22,23,24 keys=2 locals=2 emitters=6 loads=8 reductions=0 |}]
 
+(* Regression: [Region_execution.lower]/[lower_region] must re-validate a
+   program against their caller's limits, not merely trust that
+   [Region_program.create] once did -- [Region_program.with_output] is a raw
+   record update (exactly what [Kernel_eval.converted] uses to splice in a
+   result conversion after construction), so a rewritten emitter can grow
+   past the construction-time budget with no [Region_program.check] ever
+   seeing it. Prove the new check can actually fail: lower the same program
+   before and after an oversized rewrite, at the same limits. *)
+let%expect_test
+    "Region_execution.lower re-checks a program rewritten after construction" =
+  let partition =
+    Err.or_raise ~pp_error:Region_partition.pp_error
+      (Region_partition.of_whole_axes [ Axis.C ])
+  in
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.Builder.run
+         (Region_program.Builder.scalar (Expr.Value.const 1.) (fun local ->
+              Region_program.Builder.finish ~max_size:32 ~max_depth:16
+                ~partition ~output:local)))
+  in
+  let oversized_output =
+    let e = ref (Expr.Value.const 0.) in
+    for _ = 1 to 40 do
+      e := Expr.Value.add !e (Expr.Value.const 1.)
+    done;
+    !e
+  in
+  let rewritten = Region_program.with_output program oversized_output in
+  let show program =
+    match Region_execution.lower ~max_size:32 ~max_depth:16 program with
+    | Ok _ -> "ok"
+    | Error error ->
+        Format.asprintf "%a" Region_program.pp_error (Err.Error.kind error)
+  in
+  Fmt.pr "original=%s rewritten=%s@." (show program) (show rewritten);
+  [%expect {| original=ok rewritten=depth exceeds limit 16 |}]
+
 (* [fresh_synthetic_ids] used to be recomputed inside [eval_node], folding
    [g.Graph.tensors] once per node — quadratic in graph size for a Region-free
    graph that never uses the result. A relu chain has no Region op, so any
