@@ -12,14 +12,37 @@ records detailed implementation decisions and the latter defines the support
 contract.  This file is the compact, corpus-derived queue that connects that
 contract to the next work items.
 
-Status: 2026-09-04 (`unfold.default` full-stack Native, closing the
-`conv1d`/`unfold` P1 slice entirely; preceded same day by `conv1d.default`
-full-stack, `Attention.Sdpa` head/batch broadcasting closing the matmul/SDPA
-broadcasting gap, `Batched_matmul`'s own real ATen broadcasting, and
-`Matmul.Batched_matmul` Native4D `D = 1` admission + Region computation
-landing). `eca_halonext26ts`'s new frontier, `matmul.default`'s
-unequal-operand-rank case, is an importer gap awaiting its own scoping —
-not yet started.
+Status: 2026-09-05 (`cumsum.default` landed full-stack, Native AND Native4D
+— the "Matrix / reduction" backlog row; see `ops-progress.md`'s landing
+record and this file's own note below. No corpus model moves: EdgeNeXt, the
+row's only occurrence, still fails one node earlier at `bitwise_not.default`
+— scoreboard unchanged. `lstm.input` was investigated and deliberately NOT
+landed this session: it needs a genuine new ordered-SCAN primitive in
+`Expr`/`SEMANTICS` (a fold whose body sees the running accumulator), which
+neither `sum` nor `max_reduce` provide — see this file's own note below for
+the full scoping argument, including why `cumsum` looked similar but was not;
+preceded the same day by `IndexTensor4` landed, the Native4D counterpart to the
+pre-existing `Index_tensor` Native op — no corpus model gated on it, so the
+scoreboard is unchanged; leaves live max-pool indices as the sole remaining
+"Remaining Native4D counterpart backlog" row; preceded the same day by
+`squeeze.dim` landed full-stack Native AND Native4D —
+binds to the pre-existing `Reshape`/`Reshape4` pair, no new `Graph_ir`
+constructor needed, closing the "Shape / sequence" backlog's first row;
+preceded the same day by `conv3d.default` full-stack Native, Native4D
+unconditionally rejected — the deferred "Higher-rank convolution" slice,
+requiring a fix to the minimal static-dispatch ATen archive, which had
+`at::native::slow_conv3d` stubbed as unimplemented; preceded by
+`matmul.default`'s unequal-rank operand case, importer-only, reusing
+`Batched_matmul`'s existing broadcast unchanged; preceded 2026-09-04 by
+`unfold.default` full-stack Native, closing the `conv1d`/`unfold` P1 slice
+entirely, `conv1d.default` full-stack, `Attention.Sdpa` head/batch
+broadcasting closing the matmul/SDPA broadcasting gap, `Batched_matmul`'s own
+real ATen broadcasting, and `Matmul.Batched_matmul` Native4D `D = 1`
+admission + Region computation landing). `eca_halonext26ts` reaches
+`native_builds:true` and `kernel_converts:true`, stopping at
+`unfold.default`'s own deliberate Native4D rejection; `lambda_resnet26t` now
+reaches `native_builds:true` and `kernel_converts:true` too, stopping at a
+later, unrelated intrinsic `axis D` boundary.
 
 ## Priority model: breadth first, then depth
 
@@ -102,10 +125,10 @@ demonstrated end-to-end blocker.
 | Tracked graphs / architecture families | 100 / 40 |
 | Raw ATen graph nodes | 30,717 |
 | Distinct ATen target names | 85 |
-| Target names lowered by Native and present in corpus | 52 (30,179 nodes) |
-| Present target names without a Native lowering arm | 33 (538 nodes) |
-| `native_builds:true` in the support sweep | 90 / 100 |
-| Native4D conversions / kernel conversions | 58 / 100; 64 / 100 |
+| Target names lowered by Native and present in corpus | 53 (30,182 nodes) |
+| Present target names without a Native lowering arm | 32 (535 nodes) |
+| `native_builds:true` in the support sweep | 92 / 100 |
+| Native4D conversions / kernel conversions | 58 / 100; 66 / 100 |
 | Graphs successful in Native, Native4D, and Kernel | 44 / 100 |
 
 The first five rows are target/node **depth** measures.  The last three are
@@ -127,21 +150,20 @@ the checked-in JSON graphs contain 30,717 target-bearing nodes.  Treat that
 regenerates or explains it; do not use the manifest total as the operation
 census denominator.
 
-The 10 Native failures (recensus 2026-09-04, after the SDPA broadcasting
-landing, `test/data/pt2_json_model_support.jsonl`) are not 10 unsupported
+The 8 Native failures (recensus 2026-09-05, after the `squeeze.dim`
+landing, `test/data/pt2_json_model_support.jsonl`) are not 8 unsupported
 target names.  Their earliest frontiers are: `bitwise_not.default`
-(`edgenext_xx_small`), `conv1d.default` (`eca_halonext26ts`),
-`conv3d.default` (`lambda_resnet26t`, moved here from the now-landed
-`Batched_matmul` broadcasting gap), `im2col.default` (`volo_d1_224`),
-`lstm.input` (`sequencer2d_s`), `meshgrid.indexing`
-(`vit_small_patch16_dinov3_qkvb`), and `upsample_bicubic2d.vec`
-(`sam2_hiera_tiny`) — one model each, all already tracked as a P1 slice or
-in the deferred backlog below; `index.Tensor`'s multi-entry case (2 models:
-`maxxvitv2_nano_rw_256`, `mvitv2_tiny`); and a rank-5 `getitem` importer gap
-(`hiera_tiny_224`, tracked under "Configuration and transform gaps").
-`mobilenetv5_base` — the last remaining shape-broadcast rejection, `Sdpa`'s
-`H` extent — is no longer on this list: the SDPA broadcasting landing above
-moves it to `native_builds:true`. This list has fully turned over since the
+(`edgenext_xx_small`), `im2col.default` (`volo_d1_224`), `lstm.input`
+(`sequencer2d_s`), `meshgrid.indexing` (`vit_small_patch16_dinov3_qkvb`), and
+`upsample_bicubic2d.vec` (`sam2_hiera_tiny`) — one model each, all already
+tracked as a P1 slice or in the deferred backlog below; `index.Tensor`'s
+multi-entry case (2 models: `maxxvitv2_nano_rw_256`, `mvitv2_tiny`); and a
+rank-5 `getitem` importer gap (`hiera_tiny_224`, tracked under "Configuration
+and transform gaps"). `lambda_resnet26t` — gated on `squeeze.dim` at the
+previous recensus — is no longer in this list at all: it now reaches
+`native_builds:true` (and `kernel_converts:true`), stopping at a later,
+unrelated intrinsic `axis D` boundary at the Native4D stage (see the
+`squeeze.dim` landing note below). This list has fully turned over since the
 file's original 19-model census — every target named in that original count
 (`zeros.default`, `_native_batch_norm_legit.no_stats`,
 `adaptive_max_pool2d.default`, `arange.default`/`arange.start`,
@@ -627,11 +649,161 @@ of the conv1d/unfold slice.
 unchanged (90/58/64/44) — depth moved, stage-completion did not, since
 `eca_halonext26ts` was and remains `native_builds:false`.
 
-**Next priority**: `matmul.default`'s unequal-rank operand case
-(`eca_halonext26ts`'s new frontier — needs scoping before starting).
-Otherwise unchanged: live max-pool indices/`IndexTensor4`, `lstm.input`,
+**2026-09-05, `matmul.default`'s unequal-rank case landed** (importer-only;
+see `.ai/matmul_softmax_design.md` §7.1 for the complete record). Real ATen
+accepts two `matmul.default` operands of DIFFERENT rank (both rank>=2) via
+an implicit prepend of `1`s to the lower-rank operand's batch prefix — and
+`Aten_shape.of_aten`'s existing right-alignment already does exactly this,
+independently per operand, so `Batched_matmul`'s pre-existing (2026-09-04)
+per-axis `N`/`T`/`D`/`H` broadcast computes the correct output with no
+operand-rank comparison in the shape rule at all. The only change is at the
+importer boundary (`Op_bridge_linalg.ml`, `Native_interp_lower_compute.ml`):
+the `Batched_matmul` route's guard widened from `rank_a = rank_b && rank_a
+>= 3` to `rank_a >= 2 && rank_b >= 2`; `Matmul_unsupported_shape`'s message
+and doc comments dropped "and of equal rank" since rank<2 is now the only
+live rejection. No new Native op, no Native4D change — this is purely an
+addition at the boundary, reusing 100% pre-existing Native machinery.
+`eca_halonext26ts` — the corpus model exposing this gap — moves from
+`native_builds:false` to `native_builds:true` AND `kernel_converts:true` in
+one landing (`native_builds` 90→91, `kernel_converts` 64→65), stopping at
+its own next node, an `unfold.default` occurrence Native4D already rejects
+unconditionally and deliberately (this week's own P1 landing) —
+`native4d_converts`/all-three-stages unchanged (58/44). Verified by hand
+(`test/native_bridge/dispatch_test.ml`'s new "accepts unequal operand ranks"
+fixture, two independent `2x3 @ 3x2` products against a shared rank-2
+`other`) and by graph structure (`test/native_interp/matmul_test.ml`).
+**Not done**: `Recipe_matmul`'s ATen-oracle fuzz walk was not widened to
+sweep an unequal-rank configuration, same scoping precedent as the
+2026-09-04 broadcast landing.
+
+**Next priority**: live max-pool indices/`IndexTensor4`, `lstm.input`,
 `conv3d.default` (`lambda_resnet26t`'s frontier), or P1's remaining
 one-model slices (`im2col`/`col2im`, `upsample_bicubic2d`).
+
+**2026-09-05, `conv3d.default` landed** (full-stack Native, Native4D
+unconditionally rejected; see `ops-progress.md`'s landing record — closes the
+deferred "Higher-rank convolution" backlog row). New `Conv.Conv3d` Native op
+with its own genuine triple-nested `Compute` (NOT a `Conv2d` delegation,
+since ATen's schema names three independent spatial axes): one new
+permutation, `perm_conv3d` (a 4-cycle on `D,H,W,C`, not its own inverse),
+lands ATen's own `D`/`H`/`W` spatial axes on native `D`/`H`/`W` directly and
+batch on native `N`, reused identically for `x` and `weight` the same way
+`perm_conv1d` is. Required a fix to the minimal static-dispatch ATen archive:
+`at::native::slow_conv3d` (real `conv3d`'s non-dilated CPU forward path) was
+stubbed as unimplemented and reliably ABORTED THE PROCESS rather than
+erroring — `lib/aten/build_archive.sh` gained `ConvolutionMM3d.cpp` +
+`Unfold3d.cpp` and the dead stub was removed. `lambda_resnet26t` — the one
+corpus model gating this row — clears all 3 occurrences and moves to
+`squeeze.dim` (the "Shape / sequence" deferred-backlog row).
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages
+unchanged (91/58/65/44) — depth moved, stage-completion did not, since
+`lambda_resnet26t` was and remains `native_builds:false`.
+
+**2026-09-05, `squeeze.dim` landed** (full-stack Native AND Native4D; see
+`ops-progress.md`'s landing record — closes the "Shape / sequence"
+deferred-backlog row's first entry). Real ATen's `squeeze.dim` drops the
+named axis when its extent is 1 and leaves `self` unchanged (same rank)
+otherwise — a genuine per-shape branch, not a rejection — and either outcome
+keeps the linearized data order, so both importers legalize it to the
+EXISTING `Reshape` node alone (`Op_bridge` decides the branch against the
+live tensor, `Native_interp` against the serialized shape). No new
+`Graph_ir` constructor, so no Native4D work was needed either: `Reshape`
+already lowers unconditionally to `Reshape4`, so this landed full-stack,
+including Native4D, in one importer-only change — the same shape
+`copy.default`'s binding onto `Expand`/`Expand4` took. `lambda_resnet26t` —
+the one corpus model gating this row — clears all 3 occurrences and moves
+from `native_builds:false` to `native_builds:true` AND `kernel_converts:true`
+in one landing, stopping at a LATER, unrelated intrinsic `axis D` boundary
+at the Native4D stage (the same family `Batched_matmul`'s multi-batch form
+and `Unfold` already occupy). `native_builds` 91→92, `kernel_converts`
+65→66; `native4d_converts`/all-three-stages unchanged (58/44).
+
+**Next priority**: live max-pool indices/`IndexTensor4`, `lstm.input`
+(Sequencer2D's own first frontier), or P1's remaining one-model slices
+(`im2col`/`col2im`, `upsample_bicubic2d`).
+
+**2026-09-05, `IndexTensor4` landed** (full-stack Native4D counterpart; see
+`ops-progress.md`'s landing record). Reuses `Index_tensor.Index_tensor`'s own
+`output_shape`/`Compute` unchanged: the gathered axis narrows to `Axis4.t`
+with the same `check_dims`-style rejection `Select4`/`RepeatInterleave4` get.
+Unlike `Select4`, no post-hoc `Shape4.of_vec6` re-check is needed — `self`'s
+axis extent is overwritten by `index`'s own length (no drop, no repack), the
+same shape story `Select_scatter4` already has. Classified `Discontinuous` in
+`Output_transfer4`, matching Native's own `Index_tensor`: the gathered
+position is data-dependent on `index`'s stored value, not the output
+coordinate alone. No corpus model is currently gated on it (`index.Tensor`'s
+own single-entry Native case, `csatv2`, was already past this point before
+Native4D had a counterpart at all — its own frontier is elsewhere), so
+`make pt2.json-model-support` produced no diff and all four scoreboard
+numbers are unchanged (92/58/66/44). This closes the `IndexTensor4` half of
+the "Live max-pool indices and `IndexTensor4`" backlog row; live max-pool
+indices (a genuine two-output `ArgMaxPool`/`MaxPoolWithIndices4`, needing the
+multi-output plumbing `Unbind` established) remains open and is the only row
+left in the "Remaining Native4D counterpart backlog" table.
+
+**Next priority**: live max-pool indices is now the only remaining Native4D
+counterpart-backlog row; otherwise `lstm.input` (Sequencer2D's own first
+frontier), or P1's remaining one-model slices (`im2col`/`col2im`,
+`upsample_bicubic2d`).
+
+**2026-09-05, `cumsum.default` landed** (full-stack Native AND Native4D; see
+`ops-progress.md`'s landing record — closes the "Matrix / reduction"
+deferred-backlog row's `cumsum.default` entry). Real ATen's `cumsum.default`
+walks one axis, and each output position is the SUM of every input position
+at or before it on that axis — a genuine ordered dependency, but not the kind
+that needs a new primitive: `output[i] = sum(input[0..i])` is just
+`SEMANTICS.sum` with `hi` bound to the OUTPUT's own position on the axis
+(`+1`) instead of a fixed extent, exactly the coordinate-derived-bound
+pattern `Adaptive_axis.Compute.bin` (this same file, `pool.ml`) already
+established for adaptive pooling's per-output bin edges. So `Cumsum`'s
+`Compute` needed no new `SEMANTICS`/`Expr.Reduction` primitive, unlike
+`lstm.input` below. `dtype` is decoded and restricted to the schema default
+(`None`) or `FLOAT` — Native's compute domain is always float
+(`semantics.ml`), so `FLOAT` is the identity, exactly `_to_copy.default`'s
+own `Float` case — rather than rejected outright the way `softmax.int`/
+`sum.dim_IntList`/`linalg_vector_norm.default` reject ANY supplied `dtype`:
+EdgeNeXt's own occurrence passes `dtype=FLOAT` casting a bool mask, so the
+permissive form is load-bearing, not speculative. Grounded against real ATen
+via a new curated `cumsum` binding (`bin/aten_ops_gen.ml`, needing no
+`Override` — an ordinary `(Tensor, int, ScalarType?)` schema shape codegen
+already emits unmodified) and `verify_print` fixtures in the new
+`test/native_bridge/cumsum_test.ml` (dim=0/1/-1, an out-of-range rejection,
+and the FLOAT-dtype accept path — the last via `dispatch_print` rather than
+`verify_print`, since the schema-driven real-ATen decode `Interp_dispatch`
+uses for every `ScalarType?` argument still raises on ANY present value
+regardless of what `Op_bridge` itself accepts). **Native4D**: a direct
+`Cumsum4` counterpart, reusing `Reduce.Cumsum`'s own `output_shape`/`Compute`
+unchanged with the axis narrowed to `Axis4.t`, the same `check_dims`-style
+rejection `Softmax4` has — landed in the same session, full-stack from the
+start. No corpus model is currently gated on it (EdgeNeXt's own occurrence is
+one node past `bitwise_not.default`, still unlanded — see the "Pointwise /
+type" backlog row — so the graph never reaches its `cumsum.default` node),
+so `make pt2.json-model-support` produced no diff and all four scoreboard
+numbers are unchanged (92/58/66/44).
+
+**`lstm.input` investigated 2026-09-05, deliberately NOT landed.** Sequencer2D's
+36 occurrences are all one shape family (single-layer, `bidirectional=True`,
+`batch_first=True`, biased; only the `output` tensor is live, `h_n`/`c_n` are
+dead) — the corpus-scoping part is easy. The blocker is architectural: an
+LSTM step is `h_t, c_t = gate(x_t, h_{t-1}, c_t-1)`, a genuinely
+NON-associative recurrence whose gate computation at step `t` must consume
+the actual (nonlinear) VALUE of step `t-1`'s own output — unlike `cumsum`
+above, this cannot be expressed as `SEMANTICS.sum`/`max_reduce` with a
+cleverer bound, because those reductions combine independently-computable
+terms with a fixed associative op and never expose the running accumulator to
+the body. `Compute`'s own contract (`.ai/native_compute_design.md`) requires
+building ONE expression generic over a SYMBOLIC output coordinate (so it can
+be printed, proved, and grounded later, not just evaluated once per concrete
+pixel), which rules out unrolling the recursion in the host language even
+though `T` (sequence length) is a compile-time constant here. Landing
+`lstm.input` for real therefore needs a new ordered-SCAN primitive threaded
+through `Expr.Reduction`/`SEMANTICS` (both `Direct` and `Symbolic`
+semantics, the printer, the comparator, well-formedness) — foundational DSL
+work, not a vertical op slice. No other backlog row currently needs it
+(`einsum.default`, `max.dim`, `tile.default` are all ordinary associative
+reductions or gathers); `cumsum.default` above looked like a candidate
+motivator but turned out not to need it either. Treat `lstm.input` as its own
+scoping/design task before implementation, not as "next priority" filler.
 
 ### P1 — small vertical slices with one-model proof
 
@@ -672,9 +844,9 @@ an explicit, tested Native-only boundary.
 | --- | --- |
 | Factories, indexing, and copies | `index.Tensor` (28; single-entry case landed for CSATv2/MViTv2 in `3392dc0`; multi-entry case now confirmed as MViTv2's OWN first frontier too, not just MaxxViTv2's, after `_to_copy.default` landed — `"index.Tensor.indices is not an optional tensor list"`), ~~`eye.m`~~ (12; **landed** 2026-08-30 — see `ops-progress.md`'s landing record; Bat-ResNeXt's frontier moved past it to an intrinsic `axis D` boundary), `meshgrid.indexing` (1; DINOv3 ViT — now its first frontier) |
 | Pointwise / type | `neg.default` (24; DINOv3 ViT), `type_as.default` (24; DINOv3 ViT), `pow.Scalar` (1; EdgeNeXt), `sin.default` and `cos.default` (3 each; EdgeNeXt, DINOv3 ViT), `bitwise_not.default` (1; EdgeNeXt — now its first frontier, after `_to_copy.default` landed), `div.Tensor_mode` (1; EdgeNeXt) |
-| Shape / sequence | `squeeze.dim` (3; Lambda-ResNet), `tile.default` (2; SAM2 Hiera, DINOv3 ViT), `lstm.input` (36; Sequencer2D — now its first frontier) |
-| Matrix / reduction | `einsum.default` (20; MViTv2), `cumsum.default` (2; EdgeNeXt), `max.dim` (1; VOLO) |
-| Higher-rank convolution | `conv3d.default` (3; Lambda-ResNet) |
+| Shape / sequence | ~~`squeeze.dim`~~ (3; Lambda-ResNet — **landed** 2026-09-05, full-stack Native AND Native4D via the existing `Reshape`/`Reshape4` pair; see `ops-progress.md`'s landing record. Lambda-ResNet now reaches `native_builds:true`/`kernel_converts:true`, stopping at a later, unrelated intrinsic `axis D` boundary), `tile.default` (2; SAM2 Hiera, DINOv3 ViT), `lstm.input` (36; Sequencer2D — now its first frontier) |
+| Matrix / reduction | `einsum.default` (20; MViTv2), ~~`cumsum.default`~~ (2; EdgeNeXt — **landed** 2026-09-05, full-stack Native AND Native4D; see `ops-progress.md`'s landing record. EdgeNeXt's own frontier does not move: it still fails one node earlier at `bitwise_not.default`, the "Pointwise / type" backlog row), `max.dim` (1; VOLO) |
+| Higher-rank convolution | ~~`conv3d.default`~~ (3; Lambda-ResNet — **landed** 2026-09-05, full-stack Native, Native4D unconditionally rejected; see `ops-progress.md`'s landing record. Lambda-ResNet's frontier moved on to `squeeze.dim`, also now landed above) |
 
 **`index.Tensor`'s single-live-entry, raw-`Long` case landed** (commit
 `3392dc0`: `Graph_ir.Index_tensor`, both importers, Native shape/Compute,
@@ -688,6 +860,46 @@ census miss. That is the real runtime-gather case `todo.md` deferred; treat it
 as its own slice — locked to the single-entry domain today by
 `.ai/index_tensor_design.md`'s acceptance rule — not as a reason to touch the
 already-landed single-entry path.
+
+**`conv3d.default` scoped 2026-09-05, landed the same day** (see
+`ops-progress.md`'s landing record for the implementation — this note's own
+scoping rationale below held up unchanged, including the "real `Conv3d`
+Native op, not a delegation" conclusion). All 3 corpus
+occurrences (`lambda_resnet26t`, the LambdaLayer relative-position conv) have
+a genuine `[N,C,D,H,W]` rank-5 ATen shape (e.g. input `[1,1,8,8,64]`, weight
+`[16,1,9,9,1]`, `stride=[1,1,1]`, `padding=[4,4,0]`) but the THIRD ATen
+spatial axis (`W`, last position) always carries `kernel=1, stride=1,
+padding=0` in every occurrence — i.e. a genuine two-axis (`D`,`H`)
+convolution repeated independently across 64/128 planes, not a load-bearing
+third spatial axis. This makes a `Conv1d`-style delegation (pin the unit
+axis to `Conv2d.unit_window`, reuse `Conv2d`'s compute unchanged) tempting,
+but per this file's own "addition, not legalization" rule that delegation
+would be a narrowing, not a faithful `conv3d.default` — unlike `Conv1d`
+(whose ATen schema genuinely has only one spatial axis, so pinning the other
+IS the whole of conv1d's semantics), `conv3d.default`'s schema genuinely
+names three independent spatial axes, and a future corpus model (or a
+`Recipe_conv3d` oracle sweep) could easily need all three non-unit. **The
+scoped-correct route is a real `Conv3d` Native op**: genuine triple-nested
+convolution over three spatial axes, fitting ATen's `[N,C,D,H,W]` onto
+Native's six-axis frame via `N`→`N`, `C`→`C`, and the three ATen spatial
+axes onto three of Native's remaining `{T,D,H,W}` (this project's own
+`Batched_matmul`/`Sdpa` precedent already established that Native's raw
+6-axis representation carries no fixed per-axis semantic — only Native4D's
+N/H/W/C dialect restricts axis meaning). Native4D itself should very likely
+REJECT `Conv3d` unconditionally, the same "Native-only, deliberately
+bounded" treatment `Unfold`/multi-batch `Batched_matmul` get: a real 3-axis
+spatial convolution needs `T`+`D`+`H` (or similar) to simultaneously carry
+non-unit spatial content, which is outside the 4-axis N/H/W/C dialect by
+construction, not merely unimplemented. This is a materially bigger lift
+than `Conv1d`'s delegation was — new `Compute` semantics (a nested `S.sum`
+over three window offsets instead of `Conv2d`'s two), a new rank-5 ATen
+relayout permutation, and its own curated-binding oracle test (`conv3d` has
+no schema default for its required `int[3]` window, the same `needs_meta`
+reason `conv1d`/`eye.m`/`rsub.Scalar` needed hand-derived coverage) — sized
+closer to a `Conv2d`-from-scratch session than to `Conv1d`'s reuse. Landed
+the same session after all, including the exact `N`→`N`/`C`→`C`/spatial-onto-
+`{D,H,W}` layout and the unconditional Native4D rejection predicted above —
+see `ops-progress.md`'s landing record.
 
 ## Remaining Native4D counterpart backlog
 
@@ -705,7 +917,8 @@ work.
 | ~~`Repeat4` / `RepeatInterleave4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Both reuse `Shape4`'s own representation for `repeats` rather than a bespoke axis check; `RepeatInterleave4` also gets the `check_dims`-style single-axis rejection for diagnostic consistency, though it is not load-bearing for this particular op (see the landing note). `convit_tiny` is the one corpus model `Repeat4` was gating; its frontier moves to `select_scatter.default` below rather than to `native4d_converts:true`, so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
 | ~~`Select_scatter4`~~ | **Landed** (2026-08-30; see `ops-progress.md`'s landing record). Reuses `Split.Select_scatter`'s shape rule/pixel map unchanged, the same delegation `Select4` makes to `Split.Select`, plus the same `check_dims`-style single-axis rejection. `convit_tiny` — the one corpus model gated on it — moves to an intrinsic `axis T is outside the N/H/W/C dialect` boundary, so the scoreboard counts are unchanged — depth moved, stage-completion did not. | Done. |
 | ~~`Softmax4`~~ | **Landed** (2026-08-31; see `ops-progress.md`'s landing record). Reuses `Reduce.Softmax`'s own `output_shape`/`Compute` unchanged; the axis narrows to `Axis4.t` and gets the same `check_dims`-style rejection `Select4`/`Slice4`/`RepeatInterleave4` get. No corpus model was gated on it, so the scoreboard counts are unchanged. | Done. |
-| Live max-pool indices and `IndexTensor4` | `index.Tensor` is deferred at Native today; live pool indices are also unsupported at Native4D. | Treat both as a full gather/indexing design requiring a counterpart and kernel semantics, not as a reason to declare the operations impossible. |
+| ~~`IndexTensor4`~~ | **Landed** (2026-09-05; see `ops-progress.md`'s landing record). Reuses `Index_tensor.Index_tensor`'s own `output_shape`/`Compute` unchanged, the gathered axis narrowed to `Axis4.t` with the same `check_dims`-style rejection `Select4`/`RepeatInterleave4` get. No corpus model is currently gated on it (`index.Tensor`'s own single-entry Native case, `csatv2`, was already past this point before Native4D had a counterpart at all), so the scoreboard is unchanged. | Done. |
+| Live max-pool indices | `Max_pool2d_with_indices`/`Adaptive_max_pool2d_with_indices` are still rejected outright when the index output is live -- a genuine two-output ArgMaxPool/MaxPoolWithIndices4 counterpart, the multi-output plumbing `Unbind` established (`Builder.opN`, `Graph_shape4`'s list form, `Eval_op4`'s per-ordinal dispatch), is the remaining piece. No corpus model is currently gated on it either. | Treat as a full gather/indexing design requiring a counterpart and kernel semantics, not as a reason to declare the operation impossible. |
 
 The exceptional Native4D boundaries are narrower than “not currently in
 `Ops4`”: an operation whose semantics intrinsically require `D` or `T` in the
