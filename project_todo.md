@@ -139,26 +139,60 @@ presented as measured capacity. No production code changed. `make precommit` pas
 
 ### 5. Strengthen the existing project foundations
 
-- [ ] Replace independent Region `shape`/`value` fields with scalar and vector RHS cases.
+- [x] Replace independent Region `shape`/`value` fields with scalar and vector RHS cases.
   Derive read kind and storage extent from the RHS; add the scan case only in step 6.
-- [ ] Introduce shared typed slot-layout/read helpers while retaining independent reference
+- [x] Introduce shared typed slot-layout/read helpers while retaining independent reference
   and production evaluation loops. Update Region folds, printers and explorer RHS rendering.
-- [ ] Stream reference materialization by key; verify existing normalization/SDPA behavior
+- [x] Stream reference materialization by key; verify existing normalization/SDPA behavior
   and the extent-one regression before introducing recurrence.
-- [ ] Preserve full Region construction errors through `Region_context` and
+- [x] Preserve full Region construction errors through `Region_context` and
   `Region_computation`, using the existing `Err` boundary conventions.
-- [ ] Establish result-valued preparation for current programs, retaining validated shape,
+- [x] Establish result-valued preparation for current programs, retaining validated shape,
   existing limits and layout. Migrate both public lowering constructors and their callers;
   step 7 extends that invariant to the new resource dimensions.
 - [ ] Factor a small scoped-child helper from current Expr traversals where it removes
   duplication. Keep lexical environments explicit. Provide a named fragment-import helper
   using the receiving builder supply and freshening before insertion.
-- [ ] Extend external public-API and existing-operation fixtures to pin these contracts.
+- [x] Extend external public-API and existing-operation fixtures to pin these contracts.
   Keep the pure library dependencies and numerical/materialization behavior unchanged.
 
 Completion: existing scalar/vector operations validate the new structure and preparation
 boundary without any scan arithmetic. Avoid adding an unused generic IR or speculative
 capabilities; the next step supplies the concrete new constructor and scope requirements.
+
+Evidence (2026-09-05): six commits land the six checked items. `5824787` folds
+`Region_local`'s independent `shape`/`value` fields into `Region_local.Rhs.t` (`Scalar of
+Value.t | Vector of {extent; var; body}`), with `Shape.t` demoted to a value-free projection
+kept only for the `Shape_mismatch` payload and printing. `8c16c5a` gives `Region_context`'s and
+all four `Region_computation` dispatch sites' `Invalid_program` the real `Region_program.error`
+payload instead of erasing it; the graph-boundary regression's golden now shows the actual
+cause. `fd8a802` restructures `Region_eval.materialize` from an unbounded per-key `Hashtbl` to
+the same `fold_keys`/`fold_outputs` streaming shape `Region_execution.materialize` already
+uses -- same reference `evaluate_locals`/`emit`, so results are unaffected; the whole tree's
+tests confirm no golden changed. `3e79906` factors the byte-for-byte-duplicated slot-layout
+fold and reader out of both evaluators into `Region_slots`, leaving each evaluator's own
+`evaluate_locals`/`emit` independent. `384f8e5` makes `Region_execution.lower`/`lower_region`
+take `~max_size`/`~max_depth` and re-run `Region_program.check` before lowering, closing a real
+gap: `Region_program.with_output` is a raw record update, and `Kernel_eval.converted` uses
+exactly that to splice in a result conversion after construction, so a rewritten emitter
+previously reached `lower_region` unchecked; migrated all six call sites (`eval_direct`,
+`eval_direct4`, `stage_program`, `kernel_eval`, two tests). `c7cc819` adds the regression this
+check's fix demands: lowering the same program before and after an oversized `with_output`
+rewrite, at the same limits, shows the rewritten one now fails (`depth exceeds limit 16`)
+where it previously could not have been rejected at all.
+
+The scoped-child/fragment-import helper is deliberately left undone. `lib/expr_internal/fold.ml`
+already states its design intent against a generic scope-aware visitor ("binder behaviour stays
+visible in each signature, and a new constructor breaks the ones that must handle it instead of
+silently falling through a default"), and `rewrite.ml`'s `rebuild` already threads a caller-
+supplied scope environment through `Reduce`'s binder for every rewrite built on it (`freshen`,
+`alpha_normalize`) -- there is no current, unforced duplication left to factor. The only concrete
+consumer named by the plan is `Builder.scan`'s own two-namespace construction and freshening
+obligation, which does not exist until step 6. Building the helper now, disconnected from that
+consumer, is exactly the "unused generic IR or speculative capabilities" this step's own
+completion note warns against; land it as part of step 6 instead, against the real `Scan`
+binders. `make precommit` and the whole `NO_COLOR=1 opam exec -- dune runtest` tree pass after
+every commit above.
 
 ### 6. Extend those foundations with bounded scans
 
