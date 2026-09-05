@@ -309,7 +309,7 @@ let%expect_test "Native Direct materializes an authored Sdpa Region" =
   [%expect {| sdpa: keys=2 locals=18 emitters=6 loads=60 reductions=48 |}]
 
 (* Regression: both Region evaluators must dispatch on a local's DECLARED
-   [Region_local.Shape.t], never its numeric slot count. A [Vector] local whose
+   [Region_local.Rhs.t] case, never its numeric slot count. A [Vector] local whose
    extent happens to be 1 (Sdpa's [s]/[p] at [Wk = 1], a single key/value pair)
    has the same [(offset, 1)] range as a scalar. Selecting the scalar branch
    leaves its per-element reducer unbound. Keep the production graph path and

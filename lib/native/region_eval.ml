@@ -15,14 +15,14 @@ let widen_partition result =
     result
 
 (* [(offset, count)] per local, mirroring [Region_execution.lower_region]:
-   a scalar occupies one slot, a vector [Region_local.Shape.slot_count]-many.
+   a scalar occupies one slot, a vector [Region_local.Rhs.slot_count]-many.
    The running [offset] needs no bounds-checked fold here for the same reason
    it needs none there -- [Region_program.check] already proved the total
    fits, as a precondition of [program]'s own existence. *)
 let local_slots program =
   List.fold_left
     (fun (slots, offset) local ->
-      let count = Region_local.Shape.slot_count local.Region_local.shape in
+      let count = Region_local.Rhs.slot_count local.Region_local.rhs in
       ( Expr.Local_var.Map.add local.Region_local.id (offset, count) slots,
         offset + count ))
     (Expr.Local_var.Map.empty, 0)
@@ -58,23 +58,23 @@ let evaluate_locals program ~env ~slots ~key =
         let offset, count =
           Expr.Local_var.Map.find binding.Region_local.id slots
         in
-        match binding.Region_local.shape with
-        | Region_local.Shape.Scalar ->
+        match binding.Region_local.rhs with
+        | Region_local.Rhs.Scalar value ->
             let* value =
               widen_expr
                 (Expr.Eval.value ~local ~local_at env ~output:(expr_coord key)
-                   binding.Region_local.value)
+                   value)
             in
             values.(offset) <- value;
             fill rest
-        | Region_local.Shape.Vector { var; _ } ->
+        | Region_local.Rhs.Vector { var; body; _ } ->
             let rec each p =
               if p >= count then Err.return ()
               else
                 let* value =
                   widen_expr
                     (Expr.Eval.value ~local ~local_at ~reducer:(var, p) env
-                       ~output:(expr_coord key) binding.Region_local.value)
+                       ~output:(expr_coord key) body)
                 in
                 values.(offset + p) <- value;
                 each (p + 1)

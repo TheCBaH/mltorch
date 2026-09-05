@@ -92,7 +92,8 @@ let collect program ~output_shape =
 
 let pp fmt t =
   let pp_local fmt (local : Region_local.t) =
-    Fmt.pf fmt "%a = %a" Expr.Local_var.pp local.id Expr.Pp.value local.value
+    Fmt.pf fmt "%a = %a" Expr.Local_var.pp local.id Expr.Pp.value
+      (Region_local.Rhs.value local.rhs)
   in
   let pp_entry fmt { key; outputs } =
     Fmt.pf fmt "key %a@,  locals: %a@,  emit: %a@,  outputs: %a" Vec6.pp_coord

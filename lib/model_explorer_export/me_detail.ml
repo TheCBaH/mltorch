@@ -92,7 +92,7 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
             (fun i local ->
               ( Fmt.str "l%d-e" i,
                 Some (Fmt.str "local l%d" i),
-                local.Region_local.value ))
+                Region_local.Rhs.value local.Region_local.rhs ))
             locals
           @ [
               ( "emit-e",

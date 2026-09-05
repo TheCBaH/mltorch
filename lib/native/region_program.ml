@@ -108,13 +108,17 @@ let specialize_pixel ~max_size ~max_depth t =
           (fun acc local ->
             let* locals, state = acc in
             let* size, depth =
-              preflight ~max_size ~max_depth ~locals local.Region_local.value
+              preflight ~max_size ~max_depth ~locals
+                (Region_local.Rhs.value local.Region_local.rhs)
             in
-            let value, state = rewrite locals state local.Region_local.value in
+            let value, state =
+              rewrite locals state
+                (Region_local.Rhs.value local.Region_local.rhs)
+            in
             let binding =
-              match local.Region_local.shape with
-              | Region_local.Shape.Scalar -> Expr.Rewrite.Scalar value
-              | Region_local.Shape.Vector { var; _ } ->
+              match local.Region_local.rhs with
+              | Region_local.Rhs.Scalar _ -> Expr.Rewrite.Scalar value
+              | Region_local.Rhs.Vector { var; _ } ->
                   Expr.Rewrite.Vector { var; body = value }
             in
             Err.return
@@ -183,7 +187,8 @@ let all_local_ids locals =
 let all_local_shapes locals =
   List.fold_left
     (fun shapes local ->
-      Expr.Local_var.Map.add local.Region_local.id local.Region_local.shape
+      Expr.Local_var.Map.add local.Region_local.id
+        (Region_local.Shape.of_rhs local.Region_local.rhs)
         shapes)
     Expr.Local_var.Map.empty locals
 
@@ -230,7 +235,7 @@ let checked_slot_total ~limit locals =
     | [] -> Err.return ()
     | local :: rest ->
         let count =
-          Int64.of_int (Region_local.Shape.slot_count local.Region_local.shape)
+          Int64.of_int (Region_local.Rhs.slot_count local.Region_local.rhs)
         in
         if Int64.compare total (Int64.sub limit64 count) > 0 then
           Err.fail (`Local_words_over_limit limit)
@@ -263,14 +268,15 @@ let check ~max_size ~max_depth t =
             Err.fail (`Duplicate_local local.Region_local.id)
           else
             let allowed_free =
-              match local.Region_local.shape with
-              | Region_local.Shape.Vector { var; _ } ->
+              match local.Region_local.rhs with
+              | Region_local.Rhs.Vector { var; _ } ->
                   Expr.Reduce_var.Set.singleton var
-              | Region_local.Shape.Scalar -> Expr.Reduce_var.Set.empty
+              | Region_local.Rhs.Scalar _ -> Expr.Reduce_var.Set.empty
             in
             let* () =
               Expr.Check.fragment ~max_size:remaining ~max_depth ~allowed_free
-                ~locals:all local.Region_local.value
+                ~locals:all
+                (Region_local.Rhs.value local.Region_local.rhs)
               |> Err.map_error (function
                 | `Unbound_local referenced ->
                     `Unknown_local
@@ -280,13 +286,16 @@ let check ~max_size ~max_depth t =
             let* () =
               match
                 first_scope_error ~defined ~all ~local:local.Region_local.id
-                  local.Region_local.value
+                  (Region_local.Rhs.value local.Region_local.rhs)
               with
               | None -> Err.return ()
               | Some error -> Err.fail error
             in
             let* () =
-              match shape_error ~shapes local.Region_local.value with
+              match
+                shape_error ~shapes
+                  (Region_local.Rhs.value local.Region_local.rhs)
+              with
               | None -> Err.return ()
               | Some error -> Err.fail error
             in
@@ -296,7 +305,8 @@ let check ~max_size ~max_depth t =
                 List.find_opt
                   (fun axis ->
                     List.mem axis
-                      (Expr.Fold.output_axes local.Region_local.value))
+                      (Expr.Fold.output_axes
+                         (Region_local.Rhs.value local.Region_local.rhs)))
                   whole
               with
               | None -> Err.return ()
@@ -305,7 +315,9 @@ let check ~max_size ~max_depth t =
                     (`Non_invariant_local
                        { Non_invariant.local = local.Region_local.id; axis })
             in
-            let consumed = Expr.Fold.size local.Region_local.value in
+            let consumed =
+              Expr.Fold.size (Region_local.Rhs.value local.Region_local.rhs)
+            in
             check_locals (remaining - consumed)
               (Expr.Local_var.Set.add local.Region_local.id defined)
               (Expr.Local_var.Set.add local.Region_local.id seen)
@@ -340,7 +352,10 @@ let create ~max_size ~max_depth ~partition ~locals ~output =
 
 module Fold = struct
   let expressions t =
-    List.map (fun local -> local.Region_local.value) t.locals @ [ t.output ]
+    List.map
+      (fun local -> Region_local.Rhs.value local.Region_local.rhs)
+      t.locals
+    @ [ t.output ]
 
   let sources t =
     List.fold_left
@@ -379,9 +394,10 @@ let pp fmt t =
     (fun local ->
       Fmt.pf fmt "@\n  let %s : %a = %a"
         (Option.value ~default:"?" (local_name local.Region_local.id))
-        Region_local.Shape.pp local.Region_local.shape
+        Region_local.Shape.pp
+        (Region_local.Shape.of_rhs local.Region_local.rhs)
         (Expr.Pp.value_open ~names:local_name)
-        local.Region_local.value)
+        (Region_local.Rhs.value local.Region_local.rhs))
     t.locals;
   Fmt.pf fmt "@\n  emit %a" (Expr.Pp.value_open ~names:local_name) t.output
 

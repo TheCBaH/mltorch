@@ -42,7 +42,9 @@ let same op =
   in
   let same_local (l1 : Region_local.t) (l2 : Region_local.t) =
     Expr.Local_var.equal l1.Region_local.id l2.Region_local.id
-    && Expr.Value.equal l1.Region_local.value l2.Region_local.value
+    && Expr.Value.equal
+         (Region_local.Rhs.value l1.Region_local.rhs)
+         (Region_local.Rhs.value l2.Region_local.rhs)
   in
   let mapped_locals = Region_program.locals mapped
   and native_locals = Region_program.locals native in
