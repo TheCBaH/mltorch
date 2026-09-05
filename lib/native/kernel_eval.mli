@@ -28,6 +28,7 @@ type error =
   | `Binding_mismatch of Binding_mismatch.t
   | `Recursion_too_deep of int
   | Region_partition.error
+  | Region_program.error
   | `Unbound_input of Tensor_id.t
   | `Unknown_value of Tensor_id.t ]
 

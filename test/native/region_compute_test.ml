@@ -726,7 +726,10 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
                         (Expr_bridge.coord_of_vec6 Symbolic.out_vec))))))
   in
   let lowered =
-    match Region_execution.lower program with
+    match
+      Err.or_raise ~pp_error:Region_program.pp_error
+        (Region_execution.lower ~max_size:32 ~max_depth:16 program)
+    with
     | Region_execution.Pixel_loop _ -> assert false
     | Region_execution.Region_loop lowered -> lowered
   in

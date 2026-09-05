@@ -26,6 +26,7 @@ type error =
   | `Binding_mismatch of Binding_mismatch.t
   | `Recursion_too_deep of int
   | Region_partition.error
+  | Region_program.error
   | `Unbound_input of Tensor_id.t
   | `Unknown_value of Tensor_id.t ]
 
@@ -35,6 +36,7 @@ let pp_error fmt : [< error ] -> unit = function
   | `Recursion_too_deep n ->
       Fmt.pf fmt "recursive evaluation nested more than %d producers deep" n
   | #Region_partition.error as e -> Region_partition.pp_error fmt e
+  | #Region_program.error as e -> Region_program.pp_error fmt e
   | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
   | `Unknown_value id -> Fmt.pf fmt "%a names no value" Tensor_id.pp id
 
@@ -143,6 +145,9 @@ let widen r = Err.map_error (fun (e : Expr.Eval.error) -> (e :> error)) r
 let widen_region r =
   Err.map_error (fun (e : Region_eval.error) -> (e :> error)) r
 
+let widen_program r =
+  Err.map_error (fun (e : Region_program.error) -> (e :> error)) r
+
 let coord_key (c : int Expr.Coord.t) =
   ( c.Expr.Coord.n,
     c.Expr.Coord.t,
@@ -160,17 +165,25 @@ let values_by_id (k : Kernel.t) =
    conversion, applied exactly once. Built once per value rather than per
    coordinate. A Pixel program stays on the existing direct expression path;
    this distinction is intentional, because it preserves the tight per-cell
-   evaluator for the overwhelmingly common singleton case. *)
-let converted ?region_counters (v : Kernel.Value.t) =
+   evaluator for the overwhelmingly common singleton case.
+
+   [Result_conversion.apply] rewrites the emitter via [with_output] AFTER
+   [v.Kernel.Value.computation] was already checked at construction --
+   [with_output] is a raw record update, not [Region_program.create] -- so
+   [lower_region]'s own re-validation against the kernel's limits is what
+   covers this rewritten expression; nothing upstream of it does. *)
+let converted esc ?region_counters ~max_size ~max_depth (v : Kernel.Value.t) =
   match Region_program.pixel_expression v.Kernel.Value.computation with
   | Some body ->
       `Pixel (Kernel.Result_conversion.apply v.Kernel.Value.result body)
   | None ->
       let lowered =
-        Region_execution.lower_region
-          (Region_program.with_output v.Kernel.Value.computation
-             (Kernel.Result_conversion.apply v.Kernel.Value.result
-                (Region_program.output v.Kernel.Value.computation)))
+        Err.Escape.or_throw esc
+          (widen_program
+             (Region_execution.lower_region ~max_size ~max_depth
+                (Region_program.with_output v.Kernel.Value.computation
+                   (Kernel.Result_conversion.apply v.Kernel.Value.result
+                      (Region_program.output v.Kernel.Value.computation)))))
       in
       `Region
         ( lowered,
@@ -190,7 +203,13 @@ let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
 let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
   let inputs = Err.Escape.or_throw esc (input_env k ~bind) in
   let values = values_by_id k in
-  let bodies = Tensor_id.Map.map (converted ?region_counters) values in
+  let bodies =
+    Tensor_id.Map.map
+      (converted esc ?region_counters
+         ~max_size:k.Kernel.limits.Kernel.Limits.max_size
+         ~max_depth:k.Kernel.limits.Kernel.Limits.max_depth)
+      values
+  in
   let bound = ref inputs in
   (* An edge is virtual only for its NOMINATED consumer, so the question is
      always "does this consumer recurse into that producer", never "is that

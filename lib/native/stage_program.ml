@@ -68,7 +68,16 @@ let ground (p : t) ~(bind : Tensor_id.t -> Tensor.packed) :
            before any error path exists. *)
         let binding id = Tensor_id.Map.find_opt id binds in
         let t =
-          match Region_execution.lower (Stage.computation st) with
+          (* [?limits] does not reach here yet -- [Eval_symbolic.run] hardcodes
+             [Kernel.Limits.default] the same way, and both are threaded a real
+             configured value together later. *)
+          match
+            Err.or_raise ~pp_error:Region_program.pp_error
+              (Region_execution.lower
+                 ~max_size:Kernel.Limits.default.Kernel.Limits.max_size
+                 ~max_depth:Kernel.Limits.default.Kernel.Limits.max_depth
+                 (Stage.computation st))
+          with
           | Region_execution.Pixel_loop body ->
               Schedule.ground st.sg.shape ~binding body
           | Region_execution.Region_loop lowered ->

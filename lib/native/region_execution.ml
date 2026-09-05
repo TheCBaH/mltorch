@@ -31,19 +31,31 @@ let counters () =
    plain pixel expression -- e.g. it just matched [pixel_expression = None] --
    so it need not re-discover that fact by lowering and matching on [t].
 
+   Re-running [Region_program.check] here is what makes the claim "an
+   already-validated lowered Region program" true regardless of how [program]
+   was produced: [Region_program.t] is only ever built through [create], which
+   already checks it once, but [Region_program.with_output] is a raw record
+   update with no check of its own -- [Kernel_eval.converted] uses exactly
+   that to splice in a result conversion after construction, so its rewritten
+   emitter has never been checked before it reaches here.
+
    [Region_slots.of_locals]'s running offset is plain [int] arithmetic, not
-   [Int64]-checked: [Region_program.check] (run once, at [create]) already
-   bounds the SUM of every local's slot count against [max_size] on [Int64]
-   before any [Region_program.t] can exist, so by the time a program reaches
-   here the total is already proven to fit -- this only has to use that
+   [Int64]-checked: the [check] just above already bounds the SUM of every
+   local's slot count against [max_size] on [Int64], so by the time a program
+   is lowered the total is already proven to fit -- this only has to use that
    proof, not re-derive it. *)
-let lower_region program =
+let lower_region ~max_size ~max_depth program =
+  let open Err.Syntax in
+  let+ () = Region_program.check ~max_size ~max_depth program in
   { program; slots = Region_slots.of_locals (Region_program.locals program) }
 
-let lower program =
+let lower ~max_size ~max_depth program =
   match Region_program.pixel_expression program with
-  | Some expression -> Pixel_loop expression
-  | None -> Region_loop (lower_region program)
+  | Some expression -> Err.return (Pixel_loop expression)
+  | None ->
+      let open Err.Syntax in
+      let+ lowered = lower_region ~max_size ~max_depth program in
+      Region_loop lowered
 
 let widened r =
   Err.map_error (fun (e : Expr.Eval.error) -> (e :> Region_eval.error)) r

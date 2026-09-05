@@ -133,7 +133,13 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
         | Some tensor -> Some tensor
         | None -> Tensor_id.Map.find_opt id synthetic_bindings)
   in
-  match Region_execution.lower program with
+  let* lowered =
+    Region_execution.lower ~max_size:limits.Kernel.Limits.max_size
+      ~max_depth:limits.Kernel.Limits.max_depth program
+    |> Err.map_error (fun error ->
+        `Region_construction (Region_computation.Invalid_program error))
+  in
+  match lowered with
   | Region_execution.Pixel_loop _ -> assert false
   | Region_execution.Region_loop lowered ->
       Region_execution.materialize ?counters:region_counters lowered

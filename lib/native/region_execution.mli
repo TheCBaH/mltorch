@@ -10,9 +10,22 @@ type lowered
 type t = Pixel_loop of Expr.Value.t | Region_loop of lowered
 
 val counters : unit -> counters
-val lower : Region_program.t -> t
 
-val lower_region : Region_program.t -> lowered
+val lower :
+  max_size:int ->
+  max_depth:int ->
+  Region_program.t ->
+  (t, Region_program.error) Err.t
+(** Re-validates [program] against [max_size]/[max_depth] before lowering it, so
+    a caller holding a [t] never has to trust that an intervening rewrite (e.g.
+    [Kernel.Result_conversion.apply] via [Region_program.with_output]) left it
+    well-formed. *)
+
+val lower_region :
+  max_size:int ->
+  max_depth:int ->
+  Region_program.t ->
+  (lowered, Region_program.error) Err.t
 (** As [lower], for a caller that already knows -- structurally, e.g. from
     [Region_program.pixel_expression] returning [None] -- that [program] is not
     a plain pixel expression, so it need not re-derive that by matching on [t].
