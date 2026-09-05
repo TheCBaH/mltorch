@@ -280,12 +280,13 @@ Native op, `Matmul.Batched_matmul` (`lib/native/ops/matmul.ml`, alongside
 
 **The importer split** (`Op_bridge_linalg`, `Native_interp`): batch-less
 (rank-2, or rank>=3 with every leading axis at extent 1, §4) still binds to
-the existing `Bmm` node, UNCHANGED; both operands the same rank>=3 but not
-batch-less (a leading axis is >1 on either side) now binds to
-`Batched_matmul` instead of the prior typed rejection. Anything else
-(either operand rank<2, or the two operands' ranks differ) keeps the
-ORIGINAL `` `Matmul_unsupported_shape `` typed rejection, reworded since it
-no longer describes the batched case as unsupported.
+the existing `Bmm` node, UNCHANGED; either operand not batch-less (a leading
+axis is >1 on either side) now binds to `Batched_matmul` instead of the
+prior typed rejection — **as of §7.1 below, with no ATen-rank equality
+requirement at all**, not just "both operands the same rank>=3" as originally
+landed here. Anything else (either operand rank<2) keeps the ORIGINAL
+`` `Matmul_unsupported_shape `` typed rejection, reworded since it no longer
+describes the batched or unequal-rank cases as unsupported.
 
 Verified against real ATen (the generalized `Recipe_matmul` walk, "matched"
 including a `D=2,H=1` step) and by hand (`test/native_bridge/dispatch_test.ml`'s
@@ -298,18 +299,85 @@ covers `Op_bridge`'s.
 
 ## 6. What stays a typed rejection, no corpus evidence either way
 
-- `matmul.default` with unequal-but-broadcastable leading axes (e.g. one
-  operand's batch axis is 1 and the other's is not) — ATen's contract
-  allows this via broadcasting; no downloaded archive exercises it.
 - `matmul.default` with a rank-1 operand (vector-matrix / matrix-vector /
   vector-vector forms) — a different output-rank rule ATen applies only for
   rank-1 operands; no evidence either.
 - `softmax.int` with `half_to_float=true`.
 
 Each should fail with a named diagnostic, not silently produce a wrong
-answer or a bare "unsupported".
+answer or a bare "unsupported". The other bullet this section used to carry
+— unequal-but-broadcastable leading axes on two SAME-rank operands — is
+landed (§7, `Batched_matmul.output_shape`'s own per-axis broadcast,
+2026-09-04, `lambda_resnet26t`); unequal ATen RANK is landed too (§7.1,
+2026-09-05, `eca_halonext26ts`).
 
-## 7. Verification note
+## 7. `Batched_matmul` real ATen broadcasting: landed 2026-09-04
+
+`Batched_matmul.output_shape` broadcasts `N`/`T`/`D`/`H` per axis (equal, or
+one side extent 1), reusing `Pointwise_binary.broadcast_output_shape`'s
+per-axis rule restricted to the four batch axes; `Compute` reads each
+operand through `Pointwise_binary.broadcast_coord` against its own shape
+rather than the output coordinate directly. `lambda_resnet26t`'s real
+`[1,4,64,16] @ [1,1,16,64]` occurrence (`H`: 4 vs 1) is the grounding corpus
+evidence. See `todo-ops.md`'s own landing note for the full record
+(`lib/native4d/domain.ml`'s `check_batched_matmul` fix, the hand-computed
+`test/native/linear_test.ml` fixture, and the `test/native4d/{fixtures,
+domain_test}.ml` broadcast-domain fixture).
+
+### 7.1 Unequal ATen rank: landed 2026-09-05
+
+`eca_halonext26ts` (the last model gated on the now-closed `conv1d`/`unfold`
+P1 slice, `todo-ops.md`'s own record) exposed a THIRD matmul shape family,
+distinct from §7's same-rank broadcast: real ATen `matmul.default` also
+accepts two operands of
+**different rank** whenever both are rank>=2, e.g. this model's own
+`self=[32,8,8,16] (rank 4) @ other=[16,23] (rank 2)`. ATen's contract for
+this case is an implicit prepend of `1`s to the lower-rank operand's batch
+prefix before the same per-axis batch-broadcast rule applies (`torch.matmul`
+docs: "If the first argument is 1-dimensional ... promoted"; generalized to
+any rank difference by the batched case's own broadcasting rule).
+
+**The fix needed no new Native surface at all** — not even a new `Batched_matmul`
+branch. `Aten_shape.of_aten`'s existing right-alignment (`used_axes ~rank`,
+this doc's own §2's "genuine rank" reasoning) already right-aligns EACH
+operand's own ATen rank onto the frame's trailing axes independently,
+defaulting every axis the operand's rank doesn't reach to extent 1 — which
+*is* ATen's implicit-unsqueeze rule, applied per operand rather than to a
+padded pair. So `self`'s rank-4 shape lands on `[D,H,W,C]` and `other`'s
+rank-2 shape lands on `[W,C]` (`N`/`T`/`D`/`H` implicitly 1), and
+`Batched_matmul`'s pre-existing (§7) per-axis broadcast on `N`/`T`/`D`/`H`
+computes the exactly-correct output with no operand-rank comparison anywhere
+in the shape rule.
+
+The only change needed was at the **importer boundary**
+(`Op_bridge_linalg.ml`, `Native_interp_lower_compute.ml`): both used to gate
+the `Batched_matmul` route on `rank_a = rank_b && rank_a >= 3`; this widened
+to `rank_a >= 2 && rank_b >= 2` (the batch-less/`Bmm` branch, checked first,
+is unaffected — it already accepts unequal ranks with unit leading axes,
+§4). Rank<2 remains the one live `` `Matmul_unsupported_shape `` rejection.
+Both error modules' doc comments and message text were reworded to drop "and
+of equal rank" — that clause no longer describes any rejection this code
+path makes.
+
+`eca_halonext26ts` moves from `native_builds:false` to `native_builds:true`
+**and** `kernel_converts:true` in the same landing (`native_builds` 90→91,
+`kernel_converts` 64→65): its own next node is an `unfold.default`
+occurrence, which Native4D already rejects unconditionally and deliberately
+(the P1 slice closed same-week, `todo-ops.md`'s own `unfold.default` landing
+note) — so `native4d_converts` stays `false` and this model does not newly
+join the all-three-stages count (unchanged at 44).
+
+Verified by hand (`test/native_bridge/dispatch_test.ml`'s new "accepts
+unequal operand ranks" fixture: `self=[2,2,3]`, `other=[3,2]`, two
+independent `2x3 @ 3x2` products against the SAME shared `other` — the
+`H`-batch analogue of `mvitv2_tiny`'s own real-batch fixture, just with
+`other`'s batch axis missing entirely rather than present at extent 1) and
+by graph structure (`test/native_interp/matmul_test.ml`'s matching case).
+**Not done**: `Recipe_matmul`'s ATen-oracle fuzz walk was not widened to
+sweep an unequal-rank configuration — the same scoping precedent §7's own
+broadcast landing set (and `Add`/`Mul`'s walks before that).
+
+## 8. Verification note
 
 Two of the three grounding models (`mobilevitv2_175`, `mvitv2_tiny`) are not
 in `PT2_MODELS_CRAM`/`PT2_MODELS_ALL` at the time of this decision; they were

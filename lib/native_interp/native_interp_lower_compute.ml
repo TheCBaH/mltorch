@@ -797,10 +797,12 @@ let dispatch ~ctx ~env (node : Node.t) =
          reasoning and same split as [Op_bridge]'s arm -- see there for the
          full accounting. Batch-less (rank-2, or rank>=3 with every axis but
          the last two at extent 1) binds to the EXISTING [Bmm] node;
-         batched/multi-head (both operands the same rank>=3 but not
-         batch-less) binds to [Batched_matmul], which validates full
-         [N]/[T]/[D]/[H] agreement itself. Anything else (rank<2 on either
-         side, or unequal ranks) is the ORIGINAL typed rejection, unchanged. *)
+         batched/multi-head (either operand not batch-less) binds to
+         [Batched_matmul], which validates [N]/[T]/[D]/[H] agreement itself,
+         broadcasting a mismatch (including one operand missing an axis
+         entirely -- unequal ATen rank) rather than requiring equality.
+         Anything else (rank<2 on either side) is the ORIGINAL typed
+         rejection, unchanged. *)
        | "torch.ops.aten.matmul.default" ->
            let a_name = tensor_name esc node "self" in
            let b_name = tensor_name esc node "other" in
@@ -822,7 +824,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            if batchless a_sizes && batchless b_sizes then
              let* y = bmm (get "self") (get "other") in
              return [ y ]
-           else if rank_a = rank_b && rank_a >= 3 then
+           else if rank_a >= 2 && rank_b >= 2 then
              let* y = batched_matmul (get "self") (get "other") in
              return [ y ]
            else

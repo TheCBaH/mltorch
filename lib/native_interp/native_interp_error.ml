@@ -252,11 +252,10 @@ end
 (* [matmul.default]'s remaining unsupported shape family, now that both the
    batch-less case (`.ai/matmul_softmax_design.md` §4, binds to the existing
    [Bmm] node) and the batched/multi-head case (§5, binds to the new
-   [Batched_matmul] node) are supported -- either operand is rank<2 or the
-   two operands have different rank. Carries both declared size lists, the
-   same reasoning [Op_bridge_error.Matmul_unsupported_shape] gives on the
-   ATen-linked side: a reader needs the actual shapes, not just which check
-   failed. *)
+   [Batched_matmul] node, unequal ATen rank included) are supported -- either
+   operand is rank<2. Carries both declared size lists, the same reasoning
+   [Op_bridge_error.Matmul_unsupported_shape] gives on the ATen-linked side:
+   a reader needs the actual shapes, not just which check failed. *)
 module Matmul_unsupported_shape = struct
   type t = { self : int list; other : int list }
 end
@@ -544,8 +543,8 @@ let pp_malformed ppf : [< malformed ] -> unit = function
   | `Matmul_unsupported_shape { Matmul_unsupported_shape.self; other } ->
       let ints = Fmt.(list ~sep:(any ", ") int) in
       Fmt.pf ppf
-        "matmul.default: both operands must be rank>=2 and of equal rank, got \
-         self=[%a] other=[%a]"
+        "matmul.default: both operands must be rank>=2, got self=[%a] \
+         other=[%a]"
         ints self ints other
   | `Missing_arg { Missing_arg.op; arg } ->
       Fmt.pf ppf "%s: missing argument %S" op arg
