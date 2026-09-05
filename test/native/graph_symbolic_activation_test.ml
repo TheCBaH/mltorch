@@ -24,7 +24,10 @@ let%expect_test "Symbolic graph: hardsigmoid stage DAG + ground matches Direct"
     in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -65,7 +68,10 @@ let%expect_test "Symbolic graph: hardtanh/clone ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -101,7 +107,10 @@ let%expect_test "Symbolic graph: silu stage DAG + ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -134,7 +143,10 @@ let%expect_test "Symbolic graph: sigmoid stage DAG + ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -170,7 +182,10 @@ let%expect_test "Symbolic graph: gelu stage DAG + ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -204,7 +219,10 @@ let%expect_test
     in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -239,7 +257,10 @@ let%expect_test "Symbolic graph: hardswish stage DAG + ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in

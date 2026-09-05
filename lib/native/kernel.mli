@@ -88,6 +88,20 @@ module Limits : sig
     max_outputs : int;
     max_extent : int64;
     max_numel : int64;
+    max_local_slots : int;
+        (** Region trace/scalar/vector storage: total slot count across a
+            computation's locals, [(steps+1)*width] per trace local. *)
+    max_scan_state : int;
+        (** Peak live scan state during one evaluation -- see
+            [Expr.Scan_limits.max_state]. *)
+    max_scan_updates_per_key : int64;
+        (** Recurrence iterations admitted for one Region key -- see
+            [Expr.Scan_limits.max_updates]. *)
+    max_scan_updates_total : int64;
+        (** Summed [keys * per_key] across a Kernel's logical values. Enforced
+            only at [create]: there is no whole-graph choke point upstream of
+            Direct or Stage-ground execution, so this bound is Kernel-scoped,
+            not universal. *)
   }
 
   module Invalid : sig
@@ -122,6 +136,14 @@ module Limits : sig
     val eval_recursion : int
     val extent : int64
     val numel : int64
+
+    (* Memory- and array-length-bound, not stack-bound -- policy ceilings with
+       deliberate headroom over the scan design record's censuses, not
+       empirically discovered frontiers. *)
+    val max_local_slots : int
+    val max_scan_state : int
+    val max_scan_updates_per_key : int64
+    val max_scan_updates_total : int64
   end
 
   val default : t
@@ -137,6 +159,10 @@ module Limits : sig
     max_outputs:int ->
     max_extent:int64 ->
     max_numel:int64 ->
+    max_local_slots:int ->
+    max_scan_state:int ->
+    max_scan_updates_per_key:int64 ->
+    max_scan_updates_total:int64 ->
     (t, error) Err.t
   (** Custom limits may TIGHTEN, never widen: every field is checked against its
       [Hard] counterpart, and non-positive values are rejected. Widening matters
@@ -144,6 +170,11 @@ module Limits : sig
       recursive and bounded by the CONFIGURED depth, so an over-wide [max_depth]
       lets validation overflow before reaching the limit it was asked to
       enforce. *)
+
+  val scan_limits : t -> Expr.Scan_limits.t
+  (** [max_scan_state]/[max_scan_updates_per_key] narrowed to what [Expr] needs.
+      A pure accessor, never fallible: both fields already cleared the same
+      [Hard] ceilings [Expr.Scan_limits.create] enforces. *)
 end
 
 type t = private {
@@ -199,6 +230,7 @@ type error =
   | `Not_materializable of Format_rule.t
   | `Numel_too_large of Tensor_id.t
   | `Quant_contract of Tensor_id.t
+  | `Scan_updates_total_over_limit of int64
   | `Signature_id_mismatch of Sig_mismatch.t
   | `Too_many_inputs of int
   | `Too_many_outputs of int

@@ -164,6 +164,43 @@ let float_of_index i =
   else if Int64.equal (Int64.of_float f) (Int64.of_int i) then Err.return f
   else Err.fail (`Index_not_exact_in_float i)
 
+(* A trace projection's own bounds failure -- distinct from [index_error]
+   because it names a ROW/LANE pair against a trace's shape, not an index
+   tree against a reducer environment. [local] distinguishes a cached
+   [Local_scan_at] read ([Some id]) from an inline [Scan_at] descriptor
+   ([None]); [extent] is observed shape data (exclusive upper bound: [steps +
+   1] rows or [width] lanes), never a budget limit, so it never appears in a
+   [Scan_meter.error]. *)
+module Scan_projection = struct
+  type t = { local : Local_var.t option; row : int; lane : int }
+end
+
+module Scan_bounds = struct
+  type t = { projection : Scan_projection.t; extent : int }
+end
+
+type scan_error =
+  | Lane_out_of_range of Scan_bounds.t
+  | Row_out_of_range of Scan_bounds.t
+  | Unknown_local of Local_var.t
+
+let pp_scan_error fmt = function
+  | Lane_out_of_range { Scan_bounds.projection; extent } ->
+      Fmt.pf fmt "scan lane %d out of range [0,%d) at row %d"
+        projection.Scan_projection.lane extent projection.Scan_projection.row
+  | Row_out_of_range { Scan_bounds.projection; extent } ->
+      Fmt.pf fmt "scan row %d out of range [0,%d)"
+        projection.Scan_projection.row extent
+  | Unknown_local v -> Fmt.pf fmt "unknown trace local %a" Local_var.pp v
+
+(* A cached-trace reader resolves [id] in its own trace table (a scalar/
+   vector id is not a trace, hence [Unknown_local]), then checks row, then
+   lane, before indexing -- row wins on a simultaneous failure. [Region_eval]
+   and [Region_execution] implement this exact type and widen the resulting
+   [error] unchanged; they do not define a competing projection error. *)
+type scan_reader =
+  Local_var.t -> row:int -> lane:int -> (float, scan_error) Err.t
+
 (* Everything a value can fail on. [`Unknown_source] and [`Coord_out_of_range]
      are raised by the host's [load], not here -- the language knows nothing
      about what a source is. [`Data_source_wrong_format] is raised by the
@@ -177,8 +214,14 @@ type error =
   | `Data_source_wrong_format of string
   | index_error
   | Intrinsic.error
+  | `Scan_meter of Scan_meter.error
+  | `Scan_meter_required
+  | `Scan_projection of scan_error
   | `Unbound_local of Local_var.t
   | `Unknown_source of Source.t ]
+
+let scan_error e = `Scan_projection e
+let scan_meter_error e = `Scan_meter e
 
 let pp_error fmt : [< error ] -> unit = function
   | `Coord_out_of_range (s, a, v, c) ->
@@ -188,6 +231,9 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "Data source is not an I64 tensor (format %s)" name
   | #index_error as e -> pp_index_error fmt e
   | #Intrinsic.error as e -> Intrinsic.pp_error fmt e
+  | `Scan_meter e -> Scan_meter.pp_error fmt e
+  | `Scan_meter_required -> Fmt.string fmt "an inline scan requires a meter"
+  | `Scan_projection e -> pp_scan_error fmt e
   | `Unknown_source s -> Fmt.pf fmt "unknown source %a" Source.pp s
   | `Unbound_local v -> Fmt.pf fmt "unbound local %a" Local_var.pp v
 
@@ -214,14 +260,26 @@ let vchk esc : ('a, [< error ]) Err.t -> 'a = function
   | Ok v -> v
   | Error e -> Err.Escape.throw_error esc (e :> error Err.Error.t)
 
-let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?reducer
-    ?(on_reduction = fun () -> ()) (env : Env.t) ~output e =
+let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
+    ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ()) (env : Env.t)
+    ~output e =
   Err.Escape.with_escape @@ fun esc ->
   let vchk r = vchk esc r in
-  let init_reducers =
-    match reducer with
-    | None -> fun _ -> None
-    | Some (v, p) -> fun w -> if Reduce_var.equal w v then Some p else None
+  (* A LIST, not a single pair: a scan row's [update] has TWO simultaneously
+     bound reducers ([lane] and [step]), unlike a vector local's body, which
+     mentions only its own binder free -- [Region_execution]/[Region_eval]
+     supply both as [[ (lane, l); (step, r) ]] when filling one trace row. *)
+  let init_reducers w =
+    List.find_map
+      (fun (v, p) -> if Reduce_var.equal w v then Some p else None)
+      reducer
+  in
+  (* Missing entirely -- no default trace table -- fails with the same
+     [Unknown_local] a real reader would report for an unrecognized id. *)
+  let scan : scan_reader =
+    match scan with
+    | Some reader -> reader
+    | None -> fun id ~row:_ ~lane:_ -> Err.fail (Unknown_local id)
   in
   (* [eval_index] is polymorphic in the caller's error row, and [env.load_index]
      already sits at exactly this frame's own [error] row -- so [esc] is
@@ -233,6 +291,26 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?reducer
       ~widen:(fun (e : index_error) -> (e :> error))
       ~output ~reducers ~resolve_data:env.Env.load_index i
   in
+  (* [local_at] is a REF, not a plain closed-over value or a threaded
+     argument: an inline [Scan_at]'s [update] evaluates under a temporarily
+     REBOUND resolver that answers its own [prev] from the previous row's
+     buffer, restored on every exit (success, error, or an [Err.Escape]
+     unwind) via [Fun.protect]. Every other occurrence still falls through to
+     the caller's original resolver. A ref keeps [go]'s calling convention,
+     and so its stack frame, identical to before scan existed -- threading
+     [local]/[local_at] as ordinary extra arguments measurably deepened
+     [go]'s frame and regressed [Hard.eval_depth]'s node frontier under
+     node. *)
+  let local_at_ref = ref local_at in
+  (* [eval_scan_at] stays an ordinary [and]-bound sibling of [go]/[guard]/
+     [intrinsic], never called through a ref: js_of_ocaml's tail-call
+     trampoline covers a statically-known mutually-recursive group, but a
+     call through a ref cell is an "unknown function" it cannot fold into
+     that analysis -- see
+     https://ocsigen.org/js_of_ocaml/latest/js_of_ocaml/tailcall.html. An
+     earlier attempt to route [Scan_at] through a forward-reference cell
+     (to keep [eval_scan_at]'s bulkier body out of this group) made the
+     regression below WORSE, not better. *)
   let rec go reducers (e : Value.t) : float =
     match e with
     | Value.Binary (op, a, b) ->
@@ -244,9 +322,12 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?reducer
         | Some x -> x
         | None -> Err.Escape.throw esc (`Unbound_local v))
     | Value.Local_at (v, i) -> (
-        match local_at v (idx reducers i) with
+        match !local_at_ref v (idx reducers i) with
         | Some x -> x
         | None -> Err.Escape.throw esc (`Unbound_local v))
+    | Value.Local_scan_at (v, row_i, lane_i) ->
+        let row = idx reducers row_i and lane = idx reducers lane_i in
+        vchk (Err.map_error scan_error (scan v ~row ~lane))
     | Value.Load (s, c) -> vchk (env.Env.load s (Coord.map (idx reducers) c))
     | Value.Reduce r ->
         let lo = idx reducers r.Reduction.lo
@@ -273,6 +354,7 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?reducer
         (* Convert to binary32 and widen back. The one value expression that
              changes a value without being arithmetic. *)
         Int32.float_of_bits (Int32.bits_of_float (go reducers a))
+    | Value.Scan_at (s, row_i, lane_i) -> eval_scan_at reducers s row_i lane_i
     (* Only the SELECTED branch is evaluated -- the other may divide by zero
          or read out of bounds, and guarding is what the caller built it for. *)
     | Value.Select (c, a, b) ->
@@ -312,5 +394,69 @@ let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?reducer
     in
     let best, best_ix = rows w.Intrinsic.Window.hlo Float.neg_infinity 0 in
     match d.result with Value -> best | Index -> vchk (float_of_index best_ix)
+  (* Bounds-checks row then lane (row wins on a simultaneous failure),
+     reserves [2 * width] live state for the nesting peak (released on every
+     exit path, including an [Err.Escape] unwind, via [Fun.protect]), then
+     runs exactly [row] steps over two row buffers: [prev_row] the last
+     completed row, [cur_row] the one being filled. [update] reads [prev]
+     through a temporarily rebound [local_at_ref] that answers from
+     [prev_row]; every other local reference in [update] still resolves
+     through the caller's own [local]/[local_at], since a Region scan's
+     update legitimately reads earlier Region locals. *)
+  and eval_scan_at reducers s row_i lane_i =
+    let row = idx reducers row_i and lane = idx reducers lane_i in
+    let projection = { Scan_projection.local = None; row; lane } in
+    if row < 0 || row > s.Scan.steps then
+      Err.Escape.throw esc
+        (`Scan_projection
+           (Row_out_of_range
+              { Scan_bounds.projection; extent = s.Scan.steps + 1 }))
+    else if lane < 0 || lane >= s.Scan.width then
+      Err.Escape.throw esc
+        (`Scan_projection
+           (Lane_out_of_range { Scan_bounds.projection; extent = s.Scan.width }))
+    else
+      let meter =
+        match scan_meter with
+        | Some m -> m
+        | None -> Err.Escape.throw esc `Scan_meter_required
+      in
+      vchk
+        (Err.map_error scan_meter_error
+           (Scan_meter.reserve meter ~width:s.Scan.width));
+      let saved_local_at = !local_at_ref in
+      Fun.protect
+        ~finally:(fun () ->
+          local_at_ref := saved_local_at;
+          Scan_meter.release meter ~width:s.Scan.width)
+        (fun () ->
+          let init_row () =
+            Array.init s.Scan.width (fun l ->
+                let bound v =
+                  if Reduce_var.equal v s.Scan.lane then Some l else reducers v
+                in
+                go bound s.Scan.init)
+          in
+          let next_row ~step prev_row =
+            (local_at_ref :=
+               fun v pos ->
+                 if Local_var.equal v s.Scan.prev then Some prev_row.(pos)
+                 else saved_local_at v pos);
+            Array.init s.Scan.width (fun l ->
+                vchk
+                  (Err.map_error scan_meter_error
+                     (Scan_meter.charge_update meter));
+                let bound v =
+                  if Reduce_var.equal v s.Scan.lane then Some l
+                  else if Reduce_var.equal v s.Scan.step then Some step
+                  else reducers v
+                in
+                go bound s.Scan.update)
+          in
+          let rec run r prev_row =
+            if r = row then prev_row.(lane)
+            else run (r + 1) (next_row ~step:r prev_row)
+          in
+          run 0 (init_row ()))
   in
   go init_reducers e

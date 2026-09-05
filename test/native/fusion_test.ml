@@ -438,7 +438,9 @@ let%expect_test "Fusion: planning a wide kernel completes" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:4095
          ~max_dep_depth:1024 ~max_inputs:1024 ~max_outputs:4095
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   let k =
     Err.or_raise ~pp_error:Kernel.pp_error

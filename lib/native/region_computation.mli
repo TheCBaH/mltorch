@@ -1,6 +1,6 @@
 type error =
   | Invalid_partition
-  | Invalid_program
+  | Invalid_program of Region_program.error
   | Missing_operand of Tensor_id.t
   | Output_ordinal of int
   | Output_shape

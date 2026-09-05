@@ -23,7 +23,10 @@ let%expect_test "Symbolic graph: add -> relu stage DAG + ground matches Direct"
     let b = Tensor.materialize (s1c 3) (fun c -> [| -3.; 1.; 2. |].(chan c)) in
     let inputs = List.combine g.Graph.inputs [ a; b ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -57,7 +60,10 @@ let%expect_test "Symbolic graph: mul stage DAG + ground matches Direct" =
     let b = Tensor.materialize (s1c 3) (fun c -> [| -3.; 1.; 2. |].(chan c)) in
     let inputs = List.combine g.Graph.inputs [ a; b ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -92,7 +98,10 @@ let%expect_test "Symbolic graph: mul_scalar stage DAG + ground matches Direct" =
     let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c) +. 1.) in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -125,7 +134,10 @@ let%expect_test "Symbolic graph: rsub_scalar stage DAG + ground matches Direct"
     let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -161,7 +173,10 @@ let%expect_test
     in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -199,7 +214,10 @@ let%expect_test "Symbolic graph: expand stage DAG + ground matches Direct" =
     let a = Tensor.materialize (s1c 3) (fun c -> float_of_int (chan c)) in
     let inputs = List.combine g.Graph.inputs [ a ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -239,7 +257,10 @@ let%expect_test "Symbolic graph: sub/div/sqrt stage DAG + ground matches Direct"
     let b = Tensor.materialize (s1c 3) (fun c -> [| 4.; 1.; 16. |].(chan c)) in
     let inputs = List.combine g.Graph.inputs [ a; b ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in

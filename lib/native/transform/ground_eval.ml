@@ -187,6 +187,7 @@ type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
   | `Region of Region_program.error
+  | `Scan_at_unsupported
   | `Unknown_edge of Tensor_id.t ]
 
 let pp_error fmt : [< error ] -> unit = function
@@ -196,6 +197,8 @@ let pp_error fmt : [< error ] -> unit = function
         "Data index source could not be resolved to a directly-bound I64 \
          constant"
   | `Region e -> Region_program.pp_error fmt e
+  | `Scan_at_unsupported ->
+      Fmt.string fmt "grounding does not support a scan yet"
   | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
 
 (* The exact resolver for a [Data] source during grounding: succeeds ONLY for
@@ -268,6 +271,9 @@ let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
   | Expr.Value.Const x -> Ground_expr.Const x
   | Expr.Value.Local v -> Err.Escape.throw esc (`Unbound_local v)
   | Expr.Value.Local_at (v, _) -> Err.Escape.throw esc (`Unbound_local v)
+  | Expr.Value.Local_scan_at (v, _, _) ->
+      Err.Escape.throw esc (`Unbound_local v)
+  | Expr.Value.Scan_at (_, _, _) -> Err.Escape.throw esc `Scan_at_unsupported
   | Expr.Value.Binary (op, a, b) -> Ground_expr.Binary (op, recur a, recur b)
   | Expr.Value.Unary (op, x) -> Ground_expr.Unary (op, recur x)
   | Expr.Value.Value_of_index i ->

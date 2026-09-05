@@ -91,8 +91,16 @@ let collect program ~output_shape =
   else { program; entries; coverage }
 
 let pp fmt t =
+  (* A scan renders [init]/[update] as scoped children (via [Expr.Pp.scan]),
+     never [Region_local.Rhs.value]'s wrapper -- its placeholder row/lane
+     exist only for folds/checks and would print as a fabricated
+     projection. *)
   let pp_local fmt (local : Region_local.t) =
-    Fmt.pf fmt "%a = %a" Expr.Local_var.pp local.id Expr.Pp.value local.value
+    Fmt.pf fmt "%a = " Expr.Local_var.pp local.id;
+    match local.rhs with
+    | Region_local.Rhs.Scan s -> Expr.Pp.scan fmt s
+    | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ ->
+        Expr.Pp.value fmt (Region_local.Rhs.value local.rhs)
   in
   let pp_entry fmt { key; outputs } =
     Fmt.pf fmt "key %a@,  locals: %a@,  emit: %a@,  outputs: %a" Vec6.pp_coord

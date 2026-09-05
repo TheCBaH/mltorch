@@ -32,9 +32,11 @@ let label (v : Expr.Value.t) =
   | Expr.Value.Intrinsic _ -> "max_pool"
   | Expr.Value.Local _ -> "local"
   | Expr.Value.Local_at _ -> "local_at"
+  | Expr.Value.Local_scan_at _ -> "trace_at"
   | Expr.Value.Load (src, _) -> Core.Pretty.to_string Expr.Source.pp src
   | Expr.Value.Reduce r -> Expr.Reduction.kind_name r.Expr.Reduction.kind
   | Expr.Value.Round_f32 _ -> "round_f32"
+  | Expr.Value.Scan_at _ -> "scan"
   | Expr.Value.Select _ -> "select"
   | Expr.Value.Unary (op, _) -> Expr.Value.unary_name op
   | Expr.Value.Value_of_index _ -> "index"
@@ -47,10 +49,16 @@ let children (v : Expr.Value.t) =
   match v with
   | Expr.Value.Binary (_, a, b) -> [ a; b ]
   | Expr.Value.Const _ | Expr.Value.Intrinsic _ | Expr.Value.Local _
-  | Expr.Value.Local_at _ | Expr.Value.Load _ | Expr.Value.Value_of_index _ ->
+  | Expr.Value.Local_at _ | Expr.Value.Local_scan_at _ | Expr.Value.Load _
+  | Expr.Value.Value_of_index _ ->
       []
   | Expr.Value.Reduce r -> [ r.Expr.Reduction.body ]
   | Expr.Value.Round_f32 a -> [ a ]
+  (* [init]/[update] ARE value-level children, unlike a [Reduce]'s
+     index-level bounds -- rendering an unspecialized trace with both as
+     scoped children, per the scan design record, rather than fabricating a
+     projection at dummy indices. *)
+  | Expr.Value.Scan_at (s, _, _) -> [ s.Expr.Scan.init; s.Expr.Scan.update ]
   | Expr.Value.Select (Expr.Bool.Index_eq _, t, f) -> [ t; f ]
   | Expr.Value.Select (Expr.Bool.Value_lt (a, b), t, f) -> [ a; b; t; f ]
   | Expr.Value.Unary (_, a) -> [ a ]
@@ -88,12 +96,42 @@ let of_value ~limits ~key (v : Kernel.Value.t) =
             locals
           |> List.to_seq |> Expr.Local_var.Map.of_seq
         in
-        ( List.mapi
-            (fun i local ->
-              ( Fmt.str "l%d-e" i,
-                Some (Fmt.str "local l%d" i),
-                local.Region_local.value ))
-            locals
+        (* [prev] is scan-internal, never a [Region_local.id], but naming it
+           here lets it render as ["l%d_prev"] instead of a raw identity
+           wherever [update] references it. *)
+        let names =
+          List.fold_left
+            (fun names local ->
+              match local.Region_local.rhs with
+              | Region_local.Rhs.Scan s ->
+                  Expr.Local_var.Map.add s.Expr.Scan.prev
+                    (Expr.Local_var.Map.find local.Region_local.id names
+                    ^ "_prev")
+                    names
+              | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ -> names)
+            names locals
+        in
+        ( (List.mapi (fun i local -> (i, local)) locals
+          |> List.concat_map (fun (i, local) ->
+              (* A scan has no single value: render [init]/[update] as two
+                 scoped roots directly, never [Region_local.Rhs.value]'s
+                 placeholder-projection wrapper. *)
+              match local.Region_local.rhs with
+              | Region_local.Rhs.Scan s ->
+                  [
+                    ( Fmt.str "l%d-init-e" i,
+                      Some (Fmt.str "local l%d init" i),
+                      s.Expr.Scan.init );
+                    ( Fmt.str "l%d-update-e" i,
+                      Some (Fmt.str "local l%d update" i),
+                      s.Expr.Scan.update );
+                  ]
+              | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ ->
+                  [
+                    ( Fmt.str "l%d-e" i,
+                      Some (Fmt.str "local l%d" i),
+                      Region_local.Rhs.value local.Region_local.rhs );
+                  ]))
           @ [
               ( "emit-e",
                 Some "emitter",

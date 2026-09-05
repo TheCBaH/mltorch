@@ -241,23 +241,21 @@ column measures Native4D's translation/dispatch overhead over that identical
 program rather than a second numeric kernel.
 
 **A vector local of extent 1 was silently mis-evaluated until this
-measurement surfaced it.** `Region_execution.evaluate_locals`'s `fill`
-dispatched on a local's numeric SLOT COUNT (`(offset, 1)` for "scalar" vs
-`(offset, count)` for "vector") rather than its declared
-`Region_local.Shape.t` -- a `Vector` local whose extent happens to be 1
-(SDPA's `s`/`p` at `Wk = 1`, e.g. `report_sdpa`'s own `(regions=1, extent=8)`
-point, the first one this benchmark sweeps) got the identical `(offset, 1)`
-range a `Scalar` local gets, so it silently took the scalar branch, which
-evaluates the body with no `~reducer` bound. `s`'s body mentions its own
-per-element binder free by construction (`Region_program.Builder.vector`), so
-this raised `Unbound_reducer` for every `Wk = 1` Sdpa graph -- through
-`Eval_direct.run`, Native's own production dispatch, not just the benchmark's
-`Kernel_eval` path. Neither the Direct-vs-Symbolic fuzz walk
-(`lib/native_op_walk/sdpa_nwalk.ml`, whose `wk` axis DOES include `1`) nor any
-existing unit test happened to exercise it; fixed in `region_execution.ml`
-(dispatch on `Region_local.shape` instead of the slot count) with a bitwise-
-against-`Legacy_pixel` regression test at `Wk = 1`
-(`test/native/region_compute_test.ml`) that fails without the fix.
+measurement surfaced it.** Both evaluators' `evaluate_locals` loops must
+dispatch on a local's declared `Region_local.Shape.t`, rather than its numeric
+SLOT COUNT (`(offset, 1)` for "scalar" versus `(offset, count)` for
+"vector"). A `Vector` local whose extent happens to be 1 (SDPA's `s`/`p` at
+`Wk = 1`, e.g. `report_sdpa`'s own `(regions=1, extent=8)` point, the first
+one this benchmark sweeps) has the identical `(offset, 1)` range as a
+`Scalar`. Selecting the scalar branch leaves its per-element reducer unbound.
+`s`'s body mentions that binder free by construction
+(`Region_program.Builder.vector`), so this raised `Unbound_reducer`. The
+production materializer and reference `Region_eval` projection/materializer
+are separate loops, so the regression constructs the same Wk=1 SDPA Region
+directly as well as through `Eval_direct.run`; it compares both materialized
+tensors and a `value_at` projection bitwise with `Legacy_pixel`. Restoring the
+faulty dispatch makes that test fail at the reference materializer, proving it
+reaches the previously missing path.
 
 Reproduce elapsed-time and GC-word medians with
 `opam exec -- dune exec bin/region_compute_bench.exe`; both are

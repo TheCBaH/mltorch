@@ -61,6 +61,10 @@ module Limits = struct
     max_outputs : int;
     max_extent : int64;
     max_numel : int64;
+    max_local_slots : int;
+    max_scan_state : int;
+    max_scan_updates_per_key : int64;
+    max_scan_updates_total : int64;
   }
 
   module Invalid = struct
@@ -79,11 +83,17 @@ module Limits = struct
        are at 2048 (Pp.value, Value.compare, Value.hash) — CHECK.VALUE STILL
        SURVIVES 2048, which is why the ceiling follows the minimum over all
        traversals rather than the checker's own figure. [Eval.value] is the
-       outlier upward, surviving 4096, so the combined ceiling is higher; it has
-       to be, since whole-program resnet18 reaches ~770 combined depth and the
-       buffer-based evaluator never recurses through it. *)
+       outlier upward; it has to clear whole-program resnet18's ~770 combined
+       depth, since the buffer-based evaluator never recurses through it.
+
+       Re-measured after the scan primitive widened [Value.t] and [Eval.value]
+       (two more constructors, plus the inline [Scan_at] recurrence): the
+       frontier moved from 2048, which now overflows, down to 1536 -- confirmed
+       stable over repeated runs, with 1820 the last value observed to survive
+       and 1850 the first to overflow. 1536 keeps roughly 2x headroom over
+       resnet18's requirement, matching the margin the original ceiling had. *)
     let depth = 256
-    let eval_depth = 2048
+    let eval_depth = 1536
 
     (* Measured under node with [Kernel_eval.value_at] over a real producer
        chain (test/native/depth_probe.ml). The frontier there is both lower and
@@ -107,6 +117,17 @@ module Limits = struct
        storage offsets stay below 2^31. *)
     let extent = 0x8000_0000L
     let numel = 0x8000_0000L
+
+    (* Memory- and array-length-bound, not stack-bound, per the scan design
+       record's array-capacity probe -- policy ceilings with deliberate
+       headroom, not empirically discovered frontiers like [depth]/
+       [eval_depth] above. [max_local_slots]/[max_scan_state] share one
+       ceiling with [Expr.Scan_limits.hard_max_state], since both bound a
+       count of resident [float] slots. *)
+    let max_local_slots = 1_048_576
+    let max_scan_state = 1_048_576
+    let max_scan_updates_per_key = 1_048_576L
+    let max_scan_updates_total = 100_000_000L
   end
 
   let check_int name v hard =
@@ -120,7 +141,8 @@ module Limits = struct
     else Err.return ()
 
   let create ~max_size ~max_depth ~max_values ~max_dep_depth ~max_inputs
-      ~max_outputs ~max_extent ~max_numel =
+      ~max_outputs ~max_extent ~max_numel ~max_local_slots ~max_scan_state
+      ~max_scan_updates_per_key ~max_scan_updates_total =
     let open Err.Syntax in
     let* () = check_int "max_size" max_size Hard.size in
     let* () = check_int "max_depth" max_depth Hard.depth in
@@ -129,7 +151,19 @@ module Limits = struct
     let* () = check_int "max_inputs" max_inputs Hard.inputs in
     let* () = check_int "max_outputs" max_outputs Hard.outputs in
     let* () = check_int64 "max_extent" max_extent Hard.extent in
-    let+ () = check_int64 "max_numel" max_numel Hard.numel in
+    let* () = check_int64 "max_numel" max_numel Hard.numel in
+    let* () =
+      check_int "max_local_slots" max_local_slots Hard.max_local_slots
+    in
+    let* () = check_int "max_scan_state" max_scan_state Hard.max_scan_state in
+    let* () =
+      check_int64 "max_scan_updates_per_key" max_scan_updates_per_key
+        Hard.max_scan_updates_per_key
+    in
+    let+ () =
+      check_int64 "max_scan_updates_total" max_scan_updates_total
+        Hard.max_scan_updates_total
+    in
     {
       max_size;
       max_depth;
@@ -139,17 +173,38 @@ module Limits = struct
       max_outputs;
       max_extent;
       max_numel;
+      max_local_slots;
+      max_scan_state;
+      max_scan_updates_per_key;
+      max_scan_updates_total;
     }
+
+  (* The one place a [Kernel.Limits.t] is narrowed to what [Region_program]
+     and [Expr] need -- an accessor, not a fallible constructor, since every
+     [t] was already validated against the same [Hard] ceilings
+     [Expr.Scan_limits.create] enforces on its own two fields. *)
+  let scan_limits t =
+    Err.or_raise ~pp_error:Expr.Scan_limits.pp_error
+      (Expr.Scan_limits.create ~max_state:t.max_scan_state
+         ~max_updates:t.max_scan_updates_per_key)
 
   (* Census-derived (.ai/native_kernel_census.tsv): largest observed body size
      246, depth 14, 36 stages, dependency depth 6, 17 inputs / 16 outputs. Each
      default clears its maximum by an order of magnitude and sits at or below
-     half the corresponding [Hard] ceiling. *)
+     half the corresponding [Hard] ceiling. The scan fields derive from
+     [Expr.Scan_limits.default] so the two constants cannot drift apart;
+     [max_local_slots]/[max_scan_updates_total] have no [Expr]-side
+     counterpart and are chosen directly from the scan design record's
+     headroom table. *)
   let default =
+    let scan_default = Expr.Scan_limits.default in
     Err.or_raise ~pp_error
       (create ~max_size:4096 ~max_depth:128 ~max_values:4096 ~max_dep_depth:1024
          ~max_inputs:1024 ~max_outputs:1024 ~max_extent:0x7FFF_FFFFL
-         ~max_numel:0x7FFF_FFFFL)
+         ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:(Expr.Scan_limits.max_state scan_default)
+         ~max_scan_updates_per_key:(Expr.Scan_limits.max_updates scan_default)
+         ~max_scan_updates_total:16_000_000L)
 end
 
 type t = {
@@ -199,6 +254,7 @@ type error =
   | `Not_materializable of Format_rule.t
   | `Numel_too_large of Tensor_id.t
   | `Quant_contract of Tensor_id.t
+  | `Scan_updates_total_over_limit of int64
   | `Signature_id_mismatch of Sig_mismatch.t
   | `Too_many_inputs of int
   | `Too_many_outputs of int
@@ -238,6 +294,8 @@ let pp_error fmt : [< error ] -> unit = function
   | `Quant_contract id ->
       Fmt.pf fmt "%a: quantization disagrees with its format or channel extent"
         Tensor_id.pp id
+  | `Scan_updates_total_over_limit limit ->
+      Fmt.pf fmt "summed scan updates across all values exceed limit %Ld" limit
   | `Body { Body_error.at; error } ->
       Fmt.pf fmt "%a: %a" Tensor_id.pp at Region_program.pp_error error
 
@@ -382,12 +440,50 @@ let create ?(limits = Limits.default) ~inputs ~values ~outputs () =
         let* () = acc in
         (* [Err.map_error], not a hand-rolled rebuild: it preserves the
            original detection backtrace, which unwrapping [.kind] and calling
-           [Err.fail] silently would not. *)
+           [Err.fail] silently would not. The KERNEL boundary: [check] alone
+           (as before) is not enough once scans exist, so every value is also
+           [preflight]ed against this kernel's own resource limits and its own
+           output shape, closed over the same [Body_error] wrapper. *)
+        let* () =
+          Err.map_error
+            (fun e -> `Body { Body_error.at = v.id; error = e })
+            (Region_program.check ~max_size:limits.Limits.max_size
+               ~max_depth:limits.Limits.max_depth v.computation)
+        in
         Err.map_error
           (fun e -> `Body { Body_error.at = v.id; error = e })
-          (Region_program.check ~max_size:limits.Limits.max_size
-             ~max_depth:limits.Limits.max_depth v.computation))
+          (Region_program.preflight
+             ~max_local_slots:limits.Limits.max_local_slots
+             ~max_scan_state:limits.Limits.max_scan_state
+             ~max_scan_updates:limits.Limits.max_scan_updates_per_key
+             ~output_shape:v.sg.Tensor_sig.shape v.computation))
       (Err.return ()) values
+  in
+  (* [max_scan_updates_total] is Kernel-scoped only: there is no whole-graph
+     choke point upstream of Direct or Stage-ground execution to enforce it
+     at, so it is checked here, once, as the sum of each value's own
+     [keys * per_key] worst case -- never folded into [Region_program.check]/
+     [preflight], which know nothing of a Kernel's other values. *)
+  let* () =
+    (* Saturating, not wrapping, matching [Region_program]'s own aggregates:
+       this is a cost ESTIMATE compared against a limit far below
+       [Int64.max_int], never a value anything stores or replays. *)
+    let sat_add_i64 a b =
+      if Int64.compare a (Int64.sub Int64.max_int b) > 0 then Int64.max_int
+      else Int64.add a b
+    in
+    let total =
+      List.fold_left
+        (fun acc (v : Value.t) ->
+          sat_add_i64 acc
+            (Region_program.scan_updates_total
+               ~output_shape:v.sg.Tensor_sig.shape v.computation))
+        0L values
+    in
+    if Int64.compare total limits.Limits.max_scan_updates_total > 0 then
+      Err.fail
+        (`Scan_updates_total_over_limit limits.Limits.max_scan_updates_total)
+    else Err.return ()
   in
   (* Identity: the record id and its signature id must agree, since [sg.id] is
      the binding key everywhere else. Leaving them independent would key source

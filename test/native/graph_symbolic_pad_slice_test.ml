@@ -29,7 +29,10 @@ let%expect_test "Symbolic graph: pad reflect ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -75,7 +78,10 @@ let%expect_test "Symbolic graph: pad constant with a crop ground matches Direct"
     in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -123,7 +129,10 @@ let%expect_test "Symbolic graph: slice ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -164,7 +173,10 @@ let%expect_test "Symbolic graph: select ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ x ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in
@@ -211,7 +223,10 @@ let%expect_test "Symbolic graph: select_scatter ground matches Direct" =
     in
     let inputs = List.combine g.Graph.inputs [ self; src ] in
     let bind id = List.assoc id inputs in
-    let grounded = Stage_program.ground prog ~bind in
+    let grounded =
+      Err.or_raise ~pp_error:Stage_program.pp_error
+        (Stage_program.ground prog ~bind)
+    in
     let* direct = lift_eval (Eval_direct.run g ~inputs) in
     compare_output g grounded direct
   in

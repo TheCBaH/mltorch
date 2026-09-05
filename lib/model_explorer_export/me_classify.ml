@@ -76,8 +76,8 @@ let kernel : [< Kernel_adapt.error ] -> verdict = function
   (* [Kernel]'s limit rows: a real model can be too big, and that is a bound
      doing its job rather than a defect. *)
   | `Dependency_too_deep _ | `Eval_too_deep _ | `Extent_too_large _
-  | `Numel_too_large _ | `Too_many_inputs _ | `Too_many_outputs _
-  | `Too_many_values _ ->
+  | `Numel_too_large _ | `Scan_updates_total_over_limit _ | `Too_many_inputs _
+  | `Too_many_outputs _ | `Too_many_values _ ->
       Unavailable C.Over_limit
   (* Everything else is a defect. The stage program is repository-generated, so
      a structural failure in it is ours; and the two selection rows are

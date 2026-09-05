@@ -308,17 +308,13 @@ let%expect_test "Native Direct materializes an authored Sdpa Region" =
     counters.reductions;
   [%expect {| sdpa: keys=2 locals=18 emitters=6 loads=60 reductions=48 |}]
 
-(* Regression: [Region_execution.evaluate_locals] used to dispatch on a
-   local's numeric SLOT COUNT rather than its declared [Region_local.Shape.t]
-   -- a [Vector] local whose extent happens to be 1 (Sdpa's [s]/[p] at
-   [Wk = 1], a single key/value pair) gets the identical [(offset, 1)] slot
-   range a [Scalar] local gets, so it silently took the scalar branch, which
-   evaluates the body with no [~reducer] bound. [s]'s body mentions its own
-   per-element binder free by construction, so this raised [Unbound_reducer]
-   for every [Wk = 1] Sdpa graph -- through [Eval_direct.run], Native's own
-   production dispatch, not just the Kernel/Region_kernel path that surfaced
-   it. Checked bitwise against [Legacy_pixel] at the same shape, so this is a
-   numeric proof, not merely "did not raise". *)
+(* Regression: both Region evaluators must dispatch on a local's DECLARED
+   [Region_local.Rhs.t] case, never its numeric slot count. A [Vector] local whose
+   extent happens to be 1 (Sdpa's [s]/[p] at [Wk = 1], a single key/value pair)
+   has the same [(offset, 1)] range as a scalar. Selecting the scalar branch
+   leaves its per-element reducer unbound. Keep the production graph path and
+   construct the same Region directly below so materialization and [value_at]
+   cover their independent loops. *)
 let%expect_test
     "Native Direct materializes Sdpa at Wk = 1 (vector local of extent 1)" =
   let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3 in
@@ -365,8 +361,42 @@ let%expect_test
       (LP.pixel params ~query_shape ~key_shape ~value_shape:key_shape
          ~mask_shape ~query ~key ~value ~mask)
   in
-  Fmt.pr "sdpa wk=1: bits_equal=%b@." (Tensor.equal_bits actual expected);
-  [%expect {| sdpa wk=1: bits_equal=true |}]
+  let signature id shape =
+    Tensor_sig.create ~id:(Tensor_id.of_int id) ~name:"" ~shape
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let query_sig = signature 0 query_shape
+  and key_sig = signature 1 key_shape
+  and value_sig = signature 2 key_shape
+  and mask_sig = signature 3 mask_shape in
+  let region =
+    Err.or_raise ~pp_error:Region_context.pp_error
+      (Attention.Sdpa.Computation.program ~limits:Kernel.Limits.default params
+         ~query:query_sig ~key:key_sig ~value:value_sig ~mask:mask_sig)
+  in
+  let binding id =
+    if Tensor_id.equal id query_sig.Tensor_sig.id then Some query
+    else if Tensor_id.equal id key_sig.Tensor_sig.id then Some key
+    else if Tensor_id.equal id value_sig.Tensor_sig.id then Some value
+    else if Tensor_id.equal id mask_sig.Tensor_sig.id then Some mask
+    else None
+  in
+  let env = Expr_bridge.env ~binding in
+  let reference =
+    Err.or_raise ~pp_error:Region_eval.pp_error
+      (Region_eval.materialize region ~output_shape:query_shape ~env)
+  in
+  let projected =
+    Err.or_raise ~pp_error:Region_eval.pp_error
+      (Region_eval.value_at region ~output_shape:query_shape ~env
+         ~output:(Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:1 ~c:2))
+  in
+  Fmt.pr "sdpa wk=1: production=%b reference=%b projection=%b@."
+    (Tensor.equal_bits actual expected)
+    (Tensor.equal_bits reference expected)
+    (Core.Float_bits.equal_exact projected
+       (Tensor.read expected (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:1 ~c:2)));
+  [%expect {| sdpa wk=1: production=true reference=true projection=true |}]
 
 let%expect_test "transform grounding reads an authored Stage structurally" =
   let graph =
@@ -442,7 +472,9 @@ let%expect_test "Native Direct materializes authored Regions once per key" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:1 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   let tight_result =
     Eval_direct.run ~limits:tight
@@ -461,7 +493,7 @@ let%expect_test "Native Direct materializes authored Regions once per key" =
     rms: keys=2 locals=4 emitters=6 loads=24 reductions=6
     layer: keys=2 locals=8 emitters=6 loads=36 reductions=12
     softmax: keys=2 locals=4 emitters=6 loads=18 reductions=12
-    tight=invalid region program |}]
+    tight=local list exceeds limit 1 |}]
 
 (* This is deliberately a structural trace matrix rather than another dense
    tensor comparison.  [Region_trace] independently checks every program's
@@ -639,13 +671,17 @@ let%expect_test "Region construction honors the graph-boundary contract" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:1 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   let expanded =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:256 ~max_depth:128 ~max_values:256
          ~max_dep_depth:256 ~max_inputs:256 ~max_outputs:256
-         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
   in
   let present id =
     if Tensor_id.equal id x.Tensor_sig.id then Some x else None
@@ -669,7 +705,52 @@ let%expect_test "Region construction honors the graph-boundary contract" =
           ~operand:(fun _ -> None)));
   [%expect
     {|
-    default=ok expanded=ok tight=invalid region program ordinal=unsupported output ordinal 1 shape=output shape does not match the input missing=missing operand t10 |}]
+    default=ok expanded=ok tight=local list exceeds limit 1 ordinal=unsupported output ordinal 1 shape=output shape does not match the input missing=missing operand t10 |}]
+
+(* The OPERATION boundary now also [preflight]s: [check] alone (what [tight]
+   above exercises via [max_size]) does not cover [max_local_slots]. RMSNorm's
+   own program has exactly two scalar locals (its sum-of-squares and the
+   inverse RMS), costing two slots total -- a [max_local_slots = 1] kernel
+   rejects it with the SAME [Region_computation.Invalid_program] wrapper
+   [max_size] already uses, carrying the real [Region_program.error] through.
+*)
+let%expect_test "Region construction preflights local/trace storage too" =
+  let signature id shape =
+    Tensor_sig.create ~id:(Tensor_id.of_int id) ~name:"" ~shape
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let x = signature 10 shape in
+  let op =
+    Graph_ir.Rms_norm
+      {
+        Norm.RmsNorm.params = { dims = [ Axis.C ]; eps = 1e-5 };
+        x = x.Tensor_sig.id;
+        weight = None;
+      }
+  in
+  let build ~limits =
+    Region_computation.program ~limits ~op ~output:0 ~output_shape:shape
+      ~operand:(fun id ->
+        if Tensor_id.equal id x.Tensor_sig.id then Some x else None)
+      ~fill:(fun _role _value shape -> signature 11 shape)
+  in
+  let show = function
+    | Ok _ -> "ok"
+    | Error error ->
+        Format.asprintf "%a" Region_computation.pp_error (Err.Error.kind error)
+  in
+  let one_slot =
+    Err.or_raise ~pp_error:Kernel.Limits.pp_error
+      (Kernel.Limits.create ~max_size:256 ~max_depth:128 ~max_values:16
+         ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16
+         ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL ~max_local_slots:1
+         ~max_scan_state:8192 ~max_scan_updates_per_key:8192L
+         ~max_scan_updates_total:16_000_000L)
+  in
+  Fmt.pr "default=%s one_slot=%s@."
+    (show (build ~limits:Kernel.Limits.default))
+    (show (build ~limits:one_slot));
+  [%expect {| default=ok one_slot=total local slot count exceeds limit 1 |}]
 
 let%expect_test "Region executor traverses keys, locals, and emitters once" =
   let partition =
@@ -696,7 +777,11 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
                         (Expr_bridge.coord_of_vec6 Symbolic.out_vec))))))
   in
   let lowered =
-    match Region_execution.lower program with
+    match
+      Err.or_raise ~pp_error:Region_program.pp_error
+        (Region_execution.lower ~max_size:32 ~max_depth:16 ~max_local_slots:8192
+           ~scan_limits:Expr.Scan_limits.default ~output_shape:shape program)
+    with
     | Region_execution.Pixel_loop _ -> assert false
     | Region_execution.Region_loop lowered -> lowered
   in
@@ -713,7 +798,7 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
   in
   let output =
     Err.or_raise ~pp_error:Region_eval.pp_error
-      (Region_execution.materialize ~counters lowered ~output_shape:shape ~env)
+      (Region_execution.materialize ~counters lowered ~env)
   in
   Fmt.pr
     "cells=%g,%g,%g,%g,%g,%g keys=%d locals=%d emitters=%d loads=%d \
@@ -729,6 +814,47 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
   [%expect
     {|
     cells=2,3,4,22,23,24 keys=2 locals=2 emitters=6 loads=8 reductions=0 |}]
+
+(* Regression: [Region_execution.lower]/[lower_region] must re-validate a
+   program against their caller's limits, not merely trust that
+   [Region_program.create] once did -- [Region_program.with_output] is a raw
+   record update (exactly what [Kernel_eval.converted] uses to splice in a
+   result conversion after construction), so a rewritten emitter can grow
+   past the construction-time budget with no [Region_program.check] ever
+   seeing it. Prove the new check can actually fail: lower the same program
+   before and after an oversized rewrite, at the same limits. *)
+let%expect_test
+    "Region_execution.lower re-checks a program rewritten after construction" =
+  let partition =
+    Err.or_raise ~pp_error:Region_partition.pp_error
+      (Region_partition.of_whole_axes [ Axis.C ])
+  in
+  let program =
+    Err.or_raise ~pp_error:Region_program.pp_error
+      (Region_program.Builder.run
+         (Region_program.Builder.scalar (Expr.Value.const 1.) (fun local ->
+              Region_program.Builder.finish ~max_size:32 ~max_depth:16
+                ~partition ~output:local)))
+  in
+  let oversized_output =
+    let e = ref (Expr.Value.const 0.) in
+    for _ = 1 to 40 do
+      e := Expr.Value.add !e (Expr.Value.const 1.)
+    done;
+    !e
+  in
+  let rewritten = Region_program.with_output program oversized_output in
+  let show program =
+    match
+      Region_execution.lower ~max_size:32 ~max_depth:16 ~max_local_slots:8192
+        ~scan_limits:Expr.Scan_limits.default ~output_shape:shape program
+    with
+    | Ok _ -> "ok"
+    | Error error ->
+        Format.asprintf "%a" Region_program.pp_error (Err.Error.kind error)
+  in
+  Fmt.pr "original=%s rewritten=%s@." (show program) (show rewritten);
+  [%expect {| original=ok rewritten=depth exceeds limit 16 |}]
 
 (* [fresh_synthetic_ids] used to be recomputed inside [eval_node], folding
    [g.Graph.tensors] once per node — quadratic in graph size for a Region-free

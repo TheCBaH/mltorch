@@ -247,7 +247,8 @@ let small ~max_values ~max_inputs ~max_outputs =
   Err.or_raise ~pp_error:Kernel.Limits.pp_error
     (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values
        ~max_dep_depth:1024 ~max_inputs ~max_outputs ~max_extent:0x7FFF_FFFFL
-       ~max_numel:0x7FFF_FFFFL)
+       ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+       ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
 
 let%expect_test "Kernel.Limits: custom limits may tighten, never widen" =
   let case name r =
@@ -260,7 +261,8 @@ let%expect_test "Kernel.Limits: custom limits may tighten, never widen" =
   let mk ?(max_depth = 128) ?(max_numel = 0x7FFF_FFFFL) () =
     Kernel.Limits.create ~max_size:4096 ~max_depth ~max_values:16
       ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16 ~max_extent:0x7FFF_FFFFL
-      ~max_numel
+      ~max_numel ~max_local_slots:8192 ~max_scan_state:8192
+      ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L
   in
   case "in range" (mk ());
   (* [Expr.Check] is itself recursive and bounded by the CONFIGURED depth, so an
@@ -278,6 +280,48 @@ let%expect_test "Kernel.Limits: custom limits may tighten, never widen" =
     depth above Hard: invalid limit max_depth = 100000
     numel near Int64.max_int: invalid limit max_numel = 9223372036854775807
     non-positive: invalid limit max_depth = 0 |}]
+
+let%expect_test "Kernel.Limits: the four scan fields are checked and derived" =
+  let case name r =
+    Format.printf "%s: %a@." name
+      (Core.Pretty.err_result
+         ~ok:(fun ppf _ -> Fmt.string ppf "ok")
+         ~error:Kernel.Limits.pp_error)
+      r
+  in
+  let mk ?(max_local_slots = 8192) ?(max_scan_state = 8192)
+      ?(max_scan_updates_per_key = 8192L)
+      ?(max_scan_updates_total = 16_000_000L) () =
+    Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
+      ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16 ~max_extent:0x7FFF_FFFFL
+      ~max_numel:0x7FFF_FFFFL ~max_local_slots ~max_scan_state
+      ~max_scan_updates_per_key ~max_scan_updates_total
+  in
+  case "in range" (mk ());
+  case "max_local_slots at Hard" (mk ~max_local_slots:1_048_576 ());
+  case "max_scan_state at Hard" (mk ~max_scan_state:1_048_576 ());
+  case "max_scan_updates_per_key at Hard"
+    (mk ~max_scan_updates_per_key:1_048_576L ());
+  case "max_scan_updates_total at Hard"
+    (mk ~max_scan_updates_total:100_000_000L ());
+  [%expect
+    {|
+    in range: ok
+    max_local_slots at Hard: invalid limit max_local_slots = 1048576
+    max_scan_state at Hard: invalid limit max_scan_state = 1048576
+    max_scan_updates_per_key at Hard: invalid limit max_scan_updates_per_key = 1048576
+    max_scan_updates_total at Hard: invalid limit max_scan_updates_total = 100000000 |}];
+  (* [scan_limits] narrows to exactly the two fields [Expr.Scan_limits.t]
+     tracks, and [default]'s own scan fields are that same module's [default]
+     -- pinned here so the two constants cannot silently drift apart. *)
+  let default_scan = Kernel.Limits.scan_limits Kernel.Limits.default in
+  Format.printf "default scan_limits = Expr.Scan_limits.default: %b@."
+    (Expr.Scan_limits.max_state default_scan
+     = Expr.Scan_limits.max_state Expr.Scan_limits.default
+    && Int64.equal
+         (Expr.Scan_limits.max_updates default_scan)
+         (Expr.Scan_limits.max_updates Expr.Scan_limits.default));
+  [%expect {| default scan_limits = Expr.Scan_limits.default: true |}]
 
 let%expect_test "Kernel: interface arity is bounded" =
   let many_inputs =
@@ -339,7 +383,8 @@ let%expect_test "Kernel: the numel guard runs before the product is formed" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:16 ~max_outputs:16 ~max_extent:1000L
-         ~max_numel:0x7FFF_FFFFL)
+         ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
   in
   case ~limits:tight "extent over a tightened limit" (s1c 2000);
   [%expect
@@ -763,7 +808,8 @@ let%expect_test "Kernel_adapt: raw lists are bounded before they are traversed"
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs:2 ~max_outputs:1 ~max_extent:0x7FFF_FFFFL
-         ~max_numel:0x7FFF_FFFFL)
+         ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
   in
   let many_inputs =
     stage_program
@@ -807,7 +853,8 @@ let%expect_test "Kernel_adapt: the derived interface is bounded too" =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
          ~max_dep_depth:16 ~max_inputs ~max_outputs ~max_extent:0x7FFF_FFFFL
-         ~max_numel:0x7FFF_FFFFL)
+         ~max_numel:0x7FFF_FFFFL ~max_local_slots:8192 ~max_scan_state:8192
+         ~max_scan_updates_per_key:8192L ~max_scan_updates_total:16_000_000L)
   in
   (* One raw input, but three stages; selecting only the last turns the two
      unselected producers into synthetic Caller inputs. *)
