@@ -3,11 +3,11 @@
    their formula.  Keeping this module free of either prevents the construction
    helpers from becoming a second operation API. *)
 
-type error = Invalid_partition | Invalid_program
+type error = Invalid_partition | Invalid_program of Region_program.error
 
 let pp_error fmt = function
   | Invalid_partition -> Fmt.string fmt "invalid region partition"
-  | Invalid_program -> Fmt.string fmt "invalid region program"
+  | Invalid_program error -> Region_program.pp_error fmt error
 
 let same_shape left right =
   List.for_all
@@ -64,4 +64,4 @@ let partition dims =
     (fun _ -> Invalid_partition)
     (Region_partition.of_whole_axes dims)
 
-let program result = Err.map_error (fun _ -> Invalid_program) result
+let program result = Err.map_error (fun e -> Invalid_program e) result

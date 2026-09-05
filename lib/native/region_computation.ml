@@ -4,7 +4,7 @@
 
 type error =
   | Invalid_partition
-  | Invalid_program
+  | Invalid_program of Region_program.error
   | Missing_operand of Tensor_id.t
   | Output_ordinal of int
   | Output_shape
@@ -13,7 +13,8 @@ type synthetic_role = Layer_bias | Layer_weight | Rms_weight | Sdpa_mask
 
 let pp_error fmt = function
   | Invalid_partition -> Region_context.pp_error fmt Invalid_partition
-  | Invalid_program -> Region_context.pp_error fmt Invalid_program
+  | Invalid_program error ->
+      Region_context.pp_error fmt (Region_context.Invalid_program error)
   | Missing_operand id -> Fmt.pf fmt "missing operand %a" Tensor_id.pp id
   | Output_ordinal output -> Fmt.pf fmt "unsupported output ordinal %d" output
   | Output_shape -> Fmt.string fmt "output shape does not match the input"
@@ -54,7 +55,7 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
       Err.map_error
         (function
           | Region_context.Invalid_partition -> Invalid_partition
-          | Region_context.Invalid_program -> Invalid_program)
+          | Region_context.Invalid_program error -> Invalid_program error)
         (Norm.RmsNorm.Computation.program ~limits params ~x ~weight)
   | Layer_norm { Norm.LayerNorm.params; x = x_id; weight; bias } ->
       let open Err.Syntax in
@@ -76,7 +77,7 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
       Err.map_error
         (function
           | Region_context.Invalid_partition -> Invalid_partition
-          | Region_context.Invalid_program -> Invalid_program)
+          | Region_context.Invalid_program error -> Invalid_program error)
         (Norm.LayerNorm.Computation.program ~limits params ~x ~weight ~bias)
   | Sdpa
       {
@@ -127,7 +128,7 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
       Err.map_error
         (function
           | Region_context.Invalid_partition -> Invalid_partition
-          | Region_context.Invalid_program -> Invalid_program)
+          | Region_context.Invalid_program error -> Invalid_program error)
         (Attention.Sdpa.Computation.program ~limits params ~query ~key ~value
            ~mask)
   | Softmax { Reduce.Softmax.params; x = x_id } ->
@@ -139,6 +140,6 @@ let program ~limits ~op ~output ~output_shape ~operand ~fill =
       Err.map_error
         (function
           | Region_context.Invalid_partition -> Invalid_partition
-          | Region_context.Invalid_program -> Invalid_program)
+          | Region_context.Invalid_program error -> Invalid_program error)
         (Reduce.Softmax.Computation.program ~limits params ~x)
   | _ -> assert false

@@ -491,7 +491,7 @@ let%expect_test "Native Direct materializes authored Regions once per key" =
     rms: keys=2 locals=4 emitters=6 loads=24 reductions=6
     layer: keys=2 locals=8 emitters=6 loads=36 reductions=12
     softmax: keys=2 locals=4 emitters=6 loads=18 reductions=12
-    tight=invalid region program |}]
+    tight=local list exceeds limit 1 |}]
 
 (* This is deliberately a structural trace matrix rather than another dense
    tensor comparison.  [Region_trace] independently checks every program's
@@ -699,7 +699,7 @@ let%expect_test "Region construction honors the graph-boundary contract" =
           ~operand:(fun _ -> None)));
   [%expect
     {|
-    default=ok expanded=ok tight=invalid region program ordinal=unsupported output ordinal 1 shape=output shape does not match the input missing=missing operand t10 |}]
+    default=ok expanded=ok tight=local list exceeds limit 1 ordinal=unsupported output ordinal 1 shape=output shape does not match the input missing=missing operand t10 |}]
 
 let%expect_test "Region executor traverses keys, locals, and emitters once" =
   let partition =
