@@ -126,6 +126,12 @@ mapfile -t SRCS_GLUE < <(
   # dispatcher (CPUBlas.cpp) -> gemm_stub kernel (cpu/BlasKernel.cpp, CAP).
   # No external BLAS: BlasKernel ships a reference gemm fallback.
   echo "$PT/aten/src/ATen/native/Linear.cpp"
+  # lstm.input: the generated floating-only projection of RNN.cpp below keeps
+  # the canonical CPU recurrence over the existing linear, add, sigmoid, tanh,
+  # and stack closures. Compiling upstream RNN.cpp whole would retain its
+  # quantized static registrations, pulling FBGEMM and JIT schema parsing even
+  # though this archive exposes only dense CPU float inference.
+  echo rnn_float.cpp
   echo "$PT/aten/src/ATen/native/LinearAlgebra.cpp"
   echo "$PT/aten/src/ATen/native/CPUBlas.cpp"
   # matmul/addmm pull in: mv/dot (Blas.cpp) and conj_physical/resolve_conj
@@ -283,6 +289,28 @@ mapfile -t SRCS_CAP < <(
 )
 
 # --- compile ----------------------------------------------------------------
+RNN="$PT/aten/src/ATen/native/RNN.cpp"
+# Keep the floating CellParams declaration, generic recurrence helpers, and
+# the two public [lstm] overloads. The three named boundaries make upstream
+# movement fail loudly instead of silently selecting a stale line range.
+awk '
+  /c10::intrusive_ptr<CellParamsBase> make_quantized_cell_params\(/ { exit }
+  { print }
+' "$RNN" > rnn_float.cpp
+awk '
+  /\/\/ Gathers every two elements of a vector in a vector of pairs/ { emit = 1 }
+  emit { print }
+  emit && /} \/\/ anonymous namespace/ { exit }
+' "$RNN" >> rnn_float.cpp
+awk '
+  /DEFINE_DISPATCH\(lstm_cudnn_stub\);/ { emit = 1 }
+  emit && /std::tuple<Tensor, Tensor> lstm_cell\(/ { exit }
+  emit { print }
+' "$RNN" >> rnn_float.cpp
+printf '%s\n' '}  // namespace at::native' >> rnn_float.cpp
+test "$(grep -c 'std::tuple<Tensor, Tensor, Tensor> lstm(' rnn_float.cpp)" = 2
+! grep -q '^static.*quantized_lstm' rnn_float.cpp
+
 rm -rf obj && mkdir -p obj
 compile_list() {  # extra flags as args; source paths via stdin
   xargs -P"$(nproc)" -I{} \

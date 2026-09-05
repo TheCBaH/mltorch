@@ -202,6 +202,39 @@ let%expect_test "linear" =
   show (O.linear x w b);
   [%expect "[1x2] = [11; 25]"]
 
+(* An executable feasibility oracle for [aten.lstm.input]. The deliberately
+   unequal sequence, batch, input, and hidden dimensions make accidental
+   dimension swapping visible. Zero parameters leave the recurrence small
+   enough to inspect, while nonzero [h0]/[c0] prove the initial-state path is
+   live: i=f=o=0.5 and g=0, so c halves on each step. *)
+let%expect_test "lstm.input (Tensor[] inputs, three outputs)" =
+  let input = make [ 2; 3; 4 ] (List.init 24 (fun i -> float_of_int i)) in
+  let h0 = make [ 1; 3; 5 ] (List.init 15 (fun i -> float_of_int (i + 1))) in
+  let c0 =
+    make [ 1; 3; 5 ] (List.init 15 (fun i -> float_of_int (i + 1) /. 10.))
+  in
+  let zeros shape =
+    make shape (List.init (List.fold_left ( * ) 1 shape) (fun _ -> 0.))
+  in
+  let params =
+    tensor_arr [ zeros [ 20; 4 ]; zeros [ 20; 5 ]; zeros [ 20 ]; zeros [ 20 ] ]
+  in
+  let hx = tensor_arr [ h0; c0 ] in
+  let out = Ctypes.make Aten_types_generated.tensors3_struct in
+  let status =
+    O.lstm_input input hx 2 params 4 true 1L 0.0 false false false (addr out)
+  in
+  Printf.printf "status=%d outputs=3\n" status;
+  show (tget out Aten_types_generated.tensors3_v0);
+  show (tget out Aten_types_generated.tensors3_v1);
+  show (tget out Aten_types_generated.tensors3_v2);
+  [%expect
+    {|
+    status=0 outputs=3
+    [2x3x5] = [0.0249792; 0.049834; 0.0744425; 0.0986877; 0.122459; 0.145656; 0.168188; 0.189974; 0.210949; 0.231059; 0.25026; 0.268525; 0.285835; 0.302184; 0.317574; 0.0124974; 0.0249792; 0.0374298; 0.049834; 0.0621765; 0.0744425; 0.0866176; 0.0986877; 0.110639; 0.122459; 0.134136; 0.145656; 0.15701; 0.168188; 0.179179]
+    [1x3x5] = [0.0124974; 0.0249792; 0.0374298; 0.049834; 0.0621765; 0.0744425; 0.0866176; 0.0986877; 0.110639; 0.122459; 0.134136; 0.145656; 0.15701; 0.168188; 0.179179]
+    [1x3x5] = [0.025; 0.05; 0.075; 0.1; 0.125; 0.15; 0.175; 0.2; 0.225; 0.25; 0.275; 0.3; 0.325; 0.35; 0.375] |}]
+
 let%expect_test "batch_norm (inference)" =
   let x = make [ 1; 2; 1; 2 ] [ 1.; 2.; 3.; 4. ] in
   let w = make [ 2 ] [ 2.; 2. ] and b = make [ 2 ] [ 1.; 1. ] in
