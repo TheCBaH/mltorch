@@ -308,17 +308,13 @@ let%expect_test "Native Direct materializes an authored Sdpa Region" =
     counters.reductions;
   [%expect {| sdpa: keys=2 locals=18 emitters=6 loads=60 reductions=48 |}]
 
-(* Regression: [Region_execution.evaluate_locals] used to dispatch on a
-   local's numeric SLOT COUNT rather than its declared [Region_local.Shape.t]
-   -- a [Vector] local whose extent happens to be 1 (Sdpa's [s]/[p] at
-   [Wk = 1], a single key/value pair) gets the identical [(offset, 1)] slot
-   range a [Scalar] local gets, so it silently took the scalar branch, which
-   evaluates the body with no [~reducer] bound. [s]'s body mentions its own
-   per-element binder free by construction, so this raised [Unbound_reducer]
-   for every [Wk = 1] Sdpa graph -- through [Eval_direct.run], Native's own
-   production dispatch, not just the Kernel/Region_kernel path that surfaced
-   it. Checked bitwise against [Legacy_pixel] at the same shape, so this is a
-   numeric proof, not merely "did not raise". *)
+(* Regression: both Region evaluators must dispatch on a local's DECLARED
+   [Region_local.Shape.t], never its numeric slot count. A [Vector] local whose
+   extent happens to be 1 (Sdpa's [s]/[p] at [Wk = 1], a single key/value pair)
+   has the same [(offset, 1)] range as a scalar. Selecting the scalar branch
+   leaves its per-element reducer unbound. Keep the production graph path and
+   construct the same Region directly below so materialization and [value_at]
+   cover their independent loops. *)
 let%expect_test
     "Native Direct materializes Sdpa at Wk = 1 (vector local of extent 1)" =
   let query_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:3 in
@@ -365,8 +361,42 @@ let%expect_test
       (LP.pixel params ~query_shape ~key_shape ~value_shape:key_shape
          ~mask_shape ~query ~key ~value ~mask)
   in
-  Fmt.pr "sdpa wk=1: bits_equal=%b@." (Tensor.equal_bits actual expected);
-  [%expect {| sdpa wk=1: bits_equal=true |}]
+  let signature id shape =
+    Tensor_sig.create ~id:(Tensor_id.of_int id) ~name:"" ~shape
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let query_sig = signature 0 query_shape
+  and key_sig = signature 1 key_shape
+  and value_sig = signature 2 key_shape
+  and mask_sig = signature 3 mask_shape in
+  let region =
+    Err.or_raise ~pp_error:Region_context.pp_error
+      (Attention.Sdpa.Computation.program ~limits:Kernel.Limits.default params
+         ~query:query_sig ~key:key_sig ~value:value_sig ~mask:mask_sig)
+  in
+  let binding id =
+    if Tensor_id.equal id query_sig.Tensor_sig.id then Some query
+    else if Tensor_id.equal id key_sig.Tensor_sig.id then Some key
+    else if Tensor_id.equal id value_sig.Tensor_sig.id then Some value
+    else if Tensor_id.equal id mask_sig.Tensor_sig.id then Some mask
+    else None
+  in
+  let env = Expr_bridge.env ~binding in
+  let reference =
+    Err.or_raise ~pp_error:Region_eval.pp_error
+      (Region_eval.materialize region ~output_shape:query_shape ~env)
+  in
+  let projected =
+    Err.or_raise ~pp_error:Region_eval.pp_error
+      (Region_eval.value_at region ~output_shape:query_shape ~env
+         ~output:(Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:1 ~c:2))
+  in
+  Fmt.pr "sdpa wk=1: production=%b reference=%b projection=%b@."
+    (Tensor.equal_bits actual expected)
+    (Tensor.equal_bits reference expected)
+    (Core.Float_bits.equal_exact projected
+       (Tensor.read expected (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:1 ~c:2)));
+  [%expect {| sdpa wk=1: production=true reference=true projection=true |}]
 
 let%expect_test "transform grounding reads an authored Stage structurally" =
   let graph =

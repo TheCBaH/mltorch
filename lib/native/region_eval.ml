@@ -55,8 +55,11 @@ let evaluate_locals program ~env ~slots ~key =
     | [] -> Err.return values
     | binding :: rest -> (
         let open Err.Syntax in
-        match Expr.Local_var.Map.find binding.Region_local.id slots with
-        | offset, 1 ->
+        let offset, count =
+          Expr.Local_var.Map.find binding.Region_local.id slots
+        in
+        match binding.Region_local.shape with
+        | Region_local.Shape.Scalar ->
             let* value =
               widen_expr
                 (Expr.Eval.value ~local ~local_at env ~output:(expr_coord key)
@@ -64,15 +67,7 @@ let evaluate_locals program ~env ~slots ~key =
             in
             values.(offset) <- value;
             fill rest
-        | offset, count ->
-            let var =
-              match binding.Region_local.shape with
-              | Region_local.Shape.Vector { var; _ } -> var
-              | Region_local.Shape.Scalar ->
-                  invalid_arg
-                    "Region_eval.evaluate_locals: scalar shape with a vector \
-                     slot range"
-            in
+        | Region_local.Shape.Vector { var; _ } ->
             let rec each p =
               if p >= count then Err.return ()
               else
