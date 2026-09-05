@@ -19,6 +19,28 @@ diff), 100 tracked graphs:
 | `kernel_converts:true` | 66 / 100 |
 | All three stages succeed | 44 / 100 |
 
+**2026-09-05, `cumsum.default` landed** (full-stack Native AND Native4D; see
+the landing record below for the complete account, and `_ai_/lstm.md` for the
+adjacent `lstm.input` scoping investigation this session also did — not
+landed, needs a new ordered-scan primitive `cumsum` turned out NOT to need).
+`Cumsum`'s `Compute` reuses the existing `SEMANTICS.sum` primitive with the
+reduction's `hi` bound derived from the OUTPUT's own coordinate (`+1`)
+instead of a fixed extent, the same coordinate-derived-bound pattern
+`Adaptive_axis.Compute.bin` (`lib/native/ops/pool.ml`) already established —
+no new primitive needed. `dtype` is decoded and restricted to the schema
+default (`None`) or `FLOAT` (Native's compute domain is always float, so
+`FLOAT` is the identity) rather than rejected outright the way
+`softmax.int`/`sum.dim_IntList`/`linalg_vector_norm.default` reject any
+supplied `dtype` — EdgeNeXt's own occurrence passes `dtype=FLOAT` casting a
+bool mask, so this is load-bearing. `Native4D`: `Cumsum4`, reusing
+`Reduce.Cumsum`'s own `output_shape`/`Compute` unchanged with the axis
+narrowed to `Axis4.t`, the same `check_dims`-style rejection `Softmax4` has —
+landed full-stack in the same session. No corpus model is currently gated on
+it: EdgeNeXt's own occurrence sits one node past `bitwise_not.default`
+(still unlanded — the "Pointwise / type" backlog row), so the graph never
+reaches its `cumsum.default` node. `make pt2.json-model-support` produced no
+diff; all four scoreboard numbers above are unchanged (92/58/66/44).
+
 **2026-09-05, `IndexTensor4` landed** (full-stack Native4D counterpart; see
 the landing record below for the complete account). Reuses
 `Index_tensor.Index_tensor`'s own `output_shape`/`Compute` unchanged, the
@@ -212,8 +234,111 @@ intrinsic `axis T is outside the N/H/W/C dialect` wall, and
 | `matmul.default` / `Batched_matmul` real broadcasting | pre-existing binding/importers (only the shape rule changed) | pre-existing | pre-existing | **landed 2026-09-04**: `output_shape` broadcasts `N`/`T`/`D`/`H` per axis (equal, or one side 1), reusing `Pointwise_binary.broadcast_output_shape`'s per-axis rule restricted to the four batch axes; `Compute` reads each operand through `Pointwise_binary.broadcast_coord` against ITS OWN shape rather than the output coordinate directly. `test/native/linear_test.ml` (hand-computed mat2-broadcasts-H fixture) | `lib/native4d/domain.ml`'s `check_batched_matmul` fixed to read the BROADCAST (output) `D` via both operands, not `input`'s own `D` alone — `test/native4d/{fixtures,domain_test}.ml`'s new broadcast-domain fixture pins this | reaches wherever a legal `Batched_matmul` graph's own kernel path already reaches | `lambda_resnet26t` — moves off this frontier to `conv3d.default` (deferred backlog). **Not done**: the ATen-oracle walk (`lib/aten_walk_recipes/recipe_matmul.ml`) does not sweep a broadcast configuration against real ATen (same scoping as `Add`/`Mul`'s own walks) |
 | `scaled_dot_product_attention.default` / `Sdpa` real broadcasting | pre-existing binding/importers (neither checks head/batch equality; only Native's own shape rule changed) | pre-existing | pre-existing | **landed 2026-09-04**: `output_shape` broadcasts `N`/`T`/`D`/`H` per axis across query/key/value, chained the same way real ATen's two matmuls chain it (`batch_shape` returns `(qk_batch, full_batch)`); both `Compute` paths (`Legacy_pixel`, `Computation`) read every operand through `broadcast_coord` against its own shape. Real-ATen grounded: two `verify_print` fixtures in `test/native_bridge/sdpa_test.ml` (`H` and `D` broadcast, `enable_gqa=false`, dispatching to ATen's `math` backend since the flash gate requires equal heads/batch without GQA) agree at the EXISTING `1e-5` tolerance. `test/native/sdpa_test.ml` adds shape-level broadcast/rejection coverage plus a bit-for-bit two-heads-broadcast-against-one-shared-kv correctness fixture. `.ai/attention_design.md` §12 | `lib/native/region_computation.ml`'s SDPA sanity check fixed the same way (recomputes the real broadcast shape via a new `Attention.Sdpa.batch_shape` instead of assuming `output_shape = query.shape`) | reaches wherever a legal `Sdpa` graph's own kernel path already reaches | `mobilenetv5_base` — moves from `native_builds:false` to `native_builds:true` AND `native4d_converts:true` (its `D = 1` occurrences newly clear the pre-existing Native4D `Sdpa` counterpart above), stopping at the kernel stage's unrelated evaluation-depth ceiling. **Not done**: `Recipe_sdpa` was not widened to sweep broadcast configurations (same scoping as `Batched_matmul`'s own broadcast landing) |
 | `squeeze.dim` / `Reshape` (direct bind, no new op) | no curated binding needed — `self`'s shape read only (live tensor on the bridge, serialized `tensor_values` metadata on the importer), same "no ATen kernel call" precedent as `repeat.default`/`copy.default` | **landed this entry**: `lib/native_aten_bridge/op_bridge_shape.ml`, decides the drop-vs-no-op branch against the LIVE extent | **landed this entry**: `lib/native_interp/native_interp_lower_shape.ml`, decides the same branch against the SERIALIZED extent | reuses `Reshape`'s own pre-existing Direct/Symbolic — no new Compute, `test/native_interp/squeeze_test.ml` pins the built graph structure (both branches plus the out-of-range rejection) | **full-stack already**: `Reshape4` pre-exists and `Reshape` lowers to it unconditionally (`lib/native4d/lower_engine.ml`), so no Native4D change was needed | reaches wherever `Reshape4`'s own kernel path already reaches | `lambda_resnet26t` (native-import frontier; the model's own next node is a LATER, unrelated Native4D axis-domain boundary, not this op) |
+| `cumsum.default` / `Cumsum` + `Cumsum4` | **landed this entry**: real `at::cumsum` now a curated binding (`bin/aten_ops_gen.ml`, no `Override` needed), `test/native_bridge/cumsum_test.ml`'s `verify_print` runs against it as the oracle (dim=0/1/-1, an out-of-range rejection; the FLOAT-dtype accept path uses `dispatch_print` instead — `Interp_dispatch`'s generic `scalar_type_opt_arg` decode rejects ANY present `dtype` regardless of value, so a present-and-accepted `dtype` cannot go through the real-ATen comparison `verify_print` runs) | **landed this entry**: `lib/native_aten_bridge/op_bridge_reduce.ml`, `dtype` restricted to `None`/`FLOAT` rather than rejected outright | **landed this entry**: `lib/native_interp/native_interp_lower_reduce.ml` (a new family file, split out of `native_interp_lower_compute.ml` under the tracked file-size ceiling — mirrors `Op_bridge`'s own `op_bridge_reduce.ml` split) | **landed this entry**: `lib/native/ops/reduce.ml` (new `Reduce.Cumsum`; `Compute.pixel` reuses the existing `SEMANTICS.sum` with an output-coordinate-derived `hi`, no new primitive — see `_ai_/lstm.md` for why this looked like it might need one and didn't), `lib/native_op_walk/cumsum_nwalk.ml` for Direct-vs-Symbolic coverage | **landed this entry**: `Cumsum4` (`lib/native4d/ops4_cumsum.ml`, split out of `ops4.ml` under the same file-size ceiling), reusing `Reduce.Cumsum`'s own `output_shape`/`Compute` unchanged, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Softmax4` gets, `test/native4d/op_json_test.ml` | reaches wherever a legal `Cumsum4` graph's own kernel path already reaches | no corpus model currently reaches this boundary (EdgeNeXt's own occurrence sits behind `bitwise_not.default`, still unlanded) |
 
 ## Landing records
+
+### 2026-09-05 — `cumsum.default`, full-stack Native and Native4D
+
+Closes the "Matrix / reduction" deferred-backlog row's `cumsum.default` entry
+in [`todo-ops.md`](todo-ops.md). The adjacent `lstm.input` investigation this
+session did NOT land — see `_ai_/lstm.md` for the full scoping record (it
+needs a genuine new ordered-scan primitive in `Expr`/`SEMANTICS`; `cumsum`
+looked similar on the surface but turned out not to, since its ordered
+dependency is just an associative `sum` with an output-coordinate-derived
+bound).
+
+**What landed**
+
+- `lib/native/ops/reduce.ml`: new `Reduce.Cumsum` module (params/jsont/pp/
+  `output_shape`/`Walk`/`Compute`), placed after `Softmax` in the file. Shape-
+  preserving like `Softmax` (`output_shape` is the identity). `Compute.pixel`
+  reads the output's own position along `axis` (`Vec6.get out p.axis`),
+  widens it by one via `S.index_add`/`S.index_const`, and folds with the
+  pre-existing `S.sum` — no new `SEMANTICS` primitive, the same
+  coordinate-derived-bound pattern `Adaptive_axis.Compute.bin` (this file)
+  already uses for adaptive pooling's bin edges.
+- `lib/native/graph_ir.ml`/`.mli`: `Cumsum` constructor, alphabetical between
+  `Convolution` and `Div`.
+- `lib/native/graph_builder.ml`/`.mli`: `cumsum` builder function, same slot.
+- `lib/native/graph_shape.ml`: shape arm delegating to
+  `Reduce.Cumsum.output_shape`.
+- `lib/native/eval_op.ml`: pixel arm delegating to `Reduce.Cumsum.Compute(S)`.
+- `lib/native/transform/output_transfer.ml`: `Cumsum` classified
+  `Continuous` (a genuine reduction, not a copy — every output element
+  depends on every PRECEDING element on the walked axis, the same answer
+  every other reduction in this file gets).
+- `bin/aten_ops_gen.ml`: `op "cumsum"` added to `curated_selection` — an
+  ordinary `(Tensor, int, ScalarType?)` schema shape the generator already
+  emits unmodified, no `Override` needed. This alone makes `at::cumsum` a
+  real curated ATen binding AND gives `Interp_dispatch` (the schema-generated
+  real-ATen node dispatcher `lib/interp` uses) a working `cumsum.default`
+  arm — no hand-written C++ or dispatch code.
+- `lib/native_aten_bridge/op_bridge_reduce.ml`: new `cumsum.default` arm,
+  `dim` decoded via the existing `dim_axis` helper (same singleton-axis
+  convention `softmax.int` uses). `dtype` is decoded and restricted to the
+  schema default (`None`) or `FLOAT` — Native's compute domain is always
+  float, so `FLOAT` is the identity, exactly `_to_copy.default`'s own
+  `Float` case — rather than rejected outright the way
+  `softmax.int`/`sum.dim_IntList`/`linalg_vector_norm.default` reject ANY
+  supplied `dtype`: EdgeNeXt's own occurrence passes `dtype=FLOAT` casting a
+  bool mask, so the permissive form is load-bearing.
+- `lib/native_interp/native_interp_lower_reduce.ml` (NEW FILE): the
+  `Native_interp` side of the same `cumsum.default` arm, split out as its own
+  family file rather than folded into `native_interp_lower_compute.ml`
+  (which was already at the tracked 1000-line ceiling) — mirrors
+  `Op_bridge`'s own `op_bridge_reduce.ml` split. Registered in
+  `lib/native_interp/native_interp_lower.ml`'s family dispatch list.
+- `lib/native_interp/native_interp_error.ml`/`.mli`: new `` `Cumsum_input ``
+  metadata role, alphabetical between `` `Convolution_weight `` and
+  `` `Expand_input ``.
+- `lib/native4d/ops4_cumsum.ml` (NEW FILE): `Cumsum4`, split out of
+  `ops4.ml` (also at the tracked ceiling) rather than added there directly.
+  Reuses `Reduce.Cumsum`'s own `output_shape`/`Compute` unchanged, axis
+  narrowed to `Axis4.t`.
+- `lib/native4d/op.ml`: `Cumsum4` constructor and registry entry, alphabetical
+  between `Conv2d` and `Depthwise_conv2d`.
+- `lib/native4d/builder.ml`: `cumsum4` builder, same slot.
+- `lib/native4d/graph_shape4.ml`: `cumsum_params` adapter (`Axis4.t ->
+  Axis.t`, shared with `Eval_op4`) and a shape arm delegating to
+  `Reduce.Cumsum.output_shape`.
+- `lib/native4d/eval_op4.ml`: pixel arm delegating to
+  `Reduce.Cumsum.Compute(S)` through the same adapter.
+- `lib/native4d/output_transfer4.ml`: `Cumsum4` classified `Continuous`,
+  mirroring Native's own classification.
+- `lib/native4d/domain.ml`: `Cumsum`'s domain arm (on the NATIVE `Graph_ir.op`,
+  checked before the axis converts to `Axis4.t`) changed from unconditional
+  rejection to the same `check_dims`-style axis-domain check `Softmax` gets,
+  right after it.
+- `lib/native4d/lower_engine.ml`: `Cumsum -> Cumsum4` legalization arm, right
+  after `Softmax -> Softmax4`, same shape (axis converts via `dims4`, no
+  post-hoc shape re-check needed since `Reduce.Cumsum.output_shape` is the
+  identity).
+- `lib/native_op_walk/cumsum_nwalk.ml` (NEW FILE) +
+  `lib/native_op_walk/native_op_walk.ml`: Direct-vs-Symbolic walk coverage,
+  registered alphabetically after `Convolution_nwalk`.
+- `test/native_bridge/cumsum_test.ml` (NEW FILE): `verify_print` fixtures
+  against real ATen (dim=0, dim=1, dim=-1 normalization, an out-of-range-dim
+  rejection) plus `dispatch_print` fixtures for the FLOAT-dtype accept path
+  and a non-FLOAT-dtype rejection. Split into its own file rather than added
+  to `dispatch_test.ml` (also at the tracked ceiling).
+- `test/native4d/op_json_test.ml`: new `Cumsum4` sample in the "one value per
+  constructor" sweep (`samples`/`registry` count parity check).
+- `test/native_walk_coverage_test.ml`: `torch.ops.aten.cumsum.default` added
+  to the `needs_meta` backlog listing (it has an `Op_bridge` arm but no
+  `Walk_meta`/`Recipe_cumsum` fuzz-oracle entry yet — same status
+  `conv3d.default` has, not a regression).
+
+**Not done**: no `Recipe_cumsum` ATen-oracle fuzz walk (same scoping
+precedent as `conv3d.default`'s own landing — `Walk_meta`/`Recipe_*` fuzzing
+is a separate, optional quality bar this landing did not invest in).
+
+**Corpus effect**: none. EdgeNeXt is the only corpus model with
+`cumsum.default` occurrences (2, both immediately downstream of
+`bitwise_not.default` in `PositionalEncodingFourier`), and `bitwise_not.default`
+itself is still unlanded (the "Pointwise / type" backlog row) — EdgeNeXt's
+frontier does not move. `make pt2.json-model-support` produced no diff; all
+four scoreboard numbers are unchanged (92/58/66/44).
 
 ### 2026-09-05 — `IndexTensor4`, the Native4D counterpart to Native's `Index_tensor`
 
