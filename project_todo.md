@@ -30,29 +30,47 @@ the separate `_ai_/` repository.
 
 ### 1. Establish the baseline and current migration inventory
 
-- [ ] Inspect both repositories' status and preserve existing edits. Re-read relevant `.ai/`
+- [x] Inspect both repositories' status and preserve existing edits. Re-read relevant `.ai/`
   records and verify that the source assumptions in the two planning documents still hold.
-- [ ] Establish the current build/test baseline and record any pre-existing failures separately.
-- [ ] Enumerate application sites for `Expr.Eval.value`, `Region_execution.lower`/
+- [x] Establish the current build/test baseline and record any pre-existing failures separately.
+- [x] Enumerate application sites for `Expr.Eval.value`, `Region_execution.lower`/
   `lower_region`, `Stage_program.ground`, `Ground_eval.at`/`expand`, and limit constructors.
   Include public signatures, full budget literals, printers, labels and explorer consumers.
-- [ ] Locate existing Expr, Region, verifier, ATen and JavaScript fixtures that subsequent
+- [x] Locate existing Expr, Region, verifier, ATen and JavaScript fixtures that subsequent
   steps can extend. Check file-size constraints before choosing new module boundaries.
 
 Completion: a current inventory by responsibility and a reproducible baseline. Use complete
 searches and compiler feedback; historical caller counts are not acceptance criteria.
 
+Evidence (2026-09-05): the root worktree was clean and the ledger repository's pre-existing
+untracked `lstm-review.md` was left untouched. `make precommit` passed with no pre-existing
+failures. Reviewed the expression, Region execution, error, Native compute, and JavaScript
+design records alongside both LSTM plans. The current migration inventory is rooted in
+`region_eval`/`region_execution`, `eval_direct`, `kernel_eval`, `schedule`, `stage_program`,
+`ground_eval`, `map_verify`, `kernel`/`kernel_adapt`, their public interfaces, and the Native4D
+direct path; the complete source search also identified the focused Expr, Region, grounding,
+Native, Native4D, ATen, and JS fixture directories. Existing files remain below the repository
+file-size ceiling, so later modules should continue the existing split-by-responsibility pattern.
+
 ### 2. Fix extent-one vector evaluation
 
-- [ ] Change `Region_eval.evaluate_locals` to dispatch on the declared local shape, matching
+- [x] Change `Region_eval.evaluate_locals` to dispatch on the declared local shape, matching
   the rule already used in `Region_execution`.
-- [ ] Add an extent-one vector fixture whose body actually reads its reducer, plus an SDPA
+- [x] Add an extent-one vector fixture whose body actually reads its reducer, plus an SDPA
   `Wk = 1` regression through `value_at` and materialization.
-- [ ] Verify both reference and production execution. Observe the regression fail with the
+- [x] Verify both reference and production execution. Observe the regression fail with the
   defective dispatch restored, then restore the fix.
 
 Completion: scalar and extent-one vector locals remain distinguishable and the regression
 reaches the previously failing path. Keep this correction separate from the structural refactor.
+
+Evidence (2026-09-05): `c1f05f4` changes the reference loop to select by
+`Region_local.Shape.t`, retaining the production loop's rule. The Wk=1 SDPA test now runs the
+production graph, direct reference materialization, and direct reference `value_at`, each
+bitwise against the legacy oracle. With the former slot-count dispatch restored temporarily,
+the focused test failed at the reference materializer with `Unbound_reducer`; the declared-shape
+dispatch was restored. `NO_COLOR=1 opam exec -- dune runtest test/native/region_compute_test.exe`
+and `make precommit` pass.
 
 ### 3. Prove ATen LSTM feasibility
 
