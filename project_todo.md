@@ -196,19 +196,19 @@ every commit above.
 
 ### 6. Extend those foundations with bounded scans
 
-- [ ] Extend `expr_repr`, the internal scan implementation and public recursive signature.
+- [x] Extend `expr_repr`, the internal scan implementation and public recursive signature.
   Export `Scan`, `Scan_limits`, `Scan_meter`, `Scan_admission` and both projection constructors.
-- [ ] Add `Builder.scan` using the shared supply. Extend scope/import helpers, folds,
+- [x] Add `Builder.scan` using the shared supply. Extend scope/import helpers, folds,
   freshening, substitution, checking, comparison, hashing, normalization and printing to
   local binders and the distinct initializer/update scopes.
-- [ ] Implement admission and inline evaluation: immutable previous rows, ordered lane
+- [x] Implement admission and inline evaluation: immutable previous rows, ordered lane
   updates, projection bounds, shared update charging and internal state reservation/unwinding.
-- [ ] Implement the exact `scan_reader`, projection errors, closed invalid-limit fields,
+- [x] Implement the exact `scan_reader`, projection errors, closed invalid-limit fields,
   missing-meter error and shared error conversions specified in the plan.
 - [ ] Add the scan RHS/layout case and continuation-based `Region_program.Builder.scan`.
   Extend dependency order, local-kind agreement and region invariance checks to trace reads.
 - [ ] Render unspecialized scan definitions with scoped `init` and `update` children.
-- [ ] Cover freshening/capture, init scope, zero steps, row-zero projections, nested state,
+- [x] Cover freshening/capture, init scope, zero steps, row-zero projections, nested state,
   exact-limit/next-charge behavior, and raw scans under constant/dynamic reductions.
 - [ ] Compile a consumer outside Expr that constructs and inspects a scan through public
   APIs; carry dependent signature and exhaustive-match migrations with the new constructors.
@@ -216,6 +216,53 @@ every commit above.
 Completion: Expr builds independently, and scan semantics, scope and runtime bounds pass
 focused tests. Region can construct/check/render trace definitions. Wider construction and
 narrower evaluation limits exercise state rejection even when no updates occur.
+
+Evidence (2026-09-05), Expr-level half (`03d7162`, `219737b`): `Scan`/`Scan_limits`/
+`Scan_meter`/`Scan_admission` land in `lib/expr_internal/` (new files `scan.ml`,
+`scan_limits.ml`, `scan_meter.ml`, `scan_admission.ml`), aliased through `lib/expr/expr.ml`.
+`Scan` joins the existing recursive group in `expr_repr.ml`; `Value.t` gains `Local_scan_at`
+(cached trace read) and `Scan_at` (inline descriptor), tags 11/12, append-only. `value.ml`'s
+`compare`/`hash` gain a second, LOCAL alpha-equivalence namespace alongside the existing
+reducer one -- `prev` is the first local binder this language has -- built so that every
+non-scan comparison/hash takes the exact code path it did before (empty namespace, falls
+through to the original branch). `fold.ml`'s locals-family queries (`locals`/`scalar_locals`/
+`vector_locals`, plus new `scan_locals`) move off unscoped `walk` onto a shared hand-rolled
+scope-aware recursion; `free_reducers`/`binders` gain scan's two sibling scopes; new
+`local_binders`. `rewrite.ml`'s `rebuild` gains `on_local_scan_at`/`on_local_bind` channels;
+`freshen` mints all three scan binders and gains a `free_locals` avoidance set;
+`freshen_scan` lets a whole descriptor be freshened before splicing (used by
+`substitute_locals`'s new `Scan of Scan.t` case, which is what lets `specialize_pixel`
+eventually turn a cached read into a re-executing one). `check.ml` splits `Duplicate_binder`
+into `Duplicate_local_binder`/`Duplicate_reducer_binder`. `Eval.value` gains `?scan`/
+`?scan_meter` and evaluates an inline `Scan_at` directly over two row buffers, charging one
+update per lane per step, reserving `2*width` state for the nesting peak
+(`Fun.protect`-released on every exit including an `Err.Escape` unwind).
+
+`dune build lib/expr` is green; the whole repository's existing test suite passes
+UNCHANGED (no golden moved), confirming the additions are behavior-preserving for non-scan
+expressions. `test/expr/scan_test.ml` covers the recurrence itself, zero steps, row-wins-on-
+simultaneous-failure, the exact-limit/next-charge meter boundary, construction-time rejection
+of the descriptor's worst case (including both zero-is-meaningful cases), freshening
+(structural/interpretive equivalence plus a captured free local surviving untouched), a
+cached `Local_scan_at` read delegating to a supplied reader, and `Scan_admission.check`
+under no/constant/dynamic enclosing reductions. Runs under both JS backends
+(`make js.runtest` green).
+
+A real regression surfaced and was fixed in the same commit: the wider `Value.t`/`Eval.value`
+measurably deepened `Eval.value`'s compiled stack frame under node, dropping
+`Hard.eval_depth`'s survivable frontier from 2048 to somewhere between 1820 and 1850. Root
+cause was NOT a tail-call issue (confirmed by testing -- an indirect ref-cell dispatch for the
+new `Scan_at` case made it no better, and reverting to a plain `and`-bound sibling of `go`
+changed nothing), just interpreter growth, matching this file's own documented precedent for
+`Hard.eval_recursion`. Re-measured and lowered `Hard.eval_depth` to 1536 (confirmed stable
+over repeated runs, ~2x resnet18's combined-depth requirement, same margin the original
+ceiling had) and re-measured every dependent sample point in `depth_probe.ml`.
+
+Remaining for this step: the Region-level RHS/layout case, `Region_program.Builder.scan`,
+dependency-order/shape-agreement/region-invariance extension to trace reads, unspecialized
+rendering in `me_detail.ml`/`region_trace.ml`, and the external consumer fixture. `make
+precommit`, `NO_COLOR=1 opam exec -- dune runtest` (whole tree) and `make js.runtest` all
+pass after every commit above.
 
 ### 7. Separate resource dimensions and validate executable artifacts
 
