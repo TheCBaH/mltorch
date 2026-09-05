@@ -96,23 +96,46 @@ test/aten_ops_test.exe` and `make precommit` pass.
 
 ### 4. Finalize the foundation contracts and resource measurements
 
-- [ ] Record the recursive scan representation, both projections, per-child scopes,
+- [x] Record the recursive scan representation, both projections, per-child scopes,
   freshening obligation, exact callback/error declarations and meter reset rules from the plan.
-- [ ] Specify the typed Region RHS/layout and validated execution artifact, including all
+- [x] Specify the typed Region RHS/layout and validated execution artifact, including all
   public constructors and error propagation through `Region_context`/`Region_computation`.
-- [ ] Preserve dependency direction: `Expr` cannot depend on Native. `Kernel` already owns
+- [x] Preserve dependency direction: `Expr` cannot depend on Native. `Kernel` already owns
   `Region_program.t`, so Region preflight must accept lower-level limits or explicit fields,
   rather than introducing a `Region_program` → `Kernel` cycle.
-- [ ] Produce the three resource estimates: maximum updates per key, summed Kernel work
+- [x] Produce the three resource estimates: maximum updates per key, summed Kernel work
   after output liveness/selection, and Direct work across every materialized output.
-- [ ] Measure slot/state allocation and practical ceilings natively and under Node using
+- [x] Measure slot/state allocation and practical ceilings natively and under Node using
   synthetic programs. Choose scan defaults and hard ceilings with stated headroom; the
   proposed local-slot default is 8192. Recheck estimates against actual LSTM programs in step 16.
-- [ ] Adopt the plan's separate retained-pair and cumulative grounding accounts, including
+- [x] Adopt the plan's separate retained-pair and cumulative grounding accounts, including
   exact profile values, term/meter ownership, verdict mapping and public record migration.
 
 Completion: no unnamed limit, unit, reset scope or error payload remains in the foundation
 contract. Label estimates and initial policy values honestly; do not present them as benchmarks.
+
+Evidence (2026-09-05): the tracked design record adds the recursive-group placement, both
+`Value.scan_at`/`local_scan_at` constructors, the `Scan`/`Scan_limits`/`Scan_meter` error and
+API surface, the two-namespace scope rules, the Region `Builder.scan` continuation contract,
+the `preflight`/`lower`/`lower_region` validated-artifact signatures, the static-measure
+formulas, the grounding `Budget`/`Meter`/`Term` contract with its verdict mapping, the fusion
+and rendering requirements, and the `divmod` encoding for Stage 2. A source re-survey against
+the current tree (post-`c1f05f4`/`fb5da79`) found and corrected several line-number and scope
+drifts from the working plan, most substantively: the `Region_context`/`Region_computation`
+error-erasure the plan cites once actually recurs at five sites (one in `region_context.ml`,
+four per-operation sites in `region_computation.ml`), and `Ground_eval` lives under
+`lib/native/transform/`, not `lib/native/`. The three censuses are computed directly from the
+corpus's two LSTM shapes: max per-key updates `2*16*192 = 2*32*96 = 6144`; summed worst-case
+Kernel total across all 36 occurrences and up to 3 live outputs each, `12,976,128`; the Direct
+path's total is recorded as not independently boundable (unbounded by downstream fan-out),
+which is why `max_scan_updates_total` stays Kernel-scoped. Slot/state ceilings are backed by a
+standalone array-allocation probe run both natively (`Sys.max_array_length =
+18,014,398,509,481,983`) and under `js_of_ocaml`/node (`Sys.max_array_length = 536,870,911`),
+confirming allocation at 8192 through 50,000,000 float elements succeeds on both backends with
+no stack-overflow-style frontier to discover, unlike `Hard.depth`/`eval_recursion`; defaults
+(`max_local_slots`/`max_scan_state` = 8192, `max_scan_updates_per_key` = 8192,
+`max_scan_updates_total` = 16,000,000) are chosen with stated headroom over the censuses, not
+presented as measured capacity. No production code changed. `make precommit` passes.
 
 ### 5. Strengthen the existing project foundations
 
