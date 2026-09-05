@@ -233,6 +233,46 @@ module type S = sig
     }
   end
 
+  and Scan : sig
+    (* [trace.(0, l) = init[lane := l]]; [trace.(s+1, l) = update[step := s,
+       lane := l, prev := trace.(s, ·)]]. [lane] is bound in BOTH [init] and
+       [update] (two sibling scopes); [step] and [prev] are bound in [update]
+       only. Row and lane are always two separate index arguments, never
+       packed into one flattened index. Exposed as a private record, not
+       opaque, for the same reason [Reduction.t] is: Native needs both
+       binders and both children directly -- [Region_program.check] and its
+       folds, the printer, and [Region_execution.evaluate_locals], which runs
+       the trace by reading [width]/[steps]/[init]/[update] rather than
+       through a projection. *)
+    type t = private {
+      width : int;
+      steps : int;
+      lane : Reduce_var.t;
+      step : Reduce_var.t;
+      prev : Local_var.t;
+      init : Value.t;
+      update : Value.t;
+    }
+
+    type error =
+      | Bad_steps of int
+      | Bad_width of int
+      | Prev_in_init
+      | State_over_limit of { limit : int }
+      | Step_in_init
+      | Unbounded_reduction_context
+      | Updates_over_limit of { limit : int64 }
+          (** [Bad_steps]/[Bad_width] carry the offending value;
+              [State_over_limit]/ [Updates_over_limit] carry the LIMIT, per the
+              "payload is the limit, not the measure" convention -- both are
+              early-stopping budget checks against the descriptor's worst case.
+              [Unbounded_reduction_context] is raised by
+              {!Scan_admission.check}, not by construction: a scan itself does
+              not know what encloses it. *)
+
+    val pp_error : Format.formatter -> error -> unit
+  end
+
   and Value : sig
     type binary_op = Add | Div | Mul | Sub
     type unary_op = Erf | Exp | Log | Sqrt | Trunc
@@ -243,9 +283,12 @@ module type S = sig
       | Intrinsic of Intrinsic.t
       | Local of Local_var.t
       | Local_at of Local_var.t * Role.Position.t Index.t
+      | Local_scan_at of
+          Local_var.t * Role.Position.t Index.t * Role.Position.t Index.t
       | Load of Source.t * Role.Position.t Index.t Coord.t
       | Reduce of Reduction.t
       | Round_f32 of t
+      | Scan_at of Scan.t * Role.Position.t Index.t * Role.Position.t Index.t
       | Select of Bool.t * t * t
       | Unary of unary_op * t
       | Value_of_index of Role.Delta.t Index.t
@@ -279,6 +322,21 @@ module type S = sig
         substituting it out (during specialization) is a beta-reduction, not a
         lookup. *)
 
+    val local_scan_at :
+      Local_var.t ->
+      row:Role.Position.t Index.t ->
+      lane:Role.Position.t Index.t ->
+      t
+    (** Names a materialized trace local -- [Region_program]'s cached-read
+        counterpart to [scan_at] below, exactly as [local_at] is to an inline
+        vector body. *)
+
+    val scan_at :
+      Scan.t -> row:Role.Position.t Index.t -> lane:Role.Position.t Index.t -> t
+    (** The inline, re-executing projection: runs the descriptor's recurrence up
+        to [row] and reads [lane]. [specialize_pixel] rewrites a cached
+        [local_scan_at] read into this when inlining a Region program. *)
+
     (* [Ground_expr] stores these operator payloads and applies them, so they are
        public: it is what lets the ground language share one definition of the
        arithmetic instead of open-coding a second. *)
@@ -307,6 +365,72 @@ module type S = sig
     (** Agrees with [compare] by construction — same information, same order,
         reducers by level. An optimisation only; structural equality remains the
         authority. *)
+  end
+
+  module Scan_limits : sig
+    (* Runtime metering is required even after [Builder.scan]'s own
+       construction-time check: a checked scan can be composed under another
+       reduction, inserted by a raw rewrite, or passed as a raw [Value.t]
+       straight to the evaluator, none of which construction can see. *)
+    type t
+
+    module Field : sig
+      type t = Max_state | Max_updates
+    end
+
+    module Invalid : sig
+      type t = { field : Field.t; value : int64 }
+    end
+
+    type error = Invalid of Invalid.t
+
+    val create : max_state:int -> max_updates:int64 -> (t, error) Err.t
+    (** Unlike [Kernel.Limits.create], zero is valid for both fields:
+        [max_state = 0] forbids every scan (each reserves [2 * width >= 2] live
+        state); [max_updates = 0] admits only descriptors that can never update
+        ([steps = 0], whose trace is just the initial row). Only the upper,
+        exclusive [v >= hard] rule is shared with [Kernel.Limits.create]. *)
+
+    val max_state : t -> int
+    val max_updates : t -> int64
+    val default : t
+    val pp_error : Format.formatter -> error -> unit
+  end
+
+  module Scan_meter : sig
+    (* [t] is abstract: reservation/release (the nesting-peak state budget)
+       are internal to [Eval]'s own inline [Scan_at] evaluation, so a caller
+       cannot under-count state with an unmatched, duplicate or wrong-width
+       release. The only public mutator is [charge_update]. *)
+    type t
+
+    type error =
+      | State_over_limit of { limit : int }
+      | Updates_exhausted of { limit : int64 }
+
+    val create : limits:Scan_limits.t -> t
+
+    val charge_update : t -> (unit, error) Err.t
+    (** Exactly [limit] calls succeed; the next fails BEFORE its update body is
+        evaluated. The standalone inline evaluator and both Region executors
+        call this same function, so their off-by-one behavior at the boundary
+        cannot drift apart. *)
+
+    val remaining : t -> int64
+    val pp_error : Format.formatter -> error -> unit
+  end
+
+  module Scan_admission : sig
+    (* Over a whole raw [Value.t] -- what Region preflight requires, since a
+       checked scan can still end up composed under another reduction, or
+       nested by a rewrite, after its own construction-time check ran. *)
+    val check : limits:Scan_limits.t -> Value.t -> (unit, Scan.error) Err.t
+    (** A scan beneath a statically unbounded reduction is rejected as
+        [Unbounded_reduction_context]; one beneath a chain of constant-extent
+        reductions has its worst-case update count multiplied by their combined
+        extent and re-checked, reported as [Updates_over_limit] on overflow.
+        LSTM's own scans sit at Region-local top level, so this costs that
+        target nothing. *)
   end
 
   module Builder : sig
@@ -349,6 +473,34 @@ module type S = sig
         [Reduction.t] is what makes scope correct by construction: the body
         cannot name a variable that is not this reduction's, and the variable
         cannot escape into a sibling. *)
+
+    val scan :
+      limits:Scan_limits.t ->
+      width:int ->
+      steps:int ->
+      init:(lane:Role.Position.t Index.t -> Value.t t) ->
+      update:
+        (step:Role.Position.t Index.t ->
+        lane:Role.Position.t Index.t ->
+        previous_at:(Role.Position.t Index.t -> Value.t) ->
+        Value.t t) ->
+      (Scan.t, Scan.error) Err.t t
+    (** Mints [lane]/[step] (reducers) and [prev] (the first local BINDER this
+        language has) and hands them to [init]/[update] exactly as [reduction]
+        hands its own binder to its body, then validates the built descriptor:
+        [step]/[prev] (freshly minted, so never legitimately free elsewhere)
+        must not appear free in [init], and the descriptor's WORST CASE --
+        [2 * width] live state, [steps * width] updates -- must clear [limits].
+        Runtime metering ([Scan_meter]) is still required after this for the
+        same reason [Scan_admission.check] is: a checked scan can be composed
+        under another reduction, or passed to the evaluator directly, which this
+        call cannot see.
+
+        Freshen a prebuilt fragment (built via a separate [Builder] call rather
+        than directly here) from the SHARED supply before composing it in
+        [init]/[update] -- via [run_from], never [run], which restarts numbering
+        at ordinal 0 and would reintroduce the collision [Rewrite.freshen]
+        exists to prevent. *)
   end
 
   module Fold : sig
@@ -415,6 +567,11 @@ module type S = sig
         program; the host's shape-agreement check is exactly what rules out the
         id appearing in both. *)
 
+    val scan_locals : Value.t -> Local_var.Set.t
+    (** The subset of [locals] read as [Value.Local_scan_at] -- what a trace
+        local may legally be. Disjoint from [scalar_locals]/[vector_locals] in a
+        well-formed program, for the same shape-agreement reason. *)
+
     val output_axes : Value.t -> Axis.t list
     val intrinsics : Value.t -> int
 
@@ -434,7 +591,13 @@ module type S = sig
         sibling scopes appears twice, which is what separates counting binders
         from counting identities. Inspection only: [Pp] and the structural
         comparison each carry a scoped environment instead, since a list keyed
-        by identity cannot tell those siblings apart. *)
+        by identity cannot tell those siblings apart. A scan's [lane] is
+        reported twice (once per sibling scope, [init] and [update]) and [step]
+        once. *)
+
+    val local_binders : Value.t -> Local_var.t list
+    (** [binders]'s local-namespace sibling: only [prev] is ever a local binder,
+        once per scan, for [update]'s scope. *)
   end
 
   module Rewrite : sig
@@ -500,17 +663,20 @@ module type S = sig
 
     type local_binding =
       | Scalar of Value.t
+      | Scan of Scan.t
       | Vector of { var : Reduce_var.t; body : Value.t }
           (** What a local resolves to at a use site. [Scalar] substitutes at a
               [Value.Local] occurrence; [Vector] substitutes [var] (the binder
               its [body] is parameterised over) with the occurrence's own read
-              index at a [Value.Local_at] one -- a beta-reduction, not a lookup.
-              Which node kind a given local may legally appear as is
-              [Region_program.check]'s shape-agreement rule, not this
-              function's: passing a [Vector] binding for a bare [Local]
-              occurrence (or a [Scalar] one for a [Local_at]) raises, the same
-              as any other well-formedness violation this module assumes its
-              caller has already ruled out. *)
+              index at a [Value.Local_at] one -- a beta-reduction, not a lookup;
+              [Scan] splices the (freshened) descriptor in as an inline
+              [Value.Scan_at] at a [Value.Local_scan_at] occurrence's own row/
+              lane -- this is how [specialize_pixel] turns a cached trace read
+              into a re-executing one. Which node kind a given local may legally
+              appear as is [Region_program.check]'s shape-agreement rule, not
+              this function's: passing a binding for the wrong node kind raises,
+              the same as any other well-formedness violation this module
+              assumes its caller has already ruled out. *)
 
     val substitute_locals :
       (Local_var.t -> local_binding option) -> Value.t -> Value.t Builder.t
@@ -518,14 +684,17 @@ module type S = sig
 
   module Check : sig
     type error =
-      [ `Duplicate_binder of Reduce_var.t
+      [ `Duplicate_local_binder of Local_var.t
+      | `Duplicate_reducer_binder of Reduce_var.t
       | `Free_reducer of Reduce_var.t
       | `Too_deep of int
       | `Too_large of int
       | `Unbound_local of Local_var.t ]
     (** [`Too_large] and [`Too_deep] carry the LIMIT, not the measure: reporting
         the actual size would mean measuring the whole tree, which is what the
-        limit is there to avoid. *)
+        limit is there to avoid. [`Duplicate_local_binder] is [prev]'s own
+        analogue of [`Duplicate_reducer_binder] -- both indicate two
+        independently built fragments composed without freshening. *)
 
     val pp_error : Format.formatter -> [< error ] -> unit
 
@@ -654,11 +823,43 @@ module type S = sig
         converts independently in two places today, and a helper returning [int]
         does not make the conversion that follows it exact. *)
 
+    module Scan_projection : sig
+      (* [local] distinguishes a cached [Local_scan_at] read ([Some id]) from
+         an inline [Scan_at] descriptor ([None]). *)
+      type t = { local : Local_var.t option; row : int; lane : int }
+    end
+
+    module Scan_bounds : sig
+      (* [extent] is observed shape data (the exclusive upper bound: [steps +
+         1] rows or [width] lanes), never a budget limit -- it never appears
+         in a [Scan_meter.error]. *)
+      type t = { projection : Scan_projection.t; extent : int }
+    end
+
+    type scan_error =
+      | Lane_out_of_range of Scan_bounds.t
+      | Row_out_of_range of Scan_bounds.t
+      | Unknown_local of Local_var.t
+
+    val pp_scan_error : Format.formatter -> scan_error -> unit
+
+    type scan_reader =
+      Local_var.t -> row:int -> lane:int -> (float, scan_error) Err.t
+    (** A cached-trace reader resolves [id] in its own trace table (a scalar/
+        vector id is not a trace, hence [Unknown_local]), then checks row, then
+        lane, before indexing -- row wins on a simultaneous failure.
+        [Region_eval] and [Region_execution] implement this exact type and widen
+        the resulting [error] unchanged; they do not define a competing
+        projection error. *)
+
     type error =
       [ `Coord_out_of_range of Source.t * Axis.t * int * int Coord.t
       | `Data_source_wrong_format of string
       | index_error
       | Intrinsic.error
+      | `Scan_meter of Scan_meter.error
+      | `Scan_meter_required
+      | `Scan_projection of scan_error
       | `Unbound_local of Local_var.t
       | `Unknown_source of Source.t ]
     (** [`Coord_out_of_range]/[`Unknown_source] are raised by the host's
@@ -667,9 +868,17 @@ module type S = sig
         [Env.load_index]: the bound tensor is not the [I64] format a [Data]
         source requires. Its payload is a bare format-name [string], not the
         host's own structured format type -- this library must not depend on
-        [native], where that type lives. *)
+        [native], where that type lives. [`Scan_meter_required] is what an
+        inline [Scan_at] fails with when no [?scan_meter] was supplied, before
+        reserving state or evaluating either body. *)
 
     val pp_error : Format.formatter -> [< error ] -> unit
+
+    val scan_error : scan_error -> error
+    (** The single [`Scan_projection] conversion, via [Err.map_error]. *)
+
+    val scan_meter_error : Scan_meter.error -> error
+    (** The single [`Scan_meter] conversion, via [Err.map_error]. *)
 
     module Env : sig
       type t = {
@@ -687,6 +896,8 @@ module type S = sig
     val value :
       ?local:(Local_var.t -> float option) ->
       ?local_at:(Local_var.t -> int -> float option) ->
+      ?scan:scan_reader ->
+      ?scan_meter:Scan_meter.t ->
       ?reducer:Reduce_var.t * int ->
       ?on_reduction:(unit -> unit) ->
       Env.t ->
@@ -704,6 +915,15 @@ module type S = sig
         vector local's own body (which mentions its binder free, not under a
         [Reduce]) needs, mirroring how [Reduce]'s internal fold already binds
         its own [var] per iteration.
+
+        [scan] resolves a cached [Value.Local_scan_at] read; missing entirely,
+        it fails with the same [Unknown_local] a real reader would report for an
+        unrecognized id. An inline [Value.Scan_at] is evaluated directly --
+        bounds-checked, then run over exactly [row] steps on two row buffers,
+        charging [scan_meter] once per lane update and reserving [2 * width]
+        live state for the call's duration (released on every exit, including an
+        [Err.Escape] unwind). Encountering one with no [?scan_meter] fails with
+        [`Scan_meter_required] before either body is evaluated.
 
         [Select] evaluates only the selected branch. [Reduce] is the ordered
         half-open left fold, with the same seeds and the same association as the

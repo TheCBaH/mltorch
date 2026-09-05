@@ -91,6 +91,7 @@ type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
   | `Region of Region_program.error
+  | `Scan_at_unsupported
   | `Unknown_edge of Tensor_id.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit

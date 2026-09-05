@@ -67,18 +67,31 @@ let names_in env v =
      of which can contain a binder. ([Bool.Index_eq] holds indices, which bind
      nothing.) Dropping a hand-off is silent -- two binders would share a name
      -- so the goldens are the guard. *)
+let local_name lenv names v =
+  match Local_var.Map.find_opt v lenv with
+  | Some name -> name
+  | None -> (
+      match names v with
+      | Some name -> name
+      | None -> Fmt.str "?%a" Local_var.pp v)
+
 let value_open ~names fmt e =
   let idx env fmt i = index ~names:(names_in env) fmt i in
-  let rec at env n fmt (e : Value.t) =
+  (* [lenv] is [Pp]'s local-namespace sibling of [env]: it names only [prev]
+     binders, scoped to their own scan's [update], so a name it holds always
+     wins over [names]'s external lookup for that occurrence. Elsewhere it
+     is empty and every [Local]/[Local_at] renders exactly as before scan
+     existed. *)
+  let rec at env lenv n fmt (e : Value.t) =
     (* Eta-expanded so it stays polymorphic in the role: a reduction's [lo] is
          a position and its [hi] a delta. *)
     let idxe fmt i = idx env fmt i in
     match e with
     | Value.Binary (op, a, b) ->
         Fmt.pf fmt "(";
-        let n = at env n fmt a in
+        let n = at env lenv n fmt a in
         Fmt.pf fmt " %s " (Value.binary_sym op);
-        let n = at env n fmt b in
+        let n = at env lenv n fmt b in
         Fmt.pf fmt ")";
         n
     | Value.Const x ->
@@ -99,11 +112,10 @@ let value_open ~names fmt e =
           | None -> Fmt.str "?%a" Local_var.pp v);
         n
     | Value.Local_at (v, i) ->
-        Fmt.pf fmt "%s[%a]"
-          (match names v with
-          | Some name -> name
-          | None -> Fmt.str "?%a" Local_var.pp v)
-          idxe i;
+        Fmt.pf fmt "%s[%a]" (local_name lenv names v) idxe i;
+        n
+    | Value.Local_scan_at (v, row, lane) ->
+        Fmt.pf fmt "%s@@[%a,%a]" (local_name lenv names v) idxe row idxe lane;
         n
     | Value.Load (s, c) ->
         Fmt.pf fmt "%a[%a]" Source.pp s (Coord.pp idxe) c;
@@ -117,43 +129,67 @@ let value_open ~names fmt e =
         Fmt.pf fmt "%s(%s=%a..%a: "
           (Reduction.kind_name r.Reduction.kind)
           name idxe r.Reduction.lo idxe r.Reduction.hi;
-        let n = at inner (n + 1) fmt r.Reduction.body in
+        let n = at inner lenv (n + 1) fmt r.Reduction.body in
         Fmt.pf fmt ")";
         n
     | Value.Round_f32 a ->
         Fmt.pf fmt "f32(";
-        let n = at env n fmt a in
+        let n = at env lenv n fmt a in
         Fmt.pf fmt ")";
+        n
+    (* [lane] gets a fresh display name for EACH sibling scope ([init] and
+       [update]) even though it is one identity -- the same lexical-naming
+       rule [Reduce] already applies, extended to a binder appearing twice. *)
+    | Value.Scan_at (s, row, lane) ->
+        let lane1 = Fmt.str "r%d" n in
+        Fmt.pf fmt "scan[w=%d,s=%d](init[%s]=" s.Scan.width s.Scan.steps lane1;
+        let n =
+          at
+            (Reduce_var.Map.add s.Scan.lane lane1 env)
+            lenv (n + 1) fmt s.Scan.init
+        in
+        let lane2 = Fmt.str "r%d" n and step = Fmt.str "r%d" (n + 1) in
+        let prev = Fmt.str "p%d" (n + 1) in
+        Fmt.pf fmt "; update[%s,%s,%s]=" lane2 step prev;
+        let n =
+          at
+            (env
+            |> Reduce_var.Map.add s.Scan.lane lane2
+            |> Reduce_var.Map.add s.Scan.step step)
+            (Local_var.Map.add s.Scan.prev prev lenv)
+            (n + 2) fmt s.Scan.update
+        in
+        Fmt.pf fmt ")@@[%a,%a]" idxe row idxe lane;
         n
     | Value.Select (c, a, b) ->
         Fmt.pf fmt "select(";
-        let n = guard_at env n fmt c in
+        let n = guard_at env lenv n fmt c in
         Fmt.pf fmt ", ";
-        let n = at env n fmt a in
+        let n = at env lenv n fmt a in
         Fmt.pf fmt ", ";
-        let n = at env n fmt b in
+        let n = at env lenv n fmt b in
         Fmt.pf fmt ")";
         n
     | Value.Unary (op, a) ->
         Fmt.pf fmt "%s(" (Value.unary_name op);
-        let n = at env n fmt a in
+        let n = at env lenv n fmt a in
         Fmt.pf fmt ")";
         n
     | Value.Value_of_index i ->
         Fmt.pf fmt "value_of_index(%a)" idxe i;
         n
-  and guard_at env n fmt = function
+  and guard_at env lenv n fmt = function
     | Bool.Index_eq (a, b) ->
         Fmt.pf fmt "(%a = %a)" (idx env) a (idx env) b;
         n
     | Bool.Value_lt (a, b) ->
         Fmt.pf fmt "(";
-        let n = at env n fmt a in
+        let n = at env lenv n fmt a in
         Fmt.pf fmt " < ";
-        let n = at env n fmt b in
+        let n = at env lenv n fmt b in
         Fmt.pf fmt ")";
         n
   in
-  ignore (at Reduce_var.Map.empty 1 fmt e : int)
+  ignore (at Reduce_var.Map.empty Local_var.Map.empty 1 fmt e : int)
 
 let value = value_open ~names:(fun _ -> None)

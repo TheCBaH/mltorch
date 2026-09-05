@@ -103,11 +103,22 @@ let rec walk ~value ~index ~intrinsic acc (e : Value.t) =
       Coord.fold (fun acc x -> index.idx acc x) acc d.Intrinsic.Max_pool.out
   | Value.Local _ -> acc
   | Value.Local_at (_, i) -> index.idx acc i
+  | Value.Local_scan_at (_, row, lane) -> index.idx (index.idx acc row) lane
   | Value.Load (_, c) -> Coord.fold (fun acc i -> index.idx acc i) acc c
   | Value.Reduce r ->
       let acc = index.idx (index.idx acc r.Reduction.lo) r.Reduction.hi in
       recur acc r.Reduction.body
   | Value.Round_f32 a -> recur acc a
+  (* [init]/[update] are ordinary structural children for every query built on
+     [walk]: a source, load or intrinsic reached through them is a real
+     dependency regardless of [lane]/[step]/[prev]'s binder scope, which none
+     of these queries interpret anyway (see the header comment). Scope-aware
+     queries ([free_reducers], [binders], the locals family) do not use
+     [walk] and mask it themselves. *)
+  | Value.Scan_at (s, row, lane) ->
+      let acc = recur acc s.Scan.init in
+      let acc = recur acc s.Scan.update in
+      index.idx (index.idx acc row) lane
   | Value.Select (c, a, b) ->
       let acc =
         match c with
@@ -206,7 +217,8 @@ let measure_with_locals ~local ~max_size ~max_depth e =
   let rec value budget left (e : Value.t) =
     let local_size, local_depth =
       match e with
-      | Value.Local v | Value.Local_at (v, _) -> local v
+      | Value.Local v | Value.Local_at (v, _) | Value.Local_scan_at (v, _, _) ->
+          local v
       | _ -> (1, 1)
     in
     let left = node budget left ~cost:local_size ~depth:local_depth in
@@ -224,6 +236,10 @@ let measure_with_locals ~local ~max_size ~max_depth e =
     | Value.Local_at (_, i) ->
         let d, left = index sub left i in
         (1 + Stdlib.max local_depth d, left)
+    | Value.Local_scan_at (_, row, lane) ->
+        let dr, left = index sub left row in
+        let dl, left = index sub left lane in
+        (1 + Stdlib.max local_depth (Stdlib.max dr dl), left)
     | Value.Load (_, c) ->
         let d, left = coord sub left c in
         (1 + d, left)
@@ -232,6 +248,16 @@ let measure_with_locals ~local ~max_size ~max_depth e =
         let dhi, left = index sub left r.Reduction.hi in
         let dbody, left = value sub left r.Reduction.body in
         (1 + Stdlib.max (Stdlib.max dlo dhi) dbody, left)
+    (* Both [init] and [update] are real embedded subtrees, so both are
+       measured -- an inline [Scan_at] is what specialization turns a cached
+       [Local_scan_at] read into, and undercounting it here would let a
+       program past the size/depth budget it exists to enforce. *)
+    | Value.Scan_at (s, row, lane) ->
+        let dr, left = index sub left row in
+        let dl, left = index sub left lane in
+        let dinit, left = value sub left s.Scan.init in
+        let dupdate, left = value sub left s.Scan.update in
+        (1 + Stdlib.max (Stdlib.max dr dl) (Stdlib.max dinit dupdate), left)
     | Value.Round_f32 a ->
         let d, left = value sub left a in
         (1 + d, left)
@@ -309,28 +335,74 @@ let intrinsic_sources e =
          | _ -> acc)
        ~index:no_index ~intrinsic:nothing [] e)
 
+type local_ref =
+  | Scalar_ref of Local_var.t
+  | Vector_ref of Local_var.t
+  | Scan_ref of Local_var.t
+
+(* Scope-aware, unlike most of [walk]'s consumers: [prev] is bound within its
+   own scan's [update], so an occurrence there is not a free/declared-local
+   reference the way it would be anywhere else. Shared by [locals],
+   [scalar_locals], [vector_locals] and [scan_locals] below -- they differ
+   only in which node kind [f] keeps, matching the pre-scan code's shape of
+   one [walk] callback per query. *)
+let rec scoped_locals ~f bound acc (e : Value.t) =
+  let go = scoped_locals ~f bound in
+  match e with
+  | Value.Const _ | Value.Value_of_index _ | Value.Load _ | Value.Intrinsic _ ->
+      acc
+  | Value.Local v -> f bound acc (Scalar_ref v)
+  | Value.Local_at (v, _) -> f bound acc (Vector_ref v)
+  | Value.Local_scan_at (v, _, _) -> f bound acc (Scan_ref v)
+  | Value.Binary (_, a, b) -> go (go acc a) b
+  | Value.Unary (_, a) | Value.Round_f32 a -> go acc a
+  | Value.Select (c, a, b) ->
+      let acc =
+        match c with
+        | Bool.Value_lt (x, y) -> go (go acc x) y
+        | Bool.Index_eq _ -> acc
+      in
+      go (go acc a) b
+  | Value.Reduce r -> go acc r.Reduction.body
+  | Value.Scan_at (s, _, _) ->
+      let acc = scoped_locals ~f bound acc s.Scan.init in
+      scoped_locals ~f (Local_var.Set.add s.Scan.prev bound) acc s.Scan.update
+
+(* [keep bound acc v] adds [v] unless the scope traversal found it bound
+   (a [prev] occurrence within its own scan's [update]). Each query below
+   picks which node kind(s) to keep and ignores the rest, matching the
+   pre-scan code's shape of one [walk] callback per query. *)
+let keep bound acc v =
+  if Local_var.Set.mem v bound then acc else Local_var.Set.add v acc
+
 let locals e =
-  walk
-    ~value:(fun acc -> function
-      | Value.Local v | Value.Local_at (v, _) -> Local_var.Set.add v acc
-      | _ -> acc)
-    ~index:no_index ~intrinsic:nothing Local_var.Set.empty e
+  scoped_locals
+    ~f:(fun bound acc -> function
+      | Scalar_ref v | Vector_ref v | Scan_ref v -> keep bound acc v)
+    Local_var.Set.empty Local_var.Set.empty e
 
 (* Split by NODE KIND, not merged into [locals]: the host's shape-agreement
-   rule (a [Local] on a vector-shaped local, or a [Local_at] on a
-   scalar-shaped one, is a typed error) needs to know WHICH form referenced a
-   given id, and a single set that unions both loses exactly that. *)
+   rule (a [Local] on a vector-shaped local, a [Local_at] on a scalar-shaped
+   one, or either on a trace, is a typed error) needs to know WHICH form
+   referenced a given id, and a single set that unions all three loses
+   exactly that. *)
 let scalar_locals e =
-  walk
-    ~value:(fun acc -> function
-      | Value.Local v -> Local_var.Set.add v acc | _ -> acc)
-    ~index:no_index ~intrinsic:nothing Local_var.Set.empty e
+  scoped_locals
+    ~f:(fun bound acc -> function
+      | Scalar_ref v -> keep bound acc v | Vector_ref _ | Scan_ref _ -> acc)
+    Local_var.Set.empty Local_var.Set.empty e
 
 let vector_locals e =
-  walk
-    ~value:(fun acc -> function
-      | Value.Local_at (v, _) -> Local_var.Set.add v acc | _ -> acc)
-    ~index:no_index ~intrinsic:nothing Local_var.Set.empty e
+  scoped_locals
+    ~f:(fun bound acc -> function
+      | Vector_ref v -> keep bound acc v | Scalar_ref _ | Scan_ref _ -> acc)
+    Local_var.Set.empty Local_var.Set.empty e
+
+let scan_locals e =
+  scoped_locals
+    ~f:(fun bound acc -> function
+      | Scan_ref v -> keep bound acc v | Scalar_ref _ | Vector_ref _ -> acc)
+    Local_var.Set.empty Local_var.Set.empty e
 
 let output_axes e =
   walk ~value:nothing ~index:{ idx = index_axes } ~intrinsic:nothing [] e
@@ -357,6 +429,7 @@ let free_reducers e =
         Coord.fold idx acc d.Intrinsic.Max_pool.out
     | Value.Local _ -> acc
     | Value.Local_at (_, i) -> idx acc i
+    | Value.Local_scan_at (_, row, lane) -> idx (idx acc row) lane
     | Value.Load (_, c) -> Coord.fold idx acc c
     | Value.Reduce r ->
         (* The bounds are OUTSIDE the binder: they may mention enclosing
@@ -364,6 +437,17 @@ let free_reducers e =
         let acc = idx (idx acc r.Reduction.lo) r.Reduction.hi in
         go (Reduce_var.Set.add r.Reduction.var bound) acc r.Reduction.body
     | Value.Round_f32 a -> go bound acc a
+    (* [row]/[lane] (the READ site) sit OUTSIDE both scopes, like a
+       reduction's bounds. [lane] is bound in [init]; [lane] and [step] are
+       both bound in [update] -- two SIBLING scopes, so [lane] is added to
+       [bound] independently for each. *)
+    | Value.Scan_at (s, row, lane) ->
+        let acc = idx (idx acc row) lane in
+        let acc = go (Reduce_var.Set.add s.Scan.lane bound) acc s.Scan.init in
+        go
+          (Reduce_var.Set.add s.Scan.lane
+             (Reduce_var.Set.add s.Scan.step bound))
+          acc s.Scan.update
     | Value.Select (c, a, b) ->
         let acc =
           match c with
@@ -389,9 +473,45 @@ let binders e =
     | Value.Intrinsic _ -> acc
     | Value.Local _ -> acc
     | Value.Local_at _ -> acc
+    | Value.Local_scan_at _ -> acc
     | Value.Load _ -> acc
     | Value.Reduce r -> go (r.Reduction.var :: acc) r.Reduction.body
     | Value.Round_f32 a -> go acc a
+    (* [lane] once for [init]'s scope, then [lane] again and [step] for
+       [update]'s -- two sibling scopes, reported in that order, matching
+       [Reduce]'s "named before descending" lexical convention. *)
+    | Value.Scan_at (s, _, _) ->
+        let acc = go (s.Scan.lane :: acc) s.Scan.init in
+        go (s.Scan.step :: s.Scan.lane :: acc) s.Scan.update
+    | Value.Select (c, a, b) ->
+        let acc =
+          match c with
+          | Bool.Index_eq _ -> acc
+          | Bool.Value_lt (x, y) -> go (go acc x) y
+        in
+        go (go acc a) b
+    | Value.Unary (_, a) -> go acc a
+    | Value.Value_of_index _ -> acc
+  in
+  List.rev (go [] e)
+
+(* [Fold.binders]'s local-namespace sibling: only [prev] is ever a local
+   binder, introduced once per [Scan_at], for [update]'s scope. *)
+let local_binders e =
+  let rec go acc (e : Value.t) =
+    match e with
+    | Value.Binary (_, a, b) -> go (go acc a) b
+    | Value.Const _ -> acc
+    | Value.Intrinsic _ -> acc
+    | Value.Local _ -> acc
+    | Value.Local_at _ -> acc
+    | Value.Local_scan_at _ -> acc
+    | Value.Load _ -> acc
+    | Value.Reduce r -> go acc r.Reduction.body
+    | Value.Round_f32 a -> go acc a
+    | Value.Scan_at (s, _, _) ->
+        let acc = go acc s.Scan.init in
+        go (s.Scan.prev :: acc) s.Scan.update
     | Value.Select (c, a, b) ->
         let acc =
           match c with

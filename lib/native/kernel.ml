@@ -79,11 +79,17 @@ module Limits = struct
        are at 2048 (Pp.value, Value.compare, Value.hash) — CHECK.VALUE STILL
        SURVIVES 2048, which is why the ceiling follows the minimum over all
        traversals rather than the checker's own figure. [Eval.value] is the
-       outlier upward, surviving 4096, so the combined ceiling is higher; it has
-       to be, since whole-program resnet18 reaches ~770 combined depth and the
-       buffer-based evaluator never recurses through it. *)
+       outlier upward; it has to clear whole-program resnet18's ~770 combined
+       depth, since the buffer-based evaluator never recurses through it.
+
+       Re-measured after the scan primitive widened [Value.t] and [Eval.value]
+       (two more constructors, plus the inline [Scan_at] recurrence): the
+       frontier moved from 2048, which now overflows, down to 1536 -- confirmed
+       stable over repeated runs, with 1820 the last value observed to survive
+       and 1850 the first to overflow. 1536 keeps roughly 2x headroom over
+       resnet18's requirement, matching the margin the original ceiling had. *)
     let depth = 256
-    let eval_depth = 2048
+    let eval_depth = 1536
 
     (* Measured under node with [Kernel_eval.value_at] over a real producer
        chain (test/native/depth_probe.ml). The frontier there is both lower and

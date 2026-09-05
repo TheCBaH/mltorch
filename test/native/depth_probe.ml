@@ -118,7 +118,7 @@ let%expect_test "Hard.eval_depth: the evaluator survives the combined ceiling" =
      traversals are bounded by [Hard.depth] instead. *)
   Printf.printf "eval depth %d: %s\n" hard_eval_depth
     (report hard_eval_depth [ "Eval.value" ]);
-  [%expect {| eval depth 2048: all survive |}]
+  [%expect {| eval depth 1536: all survive |}]
 
 (* ---- the recursive path ----------------------------------------------------
 
@@ -209,30 +209,34 @@ let%expect_test "the accepted frontier survives in combination" =
          overflows, to (48, 30) -- confirmed stable over repeated runs, with
          (56, 30) the last value that still survives. *)
       (48, 30);
-      (16, 120);
+      (* Re-measured after the scan primitive widened [Value.t] and
+         [Eval.value] again, lowering [Hard.eval_depth] to 1536: (16, 90),
+         product 1440, replaces the former (16, 120). *)
+      (16, 90);
       (8, 125);
     ];
   (* Everything above sits under the DEFAULT max_depth of 128. The public
      custom-limit API accepts far more — up to [Hard.depth] — so default limits
      alone never sample the frontier that actually bounds an accepted kernel.
      A raw depth of 255 plus the result conversion reaches [Hard.depth]
-     exactly. *)
+     exactly. Re-measured at n=6 (was 8): 8*254 = 2032 now exceeds the lowered
+     [Hard.eval_depth]; 6*254 = 1524 clears it. *)
   let at_hard_depth =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:255 ~max_values:4095
          ~max_dep_depth:1024 ~max_inputs:1024 ~max_outputs:1024
          ~max_extent:0x7FFF_FFFFL ~max_numel:0x7FFF_FFFFL)
   in
-  Printf.printf "n=  8 d=254 at Hard.depth: %s\n"
-    (run_chain ~limits:at_hard_depth ~d:254 8);
+  Printf.printf "n=  6 d=254 at Hard.depth: %s\n"
+    (run_chain ~limits:at_hard_depth ~d:254 6);
   [%expect
     {|
     n= 97 d=  1: ok
     n= 97 d= 13: ok
     n= 48 d= 30: ok
-    n= 16 d=120: ok
+    n= 16 d= 90: ok
     n=  8 d=125: ok
-    n=  8 d=254 at Hard.depth: ok |}]
+    n=  6 d=254 at Hard.depth: ok |}]
 
 let%expect_test "Hard.eval_recursion: the ceiling runs, one past it reports" =
   (* A chain of n values nests n-1 transitions, so the ceiling is reached at
@@ -241,10 +245,12 @@ let%expect_test "Hard.eval_recursion: the ceiling runs, one past it reports" =
   Printf.printf "at the ceiling:   %s\n" (run_chain (hard_eval_recursion + 1));
   Printf.printf "one past it:      %s\n" (run_chain (hard_eval_recursion + 2));
   (* Far past the recursion bound while still WITHIN the static one, so the
-     runtime guard is what stops it: 600 depth-3 values give an eval_depth of
-     1800, under Hard.eval_depth, but 599 transitions. This is the shape that
-     overflowed under node before the guard existed. *)
-  Printf.printf "far past it:      %s\n" (run_chain 600);
+     runtime guard is what stops it: 500 values give a combined eval_depth
+     under Hard.eval_depth (re-measured at 1536 after the scan primitive
+     widened [Value.t]/[Eval.value]; 550 already exceeds it), but 499
+     transitions. This is the shape that overflowed under node before the
+     guard existed. *)
+  Printf.printf "far past it:      %s\n" (run_chain 500);
   [%expect
     {|
     at the ceiling:   ok
@@ -283,12 +289,14 @@ let%expect_test "the static DAG limits reject before execution" =
   report "dep_depth 4, chain of 5" (chain_with (tight ~max_dep_depth:4) 5);
   (* Deep BODIES rather than a long chain, so eval_depth is what runs out first
      — with depth-1 bodies the dependency limit always fires before it, and this
-     arm would never be exercised. *)
-  report "20 values of depth 100" (chain ~d:100 20);
-  report "24 values of depth 100" (chain ~d:100 24);
+     arm would never be exercised. Re-measured at 15/16 (was 20/24) after
+     Hard.eval_depth moved to 1536: 15*100 = 1500 clears it, 16*100 = 1600
+     does not. *)
+  report "15 values of depth 100" (chain ~d:100 15);
+  report "16 values of depth 100" (chain ~d:100 16);
   [%expect
     {|
     dep_depth 4, chain of 4: accepted
     dep_depth 4, chain of 5: dependency depth exceeds 4
-    20 values of depth 100: accepted
-    24 values of depth 100: evaluation depth exceeds 2048 |}]
+    15 values of depth 100: accepted
+    16 values of depth 100: evaluation depth exceeds 1536 |}]

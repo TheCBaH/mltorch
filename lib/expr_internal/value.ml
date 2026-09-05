@@ -7,9 +7,13 @@ type t = Expr_repr.value =
   | Intrinsic of Intrinsic.t
   | Local of Local_var.t
   | Local_at of Local_var.t * Role.Position.t Index.t
+  | Local_scan_at of
+      Local_var.t * Role.Position.t Index.t * Role.Position.t Index.t
   | Load of Source.t * Role.Position.t Index.t Coord.t
   | Reduce of Expr_repr.reduction
   | Round_f32 of t
+  | Scan_at of
+      Expr_repr.scan * Role.Position.t Index.t * Role.Position.t Index.t
   | Select of Expr_repr.bool_expr * t * t
   | Unary of unary_op * t
   | Value_of_index of Role.Delta.t Index.t
@@ -31,6 +35,8 @@ let round_f32 a = Round_f32 a
 let intrinsic i = Intrinsic i
 let local v = Local v
 let local_at v i = Local_at (v, i)
+let local_scan_at v ~row ~lane = Local_scan_at (v, row, lane)
+let scan_at s ~row ~lane = Scan_at (s, row, lane)
 let reduce r = Reduce r
 
 let apply_binary = function
@@ -145,6 +151,8 @@ let tag = function
   | Intrinsic _ -> 8
   | Local _ -> 9
   | Local_at _ -> 10
+  | Local_scan_at _ -> 11
+  | Scan_at _ -> 12
 
 let cmp_intrinsic ea eb (Intrinsic.Max_pool x) (Intrinsic.Max_pool y) =
   let open Intrinsic.Max_pool in
@@ -164,26 +172,26 @@ let cmp_intrinsic ea eb (Intrinsic.Max_pool x) (Intrinsic.Max_pool y) =
     0 (Coord.to_list x.out) (Coord.to_list y.out)
 
 let compare a b =
-  let rec go ea eb n a b =
+  let rec go ea eb la lb n a b =
     Int.compare (tag a) (tag b) <?> fun () ->
     match (a, b) with
     | Const x, Const y -> Core.Float_bits.compare_portable x y
     | Binary (o, x1, x2), Binary (p, y1, y2) ->
         Stdlib.compare o p <?> fun () ->
-        go ea eb n x1 y1 <?> fun () -> go ea eb n x2 y2
+        go ea eb la lb n x1 y1 <?> fun () -> go ea eb la lb n x2 y2
     | Unary (o, x), Unary (p, y) ->
-        Stdlib.compare o p <?> fun () -> go ea eb n x y
-    | Round_f32 x, Round_f32 y -> go ea eb n x y
+        Stdlib.compare o p <?> fun () -> go ea eb la lb n x y
+    | Round_f32 x, Round_f32 y -> go ea eb la lb n x y
     | Select (c, x1, x2), Select (d, y1, y2) ->
         (match (c, d) with
           | Expr_repr.Value_lt (p, q), Expr_repr.Value_lt (r, s) ->
-              go ea eb n p r <?> fun () -> go ea eb n q s
+              go ea eb la lb n p r <?> fun () -> go ea eb la lb n q s
           | Expr_repr.Index_eq (p, q), Expr_repr.Index_eq (r, s) ->
               cmp_index ea eb p r <?> fun () -> cmp_index ea eb q s
           | Expr_repr.Value_lt _, Expr_repr.Index_eq _ -> -1
           | Expr_repr.Index_eq _, Expr_repr.Value_lt _ -> 1)
         <?> fun () ->
-        go ea eb n x1 y1 <?> fun () -> go ea eb n x2 y2
+        go ea eb la lb n x1 y1 <?> fun () -> go ea eb la lb n x2 y2
     | Value_of_index x, Value_of_index y -> cmp_index ea eb x y
     | Load (s, x), Load (t, y) ->
         Source.compare s t <?> fun () ->
@@ -191,8 +199,21 @@ let compare a b =
           (fun acc a b -> acc <?> fun () -> cmp_index ea eb a b)
           0 (Coord.to_list x) (Coord.to_list y)
     | Local x, Local y -> Local_var.compare x y
+    (* [la]/[lb] hold only [prev] identities, scoped to their own scan's
+       [update] -- everywhere else they are empty, so the [None, None] arm
+       is what every non-scan comparison already took: raw identity compare,
+       unchanged. Only within a matching scan scope do two structurally
+       alpha-equivalent [prev] readers compare by binder level instead. *)
     | Local_at (x, i), Local_at (y, j) ->
-        Local_var.compare x y <?> fun () -> cmp_index ea eb i j
+        (match (Local_var.Map.find_opt x la, Local_var.Map.find_opt y lb) with
+          | None, None -> Local_var.compare x y
+          | Some _, None -> -1
+          | None, Some _ -> 1
+          | Some lx, Some ly -> Int.compare lx ly)
+        <?> fun () -> cmp_index ea eb i j
+    | Local_scan_at (x, ri, li), Local_scan_at (y, rj, lj) ->
+        Local_var.compare x y <?> fun () ->
+        cmp_index ea eb ri rj <?> fun () -> cmp_index ea eb li lj
     | Reduce r, Reduce s ->
         Stdlib.compare r.kind s.kind <?> fun () ->
         cmp_index ea eb r.lo s.lo <?> fun () ->
@@ -200,11 +221,30 @@ let compare a b =
         go
           (Reduce_var.Map.add r.var n ea)
           (Reduce_var.Map.add s.var n eb)
-          (n + 1) r.body s.body
+          la lb (n + 1) r.body s.body
+    | Scan_at (p, ri, li), Scan_at (q, rj, lj) ->
+        Int.compare p.Expr_repr.width q.Expr_repr.width <?> fun () ->
+        Int.compare p.Expr_repr.steps q.Expr_repr.steps <?> fun () ->
+        cmp_index ea eb ri rj <?> fun () ->
+        cmp_index ea eb li lj <?> fun () ->
+        go
+          (Reduce_var.Map.add p.Expr_repr.lane n ea)
+          (Reduce_var.Map.add q.Expr_repr.lane n eb)
+          la lb (n + 1) p.Expr_repr.init q.Expr_repr.init
+        <?> fun () ->
+        go
+          (Reduce_var.Map.add p.Expr_repr.lane n
+             (Reduce_var.Map.add p.Expr_repr.step (n + 1) ea))
+          (Reduce_var.Map.add q.Expr_repr.lane n
+             (Reduce_var.Map.add q.Expr_repr.step (n + 1) eb))
+          (Local_var.Map.add p.Expr_repr.prev (n + 2) la)
+          (Local_var.Map.add q.Expr_repr.prev (n + 2) lb)
+          (n + 3) p.Expr_repr.update q.Expr_repr.update
     | Intrinsic x, Intrinsic y -> cmp_intrinsic ea eb x y
     | _ -> 0
   in
-  go Reduce_var.Map.empty Reduce_var.Map.empty 0 a b
+  go Reduce_var.Map.empty Reduce_var.Map.empty Local_var.Map.empty
+    Local_var.Map.empty 0 a b
 
 let equal a b = compare a b = 0
 
@@ -232,7 +272,15 @@ let hash e =
     | Index.Scale (k, a) -> idx env (mix h k) a
     | Index.Zero -> h
   in
-  let rec go env n h (e : t) =
+  (* [lenv] holds only [prev] identities, scoped to their own scan's
+     [update], mirroring [env] for reducers. Elsewhere it is empty, so
+     [Local_at]'s hash is unchanged from before scan existed. *)
+  let local_hash lenv v =
+    match Local_var.Map.find_opt v lenv with
+    | Some l -> l
+    | None -> Local_var.hash v
+  in
+  let rec go env lenv n h (e : t) =
     let h = mix h (tag e) in
     match e with
     | Const x ->
@@ -240,25 +288,42 @@ let hash e =
         mix
           (mix h (Int64.to_int (Int64.logand b 0xFFFFFFFFL)))
           (Int64.to_int (Int64.shift_right_logical b 32))
-    | Binary (o, a, b) -> go env n (go env n (mix h (Hashtbl.hash o)) a) b
-    | Unary (o, a) -> go env n (mix h (Hashtbl.hash o)) a
-    | Round_f32 a -> go env n h a
+    | Binary (o, a, b) ->
+        go env lenv n (go env lenv n (mix h (Hashtbl.hash o)) a) b
+    | Unary (o, a) -> go env lenv n (mix h (Hashtbl.hash o)) a
+    | Round_f32 a -> go env lenv n h a
     | Select (c, a, b) ->
         let h =
           match c with
-          | Expr_repr.Value_lt (x, y) -> go env n (go env n h x) y
+          | Expr_repr.Value_lt (x, y) -> go env lenv n (go env lenv n h x) y
           | Expr_repr.Index_eq (x, y) -> idx env (idx env h x) y
         in
-        go env n (go env n h a) b
+        go env lenv n (go env lenv n h a) b
     | Value_of_index i -> idx env h i
     | Load (s, c) ->
         Coord.fold (fun h i -> idx env h i) (mix h (Source.hash s)) c
     | Local v -> mix h (Local_var.hash v)
-    | Local_at (v, i) -> idx env (mix h (Local_var.hash v)) i
+    | Local_at (v, i) -> idx env (mix h (local_hash lenv v)) i
+    | Local_scan_at (v, row, lane) ->
+        idx env (idx env (mix h (Local_var.hash v)) row) lane
     | Reduce r ->
         let h = mix h (Hashtbl.hash r.kind) in
         let h = idx env (idx env h r.lo) r.hi in
-        go (Reduce_var.Map.add r.var n env) (n + 1) h r.body
+        go (Reduce_var.Map.add r.var n env) lenv (n + 1) h r.body
+    | Scan_at (s, row, lane) ->
+        let h = mix h s.Expr_repr.width in
+        let h = mix h s.Expr_repr.steps in
+        let h = idx env (idx env h row) lane in
+        let h =
+          go
+            (Reduce_var.Map.add s.Expr_repr.lane n env)
+            lenv (n + 1) h s.Expr_repr.init
+        in
+        go
+          (Reduce_var.Map.add s.Expr_repr.lane n
+             (Reduce_var.Map.add s.Expr_repr.step (n + 1) env))
+          (Local_var.Map.add s.Expr_repr.prev (n + 2) lenv)
+          (n + 3) h s.Expr_repr.update
     | Intrinsic (Intrinsic.Max_pool d) ->
         let h = mix h (Source.hash d.source) in
         let h =
@@ -277,4 +342,4 @@ let hash e =
         in
         Coord.fold (fun h i -> idx env h i) h d.out
   in
-  go Reduce_var.Map.empty 0 17 e
+  go Reduce_var.Map.empty Local_var.Map.empty 0 17 e

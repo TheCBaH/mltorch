@@ -90,12 +90,21 @@ let keep_indices = { on_index = (fun _ i -> i) }
      the composition rules that depend on that say so. *)
 let keep_load s c st = (Value.Load (s, c), st)
 
-(* [on_local_at] mirrors [on_load]: it sees the already-rewritten local id and
-     index and returns the node that replaces the read. Its index has already
-     gone through [idx], same as [Load]'s coordinate. *)
-let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_reduce env
-    (e : Value.t) st =
-  let go = rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_reduce env in
+(* [on_local_at]/[on_local_scan_at] mirror [on_load]: they see the
+     already-rewritten local id and index/indices and return the node that
+     replaces the read -- both indices have already gone through [idx], same
+     as [Load]'s coordinate. [lenv], threaded alongside [env], is [prev]'s
+     namesake: empty except within its own scan's [update], and consulted by
+     every local-reading callback so a rewrite that cares (only [freshen]
+     today) can tell a bound [prev] apart from an ordinary Region local.
+     [on_local_bind] mints/keeps [prev]'s replacement and extends [lenv],
+     mirroring [on_reduce] for [lane]/[step]. *)
+let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+    ~on_reduce ~on_local_bind env lenv (e : Value.t) st =
+  let go =
+    rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+      ~on_reduce ~on_local_bind env lenv
+  in
   let idxe i = idx.on_index env i in
   let unary wrap a st =
     let a, st = go a st in
@@ -103,14 +112,41 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_reduce env
   in
   match e with
   | Value.Const _ -> (e, st)
-  | Value.Local v -> on_local v st
-  | Value.Local_at (v, i) -> on_local_at v (idxe i) st
+  | Value.Local v -> on_local lenv v st
+  | Value.Local_at (v, i) -> on_local_at lenv v (idxe i) st
+  | Value.Local_scan_at (v, row, lane) ->
+      on_local_scan_at lenv v (idxe row) (idxe lane) st
   | Value.Binary (op, a, b) ->
       let a, st = go a st in
       let b, st = go b st in
       (Value.Binary (op, a, b), st)
   | Value.Unary (op, a) -> unary (fun a -> Value.Unary (op, a)) a st
   | Value.Round_f32 a -> unary (fun a -> Value.Round_f32 a) a st
+  | Value.Scan_at (s, row, lane) ->
+      let _lane1, env1, st = on_reduce env s.Scan.lane st in
+      let init, st =
+        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env1 lenv s.Scan.init st
+      in
+      let lane2, env2, st = on_reduce env s.Scan.lane st in
+      let step, env3, st = on_reduce env2 s.Scan.step st in
+      let prev, lenv1, st = on_local_bind lenv s.Scan.prev st in
+      let update, st =
+        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env3 lenv1 s.Scan.update st
+      in
+      ( Value.scan_at
+          {
+            Scan.width = s.Scan.width;
+            steps = s.Scan.steps;
+            lane = lane2;
+            step;
+            prev;
+            init;
+            update;
+          }
+          ~row:(idxe row) ~lane:(idxe lane),
+        st )
   | Value.Select (c, a, b) ->
       let c, st =
         match c with
@@ -128,8 +164,8 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_reduce env
   | Value.Reduce r ->
       let var, env', st = on_reduce env r.Reduction.var st in
       let body, st =
-        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_reduce env'
-          r.Reduction.body st
+        rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_local_scan_at
+          ~on_reduce ~on_local_bind env' lenv r.Reduction.body st
       in
       ( Value.Reduce
           {
@@ -155,6 +191,15 @@ let rec rebuild ~idx ~src ~on_load ~on_local ~on_local_at ~on_reduce env
 let subst_env env v =
   match Reduce_var.Map.find_opt v env with Some w -> w | None -> v
 
+(* Neither of these mints, so their [on_reduce]/[on_local_bind] pass the
+   supply straight through -- shared by every rewrite below that does not
+   introduce identities of its own. *)
+let keep_reducer () v st = (v, (), st)
+let keep_local_bind () v st = (v, (), st)
+
+let keep_local_scan_at _lenv v row lane st =
+  (Value.local_scan_at v ~row ~lane, st)
+
 (* Replaces every BOUND reducer identity consistently and leaves free ones
      alone. Composing two independently built fragments is exactly when this is
      needed: both supplies start at [initial], so both mint ordinal 0, and the
@@ -164,29 +209,47 @@ let subst_env env v =
      combined tree afterwards cannot repair anything -- once a nominal collision
      has captured a reference there is no record of which binder it meant. *)
 let freshen e s =
-  (* Replacements must SKIP identities that occur free in [e]. A free reducer
-       is a reference to a binder outside this expression, and minting one of
-       them here binds it -- silently turning an ill-scoped term into a
-       well-scoped-looking one with a different denotation, which [Check] would
-       then report as [Ok].
+  (* Replacements must SKIP identities that occur free in [e]. A free
+       reducer/local is a reference to a binder outside this expression, and
+       minting one of them here binds it -- silently turning an ill-scoped
+       term into a well-scoped-looking one with a different denotation, which
+       [Check] would then report as [Ok].
 
        [alpha_normalize] makes that maximally likely, since it always starts
        from [initial]: any free ordinal near zero is directly in the way. *)
   let free = Fold.free_reducers e in
+  let free_locals = Fold.locals e in
   let rec mint st =
     let w, st = Builder.run_from st Builder.fresh_reduce in
     if Reduce_var.Set.mem w free then mint st else (w, st)
+  in
+  let rec mint_local st =
+    let w, st = Builder.run_from st Builder.fresh_local in
+    if Local_var.Set.mem w free_locals then mint_local st else (w, st)
   in
   let on_reduce env v st =
     let w, st = mint st in
     (w, Reduce_var.Map.add v w env, st)
   in
+  let on_local_bind lenv v st =
+    let w, st = mint_local st in
+    (w, Local_var.Map.add v w lenv, st)
+  in
   rebuild
     ~idx:{ on_index = (fun env i -> map_index_reducers (subst_env env) i) }
     ~src:Fun.id ~on_load:keep_load
-    ~on_local:(fun v st -> (Value.Local v, st))
-    ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
-    ~on_reduce Reduce_var.Map.empty e s
+    ~on_local:(fun _lenv v st -> (Value.Local v, st))
+      (* [prev] is the only local this can ever rename -- [lenv] holds it only
+       within its own scan's [update]; every other read is an ordinary
+       external Region local, passed through unchanged exactly as before
+       scan existed. *)
+    ~on_local_at:(fun lenv v i st ->
+      match Local_var.Map.find_opt v lenv with
+      | Some w -> (Value.Local_at (w, i), st)
+      | None -> (Value.Local_at (v, i), st))
+    ~on_local_scan_at:(fun _lenv v row lane st ->
+      (Value.local_scan_at v ~row ~lane, st))
+    ~on_reduce ~on_local_bind Reduce_var.Map.empty Local_var.Map.empty e s
 
 (* Deterministic renaming by lexical traversal: running [freshen] from a fixed
      initial supply gives binders the LOWEST ORDINALS NOT FREE in the
@@ -196,23 +259,29 @@ let freshen e s =
      they skip the same ordinals. Does not reorder operations or reductions. *)
 let alpha_normalize e = fst (freshen e Builder.initial)
 
+(* [Rewrite]'s reusable freshen-a-standalone-descriptor helper: wraps [s] in
+   a placeholder [Scan_at] (row/lane are not touched by [freshen] -- they
+   carry no reducer this scan itself binds), runs the ordinary [freshen], and
+   unwraps. Used wherever a [Scan.t] is spliced into a different context and
+   needs its own [lane]/[step]/[prev] made fresh first, exactly as a scalar
+   or vector local's stored value already is. *)
+let freshen_scan (s : Scan.t) st =
+  match freshen (Value.scan_at s ~row:Index.zero ~lane:Index.zero) st with
+  | Value.Scan_at (s', _, _), st -> (s', st)
+  | _ -> assert false
+
 (* Replaces only output-axis variables, never reducers. If the result is
      placed beneath another reduction, the CALLER freshens it first -- this
      function cannot know that context. *)
-(* Neither of these mints, so their [on_reduce] passes the state straight
-     through and the supply they are run from is immaterial. [Builder.initial]
-     is the arbitrary but fixed choice; the discarded final state is the proof
-     that nothing was allocated. *)
-let keep_reducer () v st = (v, (), st)
-
 let substitute_output c e =
   fst
     (rebuild
        ~idx:{ on_index = (fun _ i -> subst_index c i) }
        ~src:Fun.id ~on_load:keep_load
-       ~on_local:(fun v st -> (Value.Local v, st))
-       ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
-       ~on_reduce:keep_reducer () e Builder.initial)
+       ~on_local:(fun _lenv v st -> (Value.Local v, st))
+       ~on_local_at:(fun _lenv v i st -> (Value.Local_at (v, i), st))
+       ~on_local_scan_at:keep_local_scan_at ~on_reduce:keep_reducer
+       ~on_local_bind:keep_local_bind () () e Builder.initial)
 
 (* Targeted substitution of ONE specific (necessarily free) reducer identity,
      for beta-reducing a vector local's body at a read site: [var] is the
@@ -256,9 +325,10 @@ let substitute_reducer var repl e =
     (rebuild
        ~idx:{ on_index = (fun () i -> subst_reducer var repl i) }
        ~src:Fun.id ~on_load:keep_load
-       ~on_local:(fun v st -> (Value.Local v, st))
-       ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
-       ~on_reduce:keep_reducer () e Builder.initial)
+       ~on_local:(fun _lenv v st -> (Value.Local v, st))
+       ~on_local_at:(fun _lenv v i st -> (Value.Local_at (v, i), st))
+       ~on_local_scan_at:keep_local_scan_at ~on_reduce:keep_reducer
+       ~on_local_bind:keep_local_bind () () e Builder.initial)
 
 (* [Data]'s own source is a real source dependency too (per [Fold.sources]),
    so [map_sources] cannot rewrite it via [keep_indices] the way it did before
@@ -290,9 +360,10 @@ let map_sources f e =
     (rebuild
        ~idx:{ on_index = (fun _ i -> map_index_sources f i) }
        ~src:f ~on_load:keep_load
-       ~on_local:(fun v st -> (Value.Local v, st))
-       ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
-       ~on_reduce:keep_reducer () e Builder.initial)
+       ~on_local:(fun _lenv v st -> (Value.Local v, st))
+       ~on_local_at:(fun _lenv v i st -> (Value.Local_at (v, i), st))
+       ~on_local_scan_at:keep_local_scan_at ~on_reduce:keep_reducer
+       ~on_local_bind:keep_local_bind () () e Builder.initial)
 
 (* Replaces ordinary [Load] nodes with whole subtrees, in the SAME builder
      namespace as the destination — which is the point of returning a
@@ -312,9 +383,10 @@ let substitute_loads f e st =
       match f s c with
       | None -> (Value.Load (s, c), st)
       | Some replacement -> Builder.run_from st replacement)
-    ~on_local:(fun v st -> (Value.Local v, st))
-    ~on_local_at:(fun v i st -> (Value.Local_at (v, i), st))
-    ~on_reduce:keep_reducer () e st
+    ~on_local:(fun _lenv v st -> (Value.Local v, st))
+    ~on_local_at:(fun _lenv v i st -> (Value.Local_at (v, i), st))
+    ~on_local_scan_at:keep_local_scan_at ~on_reduce:keep_reducer
+    ~on_local_bind:keep_local_bind () () e st
 
 (* What a local resolves to during [substitute_locals]. A closed variant, not
      two callbacks or a wider [Value.t] convention, per CLAUDE.md's payload
@@ -329,18 +401,22 @@ let substitute_loads f e st =
      structurally, via [invalid_arg], never silently. *)
 type local_binding =
   | Scalar of Value.t
+  | Scan of Scan.t
   | Vector of { var : Reduce_var.t; body : Value.t }
 
 let substitute_locals f e st =
   rebuild ~idx:keep_indices ~src:Fun.id ~on_load:keep_load
-    ~on_local:(fun v st ->
+    ~on_local:(fun _lenv v st ->
       match f v with
       | None -> (Value.Local v, st)
       | Some (Scalar value) -> Builder.run_from st (freshen value)
       | Some (Vector _) ->
           invalid_arg
-            "Expr.Rewrite.substitute_locals: vector local read as a scalar")
-    ~on_local_at:(fun v i st ->
+            "Expr.Rewrite.substitute_locals: vector local read as a scalar"
+      | Some (Scan _) ->
+          invalid_arg
+            "Expr.Rewrite.substitute_locals: trace local read as a scalar")
+    ~on_local_at:(fun _lenv v i st ->
       match f v with
       | None -> (Value.Local_at (v, i), st)
       | Some (Vector { var; body }) ->
@@ -348,5 +424,24 @@ let substitute_locals f e st =
           (substitute_reducer var i body, st)
       | Some (Scalar _) ->
           invalid_arg
-            "Expr.Rewrite.substitute_locals: scalar local read with an index")
-    ~on_reduce:keep_reducer () e st
+            "Expr.Rewrite.substitute_locals: scalar local read with an index"
+      | Some (Scan _) ->
+          invalid_arg
+            "Expr.Rewrite.substitute_locals: trace local read as a vector")
+      (* This is what turns a cached [Local_scan_at] read into the inline
+       [Scan_at] descriptor [specialize_pixel] needs: the same freshen-
+       before-splice discipline as [Scalar]/[Vector] above, applied to the
+       whole descriptor via [freshen_scan]. *)
+    ~on_local_scan_at:(fun _lenv v row lane st ->
+      match f v with
+      | None -> (Value.local_scan_at v ~row ~lane, st)
+      | Some (Scan s) ->
+          let s, st = freshen_scan s st in
+          (Value.scan_at s ~row ~lane, st)
+      | Some (Scalar _) ->
+          invalid_arg
+            "Expr.Rewrite.substitute_locals: scalar local read as a trace"
+      | Some (Vector _) ->
+          invalid_arg
+            "Expr.Rewrite.substitute_locals: vector local read as a trace")
+    ~on_reduce:keep_reducer ~on_local_bind:keep_local_bind () () e st
