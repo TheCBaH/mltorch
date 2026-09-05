@@ -74,15 +74,25 @@ and `make precommit` pass.
 
 ### 3. Prove ATen LSTM feasibility
 
-- [ ] Build a small probe for `aten.lstm.input` against the project's minimal ATen archive.
+- [x] Build a small probe for `aten.lstm.input` against the project's minimal ATen archive.
   Execute the binding to expose any reachable throwing stub or missing kernel dependency.
-- [ ] Supply nonzero initial states and unequal batch, sequence and hidden dimensions.
+- [x] Supply nonzero initial states and unequal batch, sequence and hidden dimensions.
   Assert exactly three outputs and inspect their shapes and numeric results.
-- [ ] Record the binding/build requirements and retain the probe as the seed for the later
+- [x] Record the binding/build requirements and retain the probe as the seed for the later
   oracle and tensor-list walk recipe.
 
 Completion: an executable three-output oracle exists. Resolve any runtime dependency gap
 before beginning LSTM arithmetic; successful linking alone is insufficient.
+
+Evidence (2026-09-05): `fb5da79` adds a binding-only `lstm.input` probe and executes
+it through the minimal static-dispatch archive. It uses `T=2`, `B=3`, input width 4,
+hidden width 5, nonzero `h0`/`c0`, four zero parameter tensors, and receives status 0
+with exactly three tensors of shapes `[2,3,5]`, `[1,3,5]`, and `[1,3,5]`; the committed
+golden records every value. Whole `RNN.cpp` pulled quantized static registrations (FBGEMM
+and JIT schema parsing), so the archive now derives a sentinel-checked floating recurrence
+projection from named upstream sections. The binding stays out of public importer/config/walk
+generation until its operation-specific recipe lands. `NO_COLOR=1 opam exec -- dune runtest
+test/aten_ops_test.exe` and `make precommit` pass.
 
 ### 4. Finalize the foundation contracts and resource measurements
 
