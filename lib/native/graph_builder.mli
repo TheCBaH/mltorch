@@ -130,6 +130,15 @@ val conv2d_padding :
   unit ->
   Tensor_id.t t
 
+val conv3d :
+  ?name:string ->
+  Conv.Conv3d.params ->
+  x:tensor_ref ->
+  weight:tensor_ref ->
+  ?bias:tensor_ref ->
+  unit ->
+  Tensor_id.t t
+
 val convolution :
   ?name:string ->
   Conv.Convolution.params ->

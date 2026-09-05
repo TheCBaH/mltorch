@@ -96,6 +96,7 @@ let curated_selection =
     op "conv1d";
     op "conv2d";
     op "conv2d" ~overload:"padding";
+    op "conv3d";
     op "dropout";
     op "dropout_";
     op "avg_pool2d";

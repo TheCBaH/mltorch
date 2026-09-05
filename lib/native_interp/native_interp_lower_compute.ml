@@ -25,6 +25,7 @@ let targets =
     "torch.ops.aten.conv1d.default";
     "torch.ops.aten.conv2d.default";
     "torch.ops.aten.conv2d.padding";
+    "torch.ops.aten.conv3d.default";
     "torch.ops.aten.convolution.default";
     "torch.ops.aten.div.Tensor";
     "torch.ops.aten.gelu.default";
@@ -120,6 +121,21 @@ let dispatch ~ctx ~env (node : Node.t) =
            let bias = Option.map (env_find esc env) bias_name in
            let* y = conv2d_padding params ~x ~weight:w ?bias () in
            let* y = permute perm_nhwc_to_nchw y in
+           return [ y ]
+       | "torch.ops.aten.conv3d.default" ->
+           let params = conv3d_params esc graph node in
+           let* x = permute perm_conv3d (get "input") in
+           let* w = permute perm_conv3d (get "weight") in
+           let bias_name =
+             optional_tensor_name ~absent_ok:true esc node "bias"
+           in
+           Option.iter
+             (fun ssa ->
+               require_rank esc graph ~ssa ~role:`Conv3d_bias ~expected:1)
+             bias_name;
+           let bias = Option.map (env_find esc env) bias_name in
+           let* y = conv3d params ~x ~weight:w ?bias () in
+           let* y = permute perm_conv3d_inv y in
            return [ y ]
        | "torch.ops.aten.convolution.default" ->
            let params, _, _, _ = conv_params esc graph node in

@@ -896,6 +896,6 @@ let lower_node ~view acc (n : node) =
      not have it" answer. [Repeat]/[RepeatInterleave]/[Select_scatter]/
      [Softmax]/[Batched_matmul]/[Sdpa] no longer join them: all six now have
      real conversion arms above. *)
-  | Adaptive_max_pool2d_with_indices _ | Discard _ | Index_tensor _
+  | Adaptive_max_pool2d_with_indices _ | Conv3d _ | Discard _ | Index_tensor _
   | Max_pool2d_with_indices _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

@@ -134,6 +134,16 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen (Conv.Conv2d_padding.output_shape ~x_shape ~weight_shape params)
       in
       [ out ]
+  | Conv3d { Conv.Conv3d.params; x; weight; bias } ->
+      let* x_shape = shape x in
+      let* weight_shape = shape weight in
+      let* () =
+        check_bias ~shape ~expected:(Affine_bias.shape ~weight_shape) bias
+      in
+      let+ out =
+        widen (Conv.Conv3d.output_shape ~x_shape ~weight_shape params)
+      in
+      [ out ]
   | Convolution { Conv.Convolution.params; x; weight; bias } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in

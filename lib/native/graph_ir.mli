@@ -50,6 +50,7 @@ type op =
   | Conv1d of Conv.Conv1d.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
+  | Conv3d of Conv.Conv3d.t
   | Convolution of Conv.Convolution.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t

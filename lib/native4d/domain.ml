@@ -342,6 +342,15 @@ let check_node view (n : node) =
      [Batched_matmul]'s multi-batch form and [Sdpa]'s own D axis are --
      `.ai/native4d_design.md` §8 territory, not a gap to close later. *)
   | Unfold _ -> unsupported ()
+  (* Not a missing counterpart: unlike [Conv1d]/[Conv2d], whose ATen schemas
+     genuinely have at most two spatial axes (fitting the H/W the dialect
+     already names), [Conv3d]'s three spatial axes land on Native's D/H/W
+     (conv_conv3d.ml) -- and the dialect's own N/H/W/C frame forces D and T
+     to extent 1 always. A real (non-unit) D is the ordinary case for this
+     op, so admitting it would require extending the dialect itself, the
+     same intrinsic-axis boundary [Batched_matmul]'s multi-batch form,
+     [Sdpa]'s own D axis, and [Unfold] above are. *)
+  | Conv3d _ -> unsupported ()
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation
    that moves C onto D necessarily produces a tensor with extent on D, so either

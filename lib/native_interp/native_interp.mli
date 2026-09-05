@@ -67,6 +67,8 @@ type metadata_role =
     (** Its own role, not shared with [`Convolution_weight]: the two overloads
         have separate arms and a shared label would leave the row unable to say
         which one failed. *)
+  | `Conv3d_bias
+  | `Conv3d_weight
   | `Convolution_bias
   | `Convolution_weight
   | `Expand_input
@@ -362,6 +364,9 @@ type malformed =
   [ `Adaptive_pool_rank of Adaptive_pool_rank.t
   | `Axis_out_of_range of Axis_out_of_range.t
   | `Bad_arity of Bad_arity.t
+  | `Bad_dhw_arity of Bad_arity.t
+    (** [aten.conv3d.default]'s own three-axis window arguments: 3 values, or 1
+        broadcast to all three -- [`Bad_arity]'s rule one axis wider. *)
   | `Bad_w_arity of Bad_arity.t
   | `Bad_config of Bad_config.t
     (** An op-configuration value the engine's guarded types have no form for.

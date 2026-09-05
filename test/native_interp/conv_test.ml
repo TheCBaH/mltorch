@@ -623,3 +623,64 @@ let%expect_test "conv1d reaches Conv2D in Native4D, H pinned to the unit window"
     {|
     groups=1:              Permute4, Conv2D, Permute4
     depthwise:             Permute4, DepthwiseConv2D, Permute4 |}]
+
+(* ---- conv3d.default: the same overload, three spatial axes ---------------- *)
+
+(* Rank-5 twin of [conv] above: three spatial axes (ATen's own D/H/W order),
+   so stride/padding/dilation are each a 3-int list, and the weight is
+   [Cout,Cin/groups,Kd,Kh,Kw]. [prog] itself needs no changes -- it already
+   takes [x_sizes]/[w_sizes] generically. *)
+let conv3d ?(stride = "[1,1,1]") ?(padding = "[0,0,0]") ?(dilation = "[1,1,1]")
+    ?(groups = 1) ?(bias = `Absent) () =
+  let bias_arg =
+    match bias with
+    | `Absent -> ""
+    | `None -> {|{"name":"bias","arg":{"as_none":true},"kind":1},|}
+    | `Tensor -> jstr {|{"name":"bias","arg":%s,"kind":1},|} (as_tensor "b")
+  in
+  jstr
+    {|{"target":"torch.ops.aten.conv3d.default","inputs":[{"name":"input","arg":%s,"kind":1},{"name":"weight","arg":%s,"kind":1},%s{"name":"stride","arg":{"as_ints":%s},"kind":1},{"name":"padding","arg":{"as_ints":%s},"kind":1},{"name":"dilation","arg":{"as_ints":%s},"kind":1},{"name":"groups","arg":{"as_int":%d},"kind":1}],"outputs":[%s],"metadata":{}}|}
+    (as_tensor "x") (as_tensor "w") bias_arg stride padding dilation groups
+    (as_tensor "y")
+
+let%expect_test "conv3d.default lowers with schema defaults" =
+  dump "defaults:"
+    (prog ~x_sizes:[ 1; 4; 6; 6; 6 ] ~w_sizes:[ 8; 4; 3; 3; 3 ] (conv3d ()));
+  [%expect
+    {|
+    defaults:
+    graph
+    inputs:
+      [t0 f32 [D=4 H=6 W=6 C=6] ->[n0],
+       t1 f32 [T=8 D=4 H=3 W=3 C=3] ->[n1] constant]
+    nodes:
+      group g1 torch.ops.aten.conv3d.default:
+        n0: [t2 f32 [D=6 H=6 W=6 C=4] ->[n2]] =
+          permute x=t0 perm=[N<-T, T<-N, D<-H, H<-W, W<-C, C<-D]
+        n1: [t3 f32 [N=8 T=1 D=3 H=3 W=3 C=4] ->[n2]] =
+          permute x=t1 perm=[N<-T, T<-N, D<-H, H<-W, W<-C, C<-D]
+        n2: [t4 f32 [D=4 H=4 W=4 C=8] ->[n3]] =
+          conv3d
+            x=t2 <-n0
+            weight=t3 <-n1
+            bias=none
+            params={d={kernel=3; stride=1; pad_before=0; pad_after=0; dilation=1};
+                   h={kernel=3; stride=1; pad_before=0; pad_after=0; dilation=1};
+                   w={kernel=3; stride=1; pad_before=0; pad_after=0; dilation=1};
+                   in_channels=4;
+                   groups=1}
+        n3: [t5 f32 [D=8 H=4 W=4 C=4]] =
+          permute x=t4 <-n2 perm=[N<-T, T<-N, D<-C, H<-D, W<-H, C<-W]
+    outputs: [t5 f32 [D=8 H=4 W=4 C=4] <-n3] |}]
+
+(* Native4D forces T/D to extent 1 always; a real (non-unit) D is the
+   ordinary case for this op (three genuinely spatial axes land on D/H/W, per
+   conv_conv3d.ml's own comment), so this is an intrinsic-axis boundary, the
+   same rejection [Unfold]/[Batched_matmul]'s multi-batch form get -- not a
+   missing Native4D counterpart. *)
+let%expect_test "conv3d is rejected at Native4D, an intrinsic D/H/W boundary" =
+  to4d "groups=1:"
+    (prog ~x_sizes:[ 1; 4; 6; 6; 6 ] ~w_sizes:[ 8; 4; 3; 3; 3 ]
+       (conv3d ~padding:"[1,1,1]" ()));
+  [%expect
+    {| groups=1:              outside the dialect: node n0: axis T is outside the N/H/W/C dialect |}]

@@ -132,11 +132,13 @@ type error =
   | `Conv1d_invalid_weight_rank of int array
   | `Conv2d_invalid_weight_rank of int array
   | `Conv2d_padding_invalid_weight_rank of int array
+  | `Conv3d_invalid_weight_rank of int array
   | `Convolution_invalid_weight_rank of int array
   | `Decode of Interp_decode.error
   | `Dims_count of Dims_count.t
   | `Index_list of Index_list.t
   | `Invalid_dim of Invalid_dim.t
+  | `Invalid_dhw_arg of invalid_hw_arg
   | `Invalid_hw_arg of invalid_hw_arg
   | `Invalid_w_arg of invalid_hw_arg
   | `Linear_invalid_weight_rank of int array
@@ -185,6 +187,9 @@ let pp_error ppf : [< error ] -> unit = function
   | `Conv2d_padding_invalid_weight_rank shape ->
       Fmt.pf ppf "conv2d.padding: weight must be rank-4, got shape %a"
         pp_int_array shape
+  | `Conv3d_invalid_weight_rank shape ->
+      Fmt.pf ppf "conv3d: weight must be rank-5, got shape %a" pp_int_array
+        shape
   | `Convolution_invalid_weight_rank shape ->
       Fmt.pf ppf "convolution: weight must be rank-4, got shape %a" pp_int_array
         shape
@@ -212,6 +217,8 @@ let pp_error ppf : [< error ] -> unit = function
             position rank)
   | `Invalid_dim { Invalid_dim.op; dim; rank } ->
       Fmt.pf ppf "%s: invalid dimension %d for rank %d" op dim rank
+  | `Invalid_dhw_arg { name; values } ->
+      Fmt.pf ppf "%s: expected [d; h; w] or [v], got %a" name pp_int_list values
   | `Invalid_hw_arg { name; values } ->
       Fmt.pf ppf "%s: expected [h; w] or [v], got %a" name pp_int_list values
   | `Invalid_w_arg { name; values } ->

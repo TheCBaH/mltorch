@@ -48,9 +48,10 @@ bool use_mkldnn_matmul(const at::Tensor&, const at::Tensor&, const at::Tensor&) 
 at::Tensor mkldnn_matmul(const at::Tensor&, const at::Tensor&, const at::Tensor&, float, float) { MINSTUB("mkldnn_matmul"); }
 
 // Convolution.cpp's backend switch references every conv variant straight-line.
-// The 2D forward / dilated / transpose leaves are built; only the uncovered 3D
-// variants remain stubbed.
-at::Tensor slow_conv3d(const at::Tensor&, const at::Tensor&, at::IntArrayRef, const std::optional<at::Tensor>&, at::IntArrayRef, at::IntArrayRef) { MINSTUB("slow_conv3d"); }
+// The 2D forward / dilated / transpose leaves are built; [slow_conv3d] is now
+// REAL too (native/ConvolutionMM3d.cpp, added for aten.conv3d.default's own
+// non-dilated forward path) -- only the transposed 3D leaf, which this engine
+// never reaches, remains stubbed.
 at::Tensor slow_conv_transpose3d_cpu(const at::Tensor&, const at::Tensor&, at::IntArrayRef, const std::optional<at::Tensor>&, at::IntArrayRef, at::IntArrayRef, at::IntArrayRef, at::IntArrayRef) { MINSTUB("slow_conv_transpose3d_cpu"); }
 // constant_pad_nd is now REAL (native/PadNd.cpp, added for aten.pad.default);
 // it was stubbed only because Convolution.cpp references it for `same` padding.

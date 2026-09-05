@@ -32,6 +32,7 @@ type op =
   | Conv1d of Conv.Conv1d.t
   | Conv2d of Conv.Conv2d.t
   | Conv2d_padding of Conv.Conv2d_padding.t
+  | Conv3d of Conv.Conv3d.t
   | Convolution of Conv.Convolution.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
@@ -230,6 +231,12 @@ let op_registry : (module OP) list =
 
       let inject t = Conv2d_padding t
       let project = function Conv2d_padding t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Conv.Conv3d
+
+      let inject t = Conv3d t
+      let project = function Conv3d t -> Some t | _ -> None
     end : OP);
     (module struct
       include Conv.Convolution

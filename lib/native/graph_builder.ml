@@ -255,6 +255,9 @@ let conv2d_padding ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"conv2d_padding"
     (Conv2d_padding { Conv.Conv2d_padding.params; x; weight; bias })
 
+let conv3d ?name params ~x ~weight ?bias () =
+  op1 ?name ~kind:"conv3d" (Conv3d { Conv.Conv3d.params; x; weight; bias })
+
 let convolution ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"convolution"
     (Convolution { Conv.Convolution.params; x; weight; bias })
