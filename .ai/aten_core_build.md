@@ -86,6 +86,28 @@ asking whether the dense-CPU float path can reach it, and record the answer in a
 comment beside the line. Guessing from the op's name does not work — the closure
 is empirical, exactly as the section above says.
 
+### `lstm.input`: project the float recurrence before compiling it
+
+The public CPU LSTM implementation lives in `native/RNN.cpp`, but that
+translation unit also contains quantized RNN classes and static registrations.
+Compiling it whole makes the archive link FBGEMM, JIT schema parsing, and packed
+linear registration even when the only exposed path is dense CPU float
+inference. Function-section GC cannot remove those dependencies because the
+registrations are static initializers in the selected object.
+
+`build_archive.sh` therefore derives `rnn_float.cpp` in the build directory
+from three named upstream sections: the floating `CellParams` declaration, the
+shared recurrence helpers, and the two public `lstm` overloads. Sentinel checks
+require those two overloads and reject quantized-LSTM definitions. This is a
+projection of the upstream recurrence, not a replacement implementation, and
+the named boundaries fail loudly if an upstream rearrangement invalidates it.
+
+The feasibility test invokes that binding with `T=2`, `B=3`, input width `4`,
+hidden width `5`, and nonzero initial hidden/cell states. It checks the status,
+all three output shapes, and their values; an archive that merely links has not
+met this contract. The later operation implementation can rely on this binding
+and tensor-list ABI, but must retain its own Native arithmetic oracle.
+
 ### `scaled_dot_product_attention`: a `--gc-sections` archive still needs the
 ### whole switch, and one dependency was genuinely unpredictable
 
