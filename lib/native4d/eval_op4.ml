@@ -111,6 +111,11 @@ module Make (S : Semantics.SEMANTICS) = struct
           (Graph_shape4.conv2d_params params ~groups)
           ~x_shape:(shape_of x) ~weight_shape:(shape_of weight) ~x:(operand x)
           ~weight:(operand weight) ~bias:(conv_bias weight bias) out
+    (* Through the same adapter [Graph_shape4] uses, so the axis the shape
+       rule preserves is the axis the compute walks, by construction. *)
+    | Cumsum4 { Ops4_cumsum.Cumsum4.params; x } ->
+        let module C = Reduce.Cumsum.Compute (S) in
+        C.pixel (Graph_shape4.cumsum_params params) ~x:(operand x) out
     | Div { Pointwise.Bin.a; b } ->
         let module C = Pointwise.Div.Compute (S) in
         C.pixel ~a_shape:(shape_of a) ~b_shape:(shape_of b) (operand a)

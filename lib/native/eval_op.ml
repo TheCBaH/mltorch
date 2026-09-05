@@ -139,6 +139,9 @@ module Make (S : Semantics.SEMANTICS) = struct
         in
         C.pixel params ~x_shape:(shape_of x) ~weight_shape:(shape_of weight)
           ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Cumsum { Reduce.Cumsum.params; x } ->
+        let module C = Reduce.Cumsum.Compute (S) in
+        C.pixel params ~x:(operand x) out
     | Expand { Pointwise.Expand.params = _; x } ->
         let module C = Pointwise.Expand.Compute (S) in
         C.pixel ~x_shape:(shape_of x) (operand x) out

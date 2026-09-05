@@ -262,6 +262,9 @@ let convolution ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"convolution"
     (Convolution { Conv.Convolution.params; x; weight; bias })
 
+let cumsum ?name params x =
+  op1 ?name ~kind:"cumsum" (Cumsum { Reduce.Cumsum.params; x })
+
 (* A sink for a dead edge: appends a [Discard] node with no output. *)
 let discard x = push_node (Discard { x }) []
 

@@ -321,6 +321,12 @@ let per_op () =
          element. *)
       ( "softmax4",
         unary ~shape:nhwc (Builder.softmax4 { Ops4.Softmax4.axis = Axis4.W }) );
+      (* Same shape-preserving reduction shape as [softmax4] just above, and
+         the same requirement on the fixture: a non-unit extent (4) on the
+         walked axis, so the running sum spans more than one element. *)
+      ( "cumsum4",
+        unary ~shape:nhwc
+          (Builder.cumsum4 { Ops4_cumsum.Cumsum4.axis = Axis4.W }) );
       (* N=1, the same precondition [unbind]'s own fixture comment gives:
          dropping W leaves N/T/D unit either way, so the result stays
          four-axis. An index that is neither 0 nor the axis's last valid one,

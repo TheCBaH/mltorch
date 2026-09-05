@@ -174,6 +174,9 @@ let conv2d params ~x ~weight ?bias () =
 let depthwise_conv2d params ~x ~weight ?bias () =
   op1 (Op.Depthwise_conv2d { Ops4.Conv_payload.params; x; weight; bias })
 
+(* Takes the dialect's own [Ops4_cumsum.Cumsum4.params], whose axis is [Axis4.t]: a
+   cumsum naming T or D is not constructible through this API. *)
+let cumsum4 params x = op1 (Op.Cumsum4 { Ops4_cumsum.Cumsum4.params; x })
 let div a b = op1 (Op.Div { Pointwise.Bin.a; b })
 let div_scalar scalar x = op1 (Op.Div_scalar { Pointwise.Scalar_bin.x; scalar })
 

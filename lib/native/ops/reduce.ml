@@ -693,3 +693,96 @@ module Softmax = struct
                                denominator)))))
   end
 end
+
+(* Cumulative sum over one axis (ATen's `aten.cumsum.default`): output at
+   [axis] position [i] is the sum of [self] over [axis] positions [0..i]
+   inclusive, every other coordinate held fixed. Shape-preserving, exactly
+   [Softmax]'s "no axis to drop" case -- unlike [Dims_keepdim]'s [Mean]/
+   [Amax]/[Vector_norm], [axis] is not removed, just walked cumulatively.
+
+   No new [SEMANTICS] primitive is needed: [sum]'s [hi] is already an
+   arbitrary DELTA index, not merely a fixed extent, and a bound derived from
+   the OUTPUT coordinate itself is already exercised by [Adaptive_axis]'s pool
+   bins above (`out * scale / output_size`-style, this file's own precedent).
+   Cumsum's bound is simpler still: [lo] is always 0, [hi] is the output's own
+   position along [axis] plus one -- a WIDENING window per output pixel,
+   rather than [Adaptive_axis]'s per-output-bin window. *)
+module Cumsum = struct
+  type params = { axis : Axis.t }
+
+  let params_jsont : params Jsont.t =
+    Jsont.Object.map ~kind:"cumsum_params" (fun axis -> { axis })
+    |> Jsont.Object.mem "axis" Axis.jsont ~enc:(fun p -> p.axis)
+    |> Jsont.Object.finish
+
+  let pp_params fmt (p : params) = Fmt.pf fmt "@[<hv>{axis=%a}@]" Axis.pp p.axis
+
+  type t = { params : params; x : Tensor_ref.t }
+
+  let name = "Cumsum"
+
+  let jsont : t Jsont.t =
+    Jsont.map ~kind:name
+      ~dec:(fun json ->
+        let ms = Json_util.req_obj json name in
+        let get k c = Json_util.req_field ms k c name in
+        { params = get "params" params_jsont; x = get "x" Tensor_ref.jsont })
+      ~enc:(fun t ->
+        Json_util.jobj
+          [
+            ("params", Json_util.enc params_jsont t.params);
+            ("x", Json_util.enc Tensor_ref.jsont t.x);
+          ])
+      Jsont.json
+
+  let operands (t : t) = [ t.x ]
+  let map_operands f (t : t) = { t with x = f t.x }
+
+  let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
+    Fmt.pf fmt "@[<hv 2>cumsum@ x=%a@ params=%a@]" pp_ref t.x pp_params t.params
+
+  (* Cumsum rescales nothing and drops no axis -- the output keeps the
+     input's full shape, exactly [Softmax.output_shape]'s reasoning. *)
+  let output_shape ~(x_shape : Vec6.shape) (_p : params) = Err.return x_shape
+
+  (* This op's random-walk config space: a 4D NHWC tensor, cumulatively
+     summed over one of the six frame axes. Any axis is valid at any extent
+     (same as [Softmax.Walk]: nothing to combine), so [cascade] is identity. *)
+  module Walk (L : Walk_core.Limits.S) = struct
+    type cfg = { shape : Walk_core.Shape.t; axis : Axis.t }
+
+    let initial =
+      {
+        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        axis = Axis.C;
+      }
+
+    let cascade c = c
+    let shape (c : cfg) = Walk_bridge.vec6 c.shape
+    let params (c : cfg) : params = { axis = c.axis }
+
+    let axes =
+      Walk_core.Walk.
+        [
+          shape_axis "input" L.limits
+            ~get:(fun c -> c.shape)
+            ~set:(fun c s -> { c with shape = s });
+          field_axis "axis" Axis.all (fun c v -> { c with axis = v });
+        ]
+
+    let pp fmt (c : cfg) =
+      Format.fprintf fmt "{shape=%a axis=%a}" Walk_core.Shape.pp c.shape Axis.pp
+        c.axis
+  end
+
+  module Compute (S : Semantics.SEMANTICS) = struct
+    (* [out]'s own position along [axis], read back as a DELTA index via
+       [S.of_index] and widened by one -- the reduction's upper bound grows
+       with the output pixel being computed, unlike every other reduction in
+       this file (whose bound is the input's fixed extent). *)
+    let pixel (p : params) ~x (out : Semantics.position S.index Vec6.t) =
+      let out_pos = Vec6.get out p.axis in
+      let hi = S.index_add (S.of_index out_pos) (S.index_const 1) in
+      S.sum ~lo:S.index_zero ~hi (fun k -> S.load x (Vec6.set out p.axis k))
+  end
+end

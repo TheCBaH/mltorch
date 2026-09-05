@@ -78,6 +78,7 @@ type metadata_role =
   | `Conv3d_weight
   | `Convolution_bias
   | `Convolution_weight
+  | `Cumsum_input
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight
@@ -402,6 +403,7 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Conv3d_weight -> Fmt.string ppf "conv3d weight"
   | `Convolution_bias -> Fmt.string ppf "convolution bias"
   | `Convolution_weight -> Fmt.string ppf "convolution weight"
+  | `Cumsum_input -> Fmt.string ppf "cumsum input"
   | `Expand_input -> Fmt.string ppf "expand input"
   | `Group_norm_bias -> Fmt.string ppf "group_norm bias"
   | `Group_norm_weight -> Fmt.string ppf "group_norm weight"

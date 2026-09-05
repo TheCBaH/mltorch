@@ -34,6 +34,8 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Convolution_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Cumsum_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (* Unlike [Div_scalar], this random tensor divisor is synthesized nonzero,
        so the walk remains informative rather than flaky. *)
     (module Div_nwalk.M : Walk_core.Walk.Op with type subject = Native_subject.t);

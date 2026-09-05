@@ -187,6 +187,12 @@ let select_scatter_params (p : Ops4.Select_scatter4.params) :
 let softmax_params (p : Ops4.Softmax4.params) : Reduce.Softmax.params =
   { axis = Axis4.to_axis p.Ops4.Softmax4.axis }
 
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
+   axis cumsum walks. *)
+let cumsum_params (p : Ops4_cumsum.Cumsum4.params) : Reduce.Cumsum.params =
+  { axis = Axis4.to_axis p.Ops4_cumsum.Cumsum4.axis }
+
 let split_with_sizes_params (p : Ops4.Split_with_sizes4.params) :
     Split.Split_with_sizes.params =
   {
@@ -282,6 +288,12 @@ let output_shape (op : Op.t)
         (four
            (Conv.Conv2d.output_shape ~x_shape ~weight_shape
               (conv2d_params params ~groups)))
+  (* Cumsum rescales nothing and drops no axis, exactly [Softmax4]'s reason:
+     [Reduce.Cumsum.output_shape] is the identity on [x_shape] -- delegated
+     rather than restated. *)
+  | Cumsum4 { Ops4_cumsum.Cumsum4.params; x } ->
+      let* x_shape = shape x in
+      one (four (Reduce.Cumsum.output_shape ~x_shape (cumsum_params params)))
   | Div { Pointwise.Bin.a; b } ->
       let* a_shape = shape a in
       let* b_shape = shape b in

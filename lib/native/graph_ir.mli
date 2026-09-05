@@ -52,6 +52,7 @@ type op =
   | Conv2d_padding of Conv.Conv2d_padding.t
   | Conv3d of Conv.Conv3d.t
   | Convolution of Conv.Convolution.t
+  | Cumsum of Reduce.Cumsum.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }

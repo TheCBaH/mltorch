@@ -60,6 +60,12 @@ let classify (op : Op.t) ~output:_ =
      itself the right one for an op whose emitter is a [select] on a
      comparison is a question about Native's table, not about this port. *)
   | Sdpa _ -> Output_transfer.Continuous
+  (* A genuine reduction, not a copy: every output element depends on every
+     PRECEDING element on the walked axis (the running sum), so an
+     arbitrarily small change to an earlier element moves every later output
+     -- the same answer Native's own [Output_transfer] gives every reduction,
+     [Softmax] included. *)
+  | Cumsum4 _ -> Output_transfer.Continuous
   (* Data movement, the same argument as [Unbind]/[Slice4] above: every output
      element is COPIED from an input element with no arithmetic -- [Select4]
      drops the axis instead of narrowing or enumerating it, but the copy

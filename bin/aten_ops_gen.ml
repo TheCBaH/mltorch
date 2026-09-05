@@ -122,6 +122,7 @@ let curated_selection =
     op "amax";
     op "sum" ~overload:"dim_IntList";
     op "softmax" ~overload:"int";
+    op "cumsum";
     op "pow" ~overload:"Tensor_Scalar";
     op "rsub" ~overload:"Scalar";
     op "linalg_vector_norm";

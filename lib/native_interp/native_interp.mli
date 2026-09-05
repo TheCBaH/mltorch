@@ -71,6 +71,7 @@ type metadata_role =
   | `Conv3d_weight
   | `Convolution_bias
   | `Convolution_weight
+  | `Cumsum_input
   | `Expand_input
   | `Group_norm_bias
   | `Group_norm_weight

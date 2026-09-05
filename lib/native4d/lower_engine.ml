@@ -888,6 +888,17 @@ let lower_node ~view acc (n : node) =
       simple
         (Op.Softmax4
            { Ops4.Softmax4.params = { axis = List.hd axis4 }; x = op_of x })
+  (* The axis converts here for the same reason [Softmax]'s does just above:
+     [Reduce.Cumsum.output_shape] also returns [x_shape] verbatim, so no
+     post-hoc output re-check is needed either. *)
+  | Cumsum { Reduce.Cumsum.params; x } ->
+      let* axis4 = dims4 ~node [ params.axis ] in
+      simple
+        (Op.Cumsum4
+           {
+             Ops4_cumsum.Cumsum4.params = { axis = List.hd axis4 };
+             x = op_of x;
+           })
   (* Direct counterpart, once [Domain.check] has proved D = 1: [Attention.Sdpa.t]
      names no axis and carries no shape, so it crosses unchanged, and
      [Region_computation4]'s [native_op] routes it back through the exact same

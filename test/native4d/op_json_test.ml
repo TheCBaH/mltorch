@@ -100,6 +100,7 @@ let samples : Op.t list =
     Concat4 { Ops4.Concat4.params = { axis = W }; xs = [ x; y; w ] };
     Conv2d
       { Ops4.Conv_payload.params = conv_params; x; weight = w; bias = None };
+    Cumsum4 { Ops4_cumsum.Cumsum4.params = { axis = C }; x };
     Depthwise_conv2d
       {
         Ops4.Conv_payload.params = conv_params;
@@ -297,7 +298,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 58, registry: 58 |}]
+  [%expect {| samples: 59, registry: 59 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -324,6 +325,7 @@ let%expect_test "op4: printed" =
       params={h={kernel=3; stride=1; pad_before=0; pad_after=1; dilation=1};
              w={kernel=3; stride=1; pad_before=0; pad_after=1; dilation=1};
              in_channels=4}
+    cumsum4 x=t0 params={axis=C}
     depthwise_conv2d
       x=t0
       weight=t2
@@ -406,7 +408,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 58 ops |}]
+  [%expect {| round-tripped 59 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

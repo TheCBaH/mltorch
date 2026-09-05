@@ -159,6 +159,10 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen (Conv.Convolution.output_shape ~x_shape ~weight_shape params)
       in
       [ out ]
+  | Cumsum { Reduce.Cumsum.params; x } ->
+      let* x_shape = shape x in
+      let+ out = widen (Reduce.Cumsum.output_shape ~x_shape params) in
+      [ out ]
   | Discard _ -> Err.return []
   | Expand { Pointwise.Expand.params; x } ->
       let* x_shape = shape x in

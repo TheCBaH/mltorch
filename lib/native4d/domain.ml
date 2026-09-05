@@ -321,6 +321,11 @@ let check_node view (n : node) =
      [Vector_norm] there is no separate keepdim-vs-drop distinction here --
      one counterpart, one axis check. See .ai/matmul_softmax_design.md §3. *)
   | Softmax { Reduce.Softmax.params; _ } -> check_dims node [ params.axis ]
+  (* [Cumsum4] now exists, so [Cumsum] gets the same [check_dims]-style axis
+     rejection [Softmax] gets just above: the WALKED axis is the one the
+     dialect must be able to name. Cumsum never changes shape either, so the
+     same "one counterpart, one axis check" reasoning applies. *)
+  | Cumsum { Reduce.Cumsum.params; _ } -> check_dims node [ params.axis ]
   (* [IndexTensor4] now exists, so [Index_tensor] gets the same [check_dims]-
      style axis rejection [Select]/[Select_scatter]/[Stack]/[RepeatInterleave]
      get: the GATHERED axis is the one the dialect must be able to name. Not

@@ -36,6 +36,7 @@ type op =
   | Clamp of Pointwise.Clamp.t
   | Concat4 of Ops4.Concat4.t
   | Conv2d of Ops4.Conv2d.t
+  | Cumsum4 of Ops4_cumsum.Cumsum4.t
   | Depthwise_conv2d of Ops4.Depthwise_conv2d.t
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
@@ -166,6 +167,12 @@ let op_registry : (module OP) list =
 
       let inject t = Conv2d t
       let project = function Conv2d t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4_cumsum.Cumsum4
+
+      let inject t = Cumsum4 t
+      let project = function Cumsum4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Depthwise_conv2d
