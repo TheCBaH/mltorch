@@ -14,49 +14,17 @@ let widen_partition result =
     (fun (error : Region_partition.error) -> (error :> error))
     result
 
-(* [(offset, count)] per local, mirroring [Region_execution.lower_region]:
-   a scalar occupies one slot, a vector [Region_local.Rhs.slot_count]-many.
-   The running [offset] needs no bounds-checked fold here for the same reason
-   it needs none there -- [Region_program.check] already proved the total
-   fits, as a precondition of [program]'s own existence. *)
-let local_slots program =
-  List.fold_left
-    (fun (slots, offset) local ->
-      let count = Region_local.Rhs.slot_count local.Region_local.rhs in
-      ( Expr.Local_var.Map.add local.Region_local.id (offset, count) slots,
-        offset + count ))
-    (Expr.Local_var.Map.empty, 0)
-    (Region_program.locals program)
-
-let total_slots slots =
-  Expr.Local_var.Map.fold
-    (fun _ (offset, count) m -> max m (offset + count))
-    slots 0
-
-let slot_reader slots values =
-  let local id =
-    match Expr.Local_var.Map.find_opt id slots with
-    | Some (offset, _) when offset < Array.length values -> Some values.(offset)
-    | _ -> None
-  in
-  let local_at id pos =
-    match Expr.Local_var.Map.find_opt id slots with
-    | Some (offset, count) when pos >= 0 && pos < count ->
-        let i = offset + pos in
-        if i < Array.length values then Some values.(i) else None
-    | _ -> None
-  in
-  (local, local_at)
+let local_slots program = Region_slots.of_locals (Region_program.locals program)
 
 let evaluate_locals program ~env ~slots ~key =
-  let values = Array.make (total_slots slots) 0. in
-  let local, local_at = slot_reader slots values in
+  let values = Array.make (Region_slots.total slots) 0. in
+  let local, local_at = Region_slots.reader slots values in
   let rec fill = function
     | [] -> Err.return values
     | binding :: rest -> (
         let open Err.Syntax in
         let offset, count =
-          Expr.Local_var.Map.find binding.Region_local.id slots
+          Option.get (Region_slots.offset slots binding.Region_local.id)
         in
         match binding.Region_local.rhs with
         | Region_local.Rhs.Scalar value ->
@@ -85,7 +53,7 @@ let evaluate_locals program ~env ~slots ~key =
   fill (Region_program.locals program)
 
 let emit program ~env ~slots ~values ~output =
-  let local, local_at = slot_reader slots values in
+  let local, local_at = Region_slots.reader slots values in
   widen_expr
     (Expr.Eval.value ~local ~local_at env ~output:(expr_coord output)
        (Region_program.output program))
@@ -98,7 +66,7 @@ let value_at program ~output_shape ~env ~output =
          (Region_program.partition program)
          output)
   in
-  let slots, _ = local_slots program in
+  let slots = local_slots program in
   let* values = evaluate_locals program ~env ~slots ~key in
   emit program ~env ~slots ~values ~output
 
@@ -109,7 +77,7 @@ let value_at program ~output_shape ~env ~output =
    scratch was [keys * total_slots] rather than one array at a time. *)
 let materialize program ~output_shape ~env =
   Err.Escape.with_escape @@ fun esc ->
-  let slots, _ = local_slots program in
+  let slots = local_slots program in
   let tensor = Tensor.create output_shape in
   let partition = Region_program.partition program in
   Region_partition.fold_keys ~output_shape ~init:()

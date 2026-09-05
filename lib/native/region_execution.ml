@@ -21,12 +21,7 @@ type counters = {
   mutable reductions : int;
 }
 
-type lowered = {
-  program : Region_program.t;
-  slots : (int * int) Expr.Local_var.Map.t;
-  total_slots : int;
-}
-
+type lowered = { program : Region_program.t; slots : Region_slots.t }
 type t = Pixel_loop of Expr.Value.t | Region_loop of lowered
 
 let counters () =
@@ -36,24 +31,14 @@ let counters () =
    plain pixel expression -- e.g. it just matched [pixel_expression = None] --
    so it need not re-discover that fact by lowering and matching on [t].
 
-   The running [offset] is plain [int] arithmetic, not [Int64]-checked:
-   [Region_program.check] (run once, at [create]) already bounds the SUM of
-   every local's [Shape.slot_count] against [max_size] on [Int64] before any
-   [Region_program.t] can exist, so by the time a program reaches here the
-   total is already proven to fit -- this loop only has to use that proof,
-   not re-derive it. *)
+   [Region_slots.of_locals]'s running offset is plain [int] arithmetic, not
+   [Int64]-checked: [Region_program.check] (run once, at [create]) already
+   bounds the SUM of every local's slot count against [max_size] on [Int64]
+   before any [Region_program.t] can exist, so by the time a program reaches
+   here the total is already proven to fit -- this only has to use that
+   proof, not re-derive it. *)
 let lower_region program =
-  let locals = Region_program.locals program in
-  let slots, total_slots =
-    List.fold_left
-      (fun (slots, offset) local ->
-        let count = Region_local.Rhs.slot_count local.Region_local.rhs in
-        ( Expr.Local_var.Map.add local.Region_local.id (offset, count) slots,
-          offset + count ))
-      (Expr.Local_var.Map.empty, 0)
-      locals
-  in
-  { program; slots; total_slots }
+  { program; slots = Region_slots.of_locals (Region_program.locals program) }
 
 let lower program =
   match Region_program.pixel_expression program with
@@ -77,29 +62,9 @@ let instrument ?counters (env : Expr.Eval.Env.t) =
         load_index = env.Expr.Eval.Env.load_index;
       }
 
-(* Reads an already-filled slot range: [local] answers a plain [Value.Local]
-   (only meaningful for a scalar's single slot), [local_at] a [Value.Local_at]
-   at a computed position within a vector's range. Shared between
-   [evaluate_locals] (filling [values]) and [emit] (only reading it), so the
-   two cannot disagree about how a slot range is addressed. *)
-let slot_reader slots values =
-  let local id =
-    match Expr.Local_var.Map.find_opt id slots with
-    | Some (offset, _) when offset < Array.length values -> Some values.(offset)
-    | _ -> None
-  in
-  let local_at id pos =
-    match Expr.Local_var.Map.find_opt id slots with
-    | Some (offset, count) when pos >= 0 && pos < count ->
-        let i = offset + pos in
-        if i < Array.length values then Some values.(i) else None
-    | _ -> None
-  in
-  (local, local_at)
-
 let evaluate_locals ?counters lowered ~env ~key =
-  let values = Array.make lowered.total_slots 0. in
-  let local, local_at = slot_reader lowered.slots values in
+  let values = Array.make (Region_slots.total lowered.slots) 0. in
+  let local, local_at = Region_slots.reader lowered.slots values in
   let env = instrument ?counters env in
   let on_reduction () =
     Option.iter
@@ -124,7 +89,7 @@ let evaluate_locals ?counters lowered ~env ~key =
            the vector's own per-element binder (present by construction -- see
            [Region_program.Builder.vector]) then raised [Unbound_reducer]. *)
         let offset, count =
-          Expr.Local_var.Map.find binding.Region_local.id lowered.slots
+          Option.get (Region_slots.offset lowered.slots binding.Region_local.id)
         in
         match binding.Region_local.rhs with
         | Region_local.Rhs.Scalar value ->
@@ -160,7 +125,7 @@ let evaluate_locals ?counters lowered ~env ~key =
   fill (Region_program.locals lowered.program)
 
 let emit ?counters lowered ~env ~values ~output =
-  let local, local_at = slot_reader lowered.slots values in
+  let local, local_at = Region_slots.reader lowered.slots values in
   let env = instrument ?counters env in
   let on_reduction () =
     Option.iter
