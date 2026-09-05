@@ -117,6 +117,11 @@ type metadata_role =
   | `Softmax_input
   | `Split_tensor_input
   | `Split_with_sizes_input
+  | `Squeeze_input
+    (** [squeeze.dim]'s input, read for its declared RANK the same way
+        [`Select_input] is -- the WRITTEN axis's live extent (unit or not)
+        decides which branch of the [Reshape] legalization applies, and neither
+        branch is reachable without the operand's rank first. *)
   | `Stack_input
   | `Sum_input
   | `Tensor

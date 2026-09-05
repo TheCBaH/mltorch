@@ -25,6 +25,7 @@ let targets =
     "torch.ops.aten.slice.Tensor";
     "torch.ops.aten.split.Tensor";
     "torch.ops.aten.split_with_sizes.default";
+    "torch.ops.aten.squeeze.dim";
     "torch.ops.aten.stack.default";
     "torch.ops.aten.arange.default";
     "torch.ops.aten.arange.start";
@@ -503,6 +504,41 @@ let dispatch ~ctx ~env (node : Node.t) =
              select_scatter
                { Split.Select_scatter.axis; index = idx }
                ~self:(get "self") ~src:(get "src")
+           in
+           return [ y ]
+       (* [squeeze.dim(self, dim)]: the importer twin of the bridge arm above
+         -- see its own comment for why either branch (drop the axis, or
+         leave [self] unchanged) legalizes to [Reshape] alone. What differs
+         is where the extent comes from: the SERIALIZED shape, the same
+         split [slice.Tensor]'s own comment draws between the bridge's live
+         tensor and this importer's declared metadata. *)
+       | "torch.ops.aten.squeeze.dim" ->
+           let x_name = tensor_name esc node "self" in
+           let rank =
+             meta_rank (tensor_meta esc graph ~ssa:x_name ~role:`Squeeze_input)
+           in
+           let d =
+             let dim = int_arg esc node "dim" in
+             let dim = if dim < 0 then dim + rank else dim in
+             if dim < 0 || dim >= rank then
+               malformed esc (`Axis_out_of_range { axis = dim; rank });
+             dim
+           in
+           let axis = List.nth (used_axes_for esc ~tensor:x_name rank) d in
+           let shape = tensor_shape esc graph x_name in
+           let extent = Vec6.get shape axis in
+           let aten_list = Array.to_list (Aten_shape.to_aten ~rank shape) in
+           let out_sizes =
+             List.map
+               (fun x -> SymInt.Int x)
+               (if Dim.to_int extent = 1 then
+                  List.filteri (fun i _ -> i <> d) aten_list
+                else aten_list)
+           in
+           let* y =
+             reshape
+               { Reshape.Reshape.shape = shape_of_sizes esc x_name out_sizes }
+               (get "self")
            in
            return [ y ]
        (* Legalized to [Reshape] alone: inserting a size-1 axis never changes

@@ -387,6 +387,42 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                in
                [ y ]
            | _ -> assert false))
+  (* [squeeze.dim(self, dim)]: drops the axis at [dim] when its LIVE extent is
+     1. Real ATen leaves [self] unchanged (same rank) rather than raising when
+     the extent is not 1 -- a genuine per-shape branch, decided here against
+     the same live tensor [select.int]'s [resolve_index] reads, not a runtime
+     value. Either branch keeps the linearized data order (dropping a unit
+     axis is the exact inverse of [unsqueeze.default]'s insertion just below),
+     so this legalizes to [Reshape] alone, the same "no new node" treatment. *)
+  | "torch.ops.aten.squeeze.dim" ->
+      Some
+        (let* aten_x = tensor_arg aten_env node "self" in
+         let* () = require_f32 "self" aten_x in
+         let rank = aten_rank aten_x in
+         let* dim = int_arg node "dim" in
+         let* x = native_of_aten "self" aten_x in
+         let* d = norm_dim ~op:"squeeze.dim" ~rank dim in
+         let axis = Aten_shape.axis_of_dim ~rank d in
+         let extent = Vec6.get (packed_shape x) axis in
+         let aten_list =
+           Array.to_list (Aten_shape.to_aten ~rank (packed_shape x))
+         in
+         let out_list =
+           if Dim.to_int extent = 1 then
+             List.filteri (fun i _ -> i <> d) aten_list
+           else aten_list
+         in
+         let* target =
+           Err.map_error
+             (fun e -> `Aten_shape e)
+             (Aten_shape.of_aten (Array.of_list out_list))
+         in
+         build_g ~name:"squeeze" [ x ] (function
+           | [ x_id ] ->
+               let open Graph_builder in
+               let+ y = reshape { Reshape.Reshape.shape = target } x_id in
+               [ y ]
+           | _ -> assert false))
   (* Legalized to [Reshape] alone: inserting a size-1 axis never changes the
      linearized data order, so no [Slice] is needed, unlike [select.int]'s
      axis removal. The target is [Aten_shape.to_aten]'s list with a bare [1]
