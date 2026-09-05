@@ -1,98 +1,43 @@
-# `lstm.input` — implementation plan (rev. 19)
+# `lstm.input` — implementation plan
 
 ## Context
 
-`_ai_/todo-ops.md` and `_ai_/ops-progress.md` record `lstm.input` as investigated 2026-09-05 and
-deliberately **not** landed; `_ai_/lstm.md` holds the scoping notes and `_ai_/lstm-plan.md` an
-expanded-scope plan written the same day. This plan grounds those against the actual source and
-turns them into an executable sequence.
+Status: planned. Land the bounded scan primitive first, then the full inference-only,
+three-output LSTM implementation, including stacked layers and Native4D. This plan is the
+implementation contract; [lstm-plan.md](lstm-plan.md) supplies the tensor and arithmetic details.
+The open contracts identified in [lstm-review.md](lstm-review.md) are specified below.
 
 `sequencer2d_s` (911 nodes) is `native_builds:false`, blocked at `torch.ops.aten.lstm.input` — 36
 occurrences, its first frontier (`test/data/pt2_json_model_support.jsonl:82`).
 
-The blocker is real: `Semantics.SEMANTICS` exposes only `sum` and `max_reduce`
-(`semantics.ml:152-155`), both folding independently-computable terms with a fixed associative
-combine. An LSTM step is a non-associative recurrence over two hidden *vectors*. `cumsum` looked
-like the same shape and was not (`_ai_/lstm.md:95-104`).
+`Semantics.SEMANTICS` exposes `sum` and `max_reduce`, each with a fixed combine over
+independently computable terms. LSTM requires an ordered recurrence over two hidden vectors.
+It cannot use those reductions as a state-carrying fold. Preserve evaluation order, including
+floating-point association; mathematical associativity does not authorize reassociation.
 
-Decisions: the scan becomes a **new `Expr` AST node**, it lands **alone first**, and state
-footprint gets its **own budget dimensions**.
+The scan is a new `Expr` AST node, authored through the existing Region computation path.
+Storage, peak state, update counts, and grounding construction have separate budget dimensions.
 
-Eighteen review rounds are folded in; every finding was checked against the source and all held —
-including five that corrected censuses, claims, or a test design I had published.
-
----
-
-## Corrections to `_ai_/lstm-plan.md` found by reading the source
-
-1. **Region-authored ops are single-output today** — `check_output` rejects `output <> 0`
-   (`region_computation.ml:23-27`).
-2. **Corpus-scale traces exceed the Region budget** — `Region_program.check` bills total slots
-   against `max_size` (`region_program.ml:227-239`); `Limits.default.max_size` is 4096
-   (`kernel.ml:150`). Sequencer2D needs ~6500.
-3. **Do not flatten the trace into `Local_at`** — `Expr.Index` has no modulo (`index.ml:17-31`).
-4. **Blast radius is small** — only `ground_eval.ml`, `me_detail.ml` and one incidental site in
-   `vec6.ml` match `Expr.Value` constructors outside `lib/expr*`.
-5. **`expr_api.ml` is at 749/1000 lines**; `file-size-exceptions.txt` is empty.
-6. **`Const_ssa` needs no work** (`const_ssa.ml:35,136-138`) — keep `Lstm` off `allows`.
-7. **`Tensor[]` arguments cost an ATen walk recipe** (`aten_walk_gen.ml:94-96`).
-8. **Stage 2 needs a modulo `Expr.Index` does not have** — decided below.
-
-### Things I got wrong
-
-Five published claims were false. Three were censuses from loose or truncated greps — the lesson is
-to match an *application form* and count, never a bare name with `head`:
-
-- **The grounding budget does not exist.** `body_at` calls the unbudgeted recursive `ground`
-  (`ground_eval.ml:417-428`); only `expand ~budget` is metered. The comment at `:226` says
-  otherwise and is wrong.
-- **`Kernel.Limits.create`**: I published "68 sites across 22 files", having swept up `Me_limits`,
-  zip limits and Model Explorer tests. Measured: **11 invocations across 4 test files**
-  (`depth_probe.ml` 2, `fusion_test.ml` 1, `kernel_test.ml` 5, `region_compute_test.ml` 3) plus
-  `kernel.ml`'s own `create`; four other hits are comments.
-- **`Stage_program.ground`**: I published "four callers" (a `head -10` truncation), then "43 calls"
-  (an unbracketed comment slipped past the filter). Measured by matching the application form:
-  **42 calls across 12 files**, plus **9 non-call references**, out of 51 textual hits in `.ml` and
-  `.mli`.
-- **A static gate cannot bound scan cost.** Rev. 8 claimed construction-time and rewrite-time
-  checks sufficed; they do not (1c).
-- **My "shared metering" test was vacuous.** A program whose locals and emitter individually fit
-  but jointly exceed the per-key budget is rejected by the *preflight* this plan also requires, so
-  it never reaches a runtime charge and proves static aggregation, not meter ownership (1d).
-
-Also corrected below, each verified in source: `Scan_at` cannot serve as a Region read;
-`Local_scan_at` needs its own public constructor; standalone scans and expanding rewrites bypass
-every limit; no execution API is a validation gate; `Kernel_elab.admit` does not reject a scan; the
-option callback cannot carry typed bounds errors; Model Explorer has no root for a scan RHS; a
-pre-built `Scan.t` collides with the Region binder namespace; a nominally colliding prebuilt
-fragment cannot be repaired after composition; the Region builder had neither an error channel nor
-limits; grounding must meter *logical* size across *both* terms of a comparison;
-`Region_eval.materialize` retains one slot array per key; my scope rule rejected valid captures;
-update accounting ignored vector extents, emitters, key counts and reduction context;
-specialization escapes the limits it was admitted under; peak state double-charged a trace RHS; the
-bundle never named the recursive representation boundary; the payload convention was misapplied to
-malformed-extent and scope errors; and the total-update number was justified only by a per-key
-census.
-
----
+Broader design proposals are in [project_design_ideas.md](project_design_ideas.md). They are
+separate from the work required to land LSTM.
 
 ## Prerequisites
 
-- **Commit the in-flight `cumsum` landing** (25 modified + 4 untracked files).
 - **Fix a live defect in `Region_eval`.** `region_eval.ml:59` dispatches locals on the numeric slot
-  count (`| offset, 1 -> ...`), the bug fixed for `Region_execution` in `ac11eb8` and pinned by
-  `region_compute_test.ml:311-321`. A `Vector` local of extent 1 (SDPA at `Wk = 1`) takes the
+  count (`| offset, 1 -> ...`). `Region_execution` already dispatches on the declared shape.
+  A `Vector` local of extent 1 (SDPA at `Wk = 1`) takes the
   scalar branch with no `~reducer` bound and raises `Unbound_reducer`. Reachable via
   `Region_execution.value_at` (`:203-204`) → `Kernel_eval` per cell (`kernel_eval.ml:231-237`).
-  `fixup! 99872ea` plus a `Wk = 1` regression on `value_at`.
+  Dispatch on the declared shape and add a `Wk = 1` regression on `value_at`.
 - **ATen feasibility probe** — static-link check plus a tiny three-output oracle, no LSTM landing.
-  `conv3d` shipped with `at::native::slow_conv3d` stubbed and cost a session.
+  Execute the binding: successful linking alone does not establish that its kernel path avoids
+  throwing stubs.
 
 ---
 
 ## Stage 1 — the scan primitive
 
-### 1a. Specify before implementing
+### 1a. Record the contracts
 
 Write into the tracked `.ai/` record **before the Expr commit**: the representation and its place in
 the recursive group, the construction API and both public projection constructors, the exact error
@@ -115,7 +60,7 @@ encoding for Stage 2.
 | `scan.ml` (new, internal) | alias + smart constructors |
 | `scan_limits.ml` (new, internal) | the checked limit record and the meter |
 | `expr_api.ml` | extend `module rec Bool … and Reduction … and Value` with `Scan`; add `Scan_limits`, `Scan_meter`, `Builder.scan`, both value constructors, the admission check |
-| `expr.ml` | façade exports `Scan`, `Scan_limits`, `Scan_meter` |
+| `expr.ml` | façade exports `Scan`, `Scan_limits`, `Scan_meter`, `Scan_admission` |
 
 ```ocaml
 and scan = {
@@ -145,11 +90,10 @@ val Value.local_scan_at : Local_var.t -> row:position Index.t -> lane:position I
 `Local_scan_at` names a trace local, exactly as `Local`/`Local_at` name scalar/vector locals, so
 dependency order (`region_program.ml:241-250`), shape agreement (`:196-215`) and slot lookup have
 something to key on. `specialize_pixel` rewrites it into `Scan_at`, so `Expr.Rewrite.local_binding`
-(`expr_api.ml:501-503`) gains a `Scan of Scan.t` case. **`dune build lib/expr` is an explicit
-checkpoint**, followed by a **Native compile/integration checkpoint** that exercises the
-cross-library boundary — a scan-backed Region program built, checked, printed and executed purely
-through the public `Expr` surface — so a signature that Native cannot actually use is caught in
-the Expr commit rather than three commits later.
+(`expr_api.ml:501-503`) gains a `Scan of Scan.t` case. Build `lib/expr` and compile a consumer
+outside that library which constructs and inspects the descriptor through public APIs.
+After Region scan locals land, extend that fixture to build, check, print and execute a
+scan-backed Region program through the public surface.
 
 **Construction API and error type.** The "payload is the LIMIT, not the measure" convention
 (`check.ml:14-16`) applies **only** to early-stopping budget errors:
@@ -178,29 +122,24 @@ module Scan : sig
   }
 
   type error =
-    | Bad_width  of int            (* the offending value *)
     | Bad_steps  of int
-    | Step_in_init                 (* payload-free: a freshly minted internal ordinal *)
+    | Bad_width  of int            (* the offending value *)
     | Prev_in_init
-    | Unbounded_reduction_context
     | State_over_limit   of { limit : int }     (* early stop: the LIMIT *)
+    | Step_in_init                 (* payload-free: a freshly minted internal ordinal *)
+    | Unbounded_reduction_context
     | Updates_over_limit of { limit : int64 }
   val pp_error : Format.formatter -> error -> unit
 end
 ```
 
-**The caller must freshen a prebuilt fragment before composing it — the API cannot do it.** A
-callback may return an opaque value built from an independent supply (`Builder.return`). If its
-nominal identities collide with `lane`/`step`/`prev`, a captured free read is structurally
-indistinguishable from an intended bound read: in a bound child it is *already* captured, and in
-`init` a collision with `step`/`prev` yields a false scope error. The codebase already documents
-this — `expr_api.ml:446-456` states that freshening the combined tree afterwards "repairs nothing —
-once a nominal collision has captured a reference, there is no record of which binder it meant."
-Threading `run_from` prevents collisions for computations the callbacks *mint*; it cannot repair an
-opaque prebuilt value. State the obligation on `Builder.scan`, and write the regression to
-**freshen the captured fragment inside the callback, from the shared builder state, before
-combining** — then assert the three binders are fresh and the captured read still names the earlier
-Region local.
+**Freshen prebuilt fragments before composition.** Thread `run_from` for identities minted by
+callbacks. Independently built fragments can already contain colliding reducer/local identities;
+freshening the combined tree cannot recover which binder a captured reference meant. State this
+obligation on `Builder.scan`. The regression freshens a prebuilt fragment from the shared builder
+state inside the callback, before combining it, then asserts all three scan binders are fresh and
+the captured free read still names the earlier Region local. Extend freshening's avoidance of free
+identities to both namespaces so it also avoids the captured local.
 
 **Region propagation — a program-producing continuation, with limits.** The Region builder is
 `type 'a t = Expr.Builder.state -> Region_local.t list -> 'a * Expr.Builder.state`
@@ -258,35 +197,72 @@ normalization and substitution.
 
 Scan order is semantically significant: no reordering, reassociation or tree reduction.
 
-**Projection evaluation runs exactly `row` updates.** Two row buffers hold only the last completed
-row. Bounds-check `row`/`lane`, run exactly `row` updates, read the lane. Row 0 returns `init`; row
-`steps` the final state.
+**Projection evaluation runs exactly `row` time steps.** Two buffers hold the completed and
+next row. Bounds-check row/lane, run `row * width` lane updates, then read the selected lane.
+Row 0 returns initialized state; row `steps` returns final state. Nested scans add their own
+charges to the same meter.
 
-**The evaluator callback must carry typed bounds errors.** `Expr.Eval`'s callbacks are
-`?(local = fun _ -> None) ?(local_at = fun _ _ -> None)`, turning `None` into `` `Unbound_local ``
-(`eval.ml:217,245,249`). A cached scan reader of that shape cannot distinguish an unknown local
-from an out-of-range row or lane, and `Local_scan_at` carries no descriptor for `Eval` to check
-itself. Define `~scan` over a closed variant preserving at least `Unknown_local`,
-`Row_out_of_range`, `Lane_out_of_range`; same contract in `Region_execution`/`Region_eval`.
+**Exact projection error contract.** Add the following inside `Expr.Eval`. The optional local id
+distinguishes a cached trace from an inline descriptor; `extent` is the exclusive upper bound
+(`steps + 1` rows or `width` lanes). It is observed shape data, not a budget limit.
 
-### 1c. What actually bounds scan cost: an explicit meter
+```ocaml
+module Scan_projection : sig
+  type t = { local : Local_var.t option; row : int; lane : int }
+end
+module Scan_bounds : sig
+  type t = { projection : Scan_projection.t; extent : int }
+end
+type scan_error =
+  | Lane_out_of_range of Scan_bounds.t
+  | Row_out_of_range of Scan_bounds.t
+  | Unknown_local of Local_var.t
+type scan_reader =
+  Local_var.t -> row:int -> lane:int -> (float, scan_error) Err.t
+val pp_scan_error : Format.formatter -> scan_error -> unit
+(* Extend the existing closed polymorphic [error] row with: *)
+(* | `Scan_projection of scan_error *)
+val scan_error : scan_error -> error
+val value :
+  ?local:(Local_var.t -> float option) ->
+  ?local_at:(Local_var.t -> int -> float option) ->
+  ?scan:scan_reader ->
+  ?scan_meter:Scan_meter.t ->
+  ?reducer:(Reduce_var.t * int) ->
+  ?on_reduction:(unit -> unit) ->
+  Env.t -> output:int Coord.t -> Value.t -> (float, error) Err.t
+```
 
-**Static analysis cannot be the enforcement point.** Each attempt has a bypass: `Builder.scan` sees
-reductions *inside* a descriptor, but a caller can build a valid `Scan.t` and return
-`Value.scan_at d …` from an ordinary `Builder.reduction` whose extent is dynamic —
-`Builder.reduction : … -> (index -> Value.t t) -> Value.t t` (`expr_api.ml:341-351`) takes neither
-limits nor an error channel, and a *constant* outer reduction multiplies real updates just as
-invisibly. `Expr.Rewrite` rebuilds with **raw** constructors and inserts subtrees documented as not
-re-traversed (`expr_api.ml:490-516`). Public combinators compose checked projections. And
-`Expr.Eval.value` accepts raw `Value.t`.
+`` scan_error e = `Scan_projection e `` is the single conversion. The evaluator maps callback
+results with `Err.map_error scan_error`, preserving detection provenance. `Region_execution`
+and `Region_eval` provide readers with this exact type and widen the resulting `Expr.Eval.error`
+unchanged; they do not define competing projection errors. A missing callback fails with
+`Unknown_local id`. A reader first resolves the id in its trace table (a scalar/vector id is
+not a trace), then checks row, then lane, before indexing. Inline `Scan_at` applies the same
+bounds rules with `local = None`; cached reads report `Some id`. Compute the row extent and
+flattened storage offset with checked arithmetic. Static Region shape checks still reject a
+scalar/vector local used as a trace before execution.
 
-**So the guarantee is a runtime meter — with a public charge operation, since the Region executor
-lives in another library and runs trace descriptors itself, outside `Expr`'s `Scan_at` evaluator.**
+Boundary tests assert the entire error payload for unknown ids, negative and upper-bound
+indices, simultaneous row/lane failures (row wins), and inline versus cached projections.
+
+### 1c. Scan admission and runtime budgets
+
+**Runtime metering is required even after static admission.** A checked scan can be composed
+under another reduction, inserted by a raw rewrite, or passed as a raw `Value.t` to the evaluator.
+Construction-time checks cannot bound all those contexts. Export the charge operation because
+Native runs trace descriptors directly, outside the inline `Scan_at` evaluator.
 
 ```ocaml
 module Scan_limits : sig
   type t
-  type error = Invalid of { name : string; value : int64 }
+  module Field : sig
+    type t = Max_state | Max_updates
+  end
+  module Invalid : sig
+    type t = { field : Field.t; value : int64 }
+  end
+  type error = Invalid of Invalid.t
   val create : max_state:int -> max_updates:int64 -> (t, error) Err.t
   val max_state : t -> int
   val max_updates : t -> int64
@@ -297,8 +273,8 @@ end
 module Scan_meter : sig
   type t
   type error =
-    | Updates_exhausted of { limit : int64 }   (* early stop: the LIMIT *)
     | State_over_limit  of { limit : int }
+    | Updates_exhausted of { limit : int64 }   (* early stop: the LIMIT *)
   val create : limits:Scan_limits.t -> t
   val charge_update : t -> (unit, error) Err.t
   val remaining : t -> int64
@@ -306,125 +282,76 @@ module Scan_meter : sig
 end
 (* State reservation is INTERNAL to the Expr implementation — not in this signature. *)
 
-(* Expr.Eval.value gains: *)  ?scan_meter:Scan_meter.t
 ```
 
 `t` is abstract and built only through `create`, which rejects negative fields as `Invalid` and
-applies the same **exclusive `v >= hard`** rule `Kernel.Limits.create` uses (four comments in the
-tree cite that convention). **Zero is valid and meaningful for both fields**: `max_state = 0`
+applies the same **exclusive `v >= hard`** rule `Kernel.Limits.create` uses.
+The printer renders `Max_state` as `max_state` and `Max_updates` as `max_updates`; strings
+are presentation only. Extend `Kernel.Limits.error` with
+`` `Scan_limits of Expr.Scan_limits.error `` and use `Err.map_error` to preserve this payload
+when constructing its stored scan limits. Test both fields at negative and hard-boundary values
+through `Scan_limits.create` and `Kernel.Limits.create`.
+**Zero is valid and meaningful for both fields**: `max_state = 0`
 forbids every scan, since each reserves `2 * width >= 2`; `max_updates = 0` admits only descriptors
 that can never update — those with `steps = 0`, whose trace is just the initial row.
 `Kernel.Limits.create` builds and stores the `Scan_limits.t` at construction, so
 `Kernel.Limits.scan_limits` is a pure accessor that cannot fail — which removes the question of how
 a caller constructs the abstract value downstream.
 
-**Construction and static admission use the descriptor's worst case; only the meter is
-projection-sensitive.** These three boundaries must be stated together or they contradict each
-other. `Builder.scan` sees no projection at all, and `Scan_admission.check` measures occurrences
-with `U(d)`, whose formula carries `steps` and not the projection's `row`. Since
-`U(d) >= steps * width` for any positive-width descriptor, **a positive-step descriptor is rejected
-at both boundaries under a zero update limit, even when a particular runtime projection would
-execute row zero and the meter would charge nothing.** That asymmetry is deliberate, not a defect:
-`row` is an index expression and is symbolic on exactly the paths that matter, so a
-projection-sensitive static measure (`U_at(d, row)`, exact for a constant row and `steps` otherwise)
-would add machinery that almost never fires while giving up early rejection at construction. Pin
-the intended outcomes by running **the same positive-step, row-zero case at all three boundaries**:
-`Builder.scan` → `Updates_over_limit`; `Scan_admission.check` → `Updates_over_limit`; and the
-evaluator, given a wider admission limit and a narrow meter, → succeeds having charged nothing.
+**Construction and static admission use the descriptor's worst case; only runtime metering is
+projection-sensitive.** `U(d) >= steps * width`, so a positive-step descriptor fails construction
+and admission under a zero update limit even if a particular projection reads row zero. Test
+that same row-zero case at all three boundaries: `Builder.scan` and `Scan_admission.check`
+return `Updates_over_limit`; evaluation of a descriptor built under a wider limit succeeds
+with a zero-update meter and no charges, provided its initializer contains no updating scan.
 
 **Update boundary rule, stated once:** exactly `limit` charges succeed, and the next charge fails
 **before its update body is evaluated**. The standalone `Scan_at` evaluator and both Region
 executors call the *same* `charge_update`, so their off-by-one behaviour cannot drift.
 
-**State needs its own enforcement, because the update meter cannot see it.** `Expr.Eval.value`
-accepting a meter is not enough: a `Scan.t` constructed under a wider `max_state` can be evaluated
-with a narrower configured meter and allocate its two row buffers above the limit — and a scan
-nested in an *initializer*, or any row-zero projection, consumes that state while performing **no
-update charges at all**, so no amount of update metering catches it. Standalone evaluation would
-then honour only half the configured resource contract. So the meter reserves state: entry checks
-and reserves `2 * width` before the buffers are allocated, exit releases it, and the reservation
-tracks the true nesting peak. Reserving is O(1) per scan entry, which is why this is preferred
-over re-running a whole-value admission traversal at an `Expr.Eval.value` boundary called once per
-coordinate and per lane.
+**Reserve state before allocation.** On entry to inline scan evaluation, reserve `2 * width`
+against the meter's current live state; on exit, restore the previous level on every success,
+error and `Err.Escape` path. This enforces the nesting peak even for row-zero projections and
+scans in initializers that perform no updates. Check arithmetic before reserving or allocating.
 
-**That reservation pair stays internal to the Expr implementation and out of the public
-signature.** A public `leave_scan : t -> width:int -> unit` independent of entry would let any
-caller release without reserving, release twice, or pass a mismatched width, driving the recorded
-live state below zero so that a later entry admits more buffers than `max_state` — defeating the
-reason the meter and limits are abstract at all. Only `Expr.Eval` ever allocates those buffers:
-the Native Region executor needs the public `charge_update` because it runs trace locals itself,
-but it writes them **directly into the preflighted slot range**, which `max_local_slots` and the
-peak-state preflight already bound — the same fact recorded above as "a trace RHS allocates no
-old/next buffers". So the public surface is exactly `create`, `charge_update`, `remaining` and
-`pp_error`. (If a future caller genuinely needs reservation, make entry return an opaque token
-that release consumes, rejecting stale or foreign reservations — never an independent
-width-taking release.)
+Keep reservation/release internal to Expr so callers cannot under-count state with unmatched,
+duplicate or wrong-width releases. Native trace locals write directly into preflighted slots;
+they need the public update charge, while Region preflight bounds resident storage and nesting.
+Test nested/failed entry, error unwinding and internal release invariants. A descriptor built
+under a wider state limit must fail under a narrower evaluation meter, including a nested
+row-zero case.
 
-Release must happen on **every** success *and* error path — with `Err.Escape` in play the scan
-evaluator restores the previous reserved level in both branches, `protect`-style; this is the easy
-thing to get wrong. Compute the reservation with `Int64`-checked arithmetic: `width` is validated
-at construction (`Bad_width` rejects nonpositive), but `2 * width` summed across nesting is an
-aggregate, and a check on a wrapped result is not a bound. Test failed entry, nested entry,
-exceptional unwinding, and — as an internal invariant test, since the public API cannot express it
-— attempted double and mismatched release.
+Extend `Expr.Eval.error` with `` `Scan_meter of Scan_meter.error `` and
+`` `Scan_meter_required ``. Export
+`Eval.scan_meter_error : Scan_meter.error -> Eval.error`, wrapping with the `Scan_meter` tag,
+and use it with `Err.map_error` in Expr and Native's direct trace loop.
+Encountering an inline `Scan_at` without `?scan_meter` returns `Scan_meter_required` before
+reserving state or evaluating bodies. Cached `Local_scan_at` reads require no update charge
+and use the reader contract above. For inline projections with a meter, check row then lane
+before reserving state. Do not silently choose default limits. Pass the meter to every
+production `Expr.Eval.value` call in
+`region_execution.ml`, `region_eval.ml`, `schedule.ml` and both `kernel_eval.ml` Pixel arms.
 
-Regression: construct a descriptor under a wider limit and evaluate it with a narrower one,
-**including a nested row-zero projection that performs no update charges** — the case that proves
-the update meter alone is insufficient.
-`Scan_meter.error` maps into `Expr.Eval.error` and into the Region execution error row with one
-conversion each. `Expr.Eval.error` also gains `` `Scan_meter_required ``: a stateless
-`?on_reduction`-style hook cannot aggregate across calls, and silently defaulting to
-`Scan_limits.default` inside `Eval` would break the wider-than-default contract by letting
-construction and admission accept a wider custom limit that execution then rejects. So encountering
-a scan node with **no** meter is that typed error rather than a silent default. Making
-`?scan_meter` optional keeps the 9 existing `Expr.Eval.value` call sites *compiling* unchanged, but
-every one of them is updated in this work to pass the meter its reset unit requires —
-`region_execution.ml:133,150,175` and `region_eval.ml:62,81,95` (per key, or per `value_at`
-invocation), `schedule.ml:51` and `kernel_eval.ml:227,289` (per output coordinate). The optionality
-is a migration convenience, not a set of sites left alone.
+**Meter ownership.** Store only immutable limits in lowered programs.
 
-**Four reset units, each with an owner. `lowered` stores only immutable limits — never a meter.**
+| Entry point | Fresh meter scope | Calls sharing it |
+|---|---|---|
+| Standalone `Expr.Eval.value` | Whole raw value | All nested evaluations |
+| Region materialization | One Region key | All scalar/vector/trace locals, nested scans and every emitter for that key |
+| Region `value_at` | One invocation | All locals and the selected emitter |
+| Pixel execution | One output coordinate | The complete pixel expression |
 
-- **Standalone `Expr.Eval.value`** — one meter for the whole raw value.
-- **Region materialization** — **one meter per region key**, shared by every local body, every
-  vector lane, every nested `Scan_at`, and the emitter, matching the declared `per_key` unit. This
-  is load-bearing: a scan-backed Region local is executed by the new loop in
-  `Region_execution.evaluate_locals`, not by evaluating a `Scan_at`, so its `steps * width` updates
-  happen **outside** `Expr.Eval` and that loop calls `charge_update` before each lane update; and
-  the loop already makes separate `Expr.Eval.value` calls per scalar body
-  (`region_execution.ml:133`) and per vector lane (`:150`), with another for the emitter (`:175`),
-  so a per-call meter would reset three ways inside one key. `Region_eval` mirrors the same unit
-  across its own split calls (`region_eval.ml:62,81,95`) so reference and production agree.
-- **`value_at` — one fresh meter per invocation**, shared across every local evaluation and the
-  selected emitter within that call. This path is easy to miss and is live:
-  `Kernel_eval.eval_value` calls `Region_execution.value_at` for an on-demand Region value
-  (`kernel_eval.ml:230-237`), and the public `Kernel_eval.value_at` reaches it independently of
-  fusion admission. Neither obvious alternative works — calling `Expr.Eval.value` with no meter
-  makes every scan-backed value fail as `Scan_meter_required`, while storing a *mutable* meter in
-  `lowered` makes separate `value_at` calls history-dependent so they eventually exhaust one
-  another. Per-invocation is also what the operation already claims to be: `Region_eval.value_at`
-  evaluates all of the key's locals and then emits, and `region_eval.mli` calls it a fresh scalar
-  projection. `Region_eval.value_at` takes the same rule.
-- **Pixel execution — one fresh meter per output coordinate.** A Pixel program is the singleton
-  partition, so one coordinate *is* one key; reusing one mutable meter across the tensor would
-  silently convert the per-key limit into a tensor-wide total and reject a multi-element output
-  after enough individually valid pixels.
+Both Region evaluators use these rules. Their trace loops call `charge_update` before each
+lane's update body, since those updates happen outside the inline `Scan_at` evaluator.
+Separate `Expr.Eval.value` calls within one key must not create separate meters.
+Repeated `value_at` calls remain independent even when their coordinates share a key;
+`Kernel_eval.value_at` reaches this path independently of fusion admission.
 
-**Pixel propagation needs a contract change, not just a parameter.** `Schedule.ground` calls
-`Err.or_raise ~pp_error:Expr.Eval.pp_error` once per pixel inside `Tensor.materialize`
-(`schedule.ml:42-53`), whose comment explains the deliberate wrapper-drop: `Tensor.materialize`
-takes `Vec6.coord -> float`, and threading a result through it would make Direct — the hot path —
-pay for the symbolic one. Passing a meter through unchanged would therefore turn
-`Updates_exhausted`/`Scan_meter_required` back into exceptions, contradicting
-`Stage_program.ground`'s move to `Err.t`. So `Schedule.ground` creates one meter **inside** each
-pixel callback and returns an `Err.t` by escaping from `Tensor.materialize` with `Err.Escape` —
-the sanctioned mechanism, and exactly the shape `Region_execution.materialize` already uses
-(`region_execution.ml:180-201`). Update that comment to record why the contract widened: a resource
-limit is a typed outcome, unlike `Dim.index`'s `Invalid_argument` programming error. Both Kernel
-Pixel arms (`kernel_eval.ml:227,289`) take the same fresh-per-coordinate rule. And because
-`Region_execution.t = Pixel_loop of Expr.Value.t | Region_loop of lowered` exposes a raw value in
-the Pixel branch, `lower` must carry the validated limits on **both** branches, not only inside the
-abstract `lowered`.
+**Preserve typed Pixel failures.** Make `Schedule.ground` return `Err.t`, using `Err.Escape`
+to cross `Tensor.materialize`'s float-returning callback. Replace the current `Err.or_raise`
+there and update its comment. Create the meter inside each pixel callback; both Kernel Pixel
+arms use the same reset rule. Change `Region_execution.t`'s Pixel branch to carry validated
+limits as well as the expression, so custom limits survive lowering on either branch.
 
 Also provide `Expr.Scan_admission.check : limits:Scan_limits.t -> Value.t -> (unit, Scan.error)
 Err.t` over a whole `Value.t`, seeing every enclosing reduction context and aggregate occurrence;
@@ -462,26 +389,20 @@ scan_peak = 0                                                        if the prog
           = total_slots + max(trace-RHS T(d), scalar/vector/emitter S(d))   otherwise
 ```
 
-**The scan-state measure is zero for a program with no scan** — no trace RHS and no executable
-`Scan_at`. Without that guard the formula is unconditional, so an existing scan-free Region program
-with any scalar or vector local (SDPA's own `s`/`p` vectors, for instance) has all scan terms zero
-but `total_slots > 0`, and setting `max_scan_state = 0` to *disable the new feature* would instead
-reject pre-existing Region computations — while also making `max_scan_state` shadow
-`max_local_slots` where no scan state exists, contrary to the table's separate dimensions. When a
-scan *is* present, `total_slots` enters as the resident baseline, because the slot array stays live
-while the scan runs.
+A scan-free program has `scan_peak = 0`, even if it owns scalar/vector slots: disabling
+scans must not reject existing Region operations. When a scan is present, `total_slots` is
+the resident baseline. A trace RHS writes row `s+1` directly into its slot range while reading
+row `s`, so it allocates no additional old/next buffers. Inline `Scan_at` does allocate them.
 
-A trace RHS writes directly into its own slot range — row `s+1` written while row `s` is read from
-the same array — so it allocates no old/next buffers, while every executable `Scan_at` does. Updates
-sum over *occurrences*: two projections carrying the same inline descriptor execute twice. A cached
-`Local_scan_at` read is constant-time and is **not** charged. All products and running sums use
-`Int64`-checked or saturating arithmetic — `lib/expr*` is jsoo-reachable. Regression for the guard:
-a scan-free Region program with scalar *and* vector locals is admitted with **both scan limits set
-to zero**, while the otherwise-equivalent program containing a scan is rejected. Boundary test:
-configure the state limit **between** `total_slots + T(d)` and `total_slots + 2*width + T(d)`, so an
-accidental double charge is observable. The trace product belongs to `max_local_slots` alone.
+Updates sum over occurrences: two inline projections execute twice; a cached `Local_scan_at`
+read costs no update. Use checked or saturating `Int64` products and running sums throughout.
 
-**A validated token, because no execution API is a gate.** `Eval_direct.region_result` goes
+Tests: admit a scan-free scalar/vector program with scan-state and update limits zero; reject
+its scan-bearing counterpart. Set the state cap between `total_slots + T(d)` and
+`total_slots + 2*width + T(d)` to catch double-counting trace row buffers. Charge the trace
+product as storage through `max_local_slots` and include those resident slots once in peak state.
+
+**Validate the executable artifact.** `Eval_direct.region_result` goes
 `Region_computation.program` → `Region_execution.materialize` (`eval_direct.ml:100-141`) and
 `Stage_program.ground` materializes without checking (`stage_program.ml:60-80`). Nor is
 `Region_computation.program` sufficient: the per-key measure depends on an output shape the executor
@@ -507,32 +428,24 @@ val Region_execution.value_at    : lowered -> env:… -> output:Vec6.coord -> (�
 `materialize`/`value_at` stop accepting a shape. Mirror in `Region_eval`'s public entries, and
 invoke `preflight` from `Region_computation.program`, `Stage.check` and `Kernel.create`.
 
-**`lower_region` must change too, or the token proves nothing.** It is currently
-`Region_program.t -> lowered` (`region_execution.mli:15-19`) — a second public constructor that
-mints the supposedly validated type with no output shape, no limits and no preflight, so
-`materialize`/`value_at` could not rely on the invariant. Give it the same validated,
-result-valued signature (keeping it for its stated purpose: a caller that already knows
-structurally that the program is not a plain pixel expression). Migration is six call sites: the
+**Validate both constructors.** `lower_region` also becomes result-valued and checks the same
+shape and limits. Migrate the
 `lower_region` use in `kernel_eval.ml:170`, and the `lower` uses in `eval_direct.ml:136`,
 `native4d/eval_direct4.ml:141`, `stage_program.ml:71`, `test/native/region_program_test.ml:219`
-and `test/native/region_compute_test.ml:699`. (`region_eval.ml:17` is a comment.)
+and `test/native/region_compute_test.ml:699`.
 
-One wrinkle to handle explicitly: `Kernel_eval.converted` lowers a program whose output
-`Region_program.with_output` has already rewritten with `Result_conversion.apply`
-(`kernel_eval.ml:166-173`), so a proof attached at `Kernel.create` time covers the *unconverted*
-form, not the one actually lowered. Either revalidate inside `lower_region` — the simpler choice,
-and cheap since preflight is shape arithmetic — or have `Kernel.create` validate the converted
-form and store the proof-bearing artifact in the Kernel. Do not leave a public unchecked
-constructor in place as the reconciliation.
+Revalidate inside `lower_region` after `Kernel_eval.converted` rewrites the emitter with
+`Result_conversion.apply`. Validation of the unconverted form does not cover a changed
+executable expression.
 
 **`Stage_program.ground` gains `?limits`, preflights every stage before materializing the first, and
-returns `(…, error) Err.t`** — raising on a resource limit would cross an `Err.t` into an exception
-boundary by hand, which CLAUDE.md forbids. **The commit must carry the whole migration: 42 call
-sites across 12 files** — `lib/native_op_walk/native_verify.ml` (the one library caller, which
+returns `(…, error) Err.t`**. Carry the complete caller migration:
+`lib/native_op_walk/native_verify.ml` (the library caller, which
 propagates) plus `test/native/graph_symbolic_{activation,pointwise,shape,norm,pad_slice,pool,conv,
 combine}_test.ml`, `test/native/{stage_program,kernel_eval}_test.ml` and
 `test/native4d/compute_test.ml`, whose sites unwrap with the sanctioned `Err.or_raise ~pp_error`.
-Nine further textual hits (51 total across `.ml`/`.mli`) are comments or interface references.
+Re-enumerate application sites when implementing; counts in a working plan are not a completion
+check. Compilation must cover every changed public signature.
 
 **`max_scan_updates_total` is narrowed to Kernel execution** and says so rather than implying a
 guarantee it cannot enforce: there is no whole-graph choke point before `Eval_direct.run` and
@@ -540,7 +453,8 @@ guarantee it cannot enforce: there is no whole-graph choke point before `Eval_di
 Direct and Stage ground are covered by the per-key bound and the runtime meter.
 
 **Numbers — three censuses, before the defaults are chosen.** Arithmetic over known corpus shapes,
-so they belong in the design commit and are re-verified at M6: (1) max per-key count for one
+so they belong in the design commit and are re-verified against the finished LSTM programs:
+(1) max per-key count for one
 admitted Region program — Sequencer2D `2 × 16 × 192 ≈ 6.1k`; (2) summed `keys * per_key` over the
 live logical values after the liveness/selection stage Kernel adaptation uses — batch keys (16 or
 32) multiply each, one program per live `output`/`h_n`/`c_n`, 36 LSTM occurrences; (3) the Direct
@@ -575,9 +489,10 @@ so thread `?limits` through `Eval_symbolic.run` and pass the same value from
 `Region_kernel.of_graph`, with tighter- and wider-than-default regressions through Direct, Symbolic
 and `Region_kernel.of_graph`. Switch `checked_slot_total` (`region_program.ml:227-239`) to bill
 `max_local_slots` and rewrite its comment — it argues the opposite. Also thread the new fields
-through the **11 `Kernel.Limits.create` invocations in 4 test files**.
+through `Kernel.Limits.create` callers in `depth_probe.ml`, `fusion_test.ml`, `kernel_test.ml`
+and `region_compute_test.ml`.
 
-### 1d. Region: scan-backed locals, and specialization re-measurement
+### 1d. Region locals and specialization
 
 - **Make the local's RHS a variant** — scalar expression | vector body | scan descriptor — with
   extents derived from the RHS. `{ shape; value }` cannot honestly carry a scan.
@@ -604,12 +519,11 @@ through the **11 `Kernel.Limits.create` invocations in 4 test files**.
   performance, not results.
 - Mirror in `Region_trace`, `Region_program.pp` and `Fold`.
 
-**Testing that metering is shared needs two distinct tests, because the obvious one is vacuous.** A
-program whose locals and emitter individually fit but jointly exceed `max_scan_updates_per_key` is
-rejected by `preflight`, which aggregates exactly those occurrences — it never reaches a runtime
-charge and proves static aggregation, not meter ownership. So:
+**Test admission and runtime ownership separately.** A program whose locals and emitter
+individually fit but jointly exceed `max_scan_updates_per_key` is rejected by preflight.
+To also establish that execution shares one meter:
 
-- keep that case as a **preflight** regression; and
+- keep the combined over-limit case as a **preflight** regression; and
 - add a **runtime** test that observes the shared meter directly: extend the existing optional
   `counters` instrumentation (`region_execution.ml:16-22`, already "optional test instrumentation …
   ordinary execution passes none") with a `scan_updates` field, run one valid key containing
@@ -631,80 +545,148 @@ through `Expr.Eval`; production cost assertions.
 
 ### 1e. Grounding, fusion, and rendering
 
-**One meter per proof attempt, tracking the current pair size — not cumulative work.**
-`Map_verify.Budget.max_nodes` caps the **pair**, recomputed each round as
-`Ground_expr.size lhs + size rhs` (`map_verify_check.ml:244-246`) — *after* both terms are built,
-while the roots come from independent, entirely unmetered `Ground_eval.at` calls (`:382-383`) and
-`expand` can call `body_at` with part of the allowance already spent. Three rules make a meter
-match that quantity:
+Grounding currently enters an unmetered `ground` through `at` and `body_at`;
+`expand` meters its outer traversal but can enter that same unmetered construction.
+Update the implementation and the misleading comments in `ground_eval.ml`/`.mli`.
+Bound roots and expansion before constructing a crossing subtree, including ordinary
+reductions and max-pool.
 
-- **Accounting is on the current `lhs_size + rhs_size`.** Expansion does not append a disjoint
-  tree; it *replaces* cells inside terms whose sizes were already charged, so replacing a one-node
-  `Cell` with a body of size `n` changes the pair by `n - 1`. Charge that delta. Unchanged
-  ancestors are already counted and must never be recharged, and a cached body must not be debited
-  in full at each replacement — either mistake accumulates historical work and rejects a pair whose
-  actual logical size is still within the limit.
-- **The meter's scope is one proof attempt, not `compare_at`.** `compare_at` runs an unqualified
-  Structural attempt and, unless it proves, reruns with constants bound
-  (`map_verify_check.ml:399-414`); the first attempt's non-proof verdicts are *discarded by design*,
-  as a soundness requirement. The two attempts build different pairs, so each gets the **full**
-  limit — a meter owned by `compare_at` would let the discarded attempt starve the authoritative
-  one.
-- **Within an attempt the two roots share that one limit**, and it carries into every
-  `expand`/`body_at` of that attempt. Return the cached logical size with grounded terms so the
-  verifier stops rediscovering it with `Ground_expr.size`.
+**Two exact accounts.** Construction uses cumulative fuel, not peak live scratch.
+Discarding a row does not refund it. Name that public field `max_ground_nodes`.
 
-**Two accounts, because retained pair size and construction scratch are different quantities.**
-Every unrolled construct is metered, charging before construction — ordinary nodes, `Reduce`
-unrolling (`ground_eval.ml:295-318`), `Max_pool` window expansion, and scans alike, threaded
-through `at`/`body_at`/`ground` — but not all of it against the same budget. Unrolling builds
-logical trees that the result does not retain: a `Scan_at` computes two rows across every lane and
-returns one projected lane, and the max-pool grounder builds **both** `best` and `best_index` at
-every window position before returning only the requested one (`ground_eval.ml:387-412`). Charging
-those against the pair meter would measure temporary work, so a final `lhs_size + rhs_size` at or
-below `max_nodes` could still fail; charging only the retained result would leave the explosive
-temporary construction unbounded, contradicting the requirement to stop *before* building a
-crossing subtree. So:
+| Account | Unit and charge | Reset |
+|---|---|---|
+| `max_nodes : int` | Current logical nodes in `lhs + rhs`; a new root costs its size, replacing a one-node cell with size `n` costs `n - 1` | One proof attempt |
+| `max_ground_nodes : int64` | Cumulative logical node occurrences constructed or copied, including discarded intermediate results | One proof attempt |
 
-- the **pair meter** (`Budget.max_nodes`) receives only the **returned** logical tree — that is
-  what the verdict's budget has always meant; and
-- a separately named **scratch bound** (a new `Budget` field) covers every constructed node
-  including discarded ones: full-row scan evaluation, unselected lanes, and the discarded max-pool
-  accumulator. Its exhaustion is its own `Unproved` reason carrying that limit — not `Max_nodes`,
-  whose payload states the pair cap.
+Ground the left root then the right root, and expand them in that same explicit sequence;
+do not rely on tuple argument evaluation order for charging or error precedence.
+Both roots and all expansion rounds share both accounts. The Structural attempt and the
+subsequent constant-bound attempt each receive fresh accounts; a discarded attempt must not
+consume the authoritative attempt's allowance. A new coordinate/member comparison also starts
+fresh. Neither field is a whole-verification time or memory guarantee.
 
-The max-pool asymmetry pre-dates scans; scans only make it load-bearing.
+For construction fuel, a newly created node costs one plus any logical subtrees copied from
+cached state. Attaching a freshly constructed child, or moving an accumulator into its sole
+successor, transfers its already-charged occurrences without charging them again. Reusing a
+cached previous lane or cell body costs its cached logical size **at every embedding**, even
+if the implementation reuses a pointer. Rebuilding an ancestor during expansion costs one;
+retaining an unchanged child transfers it. Unselected lanes, discarded rows, and both max-pool
+accumulators consume fuel; dropping them refunds nothing. This avoids charging every growing
+accumulator in full at every fold step while still accounting for duplicated subtrees.
 
-**Charge logical size, not allocations.** `Ground_expr.t` is a plain tree with no sharing node and
-no memoization: `size`, `cells` and `project` all recurse (`ground_expr.ml:129-138,205-232`). A
-`previous_at` read embeds the *same* prior pointer at many sites, so a dense coupled recurrence
-allocates almost nothing while every later traversal sees a tree growing exponentially across steps.
-Carry a checked logical size with each grounded state value and **debit that cached size at each
-embedding**. (A bounded DAG/let form in `Ground_expr` is the escape hatch; it needs every consumer
-made sharing-aware.) Never call an unmetered `Ground_expr.size` to discover the cap was exceeded.
+The pair account charges only retained results and replacement deltas, never unchanged
+ancestors again. Thread its remaining allowance into construction contributing to the retained
+tree, reserving the known node/delta before construction. Temporary scan rows and discarded
+max-pool results use construction fuel until their selected result is retained. If that
+selection exceeds the remaining pair allowance, refuse it before embedding it in the pair.
+A cached logical size permits this check without walking the oversized value.
 
-**Verdict mapping.** The generic conversion yields `Unproved (Eval …)` (`map_verify_check.ml:173`);
-the budget outcome is `Unproved (Max_nodes n)` (`:246`, type at `map_verify.mli:194`). Add a typed
-grounding-budget error mapped specially to `Max_nodes`, carrying **the budget** — an early stop, so
-the limit convention applies. Verifier callers take `Map_verify.Budget.max_nodes`; define
-`Ground_eval.default_budget` for other callers at the same value.
+All size additions, products, and charges are checked before arithmetic can overflow, including
+under js_of_ocaml. Store a checked logical size beside **every** grounded intermediate.
+`Ground_expr` has tree semantics: pointer sharing alone does not bound recursive consumers.
+Never use an unmetered `Ground_expr.size` to discover that a recurrence has already exceeded
+the cap. A sharing-aware ground IR is a separate project design idea.
 
-Tests: an oversized **reduction** at the root; an oversized scan at the root; an oversized scan
-behind a cell expanded in a later round; a **dense coupled recurrence whose prior lanes are read
-repeatedly**; **each root consuming between ½ and ¾ of `max_nodes` with the pair exceeding it**; and
-**a later round where the first expanded cell consumes most of the allowance and the next would
-cross it**. All must stop before constructing the crossing subtree and report
-`Unproved (Max_nodes budget)`.
+**Public grounding API.** Define this in `Ground_eval`, which must not depend on `Map_verify`.
+The verifier explicitly converts its larger public budget into these two fields.
 
-Two further tests pin the accounting model itself, and both fail under a naive cumulative meter:
-**a pair that sits exactly at `max_nodes` and still succeeds across several expansion rounds**
-(proving replacement deltas, not re-debited history), and **a discarded Structural attempt that
-nearly exhausts its limit while the constant-bound attempt still receives a fresh full allowance**.
+```ocaml
+module Budget : sig
+  type t = { max_ground_nodes : int64; max_nodes : int }
+end
+module Meter : sig
+  type t
+  val create : Budget.t -> t
+end
+module Term : sig
+  type t
+  val expression : t -> Ground_expr.t
+  val size : t -> int64
+end
+val default_budget : Budget.t
+(* Extend [Ground_eval.error] with exactly these two budget cases: *)
+(* | `Ground_nodes_over_limit of int64 | `Pair_nodes_over_limit of int *)
+val at :
+  meter:Meter.t -> Env.t -> Tensor_id.t -> Vec6.coord -> (Term.t, error) Err.t
+val expand :
+  meter:Meter.t ->
+  boundary:(Ground_expr.Origin.t -> Cluster_var.t option) ->
+  Env.t -> Term.t -> (Term.t, error) Err.t
+```
 
-Three more separate the two accounts: **a sparse multi-lane scan whose projected lane stays small
-succeeds at the pair limit**, **`Max_pool.Value` succeeds at the pair limit** despite its discarded
-index accumulator, and **discarded intermediate scan state still trips the scratch bound** — the
-last being the one that proves the scratch account is not merely decorative.
+`at` registers a root in its meter. `expand` replaces that registered root and returns its
+successor; the old term is no longer active. Keep registration and replacement in `Ground_eval`
+so callers cannot forget the pair delta. Terms belong to their creating meter; passing a
+foreign or replaced term is an `invalid_arg` programming error, checked by an internal
+identity/generation token. A failed construction ends that attempt; callers cannot probe a
+partial frontier or reuse its meter. Internal `body_at`/`ground` receive the same meter.
+Non-verifier callers explicitly create a meter from `default_budget` for each independent root
+and its expansions, and use `Term.expression` for existing tree consumers.
+
+Nonpositive budget fields behave as zero allowance, refusing the first positive charge;
+exactly the limit succeeds. Check pair admission before construction fuel when both reject
+the same retained-node insertion, giving deterministic error precedence. Budget errors carry
+the configured field value; tests use nonnegative budgets for ordinary boundary cases.
+
+**Profiles and migration.** Add `max_ground_nodes : int64` to the concrete public
+`Map_verify.Budget.t` in both `map_verify.mli` and `map_verify_types.ml`. Use these initial
+policy values (ten times each pair cap); they are starting allowances, not measured LSTM
+capacity claims:
+
+| Profile | Existing `max_nodes` | New `max_ground_nodes` |
+|---|---:|---:|
+| `Budget.default` | 200,000 | `2_000_000L` |
+| `Budget.cumulative` | 1,000,000 | `10_000_000L` |
+| `Budget.release` | 50,000 | `500_000L` |
+| `Effort.Quick` | 20,000 | `200_000L` |
+| `Effort.Standard` | 50,000 | Uses `Budget.release` |
+| `Effort.Thorough` | 200,000 | `2_000_000L` |
+
+`Ground_eval.default_budget` is `{ max_ground_nodes = 2_000_000L; max_nodes = 200_000 }`.
+Derive the matching `Map_verify.Budget.default` fields from it. Keep other existing profile
+fields. A record update changing only `max_nodes` retains its construction allowance; the
+ratio is not applied implicitly at runtime.
+
+Migrate all five default/profile literals and the full external literal in
+`test/native/verify_boundary_test.ml` (use `2_000_000L` there). Audit other full literals and
+budget overrides. Update `Budget.pp` to print
+`{coords<=%d ground_nodes<=%Ld nodes<=%d rounds<=%d sample=%a}` and review affected goldens.
+Migrate every `Ground_eval.at`/`expand` caller from raw trees and `~budget:int` to the meter
+and term contract. `map_verify_check.ml` threads the meter through `attempt`/`settle` and
+uses cached root sizes. Add profile/default printer coverage if no existing golden exercises it.
+
+**Exact verdict mapping.** Add `Max_ground_nodes of int64` to `Unproved.t` in the public
+signature and implementation. Extend the single `unproved_of_eval_error` conversion:
+
+| Grounding error | Verdict |
+|---|---|
+| `` `Ground_nodes_over_limit limit `` | `Unproved (Max_ground_nodes limit)` |
+| `` `Pair_nodes_over_limit limit `` | `Unproved (Max_nodes limit)` |
+| Other existing errors | `Unproved (Eval error)` |
+
+Both budget payloads are the configured limit. The current post-expansion path supplies the
+observed size to `Max_nodes`; replace that path too, so its meaning is consistent.
+`Unproved.pp` prints `over max_ground_nodes (%Ld)`, `reason` returns `over max_ground_nodes`,
+and `reasons` gains that exact label. Update `test/native/outcome_label_test.ml`'s complete
+verdict samples, canonical label golden, and counts (17 becomes 18). Check derived
+`Verdict.labels`, `Outcome.label`, report/tally and explorer expectations. Keep affected
+variant declarations and their exhaustive matches/lists in the repository's alphabetical order.
+
+**Grounding regressions.** Isolate each budget by giving the other enough allowance.
+
+- Pair exhaustion: oversized root reduction, root scan, scan behind a later expanded cell,
+  dense repeated-lane recurrence, two roots each using between half and three quarters of the
+  cap, and a later expansion where successive cells jointly cross it. Expect
+  `Unproved (Max_nodes limit)`; retained construction stops before the crossing insertion.
+- Pair accounting: a pair exactly at its cap survives several replacement rounds when
+  construction fuel suffices. A sparse scan projection and `Max_pool.Value` fit at the pair
+  limit despite discarded intermediates.
+- Construction exhaustion: discarded scan rows or max-pool accumulators exhaust fuel while
+  the pair fits. Repeated cached embeddings spend their logical size; discarded rows do not
+  refund fuel. Expect `Unproved (Max_ground_nodes limit)` and the exact payload.
+- Reset and boundaries: both attempts receive the full two-field budget; both roots share it
+  within an attempt; exactly-limit and next-charge cases distinguish the two reasons.
 
 **Reject scans in the shared fusion admission rule.** `Kernel_elab.admit` rejects only when
 `pixel_expression` is `None` (`kernel_elab.ml:71-76`), and its comment says the planner and direct
@@ -721,33 +703,33 @@ at dummy indices. The explorer fixture must include an **unspecialized** scan lo
 
 **JS backends.** `make jsoo.runtest` and `make jsoo.inline-runtest` catch different things.
 
-### Stage 1 exit condition
+### Stage 1 exit conditions
 
-A synthetic coupled scan agrees across `Region_execution`, `Region_eval`, `specialize_pixel` and
-`Ground_eval`; its specialized AST size is independent of `steps` and `width`; scan starts are one
-per key, and instrumentation shows the **exact combined charge on one shared per-key meter** in both
-executors; repeated `value_at` calls on one key are independent, each succeeding at exactly the
-limit; a multi-coordinate Pixel scan consuming exactly the limit at every coordinate succeeds,
-proving per-coordinate reset; **the meter bounds a raw composed `Value.t` that no static gate saw,
-including a scan under a dynamic outer reduction, and a wider-than-default program both constructs
-and executes under the wider value**; a descriptor built under a wider `max_state` is refused by a
-narrower meter even when it performs no updates (the nested row-zero case); no public constructor
-can mint a `lowered` without shape, limits and preflight; oversize traces, scan state, per-key and
-total updates
-(including the specialized-replay and both substitution cases) and out-of-range projections fail
-with **typed errors whose exact payload survives to the operation boundary**; the same over-limit
-program is rejected through Direct, Stage ground, Region execution and Kernel, each before starting
-a scan; grounding terminates `Unproved (Max_nodes …)` on the oversized-reduction, scan-at-root,
-later-expansion, dense-reuse and both split-budget paths; fusion rejects a scan through both entry
-points; `Region_eval.materialize` holds one slot array at a time; an unspecialized scan local
-renders in the explorer and the trace; both JS checks pass.
+- A synthetic coupled scan agrees across production/reference Region execution, specialized
+  Expr evaluation and grounding. Its specialized AST size is independent of width and steps.
+  Freshening preserves structural compare/hash equality; Expr/Region/Stage have no codec.
+- Instrumentation shows one trace execution per key and the exact combined update charge
+  across locals and emitters in both evaluators. Repeated `value_at` calls are independent;
+  multi-coordinate Pixel execution receives a fresh allowance at each coordinate.
+- The runtime meter bounds raw composed values, including scans under dynamic reductions.
+  Wider custom limits reach construction and execution; narrower state meters reject nested
+  row-zero scans before allocating beyond their allowance.
+- Every public lowering constructor validates shape and limits. Slot, state, per-key update,
+  Kernel-total update, specialization and substitution failures preserve their exact typed
+  payloads. Per-key over-limit programs fail before scan execution through Direct, Stage,
+  Region and Kernel paths; total-update rejection is Kernel-specific.
+- Projection failures preserve exact local/row/lane/extent payloads and the defined precedence
+  through the evaluation boundary.
+- Pair-limited grounding returns `Unproved (Max_nodes limit)`; construction-limited grounding
+  returns `Unproved (Max_ground_nodes limit)`. Both roots share budgets within an attempt,
+  and Structural/constant-bound attempts each receive fresh budgets. All regressions in 1e pass.
+- Both fusion admission entry points reject scans. Reference materialization holds one slot
+  array at a time. Unspecialized trace locals render in the explorer and textual trace.
+- Native public-API integration and both JavaScript checks pass.
 
-"Round-trips" means **structural compare/hash equality after freshening** — Expr, Region and Stage
-programs have no parser or codec.
+### Implementation sequence
 
-### Suggested commits (`_ai_/` is gitignored and its own repo — ledger updates go there separately)
-
-1. `fixup! 99872ea` — `Region_eval` declared-shape dispatch + `Wk = 1` regression.
+1. Fix `Region_eval` declared-shape dispatch and add the `Wk = 1` regression.
 2. `.ai/` — representation, construction and error contracts, the freshening obligation, the meter
    API with its charge operation/boundary rule/four reset units/propagation, the static measures
    with their three censuses and reduction-context rule, the validated-execution token,
@@ -756,23 +738,30 @@ programs have no parser or codec.
    `Expr.Eval` metering, plus `test/expr/scan_test.ml`. `dune build lib/expr` is the checkpoint.
 4. `feat(native): budget Region slots and scan state/updates` — 1c, including `preflight`, the
    validated `lowered` with limits on both branches, **both `lower` and `lower_region` made
-   result-valued with their six call sites**, the `scan_limits` accessor, the `Schedule.ground`
+   result-valued with their caller migrations**, the `scan_limits` accessor, the `Schedule.ground`
    `Err.Escape` contract change, meter propagation to both Kernel Pixel arms and to
    `Region_execution.value_at`/`Region_eval.value_at` (a fresh meter per invocation, with the
    repeated-call independence regression), `?limits` through
-   `Eval_symbolic.run`, and the `Stage_program.ground` signature change with **all 42 call sites in
-   12 files**.
+   `Eval_symbolic.run`, and the full `Stage_program.ground` signature migration.
 5. `feat(native): add scan-backed Region locals` — 1d.
-6. `feat(native): meter grounding, reject scan fusion, render scan locals` — 1e.
+6. `feat(native): meter grounding, reject scan fusion, render scan locals` — 1e, including
+   the public budget, term/meter API, verdict and golden migrations.
+
+Keep `_ai_/` ledger updates in its separate repository. Publish durable contracts in the
+tracked `.ai/` design record with the implementation, following `CLAUDE.md`.
 
 ---
 
 ## Stage 2+ — `lstm.input` itself (outline)
 
-Not started until Stage 1 is landed and green. Follows `_ai_/lstm-plan.md` §§2, 4–7 with the
-corrections applied.
+Start after Stage 1 is landed and green. Use [lstm-plan.md](lstm-plan.md) §§2, 4–7 for the
+tensor and arithmetic contract, with this document taking precedence for the scan APIs and
+integration requirements. Support stacked inference, optional bias pairs, either direction
+count and input layout, and finite dropout in `[0,1]` (inactive when `train=false`). Preserve
+all three outputs, including live final states. Reject training, packed/unbatched input,
+projections, unsupported dtypes, invalid dimensions/configuration and malformed operand lists.
 
-**Decide the modulo encoding first (correction 8).** One shared `divmod` helper: remainder as
+**Use one shared `divmod` helper.** Encode remainder as
 `x - K * floor_div_pos(x, K)` from the existing `Add`/`Scale`/`Floor_div_pos` delta nodes, converted
 back with `Clamp_low`, never `Assume_position`. `Clamp_low` is sound rather than a papering-over:
 for `x >= 0` and `K > 0` the remainder is provably in `[0, K)` so the clamp never fires — state that
@@ -780,29 +769,30 @@ argument in the design record. Reuse the one helper for `lane mod K`, `j mod K`,
 `a mod R`, and test with `K > 1`, `R = 2`, `Q > 1` and unequal dimensions so a quotient/remainder
 mixup is observable.
 
-- **M0 — binding.** `op "lstm" ~overload:"input"`, on the probe already run. Precedent: `cat`/`stack`
+- **Binding.** `op "lstm" ~overload:"input"`, using the prerequisite probe. Precedent: `cat`/`stack`
   take `Tensor[]` (`aten_ops_gen.ml:75-76`), `native_layer_norm` returns three tensors (`:87`). Add
-  the `Walk_meta`/recipe from correction 7. Oracle fixtures across layers, biases, directions,
+  a `Walk_meta`/recipe for `Tensor[]` inputs; `aten_walk_gen.ml`'s default recipe excludes them.
+  Oracle fixtures across layers, biases, directions,
   layouts, `dropout = 0 / 0.5 / 1`.
-- **M3 — the Native op.** `lib/native/ops/lstm.ml`; register in `graph_ir`, the registry,
+- **Native operation.** `lib/native/ops/lstm.ml`; register in `graph_ir`, the registry,
   `graph_shape` (three shapes), `eval_op` (ordinal-selected), `graph_builder`, `output_transfer`.
-  Widen `Region_computation` past correction 1; one Region program per output ordinal. Keep `Lstm`
+  Replace `Region_computation.check_output`'s output-zero restriction with per-output shape
+  validation; use one Region program per output ordinal. Keep `Lstm`
   off `Const_ssa.allows`, documented.
-- **M3b — stacked layers and configuration coverage** (`_ai_/lstm-plan.md:363-381`). Required for the
+- **Stacked layers and configuration coverage** (the corresponding section in `lstm-plan.md`). Required for the
   landing, not a follow-up.
-- **M4 — both importers.** `op_bridge_recurrent.ml`, `native_interp_lower_recurrent.ml`. Tensor-list
+- **Both importers.** `op_bridge_recurrent.ml`, `native_interp_lower_recurrent.ml`. Tensor-list
   precedent: `Interp_decode.tensors_arg_result` (`interp_decode.ml:429-434`) and
   `native_interp_decode.ml:87-96`. `verify.ml:204-221` permits a fixed tuple to expose *fewer*
   outputs — assert the output count explicitly.
-- **M5 — Native4D counterpart.** Reuse the Native payload if it names no axis and carries no
+- **Native4D counterpart.** Reuse the Native payload if it names no axis and carries no
   `Shape4.t` — the `Sdpa` precedent. Rank-3 operands sit on `H/W/C` with `N=T=D=1`
-  (`aten_shape.mli:1-4`), so `_ai_/lstm.md:163-165`'s "reject at Native4D" is wrong. Native4D has no
+  (`aten_shape.mli:1-4`), so rank-3 recurrence is representable in Native4D. Native4D has no
   `Discard` (`op.ml:11-18`), so dead state outputs must be gone first.
-- **M6 — evidence and ledger.** Native op walk; both corpus shape families; re-verify the three
+- **Evidence and ledger.** Native op walk; both corpus shape families; re-verify the three
   update censuses against the real programs; regenerate `make pt2.json-model-support`. Clearing 36 of
   911 nodes does not mean the graph builds — record Sequencer2D's actual next frontier separately for
-  Native, Native4D and Kernel, and preserve the scoreboard (92/58/66/44) until a sweep shows a
-  change.
+  Native, Native4D and Kernel. Change the support scoreboard only on regenerated sweep evidence.
 
 ---
 
@@ -815,7 +805,7 @@ NO_COLOR=1 opam exec -- dune runtest test/expr test/native      # Stage 1's own 
 NO_COLOR=1 opam exec -- dune runtest                             # whole tree
 make precommit                                                   # build+format+runtest+file-size+whitespace
 make jsoo.runtest && make jsoo.inline-runtest                     # the new Expr node crosses the JS boundary
-make pt2.json-model-support                                       # Stage 2 only; expect no diff before M6
+make pt2.json-model-support                                       # Stage 2 corpus verification
 ```
 
 Run the non-promoting form first so failures stay visible, and review any golden diff before

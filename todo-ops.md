@@ -781,7 +781,19 @@ type" backlog row — so the graph never reaches its `cumsum.default` node),
 so `make pt2.json-model-support` produced no diff and all four scoreboard
 numbers are unchanged (92/58/66/44).
 
-**`lstm.input` investigated 2026-09-05, deliberately NOT landed.** Sequencer2D's
+**`lstm.input` investigated 2026-09-05, deliberately NOT landed.**
+
+Follow-up plan: [lstm-plan.md](lstm-plan.md) specifies a vector-state scan,
+Region execution, all three outputs, and a Native4D counterpart. Its layout
+and unrolling corrections supersede the provisional architectural conclusions
+in this investigation. Implementation remains open; the scoreboard is unchanged.
+
+The planned domain now includes positive layer counts, optional biases, both
+direction settings and layouts, and finite dropout probabilities in `[0,1]`
+with `train=false`. Multilayer execution and the expanded ATen/Native/Native4D/
+Kernel test matrix are required milestones, not post-landing extensions.
+
+Original investigation: Sequencer2D's
 36 occurrences are all one shape family (single-layer, `bidirectional=True`,
 `batch_first=True`, biased; only the `output` tensor is live, `h_n`/`c_n` are
 dead) — the corpus-scoping part is easy. The blocker is architectural: an

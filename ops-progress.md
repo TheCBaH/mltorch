@@ -238,6 +238,20 @@ intrinsic `axis T is outside the N/H/W/C dialect` wall, and
 
 ## Landing records
 
+### 2026-09-05 — `lstm.input` implementation planned (not landed)
+
+[lstm-plan.md](lstm-plan.md) continues the investigation with staged scan,
+Region, Native, importer, Native4D, and Kernel work plus acceptance tests.
+It corrects the earlier scalar-state/unrolling assumptions and the proposed
+Native4D rejection: rank-3 batch-first input puts sequence length on W, and
+the accepted operands/results fit H/W/C. All three outputs are planned.
+Scope subsequently expanded at the user's request to multiple layers,
+optional biases, both directions/layouts, and valid dropout during inference.
+The plan now specifies layer-ordered parameter decoding, shared inter-layer
+traces, state indexing, linear layer-scaling checks, and 24 core configuration
+combinations plus dropout regressions. Training remains outside this slice.
+No runtime code or corpus-support counts changed in this planning entry.
+
 ### 2026-09-05 — `cumsum.default`, full-stack Native and Native4D
 
 Closes the "Matrix / reduction" deferred-backlog row's `cumsum.default` entry
