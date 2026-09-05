@@ -9,14 +9,50 @@ entry lives in `git log`, not here.
 ## Stage-qualified corpus scoreboard
 
 Recomputed from `test/data/pt2_json_model_support.jsonl`, recensus
-2026-09-04, 100 tracked graphs:
+2026-09-04 (after the `unfold.default` landing below), 100 tracked graphs:
 
 | Measure | Result |
 | --- | ---: |
-| `native_builds:true` | 89 / 100 |
-| `native4d_converts:true` | 57 / 100 |
+| `native_builds:true` | 90 / 100 |
+| `native4d_converts:true` | 58 / 100 |
 | `kernel_converts:true` | 64 / 100 |
 | All three stages succeed | 44 / 100 |
+
+**2026-09-04, `unfold.default`** (full-stack Native; see
+[`todo-ops.md`](todo-ops.md)'s own landing note for the complete record).
+Closes the `conv1d`/`unfold` P1 slice entirely. `eca_halonext26ts` clears
+every one of its 6 `unfold.default` occurrences (all four HaloAttn blocks)
+and moves from `unsupported PT2 operator: torch.ops.aten.unfold.default` to
+a genuinely different kind of frontier: `matmul.default: both operands must
+be rank>=2 and of equal rank, got self=[32, 8, 8, 16] other=[16, 23]` — an
+importer decode-time restriction (both `Op_bridge` and `Native_interp`
+currently require equal operand rank for `matmul.default`), not a missing
+Native operation. All four scoreboard numbers are unchanged (90/58/64/44) —
+depth moved, stage-completion did not, since `eca_halonext26ts` was and
+remains `native_builds:false`.
+
+**2026-09-04, `conv1d.default`** (full-stack; see
+[`todo-ops.md`](todo-ops.md)'s own landing note for the complete record).
+`eca_halonext26ts` — the one corpus model gating this P1 row — moves from
+`native_builds:false` (blocked on `unsupported PT2 operator: torch.ops.aten.
+conv1d.default`) to a NEW frontier, `unfold.default` (also
+`native_builds:false`): the model's next node the corpus census doesn't yet
+support, exactly the P1 table's own prediction. All four scoreboard numbers
+are unchanged (90/58/64/44) — depth moved, stage-completion did not.
+
+**2026-09-04, `Attention.Sdpa` head/batch broadcasting** (full-stack; see
+[`todo-ops.md`](todo-ops.md)'s own landing note and
+`.ai/attention_design.md` §12 for the complete record). `native_builds`
+90 and `native4d_converts` 58 both move for the SAME model,
+`mobilenetv5_base`: it was blocked at Native construction on query `H=8`
+vs key `H=1` (`native_builds:false`); real ATen `N`/`T`/`D`/`H`
+broadcasting (equal, or one side 1) in `Attention.Sdpa.output_shape`/
+`Compute` now admits it, and since every one of its SDPA occurrences has
+`D = 1` (broadcasting only on `H`), it ALSO clears the pre-existing
+Native4D `Sdpa` `D = 1` counterpart (landed 2026-09-02, previously with no
+corpus model reaching it at all). It stops at the kernel stage on the
+pre-existing, unrelated evaluation-depth ceiling (`kernel_reason:
+over_limit`), so `kernel_converts`/all-three-stages are unchanged (64/44).
 
 **2026-09-02, Region computation + `Batched_matmul`'s Native4D `D = 1`
 counterpart** (see [`todo-ops.md`](todo-ops.md)'s own landing note for the
@@ -62,6 +98,8 @@ intrinsic `axis T is outside the N/H/W/C dialect` wall, and
 
 | Op | ATen boundary | `Op_bridge` | `Native_interp` | Native Direct/Symbolic | Native4D | Kernel | Representative graph |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `unfold.default` / `Unfold` | **landed**: curated binding (`bin/aten_ops_gen.ml`), `test/native_bridge/shape_ops_test.ml`'s hand-derived oracle (a plain vector, both of the corpus's own HaloAttn spatial-axis cases, and a rank-5-input/rank-6-output case) — `unfold.default` lands in the generated walk's `needs_meta` backlog (no schema default for its required int args), so this hand-derived coverage is the oracle | **landed**: `lib/native_aten_bridge/op_bridge_shape.ml`, no permute wrap needed (`Unfold`'s own axis resolves directly via the shared `dim_axis`/`Aten_shape.axis_of_dim` machinery, then `Unfold.Unfold.dest_of`) | **landed**: `lib/native_interp/native_interp_lower_shape.ml`, sharing the same `dest_of` translation and `axes_for_rank`; `test/native_interp/malformed_test.ml` pins `dest_of`'s one raising case as a typed `` `Rank_over_six `` row, not an escaping exception | **landed**: `lib/native/ops/unfold.ml` (`Unfold`, a fixed one-step-toward-N axis rotation — `source_of`/`dest_of` — expressing how appending an ATen axis relabels Native's fixed six-axis frame), `test/native/unfold_test.ml` + `graph_direct_shape_test.ml` + `graph_symbolic_shape_test.ml` | **rejected, not a gap**: `lib/native4d/domain.ml` + `lower_engine.ml` reject unconditionally — the shift moves real content onto D/T for any ordinary (non-unit H/C) input, the same intrinsic-axis boundary `Batched_matmul`/`Sdpa` have | reaches Native only; Native4D rejects it outright, so no kernel path | `eca_halonext26ts` (native-import frontier; graph does not reach kernel path from here) |
+| `conv1d.default` / `Conv1d` | **landed**: curated binding (`bin/aten_ops_gen.ml`), `test/native_bridge/conv_test.ml`'s hand-derived oracle (defaults, non-default stride/padding/dilation, depthwise, general grouping) — `conv1d.default` lands in the generated walk's `needs_meta` backlog (no schema default for a required `int[1]` window), so this is the oracle, not a placeholder | **landed**: `lib/native_aten_bridge/op_bridge_conv.ml`, sharing the new `perm_conv1d` relayout and `make_conv1d_params`/`conv_in_channels` with `op_bridge_decode.ml` | **landed**: `lib/native_interp/native_interp_lower_compute.ml` + `native_interp_decode_conv.ml`'s `conv1d_params`, `test/native_interp/conv_test.ml` pins both the decomposed graph structure and the Native4D legalization | **landed**: `lib/native/ops/conv_conv1d.ml` (`Conv1d`, delegates `output_shape`/`Compute` whole to `Conv2d` with H pinned to the new public `Conv2d.unit_window`), `test/native/conv_test.ml` + `graph_direct_conv_test.ml` + `graph_symbolic_conv_test.ml` | **landed, no new op**: `Conv1d`'s `to_conv2d_params` plugs directly into the pre-existing `forward_conv` (picks `Conv2D`/`DepthwiseConv2D`/`GroupedConv2D` by `groups`, same as `Conv2d`/`Conv2d_padding`), `test/native4d/lower_test.ml` | reaches wherever a legal `Conv2D`/`DepthwiseConv2D`/`GroupedConv2D` graph's own kernel path already reaches | `eca_halonext26ts` (native-import frontier; graph does not reach kernel path from here) |
 | `eye.m` / `Eye` + `Eye4` | **landed**: curated binding (`bin/aten_ops_gen.ml`), `test/native_bridge/activation_test.ml`'s `verify_print` runs against it as the oracle (no walk recipe — `n`/`m` are required SymInts with no schema default, the same reason `zeros`/`arange` have none) | **landed**: `lib/native_aten_bridge/op_bridge_shape.ml`, reusing `zeros.default`'s layout/device/pin_memory rejection and FLOAT/DOUBLE dtype dispatch verbatim | **landed**: `lib/native_interp/native_interp_lower_shape.ml` | **landed**: `lib/native/ops/factory.ml` (new `Factory.Eye`, one `S.index_eq` comparing the `w`/`c` coordinates — no new `SEMANTICS` primitive), `test/native/factory_test.ml` | **landed**: `Eye4`, typed `Shape4.t` like `Zeros4` — rows/columns land on `W`/`C` unconditionally (both real dialect axes), so no axis-domain rejection is needed, `test/native4d/{op_json_test,compute_test,fixtures4}.ml` | reaches wherever the reused Native4D factory path already reaches | `bat_resnext26ts` (native-import frontier; graph does not reach kernel path from here) |
 | `adaptive_max_pool2d.default` / `Adaptive_max_pool2d` + `Adaptive_max_pool2d_with_indices` | **landed**: curated binding + `Recipe_adaptive`-reused walk oracle (`lib/aten_gen/walk_meta_pool.ml`), `lib/aten/build_archive.sh` gained the structured kernel's source files | **landed**: `lib/native_aten_bridge/op_bridge_pool.ml` (always the two-output form + `discard`) | **landed**: `lib/native_interp/native_interp_lower_compute.ml` | **landed**: `lib/native/ops/pool.ml`, value via `S.max_reduce` (no new primitive), index derived from `max_reduce`/`select`/negation (no new primitive), `test/native/{pool_test,graph_direct_pool_test,graph_symbolic_pool_test,drop_pool_indices_test}.ml` | **landed for the value-only op** (`Adaptive_max_pool2d`, direct reuse like `Adaptive_avg_pool2d`); the two-output op joins `Max_pool2d_with_indices`'s existing "no argmax-pool operation" rejection — the tracked live-index/`IndexTensor4` backlog, not a fresh gap | reaches wherever the reused Native4D pointwise/pool path already reaches for the value-only op; the two-output op is graph-import-only until `Drop_pool_indices` narrows it | `bat_resnext26ts` (native-import frontier; graph does not reach kernel path from here) |
 | `select.int` / `Select` | landed pre-existing (`select.int` decomposed into `Select`) | landed | landed | landed (Native `Split.Select`, pre-existing) | **landed 2026-08-30**: `Select4`, `test/native4d/{op_json,fixtures,fixtures4,domain,lower,compute,verify}_test.ml` | reaches `Snapshot4`/lowering; no corpus graph exercises `Select4` end to end into the kernel path yet (csatv2, the only corpus model whose frontier `Select4` clears, is a graph-only CI target — see below) | `csatv2` (native4d frontier only; not a kernel-path graph) |
@@ -77,10 +115,345 @@ intrinsic `axis T is outside the N/H/W/C dialect` wall, and
 | `select_scatter.default` / `Select_scatter4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed this entry**: `Select_scatter4`, reusing `Split.Select_scatter`'s shape rule/pixel map unchanged, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4` gets, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_test}.ml` | reaches wherever a legal `Select_scatter4` graph's own kernel path already reaches | `convit_tiny` (native4d frontier only; graph does not reach kernel path from here) |
 | `softmax.int` / `Softmax4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing | **landed 2026-08-31**: `Softmax4`, reusing `Reduce.Softmax`'s own `output_shape`/`Compute` unchanged, `Axis4.t`-typed axis with the same `check_dims`-style rejection `Select4`/`Slice4`/`RepeatInterleave4` get — the whole domain gate here, since the output shape never depends on which axis is reduced, `test/native4d/{op_json_test,compute_test,fixtures4,domain_test,lower_shape_test}.ml` | reaches wherever a legal `Softmax4` graph's own kernel path already reaches | no corpus model currently reaches this boundary (every model that reaches `softmax.int` is transformer-shaped and already stops at an earlier `D`-axis/batched-matmul limit, per `matmul_softmax_design.md` §3) |
 | `matmul.default` / `Batched_matmul4` (Native4D counterpart) | pre-existing (`Batched_matmul` itself landed 2026-08-29, see its own earlier row) | pre-existing | pre-existing | pre-existing | **landed 2026-09-02**: admitted at `D = 1` (no `Ops4` payload, no `4`-suffixed variant — the op names no axis and carries no shape); `Domain.check_node`'s arm is conditional on `D > 1`, `.ai/native4d_design.md` §7.4 | reaches wherever a legal `Batched_matmul` graph's own kernel path already reaches | `efficientvit_b0` — newly reaches ALL THREE stages (`native_builds`/`native4d_converts`/`kernel_converts`). **Still incomplete**: real broadcasting (unequal leading extents) stays a Native-level rejection, corpus evidence `lambda_resnet26t` (`native_builds:false`) |
-| `scaled_dot_product_attention.default` / `Sdpa4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing (now Region-authored, see the Region-computation note below) | **landed 2026-09-02**: admitted at `D = 1`, reusing `Attention.Sdpa`'s payload verbatim through `Region_computation4`'s `native_op`, `.ai/native4d_design.md` §7.9 | reaches wherever a legal `Sdpa` graph's own kernel path already reaches | no corpus model reaches this boundary — every exporter decomposes `scaled_dot_product_attention.default` before Native4D conversion (`.ai/matmul_softmax_design.md` §1). **Still incomplete**: real head broadcasting (query `H` != key `H`) stays a Native-level rejection, corpus evidence `mobilenetv5_base` (`native_builds:false`) |
+| `scaled_dot_product_attention.default` / `Sdpa4` (Native4D counterpart) | pre-existing | pre-existing | pre-existing | pre-existing (now Region-authored, see the Region-computation note below) | **landed 2026-09-02**: admitted at `D = 1`, reusing `Attention.Sdpa`'s payload verbatim through `Region_computation4`'s `native_op`, `.ai/native4d_design.md` §7.9 | reaches wherever a legal `Sdpa` graph's own kernel path already reaches | **landed corpus evidence 2026-09-04** (below): `mobilenetv5_base`, once the Native-level `H`-broadcast rejection was lifted — every occurrence is `D = 1`. |
 | `matmul.default` / `Batched_matmul` real broadcasting | pre-existing binding/importers (only the shape rule changed) | pre-existing | pre-existing | **landed 2026-09-04**: `output_shape` broadcasts `N`/`T`/`D`/`H` per axis (equal, or one side 1), reusing `Pointwise_binary.broadcast_output_shape`'s per-axis rule restricted to the four batch axes; `Compute` reads each operand through `Pointwise_binary.broadcast_coord` against ITS OWN shape rather than the output coordinate directly. `test/native/linear_test.ml` (hand-computed mat2-broadcasts-H fixture) | `lib/native4d/domain.ml`'s `check_batched_matmul` fixed to read the BROADCAST (output) `D` via both operands, not `input`'s own `D` alone — `test/native4d/{fixtures,domain_test}.ml`'s new broadcast-domain fixture pins this | reaches wherever a legal `Batched_matmul` graph's own kernel path already reaches | `lambda_resnet26t` — moves off this frontier to `conv3d.default` (deferred backlog). **Not done**: the ATen-oracle walk (`lib/aten_walk_recipes/recipe_matmul.ml`) does not sweep a broadcast configuration against real ATen (same scoping as `Add`/`Mul`'s own walks) |
+| `scaled_dot_product_attention.default` / `Sdpa` real broadcasting | pre-existing binding/importers (neither checks head/batch equality; only Native's own shape rule changed) | pre-existing | pre-existing | **landed 2026-09-04**: `output_shape` broadcasts `N`/`T`/`D`/`H` per axis across query/key/value, chained the same way real ATen's two matmuls chain it (`batch_shape` returns `(qk_batch, full_batch)`); both `Compute` paths (`Legacy_pixel`, `Computation`) read every operand through `broadcast_coord` against its own shape. Real-ATen grounded: two `verify_print` fixtures in `test/native_bridge/sdpa_test.ml` (`H` and `D` broadcast, `enable_gqa=false`, dispatching to ATen's `math` backend since the flash gate requires equal heads/batch without GQA) agree at the EXISTING `1e-5` tolerance. `test/native/sdpa_test.ml` adds shape-level broadcast/rejection coverage plus a bit-for-bit two-heads-broadcast-against-one-shared-kv correctness fixture. `.ai/attention_design.md` §12 | `lib/native/region_computation.ml`'s SDPA sanity check fixed the same way (recomputes the real broadcast shape via a new `Attention.Sdpa.batch_shape` instead of assuming `output_shape = query.shape`) | reaches wherever a legal `Sdpa` graph's own kernel path already reaches | `mobilenetv5_base` — moves from `native_builds:false` to `native_builds:true` AND `native4d_converts:true` (its `D = 1` occurrences newly clear the pre-existing Native4D `Sdpa` counterpart above), stopping at the kernel stage's unrelated evaluation-depth ceiling. **Not done**: `Recipe_sdpa` was not widened to sweep broadcast configurations (same scoping as `Batched_matmul`'s own broadcast landing) |
 
 ## Landing records
+
+### 2026-09-04 — `unfold.default`, closing the conv1d/unfold P1 slice
+
+Closes the `unfold.default` half of [`todo-ops.md`](todo-ops.md)'s P1 row
+for `eca_halonext26ts` (6 occurrences, its frontier after `conv1d.default`
+landed). ATen's `unfold(Tensor(a) self, int dimension, int size, int step)
+-> Tensor(a)` is a sliding, possibly-overlapping window view: the named
+axis shrinks to the window COUNT and a genuinely new axis (extent `size`)
+is appended holding each window's own elements — real data movement when
+windows overlap, not a reshape, and RANK-INCREASING, which Native's
+always-six-axis frame has no direct precedent for.
+
+**What landed**
+
+- `lib/native/ops/unfold.ml`: new `Unfold` Native op. Native has no rank —
+  every tensor is always six axes, right-aligned per ATen rank by
+  `Aten_shape.of_aten` — so appending an ATen axis RELABELS every axis
+  already in the frame: `of_aten`'s own rule right-aligns a rank-(r+1)
+  tensor one slot further left than a rank-r one, which works out to a
+  fixed rotation over `Axis.t` per `Axis.all = [N;T;D;H;W;C]` — content on
+  `T` moves to `N`, `D` to `T`, `H` to `D`, `W` to `H`, `C` to `W`, and the
+  fresh window axis always lands on `C`. `source_of`/`dest_of` express this
+  rotation directly (total on `{N,T,D,H,W}` / `{T,D,H,W,C}` respectively,
+  raising on the one axis each has no mapping for); `params.axis` names the
+  OUTPUT axis holding the window COUNT (never `C`, which the op always
+  reserves for the window offset). The single precondition —
+  `x_shape`'s own `N` must already be unit — stands in for "ATen rank <=
+  5" without the op needing to know a rank at all. `output_shape` reuses
+  `Window_axis.output_extent` (kernel=`size`, stride=`step`, no
+  padding/dilation) for the window-count arithmetic rather than
+  restating it; `Compute.pixel` needs no new `SEMANTICS` primitive, just
+  `index_add`/`index_scale`/`assume_index`, the same idiom `Conv2d`'s own
+  channel-group index uses — every window is fully interior by
+  construction (proved algebraically in the file's own comment), so
+  unlike `Conv2d`'s clipped kernel range there is no padding case to
+  clamp against at all.
+- `lib/native/shape_error.{ml,mli}`: new `Unfold` module, two faults
+  (`Reserved_axis`, `Rank_exceeded`) for the two typed rejections above.
+- `lib/native/{graph_ir,graph_shape,eval_op,graph_builder}.{ml,mli}`: the
+  usual per-op wiring (alphabetical, between `Unbind` and
+  `Upsample_bilinear2d`). `lib/native/transform/output_transfer.ml`:
+  `Reindexing` — the window/offset pair selects exactly one source element
+  per output, a gather, the same argument `Unbind`'s own selection makes.
+- **No permute wrap needed in either importer** — unlike `Conv1d`, whose
+  bridge/importer arms insert an explicit relayout because `Conv2d`'s
+  compute has fixed semantic axis requirements, `Unfold`'s own `axis`
+  parameter resolves directly through the SAME `dim_axis`/
+  `Aten_shape.axis_of_dim` (`Op_bridge`) and `axes_for_rank`
+  (`Native_interp`) machinery `Select`/`RepeatInterleave`/`Unbind` already
+  use, translated through `Unfold.Unfold.dest_of` to name the OUTPUT axis
+  instead of `dimension`'s own. `dest_of` raises only when `dimension`
+  resolves to the frame's `N` (self already occupies all six axes at its
+  outermost position, so the appended axis has no room at all regardless
+  of `x_shape`'s actual values) — `Op_bridge`'s arm catches it as
+  `` `Validation_failure `` (the existing `try...with Invalid_argument`
+  idiom conv arms use), `Native_interp`'s arm catches it and reports the
+  SAME `` `Rank_over_six `` row a genuinely too-large declared rank already
+  gets (`Bad_dimension`), not a new variant — both are "this tensor does
+  not fit the six-axis frame," so one row covers both origins.
+- **Native4D**: unconditionally rejected, not a missing counterpart —
+  `lib/native4d/domain.ml` (the "dialect does not have it at all" bucket,
+  alongside `Index_tensor`) and `lower_engine.ml`'s matching fallback.
+  `Unfold`'s own shift moves whatever real (non-unit) content sits on the
+  input's `H`/`C` axes onto the output's `D`/`W`, and Native4D forces `T`/`D`
+  unit always — a real dialect-incompatible move for any input whose `H`/`C`
+  actually hold data, which is the ordinary case (an unfolded spatial or
+  channel axis is rarely unit). Same intrinsic-axis-boundary classification
+  `Batched_matmul`'s multi-batch form and `Sdpa`'s own `D` axis get
+  (`.ai/native4d_design.md` §8).
+- **ATen curated binding**: `bin/aten_ops_gen.ml` gains `op "unfold"` — a
+  `variants: method` op (like `select.int`/`transpose.int`/`permute`,
+  already curated the same way), whose kernel is already linked.
+- **Real-ATen oracle**: `unfold.default` lands in the generated ATen walk's
+  own `needs_meta` backlog (`test/native_walk_coverage_test.ml`) — required
+  int args with no schema default, the same reason `conv1d.default`/
+  `eye.m`/`rsub.Scalar` are there too — so real-ATen agreement is
+  hand-verified instead: `test/native_bridge/shape_ops_test.ml`'s new
+  `unfold_verify` harness (`verify_print`, comparing `Op_bridge` +
+  `Eval_direct` against real ATen dispatch on the SAME decoded node) checks
+  a plain vector, both of the corpus's own HaloAttn spatial-axis cases
+  (`dimension=2` and `dimension=3` on a rank-4 tensor, `size=12 step=8`, the
+  exact configuration `eca_halonext26ts` uses), a negative `dimension`, and
+  — the most demanding case — a rank-5 input producing a rank-6 output
+  (every frame axis in use, the shape the corpus's own SECOND chained
+  `unfold` call actually produces). All six agreed with real ATen on the
+  first run.
+- Tests: `test/native/unfold_test.ml` (Direct compute: a plain-vector case
+  and an H-onto-D case matching the corpus's own axis choice, plus both
+  typed rejections), `test/native/graph_direct_shape_test.ml` +
+  `graph_symbolic_shape_test.ml` (one-node graph build/eval, Direct-vs-
+  Symbolic agreement), `test/native_bridge/shape_ops_test.ml` (the real-ATen
+  oracle above), `test/native_interp/malformed_test.ml` (`dest_of`'s one
+  raising case reaches a typed row, not an escaping exception).
+
+**Classification**: Full-stack for the NATIVE operation, per
+[`todo-ops.md`](todo-ops.md)'s completion rule — ATen boundary, both
+importers, Native Direct/Symbolic, and real-ATen verification evidence, all
+enumerated above. Native4D is a deliberate, tested, typed rejection
+(`` `Unsupported_op ``) rather than a missing counterpart — an intrinsic
+`D`/`T`-axis boundary in the same sense `Batched_matmul`'s multi-batch form
+and `Sdpa`'s own `D` axis are, per the completion table's "Native-only,
+deliberately bounded" tier.
+
+**Corpus effect**: `eca_halonext26ts` — the one corpus model gating this
+row — clears every one of its 6 `unfold.default` occurrences (all four
+HaloAttn blocks) and moves to a genuinely different kind of frontier:
+`matmul.default: both operands must be rank>=2 and of equal rank, got
+self=[32, 8, 8, 16] other=[16, 23]` — an IMPORTER decode-time restriction
+(`Op_bridge`'s and `Native_interp`'s `matmul.default` arms currently both
+require equal operand rank), not a missing Native operation.
+`native_builds`/`native4d_converts`/`kernel_converts`/all-three-stages
+unchanged (90/58/64/44) — depth moved, stage-completion did not, since
+`eca_halonext26ts` was and remains `native_builds:false`.
+
+**Next**: `matmul.default`'s unequal-operand-rank case is a new,
+not-yet-scoped gap — worth investigating given today's earlier
+`Batched_matmul`/`Sdpa` real-ATen-broadcasting landings, but a different
+piece of work from this P1 slice, not a continuation of it. Otherwise
+unchanged: live max-pool indices/`IndexTensor4`, `lstm.input`,
+`conv3d.default` (`lambda_resnet26t`'s frontier), or P1's remaining
+one-model slices (`im2col`/`col2im`, `upsample_bicubic2d`).
+
+### 2026-09-04 — `conv1d.default`, the first half of the conv1d/unfold P1 slice
+
+Closes the `conv1d.default` half of [`todo-ops.md`](todo-ops.md)'s P1 row
+for `eca_halonext26ts` (5 occurrences, its first frontier). ATen's
+`conv1d(Tensor input, Tensor weight, Tensor? bias=None, int[1] stride=1,
+int[1] padding=0, int[1] dilation=1, int groups=1) -> Tensor` is the one
+kernel/stride/dilation-per-window family with a single spatial axis, so the
+design question was where that axis lands in Native's always-6D frame.
+
+**What landed**
+
+- `lib/native/ops/conv_conv2d.ml`: a new public `Conv2d.unit_window`
+  (kernel=1, stride=1, no padding, dilation=1) — an axis this small always
+  keeps its extent unchanged. Replaces `lib/native4d/lower_engine.ml`'s own
+  former PRIVATE copy of the same record (used for `Linear`'s 1x1-convolution
+  legalization), now `Conv.Conv2d.unit_window` in both places: one
+  definition instead of two that could drift.
+- `lib/native/ops/conv_conv1d.ml`: new `Conv1d` module. Its own `params`
+  carries only a `w : Conv2d.axis_window` (no `h` field at all — this op
+  names no second spatial axis, so unlike `Conv2d_padding`'s own params
+  there is nothing for a stray value to misrepresent), plus `in_channels`
+  and `groups`. `output_shape`/`Compute` translate to a full `Conv2d.params`
+  (`to_conv2d_params`, `h = Conv2d.unit_window`) and delegate whole to
+  `Conv2d.output_shape`/`Conv2d.Compute` — the same delegation shape
+  `Conv2d_padding` already uses for `Conv2d` (`.ai/native_add_op.md`'s own
+  worked exception: reuse the *implementation*, not the *node*). `Conv1d`
+  is still its own distinct `Graph_ir` constructor/JSON tag/bridge arm — one
+  node per ATen op, no decomposition.
+- `lib/native/graph_ir.{ml,mli}`, `graph_shape.ml`, `eval_op.ml`,
+  `transform/output_transfer.ml` (`Continuous`, alphabetical next to
+  `Conv2d`), `graph_builder.{ml,mli}`: the usual per-op wiring, mirroring
+  `Conv2d`'s own arms with `Conv2d.unit_window`'s `h` folded in through
+  `to_conv2d_params` rather than restated.
+- **Layout**: both ATen operands (`input` rank-3 `[N,C,L]`, `weight` rank-3
+  `[Cout,Cin/groups,K]`) share the same positional pattern under
+  `Aten_shape.of_aten`'s mechanical right-alignment — `[role0, channel,
+  spatial]` — so ONE new permutation, `perm_conv1d` (swaps `N<->H` and
+  `W<->C`; a product of two disjoint transpositions, hence its own inverse),
+  relayouts `x`/`weight` in and the raw `Conv1d` output back to the generic
+  `[N,C,L]` convention, in both `lib/native_aten_bridge/op_bridge_decode.ml`
+  and `lib/native_interp/native_interp_decode.ml`. Verified against real
+  ATen (below) rather than only reasoned about.
+- `lib/native_aten_bridge/op_bridge_conv.ml` + `op_bridge_decode.ml`: the
+  `conv1d.default` dispatch arm; `make_conv1d_params` and a new shared
+  `conv_in_channels` helper factored out of `make_conv2d_params` (both now
+  call it) rather than a second copy of the bounded-product rule.
+  `op_bridge_error.ml` gains `` `Conv1d_invalid_weight_rank `` and
+  `` `Invalid_w_arg `` (the single-int twin of `` `Invalid_hw_arg ``, since a
+  1-D op has no second axis to broadcast a scalar list into).
+- `lib/native_interp/native_interp_decode_conv.ml`'s `conv1d_params` +
+  `native_interp_decode.ml`'s `sizes_rank_3`/`w1`/`` `Bad_w_arity ``: the
+  mirror import arm. `native_interp_decode.ml`'s `is_nontrivial_node` gains
+  `conv1d.default` too, so the importer groups its 4-node decomposition
+  under one label the same way `conv2d.default`'s already is.
+- **Native4D**: no new op, payload, or domain arm beyond admitting `Conv1d`
+  unconditionally into the "legalizations that constrain nothing here"
+  bucket (`lib/native4d/domain.ml`, alongside `Conv2d`/`Conv2d_padding`,
+  which get no `groups` check there either — that decision is
+  `forward_conv`'s). `lib/native4d/lower_engine.ml`'s `Conv1d` arm calls
+  `Conv.Conv1d.to_conv2d_params` and hands the result to the EXISTING
+  `forward_conv` helper unchanged — the same "map onto an existing op after
+  translating parameters" legalization `Bmm`→`Batched_matmul` and
+  `Linear`→`Conv2D4` already use, just at this layer instead of Native's
+  own. `Conv1d` therefore reaches `Conv2D`/`DepthwiseConv2D`/`GroupedConv2D`
+  depending on `groups`, exactly as `Conv2d` does.
+- **Real-ATen oracle**: `bin/aten_ops_gen.ml` gains `op "conv1d"` (a curated
+  binding; its kernel is already linked, sharing `conv2d`'s translation
+  unit). `conv1d.default` lands in the generated ATen walk's own
+  `needs_meta` backlog (`test/native_walk_coverage_test.ml`) — a required
+  `int[1]` window with no schema default, the same reason `eye.m`/
+  `rsub.Scalar`/`select_scatter.default` are there too — so real-ATen
+  agreement is hand-verified instead:
+  `test/native_bridge/conv_test.ml`'s new `importer_vs_aten_1d` harness (the
+  rank-3 twin of the existing `conv2d.default` one, sharing its
+  `Interp_dispatch`-vs-`Native_interp`-plus-`Eval_direct` comparison shape)
+  checks defaults, non-default stride/padding/dilation together, depthwise,
+  and general grouping — all `Ok` against real ATen on the first run, which
+  is the strongest evidence the `perm_conv1d` layout derivation is right,
+  not merely plausible.
+- Tests: `test/native/conv_test.ml` (box-sum + grouped Direct fixtures,
+  proving delegation through the pinned H window), `test/native/
+  graph_direct_conv_test.ml` + `graph_symbolic_conv_test.ml` (one-node graph
+  build/eval, Direct-vs-Symbolic agreement), `test/native4d/{fixtures,
+  lower_test}.ml` (`Conv1d` -> `Conv2D` with the pinned unit window visible
+  on `h`), `test/native_bridge/conv_test.ml` (the real-ATen oracle above),
+  `test/native_interp/conv_test.ml` (decomposed-graph structure dump +
+  `Conv1d` -> `Conv2D`/`DepthwiseConv2D` through the real Native4D
+  legalization path, not a synthetic fixture).
+
+**Classification**: Full-stack, per [`todo-ops.md`](todo-ops.md)'s
+completion rule — ATen boundary, both importers, Native Direct/Symbolic, a
+full Native4D legalization (onto pre-existing ops, the same route `Bmm`/
+`Linear` already take), and real-ATen verification evidence, each with test
+coverage enumerated above.
+
+**Corpus effect**: `eca_halonext26ts` — the one corpus model gating this row
+— moves from `unsupported PT2 operator: torch.ops.aten.conv1d.default` to
+`unsupported PT2 operator: torch.ops.aten.unfold.default`, exactly the P1
+table's own prediction for what comes next. `native_builds`/
+`native4d_converts`/`kernel_converts`/all-three-stages unchanged
+(90/58/64/44) — depth moved, stage-completion did not, since
+`eca_halonext26ts` was and remains `native_builds:false`.
+
+**Next**: `unfold.default` (6 occurrences, now `eca_halonext26ts`'s own
+frontier) closes the rest of this P1 row. Otherwise unchanged: live max-pool
+indices/`IndexTensor4`, `lstm.input`, `conv3d.default`
+(`lambda_resnet26t`'s frontier), or P1's remaining one-model slices
+(`im2col`/`col2im`, `upsample_bicubic2d`).
+
+### 2026-09-04 — `Attention.Sdpa` head and batch broadcasting
+
+Closes the "Configuration and transform gaps" table's own SDPA row in
+[`todo-ops.md`](todo-ops.md) — `mobilenetv5_base`'s corpus evidence
+(query `H=8` vs key `H=1`), the one piece of the matmul/SDPA broadcasting
+gap left open after `Batched_matmul`'s own broadcasting landing earlier the
+same day. Full record: `.ai/attention_design.md` §12.
+
+**What landed**
+
+- `lib/native/ops/attention.ml`: `batch_axes = [N;T;D;H]`,
+  `broadcast_extent`/`broadcast_batch` (per-axis "equal, or one side 1",
+  reusing `Matmul.Batched_matmul`'s own rule), and `batch_shape ~query_shape
+  ~key_shape ~value_shape : (qk_batch, full_batch) Err.t` — `qk_batch` is
+  `query @ key^T`'s own broadcast batch (what the mask broadcasts against,
+  added BEFORE the second matmul), `full_batch` is `qk_batch` broadcast
+  again with `value` (the real output batch, the second matmul). `Ev = E`
+  (`C`) and key/value's shared sequence extent (`W`) stay STRICT equality —
+  neither is a batch axis. `output_shape` now returns `full_batch`, not
+  `query_shape` (a real behavior change whenever query's own extent on a
+  batch axis is 1 while the broadcast output is larger); `total_work_bounded`
+  and the output-numel bound both now read `full_batch`, not `query_shape`'s
+  own — reading `query_shape` directly would under-count exactly the way
+  `Batched_matmul`'s own Native4D domain-check bug once did for `D`.
+- `Legacy_pixel.pixel` (test-only oracle) and `Computation.program`
+  (authoritative, Region-authored): every operand read (query/key/value/mask)
+  now reduces the output coordinate against ITS OWN shape via
+  `broadcast_coord` before `load`, mirroring `Matmul.Batched_matmul.Compute`
+  — a no-op when every operand agrees, so every pre-existing fixture stays
+  bit-identical (confirmed: only cosmetic `Symbolic` print-golden changes,
+  literal `0` in place of the general output-index variable on already-unit
+  axes, promoted in `test/native/symbolic_test.ml`). `Legacy_pixel.pixel`
+  gained a genuinely new `~value_shape` parameter — it used to always equal
+  `~key_shape` (implied by the old strict equality) and no longer does.
+- `lib/native/shape_error.ml`/`.mli`: new `Batch_mismatch` variant (mirrors
+  `Matmul.Batched_matmul`'s `Batch_mismatch`/`Contract_mismatch` split) for
+  the four broadcastable axes' genuine-incompatibility case ("or one must be
+  1" in the message); `Extent_mismatch`'s STRICT wording is unchanged for
+  `C`/`W`, which are never batch axes.
+- `lib/native/region_computation.ml`: `check_output`'s signature widened
+  from "compare against one fixed operand's shape" to "compare against an
+  explicit `~expected` shape" — the SDPA arm can no longer assume
+  `output_shape = query.shape` (true before this landing, not after), so it
+  recomputes the real expected shape via the new `Attention.Sdpa.batch_shape`.
+  `Rms_norm`/`Layer_norm`/`Softmax`'s call sites are mechanically updated to
+  pass `~expected:x.Tensor_sig.shape` (identical behavior).
+- **Real-ATen grounding**: two hand-derived `verify_print` fixtures in
+  `test/native_bridge/sdpa_test.ml` — query `H=2` vs key/value `H=1`, and
+  query batch=2 vs key/value batch=1, both `enable_gqa=false` — confirm real
+  ATen agrees with this row's `math`-backend-shaped computation at the
+  EXISTING `1e-5` tolerance (`Verify.atol_for_target`'s one entry). Grounded
+  in real ATen source (`attention.cpp`'s `_scaled_dot_product_attention_math`
+  calls plain `at::matmul`, which broadcasts, whenever `enable_gqa=false`;
+  `sdp_utils_cpp.h`'s `check_batch_size_and_num_heads_dense` requires equal
+  heads/batch for the fused/flash kernel unless GQA is enabled, so this
+  configuration was already off the flash kernel in real ATen too — landing
+  on `math`, which is structurally what this op already computes, per
+  attention_design.md §6). `Recipe_sdpa` (the ATen-oracle fuzz walk) was
+  deliberately NOT widened — same scoping precedent as `Batched_matmul`'s
+  own broadcast landing (`.ai/matmul_softmax_design.md` §6's "not done"
+  note).
+- `test/native/sdpa_test.ml`: rewrote the "N and T must agree" test (no
+  longer true — replaced with an "N/T/D/H broadcast" test proving both the
+  new-legal broadcast cases AND a still-rejected genuine mismatch, `N=2` vs
+  `N=3`), and added a bit-for-bit correctness fixture (query with two
+  DIFFERENT per-head queries against one shared, broadcast key/value pair)
+  proving broadcasting COMPUTES the right per-head answer, not merely that
+  the shape check now accepts the input.
+- `.ai/attention_design.md`: new §12 (this landing's full record); §9
+  updated (was still describing Native4D as an "unconditional typed
+  rejection", stale since the 2026-09-02 `D = 1` counterpart landed — fixed
+  in the same change since this landing gives that counterpart its first
+  corpus model); §10's tolerance-policy note extended to distinguish what
+  changed (Native now admits broadcast/off-flash configurations, hand-
+  verified) from what did not (`Recipe_sdpa` itself, still flash-only); §11's
+  "no model coverage" / "no Native4D execution path" bullets corrected (both
+  were already stale before this landing, from the 2026-09-02 counterpart,
+  and are fixed here since this is the first landing to touch this file
+  since). `.ai/native4d_design.md` §7.9's own "no model coverage" line
+  updated to match.
+
+**Classification**: Full-stack, per [`todo-ops.md`](todo-ops.md)'s
+completion rule — real ATen semantics (not merely a relaxed shape check),
+both `Compute` paths, a Native4D corpus win as a side effect (the
+already-landed `D = 1` counterpart), and real-ATen verification evidence,
+each enumerated above.
+
+**Corpus effect**: `mobilenetv5_base` moves from `native_builds:false`
+(blocked at Native construction on this exact `H` mismatch) to
+`native_builds:true` AND `native4d_converts:true` in the same landing — its
+SDPA occurrences are all `D = 1` (broadcasting only on `H`), so the
+already-landed Native4D `Sdpa` `D = 1` counterpart (2026-09-02) has its
+first real corpus model. It stops at the kernel stage on the pre-existing,
+unrelated evaluation-depth ceiling (`kernel_reason: over_limit`).
+`native_builds` 89→90, `native4d_converts` 57→58; `kernel_converts`/
+all-three-stages unchanged (64/44).
+
+**Next**: this closes the matmul/SDPA broadcasting gap entirely (both
+halves now landed). Remaining work: live max-pool indices/`IndexTensor4`,
+`lstm.input` (36 occurrences, Sequencer2D's own first frontier),
+`conv3d.default` (`lambda_resnet26t`'s own new frontier since the matmul
+broadcasting landing), or P1's remaining one-model slices
+(`conv1d`/`unfold`, `im2col`/`col2im`, `upsample_bicubic2d`).
 
 ### 2026-08-31 — `Softmax4`, the Native4D counterpart to Native's `Softmax`
 
