@@ -166,6 +166,13 @@ let repeat_interleave_params (p : Ops4.RepeatInterleave4.params) :
 
 (* Shared with [Eval_op4], which needs the same translation for the same op:
    one adapter, so the shape rule and the compute cannot disagree about which
+   axis is gathered. *)
+let index_tensor_params (p : Ops4.IndexTensor4.params) :
+    Index_tensor.Index_tensor.params =
+  { axis = Axis4.to_axis p.Ops4.IndexTensor4.axis }
+
+(* Shared with [Eval_op4], which needs the same translation for the same op:
+   one adapter, so the shape rule and the compute cannot disagree about which
    axis is written. [index] crosses unchanged. *)
 let select_scatter_params (p : Ops4.Select_scatter4.params) :
     Split.Select_scatter.params =
@@ -334,6 +341,18 @@ let output_shape (op : Op.t)
   | Hardtanh { Pointwise.Hardtanh.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Hardtanh.output_shape x_shape))
+  (* [self]'s [axis] extent is overwritten by [index]'s own length -- no drop,
+     no repack, the same reason [Select_scatter4] needs no post-hoc re-check
+     -- delegated to [Index_tensor.Index_tensor.output_shape] rather than
+     restated, so this arm and its [Compute] cannot disagree about which axis
+     is gathered. *)
+  | IndexTensor4 { Ops4.IndexTensor4.params; self; index } ->
+      let* self_shape = shape self in
+      let* index_shape = shape index in
+      one
+        (four
+           (Index_tensor.Index_tensor.output_shape ~self_shape ~index_shape
+              (index_tensor_params params)))
   (* The affine check that Native's own [Graph_shape] runs and this file's
      [Rms_norm] arm does NOT (see below). A JSON-decoded Native4D graph reaches
      this rule and no other, so leaving it out means an operand of the wrong

@@ -680,6 +680,22 @@ let%expect_test
       n0: [t2] = select_scatter4 self=t0 src=t1 params={axis=W index=1}
     outputs: [t2 [W=3 C=2]] |}]
 
+(* [Index_tensor]'s own version of [select_scatter4]'s test above: [self]'s
+   named axis is overwritten by [index]'s own length rather than written at
+   a compile-time position, but the shape story is identical -- no drop, no
+   repack. *)
+let%expect_test "lower: index_tensor4 gathers self's named axis by index" =
+  show "index_tensor" (Fixtures.index_tensor_w ());
+  [%expect
+    {|
+    index_tensor:
+      graph4
+    inputs: [t0 [W=3 C=2],
+    t1 [C=2]]
+    nodes:
+      n0: [t2] = index_tensor4 self=t0 index=t1 params={axis=W}
+    outputs: [t2 [W=2 C=2]] |}]
+
 (* [Unbind]'s rank-preserving sibling: every window KEEPS the axis, in order,
    and [sizes] itself crosses unchanged -- Native has already bounded and
    summed it, so there is nothing left for this arm to restate. *)

@@ -153,6 +153,15 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Hardtanh { Pointwise.Hardtanh.params; x } ->
         let module C = Pointwise.Hardtanh.Compute (S) in
         C.pixel params (operand x) out
+    (* Through the same adapter [Graph_shape4] uses, so the axis the shape
+       rule overwrites is the axis the compute gathers along, by
+       construction. *)
+    | IndexTensor4 { Ops4.IndexTensor4.params; self; index } ->
+        let module C = Index_tensor.Index_tensor.Compute (S) in
+        C.pixel
+          (Graph_shape4.index_tensor_params params)
+          ~self_shape:(shape_of self) ~self:(operand self)
+          ~index:(operand index) out
     | Layer_norm _ -> invalid_arg "Eval_op4.pixel: LayerNorm is Region-authored"
     | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
         let module C = Pointwise.Leaky_relu.Compute (S) in

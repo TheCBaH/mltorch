@@ -583,6 +583,36 @@ let select_scatter_d =
   select_scatter_graph "select_scatter_d" ~self_shape:(s 1 1 3 2 2 2)
     ~src_shape:(s 1 1 1 2 2 2) ~axis:Axis.D ~index:0
 
+(* [index] must itself already be four-axis by the time it reaches
+   [Domain.check] -- its real content lives on C ([chan]'s own shape,
+   [Index_tensor]'s own rank-1 restriction), so this fixture never exercises
+   the axis rule on [index], only on [self]'s [axis]. *)
+let index_tensor_graph name ~self_shape ~index_shape ~axis () =
+  Graph_builder.build ~name
+    ~outputs:(fun o -> [ o ])
+    (let open Graph_builder in
+     let* self = input ~shape:self_shape () in
+     let* index = input ~shape:index_shape () in
+     index_tensor { Index_tensor.Index_tensor.axis } ~self ~index)
+  |> Err.or_raise ~pp_error:(fun ppf e ->
+      Fmt.pf ppf "fixture %s: %a" name Graph_builder.pp_error e)
+
+(* A dialect axis, [Select_scatter_w]'s own shape: gathering along C leaves
+   [self] four-axis, since C's own extent (overwritten by [index]'s length)
+   carries no T/D consequence. *)
+let index_tensor_w =
+  index_tensor_graph "index_tensor_w" ~self_shape:(nhwc ~n:1 ~h:1 ~w:3 ~c:2)
+    ~index_shape:(chan 2) ~axis:Axis.W
+
+(* The same op naming D, refused by the AXIS rule so the diagnostic names D
+   -- unlike [select]'s own D fixture, [Index_tensor]'s output is
+   [self_shape] with one axis's extent changed (no drop, no repack), so
+   there is no separate shape-consequence rejection to contrast it with,
+   the same reason [select_scatter_d] needs none. *)
+let index_tensor_d =
+  index_tensor_graph "index_tensor_d" ~self_shape:(s 1 1 3 2 2 2)
+    ~index_shape:(chan 2) ~axis:Axis.D
+
 let concat_graph name ~shapes ~axis () =
   Graph_builder.build ~name
     ~outputs:(fun o -> [ o ])

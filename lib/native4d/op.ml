@@ -47,6 +47,7 @@ type op =
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
+  | IndexTensor4 of Ops4.IndexTensor4.t
   | Layer_norm of Ops4.Layer_norm.t
   | Leaky_relu of Pointwise.Leaky_relu.t
   | Max_keepdims of Ops4.Max_keepdims.t
@@ -231,6 +232,12 @@ let op_registry : (module OP) list =
 
       let inject t = Hardtanh t
       let project = function Hardtanh t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Ops4.IndexTensor4
+
+      let inject t = IndexTensor4 t
+      let project = function IndexTensor4 t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Layer_norm

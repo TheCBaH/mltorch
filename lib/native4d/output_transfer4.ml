@@ -85,6 +85,12 @@ let classify (op : Op.t) ~output:_ =
   | Stack4 _ -> Output_transfer.Reindexing
   | Sqrt _ | Sub _ | Sum_keepdims _ | Transposed_conv2d _ ->
       Output_transfer.Continuous
+  (* Which input element is read is DATA-DEPENDENT -- the gathered position
+     comes from the value stored in [index], not from the output coordinate
+     alone -- so an arbitrarily small change to [index]'s content can switch
+     the entire gathered result, the same argmax-shaped reasoning Native's own
+     [Output_transfer] gives [Index_tensor]. *)
+  | IndexTensor4 _ -> Output_transfer.Discontinuous
   (* Same per-op-not-per-target conservative answer as Native's own
      [Output_transfer]: the long/bool targets can each flip their result from
      an arbitrarily small input change, so the whole op answers

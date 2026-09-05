@@ -193,6 +193,13 @@ let grouped_conv2d params ~x ~weight ?bias () =
 let hardsigmoid x = op1 (Op.Hardsigmoid { Pointwise.Hardsigmoid.x })
 let hardswish x = op1 (Op.Hardswish { Pointwise.Hardswish.x })
 let hardtanh params x = op1 (Op.Hardtanh { Pointwise.Hardtanh.params; x })
+
+(* Takes the dialect's own [Ops4.IndexTensor4.params], whose axis is
+   [Axis4.t]: a gather naming T or D is not constructible through this API,
+   the same rule [select4]'s does. *)
+let index_tensor4 params ~self ~index =
+  op1 (Op.IndexTensor4 { Ops4.IndexTensor4.params; self; index })
+
 let leaky_relu params x = op1 (Op.Leaky_relu { Pointwise.Leaky_relu.params; x })
 
 let max_keepdims dims x =

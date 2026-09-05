@@ -321,7 +321,14 @@ let check_node view (n : node) =
      [Vector_norm] there is no separate keepdim-vs-drop distinction here --
      one counterpart, one axis check. See .ai/matmul_softmax_design.md §3. *)
   | Softmax { Reduce.Softmax.params; _ } -> check_dims node [ params.axis ]
-  | Index_tensor _ -> unsupported ()
+  (* [IndexTensor4] now exists, so [Index_tensor] gets the same [check_dims]-
+     style axis rejection [Select]/[Select_scatter]/[Stack]/[RepeatInterleave]
+     get: the GATHERED axis is the one the dialect must be able to name. Not
+     load-bearing the same way [Select_scatter]'s is not: the output is
+     [self_shape] with that one axis's extent changed (no drop, no repack),
+     so there is no separate shape-consequence rejection to demonstrate. *)
+  | Index_tensor { Index_tensor.Index_tensor.params; _ } ->
+      check_dims node [ params.Index_tensor.Index_tensor.axis ]
   (* The axis is checked HERE, on the Native [Axis.t], and converted to
      [Axis4.t] only in the lowerer. That ordering is what lets the diagnostic
      name the rejected axis: converting first would leave nothing to report but

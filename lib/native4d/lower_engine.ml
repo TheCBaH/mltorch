@@ -842,6 +842,20 @@ let lower_node ~view acc (n : node) =
              self = op_of self;
              src = op_of src;
            })
+  (* The axis converts here for the same reason [Select_scatter]'s does. No
+     post-hoc output re-check, unlike [Select]'s: this op's output shape is
+     [self]'s own shape with [axis]'s extent overwritten by [index]'s own
+     length -- no drop, no repack -- so if [self] is already four-axis the
+     output automatically is too, whichever axis this op names. *)
+  | Index_tensor { Index_tensor.Index_tensor.params; self; index } ->
+      let* axis4 = dims4 ~node [ params.Index_tensor.Index_tensor.axis ] in
+      simple
+        (Op.IndexTensor4
+           {
+             Ops4.IndexTensor4.params = { axis = List.hd axis4 };
+             self = op_of self;
+             index = op_of index;
+           })
   (* [Concat]'s variadic-operand handling above, plus [Select]'s post-hoc
      output check: [Stack] INSERTS an axis rather than keeping every one the
      way [Concat] does, so -- the same reason [Select]'s arm re-validates its
@@ -890,12 +904,12 @@ let lower_node ~view acc (n : node) =
            })
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
-     [Index_tensor] joins that set until its own counterpart exists (see
-     [Domain.check_node]'s comment) rather than gaining a real conversion arm
-     here -- it has no Native4D counterpart at all yet, the same "dialect does
-     not have it" answer. [Repeat]/[RepeatInterleave]/[Select_scatter]/
-     [Softmax]/[Batched_matmul]/[Sdpa] no longer join them: all six now have
-     real conversion arms above. *)
-  | Adaptive_max_pool2d_with_indices _ | Conv3d _ | Discard _ | Index_tensor _
+     [Adaptive_max_pool2d_with_indices]/[Max_pool2d_with_indices] have no
+     Native4D counterpart at all yet -- the live max-pool indices backlog row
+     (`.ai/todo-ops.md`); [Conv3d]/[Unfold] are intrinsic axis boundaries, not
+     missing counterparts. [Repeat]/[RepeatInterleave]/[Select_scatter]/
+     [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor] no longer join them: all
+     seven now have real conversion arms above. *)
+  | Adaptive_max_pool2d_with_indices _ | Conv3d _ | Discard _
   | Max_pool2d_with_indices _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))
