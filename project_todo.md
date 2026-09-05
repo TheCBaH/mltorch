@@ -205,12 +205,12 @@ every commit above.
   updates, projection bounds, shared update charging and internal state reservation/unwinding.
 - [x] Implement the exact `scan_reader`, projection errors, closed invalid-limit fields,
   missing-meter error and shared error conversions specified in the plan.
-- [ ] Add the scan RHS/layout case and continuation-based `Region_program.Builder.scan`.
+- [x] Add the scan RHS/layout case and continuation-based `Region_program.Builder.scan`.
   Extend dependency order, local-kind agreement and region invariance checks to trace reads.
-- [ ] Render unspecialized scan definitions with scoped `init` and `update` children.
+- [x] Render unspecialized scan definitions with scoped `init` and `update` children.
 - [x] Cover freshening/capture, init scope, zero steps, row-zero projections, nested state,
   exact-limit/next-charge behavior, and raw scans under constant/dynamic reductions.
-- [ ] Compile a consumer outside Expr that constructs and inspects a scan through public
+- [x] Compile a consumer outside Expr that constructs and inspects a scan through public
   APIs; carry dependent signature and exhaustive-match migrations with the new constructors.
 
 Completion: Expr builds independently, and scan semantics, scope and runtime bounds pass
@@ -258,11 +258,47 @@ changed nothing), just interpreter growth, matching this file's own documented p
 over repeated runs, ~2x resnet18's combined-depth requirement, same margin the original
 ceiling had) and re-measured every dependent sample point in `depth_probe.ml`.
 
-Remaining for this step: the Region-level RHS/layout case, `Region_program.Builder.scan`,
-dependency-order/shape-agreement/region-invariance extension to trace reads, unspecialized
-rendering in `me_detail.ml`/`region_trace.ml`, and the external consumer fixture. `make
-precommit`, `NO_COLOR=1 opam exec -- dune runtest` (whole tree) and `make js.runtest` all
-pass after every commit above.
+Evidence (2026-09-05), Region-level half (`4c4e2de`): `Region_local.Rhs` gains `Scan of
+Expr.Scan.t` alongside `Scalar`/`Vector`; `Region_local.Shape` gains a matching `Scan of
+{width; steps}`. `Region_program.Builder.scan` matches the plan's exact continuation-based
+signature, converting `Expr.Builder.scan`'s failure with `Err.map_error` (never a raw
+`Err.fail` re-wrap, which would double the detection trace) and never invoking the
+continuation on failure; `Region_program.error` gains `` `Scan of Expr.Scan.error ``.
+Dependency order, shape agreement and region-invariance needed no new traversal code:
+`Region_local.Rhs.value` wraps a scan as `Expr.Value.scan_at` at closed placeholder indices
+(`Expr.Index.zero`, never evaluated), so every existing `Region_program.check` call into
+`Expr.Fold`/`Expr.Check.fragment` already applies its per-child `lane`/`step`/`prev` masking
+unchanged -- a scan's `allowed_free` is empty, exactly like a scalar's, because
+`Fold.free_reducers` on the wrapper already excludes `lane`/`step` per child before `check`
+sees the result. `Shape_mismatch` gains a `read` field (three declared shapes need to know
+which read triggered the mismatch, not just the old binary inference); `shape_error` checks
+all three of `Fold.scalar_locals`/`vector_locals`/`scan_locals` against all three
+declared-as-something-else predicates.
+
+Rendering does NOT reuse that wrapper -- its placeholder row/lane would print as a
+fabricated projection. `Expr.Pp` gains `scan`/`scan_open`, factored out of the existing
+`Scan_at` case (`pp.ml`'s `at`/`scan_body`/`guard_at` became mutually recursive top-level
+functions taking `~names` explicitly rather than closures private to `value_open`); it
+renders `init`/`update` with real `lane`/`step`/`prev` naming but no trailing `@[row,lane]`.
+`Region_program.pp`/`Region_trace.pp_local` (text) call it directly on the descriptor;
+`Me_detail.of_value` (the explorer's graph-node view) instead splits a scan local into two
+named roots (`init`/`update`) holding the raw `Expr.Value.t` children directly -- no wrapper
+needed, since a root has no enclosing projection to fabricate -- and extends its
+local-naming map with `prev -> "<name>_prev"` so `update`'s otherwise-unwrapped `prev`
+occurrences still render readably.
+
+`test/native/region_scan_construction_test.ml` is the external consumer fixture: builds a
+counter scan through `Region_program.Builder.scan`, checks/prints it (confirming no
+fabricated projection on the declaration line and a real one on the emitter's read),
+confirms `Builder.scan` short-circuits without invoking its continuation on an invalid
+descriptor, and exercises all three `Shape_mismatch` directions plus a scan-to-later-local
+forward reference. Executing a scan-backed program is explicitly OUT of scope for this
+step: `Region_execution`/`Region_eval`'s evaluators dispatch on a Scan RHS with a new,
+explicit `` `Scan_execution_not_implemented `` case (mirrored into `Kernel_eval.error`)
+rather than an inexhaustive match, documented in the tracked design record as a temporary
+boundary expected to disappear once metered execution (a later step) lands.
+`make precommit`, `NO_COLOR=1 opam exec -- dune runtest` (whole tree) and `make js.runtest`
+all pass.
 
 ### 7. Separate resource dimensions and validate executable artifacts
 
