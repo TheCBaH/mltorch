@@ -1284,7 +1284,7 @@ regression rather than validating new behavior.
 
 ### 18. Design and implement sharing-aware verification
 
-- [ ] Benchmark dense recurrence grounding and specialization after the bounded-tree landing;
+- [x] Benchmark dense recurrence grounding and specialization after the bounded-tree landing;
   identify which repeated work or logical growth prevents useful verification.
 - [ ] Compare explicit let/DAG ground terms with verification directly over Region definitions.
   Record the chosen representation, ownership, budget units and numerical/provenance contract.
@@ -1298,6 +1298,65 @@ regression rather than validating new behavior.
 Completion: sharing reduces verified work without changing what constitutes evidence or
 allowing node identity to prove equality. If measurements do not justify the migration,
 record that decision and retain the bounded-tree implementation.
+
+Status (2026-09-06): first bullet only, deliberately paused here for a
+go/no-go decision before the remaining four -- see below for why.
+
+Evidence for the first bullet: there is no existing dense-recurrence
+grounding to benchmark. `Ground_eval` (`lib/native/transform/ground_expr.mli`)
+throws `` `Scan_at_unsupported `` the moment its traversal reaches a
+`Scan_at`/`Local_scan_at` node (`ground_eval.ml`) -- confirmed already
+tracked, not a gap this project introduced: `.ai/native_scan_design.md`'s
+own Status section has said since Stage 1 landed that "executing a scan
+during grounding itself remains unimplemented, tracked as a later, separate
+step" (now updated in the same change as this evidence to also correct its
+stale "LSTM arithmetic... still not implemented" claim, since steps 12-16
+closed that). So `Map_verify` (the cross-dialect symbolic proof Native4D's
+own design record leans on for `Identical`-claim legalizations) cannot
+ground any `Lstm`/`Softmax`/`Sdpa`/`Rms_norm`/`Layer_norm` node today --
+every Region-authored op, not just Lstm.
+
+"Identify which repeated work or logical growth prevents useful
+verification" is answerable from `Ground_expr.t`'s own definition without
+building anything: it is a literal, unshared tree (`Binary`/`Unary`/
+`Select`/`Cell`/`Const`/`Round`, no DAG node, no memo table --
+`ground_eval.mli`). The naive way to add scan support -- substitute each
+step's `previous_at` read with the PRIOR step's already-built
+`Ground_expr.t` inline -- re-embeds the whole prior-step subtree at every
+later step, giving term size that grows as (branching factor)^steps, not
+`steps` -- the same "no expression-level sharing duplicates the whole
+subtree" hazard this project's own tanh-identity fix (step 13, prototype
+test) and CLAUDE.md's own construction rules already flag elsewhere, here
+at the grounding layer instead of the construction layer. `Ground_eval`'s
+existing `Budget.max_ground_nodes` charges every node as constructed, so
+this would fail safely (a typed `` `Ground_nodes_over_limit ``) rather than
+silently balloon memory -- but it would fail almost immediately for any
+real `seq`, making a naive scan-grounding addition useless for verification
+at exactly the sizes this project cares about. This is the concrete
+"repeated work" the bullet asks to identify, established from the existing
+code's own shape rather than from a throwaway prototype (there is nothing
+running to profile yet, so a wall-clock benchmark would only demonstrate
+what the complexity argument already shows).
+
+**Why the remaining four bullets are paused, not skipped or completed:**
+they all presuppose scan grounding already works in some form ("explicit
+let/DAG ground terms" vs. "verification directly over Region definitions"
+is a choice between two ways of grounding a scan; "migrate all consumers"
+means migrating consumers of a ground-term representation scans do not yet
+have). Implementing basic (even naive, budget-limited) scan grounding is a
+real prerequisite this step's own bullets do not name and this project's
+checklist does not currently scope anywhere. Whether to (a) scope and land
+that prerequisite first, as its own step, (b) go straight to a
+sharing-aware ground IR without ever landing the naive form (skipping the
+"if measurements do not justify it, retain the current implementation"
+comparison this step's own completion line asks for, since there would be
+nothing to compare against), or (c) leave `Scan_at_unsupported` as a
+long-term, deliberate boundary and not pursue scan grounding at all (every
+Region-authored op's cross-dialect `Map_verify` proof continues to rely on
+the "reused verbatim, so the same Region program runs on both sides"
+structural argument this project already used for `Sdpa`/`Lstm` in Native4D,
+rather than a grounded numerical one) is a real scope decision, not an
+implementation detail -- left for explicit direction rather than assumed.
 
 ### 19. Design and implement shared multi-output computation
 
