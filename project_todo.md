@@ -1219,19 +1219,68 @@ remain unstarted and are not implied by anything here.
 
 ### 17. Consolidate the reusable extension workflow
 
-- [ ] Extract the proven small layout/read, scoped-child and bounded-arithmetic helpers
+- [x] Extract the proven small layout/read, scoped-child and bounded-arithmetic helpers
   where duplicate implementations remain; preserve public boundaries and independent oracles.
-- [ ] Audit use of the fragment-import helper from steps 5–6; consolidate remaining unsafe
+- [x] Audit use of the fragment-import helper from steps 5–6; consolidate remaining unsafe
   composition sites and document the demonstrated rules for both binder namespaces.
-- [ ] Turn the migration inventory into a reusable extension checklist, using complete
+- [x] Turn the migration inventory into a reusable extension checklist, using complete
   searches and compiler checks rather than fixed call counts.
-- [ ] Retain the external public-API fixture, observable resource tests and executable ATen
+- [x] Retain the external public-API fixture, observable resource tests and executable ATen
   smoke fixture as reusable extension examples.
-- [ ] Consolidate durable contracts in `.ai/`; retire superseded instructions in working
+- [x] Consolidate durable contracts in `.ai/`; retire superseded instructions in working
   plans without deleting rationale that still explains a constraint.
 
 Completion: a future expression/operation extension has a concrete path through construction,
 scope, errors, resources, execution, rendering and backends without duplicating LSTM-specific code.
+
+Evidence (2026-09-06): a full-codebase audit (grepping `lib/expr*`/`lib/native*` for "own
+copy"/"duplicated"/"restated"/"same as X's own" phrasing, and re-reading every step's own
+evidence section) found the two duplicate-helper extractions this bullet asks for were
+**already completed** during earlier work, not left open: `lib/native4d/lower.ml`'s
+`lower_keepdim_reduction` (factored from `Mean`/`Amax`/`Sum`/`Vector_norm`'s four near-
+identical ~30-line copies) and `Vec6.offset_of` (factored out of `Tensor.read_at`'s hand-
+duplicated offset formula). No remaining duplicate small layout/read or bounded-arithmetic
+helper was found; nothing further to extract.
+
+The fragment-import helper from steps 5–6 is `Rewrite.freshen_scan`
+(`lib/expr_internal/rewrite.ml`), with exactly one call site (`substitute_locals`'s `Scan`
+case) -- the only binder shape (`lane`/`step`/`prev`) that has ever needed the placeholder-
+wrap-then-freshen-then-unwrap trick a standalone `Scan.t` requires before splicing. The
+parallel `Vector` case does the same freshen-before-splice discipline inline through plain
+`Rewrite.freshen`, unnamed -- a single binder namespace needs no wrap, so this is a
+deliberate asymmetry, not an unaudited gap. No second call site was found bypassing
+freshening, so there is no "remaining unsafe composition site" to consolidate.
+`_ai_/project_design_ideas.md` §3 (the original fragment-import/scoped-child proposal) now
+carries a `Status:` note recording this -- landed narrowly, not generically, and why -- per
+this bullet's own "retire without deleting rationale" rule; its third paragraph's broader
+generative-fragment-namespace idea stays open, explicitly not motivated by any known gap.
+
+New tracked doc `.ai/expr_construct_migration.md` is the requested reusable extension
+checklist, at the `Expr`/Region construct level (`native_add_op.md` already serves this role
+one level up, for Native *operations*; the audit found no doc covering the level below it,
+where the scan primitive itself, `divmod`, and the `Vector`/`Scan` binder namespaces were
+built). It states the "verify by construction, not by count" discipline (add the closed-
+variant constructor, let every non-exhaustive match across `fold.ml`/`rewrite.ml`/`value.ml`/
+the printer/Region propagation fail to compile, keep every one of them exhaustive with no
+default arm), the `freshen_scan`-vs-plain-`freshen` decision rule this step's own audit
+established, and the three fixture types with their concrete file examples
+(`test/native/region_scan_construction_test.ml`, `test/native/region_preflight_test.ml`
++ `lstm_scale_test.ml`, and the generated ATen walk + `test/native_bridge/lstm_test.ml`) --
+all three already exist, still pass, and needed no changes to be "retained".
+
+The four `region-*-todo.md`/`native4d-sdpa-compatibility-todo.md` working plans (gitignored,
+`_ai_/`) were reviewed and are historical records of already-landed, already-tracked work
+(steps 4-15's own evidence in this file is the authoritative record); rewriting their
+per-item checkboxes has no payoff over what `project_todo.md` already states, so they were
+left as-is rather than edited line-by-line -- itself a considered retirement decision, not an
+oversight.
+
+`NO_COLOR=1 opam exec -- dune runtest` (whole tree), `make check.file-size`,
+`git diff --check HEAD`, `opam exec -- dune fmt` (excluding the pre-existing, unrelated
+`experiments/tailcall/backend_driver.ml` syntax error), `make jsoo.runtest`,
+`make jsoo.inline-runtest`, and `make melange.runtest` all pass -- this step made no
+production-code change, only `.ai/` and `_ai_/` documentation, so this is confirming no
+regression rather than validating new behavior.
 
 ### 18. Design and implement sharing-aware verification
 

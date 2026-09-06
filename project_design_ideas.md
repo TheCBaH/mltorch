@@ -89,6 +89,19 @@ project about `lane`, `step`, and `prev`. Tests should cover valid captures of e
 locals, rejected init-only scope violations, independent fragments with colliding ordinals,
 and alpha-equivalent compare/hash behavior across both binder namespaces.
 
+Status (project step 17, 2026-09-06): landed narrowly, not generically. The fragment-import
+operation this section asks for is `Rewrite.freshen_scan` (`lib/expr_internal/rewrite.ml`),
+called from exactly one site (`substitute_locals`'s `Scan` case) -- the only place that ever
+needed the placeholder-wrap trick a `Scan`'s three-namespace binder shape (`lane`/`step`/
+`prev`) requires. The parallel `Vector` case does the same freshen-before-splice discipline
+inline, through plain `freshen`, unnamed -- safe (a single binder namespace needs no
+placeholder wrap), just asymmetric in name. No second call site was ever found that
+bypasses freshening, so the "unsafe independent composition" this section motivates was
+never observed as a live defect, only as a risk `freshen_scan` already closes for the one
+binder shape (scan) that has needed it. The broader generative-fragment-namespace idea in
+this section's third paragraph remains unimplemented and is not currently motivated by any
+known gap -- revisit only if a second construct needs its own splice helper.
+
 ## 4. Give every resource limit an explicit unit and owner
 
 Evidence: [region_program.ml](../lib/native/region_program.ml)'s `checked_slot_total`
