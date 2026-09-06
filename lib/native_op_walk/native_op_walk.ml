@@ -72,6 +72,8 @@ let all_walks : op list =
       with type subject = Native_subject.t);
     (module Linear_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
+    (module Lstm_nwalk.M : Walk_core.Walk.Op
+      with type subject = Native_subject.t);
     (module Max_pool2d_nwalk.M : Walk_core.Walk.Op
       with type subject = Native_subject.t);
     (module Max_pool2d_with_indices_nwalk.M : Walk_core.Walk.Op
