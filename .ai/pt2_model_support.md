@@ -383,6 +383,71 @@ running SDPA/`Batched_matmul` examples, do **not** move (see their bullets
 above) -- neither is evidence against the change, since neither ever reached
 the node that changed.
 
+**Updated 2026-09-06** after landing `aten.lstm.input` (project step 13-16:
+`lib/native/ops/lstm.ml`, `lib/native_aten_bridge/op_bridge_recurrent.ml`,
+`lib/native_interp/native_interp_lower_recurrent.ml`,
+`lib/native4d/op.ml`'s verbatim-payload `Lstm` counterpart). Re-running
+`make pt2.json-model-support` moves exactly one model on this op:
+`sequencer2d_s` (911 nodes, the submodule's own `lstm.input`-bearing
+model -- **not** `csatv2`, a different, unrelated model this doc's table
+row above happens to sit next to; see below) goes from `native_builds:false`
+(blocked outright: `unsupported_operator`, `torch.ops.aten.lstm.input`) to
+`native_builds:true`, `native4d_converts:true` (all four `native4d_*`
+fields `null`) in one move -- confirming `.ai/native4d_design.md`'s own
+"reuse the Native payload... unconditionally" argument for this op (no
+`Domain.check_node` precondition exists for `Lstm`, unlike `Sdpa`'s `D = 1`
+gate, so Native import succeeding is sufficient for Native4D conversion to
+succeed too). It stops at `kernel_converts:false` (`over_limit`,
+"evaluation depth exceeds 1536") -- the same widespread, already-tracked
+Kernel/Fusion evaluation-depth ceiling roughly half this corpus hits
+regardless of architecture (compare `efficientnet_b0`, `ghostnetv2_100`,
+`convit_tiny` in this same run), not a gap `lstm.input` introduces.
+
+**`csatv2` is a red herring for this op**, worth correcting explicitly since
+an earlier working note in this project conflated the two: `csatv2` (this
+table's own row above) is a *separate* model -- its own manifest entry, own
+release archive, 1349 nodes in this sweep, none of them `lstm.input` --
+already `native_builds:true` before this change and blocked on an unrelated
+`axis T` domain limit. The real corpus evidence `lstm-plan.md` §2 cites (36
+`lstm.input` nodes, the two `(B,L,I,K)` shape families this project's own
+`test/native/lstm_scale_test.ml` measures) comes from `sequencer2d_s`'s
+`model.json`, read directly.
+
+This run's diff also carries 47 unrelated line changes with no `native_builds`/
+`native4d_converts`/`kernel_converts` movement, only a wording change from
+`"evaluation depth exceeds 2048"` to `"evaluation depth exceeds 1536"`
+(`bat_resnext26ts`, `efficientnet_b0`, `ghostnetv2_100`, `csatv2` itself,
+and 43 others). That ceiling change (`kernel.ml`'s `Hard.eval_depth`,
+`f563553`) had already landed on this branch before this session started;
+the checked-in ledger simply had not been regenerated since. Recorded here
+for the same reason every other entry in this section is: so a reader
+diffing this regeneration against the previous one does not mistake a
+pre-existing, unrelated ceiling tightening for a `lstm.input` side effect.
+
+Real-scale resource measurement (`test/native/lstm_scale_test.ml`, both
+`sequencer2d_s` shape families, `Region_execution.counters` on a real
+`Eval_direct` run) reconciles exactly against step 4's estimate: measured
+`scan_updates / keys` is `294912/48 = 6144` for `(16,16,384,96)` and
+`589824/96 = 6144` for `(32,32,192,48)`, matching the estimated max
+per-key updates (`2*16*192 = 2*32*96 = 6144`) exactly for both corpus
+shape families. `reductions`/`loads` are within 0.2% of each other between
+the two families (`495,452,160` reductions, identical; `893,896,704` vs
+`895,961,088` loads) despite family 2's per-step gate width being half
+family 1's (`192+48=240` vs `384+96=480`) -- the same `L*K` invariant step
+4's own census note observed (`16*96 = 32*48 = 1536`), now confirmed on the
+real per-output-ordinal-tripled implementation, not just the single-copy
+estimate formula. `keys=48`/`96` (`= 3 outputs * batch`, one Region key per
+batch element per output ordinal) and `scans=96`/`192` (`= 3 outputs *
+2 directions * batch keys`) are consistent with "every output ordinal gets
+its own independent copy of every layer/direction's scan"
+(`lstm-plan.md` §4's accepted constant-factor cost) -- concretely, a factor
+of 3 on top of what a single shared computation would need, which is the
+"repeated computation across the initial one-program-per-output
+implementation" this step's own checklist asks to account for. Wall-clock
+for the whole two-shape `Eval_direct` run was single-digit minutes on this
+machine; not a benchmark claim (this file's own house rule), only evidence
+that real corpus scale is reachable in the Native Direct path at all.
+
 ## Keeping this current
 
 - `PT2_MODELS_NATIVE_VERIFY` (Makefile) wires `mobilenetv2_050`,
