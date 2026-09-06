@@ -172,3 +172,8 @@ jobs:
     - name: native transform pipeline verification
       run: |
         ${{ env.EXEC }} make native-transform-verify
+    # Runs last: starts with `dune clean`, so anything after would pay a
+    # needless cold rebuild. js/melange's own mode is js.yml's job.
+    - name: inline test timing report
+      run: |
+        ${{ env.EXEC }} make inline-timing-report
