@@ -205,6 +205,31 @@ let index_tensor4 params ~self ~index =
 
 let leaky_relu params x = op1 (Op.Leaky_relu { Pointwise.Leaky_relu.params; x })
 
+(* Returns a real triple, the same shape [Graph_builder.lstm] uses, rather
+   than [opN]'s list -- three distinctly-typed outputs (output, h_n, c_n) are
+   checked once here instead of leaving every caller to pattern-match a
+   3-element list. *)
+let lstm params ~input ~layers ~h0 ~c0 () =
+  let op = Op.Lstm { Lstm.Lstm.params; layers; input; h0; c0 } in
+  let* s = get in
+  let* shapes =
+    lift_result
+      (Graph_shape4.output_shape op ~sig_of:(fun r ->
+           Tensor_id.Map.find_opt r s.tensors
+           |> Err.of_option (`Missing_tensor_sig r)))
+  in
+  match shapes with
+  | [ out_shape; hn_shape; cn_shape ] ->
+      let* out_id = new_edge out_shape in
+      let* hn_id = new_edge hn_shape in
+      let* cn_id = new_edge cn_shape in
+      let* () = push_node op [ out_id; hn_id; cn_id ] in
+      return (out_id, hn_id, cn_id)
+  | _ ->
+      fun s ->
+        ( Err.fail (`Expected_single_output_shape { count = List.length shapes }),
+          s )
+
 let max_keepdims dims x =
   op1 (Op.Max_keepdims { Ops4.Max_keepdims.params = { dims }; x })
 

@@ -913,14 +913,38 @@ let lower_node ~view acc (n : node) =
              value = op_of value;
              mask = Option.map op_of mask;
            })
+  (* Direct counterpart, unconditionally: [Lstm.Lstm.t]'s shapes hardcode
+     [T=1,D=1] everywhere (state/weight/bias/input shapes never touch T or
+     D; [batch_first] only ever selects between [H]/[W], both dialect axes),
+     so unlike [Sdpa] there is no [Domain.check_node] precondition to have
+     proved here at all -- [check_shapes] alone already guarantees every
+     Lstm tensor is four-axis. [map_operands] is reused rather than
+     restated, so the nested [layers] traversal (forward/reverse directions,
+     each with an optional bias pair) cannot drift from [Lstm.Lstm]'s own.
+     Three outputs (output, h_n, c_n), the same [Batch_norm_no_stats]
+     validation shape just above -- not [simple], which is single-output
+     only. *)
+  | Lstm t ->
+      let outputs =
+        match n.Node.outputs with
+        | [ _; _; _ ] as outputs -> outputs
+        | outputs ->
+            invalid_arg
+              (Format.asprintf
+                 "Native4d.Lower: %a is a three-output op but declares %d \
+                  outputs"
+                 Node_id.pp node (List.length outputs))
+      in
+      Err.return
+        (emit acc ~from:node (Op.Lstm (Lstm.Lstm.map_operands op_of t)) outputs)
   (* Rejected by [Domain.check] before the walk starts; reaching them means the
      domain check and this match disagree, which is a bug in one of them.
      [Adaptive_max_pool2d_with_indices]/[Max_pool2d_with_indices] have no
      Native4D counterpart at all yet -- the live max-pool indices backlog row
      (`.ai/todo-ops.md`); [Conv3d]/[Unfold] are intrinsic axis boundaries, not
      missing counterparts. [Repeat]/[RepeatInterleave]/[Select_scatter]/
-     [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor] no longer join them: all
-     seven now have real conversion arms above. *)
-  | Adaptive_max_pool2d_with_indices _ | Conv3d _ | Discard _ | Lstm _
+     [Softmax]/[Batched_matmul]/[Sdpa]/[Index_tensor]/[Lstm] no longer join
+     them: all eight now have real conversion arms above. *)
+  | Adaptive_max_pool2d_with_indices _ | Conv3d _ | Discard _
   | Max_pool2d_with_indices _ | Unfold _ ->
       Err.fail (`Unsupported_op (node, n.Node.op))

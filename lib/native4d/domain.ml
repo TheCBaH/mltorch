@@ -201,8 +201,8 @@ let check_node view (n : node) =
   | Add _ | Add_scalar _ | Adaptive_avg_pool2d _ | Adaptive_max_pool2d _
   | Avg_pool2d _ | Bmm _ | Clamp _ | Clone _ | Conv1d _ | Conv2d _
   | Conv2d_padding _ | Div _ | Div_scalar _ | Expand _ | Gelu _ | Hardsigmoid _
-  | Hardswish _ | Hardtanh _ | Leaky_relu _ | Linear _ | Max_pool2d _ | Mul _
-  | Mul_scalar _ | Pow _ | Relu _ | Repeat _ | Reshape _ | Rsub_scalar _
+  | Hardswish _ | Hardtanh _ | Leaky_relu _ | Linear _ | Lstm _ | Max_pool2d _
+  | Mul _ | Mul_scalar _ | Pow _ | Relu _ | Repeat _ | Reshape _ | Rsub_scalar _
   | Sigmoid _ | Silu _ | Sqrt _ | Sub _ | To_copy _ | Upsample_bilinear2d _
   | Upsample_nearest2d _ ->
       Err.return ()
@@ -363,9 +363,6 @@ let check_node view (n : node) =
      same intrinsic-axis boundary [Batched_matmul]'s multi-batch form,
      [Sdpa]'s own D axis, and [Unfold] above are. *)
   | Conv3d _ -> unsupported ()
-  (* Not yet a Native4D counterpart: project step 13/M3 lands the Native op
-     first; M5 adds Lstm here, per _ai_/project_todo.md. *)
-  | Lstm _ -> unsupported ()
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation
    that moves C onto D necessarily produces a tensor with extent on D, so either

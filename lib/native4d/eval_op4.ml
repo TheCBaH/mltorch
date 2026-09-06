@@ -171,6 +171,7 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Leaky_relu { Pointwise.Leaky_relu.params; x } ->
         let module C = Pointwise.Leaky_relu.Compute (S) in
         C.pixel params (operand x) out
+    | Lstm _ -> invalid_arg "Eval_op4.pixel: Lstm is Region-authored"
     | Max_keepdims { Ops4.Max_keepdims.params; x } ->
         let module C = Reduce.Amax.Compute (S) in
         C.pixel

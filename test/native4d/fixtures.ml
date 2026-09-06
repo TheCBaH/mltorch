@@ -404,6 +404,59 @@ let adaptive_maxpool_indices_live () =
      let* live = relu indices in
      add values live)
 
+(* ---- lstm state outputs ----------------------------------------------------
+
+   Unlike max-pool's indices, [h_n]/[c_n] have no missing-op story: the
+   dialect's own [Lstm] always produces all three outputs (verbatim
+   [Lstm.Lstm.t], project step 15's "reuse the Native payload" route), so
+   liveness of the state outputs never affects whether the graph converts --
+   both fixtures below are expected to be equally "in the dialect", unlike
+   max-pool's discarded/live pair. What differs between them is a
+   Native-level property (DCE removes the [Discard] sink and its
+   otherwise-unreferenced edges), not a Native4D domain question. *)
+
+let lstm_params : Lstm.Lstm.params =
+  { hidden_size = 2; input_size = 2; batch_first = false }
+
+let lstm_layer ~weight_ih ~weight_hh : Lstm.Lstm.Layer.t =
+  {
+    forward = { Lstm.Lstm.Direction.weight_ih; weight_hh; bias = None };
+    reverse = None;
+  }
+
+let lstm_states_discarded () =
+  build "lstm_states_discarded"
+    (let open Graph_builder in
+     let* x = input ~shape:(nhwc ~n:1 ~h:2 ~w:1 ~c:2) () in
+     let* wih = input ~shape:(s 8 1 1 1 1 2) () in
+     let* whh = input ~shape:(s 8 1 1 1 1 2) () in
+     let* h0 = input ~shape:(nhwc ~n:1 ~h:1 ~w:1 ~c:2) () in
+     let* c0 = input ~shape:(nhwc ~n:1 ~h:1 ~w:1 ~c:2) () in
+     let* out, hn, cn =
+       lstm lstm_params ~input:x
+         ~layers:[ lstm_layer ~weight_ih:wih ~weight_hh:whh ]
+         ~h0 ~c0 ()
+     in
+     let* () = discard hn in
+     let* () = discard cn in
+     return out)
+
+let lstm_states_live () =
+  build "lstm_states_live"
+    (let open Graph_builder in
+     let* x = input ~shape:(nhwc ~n:1 ~h:2 ~w:1 ~c:2) () in
+     let* wih = input ~shape:(s 8 1 1 1 1 2) () in
+     let* whh = input ~shape:(s 8 1 1 1 1 2) () in
+     let* h0 = input ~shape:(nhwc ~n:1 ~h:1 ~w:1 ~c:2) () in
+     let* c0 = input ~shape:(nhwc ~n:1 ~h:1 ~w:1 ~c:2) () in
+     let* out, hn, cn =
+       lstm lstm_params ~input:x
+         ~layers:[ lstm_layer ~weight_ih:wih ~weight_hh:whh ]
+         ~h0 ~c0 ()
+     in
+     let* sum = add hn cn in
+     add out sum)
+
 (* ---- linear -------------------------------------------------------------- *)
 
 (* Weight is [Out,1,1,1,1,In] — already a 1x1 convolution weight. *)

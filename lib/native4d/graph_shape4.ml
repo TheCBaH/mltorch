@@ -391,6 +391,47 @@ let output_shape (op : Op.t)
   | Leaky_relu { Pointwise.Leaky_relu.x; _ } ->
       let* x_shape = shape x in
       one (four (Pointwise.Leaky_relu.output_shape x_shape))
+  (* Verbatim [Lstm.Lstm.output_shape] call, the same "delegate to Native"
+     idiom every arm in this file uses -- and the same shape-resolution
+     structure [Graph_shape]'s own [Lstm] arm has, since the payload is
+     reused unchanged (no [Ops4] wrapper: nothing in [params] names an axis,
+     [batch_first] only ever selects between [H]/[W], both dialect axes).
+     Three outputs, so [four_all] rather than [one (four ...)]. *)
+  | Lstm { Lstm.Lstm.params; layers; input; h0; c0 } ->
+      let* input_shape = shape input in
+      let direction_shapes (d : Lstm.Lstm.Direction.t) =
+        let* weight_ih = shape d.weight_ih in
+        let* weight_hh = shape d.weight_hh in
+        let+ bias =
+          match d.bias with
+          | None -> Err.return None
+          | Some (bi, bh) ->
+              let* bi_shape = shape bi in
+              let+ bh_shape = shape bh in
+              Some (bi_shape, bh_shape)
+        in
+        { Lstm.Lstm.Direction_shapes.weight_ih; weight_hh; bias }
+      in
+      let layer_shapes (l : Lstm.Lstm.Layer.t) =
+        let* forward = direction_shapes l.forward in
+        let+ reverse =
+          match l.reverse with
+          | None -> Err.return None
+          | Some d ->
+              let+ d_shapes = direction_shapes d in
+              Some d_shapes
+        in
+        { Lstm.Lstm.Layer_shapes.forward; reverse }
+      in
+      let* layers = Err.List.map layer_shapes layers in
+      let* h0_shape = shape h0 in
+      let* c0_shape = shape c0 in
+      let* out, h_n, c_n =
+        widen
+          (Lstm.Lstm.output_shape params ~input_shape ~layers ~h0_shape
+             ~c0_shape)
+      in
+      four_all (Err.return [ out; h_n; c_n ])
   | Max_keepdims { Ops4.Max_keepdims.params; x } ->
       let* x_shape = shape x in
       one (four (Reduce.Amax.output_shape ~x_shape (max_params params)))

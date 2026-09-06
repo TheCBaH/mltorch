@@ -329,6 +329,44 @@ let%expect_test "domain: canonicalization is what makes a graph convertible" =
     adaptive indices discarded   in the dialect
     adaptive indices live        node n0: max-pool index output t2 is live; the dialect has no argmax-pool operation |}]
 
+(* ---- lstm state outputs (project step 15), the contrast case to max-pool -- *)
+
+(* The RAW graph still rejects the discarded row -- [Discard] itself has no
+   Native4D counterpart (`Domain.check_node`'s [Discard _ -> unsupported ()]
+   arm), regardless of which op feeds it -- but for a different reason than
+   max-pool's own discarded row: nothing here is "no legalization for lstm";
+   it is only the [Discard] SINK that is unsupported. The live row needs no
+   [Discard] at all, so it already converts here. *)
+let%expect_test "domain: lstm state outputs, before canonicalization" =
+  table
+    [
+      ("states discarded", Fixtures.lstm_states_discarded);
+      ("states live", Fixtures.lstm_states_live);
+    ];
+  [%expect
+    {|
+    states discarded             node n1: no legalization for discard x=t6
+    states live                  in the dialect |}]
+
+(* After canonicalization, BOTH rows convert -- unlike max-pool's own pair,
+   where the live row stays rejected even here. [h_n]/[c_n] have no
+   missing-op story: the dialect's own [Lstm] always produces all three
+   outputs (verbatim [Lstm.Lstm.t]), so once DCE removes the [Discard] sink
+   the discarded row is indistinguishable, to the domain check, from the
+   live one -- liveness of a Lstm state output never affects whether the
+   *node* converts, only whether DCE left a [Discard] in front of it. *)
+let%expect_test "domain: lstm state outputs, after canonicalization" =
+  List.iter
+    (fun (name, g) -> canonical name (g ()))
+    [
+      ("states discarded", Fixtures.lstm_states_discarded);
+      ("states live", Fixtures.lstm_states_live);
+    ];
+  [%expect
+    {|
+    states discarded             in the dialect
+    states live                  in the dialect |}]
+
 (* ---- legalizations that need no domain constraint ------------------------- *)
 
 let%expect_test "domain: linear is in the dialect" =
