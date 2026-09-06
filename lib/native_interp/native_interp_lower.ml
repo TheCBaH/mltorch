@@ -118,6 +118,7 @@ let lower program =
           (fun dispatch -> dispatch ~ctx ~env node)
           [
             Native_interp_lower_compute.dispatch;
+            Native_interp_lower_recurrent.dispatch;
             Native_interp_lower_reduce.dispatch;
             Native_interp_lower_shape.dispatch;
           ]

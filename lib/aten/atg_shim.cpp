@@ -15,6 +15,52 @@
 
 namespace {
 
+/* This archive links no autograd runtime (build_archive.sh keeps
+   torch/csrc/autograd out entirely -- inference-only, per its own comments),
+   so c10::impl::GetAutogradMetaFactory() has no registered factory unless we
+   supply one. Every tensor here has requires_grad=false and is never told
+   otherwise, so TensorImpl::autograd_meta_ is always null and none of these
+   methods needs real bookkeeping -- but a composite CPU kernel can still read
+   through the interface directly (bypassing the operator dispatcher, so
+   c10::InferenceMode does not help): at::native::linear's non-fused 3D path
+   (aten/src/ATen/native/Linear.cpp) calls bias->_fw_grad(0) to decide between
+   an out-of-place and in-place bias add, which reaches
+   TensorImpl::_fw_grad -> GetAutogradMetaFactory()->undefined_tensor() the
+   moment autograd_meta_ is null -- exactly our tensors' normal state. Discovered
+   via aten.lstm.input's batch_first layout (its internal linear_ih runs on the
+   transposed, non-contiguous input). A minimal, always-untracked factory
+   answers every query the same way full autograd would for a tensor that was
+   never asked to track gradients, without linking that runtime. */
+struct MinimalAutogradMeta : public c10::AutogradMetaInterface {
+  bool requires_grad_ = false;
+  at::Tensor grad_;
+  void set_requires_grad(bool requires_grad, at::TensorImpl*) override {
+    requires_grad_ = requires_grad;
+  }
+  bool requires_grad() const override { return requires_grad_; }
+  at::Tensor& mutable_grad() override { return grad_; }
+  const at::Tensor& grad() const override { return grad_; }
+  const at::Tensor& fw_grad(uint64_t, const at::TensorBase&) const override {
+    return grad_;
+  }
+  void set_fw_grad(const at::TensorBase&, const at::TensorBase&, uint64_t,
+                   bool) override {}
+};
+
+struct MinimalAutogradMetaFactory : public c10::impl::AutogradMetaFactory {
+  std::unique_ptr<c10::AutogradMetaInterface> make() const override {
+    return std::make_unique<MinimalAutogradMeta>();
+  }
+  const at::Tensor& undefined_tensor() const override {
+    static const at::Tensor undefined_tensor_{};
+    return undefined_tensor_;
+  }
+};
+
+MinimalAutogradMetaFactory minimal_autograd_meta_factory;
+c10::impl::AutogradMetaFactoryRegisterer minimal_autograd_meta_registerer(
+    &minimal_autograd_meta_factory);
+
 at::Tensor make_cpu_tensor(const int64_t* sizes, size_t ndim,
                            c10::ScalarType dtype) {
   c10::IntArrayRef shape(sizes, ndim);

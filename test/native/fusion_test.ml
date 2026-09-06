@@ -575,3 +575,84 @@ let%expect_test "Fusion: a Site.t cannot be forged from outside" =
     self edge: site=rejected site_in=rejected
     producer read twice: site=rejected site_in=rejected
     non-pointwise coordinate: site=rejected site_in=rejected |}]
+
+let%expect_test
+    "Fusion: both admission entry points reject a scan producer, including a \
+     singleton inline scan" =
+  (* A producer whose pixel expression directly embeds a [Scan_at] -- built
+     straight from [Expr.Builder.scan], never through a Region local -- loaded
+     pointwise by an otherwise ordinary consumer. Neither endpoint has a
+     [Region_program] local, so the OLD [admit] (pixel_expression <> None)
+     would have accepted this; only the added scan check rejects it, and both
+     entry points share [admit], so both must. *)
+  let scan_limits =
+    Err.or_raise ~pp_error:Expr.Scan_limits.pp_error
+      (Expr.Scan_limits.create ~max_state:100 ~max_updates:100L)
+  in
+  let scan =
+    Err.or_raise ~pp_error:Expr.Scan.pp_error
+      (Expr.Builder.run
+         (Expr.Builder.scan ~limits:scan_limits ~width:1 ~steps:1
+            ~init:(fun ~lane:_ -> Expr.Builder.return (Expr.Value.const 0.))
+            ~update:(fun ~step:_ ~lane ~previous_at ->
+              Expr.Builder.return
+                (Expr.Value.add (previous_at lane) (Expr.Value.const 1.)))))
+  in
+  let scan_pixel =
+    Expr.Value.scan_at scan
+      ~row:(Expr.Index.clamp_low (Expr.Index.const 1))
+      ~lane:(Expr.Index.clamp_low (Expr.Index.const 0))
+  in
+  let vsg id shape =
+    Tensor_sig.create ~id:(Tensor_id.of_int id) ~name:"" ~shape
+      ~fmt:(Payload.Fmt Payload.F32) ()
+  in
+  let ld id =
+    Expr.Value.load
+      (Expr_bridge.source_of_id (Tensor_id.of_int id))
+      (Expr_bridge.coord_of_vec6 Symbolic.out_vec)
+  in
+  let k =
+    Err.or_raise ~pp_error:Kernel.pp_error
+      (Kernel.create ~inputs:[]
+         ~values:
+           [
+             {
+               Kernel.Value.id = Tensor_id.of_int 0;
+               sg = vsg 0 (s1c 1);
+               computation = Region_program.pixel scan_pixel;
+               result = Kernel.Result_conversion.Round_f32;
+             };
+             {
+               Kernel.Value.id = Tensor_id.of_int 1;
+               sg = vsg 1 (s1c 1);
+               computation =
+                 Region_program.pixel
+                   (Expr.Value.add (ld 0) (Expr.Value.const 1.));
+               result = Kernel.Result_conversion.Round_f32;
+             };
+           ]
+         ~outputs:[ Tensor_id.of_int 1 ]
+         ())
+  in
+  let edge =
+    { Kernel.Use.producer = Tensor_id.of_int 0; consumer = Tensor_id.of_int 1 }
+  in
+  let verdict r =
+    match r with
+    | Ok _ -> "accepted"
+    | Error e ->
+        Format.asprintf "%a" (Core.Pretty.error_kind Kernel_elab.pp_error) e
+  in
+  let _, decisions = Fusion_plan.plan k in
+  Format.printf "site=%s@.site_in=%s@.planner:@,%a@."
+    (verdict (Kernel_elab.site k edge))
+    (verdict (Kernel_elab.site_in (Kernel_elab.Analysis.of_kernel k) edge))
+    (Fmt.list ~sep:Fmt.cut Fusion_plan.Decision.pp)
+    decisions;
+  [%expect
+    {|
+    site=t0->t1 has a scan in its pixel expression
+    site_in=t0->t1 has a scan in its pixel expression
+    planner:
+    reject t0: t0->t1 is not a pointwise site (t0->t1 has a scan in its pixel expression) |}]

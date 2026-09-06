@@ -254,6 +254,20 @@ let int_arg esc ?(default = 0) (node : Pytorch_types.Node.t) name =
       malformed esc
         (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int })
 
+(* A REQUIRED [int]: no default, so omission is [`Missing_arg] -- the same
+   fix [float_arg]'s own comment gives for smuggling a default into a field
+   the schema declares with none. *)
+let required_int_arg esc (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> malformed esc (`Missing_arg { op = node.target; arg = name })
+  | Some { arg = Argument.Int i; _ } -> i
+  | Some { arg = Argument.Sym_int sv; _ } -> sym_int_value esc node name sv
+  | Some _ ->
+      malformed esc
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Int })
+
 (* An [int?] whose ABSENCE is a distinguishable answer, as [float_opt_arg_opt]
    is for [pad]'s fill: [slice]'s [start]/[end] default to the whole axis, and
    [Aten_shape.resolve_slice] is what knows that. An explicit [Argument.None] is
@@ -287,6 +301,19 @@ let bool_arg esc ?(default = false) (node : Pytorch_types.Node.t) name =
     List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
   with
   | None -> default
+  | Some { arg = Argument.Bool b; _ } -> b
+  | Some _ ->
+      malformed esc
+        (`Wrong_arg_kind { op = node.target; arg = name; expected = `Bool })
+
+(* A REQUIRED [bool]: no default, so omission is [`Missing_arg] -- the same
+   fix [float_arg]'s own comment gives for smuggling a default into a field
+   the schema declares with none. *)
+let required_bool_arg esc (node : Pytorch_types.Node.t) name =
+  match
+    List.find_opt (fun (a : NamedArgument.t) -> a.name = name) node.Node.inputs
+  with
+  | None -> malformed esc (`Missing_arg { op = node.target; arg = name })
   | Some { arg = Argument.Bool b; _ } -> b
   | Some _ ->
       malformed esc
@@ -565,6 +592,7 @@ let is_nontrivial_node (node : Pytorch_types.Node.t) =
   | "torch.ops.aten.max_pool2d_with_indices.default"
   | "torch.ops.aten.rms_norm.default" | "torch.ops.aten.layer_norm.default"
   | "torch.ops.aten.native_layer_norm.default" | "torch.ops.aten.addmm.default"
+  | "torch.ops.aten.lstm.input"
   | "torch.ops.aten.scaled_dot_product_attention.default"
   | "torch.ops.aten.upsample_bilinear2d.vec"
   | "torch.ops.aten.upsample_nearest2d.vec" ->

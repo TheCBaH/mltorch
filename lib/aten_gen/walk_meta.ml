@@ -1,8 +1,8 @@
 (* Hand-crafted meta augmenting native_functions.yaml for the random-walk
    generator (Aten_walk_gen). See walk_meta_entry.ml for what [t]'s fields
    mean; the op entries themselves live in walk_meta_conv.ml, _pool.ml,
-   _reduce.ml, _pointwise.ml, _shape.ml, _linalg.ml, _norm.ml, and
-   _attention.ml. This file is now just the registry.. *)
+   _reduce.ml, _pointwise.ml, _shape.ml, _linalg.ml, _norm.ml, _attention.ml,
+   and _recurrent.ml. This file is now just the registry.. *)
 
 type t = Walk_meta_entry.t
 
@@ -15,6 +15,7 @@ open Walk_meta_shape
 open Walk_meta_linalg
 open Walk_meta_norm
 open Walk_meta_attention
+open Walk_meta_recurrent
 
 let entries =
   [
@@ -58,6 +59,7 @@ let entries =
     matmul;
     native_batch_norm;
     sdpa;
+    lstm;
   ]
 
 let find target = List.find_opt (fun e -> e.target = target) entries

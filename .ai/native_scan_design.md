@@ -2,23 +2,40 @@
 
 ## Status and scope
 
-Status: **landed, including execution.** This record fixes the
-representation, error, meter, budget, and rendering contracts for the
-bounded-scan primitive, per the LSTM foundation's staged plan, and is updated
-in place as each piece lands rather than only once at the end: `Expr`
-(`Scan`/`Scan_limits`/`Scan_meter`/`Scan_admission`, both value projections,
-inline evaluation) landed first; `Region_local`/`Region_program` construction,
-checking and rendering (this section and "RHS rendering" below) landed next;
-the four `Kernel.Limits` resource fields, `Region_program.preflight`'s static
-measures, and `Region_execution.lower`/`lower_region`'s validated artifact
-(see "Static measures" and "Validated execution artifact" below) landed
-third. Running a scan-backed Region program — `Region_execution`/`Region_eval`
-actually executing a trace, sharing one metered budget across a Region key —
-landed fourth (see "Region propagation" and "Runtime metering" below); LSTM
-arithmetic itself is a later, separate step and is still not implemented. Read
-it together with `native_compute_design.md` (Region computation) and
-`native_kernel_dsl_design.md` (Kernel IR and `Hard` ceilings), which it
-extends rather than restates.
+Status: **Stage 1 (the reusable scan foundation) landed and accepted.** This
+record fixes the representation, error, meter, budget, and rendering
+contracts for the bounded-scan primitive, per the LSTM foundation's staged
+plan, and is updated in place as each piece lands rather than only once at
+the end: `Expr` (`Scan`/`Scan_limits`/`Scan_meter`/`Scan_admission`, both
+value projections, inline evaluation) landed first; `Region_local`/
+`Region_program` construction, checking and rendering (this section and "RHS
+rendering" below) landed next; the four `Kernel.Limits` resource fields,
+`Region_program.preflight`'s static measures, and `Region_execution.lower`/
+`lower_region`'s validated artifact (see "Static measures" and "Validated
+execution artifact" below) landed third. Running a scan-backed Region
+program — `Region_execution`/`Region_eval` actually executing a trace,
+sharing one metered budget across a Region key — landed fourth (see "Region
+propagation" and "Runtime metering" below); re-measuring `specialize_pixel`'s
+inlined result against scan limits and rejecting a scan outright at the
+shared `Kernel_elab.admit` fusion rule landed fifth (see "Specialization and
+rewrite re-measurement" and "Fusion admission" below); grounding's own
+construction-fuel/pair-size budget accounting (`Ground_eval`'s `Budget`/
+`Meter`/`Term`, general to all grounding, not scan-specific) landed sixth
+(see "Grounding meter and verdict mapping" below). Grounding still rejects
+any `Scan_at` it reaches with `` `Scan_at_unsupported `` — executing a scan
+during grounding itself remains unimplemented, tracked as a later, separate
+step, not a Stage 1 requirement. A scan-backed Region program now executes,
+agrees, and is checked end to end through Direct, Region, Stage and Kernel
+paths (`test/native/region_scan_construction_test.ml`'s Stage 1 acceptance
+tests). **LSTM arithmetic itself has since landed** (project steps 12-16;
+see `.ai/pt2_model_support.md`'s 2026-09-06 entry for the real-corpus
+evidence) — the "later, separate step" this line used to describe is done;
+`Scan_at_unsupported` in grounding is the one piece of this record's own
+scope that remains open, and project step 18 is where its cost is assessed
+before any implementation is attempted. Read it together with
+`native_compute_design.md` (Region
+computation) and `native_kernel_dsl_design.md` (Kernel IR and `Hard`
+ceilings), which it extends rather than restates.
 
 Everything here targets an inference-only, ordered, single-step-lookback
 recurrence over two indices (`row`, `lane`), sufficient for LSTM's per-batch,
@@ -564,9 +581,17 @@ cannot compute without walking the finished graph. This is exactly why
 stated as a narrowing rather than implied as a whole-graph guarantee: there
 is no single choke point before `Eval_direct.run` or `Stage_program.ground`
 begin materializing. Direct and Stage-ground executions remain covered by
-the per-key bound and the runtime meter alone. Re-verify all three censuses
-against the finished LSTM programs in step 16, once real liveness and
-fan-out are measurable.
+the per-key bound and the runtime meter alone.
+
+**Re-verified against the finished LSTM programs in step 16**
+(`test/native/lstm_scale_test.ml`, both checked-in `sequencer2d_s` shapes):
+measured `scan_updates / keys` is exactly `6144` for both corpus shape
+families, matching this section's own max-per-key estimate precisely, not
+approximately. `Kernel.Limits.default` admits real corpus scale; a limit
+tightened to just under the real per-key count rejects it with a typed
+error. See `.ai/pt2_model_support.md`'s 2026-09-06 entry for the full
+reconciliation, including the `loads`/`reductions` invariant across the two
+shape families this record's own census first noted.
 
 ### Chosen defaults and hard ceilings
 
@@ -816,86 +841,135 @@ this change touches was independently confirmed correctly formatted, and
 ## Specialization and rewrite re-measurement
 
 Region validation admits `Local_scan_at` as a constant-time cached read, but
-`specialize_pixel` replaces it with an inline `Scan_at` — so a chain where a
-later scan cheaply reads an earlier trace becomes, after specialization, a
-descriptor that **re-executes** the earlier scan inside its own update. Cost
-can multiply past the admitted limits while the specialized AST stays
-compact, and today's contract only carries `max_size`/`max_depth`
-(`region_program.mli:39-40`), neither of which is sensitive to this. So
-`specialize_pixel` takes scan limits and re-measures the fully rewritten
-value with a typed error, threaded through `Stage.pixel_body` and
-`Ground_eval`; likewise `substitute_loads` and `substitute_locals` take
-`limits` and re-measure their result. `freshen`, `alpha_normalize`,
-`substitute_output`, `substitute_reducer`, and `map_sources` stay cheap and
-unmeasured — none of them can turn a cached read into a re-executing one.
+`specialize_pixel` (`region_program.ml:84-161`) replaces it with an inline
+`Scan_at` via `Expr.Rewrite.substitute_locals`'s `Scan` case — so a chain
+where a later scan cheaply reads an earlier trace becomes, after
+specialization, a descriptor that **re-executes** the earlier scan inside its
+own update. Cost can multiply past the admitted limits while the specialized
+AST stays compact, and the size/depth budget alone is not sensitive to this.
+
+Landed: `specialize_pixel` and `reconstructs` take `~scan_limits:
+Expr.Scan_limits.t` and, once `max_size`/`max_depth` hold (both branches:
+already-Pixel and freshly-rewritten), call `Expr.Fold.scan_cost` on the
+**final** value and compare against `scan_limits`, failing with the existing
+`` `Scan (Expr.Scan.State_over_limit _ | Updates_over_limit _) `` — no new
+error case, since the payload is already exactly "the limit", matching this
+file's own convention. This is sound as one linear pass, not a second
+unbounded traversal: by construction the size/depth check that already ran
+bounds the tree `scan_cost` walks. It is also sufficient on its own —
+`substitute_locals`'s `Scan` case reuses the `Scan_at` wrapper unchanged
+(only `init`/`update`'s subtrees and identities change), so a nested chain's
+multiplied cost is exactly what `scan_cost`'s own recursive `Scan_at` case
+already computes; `substitute_loads` and `substitute_locals` do not need
+their own `limits` parameter or re-measurement, and neither do the cheap
+scope-preserving helpers (`freshen`, `alpha_normalize`, `substitute_output`,
+`substitute_reducer`, `map_sources`), none of which can turn a cached read
+into a re-executing one. The scan limits reach `specialize_pixel` from
+`Stage_program.Stage.pixel_body` and `Ground_eval.Env.pixel_body`/`body_at`,
+which narrows them from `Kernel.Limits.t` via `Kernel.Limits.scan_limits`
+exactly as `Region_execution.lower`/`Stage_program.lower` already do.
+
+**A real, load-bearing bug surfaced and was fixed in the same change.**
+`Expr.Fold.measure_with_locals` (the traversal `specialize_pixel`'s own
+private `preflight` uses to re-measure size/depth as each local is inlined)
+called its `local` callback for *every* `Local`/`Local_at`/`Local_scan_at`
+node, including a scan's own `prev` binder occurrences inside `update` —
+which is a bound reference to the scan's own state row, never a Region
+local, and has no entry in the caller's id-keyed map. Measuring any
+scan-backed program through `specialize_pixel` — even a single, non-chained
+scan — raised `Not_found` before this fix. `measure_with_locals` now threads
+a `bound : Local_var.Set.t` scope through its `value` walk, adding
+`s.Scan.prev` to `bound` only for `s.Scan.update` (matching `prev`'s own
+scope: free in `init`, bound in `update`), and skips the `local` callback for
+a bound id — the same bound-tracking convention `scoped_locals`/`keep`
+already use for the analogous free-locals queries. The chained-scan
+regression in `test/native/region_program_test.ml` is what surfaced this: it
+could not even reach its intended budget check until this fix landed.
 
 ## Grounding meter and verdict mapping
 
-`Ground_eval` (`lib/native/transform/ground_eval.ml`/`.mli`) is unmetered
-today in exactly the way construction cost matters: `at`
-(`ground_eval.mli:113`, whose own doc comment states both `at`'s traversal
-and `expand` are total) and the internal `ground`/`body_at`
-(`ground_eval.ml:245`, `:417-428`) build without any budget. `expand`
-(`ground_eval.ml:477-525`) already threads a `~budget:int` counter, but only
-charges `n + Ground_expr.size body` **after** `body_at` has already fully
-constructed `body` (`:490-492`) — so the unmetered blowup this record targets
-happens inside the very call that is supposed to be budgeted.
-
-Two exact accounts, both **reset per proof attempt**, both shared by both
-roots within an attempt:
-
-| Account | Unit and charge | Reset |
-|---|---|---|
-| `max_nodes : int` | Current logical nodes in `lhs + rhs`; a new root costs its size, replacing a one-node cell with size `n` costs `n - 1` | One proof attempt |
-| `max_ground_nodes : int64` | Cumulative logical node occurrences constructed or copied, including discarded intermediates | One proof attempt |
-
-Ground the left root then the right, and expand them in that same explicit
-sequence — never rely on tuple-argument evaluation order for charging or
-error precedence. The Structural attempt and the subsequent constant-bound
-attempt each get fresh accounts; a discarded attempt must never consume the
-authoritative attempt's allowance, and a new coordinate/member comparison
-starts fresh as well.
-
-For construction fuel: a newly created node costs one plus any logical
-subtrees copied from cached state; attaching a freshly constructed child (or
-moving an accumulator into its sole successor) transfers already-charged
-occurrences without re-charging them; reusing a cached previous lane or cell
-body costs its cached logical size **at every embedding**, even when the
-implementation reuses a pointer; discarded scan rows and max-pool
-accumulators consume fuel with no refund. The pair account (`max_nodes`)
-charges only retained results and replacement deltas, never unchanged
-ancestors again, and refuses a selection that would exceed its remaining
-allowance *before* embedding it — a cached logical size makes this check
-possible without walking the oversized value. All size arithmetic is
-checked, matching this repository's general 32-bit-`int` rule for
-`js_of_ocaml`-reachable code; a checked logical size is stored beside every
-grounded intermediate rather than recomputed with `Ground_expr.size`, since
-`Ground_expr` has ordinary tree semantics and pointer sharing does not bound
-a recursive consumer walking it. A sharing-aware ground IR remains a
-separate, later design question, not addressed here.
+Status: **landed.** `Ground_eval` gains `Budget`/`Meter`/`Term` and the two
+budget error cases below; `at`/`expand` are metered and `Map_verify`'s
+budget/verdict vocabulary is migrated to match. Both roots share both
+accounts within one proof attempt, reset per attempt, exactly as designed
+below — with two deliberate simplifications from the original sketch, called
+out where they apply.
 
 ```ocaml
 module Budget : sig type t = { max_ground_nodes : int64; max_nodes : int } end
 module Meter  : sig type t val create : Budget.t -> t end
 module Term   : sig type t val expression : t -> Ground_expr.t val size : t -> int64 end
 val default_budget : Budget.t
-(* Extend [Ground_eval.error] with exactly: *)
+(* [Ground_eval.error] gains exactly: *)
 (* | `Ground_nodes_over_limit of int64 | `Pair_nodes_over_limit of int *)
 val at     : meter:Meter.t -> Env.t -> Tensor_id.t -> Vec6.coord -> (Term.t, error) Err.t
 val expand : meter:Meter.t -> boundary:(Ground_expr.Origin.t -> Cluster_var.t option) ->
              Env.t -> Term.t -> (Term.t, error) Err.t
 ```
 
-`at` registers a root in its meter; `expand` replaces that registered root
-and returns its successor — the old term stops being active. Both live in
-`Ground_eval`, which must not depend on `Map_verify`, so registration and the
-pair delta cannot be forgotten by a caller. A term belongs to its creating
-meter; passing a foreign or already-replaced term is `invalid_arg`, checked
-by an internal identity/generation token — a failed construction ends that
-attempt outright, with no way to probe a partial frontier. Nonpositive
-budget fields behave as zero allowance (the first positive charge fails);
-pair admission is checked before construction fuel when both would reject
-the same insertion, giving deterministic precedence.
+Two exact accounts, both **reset per proof attempt** (a fresh `Meter.t` per
+`Map_verify_check.compare_at` `attempt` call, visible at its two call
+sites — Structural, then Constants — rather than an internal reset method):
+
+| Account | Unit and charge | Reset |
+|---|---|---|
+| `max_nodes : int64` internally, `Budget.max_nodes : int` at the boundary | Current logical nodes in `lhs + rhs`; a new root costs its size, replacing a one-node cell with size `n` costs `n - 1` | One proof attempt |
+| `max_ground_nodes : int64` | Cumulative logical node occurrences constructed, including a cell later left unexpanded and a `Const_ssa_symbolic`-cached subtree charged its measured size at the one embedding that spliced it in | One proof attempt |
+
+`ground`/`leaf`/`max_pool` (`ground_eval.ml`) all route their node
+construction through one `node esc meter v` helper (charge 1, return `v`),
+so `Meter.ground_nodes` counts exactly the nodes this module allocates,
+charged **before** the caller of `ground esc ~env ~meter ...` ever sees the
+oversized result — the old `expand`'s `~budget:int` counter charged
+`Ground_expr.size body` only *after* `body_at` had already built the whole
+`body`, which is exactly the gap this closes. `at` registers a brand-new
+root's whole measured size against `Meter.pair_nodes`; `expand` walks a
+`Term.t`'s cells, and for each one with a producer stage computes the
+**delta** `size (Round (body_at ...)) - 1` (the cell it replaces already
+contributed 1) and only commits the replacement if the resulting total stays
+within `Budget.max_nodes` — a cell whose replacement would cross it is left
+as a `Cell` (so `expandable` stays true) and the walk continues to other
+cells in the same round, rather than aborting the whole round. `expand`
+seeds its running total at `meter.pair_nodes` (not zero), so it inherits
+whatever the *other* root sharing this meter currently spends, and the
+resulting term's own size is that running total minus what the other root
+contributes — this is what makes the two roots' budgets genuinely shared
+rather than merely reset together. `Map_verify_check.settle` recognizes
+exhaustion empirically: if a round leaves **both** sides' expressions
+structurally unchanged while something is still `expandable`, no construction
+fuel error fired (that would have propagated as `` `Ground_nodes_over_limit ``),
+so the only remaining explanation is the shared pair cap, reported as
+`Unproved (Max_nodes budget.max_nodes)` — the configured limit, not an
+observed size, unlike the retired code this replaces.
+
+All size arithmetic is checked (saturating, this repository's general
+32-bit-`int`-under-`js_of_ocaml` rule): a `Term.t`'s `size` is measured once,
+via `Ground_expr.size`, immediately after construction-fuel metering has
+already proved the tree cannot be larger than `max_ground_nodes` — never the
+unmetered rediscovery this record warns against, since the tree is small
+enough by the time anything walks it. A sharing-aware ground IR remains a
+separate, later design question, not addressed here.
+
+**Two simplifications from the original sketch, both deliberate:**
+
+- **No `invalid_arg` identity/generation token.** `Term.t` is immutable and
+  `expand` *consumes* its argument, returning a new value rather than
+  mutating anything reachable from the old one; neither operation reads any
+  per-term meter-identity field, so there is no observable difference
+  between "a term from a different meter" and "a term from this one" for
+  either function to police, and the token would guard an invariant nothing
+  can actually violate. Recorded here rather than silently dropped, in case a
+  future caller pattern (e.g. holding a `Term.t` across two different
+  `Meter.t` values) reintroduces a real hazard this would then need to catch.
+- **Construction fuel takes precedence over the pair cap for the SAME
+  replacement**, not the reverse the original sketch specified. `expand`
+  builds a candidate replacement's whole body (charging `max_ground_nodes` as
+  it goes, via the same `node`/`ground` path `at` uses) *before* computing
+  its size delta against `max_nodes` — checking the pair cap first would need
+  a size estimate without constructing the replacement, which `Region_program`
+  does not expose independent of actually specializing it. A replacement that
+  is oversized on both counts at once fails with `` `Ground_nodes_over_limit ``,
+  not `` `Pair_nodes_over_limit ``.
 
 **Profile migration.** `Map_verify.Budget.t`
 (`map_verify_types.ml:43-84`/`map_verify.mli:60-84`) gains
@@ -944,30 +1018,57 @@ relative to its immediate neighbors going forward (immediately before
 `Max_nodes`) without reordering the pre-existing violation, which is out of
 this change's scope.
 
-**Regressions required** (isolate each budget by giving the other
-sufficient allowance): pair exhaustion (oversized root reduction, root scan,
-scan behind a later expanded cell, dense repeated-lane recurrence, two roots
-each using half-to-three-quarters of the cap, a later expansion crossing it)
-expecting `Unproved (Max_nodes limit)`; pair accounting (an exactly-at-cap
-pair surviving several replacement rounds, a sparse scan projection and
-`Max_pool.Value` fitting despite discarded intermediates); construction
-exhaustion (discarded scan rows/max-pool accumulators exhausting fuel while
-the pair fits, repeated cached embeddings charged at every embedding)
-expecting `Unproved (Max_ground_nodes limit)`; and reset/boundary cases
-(fresh full budgets per attempt, exactly-limit vs. next-charge distinguishing
-the two verdicts).
+**Regressions landed**, isolating each budget by giving the other generous
+allowance. `test/native/ground_eval_budget_test.ml` exercises `Ground_eval`
+directly (no `Map_verify` scaffolding needed, since `Budget`/`Meter`/`Term`
+are public): an unrolled `Reduce` of extent 6 (13 nodes by hand) succeeds
+under a generous `max_ground_nodes` and fails with the exact configured limit
+under a tight one; two single-node stage roots registered against one
+`Meter.t` — the first exactly fills `max_nodes`, the second (of identical
+size) is rejected with that same limit, proving the account is genuinely
+shared rather than per-root; and one `expand` call that would push a
+replacement one node past the cap is skipped (the term keeps its unexpanded
+`Cell`, size unchanged) while the same call under a cap widened by exactly
+one node performs the replacement (`Term.size` grows by precisely the
+computed delta) — the "replacement at the exact pair cap" case. `test/native
+/outcome_label_test.ml` covers the full verdict/label migration (17→18,
+`Max_ground_nodes` reachable, canonical order). No scan-specific regression
+exists here: grounding still rejects any `Scan_at` outright
+(`` `Scan_at_unsupported ``, unchanged by this step), so the scan/recurrence
+cases the original sketch listed do not yet apply — they become relevant only
+once grounding itself supports a scan, a later step. Repeated
+`Const_ssa_symbolic`-cached embeddings are exercised only indirectly, by the
+existing (unchanged, still green) Const-SSA symbolic test suite, not by a
+dedicated over-limit regression — a disclosed gap, not a silent one.
 
 ## Fusion admission
 
-`Kernel_elab.admit` (`kernel_elab.ml:71-76`) rejects fusion only when
-`Kernel.pixel_expression` is `None` — a singleton `Scan_at` program is still
-a pixel expression by that test, so it is not rejected today. `admit` gains
-an explicit scan/recurrent-effect summary, tested at both the planner and
-direct entry points. `Fusion_plan`'s `pointwise` test
-(`fusion_plan.ml:145-148`) already covers the *planner* path only, because it
-happens to consult `Region_program.Fold.binders`, which will report a scan's
-`lane`/`step` binders once they exist — `Kernel_elab.admit` needs its own
-check because it does not consult `Fold.binders` at all.
+`Kernel_elab.admit` previously rejected fusion only when
+`Kernel.pixel_expression` was `None` — a singleton `Scan_at` program is still
+a pixel expression by that test, so it was not rejected. Landed: `admit`
+(`kernel_elab.ml:81-99`) now checks, once both endpoints resolve to a pixel
+expression, whether *either* one's pixel expression contains a scan, via a
+`has_scan` predicate reusing `Expr.Fold.scan_cost` (`snd (scan_cost e) > 0`
+holds exactly when a `Scan_at` node is present, since every scan reserves
+`2 * width >= 2` live state and `Expr.Builder.scan` rejects `width <= 0` —
+including a zero-step scan, whose `updates` alone would read as zero). A hit
+fails with the new `` `Recurrent_use of Kernel.Use.t ``, inserted
+alphabetically between `` `Not_a_dependency `` and `` `Regional_computation ``.
+Fusion between two scan-free values (including ones containing ordinary
+`Reduce`s) is unaffected.
+
+Because `site_in` and `site` both call this one `admit`, both the planner
+and a direct caller reject consistently — no separate planner-side check was
+added. `Fusion_plan`'s own `pointwise` table (`fusion_plan.ml:145-148`)
+excludes *any* value with binders (a reduction or a scan) from being a fusion
+*producer* at all, but only screens the `consumer_is_pointwise` side; a
+scan-containing *producer* loaded by an otherwise-pointwise consumer reaches
+`site_in` regardless, which is exactly the case `test/native/fusion_test.ml`
+("both admission entry points reject a scan producer, including a singleton
+inline scan") exercises: a plain `Scan_at` pixel value (no Region local)
+loaded once, pointwise, by a scan-free consumer — accepted by every
+pre-existing check, rejected only by the new one, at `site`, `site_in`, and
+through `Fusion_plan.plan`.
 
 ## RHS rendering
 

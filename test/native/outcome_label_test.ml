@@ -49,6 +49,7 @@ let every_verdict : Verdict.t list =
     Unproved (Unproved.Eval (`Unknown_edge (Tensor_id.of_int 0)));
     Unproved
       (Unproved.Exhausted { coord; lhs = member `Src; rhs = member `Dst });
+    Unproved (Unproved.Max_ground_nodes 1L);
     Unproved (Unproved.Max_nodes 1);
     Unproved Unproved.Max_rounds;
     Unproved (Unproved.Max_clusters 1);
@@ -70,7 +71,7 @@ let%expect_test "every verdict's label is in Verdict.labels" =
   Printf.printf "verdicts=%d labels=%d\n"
     (List.length every_verdict)
     (List.length Verdict.labels);
-  [%expect {| verdicts=17 labels=17 |}]
+  [%expect {| verdicts=18 labels=18 |}]
 
 let%expect_test "every entry in Verdict.labels is reachable" =
   let produced = List.map Verdict.label every_verdict in
@@ -93,6 +94,7 @@ let%expect_test "Verdict.labels is the canonical order, printed once" =
     tested (disagrees)
     unproved (grounding failed)
     unproved (frontier exhausted)
+    unproved (over max_ground_nodes)
     unproved (over max_nodes)
     unproved (over max_rounds)
     unproved (global verification budget exhausted)

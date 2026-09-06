@@ -144,6 +144,32 @@ let samples : Op.t list =
         bias = Some b;
       };
     Leaky_relu { Pointwise.Leaky_relu.params = { negative_slope = 0.2 }; x };
+    (* One layer, one direction, WITH bias: distinct ids for every one of the
+       seven operand roles (input, weight_ih, weight_hh, bias_ih, bias_hh, h0,
+       c0), so a codec confusing any two still prints and round-trips
+       differently. [reverse = None] is exercised here; [Sdpa]'s own sample
+       just above already covers this file's "optional operand present"
+       case, so this one leaves it absent instead of restating that point. *)
+    Lstm
+      {
+        Lstm.Lstm.params =
+          { hidden_size = 2; input_size = 3; batch_first = false };
+        layers =
+          [
+            {
+              Lstm.Lstm.Layer.forward =
+                {
+                  Lstm.Lstm.Direction.weight_ih = x;
+                  weight_hh = y;
+                  bias = Some (w, b);
+                };
+              reverse = None;
+            };
+          ];
+        input = t_ 4;
+        h0 = t_ 5;
+        c0 = t_ 6;
+      };
     Max_keepdims { Ops4.Max_keepdims.params = { dims = [ H; W ] }; x };
     Max_pool2d { Pool.MaxPool2d.params = max_params; x };
     Mean_keepdims { Ops4.Mean_keepdims.params = { dims = [ H; W ] }; x };
@@ -298,7 +324,7 @@ let samples : Op.t list =
 let%expect_test "op4: every constructor is sampled" =
   Format.printf "samples: %d, registry: %d@." (List.length samples)
     (List.length Op.op_registry);
-  [%expect {| samples: 59, registry: 59 |}]
+  [%expect {| samples: 60, registry: 60 |}]
 
 let%expect_test "op4: printed" =
   List.iter (fun op -> Format.printf "%a@." Op.pp op) samples;
@@ -351,6 +377,12 @@ let%expect_test "op4: printed" =
     index_tensor4 self=t0 index=t1 params={axis=N}
     layer_norm x=t0 weight=t2 bias=t3 params={dims=[C]; eps=1e-05}
     leaky_relu x=t0 params={negative_slope=0.2}
+    lstm
+      input=t4
+      layers=[{forward={weight_ih=t0; weight_hh=t1; bias=(t2,t3)}; reverse=none}]
+      h0=t5
+      c0=t6
+      params={hidden_size=2; input_size=3; batch_first=false}
     max_keepdims x=t0 params={dims=[H, W]}
     max_pool2d
       x=t0
@@ -408,7 +440,7 @@ let%expect_test "op4: round-trips through JSON" =
       if not same then Format.printf "MISMATCH@ %a@ -> %a@." Op.pp op Op.pp back)
     samples;
   Format.printf "round-tripped %d ops@." (List.length samples);
-  [%expect {| round-tripped 59 ops |}]
+  [%expect {| round-tripped 60 ops |}]
 
 (* ---- Group-2 payloads the constructor sweep above does not reach --------- *)
 

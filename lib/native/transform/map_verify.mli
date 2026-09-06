@@ -60,9 +60,13 @@ end
 module Budget : sig
   (* Counted, never timed, so a verdict is deterministic and a golden is
      stable. [max_coords] is checked against [Vec6.numel] BEFORE any work,
-     which is what stops this being pointed at a real model's activations. *)
+     which is what stops this being pointed at a real model's activations.
+     [max_ground_nodes]/[max_nodes] are grounding's own two accounts -- see
+     [Ground_eval.Budget] and the design record's "Grounding meter and
+     verdict mapping". *)
   type t = {
     max_coords : int;
+    max_ground_nodes : int64;
     max_nodes : int;
     max_rounds : int;
     sample : int option;
@@ -191,6 +195,7 @@ module Unproved : sig
         rhs : Member.Erased.t;
       }
       (* frontier fully expanded, terms still differ *)
+    | Max_ground_nodes of int64
     | Max_nodes of int
     | Max_rounds
     | Max_clusters of int

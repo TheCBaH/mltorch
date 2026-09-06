@@ -439,6 +439,60 @@ let per_op () =
                ~query ~key ~value ~mask ())
         in
         (g, [ q_shape; k_shape; v_shape; mask_shape ]) );
+      (* One layer, one direction, WITH bias, time-first: the same tiny
+         config test/native/lstm_graph_test.ml's own hand-derived-reference
+         fixture uses, reused here since Direct-vs-Symbolic agreement is all
+         this sweep checks (see that file for the ATen-independent oracle
+         comparison). Every one of the three outputs is exposed, the same
+         "not just the first" discipline this file's header states. *)
+      ( "lstm",
+        let seq_shape = s4 ~n:1 ~h:3 ~w:1 ~c:2 in
+        let state_shape = s4 ~n:1 ~h:1 ~w:1 ~c:2 in
+        let wih_shape = s4 ~n:8 ~h:1 ~w:1 ~c:2 in
+        let whh_shape = s4 ~n:8 ~h:1 ~w:1 ~c:2 in
+        let bias_shape = s4 ~n:8 ~h:1 ~w:1 ~c:1 in
+        let g =
+          build
+            ~outputs:(fun (o, h, c) -> [ o; h; c ])
+            (let open Builder in
+             let* x = input ~shape:seq_shape () in
+             let* weight_ih = input ~shape:wih_shape () in
+             let* weight_hh = input ~shape:whh_shape () in
+             let* bias_ih = input ~shape:bias_shape () in
+             let* bias_hh = input ~shape:bias_shape () in
+             let* h0 = input ~shape:state_shape () in
+             let* c0 = input ~shape:state_shape () in
+             lstm
+               {
+                 Lstm.Lstm.hidden_size = 2;
+                 input_size = 2;
+                 batch_first = false;
+               }
+               ~input:x
+               ~layers:
+                 [
+                   {
+                     Lstm.Lstm.Layer.forward =
+                       {
+                         Lstm.Lstm.Direction.weight_ih;
+                         weight_hh;
+                         bias = Some (bias_ih, bias_hh);
+                       };
+                     reverse = None;
+                   };
+                 ]
+               ~h0 ~c0 ())
+        in
+        ( g,
+          [
+            seq_shape;
+            wih_shape;
+            whh_shape;
+            bias_shape;
+            bias_shape;
+            state_shape;
+            state_shape;
+          ] ) );
       (* [groups=2] on [C=4]: two groups of two channels each, so a wrong
          group window (reducing over every channel, or one channel alone)
          would be visible against [layer_norm]/[rms_norm]'s whole-channel

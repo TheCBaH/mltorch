@@ -193,7 +193,9 @@ let%expect_test "Authored Regions reconstruct their legacy scalar oracles" =
     let program = (List.hd symbolic.Stage_program.stages).computation in
     Err.or_raise ~pp_error:Region_program.pp_error
       (Region_program.reconstructs ~max_size:Kernel.Limits.default.max_size
-         ~max_depth:Kernel.Limits.default.max_depth ~pixel program)
+         ~max_depth:Kernel.Limits.default.max_depth
+         ~scan_limits:(Kernel.Limits.scan_limits Kernel.Limits.default)
+         ~pixel program)
   in
   let rms_pixel =
     let module C = Norm.RmsNorm.Legacy_pixel (Symbolic) in
@@ -409,12 +411,15 @@ let%expect_test "transform grounding reads an authored Stage structurally" =
   let stage = List.hd symbolic.Stage_program.stages in
   let program = { symbolic with stages = [ stage ] } in
   let env = Ground_eval.Env.of_program program ~side:`Src in
+  let meter = Ground_eval.Meter.create Ground_eval.default_budget in
   let result =
-    Ground_eval.at env stage.id (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0)
+    Ground_eval.at ~meter env stage.id
+      (Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0)
   in
   let reads_input =
     Result.fold
-      ~ok:(fun value ->
+      ~ok:(fun term ->
+        let value = Ground_eval.Term.expression term in
         not (Ground_expr.Cell.Set.is_empty (Ground_expr.cells value)))
       ~error:(fun _ -> false)
       result

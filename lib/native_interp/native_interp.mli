@@ -90,6 +90,12 @@ type metadata_role =
   | `Layer_norm_weight
   | `Linear_bias
   | `Linear_weight
+  | `Lstm_bias
+  | `Lstm_c0
+  | `Lstm_h0
+  | `Lstm_input
+  | `Lstm_weight_hh
+  | `Lstm_weight_ih
   | `Matmul_other
   | `Matmul_self
   | `Mean_input
@@ -400,6 +406,7 @@ type malformed =
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
   | `Index_list of Index_list.t
   | `Live_layer_norm_stats of Live_layer_norm_stats.t
+  | `Lstm_reject of Lstm.Lstm.Reject.t
     (** [native_layer_norm]'s [mean]/[rstd] are dropped, and this is what
         refuses a graph that reads one. Not the batch-norm case: those trailing
         outputs are recorded size-0, these are real tensors that simply happen

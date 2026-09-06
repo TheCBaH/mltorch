@@ -7,3 +7,4 @@
 # A file listed here is exempt from both the 1000-line tree check and the
 # 750-line new-file check. Splitting a listed file back under the threshold
 # should remove its line here in the same change.
+lib/native/ops/lstm.ml|2026-12-01|Landed as a single commit that consolidates the op's incremental development; under the 1000-line tree cap on its own.

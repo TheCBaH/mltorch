@@ -5,6 +5,7 @@
 type error =
   | Invalid_partition
   | Invalid_program of Region_program.error
+  | Invalid_shape of Shape_error.t
   | Missing_operand of Tensor_id.t
   | Output_ordinal of int
   | Output_shape
@@ -15,6 +16,7 @@ let pp_error fmt = function
   | Invalid_partition -> Region_context.pp_error fmt Invalid_partition
   | Invalid_program error ->
       Region_context.pp_error fmt (Region_context.Invalid_program error)
+  | Invalid_shape error -> Shape_error.pp fmt error
   | Missing_operand id -> Fmt.pf fmt "missing operand %a" Tensor_id.pp id
   | Output_ordinal output -> Fmt.pf fmt "unsupported output ordinal %d" output
   | Output_shape -> Fmt.string fmt "output shape does not match the input"
@@ -28,8 +30,8 @@ let check_output ~output ~output_shape ~(expected : Vec6.shape) =
   else Err.return ()
 
 let is_region_authored = function
-  | Graph_ir.Layer_norm _ | Graph_ir.Rms_norm _ | Graph_ir.Sdpa _
-  | Graph_ir.Softmax _ ->
+  | Graph_ir.Layer_norm _ | Graph_ir.Lstm _ | Graph_ir.Rms_norm _
+  | Graph_ir.Sdpa _ | Graph_ir.Softmax _ ->
       true
   | _ -> false
 
@@ -79,6 +81,81 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
           | Region_context.Invalid_partition -> Invalid_partition
           | Region_context.Invalid_program error -> Invalid_program error)
         (Norm.LayerNorm.Computation.program ~limits params ~x ~weight ~bias)
+  | Lstm { Lstm.Lstm.params; layers; input = input_id; h0 = h0_id; c0 = c0_id }
+    ->
+      let open Err.Syntax in
+      let* input = required ~operand input_id in
+      let* h0 = required ~operand h0_id in
+      let* c0 = required ~operand c0_id in
+      let resolve_direction (d : Lstm.Lstm.Direction.t) :
+          (Lstm.Lstm.Direction_operands.t, error) Err.t =
+        let* weight_ih = required ~operand d.weight_ih in
+        let* weight_hh = required ~operand d.weight_hh in
+        let+ bias =
+          match d.bias with
+          | None -> Err.return None
+          | Some (bi_id, bh_id) ->
+              let* bi = required ~operand bi_id in
+              let+ bh = required ~operand bh_id in
+              Some (bi, bh)
+        in
+        { Lstm.Lstm.Direction_operands.weight_ih; weight_hh; bias }
+      in
+      let resolve_layer (l : Lstm.Lstm.Layer.t) :
+          (Lstm.Lstm.Layer_operands.t, error) Err.t =
+        let* forward = resolve_direction l.forward in
+        let+ reverse =
+          match l.reverse with
+          | None -> Err.return None
+          | Some d ->
+              let+ d_resolved = resolve_direction d in
+              Some d_resolved
+        in
+        { Lstm.Lstm.Layer_operands.forward; reverse }
+      in
+      let* resolved_layers = Err.List.map resolve_layer layers in
+      let shape_of (o : Lstm.Lstm.Direction_operands.t) :
+          Lstm.Lstm.Direction_shapes.t =
+        {
+          Lstm.Lstm.Direction_shapes.weight_ih = o.weight_ih.Tensor_sig.shape;
+          weight_hh = o.weight_hh.Tensor_sig.shape;
+          bias =
+            Option.map
+              (fun (bi, bh) -> (bi.Tensor_sig.shape, bh.Tensor_sig.shape))
+              o.bias;
+        }
+      in
+      let* out_shape, hn_shape, cn_shape =
+        Err.map_error
+          (fun e -> Invalid_shape e)
+          (Lstm.Lstm.output_shape params ~input_shape:input.Tensor_sig.shape
+             ~layers:
+               (List.map
+                  (fun (l : Lstm.Lstm.Layer_operands.t) ->
+                    {
+                      Lstm.Lstm.Layer_shapes.forward = shape_of l.forward;
+                      reverse = Option.map shape_of l.reverse;
+                    })
+                  resolved_layers)
+             ~h0_shape:h0.Tensor_sig.shape ~c0_shape:c0.Tensor_sig.shape)
+      in
+      let* expected =
+        match output with
+        | 0 -> Err.return out_shape
+        | 1 -> Err.return hn_shape
+        | 2 -> Err.return cn_shape
+        | n -> Err.fail (Output_ordinal n)
+      in
+      let* () =
+        if Region_context.same_shape output_shape expected then Err.return ()
+        else Err.fail Output_shape
+      in
+      Err.map_error
+        (function
+          | Region_context.Invalid_partition -> Invalid_partition
+          | Region_context.Invalid_program error -> Invalid_program error)
+        (Lstm.Lstm.Computation.program ~limits params ~output
+           ~layers:resolved_layers ~input ~h0 ~c0)
   | Sdpa
       {
         Attention.Sdpa.params;

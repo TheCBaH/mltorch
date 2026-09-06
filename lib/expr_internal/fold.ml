@@ -214,10 +214,18 @@ let measure_with_locals ~local ~max_size ~max_depth e =
         (Stdlib.max m d, left))
       (0, left) c
   in
-  let rec value budget left (e : Value.t) =
+  (* [bound] is the enclosing scan(s)' own [prev] binder(s) -- a [Local_at]
+     occurrence of one is a plain bound-variable reference, not a Region
+     local, and must not reach [local] (which has no entry for it and, in
+     [Region_program.specialize_pixel]'s caller, would raise). Same
+     bound-tracking convention as [scoped_locals]/[keep]: the callback isn't
+     told to skip anything, the traversal simply never calls it for a bound
+     id. *)
+  let rec value bound budget left (e : Value.t) =
     let local_size, local_depth =
       match e with
-      | Value.Local v | Value.Local_at (v, _) | Value.Local_scan_at (v, _, _) ->
+      | (Value.Local v | Value.Local_at (v, _) | Value.Local_scan_at (v, _, _))
+        when not (Local_var.Set.mem v bound) ->
           local v
       | _ -> (1, 1)
     in
@@ -225,8 +233,8 @@ let measure_with_locals ~local ~max_size ~max_depth e =
     let sub = budget - 1 in
     match e with
     | Value.Binary (_, a, b) ->
-        let da, left = value sub left a in
-        let db, left = value sub left b in
+        let da, left = value bound sub left a in
+        let db, left = value bound sub left b in
         (1 + Stdlib.max da db, left)
     | Value.Const _ -> (1, left)
     | Value.Intrinsic (Intrinsic.Max_pool d) ->
@@ -246,20 +254,24 @@ let measure_with_locals ~local ~max_size ~max_depth e =
     | Value.Reduce r ->
         let dlo, left = index sub left r.Reduction.lo in
         let dhi, left = index sub left r.Reduction.hi in
-        let dbody, left = value sub left r.Reduction.body in
+        let dbody, left = value bound sub left r.Reduction.body in
         (1 + Stdlib.max (Stdlib.max dlo dhi) dbody, left)
     (* Both [init] and [update] are real embedded subtrees, so both are
        measured -- an inline [Scan_at] is what specialization turns a cached
        [Local_scan_at] read into, and undercounting it here would let a
-       program past the size/depth budget it exists to enforce. *)
+       program past the size/depth budget it exists to enforce. [update]
+       alone adds [s.Scan.prev] to [bound], matching [prev]'s own scope: free
+       in [init], bound in [update]. *)
     | Value.Scan_at (s, row, lane) ->
         let dr, left = index sub left row in
         let dl, left = index sub left lane in
-        let dinit, left = value sub left s.Scan.init in
-        let dupdate, left = value sub left s.Scan.update in
+        let dinit, left = value bound sub left s.Scan.init in
+        let dupdate, left =
+          value (Local_var.Set.add s.Scan.prev bound) sub left s.Scan.update
+        in
         (1 + Stdlib.max (Stdlib.max dr dl) (Stdlib.max dinit dupdate), left)
     | Value.Round_f32 a ->
-        let d, left = value sub left a in
+        let d, left = value bound sub left a in
         (1 + d, left)
     | Value.Select (c, a, b) ->
         let g, left =
@@ -269,21 +281,21 @@ let measure_with_locals ~local ~max_size ~max_depth e =
               let dy, left = index sub left y in
               (Stdlib.max dx dy, left)
           | Bool.Value_lt (x, y) ->
-              let dx, left = value sub left x in
-              let dy, left = value sub left y in
+              let dx, left = value bound sub left x in
+              let dy, left = value bound sub left y in
               (Stdlib.max dx dy, left)
         in
-        let da, left = value sub left a in
-        let db, left = value sub left b in
+        let da, left = value bound sub left a in
+        let db, left = value bound sub left b in
         (1 + Stdlib.max g (Stdlib.max da db), left)
     | Value.Unary (_, a) ->
-        let d, left = value sub left a in
+        let d, left = value bound sub left a in
         (1 + d, left)
     | Value.Value_of_index i ->
         let d, left = index sub left i in
         (1 + d, left)
   in
-  let d, left = value max_depth max_size e in
+  let d, left = value Local_var.Set.empty max_depth max_size e in
   (max_size - left, d)
 
 let measure ~max_size ~max_depth e =

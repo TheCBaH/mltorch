@@ -89,6 +89,12 @@ type metadata_role =
   | `Layer_norm_weight
   | `Linear_bias
   | `Linear_weight
+  | `Lstm_bias
+  | `Lstm_c0
+  | `Lstm_h0
+  | `Lstm_input
+  | `Lstm_weight_hh
+  | `Lstm_weight_ih
   | `Matmul_other
   | `Matmul_self
   | `Mean_input
@@ -310,6 +316,7 @@ type malformed =
   | `Concat_rank_mismatch of Concat_rank_mismatch.t
   | `Index_list of Index_list.t
   | `Live_layer_norm_stats of Live_layer_norm_stats.t
+  | `Lstm_reject of Lstm.Lstm.Reject.t
   | `Matmul_unsupported_shape of Matmul_unsupported_shape.t
   | `Missing_arg of Missing_arg.t
   | `Missing_metadata of Missing_metadata.t
@@ -414,6 +421,12 @@ let pp_metadata_role ppf : metadata_role -> unit = function
   | `Layer_norm_weight -> Fmt.string ppf "layer_norm weight"
   | `Linear_bias -> Fmt.string ppf "linear bias"
   | `Linear_weight -> Fmt.string ppf "linear weight"
+  | `Lstm_bias -> Fmt.string ppf "lstm bias"
+  | `Lstm_c0 -> Fmt.string ppf "lstm c0"
+  | `Lstm_h0 -> Fmt.string ppf "lstm h0"
+  | `Lstm_input -> Fmt.string ppf "lstm input"
+  | `Lstm_weight_hh -> Fmt.string ppf "lstm weight_hh"
+  | `Lstm_weight_ih -> Fmt.string ppf "lstm weight_ih"
   | `Matmul_other -> Fmt.string ppf "matmul other"
   | `Matmul_self -> Fmt.string ppf "matmul self"
   | `Mean_input -> Fmt.string ppf "mean input"
@@ -554,6 +567,7 @@ let pp_malformed ppf : [< malformed ] -> unit = function
       Fmt.pf ppf "%s: %s output %S is read, and this graph does not have it" op
         (match stat with `Mean -> "mean" | `Rstd -> "rstd")
         ssa
+  | `Lstm_reject e -> Lstm.Lstm.Reject.pp ppf e
   | `Matmul_unsupported_shape { Matmul_unsupported_shape.self; other } ->
       let ints = Fmt.(list ~sep:(any ", ") int) in
       Fmt.pf ppf

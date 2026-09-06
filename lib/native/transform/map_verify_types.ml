@@ -43,17 +43,25 @@ end
 module Budget = struct
   type t = {
     max_coords : int;
+    max_ground_nodes : int64;
     max_nodes : int;
     max_rounds : int;
     sample : int option;
   }
 
   let default =
-    { max_coords = 4096; max_nodes = 200_000; max_rounds = 32; sample = None }
+    {
+      max_coords = 4096;
+      max_ground_nodes = 2_000_000L;
+      max_nodes = 200_000;
+      max_rounds = 32;
+      sample = None;
+    }
 
   let cumulative =
     {
       max_coords = 4096;
+      max_ground_nodes = 10_000_000L;
       max_nodes = 1_000_000;
       max_rounds = 256;
       sample = None;
@@ -74,11 +82,18 @@ module Budget = struct
      bounds it — deep clusters give up after two cheap rounds while shallow
      constant ones still close. *)
   let release =
-    { max_coords = 65_536; max_nodes = 50_000; max_rounds = 2; sample = Some 8 }
+    {
+      max_coords = 65_536;
+      max_ground_nodes = 500_000L;
+      max_nodes = 50_000;
+      max_rounds = 2;
+      sample = Some 8;
+    }
 
   let pp fmt t =
-    Fmt.pf fmt "@[<h>{coords<=%d nodes<=%d rounds<=%d sample=%a}@]" t.max_coords
-      t.max_nodes t.max_rounds
+    Fmt.pf fmt
+      "@[<h>{coords<=%d ground_nodes<=%Ld nodes<=%d rounds<=%d sample=%a}@]"
+      t.max_coords t.max_ground_nodes t.max_nodes t.max_rounds
       (Fmt.option ~none:(Fmt.any "none") Fmt.int)
       t.sample
 end
@@ -107,6 +122,7 @@ module Effort = struct
     | Quick ->
         {
           Budget.max_coords = 4096;
+          max_ground_nodes = 200_000L;
           max_nodes = 20_000;
           max_rounds = 1;
           sample = Some 4;
@@ -115,6 +131,7 @@ module Effort = struct
     | Thorough ->
         {
           Budget.max_coords = 65_536;
+          max_ground_nodes = 2_000_000L;
           max_nodes = 200_000;
           max_rounds = 6;
           sample = Some 32;
@@ -199,6 +216,7 @@ module Unproved = struct
         lhs : Member.Erased.t;
         rhs : Member.Erased.t;
       }
+    | Max_ground_nodes of int64
     | Max_nodes of int
     | Max_rounds
     | Max_clusters of int
@@ -216,6 +234,7 @@ module Unproved = struct
     | Exhausted e ->
         Fmt.pf fmt "@[<h>exhausted at %a: %a vs %a@]" Vec6.pp_coord e.coord
           Member.Erased.pp e.lhs Member.Erased.pp e.rhs
+    | Max_ground_nodes n -> Fmt.pf fmt "over max_ground_nodes (%Ld)" n
     | Max_nodes n -> Fmt.pf fmt "over max_nodes (%d)" n
     | Max_rounds -> Fmt.string fmt "over max_rounds"
     | Max_clusters n ->
@@ -236,6 +255,7 @@ module Unproved = struct
   let reason = function
     | Eval _ -> "grounding failed"
     | Exhausted _ -> "frontier exhausted"
+    | Max_ground_nodes _ -> "over max_ground_nodes"
     | Max_nodes _ -> "over max_nodes"
     | Max_rounds -> "over max_rounds"
     | Max_clusters _ -> "global verification budget exhausted"
@@ -255,6 +275,7 @@ module Unproved = struct
     [
       "grounding failed";
       "frontier exhausted";
+      "over max_ground_nodes";
       "over max_nodes";
       "over max_rounds";
       "global verification budget exhausted";

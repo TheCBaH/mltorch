@@ -168,24 +168,40 @@ let frontier_vars e =
    the payload; that is a legitimate boundary, but it must not read like the
    backtrace-destroying defect .ai/printer_conventions.md warns about, so it
    gets ONE named helper used at both sites. [Err.map_error] is not it -- the
-   destination is a verdict, not another result. *)
-let unproved_of_eval_error (e : Ground_eval.error Err.Error.t) =
-  Verdict.Unproved (Unproved.Eval (Err.Error.kind e))
+   destination is a verdict, not another result.
 
-let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
+   The two budget tags get their OWN named verdicts rather than falling into
+   the generic [Eval] bucket -- the exact mapping the design record's
+   "Grounding meter and verdict mapping" specifies -- so a report can count
+   and label a budget exhaustion distinctly from an ordinary grounding
+   failure. *)
+let unproved_of_eval_error (e : Ground_eval.error Err.Error.t) =
+  match Err.Error.kind e with
+  | `Ground_nodes_over_limit limit ->
+      Verdict.Unproved (Unproved.Max_ground_nodes limit)
+  | `Pair_nodes_over_limit limit -> Verdict.Unproved (Unproved.Max_nodes limit)
+  | other -> Verdict.Unproved (Unproved.Eval other)
+
+let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~meter ~lhs ~rhs
     ~lhs_env ~rhs_env ~lhs_boundary ~rhs_boundary ~coord ~members =
+  let lhs_expr = Ground_eval.Term.expression lhs
+  and rhs_expr = Ground_eval.Term.expression rhs in
   let lhs_member, rhs_member = members in
   let seen () =
-    ( Ground_expr.project ~boundary:lhs_boundary lhs,
-      Ground_expr.project ~boundary:rhs_boundary rhs )
+    ( Ground_expr.project ~boundary:lhs_boundary lhs_expr,
+      Ground_expr.project ~boundary:rhs_boundary rhs_expr )
   in
   let projected_lhs, projected_rhs = seen () in
   if Ground_expr.equal projected_lhs projected_rhs then Verdict.Proved proof
   else
     let ln =
-      Ground_expr.normalise ~stored_f32:(Ground_eval.Env.stored_f32 lhs_env) lhs
+      Ground_expr.normalise
+        ~stored_f32:(Ground_eval.Env.stored_f32 lhs_env)
+        lhs_expr
     and rn =
-      Ground_expr.normalise ~stored_f32:(Ground_eval.Env.stored_f32 rhs_env) rhs
+      Ground_expr.normalise
+        ~stored_f32:(Ground_eval.Env.stored_f32 rhs_env)
+        rhs_expr
     in
     let projected_ln = Ground_expr.project ~boundary:lhs_boundary ln.expr
     and projected_rn = Ground_expr.project ~boundary:rhs_boundary rn.expr in
@@ -228,26 +244,41 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
       let lhs_crossing = crossing lhs_boundary
       and rhs_crossing = crossing rhs_boundary in
       let expandable =
-        Ground_eval.expandable ~boundary:lhs_crossing lhs_env lhs
-        || Ground_eval.expandable ~boundary:rhs_crossing rhs_env rhs
+        Ground_eval.expandable ~boundary:lhs_crossing lhs_env lhs_expr
+        || Ground_eval.expandable ~boundary:rhs_crossing rhs_env rhs_expr
       in
       if expandable && rounds >= budget.Budget.max_rounds then
         Verdict.Unproved Unproved.Max_rounds
       else if expandable then
-        let cap = budget.Budget.max_nodes in
-        match
-          ( Ground_eval.expand ~boundary:lhs_crossing ~budget:cap lhs_env lhs,
-            Ground_eval.expand ~boundary:rhs_crossing ~budget:cap rhs_env rhs )
-        with
-        | Error e, _ | Ok _, Error e -> unproved_of_eval_error e
-        | Ok lhs, Ok rhs ->
-            let size = Ground_expr.size lhs + Ground_expr.size rhs in
-            if size > budget.Budget.max_nodes then
-              Verdict.Unproved (Unproved.Max_nodes size)
-            else
-              settle ~budget ~probe ~tolerance ~label ~proof
-                ~rounds:(rounds + 1) ~lhs ~rhs ~lhs_env ~rhs_env ~lhs_boundary
-                ~rhs_boundary ~coord ~members
+        (* Process left then right EXPLICITLY, not via tuple-argument
+           evaluation order: both share [meter]'s running pair total, so
+           which one runs first can change whether the other still has
+           allowance left. *)
+        match Ground_eval.expand ~meter ~boundary:lhs_crossing lhs_env lhs with
+        | Error e -> unproved_of_eval_error e
+        | Ok lhs' -> (
+            match
+              Ground_eval.expand ~meter ~boundary:rhs_crossing rhs_env rhs
+            with
+            | Error e -> unproved_of_eval_error e
+            | Ok rhs' ->
+                (* Neither side grew, and something is still expandable: no
+                   allowance remains under [meter]'s shared [max_nodes], since
+                   a genuine grounding failure would already have thrown
+                   above. Reporting the LIMIT, not an observed size, matches
+                   [Unproved.Max_ground_nodes]'s own payload convention. *)
+                if
+                  expandable
+                  && Ground_expr.equal lhs_expr
+                       (Ground_eval.Term.expression lhs')
+                  && Ground_expr.equal rhs_expr
+                       (Ground_eval.Term.expression rhs')
+                then
+                  Verdict.Unproved (Unproved.Max_nodes budget.Budget.max_nodes)
+                else
+                  settle ~budget ~probe ~tolerance ~label ~proof
+                    ~rounds:(rounds + 1) ~meter ~lhs:lhs' ~rhs:rhs' ~lhs_env
+                    ~rhs_env ~lhs_boundary ~rhs_boundary ~coord ~members)
       else
         (* The LOCAL frontier is complete and the terms still differ. That is
            the prover failing, not a counterexample: no assignment has been
@@ -280,7 +311,11 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~lhs ~rhs
                An unbound model constant is free only because nobody supplied
                its payload. The tiers read a free cell as "may take any value",
                which would refute two constants that may hold identical bytes. *)
-            match (label, unbound_constant_at ~lhs_env ~rhs_env ~lhs ~rhs) with
+            match
+              ( label,
+                unbound_constant_at ~lhs_env ~rhs_env ~lhs:lhs_expr
+                  ~rhs:rhs_expr )
+            with
             | Correspondence.Unverifiable, _ ->
                 Verdict.Unproved (Unproved.Unsupported_relation label)
             | _, Some cell -> Verdict.Unproved (Unproved.Unbound_constant cell)
@@ -377,24 +412,42 @@ let compare_at ~budget ~index ~probe ~tolerance ~label ~under_test sides
   and rhs_at = locate ~index ~under_test sides other in
   (* Erased once, here: [settle] only ever REPORTS these. *)
   let members = (Member.erase canonical, Member.erase other) in
+  (* Fresh per attempt: the Structural attempt and the subsequent
+     constant-bound attempt must not share allowance, or a discarded
+     attempt's spend would starve the authoritative one. *)
   let attempt proof lhs_env rhs_env =
-    match
-      ( Ground_eval.at lhs_env lhs_at.loc_id coord,
-        Ground_eval.at rhs_env rhs_at.loc_id coord )
-    with
-    | Error e, _ | Ok _, Error e -> unproved_of_eval_error e
-    | Ok lhs, Ok rhs -> (
-        let out_of_bounds =
-          match Ground_eval.out_of_bounds lhs_env lhs with
-          | Some c -> Some c
-          | None -> Ground_eval.out_of_bounds rhs_env rhs
-        in
-        match out_of_bounds with
-        | Some c -> Verdict.Unproved (Unproved.Out_of_bounds c)
-        | None ->
-            settle ~budget ~probe ~tolerance ~label ~proof ~rounds:0 ~lhs ~rhs
-              ~lhs_env ~rhs_env ~lhs_boundary:lhs_at.loc_boundary
-              ~rhs_boundary:rhs_at.loc_boundary ~coord ~members)
+    let meter =
+      Ground_eval.Meter.create
+        {
+          Ground_eval.Budget.max_ground_nodes = budget.Budget.max_ground_nodes;
+          max_nodes = budget.Budget.max_nodes;
+        }
+    in
+    (* Left then right EXPLICITLY, not via tuple-argument evaluation order:
+       both roots share [meter]'s pair total, so which one registers first
+       can change whether the other still fits. *)
+    match Ground_eval.at ~meter lhs_env lhs_at.loc_id coord with
+    | Error e -> unproved_of_eval_error e
+    | Ok lhs -> (
+        match Ground_eval.at ~meter rhs_env rhs_at.loc_id coord with
+        | Error e -> unproved_of_eval_error e
+        | Ok rhs -> (
+            let out_of_bounds =
+              match
+                Ground_eval.out_of_bounds lhs_env
+                  (Ground_eval.Term.expression lhs)
+              with
+              | Some c -> Some c
+              | None ->
+                  Ground_eval.out_of_bounds rhs_env
+                    (Ground_eval.Term.expression rhs)
+            in
+            match out_of_bounds with
+            | Some c -> Verdict.Unproved (Unproved.Out_of_bounds c)
+            | None ->
+                settle ~budget ~probe ~tolerance ~label ~proof ~rounds:0 ~meter
+                  ~lhs ~rhs ~lhs_env ~rhs_env ~lhs_boundary:lhs_at.loc_boundary
+                  ~rhs_boundary:rhs_at.loc_boundary ~coord ~members))
   in
   (* Unqualified first, purely to STRENGTHEN: a proof with the constants left
      free is a statement about every payload, and binding them would silently

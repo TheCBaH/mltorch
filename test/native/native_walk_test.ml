@@ -393,291 +393,347 @@ let%expect_test "native walk coverage" =
     [native] linear: direct==symbolic
     step 5 [input]: {shape=[n=2 c=8 h=1 w=4] out_features=28 bias=false}
     [native] linear: direct==symbolic
+    step 0: {hidden_size=3 input_size=2 seq=4 batch=2 num_layers=1 bidirectional=false bias=true batch_first=false}
+    [native] lstm: direct==symbolic
+    step 1 [input_size]: {hidden_size=3 input_size=27 seq=4 batch=2 num_layers=1 bidirectional=false bias=true batch_first=false}
+    [native] lstm: direct==symbolic
+    step 2 [batch]: {hidden_size=3 input_size=27 seq=4 batch=1 num_layers=1 bidirectional=false bias=true batch_first=false}
+    [native] lstm: direct==symbolic
+    step 3 [num_layers]: {hidden_size=3 input_size=27 seq=4 batch=1 num_layers=1 bidirectional=false bias=true batch_first=false}
+    [native] lstm: direct==symbolic
+    step 4 [bias]: {hidden_size=3 input_size=27 seq=4 batch=1 num_layers=1 bidirectional=false bias=false batch_first=false}
+    [native] lstm: direct==symbolic
+    step 5 [input_size]: {hidden_size=3 input_size=13 seq=4 batch=1 num_layers=1 bidirectional=false bias=false batch_first=false}
+    [native] lstm: direct==symbolic
     step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
     [native] max_pool2d: direct==symbolic
-    step 1 [input]: {shape=[n=1 c=4 h=8 w=11] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
-    [native] max_pool2d: direct==symbolic
-    step 2 [stride]: {shape=[n=1 c=4 h=8 w=11] kernel=2x2 stride=3x3 pad=0x0} ceil_mode=false
-    [native] max_pool2d: direct==symbolic
-    step 3 [stride]: {shape=[n=1 c=4 h=8 w=11] kernel=2x2 stride=3x2 pad=0x0} ceil_mode=false
-    [native] max_pool2d: direct==symbolic
-    step 4 [input]: {shape=[n=1 c=29 h=8 w=11] kernel=2x2 stride=3x2 pad=0x0} ceil_mode=false
-    [native] max_pool2d: direct==symbolic
-    step 5 [kernel]: {shape=[n=1 c=29 h=8 w=11] kernel=5x5 stride=3x2 pad=0x0} ceil_mode=false
-    [native] max_pool2d: direct==symbolic
-    step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
-    [native] max_pool2d_with_indices: direct==symbolic
     step 1 [pad]: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x1} ceil_mode=false
-    [native] max_pool2d_with_indices: direct==symbolic
+    [native] max_pool2d: direct==symbolic
     step 2 [pad]: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=1x1} ceil_mode=false
-    [native] max_pool2d_with_indices: direct==symbolic
+    [native] max_pool2d: direct==symbolic
     step 3 [input]: {shape=[n=1 c=22 h=8 w=8] kernel=2x2 stride=2x2 pad=1x1} ceil_mode=false
-    [native] max_pool2d_with_indices: direct==symbolic
+    [native] max_pool2d: direct==symbolic
     step 4 [ceil_mode]: {shape=[n=1 c=22 h=8 w=8] kernel=2x2 stride=2x2 pad=1x1} ceil_mode=true
-    [native] max_pool2d_with_indices: direct==symbolic
+    [native] max_pool2d: direct==symbolic
     step 5 [pad]: {shape=[n=1 c=22 h=8 w=8] kernel=2x2 stride=2x2 pad=1x0} ceil_mode=true
+    [native] max_pool2d: direct==symbolic
+    step 0: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 1 [ceil_mode]: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=0x0} ceil_mode=false
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 2 [pad]: {shape=[n=1 c=4 h=8 w=8] kernel=2x2 stride=2x2 pad=1x0} ceil_mode=false
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 3 [input]: {shape=[n=1 c=10 h=8 w=8] kernel=2x2 stride=2x2 pad=1x0} ceil_mode=false
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 4 [input]: {shape=[n=1 c=10 h=11 w=8] kernel=2x2 stride=2x2 pad=1x0} ceil_mode=false
+    [native] max_pool2d_with_indices: direct==symbolic
+    step 5 [stride]: {shape=[n=1 c=10 h=11 w=8] kernel=2x2 stride=2x2 pad=1x0} ceil_mode=false
     [native] max_pool2d_with_indices: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] mean: direct==symbolic
-    step 1 [input]: {shape=[n=2 c=4 h=4 w=13] dims=[H,W] keepdim=false}
+    step 1 [input]: {shape=[n=2 c=4 h=9 w=4] dims=[H,W] keepdim=false}
     [native] mean: direct==symbolic
-    step 2 [keepdim]: {shape=[n=2 c=4 h=4 w=13] dims=[H,W] keepdim=true}
+    step 2 [dims]: {shape=[n=2 c=4 h=9 w=4] dims=[C] keepdim=false}
     [native] mean: direct==symbolic
-    step 3 [input]: {shape=[n=2 c=4 h=4 w=12] dims=[H,W] keepdim=true}
+    step 3 [input]: {shape=[n=1 c=4 h=9 w=4] dims=[C] keepdim=false}
     [native] mean: direct==symbolic
-    step 4 [dims]: {shape=[n=2 c=4 h=4 w=12] dims=[W] keepdim=true}
+    step 4 [keepdim]: {shape=[n=1 c=4 h=9 w=4] dims=[C] keepdim=false}
     [native] mean: direct==symbolic
-    step 5 [input]: {shape=[n=2 c=14 h=4 w=12] dims=[W] keepdim=true}
+    step 5 [input]: {shape=[n=1 c=31 h=9 w=4] dims=[C] keepdim=false}
     [native] mean: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4]
     [native] mul: direct==symbolic
-    step 1 [input]: [n=1 c=14 h=4 w=4]
+    step 1 [input]: [n=1 c=3 h=13 w=4]
     [native] mul: direct==symbolic
-    step 2 [input]: [n=1 c=14 h=12 w=4]
+    step 2 [input]: [n=1 c=15 h=13 w=4]
     [native] mul: direct==symbolic
-    step 3 [input]: [n=1 c=14 h=12 w=8]
+    step 3 [input]: [n=2 c=15 h=13 w=4]
     [native] mul: direct==symbolic
-    step 4 [input]: [n=1 c=14 h=12 w=9]
+    step 4 [input]: [n=2 c=1 h=13 w=4]
     [native] mul: direct==symbolic
-    step 5 [input]: [n=1 c=14 h=12 w=12]
+    step 5 [input]: [n=1 c=1 h=13 w=4]
     [native] mul: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4] scalar=3
     [native] mul_scalar: direct==symbolic
-    step 1 [scalar]: [n=1 c=3 h=4 w=4] scalar=3
+    step 1 [input]: [n=2 c=3 h=4 w=4] scalar=3
     [native] mul_scalar: direct==symbolic
-    step 2 [input]: [n=1 c=10 h=4 w=4] scalar=3
+    step 2 [scalar]: [n=2 c=3 h=4 w=4] scalar=6
     [native] mul_scalar: direct==symbolic
-    step 3 [scalar]: [n=1 c=10 h=4 w=4] scalar=0.1
+    step 3 [scalar]: [n=2 c=3 h=4 w=4] scalar=3
     [native] mul_scalar: direct==symbolic
-    step 4 [input]: [n=1 c=17 h=4 w=4] scalar=0.1
+    step 4 [scalar]: [n=2 c=3 h=4 w=4] scalar=0.5
     [native] mul_scalar: direct==symbolic
-    step 5 [input]: [n=1 c=17 h=8 w=4] scalar=0.1
+    step 5 [scalar]: [n=2 c=3 h=4 w=4] scalar=6
     [native] mul_scalar: direct==symbolic
     step 0: {shape=[n=1 c=3 h=6 w=6] pattern=pad_hw}
     [native] pad: direct==symbolic
-    step 1 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=pad_asym_w}
+    step 1 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=reflect_hw}
     [native] pad: direct==symbolic
-    step 2 [input]: {shape=[n=2 c=3 h=6 w=6] pattern=pad_asym_w}
+    step 2 [pattern]: {shape=[n=1 c=3 h=6 w=6] pattern=reflect_hw}
     [native] pad: direct==symbolic
-    step 3 [pattern]: {shape=[n=2 c=3 h=6 w=6] pattern=reflect_crop_h}
+    step 3 [input]: {shape=[n=1 c=3 h=12 w=6] pattern=reflect_hw}
     [native] pad: direct==symbolic
-    step 4 [input]: {shape=[n=2 c=3 h=6 w=6] pattern=reflect_crop_h}
+    step 4 [pattern]: {shape=[n=1 c=3 h=12 w=6] pattern=mixed_hw}
     [native] pad: direct==symbolic
-    step 5 [pattern]: {shape=[n=2 c=3 h=6 w=6] pattern=reflect_crop_h}
+    step 5 [pattern]: {shape=[n=1 c=3 h=12 w=6] pattern=crop_h}
     [native] pad: direct==symbolic
     step 0: {shape=[n=1 c=4 h=4 w=4] perm=[H<-W, W<-H]}
     [native] permute: direct==symbolic
-    step 1 [input]: {shape=[n=1 c=4 h=4 w=7] perm=[H<-W, W<-H]}
+    step 1 [input]: {shape=[n=1 c=4 h=4 w=4] perm=[H<-W, W<-H]}
     [native] permute: direct==symbolic
-    step 2 [input]: {shape=[n=1 c=23 h=4 w=7] perm=[H<-W, W<-H]}
+    step 2 [perm]: {shape=[n=1 c=4 h=4 w=4] perm=[H<-W, W<-H]}
     [native] permute: direct==symbolic
-    step 3 [input]: {shape=[n=1 c=23 h=10 w=7] perm=[H<-W, W<-H]}
+    step 3 [perm]: {shape=[n=1 c=4 h=4 w=4] perm=[H<-C, C<-H]}
     [native] permute: direct==symbolic
-    step 4 [perm]: {shape=[n=1 c=23 h=10 w=7] perm=[H<-C, C<-H]}
+    step 4 [perm]: {shape=[n=1 c=4 h=4 w=4] perm=[N<-H, H<-N]}
     [native] permute: direct==symbolic
-    step 5 [input]: {shape=[n=1 c=23 h=2 w=7] perm=[H<-C, C<-H]}
+    step 5 [input]: {shape=[n=1 c=4 h=5 w=4] perm=[N<-H, H<-N]}
     [native] permute: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4] scalar=3
     [native] pow: direct==symbolic
-    step 1 [input]: [n=2 c=3 h=4 w=4] scalar=3
+    step 1 [scalar]: [n=1 c=3 h=4 w=4] scalar=6
     [native] pow: direct==symbolic
-    step 2 [input]: [n=2 c=3 h=13 w=4] scalar=3
+    step 2 [scalar]: [n=1 c=3 h=4 w=4] scalar=0.5
     [native] pow: direct==symbolic
-    step 3 [scalar]: [n=2 c=3 h=13 w=4] scalar=-2
+    step 3 [input]: [n=1 c=16 h=4 w=4] scalar=0.5
     [native] pow: direct==symbolic
-    step 4 [input]: [n=1 c=3 h=13 w=4] scalar=-2
+    step 4 [input]: [n=1 c=16 h=4 w=12] scalar=0.5
     [native] pow: direct==symbolic
-    step 5 [scalar]: [n=1 c=3 h=13 w=4] scalar=0.5
+    step 5 [scalar]: [n=1 c=16 h=4 w=12] scalar=-2
     [native] pow: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4]
     [native] relu: direct==symbolic
-    step 1 [input]: [n=1 c=3 h=5 w=4]
+    step 1 [input]: [n=1 c=6 h=4 w=4]
     [native] relu: direct==symbolic
-    step 2 [input]: [n=1 c=3 h=5 w=4]
+    step 2 [input]: [n=1 c=6 h=15 w=4]
     [native] relu: direct==symbolic
-    step 3 [input]: [n=1 c=20 h=5 w=4]
+    step 3 [input]: [n=1 c=6 h=15 w=1]
     [native] relu: direct==symbolic
-    step 4 [input]: [n=2 c=20 h=5 w=4]
+    step 4 [input]: [n=1 c=6 h=14 w=1]
     [native] relu: direct==symbolic
-    step 5 [input]: [n=2 c=20 h=8 w=4]
+    step 5 [input]: [n=1 c=1 h=14 w=1]
     [native] relu: direct==symbolic
     step 0: {shape=[n=1 c=4 h=4 w=4] -> flat}
     [native] reshape: direct==symbolic
-    step 1 [input]: {shape=[n=1 c=4 h=4 w=7] -> flat}
+    step 1 [input]: {shape=[n=1 c=27 h=4 w=4] -> flat}
     [native] reshape: direct==symbolic
-    step 2 [input]: {shape=[n=1 c=4 h=11 w=7] -> flat}
+    step 2 [input]: {shape=[n=2 c=27 h=4 w=4] -> flat}
     [native] reshape: direct==symbolic
-    step 3 [input]: {shape=[n=1 c=20 h=11 w=7] -> flat}
+    step 3 [input]: {shape=[n=1 c=27 h=4 w=4] -> flat}
     [native] reshape: direct==symbolic
-    step 4 [input]: {shape=[n=1 c=20 h=11 w=11] -> flat}
+    step 4 [input]: {shape=[n=1 c=15 h=4 w=4] -> flat}
     [native] reshape: direct==symbolic
-    step 5 [input]: {shape=[n=1 c=20 h=11 w=11] -> flat}
+    step 5 [input]: {shape=[n=1 c=15 h=2 w=4] -> flat}
     [native] reshape: direct==symbolic
     step 0: {shape=[n=1 c=5 h=4 w=3] k=1 eps=1e-05 weight=true}
     [native] rms_norm: direct==symbolic
-    step 1 [weight]: {shape=[n=1 c=5 h=4 w=3] k=1 eps=1e-05 weight=true}
+    step 1 [eps]: {shape=[n=1 c=5 h=4 w=3] k=1 eps=0.001 weight=true}
     [native] rms_norm: direct==symbolic
-    step 2 [input]: {shape=[n=1 c=28 h=4 w=3] k=1 eps=1e-05 weight=true}
+    step 2 [k]: {shape=[n=1 c=5 h=4 w=3] k=1 eps=0.001 weight=true}
     [native] rms_norm: direct==symbolic
-    step 3 [eps]: {shape=[n=1 c=28 h=4 w=3] k=1 eps=0 weight=true}
+    step 3 [k]: {shape=[n=1 c=5 h=4 w=3] k=3 eps=0.001 weight=true}
     [native] rms_norm: direct==symbolic
-    step 4 [weight]: {shape=[n=1 c=28 h=4 w=3] k=1 eps=0 weight=true}
+    step 4 [input]: {shape=[n=1 c=5 h=8 w=3] k=3 eps=0.001 weight=true}
     [native] rms_norm: direct==symbolic
-    step 5 [input]: {shape=[n=1 c=28 h=16 w=3] k=1 eps=0 weight=true}
+    step 5 [input]: {shape=[n=1 c=5 h=8 w=10] k=3 eps=0.001 weight=true}
     [native] rms_norm: direct==symbolic
     step 0: {batch=1 heads=2 wq=3 wk=4 e=5 mask=present scale=default}
     [native] sdpa: direct==symbolic
-    step 1 [batch]: {batch=2 heads=2 wq=3 wk=4 e=5 mask=present scale=default}
+    step 1 [wk]: {batch=1 heads=2 wq=3 wk=2 e=5 mask=present scale=default}
     [native] sdpa: direct==symbolic
-    step 2 [wq]: {batch=2 heads=2 wq=5 wk=4 e=5 mask=present scale=default}
+    step 2 [wk]: {batch=1 heads=2 wq=3 wk=4 e=5 mask=present scale=default}
     [native] sdpa: direct==symbolic
-    step 3 [e]: {batch=2 heads=2 wq=5 wk=4 e=3 mask=present scale=default}
+    step 3 [wq]: {batch=1 heads=2 wq=5 wk=4 e=5 mask=present scale=default}
     [native] sdpa: direct==symbolic
-    step 4 [heads]: {batch=2 heads=1 wq=5 wk=4 e=3 mask=present scale=default}
+    step 4 [heads]: {batch=1 heads=3 wq=5 wk=4 e=5 mask=present scale=default}
     [native] sdpa: direct==symbolic
-    step 5 [scale]: {batch=2 heads=1 wq=5 wk=4 e=3 mask=present scale=explicit(0.5)}
+    step 5 [mask]: {batch=1 heads=3 wq=5 wk=4 e=5 mask=present scale=default}
     [native] sdpa: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4]
     [native] sigmoid: direct==symbolic
-    step 1 [input]: [n=1 c=3 h=4 w=9]
-    [native] sigmoid: direct==symbolic
-    step 2 [input]: [n=1 c=3 h=4 w=5]
-    [native] sigmoid: direct==symbolic
-    step 3 [input]: [n=1 c=3 h=12 w=5]
-    [native] sigmoid: direct==symbolic
-    step 4 [input]: [n=1 c=3 h=12 w=7]
-    [native] sigmoid: direct==symbolic
-    step 5 [input]: [n=1 c=3 h=12 w=14]
-    [native] sigmoid: direct==symbolic
-    step 0: [n=1 c=3 h=4 w=4]
-    [native] silu: direct==symbolic
     step 1 [input]: [n=1 c=3 h=5 w=4]
-    [native] silu: direct==symbolic
+    [native] sigmoid: direct==symbolic
     step 2 [input]: [n=1 c=15 h=5 w=4]
-    [native] silu: direct==symbolic
+    [native] sigmoid: direct==symbolic
     step 3 [input]: [n=1 c=15 h=5 w=1]
-    [native] silu: direct==symbolic
+    [native] sigmoid: direct==symbolic
     step 4 [input]: [n=1 c=15 h=5 w=1]
-    [native] silu: direct==symbolic
+    [native] sigmoid: direct==symbolic
     step 5 [input]: [n=1 c=21 h=5 w=1]
+    [native] sigmoid: direct==symbolic
+    step 0: [n=1 c=3 h=4 w=4]
+    [native] silu: direct==symbolic
+    step 1 [input]: [n=1 c=9 h=4 w=4]
+    [native] silu: direct==symbolic
+    step 2 [input]: [n=2 c=9 h=4 w=4]
+    [native] silu: direct==symbolic
+    step 3 [input]: [n=1 c=9 h=4 w=4]
+    [native] silu: direct==symbolic
+    step 4 [input]: [n=2 c=9 h=4 w=4]
+    [native] silu: direct==symbolic
+    step 5 [input]: [n=2 c=9 h=4 w=12]
     [native] silu: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] axis=H start=0 stop=2 step=1}
     [native] slice: direct==symbolic
-    step 1 [input]: {shape=[n=2 c=20 h=4 w=4] axis=H start=0 stop=2 step=1}
+    step 1 [input]: {shape=[n=2 c=4 h=4 w=13] axis=H start=0 stop=2 step=1}
     [native] slice: direct==symbolic
-    step 2 [axis]: {shape=[n=2 c=20 h=4 w=4] axis=H start=0 stop=2 step=1}
+    step 2 [pattern]: {shape=[n=2 c=4 h=4 w=13] axis=H start=0 stop=2 step=1}
     [native] slice: direct==symbolic
-    step 3 [input]: {shape=[n=2 c=20 h=4 w=15] axis=H start=0 stop=2 step=1}
+    step 3 [pattern]: {shape=[n=2 c=4 h=4 w=13] axis=H start=0 stop=4 step=3}
     [native] slice: direct==symbolic
-    step 4 [pattern]: {shape=[n=2 c=20 h=4 w=15] axis=H start=2 stop=4 step=1}
+    step 4 [pattern]: {shape=[n=2 c=4 h=4 w=13] axis=H start=0 stop=4 step=1}
     [native] slice: direct==symbolic
-    step 5 [pattern]: {shape=[n=2 c=20 h=4 w=15] axis=H start=0 stop=4 step=1}
+    step 5 [input]: {shape=[n=2 c=4 h=4 w=10] axis=H start=0 stop=4 step=1}
     [native] slice: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] axis=C}
     [native] softmax: direct==symbolic
-    step 1 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=D}
+    step 1 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=N}
     [native] softmax: direct==symbolic
-    step 2 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=C}
+    step 2 [input]: {shape=[n=2 c=4 h=4 w=4] axis=N}
     [native] softmax: direct==symbolic
-    step 3 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=C}
+    step 3 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=N}
     [native] softmax: direct==symbolic
     step 4 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=H}
     [native] softmax: direct==symbolic
-    step 5 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=W}
+    step 5 [input]: {shape=[n=2 c=11 h=4 w=4] axis=H}
     [native] softmax: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4]
     [native] sqrt: direct==symbolic
-    step 1 [input]: [n=1 c=3 h=4 w=4]
+    step 1 [input]: [n=2 c=3 h=4 w=4]
     [native] sqrt: direct==symbolic
-    step 2 [input]: [n=1 c=20 h=4 w=4]
+    step 2 [input]: [n=2 c=3 h=4 w=5]
     [native] sqrt: direct==symbolic
-    step 3 [input]: [n=1 c=20 h=4 w=16]
+    step 3 [input]: [n=2 c=3 h=4 w=12]
     [native] sqrt: direct==symbolic
-    step 4 [input]: [n=1 c=20 h=4 w=16]
+    step 4 [input]: [n=2 c=1 h=4 w=12]
     [native] sqrt: direct==symbolic
-    step 5 [input]: [n=1 c=20 h=6 w=16]
+    step 5 [input]: [n=2 c=1 h=14 w=12]
     [native] sqrt: direct==symbolic
     step 0: [n=1 c=3 h=4 w=4]
     [native] sub: direct==symbolic
-    step 1 [input]: [n=2 c=3 h=4 w=4]
+    step 1 [input]: [n=1 c=29 h=4 w=4]
     [native] sub: direct==symbolic
-    step 2 [input]: [n=2 c=3 h=4 w=9]
+    step 2 [input]: [n=1 c=29 h=11 w=4]
     [native] sub: direct==symbolic
-    step 3 [input]: [n=2 c=3 h=4 w=10]
+    step 3 [input]: [n=2 c=29 h=11 w=4]
     [native] sub: direct==symbolic
-    step 4 [input]: [n=2 c=5 h=4 w=10]
+    step 4 [input]: [n=2 c=29 h=12 w=4]
     [native] sub: direct==symbolic
-    step 5 [input]: [n=2 c=19 h=4 w=10]
+    step 5 [input]: [n=1 c=29 h=12 w=4]
     [native] sub: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] sum: direct==symbolic
-    step 1 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[C] keepdim=false}
+    step 1 [input]: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] sum: direct==symbolic
-    step 2 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[W] keepdim=false}
+    step 2 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] sum: direct==symbolic
-    step 3 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[W] keepdim=false}
+    step 3 [input]: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] sum: direct==symbolic
-    step 4 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[W] keepdim=true}
+    step 4 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] sum: direct==symbolic
-    step 5 [input]: {shape=[n=2 c=4 h=4 w=2] dims=[W] keepdim=true}
+    step 5 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[C] keepdim=false}
     [native] sum: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] axis=H}
     [native] unbind: direct==symbolic
-    step 1 [axis]: {shape=[n=2 c=4 h=4 w=4] axis=N}
+    step 1 [input]: {shape=[n=1 c=4 h=4 w=4] axis=H}
     [native] unbind: direct==symbolic
-    step 2 [input]: {shape=[n=2 c=4 h=4 w=14] axis=N}
+    step 2 [axis]: {shape=[n=1 c=4 h=4 w=4] axis=C}
     [native] unbind: direct==symbolic
-    step 3 [axis]: {shape=[n=2 c=4 h=4 w=14] axis=N}
+    step 3 [axis]: {shape=[n=1 c=4 h=4 w=4] axis=H}
     [native] unbind: direct==symbolic
-    step 4 [axis]: {shape=[n=2 c=4 h=4 w=14] axis=C}
+    step 4 [axis]: {shape=[n=1 c=4 h=4 w=4] axis=C}
     [native] unbind: direct==symbolic
-    step 5 [input]: {shape=[n=2 c=4 h=4 w=14] axis=C}
+    step 5 [axis]: {shape=[n=1 c=4 h=4 w=4] axis=N}
     [native] unbind: direct==symbolic
     step 0: {shape=[1,4,8,8] output_size=[4,4] align_corners=true}
     [native] upsample_bilinear2d: direct==symbolic
-    step 1 [input_w]: {shape=[1,4,8,10] output_size=[4,4] align_corners=true}
+    step 1 [align_corners]: {shape=[1,4,8,8] output_size=[4,4] align_corners=false}
     [native] upsample_bilinear2d: direct==symbolic
-    step 2 [out_w]: {shape=[1,4,8,10] output_size=[4,7] align_corners=true}
+    step 2 [input_w]: {shape=[1,4,8,10] output_size=[4,4] align_corners=false}
     [native] upsample_bilinear2d: direct==symbolic
-    step 3 [input_w]: {shape=[1,4,8,7] output_size=[4,7] align_corners=true}
+    step 3 [out_w]: {shape=[1,4,8,10] output_size=[4,6] align_corners=false}
     [native] upsample_bilinear2d: direct==symbolic
-    step 4 [n]: {shape=[2,4,8,7] output_size=[4,7] align_corners=true}
+    step 4 [n]: {shape=[1,4,8,10] output_size=[4,6] align_corners=false}
     [native] upsample_bilinear2d: direct==symbolic
-    step 5 [c]: {shape=[2,1,8,7] output_size=[4,7] align_corners=true}
+    step 5 [input_w]: {shape=[1,4,8,3] output_size=[4,6] align_corners=false}
     [native] upsample_bilinear2d: direct==symbolic
     step 0: {shape=[1,4,8,8] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 1 [input_h]: {shape=[1,4,8,8] output_size=[4,4]}
+    step 1 [input_w]: {shape=[1,4,8,1] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 2 [c]: {shape=[1,2,8,8] output_size=[4,4]}
+    step 2 [input_w]: {shape=[1,4,8,2] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 3 [n]: {shape=[2,2,8,8] output_size=[4,4]}
+    step 3 [n]: {shape=[2,4,8,2] output_size=[4,4]}
     [native] upsample_nearest2d: direct==symbolic
-    step 4 [input_w]: {shape=[2,2,8,4] output_size=[4,4]}
+    step 4 [out_w]: {shape=[2,4,8,2] output_size=[4,1]}
     [native] upsample_nearest2d: direct==symbolic
-    step 5 [out_w]: {shape=[2,2,8,4] output_size=[4,2]}
+    step 5 [out_w]: {shape=[2,4,8,2] output_size=[4,7]}
     [native] upsample_nearest2d: direct==symbolic
     step 0: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 1 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[N,H,W] keepdim=false}
+    step 1 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[H,W] keepdim=true}
     [native] vector_norm: direct==symbolic
-    step 2 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[N,H,W] keepdim=false}
+    step 2 [input]: {shape=[n=2 c=4 h=10 w=4] dims=[H,W] keepdim=true}
     [native] vector_norm: direct==symbolic
-    step 3 [keepdim]: {shape=[n=2 c=4 h=4 w=4] dims=[N,H,W] keepdim=false}
+    step 3 [keepdim]: {shape=[n=2 c=4 h=10 w=4] dims=[H,W] keepdim=true}
     [native] vector_norm: direct==symbolic
-    step 4 [input]: {shape=[n=2 c=4 h=4 w=4] dims=[N,H,W] keepdim=false}
+    step 4 [keepdim]: {shape=[n=2 c=4 h=10 w=4] dims=[H,W] keepdim=false}
     [native] vector_norm: direct==symbolic
-    step 5 [dims]: {shape=[n=2 c=4 h=4 w=4] dims=[W] keepdim=false}
+    step 5 [keepdim]: {shape=[n=2 c=4 h=10 w=4] dims=[H,W] keepdim=true}
     [native] vector_norm: direct==symbolic
     step 0: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=true}
     [native] batch_norm_no_stats: direct==symbolic
-    step 1 [input]: {shape=[n=2 c=4 h=11 w=2] eps=1e-05 weight=true bias=true}
+    step 1 [weight]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=false bias=true}
     [native] batch_norm_no_stats: direct==symbolic
-    step 2 [eps]: {shape=[n=2 c=4 h=11 w=2] eps=1e-08 weight=true bias=true}
+    step 2 [weight]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=true}
     [native] batch_norm_no_stats: direct==symbolic
-    step 3 [bias]: {shape=[n=2 c=4 h=11 w=2] eps=1e-08 weight=true bias=false}
+    step 3 [bias]: {shape=[n=2 c=4 h=3 w=2] eps=1e-05 weight=true bias=false}
     [native] batch_norm_no_stats: direct==symbolic
-    step 4 [bias]: {shape=[n=2 c=4 h=11 w=2] eps=1e-08 weight=true bias=false}
+    step 4 [input]: {shape=[n=2 c=25 h=3 w=2] eps=1e-05 weight=true bias=false}
     [native] batch_norm_no_stats: direct==symbolic
-    step 5 [weight]: {shape=[n=2 c=4 h=11 w=2] eps=1e-08 weight=false bias=false}
+    step 5 [weight]: {shape=[n=2 c=25 h=3 w=2] eps=1e-05 weight=true bias=false}
     [native] batch_norm_no_stats: direct==symbolic |}]
+
+(* The coverage sweep above only runs lstm for 5 steps on its position's index
+   as seed, which never draws [bidirectional]/[batch_first]/[num_layers]>1
+   together -- the same blind spot the [linear] comment above warns about.
+   Seed 0 at 12 steps reaches a config with all three AND [bias=false] at
+   once (step 12), so this pins the walk actually exercising the stacked +
+   bidirectional + batch-first + biasless combination, not merely each axis
+   in isolation. *)
+let%expect_test
+    "native walk: lstm reaches stacked/bidirectional/batch-first together" =
+  capture (fun ppf ->
+      match Native_op_walk.find "lstm" with
+      | None -> Format.fprintf ppf "no lstm walk registered@."
+      | Some m ->
+          assert (
+            Native_op_walk.run m ~ppf ~pcg:(Pcg.seed ~seed:0L ~seq:1L) ~steps:12));
+  [%expect
+    {|
+    step 0: {hidden_size=3 input_size=2 seq=4 batch=2 num_layers=1 bidirectional=false bias=true batch_first=false}
+    [native] lstm: direct==symbolic
+    step 1 [bias]: {hidden_size=3 input_size=2 seq=4 batch=2 num_layers=1 bidirectional=false bias=false batch_first=false}
+    [native] lstm: direct==symbolic
+    step 2 [bidirectional]: {hidden_size=3 input_size=2 seq=4 batch=2 num_layers=1 bidirectional=true bias=false batch_first=false}
+    [native] lstm: direct==symbolic
+    step 3 [batch_first]: {hidden_size=3 input_size=2 seq=4 batch=2 num_layers=1 bidirectional=true bias=false batch_first=false}
+    [native] lstm: direct==symbolic
+    step 4 [bidirectional]: {hidden_size=3 input_size=2 seq=4 batch=2 num_layers=1 bidirectional=false bias=false batch_first=false}
+    [native] lstm: direct==symbolic
+    step 5 [seq]: {hidden_size=3 input_size=2 seq=1 batch=2 num_layers=1 bidirectional=false bias=false batch_first=false}
+    [native] lstm: direct==symbolic
+    step 6 [bias]: {hidden_size=3 input_size=2 seq=1 batch=2 num_layers=1 bidirectional=false bias=false batch_first=false}
+    [native] lstm: direct==symbolic
+    step 7 [batch_first]: {hidden_size=3 input_size=2 seq=1 batch=2 num_layers=1 bidirectional=false bias=false batch_first=true}
+    [native] lstm: direct==symbolic
+    step 8 [batch_first]: {hidden_size=3 input_size=2 seq=1 batch=2 num_layers=1 bidirectional=false bias=false batch_first=false}
+    [native] lstm: direct==symbolic
+    step 9 [hidden_size]: {hidden_size=2 input_size=2 seq=1 batch=2 num_layers=1 bidirectional=false bias=false batch_first=false}
+    [native] lstm: direct==symbolic
+    step 10 [batch_first]: {hidden_size=2 input_size=2 seq=1 batch=2 num_layers=1 bidirectional=false bias=false batch_first=true}
+    [native] lstm: direct==symbolic
+    step 11 [num_layers]: {hidden_size=2 input_size=2 seq=1 batch=2 num_layers=3 bidirectional=false bias=false batch_first=true}
+    [native] lstm: direct==symbolic
+    step 12 [bidirectional]: {hidden_size=2 input_size=2 seq=1 batch=2 num_layers=3 bidirectional=true bias=false batch_first=true}
+    [native] lstm: direct==symbolic |}]

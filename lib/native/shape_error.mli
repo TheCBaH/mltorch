@@ -77,6 +77,11 @@ module Operand_shape : sig
       | `Group_norm_weight
       | `Layer_norm_bias
       | `Layer_norm_weight
+      | `Lstm_bias
+      | `Lstm_input
+      | `Lstm_state
+      | `Lstm_weight_hh
+      | `Lstm_weight_ih
       | `Rms_norm_weight ];
     expected : Vec6.shape;
     actual : Vec6.shape;
@@ -103,6 +108,17 @@ module Linear : sig
   type error =
     | Input_channels_mismatch of channels_mismatch
     | Weight_channels_mismatch of channels_mismatch
+
+  val pp_error : Format.formatter -> error -> unit
+end
+
+module Lstm : sig
+  type dim = Hidden_size | Input_size
+
+  type error =
+    | Empty_layers
+    | Non_positive_dim of { dim : dim; value : int }
+    | Nonuniform_direction
 
   val pp_error : Format.formatter -> error -> unit
 end
@@ -461,6 +477,7 @@ type t =
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
   | `Linear of Linear.error
+  | `Lstm of Lstm.error
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Operand_shape of Operand_shape.t
   | `Output_count_over_limit of Output_count.t

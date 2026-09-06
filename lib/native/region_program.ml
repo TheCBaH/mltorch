@@ -81,14 +81,42 @@ let preflight ~max_size ~max_depth ~locals value =
   | Some `Size -> Err.fail (`Expr (`Too_large max_size))
   | Some `Depth -> Err.fail (`Expr (`Too_deep max_depth))
 
-let specialize_pixel ~max_size ~max_depth t =
+(* [specialize_pixel]'s own re-measurement of the RESULT it just built: unlike
+   [preflight] (which costs a [Local_scan_at] read as the constant-time slot
+   read Region execution actually performs), the fully inlined value this
+   function returns has replaced every such read with the referenced scan's
+   own [Scan_at] node (see [Expr.Rewrite.substitute_locals]'s [Scan] case), so
+   a chain that was cheap to MATERIALIZE can be arbitrarily more expensive to
+   RE-EXECUTE once compact. [Expr.Fold.scan_cost] already walks [Scan_at]
+   recursively, so it correctly multiplies a nested chain's cost through the
+   outer scan's [steps] with no separate incremental accounting needed here --
+   the whole specialized value is already size/depth-bounded by the checks
+   above, so this is one linear pass over an already-bounded tree, not a
+   second unbounded traversal. *)
+let check_scan_cost ~scan_limits value =
+  let updates, state = Expr.Fold.scan_cost value in
+  if state > Expr.Scan_limits.max_state scan_limits then
+    Err.fail
+      (`Scan
+         (Expr.Scan.State_over_limit
+            { limit = Expr.Scan_limits.max_state scan_limits }))
+  else if Int64.compare updates (Expr.Scan_limits.max_updates scan_limits) > 0
+  then
+    Err.fail
+      (`Scan
+         (Expr.Scan.Updates_over_limit
+            { limit = Expr.Scan_limits.max_updates scan_limits }))
+  else Err.return ()
+
+let specialize_pixel ~max_size ~max_depth ~scan_limits t =
   match pixel_expression t with
   | Some pixel ->
       let open Err.Syntax in
-      let+ () =
+      let* () =
         Expr.Check.value ~max_size ~max_depth pixel
         |> Err.map_error (fun e -> `Expr e)
       in
+      let+ () = check_scan_cost ~scan_limits pixel in
       pixel
   | None ->
       let open Err.Syntax in
@@ -154,15 +182,16 @@ let specialize_pixel ~max_size ~max_depth t =
         |> Err.map (Fun.const ())
       in
       let value, _ = rewrite locals state t.output in
-      let+ () =
+      let* () =
         Expr.Check.value ~max_size ~max_depth value
         |> Err.map_error (fun e -> `Expr e)
       in
+      let+ () = check_scan_cost ~scan_limits value in
       value
 
-let reconstructs ~max_size ~max_depth ~pixel t =
+let reconstructs ~max_size ~max_depth ~scan_limits ~pixel t =
   let open Err.Syntax in
-  let+ specialized = specialize_pixel ~max_size ~max_depth t in
+  let+ specialized = specialize_pixel ~max_size ~max_depth ~scan_limits t in
   Expr.Value.equal pixel specialized
 
 let pp_error fmt : [< error ] -> unit = function

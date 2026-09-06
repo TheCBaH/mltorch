@@ -20,6 +20,7 @@ let native_op : Op.t -> Graph_ir.op option = function
              bias;
            })
   | Op.Sdpa t -> Some (Graph_ir.Sdpa t)
+  | Op.Lstm t -> Some (Graph_ir.Lstm t)
   | Op.Softmax4 { Ops4.Softmax4.params; x } ->
       Some
         (Graph_ir.Softmax

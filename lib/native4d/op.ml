@@ -51,6 +51,7 @@ type op =
   | IndexTensor4 of Ops4.IndexTensor4.t
   | Layer_norm of Ops4.Layer_norm.t
   | Leaky_relu of Pointwise.Leaky_relu.t
+  | Lstm of Lstm.Lstm.t
   | Max_keepdims of Ops4.Max_keepdims.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Mean_keepdims of Ops4.Mean_keepdims.t
@@ -257,6 +258,12 @@ let op_registry : (module OP) list =
 
       let inject t = Leaky_relu t
       let project = function Leaky_relu t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Lstm.Lstm
+
+      let inject t = Lstm t
+      let project = function Lstm t -> Some t | _ -> None
     end : OP);
     (module struct
       include Ops4.Max_keepdims

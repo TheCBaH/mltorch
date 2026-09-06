@@ -187,6 +187,7 @@ module Make (S : Semantics.SEMANTICS) = struct
           | Some b -> operand b
         in
         C.pixel params ~x:(operand x) ~weight:(operand weight) ~bias out
+    | Lstm _ -> invalid_arg "Eval_op.pixel: Lstm is Region-authored"
     | Max_pool2d { Pool.MaxPool2d.params; x } ->
         let module C = Pool.MaxPool2d.Compute (S) in
         C.pixel params ~x_shape:(shape_of x) ~x:(operand x) out

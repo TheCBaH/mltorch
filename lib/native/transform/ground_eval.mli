@@ -81,15 +81,51 @@ module Env : sig
   val unbound_constant : t -> Ground_expr.Cell.t -> bool
 end
 
+(* Two exact accounts over grounding's own construction, both reset per proof
+   attempt: [max_ground_nodes] is cumulative construction fuel (every node
+   built anywhere in this module, including a discarded or re-embedded one,
+   spent once and never refunded); [max_nodes] is the CURRENT total logical
+   size of every root registered against one [Meter.t], shared by both roots
+   within an attempt. See the design record's "Grounding meter and verdict
+   mapping". *)
+module Budget : sig
+  type t = { max_ground_nodes : int64; max_nodes : int }
+end
+
+val default_budget : Budget.t
+
+module Meter : sig
+  type t
+
+  val create : Budget.t -> t
+end
+
+module Term : sig
+  (* A grounded root or its successor after [expand]. Belongs to the
+     [Meter.t] that produced it -- there is no way to construct one outside
+     this module, so a caller cannot fabricate a size that disagrees with the
+     expression it pairs. *)
+  type t
+
+  val expression : t -> Ground_expr.t
+  val size : t -> int64
+end
+
 (* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
    arithmetic can fail where it previously wrapped.
    [`Data_index_unresolved] is a [Data] source [resolve_data_source] cannot
    resolve to an exact value (anything but a directly-bound constant) -- it
    feeds [map_verify_check.ml]'s existing generic
-   [Ground_eval.error -> Unproved] conversion unchanged. *)
+   [Ground_eval.error -> Unproved] conversion unchanged.
+   [`Ground_nodes_over_limit]/[`Pair_nodes_over_limit] carry the configured
+   LIMIT, not the observed size, matching this repository's "payload is the
+   limit" convention; [map_verify_check.ml] maps them to their own named
+   verdicts rather than the generic [Eval] one. *)
 type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
+  | `Ground_nodes_over_limit of int64
+  | `Pair_nodes_over_limit of int
   | `Region of Region_program.error
   | `Scan_at_unsupported
   | `Unknown_edge of Tensor_id.t ]
@@ -109,9 +145,12 @@ val pp_error : Format.formatter -> [< error ] -> unit
    definition is looked at proves nothing about either. Projection applies to
    what the expanded root reads, not to the root.
 
-   The only failure is [id] belonging to neither, which is checked once here
-   rather than inside the traversal. *)
-val at : Env.t -> Tensor_id.t -> Vec6.coord -> (Ground_expr.t, error) Err.t
+   Registers a NEW root against [meter]: its whole measured size is added to
+   the pair total, on top of whatever construction fuel building it already
+   spent. The only failure other than a budget one is [id] belonging to
+   neither, which is checked once here rather than inside the traversal. *)
+val at :
+  meter:Meter.t -> Env.t -> Tensor_id.t -> Vec6.coord -> (Term.t, error) Err.t
 
 (* Replace every [Cell] that has a stage AND no boundary variable by
    [Round (that stage's body at the cell's coord)]. The [Round] lands exactly
@@ -122,18 +161,21 @@ val at : Env.t -> Tensor_id.t -> Vec6.coord -> (Ground_expr.t, error) Err.t
    expanding through it would re-prove someone else's obligation inside this
    one, which is the cascade this design exists to stop.
 
-   [budget] bounds ONE round, and has to: a single substitution step is
-   quadratic where a conv feeds a conv, so measuring only afterwards lets a term
-   reach tens of millions of nodes first. Running out leaves the remaining cells
-   unexpanded, which is sound rather than approximate — an unexpanded cell keeps
-   [expandable] true, so the driver reports a budget verdict and no probe may
-   run against a truncated frontier. *)
+   [meter] bounds the round the same way [at] bounds registration: a
+   replacement that would push the shared pair total past
+   [Meter]'s budget is skipped rather than performed, leaving that cell
+   unexpanded -- which is sound rather than approximate, since an unexpanded
+   cell keeps [expandable] true, so the driver reports a budget verdict and no
+   probe may run against a truncated frontier. Building each replacement's own
+   subtree spends [meter]'s cumulative construction-fuel account exactly as
+   [at] does, so a round that replaces many modestly-sized cells is bounded
+   even when no single replacement alone would cross the pair cap. *)
 val expand :
+  meter:Meter.t ->
   boundary:(Ground_expr.Origin.t -> Cluster_var.t option) ->
-  budget:int ->
   Env.t ->
-  Ground_expr.t ->
-  (Ground_expr.t, error) Err.t
+  Term.t ->
+  (Term.t, error) Err.t
 (* Result-valued because expansion evaluates indices, and checked arithmetic can
    fail. The caller must convert a failure into a VERDICT about the cluster, the
    way [at]'s failure already is -- not widen its own error row and abandon the

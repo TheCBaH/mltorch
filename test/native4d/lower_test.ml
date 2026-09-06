@@ -120,6 +120,92 @@ let%expect_test "lower: group_norm becomes the direct Group_norm4 counterpart" =
           params={channel=C; groups=2; eps=1e-05}
     outputs: [t3 [H=2 W=2 C=4]] |}]
 
+(* Direct counterpart, unconditionally (project step 15): [Lstm.Lstm.t]
+   names no axis and its shapes hardcode [T=1,D=1] everywhere, so it crosses
+   unchanged and needs no [Domain.check_node] precondition the way [Sdpa]
+   does. [seq=3]/[batch=2] are distinct so a layout bug swapping [H]/[W]
+   would be visible in the printed shapes below, for BOTH layouts --
+   [batch_first] only ever chooses which of [H]/[W] carries which, and both
+   are dialect axes either way. *)
+let lstm_layout_source ~batch_first =
+  Graph_builder.build ~name:"lstm"
+    ~outputs:(fun (o, h, c) -> [ o; h; c ])
+    (let open Graph_builder in
+     let seq_shape =
+       if batch_first then Vec6.shape ~n:1 ~t:1 ~d:1 ~h:2 ~w:3 ~c:2
+       else Vec6.shape ~n:1 ~t:1 ~d:1 ~h:3 ~w:2 ~c:2
+     in
+     let state_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:2 ~c:2 in
+     let* x = input ~shape:seq_shape () in
+     let* weight_ih =
+       input ~shape:(Vec6.shape ~n:8 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2) ()
+     in
+     let* weight_hh =
+       input ~shape:(Vec6.shape ~n:8 ~t:1 ~d:1 ~h:1 ~w:1 ~c:2) ()
+     in
+     let* h0 = input ~shape:state_shape () in
+     let* c0 = input ~shape:state_shape () in
+     lstm
+       { Lstm.Lstm.hidden_size = 2; input_size = 2; batch_first }
+       ~input:x
+       ~layers:
+         [
+           {
+             Lstm.Lstm.Layer.forward =
+               { Lstm.Lstm.Direction.weight_ih; weight_hh; bias = None };
+             reverse = None;
+           };
+         ]
+       ~h0 ~c0 ())
+  |> Err.or_raise ~pp_error:Graph_builder.pp_error
+
+let%expect_test
+    "lower: lstm keeps layout-dependent sequence placement, both ways" =
+  show "lstm time-first" (lstm_layout_source ~batch_first:false);
+  show "lstm batch-first" (lstm_layout_source ~batch_first:true);
+  [%expect
+    {|
+    lstm time-first:
+      graph4
+    inputs: [t0 [H=3 W=2 C=2],
+    t1 [N=8 T=1 D=1 H=1 W=1 C=2],
+    t2 [N=8 T=1 D=1 H=1 W=1 C=2],
+    t3 [W=2 C=2],
+    t4 [W=2 C=2]]
+    nodes:
+      n0: [t5,
+        t6,
+        t7] =
+        lstm
+          input=t0
+          layers=[{forward={weight_ih=t1; weight_hh=t2; bias=none}; reverse=none}]
+          h0=t3
+          c0=t4
+          params={hidden_size=2; input_size=2; batch_first=false}
+    outputs: [t5 [H=3 W=2 C=2],
+    t6 [W=2 C=2],
+    t7 [W=2 C=2]]
+    lstm batch-first:
+      graph4
+    inputs: [t0 [H=2 W=3 C=2],
+    t1 [N=8 T=1 D=1 H=1 W=1 C=2],
+    t2 [N=8 T=1 D=1 H=1 W=1 C=2],
+    t3 [W=2 C=2],
+    t4 [W=2 C=2]]
+    nodes:
+      n0: [t5,
+        t6,
+        t7] =
+        lstm
+          input=t0
+          layers=[{forward={weight_ih=t1; weight_hh=t2; bias=none}; reverse=none}]
+          h0=t3
+          c0=t4
+          params={hidden_size=2; input_size=2; batch_first=true}
+    outputs: [t5 [H=2 W=3 C=2],
+    t6 [W=2 C=2],
+    t7 [W=2 C=2]] |}]
+
 let%expect_test
     "lower: carries a six-dimensional captured constant behind a \
      four-dimensional export" =

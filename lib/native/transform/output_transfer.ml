@@ -117,10 +117,10 @@ let classify (op : op) ~output =
   | Batched_matmul _ | Bmm _ | Clamp _ | Conv1d _ | Conv2d _ | Conv2d_padding _
   | Conv3d _ | Convolution _ | Cumsum _ | Div _ | Div_scalar _ | Eye _ | Gelu _
   | Group_norm _ | Hardsigmoid _ | Hardswish _ | Hardtanh _ | Layer_norm _
-  | Leaky_relu _ | Linear _ | Max_pool2d _ | Mean _ | Mul _ | Mul_scalar _
-  | Pow _ | Relu _ | Rms_norm _ | Rsub_scalar _ | Sdpa _ | Sigmoid _ | Silu _
-  | Softmax _ | Arange _ | Sqrt _ | Sub _ | Sum _ | Upsample_bilinear2d _
-  | Vector_norm _ | Zeros _ ->
+  | Leaky_relu _ | Linear _ | Lstm _ | Max_pool2d _ | Mean _ | Mul _
+  | Mul_scalar _ | Pow _ | Relu _ | Rms_norm _ | Rsub_scalar _ | Sdpa _
+  | Sigmoid _ | Silu _ | Softmax _ | Arange _ | Sqrt _ | Sub _ | Sum _
+  | Upsample_bilinear2d _ | Vector_norm _ | Zeros _ ->
       Continuous
 
 (* [Identical] survives everything, evaluation being deterministic. [Equivalent]

@@ -20,6 +20,7 @@
 type error =
   [ `Body of Kernel.Body_error.t
   | `Not_a_dependency of Kernel.Use.t
+  | `Recurrent_use of Kernel.Use.t
   | `Regional_computation of Kernel.Use.t
   | `Unknown_use of Kernel.Use.t
   | `Unsupported_use of Kernel.Use.t ]

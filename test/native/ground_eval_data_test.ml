@@ -15,6 +15,15 @@ let origin = Vec6.coord ~n:0 ~t:0 ~d:0 ~h:0 ~w:0 ~c:0
 let pp_result =
   Core.Pretty.err_result ~ok:Ground_expr.pp ~error:Ground_eval.pp_error
 
+(* One fresh meter per call, matching [Map_verify_check.attempt]'s own
+   discipline: each test here is its own independent root, not a chain of
+   roots meant to share an allowance. *)
+let at env id coord =
+  Err.map Ground_eval.Term.expression
+    (Ground_eval.at
+       ~meter:(Ground_eval.Meter.create Ground_eval.default_budget)
+       env id coord)
+
 let index_id = Tensor_id.of_int 0
 let self_id = Tensor_id.of_int 1
 let out_id = Tensor_id.of_int 2
@@ -85,7 +94,7 @@ let%expect_test
   in
   let env = Ground_eval.Env.of_program ~constants p ~side:`Src in
   (* self[index[0]] = self[2] = 30. *)
-  Fmt.pr "%a@." pp_result (Ground_eval.at env out_id origin);
+  Fmt.pr "%a@." pp_result (at env out_id origin);
   [%expect {| f32(0x1.ep+4) |}]
 
 let%expect_test
@@ -101,7 +110,7 @@ let%expect_test
   in
   let env = Ground_eval.Env.of_program ~constants p ~side:`Src in
   (* self[index[0]] = self[-1] = self[2] = 30. *)
-  Fmt.pr "%a@." pp_result (Ground_eval.at env out_id origin);
+  Fmt.pr "%a@." pp_result (at env out_id origin);
   [%expect {| f32(0x1.ep+4) |}]
 
 let%expect_test
@@ -136,7 +145,7 @@ let%expect_test
     |> Tensor_id.Map.add self_id (self_const [ 10.; 20.; 30. ])
   in
   let env = Ground_eval.Env.of_program ~constants p ~side:`Src in
-  Fmt.pr "%a@." pp_result (Ground_eval.at env out_id origin);
+  Fmt.pr "%a@." pp_result (at env out_id origin);
   [%expect
     {| Data index source could not be resolved to a directly-bound I64 constant |}]
 
@@ -149,6 +158,6 @@ let%expect_test
     |> Tensor_id.Map.add self_id (self_const [ 10.; 20.; 30. ])
   in
   let env = Ground_eval.Env.of_program ~constants p ~side:`Src in
-  Fmt.pr "%a@." pp_result (Ground_eval.at env out_id origin);
+  Fmt.pr "%a@." pp_result (at env out_id origin);
   [%expect
     {| Data index source could not be resolved to a directly-bound I64 constant |}]

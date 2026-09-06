@@ -27,6 +27,7 @@ module Stage : sig
   val pixel_body :
     max_size:int ->
     max_depth:int ->
+    scan_limits:Expr.Scan_limits.t ->
     t ->
     (Expr.Value.t, Region_program.error) Err.t
   (** The symbolic Pixel view used only by consumers that cannot yet traverse

@@ -115,6 +115,11 @@ module Operand_shape = struct
       | `Group_norm_weight
       | `Layer_norm_bias
       | `Layer_norm_weight
+      | `Lstm_bias
+      | `Lstm_input
+      | `Lstm_state
+      | `Lstm_weight_hh
+      | `Lstm_weight_ih
       | `Rms_norm_weight ];
     expected : Vec6.shape;
     actual : Vec6.shape;
@@ -129,6 +134,11 @@ module Operand_shape = struct
       | `Group_norm_weight -> "group_norm weight"
       | `Layer_norm_bias -> "layer_norm bias"
       | `Layer_norm_weight -> "layer_norm weight"
+      | `Lstm_bias -> "lstm bias"
+      | `Lstm_input -> "lstm input"
+      | `Lstm_state -> "lstm initial state"
+      | `Lstm_weight_hh -> "lstm weight_hh"
+      | `Lstm_weight_ih -> "lstm weight_ih"
       | `Rms_norm_weight -> "rms_norm weight")
       Vec6.pp_shape expected Vec6.pp_shape actual
 end
@@ -159,6 +169,33 @@ module Linear = struct
     | Weight_channels_mismatch { actual; expected } ->
         Fmt.pf ppf "weight C extent must equal in_features: %a vs %a" Dim.pp
           actual Dim.pp expected
+end
+
+(* Configuration rejections for the WIP `Lstm` op (project step 13):
+   payload/domain facts no per-operand shape comparison can express, distinct
+   from [Operand_shape]'s `Lstm_*` rows (which compare one operand's shape
+   against an expected one). Each is a real _ai_/project_todo.md M3b/M5 gap,
+   not a placeholder -- rejected with a typed diagnostic rather than silently
+   mishandled. *)
+module Lstm = struct
+  type dim = Hidden_size | Input_size
+
+  type error =
+    | Empty_layers
+    | Non_positive_dim of { dim : dim; value : int }
+    | Nonuniform_direction
+
+  let pp_dim ppf = function
+    | Hidden_size -> Fmt.string ppf "hidden_size"
+    | Input_size -> Fmt.string ppf "input_size"
+
+  let pp_error ppf = function
+    | Empty_layers -> Fmt.string ppf "lstm: at least one layer is required"
+    | Non_positive_dim { dim; value } ->
+        Fmt.pf ppf "lstm: %a must be positive, got %d" pp_dim dim value
+    | Nonuniform_direction ->
+        Fmt.string ppf
+          "lstm: every layer must have a reverse direction, or none must"
 end
 
 module Bmm = struct
@@ -657,6 +694,7 @@ type t =
   | `Group_norm of Group_norm.t
   | `Index_tensor of Index_tensor.t
   | `Linear of Linear.error
+  | `Lstm of Lstm.error
   | `Numel_over_limit of Vec6.Numel_bound.t
   | `Operand_shape of Operand_shape.t
   | `Output_count_over_limit of Output_count.t
@@ -685,6 +723,7 @@ let pp ppf = function
   | `Group_norm e -> Group_norm.pp ppf e
   | `Index_tensor e -> Index_tensor.pp ppf e
   | `Linear e -> Linear.pp_error ppf e
+  | `Lstm e -> Lstm.pp_error ppf e
   | `Numel_over_limit e -> Vec6.Numel_bound.pp ppf e
   | `Operand_shape e -> Operand_shape.pp ppf e
   | `Output_count_over_limit e -> Output_count.pp ppf e
