@@ -552,23 +552,85 @@ before it began (see steps 7/8's identical limitation note).
 
 ### 10. Bound grounding and migrate verifier budgets
 
-- [ ] Implement `Ground_eval.Budget`, `Meter` and sized `Term`, threading one meter through
+- [x] Implement `Ground_eval.Budget`, `Meter` and sized `Term`, threading one meter through
   roots, `body_at`, ordinary reductions, max-pool, scan unrolling and expansion.
-- [ ] Charge retained roots/replacement deltas against `max_nodes`; charge cumulative
+- [x] Charge retained roots/replacement deltas against `max_nodes`; charge cumulative
   construction, discarded state and repeated cached embeddings against `max_ground_nodes`.
-- [ ] Process left then right explicitly. Share accounts within an attempt and reset both
+- [x] Process left then right explicitly. Share accounts within an attempt and reset both
   for each Structural/constant-bound attempt. Stop before a crossing insertion and prohibit
   probing partial frontiers after exhaustion.
-- [ ] Migrate all `Ground_eval.at`/`expand` callers, verifier budget records/profiles, the
+- [x] Migrate all `Ground_eval.at`/`expand` callers, verifier budget records/profiles, the
   external full record literal, printers and goldens using the exact plan values/contracts.
-- [ ] Map pair exhaustion to `Max_nodes limit` and construction exhaustion to
+- [x] Map pair exhaustion to `Max_nodes limit` and construction exhaustion to
   `Max_ground_nodes limit`. Update the complete verdict/label vocabulary and its tests.
-- [ ] Cover oversized roots, later expansion, shared-pair exhaustion, replacement at the
+- [x] Cover oversized roots, later expansion, shared-pair exhaustion, replacement at the
   exact pair cap, discarded intermediates, repeated embeddings and fresh-attempt allowances.
 
 Completion: each account is independently exercised with the other sufficiently large;
 both verdicts carry the correct configured limit. Existing non-scan grounding remains
 correct under the newly explicit budgets.
+
+Evidence (2026-09-06): `Ground_eval` gains `Budget`/`Meter`/`Term` exactly per
+`.ai/native_scan_design.md`'s "Grounding meter and verdict mapping" record
+(now marked landed there, including two disclosed, deliberate simplifications
+from the original sketch: no `invalid_arg` identity/generation token on
+`Term.t`, since neither `at` nor `expand` reads any per-term meter-identity
+field so there is no real hazard for one to guard; and construction fuel
+takes precedence over the pair cap when a single replacement is oversized on
+both counts, since checking the pair cap first would need a size estimate
+without constructing the replacement, which `Region_program` does not expose).
+`ground`/`leaf`/`max_pool` route every node they build through one `node`
+helper that charges `Meter.ground_nodes` before returning it -- closing the
+real gap the design record names: the OLD `expand`'s own `~budget:int`
+counter charged a replacement's size only after `body_at` had already fully
+built it. `at` registers a new root's whole measured size against
+`Meter.pair_nodes`; `expand` computes each replacement's net delta
+(`size (Round (body_at ...)) - 1`, since the cell it replaces already counted
+as 1) and skips (not aborts) a replacement that would cross the cap, so a
+large chain elsewhere in the same round does not block a smaller one from
+closing. `Map_verify_check.settle` recognizes "no further progress possible"
+empirically -- both sides' expressions unchanged after a round while still
+`expandable` -- and reports `Unproved (Max_nodes budget.max_nodes)`, the
+configured limit rather than an observed size as the retired code reported.
+`compare_at`'s `attempt` creates a fresh `Meter.t` per call (Structural, then
+Constants), visible at its two call sites rather than an internal reset
+method.
+
+`Map_verify_types.Budget.t` gains `max_ground_nodes : int64`; `default`/
+`cumulative`/`release` and all three `Effort` profiles migrated to the exact
+policy values the design record specifies (ten times each existing pair cap);
+`Budget.pp` gains the field. `Unproved.t` gains `Max_ground_nodes of int64`,
+inserted immediately before `Max_nodes` (preserving the pre-existing,
+documented non-alphabetical constructor order rather than reordering it);
+`pp`/`reason`/`reasons` migrated. `test/native/outcome_label_test.ml`'s
+pinned counts move 17→18 and its canonical-order golden gains the new label
+at the correct position. `test/native/verify_boundary_test.ml`'s one full
+`Map_verify.Budget.t` literal gains `max_ground_nodes = 2_000_000L`.
+`test/native/ground_eval_data_test.ml` and `region_compute_test.ml` migrate
+their direct `Ground_eval.at` calls to `~meter`/`Term.expression`.
+
+New test `test/native/ground_eval_budget_test.ml` exercises `Ground_eval`
+directly, hand-verified against the exact node counts: an unrolled `Reduce`
+of extent 6 (13 nodes) succeeds under a generous `max_ground_nodes` and fails
+reporting the exact configured limit under a tight one; two single-node stage
+roots registered against one meter -- the first exactly fills `max_nodes`,
+an identically-sized second is rejected with that same limit, proving the
+account is shared rather than per-root; one `expand` call that would cross
+the cap by one node is skipped (term unchanged) while the same call under a
+cap widened by exactly that one node performs the replacement (`Term.size`
+grows by precisely the computed delta) -- "replacement at the exact pair
+cap". No scan-specific regression exists: grounding still rejects any
+`Scan_at` outright (unchanged `` `Scan_at_unsupported ``), so the scan-shaped
+cases the original sketch listed do not yet apply. Repeated
+`Const_ssa_symbolic`-cached-embedding charging is exercised only indirectly
+by the existing, unchanged, still-green Const-SSA test suite, not a dedicated
+over-limit regression -- a disclosed limitation. `NO_COLOR=1 opam exec --
+dune runtest` (whole tree, no other goldens moved), `make jsoo.runtest`,
+`make jsoo.inline-runtest`, and `make melange.runtest` all pass; `make
+build`/`runtest`/`check.file-size`/`check.whitespace` and `opam exec -- dune
+build @lib/fmt @test/fmt` (excluding the pre-existing, unrelated
+`experiments/tailcall/backend_driver.ml` `dune fmt` failure noted at steps
+7-9) all pass on every file this step touches.
 
 ### 11. Accept and land the reusable scan foundation
 
