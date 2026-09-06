@@ -904,16 +904,105 @@ at steps 7-12), `make jsoo.runtest`, `make jsoo.inline-runtest`, and
 
 ### 14. Implement both import paths and output validation
 
-- [ ] Add the recurrent ATen bridge and Native interpreter lowering modules.
-- [ ] Decode tensor lists and validate raw ranks before right-alignment loses rank evidence;
+- [x] Add the recurrent ATen bridge and Native interpreter lowering modules.
+- [x] Decode tensor lists and validate raw ranks before right-alignment loses rank evidence;
   reuse shared semantic shape/configuration checks after decoding.
-- [ ] Preserve all three real outputs, and use actual use analysis to identify dead ones.
+- [x] Preserve all three real outputs, and use actual use analysis to identify dead ones.
   Reject malformed lists/flags with typed diagnostics at the importing boundary.
-- [ ] Verify live state outputs individually and together, plus discarded-state fixtures.
+- [x] Verify live state outputs individually and together, plus discarded-state fixtures.
   Check explicit output cardinality rather than relying on fixed-tuple verifier leniency.
 
 Completion: both importers produce the same accepted semantics and informative rejection
 behavior, with no silent truncation or name-based assumption about dead outputs.
+
+Evidence (2026-09-06): `lib/native_aten_bridge/op_bridge_recurrent.ml` (the
+ATen bridge, used for isolated-node verification) and
+`lib/native_interp/native_interp_lower_recurrent.ml` (the production PT2
+importer) both decode `lstm.input`'s `hx`/`params` `Tensor[]` arguments
+(`tensors_arg`/`tensor_names_arg`) and share ONE grouping rule for the flat
+`params` list -- `Lstm.Lstm.group_params`/`params_length`
+(`lib/native/ops/lstm.ml`), in `lstm-plan.md` §2's declared order (layer by
+layer, forward before reverse, `weight_ih, weight_hh[, bias_ih, bias_hh]`
+per direction) -- so the two importers cannot decode the same list two
+different ways. Both reject `train=true` and a wrong `hx`/`params` arity
+through one new shared typed boundary, `Lstm.Lstm.Reject`, the same role
+`Attention.Sdpa.Reject` already plays for sdpa. Every operand's raw ATen/
+declared rank is checked (`require_rank`, both sides) BEFORE
+`Tensor_bridge.of_aten`/right-alignment could erase it -- exactly the
+"validate raw ranks before right-alignment loses rank evidence" bullet,
+matching `Operand_rank`'s existing rationale elsewhere in the bridge.
+`has_biases`/`num_layers`/`train`/`bidirectional`/`batch_first` have no
+schema default; decoding them with the pre-existing `bool_arg`/`int_arg`
+would silently substitute `false`/`0` on an omitted argument, so this step
+adds `required_bool_arg`/`required_int_arg` to `native_interp_decode.ml`
+(the same fix `float_arg`'s own comment already gives for `eps`) rather
+than accepting that gap for a newly-written path.
+
+A real defect surfaced running real ATen tensors through the bridge for the
+first time: `weight_ih`/`weight_hh` (rank-2) and `bias_ih`/`bias_hh`
+(rank-1) right-align onto `[W=rows,C=cols]`/`[C=4*hidden]`, not the
+`[N=rows,...]`/`[N=4*hidden,C=1]` layout `Lstm.Lstm`'s own shapes expect
+(`weight_ih_shape`/`weight_hh_shape`/`bias_shape`) -- caught as a shape
+mismatch in `test/native_bridge/lstm_test.ml`'s real-ATen verify test, fixed
+with two relayout permutes (`perm_lstm_weight`, reusing the existing
+`perm_linear_weight`; `perm_lstm_bias`, new -- swaps `N`/`C`, since `bias`'s
+count lands on `N` here unlike `Linear`'s own bias). `Native_interp` carries
+its own copy of both (`native_interp_lower_recurrent.ml`'s `perm_lstm_bias`,
+`native_interp_decode.ml`'s pre-existing `perm_linear_weight`), since it
+cannot depend on the ATen-linked `native_aten_bridge`. `input`/`hx` need no
+permute in either importer: their native shapes already match ATen's
+right-alignment positionally, regardless of `batch_first`.
+
+"Preserve all three real outputs, and use actual use analysis to identify
+dead ones" is where the two importers deliberately differ, because only one
+of them has the context to differ: `Op_bridge_recurrent` always exposes all
+three (an isolated node has no broader-graph liveness to consult, and every
+output is a genuine representable F32 tensor, so there is nothing to
+legitimately decline). `Native_interp_lower_recurrent` checks each of the
+three outputs' own serialized SSA name against `ctx.reads` (the same
+lazily-computed "every name any node reads, plus the graph's own outputs"
+set `native_layer_norm`'s `Live_layer_norm_stats` check already uses) and
+routes whichever is absent to `Discard`, independently per output -- proven
+with `test/native_interp/lstm_test.ml`'s three structural fixtures (both
+states dead, `h_n` live/`c_n` dead, and a graph OUTPUT counting as a live
+read) plus one showing a real corpus shape (all 36 `sequencer2d_s`/`csatv2`
+occurrences serialize `h_n`/`c_n` as `..._unused_1`/`..._unused_2` but that
+name is never trusted -- only `ctx.reads` membership is, per
+`lstm-plan.md`'s own "names containing `unused` are not proof of deadness").
+Proved non-vacuous by forcing `discard_if_dead` to always discard
+regardless of `reads` and watching the "keeps a live state output bound"
+fixture (and the other two) fail with a materially different graph dump,
+then reverting.
+
+"Check explicit output cardinality rather than relying on fixed-tuple
+verifier leniency": `Op_bridge_recurrent` always returns exactly 3 ids, so
+`Verify.verify_node`'s per-output comparison against ATen's real 3 outputs
+is exact for every configuration exercised, never merely the "leading
+outputs" leniency multi-output ops with a legitimately-droppable tail (e.g.
+`max_pool2d_with_indices`) rely on -- `test/native_bridge/lstm_test.ml`'s
+two `verify_lstm` fixtures (with and without biases) confirm real ATen
+agreement on all three outputs at once. On the `Native_interp` side, lstm
+takes the FULLY GENERIC output-arity path (`materialized_output_names`'s
+default catch-all, unlike `native_layer_norm`'s special-cased "keep only
+the head"), so a declared arity other than 3 is caught either by the arm's
+own `output_names` match (used to extract the three names for the
+liveness check) or by `lower_node`'s generic `bind` check --
+`test/native_interp/lstm_test.ml`'s "checks its output arity generically"
+fixture pins both the 2-output and 4-output cases.
+
+`NO_COLOR=1 opam exec -- dune runtest` (whole tree, including the
+independent "skipped (no native impl)" -> "matched" flip in
+`test/native_walk_coverage_test.ml`'s generated `lstm.input` walk),
+`make check.file-size` (required splitting `perm_lstm_bias` out of
+`native_interp_decode.ml`, which crossed the 1000-line tree cap),
+`git diff --check HEAD`, `opam exec -- dune fmt` (excluding the
+pre-existing, unrelated `experiments/tailcall/backend_driver.ml` syntax
+error noted at steps 7-13), `make jsoo.runtest`, `make jsoo.inline-runtest`,
+and `make melange.runtest` all pass across all three commits this session
+(`84ff6da` the ATen bridge half, `228fb86` the Native_interp half, plus the
+step-13 completion `e64a8c4`/`d88e91e` before them). No file outside
+`lib/native_aten_bridge`/`test/native_bridge` gained an ATen/ctypes
+dependency.
 
 ### 15. Add the Native4D counterpart
 
