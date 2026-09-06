@@ -1,9 +1,10 @@
-# Merlin-based OCaml code inspection for AI agents
+# CamlScout: semantic OCaml code inspection for AI agents
 
 Status: design proposal  
 Date: 2026-09-06  
 Target repository: `mltorch`  
-Proposed command name: `ocaml-inspect`
+Project name: CamlScout  
+Command name: `ocaml-scout`
 
 ## 1. Summary
 
@@ -12,14 +13,20 @@ This document proposes a small semantic code-inspection tool for AI coding agent
 The tool is intended to complement, not replace, textual search. A good default discovery loop is:
 
 1. Use `rg` to find likely files or symbols cheaply.
-2. Use `ocaml-inspect outline` to understand the selected file.
-3. Use `ocaml-inspect inspect` at a location to obtain the enclosing construct, inferred type, definition, documentation, and nearby uses.
+2. Use `ocaml-scout outline` to understand the selected file.
+3. Use `ocaml-scout inspect` at a location to obtain the enclosing construct, inferred type, definition, documentation, and nearby uses.
 4. Use `definition` and `references` when exact navigation is required.
 5. Request a detailed typed browse tree only as a debugging escape hatch.
 
 The first implementation should be a shell-based executable specification around `ocamlmerlin` and Dune. Its output schema, fixtures, and evaluation harness should be treated as the durable product. A persistent OCaml backend using `merlin-lib` can replace the query engine later if benchmarks show meaningful latency or integration gains.
 
 The central design rule is that semantic confidence must never be implicit. If a project index is absent, stale, unsupported, or failed to rebuild, the tool must return a useful partial result and label it `partial`; it must not present buffer-local occurrences as exhaustive project references.
+
+### 1.1 Project identity
+
+The project is named **CamlScout** and described as “token-efficient semantic code exploration for OCaml.” The executable and opam package are named `ocaml-scout`; an OCaml library should use `ocaml_scout`, and an MCP adapter should use `ocaml-scout-mcp`.
+
+“Scout” describes the intended role: quickly discovering useful structure and evidence while reporting the limits of what was searched. The name does not imply that every result is authoritative or exhaustive, and it avoids coupling the project identity to Merlin. Merlin is the initial semantic engine, but Dune RPC, compiler artifacts, or other backends can evolve without requiring a rename.
 
 ## 2. Motivation
 
@@ -148,7 +155,7 @@ The primary caller is an AI coding agent. Humans should also be able to run and 
 
 ```text
 rg "alpha_normalize" .
-ocaml-inspect inspect test/expr/rewrite_test.ml:91:25
+ocaml-scout inspect test/expr/rewrite_test.ml:91:25
 ```
 
 The second command should answer, in one result:
@@ -164,8 +171,8 @@ The second command should answer, in one result:
 ### 5.2 Understand a large file
 
 ```text
-ocaml-inspect outline lib/expr/expr_api.ml --depth 2
-ocaml-inspect outline lib/expr/expr_api.ml --under Rewrite --depth 3
+ocaml-scout outline lib/expr/expr_api.ml --depth 2
+ocaml-scout outline lib/expr/expr_api.ml --under Rewrite --depth 3
 ```
 
 The default output should be shallow. The caller can expand only the relevant subtree rather than ingesting a thousand-line interface or full typed AST.
@@ -173,7 +180,7 @@ The default output should be shallow. The caller can expand only the relevant su
 ### 5.3 Find usages before an edit
 
 ```text
-ocaml-inspect references lib/expr/expr_api.ml:640:4 --project --limit 40
+ocaml-scout references lib/expr/expr_api.ml:640:4 --project --limit 40
 ```
 
 If the index is unavailable, the response remains useful but starts with a partial-completeness marker and explains what was searched. An optional lexical fallback must be labeled as lexical, not silently merged into semantic results.
@@ -181,8 +188,8 @@ If the index is unavailable, the response remains useful but starts with a parti
 ### 5.4 Diagnose a broken query
 
 ```text
-ocaml-inspect doctor
-ocaml-inspect inspect path/to/file.ml:12:8 --trace --format jsonl
+ocaml-scout doctor
+ocaml-scout inspect path/to/file.ml:12:8 --trace --format jsonl
 ```
 
 Machine output remains on stdout. Diagnostic trace data goes only to stderr.
@@ -190,19 +197,19 @@ Machine output remains on stdout. Diagnostic trace data goes only to stderr.
 ## 6. Proposed command-line interface
 
 ```text
-ocaml-inspect capabilities [--format ai|jsonl|json|raw]
-ocaml-inspect status       [--format ai|jsonl|json]
-ocaml-inspect doctor       [--format text|json]
+ocaml-scout capabilities [--format ai|jsonl|json|raw]
+ocaml-scout status       [--format ai|jsonl|json]
+ocaml-scout doctor       [--format text|json]
 
-ocaml-inspect outline FILE [--depth N] [--under NAME] [--limit N]
-ocaml-inspect inspect LOCATION [--references N] [--context N]
-ocaml-inspect type LOCATION
-ocaml-inspect definition LOCATION [--follow-aliases N]
-ocaml-inspect references LOCATION [--buffer|--project] [--limit N]
-ocaml-inspect errors FILE [--limit N]
-ocaml-inspect browse FILE [--at LOCATION] [--depth N] [--limit N]
+ocaml-scout outline FILE [--depth N] [--under NAME] [--limit N]
+ocaml-scout inspect LOCATION [--references N] [--context N]
+ocaml-scout type LOCATION
+ocaml-scout definition LOCATION [--follow-aliases N]
+ocaml-scout references LOCATION [--buffer|--project] [--limit N]
+ocaml-scout errors FILE [--limit N]
+ocaml-scout browse FILE [--at LOCATION] [--depth N] [--limit N]
 
-ocaml-inspect refresh [--check|--index|--all]
+ocaml-scout refresh [--check|--index|--all]
 ```
 
 `LOCATION` is `FILE:LINE:COLUMN`. Lines are one-based. Columns are zero-based UTF-8 byte offsets unless a particular Merlin version establishes a different interpretation; the effective convention is reported by `capabilities` and encoded in structured metadata.
@@ -572,7 +579,7 @@ Trace event names and fields should be versioned so benchmark tooling can consum
 
 ### 12.2 Doctor command
 
-`ocaml-inspect doctor` runs a bounded diagnostic sequence:
+`ocaml-scout doctor` runs a bounded diagnostic sequence:
 
 1. identify workspace and opam switch;
 2. report exact tool versions;
@@ -653,7 +660,7 @@ Compare at least:
 
 The hybrid condition is likely the practical winner and should be treated as a first-class condition, not contamination.
 
-For a fair tool comparison, expose `rg` and `ocaml-inspect` through instrumented interfaces with equivalent visibility into arguments, output size, failures, and duration. Otherwise a model can hide multiple searches in one shell command, making raw tool-call counts misleading.
+For a fair tool comparison, expose `rg` and `ocaml-scout` through instrumented interfaces with equivalent visibility into arguments, output size, failures, and duration. Otherwise a model can hide multiple searches in one shell command, making raw tool-call counts misleading.
 
 ### 14.2 Task corpus
 
@@ -665,7 +672,7 @@ Store tasks as immutable JSONL records tied to a fixed project commit:
   "repo_commit": "<sha>",
   "prompt_file": "tasks/locate-alpha-normalize.md",
   "oracle_file": "oracles/locate-alpha-normalize.json",
-  "allowed_tools": ["read", "rg", "ocaml-inspect"],
+  "allowed_tools": ["read", "rg", "ocaml-scout"],
   "budget": { "turns": 30, "seconds": 900 }
 }
 ```
@@ -942,4 +949,3 @@ Exit criterion: the persistent backend provides a material measured benefit that
 - [Official OpenAI Codex authentication documentation](https://learn.chatgpt.com/docs/auth)
 - [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-usage)
 - [Claude Code authentication and setup](https://docs.anthropic.com/en/docs/claude-code/getting-started)
-

@@ -128,13 +128,15 @@ on disk. `dune clean` reliably fixed both occurrences; partial `rm -rf` of
 
 ## Stage 2 — Separate shared evaluator plumbing
 
-- [ ] Move definitions above `value` into `eval_common.ml` without changing
-  their algorithms, including the recursive index helper.
-- [ ] Keep `value` in `eval.ml` and add `open Eval_common`.
-- [ ] Compose the public Eval facade from Eval_common and Eval.
-- [ ] Preserve internal library wrapping and the public API.
-- [ ] Verify unchanged depth expectations and order goldens.
-- [ ] Compare native benchmarks with Stage 0 and pass the common gates.
+- [x] Move definitions above `value` into `eval_common.ml` without changing
+  their algorithms, including the recursive index helper. Commit `a001adb`.
+- [x] Keep `value` in `eval.ml` and add `open Eval_common`.
+- [x] Compose the public Eval facade from Eval_common and Eval.
+- [x] Preserve internal library wrapping and the public API.
+- [x] Verify unchanged depth expectations and order goldens.
+- [x] Compare native benchmarks with Stage 0 and pass the common gates.
+  `gc_words_per_output`/`*_words` in both benchmark binaries are
+  byte-identical to the Stage 0 baseline (deterministic, not timing noise).
 
 ## Stage 3 — Build the mirrors
 
@@ -312,7 +314,7 @@ measurement establishing that condition.
 |---|---|---|
 | 0 — Baselines and oracle | Verified | Commits `1fff577` (oracle), `fff42ee` (jsoo timing threshold fixup). Follow-ups: melange warning-51 fatality unreconciled; benchmark baselines not saved to a file. |
 | 1 — Annotations | Verified | Commit `38d43ba`. |
-| 2 — Shared plumbing | Unverified | — |
+| 2 — Shared plumbing | Verified | Commit `a001adb`. |
 | 3 — Mirrors | Unverified | — |
 | 4 — Intrinsic loop | Unverified | — |
 | 5 — Candidates and harness | Unverified | — |
