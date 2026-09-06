@@ -1,0 +1,12 @@
+; The jsoo route for Stage 0's evaluation-order oracle. Links ordinary [expr];
+; Stage 3 switches this to the mirrored [expr_js] once it exists, per
+; expr-tailcall-implementation-plan.md under .ai/.
+
+(copy_files
+ (files %{workspace_root}/js/probe/order_probe.ml))
+
+(executable
+ (name order_probe)
+ (modes js)
+ (modules order_probe)
+ (libraries expr err_trace))

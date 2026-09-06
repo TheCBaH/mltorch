@@ -82,6 +82,17 @@
  (modules subset_probe)
  (libraries probes_pure))
 
+; Stage 0 of the Expr tail-call conversion's evaluation-order oracle. Native
+; and bytecode here are two of its three routes; js/jsoo/order_probe mirrors
+; the same source as the third. See order_probe.ml and
+; expr-tailcall-implementation-plan.md under .ai/.
+
+(executable
+ (name order_probe)
+ (modes exe byte)
+ (modules order_probe)
+ (libraries expr err_trace))
+
 ; The tier-1 fixture: resnet18's committed model.json, the smallest of the 17
 ; (224K). Same shell-copy idiom as data/dune and test/dune -- the submodule is
 ; excluded from dune's scan, and %{project_root} reaches it only inside

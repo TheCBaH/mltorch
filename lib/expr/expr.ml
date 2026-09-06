@@ -26,5 +26,10 @@ module Builder = Expr_internal.Builder
 module Fold = Expr_internal.Fold
 module Rewrite = Expr_internal.Rewrite
 module Check = Expr_internal.Check
-module Eval = Expr_internal.Eval
+
+module Eval = struct
+  include Expr_internal.Eval_common
+  include Expr_internal.Eval
+end
+
 module Pp = Expr_internal.Pp

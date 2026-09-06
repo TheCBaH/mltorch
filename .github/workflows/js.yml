@@ -53,6 +53,14 @@ jobs:
     - name: jsoo differential test
       run: |
         ${{ env.EXEC }} make jsoo.runtest
+    # A third distinct question, same reason the two below are their own
+    # steps: does each backend match its OWN committed golden for the Expr
+    # evaluation-order oracle's cases -- unspecified-order sites the plan
+    # deliberately allows backends to disagree on, so this is a per-backend
+    # diff, not a cross-backend one like jsoo.runtest above.
+    - name: expr evaluation-order oracle
+      run: |
+        ${{ env.EXEC }} make expr_order.runtest
     # A separate step from the differential probe above, so a failure names the
     # layer: the probe answers "do the backends agree", these answer "is the
     # answer right".

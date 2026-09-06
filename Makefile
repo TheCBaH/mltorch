@@ -1,4 +1,4 @@
-.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute tailcall.runtest tailcall.js-benchmark inline-timing-report inline-timing-report-js jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
+.PHONY: visualizer.submodule visualizer.patch visualizer.build spike.setup spike.runtest webapp.npm-install webapp.build webapp.serve webapp.runtest webapp.bridge-runtest webapp.browser-runtest melange.build melange.build.scaffold melange.runtest build test format runtest verify.pristine clean pt2.download pt2.download-all pt2.download-cram pt2.runtest pt2.vars pt2.json-model-support inference inference-runa native-infer-verify native-infer-verify.% native-transform-verify native-transform-verify.% benchmark.region_pixel benchmark.region_compute tailcall.runtest tailcall.js-benchmark expr_order.runtest inline-timing-report inline-timing-report-js jsoo.build jsoo.runtest jsoo.inline-runtest jsoo.pt2.runtest jsoo.pt2.run jsoo.pt2.download jsoo.pt2.vars js.build js.runtest check.file-size check.whitespace check precommit
 all: build
 
 # Functional ATen model release, pinned alongside the producer submodule.
@@ -376,6 +376,32 @@ tailcall.js-benchmark:
 	@echo "melange"
 	node $(TAILCALL_BUILD)/melange_bench/output/experiments/tailcall/melange_bench/tailcall_js_bench.js \
 	  64 200000
+
+# Stage 0 of the Expr tail-call conversion (.ai/'s implementation plan): the
+# evaluation-order oracle. Native, bytecode and jsoo build one shared source,
+# js/probe/order_probe.ml, and each route's output is diffed against its own
+# committed golden -- there is no cross-backend diff here, unlike
+# jsoo.runtest, because the whole point is to record where backends are
+# ALLOWED to differ (unspecified evaluation order), not to require agreement.
+ORDER_PROBE_BUILD := _build/default/js
+
+expr_order.runtest:
+	opam exec -- dune build \
+	  js/probe/order_probe.exe js/probe/order_probe.bc \
+	  js/jsoo/order_probe/order_probe.bc.js
+	@$(ORDER_PROBE_BUILD)/probe/order_probe.exe \
+	  > $(ORDER_PROBE_BUILD)/probe/order_probe.actual.native
+	@diff -u js/probe/order_probe.expected.native \
+	  $(ORDER_PROBE_BUILD)/probe/order_probe.actual.native
+	@$(ORDER_PROBE_BUILD)/probe/order_probe.bc \
+	  > $(ORDER_PROBE_BUILD)/probe/order_probe.actual.bytecode
+	@diff -u js/probe/order_probe.expected.bytecode \
+	  $(ORDER_PROBE_BUILD)/probe/order_probe.actual.bytecode
+	@node $(ORDER_PROBE_BUILD)/jsoo/order_probe/order_probe.bc.js \
+	  > $(ORDER_PROBE_BUILD)/jsoo/order_probe/order_probe.actual.jsoo
+	@diff -u js/probe/order_probe.expected.jsoo \
+	  $(ORDER_PROBE_BUILD)/jsoo/order_probe/order_probe.actual.jsoo
+	@echo "expr_order: native, bytecode and jsoo each match their own golden"
 
 # JavaScript backends. Deliberately outside `runtest`, same reasoning as
 # pt2.runtest: linking js_of_ocaml on every local test run is not worth it, and

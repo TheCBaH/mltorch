@@ -1,0 +1,78 @@
+Binary/ok
+  result: ok 3
+  trace: b,a
+Binary/fail
+  result: error unknown source t2
+  trace: b
+Value_lt/ok
+  result: ok 1
+  trace: b,a
+Value_lt/fail
+  result: error unknown source t6
+  trace: b
+Index_eq/ok
+  result: ok 1
+  trace: b,a
+Index_eq/fail
+  result: error unknown source t10
+  trace: b
+Reduce/ok
+  result: ok 0
+  trace: lo,hi
+Reduce/fail
+  result: error unknown source t15
+  trace: lo
+Scan_at/ok
+  result: ok 0
+  trace: row,lane
+Scan_at/fail
+  result: error unknown source t19
+  trace: row
+Local_scan_at/ok
+  result: ok 9
+  trace: row,lane
+Local_scan_at/fail
+  result: error unknown source t23
+  trace: row
+Intrinsic.window/ok
+  result: ok 7
+  trace: w,h,pixel
+Intrinsic.window/fail
+  result: error unknown source t27
+  trace: w
+Load/ok
+  result: ok 42
+  trace: C,W,H,D,T,N,load(n=10,t=11,d=12,h=13,w=14,c=15)
+Load/fail
+  result: error unknown source t37
+  trace: C
+Max_pool/ok
+  result: ok 7
+  trace: C,D,T,N,pixel
+Max_pool/fail
+  result: error unknown source t49
+  trace: C
+Index.Add/ok
+  result: ok 7
+  trace: b,a
+Index.Add/fail
+  result: error unknown source t56
+  trace: b
+Index.Max/ok
+  result: ok 4
+  trace: b,a
+Index.Max/fail
+  result: error unknown source t60
+  trace: b
+Index.Min/ok
+  result: ok 3
+  trace: b,a
+Index.Min/fail
+  result: error unknown source t64
+  trace: b
+Nested_data/ok
+  result: ok 0
+  trace: in_C,in_W,in_H,in_D,in_T,in_N,outer
+Nested_data/fail
+  result: error unknown source t73
+  trace: in_C
