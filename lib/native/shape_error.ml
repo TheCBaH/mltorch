@@ -115,6 +115,11 @@ module Operand_shape = struct
       | `Group_norm_weight
       | `Layer_norm_bias
       | `Layer_norm_weight
+      | `Lstm_bias
+      | `Lstm_input
+      | `Lstm_state
+      | `Lstm_weight_hh
+      | `Lstm_weight_ih
       | `Rms_norm_weight ];
     expected : Vec6.shape;
     actual : Vec6.shape;
@@ -129,6 +134,11 @@ module Operand_shape = struct
       | `Group_norm_weight -> "group_norm weight"
       | `Layer_norm_bias -> "layer_norm bias"
       | `Layer_norm_weight -> "layer_norm weight"
+      | `Lstm_bias -> "lstm bias"
+      | `Lstm_input -> "lstm input"
+      | `Lstm_state -> "lstm initial state"
+      | `Lstm_weight_hh -> "lstm weight_hh"
+      | `Lstm_weight_ih -> "lstm weight_ih"
       | `Rms_norm_weight -> "rms_norm weight")
       Vec6.pp_shape expected Vec6.pp_shape actual
 end

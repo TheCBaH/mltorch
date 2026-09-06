@@ -218,6 +218,19 @@ val linear :
   unit ->
   Tensor_id.t t
 
+(* lstm returns three edges: (output, h_n, c_n). *)
+val lstm :
+  ?name:string ->
+  Lstm.Lstm.params ->
+  input:tensor_ref ->
+  weight_ih:tensor_ref ->
+  weight_hh:tensor_ref ->
+  ?bias:tensor_ref * tensor_ref ->
+  h0:tensor_ref ->
+  c0:tensor_ref ->
+  unit ->
+  (Tensor_id.t * Tensor_id.t * Tensor_id.t) t
+
 val max_pool2d :
   ?name:string -> Pool.MaxPool2d.params -> tensor_ref -> Tensor_id.t t
 

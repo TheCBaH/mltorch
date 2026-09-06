@@ -77,6 +77,11 @@ module Operand_shape : sig
       | `Group_norm_weight
       | `Layer_norm_bias
       | `Layer_norm_weight
+      | `Lstm_bias
+      | `Lstm_input
+      | `Lstm_state
+      | `Lstm_weight_hh
+      | `Lstm_weight_ih
       | `Rms_norm_weight ];
     expected : Vec6.shape;
     actual : Vec6.shape;

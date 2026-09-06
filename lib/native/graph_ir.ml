@@ -49,6 +49,7 @@ type op =
   | Layer_norm of Norm.LayerNorm.t
   | Leaky_relu of Pointwise.Leaky_relu.t
   | Linear of Linear.Linear.t
+  | Lstm of Lstm.Lstm.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean of Reduce.Mean.t
@@ -328,6 +329,12 @@ let op_registry : (module OP) list =
 
       let inject t = Linear t
       let project = function Linear t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Lstm.Lstm
+
+      let inject t = Lstm t
+      let project = function Lstm t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pool.MaxPool2d

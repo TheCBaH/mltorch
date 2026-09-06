@@ -319,6 +319,31 @@ let leaky_relu ?name params x =
 let linear ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"linear" (Linear { Linear.Linear.params; x; weight; bias })
 
+(* Three outputs (output, h_n, c_n): allocate an edge per output shape,
+   append the node with all three, and return them as a triple. *)
+let lstm ?name params ~input ~weight_ih ~weight_hh ?bias ~h0 ~c0 () =
+  let op =
+    Lstm { Lstm.Lstm.params; input; weight_ih; weight_hh; bias; h0; c0 }
+  in
+  let* s = get in
+  let* shapes =
+    lift_result
+      (Graph_shape.output_shape op ~sig_of:(fun r ->
+           Tensor_id.Map.find_opt r s.tensors
+           |> Err.of_option (`Missing_tensor_sig r)))
+  in
+  match shapes with
+  | [ out_shape; hn_shape; cn_shape ] ->
+      let* out_id = new_edge ?name ~kind:"lstm" out_shape in
+      let* hn_id = new_edge ~kind:"lstm_h_n" hn_shape in
+      let* cn_id = new_edge ~kind:"lstm_c_n" cn_shape in
+      let* () = push_node op [ out_id; hn_id; cn_id ] in
+      return (out_id, hn_id, cn_id)
+  | _ ->
+      fun s ->
+        ( Err.fail (`Expected_single_output_shape { count = List.length shapes }),
+          s )
+
 let max_pool2d ?name params x =
   op1 ?name ~kind:"max_pool2d" (Max_pool2d { Pool.MaxPool2d.params; x })
 

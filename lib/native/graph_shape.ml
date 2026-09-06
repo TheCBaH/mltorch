@@ -251,6 +251,26 @@ let output_shape (op : op) ~(sig_of : tensor_ref -> (Tensor_sig.t, error) Err.t)
         widen (Linear.Linear.output_shape params ~x_shape ~weight_shape)
       in
       [ out ]
+  | Lstm { Lstm.Lstm.params; input; weight_ih; weight_hh; bias; h0; c0 } ->
+      let* input_shape = shape input in
+      let* weight_ih_shape = shape weight_ih in
+      let* weight_hh_shape = shape weight_hh in
+      let* bias_shapes =
+        match bias with
+        | None -> Err.return None
+        | Some (bi, bh) ->
+            let* bi_shape = shape bi in
+            let+ bh_shape = shape bh in
+            Some (bi_shape, bh_shape)
+      in
+      let* h0_shape = shape h0 in
+      let* c0_shape = shape c0 in
+      let+ out, h_n, c_n =
+        widen
+          (Lstm.Lstm.output_shape params ~input_shape ~weight_ih_shape
+             ~weight_hh_shape ~bias_shapes ~h0_shape ~c0_shape)
+      in
+      [ out; h_n; c_n ]
   | Max_pool2d { Pool.MaxPool2d.params; x } ->
       let* x_shape = shape x in
       let+ out = widen (Pool.MaxPool2d.output_shape ~x_shape params) in

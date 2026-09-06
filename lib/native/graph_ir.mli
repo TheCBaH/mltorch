@@ -84,6 +84,7 @@ type op =
   | Layer_norm of Norm.LayerNorm.t
   | Leaky_relu of Pointwise.Leaky_relu.t
   | Linear of Linear.Linear.t
+  | Lstm of Lstm.Lstm.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
   | Mean of Reduce.Mean.t

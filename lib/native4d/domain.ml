@@ -363,6 +363,9 @@ let check_node view (n : node) =
      same intrinsic-axis boundary [Batched_matmul]'s multi-batch form,
      [Sdpa]'s own D axis, and [Unfold] above are. *)
   | Conv3d _ -> unsupported ()
+  (* Not yet a Native4D counterpart: project step 13/M3 lands the Native op
+     first; M5 adds Lstm here, per _ai_/project_todo.md. *)
+  | Lstm _ -> unsupported ()
 
 (* Node predicates FIRST, then the shape rule. The two overlap — a permutation
    that moves C onto D necessarily produces a tensor with extent on D, so either
