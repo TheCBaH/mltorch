@@ -869,71 +869,88 @@ could not even reach its intended budget check until this fix landed.
 
 ## Grounding meter and verdict mapping
 
-`Ground_eval` (`lib/native/transform/ground_eval.ml`/`.mli`) is unmetered
-today in exactly the way construction cost matters: `at`
-(`ground_eval.mli:113`, whose own doc comment states both `at`'s traversal
-and `expand` are total) and the internal `ground`/`body_at`
-(`ground_eval.ml:245`, `:417-428`) build without any budget. `expand`
-(`ground_eval.ml:477-525`) already threads a `~budget:int` counter, but only
-charges `n + Ground_expr.size body` **after** `body_at` has already fully
-constructed `body` (`:490-492`) — so the unmetered blowup this record targets
-happens inside the very call that is supposed to be budgeted.
-
-Two exact accounts, both **reset per proof attempt**, both shared by both
-roots within an attempt:
-
-| Account | Unit and charge | Reset |
-|---|---|---|
-| `max_nodes : int` | Current logical nodes in `lhs + rhs`; a new root costs its size, replacing a one-node cell with size `n` costs `n - 1` | One proof attempt |
-| `max_ground_nodes : int64` | Cumulative logical node occurrences constructed or copied, including discarded intermediates | One proof attempt |
-
-Ground the left root then the right, and expand them in that same explicit
-sequence — never rely on tuple-argument evaluation order for charging or
-error precedence. The Structural attempt and the subsequent constant-bound
-attempt each get fresh accounts; a discarded attempt must never consume the
-authoritative attempt's allowance, and a new coordinate/member comparison
-starts fresh as well.
-
-For construction fuel: a newly created node costs one plus any logical
-subtrees copied from cached state; attaching a freshly constructed child (or
-moving an accumulator into its sole successor) transfers already-charged
-occurrences without re-charging them; reusing a cached previous lane or cell
-body costs its cached logical size **at every embedding**, even when the
-implementation reuses a pointer; discarded scan rows and max-pool
-accumulators consume fuel with no refund. The pair account (`max_nodes`)
-charges only retained results and replacement deltas, never unchanged
-ancestors again, and refuses a selection that would exceed its remaining
-allowance *before* embedding it — a cached logical size makes this check
-possible without walking the oversized value. All size arithmetic is
-checked, matching this repository's general 32-bit-`int` rule for
-`js_of_ocaml`-reachable code; a checked logical size is stored beside every
-grounded intermediate rather than recomputed with `Ground_expr.size`, since
-`Ground_expr` has ordinary tree semantics and pointer sharing does not bound
-a recursive consumer walking it. A sharing-aware ground IR remains a
-separate, later design question, not addressed here.
+Status: **landed.** `Ground_eval` gains `Budget`/`Meter`/`Term` and the two
+budget error cases below; `at`/`expand` are metered and `Map_verify`'s
+budget/verdict vocabulary is migrated to match. Both roots share both
+accounts within one proof attempt, reset per attempt, exactly as designed
+below — with two deliberate simplifications from the original sketch, called
+out where they apply.
 
 ```ocaml
 module Budget : sig type t = { max_ground_nodes : int64; max_nodes : int } end
 module Meter  : sig type t val create : Budget.t -> t end
 module Term   : sig type t val expression : t -> Ground_expr.t val size : t -> int64 end
 val default_budget : Budget.t
-(* Extend [Ground_eval.error] with exactly: *)
+(* [Ground_eval.error] gains exactly: *)
 (* | `Ground_nodes_over_limit of int64 | `Pair_nodes_over_limit of int *)
 val at     : meter:Meter.t -> Env.t -> Tensor_id.t -> Vec6.coord -> (Term.t, error) Err.t
 val expand : meter:Meter.t -> boundary:(Ground_expr.Origin.t -> Cluster_var.t option) ->
              Env.t -> Term.t -> (Term.t, error) Err.t
 ```
 
-`at` registers a root in its meter; `expand` replaces that registered root
-and returns its successor — the old term stops being active. Both live in
-`Ground_eval`, which must not depend on `Map_verify`, so registration and the
-pair delta cannot be forgotten by a caller. A term belongs to its creating
-meter; passing a foreign or already-replaced term is `invalid_arg`, checked
-by an internal identity/generation token — a failed construction ends that
-attempt outright, with no way to probe a partial frontier. Nonpositive
-budget fields behave as zero allowance (the first positive charge fails);
-pair admission is checked before construction fuel when both would reject
-the same insertion, giving deterministic precedence.
+Two exact accounts, both **reset per proof attempt** (a fresh `Meter.t` per
+`Map_verify_check.compare_at` `attempt` call, visible at its two call
+sites — Structural, then Constants — rather than an internal reset method):
+
+| Account | Unit and charge | Reset |
+|---|---|---|
+| `max_nodes : int64` internally, `Budget.max_nodes : int` at the boundary | Current logical nodes in `lhs + rhs`; a new root costs its size, replacing a one-node cell with size `n` costs `n - 1` | One proof attempt |
+| `max_ground_nodes : int64` | Cumulative logical node occurrences constructed, including a cell later left unexpanded and a `Const_ssa_symbolic`-cached subtree charged its measured size at the one embedding that spliced it in | One proof attempt |
+
+`ground`/`leaf`/`max_pool` (`ground_eval.ml`) all route their node
+construction through one `node esc meter v` helper (charge 1, return `v`),
+so `Meter.ground_nodes` counts exactly the nodes this module allocates,
+charged **before** the caller of `ground esc ~env ~meter ...` ever sees the
+oversized result — the old `expand`'s `~budget:int` counter charged
+`Ground_expr.size body` only *after* `body_at` had already built the whole
+`body`, which is exactly the gap this closes. `at` registers a brand-new
+root's whole measured size against `Meter.pair_nodes`; `expand` walks a
+`Term.t`'s cells, and for each one with a producer stage computes the
+**delta** `size (Round (body_at ...)) - 1` (the cell it replaces already
+contributed 1) and only commits the replacement if the resulting total stays
+within `Budget.max_nodes` — a cell whose replacement would cross it is left
+as a `Cell` (so `expandable` stays true) and the walk continues to other
+cells in the same round, rather than aborting the whole round. `expand`
+seeds its running total at `meter.pair_nodes` (not zero), so it inherits
+whatever the *other* root sharing this meter currently spends, and the
+resulting term's own size is that running total minus what the other root
+contributes — this is what makes the two roots' budgets genuinely shared
+rather than merely reset together. `Map_verify_check.settle` recognizes
+exhaustion empirically: if a round leaves **both** sides' expressions
+structurally unchanged while something is still `expandable`, no construction
+fuel error fired (that would have propagated as `` `Ground_nodes_over_limit ``),
+so the only remaining explanation is the shared pair cap, reported as
+`Unproved (Max_nodes budget.max_nodes)` — the configured limit, not an
+observed size, unlike the retired code this replaces.
+
+All size arithmetic is checked (saturating, this repository's general
+32-bit-`int`-under-`js_of_ocaml` rule): a `Term.t`'s `size` is measured once,
+via `Ground_expr.size`, immediately after construction-fuel metering has
+already proved the tree cannot be larger than `max_ground_nodes` — never the
+unmetered rediscovery this record warns against, since the tree is small
+enough by the time anything walks it. A sharing-aware ground IR remains a
+separate, later design question, not addressed here.
+
+**Two simplifications from the original sketch, both deliberate:**
+
+- **No `invalid_arg` identity/generation token.** `Term.t` is immutable and
+  `expand` *consumes* its argument, returning a new value rather than
+  mutating anything reachable from the old one; neither operation reads any
+  per-term meter-identity field, so there is no observable difference
+  between "a term from a different meter" and "a term from this one" for
+  either function to police, and the token would guard an invariant nothing
+  can actually violate. Recorded here rather than silently dropped, in case a
+  future caller pattern (e.g. holding a `Term.t` across two different
+  `Meter.t` values) reintroduces a real hazard this would then need to catch.
+- **Construction fuel takes precedence over the pair cap for the SAME
+  replacement**, not the reverse the original sketch specified. `expand`
+  builds a candidate replacement's whole body (charging `max_ground_nodes` as
+  it goes, via the same `node`/`ground` path `at` uses) *before* computing
+  its size delta against `max_nodes` — checking the pair cap first would need
+  a size estimate without constructing the replacement, which `Region_program`
+  does not expose independent of actually specializing it. A replacement that
+  is oversized on both counts at once fails with `` `Ground_nodes_over_limit ``,
+  not `` `Pair_nodes_over_limit ``.
 
 **Profile migration.** `Map_verify.Budget.t`
 (`map_verify_types.ml:43-84`/`map_verify.mli:60-84`) gains
@@ -982,18 +999,28 @@ relative to its immediate neighbors going forward (immediately before
 `Max_nodes`) without reordering the pre-existing violation, which is out of
 this change's scope.
 
-**Regressions required** (isolate each budget by giving the other
-sufficient allowance): pair exhaustion (oversized root reduction, root scan,
-scan behind a later expanded cell, dense repeated-lane recurrence, two roots
-each using half-to-three-quarters of the cap, a later expansion crossing it)
-expecting `Unproved (Max_nodes limit)`; pair accounting (an exactly-at-cap
-pair surviving several replacement rounds, a sparse scan projection and
-`Max_pool.Value` fitting despite discarded intermediates); construction
-exhaustion (discarded scan rows/max-pool accumulators exhausting fuel while
-the pair fits, repeated cached embeddings charged at every embedding)
-expecting `Unproved (Max_ground_nodes limit)`; and reset/boundary cases
-(fresh full budgets per attempt, exactly-limit vs. next-charge distinguishing
-the two verdicts).
+**Regressions landed**, isolating each budget by giving the other generous
+allowance. `test/native/ground_eval_budget_test.ml` exercises `Ground_eval`
+directly (no `Map_verify` scaffolding needed, since `Budget`/`Meter`/`Term`
+are public): an unrolled `Reduce` of extent 6 (13 nodes by hand) succeeds
+under a generous `max_ground_nodes` and fails with the exact configured limit
+under a tight one; two single-node stage roots registered against one
+`Meter.t` — the first exactly fills `max_nodes`, the second (of identical
+size) is rejected with that same limit, proving the account is genuinely
+shared rather than per-root; and one `expand` call that would push a
+replacement one node past the cap is skipped (the term keeps its unexpanded
+`Cell`, size unchanged) while the same call under a cap widened by exactly
+one node performs the replacement (`Term.size` grows by precisely the
+computed delta) — the "replacement at the exact pair cap" case. `test/native
+/outcome_label_test.ml` covers the full verdict/label migration (17→18,
+`Max_ground_nodes` reachable, canonical order). No scan-specific regression
+exists here: grounding still rejects any `Scan_at` outright
+(`` `Scan_at_unsupported ``, unchanged by this step), so the scan/recurrence
+cases the original sketch listed do not yet apply — they become relevant only
+once grounding itself supports a scan, a later step. Repeated
+`Const_ssa_symbolic`-cached embeddings are exercised only indirectly, by the
+existing (unchanged, still green) Const-SSA symbolic test suite, not by a
+dedicated over-limit regression — a disclosed gap, not a silent one.
 
 ## Fusion admission
 

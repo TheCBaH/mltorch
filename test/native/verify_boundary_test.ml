@@ -357,6 +357,7 @@ let%expect_test "local: differing definitions still make one frontier variable"
   let budget =
     {
       Map_verify.Budget.max_coords = 4096;
+      max_ground_nodes = 2_000_000L;
       max_nodes = 200_000;
       max_rounds = 0;
       sample = None;

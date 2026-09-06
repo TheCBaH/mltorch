@@ -179,16 +179,57 @@ module Env = struct
         body
 end
 
+(* Two exact accounts over grounding's own construction, both reset per proof
+   attempt and both shared by every root registered against one [Meter.t] --
+   see the design record's "Grounding meter and verdict mapping". *)
+module Budget = struct
+  type t = { max_ground_nodes : int64; max_nodes : int }
+end
+
+let default_budget =
+  { Budget.max_ground_nodes = 2_000_000L; max_nodes = 200_000 }
+
+module Meter = struct
+  (* [ground_nodes] is CUMULATIVE construction fuel: every node this module
+     builds charges it, including a discarded scan row or a re-embedded
+     cached subtree, and it never refunds. [pair_nodes] is the CURRENT total
+     logical size of every root presently registered against this meter --
+     it goes up and down as [expand] replaces a root's cells, and a root's
+     own share is exactly its [Term.size]. *)
+  type t = {
+    budget : Budget.t;
+    mutable ground_nodes : int64;
+    mutable pair_nodes : int64;
+  }
+
+  let create budget = { budget; ground_nodes = 0L; pair_nodes = 0L }
+end
+
+module Term = struct
+  (* [size] is cached at construction, never re-derived from [expr] by
+     walking it -- that walk is exactly the unmetered rediscovery the design
+     record forbids. *)
+  type t = { expr : Ground_expr.t; size : int64 }
+
+  let expression t = t.expr
+  let size t = t.size
+end
+
 (* [Expr.Eval.error] joins the row: grounding evaluates indices, and checked
    arithmetic can now fail where it previously wrapped.
    [`Data_index_unresolved] is [resolve_data_source]'s own conservative
    catch-all (below): a [Data] source this grounder cannot resolve to an
    exact value. It feeds [map_verify_check.ml]'s existing generic
    [Ground_eval.error -> Unproved] conversion unchanged -- an unresolved
-   [Data] source makes a cluster [Unproved], never a build failure. *)
+   [Data] source makes a cluster [Unproved], never a build failure.
+   [`Ground_nodes_over_limit]/[`Pair_nodes_over_limit] carry the configured
+   LIMIT, not the observed size, matching this repository's "payload is the
+   limit" convention. *)
 type error =
   [ Expr.Eval.error
   | `Data_index_unresolved
+  | `Ground_nodes_over_limit of int64
+  | `Pair_nodes_over_limit of int
   | `Region of Region_program.error
   | `Scan_at_unsupported
   | `Unknown_edge of Tensor_id.t ]
@@ -199,10 +240,60 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.string fmt
         "Data index source could not be resolved to a directly-bound I64 \
          constant"
+  | `Ground_nodes_over_limit limit ->
+      Fmt.pf fmt "grounding exceeds max_ground_nodes (%Ld)" limit
+  | `Pair_nodes_over_limit limit ->
+      Fmt.pf fmt "grounding exceeds max_nodes (%d)" limit
   | `Region e -> Region_program.pp_error fmt e
   | `Scan_at_unsupported ->
       Fmt.string fmt "grounding does not support a scan yet"
   | `Unknown_edge id -> Fmt.pf fmt "unknown edge %a" Tensor_id.pp id
+
+(* Saturating: matches this repository's 32-bit-safe-aggregate rule
+   (js_of_ocaml reaches this library) for every checked size addition below.
+   Every operand here is a non-negative node count or limit, so saturation
+   at [Int64.max_int] is as sound as failing outright and needs no error
+   channel -- the caller compares against a configured limit far below it. *)
+let sat_add_i64 a b =
+  if Int64.compare a (Int64.sub Int64.max_int b) > 0 then Int64.max_int
+  else Int64.add a b
+
+(* Charges [n] construction-fuel nodes against [meter], failing BEFORE the
+   caller's node is retained -- this is what stops the blowup the design
+   record targets: [ground]/[leaf]/[max_pool] call this at every node they
+   build, so a recursive stage-inlining chain cannot construct past the cap
+   before anyone gets to measure it. *)
+let charge_ground esc (meter : Meter.t) n =
+  let total = sat_add_i64 meter.Meter.ground_nodes n in
+  if Int64.compare total meter.Meter.budget.Budget.max_ground_nodes > 0 then
+    Err.Escape.throw esc
+      (`Ground_nodes_over_limit meter.Meter.budget.Budget.max_ground_nodes)
+  else meter.Meter.ground_nodes <- total
+
+(* One freshly built node: every [ground]/[leaf]/[max_pool] constructor
+   result is wrapped in this, so [Meter.ground_nodes] counts exactly the
+   nodes this module allocates -- once each, regardless of how many times a
+   caller later reads the resulting value. *)
+let node esc meter v =
+  charge_ground esc meter 1L;
+  v
+
+(* Registers (or re-registers, after [expand] replaces a root's cells) the
+   CURRENT total pair size across every root sharing [meter]. [expr]'s
+   logical size is measured once, here, on an already construction-fuel-
+   bounded tree -- not the unmetered rediscovery the design record forbids,
+   since [charge_ground] already proved [expr] is no larger than
+   [max_ground_nodes] before this ever walks it. *)
+let register esc (meter : Meter.t) delta (expr : Ground_expr.t) : Term.t =
+  let total = sat_add_i64 meter.Meter.pair_nodes delta in
+  if Int64.compare total (Int64.of_int meter.Meter.budget.Budget.max_nodes) > 0
+  then
+    Err.Escape.throw esc
+      (`Pair_nodes_over_limit meter.Meter.budget.Budget.max_nodes)
+  else begin
+    meter.Meter.pair_nodes <- total;
+    { Term.expr; size = Int64.of_int (Ground_expr.size expr) }
+  end
 
 (* The exact resolver for a [Data] source during grounding: succeeds ONLY for
    a DIRECTLY BOUND constant, with no stage-walking fallback. An earlier draft
@@ -248,8 +339,9 @@ let or_throw esc : ('a, [< error ]) Err.t -> 'a = function
 (* [Load]s become leaves through [leaf]; every index is evaluated at [coord]
    (and at the enclosing reduction variables), which is what removes the
    binders. *)
-let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
-  let recur = ground esc ~env ~coord ~rvars in
+let rec ground esc ~env ~meter ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t
+    =
+  let recur = ground esc ~env ~meter ~coord ~rvars in
   (* Calls [eval_index] directly (not the public [Expr.Eval.index]), passing
      THIS module's own escape token: both use the identical escape-based
      non-local-exit pattern, so a [Data] failure inside [eval_index] throws
@@ -271,23 +363,25 @@ let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
       i
   in
   match e with
-  | Expr.Value.Const x -> Ground_expr.Const x
+  | Expr.Value.Const x -> node esc meter (Ground_expr.Const x)
   | Expr.Value.Local v -> Err.Escape.throw esc (`Unbound_local v)
   | Expr.Value.Local_at (v, _) -> Err.Escape.throw esc (`Unbound_local v)
   | Expr.Value.Local_scan_at (v, _, _) ->
       Err.Escape.throw esc (`Unbound_local v)
   | Expr.Value.Scan_at (_, _, _) -> Err.Escape.throw esc `Scan_at_unsupported
-  | Expr.Value.Binary (op, a, b) -> Ground_expr.Binary (op, recur a, recur b)
-  | Expr.Value.Unary (op, x) -> Ground_expr.Unary (op, recur x)
+  | Expr.Value.Binary (op, a, b) ->
+      node esc meter (Ground_expr.Binary (op, recur a, recur b))
+  | Expr.Value.Unary (op, x) -> node esc meter (Ground_expr.Unary (op, recur x))
   | Expr.Value.Value_of_index i ->
       (* Through the shared conversion, not [float_of_int]: this is the second
          interpreter, and a helper returning [int] does not make the conversion
          that follows it exact. *)
-      Ground_expr.Const (or_throw esc (Expr.Eval.float_of_index (index i)))
+      node esc meter
+        (Ground_expr.Const (or_throw esc (Expr.Eval.float_of_index (index i))))
   | Expr.Value.Round_f32 x ->
       (* A stage boundary in the value language maps onto the ground language's
          own [Round], which already carries f32 semantics. *)
-      Ground_expr.Round (recur x)
+      node esc meter (Ground_expr.Round (recur x))
   | Expr.Value.Select (c, a, b) -> (
       match c with
       (* An index comparison is decided by the coordinate, so the [Select]
@@ -295,22 +389,25 @@ let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
       | Expr.Bool.Index_eq (x, y) ->
           if Int.equal (index x) (index y) then recur a else recur b
       | Expr.Bool.Value_lt (x, y) ->
-          Ground_expr.Select
-            (Ground_expr.Lt (recur x, recur y), recur a, recur b))
+          node esc meter
+            (Ground_expr.Select
+               (Ground_expr.Lt (recur x, recur y), recur a, recur b)))
   | Expr.Value.Load (src, idx) ->
-      leaf ~env (Expr_bridge.id_of_source src) (fun a ->
+      leaf esc ~env ~meter (Expr_bridge.id_of_source src) (fun a ->
           index (Expr.Coord.get idx a))
-  | Expr.Value.Intrinsic i -> max_pool esc ~env ~coord ~rvars i
+  | Expr.Value.Intrinsic i -> max_pool esc ~env ~meter ~coord ~rvars i
   | Expr.Value.Reduce r ->
       let lo = index r.Expr.Reduction.lo and hi = index r.Expr.Reduction.hi in
       let combine, seed =
         match r.Expr.Reduction.kind with
         | Expr.Reduction.Sum ->
-            ( (fun a b -> Ground_expr.Binary (Expr.Value.Add, a, b)),
-              Ground_expr.Const 0. )
+            ( (fun a b ->
+                node esc meter (Ground_expr.Binary (Expr.Value.Add, a, b))),
+              node esc meter (Ground_expr.Const 0.) )
         | Expr.Reduction.Max ->
-            ( (fun a b -> Ground_expr.Max (Expr.Max_op.Float_max, a, b)),
-              Ground_expr.Const neg_infinity )
+            ( (fun a b ->
+                node esc meter (Ground_expr.Max (Expr.Max_op.Float_max, a, b))),
+              node esc meter (Ground_expr.Const neg_infinity) )
       in
       (* Same left fold, same seed and same order as [Expr.Eval]'s arm — the
          ground form has to reproduce the engine's association, not merely its
@@ -320,7 +417,7 @@ let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
         else
           fold (i + 1)
             (combine acc
-               (ground esc ~env ~coord
+               (ground esc ~env ~meter ~coord
                   ~rvars:((r.Expr.Reduction.var, i) :: rvars)
                   r.Expr.Reduction.body))
       in
@@ -328,8 +425,10 @@ let rec ground esc ~env ~coord ~rvars (e : Expr.Value.t) : Ground_expr.t =
 
 (* A [Load] of a synthetic constant fill is that constant; a [Load] of a bound
    model constant is its stored element, read exactly the way [Expr.Eval.value] reads
-   it; anything else is a free cell. *)
-and leaf ~env id at_axis : Ground_expr.t =
+   it; anything else is a free cell. A Const-SSA-backed capture is the one case
+   that hands back an ALREADY BUILT subtree rather than one node built here, so
+   it charges that subtree's whole measured size instead of [node]'s flat 1. *)
+and leaf esc ~env ~meter id at_axis : Ground_expr.t =
   let coord =
     Vec6.coord ~n:(at_axis Axis.N) ~t:(at_axis Axis.T) ~d:(at_axis Axis.D)
       ~h:(at_axis Axis.H) ~w:(at_axis Axis.W) ~c:(at_axis Axis.C)
@@ -338,22 +437,26 @@ and leaf ~env id at_axis : Ground_expr.t =
     Option.bind env.Env.constant_store (fun store ->
         Const_ssa_symbolic.ground store id coord)
   with
-  | Some expr -> expr
+  | Some expr ->
+      charge_ground esc meter (Int64.of_int (Ground_expr.size expr));
+      expr
   | None -> (
       match (Env.const_of env id, Env.constant_of env id) with
-      | Some v, _ -> Ground_expr.Const v
+      | Some v, _ -> node esc meter (Ground_expr.Const v)
       | None, Some payload ->
-          Ground_expr.Const (Tensor.read_at_raw payload at_axis)
+          node esc meter
+            (Ground_expr.Const (Tensor.read_at_raw payload at_axis))
       | None, None ->
-          Ground_expr.Cell
-            { Ground_expr.Cell.origin = Env.origin env id; coord })
+          node esc meter
+            (Ground_expr.Cell
+               { Ground_expr.Cell.origin = Env.origin env id; coord }))
 
 (* The window is concrete, so the stencil expands into the same paired fold
    [Direct]/[Expr.Eval.value] run: one predicate advancing value and index together.
    The value accumulator is a binary [Max] node, so it is mentioned once and
    the fold stays linear in the window; the index accumulator has to name the
    running best inside its guard, which is why it is the larger of the two. *)
-and max_pool esc ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
+and max_pool esc ~env ~meter ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
   let open Expr.Intrinsic.Max_pool in
   let index : type r. r Expr.Index.t -> int =
    fun x ->
@@ -388,7 +491,7 @@ and max_pool esc ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
       d.out
   in
   let read ih iw =
-    leaf ~env (Expr_bridge.id_of_source d.source) (fun a ->
+    leaf esc ~env ~meter (Expr_bridge.id_of_source d.source) (fun a ->
         if a = Axis.H then ih
         else if a = Axis.W then iw
         else Expr.Coord.get others a)
@@ -403,18 +506,20 @@ and max_pool esc ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
              (or_throw esc (Expr.Intrinsic.flat_index i ~ih ~iw)))
       in
       fold_w ih (iw + 1)
-        ( Ground_expr.Max (Expr.Max_op.Pool_max, best, v),
-          Ground_expr.Select
-            ( Ground_expr.Pool_better { best; value = v },
-              Ground_expr.Const flat,
-              best_index ) )
+        ( node esc meter (Ground_expr.Max (Expr.Max_op.Pool_max, best, v)),
+          node esc meter
+            (Ground_expr.Select
+               ( Ground_expr.Pool_better { best; value = v },
+                 node esc meter (Ground_expr.Const flat),
+                 best_index )) )
   and fold_h ih acc =
     if ih >= w.Expr.Intrinsic.Window.hhi then acc
     else fold_w ih w.Expr.Intrinsic.Window.wlo acc
   in
   let best, best_index =
     fold_h w.Expr.Intrinsic.Window.hlo
-      (Ground_expr.Const neg_infinity, Ground_expr.Const 0.)
+      ( node esc meter (Ground_expr.Const neg_infinity),
+        node esc meter (Ground_expr.Const 0.) )
   in
   match d.result with
   | Expr.Intrinsic.Max_pool.Value -> best
@@ -423,7 +528,7 @@ and max_pool esc ~env ~coord ~rvars (Expr.Intrinsic.Max_pool d as i) =
 (* ---- the interface -------------------------------------------------------- *)
 
 (* Internal: escapes through [esc]. The public entries below establish it. *)
-let body_at esc env (st : Stage_program.Stage.t) coord =
+let body_at esc env ~meter (st : Stage_program.Stage.t) coord =
   let limits = Kernel.Limits.default in
   let body =
     or_throw esc
@@ -434,11 +539,15 @@ let body_at esc env (st : Stage_program.Stage.t) coord =
             ~scan_limits:(Kernel.Limits.scan_limits limits)
             st))
   in
-  ground esc ~env
+  ground esc ~env ~meter
     ~coord:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int coord))
     ~rvars:[] body
 
-let at env id coord =
+(* Registers a NEW root: its whole measured size is added to [meter]'s
+   current pair total (both roots -- [at]'s two calls for one comparison --
+   share the same running total within an attempt), on top of whatever
+   [Meter.ground_nodes] construction already charged while building it. *)
+let at ~meter env id coord =
   Err.Escape.with_escape @@ fun esc ->
   (* [id] names an edge of THIS graph, so the stage is looked up by that raw id
      DIRECTLY. A root is never replaced by a correspondence variable, whatever
@@ -446,8 +555,13 @@ let at env id coord =
      itself by naming both its sides the same thing before either definition was
      looked at. Expanding the root is what puts a real definition on each side;
      projection then applies to what that reads. *)
+  let register_new expr =
+    register esc meter (Int64.of_int (Ground_expr.size expr)) expr
+  in
   match Env.stage_of_id env id with
-  | Some st -> Ground_expr.Round (body_at esc env st coord)
+  | Some st ->
+      register_new
+        (node esc meter (Ground_expr.Round (body_at esc env ~meter st coord)))
   | None -> (
       (* An input edge can itself be a bound constant — [fold_const]'s whole
          output is one — so the same binding [leaf] applies inside a body has to
@@ -456,84 +570,117 @@ let at env id coord =
         Option.bind env.Env.constant_store (fun store ->
             Const_ssa_symbolic.ground store id coord)
       with
-      | Some expr -> expr
+      | Some expr ->
+          charge_ground esc meter (Int64.of_int (Ground_expr.size expr));
+          register_new expr
       | None -> (
           match (Env.const_of env id, Env.constant_of env id) with
-          | Some v, _ -> Ground_expr.Const v
+          | Some v, _ -> register_new (node esc meter (Ground_expr.Const v))
           | None, Some payload ->
-              Ground_expr.Const
-                (Tensor.read_at_raw payload (fun a ->
-                     Dim.to_int (Vec6.get coord a)))
+              register_new
+                (node esc meter
+                   (Ground_expr.Const
+                      (Tensor.read_at_raw payload (fun a ->
+                           Dim.to_int (Vec6.get coord a)))))
           | None, None ->
               let origin = Env.origin env id in
               if Option.is_none (Env.shape_of env origin) then
                 or_throw esc (Err.fail (`Unknown_edge id))
-              else Ground_expr.Cell { Ground_expr.Cell.origin; coord }))
+              else
+                register_new
+                  (node esc meter
+                     (Ground_expr.Cell { Ground_expr.Cell.origin; coord }))))
 
-(* [budget] bounds ONE round, and has to: a single substitution step is
-   quadratic where a conv feeds a conv, so a term can reach tens of millions of
-   nodes before anyone gets to measure it. Measuring afterwards made verifying a
-   real model cost 25x the transform it was checking.
+(* [meter.Meter.budget.max_nodes] bounds the CURRENT total pair size across
+   every root sharing [meter], and has to be checked per replacement: a single
+   substitution step is quadratic where a conv feeds a conv, so a term can
+   reach tens of millions of nodes before anyone gets to measure it -- and
+   measuring only afterward once made verifying a real model cost 25x the
+   transform it was checking. [meter.Meter.ground_nodes] (charged by [node]/
+   [charge_ground] as [body_at] builds each replacement's own subtree, exactly
+   as [ground] does at every other construction site) is the complementary,
+   CUMULATIVE account: it catches a round that replaces many modestly-sized
+   cells, which the pair total alone would not stop until the very last one.
 
-   Running out mid-round leaves the remaining cells unexpanded, which is sound
-   rather than approximate: an unexpanded cell keeps [expandable] true, so the
-   driver reports a budget verdict, and no probe may run against a frontier that
-   never reached the inputs. The node count is threaded, not counted in a ref.
+   A replacement that would cross [max_nodes] is skipped -- the cell stays a
+   [Cell], keeping [expandable] true so the driver reports a budget verdict --
+   but the walk continues to other cells, so a large chain elsewhere in the
+   same round does not stop a small, affordable one from closing. Running out
+   leaves the remaining cells unexpanded, which is sound rather than
+   approximate: no probe may run against a frontier that never reached the
+   inputs.
 
    [boundary] stops it at the LOCAL frontier: a cell whose cluster gives it a
-   variable is a free variable of this obligation, so expanding through it would
-   be re-proving someone else's. That is the difference between a budget
-   truncation and a completed frontier, and the two must not be confused —
-   which is why [expandable] below asks the same question. *)
-let expand ~boundary ~budget env (e : Ground_expr.t) =
+   variable is a free variable of this obligation, so expanding through it
+   would be re-proving someone else's. That is the difference between a
+   budget truncation and a completed frontier, and the two must not be
+   confused — which is why [expandable] below asks the same question. *)
+let expand ~meter ~boundary env (term : Term.t) =
   Err.Escape.with_escape @@ fun esc ->
-  let rec go n e =
-    if n >= budget then (n, e)
+  let cap = Int64.of_int meter.Meter.budget.Budget.max_nodes in
+  (* What every OTHER root registered against [meter] currently contributes;
+     [term]'s own share is replaced wholesale below rather than accumulated
+     onto. *)
+  let others = Int64.sub meter.Meter.pair_nodes (Term.size term) in
+  let rec go total e =
+    if Int64.compare total cap >= 0 then (total, e)
     else
       match e with
       | Ground_expr.Cell c
         when Option.is_some (boundary c.Ground_expr.Cell.origin) ->
-          (n + 1, e)
+          (total, e)
       | Ground_expr.Cell c -> (
           match Env.stage_of env c.Ground_expr.Cell.origin with
           | Some st ->
               let body =
-                Ground_expr.Round (body_at esc env st c.Ground_expr.Cell.coord)
+                node esc meter
+                  (Ground_expr.Round
+                     (body_at esc env ~meter st c.Ground_expr.Cell.coord))
               in
-              (n + Ground_expr.size body, body)
-          | None -> (n + 1, e))
-      | Ground_expr.Const _ -> (n + 1, e)
+              (* Replacing a one-node cell with [body] costs [size body - 1],
+                 per the design record's account table -- the cell's own unit
+                 is already part of [total]. *)
+              let candidate =
+                sat_add_i64 total
+                  (Int64.sub (Int64.of_int (Ground_expr.size body)) 1L)
+              in
+              if Int64.compare candidate cap > 0 then (total, e)
+              else (candidate, body)
+          | None -> (total, e))
+      | Ground_expr.Const _ -> (total, e)
       | Ground_expr.Binary (op, a, b) ->
-          let n, a = go (n + 1) a in
-          let n, b = go n b in
-          (n, Ground_expr.Binary (op, a, b))
+          let total, a = go total a in
+          let total, b = go total b in
+          (total, Ground_expr.Binary (op, a, b))
       | Ground_expr.Max (op, a, b) ->
-          let n, a = go (n + 1) a in
-          let n, b = go n b in
-          (n, Ground_expr.Max (op, a, b))
+          let total, a = go total a in
+          let total, b = go total b in
+          (total, Ground_expr.Max (op, a, b))
       | Ground_expr.Round x ->
-          let n, x = go (n + 1) x in
-          (n, Ground_expr.Round x)
+          let total, x = go total x in
+          (total, Ground_expr.Round x)
       | Ground_expr.Unary (op, x) ->
-          let n, x = go (n + 1) x in
-          (n, Ground_expr.Unary (op, x))
+          let total, x = go total x in
+          (total, Ground_expr.Unary (op, x))
       | Ground_expr.Select (g, a, b) ->
-          let n, g =
+          let total, g =
             match g with
             | Ground_expr.Lt (x, y) ->
-                let n, x = go (n + 1) x in
-                let n, y = go n y in
-                (n, Ground_expr.Lt (x, y))
+                let total, x = go total x in
+                let total, y = go total y in
+                (total, Ground_expr.Lt (x, y))
             | Ground_expr.Pool_better { best; value } ->
-                let n, best = go (n + 1) best in
-                let n, value = go n value in
-                (n, Ground_expr.Pool_better { best; value })
+                let total, best = go total best in
+                let total, value = go total value in
+                (total, Ground_expr.Pool_better { best; value })
           in
-          let n, a = go n a in
-          let n, b = go n b in
-          (n, Ground_expr.Select (g, a, b))
+          let total, a = go total a in
+          let total, b = go total b in
+          (total, Ground_expr.Select (g, a, b))
   in
-  snd (go 0 e)
+  let total, e' = go meter.Meter.pair_nodes (Term.expression term) in
+  meter.Meter.pair_nodes <- total;
+  { Term.expr = e'; size = Int64.sub total others }
 
 (* Stays TOTAL, deliberately: it only inspects existing cells and stage
    availability, evaluating no index and no intrinsic, so it has nothing to
