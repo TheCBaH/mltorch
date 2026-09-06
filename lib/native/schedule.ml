@@ -37,17 +37,24 @@ let evaluate (shape : Vec6.shape) (pixel : Vec6.coord -> float) =
    total signature-keyed function: [None] becomes a named failure rather than a
    [Not_found] escaping from inside a map lookup. *)
 let ground (shape : Vec6.shape) ~(binding : Tensor_id.t -> Tensor.packed option)
-    (e : Expr.Value.t) =
+    ~(scan_limits : Expr.Scan_limits.t) (e : Expr.Value.t) =
   let env = Expr_bridge.env ~binding in
   (* [Err.Escape] once per PIXEL, not per node, and only here.
      [Tensor.materialize] takes [Vec6.coord -> float] and is the engine's
      iteration seam; threading a result through it would make [Direct] -- the
      actual hot path -- pay for the symbolic one. [Stage_program.ground]
      crosses this same boundary the same way, so both share one contract for
-     what happens when [Expr.Eval] fails mid-materialization. *)
+     what happens when [Expr.Eval] fails mid-materialization.
+
+     A fresh [Expr.Scan_meter.t] per PIXEL, not shared across the tensor: a
+     Pixel program has no Region key to scope a meter to, so the reset unit is
+     "one output coordinate, the complete pixel expression", same as
+     [Kernel_eval]'s two Pixel arms. *)
   Err.Escape.with_escape @@ fun esc ->
   Tensor.materialize shape (fun c ->
       Err.Escape.or_throw esc
-        (Expr.Eval.value env
+        (Expr.Eval.value
+           ~scan_meter:(Expr.Scan_meter.create ~limits:scan_limits)
+           env
            ~output:(Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
            e))

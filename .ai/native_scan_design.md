@@ -2,22 +2,20 @@
 
 ## Status and scope
 
-Status: **contracts recorded; the `Expr` primitive, Region-side
-construction/checking/rendering, and the resource-preflight boundary are
-landed; execution is not.** This record fixes the representation, error,
-meter, budget, and rendering contracts for the bounded-scan primitive, per the
-LSTM foundation's staged plan, and is updated in place as each piece lands
-rather than only once at the end: `Expr`
+Status: **landed, including execution.** This record fixes the
+representation, error, meter, budget, and rendering contracts for the
+bounded-scan primitive, per the LSTM foundation's staged plan, and is updated
+in place as each piece lands rather than only once at the end: `Expr`
 (`Scan`/`Scan_limits`/`Scan_meter`/`Scan_admission`, both value projections,
 inline evaluation) landed first; `Region_local`/`Region_program` construction,
 checking and rendering (this section and "RHS rendering" below) landed next;
 the four `Kernel.Limits` resource fields, `Region_program.preflight`'s static
 measures, and `Region_execution.lower`/`lower_region`'s validated artifact
 (see "Static measures" and "Validated execution artifact" below) landed
-third. Running a scan-backed Region program — `Region_execution`/
-`Region_eval` actually executing a trace, with a shared metered budget — has
-not, and fails with an explicit, typed, temporary error (see "Region
-propagation") rather than an inexhaustive match or silent wrong answer. Read
+third. Running a scan-backed Region program — `Region_execution`/`Region_eval`
+actually executing a trace, sharing one metered budget across a Region key —
+landed fourth (see "Region propagation" and "Runtime metering" below); LSTM
+arithmetic itself is a later, separate step and is still not implemented. Read
 it together with `native_compute_design.md` (Region computation) and
 `native_kernel_dsl_design.md` (Kernel IR and `Hard` ceilings), which it
 extends rather than restates.
@@ -260,24 +258,35 @@ local detection) needed no new code: `first_scope_error` already calls
 `Fold.locals` on the same wrapper, which already unions scalar/vector/scan
 references with `prev` correctly excluded.
 
-**Not landed here: execution.** `Region_execution.evaluate_locals` and
-`Region_eval.evaluate_locals` still dispatch only on `Scalar`/`Vector`;
-reaching a `Scan` local now fails with a new, explicit
-`` `Scan_execution_not_implemented of Expr.Local_var.t `` case in
-`Region_eval.error` (mirrored into `Kernel_eval.error`) rather than an
-inexhaustive-match compile error. This is a temporary boundary, not a
-permanent limitation — it exists only because charging a shared meter across
-a trace's lanes and steps, and the streaming multi-slot materializer that
-must hold it, are a later step's deliverable (see "Runtime metering" below
-and the execution-sequencing note in the project's execution ledger), and it
-is expected to disappear once that lands, at which point this case becomes
-unreachable and should be removed. `specialize_pixel`'s per-local rewrite
-does handle `Scan`: since `rewrite` runs `freshen`/`substitute_locals` on
-exactly the `Rhs.value` wrapper above, and both preserve a `Scan_at` node's
-outer shape, unwrapping the rewritten wrapper recovers the freshened
-`Scan.t` that `Expr.Rewrite.Scan` needs (an `invalid_arg` on the
-structurally-impossible non-`Scan_at` result documents the invariant rather
-than silently mismatching).
+**Landed: execution.** `Region_execution.evaluate_locals` and
+`Region_eval.evaluate_locals` both dispatch on `Rhs.Scan s` by filling the
+local's whole preflighted slot range directly, row-major: row 0 is one
+evaluation of `s.init` per lane (`~reducer:[(s.lane, l)]`, no update charge);
+row `r` (`1 <= r <= steps`) is one evaluation of `s.update` per lane
+(`~reducer:[(s.lane, l); (s.step, r-1)]`), charging `Scan_meter.charge_update`
+once per lane BEFORE evaluating its body, with `prev` answered by an ordinary
+`local_at` resolver override reading row `r-1` from the slots just written.
+This is deliberately NOT a call into `Eval.value`'s own inline `Scan_at`
+machinery (no `reserve`/`release` of `2*width` state): a trace local's storage
+was already accounted for by `max_local_slots` at preflight, so it only ever
+needs the public `charge_update` operation, exactly as "Runtime metering"
+below specifies. `Eval.value`'s `?reducer` parameter changed from one optional
+`(Reduce_var.t * int)` pair to `(Reduce_var.t * int) list`, since a scan row's
+`update` needs `lane` and `step` bound simultaneously — a vector local's own
+body (which needs exactly one) passes a singleton list; every other caller is
+unaffected. `Region_slots.scan_reader : t -> float array -> Expr.Eval.scan_reader`
+factors the cached-`Local_scan_at`-read half of this (bounds-check row then
+lane against a trace local's own `(width, steps)`, recorded in `Region_slots.t`
+alongside the existing `(offset, count)` map so lookup stays O(1) setup, like
+`reader`), shared by both evaluators the same way `reader` already is; each
+evaluator's own per-local fill loop stays independently implemented.
+`specialize_pixel`'s per-local rewrite already handled `Scan` before this
+landed: since `rewrite` runs `freshen`/`substitute_locals` on exactly the
+`Rhs.value` wrapper above, and both preserve a `Scan_at` node's outer shape,
+unwrapping the rewritten wrapper recovers the freshened `Scan.t` that
+`Expr.Rewrite.Scan` needs (an `invalid_arg` on the structurally-impossible
+non-`Scan_at` result documents the invariant rather than silently
+mismatching).
 
 ## Runtime metering
 
@@ -354,19 +363,44 @@ different coordinates sharing one key must remain independent, each with its
 own full allowance, even though `Kernel_eval.value_at` reaches this path
 independently of fusion admission.
 
-**Propagation.** The meter is threaded, not defaulted, at every production
-call site: `region_execution.ml`, `region_eval.ml`, `schedule.ml`, and both
-`kernel_eval.ml` Pixel arms (the on-demand `eval_value` path's `` `Pixel ``
-arm and the whole-tensor `materialize` path's `` `Pixel `` arm are two
-distinct sites, both needing "create the meter inside each Pixel callback").
-Encountering an inline `Scan_at` with no `?scan_meter` supplied fails with
-`` `Scan_meter_required `` before reserving state or evaluating either body —
-there is no silent default. Cached `Local_scan_at` reads take no update
-charge and go through the projection-reader contract below instead.
-`Schedule.ground` changes to return `Err.t`, crossing `Tensor.materialize`'s
-float-returning callback with `Err.Escape` in place of today's
-`Err.or_raise` (`stage_program.ml`'s `ground`, `stage_program.ml:48-83`, the
-`Region_execution.lower` call at `stage_program.ml:71` specifically).
+**Landed: propagation.** The meter is threaded, not defaulted, at every
+production call site: `Region_execution.materialize`/`Region_eval.materialize`
+create one fresh `Scan_meter.t` per Region KEY (shared by every local,
+including a scan's own trace fill, and the emitter for that key);
+`value_at` on either module creates one per INVOCATION; `Schedule.ground` and
+both `Kernel_eval.machine` Pixel arms (the on-demand `eval_value` path's
+`` `Pixel `` arm and the whole-tensor `materialize` path's `` `Pixel `` arm are
+two distinct sites) create one per OUTPUT COORDINATE, matching the table
+above exactly. `Region_execution.lowered` carries `scan_limits :
+Expr.Scan_limits.t` (what `lower`/`lower_region` were given, typically
+`Kernel.Limits.scan_limits limits`) so `materialize`/`value_at` need take no
+limits parameter of their own, mirroring how `output_shape` already works;
+`Region_eval.materialize`/`value_at` (the reference/test oracle, not a
+production entry point) take `?scan_limits` defaulting to
+`Expr.Scan_limits.default`, which is not the "silent substitution" production
+callers must avoid. `Schedule.ground` and `Kernel_eval.machine` derive their
+`Expr.Scan_limits.t` from their caller's own `Kernel.Limits.t` via
+`Kernel.Limits.scan_limits`. Encountering an inline `Scan_at` with no
+`?scan_meter` supplied fails with `` `Scan_meter_required `` before reserving
+state or evaluating either body — there is no silent default. Cached
+`Local_scan_at` reads take no update charge and go through the
+projection-reader contract below instead. `Schedule.ground` returns `Err.t`,
+crossing `Tensor.materialize`'s float-returning callback with `Err.Escape` in
+place of `Err.or_raise` (landed alongside the "Validated execution artifact"
+work below, before scan execution itself; see that section for the exact
+commit).
+
+`Eval_symbolic.run` and `Region_kernel.of_graph` no longer hardcode
+`Kernel.Limits.default` for Region-authored stage construction:
+`Eval_symbolic.run` takes `?limits` (default `Kernel.Limits.default`) and
+threads it into `Region_computation.program`; `Region_kernel.of_graph`
+resolves its own `?limits` once and passes the SAME value to both
+`Eval_symbolic.run` and `Kernel_adapt.of_stage_program`, so construction and
+later execution cannot silently disagree about which `Kernel.Limits.t` is in
+effect. `Ground_eval.body_at`'s own hardcoded `Kernel.Limits.default` is a
+distinct, pre-existing instance of the same smell, deliberately left alone
+here: it is threaded properly as part of step 10's `Meter`/`Budget` work,
+which touches `Ground_eval.at`/`expand`'s signatures anyway.
 
 `Expr.Eval.error` gains `` `Scan_meter of Scan_meter.error `` and
 `` `Scan_meter_required ``, with `Eval.scan_meter_error : Scan_meter.error ->
@@ -699,13 +733,19 @@ upstream of `Eval_direct.run` or `Stage_program.ground`, so this bound is
 named as Kernel-scoped rather than implied as universal (matching census 3
 above).
 
-**Landed.** `Region_execution.lower`/`lower_region` match the signatures
-above exactly (the `limits:…` ellipsis resolved to the same explicit
-`~max_size ~max_depth ~max_local_slots ~max_scan_state ~max_scan_updates`
-fields every call site already threads individually, not a new record type —
-consistent with `Region_program.check`'s own existing style and with
-`Kernel.Limits`, which stays a plain field bag rather than crossing into
-`Region_program`'s dependency direction). Both call a shared `validate`
+**Landed.** `Region_execution.lower`/`lower_region` resolved the `limits:…`
+ellipsis to `~max_size ~max_depth ~max_local_slots ~scan_limits`, one step
+narrower than initially stated: `scan_limits : Expr.Scan_limits.t` replaces
+the separate `~max_scan_state:int ~max_scan_updates:int64` pair, because
+`lowered` needs an `Expr.Scan_limits.t` anyway (to build a fresh
+`Scan_meter.t` at materialize/value_at time — see "Runtime metering"), and
+every caller already holds a `Kernel.Limits.t` it can narrow once via the
+existing `Kernel.Limits.scan_limits` accessor rather than pass two fields that
+must independently agree with it. `Region_program.preflight` itself keeps its
+original `~max_scan_state:int ~max_scan_updates:int64` signature unchanged
+(narrowed from `scan_limits` at the one call site inside `validate`), since
+its own numeric comparisons need no `Scan_limits.t` structure. Both `lower`/
+`lower_region` call a shared `validate`
 running `Region_program.check` then `preflight`; `lowered` gains an
 `output_shape : Vec6.shape` field, so `materialize`/`value_at` no longer take
 one. A real gap surfaced in the same change: the PIXEL branch of `lower`
@@ -987,16 +1027,21 @@ Expr.Scan_limits.t` is a pure accessor that cannot fail. `Kernel.Limits.default`
 derives its scan fields from `Expr.Scan_limits.default` so the two constants
 cannot drift apart; a test pins that derivation.
 
-The same configured value must reach symbolic construction:
-`Eval_symbolic.run` currently hardcodes `Kernel.Limits.default`
-(`eval_symbolic.ml:50`) — the same hardcoded-default smell also appears in
-`Ground_eval.body_at`'s call to `pixel_body` (`ground_eval.ml:418`), worth
-fixing alongside since it is the identical defect — while
-`Region_kernel.of_graph ?limits` (`region_kernel.ml:1-2`) passes its limits
-only to `Kernel_adapt`. Thread `?limits` through `Eval_symbolic.run` and pass
-the same value from `Region_kernel.of_graph`, with tighter- and
-wider-than-default regressions through Direct, Symbolic, and
-`Region_kernel.of_graph`.
+**Landed.** The same configured value now reaches symbolic construction:
+`Eval_symbolic.run` takes `?limits` (default `Kernel.Limits.default`) and
+threads it into `Region_computation.program`, replacing the hardcoded
+`Kernel.Limits.default` that previously reached every Region-authored stage
+regardless of what the caller configured; `Region_kernel.of_graph` resolves
+its own `?limits` once and passes that SAME value to both `Eval_symbolic.run`
+and `Kernel_adapt.of_stage_program`, rather than only the latter. This is
+covered indirectly by the existing whole-tree test suite (no stage in it
+exercises a non-default `Kernel.Limits.t` through `Eval_symbolic.run` today,
+since no scan-backed op is symbolically constructed yet) and directly by
+`Schedule.ground`'s own `~scan_limits` threading in
+`test/native/region_scan_execution_test.ml`. `Ground_eval.body_at`'s own
+hardcoded `Kernel.Limits.default` (`ground_eval.ml:418`) is the identical
+defect but is left alone here: it belongs to step 10's `Meter`/`Budget` work,
+which touches `Ground_eval.at`/`expand`'s signatures anyway.
 
 `checked_slot_total` (`region_program.ml:227-239`) switches to billing
 `max_local_slots` and its comment is rewritten to match (it currently argues

@@ -780,8 +780,7 @@ let%expect_test "Region executor traverses keys, locals, and emitters once" =
     match
       Err.or_raise ~pp_error:Region_program.pp_error
         (Region_execution.lower ~max_size:32 ~max_depth:16 ~max_local_slots:8192
-           ~max_scan_state:8192 ~max_scan_updates:8192L ~output_shape:shape
-           program)
+           ~scan_limits:Expr.Scan_limits.default ~output_shape:shape program)
     with
     | Region_execution.Pixel_loop _ -> assert false
     | Region_execution.Region_loop lowered -> lowered
@@ -848,7 +847,7 @@ let%expect_test
   let show program =
     match
       Region_execution.lower ~max_size:32 ~max_depth:16 ~max_local_slots:8192
-        ~max_scan_state:8192 ~max_scan_updates:8192L ~output_shape:shape program
+        ~scan_limits:Expr.Scan_limits.default ~output_shape:shape program
     with
     | Ok _ -> "ok"
     | Error error ->

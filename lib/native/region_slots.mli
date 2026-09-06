@@ -24,3 +24,10 @@ val reader :
 (** Reads an already-filled slot range: the first function answers a plain
     [Value.Local] (only meaningful for a scalar's single slot), the second a
     [Value.Local_at] at a computed position within a vector's range. *)
+
+val scan_reader : t -> float array -> Expr.Eval.scan_reader
+(** Answers a cached [Value.Local_scan_at] read against a trace local's own slot
+    range, row-major (trace row [r]'s lanes occupy
+    [offset + r*width .. offset + r*width + width - 1]). [O(1)] setup, like
+    [reader]: the per-local [(width, steps)] table is built once in [of_locals],
+    not re-derived here. *)

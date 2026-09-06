@@ -59,8 +59,7 @@ let lower ~(limits : Kernel.Limits.t) (st : Stage.t) =
     (Region_execution.lower ~max_size:limits.Kernel.Limits.max_size
        ~max_depth:limits.Kernel.Limits.max_depth
        ~max_local_slots:limits.Kernel.Limits.max_local_slots
-       ~max_scan_state:limits.Kernel.Limits.max_scan_state
-       ~max_scan_updates:limits.Kernel.Limits.max_scan_updates_per_key
+       ~scan_limits:(Kernel.Limits.scan_limits limits)
        ~output_shape:st.Stage.sg.Tensor_sig.shape (Stage.computation st))
 
 let ground ?(limits = Kernel.Limits.default) (p : t)
@@ -101,7 +100,9 @@ let ground ?(limits = Kernel.Limits.default) (p : t)
               Err.Escape.or_throw esc
                 (Err.map_error
                    (fun (e : Expr.Eval.error) -> (e :> error))
-                   (Schedule.ground st.sg.shape ~binding body))
+                   (Schedule.ground st.sg.shape ~binding
+                      ~scan_limits:(Kernel.Limits.scan_limits limits)
+                      body))
           | Region_execution.Region_loop lowered ->
               Err.Escape.or_throw esc
                 (Err.map_error

@@ -142,8 +142,7 @@ let region_result ~limits ~region_counters g ~op ~output ~out_shape ~operand_env
     Region_execution.lower ~max_size:limits.Kernel.Limits.max_size
       ~max_depth:limits.Kernel.Limits.max_depth
       ~max_local_slots:limits.Kernel.Limits.max_local_slots
-      ~max_scan_state:limits.Kernel.Limits.max_scan_state
-      ~max_scan_updates:limits.Kernel.Limits.max_scan_updates_per_key
+      ~scan_limits:(Kernel.Limits.scan_limits limits)
       ~output_shape:(Shape4.to_vec6 out_shape) program
     |> Err.map_error (fun error ->
         `Region_construction (Region_computation.Invalid_program error))

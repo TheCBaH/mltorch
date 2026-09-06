@@ -223,7 +223,7 @@ let%expect_test "vector locals are open only at an explicit boundary" =
      does: each position's value comes from evaluating [body] with the
      binder [var] seeded via [~reducer], never a nested [Reduce]. *)
   let elt p =
-    match Eval.value ~reducer:(var, p) env ~output body with
+    match Eval.value ~reducer:[ (var, p) ] env ~output body with
     | Ok v -> v
     | Error _ -> assert false
   in

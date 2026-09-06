@@ -7,7 +7,6 @@ let s n t d h w c = Vec6.shape ~n ~t ~d ~h ~w ~c
 let s1c n = s 1 1 1 1 1 n
 let f32 = Payload.Fmt Payload.F32
 let tid = Tensor_id.of_int
-
 let sg id shape = Tensor_sig.create ~id:(tid id) ~name:"" ~shape ~fmt:f32 ()
 
 (* trace.(0,l) = 0; trace.(s+1,l) = trace.(s,l) + 1, [width=steps=1] -- its own
@@ -43,8 +42,8 @@ let scan_value id shape =
     result = Kernel.Result_conversion.Round_f32;
   }
 
-let%expect_test "Kernel: max_scan_updates_total sums keys * per_key across \
-                 values" =
+let%expect_test
+    "Kernel: max_scan_updates_total sums keys * per_key across values" =
   let limits ~max_scan_updates_total =
     Err.or_raise ~pp_error:Kernel.Limits.pp_error
       (Kernel.Limits.create ~max_size:4096 ~max_depth:128 ~max_values:16
@@ -57,12 +56,16 @@ let%expect_test "Kernel: max_scan_updates_total sums keys * per_key across \
     match
       Kernel.create
         ~limits:(limits ~max_scan_updates_total)
-        ~inputs:[] ~values:[ scan_value 0 (s1c 100) ] ~outputs:[ tid 0 ] ()
+        ~inputs:[]
+        ~values:[ scan_value 0 (s1c 100) ]
+        ~outputs:[ tid 0 ]
+        ()
     with
     | Ok _ -> "ok"
     | Error error -> Format.asprintf "%a" Kernel.pp_error (Err.Error.kind error)
   in
-  Format.printf "generous=%s tight=%s@." (show ~max_scan_updates_total:200L)
+  Format.printf "generous=%s tight=%s@."
+    (show ~max_scan_updates_total:200L)
     (show ~max_scan_updates_total:50L);
   [%expect
     {| generous=ok tight=summed scan updates across all values exceed limit 50 |}]

@@ -261,14 +261,18 @@ let vchk esc : ('a, [< error ]) Err.t -> 'a = function
   | Error e -> Err.Escape.throw_error esc (e :> error Err.Error.t)
 
 let value ?(local = fun _ -> None) ?(local_at = fun _ _ -> None) ?scan
-    ?scan_meter ?reducer ?(on_reduction = fun () -> ()) (env : Env.t) ~output e
-    =
+    ?scan_meter ?(reducer = []) ?(on_reduction = fun () -> ()) (env : Env.t)
+    ~output e =
   Err.Escape.with_escape @@ fun esc ->
   let vchk r = vchk esc r in
-  let init_reducers =
-    match reducer with
-    | None -> fun _ -> None
-    | Some (v, p) -> fun w -> if Reduce_var.equal w v then Some p else None
+  (* A LIST, not a single pair: a scan row's [update] has TWO simultaneously
+     bound reducers ([lane] and [step]), unlike a vector local's body, which
+     mentions only its own binder free -- [Region_execution]/[Region_eval]
+     supply both as [[ (lane, l); (step, r) ]] when filling one trace row. *)
+  let init_reducers w =
+    List.find_map
+      (fun (v, p) -> if Reduce_var.equal w v then Some p else None)
+      reducer
   in
   (* Missing entirely -- no default trace table -- fails with the same
      [Unknown_local] a real reader would report for an unrecognized id. *)

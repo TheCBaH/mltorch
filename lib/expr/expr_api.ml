@@ -912,7 +912,7 @@ module type S = sig
       ?local_at:(Local_var.t -> int -> float option) ->
       ?scan:scan_reader ->
       ?scan_meter:Scan_meter.t ->
-      ?reducer:Reduce_var.t * int ->
+      ?reducer:(Reduce_var.t * int) list ->
       ?on_reduction:(unit -> unit) ->
       Env.t ->
       output:int Coord.t ->
@@ -924,11 +924,12 @@ module type S = sig
         evaluated a vector local's whole body once per position (the same loop
         shape [Reduce]'s own fold uses, one iteration per key), and supplies the
         stored result at the requested position; [None] behaves as an unbound
-        local, same as [local]. [reducer], when given, seeds evaluation with ONE
-        reducer identity pre-bound to a concrete position -- what running a
-        vector local's own body (which mentions its binder free, not under a
-        [Reduce]) needs, mirroring how [Reduce]'s internal fold already binds
-        its own [var] per iteration.
+        local, same as [local]. [reducer] seeds evaluation with each listed
+        reducer identity pre-bound to a concrete position -- a vector local's
+        own body (which mentions its binder free, not under a [Reduce]) needs
+        exactly one, mirroring how [Reduce]'s internal fold already binds its
+        own [var] per iteration; a scan row's [update] needs two at once ([lane]
+        and [step]), which is why this takes a list rather than one pair.
 
         [scan] resolves a cached [Value.Local_scan_at] read; missing entirely,
         it fails with the same [Unknown_local] a real reader would report for an

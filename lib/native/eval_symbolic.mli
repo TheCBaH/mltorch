@@ -11,4 +11,9 @@
 
 open Graph_ir
 
-val run : graph -> Stage_program.t
+val run : ?limits:Kernel.Limits.t -> graph -> Stage_program.t
+(** [limits] is applied to every Region-authored stage's construction (via
+    [Region_computation.program]); it defaults to [Kernel.Limits.default] rather
+    than hardcoding it internally, so a caller with its own [Kernel.Limits.t]
+    (e.g. [Region_kernel.of_graph]) can thread the same value through
+    construction and later execution. *)

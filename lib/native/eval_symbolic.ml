@@ -19,7 +19,7 @@ let stage_sources (g : graph) =
       g.Graph.inputs,
     g.Graph.input_kinds )
 
-let run (g : graph) : Stage_program.t =
+let run ?(limits = Kernel.Limits.default) (g : graph) : Stage_program.t =
   (* [Symbolic] is stateless, so there is no instance to create. Each stage body
      is a construction computation, run below from [Expr.Builder.initial]: stage
      expressions therefore REUSE reducer ordinals, which is correct because a
@@ -47,8 +47,8 @@ let run (g : graph) : Stage_program.t =
         let regional =
           if Region_computation.is_region_authored op then
             Some
-              (Region_computation.program ~limits:Kernel.Limits.default ~op
-                 ~output ~output_shape:out_sig.shape
+              (Region_computation.program ~limits ~op ~output
+                 ~output_shape:out_sig.shape
                  ~operand:(fun id -> Tensor_id.Map.find_opt id env)
                  ~fill:(fun _role value shape -> fill value shape))
           else None

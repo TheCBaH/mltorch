@@ -27,7 +27,6 @@ type error =
   | `Recursion_too_deep of int
   | Region_partition.error
   | Region_program.error
-  | `Scan_execution_not_implemented of Expr.Local_var.t
   | `Unbound_input of Tensor_id.t
   | `Unknown_value of Tensor_id.t ]
 
@@ -38,9 +37,6 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.pf fmt "recursive evaluation nested more than %d producers deep" n
   | #Region_partition.error as e -> Region_partition.pp_error fmt e
   | #Region_program.error as e -> Region_program.pp_error fmt e
-  | `Scan_execution_not_implemented local ->
-      Fmt.pf fmt "scan local %a has no execution support yet" Expr.Local_var.pp
-        local
   | `Unbound_input id -> Fmt.pf fmt "no binding for input %a" Tensor_id.pp id
   | `Unknown_value id -> Fmt.pf fmt "%a names no value" Tensor_id.pp id
 
@@ -189,8 +185,7 @@ let converted esc ?region_counters ~(limits : Kernel.Limits.t)
                 ~max_size:limits.Kernel.Limits.max_size
                 ~max_depth:limits.Kernel.Limits.max_depth
                 ~max_local_slots:limits.Kernel.Limits.max_local_slots
-                ~max_scan_state:limits.Kernel.Limits.max_scan_state
-                ~max_scan_updates:limits.Kernel.Limits.max_scan_updates_per_key
+                ~scan_limits:(Kernel.Limits.scan_limits limits)
                 ~output_shape:v.Kernel.Value.sg.Tensor_sig.shape
                 (Region_program.with_output v.Kernel.Value.computation
                    (Kernel.Result_conversion.apply v.Kernel.Value.result
@@ -214,6 +209,7 @@ let in_shape (sg : Tensor_sig.t) (c : int Expr.Coord.t) =
 let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
   let inputs = Err.Escape.or_throw esc (input_env k ~bind) in
   let values = values_by_id k in
+  let scan_limits = Kernel.Limits.scan_limits k.Kernel.limits in
   let bodies =
     Tensor_id.Map.map
       (converted esc ?region_counters ~limits:k.Kernel.limits)
@@ -252,8 +248,10 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
                   | `Pixel body ->
                       Err.Escape.or_throw esc
                         (widen
-                           (Expr.Eval.value (env_for ~depth id) ~output:coord
-                              body))
+                           (Expr.Eval.value
+                              ~scan_meter:
+                                (Expr.Scan_meter.create ~limits:scan_limits)
+                              (env_for ~depth id) ~output:coord body))
                   | `Region (lowered, _) ->
                       Err.Escape.or_throw esc
                         (widen_region
@@ -313,7 +311,9 @@ let machine esc ?on_load ?region_counters (k : Kernel.t) ~bind ~virtual_uses =
           Tensor.materialize v.Kernel.Value.sg.Tensor_sig.shape (fun c ->
               Err.Escape.or_throw esc
                 (widen
-                   (Expr.Eval.value env
+                   (Expr.Eval.value
+                      ~scan_meter:(Expr.Scan_meter.create ~limits:scan_limits)
+                      env
                       ~output:
                         (Expr_bridge.coord_of_vec6 (Vec6.map Dim.to_int c))
                       body)))

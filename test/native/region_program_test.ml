@@ -219,7 +219,7 @@ let%expect_test
     match
       Err.or_raise ~pp_error:Region_program.pp_error
         (Region_execution.lower ~max_size:32 ~max_depth:16 ~max_local_slots:8192
-           ~max_scan_state:8192 ~max_scan_updates:8192L ~output_shape program)
+           ~scan_limits:Expr.Scan_limits.default ~output_shape program)
     with
     | Region_execution.Region_loop lowered -> lowered
     | Region_execution.Pixel_loop _ -> assert false

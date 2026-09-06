@@ -74,7 +74,9 @@ let compare_grounded out_shape_result ~binding ~expr ~eval_direct =
   let direct = Schedule.evaluate out_shape eval_direct in
   let grounded =
     Err.or_raise ~pp_error:Expr.Eval.pp_error
-      (Schedule.ground out_shape ~binding expr)
+      (Schedule.ground out_shape ~binding
+         ~scan_limits:(Kernel.Limits.scan_limits Kernel.Limits.default)
+         expr)
   in
   Err.return (grounded, Tensor.equal_bits direct grounded)
 
