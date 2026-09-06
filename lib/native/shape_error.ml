@@ -178,15 +178,15 @@ end
    not a placeholder -- rejected with a typed diagnostic rather than silently
    mishandled. *)
 module Lstm = struct
-  type error = Batch_first_unsupported | Empty_layers | Reverse_unsupported
+  type error = Batch_first_unsupported | Empty_layers | Nonuniform_direction
 
   let pp_error ppf = function
     | Batch_first_unsupported ->
         Fmt.string ppf "lstm: batch_first layout is not yet supported"
     | Empty_layers -> Fmt.string ppf "lstm: at least one layer is required"
-    | Reverse_unsupported ->
+    | Nonuniform_direction ->
         Fmt.string ppf
-          "lstm: bidirectional (reverse direction) is not yet supported"
+          "lstm: every layer must have a reverse direction, or none must"
 end
 
 module Bmm = struct

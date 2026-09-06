@@ -101,13 +101,19 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
         in
         { Lstm.Lstm.Direction_operands.weight_ih; weight_hh; bias }
       in
-      (* [output_shape] already rejects a present [reverse]; forward-only
-         resolution here is sound because that check runs first. *)
-      let* forward_layers =
-        Err.List.map
-          (fun (l : Lstm.Lstm.Layer.t) -> resolve_direction l.forward)
-          layers
+      let resolve_layer (l : Lstm.Lstm.Layer.t) :
+          (Lstm.Lstm.Layer_operands.t, error) Err.t =
+        let* forward = resolve_direction l.forward in
+        let+ reverse =
+          match l.reverse with
+          | None -> Err.return None
+          | Some d ->
+              let+ d_resolved = resolve_direction d in
+              Some d_resolved
+        in
+        { Lstm.Lstm.Layer_operands.forward; reverse }
       in
+      let* resolved_layers = Err.List.map resolve_layer layers in
       let shape_of (o : Lstm.Lstm.Direction_operands.t) :
           Lstm.Lstm.Direction_shapes.t =
         {
@@ -125,12 +131,12 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
           (Lstm.Lstm.output_shape params ~input_shape:input.Tensor_sig.shape
              ~layers:
                (List.map
-                  (fun d ->
+                  (fun (l : Lstm.Lstm.Layer_operands.t) ->
                     {
-                      Lstm.Lstm.Layer_shapes.forward = shape_of d;
-                      reverse = None;
+                      Lstm.Lstm.Layer_shapes.forward = shape_of l.forward;
+                      reverse = Option.map shape_of l.reverse;
                     })
-                  forward_layers)
+                  resolved_layers)
              ~h0_shape:h0.Tensor_sig.shape ~c0_shape:c0.Tensor_sig.shape)
       in
       let* expected =
@@ -149,7 +155,7 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
           | Region_context.Invalid_partition -> Invalid_partition
           | Region_context.Invalid_program error -> Invalid_program error)
         (Lstm.Lstm.Computation.program ~limits params ~output
-           ~layers:forward_layers ~input ~h0 ~c0)
+           ~layers:resolved_layers ~input ~h0 ~c0)
   | Sdpa
       {
         Attention.Sdpa.params;

@@ -1,22 +1,22 @@
 (* `aten.lstm.input`'s Native form. WORK IN PROGRESS (project step 13 /
-   M3+M3b): stacked layers (Q>=1) are supported; bidirectionality (a
-   [Layer.reverse]) and batch-first layout are validated-but-rejected with a
-   typed diagnostic, not silently mishandled -- see [Shape_error.Lstm]. No
-   LSTM support claim is made by this file alone; see
-   _ai_/project_todo.md step 13.
+   M3+M3b): stacked layers (Q>=1) and bidirectionality (R=1 or 2, uniform
+   across layers) are supported; batch-first layout is
+   validated-but-rejected with a typed diagnostic, not silently mishandled
+   -- see [Shape_error.Lstm]. No LSTM support claim is made by this file
+   alone; see _ai_/project_todo.md step 13.
 
    Tensor layout (lstm-plan.md §2's table, time-first only so far):
-   input/output on [H=seq, W=batch, C=channel]; h0/c0/h_n/c_n on
-   [H=layer*R+direction, W=batch, C=hidden] -- fixed regardless of layout
-   (R=1 here, so H=layer). weight_ih/weight_hh pack all 4 gates' rows on
+   input/output on [H=seq, W=batch, C=channel] ([output]'s C is [R*hidden_size]);
+   h0/c0/h_n/c_n on [H=layer*R+direction, W=batch, C=hidden] -- fixed
+   regardless of layout. weight_ih/weight_hh pack all 4 gates' rows on
    [N=row, C=col], matching [Linear]'s [Out,1,1,1,1,In] convention;
    bias_ih/bias_hh pack them on [N=row], scalar per row. Layer 0 reads the
-   raw input width; every later layer reads the previous layer's [R=1]
-   hidden trace, so [I_0=input_size], [I_q=hidden_size] for [q>0]. *)
+   raw input width; every later layer reads the previous layer's [R]-wide
+   hidden trace (forward then reverse, concatenated in original time
+   order), so [I_0=input_size], [I_q=R*hidden_size] for [q>0]. *)
 
 module Lstm = struct
-  (* One direction's parameters: layer 0's forward, or (once supported) any
-     layer's reverse. *)
+  (* One direction's parameters: any layer's forward or reverse. *)
   module Direction = struct
     type t = {
       weight_ih : Tensor_ref.t;
@@ -251,10 +251,12 @@ module Lstm = struct
 
   (* Validates every operand's shape against [params]/[input_shape] and
      returns [(output_shape, h_n_shape, c_n_shape)] -- ordinals 0, 1, 2.
-     [R=1] only: a present [Layer_shapes.reverse] is rejected explicitly
-     (bidirectionality is unimplemented arithmetic, not an unchecked gap),
-     so [h_n]/[c_n] carry one row per layer -- would be [Q*R] once it
-     lands. *)
+     [R] (the uniform direction count) is read off the FIRST layer's
+     [reverse] presence; every other layer must agree
+     ([Nonuniform_direction] otherwise, lstm-plan.md §2's "require a
+     uniform direction count... across layers"). [h_n]/[c_n] carry
+     [Q*R] rows, laid out layer-then-direction (forward before reverse,
+     lstm-plan.md §2). *)
   let output_shape (p : params) ~(input_shape : Vec6.shape)
       ~(layers : Layer_shapes.t list) ~h0_shape ~c0_shape =
     let open Err.Syntax in
@@ -265,22 +267,29 @@ module Lstm = struct
       if layers = [] then Err.fail (`Lstm Shape_error.Lstm.Empty_layers)
       else Err.return ()
     in
+    let bidirectional = (List.hd layers).reverse <> None in
+    let directions = if bidirectional then 2 else 1 in
     let* () =
       Err.List.iter
         (fun (q, (layer : Layer_shapes.t)) ->
           let* () =
-            match layer.reverse with
-            | None -> Err.return ()
-            | Some _ -> Err.fail (`Lstm Shape_error.Lstm.Reverse_unsupported)
+            if layer.reverse <> None <> bidirectional then
+              Err.fail (`Lstm Shape_error.Lstm.Nonuniform_direction)
+            else Err.return ()
           in
           let layer_input_size =
-            if q = 0 then p.input_size else p.hidden_size
+            if q = 0 then p.input_size else directions * p.hidden_size
           in
-          check_direction ~p ~layer_input_size layer.forward)
+          let* () = check_direction ~p ~layer_input_size layer.forward in
+          match layer.reverse with
+          | None -> Err.return ()
+          | Some d -> check_direction ~p ~layer_input_size d)
         (List.mapi (fun i l -> (i, l)) layers)
     in
     let num_layers = List.length layers in
-    let expected_state = state_shape ~p ~layers:num_layers ~batch in
+    let expected_state =
+      state_shape ~p ~layers:(num_layers * directions) ~batch
+    in
     let* () =
       check_operand ~operand:`Lstm_state ~expected:expected_state
         ~actual:h0_shape
@@ -290,7 +299,7 @@ module Lstm = struct
         ~actual:c0_shape
     in
     let out_shape =
-      Vec6.shape ~n:1 ~t:1 ~d:1 ~h:seq ~w:batch ~c:p.hidden_size
+      Vec6.shape ~n:1 ~t:1 ~d:1 ~h:seq ~w:batch ~c:(directions * p.hidden_size)
     in
     (out_shape, expected_state, expected_state)
 
@@ -305,14 +314,21 @@ module Lstm = struct
     }
   end
 
+  module Layer_operands = struct
+    type t = {
+      forward : Direction_operands.t;
+      reverse : Direction_operands.t option;
+    }
+  end
+
   (* Authoritative declarative Region computation: one [width=2*K] scan per
-     layer (lanes [0,K) = h, [K,2K) = c -- see the file header), chained so
-     each later layer's scan reads the previous layer's completed trace
-     (lstm-plan.md §4's dependency between ordinary Region locals and later
-     scan bodies), read three different ways for the three output
-     ordinals. Every output ordinal gets its OWN independent copy of every
-     layer's scan (lstm-plan.md §4's accepted explicit constant-factor
-     cost), and [R=1] only: no reverse-direction reads exist yet. *)
+     layer/direction (lanes [0,K) = h, [K,2K) = c -- see the file header),
+     chained so each later layer's scan reads the previous layer's
+     completed trace(s) (lstm-plan.md §4's dependency between ordinary
+     Region locals and later scan bodies), read three different ways for
+     the three output ordinals. Every output ordinal gets its OWN
+     independent copy of every layer/direction's scan (lstm-plan.md §4's
+     accepted explicit constant-factor cost). *)
   module Computation = struct
     let gate_i = 0
     and gate_f = 1
@@ -451,105 +467,219 @@ module Lstm = struct
            (Expr.Bool.value_lt lane_val (Expr.Value.const (float_of_int k)))
            next_h next_c)
 
-    (* One completed layer's cached, O(1)-per-call trace reader
-       ([Region_program.Builder.scan]'s own [scan_read], forward direction
-       only -- [R=1]). *)
+    (* One completed layer/direction's cached, O(1)-per-call trace reader
+       ([Region_program.Builder.scan]'s own [scan_read]). *)
     type read_fn =
       row:Expr.Role.Position.t Expr.Index.t ->
       lane:Expr.Role.Position.t Expr.Index.t ->
       Expr.Value.t
 
-    (* Builds layer [q]'s scan, then recurses for the remaining layers with
-       this layer's reader available as the next one's [layer_input],
-       finally handing every completed layer's reader (in layer order) to
-       [finish]. [prev_read] is [None] for layer 0 (read the original
-       [input] instead) and [Some] the previous layer's reader otherwise;
-       both directions read forward rows since [R=1] here. *)
-    let rec build_layers ~scan_limits ~k ~seq ~batch ~input_size ~input ~h0 ~c0
-        ~(layers : (int * Direction_operands.t) list) ~prev_read ~acc
+    (* [t]: this scan's own original-time index at recurrence step [step]
+       (lstm-plan.md §5) -- [step] itself for forward, [(seq-1)-step] for
+       reverse, converted back to a position (sound: both bounds keep it in
+       [0,seq)). *)
+    let original_time ~seq ~is_reverse step =
+      if not is_reverse then step
+      else
+        Expr.Index.clamp_low
+          (Expr.Index.add
+             (Expr.Index.const (seq - 1))
+             (Expr.Index.scale (-1) (Expr.Index.of_position step)))
+
+    (* Reads the previous layer's completed trace(s) at column [col] of a
+       [q>0] layer's [R*K]-wide input, at this scan's own original time [t].
+       [R=1] (no [reverse_read]): forward row [t+1], no direction demux
+       needed at all. [R=2]: [col<K] selects the previous layer's forward
+       trace (row [t+1]); [col>=K] selects its reverse trace (row [seq-t],
+       lstm-plan.md §5) -- both at lane [col mod K]. *)
+    let read_prev_layer ~k ~seq ~t ~col
+        ((forward_read, reverse_read) : read_fn * read_fn option) =
+      match reverse_read with
+      | None ->
+          let row =
+            Expr.Index.clamp_low
+              (Expr.Index.add (Expr.Index.of_position t) (Expr.Index.const 1))
+          in
+          forward_read ~row ~lane:col
+      | Some reverse_read ->
+          let k_idx = mod_k ~k (Expr.Index.of_position col) in
+          let is_fwd =
+            Expr.Bool.value_lt
+              (Expr.Value.value_of_index (Expr.Index.of_position col))
+              (Expr.Value.const (float_of_int k))
+          in
+          let row_fwd =
+            Expr.Index.clamp_low
+              (Expr.Index.add (Expr.Index.of_position t) (Expr.Index.const 1))
+          in
+          let row_rev =
+            Expr.Index.clamp_low
+              (Expr.Index.add (Expr.Index.const seq)
+                 (Expr.Index.scale (-1) (Expr.Index.of_position t)))
+          in
+          Expr.Value.select is_fwd
+            (forward_read ~row:row_fwd ~lane:k_idx)
+            (reverse_read ~row:row_rev ~lane:k_idx)
+
+    (* Builds one (layer, direction)'s scan. [prev] is [None] for layer 0
+       (read the original [input] instead) and [Some] the previous layer's
+       (forward_read, reverse_read option) otherwise. [state_row] (static:
+       [q*directions+d]) selects this direction's own [h0]/[c0] slice. *)
+    let build_one ~scan_limits ~k ~seq ~batch ~input_size ~input ~h0 ~c0
+        ~is_reverse ~state_row ~prev (dir : Direction_operands.t)
+        (continue : read_fn -> 'a Region_program.Builder.t) :
+        'a Region_program.Builder.t =
+      let layer_input ~step ~col =
+        let t = original_time ~seq ~is_reverse step in
+        match prev with
+        | None ->
+            Region_context.load input
+              (Expr.Coord.make ~n:Expr.Index.zero ~t:Expr.Index.zero
+                 ~d:Expr.Index.zero ~h:t ~w:batch ~c:col)
+        | Some prev -> read_prev_layer ~k ~seq ~t ~col prev
+      in
+      let init ~lane =
+        let k_idx = mod_k ~k (Expr.Index.of_position lane) in
+        let is_h =
+          Expr.Bool.value_lt
+            (Expr.Value.value_of_index (Expr.Index.of_position lane))
+            (Expr.Value.const (float_of_int k))
+        in
+        let state_coord =
+          Expr.Coord.make ~n:Expr.Index.zero ~t:Expr.Index.zero
+            ~d:Expr.Index.zero
+            ~h:(Expr.Index.clamp_low (Expr.Index.const state_row))
+            ~w:batch ~c:k_idx
+        in
+        Expr.Builder.return
+          (Expr.Value.select is_h
+             (Region_context.load h0 state_coord)
+             (Region_context.load c0 state_coord))
+      in
+      let update ~step ~lane ~previous_at =
+        one_step ~k ~input_size ~weight_hh:dir.Direction_operands.weight_hh
+          ~weight_ih:dir.Direction_operands.weight_ih
+          ~bias:dir.Direction_operands.bias
+          ~layer_input:(fun col -> layer_input ~step ~col)
+          ~lane ~previous_at
+      in
+      Region_program.Builder.scan ~limits:scan_limits ~width:(2 * k) ~steps:seq
+        ~init ~update continue
+
+    (* Builds every layer's scan(s), forward before reverse per layer
+       (lstm-plan.md §2), accumulating a FLAT [(a, read_fn)] list in [a]
+       order ([a = layer*directions+direction]) -- what the [h_n]/[c_n]
+       select chain below reads. *)
+    let rec build_layers ~scan_limits ~k ~seq ~batch ~directions ~input_size
+        ~input ~h0 ~c0 ~(layers : (int * Layer_operands.t) list) ~prev ~acc
         (finish :
-          read_fn list ->
+          (int * read_fn) list ->
           (Region_program.t, Region_program.error) Err.t
           Region_program.Builder.t) :
         (Region_program.t, Region_program.error) Err.t Region_program.Builder.t
         =
       match layers with
       | [] -> finish (List.rev acc)
-      | (q, dir) :: rest ->
-          let layer_input ~step ~col =
-            match prev_read with
-            | None ->
-                Region_context.load input
-                  (Expr.Coord.make ~n:Expr.Index.zero ~t:Expr.Index.zero
-                     ~d:Expr.Index.zero ~h:step ~w:batch ~c:col)
-            | Some prev_read ->
-                let row =
-                  Expr.Index.clamp_low
-                    (Expr.Index.add
-                       (Expr.Index.of_position step)
-                       (Expr.Index.const 1))
-                in
-                prev_read ~row ~lane:col
+      | (q, (layer : Layer_operands.t)) :: rest ->
+          let this_layer_input_size =
+            if q = 0 then input_size else k * directions
           in
-          let this_layer_input_size = if q = 0 then input_size else k in
-          let init ~lane =
-            let k_idx = mod_k ~k (Expr.Index.of_position lane) in
-            let is_h =
-              Expr.Bool.value_lt
-                (Expr.Value.value_of_index (Expr.Index.of_position lane))
-                (Expr.Value.const (float_of_int k))
-            in
-            let state_coord =
-              Expr.Coord.make ~n:Expr.Index.zero ~t:Expr.Index.zero
-                ~d:Expr.Index.zero
-                ~h:(Expr.Index.clamp_low (Expr.Index.const q))
-                ~w:batch ~c:k_idx
-            in
-            Expr.Builder.return
-              (Expr.Value.select is_h
-                 (Region_context.load h0 state_coord)
-                 (Region_context.load c0 state_coord))
-          in
-          let update ~step ~lane ~previous_at =
-            one_step ~k ~input_size:this_layer_input_size
-              ~weight_hh:dir.Direction_operands.weight_hh
-              ~weight_ih:dir.Direction_operands.weight_ih
-              ~bias:dir.Direction_operands.bias
-              ~layer_input:(fun col -> layer_input ~step ~col)
-              ~lane ~previous_at
-          in
-          Region_program.Builder.scan ~limits:scan_limits ~width:(2 * k)
-            ~steps:seq ~init ~update (fun scan_read ->
-              build_layers ~scan_limits ~k ~seq ~batch ~input_size ~input ~h0
-                ~c0 ~layers:rest ~prev_read:(Some scan_read)
-                ~acc:(scan_read :: acc) finish)
+          build_one ~scan_limits ~k ~seq ~batch
+            ~input_size:this_layer_input_size ~input ~h0 ~c0 ~is_reverse:false
+            ~state_row:(q * directions) ~prev layer.forward (fun forward_read ->
+              match layer.reverse with
+              | None ->
+                  build_layers ~scan_limits ~k ~seq ~batch ~directions
+                    ~input_size ~input ~h0 ~c0 ~layers:rest
+                    ~prev:(Some (forward_read, None))
+                    ~acc:((q * directions, forward_read) :: acc)
+                    finish
+              | Some reverse ->
+                  build_one ~scan_limits ~k ~seq ~batch
+                    ~input_size:this_layer_input_size ~input ~h0 ~c0
+                    ~is_reverse:true
+                    ~state_row:((q * directions) + 1)
+                    ~prev reverse
+                    (fun reverse_read ->
+                      build_layers ~scan_limits ~k ~seq ~batch ~directions
+                        ~input_size ~input ~h0 ~c0 ~layers:rest
+                        ~prev:(Some (forward_read, Some reverse_read))
+                        ~acc:
+                          (((q * directions) + 1, reverse_read)
+                          :: (q * directions, forward_read)
+                          :: acc)
+                        finish))
 
     let program ~(limits : Kernel.Limits.t) (p : params) ~output
-        ~(layers : Direction_operands.t list) ~(input : Tensor_sig.t) ~h0 ~c0 =
+        ~(layers : Layer_operands.t list) ~(input : Tensor_sig.t) ~h0 ~c0 =
       let open Err.Syntax in
       let k = p.hidden_size in
       let seq = Dim.to_int (Vec6.get input.Tensor_sig.shape Axis.H) in
       let num_layers = List.length layers in
+      let directions =
+        if (List.hd layers).Layer_operands.reverse <> None then 2 else 1
+      in
       let scan_limits = Kernel.Limits.scan_limits limits in
       let* partition = Region_context.partition [ Axis.H; Axis.C ] in
       let batch = Expr.Index.output Axis.W in
       let indexed = List.mapi (fun i l -> (i, l)) layers in
       Region_context.program
         (Region_program.Builder.run
-           (build_layers ~scan_limits ~k ~seq ~batch ~input_size:p.input_size
-              ~input ~h0 ~c0 ~layers:indexed ~prev_read:None ~acc:[]
-              (fun reads ->
-                let by_layer = Array.of_list reads in
+           (build_layers ~scan_limits ~k ~seq ~batch ~directions
+              ~input_size:p.input_size ~input ~h0 ~c0 ~layers:indexed ~prev:None
+              ~acc:[] (fun reads ->
+                let by_a =
+                  Array.make (num_layers * directions) (fun ~row:_ ~lane:_ ->
+                      assert false)
+                in
+                List.iter (fun (a, read) -> by_a.(a) <- read) reads;
                 let output_expr =
                   if output = 0 then
-                    let last = by_layer.(num_layers - 1) in
-                    let row =
-                      Expr.Index.clamp_low
-                        (Expr.Index.add
-                           (Expr.Index.of_position (Expr.Index.output Axis.H))
-                           (Expr.Index.const 1))
+                    let last_layer_first_dir = (num_layers - 1) * directions in
+                    let last =
+                      ( by_a.(last_layer_first_dir),
+                        if directions = 2 then
+                          Some by_a.(last_layer_first_dir + 1)
+                        else None )
                     in
-                    last ~row ~lane:(Expr.Index.output Axis.C)
+                    let c_val =
+                      Expr.Value.value_of_index
+                        (Expr.Index.of_position (Expr.Index.output Axis.C))
+                    in
+                    let k_idx =
+                      mod_k ~k
+                        (Expr.Index.of_position (Expr.Index.output Axis.C))
+                    in
+                    let t_out = Expr.Index.output Axis.H in
+                    match snd last with
+                    | None ->
+                        let row =
+                          Expr.Index.clamp_low
+                            (Expr.Index.add
+                               (Expr.Index.of_position t_out)
+                               (Expr.Index.const 1))
+                        in
+                        (fst last) ~row ~lane:k_idx
+                    | Some reverse_read ->
+                        let is_fwd =
+                          Expr.Bool.value_lt c_val
+                            (Expr.Value.const (float_of_int k))
+                        in
+                        let row_fwd =
+                          Expr.Index.clamp_low
+                            (Expr.Index.add
+                               (Expr.Index.of_position t_out)
+                               (Expr.Index.const 1))
+                        in
+                        let row_rev =
+                          Expr.Index.clamp_low
+                            (Expr.Index.add (Expr.Index.const seq)
+                               (Expr.Index.scale (-1)
+                                  (Expr.Index.of_position t_out)))
+                        in
+                        Expr.Value.select is_fwd
+                          ((fst last) ~row:row_fwd ~lane:k_idx)
+                          (reverse_read ~row:row_rev ~lane:k_idx)
                   else
                     let row = Expr.Index.clamp_low (Expr.Index.const seq) in
                     let lane =
@@ -563,15 +693,16 @@ module Lstm = struct
                       Expr.Value.value_of_index
                         (Expr.Index.of_position (Expr.Index.output Axis.H))
                     in
-                    let rec chain q =
-                      let read = by_layer.(q) in
-                      if q = num_layers - 1 then read ~row ~lane
+                    let total = num_layers * directions in
+                    let rec chain a =
+                      let read = by_a.(a) in
+                      if a = total - 1 then read ~row ~lane
                       else
                         Expr.Value.select
                           (Expr.Bool.value_lt h_val
-                             (Expr.Value.const (float_of_int (q + 1))))
+                             (Expr.Value.const (float_of_int (a + 1))))
                           (read ~row ~lane)
-                          (chain (q + 1))
+                          (chain (a + 1))
                     in
                     chain 0
                 in
