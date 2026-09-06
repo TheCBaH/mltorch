@@ -634,16 +634,67 @@ build @lib/fmt @test/fmt` (excluding the pre-existing, unrelated
 
 ### 11. Accept and land the reusable scan foundation
 
-- [ ] Extend the external public-API fixture to build, check, print and execute a complete
+- [x] Extend the external public-API fixture to build, check, print and execute a complete
   scan-backed Region program through Stage and Kernel paths.
-- [ ] Run every Stage 1 exit condition in the implementation plan, including trace ownership,
+- [x] Run every Stage 1 exit condition in the implementation plan, including trace ownership,
   numerical agreement, scope, limits, specialization, grounding, fusion and rendering.
-- [ ] Run the full native checks and both JavaScript checks. Review golden changes and
+- [x] Run the full native checks and both JavaScript checks. Review golden changes and
   confirm that the pure libraries gained no ATen/ctypes dependency.
-- [ ] Publish the landed contracts in `.ai/` and update this checklist with evidence.
+- [x] Publish the landed contracts in `.ai/` and update this checklist with evidence.
 
 Completion: the scan foundation is independently usable and green before LSTM arithmetic
 is added. No LSTM support claim is made by this milestone.
+
+Evidence (2026-09-06): `test/native/region_scan_construction_test.ml` (the
+external public-API fixture from step 6, previously build/check/print only)
+gains five tests closing every remaining Stage 1 exit condition. (1) The
+same counter-scan construction runs through `Stage_program.ground` and
+`Kernel_eval.run` -- two independent execution paths this record had never
+exercised together -- and both agree with each other and with a hand
+computation (`row=5` reads counter value `5`). (2) `specialize_pixel`'s
+output, evaluated directly through `Expr.Eval.value` with a fresh
+`Scan_meter.t` and no `env`/`reducer` seed (fully inlined, so nothing else is
+free), agrees with `Region_eval.materialize`'s own reference execution of the
+unspecialized program -- closing the one leg of "agrees across production/
+reference Region execution, specialized Expr evaluation" no earlier step's
+evidence establishes. (3) Two programs differing only in `steps` (5 vs. 500,
+a 100x difference) specialize to bit-for-bit-equal `Expr.Fold.size`/`depth`
+(`(10,4)` both times) -- the "specialized AST size is independent of width
+and steps" claim, true by construction (`Scan.t` stores both as plain
+integers rather than unrolling) but never directly measured before this.
+(4) Grounding a scan-backed stage through `Ground_eval.at` fails with the
+exact `` `Scan_at_unsupported `` error -- what "agreement" means for
+grounding at Stage 1, since grounding does not execute a scan yet (a later,
+separate step): this arm had no test at all before now, a `CLAUDE.md`-flagged
+gap ("a check that has never failed is not evidence") this closes rather than
+leaves open. Fusion admission's own regressions landed with step 9; rendering
+and the freshening/scope/limits regressions landed with steps 6-8; nothing
+in this step's re-audit found a gap beyond the four above.
+
+`.ai/native_scan_design.md`'s "Status and scope" is rewritten to state Stage
+1 as landed and accepted, list all six landing points in order (Expr, Region
+construction, static measures/validated artifact, Region execution,
+specialization/fusion, grounding's budget accounting), and correct a
+leftover inaccuracy from step 9's own note (which mislabeled the *general*
+`Ground_eval` `Budget`/`Meter`/`Term` work as scan-specific grounding
+support; step 10 landed it as a general grounding accounting mechanism,
+unrelated to scan execution, which remains unimplemented in grounding).
+
+`NO_COLOR=1 opam exec -- dune runtest` (whole tree, no goldens moved outside
+this step's own new/promoted expect blocks), `make jsoo.runtest`, `make
+jsoo.inline-runtest`, and `make melange.runtest` all pass; `make
+build`/`runtest`/`check.file-size`/`check.whitespace` and `opam exec -- dune
+build @lib/fmt @test/fmt` (same pre-existing, unrelated
+`experiments/tailcall/backend_driver.ml` `dune fmt` exclusion noted at steps
+7-10) all pass. No file this step touches gained an ATen/ctypes/Unix
+dependency -- `test/native/region_scan_construction_test.ml` and
+`ground_eval_budget_test.ml` both stay within `lib/native`'s existing
+(ATen-free) test surface.
+
+This closes Stage 1. Steps 12-16 (LSTM arithmetic) and steps 17-20
+(subsequent project improvements, including step 9's/10's own explicitly
+deferred grounding sharing-awareness questions) are unstarted; no claim of
+LSTM support is made by this record.
 
 ## LSTM implementation
 
