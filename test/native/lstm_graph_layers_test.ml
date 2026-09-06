@@ -634,3 +634,46 @@ let%expect_test "an empty layer list is rejected, not silently ignored" =
   | Ok _ -> Fmt.pr "unexpectedly built@."
   | Error e -> Fmt.pr "%a@." Graph_builder.pp_error (Err.Error.kind e));
   [%expect {| lstm: at least one layer is required |}]
+
+let%expect_test "a non-positive hidden_size is rejected, not silently ignored" =
+  let bad_params : Lstm.Lstm.params =
+    { hidden_size = 0; input_size = isz; batch_first = false }
+  in
+  let build () =
+    Graph_builder.(
+      build ~name:"lstm_zero_hidden" ~outputs:(fun (out, _, _) -> [ out ])
+      @@
+      (* Non-positive [hidden_size] is rejected before any operand shape is
+         examined, so these shapes are arbitrary valid placeholders, not
+         shapes consistent with [bad_params]. *)
+      let* input_id = input ~shape:seq_shape ~name:"input" () in
+      let* weight_ih_id =
+        input ~shape:(mat_shape ~rows:1 ~cols:isz) ~name:"weight_ih" ()
+      in
+      let* weight_hh_id =
+        input ~shape:(mat_shape ~rows:1 ~cols:1) ~name:"weight_hh" ()
+      in
+      let* h0_id =
+        input
+          ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:batch ~c:1)
+          ~name:"h0" ()
+      in
+      let* c0_id =
+        input
+          ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:batch ~c:1)
+          ~name:"c0" ()
+      in
+      let layer : Lstm.Lstm.Layer.t =
+        {
+          forward =
+            { weight_ih = weight_ih_id; weight_hh = weight_hh_id; bias = None };
+          reverse = None;
+        }
+      in
+      Graph_builder.lstm bad_params ~input:input_id ~layers:[ layer ] ~h0:h0_id
+        ~c0:c0_id ())
+  in
+  (match build () with
+  | Ok _ -> Fmt.pr "unexpectedly built@."
+  | Error e -> Fmt.pr "%a@." Graph_builder.pp_error (Err.Error.kind e));
+  [%expect {| lstm: hidden_size must be positive, got 0 |}]

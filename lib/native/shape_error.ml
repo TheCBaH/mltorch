@@ -178,10 +178,21 @@ end
    not a placeholder -- rejected with a typed diagnostic rather than silently
    mishandled. *)
 module Lstm = struct
-  type error = Empty_layers | Nonuniform_direction
+  type dim = Hidden_size | Input_size
+
+  type error =
+    | Empty_layers
+    | Non_positive_dim of { dim : dim; value : int }
+    | Nonuniform_direction
+
+  let pp_dim ppf = function
+    | Hidden_size -> Fmt.string ppf "hidden_size"
+    | Input_size -> Fmt.string ppf "input_size"
 
   let pp_error ppf = function
     | Empty_layers -> Fmt.string ppf "lstm: at least one layer is required"
+    | Non_positive_dim { dim; value } ->
+        Fmt.pf ppf "lstm: %a must be positive, got %d" pp_dim dim value
     | Nonuniform_direction ->
         Fmt.string ppf
           "lstm: every layer must have a reverse direction, or none must"

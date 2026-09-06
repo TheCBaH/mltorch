@@ -274,6 +274,19 @@ module Lstm = struct
     let batch = Dim.to_int (Vec6.get input_shape (batch_axis p)) in
     let seq = Dim.to_int (Vec6.get input_shape (time_axis p)) in
     let* () =
+      if p.hidden_size <= 0 then
+        Err.fail
+          (`Lstm
+             (Shape_error.Lstm.Non_positive_dim
+                { dim = Hidden_size; value = p.hidden_size }))
+      else if p.input_size <= 0 then
+        Err.fail
+          (`Lstm
+             (Shape_error.Lstm.Non_positive_dim
+                { dim = Input_size; value = p.input_size }))
+      else Err.return ()
+    in
+    let* () =
       if layers = [] then Err.fail (`Lstm Shape_error.Lstm.Empty_layers)
       else Err.return ()
     in

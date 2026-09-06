@@ -113,7 +113,12 @@ module Linear : sig
 end
 
 module Lstm : sig
-  type error = Empty_layers | Nonuniform_direction
+  type dim = Hidden_size | Input_size
+
+  type error =
+    | Empty_layers
+    | Non_positive_dim of { dim : dim; value : int }
+    | Nonuniform_direction
 
   val pp_error : Format.formatter -> error -> unit
 end
