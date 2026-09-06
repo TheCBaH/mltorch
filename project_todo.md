@@ -795,23 +795,112 @@ aten_ops_test.ml`, which already have one.
 
 ### 13. Implement the full Native LSTM operation
 
-- [ ] Add the validated layer/direction payload, optional bias pairs, layout tag, shape
+- [x] Add the validated layer/direction payload, optional bias pairs, layout tag, shape
   checks, codec, printing and operation walk configuration.
-- [ ] Register graph operands, output shapes/arity, builder support, evaluation dispatch
+- [x] Register graph operands, output shapes/arity, builder support, evaluation dispatch
   and output transfer. Keep LSTM out of `Const_ssa.allows`.
-- [ ] Add one shared checked `divmod` helper using the existing index language; verify
+- [x] Add one shared checked `divmod` helper using the existing index language; verify
   remainder bounds before relying on `Clamp_low`.
-- [ ] Author one Region computation per output ordinal using width-`2K` state, ordered
+- [x] Author one Region computation per output ordinal using width-`2K` state, ordered
   direction/layer scans, correct initial-state selection and completed prior-layer traces.
-- [ ] Implement stacked layers, both direction counts and both layouts in this step.
+- [x] Implement stacked layers, both direction counts and both layouts in this step.
   Preserve gate order, floating-point association and required inter-layer/result rounding.
-- [ ] Validate positive static dimensions, matching states/parameters and all aggregate
+- [x] Validate positive static dimensions, matching states/parameters and all aggregate
   products. Reject unsupported training, projection, packed/unbatched and dtype cases.
-- [ ] Compare all outputs against the oracle; include unequal dimensions, live final states,
+- [x] Compare all outputs against the oracle; include unequal dimensions, live final states,
   and configurations with and without biases.
 
 Completion: Native supports the entire accepted inference domain. No single-layer-only
 landing or corpus-only shape assumption satisfies this step.
+
+Evidence (2026-09-06): `lib/native/ops/lstm.ml`'s `Lstm` module carries the
+whole payload -- `Direction.t` (`weight_ih`/`weight_hh`/optional
+`(bias_ih,bias_hh)`), `Layer.t` (`forward`/optional `reverse`), `params`
+(`hidden_size`/`input_size`/`batch_first` as the layout tag), and `t`
+(`layers list`/`input`/`h0`/`c0`), each with `jsont` codec, `operands`/
+`map_operands` and `pp`. `output_shape` validates every operand's shape
+(`check_input_layout`, per-direction `check_direction`) against expected
+shapes built from the aggregate products the step calls out --
+`weight_ih_shape`'s `layer_input_size` (`input_size` for layer 0,
+`directions*hidden_size` for every later layer), `weight_hh_shape`/
+`bias_shape`'s `4*hidden_size` row count, and `state_shape`'s
+`num_layers*directions` row count -- plus `Empty_layers`/
+`Nonuniform_direction` config rejections and (this session) a
+`Non_positive_dim` rejection for `hidden_size<=0`/`input_size<=0`
+(`Shape_error.Lstm`), proven non-vacuous by disabling each check in turn and
+watching its dedicated test fail before restoring it.
+`Graph_ir`/`Graph_shape`/`Graph_builder`/`Eval_op`/`Region_computation`/
+`Output_transfer` all carry a `Lstm` arm (alphabetically placed), dispatching
+all three output ordinals (`Region_computation.check_output` generalized
+from its old ordinal-0-only form); `Const_ssa.allows` is an explicit
+allowlist that never gained an `Lstm` entry, so the exclusion holds by
+omission. `Computation.mod_k`/`unsafe_floor_div_pos` is the one shared
+`divmod` (`x mod k` via `Add`/`Scale`/`Floor_div_pos`, converted back with
+`Clamp_low`), sound because the precondition `x>=0, k>0` makes the remainder
+provably in `[0,k)` -- `unsafe_floor_div_pos` asserts on any
+`Floor_div_pos` error rather than silently trusting `Clamp_low`.
+
+`Computation.program` builds one Region computation per output ordinal
+(`output=0` for `output`, `1`/`2` for `h_n`/`c_n`), each from its own
+independent copy of every layer/direction's width-`2K` scan
+(`build_layers`/`build_one`, lanes `[0,K)=h`, `[K,2K)=c`), chained so a
+stacked layer's scan reads the previous layer's completed forward/reverse
+traces (`read_prev_layer`) and each direction picks its own initial state
+row (`state_row = q*directions [+1 for reverse]`) out of `h0`/`c0`. Stacked
+layers (`Q>1`), both direction counts (`R=1,2`) and both layouts
+(`batch_first` true/false) are exercised end-to-end:
+`test/native/lstm_graph_test.ml` (single layer/direction, time-first),
+`test/native/lstm_graph_layers_test.ml` (`Stacked` `Q=2,R=1`;
+`Bidirectional` `Q=1,R=2`; the `Empty_layers`/`Nonuniform_direction`/(this
+session) `Non_positive_dim` rejection tests), and
+`test/native/lstm_graph_batch_first_test.ml` (`batch_first=true`, batch=2).
+Every one of these builds a real graph through
+`Graph_builder`/`Region_computation`/`Eval_direct` and checks all three
+outputs against an independent plain-OCaml reference that preserves gate
+order (i,f,g,o) and computes every lane's next `h`/`c` before writing any of
+them back (avoiding an in-place lane-ordering bug this session caught by
+hand-deriving one lane's gates against the buggy reference); every fixture
+agrees to f32 rounding noise (`max_abs_diff` in the `1e-8`–`1e-9` range).
+This is the Native arithmetic oracle the step's own "Completion" line scopes
+the work to ("Native supports the entire accepted inference domain") --
+comparison against the real ATen `lstm.input` oracle built in step 12 is
+step 16's job, not this one.
+
+This session also closed the operation-walk gap flagged at the end of the
+previous continuation: `Lstm.Lstm.Walk` (config space -- `hidden_size`/
+`input_size`/`seq`/`batch`/`num_layers`/`bidirectional`/`bias`/
+`batch_first`, every shape derived so `cascade` has nothing to repair, same
+discipline as `Aten_walk_recipes.Recipe_lstm`) lives with the op; the
+graph-building half is `lib/native_op_walk/lstm_nwalk.ml`, in its own file
+because `Graph_builder` depends on `Graph_ir` which depends on this op
+module, so it cannot live in `lib/native/ops/lstm.ml` without a dependency
+cycle (confirmed by trying it there first and hitting
+`Dependency cycle between ... lstm.impl ... graph_builder.intf`).
+Registered alphabetically in `Native_op_walk.all_walks`. The 5-step coverage
+sweep (`test/native/native_walk_test.ml`, one golden reseed from inserting
+one more walk) never draws `bidirectional`/`batch_first`/`num_layers>1`
+together on lstm's index-seed; a dedicated curated test (seed 0, 12 steps)
+pins a trace that reaches all three plus `bias=false` at once, all
+`direct==symbolic`. Proved non-vacuous by swapping `weight_ih`/`weight_hh`'s
+synthesized-tensor order in `lstm_nwalk.ml`'s `synth_direction`, watching the
+curated test fail, then reverting.
+
+"Reject unsupported training, projection, packed/unbatched and dtype cases":
+`Lstm.params`/`Direction.t`/`Layer.t` have no field for any of
+train/proj_size/packed-sequence/dtype, so those configurations are not
+merely rejected but structurally unrepresentable in this payload -- the
+importer boundary (step 14) is where an incoming ATen `lstm.input` call
+actually carrying one of them gets turned away before a `Lstm.t` value can
+be constructed at all, matching this file's own header comment ("training,
+packed/unbatched input, projections and dtype/config validation beyond
+basic shape checks remain out of scope (M4's importer boundary)").
+
+`NO_COLOR=1 opam exec -- dune runtest` (whole tree), `make check.file-size`,
+`git diff --check HEAD`, `opam exec -- dune fmt` (excluding the pre-existing,
+unrelated `experiments/tailcall/backend_driver.ml` syntax-error failure noted
+at steps 7-12), `make jsoo.runtest`, `make jsoo.inline-runtest`, and
+`make melange.runtest` all pass across both commits this session
+(`e64a8c4` non-positive-dim validation, `d88e91e` the walk registration).
 
 ### 14. Implement both import paths and output validation
 
